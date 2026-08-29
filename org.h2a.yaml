@@ -51,25 +51,33 @@ instances:
     role: CONDUCTOR
     scopes: [org:h2a, org:h2a/wp4]
     mandateRights: [define-raci, dispatch, wake]
-  # `arch` is the counterweight to the conductor owning WP4, and the org role
-  # vocabulary has no advisor role. CONTROL was not taken: in the authority
-  # matrix CONTROL may *impose* POLICY, which is more than the owner granted.
-  # AGENTS + an advisory mandate right is the honest encoding; see the open
-  # question in docs/governance/RACI.md.
+  # `arch` is the counterweight to the conductor owning WP4. Owner 2026-08-08:
+  # arch DESIGNS ONLY — it authors and estampille the design of every WP
+  # (notably WP6 identity/auth/NHI) and BUILDS nothing. It holds no build-WP
+  # scope; the build of both WP6 and WP7 belongs to h-infra (below).
+  # ARCH ADVICE 2026-08-08 (BLOCKING, applied): design-only does NOT mean
+  # measure-free. arch RE-ESTAMPILLE against the BUILT implementation, not only
+  # the design — else the estampille certifies a text, not what runs (cf #191:
+  # its estampille had value only because arch measured the built code + counter-mutant).
   - instance: arch
     role: AGENTS
-    scopes: [org:h2a, org:h2a/wp6]
-    mandateRights: [advise-raci, arbitrate-boundaries]
+    scopes: [org:h2a]
+    mandateRights: [advise-raci, arbitrate-boundaries, design-all-wp, re-estampille-built]
   - instance: harness
     role: CONTROL
     scopes: [org:h2a, org:h2a/wp9]
     mandateRights: [gate-tests, gate-branch]
-  # `cyber` is the only actor without a WP, and it delivers rather than advises.
-  # Its scope is a policy domain, not a WP; whether it gets a WP of its own is
-  # an open owner decision.
+  # Owner 2026-08-08 (resolves D1): cyber sits INSIDE WP7/h-infra and ships its
+  # security fixes there. BUT its gate-audit stays INDEPENDENT — it reports to
+  # cond/owner, NEVER to h-infra: the actor that deploys cannot self-clear the
+  # security of its own deploy (separation of duties). cyber keeps its transverse
+  # security policy scope in addition to WP7.
+  # ARCH ADVICE 2026-08-08 (a): the PERIMETER of cyber's audit (what/order/budget)
+  # is set by cond/owner — the SAME line it reports to — NEVER by h-infra. Else the
+  # audited party chooses what it is audited on, and capture-by-scope leaves no trace.
   - instance: cyber
     role: CONTROL
-    scopes: [org:h2a, org:h2a/security]
+    scopes: [org:h2a, org:h2a/security, org:h2a/wp7]
     mandateRights: [gate-audit, ship-security-fix]
 
   # ---- domain lanes ----------------------------------------------------------
@@ -97,6 +105,17 @@ instances:
   - instance: gateway
     role: AGENTS
     scopes: [org:h2a, org:h2a/wp14]
+  # Owner 2026-08-08: WP7 is NOT dissolved — dedicated actor h-infra. It BUILDS
+  # BOTH WP7 (infra, deploy, MCP, auth service) AND WP6 (identity, auth & NHI)
+  # from arch's design. cyber sits in WP7 for security delivery (independent gate,
+  # above). Design/build separation: arch DESIGNS WP6, h-infra BUILDS it.
+  # ARCH ADVICE 2026-08-08 (c): a role must be marked DEFINED vs PROVISIONED in
+  # THIS file, so an assignment to an actor-without-a-session is visible, not
+  # silent. Owner launched h-infra's session 2026-08-08 → provisioned (for MCP).
+  - instance: h-infra
+    role: AGENTS
+    status: provisioned
+    scopes: [org:h2a, org:h2a/wp6, org:h2a/wp7]
 
 # Informational hints only — the actual messaging gate is scope membership, and
 # every actor sits in `org:h2a`. These edges say which exchanges are expected to
@@ -125,6 +144,8 @@ commEdges:
     to: agents
   - from: cond
     to: gateway
+  - from: cond
+    to: h-infra
   # the mandatory counterweight: the architect's advice on the RACI
   - from: arch
     to: cond
