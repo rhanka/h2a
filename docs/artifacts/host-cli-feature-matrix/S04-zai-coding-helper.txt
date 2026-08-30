@@ -1,0 +1,227 @@
+started_at=2026-08-30T14:16:04Z
+finished_at=2026-08-30T14:16:04Z
+cwd=/tmp/h2a-cli-matrix.CYFScTAV/workspace
+isolated_home=<temporary>/home
+isolated_xdg_config_home=<temporary>/xdg-config
+extra_env=''
+command=curl -fsSL --max-time 20 https://docs.z.ai/devpack/extension/coding-tool-helper.md
+exit_code=0
+owner_roots_unchanged=yes
+fingerprints_before:
+  claude=cfb68c9130533a37e1c9443078abad8de48305b91d8ccc28ef08f18afe1481f7
+  codex=0721dbbe1c91e07048eb1d7cb2c5afefce6a7cea049f8bfd21c5ea0af8725669
+  agy=beaa3583a37aa2a87b33fcb355e4617cc518e08cbd25e9a8e98b265565a2e802
+  opencode=af81f1bf20d2d71a06d231f2d5b209834ffb35f3bfc61326fd064426ad6eeb91
+  hermes=6be2235c1c0a1871dc0d50da23e93063c520f67246994796a87c026c558afa8a
+  gemini=33823c42c8f8d5a1c05337ec06d086f3f306c770e8be1c5a741d939fba322318
+  mistral=ce6835c8d1ae31a6bfee09da2836b4f5b65c98efae0c7f16c4dc82690bd9b75a
+  zai=10d38aea573a83e425248713feaad25ef65bccd533ddc5c415b974cf95ffd98a
+  muse=a2190f9747b3aa46d412a92eccdbbfe2006506a3ddfa1138c1edd778742d389e
+fingerprints_after:
+  claude=cfb68c9130533a37e1c9443078abad8de48305b91d8ccc28ef08f18afe1481f7
+  codex=0721dbbe1c91e07048eb1d7cb2c5afefce6a7cea049f8bfd21c5ea0af8725669
+  agy=beaa3583a37aa2a87b33fcb355e4617cc518e08cbd25e9a8e98b265565a2e802
+  opencode=af81f1bf20d2d71a06d231f2d5b209834ffb35f3bfc61326fd064426ad6eeb91
+  hermes=6be2235c1c0a1871dc0d50da23e93063c520f67246994796a87c026c558afa8a
+  gemini=33823c42c8f8d5a1c05337ec06d086f3f306c770e8be1c5a741d939fba322318
+  mistral=ce6835c8d1ae31a6bfee09da2836b4f5b65c98efae0c7f16c4dc82690bd9b75a
+  zai=10d38aea573a83e425248713feaad25ef65bccd533ddc5c415b974cf95ffd98a
+  muse=a2190f9747b3aa46d412a92eccdbbfe2006506a3ddfa1138c1edd778742d389e
+stdout:
+  > ## Documentation Index
+  > Fetch the complete documentation index at: https://docs.z.ai/llms.txt
+  > Use this file to discover all available pages before exploring further.
+
+  # Coding Tool Helper
+
+  <Tip>
+    **One-Click Install Assistant** <br />
+    A command-line assistant that helps GLM Coding Plan users centrally manage and configure CLI tools such as Claude Code.
+  </Tip>
+
+  **NPM Package**: [@z\_ai/coding-helper](https://www.npmjs.com/package/@z_ai/coding-helper) \
+  **Prerequisite**: [Node.js >= v18.0.0](https://nodejs.org/en/download/)
+
+  ## Tool Overview
+
+  Coding Tool Helper is a coding-tool companion that quickly loads **GLM Coding Plan** into your favorite **Coding Tools**. Install and run it, then follow the on-screen guidance to automatically install tools, configure plan, and manage MCP servers.
+
+  The current coding tools supported are:
+
+  * **Claude Code**
+  * **Codex**
+  * **OpenCode**
+  * **Crush**
+  * **Factory Droid**
+
+  ## Key Features
+
+  <CardGroup cols={3}>
+    <Card title="Interactive Wizard" icon="window">
+      Friendly setup guidance
+    </Card>
+
+    <Card title="Plan Integration" icon="code">
+      Connect GLM Plan to your preferred coding tools
+    </Card>
+
+    <Card title="Tool Management" icon="box">
+      Automatically detect, install, and configure coding tools
+    </Card>
+
+    <Card title="MCP Configuration" icon="hammer">
+      Easily manage MCP services
+    </Card>
+
+    <Card title="Local Storage" icon="database">
+      Secure local storage configuration
+    </Card>
+
+    <Card title="I18n Support" icon="globe">
+      Interfaces support multiple languages
+    </Card>
+  </CardGroup>
+
+  ## Quick Start
+
+  <Steps>
+    <Step title="Get Your API Key">
+      Visit the [Z.AI Open Platform](https://z.ai/model-api) to retrieve your API Key.
+    </Step>
+
+    <Step title="Install & Launch">
+      Prerequisite: You need [Node.js 18+ or newer](https://nodejs.org/en/download/) \
+      Choose either installation method below.
+
+      <Tabs>
+        <Tab title="Method 1 (Recommended: npx on demand)">
+          Best for occasional users—no global install required. Run via npx to start instantly.
+
+          ```shell theme={null}
+          ## Run Coding Tool Helper directly in the terminal
+          npx @z_ai/coding-helper
+          ```
+        </Tab>
+
+        <Tab title="Method 2 (Global install for frequent use)">
+          Ideal for heavy users. Install globally, then launch with `coding-helper` or `chelper`.
+
+          <Tip>
+            If `npm install` fails with `permission denied`, add sudo (macOS/Linux) or run the terminal as administrator (Windows).\
+            Example: `sudo npm install -g @z_ai/coding-helper` \
+            Alternatively, simply use npx: `npx @z_ai/coding-helper`
+          </Tip>
+
+          ```shell theme={null}
+          ## Install @z_ai/coding-helper globally
+          npm install -g @z_ai/coding-helper
+          ## Then run coding-helper or chelper
+          coding-helper
+          ```
+        </Tab>
+      </Tabs>
+    </Step>
+
+    <Step title="Complete the wizard">
+      Inside the wizard, use the arrow keys to choose options and Enter to confirm. Follow the guide to: \
+      Select UI language --> Choose a coding plan --> Enter API key --> Pick tools to manage \
+      \--> Auto-install tools (if needed) --> Open the tool management menu --> Load plan into tools \
+      \--> Manage MCP services (optional) --> Finish setup and launch your coding tools
+    </Step>
+  </Steps>
+
+  ## Additional Information
+
+  ### Command List
+
+  > Beyond the interactive wizard, Coding Tool Helper also supports running specific commands via `coding-helper` or `chelper` with arguments:
+
+  ```bash theme={null}
+  # Launch the initialization wizard
+  coding-helper init
+
+  # Language management
+  coding-helper lang show              # Display the current language
+  coding-helper lang set en_US         # Switch to English
+  coding-helper lang --help            # View language command help
+
+  # API key management
+  coding-helper auth                   # Configure the key interactively
+  coding-helper auth glm_coding_plan_global <token>     # Select the Global plan and set the key directly
+  coding-helper auth revoke            # Remove the stored key
+  coding-helper auth reload claude     # Load the latest plan into Claude Code
+  coding-helper auth --help            # View auth command help
+
+  coding-helper doctor                 # Check system configuration and tool status
+  coding-helper --help                 # Show help information
+  coding-helper --version              # Show version
+  ```
+
+  ### Troubleshooting
+
+  If issues arise, run `coding-helper doctor` first for a health check.
+
+  <AccordionGroup>
+    <Accordion title="Network error, please check your connection" defaultOpen="true">
+      **Issue:** When saving or validating the API KEY or performing other network operations, you may see network errors such as `Network Error`.
+
+      **Solution:**
+
+      1. Check your network connection or configure a proxy.
+      2. Note: If you must use a proxy to access external networks, Node.js does not automatically use the system proxy settings. Set the environment variables `HTTP_PROXY` and `HTTPS_PROXY` to make Node.js use the proxy.
+
+      ```shell theme={null}
+      # Example:
+      export HTTP_PROXY=http://your.proxy.server:port
+      export HTTPS_PROXY=http://your.proxy.server:port
+      ```
+    </Accordion>
+
+    <Accordion title="Network timeout">
+      **Issue:** When running or installing the coding tools, timeout or other network timeout errors appear.
+
+      **Solution:**
+
+      1. Check the network connection or configure a proxy.
+    </Accordion>
+
+    <Accordion title="Insufficient permissions EACCES: permission denied">
+      **Issue:** `npm install -g` throws EACCES: permission denied.
+
+      **Solution:**
+
+      1. Retry with sudo (macOS / Linux).
+      2. Run the terminal as administrator (Windows).
+      3. Start directly via `npx @z_ai/coding-helper`.
+      4. Use nvm to manage Node.js versions and avoid global permission issues.
+    </Accordion>
+
+    <Accordion title="Incorrect plugin status in the Claude Code Marketplace">
+      **Issue:** While using the Claude Code Marketplace, the plugin status is incorrect (e.g., it shows “not installed” even though it is already installed).
+
+      **Solution:**
+
+      1. Run `claude update` to upgrade Claude Code to version 2.0.70 or later.
+    </Accordion>
+
+    <Accordion title="API Key invalid">
+      **Issue:** API Key reported as invalid.
+
+      **Solution:**
+
+      1. Confirm the API Key was copied correctly.
+      2. Check that the associated account has sufficient balance.
+    </Accordion>
+
+    <Accordion title="Connection timeout">
+      **Issue:** Service connection timed out.
+
+      **Solution:**
+
+      1. Check network connectivity.
+      2. Verify firewall settings.
+      3. Ensure Node.js and the network environment are ready.
+    </Accordion>
+  </AccordionGroup>
+stderr:
+temporary_root_removed=yes

@@ -1,0 +1,77 @@
+started_at=2026-08-30T14:32:36Z
+finished_at=2026-08-30T14:32:37Z
+cwd=/tmp/h2a-cli-matrix.42a6IltL/workspace
+isolated_home=<temporary>/home
+isolated_xdg_config_home=<temporary>/xdg-config
+extra_env=''
+command=gemini --help
+exit_code=0
+owner_roots_unchanged=yes
+fingerprints_before:
+  claude=e7e62c94448643167789d075877815195f7da58194458968d8a6998f2fecd6ef
+  codex=292bdc0f3bfcd4b3ab82d083ed8d8f1e8bf443bef7ff728984297351cde5a9c3
+  agy=beaa3583a37aa2a87b33fcb355e4617cc518e08cbd25e9a8e98b265565a2e802
+  opencode=af81f1bf20d2d71a06d231f2d5b209834ffb35f3bfc61326fd064426ad6eeb91
+  hermes=6be2235c1c0a1871dc0d50da23e93063c520f67246994796a87c026c558afa8a
+  gemini=33823c42c8f8d5a1c05337ec06d086f3f306c770e8be1c5a741d939fba322318
+  mistral=ce6835c8d1ae31a6bfee09da2836b4f5b65c98efae0c7f16c4dc82690bd9b75a
+  zai=10d38aea573a83e425248713feaad25ef65bccd533ddc5c415b974cf95ffd98a
+  muse=a2190f9747b3aa46d412a92eccdbbfe2006506a3ddfa1138c1edd778742d389e
+fingerprints_after:
+  claude=e7e62c94448643167789d075877815195f7da58194458968d8a6998f2fecd6ef
+  codex=292bdc0f3bfcd4b3ab82d083ed8d8f1e8bf443bef7ff728984297351cde5a9c3
+  agy=beaa3583a37aa2a87b33fcb355e4617cc518e08cbd25e9a8e98b265565a2e802
+  opencode=af81f1bf20d2d71a06d231f2d5b209834ffb35f3bfc61326fd064426ad6eeb91
+  hermes=6be2235c1c0a1871dc0d50da23e93063c520f67246994796a87c026c558afa8a
+  gemini=33823c42c8f8d5a1c05337ec06d086f3f306c770e8be1c5a741d939fba322318
+  mistral=ce6835c8d1ae31a6bfee09da2836b4f5b65c98efae0c7f16c4dc82690bd9b75a
+  zai=10d38aea573a83e425248713feaad25ef65bccd533ddc5c415b974cf95ffd98a
+  muse=a2190f9747b3aa46d412a92eccdbbfe2006506a3ddfa1138c1edd778742d389e
+stdout:
+  Usage: gemini [options] [command]
+
+  Gemini CLI - Defaults to interactive mode. Use -p/--prompt for non-interactive (headless) mode.
+
+  Commands:
+    gemini mcp                   Manage MCP servers
+    gemini extensions <command>  Manage Gemini CLI extensions.  [aliases: extension]
+    gemini skills <command>      Manage agent skills.  [aliases: skill]
+    gemini hooks <command>       Manage Gemini CLI hooks.  [aliases: hook]
+    gemini gemma                 Manage local Gemma model routing
+    gemini [query..]             Launch Gemini CLI  [default]
+
+  Positionals:
+    query  Initial prompt. Runs in interactive mode by default; use -p/--prompt for non-interactive.
+
+  Options:
+    -d, --debug                     Run in debug mode (open debug console with F12)  [boolean] [default: false]
+    -m, --model                     Model  [string]
+    -p, --prompt                    Run in non-interactive (headless) mode with the given prompt. Appended to input on stdin (if any).  [string]
+    -i, --prompt-interactive        Execute the provided prompt and continue in interactive mode  [string]
+        --skip-trust                Trust the current workspace for this session.  [boolean] [default: false]
+    -w, --worktree                  Start Gemini in a new git worktree. If no name is provided, one is generated automatically.  [string]
+    -s, --sandbox                   Run in sandbox?  [boolean]
+    -y, --yolo                      Automatically accept all actions (aka YOLO mode, see https://www.youtube.com/watch?v=xvFZjo5PgG0 for more details)?  [boolean] [default: false]
+        --approval-mode             Set the approval mode: default (prompt for approval), auto_edit (auto-approve edit tools), yolo (auto-approve all tools), plan (read-only mode)  [string] [choices: "default", "auto_edit", "yolo", "plan"]
+        --policy                    Additional policy files or directories to load (comma-separated or multiple --policy)  [array]
+        --admin-policy              Additional admin policy files or directories to load (comma-separated or multiple --admin-policy)  [array]
+        --acp                       Starts the agent in ACP mode  [boolean]
+        --experimental-acp          Starts the agent in ACP mode (deprecated, use --acp instead)  [boolean]
+        --allowed-mcp-server-names  Allowed MCP server names  [array]
+        --allowed-tools             [DEPRECATED: Use Policy Engine instead See https://geminicli.com/docs/core/policy-engine] Tools that are allowed to run without confirmation  [array]
+    -e, --extensions                A list of extensions to use. If not provided, all extensions are used.  [array]
+    -l, --list-extensions           List all available extensions and exit.  [boolean]
+    -r, --resume                    Resume a previous session. Use "latest" for most recent or index number (e.g. --resume 5)  [string]
+        --session-file              Load a session from a JSON file  [string]
+        --session-id                Start a new session with a manually provided UUID.  [string]
+        --list-sessions             List available sessions for the current project and exit.  [boolean]
+        --delete-session            Delete a session by index number (use --list-sessions to see available sessions).  [string]
+        --include-directories       Additional directories to include in the workspace (comma-separated or multiple --include-directories)  [array]
+        --screen-reader             Enable screen reader mode for accessibility.  [boolean]
+    -o, --output-format             The format of the CLI output.  [string] [choices: "text", "json", "stream-json"]
+        --raw-output                Disable sanitization of model output (e.g. allow ANSI escape sequences). WARNING: This can be a security risk if the model output is untrusted.  [boolean]
+        --accept-raw-output-risk    Suppress the security warning when using --raw-output.  [boolean]
+    -v, --version                   Show version number  [boolean]
+    -h, --help                      Show help  [boolean]
+stderr:
+temporary_root_removed=yes

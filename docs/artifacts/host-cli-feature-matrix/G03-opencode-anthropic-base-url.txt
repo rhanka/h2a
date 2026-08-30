@@ -1,0 +1,54 @@
+started_at=2026-08-30T14:31:18Z
+finished_at=2026-08-30T14:31:19Z
+cwd=/tmp/h2a-cli-matrix.AEItTslg/workspace
+isolated_home=<temporary>/home
+isolated_xdg_config_home=<temporary>/xdg-config
+extra_env=ANTHROPIC_BASE_URL=http://127.0.0.1:9 ANTHROPIC_AUTH_TOKEN=matrix-token
+command=opencode run --print-logs --log-level DEBUG --model anthropic/claude-sonnet-4-5-20250929 gateway\ probe
+exit_code=1
+owner_roots_unchanged=yes
+fingerprints_before:
+  claude=e7e62c94448643167789d075877815195f7da58194458968d8a6998f2fecd6ef
+  codex=292bdc0f3bfcd4b3ab82d083ed8d8f1e8bf443bef7ff728984297351cde5a9c3
+  agy=beaa3583a37aa2a87b33fcb355e4617cc518e08cbd25e9a8e98b265565a2e802
+  opencode=af81f1bf20d2d71a06d231f2d5b209834ffb35f3bfc61326fd064426ad6eeb91
+  hermes=6be2235c1c0a1871dc0d50da23e93063c520f67246994796a87c026c558afa8a
+  gemini=33823c42c8f8d5a1c05337ec06d086f3f306c770e8be1c5a741d939fba322318
+  mistral=ce6835c8d1ae31a6bfee09da2836b4f5b65c98efae0c7f16c4dc82690bd9b75a
+  zai=10d38aea573a83e425248713feaad25ef65bccd533ddc5c415b974cf95ffd98a
+  muse=a2190f9747b3aa46d412a92eccdbbfe2006506a3ddfa1138c1edd778742d389e
+fingerprints_after:
+  claude=e7e62c94448643167789d075877815195f7da58194458968d8a6998f2fecd6ef
+  codex=292bdc0f3bfcd4b3ab82d083ed8d8f1e8bf443bef7ff728984297351cde5a9c3
+  agy=beaa3583a37aa2a87b33fcb355e4617cc518e08cbd25e9a8e98b265565a2e802
+  opencode=af81f1bf20d2d71a06d231f2d5b209834ffb35f3bfc61326fd064426ad6eeb91
+  hermes=6be2235c1c0a1871dc0d50da23e93063c520f67246994796a87c026c558afa8a
+  gemini=33823c42c8f8d5a1c05337ec06d086f3f306c770e8be1c5a741d939fba322318
+  mistral=ce6835c8d1ae31a6bfee09da2836b4f5b65c98efae0c7f16c4dc82690bd9b75a
+  zai=10d38aea573a83e425248713feaad25ef65bccd533ddc5c415b974cf95ffd98a
+  muse=a2190f9747b3aa46d412a92eccdbbfe2006506a3ddfa1138c1edd778742d389e
+stdout:
+stderr:
+  timestamp=2026-08-30T14:31:18.982Z level=INFO run=72b7dd8f message="creating instance" directory=/tmp/h2a-cli-matrix.AEItTslg/workspace
+  timestamp=2026-08-30T14:31:18.983Z level=INFO run=72b7dd8f message=fromDirectory directory=/tmp/h2a-cli-matrix.AEItTslg/workspace
+  timestamp=2026-08-30T14:31:19.018Z level=INFO run=72b7dd8f message=bootstrapping directory=/tmp/h2a-cli-matrix.AEItTslg/workspace
+  timestamp=2026-08-30T14:31:19.023Z level=INFO run=72b7dd8f message=loading path=/tmp/h2a-cli-matrix.AEItTslg/xdg-config/opencode/config.json
+  timestamp=2026-08-30T14:31:19.024Z level=INFO run=72b7dd8f message=loading path=/tmp/h2a-cli-matrix.AEItTslg/xdg-config/opencode/opencode.json
+  timestamp=2026-08-30T14:31:19.024Z level=INFO run=72b7dd8f message=loading path=/tmp/h2a-cli-matrix.AEItTslg/xdg-config/opencode/opencode.jsonc
+  timestamp=2026-08-30T14:31:19.242Z level=INFO run=72b7dd8f message="all LSPs are disabled"
+  timestamp=2026-08-30T14:31:19.243Z level=INFO run=72b7dd8f message="all formatters are disabled"
+  timestamp=2026-08-30T14:31:19.243Z level=INFO run=72b7dd8f message=init
+  timestamp=2026-08-30T14:31:19.385Z level=INFO run=72b7dd8f message=created id=ses_faceb03a7ffe6gWBLpWVh5c6EB slug=nimble-wolf version=1.17.15 projectID=global directory=/tmp/h2a-cli-matrix.AEItTslg/workspace path=tmp/h2a-cli-matrix.AEItTslg/workspace workspaceID=undefined parentID=undefined title="New session - 2026-08-30T14:31:19.385Z" agent=undefined model=undefined metadata=undefined permission="[{\"permission\":\"question\",\"pattern\":\"*\",\"action\":\"deny\"},{\"permission\":\"plan_enter\",\"pattern\":\"*\",\"action\":\"deny\"},{\"permission\":\"plan_exit\",\"pattern\":\"*\",\"action\":\"deny\"}]" cost=0 tokens.input=0 tokens.output=0 tokens.reasoning=0 tokens.cache.read=0 tokens.cache.write=0 time.created=1788100279385 time.updated=1788100279385
+  timestamp=2026-08-30T14:31:19.397Z level=INFO run=72b7dd8f message="event connected"
+  timestamp=2026-08-30T14:31:19.646Z level=ERROR run=72b7dd8f message="share subscriber failed" type=message.updated cause="Cause([Fail(ProviderModelNotFoundError: Model not found: anthropic/claude-sonnet-4-5-20250929. Did you mean: claude-sonnet-4-5-20250929?)])"
+  timestamp=2026-08-30T14:31:19.656Z level=INFO run=72b7dd8f message=loop session.id=ses_faceb03a7ffe6gWBLpWVh5c6EB step=0
+  timestamp=2026-08-30T14:31:19.661Z level=ERROR run=72b7dd8f message=failed ref=err_95f1a6a4 error="ProviderModelNotFoundError: Model not found: anthropic/claude-sonnet-4-5-20250929. Did you mean: claude-sonnet-4-5-20250929?" cause="ProviderModelNotFoundError: Model not found: anthropic/claude-sonnet-4-5-20250929. Did you mean: claude-sonnet-4-5-20250929?\n    at <anonymous> (/$bunfs/root/chunk-gerssm5f.js:439:86578)\n    at SessionPrompt.getModel (/$bunfs/root/chunk-sphj13w2.js:1020:11482)\n    at SessionPrompt.getModel (definition) (/$bunfs/root/chunk-sphj13w2.js:1020:908)\n    at SessionPrompt.run (/$bunfs/root/chunk-sphj13w2.js:1020:15298)\n    at SessionPrompt.run (definition) (/$bunfs/root/chunk-sphj13w2.js:1020:10498)\n    at SessionRunState.ensureRunning (/$bunfs/root/chunk-sphj13w2.js:1020:15267)\n    at SessionRunState.ensureRunning (definition) (/$bunfs/root/chunk-sphj13w2.js:2:8179)\n    at SessionPrompt.loop (/$bunfs/root/chunk-sphj13w2.js:1020:10220)\n    at SessionPrompt.loop (definition) (/$bunfs/root/chunk-sphj13w2.js:1020:15203)\n    at SessionPrompt.prompt (/$bunfs/root/chunk-q5fkwc0f.js:4:13220)\n    at SessionPrompt.prompt (definition) (/$bunfs/root/chunk-sphj13w2.js:1020:9838)"
+  [91m[1mError: [0m{
+    "name": "UnknownError",
+    "data": {
+      "message": "Unexpected server error. Check server logs for details.",
+      "ref": "err_95f1a6a4"
+    }
+  }
+  timestamp=2026-08-30T14:31:19.662Z level=INFO run=72b7dd8f message="disposing instance" directory=/tmp/h2a-cli-matrix.AEItTslg/workspace
+temporary_root_removed=yes

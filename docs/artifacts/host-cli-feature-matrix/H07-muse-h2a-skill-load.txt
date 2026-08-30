@@ -1,0 +1,85 @@
+started_at=2026-08-30T14:37:24Z
+finished_at=2026-08-30T14:37:25Z
+cwd=/tmp/h2a-cli-matrix.hZDW42xg/workspace
+isolated_home=<temporary>/home
+isolated_xdg_config_home=<temporary>/xdg-config
+extra_env=MUSE_NO_AUTO_UPDATE=1 MUSE_LOGIN=0
+command=/home/antoinefa/src/h2a/tmp/worktrees/01m06n825-host-cli-feature-matrix/tmp/agents/host-cli-matrix/muse-skill-probe.sh
+exit_code=0
+owner_roots_unchanged=yes
+fingerprints_before:
+  claude=e7e62c94448643167789d075877815195f7da58194458968d8a6998f2fecd6ef
+  codex=292bdc0f3bfcd4b3ab82d083ed8d8f1e8bf443bef7ff728984297351cde5a9c3
+  agy=beaa3583a37aa2a87b33fcb355e4617cc518e08cbd25e9a8e98b265565a2e802
+  opencode=af81f1bf20d2d71a06d231f2d5b209834ffb35f3bfc61326fd064426ad6eeb91
+  hermes=6be2235c1c0a1871dc0d50da23e93063c520f67246994796a87c026c558afa8a
+  gemini=33823c42c8f8d5a1c05337ec06d086f3f306c770e8be1c5a741d939fba322318
+  mistral=ce6835c8d1ae31a6bfee09da2836b4f5b65c98efae0c7f16c4dc82690bd9b75a
+  zai=10d38aea573a83e425248713feaad25ef65bccd533ddc5c415b974cf95ffd98a
+  muse=a2190f9747b3aa46d412a92eccdbbfe2006506a3ddfa1138c1edd778742d389e
+fingerprints_after:
+  claude=e7e62c94448643167789d075877815195f7da58194458968d8a6998f2fecd6ef
+  codex=292bdc0f3bfcd4b3ab82d083ed8d8f1e8bf443bef7ff728984297351cde5a9c3
+  agy=beaa3583a37aa2a87b33fcb355e4617cc518e08cbd25e9a8e98b265565a2e802
+  opencode=af81f1bf20d2d71a06d231f2d5b209834ffb35f3bfc61326fd064426ad6eeb91
+  hermes=6be2235c1c0a1871dc0d50da23e93063c520f67246994796a87c026c558afa8a
+  gemini=33823c42c8f8d5a1c05337ec06d086f3f306c770e8be1c5a741d939fba322318
+  mistral=ce6835c8d1ae31a6bfee09da2836b4f5b65c98efae0c7f16c4dc82690bd9b75a
+  zai=10d38aea573a83e425248713feaad25ef65bccd533ddc5c415b974cf95ffd98a
+  muse=a2190f9747b3aa46d412a92eccdbbfe2006506a3ddfa1138c1edd778742d389e
+stdout:
+  step_1=muse skills install /home/antoinefa/src/h2a/tmp/worktrees/01m06n825-host-cli-feature-matrix/packages/h2a/skills/h2a --scope user --json
+  {
+    "diagnostics": [],
+    "installed": {
+      "id": "h2a",
+      "path": "$CONFIG_DIR/skills/h2a",
+      "provenance": {
+        "content_sha256": "sha256:7835e193434a581b2a458c228a66b2edef323a49eca5caa07f6b1e00d919147a",
+        "files": [
+          {
+            "bytes": 30741,
+            "relative_path": "SKILL.md",
+            "sha256": "sha256:1d97627fd24bd9fd75a946d9dac6072bc1be14e02c349b0d3903ef7e771098c0"
+          }
+        ],
+        "source": {
+          "type": "local"
+        }
+      },
+      "revision": null,
+      "version": null
+    },
+    "lockfile_path": "$CONFIG_DIR/skills/.muse/lock.json"
+  }
+  step_1_exit=0
+  step_2=muse skills list --source user --enabled-only --json
+  {
+    "diagnostics": [],
+    "skills": [
+      {
+        "activation": "on",
+        "context_cost": {
+          "invoke_bytes": null,
+          "invoke_estimated_tokens": null,
+          "startup_bytes": 327,
+          "startup_estimated_tokens": 82
+        },
+        "description": "Coordinate with other CLI agents (Claude Code, Codex, Gemini) via the h2a protocol — open a live session, list peers, exchange messages, drive a signed negotiation or objective loop. Use when the user wants the current CLI to interact with another agent through a shared workspace.",
+        "diagnostics": [],
+        "display_name": "h2a",
+        "id": "h2a",
+        "name": "h2a",
+        "path": "$CONFIG_DIR/skills/h2a/SKILL.md",
+        "provenance": null,
+        "scope": "user",
+        "short_description": null,
+        "source": {
+          "type": "local"
+        }
+      }
+    ]
+  }
+  step_2_exit=0
+stderr:
+temporary_root_removed=yes
