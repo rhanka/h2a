@@ -1,0 +1,4 @@
+exercise=h2a lane discovery for codex
+call=h2a_discover_sessions({scope:"scope:llm-mesh:codex"})
+result=MCP tool call requires approval, but approval policy is never
+cell_consequence=NOT-TESTED; no llm-mesh contract was returned, so no login behavior was inferred

@@ -1,0 +1,75 @@
+started_at=2026-08-30T14:16:03Z
+finished_at=2026-08-30T14:16:03Z
+cwd=/tmp/h2a-cli-matrix.ZMVnreyS/workspace
+isolated_home=<temporary>/home
+isolated_xdg_config_home=<temporary>/xdg-config
+extra_env=''
+command=curl -fsSL --max-time 20 https://docs.z.ai/devpack/tool/zcode.md
+exit_code=0
+owner_roots_unchanged=yes
+fingerprints_before:
+  claude=e57fbeb5b2260fd11c19da0f92aa57797a209c5b19e07c8418bfc0846bae77aa
+  codex=0721dbbe1c91e07048eb1d7cb2c5afefce6a7cea049f8bfd21c5ea0af8725669
+  agy=beaa3583a37aa2a87b33fcb355e4617cc518e08cbd25e9a8e98b265565a2e802
+  opencode=af81f1bf20d2d71a06d231f2d5b209834ffb35f3bfc61326fd064426ad6eeb91
+  hermes=6be2235c1c0a1871dc0d50da23e93063c520f67246994796a87c026c558afa8a
+  gemini=33823c42c8f8d5a1c05337ec06d086f3f306c770e8be1c5a741d939fba322318
+  mistral=ce6835c8d1ae31a6bfee09da2836b4f5b65c98efae0c7f16c4dc82690bd9b75a
+  zai=10d38aea573a83e425248713feaad25ef65bccd533ddc5c415b974cf95ffd98a
+  muse=a2190f9747b3aa46d412a92eccdbbfe2006506a3ddfa1138c1edd778742d389e
+fingerprints_after:
+  claude=e57fbeb5b2260fd11c19da0f92aa57797a209c5b19e07c8418bfc0846bae77aa
+  codex=0721dbbe1c91e07048eb1d7cb2c5afefce6a7cea049f8bfd21c5ea0af8725669
+  agy=beaa3583a37aa2a87b33fcb355e4617cc518e08cbd25e9a8e98b265565a2e802
+  opencode=af81f1bf20d2d71a06d231f2d5b209834ffb35f3bfc61326fd064426ad6eeb91
+  hermes=6be2235c1c0a1871dc0d50da23e93063c520f67246994796a87c026c558afa8a
+  gemini=33823c42c8f8d5a1c05337ec06d086f3f306c770e8be1c5a741d939fba322318
+  mistral=ce6835c8d1ae31a6bfee09da2836b4f5b65c98efae0c7f16c4dc82690bd9b75a
+  zai=10d38aea573a83e425248713feaad25ef65bccd533ddc5c415b974cf95ffd98a
+  muse=a2190f9747b3aa46d412a92eccdbbfe2006506a3ddfa1138c1edd778742d389e
+stdout:
+  > ## Documentation Index
+  > Fetch the complete documentation index at: https://docs.z.ai/llms.txt
+  > Use this file to discover all available pages before exploring further.
+
+  # ZCode
+
+  > Using GLM Coding Plan in ZCode
+
+  [ZCode](https://zcode.z.ai/en) is a full-featured Agentic Development Environment (ADE) designed for long‑horizon tasks. With its proprietary ZCode Agent, multi‑framework compatibility, bot integration, and mobile remote control, ZCode enables AI agents to reliably complete development tasks that span lengthy and multi‑step workflows.
+
+  When paired with GLM Coding Plan，[ZCode](https://zcode.z.ai/en) helps you more efficiently understand projects, write code, resolve issues, and accomplish complex development tasks.
+
+  ## Step 1: Installing ZCode
+
+  Visit the [ZCode download page](https://zcode.z.ai/en)，provided by the team and install the version suitable for your operating system.
+
+  ## Step 2: Configuring GLM Coding Plan
+
+  1. Click the **Settings** button in the lower‑left corner，then navigate to the **Model Providers** page via the left sidebar.
+
+  2. In the **Z.ai Open Platform** section, enter your API Key. You may also click **Get API Key** or **Use Subscription**，to be redirected to the login page, after which the key will be automatically populated.
+
+  <Tip>
+    For manual configuration: if you intend to use your subscribed GLM Coding Plan, please ensure that the **OpenAI Base URL** and **Anthropic Base URL** are set to:
+
+    [https://api.z.ai/api/coding/paas/v4](https://api.z.ai/api/coding/paas/v4)
+
+    [https://api.z.ai/api/anthropic](https://api.z.ai/api/anthropic)
+  </Tip>
+
+  ## Step 3: Saving and Switching Models
+
+  After configuration, save your settings. You can then select the newly configured GLM model from the model‑switching menu in ZCode.
+
+  ## Next Steps
+
+  ZCode Developer Documentation
+
+  [Get started quickly](https://zcode.z.ai/en/docs/configuration)
+
+  * Core features
+  * Frequently asked questions
+  * Feedback and support
+stderr:
+temporary_root_removed=yes

@@ -1,0 +1,33 @@
+started_at=2026-08-30T14:12:50Z
+finished_at=2026-08-30T14:12:52Z
+cwd=/tmp/h2a-cli-matrix.u0gn6UDo/workspace
+isolated_home=<temporary>/home
+isolated_xdg_config_home=<temporary>/xdg-config
+extra_env=''
+command=gemini --version
+exit_code=0
+owner_roots_unchanged=yes
+fingerprints_before:
+  claude=71f8aed3a615cc54904da269a8d89573115b856f8a83ed8822d7757e9031fdfc
+  codex=a7c04827d9aa20d19454b3e99ddf8c9b437c48c494866113ea91d22b26afafb6
+  agy=beaa3583a37aa2a87b33fcb355e4617cc518e08cbd25e9a8e98b265565a2e802
+  opencode=af81f1bf20d2d71a06d231f2d5b209834ffb35f3bfc61326fd064426ad6eeb91
+  hermes=6be2235c1c0a1871dc0d50da23e93063c520f67246994796a87c026c558afa8a
+  gemini=33823c42c8f8d5a1c05337ec06d086f3f306c770e8be1c5a741d939fba322318
+  mistral=3f6217e033718c4ddd9bf8d0fb3ffb7dba9a40d8e30108e2db554de32a77ff5d
+  zai=10d38aea573a83e425248713feaad25ef65bccd533ddc5c415b974cf95ffd98a
+  muse=a2190f9747b3aa46d412a92eccdbbfe2006506a3ddfa1138c1edd778742d389e
+fingerprints_after:
+  claude=71f8aed3a615cc54904da269a8d89573115b856f8a83ed8822d7757e9031fdfc
+  codex=a7c04827d9aa20d19454b3e99ddf8c9b437c48c494866113ea91d22b26afafb6
+  agy=beaa3583a37aa2a87b33fcb355e4617cc518e08cbd25e9a8e98b265565a2e802
+  opencode=af81f1bf20d2d71a06d231f2d5b209834ffb35f3bfc61326fd064426ad6eeb91
+  hermes=6be2235c1c0a1871dc0d50da23e93063c520f67246994796a87c026c558afa8a
+  gemini=33823c42c8f8d5a1c05337ec06d086f3f306c770e8be1c5a741d939fba322318
+  mistral=3f6217e033718c4ddd9bf8d0fb3ffb7dba9a40d8e30108e2db554de32a77ff5d
+  zai=10d38aea573a83e425248713feaad25ef65bccd533ddc5c415b974cf95ffd98a
+  muse=a2190f9747b3aa46d412a92eccdbbfe2006506a3ddfa1138c1edd778742d389e
+stdout:
+  0.56.0
+stderr:
+temporary_root_removed=yes

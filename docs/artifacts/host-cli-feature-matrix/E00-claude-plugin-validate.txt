@@ -1,0 +1,60 @@
+started_at=2026-08-30T14:24:08Z
+finished_at=2026-08-30T14:24:08Z
+cwd=/tmp/h2a-cli-matrix.GIyaV4bo/workspace
+isolated_home=<temporary>/home
+isolated_xdg_config_home=<temporary>/xdg-config
+extra_env=''
+command=claude plugin validate /home/antoinefa/src/h2a/tmp/worktrees/01m06n825-host-cli-feature-matrix/packages/h2a
+exit_code=0
+owner_roots_unchanged=yes
+fingerprints_before:
+  claude=e7e62c94448643167789d075877815195f7da58194458968d8a6998f2fecd6ef
+  codex=292bdc0f3bfcd4b3ab82d083ed8d8f1e8bf443bef7ff728984297351cde5a9c3
+  agy=beaa3583a37aa2a87b33fcb355e4617cc518e08cbd25e9a8e98b265565a2e802
+  opencode=af81f1bf20d2d71a06d231f2d5b209834ffb35f3bfc61326fd064426ad6eeb91
+  hermes=6be2235c1c0a1871dc0d50da23e93063c520f67246994796a87c026c558afa8a
+  gemini=33823c42c8f8d5a1c05337ec06d086f3f306c770e8be1c5a741d939fba322318
+  mistral=ce6835c8d1ae31a6bfee09da2836b4f5b65c98efae0c7f16c4dc82690bd9b75a
+  zai=10d38aea573a83e425248713feaad25ef65bccd533ddc5c415b974cf95ffd98a
+  muse=a2190f9747b3aa46d412a92eccdbbfe2006506a3ddfa1138c1edd778742d389e
+fingerprints_after:
+  claude=e7e62c94448643167789d075877815195f7da58194458968d8a6998f2fecd6ef
+  codex=292bdc0f3bfcd4b3ab82d083ed8d8f1e8bf443bef7ff728984297351cde5a9c3
+  agy=beaa3583a37aa2a87b33fcb355e4617cc518e08cbd25e9a8e98b265565a2e802
+  opencode=af81f1bf20d2d71a06d231f2d5b209834ffb35f3bfc61326fd064426ad6eeb91
+  hermes=6be2235c1c0a1871dc0d50da23e93063c520f67246994796a87c026c558afa8a
+  gemini=33823c42c8f8d5a1c05337ec06d086f3f306c770e8be1c5a741d939fba322318
+  mistral=ce6835c8d1ae31a6bfee09da2836b4f5b65c98efae0c7f16c4dc82690bd9b75a
+  zai=10d38aea573a83e425248713feaad25ef65bccd533ddc5c415b974cf95ffd98a
+  muse=a2190f9747b3aa46d412a92eccdbbfe2006506a3ddfa1138c1edd778742d389e
+stdout:
+  Validating plugin manifest: /home/antoinefa/src/h2a/tmp/worktrees/01m06n825-host-cli-feature-matrix/packages/h2a/.claude-plugin/plugin.json
+
+  ✔ Validation passed
+stderr:
+isolated_tree_after:
+      d    775    4096
+      d    775    4096
+      d    775    4096
+      d    775    4096
+  .claude    d    775    4096
+  .claude/.claude.json    f    600    423
+  .claude/backups    d    775    4096
+  .claude/backups/.claude.json.backup.1788099848318    f    600    84
+isolated_small_text_files_after:
+  --- home/.claude/.claude.json ---
+  | {
+  |   "firstStartTime": "2026-08-30T14:24:08.293Z",
+  |   "firstStartVersion": "2.1.251",
+  |   "machineID": "04c33da788bbadd46bb6a7c2399b755fb08de79820036e4a6eeb962289f57a4f",
+  |   "opusProMigrationComplete": true,
+  |   "sonnet1m45MigrationComplete": true,
+  |   "seenNotifications": {},
+  |   "hasResetAutoModeOptInForDefaultOffer": true,
+  |   "migrationVersion": 13,
+  |   "userID": "a5bbafdedd6c2612183d5532ea43615f0136a5f618fc687d123a3ff1238f48fe"
+  | }  --- home/.claude/backups/.claude.json.backup.1788099848318 ---
+  | {
+  |   "firstStartTime": "2026-08-30T14:24:08.293Z",
+  |   "firstStartVersion": "2.1.251"
+  | }temporary_root_removed=yes

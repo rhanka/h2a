@@ -1,0 +1,69 @@
+started_at=2026-08-30T14:16:53Z
+finished_at=2026-08-30T14:16:53Z
+cwd=/tmp/h2a-cli-matrix.REhX5FG8/workspace
+isolated_home=<temporary>/home
+isolated_xdg_config_home=<temporary>/xdg-config
+extra_env=''
+command=codex plugin add --help
+exit_code=0
+owner_roots_unchanged=yes
+fingerprints_before:
+  claude=dfd3c7a30fcc3269406c8f8809b181baeec90fb7e2e6c61a2d3066241ff64947
+  codex=0721dbbe1c91e07048eb1d7cb2c5afefce6a7cea049f8bfd21c5ea0af8725669
+  agy=beaa3583a37aa2a87b33fcb355e4617cc518e08cbd25e9a8e98b265565a2e802
+  opencode=af81f1bf20d2d71a06d231f2d5b209834ffb35f3bfc61326fd064426ad6eeb91
+  hermes=6be2235c1c0a1871dc0d50da23e93063c520f67246994796a87c026c558afa8a
+  gemini=33823c42c8f8d5a1c05337ec06d086f3f306c770e8be1c5a741d939fba322318
+  mistral=ce6835c8d1ae31a6bfee09da2836b4f5b65c98efae0c7f16c4dc82690bd9b75a
+  zai=10d38aea573a83e425248713feaad25ef65bccd533ddc5c415b974cf95ffd98a
+  muse=a2190f9747b3aa46d412a92eccdbbfe2006506a3ddfa1138c1edd778742d389e
+fingerprints_after:
+  claude=dfd3c7a30fcc3269406c8f8809b181baeec90fb7e2e6c61a2d3066241ff64947
+  codex=0721dbbe1c91e07048eb1d7cb2c5afefce6a7cea049f8bfd21c5ea0af8725669
+  agy=beaa3583a37aa2a87b33fcb355e4617cc518e08cbd25e9a8e98b265565a2e802
+  opencode=af81f1bf20d2d71a06d231f2d5b209834ffb35f3bfc61326fd064426ad6eeb91
+  hermes=6be2235c1c0a1871dc0d50da23e93063c520f67246994796a87c026c558afa8a
+  gemini=33823c42c8f8d5a1c05337ec06d086f3f306c770e8be1c5a741d939fba322318
+  mistral=ce6835c8d1ae31a6bfee09da2836b4f5b65c98efae0c7f16c4dc82690bd9b75a
+  zai=10d38aea573a83e425248713feaad25ef65bccd533ddc5c415b974cf95ffd98a
+  muse=a2190f9747b3aa46d412a92eccdbbfe2006506a3ddfa1138c1edd778742d389e
+stdout:
+  Install a plugin from a configured marketplace snapshot.
+
+  Pass either `PLUGIN@MARKETPLACE` or pass `PLUGIN` with `--marketplace MARKETPLACE`.
+
+  Usage: codex plugin add [OPTIONS] <PLUGIN[@MARKETPLACE]>
+
+  Arguments:
+    <PLUGIN[@MARKETPLACE]>
+            Plugin selector to install: either PLUGIN@MARKETPLACE or PLUGIN with --marketplace
+
+  Options:
+    -c, --config <key=value>
+            Override a configuration value that would otherwise be loaded from `~/.codex/config.toml`.
+            Use a dotted path (`foo.bar.baz`) to override nested values. The `value` portion is parsed
+            as TOML. If it fails to parse as TOML, the raw string is used as a literal.
+
+            Examples: - `-c model="o3"` - `-c 'sandbox_permissions=["disk-full-read-access"]'` - `-c
+            shell_environment_policy.inherit=all`
+
+    -m, --marketplace <MARKETPLACE>
+            Configured marketplace name to use when PLUGIN does not include @MARKETPLACE
+
+        --enable <FEATURE>
+            Enable a feature (repeatable). Equivalent to `-c features.<name>=true`
+
+        --json
+            Output install result as JSON
+
+        --disable <FEATURE>
+            Disable a feature (repeatable). Equivalent to `-c features.<name>=false`
+
+    -h, --help
+            Print help (see a summary with '-h')
+
+  Examples:
+    codex plugin add sample@debug
+    codex plugin add sample --marketplace debug
+stderr:
+temporary_root_removed=yes

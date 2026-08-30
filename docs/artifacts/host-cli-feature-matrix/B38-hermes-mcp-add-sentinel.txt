@@ -1,0 +1,89 @@
+started_at=2026-08-30T14:22:15Z
+finished_at=2026-08-30T14:22:24Z
+cwd=/tmp/h2a-cli-matrix.UwcBDhTK/workspace
+isolated_home=<temporary>/home
+isolated_xdg_config_home=<temporary>/xdg-config
+extra_env=''
+command=hermes mcp add matrix-sentinel --command /usr/bin/false
+exit_code=0
+owner_roots_unchanged=yes
+fingerprints_before:
+  claude=e7e62c94448643167789d075877815195f7da58194458968d8a6998f2fecd6ef
+  codex=292bdc0f3bfcd4b3ab82d083ed8d8f1e8bf443bef7ff728984297351cde5a9c3
+  agy=beaa3583a37aa2a87b33fcb355e4617cc518e08cbd25e9a8e98b265565a2e802
+  opencode=af81f1bf20d2d71a06d231f2d5b209834ffb35f3bfc61326fd064426ad6eeb91
+  hermes=6be2235c1c0a1871dc0d50da23e93063c520f67246994796a87c026c558afa8a
+  gemini=33823c42c8f8d5a1c05337ec06d086f3f306c770e8be1c5a741d939fba322318
+  mistral=ce6835c8d1ae31a6bfee09da2836b4f5b65c98efae0c7f16c4dc82690bd9b75a
+  zai=10d38aea573a83e425248713feaad25ef65bccd533ddc5c415b974cf95ffd98a
+  muse=a2190f9747b3aa46d412a92eccdbbfe2006506a3ddfa1138c1edd778742d389e
+fingerprints_after:
+  claude=e7e62c94448643167789d075877815195f7da58194458968d8a6998f2fecd6ef
+  codex=292bdc0f3bfcd4b3ab82d083ed8d8f1e8bf443bef7ff728984297351cde5a9c3
+  agy=beaa3583a37aa2a87b33fcb355e4617cc518e08cbd25e9a8e98b265565a2e802
+  opencode=af81f1bf20d2d71a06d231f2d5b209834ffb35f3bfc61326fd064426ad6eeb91
+  hermes=6be2235c1c0a1871dc0d50da23e93063c520f67246994796a87c026c558afa8a
+  gemini=33823c42c8f8d5a1c05337ec06d086f3f306c770e8be1c5a741d939fba322318
+  mistral=ce6835c8d1ae31a6bfee09da2836b4f5b65c98efae0c7f16c4dc82690bd9b75a
+  zai=10d38aea573a83e425248713feaad25ef65bccd533ddc5c415b974cf95ffd98a
+  muse=a2190f9747b3aa46d412a92eccdbbfe2006506a3ddfa1138c1edd778742d389e
+stdout:
+
+    Connecting to 'matrix-sentinel'...
+    ✗ Failed to connect: Connection closed
+    Save config anyway (you can test later)? [y/N]:
+stderr:
+  Exception ignored in: <coroutine object MCPServerTask.run at 0x7a19275a34c0>
+  Traceback (most recent call last):
+    File "/home/antoinefa/.hermes/hermes-agent/tools/mcp_tool.py", line 2783, in run
+      parked = await self._wait_for_reconnect_or_shutdown(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    File "/home/antoinefa/.hermes/hermes-agent/tools/mcp_tool.py", line 1997, in _wait_for_reconnect_or_shutdown
+      t.cancel()
+    File "/home/antoinefa/.local/share/uv/python/cpython-3.11.15-linux-x86_64-gnu/lib/python3.11/asyncio/base_events.py", line 762, in call_soon
+      self._check_closed()
+    File "/home/antoinefa/.local/share/uv/python/cpython-3.11.15-linux-x86_64-gnu/lib/python3.11/asyncio/base_events.py", line 520, in _check_closed
+      raise RuntimeError('Event loop is closed')
+  RuntimeError: Event loop is closed
+isolated_tree_after:
+      d    775    4096
+      d    775    4096
+      d    775    4096
+      d    775    4096
+  .hermes    d    700    4096
+  .hermes/SOUL.md    f    600    513
+  .hermes/audio_cache    d    700    4096
+  .hermes/cron    d    700    4096
+  .hermes/hooks    d    700    4096
+  .hermes/image_cache    d    700    4096
+  .hermes/logs    d    700    4096
+  .hermes/logs/agent.log    f    664    763
+  .hermes/logs/curator    d    700    4096
+  .hermes/logs/errors.log    f    664    763
+  .hermes/logs/mcp-stderr.log    f    664    292
+  .hermes/memories    d    700    4096
+  .hermes/pairing    d    700    4096
+  .hermes/sessions    d    700    4096
+  .hermes/skills    d    700    4096
+isolated_small_text_files_after:
+  --- home/.hermes/SOUL.md ---
+  | You are Hermes Agent, an intelligent AI assistant created by Nous Research. You are helpful, knowledgeable, and direct. You assist users with a wide range of tasks including answering questions, writing and editing code, analyzing information, creative work, and executing actions via your tools. You communicate clearly, admit uncertainty when appropriate, and prioritize being genuinely useful over being verbose unless otherwise directed below. Be targeted and efficient in your exploration and investigations.  --- home/.hermes/logs/agent.log ---
+  | 2026-08-30 10:22:16,958 WARNING tools.mcp_tool: MCP server 'matrix-sentinel' initial connection failed (attempt 1/3), retrying in 1s: unhandled errors in a TaskGroup (1 sub-exception)
+  | 2026-08-30 10:22:18,032 WARNING tools.mcp_tool: MCP server 'matrix-sentinel' initial connection failed (attempt 2/3), retrying in 2s: unhandled errors in a TaskGroup (1 sub-exception)
+  | 2026-08-30 10:22:20,106 WARNING tools.mcp_tool: MCP server 'matrix-sentinel' initial connection failed (attempt 3/3), retrying in 4s: unhandled errors in a TaskGroup (1 sub-exception)
+  | 2026-08-30 10:22:24,181 WARNING tools.mcp_tool: MCP server 'matrix-sentinel' failed initial connection after 3 attempts, parking until a reconnect is requested: unhandled errors in a TaskGroup (1 sub-exception)
+  --- home/.hermes/logs/errors.log ---
+  | 2026-08-30 10:22:16,958 WARNING tools.mcp_tool: MCP server 'matrix-sentinel' initial connection failed (attempt 1/3), retrying in 1s: unhandled errors in a TaskGroup (1 sub-exception)
+  | 2026-08-30 10:22:18,032 WARNING tools.mcp_tool: MCP server 'matrix-sentinel' initial connection failed (attempt 2/3), retrying in 2s: unhandled errors in a TaskGroup (1 sub-exception)
+  | 2026-08-30 10:22:20,106 WARNING tools.mcp_tool: MCP server 'matrix-sentinel' initial connection failed (attempt 3/3), retrying in 4s: unhandled errors in a TaskGroup (1 sub-exception)
+  | 2026-08-30 10:22:24,181 WARNING tools.mcp_tool: MCP server 'matrix-sentinel' failed initial connection after 3 attempts, parking until a reconnect is requested: unhandled errors in a TaskGroup (1 sub-exception)
+  --- home/.hermes/logs/mcp-stderr.log ---
+  |
+  | ===== [2026-08-30 10:22:16] starting MCP server 'matrix-sentinel' =====
+  |
+  | ===== [2026-08-30 10:22:17] starting MCP server 'matrix-sentinel' =====
+  |
+  | ===== [2026-08-30 10:22:20] starting MCP server 'matrix-sentinel' =====
+  |
+  | ===== [2026-08-30 10:22:24] starting MCP server 'matrix-sentinel' =====
+temporary_root_removed=yes

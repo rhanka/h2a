@@ -1,0 +1,88 @@
+started_at=2026-08-30T14:14:07Z
+finished_at=2026-08-30T14:14:07Z
+cwd=/tmp/h2a-cli-matrix.mEBlyNlM/workspace
+isolated_home=<temporary>/home
+isolated_xdg_config_home=<temporary>/xdg-config
+extra_env=''
+command=opencode --help
+exit_code=0
+owner_roots_unchanged=yes
+fingerprints_before:
+  claude=960015e91a32c16a2a053d5f9e97bd6ed36840440b35c12d2b16d76be8bc4776
+  codex=a7c04827d9aa20d19454b3e99ddf8c9b437c48c494866113ea91d22b26afafb6
+  agy=beaa3583a37aa2a87b33fcb355e4617cc518e08cbd25e9a8e98b265565a2e802
+  opencode=af81f1bf20d2d71a06d231f2d5b209834ffb35f3bfc61326fd064426ad6eeb91
+  hermes=6be2235c1c0a1871dc0d50da23e93063c520f67246994796a87c026c558afa8a
+  gemini=33823c42c8f8d5a1c05337ec06d086f3f306c770e8be1c5a741d939fba322318
+  mistral=ce6835c8d1ae31a6bfee09da2836b4f5b65c98efae0c7f16c4dc82690bd9b75a
+  zai=10d38aea573a83e425248713feaad25ef65bccd533ddc5c415b974cf95ffd98a
+  muse=a2190f9747b3aa46d412a92eccdbbfe2006506a3ddfa1138c1edd778742d389e
+fingerprints_after:
+  claude=960015e91a32c16a2a053d5f9e97bd6ed36840440b35c12d2b16d76be8bc4776
+  codex=a7c04827d9aa20d19454b3e99ddf8c9b437c48c494866113ea91d22b26afafb6
+  agy=beaa3583a37aa2a87b33fcb355e4617cc518e08cbd25e9a8e98b265565a2e802
+  opencode=af81f1bf20d2d71a06d231f2d5b209834ffb35f3bfc61326fd064426ad6eeb91
+  hermes=6be2235c1c0a1871dc0d50da23e93063c520f67246994796a87c026c558afa8a
+  gemini=33823c42c8f8d5a1c05337ec06d086f3f306c770e8be1c5a741d939fba322318
+  mistral=ce6835c8d1ae31a6bfee09da2836b4f5b65c98efae0c7f16c4dc82690bd9b75a
+  zai=10d38aea573a83e425248713feaad25ef65bccd533ddc5c415b974cf95ffd98a
+  muse=a2190f9747b3aa46d412a92eccdbbfe2006506a3ddfa1138c1edd778742d389e
+stdout:
+stderr:
+  ⠀                                ▄
+  █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+  █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+  ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀  ▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+  Commands:
+    opencode completion          generate shell completion script
+    opencode acp                 start ACP (Agent Client Protocol) server
+    opencode mcp                 manage MCP (Model Context Protocol) servers
+    opencode [project]           start opencode tui                                          [default]
+    opencode attach <url>        attach to a running opencode server
+    opencode run [message..]     run opencode with a message
+    opencode debug               debugging and troubleshooting tools
+    opencode providers           manage AI providers and credentials                   [aliases: auth]
+    opencode agent               manage agents
+    opencode upgrade [target]    upgrade opencode to the latest or a specific version
+    opencode uninstall           uninstall opencode and remove all related files
+    opencode serve               starts a headless opencode server
+    opencode web                 start opencode server and open web interface
+    opencode models [provider]   list all available models
+    opencode stats               show token usage and cost statistics
+    opencode export [sessionID]  export session data as JSON
+    opencode import <file>       import session data from JSON file or URL
+    opencode github              manage GitHub agent
+    opencode pr <number>         fetch and checkout a GitHub PR branch, then run opencode
+    opencode session             manage sessions
+    opencode plugin <module>     install plugin and update config                      [aliases: plug]
+    opencode db                  database tools
+
+  Positionals:
+    project  path to start opencode in                                                        [string]
+
+  Options:
+    -h, --help          show help                                                            [boolean]
+    -v, --version       show version number                                                  [boolean]
+        --print-logs    print logs to stderr                                                 [boolean]
+        --log-level     log level                 [string] [choices: "DEBUG", "INFO", "WARN", "ERROR"]
+        --pure          run without external plugins                                         [boolean]
+        --port          port to listen on                                        [number] [default: 0]
+        --hostname      hostname to listen on                          [string] [default: "127.0.0.1"]
+        --mdns          enable mDNS service discovery (defaults hostname to 0.0.0.0)
+                                                                            [boolean] [default: false]
+        --mdns-domain   custom domain name for mDNS service (default: opencode.local)
+                                                                  [string] [default: "opencode.local"]
+        --cors          additional domains to allow for CORS                     [array] [default: []]
+    -m, --model         model to use in the format of provider/model                          [string]
+    -c, --continue      continue the last session                                            [boolean]
+    -s, --session       session id to continue                                                [string]
+        --fork          fork the session when continuing (use with --continue or --session)  [boolean]
+        --prompt        prompt to use                                                         [string]
+        --agent         agent to use                                                          [string]
+        --auto          auto-approve permissions that are not explicitly denied (dangerous!)
+                                                                            [boolean] [default: false]
+        --mini          start the minimal interactive interface             [boolean] [default: false]
+        --no-replay     disable mini session history replay on resume and after resize       [boolean]
+        --replay-limit  cap visible mini replay to the newest N messages                      [number]
+temporary_root_removed=yes

@@ -1,0 +1,117 @@
+started_at=2026-08-30T14:17:09Z
+finished_at=2026-08-30T14:17:09Z
+cwd=/tmp/h2a-cli-matrix.Omj13TXG/workspace
+isolated_home=<temporary>/home
+isolated_xdg_config_home=<temporary>/xdg-config
+extra_env=MUSE_NO_AUTO_UPDATE=1 MUSE_LOGIN=0
+command=muse exec --help
+exit_code=0
+owner_roots_unchanged=yes
+fingerprints_before:
+  claude=63e4ffacf815330659fe464304fcc165571bcb3fb90dd73952e1ff41ce4ca65c
+  codex=0721dbbe1c91e07048eb1d7cb2c5afefce6a7cea049f8bfd21c5ea0af8725669
+  agy=beaa3583a37aa2a87b33fcb355e4617cc518e08cbd25e9a8e98b265565a2e802
+  opencode=af81f1bf20d2d71a06d231f2d5b209834ffb35f3bfc61326fd064426ad6eeb91
+  hermes=6be2235c1c0a1871dc0d50da23e93063c520f67246994796a87c026c558afa8a
+  gemini=33823c42c8f8d5a1c05337ec06d086f3f306c770e8be1c5a741d939fba322318
+  mistral=ce6835c8d1ae31a6bfee09da2836b4f5b65c98efae0c7f16c4dc82690bd9b75a
+  zai=10d38aea573a83e425248713feaad25ef65bccd533ddc5c415b974cf95ffd98a
+  muse=a2190f9747b3aa46d412a92eccdbbfe2006506a3ddfa1138c1edd778742d389e
+fingerprints_after:
+  claude=63e4ffacf815330659fe464304fcc165571bcb3fb90dd73952e1ff41ce4ca65c
+  codex=0721dbbe1c91e07048eb1d7cb2c5afefce6a7cea049f8bfd21c5ea0af8725669
+  agy=beaa3583a37aa2a87b33fcb355e4617cc518e08cbd25e9a8e98b265565a2e802
+  opencode=af81f1bf20d2d71a06d231f2d5b209834ffb35f3bfc61326fd064426ad6eeb91
+  hermes=6be2235c1c0a1871dc0d50da23e93063c520f67246994796a87c026c558afa8a
+  gemini=33823c42c8f8d5a1c05337ec06d086f3f306c770e8be1c5a741d939fba322318
+  mistral=ce6835c8d1ae31a6bfee09da2836b4f5b65c98efae0c7f16c4dc82690bd9b75a
+  zai=10d38aea573a83e425248713feaad25ef65bccd533ddc5c415b974cf95ffd98a
+  muse=a2190f9747b3aa46d412a92eccdbbfe2006506a3ddfa1138c1edd778742d389e
+stdout:
+  muse exec — run one prompt non-interactively (headless)
+
+  Usage: muse exec [OPTIONS] [PROMPT]
+
+  Options:
+        --json
+            Emit machine-readable JSONL events on stdout
+        --prompt-file <PATH>
+            Read the prompt from a file instead of an argument
+        --api-key-stdin
+            Read the provider API key from stdin
+        --provider <MODE>
+            Startup provider: echo or meta (default: meta)
+        --preset <NAME>
+            Run a built-in preset: native-basic, miniswe
+        --model <ID>
+            Model id for non-echo providers
+        --reasoning-effort <EFFORT>
+            Meta reasoning effort: none|minimal|low|medium|high|xhigh|ultra
+            (default: high)
+        --parallel-tool-calls
+            Enable Meta API parallel tool calls
+        --no-parallel-tool-calls
+            Disable Meta API parallel tool calls
+        --base-url <URL>
+            Override the provider base URL
+        --image <PATH>
+            Attach a local image file (repeatable)
+        --workspace <PATH>
+            Root policy-gated workspace tools at PATH
+    -w, --worktree [<MODE>]
+            Session git worktree: off|create|existing
+        --worktree-base <REF>
+            Base ref for --worktree create (default: HEAD)
+        --worktree-existing <PATH>
+            Existing worktree path for --worktree existing
+        --context-compaction-strategy <ID>
+            Context compaction strategy: summary-preserved-suffix/v1,
+            prefix-extension-summary/v1, prefix-extension-inventory-summary/v1
+        --context-compaction-soft-threshold <FRAC>
+            Soft compaction threshold
+        --context-compaction-hard-threshold <FRAC>
+            Hard compaction threshold
+        --max-model-steps <N>
+            Cap the number of model steps
+        --max-tool-output-bytes <N>
+            Cap tool output bytes fed back to the model
+        --session-id <UUID>
+            Use a specific session id
+        --allow-workspace-switch
+            Allow switching the workspace mid-run
+        --user-input-auto-resolve
+            Offer request_user_input and auto-cancel prompts (headless)
+        --subagent-worktree-isolation
+            Compatibility flag; capability defaults on. Only an affirmative
+            per-child request asks for isolation; omission stays shared. Requests
+            may reject when capability, provider, or Git prerequisites are
+            unavailable.
+        --disable-web-tools
+            Disable web tools for this run
+        --no-foreign-personal-context
+            Exclude foreign personal rules and skills from this run
+        --no-session-log
+            Do not persist session event logs to disk
+    -h, --help
+            Print this help
+
+  Safety (approval and the sandbox are ON by default):
+        --yolo
+            Disable approval and sandbox and trust this workspace (this run)
+        --trust-workspace
+            Load this workspace's skills and rules (this run)
+        --disable-approval
+            Disable tool approval prompts for this run
+        --disable-sandbox
+            Disable shell filesystem/network sandboxing for this run
+        --sandbox-network <MODE>
+            Sandbox network mode (default: proxy-only)
+        --disable-write
+            Disable non-shell workspace filesystem writes
+        --disable-shell
+            Disable workspace shell execution
+        --enable-shell-tool
+            Use the legacy shell tool instead of managed bash
+
+stderr:
+temporary_root_removed=yes
