@@ -1,0 +1,51 @@
+started_at=2026-08-30T14:16:55Z
+finished_at=2026-08-30T14:16:56Z
+cwd=/tmp/h2a-cli-matrix.LbE6KAyn/workspace
+isolated_home=<temporary>/home
+isolated_xdg_config_home=<temporary>/xdg-config
+extra_env=''
+command=gemini extensions --help
+exit_code=0
+owner_roots_unchanged=yes
+fingerprints_before:
+  claude=2ed68af94971332b34c7d76e60d1d58e584c832db8aef34dd7c8257c2d03a249
+  codex=0721dbbe1c91e07048eb1d7cb2c5afefce6a7cea049f8bfd21c5ea0af8725669
+  agy=beaa3583a37aa2a87b33fcb355e4617cc518e08cbd25e9a8e98b265565a2e802
+  opencode=af81f1bf20d2d71a06d231f2d5b209834ffb35f3bfc61326fd064426ad6eeb91
+  hermes=6be2235c1c0a1871dc0d50da23e93063c520f67246994796a87c026c558afa8a
+  gemini=33823c42c8f8d5a1c05337ec06d086f3f306c770e8be1c5a741d939fba322318
+  mistral=ce6835c8d1ae31a6bfee09da2836b4f5b65c98efae0c7f16c4dc82690bd9b75a
+  zai=10d38aea573a83e425248713feaad25ef65bccd533ddc5c415b974cf95ffd98a
+  muse=a2190f9747b3aa46d412a92eccdbbfe2006506a3ddfa1138c1edd778742d389e
+fingerprints_after:
+  claude=2ed68af94971332b34c7d76e60d1d58e584c832db8aef34dd7c8257c2d03a249
+  codex=0721dbbe1c91e07048eb1d7cb2c5afefce6a7cea049f8bfd21c5ea0af8725669
+  agy=beaa3583a37aa2a87b33fcb355e4617cc518e08cbd25e9a8e98b265565a2e802
+  opencode=af81f1bf20d2d71a06d231f2d5b209834ffb35f3bfc61326fd064426ad6eeb91
+  hermes=6be2235c1c0a1871dc0d50da23e93063c520f67246994796a87c026c558afa8a
+  gemini=33823c42c8f8d5a1c05337ec06d086f3f306c770e8be1c5a741d939fba322318
+  mistral=ce6835c8d1ae31a6bfee09da2836b4f5b65c98efae0c7f16c4dc82690bd9b75a
+  zai=10d38aea573a83e425248713feaad25ef65bccd533ddc5c415b974cf95ffd98a
+  muse=a2190f9747b3aa46d412a92eccdbbfe2006506a3ddfa1138c1edd778742d389e
+stdout:
+  gemini extensions <command>
+
+  Manage Gemini CLI extensions.
+
+  Commands:
+    gemini extensions install <source> [--auto-update] [--pre-release]  Installs an extension from a git repository URL or a local path.
+    gemini extensions uninstall [names..]                               Uninstalls one or more extensions.
+    gemini extensions list                                              Lists installed extensions.
+    gemini extensions update [<name>] [--all]                           Updates all extensions or a named extension to the latest version.
+    gemini extensions disable [--scope] <name>                          Disables an extension.
+    gemini extensions enable [--scope] <name>                           Enables an extension.
+    gemini extensions link <path>                                       Links an extension from a local path. Updates made to the local path will always be reflected.
+    gemini extensions new <path> [template]                             Create a new extension from a boilerplate example.
+    gemini extensions validate <path>                                   Validates an extension from a local path.
+    gemini extensions config [name] [setting]                           Configure extension settings.
+
+  Options:
+    -d, --debug  Run in debug mode (open debug console with F12)  [boolean] [default: false]
+    -h, --help   Show help  [boolean]
+stderr:
+temporary_root_removed=yes

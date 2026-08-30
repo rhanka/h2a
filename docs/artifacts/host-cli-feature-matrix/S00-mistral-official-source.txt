@@ -1,0 +1,170 @@
+started_at=2026-08-30T14:29:28Z
+finished_at=2026-08-30T14:29:28Z
+cwd=/tmp/h2a-cli-matrix.81oAmCma/workspace
+isolated_home=<temporary>/home
+isolated_xdg_config_home=<temporary>/xdg-config
+extra_env=''
+command=curl --fail --silent --show-error https://api.github.com/repos/mistralai/mistral-vibe
+exit_code=0
+owner_roots_unchanged=yes
+fingerprints_before:
+  claude=e7e62c94448643167789d075877815195f7da58194458968d8a6998f2fecd6ef
+  codex=292bdc0f3bfcd4b3ab82d083ed8d8f1e8bf443bef7ff728984297351cde5a9c3
+  agy=beaa3583a37aa2a87b33fcb355e4617cc518e08cbd25e9a8e98b265565a2e802
+  opencode=af81f1bf20d2d71a06d231f2d5b209834ffb35f3bfc61326fd064426ad6eeb91
+  hermes=6be2235c1c0a1871dc0d50da23e93063c520f67246994796a87c026c558afa8a
+  gemini=33823c42c8f8d5a1c05337ec06d086f3f306c770e8be1c5a741d939fba322318
+  mistral=ce6835c8d1ae31a6bfee09da2836b4f5b65c98efae0c7f16c4dc82690bd9b75a
+  zai=10d38aea573a83e425248713feaad25ef65bccd533ddc5c415b974cf95ffd98a
+  muse=a2190f9747b3aa46d412a92eccdbbfe2006506a3ddfa1138c1edd778742d389e
+fingerprints_after:
+  claude=e7e62c94448643167789d075877815195f7da58194458968d8a6998f2fecd6ef
+  codex=292bdc0f3bfcd4b3ab82d083ed8d8f1e8bf443bef7ff728984297351cde5a9c3
+  agy=beaa3583a37aa2a87b33fcb355e4617cc518e08cbd25e9a8e98b265565a2e802
+  opencode=af81f1bf20d2d71a06d231f2d5b209834ffb35f3bfc61326fd064426ad6eeb91
+  hermes=6be2235c1c0a1871dc0d50da23e93063c520f67246994796a87c026c558afa8a
+  gemini=33823c42c8f8d5a1c05337ec06d086f3f306c770e8be1c5a741d939fba322318
+  mistral=ce6835c8d1ae31a6bfee09da2836b4f5b65c98efae0c7f16c4dc82690bd9b75a
+  zai=10d38aea573a83e425248713feaad25ef65bccd533ddc5c415b974cf95ffd98a
+  muse=a2190f9747b3aa46d412a92eccdbbfe2006506a3ddfa1138c1edd778742d389e
+stdout:
+  {
+    "id": 1112533539,
+    "node_id": "R_kgDOQk_qIw",
+    "name": "mistral-vibe",
+    "full_name": "mistralai/mistral-vibe",
+    "private": false,
+    "owner": {
+      "login": "mistralai",
+      "id": 132372032,
+      "node_id": "O_kgDOB-PWQA",
+      "avatar_url": "https://avatars.githubusercontent.com/u/132372032?v=4",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/mistralai",
+      "html_url": "https://github.com/mistralai",
+      "followers_url": "https://api.github.com/users/mistralai/followers",
+      "following_url": "https://api.github.com/users/mistralai/following{/other_user}",
+      "gists_url": "https://api.github.com/users/mistralai/gists{/gist_id}",
+      "starred_url": "https://api.github.com/users/mistralai/starred{/owner}{/repo}",
+      "subscriptions_url": "https://api.github.com/users/mistralai/subscriptions",
+      "organizations_url": "https://api.github.com/users/mistralai/orgs",
+      "repos_url": "https://api.github.com/users/mistralai/repos",
+      "events_url": "https://api.github.com/users/mistralai/events{/privacy}",
+      "received_events_url": "https://api.github.com/users/mistralai/received_events",
+      "type": "Organization",
+      "user_view_type": "public",
+      "site_admin": false
+    },
+    "html_url": "https://github.com/mistralai/mistral-vibe",
+    "description": "Minimal CLI coding agent by Mistral",
+    "fork": false,
+    "url": "https://api.github.com/repos/mistralai/mistral-vibe",
+    "forks_url": "https://api.github.com/repos/mistralai/mistral-vibe/forks",
+    "keys_url": "https://api.github.com/repos/mistralai/mistral-vibe/keys{/key_id}",
+    "collaborators_url": "https://api.github.com/repos/mistralai/mistral-vibe/collaborators{/collaborator}",
+    "teams_url": "https://api.github.com/repos/mistralai/mistral-vibe/teams",
+    "hooks_url": "https://api.github.com/repos/mistralai/mistral-vibe/hooks",
+    "issue_events_url": "https://api.github.com/repos/mistralai/mistral-vibe/issues/events{/number}",
+    "events_url": "https://api.github.com/repos/mistralai/mistral-vibe/events",
+    "assignees_url": "https://api.github.com/repos/mistralai/mistral-vibe/assignees{/user}",
+    "branches_url": "https://api.github.com/repos/mistralai/mistral-vibe/branches{/branch}",
+    "tags_url": "https://api.github.com/repos/mistralai/mistral-vibe/tags",
+    "blobs_url": "https://api.github.com/repos/mistralai/mistral-vibe/git/blobs{/sha}",
+    "git_tags_url": "https://api.github.com/repos/mistralai/mistral-vibe/git/tags{/sha}",
+    "git_refs_url": "https://api.github.com/repos/mistralai/mistral-vibe/git/refs{/sha}",
+    "trees_url": "https://api.github.com/repos/mistralai/mistral-vibe/git/trees{/sha}",
+    "statuses_url": "https://api.github.com/repos/mistralai/mistral-vibe/statuses/{sha}",
+    "languages_url": "https://api.github.com/repos/mistralai/mistral-vibe/languages",
+    "stargazers_url": "https://api.github.com/repos/mistralai/mistral-vibe/stargazers",
+    "contributors_url": "https://api.github.com/repos/mistralai/mistral-vibe/contributors",
+    "subscribers_url": "https://api.github.com/repos/mistralai/mistral-vibe/subscribers",
+    "subscription_url": "https://api.github.com/repos/mistralai/mistral-vibe/subscription",
+    "commits_url": "https://api.github.com/repos/mistralai/mistral-vibe/commits{/sha}",
+    "git_commits_url": "https://api.github.com/repos/mistralai/mistral-vibe/git/commits{/sha}",
+    "comments_url": "https://api.github.com/repos/mistralai/mistral-vibe/comments{/number}",
+    "issue_comment_url": "https://api.github.com/repos/mistralai/mistral-vibe/issues/comments{/number}",
+    "contents_url": "https://api.github.com/repos/mistralai/mistral-vibe/contents/{+path}",
+    "compare_url": "https://api.github.com/repos/mistralai/mistral-vibe/compare/{base}...{head}",
+    "merges_url": "https://api.github.com/repos/mistralai/mistral-vibe/merges",
+    "archive_url": "https://api.github.com/repos/mistralai/mistral-vibe/{archive_format}{/ref}",
+    "downloads_url": "https://api.github.com/repos/mistralai/mistral-vibe/downloads",
+    "issues_url": "https://api.github.com/repos/mistralai/mistral-vibe/issues{/number}",
+    "pulls_url": "https://api.github.com/repos/mistralai/mistral-vibe/pulls{/number}",
+    "milestones_url": "https://api.github.com/repos/mistralai/mistral-vibe/milestones{/number}",
+    "notifications_url": "https://api.github.com/repos/mistralai/mistral-vibe/notifications{?since,all,participating}",
+    "labels_url": "https://api.github.com/repos/mistralai/mistral-vibe/labels{/name}",
+    "releases_url": "https://api.github.com/repos/mistralai/mistral-vibe/releases{/id}",
+    "deployments_url": "https://api.github.com/repos/mistralai/mistral-vibe/deployments",
+    "created_at": "2025-12-08T18:56:59Z",
+    "updated_at": "2026-08-30T11:43:57Z",
+    "pushed_at": "2026-08-27T15:29:03Z",
+    "git_url": "git://github.com/mistralai/mistral-vibe.git",
+    "ssh_url": "git@github.com:mistralai/mistral-vibe.git",
+    "clone_url": "https://github.com/mistralai/mistral-vibe.git",
+    "svn_url": "https://github.com/mistralai/mistral-vibe",
+    "homepage": "",
+    "size": 7256,
+    "stargazers_count": 4895,
+    "watchers_count": 4895,
+    "language": "Python",
+    "has_issues": true,
+    "has_projects": true,
+    "has_downloads": false,
+    "has_wiki": true,
+    "has_pages": false,
+    "has_discussions": true,
+    "forks_count": 681,
+    "mirror_url": null,
+    "archived": false,
+    "disabled": false,
+    "open_issues_count": 284,
+    "license": {
+      "key": "apache-2.0",
+      "name": "Apache License 2.0",
+      "spdx_id": "Apache-2.0",
+      "url": "https://api.github.com/licenses/apache-2.0",
+      "node_id": "MDc6TGljZW5zZTI="
+    },
+    "allow_forking": true,
+    "is_template": false,
+    "web_commit_signoff_required": false,
+    "has_pull_requests": true,
+    "pull_request_creation_policy": "all",
+    "topics": [
+
+    ],
+    "visibility": "public",
+    "forks": 681,
+    "open_issues": 284,
+    "watchers": 4895,
+    "default_branch": "main",
+    "temp_clone_token": null,
+    "custom_properties": {
+      "vanta_production_branch_name": "main"
+    },
+    "organization": {
+      "login": "mistralai",
+      "id": 132372032,
+      "node_id": "O_kgDOB-PWQA",
+      "avatar_url": "https://avatars.githubusercontent.com/u/132372032?v=4",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/mistralai",
+      "html_url": "https://github.com/mistralai",
+      "followers_url": "https://api.github.com/users/mistralai/followers",
+      "following_url": "https://api.github.com/users/mistralai/following{/other_user}",
+      "gists_url": "https://api.github.com/users/mistralai/gists{/gist_id}",
+      "starred_url": "https://api.github.com/users/mistralai/starred{/owner}{/repo}",
+      "subscriptions_url": "https://api.github.com/users/mistralai/subscriptions",
+      "organizations_url": "https://api.github.com/users/mistralai/orgs",
+      "repos_url": "https://api.github.com/users/mistralai/repos",
+      "events_url": "https://api.github.com/users/mistralai/events{/privacy}",
+      "received_events_url": "https://api.github.com/users/mistralai/received_events",
+      "type": "Organization",
+      "user_view_type": "public",
+      "site_admin": false
+    },
+    "network_count": 681,
+    "subscribers_count": 27
+  }
+stderr:
+temporary_root_removed=yes

@@ -1,0 +1,15 @@
+plugins_lane_delivery
+call=h2a_discover_sessions({name:"plugins"})
+result=MCP tool call requires approval, but approval policy is never
+delivery=not-delivered
+
+report
+- Main document: docs/host-cli-functional-test-matrix.md
+- Branch: docs/01m06n825-host-cli-feature-matrix from origin/main d79991ce
+- Scope: 9 hosts x 8 axes, one exercised artifact per cell, plus explicit NOT-TESTED register
+- Strong positive exercises: Claude llm-mesh gateway and sonnet alias resolution; Codex/Claude native plugin install; OpenCode real task-subagent round trip; Hermes 52-tool h2a connection; Muse and Hermes native skill recognition
+- Strong negative exercises: current h2a OpenCode mcpServers rendering rejected by OpenCode 1.17.15; Gemini fresh-root trust disables the installed project skill/MCP; AGY rejects h2a's package as missing root plugin.json; exact llm-mesh Anthropic variables do not route Codex/OpenCode/Gemini/Vibe
+- Z.AI: no official publisher agent CLI identified; ZCode is an ADE and @z_ai/coding-helper configures other CLIs; unrelated npm packages were not installed
+- Safety: cited host invocations record owner_roots_unchanged=yes and disposable-root removal
+- llm-mesh login: delegated, but lane discovery was denied by the environment; all applicable cells remain NOT-TESTED
+- Review: harness consensus selection failed before dispatch because exact author model/effort metadata was unavailable; no consensus is claimed
