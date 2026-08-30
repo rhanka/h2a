@@ -1,0 +1,69 @@
+started_at=2026-08-30T14:17:05Z
+finished_at=2026-08-30T14:17:06Z
+cwd=/tmp/h2a-cli-matrix.socu9fzi/workspace
+isolated_home=<temporary>/home
+isolated_xdg_config_home=<temporary>/xdg-config
+extra_env=''
+command=hermes skills --help
+exit_code=0
+owner_roots_unchanged=yes
+fingerprints_before:
+  claude=7acde40adf2bacb78e05f6948e9e254e3f10cff43cdebaee2eff59c9a868163a
+  codex=0721dbbe1c91e07048eb1d7cb2c5afefce6a7cea049f8bfd21c5ea0af8725669
+  agy=beaa3583a37aa2a87b33fcb355e4617cc518e08cbd25e9a8e98b265565a2e802
+  opencode=af81f1bf20d2d71a06d231f2d5b209834ffb35f3bfc61326fd064426ad6eeb91
+  hermes=6be2235c1c0a1871dc0d50da23e93063c520f67246994796a87c026c558afa8a
+  gemini=33823c42c8f8d5a1c05337ec06d086f3f306c770e8be1c5a741d939fba322318
+  mistral=ce6835c8d1ae31a6bfee09da2836b4f5b65c98efae0c7f16c4dc82690bd9b75a
+  zai=10d38aea573a83e425248713feaad25ef65bccd533ddc5c415b974cf95ffd98a
+  muse=a2190f9747b3aa46d412a92eccdbbfe2006506a3ddfa1138c1edd778742d389e
+fingerprints_after:
+  claude=7acde40adf2bacb78e05f6948e9e254e3f10cff43cdebaee2eff59c9a868163a
+  codex=0721dbbe1c91e07048eb1d7cb2c5afefce6a7cea049f8bfd21c5ea0af8725669
+  agy=beaa3583a37aa2a87b33fcb355e4617cc518e08cbd25e9a8e98b265565a2e802
+  opencode=af81f1bf20d2d71a06d231f2d5b209834ffb35f3bfc61326fd064426ad6eeb91
+  hermes=6be2235c1c0a1871dc0d50da23e93063c520f67246994796a87c026c558afa8a
+  gemini=33823c42c8f8d5a1c05337ec06d086f3f306c770e8be1c5a741d939fba322318
+  mistral=ce6835c8d1ae31a6bfee09da2836b4f5b65c98efae0c7f16c4dc82690bd9b75a
+  zai=10d38aea573a83e425248713feaad25ef65bccd533ddc5c415b974cf95ffd98a
+  muse=a2190f9747b3aa46d412a92eccdbbfe2006506a3ddfa1138c1edd778742d389e
+stdout:
+  usage: hermes skills [-h]
+                       {browse,search,install,inspect,list,check,update,audit,uninstall,reset,list-modified,diff,opt-out,opt-in,repair-official,publish,snapshot,tap,config}
+                       ...
+
+  Search, install, inspect, audit, configure, and manage skills from skills.sh,
+  well-known agent skill endpoints, GitHub, ClawHub, and other registries.
+
+  positional arguments:
+    {browse,search,install,inspect,list,check,update,audit,uninstall,reset,list-modified,diff,opt-out,opt-in,repair-official,publish,snapshot,tap,config}
+      browse              Browse all available skills (paginated)
+      search              Search skill registries
+      install             Install a skill
+      inspect             Preview a skill without installing
+      list                List installed skills
+      check               Check installed hub skills for updates
+      update              Update installed hub skills
+      audit               Re-scan installed hub skills
+      uninstall           Remove a hub-installed skill
+      reset               Reset a bundled skill — clears 'user-modified'
+                          tracking so updates work again
+      list-modified       List bundled skills you've edited (which `hermes
+                          update` keeps)
+      diff                Show how your copy of a bundled skill differs from the
+                          stock version
+      opt-out             Stop bundled skills from being seeded into this
+                          profile
+      opt-in              Re-enable bundled-skill seeding (undo opt-out)
+      repair-official     Backfill or restore official optional skills from repo
+                          source
+      publish             Publish a skill to a registry
+      snapshot            Export/import skill configurations
+      tap                 Manage skill sources
+      config              Interactive skill configuration — enable/disable
+                          individual skills
+
+  options:
+    -h, --help            show this help message and exit
+stderr:
+temporary_root_removed=yes

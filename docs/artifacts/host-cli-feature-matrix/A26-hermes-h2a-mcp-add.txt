@@ -1,0 +1,182 @@
+started_at=2026-08-30T14:25:23Z
+finished_at=2026-08-30T14:25:24Z
+cwd=/tmp/h2a-cli-matrix.JGMKyMcT/workspace
+isolated_home=<temporary>/home
+isolated_xdg_config_home=<temporary>/xdg-config
+extra_env=''
+command=hermes mcp add h2a --command /home/antoinefa/src/h2a/tmp/worktrees/01m06n825-host-cli-feature-matrix/tmp/agents/host-cli-matrix/matrix-mcp-server.sh --args hermes
+exit_code=0
+owner_roots_unchanged=yes
+fingerprints_before:
+  claude=e7e62c94448643167789d075877815195f7da58194458968d8a6998f2fecd6ef
+  codex=292bdc0f3bfcd4b3ab82d083ed8d8f1e8bf443bef7ff728984297351cde5a9c3
+  agy=beaa3583a37aa2a87b33fcb355e4617cc518e08cbd25e9a8e98b265565a2e802
+  opencode=af81f1bf20d2d71a06d231f2d5b209834ffb35f3bfc61326fd064426ad6eeb91
+  hermes=6be2235c1c0a1871dc0d50da23e93063c520f67246994796a87c026c558afa8a
+  gemini=33823c42c8f8d5a1c05337ec06d086f3f306c770e8be1c5a741d939fba322318
+  mistral=ce6835c8d1ae31a6bfee09da2836b4f5b65c98efae0c7f16c4dc82690bd9b75a
+  zai=10d38aea573a83e425248713feaad25ef65bccd533ddc5c415b974cf95ffd98a
+  muse=a2190f9747b3aa46d412a92eccdbbfe2006506a3ddfa1138c1edd778742d389e
+fingerprints_after:
+  claude=e7e62c94448643167789d075877815195f7da58194458968d8a6998f2fecd6ef
+  codex=292bdc0f3bfcd4b3ab82d083ed8d8f1e8bf443bef7ff728984297351cde5a9c3
+  agy=beaa3583a37aa2a87b33fcb355e4617cc518e08cbd25e9a8e98b265565a2e802
+  opencode=af81f1bf20d2d71a06d231f2d5b209834ffb35f3bfc61326fd064426ad6eeb91
+  hermes=6be2235c1c0a1871dc0d50da23e93063c520f67246994796a87c026c558afa8a
+  gemini=33823c42c8f8d5a1c05337ec06d086f3f306c770e8be1c5a741d939fba322318
+  mistral=ce6835c8d1ae31a6bfee09da2836b4f5b65c98efae0c7f16c4dc82690bd9b75a
+  zai=10d38aea573a83e425248713feaad25ef65bccd533ddc5c415b974cf95ffd98a
+  muse=a2190f9747b3aa46d412a92eccdbbfe2006506a3ddfa1138c1edd778742d389e
+stdout:
+
+    Connecting to 'h2a'...
+
+    ✓ Connected! Found 52 tool(s) from 'h2a':
+
+      h2a_register_instance                    Register an h2a instance (PRINCIPAL / CONDUCTOR / AGENT / .....
+      h2a_discover_instances                   List instances from the registry, optionally filtered by rol...
+      h2a_open_negotiation                     Open a new negotiation. The record is persisted under negoti...
+      h2a_offer                                Submit an initial offer (journal entry, type=propose) bearin...
+      h2a_counteroffer                         Submit a counter-offer (journal entry, type=counter) bearing...
+      h2a_sign                                 Sign the canonical {artifactHash} of an artifact with an ed2...
+      h2a_stabilize                            Stabilize a negotiation once the registered signers' ed25519...
+      h2a_attest_comprehension                 Emit a signed, non-binding comprehension-attestation for a d...
+      h2a_declare_conflit_interet              Append a declaration-interet journal event for an instance i...
+      h2a_conflict_posture                     Derive postureConflit for the negotiation signers and declar...
+      h2a_inbox                                Inbox dispatch — read | put | pop envelopes for a given inst...
+      h2a_append_journal                       Append a journal event to a negotiation's chained journal.js...
+      h2a_escalate                             Escalate a negotiation to a higher control surface. Appends ...
+      h2a_session_open                         Open a live session for an instance (DEC-050/051). Writes a ...
+      h2a_session_close                        Close a previously-opened session (DEC-051). Stops the heart...
+      h2a_discover_sessions                    List currently-live peer sessions (DEC-051). Reads presence ...
+      h2a_nhi_report                           Derive a Non-Human-Identity posture (OWASP NHI Top 10 / NIST...
+      h2a_nhi_inventory                        Per-identity inventory of the NHI estate (DEC-090): each ins...
+      h2a_nhi_attest                           Emit a signed attestation of the current NHI posture (DEC-08...
+      h2a_nhi_offboard                         Coordinated decommission of an NHI (DEC-089): revoke every a...
+      h2a_nhi_export                           Export an instance's active public keys as a SPIFFE-trust-bu...
+      h2a_blockage_raise                       Raise a blockage (DEC-092, EVO-3) so peers in scope are noti...
+      h2a_blockage_list                        List recorded blockages (DEC-092), optionally filtered by sc...
+      h2a_blockage_resolve                     Resolve a blockage (DEC-092, idempotent); the dispatcher the...
+      h2a_conductor                            Resolve the live conductor/owner of a workspace (WP-G1, read...
+      h2a_conductor_claim                      Claim the conductor role for a workspace (WP-G1b, additive/r...
+      h2a_conductor_release                    Release the conductor claim for a workspace (WP-G1b, additiv...
+      h2a_conductor_launch_check               DRY-RUN (D3): poll track workspace-activity and return a rec...
+      h2a_conductor_launch                     D3 EMISSION: when work is stalled and no conductor is live, ...
+      h2a_loop_create                          Create an objective loop with an explicitly enrolled instanc...
+      h2a_loop_join                            Enroll an existing/live h2a instance as an objective-loop pa...
+      h2a_loop_report                          Record useful progress from an enrolled objective-loop agent...
+      h2a_loop_done                            Declare an objective loop done. With target refs, agent done...
+      h2a_loop_stop                            Stop an objective loop explicitly. No wake/relance occurs af...
+      h2a_loop_list                            List objective loops in the local store (id, name, goal, sta...
+      h2a_loop_status                          Read one objective loop's full state + its LAST recorded tic...
+      h2a_run                                  Launch one background Claude, Codex or AGY agent in an exist...
+      track_report                             Legacy deterministic backlog projection. JSON/text/Markdown ...
+      track_snapshot                           Canonical deterministic Track snapshot. Provider-free factua...
+      track_query                              Flat, filtered query over the non-decision report rows, as J...
+      track_validate                           Recompute the append-only integrity chain (detect-only). Ret...
+      track_audit                              DESIGN R4 — deterministic structural audit over the folded l...
+      track_branch_provenance                  Latest branch.imported provenance for a BRANCH.md locator (o...
+      track_freshness                          Is the sidecar structurally current with the given BRANCH.md...
+      track_external_deps                      Open external (scope:extra) dependencies awaiting an h2a ENG...
+      track_status                             status(level) projection (Scope §A/§B): rolls leaf buckets u...
+      track_verification_runs                  Recorded path-scope VerificationRuns (Scope §B(c)) — the EVI...
+      track_scope_validate                     Scope §B(b) — PURE, read-only, fail-closed, ADVISORY scope v...
+      track_cursor                             M5 (canevas) — a cheap change cursor over the log tail, as J...
+      track_canevas                            M5 (canevas) — the materialized canevas for ONE workspace, a...
+      track_amendment_trace                    M5 (canevas) — the human/machine diff for ONE aggregate, as ...
+      track_workspace_activity                 Poll-able activity signal for ONE workspace (h2a conductor-l...
+
+    Enable all 52 tools? [Y/n/select]:
+    ✓ Saved 'h2a' to ~/.hermes/config.yaml (52/52 tools enabled)
+    Start a new session to use these tools.
+stderr:
+isolated_tree_after:
+      d    775    4096
+      d    775    4096
+      d    775    4096
+      d    775    4096
+  .hermes    d    700    4096
+  .hermes/SOUL.md    f    600    513
+  .hermes/audio_cache    d    700    4096
+  .hermes/config.yaml    f    600    2117
+  .hermes/cron    d    700    4096
+  .hermes/hooks    d    700    4096
+  .hermes/image_cache    d    700    4096
+  .hermes/logs    d    700    4096
+  .hermes/logs/agent.log    f    664    0
+  .hermes/logs/curator    d    700    4096
+  .hermes/logs/errors.log    f    664    0
+  .hermes/logs/mcp-stderr.log    f    664    61
+  .hermes/memories    d    700    4096
+  .hermes/pairing    d    700    4096
+  .hermes/sessions    d    700    4096
+  .hermes/skills    d    700    4096
+  .matrix-h2a    d    775    4096
+  .matrix-h2a/.h2a-schema.json    f    664    104
+  .matrix-h2a/artifacts    d    775    4096
+  .matrix-h2a/contracts    d    775    4096
+  .matrix-h2a/engagements    d    775    4096
+  .matrix-h2a/inbox    d    775    4096
+  .matrix-h2a/negotiations    d    775    4096
+  .matrix-h2a/outbox    d    775    4096
+  .matrix-h2a/policies    d    775    4096
+  .matrix-h2a/registry    d    775    4096
+  .matrix-h2a/registry/instances.jsonl    f    664    0
+isolated_small_text_files_after:
+  --- home/.hermes/SOUL.md ---
+  | You are Hermes Agent, an intelligent AI assistant created by Nous Research. You are helpful, knowledgeable, and direct. You assist users with a wide range of tasks including answering questions, writing and editing code, analyzing information, creative work, and executing actions via your tools. You communicate clearly, admit uncertainty when appropriate, and prioritize being genuinely useful over being verbose unless otherwise directed below. Be targeted and efficient in your exploration and investigations.  --- home/.hermes/config.yaml ---
+  | _config_version: 33
+  | mcp_servers:
+  |   h2a:
+  |     command: /home/antoinefa/src/h2a/tmp/worktrees/01m06n825-host-cli-feature-matrix/tmp/agents/host-cli-matrix/matrix-mcp-server.sh
+  |     args:
+  |       - hermes
+  |     enabled: true
+  |
+  | # ── Security ──────────────────────────────────────────────────────────
+  | # Secret redaction is ON by default — strings that look like API keys,
+  | # tokens, and passwords are masked in tool output, logs, and chat
+  | # responses before the model or user ever sees them. Set redact_secrets
+  | # to false to disable (e.g. when developing the redactor itself).
+  | # tirith pre-exec scanning is enabled by default when the tirith binary
+  | # is available. Configure via security.tirith_* keys or env vars
+  | # (TIRITH_ENABLED, TIRITH_BIN, TIRITH_TIMEOUT, TIRITH_FAIL_OPEN).
+  | #
+  | # security:
+  | #   redact_secrets: true
+  | #   tirith_enabled: true
+  | #   tirith_path: "tirith"
+  | #   tirith_timeout: 5
+  | #   tirith_fail_open: true
+  |
+  | # ── Fallback Model ────────────────────────────────────────────────────
+  | # Automatic provider failover when primary is unavailable.
+  | # Uncomment and configure to enable. Triggers on rate limits (429),
+  | # overload (529), service errors (503), or connection failures.
+  | #
+  | # Supported providers:
+  | #   openrouter   (OPENROUTER_API_KEY)  — routes to any model
+  | #   openai-codex (OAuth — hermes auth) — OpenAI Codex
+  | #   nous         (OAuth — hermes auth) — Nous Portal
+  | #   zai          (ZAI_API_KEY)         — Z.AI / GLM
+  | #   kimi-coding  (KIMI_API_KEY)        — Kimi / Moonshot
+  | #   kimi-coding-cn (KIMI_CN_API_KEY)   — Kimi / Moonshot (China)
+  | #   minimax      (MINIMAX_API_KEY)     — MiniMax
+  | #   minimax-cn   (MINIMAX_CN_API_KEY)  — MiniMax (China)
+  | #   bedrock      (AWS IAM / boto3)     — AWS Bedrock (Converse API)
+  | #
+  | # For custom OpenAI-compatible endpoints, add base_url and key_env.
+  | #
+  | # fallback_model:
+  | #   provider: openrouter
+  | #   model: anthropic/claude-sonnet-4
+  --- home/.hermes/logs/mcp-stderr.log ---
+  |
+  | ===== [2026-08-30 10:25:24] starting MCP server 'h2a' =====
+  --- workspace/.matrix-h2a/.h2a-schema.json ---
+  | {
+  |   "version": "1",
+  |   "createdAt": "2026-08-30T14:25:24.815Z",
+  |   "createdBy": "@sentropic/h2a@0.96.1"
+  | }
+temporary_root_removed=yes
