@@ -160,20 +160,26 @@ export function buildAdmissionRequest(
   };
 }
 
-/** `requestTombstone(target)` → `transition({operation:"tombstone", record_id})`. Edge targets: see note. */
+/** `requestTombstone(target)` → `transition({operation:"tombstone", record_id})`. Node targets only; an edge target refuses fail-closed (NB-01). */
 export function buildTombstoneCommand(
   target: TombstoneTarget,
   auth: TombstoneAuthorization,
   ctx: MemoryContext,
   r: V2GapResolvers
 ): LifecycleCommandV1 {
-  // A node target maps directly to a record_id. An edge target has no single
-  // record_id in the V2 lifecycle surface (transition operates on record_id) —
-  // its record_id must be resolved from the edge triple (a go-live/graphify
-  // concern, flagged in the spec as the edge-tombstone sub-gap); the resolver
-  // is not asked to invent one here, so an edge target is encoded by its
-  // source (the record the edge belongs to) and left for the cutover to refine.
-  const record_id = target.kind === "node" ? target.id : target.source;
+  // NB-01: only a node target carries a single record_id, which is what the V2
+  // lifecycle surface transitions. An edge target's own record/projection id must
+  // be resolved from the edge triple (the edge-tombstone sub-gap, a go-live
+  // concern). Mapping an edge to `target.source` — as an earlier revision did —
+  // would transition the WHOLE source node (and every other edge on it), not the
+  // single edge A→B: a destructive mis-target. Refuse fail-closed here rather than
+  // invent a record_id; the compat port turns this throw into an {applied:false}
+  // outcome, so no edge tombstone can silently destroy a shared node.
+  if (target.kind !== "node") {
+    throw new Error(
+      "edge tombstone is not supported by the V1→V2 adapter yet — needs edge→record_id resolution (NB-01); refusing rather than tombstoning the source node"
+    );
+  }
   return {
     event_id: r.lifecycleEventId(),
     reason_ref: r.reasonRef({ ctx, auth }),
@@ -181,7 +187,7 @@ export function buildTombstoneCommand(
     authorization: r.authorization(ctx),
     deadline_at: r.deadlineAt(),
     operation: "tombstone",
-    record_id
+    record_id: target.id
   };
 }
 
@@ -212,8 +218,19 @@ export function buildRecallRequest(query: MemoryRecallQuery, ctx: MemoryContext,
 
 /** `CaptureAcknowledgementV1` → `AdmissionOutcome`. `committed_pending`/`duplicate_exact` = admitted; else refused. */
 export function mapCaptureAcknowledgement(ack: CaptureAcknowledgementV1): AdmissionOutcome {
-  if ((ack.status === "committed_pending" || ack.status === "duplicate_exact") && typeof ack.candidate_id === "string") {
+  // A fresh commit must return its candidate_id.
+  if (ack.status === "committed_pending" && typeof ack.candidate_id === "string") {
     return { admitted: true, id: ack.candidate_id };
+  }
+  // NB-02: `duplicate_exact` is an idempotent success — the store already holds
+  // this exact payload. `candidate_id` is OPTIONAL on CaptureAcknowledgementV1, so
+  // fall back to the `record_digest` as the stable id when it is omitted: refusing
+  // a recognized duplicate merely because candidate_id is absent would break dedup
+  // idempotency on a retried admission. Still fail closed if the store returned
+  // neither identifier.
+  if (ack.status === "duplicate_exact") {
+    const id = ack.candidate_id ?? ack.record_digest;
+    if (typeof id === "string") return { admitted: true, id };
   }
   return { admitted: false, reason: `capture not committed — status "${ack.status}"` };
 }

@@ -116,3 +116,24 @@ test("mapLifecycleReceipt: to_state tombstoned → applied; else not", () => {
   assert.equal(mapLifecycleReceipt({ to_state: "tombstoned" }).applied, true);
   assert.equal(mapLifecycleReceipt({ to_state: "accepted_current" }).applied, false);
 });
+
+test("NB-01: buildTombstoneCommand REFUSES an edge target (never mis-targets the source node)", () => {
+  assert.throws(
+    () => buildTombstoneCommand({ kind: "edge", source: "rec_A", target: "rec_B", relation: "references" }, { requester: "who" }, CTX, R),
+    /edge tombstone is not supported/
+  );
+  // a node target still builds cleanly, on its own id (not a source fallback)
+  const cmd = buildTombstoneCommand({ kind: "node", id: "rec_A" }, { requester: "who" }, CTX, R);
+  assert.equal(cmd.record_id, "rec_A");
+});
+
+test("NB-02: duplicate_exact admits via record_digest when candidate_id is omitted; fails closed if neither", () => {
+  // candidate_id present → admitted on it
+  assert.deepEqual(mapCaptureAcknowledgement({ status: "duplicate_exact", candidate_id: "c9" }), { admitted: true, id: "c9" });
+  // candidate_id omitted but record_digest present → admitted on the digest (idempotent dedup)
+  assert.deepEqual(mapCaptureAcknowledgement({ status: "duplicate_exact", record_digest: "sha256:dup" }), { admitted: true, id: "sha256:dup" });
+  // neither identifier → fail closed
+  assert.equal(mapCaptureAcknowledgement({ status: "duplicate_exact" }).admitted, false);
+  // a fresh commit still REQUIRES candidate_id (no digest fallback for committed_pending)
+  assert.equal(mapCaptureAcknowledgement({ status: "committed_pending", record_digest: "sha256:x" }).admitted, false);
+});
