@@ -982,7 +982,14 @@ export function deriveVerdictRef(authorizedRoot: string, noteId: string, leg: Le
   const noteSegment = sanitizePathSegment(noteId, "noteId");
   const model = sanitizePathSegment(leg?.model, "leg.model");
   const session = sanitizePathSegment(leg?.session, "leg.session");
-  const legSegment = sanitizePathSegment(`${model}__${session}.json`, "leg");
+  // NB-03: length-prefix `model` so the (model, session) → segment mapping is
+  // injective. A bare `${model}__${session}` join is ambiguous — ("claude",
+  // "3__test") and ("claude__3", "test") both yield "claude__3__test.json", which
+  // would alias two DISTINCT legs to ONE verdict file and silently collapse the
+  // double-consensus into a single verdict. Encoding model's length ahead of it
+  // makes the model|session boundary unambiguous regardless of underscores in
+  // either value (the segment decodes to exactly one (model, session) pair).
+  const legSegment = sanitizePathSegment(`${model.length}_${model}_${session}.json`, "leg");
   const derived = resolve(root, noteSegment, legSegment);
   if (!isBeneathRoot(derived, root)) {
     // Defense in depth: sanitizePathSegment above should already make this
