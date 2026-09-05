@@ -37,7 +37,7 @@ import type {
   TombstoneTarget,
   TrustTier
 } from "./port-v1.js";
-import type { MemoryPortV2, MemoryRecordV2, RecallPacketV2 } from "./graphify-contracts-v2.vendored.js";
+import type { LifecycleCommandV1, MemoryPortV2, MemoryRecordV2, RecallPacketV2 } from "./graphify-contracts-v2.vendored.js";
 import {
   buildAdmissionRequest,
   buildCaptureRequest,
@@ -133,7 +133,15 @@ export function createV1CompatPort(
       auth: TombstoneAuthorization,
       ctx: MemoryContext
     ): Promise<TombstoneOutcome> {
-      const res = await v2.transition(buildTombstoneCommand(target, auth, ctx, resolvers));
+      let command: LifecycleCommandV1;
+      try {
+        command = buildTombstoneCommand(target, auth, ctx, resolvers);
+      } catch (err) {
+        // NB-01: an unbuildable command (e.g. an edge target with no resolvable
+        // record_id) fails closed rather than mis-targeting a node.
+        return { applied: false, reason: err instanceof Error ? err.message : String(err) };
+      }
+      const res = await v2.transition(command);
       if (!res.ok) return { applied: false, reason: `${res.error.code}: ${res.error.message}` };
       return mapLifecycleReceipt(res.value);
     },

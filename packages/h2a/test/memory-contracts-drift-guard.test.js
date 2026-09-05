@@ -53,5 +53,14 @@ test("drift-guard (A): the vendored graphify V2 contract copy matches its pinned
 test("drift-guard: the vendored copy is types-only (no runtime import, anti-cycle)", () => {
   const text = readFileSync(vendoredPath, "utf8");
   assert.equal(/^import\s/m.test(text), false, "the vendored contract must have zero imports (pure types)");
-  assert.equal(/^export const\s/m.test(text), false, "the vendored contract must have zero runtime consts (pure types)");
+  // NIT-02: broaden past `export const` to every runtime-value export form
+  // (const/let/var/function/class, plus `export default` and `export async
+  // function`), tolerating extra whitespace — a pure-types contract must have
+  // none, so any match means graphify runtime leaked in. (The digest pin above
+  // is the authoritative guard; this is the human-readable defense-in-depth.)
+  assert.equal(
+    /^export\s+(?:default|async|const|let|var|function|class)\b/m.test(text),
+    false,
+    "the vendored contract must have zero runtime exports (pure types)"
+  );
 });
