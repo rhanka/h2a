@@ -847,6 +847,25 @@ export {
 } from "./runtime/drive/index.js";
 
 export { createInboxWakeHandler, type InboxWakeHandlerDeps } from "./runtime/drive/inbox-wake.js";
+export {
+  createH2aPtyActuator,
+  createH2aSessionTargetState,
+  probeAliveness,
+  resolveActuationTarget,
+  type ActuationTarget,
+  type H2aPtyActuatorDeps,
+  type H2aTargetState,
+  type ProbeAliveness,
+  type ResolveActuationTarget
+} from "./runtime/drive/pty-actuator.js";
+export type {
+  ActuationRequest,
+  ActuationResult,
+  ClusterMeshRegistration,
+  PtyActuatorPort,
+  RegistrationFailureReason,
+  SessionTargetStatePort
+} from "@sentropic/cluster-mesh";
 export { agentVersion, readInstalledSkillVersion } from "./runtime/version/agent-version.js";
 
 export {
