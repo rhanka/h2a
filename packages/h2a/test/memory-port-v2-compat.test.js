@@ -131,6 +131,15 @@ test("compat requestTombstone → transition(tombstoned) → applied, with a sig
   assert.equal(v2.transition.calls(), 1);
 });
 
+test("NB-01: compat requestTombstone on an EDGE target fails closed and never calls transition", async () => {
+  const v2 = stubV2();
+  const port = createV1CompatPort(v2, R, REV);
+  const out = await port.requestTombstone({ kind: "edge", source: "rec-A", target: "rec-B", relation: "references" }, { requester: "who" }, CTX);
+  assert.equal(out.applied, false);
+  assert.match(out.reason, /edge tombstone is not supported/);
+  assert.equal(v2.transition.calls(), 0, "no V2 transition may fire for a refused edge tombstone");
+});
+
 test("compat recallMemory → recall → notes-only view (records mapped back to V1)", async () => {
   const v2 = stubV2();
   const port = createV1CompatPort(v2, R, REV);

@@ -1317,6 +1317,23 @@ test("ROUND 3 — ref-collision still refused: writeVerdict tries to make leg2's
   }
 });
 
+test("NB-03: deriveVerdictRef is injective — two DISTINCT legs that collided under the old `model__session` join now derive DISTINCT verdict refs", () => {
+  const root = join(tmpdir(), "d11-nb03-injectivity");
+  // Under the old scheme both of these legs produced "claude__3__test.json",
+  // so two independent legs would alias to ONE verdict file and collapse the
+  // double-consensus. Length-prefixing `model` makes the boundary unambiguous.
+  const refA = deriveVerdictRef(root, NOTE.noteId, leg("claude", "3__test"));
+  const refB = deriveVerdictRef(root, NOTE.noteId, leg("claude__3", "test"));
+  assert.notEqual(refA, refB, "distinct (model, session) legs must never alias to one verdict path");
+  // deterministic for the same leg (the confinement gate depends on exact re-derivation)
+  assert.equal(refA, deriveVerdictRef(root, NOTE.noteId, leg("claude", "3__test")));
+  // a plain underscore in a single value is still fine (no collision, no throw)
+  assert.notEqual(
+    deriveVerdictRef(root, NOTE.noteId, leg("a_b", "c")),
+    deriveVerdictRef(root, NOTE.noteId, leg("a", "b_c"))
+  );
+});
+
 // ---------------------------------------------------------------------------
 // D11 FIX ROUND 3 §B — authorId is now BOUND to a verified author signature.
 // Graphify verified (@67bf73c7) MemoryNote carries no trusted author field —
