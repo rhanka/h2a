@@ -1,6 +1,6 @@
 import { join } from "node:path";
 
-import { slugify } from "@sentropic/h2a";
+import { slugify } from "../../identity.js";
 
 /**
  * Map an arbitrary id into a filesystem-safe path segment (DEC-062).
