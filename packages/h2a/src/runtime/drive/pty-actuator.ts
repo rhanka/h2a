@@ -17,7 +17,7 @@ import type {
   ClusterMeshRegistration,
   PtyActuatorPort,
   SessionTargetStatePort
-} from "./cluster-mesh-port.types.js";
+} from "@sentropic/cluster-mesh";
 
 const ACTUATOR_REF_PREFIX = "h2a-pty:v1:";
 

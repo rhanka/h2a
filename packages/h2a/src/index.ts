@@ -865,7 +865,7 @@ export type {
   PtyActuatorPort,
   RegistrationFailureReason,
   SessionTargetStatePort
-} from "./runtime/drive/cluster-mesh-port.types.js";
+} from "@sentropic/cluster-mesh";
 export { agentVersion, readInstalledSkillVersion } from "./runtime/version/agent-version.js";
 
 export {
