@@ -7,6 +7,7 @@ import test from "node:test";
 import {
   createH2aPtyActuator,
   createH2aSessionTargetState,
+  readPresence,
   resolveActuationTarget,
   writePresence
 } from "../dist/index.js";
@@ -255,4 +256,64 @@ test("should relaunch exactly once when a recorded command produces an effect", 
   assert.equal(findings.length, 1);
   assert.equal(findings[0].instance, target.instance);
   assert.equal(findings[0].launchContext.resumeCommand, "codex resume conversation-1");
+});
+
+test("should relaunch from the command persisted as the presence resume fallback", async () => {
+  const root = mkdtempSync(join(tmpdir(), "h2a-pty-actuator-resume-fallback-"));
+  const previousRoot = process.env.H2A_ROOT;
+  process.env.H2A_ROOT = root;
+  const heartbeatAt = "2026-08-30T12:00:00.000Z";
+  const relaunchCalls = [];
+  try {
+    writePresence(root, {
+      sessionId: "sess:resume-fallback",
+      instance: "worker",
+      host: "codex",
+      startedAt: heartbeatAt,
+      heartbeatAt,
+      state: "live",
+      interests: { scopes: [], negotiations: [] },
+      subscribedTopics: [],
+      launchContext: {
+        cwd: "/workspace",
+        command: "codex resume conversation-from-command",
+        tmux: { session: "worker", window: "2", pane: "1" }
+      }
+    });
+
+    const persisted = readPresence(root, "sess:resume-fallback");
+    assert.equal(
+      persisted.launchContext.resumeCommand,
+      "codex resume conversation-from-command"
+    );
+
+    const actuator = createH2aPtyActuator({
+      relaunchers: {
+        tmux: {
+          relance(finding) {
+            relaunchCalls.push(finding);
+            return true;
+          }
+        }
+      },
+      now: () => Date.parse("2026-08-30T12:00:10.000Z")
+    });
+    const result = await actuator.actuate({
+      registration,
+      action: "relaunch",
+      commandRef: "command-ref-relaunch-fallback"
+    });
+
+    assert.deepEqual(result.actedTargets, ["worker:2.1"]);
+    assert.match(result.effectRef, /^h2a-pty:acted:relaunch:/);
+    assert.equal(relaunchCalls.length, 1);
+    assert.equal(
+      relaunchCalls[0].launchContext.resumeCommand,
+      "codex resume conversation-from-command"
+    );
+  } finally {
+    if (previousRoot === undefined) delete process.env.H2A_ROOT;
+    else process.env.H2A_ROOT = previousRoot;
+    rmSync(root, { recursive: true, force: true });
+  }
 });

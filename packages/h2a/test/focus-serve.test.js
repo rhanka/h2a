@@ -304,6 +304,7 @@ test("npm tarball Focus smoke runs from an installed-artifact layout", { skip: p
       "@hono/mcp",
       "@hono/node-server",
       "@modelcontextprotocol/sdk",
+      "@sentropic/cluster-mesh",
       "@sentropic/track",
       "hono"
     ]) {
