@@ -51,13 +51,23 @@ export function writePresence(
   if (!isH2ASession(session)) {
     throw new TypeError("writePresence: argument is not a valid H2ASession");
   }
+  const persistedSession: H2ASession = session.launchContext === undefined
+    ? session
+    : {
+        ...session,
+        launchContext: {
+          ...session.launchContext,
+          resumeCommand:
+            session.launchContext.resumeCommand ?? session.launchContext.command
+        }
+      };
   const paths = localStorePaths(root);
   ensurePresenceDir(paths);
   const finalPath = presenceFile(paths, session.sessionId);
   const tmpPath = `${finalPath}.tmp-${process.pid}-${Date.now()}`;
   const fd = openSync(tmpPath, "wx");
   try {
-    writeFileSync(fd, `${JSON.stringify(session, null, 2)}\n`, "utf8");
+    writeFileSync(fd, `${JSON.stringify(persistedSession, null, 2)}\n`, "utf8");
   } finally {
     closeSync(fd);
   }
