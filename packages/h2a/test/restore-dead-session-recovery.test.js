@@ -12,6 +12,7 @@ import test from "node:test";
 
 import { enroll, listLive, loadRegistry } from "../../h2a-runtime/dist/registry.js";
 import { handleClaudeHook } from "../../h2a-runtime/dist/enroll.js";
+import { encodeCwd } from "../../h2a-runtime/dist/convsync.js";
 import { discoverSessions, restore } from "../../h2a-runtime/dist/restore.js";
 import { SESSION_CLASS_ENV } from "../../h2a-runtime/dist/session-class.js";
 import { tmuxEnvironmentArgs } from "../../h2a-runtime/dist/tmux.js";
@@ -51,7 +52,7 @@ function writeCodexTranscript(home, cwd, id, mtimeMs) {
 }
 
 function writeClaudeTranscript(home, cwd, id, mtimeMs) {
-  const dir = join(home, ".claude", "projects", cwd.replace(/\//g, "-"));
+  const dir = join(home, ".claude", "projects", encodeCwd(cwd));
   mkdirSync(dir, { recursive: true });
   const file = join(dir, `${id}.jsonl`);
   writeFileSync(file, `${JSON.stringify({ cwd })}\n`, "utf8");
