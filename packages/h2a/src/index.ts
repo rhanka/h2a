@@ -848,6 +848,10 @@ export {
 
 export { createInboxWakeHandler, type InboxWakeHandlerDeps } from "./runtime/drive/inbox-wake.js";
 export {
+  createH2aClusterMeshOuter,
+  type H2aClusterMeshOuterDeps
+} from "./runtime/drive/cluster-mesh-outer.js";
+export {
   createH2aPtyActuator,
   createH2aSessionTargetState,
   probeAliveness,
