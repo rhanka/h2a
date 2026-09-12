@@ -153,16 +153,53 @@ test("runMcpServe: internal readiness without auto-open exits nonzero and emits 
   }
 });
 
-test("runMcpServe: auto-upgrade check completes before readiness can ACK", async () => {
+test("runMcpServe: auto-upgrade cannot block initialize or reexec the live stdio session", { timeout: 2_000 }, async () => {
   const root = freshRoot();
   const readyFile = join(root, "ready.json");
   const stdin = new PassThrough();
   const stdout = new PassThrough();
   const stderr = new PassThrough();
   const events = [];
-  stdin.end();
+  const originalExecve = Object.getOwnPropertyDescriptor(process, "execve");
+  const originalGuard = process.env.H2A_UPGRADE_REEXECED;
+  let installFinished = false;
+  let execveCalls = 0;
+  let stdoutBuffer = "";
+  let diagnostics = "";
+  let resolveInitialize;
+  const initialized = new Promise((resolve) => {
+    resolveInitialize = resolve;
+  });
+
+  stdout.on("data", (chunk) => {
+    stdoutBuffer += chunk.toString("utf8");
+    const lines = stdoutBuffer.split("\n");
+    stdoutBuffer = lines.pop() ?? "";
+    for (const line of lines) {
+      if (!line) continue;
+      const response = JSON.parse(line);
+      if (response.id === 41) {
+        events.push(installFinished ? "initialize-after-install" : "initialize-before-install");
+        resolveInitialize(response);
+      }
+    }
+  });
+  stderr.on("data", (chunk) => {
+    diagnostics += chunk.toString("utf8");
+  });
+
+  Object.defineProperty(process, "execve", {
+    configurable: true,
+    writable: true,
+    value: () => {
+      execveCalls++;
+      return undefined;
+    }
+  });
+  delete process.env.H2A_UPGRADE_REEXECED;
+
   try {
-    const rc = await runMcpServe(
+    const serving = runMcpServe(
       {
         root,
         "auto-open": "true",
@@ -182,12 +219,18 @@ test("runMcpServe: auto-upgrade check completes before readiness can ACK", async
         },
         upgradeRuntime: {
           fetchLatest() {
-            assert.equal(existsSync(readyFile), false);
             events.push("upgrade-check");
-            return "0.0.0";
+            return "999.0.0";
           },
           runInstall() {
-            throw new Error("install must not run when no upgrade is available");
+            events.push("install-start");
+            // A real install is spawnSync and blocks the event loop. This
+            // bounded latch makes the old boot ordering observably fail while
+            // keeping the regression test deterministic and network-free.
+            Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 100);
+            installFinished = true;
+            events.push("install-finish");
+            return true;
           },
           now: () => 1,
           readCache: () => undefined,
@@ -196,11 +239,40 @@ test("runMcpServe: auto-upgrade check completes before readiness can ACK", async
       }
     );
 
-    assert.equal(rc, 0);
-    assert.deepEqual(events, ["upgrade-check"]);
+    stdin.write(`${JSON.stringify({ jsonrpc: "2.0", id: 41, method: "initialize" })}\n`);
+    const response = await initialized;
+
+    assert.equal(response.result.serverInfo.name, "@sentropic/h2a");
+    assert.equal(events.includes("initialize-before-install"), true);
     const ack = JSON.parse(readFileSync(readyFile, "utf8"));
     assert.equal(ack.nonce, "44444444-4444-4444-8444-444444444444");
+    assert.equal(installFinished, false, "readiness and initialize must not wait for install");
+
+    // Yield to the scheduled upgrade and prove it was not accidentally
+    // dropped merely to make startup fast.
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.deepEqual(events, [
+      "initialize-before-install",
+      "upgrade-check",
+      "install-start",
+      "install-finish"
+    ]);
+    assert.match(diagnostics, /auto-upgraded .* \(applies on next launch\)/);
+    assert.equal(execveCalls, 0, "mcp-serve must never execve while stdio is live");
+
+    stdin.end();
+    assert.equal(await serving, 0);
   } finally {
+    if (originalExecve) {
+      Object.defineProperty(process, "execve", originalExecve);
+    } else {
+      delete process.execve;
+    }
+    if (originalGuard === undefined) {
+      delete process.env.H2A_UPGRADE_REEXECED;
+    } else {
+      process.env.H2A_UPGRADE_REEXECED = originalGuard;
+    }
     rmSync(root, { recursive: true, force: true });
   }
 });
