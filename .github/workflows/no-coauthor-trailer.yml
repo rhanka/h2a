@@ -2,6 +2,8 @@ name: no co-author trailer
 
 on:
   pull_request:
+  push:
+    branches: [main]
 
 jobs:
   scan-commits:
@@ -10,20 +12,34 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Scan PR commit messages for co-authorship / AI-generation trailers
+      - name: Scan commit messages with the repo hook (single source of truth)
         run: |
-          base="${{ github.event.pull_request.base.sha }}"
-          head="${{ github.event.pull_request.head.sha }}"
-          bad=$(git log --format='%H %s%n%b%n--' "$base..$head" \
-                | grep -iE 'co-authored-by:|generated with[[:space:]]+\[?claude|claude\.com/claude-code|🤖' || true)
-          if [ -n "$bad" ]; then
-            echo "::error::Co-authorship / AI-generation trailer found in PR commit messages."
-            echo "$bad"
-            echo
-            echo "Remove Co-authored-by / 'Generated with Claude' / 🤖 lines (rebase or squash-merge)."
+          set -euo pipefail
+          case "${{ github.event_name }}" in
+            pull_request)
+              shas=$(git rev-list "${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }}") ;;
+            push)
+              if printf '%s' "${{ github.event.before }}" | grep -qiE '^0+$'; then
+                shas=$(git rev-list -n 50 "${{ github.event.after }}")   # new ref: scan the tip window
+              else
+                shas=$(git rev-list "${{ github.event.before }}..${{ github.event.after }}")
+              fi ;;
+            *) shas="" ;;
+          esac
+          fail=0
+          for sha in $shas; do
+            git log -1 --format='%B' "$sha" > /tmp/msg
+            if ! .githooks/commit-msg /tmp/msg >/dev/null 2>&1; then
+              echo "::error::$(git log -1 --format='%h %s' "$sha") carries a co-authorship / AI-generation trailer"
+              fail=1
+            fi
+          done
+          if [ "$fail" -eq 0 ]; then
+            echo "OK — no co-authorship / AI-generation trailers in scanned commits."
+          else
+            echo "On push this cannot block the ref; make scan-commits a required status check to block PRs."
             exit 1
           fi
-          echo "OK — no co-authorship / AI-generation trailers in PR commits."
 
   hook-selftest:
     runs-on: ubuntu-latest
