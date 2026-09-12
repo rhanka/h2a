@@ -6125,9 +6125,41 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           count > 1
             ? fanoutLabels(opts.name ?? basename(cwd), count)
             : [opts.name];
-        const existingTmuxSlugs = tmuxAvailable()
+        const reservedTmuxSlugs = tmuxAvailable()
           ? existingLocalSessionSlugs(labels, cwd)
           : [];
+        // The inventory and this decision are separate reads: a structured
+        // launch can leave a name visible just before its last tmux process
+        // exits. Re-probe every canonical/legacy spelling and reclaim the slug
+        // only when ALL probes positively report death. A live or unknown
+        // spelling remains reserved, so probe failure can never authorize a
+        // second writer.
+        const tmuxExistence = reservedTmuxSlugs.map((slug) => {
+          const probes = managedSessionCandidates(slug).map((name) =>
+            probeTmuxSession(name),
+          );
+          const probe: ManagedHostProbeResult = probes.includes("live")
+            ? "live"
+            : probes.includes("unknown")
+              ? "unknown"
+              : "dead";
+          return { slug, probe };
+        });
+        const unknownTmuxSlugs = tmuxExistence
+          .filter((probed) => probed.probe === "unknown")
+          .map((probed) => probed.slug);
+        if (unknownTmuxSlugs.length > 0) {
+          for (const slug of unknownTmuxSlugs) {
+            process.stderr.write(
+              `[h2a] cannot start ${slug}: tmux host state is unknown (the probe failed) — refusing to reclaim an unproven session name.\n`,
+            );
+          }
+          process.exitCode = 1;
+          return;
+        }
+        const existingTmuxSlugs = tmuxExistence
+          .filter((probed) => probed.probe === "live")
+          .map((probed) => probed.slug);
         // Native existence is THREE-state (the resolver's probe vocabulary):
         // a probe FAILURE is "unknown", never absence. Treating a thrown
         // probe as "no session" would let `run --tmux --resume` start a tmux
