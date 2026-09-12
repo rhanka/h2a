@@ -11,16 +11,17 @@ msg_file="${1:?commit-msg hook requires the commit message file path}"
 # trailer is not a false positive.
 scan="$(sed '/^# -\{3,\} >8 -\{3,\}$/,$d' "$msg_file" | grep -v '^#' || true)"
 
-# `Co-authored-by:` is anchored to the start of a line — real trailers always are,
-# so prose that mentions it is allowed. The Claude-generation markers are specific
-# enough to match anywhere in the message.
+# `Co-authored-by:` and `Claude-Session:` are anchored to the start of a line — real
+# trailers always are, so prose that mentions them is allowed. The Claude-generation
+# markers are specific enough to match anywhere in the message.
 if printf '%s\n' "$scan" \
-   | grep -iEq '^[[:space:]]*co-authored-by:|generated with[[:space:]]+\[?claude|claude\.com/claude-code|🤖'; then
+   | grep -iEq '^[[:space:]]*co-authored-by:|^[[:space:]]*claude-session:|generated with[[:space:]]+\[?claude|claude\.com/claude-code|🤖'; then
   {
-    echo "✗ commit blocked — co-authorship / AI-generation trailer detected."
+    echo "✗ commit blocked — co-authorship / AI-attribution trailer detected."
     echo
     echo "  This repo forbids these lines in commit messages:"
     echo "    • Co-authored-by: …"
+    echo "    • Claude-Session: …"
     echo "    • Generated with [Claude Code] / claude.com/claude-code"
     echo "    • 🤖"
     echo
