@@ -1702,6 +1702,35 @@ describe("h2a run -r <conv> single-writer guard", () => {
     expect(stderrText()).not.toContain("llm-mesh");
   });
 
+  it("reclaims a stale tmux name reservation when neither managed name is live", async () => {
+    findLocalSession.mockImplementation((target: string) =>
+      target === "projA"
+        ? {
+            name: "remote-projA",
+            slug: "projA",
+            profile: "claude",
+            path: "/home/u/src/projA",
+            attached: false,
+          }
+        : undefined,
+    );
+
+    const exitCode = await main([
+      "node",
+      "remote",
+      "run",
+      "claude",
+      "/home/u/src/projA",
+      "--name",
+      "projA",
+      "--no-attach",
+    ]);
+
+    expect(exitCode).toBe(0);
+    expect(startLocalSession).toHaveBeenCalledOnce();
+    expect(stderrText()).not.toContain("already exists");
+  });
+
   it("refuses when a live REMOTE session holds the conversation (cliSessionId)", async () => {
     getDefaultRemote.mockReturnValue("http://localhost:8080");
     listRemoteSessions.mockResolvedValue([liveRemoteWriter("conv-dup")]);
