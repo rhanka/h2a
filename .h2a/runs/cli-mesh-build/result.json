@@ -1,0 +1,47 @@
+{
+  "state": "complete",
+  "files_added": [
+    "packages/h2a/test/twin-target-characterization.js",
+    "packages/h2a/test/twin-target-characterization.test.js",
+    "packages/h2a/test/m02-drive-characterization.test.js",
+    ".h2a/runs/cli-mesh-build/review.md",
+    ".h2a/runs/cli-mesh-build/review-correctness.md",
+    ".h2a/runs/cli-mesh-build/review-false-green.md",
+    ".h2a/runs/cli-mesh-build/result.json",
+    ".h2a/runs/cli-mesh-build/output.log"
+  ],
+  "tests_added": {
+    "total": 17,
+    "passing": 11,
+    "pending": 6,
+    "failing": 0,
+    "coverage": [
+      "reusable twin-target scenario and phase oracle",
+      "local-tmux exact literal drive delivery and refusal without mutation",
+      "headless local-native explicit PTY provisioning and exact drive delivery",
+      "escape-sequence chunking and split UTF-8 decoding",
+      "raw-mode boundary, TIOCSWINSZ resize, partial writes, and pipe closure",
+      "oversized and control-bearing input fail-closed characterization",
+      "accepted-success and post-effect-failure mutation/reconciliation assertions"
+    ]
+  },
+  "pending_seams": [
+    "Target-B differential parity awaits the cluster-mesh 0.9.0 contract/capability bundle",
+    "contract-grade typed outcomes and durable receipts are absent from the current native CLI result",
+    "typed BUFFER_OVERFLOW and NO_CONTROLLING_TERMINAL outcome codes await the contract",
+    "the current direct native drive command has no read-only or dry-run mode",
+    "stale or revoked custody and wrong action/path/target cases await the OQ1/OQ5 registration gate",
+    "F2/F3 post-effect persistence, restart, and concurrent-retry reconciliation await durable request identity and receipt semantics"
+  ],
+  "tsc": {
+    "command": "npx tsc -b packages/h2a/tsconfig.json --pretty false",
+    "exit_code": 0
+  },
+  "notes": [
+    "Characterization only: no production source was modified and packages/h2a/src/runtime/drive/pty-actuator.ts remains untouched.",
+    "The native CLI path characterized is runCli -> cmdDrive -> buildDriveDriver, covering localTmuxDriver/tmuxSendSubmit and nativePtyBackchannelDriver/native-terminal drive.",
+    "Scoped characterization: 17 tests, 11 passed, 0 failed, 6 explicit todos.",
+    "Full baseline: Node 2059 tests with 2036 passed, 0 failed, 17 skipped, and 6 todos; Track 1190 tests passed across 87 files.",
+    "Two required complementary h2a review launches were rejected by the safety gate before sessions started; the review dossier is explicitly incomplete and claims no consensus."
+  ]
+}

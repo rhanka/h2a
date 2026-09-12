@@ -1,0 +1,49 @@
+M02 native drive characterization — lot 1
+state: complete
+scope: characterization only; no cutover, candidate implementation, contract dependency, or production behavior change
+
+Authoritative inputs read
+- .h2a/runs/cli-mesh-build/BRIEF-char-M02.md
+- /home/antoinefa/src/h2a/tmp/cli-migration-roadmap/.h2a/runs/cli-roadmap/LOT0-TDD-MATRIX.r2.2.md
+
+Observed native call paths
+- CLI: runCli -> cmdDrive -> buildDriveDriver
+- local-tmux: localTmuxDriver -> tmuxSendSubmit -> literal tmux send-keys plus submit keys
+- local-native: nativePtyBackchannelDriver -> h2a-runtime native-terminal drive operation
+
+Added characterization
+- Reusable twin-target harness with native Target-A active and mesh Target-B represented as an explicit pending seam.
+- Scenario/phase oracle records input, resolution, stdout, stderr, exit, typed-outcome projection, receipts, durable state, terminal input, and reconciliation.
+- Zero-mutation assertions cover read-only, dry-run, and pre-admission refusal phases in the reusable oracle.
+- Accepted success requires exactly one independently observed non-empty terminal input.
+- Post-effect failure retains the observed effect and requires explicit reconciliation without blind replay.
+- Real local-tmux fixture observes missing-registration refusal and exact signed input delivery, including literal escape and UTF-8 bytes.
+- Real local-native fixture starts through setsid with closed stdin, verifies no controlling terminal on the actuator host, and verifies an explicit PTY master/slave pair for the child.
+- Real local-native drive observes exact signed UTF-8 input and one carriage return, raw mode, a 101x37 TIOCSWINSZ resize, partial writes, closed-pipe failure, and oversized/control-bearing input failure without terminal mutation.
+- Escape-sequence chunking and split UTF-8 decoding are characterized independently.
+
+Pending contract/candidate seams
+- Target-B differential parity awaits cluster-mesh 0.9.0 contract/capability support.
+- Current CLI output exposes driven:boolean, not a contract-grade typed outcome or durable receipt.
+- BUFFER_OVERFLOW and NO_CONTROLLING_TERMINAL typed codes await the contract-owned vocabulary.
+- Direct native drive has no read-only or dry-run CLI mode.
+- Stale/revoked custody and wrong action/path/target cases await OQ1/OQ5 registration rules.
+- F2/F3 post-effect persistence, restart, and concurrent retry need durable request identity and receipt reconciliation.
+
+Verification
+- node --check on all three added JavaScript files: exit 0
+- node --test packages/h2a/test/twin-target-characterization.test.js packages/h2a/test/m02-drive-characterization.test.js: 17 total, 11 passed, 0 failed, 6 todo
+- npx tsc -b packages/h2a/tsconfig.json --pretty false: exit 0
+- npm test: exit 0
+  - Node suite: 2059 total, 2036 passed, 0 failed, 17 skipped, 6 todo
+  - Track suite: 87 files passed, 1190 tests passed
+
+Review protocol
+- Exact test diff before review artifacts: sha256 3a3df88d9e90f3fcdcc4ed81e8011614a82ea43fb408ca5df2bc740c28692b47
+- Two complementary h2a_run launches were rejected by the safety gate before sessions started because external gateway review of repository/spec contents lacked explicit authorization.
+- The three review artifacts record failed legs and an incomplete aggregate; no consensus verdict is claimed.
+
+Production-source guardrails
+- packages/h2a/src/runtime/drive/pty-actuator.ts was not modified.
+- createH2aClusterMeshOuter was not wired to a verb.
+- No candidate mesh path was implemented.
