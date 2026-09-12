@@ -1,13 +1,21 @@
 #!/usr/bin/env bash
 # Repo policy: commit messages must NOT carry co-authorship or AI-generation trailers.
 # Enable locally once per clone:  git config core.hooksPath .githooks
-# CI enforces the same rule on pull requests (.github/workflows/no-coauthor-trailer.yml).
+# CI runs this exact hook over PR and main-push commits (.github/workflows/no-coauthor-trailer.yml).
 set -euo pipefail
 
 msg_file="${1:?commit-msg hook requires the commit message file path}"
 
-# Case-insensitive scan of the whole commit message.
-if grep -iEq 'co-authored-by:|generated with[[:space:]]+\[?claude|claude\.com/claude-code|🤖' "$msg_file"; then
+# Scan only the authored message: drop the `git commit -v` diff (from the scissors
+# line onward) and comment lines, so a diff hunk or a comment that merely quotes a
+# trailer is not a false positive.
+scan="$(sed '/^# -\{3,\} >8 -\{3,\}$/,$d' "$msg_file" | grep -v '^#' || true)"
+
+# `Co-authored-by:` is anchored to the start of a line — real trailers always are,
+# so prose that mentions it is allowed. The Claude-generation markers are specific
+# enough to match anywhere in the message.
+if printf '%s\n' "$scan" \
+   | grep -iEq '^[[:space:]]*co-authored-by:|generated with[[:space:]]+\[?claude|claude\.com/claude-code|🤖'; then
   {
     echo "✗ commit blocked — co-authorship / AI-generation trailer detected."
     echo
