@@ -42,10 +42,12 @@ expect_blocked "claude.com/claude-code url"     "$(printf 'feat: x\n\nsee https:
 expect_blocked "robot marker"                   "$(printf 'feat: x\n\n\xf0\x9f\xa4\x96 automated')"
 # Any co-author trailer (e.g. one a different runtime might add) is rejected too:
 expect_blocked "generic co-authored-by trailer" "$(printf 'feat: x\n\nco-authored-by: some bot <bot@example.com>')"
+expect_blocked "Claude-Session trailer"         "$(printf 'feat: x\n\nClaude-Session: https://claude.ai/code/session_01ABC')"
 
 # Clean messages that MUST pass (regression guards for the two fixed false positives):
 expect_allowed "plain message"                  "chore: routine change"
 expect_allowed "prose mentions co-authored-by"  "docs: reject Co-authored-by: trailers in commit messages"
+expect_allowed "prose mentions claude-session"  "docs: strip Claude-Session: lines from history"
 scissors="$sandbox/scissors.txt"
 printf 'docs: edit\n\n# ------------------------ >8 ------------------------\n+Co-Authored-By: Claude <x@y.z>\n' > "$scissors"
 expect_hook_allows "commit -v diff quoting a trailer" "$scissors"

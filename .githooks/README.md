@@ -28,6 +28,7 @@ Notes:
 Rejects any commit whose message carries:
 
 - `Co-authored-by: …` (anchored to line start — prose that mentions it is allowed)
+- `Claude-Session: …`
 - `Generated with [Claude Code]` / `claude.com/claude-code`
 - `🤖`
 
