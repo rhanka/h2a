@@ -1,7 +1,13 @@
 import assert from "node:assert/strict";
+import { generateKeyPairSync } from "node:crypto";
 import test from "node:test";
 
-import { createH2aClusterMeshOuter } from "../dist/index.js";
+import {
+  createH2aClusterMeshOuter,
+  createReplayGuard,
+  formatSignedDriveInstruction,
+  verifySignedDriveInstruction
+} from "../dist/index.js";
 
 const now = new Date("2026-08-31T12:00:00.000Z");
 const actuatorRef = "h2a-pty:v1:a1-session";
@@ -26,6 +32,8 @@ test("should drive the real h2a adapter through the cluster-mesh OUTER path", as
   let wakeCalls = 0;
   let relaunchCalls = 0;
   let lostRegistrationId;
+  const instructionResolutions = [];
+  const drivenInstructionLines = [];
   const commands = new Map();
   const receipts = [];
   const resolutions = [];
@@ -40,6 +48,9 @@ test("should drive the real h2a adapter through the cluster-mesh OUTER path", as
       tmux: { session: "a1-session", window: "0", pane: "1" }
     }
   };
+  const { privateKey, publicKey } = generateKeyPairSync("ed25519");
+  const privateKeyPem = privateKey.export({ format: "pem", type: "pkcs8" }).toString();
+  const publicKeyPem = publicKey.export({ format: "pem", type: "spki" }).toString();
   const contextFor = (invocationId) => ({
     invocationId,
     correlationId: invocationId,
@@ -90,7 +101,7 @@ test("should drive the real h2a adapter through the cluster-mesh OUTER path", as
     }
   };
   const ok = (c) => c.json({ ok: true });
-  const { router } = createH2aClusterMeshOuter({
+  const outerDeps = {
     generationId: "generation-a1",
     config: { capacity: { poolSize: 4 } },
     context: {
@@ -138,8 +149,9 @@ test("should drive the real h2a adapter through the cluster-mesh OUTER path", as
       },
       drivers: {
         drive: {
-          async drive() {
+          async drive(request) {
             driveCalls += 1;
+            drivenInstructionLines.push(request.instructionLine);
             phase = "B";
             return true;
           }
@@ -164,41 +176,90 @@ test("should drive the real h2a adapter through the cluster-mesh OUTER path", as
       now: () => now.getTime()
     },
     now: () => now
-  });
-  const act = (action, commandId) => router.request(`/control/${action}`, {
+  };
+  const unresolvedOuter = createH2aClusterMeshOuter(outerDeps);
+  assert.equal(unresolvedOuter.mountPrefix, "/auth/session");
+  const act = (router, action, commandId) => router.request(`/auth/session/control/${action}`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
-      commandId,
+      commandRef: commandId,
       targetRegistrationId: registration.registrationId,
       idempotencyKey: `key-${commandId}`
     })
   });
 
-  const missing = await act("drive", "command-missing");
+  const missing = await act(unresolvedOuter.router, "drive", "command-missing");
   assert.deepEqual(
     [missing.status, await missing.json()],
     [409, { error: "missing_registration" }]
   );
 
   storedRegistration = registration;
-  const driven = await act("drive", "command-drive");
+  const unresolved = await act(
+    unresolvedOuter.router,
+    "drive",
+    "command-unresolved"
+  );
+  assert.deepEqual(
+    [unresolved.status, await unresolved.json()],
+    [409, { error: "command_unresolved" }]
+  );
+  assert.equal(driveCalls, 0);
+
+  const { router, mountPrefix } = createH2aClusterMeshOuter({
+    ...outerDeps,
+    instructions: {
+      async resolve(input) {
+        instructionResolutions.push(input);
+        return {
+          kind: "signed-instruction",
+          instructionLine: formatSignedDriveInstruction({
+            from: "workload-a1",
+            to: "a1-session",
+            instruction: `${input.action}:${input.commandRef}`,
+            privateKeyPem,
+            nonce: `nonce-${input.commandRef}`,
+            at: now.toISOString()
+          })
+        };
+      }
+    }
+  });
+  assert.equal(mountPrefix, "/auth/session");
+
+  const driven = await act(router, "drive", "command-drive");
   const drivenBody = await driven.json();
   assert.deepEqual([driven.status, drivenBody.status], [200, "acted"]);
   assert.equal(phase, "B");
-  assert.match(drivenBody.effectRef, /^h2a-pty:acted:drive:/);
+  assert.match(drivenBody.effectRef, /^h2a-pty:drive:/);
+  assert.equal(drivenInstructionLines.length, 1);
+  assert.notEqual(drivenInstructionLines[0], "command-drive");
+  assert.equal(
+    verifySignedDriveInstruction(drivenInstructionLines[0], {
+      resolvePublicKeys: () => [publicKeyPem],
+      guard: createReplayGuard(),
+      now: now.getTime()
+    }).ok,
+    true
+  );
+  assert.deepEqual(instructionResolutions[0], {
+    commandRef: "command-drive",
+    registrationId: registration.registrationId,
+    action: "drive"
+  });
   assert.ok(receipts.some(
     (receipt) => receipt.stage === "acted" && receipt.effectRef === drivenBody.effectRef
   ));
 
-  const relaunched = await act("relaunch", "command-relaunch");
+  const relaunched = await act(router, "relaunch", "command-relaunch");
   const relaunchBody = await relaunched.json();
   assert.deepEqual([relaunched.status, relaunchBody.status], [200, "acted"]);
   assert.deepEqual(relaunchBody.actedTargets, ["a1-session:0.1"]);
   assert.equal(relaunchCalls, 1);
 
   targetState = "dead";
-  const lost = await act("wake", "command-dead");
+  const lost = await act(router, "wake", "command-dead");
   assert.deepEqual(
     [lost.status, await lost.json()],
     [409, { error: "actuator_unavailable" }]

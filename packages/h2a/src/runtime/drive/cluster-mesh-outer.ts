@@ -2,8 +2,10 @@ import type { VerifiedInvocationContextPort } from "@sentropic/contracts";
 import type { InvocationReceiptPort } from "@sentropic/events";
 import {
   createClusterMeshRuntime,
+  createClusterMeshPlugin,
   createRegistrationGate,
   createSessionNamespaceModule,
+  type CommandInstructionPort,
   type ClusterMeshConfigInput,
   type ClusterMeshRuntimeStore,
   type DeviceRouteHandlers,
@@ -18,6 +20,21 @@ import {
   createH2aSessionTargetState,
   type H2aPtyActuatorDeps
 } from "./pty-actuator.js";
+
+export const H2A_CLUSTER_MESH_SESSION_MOUNT_PREFIX = "/auth/session";
+const H2A_CLUSTER_MESH_CONTROL_PATH = "/auth/session/control";
+
+/**
+ * Pending seam: native drive-line signing must durably resolve and verify the
+ * command/registration binding before this port can return an instruction.
+ */
+export function createH2aCommandInstructionResolver(): CommandInstructionPort {
+  return {
+    async resolve() {
+      return null;
+    }
+  };
+}
 
 export interface H2aClusterMeshOuterDeps {
   readonly generationId: string;
@@ -35,6 +52,8 @@ export interface H2aClusterMeshOuterDeps {
   readonly devices: DeviceRouteHandlers;
   readonly projection: SessionPathProjection;
   readonly author: SessionAuthorSelectionPort;
+  /** Defaults to the fail-closed resolver until native signed-drive resolution is wired. */
+  readonly instructions?: CommandInstructionPort;
   /** Optional effect dependencies preserve the real adapter while enabling hermetic effects. */
   readonly actuator?: H2aPtyActuatorDeps;
   readonly now?: () => Date;
@@ -49,6 +68,12 @@ export interface H2aClusterMeshOuterDeps {
 export function createH2aClusterMeshOuter(
   input: H2aClusterMeshOuterDeps
 ) {
+  if (`${H2A_CLUSTER_MESH_SESSION_MOUNT_PREFIX}${input.projection.control}` !==
+      H2A_CLUSTER_MESH_CONTROL_PATH) {
+    throw new Error(
+      `session control projection must mount at ${H2A_CLUSTER_MESH_CONTROL_PATH}`
+    );
+  }
   const pty = createH2aPtyActuator(input.actuator);
   const targets = createH2aSessionTargetState(input.actuator);
   const registration = createRegistrationGate({
@@ -73,14 +98,23 @@ export function createH2aClusterMeshOuter(
       runtime,
       store: input.store,
       targets,
+      instructions: input.instructions ?? createH2aCommandInstructionResolver(),
       author: input.author,
       now: input.now
     }
   });
-  const router = namespaceModule.createRouter({
-    context: runtime.context,
-    receipts: runtime.receiptPort
+  const router = createClusterMeshPlugin({
+    runtime,
+    namespaces: [namespaceModule],
+    mounts: { "/session": H2A_CLUSTER_MESH_SESSION_MOUNT_PREFIX }
   });
 
-  return { runtime, namespaceModule, router, pty, targets };
+  return {
+    runtime,
+    namespaceModule,
+    router,
+    pty,
+    targets,
+    mountPrefix: H2A_CLUSTER_MESH_SESSION_MOUNT_PREFIX
+  };
 }
