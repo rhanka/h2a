@@ -569,7 +569,7 @@ test("duplicate-name runtime refusal is surfaced as an error, never success", ()
   });
 });
 
-test("timeout reports unknown state and explicitly forbids blind retry", () => {
+test("timeout before session creation reports that retry is safe", () => {
   withWorkspace(({ workspaceRoot, workspace }) => {
     const req = validateH2aRunRequest(request(workspace), workspaceRoot);
     const timeout = new Error("timed out");
@@ -577,7 +577,30 @@ test("timeout reports unknown state and explicitly forbids blind retry", () => {
     const result = executeH2aRunWithSpawn(req, () => ({
       status: null,
       stdout: "",
-      stderr: "",
+      stderr:
+        '[h2a] h2a.run.phase/v1 {"launchId":"review-worker","phase":"pre-creation"}\n',
+      error: timeout
+    }));
+    assert.deepEqual(result, {
+      error: "h2a_run: launch status unknown after runtime timeout",
+      state: "unknown",
+      launchId: "review-worker",
+      retrySafe: true
+    });
+  });
+});
+
+test("timeout after session creation was attempted forbids blind retry", () => {
+  withWorkspace(({ workspaceRoot, workspace }) => {
+    const req = validateH2aRunRequest(request(workspace), workspaceRoot);
+    const timeout = new Error("timed out");
+    timeout.code = "ETIMEDOUT";
+    const result = executeH2aRunWithSpawn(req, () => ({
+      status: null,
+      stdout: "",
+      stderr:
+        '[h2a] h2a.run.phase/v1 {"launchId":"review-worker","phase":"pre-creation"}\n' +
+        '[h2a] h2a.run.phase/v1 {"launchId":"review-worker","phase":"creation-attempted"}\n',
       error: timeout
     }));
     assert.deepEqual(result, {
