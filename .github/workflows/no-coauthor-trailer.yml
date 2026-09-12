@@ -4,7 +4,7 @@ on:
   pull_request:
 
 jobs:
-  check:
+  scan-commits:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -24,3 +24,10 @@ jobs:
             exit 1
           fi
           echo "OK — no co-authorship / AI-generation trailers in PR commits."
+
+  hook-selftest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify the commit-msg hook blocks co-authored commits and allows clean ones
+        run: bash .githooks/test.sh
