@@ -1,0 +1,54 @@
+M04 native wake characterization
+state: characterization complete; cutover blocked by explicit pending seams
+scope: tests and run artifacts only; no cutover, candidate implementation, contract dependency, or production behavior change
+
+Authoritative inputs read
+- .h2a/runs/m04-wake/BRIEF.md
+- ratified LOT0-TDD-MATRIX.r2.2.md referenced by the brief
+- packages/h2a/test/twin-target-characterization.js
+- packages/h2a/test/m02-drive-characterization.test.js
+
+Observed native call paths
+- selection: createInboxWakeHandler -> decideInboxWake
+- signing: createInboxWakeHandler -> formatSignedDriveInstruction
+- local-tmux effect: localTmuxDriver -> literal tmux submit path
+- local-native effect: nativeBackchannelDriver -> h2a-runtime native-terminal drive operation
+
+Added characterization
+- Reused the Lot-1 twin-target scenario-and-phase oracle with native Target-A active and Target-B explicitly pending.
+- Confirmed boot backlog produces zero wake and one fresh selected envelope produces one exact, cryptographically verified signed wake in-process.
+- Observed the exact signed instruction at real local-tmux and headless local-native PTYs.
+- Confirmed local-native host runs under setsid with closed stdin, no controlling terminal, and an explicit PTY master/slave pair; the observer is in raw mode.
+- Exercised escape-sequence chunks, split UTF-8 observation, partial PTY writes, TIOCSWINSZ, native-terminal frame overflow, oversized signed input, and pipe closure.
+- Compared alive, wakeable, unavailable, stale, and key-revoked native state observations.
+- Applied F1/F2/F3 with worker restart and concurrent retry.
+- Independently observed post-effect/lost-receipt terminal wakes on local-tmux and local-native and proved the phase oracle rejects them as unreconciled.
+- Proved a restart after a lost F2 receipt emits no second wake because the restarted handler seeds the envelope as boot backlog.
+- Proved concurrent F2/F3 retries remain unsafe: both attempts create distinct signed nonces and can each emit a wake.
+- Proved native wake-request dry-run leaves target and durable state unchanged for both host-kind scenarios.
+
+Native gaps retained as explicit seams
+- Target-B needs the enlarged cluster-mesh 0.9.0 contract/capability bundle.
+- Native request identity has no target-registration, holder, or epoch binding and no durable receipt.
+- F1 restart suppresses a known pre-effect retry because pending work becomes boot backlog.
+- Concurrent F2/F3 retry can duplicate a wake; there is no durable reconciliation and the oracle refuses a green result.
+- The current self-wake handler does not consume registration revocation or custody evidence; a revoked signer key does not stop physical wake dispatch.
+- Contract-grade BUFFER_OVERFLOW, PIPE_CLOSED, and NO_CONTROLLING_TERMINAL outcomes and direct read-only mode remain unavailable.
+
+Verification
+- npm run build -w @sentropic/h2a: exit 0
+- node --check packages/h2a/test/m04-wake-characterization.test.js: exit 0
+- node --test packages/h2a/test/m04-wake-characterization.test.js: 17 total, 11 passed, 0 failed, 6 todo
+- node --test packages/h2a/test/twin-target-characterization.test.js packages/h2a/test/m02-drive-characterization.test.js packages/h2a/test/m04-wake-characterization.test.js: 34 total, 22 passed, 0 failed, 12 todo
+- npm test: exit 0 after an approved unsandboxed rerun of the existing sibling-directory isolation test
+  - Node: 2076 total, 2047 passed, 0 failed, 17 skipped, 12 todo
+  - Track: 87 files passed, 1190 tests passed
+
+Production-source guardrails
+- packages/h2a/src/runtime/drive/inbox-wake.ts was observed, not modified.
+- packages/h2a/src/runtime/drive/index.ts was observed, not modified.
+- packages/h2a/src/runtime/drive/pty-actuator.ts was observed, not modified.
+- No dependency or lockfile changed; installed cluster-mesh remains 0.8.1.
+- No push and no PR.
+
+head_sha: SELF (resolved from git HEAD after the atomic commit and reported at handoff)
