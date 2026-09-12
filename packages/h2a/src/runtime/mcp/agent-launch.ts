@@ -53,6 +53,26 @@ const ALLOWED_KEYS = new Set([
 const SAFE_NAME = /^[A-Za-z0-9_-]{1,64}$/;
 const SAFE_MODEL = /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$/;
 const MAX_PROMPT_BYTES = 65_536;
+const STRUCTURED_LAUNCH_PHASE_PREFIX = "[h2a] h2a.run.phase/v1 ";
+
+function retrySafeAfterTimeout(stderr: string, launchId: string): boolean {
+  let preCreation = false;
+  let creationAttempted = false;
+  for (const line of stderr.split("\n")) {
+    if (!line.startsWith(STRUCTURED_LAUNCH_PHASE_PREFIX)) continue;
+    try {
+      const phase = JSON.parse(
+        line.slice(STRUCTURED_LAUNCH_PHASE_PREFIX.length),
+      ) as { launchId?: unknown; phase?: unknown };
+      if (phase.launchId !== launchId) continue;
+      if (phase.phase === "pre-creation") preCreation = true;
+      if (phase.phase === "creation-attempted") creationAttempted = true;
+    } catch {
+      // Malformed or non-runtime stderr is never evidence that retry is safe.
+    }
+  }
+  return preCreation && !creationAttempted;
+}
 
 function isWithin(root: string, candidate: string): boolean {
   const rel = relative(root, candidate);
@@ -319,7 +339,7 @@ export function executeH2aRunWithSpawn(
         error: "h2a_run: launch status unknown after runtime timeout",
         state: "unknown",
         launchId: request.name,
-        retrySafe: false,
+        retrySafe: retrySafeAfterTimeout(result.stderr ?? "", request.name),
       };
     }
     throw result.error;

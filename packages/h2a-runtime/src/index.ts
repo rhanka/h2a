@@ -400,6 +400,7 @@ import {
 import { checkReadiness } from "./readiness.js";
 import { createInterface } from "node:readline";
 const H2A_RUN_API_VERSION = "h2a.run/v1";
+const STRUCTURED_LAUNCH_PHASE_PREFIX = "[h2a] h2a.run.phase/v1 ";
 const H2A_RUNTIME_VERSION = (
   JSON.parse(
     readFileSync(new URL("../package.json", import.meta.url), "utf8"),
@@ -6032,6 +6033,14 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           process.exitCode = 2;
           return;
         }
+        if (opts.json && opts.name) {
+          process.stderr.write(
+            `${STRUCTURED_LAUNCH_PHASE_PREFIX}${JSON.stringify({
+              launchId: opts.name,
+              phase: "pre-creation",
+            })}\n`,
+          );
+        }
         const sessionHost: SessionHostKind = resolveSessionHostKind(opts);
         if (sessionHost === "local-tmux") {
           if (!tmuxAvailable()) {
@@ -6300,6 +6309,14 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           let agentPane: string | undefined;
           let promptFile: string | undefined;
           let promptDelivery: PromptDeliveryResult | undefined;
+          if (opts.json && opts.name) {
+            process.stderr.write(
+              `${STRUCTURED_LAUNCH_PHASE_PREFIX}${JSON.stringify({
+                launchId: opts.name,
+                phase: "creation-attempted",
+              })}\n`,
+            );
+          }
           if (opts.headless) {
             const runDir = join(cwd, ".h2a", "runs", label!);
             mkdirSync(runDir, { recursive: true });
