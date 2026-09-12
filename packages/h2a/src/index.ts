@@ -848,7 +848,9 @@ export {
 
 export { createInboxWakeHandler, type InboxWakeHandlerDeps } from "./runtime/drive/inbox-wake.js";
 export {
+  createH2aCommandInstructionResolver,
   createH2aClusterMeshOuter,
+  H2A_CLUSTER_MESH_SESSION_MOUNT_PREFIX,
   type H2aClusterMeshOuterDeps
 } from "./runtime/drive/cluster-mesh-outer.js";
 export {
@@ -866,9 +868,12 @@ export type {
   ActuationRequest,
   ActuationResult,
   ClusterMeshRegistration,
+  CommandInstructionPort,
   PtyActuatorPort,
   RegistrationFailureReason,
-  SessionTargetStatePort
+  SessionTargetStatePort,
+  SignedInstruction,
+  TargetLiveness
 } from "@sentropic/cluster-mesh";
 export { agentVersion, readInstalledSkillVersion } from "./runtime/version/agent-version.js";
 
