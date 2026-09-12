@@ -1,42 +1,45 @@
 # Git hooks
 
-Repo-managed hooks. Enable once per clone:
+Repo-managed hooks that block co-authorship / AI-generation trailers in commit
+messages. The guard is **runtime-agnostic**: `claude`, `codex` and `agy` all commit
+through plain `git commit` (no `--no-verify`; h2a never commits programmatically),
+so git runs this hook for every one of them wherever `core.hooksPath` is set.
+
+## Install
 
 ```sh
-git config core.hooksPath .githooks
+bash .githooks/install.sh            # this repo only
+bash .githooks/install.sh --global   # every repo for this user — covers codex/agy
+                                     # even in fresh clones and sandbox workspaces
 ```
+
+`--local` sets `core.hooksPath .githooks` for the current repo. `--global` copies the
+hook into `~/.config/git/hooks` and points the user's global `core.hooksPath` there,
+so any runtime committing in any repo is gated (re-run after the hook changes).
 
 Notes:
 
-- A **relative** `core.hooksPath` resolves per worktree root, so a worktree checked
-  out on a branch that does not contain `.githooks/commit-msg` silently runs no hook.
-- A local `core.hooksPath` overrides any global one you may already have set.
+- A **relative** `core.hooksPath` resolves per worktree root, so a worktree on a
+  branch without `.githooks/commit-msg` runs no hook — prefer `--global` for coverage.
+- A local `core.hooksPath` overrides a global one.
 
 ## `commit-msg`
 
-Rejects any commit whose message carries a co-authorship or AI-generation trailer:
+Rejects any commit whose message carries:
 
 - `Co-authored-by: …` (anchored to line start — prose that mentions it is allowed)
 - `Generated with [Claude Code]` / `claude.com/claude-code`
 - `🤖`
 
 It ignores the `git commit -v` diff (scissors section) and comment lines, so a diff
-hunk or comment that merely quotes a trailer does not trigger a false positive.
-`bash .githooks/test.sh` verifies all of this with real commits.
+hunk or comment that quotes a trailer is not a false positive.
 
-## Enforcement (important)
+## Enforcement
 
-Local hooks are **opt-in** (`core.hooksPath`) and **bypassable** (`git commit --no-verify`),
-and a direct push never runs them. The CI workflow `.github/workflows/no-coauthor-trailer.yml`
-runs this **same hook** over each pull request's commits **and** over pushes to `main`.
-
-- On a **pull request**, a match makes `scan-commits` red — but that only *blocks the
-  merge* if `scan-commits` is configured as a **required status check** on `main`
-  (a repo setting, outside this PR). Until then the check is advisory.
-- On a **push to `main`**, the job cannot reject the push; it turns any trailer that
-  slipped in (merge-time composition, `--no-verify`, a bypassed clone) into a **red run
-  on `main`** instead of silence.
-
-This PR is **forward-looking**: it prevents new trailers. Trailers already in history
-(`main` currently carries several) are not removed by it — that requires a separate
-history rewrite.
+Local hooks are opt-in and bypassable (`--no-verify`), and a direct push never runs
+them. CI (`.github/workflows/no-coauthor-trailer.yml`) runs this **same hook** over
+each pull request's commits and over pushes to `main` — a match makes `scan-commits`
+red (it *blocks the merge* only when set as a required status check). `bash
+.githooks/test.sh` verifies all of the above with real commits, including that a
+GLOBAL install gates a repo that never configured a local hook (the codex/agy
+fresh-workspace case).
