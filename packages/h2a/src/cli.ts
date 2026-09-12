@@ -37,7 +37,7 @@
  * (`H2A_CLI_VERB_CONTRACTS`). Human-readable reference: `docs/cli-contract.md`.
  */
 
-import { execFileSync, spawnSync } from "node:child_process";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { generateKeyPairSync } from "node:crypto";
 import { once } from "node:events";
 import {
@@ -229,8 +229,6 @@ import {
   performUpgrade,
   currentCliVersion,
   upgradeCachePath,
-  canReexec,
-  reexecSelf,
   H2A_AUTO_UPGRADE_CHECK_TTL_MS,
   H2A_REEXEC_GUARD_ENV,
   H2A_UPGRADE_CHECK_TTL_MS,
@@ -1781,11 +1779,11 @@ export async function runMcpServe(
   }
 
   // DEC-107/108 (EVO-8 levels 2/3): version handling at boot. **Opt-in** — no
-  // network on a default boot. `--auto-upgrade` self-installs @latest then
-  // re-execs in place via process.execve (same PID/stdio, host stays connected;
-  // falls back to next-launch where execve is unavailable or `--no-restart`).
-  // `--upgrade-check` (notice only) prints a cached, bounded availability hint.
-  // The H2A_REEXEC_GUARD_ENV flag (set across the re-exec) prevents a re-loop.
+  // network on a default boot. Production check/install work runs in a
+  // detached process: spawnSync there cannot freeze the live MCP event loop,
+  // and the installed version applies on the next launch. Never re-exec this
+  // stdio process: replacing its image tears the connected JSON-RPC session.
+  // The guard remains honored when an older h2a re-execs into this version.
   const wantAutoUpgrade = flags["auto-upgrade"] !== undefined;
   const wantCheckOnly = flags["upgrade-check"] !== undefined;
   if (
@@ -1793,38 +1791,84 @@ export async function runMcpServe(
     process.env[H2A_REEXEC_GUARD_ENV] === undefined
   ) {
     try {
-      const current = currentCliVersion();
       // `--auto-upgrade` is opt-in to stay current → short (1h) cache so a
       // same-day release isn't masked by the 24h notice cache; the passive
       // `--upgrade-check` notice keeps the 24h throttle.
       const ttlMs = wantAutoUpgrade ? H2A_AUTO_UPGRADE_CHECK_TTL_MS : H2A_UPGRADE_CHECK_TTL_MS;
-      const result = checkUpgrade(current, {
-        cachePath: upgradeCachePath(root),
-        ttlMs,
-        ...(io.upgradeRuntime ? { runtime: io.upgradeRuntime } : {})
-      });
-      if (result.upgradeAvailable) {
-        if (wantAutoUpgrade) {
-          const ok = performUpgrade(io.upgradeRuntime);
-          if (ok && flags["no-restart"] === undefined && canReexec()) {
-            io.stderr.write(
-              `h2a mcp-serve: auto-upgraded ${current} → ${result.latest}; restarting into the new version…\n`
-            );
-            reexecSelf(); // on success the image is replaced (never returns)
+      if (io.upgradeRuntime) {
+        // Injectable source-proof seam. Production never runs the synchronous
+        // runtime here; its spawnSync calls live only in the detached worker.
+        setImmediate(() => {
+          try {
+            const current = currentCliVersion();
+            const result = checkUpgrade(current, {
+              cachePath: upgradeCachePath(root),
+              ttlMs,
+              runtime: io.upgradeRuntime
+            });
+            if (!result.upgradeAvailable) return;
+            if (wantAutoUpgrade) {
+              const ok = performUpgrade(io.upgradeRuntime);
+              io.stderr.write(
+                ok
+                  ? `h2a mcp-serve: auto-upgraded ${current} → ${result.latest} (applies on next launch)\n`
+                  : `h2a mcp-serve: auto-upgrade to ${result.latest} failed; staying on ${current}\n`
+              );
+            } else {
+              io.stderr.write(
+                `h2a mcp-serve: h2a ${result.latest} available (current ${current}) — run \`h2a upgrade\`\n`
+              );
+            }
+          } catch {
+            // best-effort: a check/upgrade failure must never affect serving.
           }
-          io.stderr.write(
-            ok
-              ? `h2a mcp-serve: auto-upgraded ${current} → ${result.latest} (applies on next launch)\n`
-              : `h2a mcp-serve: auto-upgrade to ${result.latest} failed; staying on ${current}\n`
-          );
-        } else {
-          io.stderr.write(
-            `h2a mcp-serve: h2a ${result.latest} available (current ${current}) — run \`h2a upgrade\`\n`
-          );
-        }
+        });
+      } else {
+        const workerSource = String.raw`
+const [moduleUrl, root, ttl, mode] = process.argv.slice(1);
+try {
+  const upgrade = await import(moduleUrl);
+  const current = upgrade.currentCliVersion();
+  const result = upgrade.checkUpgrade(current, {
+    cachePath: upgrade.upgradeCachePath(root),
+    ttlMs: Number(ttl)
+  });
+  if (result.upgradeAvailable) {
+    if (mode === "auto") {
+      const ok = upgrade.performUpgrade();
+      process.stderr.write(ok
+        ? "h2a mcp-serve: auto-upgraded " + current + " → " + result.latest + " (applies on next launch)\n"
+        : "h2a mcp-serve: auto-upgrade to " + result.latest + " failed; staying on " + current + "\n");
+    } else {
+      process.stderr.write("h2a mcp-serve: h2a " + result.latest + " available (current " + current + ") — run \`h2a upgrade\`\n");
+    }
+  }
+} catch {
+  // Best-effort background maintenance must not affect the MCP server.
+}
+`;
+        const worker = spawn(
+          process.execPath,
+          [
+            "--input-type=module",
+            "--eval",
+            workerSource,
+            "--",
+            new URL("./runtime/upgrade/index.js", import.meta.url).href,
+            root,
+            String(ttlMs),
+            wantAutoUpgrade ? "auto" : "check"
+          ],
+          {
+            detached: true,
+            stdio: ["ignore", "ignore", "inherit"]
+          }
+        );
+        worker.once("error", () => {});
+        worker.unref();
       }
     } catch {
-      // best-effort: a check/upgrade failure must never block serving.
+      // best-effort: worker launch failure must never block serving.
     }
   }
 
