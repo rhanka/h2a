@@ -1,0 +1,33 @@
+name: no co-author trailer
+
+on:
+  pull_request:
+
+jobs:
+  scan-commits:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Scan PR commit messages for co-authorship / AI-generation trailers
+        run: |
+          base="${{ github.event.pull_request.base.sha }}"
+          head="${{ github.event.pull_request.head.sha }}"
+          bad=$(git log --format='%H %s%n%b%n--' "$base..$head" \
+                | grep -iE 'co-authored-by:|generated with[[:space:]]+\[?claude|claude\.com/claude-code|🤖' || true)
+          if [ -n "$bad" ]; then
+            echo "::error::Co-authorship / AI-generation trailer found in PR commit messages."
+            echo "$bad"
+            echo
+            echo "Remove Co-authored-by / 'Generated with Claude' / 🤖 lines (rebase or squash-merge)."
+            exit 1
+          fi
+          echo "OK — no co-authorship / AI-generation trailers in PR commits."
+
+  hook-selftest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify the commit-msg hook blocks co-authored commits and allows clean ones
+        run: bash .githooks/test.sh

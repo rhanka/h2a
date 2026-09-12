@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+# Repo policy: commit messages must NOT carry co-authorship or AI-generation trailers.
+# Enable locally once per clone:  git config core.hooksPath .githooks
+# CI enforces the same rule on pull requests (.github/workflows/no-coauthor-trailer.yml).
+set -euo pipefail
+
+msg_file="${1:?commit-msg hook requires the commit message file path}"
+
+# Case-insensitive scan of the whole commit message.
+if grep -iEq 'co-authored-by:|generated with[[:space:]]+\[?claude|claude\.com/claude-code|🤖' "$msg_file"; then
+  {
+    echo "✗ commit blocked — co-authorship / AI-generation trailer detected."
+    echo
+    echo "  This repo forbids these lines in commit messages:"
+    echo "    • Co-authored-by: …"
+    echo "    • Generated with [Claude Code] / claude.com/claude-code"
+    echo "    • 🤖"
+    echo
+    echo "  Remove the offending line(s) from the commit message and try again."
+  } >&2
+  exit 1
+fi
+exit 0
