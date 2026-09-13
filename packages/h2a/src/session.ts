@@ -77,6 +77,10 @@ export interface H2ALaunchContext {
     readonly window?: string;
     readonly pane: string;
   };
+  /** Owning native-terminal session, published to the MCP sidecar at launch. */
+  readonly nativePty?: {
+    readonly session: string;
+  };
 }
 
 export interface H2ASessionInterests {
@@ -157,6 +161,11 @@ function isLaunchContext(value: unknown): value is H2ALaunchContext {
     const t = v.tmux as Record<string, unknown>;
     if (typeof t.session !== "string" || typeof t.pane !== "string") return false;
     if (t.window !== undefined && typeof t.window !== "string") return false;
+  }
+  if (v.nativePty !== undefined) {
+    if (!v.nativePty || typeof v.nativePty !== "object") return false;
+    const n = v.nativePty as Record<string, unknown>;
+    if (typeof n.session !== "string" || n.session.length === 0) return false;
   }
   return true;
 }

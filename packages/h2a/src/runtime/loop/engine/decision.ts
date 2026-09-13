@@ -39,7 +39,10 @@ export interface AgentsSnapshot {
 export interface PresenceView {
   readonly instance: string;
   readonly liveSession: boolean;
-  readonly hasTmuxLaunchContext: boolean;
+  /** Local terminal capable of receiving a wake once its transport is wired. */
+  readonly wakeTransport?: "local-tmux" | "native-pty";
+  /** Backward-compatible projection consumed by older callers/tests. */
+  readonly hasTmuxLaunchContext?: boolean;
   /** Drumbeat self-declared work status (DEC-084): working | paused | done |
    *  blocked | out-of-tokens. Optional (only set when the agent records it). */
   readonly workStatus?: string;
@@ -102,6 +105,7 @@ export interface TickAction {
   readonly agentId?: string; // loop agent id
   readonly refLocator?: string;
   readonly decisionId?: string;
+  readonly wakeTransport?: "local-tmux" | "native-pty";
 }
 
 export type TickOutcome =
@@ -171,7 +175,8 @@ function findPresence(
 }
 
 function presenceCanWake(presence: PresenceView | undefined): boolean {
-  return presence?.liveSession === true && presence.hasTmuxLaunchContext === true;
+  return presence?.liveSession === true &&
+    (presence.wakeTransport !== undefined || presence.hasTmuxLaunchContext === true);
 }
 
 /**
@@ -356,11 +361,16 @@ export function planLoopTick(input: TickInput): TickPlan {
           (!projected || DEAD_STATES.has(projected.state) || IDLE_STATES.has(projected.state)) &&
           presenceIdleEnoughToWake(livePresence as PresenceView, input.now, loop.policy.idleMs)
         ) {
-          actions.push(action({ type: "wake", agentId: a.id, reason: "agent idle/stalled in h2a presence while work pending" }));
+          actions.push(action({
+            type: "wake",
+            agentId: a.id,
+            wakeTransport: livePresence?.wakeTransport ?? "local-tmux",
+            reason: "agent idle/stalled in h2a presence while work pending"
+          }));
         }
         continue;
       }
-      // Live on the bus but NOT tmux-wakeable (no launchContext.tmux): it is not
+      // Live on the bus but without a locally wakeable launch context: it is not
       // "missing/dead" — do not emit a false request-launch (which would burn the
       // relance budget for a live agent). Leave it as a noop.
       if (livePresence?.liveSession === true) {
