@@ -177,7 +177,7 @@ test("should drive the real h2a adapter through the cluster-mesh OUTER path", as
     },
     now: () => now
   };
-  const unresolvedOuter = createH2aClusterMeshOuter(outerDeps);
+  const unresolvedOuter = await createH2aClusterMeshOuter(outerDeps);
   assert.equal(unresolvedOuter.mountPrefix, "/auth/session");
   const act = (router, action, commandId) => router.request(`/auth/session/control/${action}`, {
     method: "POST",
@@ -207,7 +207,7 @@ test("should drive the real h2a adapter through the cluster-mesh OUTER path", as
   );
   assert.equal(driveCalls, 0);
 
-  const { router, mountPrefix } = createH2aClusterMeshOuter({
+  const { router, mountPrefix } = await createH2aClusterMeshOuter({
     ...outerDeps,
     instructions: {
       async resolve(input) {

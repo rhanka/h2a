@@ -847,12 +847,14 @@ export {
 } from "./runtime/drive/index.js";
 
 export { createInboxWakeHandler, type InboxWakeHandlerDeps } from "./runtime/drive/inbox-wake.js";
-export {
-  createH2aCommandInstructionResolver,
-  createH2aClusterMeshOuter,
-  H2A_CLUSTER_MESH_SESSION_MOUNT_PREFIX,
-  type H2aClusterMeshOuterDeps
-} from "./runtime/drive/cluster-mesh-outer.js";
+export type { H2aClusterMeshOuterDeps } from "./runtime/drive/cluster-mesh-outer.js";
+
+export async function createH2aClusterMeshOuter(
+  input: import("./runtime/drive/cluster-mesh-outer.js").H2aClusterMeshOuterDeps
+) {
+  const outer = await import("./runtime/drive/cluster-mesh-outer.js");
+  return outer.createH2aClusterMeshOuter(input);
+}
 export {
   createH2aPtyActuator,
   createH2aSessionTargetState,
