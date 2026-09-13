@@ -16,7 +16,8 @@ import type {
   ActuationResult,
   ClusterMeshRegistration,
   PtyActuatorPort,
-  SessionTargetStatePort
+  SessionTargetStatePort,
+  TargetLiveness
 } from "@sentropic/cluster-mesh";
 
 const ACTUATOR_REF_PREFIX = "h2a-pty:v1:";
@@ -45,7 +46,7 @@ export type ActuationTarget =
       readonly launchContext?: H2ALaunchContext;
     };
 
-export type H2aTargetState = "alive" | "dead" | "parked" | "unknown";
+export type H2aTargetState = TargetLiveness;
 
 /**
  * The registration is optional because the health-only port methods receive
@@ -310,10 +311,10 @@ function receiptTarget(target: ActuationTarget): string {
   }
 }
 
-function driverRequest(target: ActuationTarget, commandRef: string) {
+function driverRequest(target: ActuationTarget, instructionLine: string) {
   return {
     to: target.kind === "native-terminal" ? target.sessionId : target.instance,
-    instructionLine: commandRef,
+    instructionLine,
     ...(target.host !== undefined ? { host: target.host } : {}),
     ...(target.launchContext !== undefined
       ? { launchContext: target.launchContext }
@@ -339,6 +340,21 @@ export function createH2aPtyActuator(
   const now = deps.now ?? Date.now;
   let receiptSequence = 0;
 
+  const probeState = async (actuatorRef: string): Promise<TargetLiveness> => {
+    let target: ActuationTarget | null;
+    try {
+      target = resolve(actuatorRef);
+    } catch {
+      return "unknown";
+    }
+    if (target === null) return "dead";
+    try {
+      return await probe(target);
+    } catch {
+      return "unknown";
+    }
+  };
+
   const result = (
     input: ActuationRequest,
     outcome: "acted" | "deferred" | "failed",
@@ -352,7 +368,8 @@ export function createH2aPtyActuator(
       .digest("hex")
       .slice(0, 20);
     return {
-      effectRef: `h2a-pty:${outcome}:${input.action}:${digest}`,
+      effectRef: `h2a-pty:${input.action}:${digest}`,
+      outcome,
       actedTargets:
         outcome === "acted" && target !== undefined
           ? [receiptTarget(target)]
@@ -363,19 +380,9 @@ export function createH2aPtyActuator(
   return {
     kind: "pty",
     async isAvailable(actuatorRef) {
-      let target: ActuationTarget | null;
-      try {
-        target = resolve(actuatorRef);
-      } catch {
-        return false;
-      }
-      if (target === null) return false;
-      try {
-        return (await probe(target)) === "alive";
-      } catch {
-        return false;
-      }
+      return (await probeState(actuatorRef)) === "alive";
     },
+    probeState,
     async actuate(input) {
       let target: ActuationTarget | null;
       try {
@@ -408,7 +415,10 @@ export function createH2aPtyActuator(
         return result(input, acted ? "acted" : "failed", acted ? target : undefined);
       }
 
-      if (input.commandRef.trim().length === 0) return result(input, "deferred");
+      const instructionLine = input.resolvedInstruction.instructionLine;
+      if (typeof instructionLine !== "string" || instructionLine.trim().length === 0) {
+        return result(input, "deferred");
+      }
       let state: H2aTargetState;
       try {
         state = await probe(target);
@@ -420,7 +430,7 @@ export function createH2aPtyActuator(
       let acted = false;
       try {
         const driver = deps.drivers?.[input.action] ?? await defaultDriver(target);
-        acted = await driver.drive(driverRequest(target, input.commandRef));
+        acted = await driver.drive(driverRequest(target, instructionLine));
       } catch {
         acted = false;
       }

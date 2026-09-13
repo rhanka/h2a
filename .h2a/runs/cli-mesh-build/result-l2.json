@@ -1,0 +1,90 @@
+{
+  "state": "complete",
+  "dep_bumped": {
+    "package": "@sentropic/cluster-mesh",
+    "from": "0.8.1",
+    "to": "0.9.0",
+    "installed_version": "0.9.0",
+    "published_declarations_verified": true
+  },
+  "files_changed": [
+    "package-lock.json",
+    "packages/h2a/package.json",
+    "packages/h2a/src/index.ts",
+    "packages/h2a/src/runtime/drive/cluster-mesh-outer.ts",
+    "packages/h2a/src/runtime/drive/pty-actuator.ts",
+    "packages/h2a/test/cluster-mesh-outer.test.js",
+    "packages/h2a/test/pty-actuator.test.js",
+    ".h2a/runs/cli-mesh-build/review-l2.md",
+    ".h2a/runs/cli-mesh-build/result-l2.json",
+    ".h2a/runs/cli-mesh-build/output-l2.log"
+  ],
+  "a1_status": {
+    "status": "green",
+    "command": "node --test packages/h2a/test/cluster-mesh-outer.test.js",
+    "exit_code": 0,
+    "tests": 1,
+    "passed": 1,
+    "failed": 0
+  },
+  "tsc_exit": 0,
+  "tsc_apps_status": {
+    "status": "green",
+    "typescript_apps": {
+      "command": "npx tsc -b --force --pretty false apps/control-plane apps/llm-gateway",
+      "exit_code": 0
+    },
+    "focus_app": {
+      "tsc_command": "npx tsc -b --force --pretty false apps/focus",
+      "tsc_exit_code": 0,
+      "check_command": "npm run check --prefix apps/focus",
+      "check_exit_code": 0,
+      "errors": 0,
+      "warnings": 9
+    }
+  },
+  "consumer_break": false,
+  "mount_prefix": "/auth/session",
+  "pending_seams": [
+    "Native durable signed-drive-line resolution remains pending; the default CommandInstructionPort returns null and the gate responds 409 command_unresolved.",
+    "Messaging commission consumption remains pending for the contract-owner 0.10.0 lot.",
+    "OQ5 commission consumption remains pending for the contract-owner 0.10.0 lot.",
+    "Launch-context commission consumption remains pending for the contract-owner 0.10.0 lot.",
+    "Production CLI cutover remains pending; native drive, wake, relaunch, and restart dispatch stays authoritative."
+  ],
+  "tests": {
+    "focused_adapter_and_a1": {
+      "command": "node --test packages/h2a/test/cluster-mesh-outer.test.js packages/h2a/test/pty-actuator.test.js",
+      "tests": 9,
+      "passed": 9,
+      "failed": 0
+    },
+    "full_baseline": {
+      "command": "npm test",
+      "exit_code": 0,
+      "node": {
+        "tests": 2059,
+        "passed": 2036,
+        "failed": 0,
+        "skipped": 17,
+        "todo": 6
+      },
+      "vitest": {
+        "files": 87,
+        "tests": 1190,
+        "passed": 1190,
+        "failed": 0
+      }
+    }
+  },
+  "notes": [
+    "The implementation follows the installed published 0.9.0 declarations in node_modules/@sentropic/cluster-mesh/dist/**/*.d.ts.",
+    "The published session control body uses commandRef; the A1 fixture was migrated from the 0.8.1 commandId shape.",
+    "Root npx tsc -b --force --pretty false exited 0; explicit non-Svelte package and service-app project builds also exited 0, and Track's supported production build passed inside npm test.",
+    "apps/focus is excluded from the root npm workspace; its supported check completed with 0 errors and 9 warnings, generated the SvelteKit TypeScript base, and its subsequent raw tsc -b exited 0.",
+    "A diagnostic raw sweep before SvelteKit sync failed because apps/focus had no generated base; packages/track test sources are not its production build target, while Track's supported production TypeScript build passed inside npm test.",
+    "The A1 proof uses the published custody-required gate, the real h2a PTY adapter, probeState, typed outcomes, a cryptographically signed resolved instruction, and the mounted /auth/session/control path.",
+    "No production CLI verb was routed through the OUTER path.",
+    "Harness consensus review selection failed because exact author model and effort metadata were unavailable; review-l2.md records the failure and no consensus verdict is claimed."
+  ]
+}

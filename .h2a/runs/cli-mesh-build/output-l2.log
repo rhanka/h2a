@@ -1,0 +1,54 @@
+BUILD lot 2 — published cluster-mesh 0.9.0 core adaptation
+state: complete
+branch: feat/cli-mesh-0.9.0-core
+base: 8bc3134d
+cutover: none; native production dispatch remains authoritative
+
+Published contract
+- packages/h2a dependency bumped from @sentropic/cluster-mesh 0.8.1 to 0.9.0.
+- npm install completed and installed package version 0.9.0 was verified.
+- Published declarations under node_modules/@sentropic/cluster-mesh/dist/**/*.d.ts were read before adaptation.
+- Required 0.9.0 deltas observed: TargetLiveness/probeState, typed ActuationResult.outcome, resolvedInstruction, custody enforcement, CommandInstructionPort, commandRef request body, and explicit session mount contract.
+
+Implementation
+- PTY actuator exposes probeState while isAvailable remains alive-only.
+- PTY drive/wake effects use resolvedInstruction.instructionLine, never commandRef as executable input.
+- ActuationResult carries outcome as a typed field; effectRef no longer encodes the outcome.
+- Default h2a CommandInstructionPort fails closed with null, producing 409 command_unresolved.
+- Real signed-drive resolution remains a pending seam; no signing evidence is synthesized by the adapter or default resolver.
+- Session namespace mount prefix is /auth/session; projection.control /control resolves to /auth/session/control.
+- Factory result records mountPrefix=/auth/session.
+- No CLI production verb references createH2aClusterMeshOuter.
+
+A1 hermetic proof
+- command: node --test packages/h2a/test/cluster-mesh-outer.test.js
+- result: GREEN, 1 passed, 0 failed.
+- proves missing registration, fail-closed command_unresolved, verified context with custody, probeState selection, resolved signed instruction delivery, typed acted outcome, relaunch, dead-target loss marking, and exact mounted path.
+- delivered drive input is independently signature-verified and differs from opaque commandRef.
+
+TypeScript and app consumer verification
+- npx tsc -b --force --pretty false: exit 0.
+- explicit non-Svelte package build projects: exit 0.
+- npx tsc -b --force --pretty false apps/control-plane apps/llm-gateway: exit 0.
+- npm run check --prefix apps/focus: exit 0, 0 errors, 9 warnings.
+- npx tsc -b --force --pretty false apps/focus after SvelteKit sync: exit 0.
+- Track supported production build passed inside npm test.
+- consumer_break: false; cluster-mesh source consumers are confined to packages/h2a and satisfy the 0.9.0 ports.
+
+Full baseline
+- npm test: exit 0.
+- Node: 2059 total, 2036 passed, 0 failed, 17 skipped, 6 todo.
+- Vitest: 87 files passed, 1190 tests passed, 0 failed.
+- The first sandboxed run hit EROFS in a test that creates a sibling temporary directory; the identical command was rerun with the required filesystem permission and completed green.
+
+Pending seams
+- Native durable signed-drive-line resolution; default remains 409 command_unresolved.
+- Messaging commission consumption in contract-owner 0.10.0.
+- OQ5 commission consumption in contract-owner 0.10.0.
+- Launch-context commission consumption in contract-owner 0.10.0.
+- Production CLI cutover; native dispatch remains authoritative.
+
+Review
+- harness review target diff sha256: 39eeaff000e5a21aec0fc51e284bcb8345b0fd77c45f628ed2a0515bf4facaee.
+- peer selection status: selection-failed because exact author model and effort metadata were unavailable.
+- no peer legs were dispatched and no consensus verdict is claimed.
