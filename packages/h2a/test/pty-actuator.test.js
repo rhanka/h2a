@@ -25,6 +25,11 @@ const registration = {
   leaseExpiresAt: "2000-01-01T00:00:00.000Z"
 };
 
+const resolvedInstruction = (instructionLine) => ({
+  kind: "signed-instruction",
+  instructionLine
+});
+
 function tmuxTarget(overrides = {}) {
   return {
     kind: "tmux",
@@ -108,17 +113,20 @@ test("should report dead and issue no drive when the resolved target has exited"
   const state = createH2aSessionTargetState(deps);
 
   assert.equal(await actuator.isAvailable(registration.actuatorRef), false);
+  assert.equal(await actuator.probeState(registration.actuatorRef), "dead");
   assert.equal(await state.inspect(registration.actuatorRef), "dead");
   const result = await actuator.actuate({
     registration,
     action: "drive",
-    commandRef: "command-ref-1"
+    commandRef: "command-ref-1",
+    resolvedInstruction: resolvedInstruction("signed-line-1")
   });
 
+  assert.equal(result.outcome, "failed");
   assert.deepEqual(result.actedTargets, []);
-  assert.match(result.effectRef, /^h2a-pty:failed:drive:/);
+  assert.match(result.effectRef, /^h2a-pty:drive:/);
   assert.equal(driverCalls.length, 0);
-  assert.equal(probeCalls.length, 3);
+  assert.equal(probeCalls.length, 4);
 });
 
 test("should report an absent target dead and return an empty receipt", async () => {
@@ -137,13 +145,16 @@ test("should report an absent target dead and return an empty receipt", async ()
   const state = createH2aSessionTargetState(deps);
 
   assert.equal(await actuator.isAvailable(registration.actuatorRef), false);
+  assert.equal(await actuator.probeState(registration.actuatorRef), "dead");
   assert.equal(await state.inspect(registration.actuatorRef), "dead");
   const result = await actuator.actuate({
     registration,
     action: "wake",
-    commandRef: "command-ref-2"
+    commandRef: "command-ref-2",
+    resolvedInstruction: resolvedInstruction("signed-line-2")
   });
 
+  assert.equal(result.outcome, "deferred");
   assert.deepEqual(result.actedTargets, []);
   assert.equal(driverCalls, 0);
 });
@@ -165,11 +176,13 @@ test("should never relaunch when no command was recorded", async () => {
   const result = await actuator.actuate({
     registration,
     action: "relaunch",
-    commandRef: "must-not-be-used-as-a-launch-command"
+    commandRef: "must-not-be-used-as-a-launch-command",
+    resolvedInstruction: resolvedInstruction("must-not-be-used-as-a-launch-command")
   });
 
+  assert.equal(result.outcome, "deferred");
   assert.deepEqual(result.actedTargets, []);
-  assert.match(result.effectRef, /^h2a-pty:deferred:relaunch:/);
+  assert.match(result.effectRef, /^h2a-pty:relaunch:/);
   assert.equal(relaunchCalls, 0);
 });
 
@@ -192,20 +205,23 @@ test("should return a real target receipt for successful drive and wake effects"
   const state = createH2aSessionTargetState(deps);
 
   assert.equal(await actuator.isAvailable(registration.actuatorRef), true);
+  assert.equal(await actuator.probeState(registration.actuatorRef), "alive");
   assert.equal(await state.inspect(registration.actuatorRef), "alive");
   for (const action of ["drive", "wake"]) {
     const result = await actuator.actuate({
       registration,
       action,
-      commandRef: `command-ref-${action}`
+      commandRef: `command-ref-${action}`,
+      resolvedInstruction: resolvedInstruction(`signed-line-${action}`)
     });
+    assert.equal(result.outcome, "acted");
     assert.deepEqual(result.actedTargets, [target.target]);
-    assert.match(result.effectRef, new RegExp(`^h2a-pty:acted:${action}:`));
+    assert.match(result.effectRef, new RegExp(`^h2a-pty:${action}:`));
   }
   assert.equal(calls.length, 2);
   assert.deepEqual(calls.map((call) => call.instructionLine), [
-    "command-ref-drive",
-    "command-ref-wake"
+    "signed-line-drive",
+    "signed-line-wake"
   ]);
 });
 
@@ -221,11 +237,13 @@ test("should return an empty receipt when a driver reports no effect", async () 
   const result = await actuator.actuate({
     registration,
     action: "drive",
-    commandRef: "command-ref-failed"
+    commandRef: "command-ref-failed",
+    resolvedInstruction: resolvedInstruction("signed-line-failed")
   });
 
+  assert.equal(result.outcome, "failed");
   assert.deepEqual(result.actedTargets, []);
-  assert.match(result.effectRef, /^h2a-pty:failed:drive:/);
+  assert.match(result.effectRef, /^h2a-pty:drive:/);
 });
 
 test("should relaunch exactly once when a recorded command produces an effect", async () => {
@@ -248,11 +266,13 @@ test("should relaunch exactly once when a recorded command produces an effect", 
   const result = await actuator.actuate({
     registration,
     action: "relaunch",
-    commandRef: "command-ref-relaunch"
+    commandRef: "command-ref-relaunch",
+    resolvedInstruction: resolvedInstruction("signed-line-relaunch")
   });
 
+  assert.equal(result.outcome, "acted");
   assert.deepEqual(result.actedTargets, [target.target]);
-  assert.match(result.effectRef, /^h2a-pty:acted:relaunch:/);
+  assert.match(result.effectRef, /^h2a-pty:relaunch:/);
   assert.equal(findings.length, 1);
   assert.equal(findings[0].instance, target.instance);
   assert.equal(findings[0].launchContext.resumeCommand, "codex resume conversation-1");
@@ -301,11 +321,13 @@ test("should relaunch from the command persisted as the presence resume fallback
     const result = await actuator.actuate({
       registration,
       action: "relaunch",
-      commandRef: "command-ref-relaunch-fallback"
+      commandRef: "command-ref-relaunch-fallback",
+      resolvedInstruction: resolvedInstruction("signed-line-relaunch-fallback")
     });
 
+    assert.equal(result.outcome, "acted");
     assert.deepEqual(result.actedTargets, ["worker:2.1"]);
-    assert.match(result.effectRef, /^h2a-pty:acted:relaunch:/);
+    assert.match(result.effectRef, /^h2a-pty:relaunch:/);
     assert.equal(relaunchCalls.length, 1);
     assert.equal(
       relaunchCalls[0].launchContext.resumeCommand,
