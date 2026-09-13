@@ -1875,7 +1875,12 @@ try {
   // EVO-1 inbox wake (bug #3): --wake <driver-kind> injects a signed wake on
   // inbox arrival (requires --auto-open + a resolvable private key).
   const WAKE_KINDS: readonly string[] = ["logging", "native", "local-tmux", "headless", "auto"];
-  let wake: { driver: H2ADriver; privateKeyPem: string } | undefined;
+  const nativeSessionId = nativePtyWakeTarget(readinessEnv);
+  let wake: {
+    driver: H2ADriver;
+    privateKeyPem: string;
+    nativeSessionId?: string;
+  } | undefined;
   if (flags.wake !== undefined && !WAKE_KINDS.includes(flags.wake)) {
     io.stderr.write(
       "h2a mcp-serve: --wake must be one of logging|native|local-tmux|headless|auto; ignored\n"
@@ -1891,11 +1896,23 @@ try {
       const log = (line: string) => io.stderr.write(`${line}\n`);
       // `auto` for a self-wake is native→local-tmux ONLY (no headless leg — its
       // fallback spawns a new agent, wrong for waking yourself).
+      // A native sidecar deliberately keeps the shared configured command
+      // (`--wake local-tmux`): its launcher marker switches only this process
+      // to the native backchannel, leaving the tmux launch path unchanged.
       const driver =
         flags.wake === "auto"
           ? chainDriver(nativePtyBackchannelDriver(log), localTmuxDriver({ log }))
-          : buildDriveDriver(flags.wake as H2ADriverKind, log);
-      wake = { driver, privateKeyPem };
+          : buildDriveDriver(
+              nativeSessionId !== undefined && flags.wake === "local-tmux"
+                ? "native"
+                : flags.wake as H2ADriverKind,
+              log
+            );
+      wake = {
+        driver,
+        privateKeyPem,
+        ...(nativeSessionId !== undefined ? { nativeSessionId } : {})
+      };
     } catch (err) {
       io.stderr.write(`h2a mcp-serve: --wake disabled (cannot read key): ${(err as Error).message}\n`);
     }
@@ -3559,6 +3576,22 @@ function nativePtyBackchannelDriver(log: (line: string) => void): H2ADriver {
       return ok;
     },
   });
+}
+
+const H2A_NATIVE_TARGET_SESSION_ENV = "H2A_NATIVE_TARGET_SESSION";
+
+function nativePtyWakeTarget(env: NodeJS.ProcessEnv): string | undefined {
+  const value = env[H2A_NATIVE_TARGET_SESSION_ENV];
+  if (
+    value === undefined ||
+    value.length === 0 ||
+    value.length > 256 ||
+    value.trim() !== value ||
+    /[\u0000-\u001f\u007f-\u009f]/u.test(value)
+  ) {
+    return undefined;
+  }
+  return value;
 }
 
 function driveReplayGuard(root: string): H2AReplayGuard {

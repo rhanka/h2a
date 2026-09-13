@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { spawn, type ChildProcess } from "node:child_process";
 import { generateKeyPairSync } from "node:crypto";
 import { once } from "node:events";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -11,6 +11,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { createLocalStore, runCli } from "@sentropic/h2a";
 
 import { enroll } from "../registry.js";
+import { startNativeH2aSidecar } from "../native-host.js";
 import { NativeTerminalClient } from "./client.js";
 import { NativeTerminalHostSupervisor, type NativeTerminalHostSpawn } from "./supervisor.js";
 
@@ -158,6 +159,32 @@ describe.skipIf(process.platform !== "linux")("h2a drive native PTY backchannel"
         source: "run",
         sessionClass: "human",
       });
+
+      // The native sidecar is a different PTY from the agent. Its launcher
+      // must publish the main session id so inbox-wake writes to this PTY's
+      // master instead of trying the sidecar itself (or a tmux pane).
+      const markerScript = join(directory, "capture-native-target.mjs");
+      const markerPath = join(directory, "native-target.txt");
+      await writeFile(
+        markerScript,
+        "import { writeFileSync } from 'node:fs';\n" +
+          "writeFileSync(process.argv[2], process.env.H2A_NATIVE_TARGET_SESSION ?? '');\n",
+      );
+      assert.equal(
+        startNativeH2aSidecar(
+          sessionId,
+          directory,
+          `${process.execPath} ${markerScript} ${markerPath}`,
+        ),
+        true,
+      );
+      assert.equal(
+        await eventually(
+          () => readFile(markerPath, "utf8").catch(() => ""),
+          (value) => value === sessionId,
+        ),
+        sessionId,
+      );
       const keys = generateKeyPairSync("ed25519");
       const privateKeyPem = keys.privateKey.export({ format: "pem", type: "pkcs8" }).toString();
       const publicKeyPem = keys.publicKey.export({ format: "pem", type: "spki" }).toString();
