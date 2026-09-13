@@ -45,10 +45,17 @@ Never declare an item done without owner UAT. Measure before changing production
 
 ## Deploy gotchas
 
-**`npm install -g .` depuis l'arbre principal** : après tout install global depuis
-`/home/antoinefa/src/h2a`, exécuter immédiatement `npm install --workspace packages/h2a`
-(ou `npm ci`) pour garantir que les deps déclarées dans `packages/h2a/package.json` sont
-présentes dans le `node_modules` de l'arbre principal. Sans cela, le global résout les
-imports ES depuis un `node_modules` potentiellement périmé → `ERR_MODULE_NOT_FOUND`
-fleet-wide au boot de tout leg (ex. `@sentropic/cluster-mesh` absent → flotte down,
-2026-09-13).
+**`npm install -g .` n'embarque pas les workspace-deps** : le binaire global résout les
+imports depuis le préfixe global (`~/.npm-global/lib/node_modules/`), PAS depuis l'arbre
+source `/home/antoinefa/src/h2a/node_modules/`. Après tout `npm install -g .` :
+
+1. `npm install --workspace packages/h2a` dans l'arbre source (garde les deps pour les
+   tests/build locaux)
+2. `npm install -g @sentropic/cluster-mesh@0.8.1` (et toute dep déclarée dans
+   `packages/h2a/package.json` absente du préfixe global) pour que le **binaire global**
+   puisse les résoudre au boot.
+
+Sans ces deux étapes : `ERR_MODULE_NOT_FOUND` fleet-wide (ex. `@sentropic/cluster-mesh`
+absent du global → crash du hook drumbeat + flotte down, 2026-09-13). La PR
+import-paresseux (h-runtime) rendra les hooks robustes à l'absence de la dep ; en
+attendant, garantir la présence dans le préfixe global est la seule protection.
