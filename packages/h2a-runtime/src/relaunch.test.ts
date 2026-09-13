@@ -1,4 +1,8 @@
-import { describe, expect, it, vi } from "vitest";
+import { mkdirSync, rmSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
+import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   CLAUDE_LONG_CONTEXT_CONFIRM_REASON,
@@ -11,8 +15,96 @@ import {
   planRelaunch,
   relaunchContinuationPrompt,
   resumeCommandFor,
+  tryAcquireResumeLaunchClaim,
   wakeRelaunchedSession,
 } from "./relaunch.js";
+
+const CLAIM_ROOT = join(
+  dirname(fileURLToPath(import.meta.url)),
+  "..",
+  ".test-scratch",
+  "resume-launch-claims",
+);
+
+beforeEach(() => {
+  rmSync(CLAIM_ROOT, { recursive: true, force: true });
+  mkdirSync(CLAIM_ROOT, { recursive: true });
+});
+
+afterAll(() => {
+  rmSync(CLAIM_ROOT, { recursive: true, force: true });
+});
+
+describe("resume launch claim", () => {
+  it("starts exactly one resume when the same UUID is requested concurrently", async () => {
+    const resume = vi.fn();
+    let finishFirst!: () => void;
+    const firstFinished = new Promise<void>((resolve) => {
+      finishFirst = resolve;
+    });
+    const request = async (convId: string, hold = false) => {
+      const claim = tryAcquireResumeLaunchClaim(convId, { root: CLAIM_ROOT });
+      if (!claim) return "deduped" as const;
+      try {
+        resume(convId);
+        if (hold) await firstFinished;
+        return "resumed" as const;
+      } finally {
+        claim.release();
+      }
+    };
+
+    const first = request("11111111-1111-4111-8111-111111111111", true);
+    const second = request("11111111-1111-4111-8111-111111111111");
+
+    await expect(second).resolves.toBe("deduped");
+    expect(resume).toHaveBeenCalledTimes(1);
+    finishFirst();
+    await expect(first).resolves.toBe("resumed");
+
+    await expect(
+      request("11111111-1111-4111-8111-111111111111"),
+    ).resolves.toBe("resumed");
+    expect(resume).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not suppress distinct resume UUIDs", () => {
+    const first = tryAcquireResumeLaunchClaim(
+      "11111111-1111-4111-8111-111111111111",
+      { root: CLAIM_ROOT },
+    );
+    const second = tryAcquireResumeLaunchClaim(
+      "22222222-2222-4222-8222-222222222222",
+      { root: CLAIM_ROOT },
+    );
+
+    expect(first).toBeDefined();
+    expect(second).toBeDefined();
+    first?.release();
+    second?.release();
+  });
+
+  it("reclaims a dead launcher generation without letting it release its successor", () => {
+    const first = tryAcquireResumeLaunchClaim(
+      "11111111-1111-4111-8111-111111111111",
+      { root: CLAIM_ROOT },
+    );
+    const successor = tryAcquireResumeLaunchClaim(
+      "11111111-1111-4111-8111-111111111111",
+      { root: CLAIM_ROOT, pidAlive: () => false },
+    );
+
+    expect(successor).toBeDefined();
+    first?.release();
+    expect(
+      tryAcquireResumeLaunchClaim(
+        "11111111-1111-4111-8111-111111111111",
+        { root: CLAIM_ROOT },
+      ),
+    ).toBeUndefined();
+    successor?.release();
+  });
+});
 
 describe("resumeCommandFor", () => {
   it("uses --resume for claude/agy and the resume subcommand for codex", () => {
