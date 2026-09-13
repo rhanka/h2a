@@ -114,6 +114,8 @@ export interface RunMcpStdioOptions {
   wake?: {
     readonly driver: H2ADriver;
     readonly privateKeyPem: string;
+    /** Concrete native PTY session receiving the signed self-wake line. */
+    readonly nativeSessionId?: string;
   };
   /**
    * Optional abort signal for graceful shutdown. When it aborts, the server
@@ -419,6 +421,9 @@ export function runMcpStdio(options: RunMcpStdioOptions): Promise<void> {
             undefined,
             `h2a mcp-serve --host ${options.autoOpen?.host ?? ""}`.trim()
           ),
+        ...(options.wake.nativeSessionId !== undefined
+          ? { resolveNativeSessionId: () => options.wake?.nativeSessionId }
+          : {}),
         log: (line) => stderr.write(`h2a mcp-serve: ${line}\n`)
       });
       server.notifications.setOnInboxArrival((instance) => {
