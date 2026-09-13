@@ -50,7 +50,7 @@
     {
       "group": "Start — begin, return to, or end a work session:",
       "term": "run [options] <profile> [path]",
-      "description": "Start a LOCAL session in tmux (claude/codex/…) in <path> (default: cwd), then attach this terminal by default. h2a applies its embedded scroll-safe tmux profile at launch; no ~/.tmux.conf is required. Manage it with `h2a ls`, `h2a attach <slug>`, and `h2a stop <slug>`. Detach with Ctrl-b d; the session keeps running."
+      "description": "Start a LOCAL session in tmux (claude/codex/agy/…) in <path> (default: cwd), then attach this terminal by default. h2a applies its embedded scroll-safe tmux profile at launch; no ~/.tmux.conf is required. Manage it with `h2a ls`, `h2a attach <slug>`, and `h2a stop <slug>`. Detach with Ctrl-b d; the session keeps running."
     },
     {
       "group": "Start — begin, return to, or end a work session:",
