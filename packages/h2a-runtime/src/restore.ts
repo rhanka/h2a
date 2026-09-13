@@ -714,20 +714,42 @@ export function registrySessions(
 }
 
 /**
- * Merge discovery sources by session identity, never by project. One live
- * registry row must not make every other conversation under that project vanish.
+ * Merge discovery sources by resume UUID, never by project or agent ref. One
+ * registry row must not make distinct conversations under that project vanish,
+ * while two refs for the same UUID must never emit two resume commands.
  */
 export function mergeDiscovered(
   registry: DiscoveredSession[],
   scanned: DiscoveredSession[],
 ): DiscoveredSession[] {
-  const known = new Set(registry.map((s) => `${s.tool}\u0000${s.sid}\u0000${s.cwd}`));
-  return [
+  const merged = [
     ...registry,
     ...scanned
-      .filter((s) => !known.has(`${s.tool}\u0000${s.sid}\u0000${s.cwd}`))
       .map((s) => ({ ...s, origin: "scan" as const })),
   ];
+  const deduped: DiscoveredSession[] = [];
+  const indexByResumeId = new Map<string, number>();
+  for (const session of merged) {
+    // An empty sid is an attach-only live row, not a resume request.
+    if (session.sid.length === 0) {
+      deduped.push(session);
+      continue;
+    }
+    const priorIndex = indexByResumeId.get(session.sid);
+    if (priorIndex === undefined) {
+      indexByResumeId.set(session.sid, deduped.length);
+      deduped.push(session);
+      continue;
+    }
+    const prior = deduped[priorIndex]!;
+    // Registry ownership beats a scan guess. Between duplicate rows from the
+    // same source, retain the most recently observed owner of the UUID.
+    if (
+      (prior.origin !== "registry" && session.origin === "registry") ||
+      (prior.origin === session.origin && session.mtimeMs > prior.mtimeMs)
+    ) deduped[priorIndex] = session;
+  }
+  return deduped;
 }
 
 /** Raw scanner candidates are unclassified by construction and cannot restore. */

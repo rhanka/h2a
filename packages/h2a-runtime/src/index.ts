@@ -171,6 +171,7 @@ import {
   isRelaunchKillable,
   planRelaunch,
   relaunchContinuationPrompt,
+  tryAcquireResumeLaunchClaim,
   wakeRelaunchedSession,
 } from "./relaunch.js";
 import {
@@ -6125,6 +6126,16 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           count > 1
             ? fanoutLabels(opts.name ?? basename(cwd), count)
             : [opts.name];
+        const resumeClaim = opts.resume
+          ? tryAcquireResumeLaunchClaim(opts.resume)
+          : undefined;
+        if (opts.resume && !resumeClaim) {
+          process.stderr.write(
+            `[h2a] conversation ${opts.resume} is already being resumed; duplicate launch request skipped.\n`,
+          );
+          return;
+        }
+        try {
         const reservedTmuxSlugs = tmuxAvailable()
           ? existingLocalSessionSlugs(labels, cwd)
           : [];
@@ -6613,6 +6624,9 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             ...(resultJson !== undefined ? { resultJson } : {}),
             ...(promptDelivery !== undefined ? { promptDelivery } : {}),
           });
+          // The writer is now durable in the registry. End the short critical
+          // section before a foreground attach can keep this command alive.
+          resumeClaim?.release();
         }
         if (count > 1) {
           process.stderr.write(
@@ -6692,6 +6706,9 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             ? attachNativeSession(only.name)
             : attachLocalSession(only.name);
         return;
+        } finally {
+          resumeClaim?.release();
+        }
       },
     );
 
