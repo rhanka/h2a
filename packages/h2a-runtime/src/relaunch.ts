@@ -11,6 +11,19 @@
  * a cwd never collide on one .jsonl.
  */
 
+import { createHash, randomUUID } from "node:crypto";
+import {
+  existsSync,
+  linkSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
+import { dirname, join } from "node:path";
+
+import { resolveConfigPath } from "./config.js";
 import { isCliProfile, resolveProfile, resumeArgsFor } from "./profiles.js";
 import {
   cpuRateMsPerSecond,
@@ -27,6 +40,139 @@ export type ResumeLaunch = {
   args: string[];
   display: string;
 };
+
+type ResumeLaunchClaimOwner = {
+  token: string;
+  pid: number;
+  convId: string;
+};
+
+export type ResumeLaunchClaim = {
+  convId: string;
+  release: () => void;
+};
+
+export type ResumeLaunchClaimOptions = {
+  /** Test/embedding override. Production claims are machine-scoped. */
+  root?: string;
+  /** Injectable process probe for deterministic stale-claim tests. */
+  pidAlive?: (pid: number) => boolean;
+};
+
+function defaultPidAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === "EPERM";
+  }
+}
+
+function readResumeLaunchClaim(path: string): ResumeLaunchClaimOwner | undefined {
+  try {
+    const parsed = JSON.parse(readFileSync(path, "utf8")) as Partial<ResumeLaunchClaimOwner>;
+    if (
+      typeof parsed.token !== "string" ||
+      !Number.isInteger(parsed.pid) ||
+      parsed.pid! <= 0 ||
+      typeof parsed.convId !== "string"
+    ) return undefined;
+    return parsed as ResumeLaunchClaimOwner;
+  } catch {
+    return undefined;
+  }
+}
+
+function releaseResumeLaunchClaim(path: string, token: string): void {
+  if (readResumeLaunchClaim(path)?.token !== token) return;
+  try {
+    unlinkSync(path);
+  } catch {
+    // Already released or replaced by a newer claim.
+  }
+}
+
+/** Machine-scoped directory for the short resume-launch critical section. */
+export function resolveResumeLaunchClaimRoot(): string {
+  return join(dirname(resolveConfigPath()), "resume-launch-claims");
+}
+
+/**
+ * Atomically claim one conversation UUID across launcher processes.
+ *
+ * The claim covers the gap between the last writer/liveness check and registry
+ * enrollment. It is released as soon as that launch is enrolled (or fails), so
+ * it never suppresses a later relaunch after the resumed process exits. A
+ * second request for the same UUID receives no claim and must no-op; distinct
+ * UUIDs use distinct files. A dead launcher claim is reclaimed behind a hard-
+ * link barrier so only one successor can replace it.
+ */
+export function tryAcquireResumeLaunchClaim(
+  convId: string,
+  options: ResumeLaunchClaimOptions = {},
+): ResumeLaunchClaim | undefined {
+  if (convId.length === 0) throw new Error("resume launch claim requires a conversation id");
+  const root = options.root ?? resolveResumeLaunchClaimRoot();
+  const pidAlive = options.pidAlive ?? defaultPidAlive;
+  mkdirSync(root, { recursive: true });
+  const key = createHash("sha256").update(convId).digest("hex");
+  const path = join(root, `${key}.claim`);
+  const reclaimPath = `${path}.reclaim`;
+  const token = randomUUID();
+  const pendingPath = join(root, `.${key}.${token}.pending`);
+  const owner: ResumeLaunchClaimOwner = { token, pid: process.pid, convId };
+  const claim = (ownsReclaimBarrier = false): ResumeLaunchClaim | undefined => {
+    if (!ownsReclaimBarrier && existsSync(reclaimPath)) return undefined;
+    try {
+      writeFileSync(pendingPath, JSON.stringify(owner), {
+        encoding: "utf8",
+        mode: 0o600,
+        flag: "wx",
+      });
+      linkSync(pendingPath, path);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      return undefined;
+    } finally {
+      rmSync(pendingPath, { force: true });
+    }
+    // A stale-owner reclaimer may have installed its barrier after our first
+    // check. Yield this generation only; token comparison protects its claim.
+    if (!ownsReclaimBarrier && existsSync(reclaimPath)) {
+      releaseResumeLaunchClaim(path, token);
+      return undefined;
+    }
+    let released = false;
+    return {
+      convId,
+      release: () => {
+        if (released) return;
+        released = true;
+        releaseResumeLaunchClaim(path, token);
+      },
+    };
+  };
+
+  const fresh = claim();
+  if (fresh) return fresh;
+  const prior = readResumeLaunchClaim(path);
+  if (!prior || pidAlive(prior.pid)) return undefined;
+
+  // linkSync is the atomic election: exactly one contender can create the
+  // fixed reclaim barrier for this dead generation.
+  try {
+    linkSync(path, reclaimPath);
+  } catch {
+    return undefined;
+  }
+  try {
+    if (readResumeLaunchClaim(reclaimPath)?.token !== prior.token) return undefined;
+    releaseResumeLaunchClaim(path, prior.token);
+    return claim(true);
+  } finally {
+    rmSync(reclaimPath, { force: true });
+  }
+}
 
 export type RelaunchSafety = {
   /** True only when the shell has no live CLI worker descendant. */
