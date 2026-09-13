@@ -29,6 +29,11 @@ export interface InboxWakeHandlerDeps {
    * local-tmux/native driver can target it.
    */
   readonly resolveLaunchContext?: () => H2ALaunchContext | undefined;
+  /**
+   * Resolve the native host's concrete PTY session. The signed line remains
+   * addressed to `instance`; only the transport target uses this volatile id.
+   */
+  readonly resolveNativeSessionId?: () => string | undefined;
   /** Clock (drive nonce/at + wake tag). Defaults to `Date.now`. */
   readonly now?: () => number;
   readonly log?: (line: string) => void;
@@ -54,8 +59,11 @@ export function createInboxWakeHandler(deps: InboxWakeHandlerDeps): () => Promis
       now
     });
     const launchContext = deps.resolveLaunchContext?.();
+    const nativeSessionId = deps.resolveNativeSessionId?.();
     const ok = await deps.driver.drive({
-      to: deps.instance,
+      to: nativeSessionId && nativeSessionId.length > 0
+        ? nativeSessionId
+        : deps.instance,
       instructionLine,
       ...(deps.host ? { host: deps.host } : {}),
       ...(launchContext ? { launchContext } : {})

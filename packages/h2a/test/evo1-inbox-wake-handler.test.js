@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { generateKeyPairSync } from "node:crypto";
 import test from "node:test";
 
-import { createInboxWakeHandler } from "../dist/index.js";
+import { createInboxWakeHandler, parseSignedDriveInstruction } from "../dist/index.js";
 
 const INSTANCE = "claude:proj:aaaaaaaaaaaa";
 let CLOCK = Date.parse("2026-06-03T10:00:00.000Z");
@@ -52,6 +52,28 @@ test("inbox-wake handler threads launchContext from resolveLaunchContext into th
   assert.equal(await handler(), true);
   assert.equal(calls.length, 1);
   assert.deepEqual(calls[0].launchContext, tmuxContext, "drive request must carry launchContext");
+});
+
+test("inbox-wake handler separates the native PTY target from the signed agent address", async () => {
+  const inbox = [];
+  const calls = [];
+  const handler = createInboxWakeHandler({
+    instance: INSTANCE,
+    readInbox: () => inbox,
+    privateKeyPem: priv(),
+    driver: { drive: (request) => void calls.push(request) || true },
+    resolveNativeSessionId: () => "h2a-native-worker",
+    now
+  });
+
+  inbox.push(env("native-target-1", "codex:peer:2", "MESSAGE"));
+  assert.equal(await handler(), true);
+  assert.equal(calls[0].to, "h2a-native-worker");
+  assert.equal(
+    parseSignedDriveInstruction(calls[0].instructionLine)?.payload.to,
+    INSTANCE,
+    "the tmux/native shared signed envelope must keep the perennial instance"
+  );
 });
 
 test("inbox-wake handler injects a signed wake on a NEW envelope, dedups, and ignores boot backlog", async () => {
