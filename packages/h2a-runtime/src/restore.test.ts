@@ -128,6 +128,35 @@ describe("registry-first discovery", () => {
     expect(b.cwd).toBe(cwdB);
   });
 
+  it("emits one restore tab when two registry refs request the same resume UUID", () => {
+    const older = registrySessions(home, [
+      registryEntry("older-ref", {
+        convId: "11111111-1111-4111-8111-111111111111",
+        label: "older-ref",
+        lastSeenAt: new Date(Date.now() - 10_000).toISOString(),
+      }),
+    ])[0]!;
+    const newer = registrySessions(home, [
+      registryEntry("newer-ref", {
+        convId: "11111111-1111-4111-8111-111111111111",
+        label: "newer-ref",
+        lastSeenAt: new Date().toISOString(),
+      }),
+    ])[0]!;
+
+    const merged = mergeDiscovered([older, newer], []);
+    const tabs = groupSessions(merged, {
+      ...DEFAULT_LAYOUT,
+      multiSessionDefault: 0,
+    }).windows.flatMap((window) => window.tabs);
+
+    expect(tabs).toHaveLength(1);
+    expect(tabs[0]).toMatchObject({
+      label: "newer-ref",
+      sid: "11111111-1111-4111-8111-111111111111",
+    });
+  });
+
   it("skips remote-kind entries and cwds outside ~/src", () => {
     const entries: RegistryEntry[] = [
       registryEntry("projA", { kind: "remote", remoteId: "scw-1" }),
