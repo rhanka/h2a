@@ -8,7 +8,7 @@ description: Translate a friendly launch intent ("terra 5.6 xhigh", "codex sol h
 ## When to use this
 
 - The user names a launch by nickname + effort ("terra 5.6 xhigh", "sol en max", "relance codex en xhigh") instead of a provider model id.
-- The user wants a background or interactive Claude/Codex session with a specific reasoning effort, with or without the llm-mesh gateway, and needs the exact CLI flags or MCP parameters.
+- The user wants a background or interactive Claude/Codex/AGY session with a specific reasoning effort, with or without the llm-mesh gateway, and needs the exact CLI flags or MCP parameters.
 - **Not** for deciding *which* flavor is best for a task (that is a human/model-delegation call, not this skill's job), and **not** for resolving alias→upstream-provider routing — that table is owned by the llm-mesh gateway, not this skill (see Step 2).
 
 ## Hard rule: never call the raw `h2a` binary from Bash
@@ -19,9 +19,9 @@ This plugin's PreToolUse hook (`packages/h2a/hooks/deny-manual-h2a-cli.mjs`) blo
 
 None of these require knowing a provider model id up front:
 
-1. **Profile** — `claude` or `codex` (which CLI to launch). Default to whichever CLI the user is already in if unstated; ask if genuinely ambiguous.
+1. **Profile** — `claude`, `codex`, or `agy` (which CLI to launch). Default to whichever CLI the user is already in if unstated; ask if genuinely ambiguous.
 2. **Model flavor** — a nickname like *terra*, *sol* (aka *fable*), *luna*, or unstated (→ the CLI's own default model). Resolves to a `--model` / `model` value (Step 2).
-3. **Effort** — `low | medium | high | xhigh`. "max" said by the user means `xhigh` — there is no higher tier for `h2a run` / `h2a_run` today.
+3. **Effort** — `low | medium | high | xhigh`. For Claude/Codex, "max" means `xhigh`; AGY accepts only `low | medium | high` and rejects both `xhigh` and "max".
 
 ## Step 2 — resolve the model flavor (source-of-truth caveat)
 
@@ -39,11 +39,13 @@ Any non-default flavor needs the llm-mesh gateway to translate the Anthropic-sha
 - CLI: `--gw` (alias `--llm-gateway`) forces it on, `--no-gw` (alias `--no-llm-gateway`) forces it off, omit for the CLI's own default.
 - MCP `h2a_run`: `gateway: "required"` forces it on, `"off"` forces it off, `"auto"` (default) decides. **`"required"` is rejected when `profile` is `"codex"`** — codex already talks to llm-mesh over an Anthropic-compatible surface, use `"auto"` there.
 
+AGY is the exception to the named-flavor rule: it talks to its provider directly. Use `gateway: "off"` for `profile: "agy"`; `"required"` is rejected. AGY accepts effort `low|medium|high`, not `xhigh`, and supports run-once mode through its verified `--print` stdin contract. Resolve the exact AGY model with `agy models`; for example, the displayed "Gemini 3.7 Flash (High)" id is `gemini-3.7-flash-high`.
+
 ## Step 4 — compose the call
 
 ### `h2a_run` MCP tool (what this agent must use)
 
-Required: `profile` (`"claude"|"codex"`), `name` (`^[A-Za-z0-9_-]{1,64}$`), `workspace` (absolute path, must exist, must stay inside the MCP server's startup workspace root), `prompt` (1–65536 UTF-8 bytes, sent on stdin — never put it in argv), `background` (must be literal `true`). Optional: `model` (free-text, format-checked only — see Step 2 for the value), `effort` (`"low"|"medium"|"high"|"xhigh"`), `gateway` (`"auto"|"required"|"off"`, default `"auto"`), `headless` (default `false`), `h2aSidecar` (default `!headless`; cannot be `true` together with `headless: true`).
+Required: `profile` (`"claude"|"codex"|"agy"`), `name` (`^[A-Za-z0-9_-]{1,64}$`), `workspace` (absolute path, must exist, must stay inside the MCP server's startup workspace root), `prompt` (1–65536 UTF-8 bytes, sent on stdin — never put it in argv), `background` (must be literal `true`). Optional: `agent` (AGY only; for example `"stp"`), `model` (free-text, format-checked only — see Step 2 for the value), `effort` (`"low"|"medium"|"high"|"xhigh"`; AGY rejects `xhigh`), `gateway` (`"auto"|"required"|"off"`, default `"auto"`; AGY uses `"off"`), `headless` (default `false`; AGY maps `true` to `--print`), `h2aSidecar` (default `!headless`; cannot be `true` together with `headless: true`).
 
 Example — "terra, xhigh, headless, on this repo":
 
@@ -63,6 +65,24 @@ Example — "terra, xhigh, headless, on this repo":
 
 The tool returns an `h2a.run.result` contract with `session.tmuxSession`, `session.pane`, `session.gateway` (`"gateway"|"direct"`). Read those fields back to confirm what actually launched — do not assume the request was honored silently.
 
+Example — direct AGY run-once:
+
+```json
+{
+  "profile": "agy",
+  "name": "gemini-review",
+  "workspace": "/abs/path/to/repo",
+  "prompt": "<initial instructions>",
+  "background": true,
+  "agent": "stp",
+  "model": "gemini-3.7-flash-high",
+  "effort": "high",
+  "gateway": "off",
+  "headless": true,
+  "h2aSidecar": false
+}
+```
+
 ### `h2a run` CLI (reference only — non-Claude-Code hosts / humans at a terminal)
 
 ```
@@ -75,10 +95,23 @@ Interactive/attached form (drop the background-launch flags, add nothing else):
 h2a run claude . --model gpt-5.6-terra --effort xhigh --gw --name terra-review
 ```
 
+Direct AGY run-once form (prompt delivered on stdin):
+
+```
+h2a run agy . --agent stp --model gemini-3.7-flash-high --effort high --no-gw --name gemini-review --no-attach --background --json --headless --no-h2a --prompt-stdin
+```
+
+Interactive AGY keeps the TUI and accepts the same prompt-over-stdin contract; resume uses AGY's native `--conversation` argv through h2a's `-r/--resume` option:
+
+```
+h2a run agy . --agent stp --model gemini-3.7-flash-high --effort high --no-gw --name gemini-review --prompt-stdin
+h2a run agy . -r <conversation-id> --agent stp --model gemini-3.7-flash-high --effort high --no-gw --name gemini-review
+```
+
 Other `h2a run` flags worth knowing:
 
-- `-r, --resume <convId>` — continue a conversation; combine with `--model`/`--effort` to relaunch the same conversation at a different flavor/effort.
-- `--headless` — run once, record output under `.h2a/runs/<name>`, then exit (cannot combine with `--h2a`).
+- `-r, --resume <convId>` — continue a conversation; combine with `--model`/`--effort` to relaunch the same conversation at a different flavor/effort (AGY maps this to `--conversation <convId>`).
+- `--headless` — run once, record output under `.h2a/runs/<name>`, then exit (cannot combine with `--h2a`; AGY uses `--input-format stream-json --output-format stream-json`, with one escaped `user` event on stdin).
 - `--count <n>` — fan out N fresh sessions; incompatible with `--model`/`--effort`/`--resume`/any structured launch (each fanned session is a fresh conversation).
 - `--h2a` / `--no-h2a` — start (or skip) the side-window h2a MCP server; defaults on unless `--headless`.
 - `--name <label>` — tmux slug + tab label; defaults to the workspace dirname. Pick one deliberately when launching more than one session against the same repo.

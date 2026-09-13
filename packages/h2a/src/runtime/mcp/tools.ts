@@ -673,11 +673,11 @@ const H2A_COORDINATION_TOOL_DESCRIPTORS: McpToolDescriptor[] = [
   {
     name: "h2a_run",
     description:
-      "Launch one background Claude or Codex agent in an existing workspace through the canonical h2a run runtime. Returns verified tmux/session metadata; never creates a branch or worktree.",
+      "Launch one background Claude, Codex or AGY agent in an existing workspace through the canonical h2a run runtime. AGY is direct (no llm-mesh gateway) and supports run-once mode through --print. Returns verified tmux/session metadata; never creates a branch or worktree.",
     inputSchema: {
       type: "object",
       properties: {
-        profile: { type: "string", enum: ["claude", "codex"] },
+        profile: { type: "string", enum: ["claude", "codex", "agy"] },
         name: {
           type: "string",
           pattern: "^[A-Za-z0-9_-]{1,64}$"
@@ -697,14 +697,27 @@ const H2A_COORDINATION_TOOL_DESCRIPTORS: McpToolDescriptor[] = [
         background: { type: "boolean", const: true },
         gateway: {
           type: "string",
-          enum: ["auto", "required", "off"]
+          enum: ["auto", "required", "off"],
+          description: "AGY is always direct: auto/off are accepted and required is rejected."
         },
-        headless: { type: "boolean" },
+        headless: {
+          type: "boolean",
+          description: "Run once; AGY maps this to stream-json input/output and keeps the prompt on stdin."
+        },
         h2aSidecar: { type: "boolean" },
-        model: { type: "string" },
+        agent: {
+          type: "string",
+          pattern: "^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$",
+          description: "AGY agent override; rejected for Claude and Codex."
+        },
+        model: {
+          type: "string",
+          pattern: "^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$"
+        },
         effort: {
           type: "string",
-          enum: ["low", "medium", "high", "xhigh"]
+          enum: ["low", "medium", "high", "xhigh"],
+          description: "AGY accepts low, medium or high; xhigh is rejected."
         }
       },
       required: ["profile", "name", "workspace", "prompt", "background"],
