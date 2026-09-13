@@ -1,6 +1,6 @@
 {
   "name": "@sentropic/h2a",
-  "version": "0.96.1",
+  "version": "0.96.2",
   "description": "h2a — the unified CLI + core for human-to-agent coordination.",
   "license": "MIT",
   "type": "module",
