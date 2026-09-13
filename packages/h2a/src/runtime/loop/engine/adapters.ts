@@ -115,10 +115,16 @@ export function readPresenceSnapshot(root: string, now: number): PresenceSnapsho
     const workStatus =
       session.workStatus ??
       resolveDeclaredWorkStatus(stopByInstance.get(session.instance.toLowerCase()), safeLastActivityAtMs);
+    const wakeTransport = session.launchContext?.nativePty !== undefined
+      ? "native-pty" as const
+      : session.launchContext?.tmux !== undefined
+        ? "local-tmux" as const
+        : undefined;
     const view: PresenceView = {
       instance: session.instance,
       liveSession: true,
       hasTmuxLaunchContext: session.launchContext?.tmux !== undefined,
+      ...(wakeTransport !== undefined ? { wakeTransport } : {}),
       // Drumbeat self-declared status (DEC-084) feeds the R3 idle gate in the core.
       ...(workStatus !== undefined ? { workStatus } : {}),
       ...(safeLastActivityAtMs !== undefined ? { lastActivityAtMs: safeLastActivityAtMs } : {})
@@ -128,9 +134,10 @@ export function readPresenceSnapshot(root: string, now: number): PresenceSnapsho
     // must still resolve. The decision core folds the lookup identically.
     const key = session.instance.toLowerCase();
     const existing = byInstance.get(key);
-    if (existing?.hasTmuxLaunchContext === true && !view.hasTmuxLaunchContext) continue;
+    if (existing?.wakeTransport !== undefined && view.wakeTransport === undefined) continue;
     if (
-      existing?.hasTmuxLaunchContext === view.hasTmuxLaunchContext &&
+      existing !== undefined &&
+      existing.wakeTransport === view.wakeTransport &&
       existing.lastActivityAtMs !== undefined &&
       (view.lastActivityAtMs === undefined || existing.lastActivityAtMs > view.lastActivityAtMs)
     ) {
@@ -265,6 +272,8 @@ export type WakePlan =
   | {
       readonly kind: "wake";
       readonly instance: string;
+      readonly target: string;
+      readonly transport: "local-tmux" | "native-pty";
       readonly host?: string;
       readonly launchContext: H2ALaunchContext;
       readonly instructionLine: string;
@@ -285,6 +294,7 @@ export function planWakeTarget(input: {
   readonly freshSessions: readonly { readonly instance: string; readonly launchContext?: H2ALaunchContext }[];
   readonly priorWakeAtByAgent: ReadonlyMap<string, number>;
   readonly priorWakeCountByAgent?: ReadonlyMap<string, number>;
+  readonly transport?: "local-tmux" | "native-pty";
   readonly now: number;
 }): WakePlan {
   const agent = input.loop.agents.find((a) => a.id === input.agentId);
@@ -296,11 +306,20 @@ export function planWakeTarget(input: {
   const cooldownMs = Math.max(input.loop.policy.tickMs, WAKE_COOLDOWN_FLOOR_MS);
   const last = input.priorWakeAtByAgent.get(input.agentId);
   if (last !== undefined && input.now - last < cooldownMs) return { kind: "skip", reason: "cooldown" };
-  const session = input.freshSessions.find(
-    (s) => s.instance === agent.h2aInstance && s.launchContext?.tmux !== undefined
+  const transport = input.transport ?? "local-tmux";
+  const session = input.freshSessions.find((candidate) =>
+    candidate.instance.toLowerCase() === agent.h2aInstance!.toLowerCase() &&
+    (transport === "native-pty"
+      ? candidate.launchContext?.nativePty !== undefined
+      : candidate.launchContext?.tmux !== undefined)
   );
-  if (!session || !session.launchContext || !session.launchContext.tmux) {
-    return { kind: "skip", reason: "no-fresh-tmux-session" };
+  if (!session?.launchContext) {
+    return {
+      kind: "skip",
+      reason: transport === "native-pty"
+        ? "no-fresh-native-pty-session"
+        : "no-fresh-tmux-session"
+    };
   }
   const instructionLine =
     `[h2a-wake reason=loop loopId=${input.loop.id} at=${new Date(input.now).toISOString()}] ` +
@@ -308,6 +327,10 @@ export function planWakeTarget(input: {
   return {
     kind: "wake",
     instance: agent.h2aInstance,
+    target: transport === "native-pty"
+      ? session.launchContext.nativePty!.session
+      : agent.h2aInstance,
+    transport,
     ...(agent.host !== undefined ? { host: agent.host } : {}),
     launchContext: session.launchContext,
     instructionLine
@@ -618,7 +641,10 @@ const defaultLoopLauncher: LoopLauncher = {
   }
 };
 
-export type LoopWakeOutcome = "done" | "deferred-human" | "failed";
+export type LoopWakeOutcome = "done" | "deferred-human" | "failed" | "pr1-dependent";
+
+export const PR1_NATIVE_PTY_TRANSPORT_SEAM =
+  "depends on PR-1 native-PTY transport; validated post-PR-1 merge";
 
 export interface LoopWakeDriver {
   drive(request: H2ADriveRequest): LoopWakeOutcome | Promise<LoopWakeOutcome>;
@@ -793,17 +819,25 @@ export function buildActionSink(opts: {
   /** Back-compat boolean seam: false means human-deferred. Prefer wakeDriver. */
   driver?: H2ADriver;
   wakeDriver?: LoopWakeDriver;
+  /** Native delivery seam. PR-1 supplies the production transport post-merge. */
+  nativeWakeDriver?: LoopWakeDriver;
   launcher?: LoopLauncher;
   /** Workspace boundary captured by the objective-loop controller. */
   controllerRoot?: string;
 } = {}): ActionSink {
-  const wakeDriver: LoopWakeDriver = opts.wakeDriver ?? (opts.driver
+  const overrideWakeDriver: LoopWakeDriver | undefined = opts.wakeDriver ?? (opts.driver
     ? {
         async drive(request) {
           return await opts.driver!.drive(request) ? "done" : "deferred-human";
         }
       }
-    : localTmuxLoopWakeDriver());
+    : undefined);
+  const tmuxWakeDriver = overrideWakeDriver ?? localTmuxLoopWakeDriver();
+  const nativeWakeDriver = overrideWakeDriver ?? opts.nativeWakeDriver ?? {
+    drive() {
+      return "pr1-dependent" as const;
+    }
+  };
   const launcher = opts.launcher ?? defaultLoopLauncher;
   return {
     async close(_action, ctx) {
@@ -868,20 +902,25 @@ export function buildActionSink(opts: {
           [...wakeHistory]
             .map(([agentId, history]) => [agentId, history.count])
         ),
+        ...(action.wakeTransport !== undefined ? { transport: action.wakeTransport } : {}),
         now: ctx.now
       });
       if (plan.kind === "skip") return { outcome: "skipped", detail: plan.reason };
-      // localTmuxDriver ONLY — never chain/headless/auto (RISK #1). It applies the
-      // human-typing guard at the last moment and DEFERS (false) if a human is
-      // active in the pane; a defer stays pending and re-fires next tick.
+      // Each local host uses its own explicit driver. Native scheduling is
+      // observable now; delivery remains an explicit PR-1 seam, never a false
+      // success or a fallback to tmux/headless/auto.
+      const wakeDriver = plan.transport === "native-pty" ? nativeWakeDriver : tmuxWakeDriver;
       const outcome = await wakeDriver.drive({
-        to: plan.instance,
+        to: plan.target,
         ...(plan.host !== undefined ? { host: plan.host } : {}),
         instructionLine: plan.instructionLine,
         launchContext: plan.launchContext
       });
       if (outcome === "done") return "done";
       if (outcome === "deferred-human") return "deferred";
+      if (outcome === "pr1-dependent") {
+        return { outcome: "skipped", detail: PR1_NATIVE_PTY_TRANSPORT_SEAM };
+      }
       return "failed";
     },
     async routeDecision(action, ctx) {
