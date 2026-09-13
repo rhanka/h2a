@@ -35,6 +35,7 @@ import { sleepSync, type PromptDeliveryDeps } from "./prompt-delivery.js";
 import { SESSION_CLASS_ENV, type SessionClass } from "./session-class.js";
 
 const OP_TIMEOUT_MS = 15_000;
+const H2A_NATIVE_TARGET_SESSION_ENV = "H2A_NATIVE_TARGET_SESSION";
 
 export type SessionHostKind = "native" | "local-tmux";
 
@@ -545,6 +546,11 @@ export function startNativeH2aSidecar(
     if (value !== undefined) env[key] = value;
   }
   env["TERM"] = "xterm-256color";
+  // Native twin of the tmux wrapper's TMUX_PANE override: the sidecar owns a
+  // different PTY, so publish the main agent session as its wake target. The
+  // core keeps the signed envelope addressed to the perennial agent identity
+  // and uses this value only for the native host write.
+  env[H2A_NATIVE_TARGET_SESSION_ENV] = name;
   const envDir = mkdtempSync(join(tmpdir(), "h2a-native-env-"));
   const envFile = join(envDir, "env.json");
   try {
