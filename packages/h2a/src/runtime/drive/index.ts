@@ -738,3 +738,24 @@ export function detectTmuxLaunchContext(
   if (!pane || !env.TMUX) return undefined;
   return { cwd, command, tmux: { session: "", pane } };
 }
+
+/** Detect the owning native terminal published by `startNativeH2aSidecar`. */
+export function detectNativePtyLaunchContext(
+  env: NodeJS.ProcessEnv = process.env,
+  cwd: string = process.cwd(),
+  command = "h2a mcp-serve"
+): H2ALaunchContext | undefined {
+  const session = env.H2A_NATIVE_PTY_SESSION;
+  if (!session) return undefined;
+  return { cwd, command, nativePty: { session } };
+}
+
+/** Native ownership is authoritative even when the parent inherited `$TMUX`. */
+export function detectLocalLaunchContext(
+  env: NodeJS.ProcessEnv = process.env,
+  cwd: string = process.cwd(),
+  command = "h2a mcp-serve"
+): H2ALaunchContext | undefined {
+  return detectNativePtyLaunchContext(env, cwd, command) ??
+    detectTmuxLaunchContext(env, cwd, command);
+}

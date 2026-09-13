@@ -551,6 +551,9 @@ export function startNativeH2aSidecar(
   // core keeps the signed envelope addressed to the perennial agent identity
   // and uses this value only for the native host write.
   env[H2A_NATIVE_TARGET_SESSION_ENV] = name;
+  // The MCP sidecar is a separate native session, so it cannot infer which
+  // interactive terminal owns it. Publish the stable owner for presence/ticks.
+  env["H2A_NATIVE_PTY_SESSION"] = name;
   const envDir = mkdtempSync(join(tmpdir(), "h2a-native-env-"));
   const envFile = join(envDir, "env.json");
   try {

@@ -806,6 +806,8 @@ export {
   buildHeadlessDriveCommand,
   chainDriver,
   createRemoteDriveServer,
+  detectLocalLaunchContext,
+  detectNativePtyLaunchContext,
   detectTmuxLaunchContext,
   formatSignedDriveInstruction,
   headlessDriver,

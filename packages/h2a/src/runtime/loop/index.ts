@@ -194,6 +194,7 @@ export interface CreateObjectiveLoopInput {
 export interface LoopJoinInput {
   readonly instance: string;
   readonly agentId?: string;
+  readonly host?: H2ALoopAgent["host"];
   readonly role?: string;
   readonly required?: boolean;
   readonly launch?: H2ALoopLaunchSpec;
@@ -202,6 +203,7 @@ export interface LoopJoinInput {
 export interface LoopReportInput {
   readonly instance?: string;
   readonly agentId?: string;
+  readonly host?: H2ALoopAgent["host"];
   readonly note: string;
   readonly artifacts?: unknown[];
   /** Explicit recovery for a legacy/staged empty loop. Never inferred. */
@@ -661,9 +663,13 @@ export function joinObjectiveLoop(
   const at = new Date(now).toISOString();
   const id = input.agentId ?? input.instance;
   const launch = input.launch === undefined ? undefined : validateLoopLaunchSpec(input.launch);
+  if (input.host !== undefined && launch !== undefined && input.host !== launch.profile) {
+    throw new Error(`agent host differs from launch profile: ${id}`);
+  }
+  const host = input.host ?? launch?.profile ?? "shell";
   const agent: H2ALoopAgent = {
     id,
-    host: launch?.profile ?? "shell",
+    host,
     role: input.role ?? "participant",
     placement: "local",
     status: "running",
@@ -675,7 +681,10 @@ export function joinObjectiveLoop(
   const existing = loop.agents.find((a) => a.id === id);
   if (existing) {
     if (existing.h2aInstance === agent.h2aInstance) {
-      const same = (input.role === undefined || existing.role === input.role) && (input.required === undefined || existing.required === input.required);
+      const same =
+        (input.role === undefined || existing.role === input.role) &&
+        (input.required === undefined || existing.required === input.required) &&
+        (input.host === undefined || existing.host === input.host);
       if (!same) throw new Error(`agent already joined with different payload: ${id}`);
       if (launch !== undefined && existing.launch !== undefined && JSON.stringify(existing.launch) !== JSON.stringify(launch)) {
         throw new Error(`agent already joined with different launch spec: ${id}`);
@@ -711,7 +720,8 @@ export function joinObjectiveLoop(
     }
     const filled: H2ALoopAgent = {
       ...existing,
-      ...(launch !== undefined ? { host: launch.profile, launch } : {}),
+      ...(input.host !== undefined || launch !== undefined ? { host } : {}),
+      ...(launch !== undefined ? { launch } : {}),
       status: "running",
       h2aInstance: input.instance,
       required: input.required ?? existing.required ?? loop.agents.length === 0,
@@ -748,6 +758,7 @@ export function reportObjectiveLoop(
     loop = joinObjectiveLoop(root, loopId, {
       instance: input.instance,
       ...(input.agentId ? { agentId: input.agentId } : {}),
+      ...(input.host ? { host: input.host } : {}),
       role: "conductor",
       required: true
     }, now);

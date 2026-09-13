@@ -73,6 +73,7 @@ import {
   reportObjectiveLoop,
   stopObjectiveLoop,
   validateLoopLaunchSpec,
+  type H2ALoopAgent,
   type H2ALoopLaunchSpec
 } from "../loop/index.js";
 
@@ -1374,6 +1375,19 @@ export function notImplemented(toolName: string): McpErrorResult {
   return { error: `${toolName}: not implemented in this slice` };
 }
 
+const LOOP_AGENT_HOSTS: ReadonlySet<H2ALoopAgent["host"]> = new Set([
+  "claude", "codex", "agy", "gemini", "mistral", "hermes", "opencode", "shell"
+]);
+
+/** Resolve host from fresh presence instead of guessing from an instance label. */
+function loopHostFromPresence(root: string, instance: string): H2ALoopAgent["host"] | undefined {
+  const session = listPresence(root)
+    .filter((candidate) => candidate.instance.toLowerCase() === instance.toLowerCase())
+    .sort((a, b) => Date.parse(b.heartbeatAt) - Date.parse(a.heartbeatAt))[0];
+  const host = session?.host as H2ALoopAgent["host"] | undefined;
+  return host !== undefined && LOOP_AGENT_HOSTS.has(host) ? host : undefined;
+}
+
 export function handleLoopCreate(
   root: string,
   args: {
@@ -1407,9 +1421,11 @@ export function handleLoopCreate(
       ...(args.autoTick === true ? { policy: { autoTick: true } } : {})
     });
     if (typeof args.instance === "string" && args.instance.length > 0) {
+      const host = loopHostFromPresence(root, args.instance);
       loop = joinObjectiveLoop(root, loop.id, {
         instance: args.instance,
         ...(args.agentId ? { agentId: args.agentId } : {}),
+        ...(host !== undefined ? { host } : {}),
         role: args.role ?? "conductor",
         required: args.required ?? true,
         ...(launch !== undefined ? { launch } : {})
@@ -1429,9 +1445,11 @@ export function handleLoopJoin(
   if (typeof args.instance !== "string" || args.instance.length === 0) return { error: "h2a_loop_join: instance is required" };
   try {
     const launch = args.launch === undefined ? undefined : validateLoopLaunchSpec(args.launch);
+    const host = loopHostFromPresence(root, args.instance);
     const loop = joinObjectiveLoop(root, args.loopId, {
       instance: args.instance,
       ...(args.agentId ? { agentId: args.agentId } : {}),
+      ...(host !== undefined ? { host } : {}),
       ...(args.role ? { role: args.role } : {}),
       ...(typeof args.required === "boolean" ? { required: args.required } : {}),
       ...(launch !== undefined ? { launch } : {})
@@ -1449,9 +1467,11 @@ export function handleLoopReport(
   if (typeof args?.loopId !== "string" || args.loopId.length === 0) return { error: "h2a_loop_report: loopId is required" };
   if (typeof args.note !== "string" || args.note.length === 0) return { error: "h2a_loop_report: note is required" };
   try {
+    const host = args.instance ? loopHostFromPresence(root, args.instance) : undefined;
     const loop = reportObjectiveLoop(root, args.loopId, {
       ...(args.instance ? { instance: args.instance } : {}),
       ...(args.agentId ? { agentId: args.agentId } : {}),
+      ...(host !== undefined ? { host } : {}),
       ...(args.autoJoin === true ? { autoJoin: true } : {}),
       note: args.note
     });
