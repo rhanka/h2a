@@ -7,7 +7,11 @@ import type { Readable, Writable } from "node:stream";
 import type { H2AWorkspaceRef } from "@sentropic/h2a";
 
 import { createInboxWakeHandler } from "../drive/inbox-wake.js";
-import { detectTmuxLaunchContext, type H2ADriver } from "../drive/index.js";
+import {
+  detectLocalLaunchContext,
+  detectTmuxLaunchContext,
+  type H2ADriver
+} from "../drive/index.js";
 import { createLocalStore } from "../local-files/index.js";
 import { reapDeadInstancePresence } from "../local-files/presence.js";
 import { agentVersion } from "../version/agent-version.js";
@@ -338,10 +342,10 @@ export function runMcpStdio(options: RunMcpStdioOptions): Promise<void> {
           : {}),
         ...(options.autoOpen.name !== undefined ? { name: options.autoOpen.name } : {}),
         version: agentVersion(options.autoOpen.host),
-        // Auto-capture our tmux pane (inherited $TMUX_PANE) so the local-tmux
-        // wake driver can target this agent — no launcher config needed.
+        // Auto-capture our owning local terminal (native session or inherited
+        // tmux pane) so loop scheduling has an explicit wake target.
         ...((() => {
-          const lc = detectTmuxLaunchContext(
+          const lc = detectLocalLaunchContext(
             process.env,
             undefined,
             `h2a mcp-serve --host ${options.autoOpen.host ?? ""}`.trim()
@@ -414,7 +418,7 @@ export function runMcpStdio(options: RunMcpStdioOptions): Promise<void> {
         // Self-wake targets THIS process's OWN tmux pane (inherited $TMUX_PANE),
         // NOT latestLaunchContext(instance) — with concurrent sessions sharing one
         // perennial id (durable bug #1), an instance lookup could inject keystrokes
-        // into a DIFFERENT agent's terminal. The waking process is the one in the pane.
+        // into a DIFFERENT agent's terminal. Native inbox delivery belongs to PR-1.
         resolveLaunchContext: () =>
           detectTmuxLaunchContext(
             process.env,
