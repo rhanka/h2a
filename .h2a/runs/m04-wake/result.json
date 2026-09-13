@@ -1,0 +1,63 @@
+{
+  "state": "characterization_complete_cutover_blocked",
+  "files_added": [
+    "packages/h2a/test/m04-wake-characterization.test.js",
+    ".h2a/runs/m04-wake/result.json",
+    ".h2a/runs/m04-wake/output.log"
+  ],
+  "tests_added": {
+    "total": 17,
+    "passing": 11,
+    "pending": 6,
+    "failing": 0,
+    "coverage": [
+      "native boot-backlog and fresh-envelope selection with exact signed instruction",
+      "local-tmux and local-native scenario-and-phase Target-A oracle",
+      "alive, wakeable, unavailable, stale, and key-revoked native state observations",
+      "headless local-native explicit PTY provisioning and raw mode",
+      "escape-sequence chunks, split UTF-8 observation, TIOCSWINSZ, partial writes, frame overflow, and pipe closure",
+      "F1, F2, and F3 worker-restart and concurrent-retry characterization",
+      "independently observed lost-receipt effects on local-tmux and local-native",
+      "dry-run zero mutation on local-tmux and local-native",
+      "false-green rejection for unreconciled post-effect failure and key-revoked mutation"
+    ]
+  },
+  "pending_seams": [
+    "Target-B differential parity awaits the enlarged cluster-mesh 0.9.0 contract and capability bundle.",
+    "The native signed wake identity contains from, to, instruction, nonce, and time only; it is not durably bound to target registration, holder, or epoch and exposes no durable receipt.",
+    "After an F1 pre-effect failure, worker restart seeds the still-pending envelope as boot backlog and suppresses the required retry.",
+    "Concurrent F2 and F3 attempts re-sign the same envelope with different nonces and can produce two terminal wakes; the phase oracle rejects the unreconciled lost-receipt result.",
+    "The native handler has no registration-revocation input; revoking its signer key does not prevent a physical wake, while stale presence fails closed because no launch context resolves.",
+    "Contract-grade BUFFER_OVERFLOW, PIPE_CLOSED, and NO_CONTROLLING_TERMINAL outcomes and a direct read-only mode are absent from the native boolean result."
+  ],
+  "tsc": {
+    "command": "npm run build -w @sentropic/h2a",
+    "exit_code": 0
+  },
+  "baseline_tests": {
+    "command": "npm test",
+    "exit_code": 0,
+    "node": {
+      "total": 2076,
+      "passing": 2047,
+      "failing": 0,
+      "skipped": 17,
+      "todo": 12
+    },
+    "track": {
+      "files_passing": 87,
+      "tests_passing": 1190,
+      "failing": 0
+    },
+    "note": "The exact baseline command was rerun outside the workspace sandbox because one existing isolation test intentionally creates a sibling temporary directory."
+  },
+  "attribution_clean": true,
+  "head_sha": "SELF",
+  "notes": [
+    "Characterization only: no production source, dependency manifest, cutover wiring, or cluster-mesh candidate was changed.",
+    "packages/h2a/src/runtime/drive/pty-actuator.ts remains untouched.",
+    "The characterized native effect path is createInboxWakeHandler -> formatSignedDriveInstruction -> localTmuxDriver or nativeBackchannelDriver plus the native-terminal drive operation.",
+    "Target-B is represented by the reusable harness pending object and an explicit todo, never by a parity assertion.",
+    "head_sha uses SELF because a commit cannot embed its own object id; the resolved SHA is streamed to output.log at handoff and reported by git HEAD."
+  ]
+}
