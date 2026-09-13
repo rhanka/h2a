@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 
 import { isOsTemporaryPath } from "../path-safety.js";
 
-export const H2A_RUN_PROFILES = ["claude", "codex"] as const;
+export const H2A_RUN_PROFILES = ["claude", "codex", "agy"] as const;
 export type H2aRunProfile = (typeof H2A_RUN_PROFILES)[number];
 export const H2A_RUN_EFFORTS = ["low", "medium", "high", "xhigh"] as const;
 export type H2aRunEffort = (typeof H2A_RUN_EFFORTS)[number];
@@ -22,6 +22,7 @@ export type H2aRunRequest = {
   gateway: H2aRunGateway;
   headless: boolean;
   h2aSidecar: boolean;
+  agent?: string;
   model?: string;
   effort?: H2aRunEffort;
   /** Server-attested launch provenance; never supplied by the MCP caller. */
@@ -45,6 +46,7 @@ const ALLOWED_KEYS = new Set([
   "gateway",
   "headless",
   "h2aSidecar",
+  "agent",
   "model",
   "effort",
 ]);
@@ -80,7 +82,7 @@ export function validateH2aRunRequest(
 
   const profile = requiredString(args, "profile");
   if (!(H2A_RUN_PROFILES as readonly string[]).includes(profile)) {
-    throw new Error("h2a_run: 'profile' must be claude|codex");
+    throw new Error("h2a_run: 'profile' must be claude|codex|agy");
   }
   const name = requiredString(args, "name");
   if (!SAFE_NAME.test(name)) {
@@ -133,6 +135,11 @@ export function validateH2aRunRequest(
       "h2a_run: gateway 'required' is unsupported for codex (llm-mesh is Anthropic-compatible)",
     );
   }
+  if (profile === "agy" && gateway === "required") {
+    throw new Error(
+      "h2a_run: gateway 'required' is unsupported for agy (AGY uses its direct provider)",
+    );
+  }
   const headless = args.headless ?? false;
   if (typeof headless !== "boolean") {
     throw new Error("h2a_run: 'headless' must be boolean");
@@ -149,6 +156,13 @@ export function validateH2aRunRequest(
   if (model !== undefined && (typeof model !== "string" || !SAFE_MODEL.test(model))) {
     throw new Error("h2a_run: invalid 'model' token");
   }
+  const agent = args.agent;
+  if (agent !== undefined && (typeof agent !== "string" || !SAFE_MODEL.test(agent))) {
+    throw new Error("h2a_run: invalid 'agent' token");
+  }
+  if (agent !== undefined && profile !== "agy") {
+    throw new Error("h2a_run: 'agent' is supported only for profile agy");
+  }
   const effort = args.effort;
   if (
     effort !== undefined &&
@@ -156,6 +170,9 @@ export function validateH2aRunRequest(
       !(H2A_RUN_EFFORTS as readonly string[]).includes(effort))
   ) {
     throw new Error("h2a_run: 'effort' must be low|medium|high|xhigh");
+  }
+  if (profile === "agy" && effort === "xhigh") {
+    throw new Error("h2a_run: AGY effort must be low|medium|high");
   }
 
   return {
@@ -167,6 +184,7 @@ export function validateH2aRunRequest(
     gateway: gateway as H2aRunGateway,
     headless,
     h2aSidecar,
+    ...(agent !== undefined ? { agent } : {}),
     ...(model !== undefined ? { model } : {}),
     ...(effort !== undefined ? { effort: effort as H2aRunEffort } : {}),
   };
@@ -202,6 +220,7 @@ export function buildH2aRunInvocation(
         : request.gateway === "off"
           ? ["--no-gw"]
           : []),
+      ...(request.agent ? ["--agent", request.agent] : []),
       ...(request.model ? ["--model", request.model] : []),
       ...(request.effort ? ["--effort", request.effort] : []),
       ...(request.headless ? ["--headless"] : []),
@@ -219,11 +238,13 @@ function contractResult(value: unknown, request: H2aRunRequest): unknown {
   const session = result.session as Record<string, unknown> | undefined;
   const expectedMode = request.headless ? "headless" : "interactive";
   const expectedGateway =
-    request.gateway === "required"
-      ? "gateway"
-      : request.gateway === "off"
-        ? "direct"
-        : undefined;
+    request.profile === "agy"
+      ? "direct"
+      : request.gateway === "required"
+        ? "gateway"
+        : request.gateway === "off"
+          ? "direct"
+          : undefined;
   const attach = result.attach as Record<string, unknown> | null | undefined;
   // The native-terminal host (feat/native-terminal-host) keys a session by its
   // name, not a tmux pane, so a native `h2a.run.result` legitimately omits

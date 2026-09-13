@@ -160,6 +160,7 @@ import { migrateTmuxNames, type TmuxNameMigrationMode } from "./tmux-name-migrat
 import { projectStatusForH2a } from "./status-projection.js";
 import {
   buildAgentLaunchArgs,
+  buildAgentLaunchStdin,
   isAgentLaunchEffort,
   isAgentLaunchProfile,
   type AgentLaunchEffort,
@@ -464,6 +465,7 @@ export {
   assertAgentLaunchModel,
   assertAgentLaunchPrompt,
   buildAgentLaunchArgs,
+  buildAgentLaunchStdin,
   isAgentLaunchEffort,
   isAgentLaunchProfile,
 } from "./agent-launch-args.js";
@@ -5863,7 +5865,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
   program
     .command("run <profile> [path]")
     .description(
-      "Start a LOCAL session in tmux (claude/codex/…) in <path> (default: cwd), then attach this terminal by default. h2a applies its embedded scroll-safe tmux profile at launch; no ~/.tmux.conf is required. Manage it with `h2a ls`, `h2a attach <slug>`, and `h2a stop <slug>`. Detach with Ctrl-b d; the session keeps running.",
+      "Start a LOCAL session in tmux (claude/codex/agy/…) in <path> (default: cwd), then attach this terminal by default. h2a applies its embedded scroll-safe tmux profile at launch; no ~/.tmux.conf is required. Manage it with `h2a ls`, `h2a attach <slug>`, and `h2a stop <slug>`. Detach with Ctrl-b d; the session keeps running.",
     )
     .option(
       "--no-attach",
@@ -5900,16 +5902,17 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
     .option("--no-h2a", "do not start the h2a MCP side window, overriding config")
     .option(
       "--prompt-stdin",
-      "read the initial Claude/Codex prompt from stdin (keeps it out of process argv)",
+      "read the initial Claude/Codex/AGY prompt from stdin (keeps it out of process argv)",
     )
-    .option("--model <model>", "Claude/Codex model override")
+    .option("--agent <agent>", "AGY agent override (for example: stp)")
+    .option("--model <model>", "Claude/Codex/AGY model override")
     .option(
       "--effort <level>",
-      "reasoning effort: low|medium|high|xhigh (Claude and Codex)",
+      "reasoning effort: low|medium|high|xhigh (AGY supports low|medium|high)",
     )
     .option(
       "--headless",
-      "run once and exit (Claude -p / Codex exec), recording output under .h2a/runs/<name>",
+      "run once and exit (Claude -p / Codex exec / AGY --print), recording output under .h2a/runs/<name>",
     )
     .option(
       "--background",
@@ -5937,6 +5940,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           count?: string;
           h2a?: boolean;
           promptStdin?: boolean;
+          agent?: string;
           model?: string;
           effort?: string;
           headless?: boolean;
@@ -5950,6 +5954,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
       ) => {
         const structuredLaunch =
           opts.promptStdin === true ||
+          opts.agent !== undefined ||
           opts.model !== undefined ||
           opts.effort !== undefined ||
           opts.headless === true ||
@@ -5957,7 +5962,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           opts.json === true;
         if (structuredLaunch && !isAgentLaunchProfile(profile)) {
           process.stderr.write(
-            `[h2a] structured run supports only claude|codex (got "${profile}")\n`,
+            `[h2a] structured run supports only claude|codex|agy (got "${profile}")\n`,
           );
           process.exitCode = 2;
           return;
@@ -5966,6 +5971,16 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           process.stderr.write(
             `[h2a] --effort must be low|medium|high|xhigh\n`,
           );
+          process.exitCode = 2;
+          return;
+        }
+        if (profile === "agy" && opts.effort === "xhigh") {
+          process.stderr.write("[h2a] AGY --effort must be low|medium|high\n");
+          process.exitCode = 2;
+          return;
+        }
+        if (opts.agent !== undefined && profile !== "agy") {
+          process.stderr.write("[h2a] --agent is supported only for the AGY profile\n");
           process.exitCode = 2;
           return;
         }
@@ -5998,6 +6013,21 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         if (opts.promptStdin && opts.attachedTerminal === false) {
           process.stderr.write(
             "[h2a] --prompt-stdin requires the attached terminal; remove --no-attached-terminal.\n",
+          );
+          process.exitCode = 2;
+          return;
+        }
+        let gatewayMode: "auto" | "gateway" | "direct";
+        try {
+          gatewayMode = gatewayModeFromOptions(opts);
+        } catch (error) {
+          process.stderr.write(`[h2a] ${(error as Error).message}.\n`);
+          process.exitCode = 1;
+          return;
+        }
+        if (gatewayMode === "gateway" && !profileUsesLlmMeshGateway(profile)) {
+          process.stderr.write(
+            `[h2a] --llm-gateway/--gw is unsupported for ${profile}; this gateway is Anthropic-compatible and only Claude profiles consume it.\n`,
           );
           process.exitCode = 2;
           return;
@@ -6160,21 +6190,6 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         }
         // By default launches are direct. --llm-gateway/--gw opts into the
         // local gateway for any profile that consumes Anthropic-compatible env.
-        let gatewayMode: "auto" | "gateway" | "direct";
-        try {
-          gatewayMode = gatewayModeFromOptions(opts);
-        } catch (error) {
-          process.stderr.write(`[h2a] ${(error as Error).message}.\n`);
-          process.exitCode = 1;
-          return;
-        }
-        if (gatewayMode === "gateway" && !profileUsesLlmMeshGateway(profile)) {
-          process.stderr.write(
-            `[h2a] --llm-gateway/--gw is unsupported for ${profile}; this gateway is Anthropic-compatible and only Claude profiles consume it.\n`,
-          );
-          process.exitCode = 2;
-          return;
-        }
         const launchGatewayMode = gatewayModeForProfile(profile, gatewayMode);
         const command = localCliCommand(profile);
         // A detached/background or run-once launch is a worker, even when its
@@ -6252,6 +6267,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
                     ...(initialPrompt !== undefined
                       ? { prompt: initialPrompt }
                       : {}),
+                    ...(opts.agent !== undefined ? { agent: opts.agent } : {}),
                     ...(opts.model !== undefined ? { model: opts.model } : {}),
                     ...(opts.effort !== undefined
                       ? { effort: opts.effort as AgentLaunchEffort }
@@ -6289,6 +6305,16 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             mkdirSync(runDir, { recursive: true });
             outputLog = join(runDir, "output.log");
             resultJson = join(runDir, "result.json");
+            const headlessPromptInput =
+              structuredLaunch && isAgentLaunchProfile(profile)
+                ? buildAgentLaunchStdin({
+                    profile,
+                    ...(initialPrompt !== undefined
+                      ? { prompt: initialPrompt }
+                      : {}),
+                    headless: true,
+                  })
+                : initialPrompt;
             if (sessionHost === "native") {
               ({ name, slug, promptFile } = startNativeHeadlessSession(
                 profile,
@@ -6298,7 +6324,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
                 resultJson,
                 outputLog,
                 label!,
-                initialPrompt,
+                headlessPromptInput,
                 structuredLaunch,
                 sessionClass,
               ));
@@ -6312,7 +6338,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
                 outputLog,
                 label!,
                 getTmuxProfileConfig().profile,
-                initialPrompt,
+                headlessPromptInput,
                 structuredLaunch,
                 sessionClass,
               ));

@@ -110,12 +110,21 @@ test("h2a_run descriptor is exact, background-only, and shared by the local MCP"
       "background"
     ]);
     assert.equal(descriptor.inputSchema.properties.background.const, true);
+    assert.deepEqual(descriptor.inputSchema.properties.profile.enum, [
+      "claude",
+      "codex",
+      "agy"
+    ]);
+    assert.equal(
+      descriptor.inputSchema.properties.agent.pattern,
+      "^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$"
+    );
   });
 });
 
-test("h2a_run validates both profiles and returns the real launcher result", () => {
+test("h2a_run validates every structured profile and returns the real launcher result", () => {
   withWorkspace(({ workspaceRoot, workspace, storeRoot }) => {
-    for (const profile of ["claude", "codex"]) {
+    for (const profile of ["claude", "codex", "agy"]) {
       let captured;
       const server = createMcpServer({
         root: storeRoot,
@@ -129,7 +138,10 @@ test("h2a_run validates both profiles and returns the real launcher result", () 
         profile,
         name: `${profile}-worker`,
         headless: false,
-        h2aSidecar: true
+        h2aSidecar: true,
+        ...(profile === "agy"
+          ? { agent: "stp", model: "gemini-3.7-flash-high", effort: "high" }
+          : {})
       });
 
       const result = server.callTool("h2a_run", args);
@@ -252,6 +264,55 @@ test("h2a_run rejects unknown fields, unsafe workspaces and invalid combinations
         ),
       /required.*unsupported for codex/i
     );
+    assert.throws(
+      () =>
+        validateH2aRunRequest(
+          request(workspace, {
+            profile: "agy",
+            headless: false,
+            gateway: "required",
+            effort: "high"
+          }),
+          workspaceRoot
+        ),
+      /required.*unsupported for agy/i
+    );
+    assert.throws(
+      () =>
+        validateH2aRunRequest(
+          request(workspace, {
+            profile: "agy",
+            headless: false,
+            gateway: "off",
+            effort: "xhigh"
+          }),
+          workspaceRoot
+        ),
+      /agy.*effort.*low.*medium.*high/i
+    );
+    for (const profile of ["claude", "codex"]) {
+      assert.throws(
+        () =>
+          validateH2aRunRequest(
+            request(workspace, { profile, agent: "stp" }),
+            workspaceRoot
+          ),
+        /agent.*only.*profile agy/i
+      );
+    }
+    assert.throws(
+      () =>
+        validateH2aRunRequest(
+          request(workspace, {
+            profile: "agy",
+            gateway: "off",
+            effort: "high",
+            agent: "--unsafe"
+          }),
+          workspaceRoot
+        ),
+      /invalid.*agent/i
+    );
   });
 });
 
@@ -280,6 +341,48 @@ test("canonical invocation uses argv + stdin with no prompt in any argv token", 
       "gpt-5.6-terra",
       "--effort",
       "xhigh",
+      "--headless"
+    ]);
+    assert.equal(invocation.args.includes(req.prompt), false);
+  });
+});
+
+test("canonical AGY run-once invocation is direct and keeps the prompt on stdin", () => {
+  withWorkspace(({ workspaceRoot, workspace }) => {
+    const req = validateH2aRunRequest(
+      request(workspace, {
+        profile: "agy",
+        name: "gemini-review",
+        headless: true,
+        h2aSidecar: false,
+        agent: "stp",
+        model: "gemini-3.7-flash-high",
+        effort: "high"
+      }),
+      workspaceRoot
+    );
+    const invocation = buildH2aRunInvocation(req, "/opt/h2a/bin.js");
+
+    assert.equal(invocation.input, req.prompt);
+    assert.deepEqual(invocation.args, [
+      "/opt/h2a/bin.js",
+      "run",
+      "agy",
+      workspace,
+      "--no-attach",
+      "--background",
+      "--json",
+      "--name",
+      "gemini-review",
+      "--prompt-stdin",
+      "--no-h2a",
+      "--no-gw",
+      "--agent",
+      "stp",
+      "--model",
+      "gemini-3.7-flash-high",
+      "--effort",
+      "high",
       "--headless"
     ]);
     assert.equal(invocation.args.includes(req.prompt), false);
@@ -345,6 +448,32 @@ test("subprocess bridge sets shell:false and fails closed on API/runtime skew", 
               session: {
                 ...runtimeResult(claudeRequired).session,
                 gateway: "direct"
+              }
+            })
+          ),
+          stderr: ""
+        })),
+      /incompatible h2a runtime/i
+    );
+    const agyAuto = validateH2aRunRequest(
+      request(workspace, {
+        profile: "agy",
+        agent: "stp",
+        model: "gemini-3.7-flash-high",
+        effort: "high",
+        gateway: "auto"
+      }),
+      workspaceRoot
+    );
+    assert.throws(
+      () =>
+        executeH2aRunWithSpawn(agyAuto, () => ({
+          status: 0,
+          stdout: JSON.stringify(
+            runtimeResult(agyAuto, {
+              session: {
+                ...runtimeResult(agyAuto).session,
+                gateway: "gateway"
               }
             })
           ),
