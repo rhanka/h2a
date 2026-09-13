@@ -305,6 +305,10 @@ function stderrText(): string {
 
 beforeEach(() => {
   mkdirSync(SCRATCH, { recursive: true });
+  rmSync(join(SCRATCH, "resume-launch-claims"), {
+    recursive: true,
+    force: true,
+  });
   writeRegistry([]);
   listRemoteSessions.mockReset();
   listRemoteSessions.mockResolvedValue([]);
@@ -1622,6 +1626,48 @@ describe("h2a resume <slug>", () => {
 });
 
 describe("h2a run -r <conv> single-writer guard", () => {
+  it("starts exactly one writer when the same resume UUID is requested concurrently", async () => {
+    getDefaultRemote.mockReturnValue("http://localhost:8080");
+    let finishOwnerCheck!: (sessions: unknown[]) => void;
+    listRemoteSessions.mockImplementationOnce(
+      () => new Promise<unknown[]>((resolve) => {
+        finishOwnerCheck = resolve;
+      }),
+    );
+
+    const first = main([
+      "node",
+      "remote",
+      "run",
+      "claude",
+      "--name",
+      "first-ref",
+      "--resume",
+      "11111111-1111-4111-8111-111111111111",
+      "--no-attach",
+    ]);
+    await vi.waitFor(() => expect(listRemoteSessions).toHaveBeenCalledOnce());
+
+    const second = await main([
+      "node",
+      "remote",
+      "run",
+      "claude",
+      "--name",
+      "second-ref",
+      "--resume",
+      "11111111-1111-4111-8111-111111111111",
+      "--no-attach",
+    ]);
+    expect(second).toBe(0);
+    expect(startLocalSession).not.toHaveBeenCalled();
+    expect(stderrText()).toContain("duplicate launch request skipped");
+
+    finishOwnerCheck([]);
+    await expect(first).resolves.toBe(0);
+    expect(startLocalSession).toHaveBeenCalledTimes(1);
+  });
+
   it("uses the canonical tmux name as the gateway session id for a new launch", async () => {
     acquireLlmMeshSessionEnv.mockResolvedValue({
       ANTHROPIC_BASE_URL: "http://localhost:3002",
@@ -1700,6 +1746,35 @@ describe("h2a run -r <conv> single-writer guard", () => {
     expect(stderrText()).toContain("h2a attach projA");
     expect(stderrText()).toContain("h2a stop projA --reason restart");
     expect(stderrText()).not.toContain("llm-mesh");
+  });
+
+  it("reclaims a stale tmux name reservation when neither managed name is live", async () => {
+    findLocalSession.mockImplementation((target: string) =>
+      target === "projA"
+        ? {
+            name: "remote-projA",
+            slug: "projA",
+            profile: "claude",
+            path: "/home/u/src/projA",
+            attached: false,
+          }
+        : undefined,
+    );
+
+    const exitCode = await main([
+      "node",
+      "remote",
+      "run",
+      "claude",
+      "/home/u/src/projA",
+      "--name",
+      "projA",
+      "--no-attach",
+    ]);
+
+    expect(exitCode).toBe(0);
+    expect(startLocalSession).toHaveBeenCalledOnce();
+    expect(stderrText()).not.toContain("already exists");
   });
 
   it("refuses when a live REMOTE session holds the conversation (cliSessionId)", async () => {
