@@ -193,6 +193,41 @@ describe('CLI full verb surface (Lot 7) end-to-end', () => {
     expect(text).toContain('hint')
     expect(text).toContain('create') // the hint suggests creating the missing file
   })
+
+  // Regression pair (desync false-positive fix): the round-trip rule targets bodies whose ENTIRE
+  // value is a file path. A prose body that merely ends in a `.md` citation token must NOT desync,
+  // while the same trailing path standing alone as the whole body still MUST.
+  it('does NOT flag a prose body that merely ends in a .md citation (false-positive fix)', () => {
+    runCli(['init'], io)
+    // Real-world shape: a sentence citing a spec, ending in a `.md` token (with a shell brace
+    // expansion). It is not a single concrete file path — it contains whitespace — so it is prose,
+    // not a file reference. (With the old "ends in .md" heuristic this raised a bogus desync.)
+    const prose =
+      'Spec design-only h2a enrollment; double-consensus GO. Spec: docs/specs/2026-07-11-enrollment{,-DOSSIER}.md'
+    runCli(['item', 'new', '--kind', 'feature', '--title', 'Spec', '--workspace', 'ws', '--body', prose], io)
+    out.length = 0
+    expect(runCli(['validate', '--commit', 'c1'], io)).toBe(0)
+    const text = out.join('')
+    // The clean-success line is "OK: N events, integrity + desync clean" — the failure line is
+    // "INVALID: … desync finding(s)". Assert the run was clean (no findings), not on a substring.
+    expect(text).toContain('OK:')
+    expect(text).not.toContain('INVALID')
+    expect(text).not.toContain('finding')
+  })
+
+  it('still flags a genuine whole-body .md path reference to a missing file (detection preserved)', () => {
+    runCli(['init'], io)
+    // The same trailing path, now the ENTIRE body (no surrounding prose): a real file reference.
+    runCli(
+      ['item', 'new', '--kind', 'feature', '--title', 'Spec', '--workspace', 'ws', '--body', 'docs/specs/2026-07-11-enrollment.md'],
+      io,
+    )
+    out.length = 0
+    expect(runCli(['validate', '--commit', 'c1'], io)).toBe(1)
+    const text = out.join('')
+    expect(text).toContain('desync')
+    expect(text).toContain('missing')
+  })
 })
 
 describe('CLI input validation + review fixes (Lot 7)', () => {

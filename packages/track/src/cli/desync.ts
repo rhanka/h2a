@@ -12,17 +12,28 @@ export interface DesyncFinding {
 }
 
 /**
- * SPEC §4 round-trip / desync rule: when an Item's `body` references a markdown file (a single-line
- * path ending in `.md`), that file MUST exist and its H1 title MUST match the Item title. A missing
- * file or a title mismatch is a desync finding (MVP reports; it never auto-repairs). Inline-prose
- * bodies (the common case, incl. BRANCH-imported items) are not file references and are skipped.
- * Each finding carries a `hint` — a suggested fix the human/agent may apply (track never does).
+ * A body is a markdown *file reference* only when the ENTIRE body is one plausible file path ending
+ * in `.md`: `/`-separated path segments, NO whitespace, and no shell brace/glob metacharacters
+ * (`{ } * ?`). This is what SPEC §4's round-trip rule targets. It deliberately does NOT match a
+ * prose body that merely happens to end in a `.md` token — e.g. a sentence citing a spec such as
+ * "… Spec: docs/specs/2026-06-29-foo.md" or "… enrollment{,-DOSSIER}.md" — because such prose
+ * contains whitespace (and/or brace expansions) and is not a single concrete file path. Matching on
+ * "ends in .md" alone produced desync false positives on those inline citations.
+ */
+const MD_FILE_REF = /^\/?(?:[^\s/{}*?]+\/)*[^\s/{}*?]+\.md$/
+
+/**
+ * SPEC §4 round-trip / desync rule: when an Item's `body` is a markdown file reference (see
+ * MD_FILE_REF), that file MUST exist and its H1 title MUST match the Item title. A missing file or a
+ * title mismatch is a desync finding (MVP reports; it never auto-repairs). Inline-prose bodies (the
+ * common case, incl. BRANCH-imported items and spec citations) are not file references and are
+ * skipped. Each finding carries a `hint` — a suggested fix the human/agent may apply (track never does).
  */
 export function desyncFindings(state: State, cwd: string): DesyncFinding[] {
   const findings: DesyncFinding[] = []
   for (const item of state.items.values()) {
     const ref = item.body?.trim()
-    if (ref === undefined || !/^[^\n]+\.md$/.test(ref)) continue
+    if (ref === undefined || !MD_FILE_REF.test(ref)) continue
     const path = isAbsolute(ref) ? ref : join(cwd, ref)
     if (!existsSync(path)) {
       findings.push({
