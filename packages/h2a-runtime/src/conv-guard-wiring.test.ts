@@ -1493,6 +1493,49 @@ describe("h2a resume <slug>", () => {
     expect(process.env.ANTHROPIC_API_KEY).toBe("user-owned-api-key");
   });
 
+  it("a default launch (no --gw) is direct even under an inherited gateway env with llm-mesh enabled", async () => {
+    // The parent session runs under the gateway: its process env carries the
+    // ANTHROPIC_BASE_URL/AUTH_TOKEN a child would previously have inherited, and
+    // a token is available so the OLD auto-default would have (re)injected it.
+    // Owner decision (2026-09): without an explicit --gw the child launches
+    // DIRECT and must NOT propagate the gateway env.
+    process.env.ANTHROPIC_BASE_URL = "http://localhost:3002";
+    process.env.ANTHROPIC_AUTH_TOKEN = "parent-gw-token";
+    process.env.ANTHROPIC_API_KEY = "user-owned-api-key";
+    getLlmMeshRuntimeConfig.mockReturnValue({ enabled: true });
+    readLlmMeshConfig.mockReturnValue({});
+    acquireLlmMeshSessionEnv.mockResolvedValue({
+      ANTHROPIC_BASE_URL: "http://localhost:3002",
+      ANTHROPIC_AUTH_TOKEN: "gw-current",
+    });
+    startGateway.mockResolvedValue({
+      pid: 123,
+      port: 3002,
+      gatewayToken: "gw-started",
+    });
+    writeRegistry([registrySession()]);
+
+    const exitCode = await main(["node", "remote", "resume", "projA"]);
+
+    expect(exitCode).toBe(0);
+    // Direct short-circuits BEFORE any gateway acquisition or start.
+    expect(acquireLlmMeshSessionEnv).not.toHaveBeenCalled();
+    expect(startGateway).not.toHaveBeenCalled();
+    expect(startLocalSession).toHaveBeenCalledWith(
+      "claude",
+      "claude",
+      "/home/u/src/projA",
+      ["--resume", "conv-dup"],
+      "projA",
+      undefined,
+      { attachedTerminal: true, sessionClass: "background" },
+    );
+    // The inherited parent gateway env is scrubbed; a user-owned API key survives.
+    expect(process.env.ANTHROPIC_BASE_URL).toBeUndefined();
+    expect(process.env.ANTHROPIC_AUTH_TOKEN).toBeUndefined();
+    expect(process.env.ANTHROPIC_API_KEY).toBe("user-owned-api-key");
+  });
+
   it("does not replace an existing non-idle session", async () => {
     writeRegistry([registrySession()]);
     findLocalSession.mockReturnValue({
