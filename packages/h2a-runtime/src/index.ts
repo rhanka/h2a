@@ -5555,7 +5555,15 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         }
         const effectiveGatewayMode = gatewayModeForProfile(profile, gatewayMode);
         let gateway: string | undefined;
-        const useBare = shouldUseClaudeBare(profile);
+        // `--bare` skips Claude Code onboarding; it is only safe to skip when the
+        // launch actually runs under the gateway AND the parent already carries
+        // gateway env (a nested gateway session). A DIRECT launch — now the
+        // default even under a parent that itself runs under the gateway — must
+        // NEVER carry --bare, or the child would skip onboarding while its
+        // Anthropic env is scrubbed. The mode gate is evaluated pre-injection,
+        // alongside the parent-env probe in shouldUseClaudeBare.
+        const useBare =
+          effectiveGatewayMode !== "direct" && shouldUseClaudeBare(profile);
         const command = localCliCommand(profile);
         const args = localResumeArgs(profile, entry.convId, {
           bare: useBare,
