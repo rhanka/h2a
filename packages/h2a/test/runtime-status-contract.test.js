@@ -69,7 +69,12 @@ test("only Claude profiles consume the Anthropic-compatible gateway", () => {
     assert.equal(gatewayModeForProfile(profile, "auto"), "direct", profile);
     assert.equal(gatewayModeForProfile(profile, "gateway"), "direct", profile);
   }
-  assert.equal(gatewayModeForProfile("claude", "auto"), "auto");
+  // Owner decision (2026-09): direct unless the gateway is asked for EXPLICITLY.
+  // The non-explicit "auto" now resolves to direct for Claude too; only an
+  // explicit "gateway" engages it, and "direct" stays direct.
+  assert.equal(gatewayModeForProfile("claude", "auto"), "direct");
+  assert.equal(gatewayModeForProfile("claude", "gateway"), "gateway");
+  assert.equal(gatewayModeForProfile("claude", "direct"), "direct");
 });
 
 test("delegated launch gateway env is scrubbed and restores the caller exactly", () => {
