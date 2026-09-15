@@ -698,7 +698,7 @@ const H2A_COORDINATION_TOOL_DESCRIPTORS: McpToolDescriptor[] = [
         gateway: {
           type: "string",
           enum: ["auto", "required", "off"],
-          description: "AGY is always direct: auto/off are accepted and required is rejected."
+          description: "Direct by default: auto (the default) and off both launch direct; only required opts a Claude session into the local llm-mesh gateway. AGY is always direct, so required is rejected."
         },
         headless: {
           type: "boolean",
