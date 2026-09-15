@@ -3,69 +3,83 @@
   "title": "Alignement mémoire h2a sur Open Knowledge Format (OKF v0.2)",
   "workspace": "ws:89c45cc3e040949f1a1a034529722ee877150fd2a0e3da16a7f6e9d8e27f495d",
   "dossier": {
-    "context": "Cible OKF v0.2 (arbitrée par l'owner) : connaissance = fichiers Markdown + frontmatter YAML (seul champ requis: type) cross-linkes en graphe, neutre provider/DB/modele. Etude cadree export/interop, additif et reversible : peut-on emettre/consommer les Episodes h2a (Context+Decision+Evidence, F1) comme concepts OKF ? Contrainte sensible : la neutralite graphify (D1) interdit tout vocabulaire consommateur dans les contrats graphify-memory ; un bridge de projection peut dependre des deux cotes mais n'est pas re-exporte par graphify-memory. Dossier: spec/DECISION_OPENKNOWLEDGE_ALIGNMENT_20260915T164937Z.md.",
+    "context": "Cible OKF v0.2 (arbitrée par l'owner) : connaissance = fichiers Markdown + frontmatter YAML (seul champ requis: type) cross-linkes en graphe, neutre provider/DB/modele. Etude cadree export/interop, additif et reversible : peut-on emettre les Episodes h2a (Context+Decision+Evidence, F1) comme concepts OKF ? Deux jambes de revue independantes (Opus + Gemini 3.8 high, remplacant Codex a sec) integrees ; Gemini a impose 4 rectifications : (1) taxonomie B/E phase vs D vrai hybride ; (2) ajout d'une option E OKF attestee (sidecar de signatures/preuves merklisees/edges typees) car un export nu jette l'integrite fondatrice ; (3) trou de gouvernance revocation/TTL (un Episode efface plus tard - RGPD art.17 - persiste dans le bundle exporte) -> politique de cycle de vie ; (4) contrat de sink EpisodeStreamSink neutre a l'interface, OKF interdit dans h2a et graphify-memory. Contrainte sensible : neutralite graphify (D1). Dossier: spec/DECISION_OPENKNOWLEDGE_ALIGNMENT_20260915T164937Z.md (revision 2).",
     "options": [
       {
         "id": "A",
-        "title": "Aligner pleinement OKF",
+        "title": "Aligner pleinement OKF (natif)",
         "summary": "h2a/graphify emettent ET consomment OKF nativement comme representation memoire de 1re classe.",
         "pros": [
-          "Interop maximale, un seul format lisible par tout agent tiers",
+          "Interop maximale, format unique lisible par tout agent tiers",
           "Aucun adapter separe a maintenir"
         ],
         "cons": [
-          "Seule option qui touche la neutralite graphify (fuite du vocabulaire OKF dans le moteur, viole D1) ou force une extension non-standard",
-          "Perd signatures, hash-chain et edges typees qu'OKF ne sait pas porter",
+          "Seule option qui touche la neutralite graphify (D1) ou force une extension non-standard",
+          "Detruit signatures, hash-chain et edges typees",
           "Migration lourde, rollback superieur a un bloc"
         ]
       },
       {
         "id": "B",
-        "title": "Aligner partiellement via un port d'export injecte",
-        "summary": "Un bridge injecte (cote h2a / owned a part) serialise les Episodes vers un bundle OKF depuis la sortie neutre du recall graphify.",
+        "title": "Export injecte nu (OKF conforme, sans attestation)",
+        "summary": "Un bridge cote h2a serialise les Episodes vers un bundle OKF conforme depuis la sortie neutre du recall, sans attestation.",
         "pros": [
-          "Interop OKF reelle sans toucher la neutralite (OKF vit dans le bridge, non re-exporte par graphify-memory)",
-          "Additif et reversible ; le journal signe reste la source d'autorite",
-          "Consomme le recall neutre existant (M5=C)"
+          "Interop reelle sans toucher la neutralite",
+          "Additif et reversible, l'option la moins chere"
         ],
         "cons": [
-          "Un adapter et un mapping type a maintenir",
-          "Export lossy: edges typees et integrite non portees par OKF",
-          "Benefice reel seulement si un consommateur OKF existe (aucun trouve a ce jour)"
+          "Jette l'integrite fondatrice: bundle non verifiable -> trust-laundering",
+          "Degradation semantique (edges typees -> liens Markdown)",
+          "Benefice reel seulement si un consommateur OKF existe"
         ]
       },
       {
         "id": "C",
         "title": "Ne pas aligner",
-        "summary": "Garder Episode/journal tel quel, aucune surface OKF.",
+        "summary": "Garder Episode/journal tel quel, aucune surface OKF ; un generateur de rapport couvre le besoin lisible-humain si c'est le seul besoin reel.",
         "pros": [
-          "Cout nul, zero dette, aucune perte d'integrite",
+          "Cout nul, zero dette, aucune perte d'integrite ni risque privacy",
+          "OKF possiblement inutile: report generator pour l'humain, OKF inadapte a une memoire verifiee (liens non-typés + zero integrite)",
           "Aucun risque pour la neutralite graphify"
         ],
         "cons": [
-          "Ferme l'interop OKF et la lisibilite par agents tiers",
+          "Ferme l'interop OKF si un consommateur apparait",
           "Ignore une norme d'interop emergente"
         ]
       },
       {
         "id": "D",
-        "title": "Hybride (incrementiel puis gate)",
-        "summary": "Increment lecture-seule maintenant (= B a scope reduit: exporter seulement les dossiers/decisions deja publies), gate de decision avant tout pas natif.",
+        "title": "Hybride vers le natif (A differe)",
+        "summary": "Export (B/E) maintenant, puis gate de decision vers l'adoption native (A) plus tard. Pas de sync bidirectionnel (exclu).",
         "pros": [
-          "Livre une valeur interop minimale vite",
-          "Garde l'optionalite vers A intacte",
-          "Time-boxe et reversible ; neutralite preservee"
+          "Garde l'optionalite vers A, decision par etapes",
+          "Etape 1 time-boxee et reversible"
         ],
         "cons": [
           "Deux passes de gouvernance",
-          "Surface d'abord etroite"
+          "L'etape 2 (natif) rouvre la neutralite et l'integrite"
+        ]
+      },
+      {
+        "id": "E",
+        "title": "Export injecte ATTESTE (OKF conforme + sidecar d'attestation)",
+        "summary": "Le bridge emet de l'OKF conforme PLUS un sidecar d'attestation (signatures detachees d'Episode, preuves de hash merklisees, carte d'edges typees) ; livraison phasee (lecture-seule sur artefacts publies d'abord).",
+        "pros": [
+          "Interop OKF sans jeter l'integrite: chaine verifiable en aval",
+          "Neutralite preservee (attestation cote bridge/h2a, contrat de sink neutre)",
+          "Additif, reversible, et reste OKF-conforme (metadonnees etendues autorisees)"
+        ],
+        "cons": [
+          "Cout superieur a B (attestation a produire et maintenir)",
+          "Verifiabilite seulement si le consommateur honore le sidecar (sinon trust-laundering subsiste)",
+          "Toujours conditionne a l'apparition d'un consommateur OKF reel"
         ]
       }
     ],
     "qa": [],
     "recommendation": {
-      "optionId": "B",
-      "rationale": "B (sequencee comme D: increment lecture-seule d'abord) est la seule option qui livre de l'interop OKF tout en preservant la neutralite graphify (l'exact STOP-trigger de l'owner) et l'integrite signee de h2a. A est ecartee: seule a toucher la neutralite (D1) et detruit signatures/hash-chain/edges typees. C ferme l'interop sans contrepartie alors que B est additif et reversible a cout moyen-bas. Le journal signe reste le canon; OKF est une projection sortante lossy, jamais la source d'autorite. Conditions adoptees apres revue independante: (1) export-seule, import OKF hors reco derriere un gate separe; (2) gate sujet-humain/retention avant tout export (OKF n'a ni expiry ni redaction); (3) garde de neutralite = scan de non-import/non-re-export sur la closure de publication de graphify-memory, pas un scan du bridge; (4) conditionne a l'apparition d'un consommateur OKF reel, sinon rester en C."
+      "optionId": "E",
+      "rationale": "E (export injecte atteste, livre phase: increment lecture-seule d'abord) est la seule option qui livre de l'interop OKF tout en preservant (1) la neutralite graphify (STOP-trigger owner, garanti par un contrat de sink EpisodeStreamSink generique - OKF interdit dans h2a et graphify-memory) et (2) l'integrite VERIFIABLE de h2a (journal signe = canon ; l'attestation le rend verifiable en aval). E domine B: un export nu jette l'integrite fondatrice et ouvre le trust-laundering. A est ecartee (seule a toucher la neutralite + detruit l'integrite). D garde l'optionalite mais son etape 2 rouvre les deux risques. C reste le finaliste: sans consommateur OKF qui verifie l'attestation, E est de la dette speculative et C est le bon defaut. Conditions dures (sinon bascule vers C): (1) export-seule + barriere architecturale anti-reimport (aucun chemin d'import dans le bridge) ; (2) attestation obligatoire (E, jamais B nu) ; (3) politique de cycle de vie / revocation (TTL durs, classes de sujets non-exportables, liste de revocation-tombstone verifiable honoree par les consommateurs - couvre RGPD art.17) ; (4) contrat de sink neutre + scan de closure de publication de graphify-memory ; (5) conditionne a un consommateur OKF reel qui VERIFIE l'attestation."
     }
   }
 }
