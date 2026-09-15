@@ -1,0 +1,877 @@
+<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Alignement mémoire h2a → OKF — dossier de décision commenté (option E attestée)</title>
+<style>
+  :root{
+    --bg:#f5f7fa; --panel:#ffffff; --ink:#1a2030; --ink-soft:#454f63; --ink-faint:#6b7488;
+    --line:#e0e4ec; --line-soft:#eceff4; --accent:#0e7c7b; --accent-soft:#0e7c7b14;
+    --ok:#1c8a4e; --ok-soft:#1c8a4e14; --warn:#b26a00; --warn-soft:#b26a0014;
+    --risk:#c0392b; --risk-soft:#c0392b12;
+    --shadow:0 1px 2px #1a203008,0 6px 20px #1a20300a;
+    --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace; --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  }
+  @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+    --bg:#0f1218; --panel:#161b24; --ink:#e7eaf1; --ink-soft:#b3bccb; --ink-faint:#828ba0;
+    --line:#252b37; --line-soft:#1c2230; --accent:#34b3b0; --accent-soft:#34b3b01c;
+    --ok:#48c07c; --ok-soft:#48c07c1a; --warn:#d9932f; --warn-soft:#d9932f16;
+    --risk:#e5695b; --risk-soft:#e5695b18; --shadow:0 1px 2px #0006,0 8px 24px #0004;}}
+  :root[data-theme="dark"]{--bg:#0f1218;--panel:#161b24;--ink:#e7eaf1;--ink-soft:#b3bccb;--ink-faint:#828ba0;
+    --line:#252b37;--line-soft:#1c2230;--accent:#34b3b0;--accent-soft:#34b3b01c;--ok:#48c07c;--ok-soft:#48c07c1a;
+    --warn:#d9932f;--warn-soft:#d9932f16;--risk:#e5695b;--risk-soft:#e5695b18;--shadow:0 1px 2px #0006,0 8px 24px #0004;}
+  :root[data-theme="light"]{--bg:#f5f7fa;--panel:#ffffff;--ink:#1a2030;--ink-soft:#454f63;--ink-faint:#6b7488;
+    --line:#e0e4ec;--line-soft:#eceff4;--accent:#0e7c7b;--accent-soft:#0e7c7b14;--ok:#1c8a4e;--ok-soft:#1c8a4e14;
+    --warn:#b26a00;--warn-soft:#b26a0014;--risk:#c0392b;--risk-soft:#c0392b12;--shadow:0 1px 2px #1a203008,0 6px 20px #1a20300a;}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);line-height:1.58;font-size:15.5px;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:860px;margin:0 auto;padding:32px 20px 90px}
+  .eyebrow{font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--accent);font-weight:600}
+  h1{font-size:27px;line-height:1.18;margin:.35em 0 .15em;letter-spacing:-.01em;text-wrap:balance}
+  .sub{color:var(--ink-soft);margin:.2em 0 0}
+  .ribbon{display:flex;flex-wrap:wrap;gap:8px;margin:20px 0 6px}
+  .pill{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;padding:5px 11px;border-radius:999px;background:var(--warn-soft);color:var(--warn)}
+  .pill.neutral{background:var(--accent-soft);color:var(--accent)}
+  .pill.reco{background:var(--ok-soft);color:var(--ok)}
+  .theme-toggle{position:fixed;top:12px;right:12px;z-index:10;font-family:var(--mono);font-size:11px;font-weight:700;
+    padding:6px 10px;border-radius:8px;border:1px solid var(--line);background:var(--panel);color:var(--ink-soft);cursor:pointer;box-shadow:var(--shadow)}
+  section{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:20px 22px;margin:15px 0;box-shadow:var(--shadow)}
+  section>h2{font-size:13px;letter-spacing:.05em;text-transform:uppercase;color:var(--ink-faint);margin:0 0 12px;font-weight:700}
+  p{margin:.5em 0}
+  .lead{font-size:16px}
+  code,.mono{font-family:var(--mono);font-size:12.5px;background:var(--line-soft);padding:1px 5px;border-radius:4px}
+  .tag{font-family:var(--mono);font-size:10px;font-weight:700;padding:1px 5px;border-radius:4px;letter-spacing:.03em;white-space:nowrap}
+  .tag.fact{background:var(--accent-soft);color:var(--accent)} .tag.judg{background:var(--warn-soft);color:var(--warn)}
+  .tag.unk{background:var(--risk-soft);color:var(--risk)}
+  .dec{border:1px solid var(--line);border-radius:12px;padding:0;margin:12px 0;overflow:hidden}
+  .dec>.hd{padding:13px 16px;background:var(--accent-soft);border-bottom:1px solid var(--line)}
+  .dec>.hd .n{font-family:var(--mono);font-weight:800;color:var(--accent);font-size:13px}
+  .dec>.hd .t{font-weight:700;font-size:15.5px;margin-top:2px}
+  .dec>.bd{padding:12px 16px}
+  .dec .row{margin:.45em 0}
+  .lbl{font-size:11px;letter-spacing:.05em;text-transform:uppercase;color:var(--ink-faint);font-weight:700;display:block;margin-bottom:1px}
+  .risk{border-left:3px solid var(--risk);background:var(--risk-soft);padding:8px 12px;border-radius:0 8px 8px 0;margin:.5em 0}
+  .risk .lbl{color:var(--risk)}
+  .revs{display:flex;flex-wrap:wrap;gap:6px;margin-top:.4em}
+  .rev{font-size:12.5px;padding:3px 9px;border-radius:7px;border:1px solid var(--line);background:var(--panel)}
+  .rev b{color:var(--accent)}
+  .tblwrap{overflow-x:auto} table{border-collapse:collapse;width:100%;font-size:13.5px;min-width:520px;margin:6px 0}
+  th,td{text-align:left;padding:8px 11px;border-bottom:1px solid var(--line-soft);vertical-align:top}
+  th{font-size:11px;letter-spacing:.04em;text-transform:uppercase;color:var(--ink-faint);font-weight:700}
+  tr:last-child td{border-bottom:none} .ex{color:var(--ok);font-weight:600} .ad{color:var(--warn);font-weight:600} .no{color:var(--risk);font-weight:600}
+  .reviewer{border:1px solid var(--line);border-radius:11px;padding:14px 16px;margin:10px 0}
+  .reviewer .who{font-weight:700;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .verd{font-family:var(--mono);font-size:11px;font-weight:800;padding:2px 8px;border-radius:6px}
+  .verd.ok{background:var(--ok-soft);color:var(--ok)} .verd.no{background:var(--risk-soft);color:var(--risk)}
+  .verd.cond{background:var(--warn-soft);color:var(--warn)} .verd.gap{background:var(--line-soft);color:var(--ink-faint)}
+  ul.tight{margin:.4em 0;padding-left:18px} ul.tight li{margin:.28em 0}
+  .stake{border-left:3px solid var(--warn);background:var(--warn-soft);padding:6px 12px;border-radius:0 8px 8px 0;margin:.4em 0;font-size:14.5px}
+  details{border:1px solid var(--line);border-radius:10px;margin:8px 0;background:var(--panel)}
+  details>summary{cursor:pointer;padding:11px 15px;font-weight:600;font-size:13.5px;color:var(--accent)}
+  details[open]>summary{border-bottom:1px solid var(--line-soft)}
+  details .body{padding:6px 15px 14px}
+  pre.spec{font-family:var(--mono);font-size:11.5px;line-height:1.5;white-space:pre-wrap;background:var(--line-soft);
+    padding:12px 14px;border-radius:8px;overflow-x:auto;color:var(--ink-soft);margin:0}
+  .closing{border:1.5px dashed var(--accent);background:transparent}
+  footer{color:var(--ink-faint);font-size:12px;text-align:center;margin-top:26px;line-height:1.55}
+  .hl{font-weight:600}
+  /* ---- figures (theme-aware; SVG colors via currentColor + template tokens) ---- */
+  figure{margin:14px 0 4px;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 14px 10px}
+  figure .figscroll{overflow-x:auto}
+  figure svg{display:block;max-width:100%;height:auto;margin:0 auto;color:var(--ink)}
+  figcaption{color:var(--ink-soft);font-size:13px;line-height:1.5;margin-top:8px;padding-top:8px;border-top:1px solid var(--line-soft)}
+  /* ---- option cards ---- */
+  .opts{display:flex;flex-direction:column;gap:10px;margin:10px 0}
+  .opt{border:1px solid var(--line);border-radius:12px;padding:12px 14px;background:var(--panel)}
+  .opt.win{border:1.5px solid var(--ok);background:var(--ok-soft)}
+  .opt.fallback{border-style:dashed}
+  .opt-top{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  .opt-id{font-family:var(--mono);font-weight:800;font-size:15px;width:26px;height:26px;display:inline-flex;align-items:center;justify-content:center;border-radius:7px;background:var(--line-soft);color:var(--ink)}
+  .opt.win .opt-id{background:var(--ok);color:var(--panel)}
+  .opt-name{font-weight:700;font-size:15px}
+  .opt-tag{margin-left:auto;font-family:var(--mono);font-size:10.5px;font-weight:700;padding:2px 8px;border-radius:6px}
+  .opt-tag.reco{background:var(--ok-soft);color:var(--ok)} .opt-tag.rej{background:var(--risk-soft);color:var(--risk)} .opt-tag.legit{background:var(--accent-soft);color:var(--accent)}
+  .attrs{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}
+  .attr{font-size:11.5px;padding:2px 8px;border-radius:6px;border:1px solid var(--line);color:var(--ink-soft)}
+  .attr .v{font-weight:700;color:var(--ink)}
+  .attr.g{border-color:var(--ok);color:var(--ok)} .attr.g .v{color:var(--ok)}
+  .attr.b{border-color:var(--risk);color:var(--risk)} .attr.b .v{color:var(--risk)}
+  .attr.w{border-color:var(--warn);color:var(--warn)} .attr.w .v{color:var(--warn)}
+  .pc{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:6px;font-size:13.5px}
+  .pc .for{border-left:3px solid var(--ok);padding:4px 10px;background:var(--ok-soft);border-radius:0 6px 6px 0}
+  .pc .against{border-left:3px solid var(--risk);padding:4px 10px;background:var(--risk-soft);border-radius:0 6px 6px 0}
+  @media (max-width:560px){.pc{grid-template-columns:1fr}}
+  .cond{counter-reset:c;list-style:none;padding-left:0;margin:.5em 0}
+  .cond li{position:relative;padding:6px 10px 6px 34px;margin:6px 0;border:1px solid var(--line);border-radius:8px}
+  .cond li::before{counter-increment:c;content:counter(c);position:absolute;left:8px;top:6px;font-family:var(--mono);font-weight:800;color:var(--accent);width:18px;height:18px;display:inline-flex;align-items:center;justify-content:center;background:var(--accent-soft);border-radius:5px;font-size:11px}
+</style></head><body>
+<button class="theme-toggle" id="tt" type="button" aria-label="Basculer clair / sombre">◐ thème</button>
+<div class="wrap">
+  <div class="eyebrow">Dossier de décision commenté · alignement mémoire h2a → Open Knowledge Format · agent ASTRA (Opus)</div>
+  <h1>Ce que l'étude d'alignement OKF décide — et ce que la valider n'engage pas</h1>
+  <p class="sub"><span class="mono">spec/DECISION_OPENKNOWLEDGE_ALIGNMENT_20260915T164937Z.md</span> · rév. 2 (revues intégrées) · <b>design-only</b> · rien ne merge, rien n'est signé.</p>
+
+  <div class="ribbon">
+    <span class="pill neutral">DESIGN-ONLY — présente une orientation, ne lance aucun build</span>
+    <span class="pill">Cible : OKF v0.2 · surface d'interop en EXPORT, additive & réversible</span>
+    <span class="pill reco">Reco E (export attesté, phasé) sous 5 conditions dures — sinon repli C</span>
+  </div>
+
+  <section>
+    <h2>En une lecture — de quoi il s'agit vraiment</h2>
+    <p class="lead">La question&nbsp;: <b>h2a doit-il aligner sa mémoire sur OKF, et à quel degré&nbsp;?</b> Le périmètre arbitré est étroit et sûr&nbsp;: une surface d'<b>interop en export</b> — sérialiser des <b>Episodes</b> h2a en <b>bundle OKF</b> (Markdown + frontmatter <code>type</code> + cross-links), <b>additif et réversible</b>. <b>Hors périmètre</b>&nbsp;: le substrat mémoire (déjà décidé — graphify + SQLite canonique), le ranking (<code>M5=C</code>), l'admission (<code>M4</code>). <b>L'import d'un bundle OKF externe est hors reco</b> — et exige une <b>barrière architecturale</b>, pas une simple exclusion de principe.</p>
+    <p><span class="tag judg">JUDGMENT</span> Ce que valider <b>ne fait PAS</b>&nbsp;: ce dossier acte une <b>orientation</b>, pas une livraison. Il ne construit ni le port d'export, ni l'attestation, ni le sink, ni la politique de révocation (lots séparés). Et il repose sur un <b>trou connu</b>&nbsp;: <b>aucun consommateur OKF n'existe</b> dans la flotte (h2a, graphify, sentropic) — le bénéfice interop est <b>potentiel</b>, pas actif. C'est le pivot de toute la reco.</p>
+    <p>Le cœur du choix tient dans un <b>fossé d'intégrité</b>&nbsp;: un Episode h2a est signé et hash-chaîné&nbsp;; un bundle OKF n'a <b>aucun</b> modèle d'intégrité. Tout export « nu » jette cette intégrité.</p>
+    <figure>
+      <div class="figscroll"><svg viewBox="0 0 720 340" role="img" aria-label="Comparaison du modèle Episode signé de h2a et du bundle Markdown OKF : signatures, hash-chain, edges typées, bi-temporalité et révocation n'ont aucun équivalent OKF.">
+      <!-- left: h2a Episode -->
+      <rect x="16" y="40" width="250" height="272" rx="10" fill="none" stroke="currentColor" stroke-width="1.5" />
+      <text x="30" y="30" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="12" fill="currentColor" letter-spacing="1">h2a · EPISODE (signé)</text>
+      <g font-family="system-ui, -apple-system, Roboto, sans-serif" font-size="13" fill="currentColor">
+        <rect x="34" y="56" width="214" height="34" rx="6" fill="none" stroke="currentColor" stroke-width="1" />
+        <text x="46" y="77">Context · Decision · Evidence</text>
+        <rect x="34" y="98" width="214" height="26" rx="6" fill="none" stroke="currentColor" stroke-width="1" />
+        <text x="46" y="115" font-size="12.5">subject · trust · scope · retention</text>
+        <rect x="34" y="132" width="214" height="26" rx="6" fill="none" stroke="currentColor" stroke-width="1" />
+        <text x="46" y="149" font-size="12.5">occurred_at · recorded_at</text>
+      </g>
+      <!-- integrity band -->
+      <rect x="34" y="170" width="214" height="122" rx="6" fill-opacity="0.10" stroke-width="1.2" style="fill:var(--ok);stroke:var(--ok)" />
+      <text x="46" y="190" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="11" letter-spacing="1" style="fill:var(--ok)">INTÉGRITÉ</text>
+      <g font-family="system-ui, -apple-system, Roboto, sans-serif" font-size="12.5" fill="currentColor">
+        <text x="46" y="212">✓ signatures</text>
+        <text x="46" y="232">✓ hash-chain · contentHash</text>
+        <text x="46" y="252">✓ edges typées (causationId…)</text>
+        <text x="46" y="272">✓ révocation / tombstone</text>
+      </g>
+      <!-- middle gap arrow -->
+      <line x1="272" y1="176" x2="446" y2="176" stroke="currentColor" stroke-width="1.4" marker-end="url(#ar)" />
+      <text x="359" y="168" text-anchor="middle" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="11" fill="currentColor">projeté en</text>
+      <line x1="446" y1="200" x2="272" y2="200" stroke-width="1.4" stroke-dasharray="5 4" marker-end="url(#arbad)" style="stroke:var(--risk)" />
+      <text x="359" y="222" text-anchor="middle" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="11" style="fill:var(--risk)">rien ne revient</text>
+      <!-- right: OKF bundle -->
+      <rect x="452" y="40" width="252" height="272" rx="10" fill="none" stroke="currentColor" stroke-width="1.5" />
+      <text x="466" y="30" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="12" fill="currentColor" letter-spacing="1">OKF · BUNDLE (Markdown)</text>
+      <g font-family="system-ui, -apple-system, Roboto, sans-serif" font-size="13" fill="currentColor">
+        <rect x="470" y="56" width="216" height="34" rx="6" fill="none" stroke="currentColor" stroke-width="1" />
+        <text x="482" y="77">fichiers .md + frontmatter</text>
+        <rect x="470" y="98" width="216" height="26" rx="6" fill="none" stroke="currentColor" stroke-width="1" />
+        <text x="482" y="115" font-size="12.5"><tspan font-family="ui-monospace, Menlo, Consolas, monospace" font-size="12">type</tspan> = seul champ requis</text>
+        <rect x="470" y="132" width="216" height="26" rx="6" fill="none" stroke="currentColor" stroke-width="1" />
+        <text x="482" y="149" font-size="12.5">liens = prose, non typés</text>
+      </g>
+      <rect x="470" y="170" width="216" height="122" rx="6" fill-opacity="0.09" stroke-width="1.2" style="fill:var(--risk);stroke:var(--risk)" />
+      <text x="482" y="190" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="11" letter-spacing="1" style="fill:var(--risk)">AUCUN MODÈLE D'INTÉGRITÉ</text>
+      <g font-family="system-ui, -apple-system, Roboto, sans-serif" font-size="12.5" fill="currentColor">
+        <text x="482" y="212">✕ pas de signature</text>
+        <text x="482" y="232">✕ pas de hash-chain</text>
+        <text x="482" y="252">✕ pas d'edge typée</text>
+        <text x="482" y="272">✕ pas d'expiry ni de révocation</text>
+      </g>
+      <defs>
+        <marker id="ar" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><polygon points="0,0 9,4 0,8" fill="currentColor" /></marker>
+        <marker id="arbad" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><polygon points="0,0 9,4 0,8" style="fill:var(--risk)" /></marker>
+      </defs>
+    </svg></div>
+      <figcaption><b>Le fossé.</b> Tout ce qu'un Episode porte à gauche — signatures, hash-chain, edges typées, révocation — n'a <b>aucun équivalent</b> dans OKF. Un export « nu » les jette&nbsp;: c'est le cœur du choix entre les options B et E.</figcaption>
+    </figure>
+  </section>
+
+  <section>
+    <h2>Les décisions de conception (commentées, avec le risque et la revue par reviewer)</h2>
+    <p style="margin-top:0;color:var(--ink-soft);font-size:14px">La reco E n'est pas un vote&nbsp;: c'est un jeu de décisions de conception liées. Chacune est présentée avec ce qu'elle décide, son sujet, son <b>risque</b>, et ce que <b>chaque reviewer</b> en a dit.</p>
+
+    <div class="dec"><div class="hd"><span class="n">D-1</span><div class="t">Le périmètre : interop en EXPORT seulement — additif, réversible, derrière la frontière de neutralité</div></div><div class="bd">
+      <div class="row"><span class="lbl">Décide</span> une surface d'export d'Episodes vers OKF v0.2, <b>additive et réversible</b>&nbsp;; le substrat mémoire, le ranking (<code>M5=C</code>) et l'admission (<code>M4</code>) restent <b>fermés</b>. L'<b>import</b> est hors reco et devient une <b>décision distincte, gated</b>.</div>
+      <div class="row"><span class="lbl">Sujet</span> C'est la décision de délégation&nbsp;: qu'expose-t-on à un format externe (Google) sans toucher le canon interne. <span class="tag fact">FACT</span> cross-owner / cross-repo — touche h2a (Episode/journal) <b>et</b> graphify (neutralité D1).</div>
+      <div class="risk"><span class="lbl">Risque</span> Un mauvais placement ferait <b>fuiter le vocabulaire OKF dans les contrats neutres de graphify</b> → violation D1 (l'exact <i>STOP-trigger</i> signalé par l'owner)&nbsp;; ou <b>jetterait l'intégrité</b> de h2a&nbsp;; ou <b>invaliderait une garantie de gouvernance</b> après export. Blast radius asymétrique&nbsp;: bien placé = additif&nbsp;; mal placé = dette d'archi + risque privacy durable.</div>
+      <div class="revs"><span class="rev"><b>Opus (indépendant)</b> : <i>STOP-trigger réellement évité</i>, placement D1-légal vérifié en source ; « import OKF hors scope » initialement flou → <b>corrigé</b> (§1)</span><span class="rev"><b>Gemini 3.8 high</b> : taxonomie rectifiée — « livraison phasée » = cadence de B/E, <b>pas</b> une option ; seul vrai hybride = D</span></div>
+    </div></div>
+
+    <div class="dec"><div class="hd"><span class="n">D-2</span><div class="t">Contrat de sink neutre : la neutralité tient à l'INTERFACE, pas au packaging</div></div><div class="bd">
+      <div class="row"><span class="lbl">Décide</span> l'interface d'export côté h2a est un <code>EpisodeStreamSink</code> <b>générique et domaine-agnostique</b> — un flux brut d'Episodes immuables (forme neutre F1), <b>sans aucune</b> structure ni vocabulaire OKF. Toute la sémantique OKF (<code>type</code>, cross-links, sidecar) vit <b>uniquement</b> dans un <b>bridge OKF</b> séparé (package owned), en aval, que <code>graphify-memory</code> <b>ne ré-exporte pas</b> (D1, clauses 3-4).</div>
+      <div class="row"><span class="lbl">Sujet</span> Répondre au <i>STOP-trigger</i> owner de façon <b>structurelle</b>&nbsp;: même si un consommateur OKF réclamait une forme, l'API de recall/sink <b>ne se contorsionne pas</b> → neutralité préservée à l'interface.</div>
+      <div class="risk"><span class="lbl">Risque</span> Traiter la neutralité comme une simple affaire de nom de package&nbsp;: si l'API de recall était pliée pour servir OKF, la neutralité serait <b>brisée par proxy</b> même avec le bon découpage de packages.</div>
+      <div class="revs"><span class="rev"><b>Gemini 3.8 high</b> : rectification MAJEURE R3.4 — <b>manquait un contrat de sink</b> ; <code>EpisodeStreamSink</code> ajouté, OKF interdit dans <code>h2a</code>/<code>graphify-memory</code></span><span class="rev"><b>Opus (indépendant)</b> : neutralité à l'interface confirmée D1-légale</span></div>
+      <figure>
+        <div class="figscroll"><svg viewBox="0 0 720 300" role="img" aria-label="Pipeline d'export : le cœur h2a émet des Episodes vers un EpisodeStreamSink neutre, consommé par un pont OKF séparé qui produit le bundle plus un sidecar d'attestation ; graphify-memory ne ré-exporte pas le pont, et aucun chemin d'import ne revient.">
+      <!-- core -->
+      <rect x="16" y="96" width="150" height="86" rx="10" fill="none" stroke="currentColor" stroke-width="1.5" />
+      <text x="91" y="132" text-anchor="middle" font-family="system-ui, -apple-system, Roboto, sans-serif" font-weight="600" font-size="14" fill="currentColor">Cœur h2a</text>
+      <text x="91" y="152" text-anchor="middle" font-family="system-ui, -apple-system, Roboto, sans-serif" font-size="12" fill="currentColor">journal signé</text>
+      <!-- neutrality boundary -->
+      <line x1="196" y1="30" x2="196" y2="264" stroke-width="1.2" stroke-dasharray="3 4" style="stroke:var(--accent)" />
+      <text x="200" y="44" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="10.5" letter-spacing="1" style="fill:var(--accent)">frontière de neutralité (D1)</text>
+      <!-- sink -->
+      <rect x="222" y="96" width="150" height="86" rx="10" stroke-width="1.5" style="fill:var(--accent-soft);stroke:var(--accent)" />
+      <text x="297" y="128" text-anchor="middle" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="12.5" font-weight="500" style="fill:var(--accent)">EpisodeStreamSink</text>
+      <text x="297" y="148" text-anchor="middle" font-family="system-ui, -apple-system, Roboto, sans-serif" font-size="11.5" fill="currentColor">neutre · zéro OKF</text>
+      <text x="297" y="165" text-anchor="middle" font-family="system-ui, -apple-system, Roboto, sans-serif" font-size="11.5" fill="currentColor">flux d'Episodes bruts</text>
+      <!-- bridge -->
+      <rect x="428" y="86" width="160" height="106" rx="10" fill="none" stroke="currentColor" stroke-width="1.5" />
+      <text x="508" y="116" text-anchor="middle" font-family="system-ui, -apple-system, Roboto, sans-serif" font-weight="600" font-size="14" fill="currentColor">Pont OKF</text>
+      <text x="508" y="135" text-anchor="middle" font-family="system-ui, -apple-system, Roboto, sans-serif" font-size="11.5" fill="currentColor">package séparé · owned</text>
+      <text x="508" y="154" text-anchor="middle" font-family="system-ui, -apple-system, Roboto, sans-serif" font-size="11.5" fill="currentColor">toute la sémantique OKF</text>
+      <text x="508" y="173" text-anchor="middle" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="10.5" style="fill:var(--accent)">non ré-exporté</text>
+      <!-- output -->
+      <rect x="626" y="70" width="78" height="60" rx="8" fill="none" stroke="currentColor" stroke-width="1.2" />
+      <text x="665" y="95" text-anchor="middle" font-family="system-ui, -apple-system, Roboto, sans-serif" font-size="12" fill="currentColor">bundle</text>
+      <text x="665" y="112" text-anchor="middle" font-family="system-ui, -apple-system, Roboto, sans-serif" font-size="12" fill="currentColor">OKF</text>
+      <rect x="626" y="140" width="78" height="60" rx="8" fill-opacity="0.10" stroke-width="1.2" style="fill:var(--ok);stroke:var(--ok)" />
+      <text x="665" y="165" text-anchor="middle" font-family="system-ui, -apple-system, Roboto, sans-serif" font-size="12" style="fill:var(--ok)">sidecar</text>
+      <text x="665" y="182" text-anchor="middle" font-family="system-ui, -apple-system, Roboto, sans-serif" font-size="11" style="fill:var(--ok)">attesté (E)</text>
+      <!-- arrows -->
+      <line x1="166" y1="139" x2="218" y2="139" stroke="currentColor" stroke-width="1.4" marker-end="url(#a2)" />
+      <text x="192" y="131" text-anchor="middle" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="10" fill="currentColor">émet</text>
+      <line x1="372" y1="139" x2="424" y2="139" stroke="currentColor" stroke-width="1.4" marker-end="url(#a2)" />
+      <text x="398" y="131" text-anchor="middle" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="10" fill="currentColor">consomme</text>
+      <line x1="588" y1="118" x2="622" y2="104" stroke="currentColor" stroke-width="1.4" marker-end="url(#a2)" />
+      <line x1="588" y1="160" x2="622" y2="168" stroke-width="1.4" marker-end="url(#a2g)" style="stroke:var(--ok)" />
+      <!-- no import barrier -->
+      <line x1="622" y1="214" x2="300" y2="214" stroke-width="1.4" stroke-dasharray="5 4" style="stroke:var(--risk)" />
+      <line x1="300" y1="214" x2="230" y2="214" stroke-width="1.4" stroke-dasharray="5 4" style="stroke:var(--risk)" />
+      <line x1="452" y1="206" x2="470" y2="222" stroke-width="1.6" style="stroke:var(--risk)" />
+      <line x1="470" y1="206" x2="452" y2="222" stroke-width="1.6" style="stroke:var(--risk)" />
+      <text x="405" y="238" text-anchor="middle" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="10.5" style="fill:var(--risk)">aucun chemin d'import — barrière architecturale</text>
+      <defs>
+        <marker id="a2" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><polygon points="0,0 9,4 0,8" fill="currentColor" /></marker>
+        <marker id="a2g" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><polygon points="0,0 9,4 0,8" style="fill:var(--ok)" /></marker>
+      </defs>
+    </svg></div>
+        <figcaption><b>Le pont, en aval de la frontière.</b> h2a n'émet que des Episodes neutres&nbsp;; le vocabulaire OKF n'existe que dans le pont, séparé et non ré-exporté. L'API de recall ne se contorsionne jamais pour OKF — la neutralité tient <b>à l'interface</b>. Et rien ne rentre&nbsp;: l'import serait une décision distincte (voir D-6).</figcaption>
+      </figure>
+    </div></div>
+
+    <div class="dec"><div class="hd"><span class="n">D-3</span><div class="t">La cartographie Episode → OKF : ce qui se mappe, ce qui se PERD</div></div><div class="bd">
+      <div class="row"><span class="lbl">Décide</span> le fond de l'étude&nbsp;: comment chaque élément d'un Episode s'exprime en OKF v0.2, et l'écart entre un export « nu » (B) et un export « attesté » (E).</div>
+      <div class="tblwrap"><table>
+        <tr><th>Élément h2a</th><th>Expression OKF v0.2</th><th>B (nu)</th><th>E (attesté)</th></tr>
+        <tr><td>Episode (identité, subject)</td><td>concept <code>type: episode</code>, <code>title</code>, <code>resource</code></td><td class="ex">couvert</td><td class="ex">couvert</td></tr>
+        <tr><td>Context / Decision / Evidence</td><td>3 concepts liés — se mappent sur l'enum <b>déjà neutre</b> <code>memory_kind</code> de graphify</td><td class="ex">couvert</td><td class="ex">couvert</td></tr>
+        <tr><td>occurred_at / recorded_at (bi-temporel)</td><td>clés custom frontmatter</td><td class="ad">non-standard</td><td class="ex">couvert</td></tr>
+        <tr><td>provenance citée</td><td>cross-links + <code>resource</code></td><td class="ad">partiel</td><td class="ex">couvert (attesté)</td></tr>
+        <tr><td>trust, scope</td><td>clés custom ; <code>scope</code> ↔ placement dans l'arbre</td><td class="ad">partiel</td><td class="ex">couvert (attesté)</td></tr>
+        <tr><td>retention / purpose (obligatoires si <code>subject=human</code>)</td><td>clé custom <b>sans exécution</b> (ni expiry ni redaction ni révocation)</td><td class="no">risque MAJEUR</td><td class="ad">partiel + §D-5</td></tr>
+        <tr><td>edges typées (causationId, decision→evidence)</td><td>liens Markdown <b>non typés</b></td><td class="no">perte</td><td class="ex">restauré (carte d'edges)</td></tr>
+        <tr><td>signatures / hash-chain / contentHash</td><td><b>aucun équivalent OKF</b></td><td class="no">intégrité jetée</td><td class="ex">restauré (sidecar)</td></tr>
+      </table></div>
+      <div class="risk"><span class="lbl">Risque</span> <span class="tag judg">JUDGMENT</span> <b>B « nu » jette l'intégrité fondatrice</b> (signatures, hash-chain, edges typées) et produit un artefact <b>trivialement éditable</b> estampillé « mémoire h2a » — c'est le <i>trust-laundering</i>. E restaure la vérifiabilité en aval <b>sans</b> quitter la conformité OKF (métadonnées étendues autorisées).</div>
+      <div class="revs"><span class="rev"><b>Opus (indépendant)</b> : corroboration — <code>context/decision/evidence</code> se mappent bien sur l'enum neutre <code>memory_kind</code> (vérifié en source)</span><span class="rev"><b>Gemini 3.8 high</b> : <b>dégradation sémantique</b> mise en foreground (edges typées → liens non typés)</span></div>
+    </div></div>
+
+    <div class="dec"><div class="hd"><span class="n">D-4</span><div class="t">Attestation OBLIGATOIRE (E, jamais B nu) : le sidecar restitue l'intégrité</div></div><div class="bd">
+      <div class="row"><span class="lbl">Décide</span> tout export porte un <b>sidecar d'attestation</b>&nbsp;: signatures détachées d'Episode + preuves de hash <b>merklisées</b> + <b>carte d'edges typées</b>. Le bundle reste OKF-conforme (métadonnées étendues)&nbsp;; le sidecar le rend <b>vérifiable en aval</b>.</div>
+      <div class="row"><span class="lbl">Sujet</span> C'est la ligne qui sépare E de B&nbsp;: <b>même bundle</b>, une garantie en plus. Le journal signé reste le canon&nbsp;; l'attestation ne rend pas la projection canonique, elle la rend <i>vérifiable</i>.</div>
+      <div class="risk"><span class="lbl">Risque</span> La vérifiabilité <b>ne vaut que si le consommateur honore le sidecar</b> — or OKF ne l'y <b>oblige pas</b>. Un consommateur négligent transforme le label « h2a Verified Memory » en <b>trust-laundering</b>, et E n'a alors rien apporté de plus que B pour un coût supérieur (argument fort pour C).</div>
+      <div class="revs"><span class="rev"><b>Gemini 3.8 high</b> : rectification R3.2 — <b>option E manquante</b> (sidecar) → ajoutée ; défense de C <b>renforcée</b> en parallèle</span><span class="rev"><b>Opus (indépendant)</b> : §5.1 (steelman de C) est un <b>vrai</b> cas contraire, non vide</span></div>
+      <figure>
+        <div class="figscroll"><svg viewBox="0 0 700 250" role="img" aria-label="Option B produit un bundle OKF seul, trivialement éditable et estampillé mémoire vérifiée, donc trust-laundering. Option E ajoute un sidecar de signatures, preuves de hash et carte d'edges, ce qui rend le même bundle vérifiable.">
+      <!-- B -->
+      <text x="30" y="34" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="12" fill="currentColor" letter-spacing="1">OPTION B — NU</text>
+      <rect x="30" y="46" width="150" height="120" rx="9" fill="none" stroke="currentColor" stroke-width="1.4" />
+      <text x="105" y="100" text-anchor="middle" font-family="system-ui, -apple-system, Roboto, sans-serif" font-size="13" fill="currentColor">bundle OKF</text>
+      <text x="105" y="120" text-anchor="middle" font-family="system-ui, -apple-system, Roboto, sans-serif" font-size="12" fill="currentColor">.md seuls</text>
+      <rect x="30" y="178" width="150" height="52" rx="8" fill-opacity="0.09" stroke-width="1.2" style="fill:var(--risk);stroke:var(--risk)" />
+      <text x="105" y="199" text-anchor="middle" font-family="system-ui, -apple-system, Roboto, sans-serif" font-size="12" style="fill:var(--risk)">trivialement éditable</text>
+      <text x="105" y="217" text-anchor="middle" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="10.5" style="fill:var(--risk)">→ trust-laundering</text>
+      <!-- vs -->
+      <text x="360" y="130" text-anchor="middle" font-family="Georgia, serif" font-style="italic" font-size="18" style="fill:var(--ink-faint)">le sidecar</text>
+      <line x1="192" y1="106" x2="280" y2="106" stroke-width="1" stroke-dasharray="3 4" style="stroke:var(--ink-faint)" />
+      <line x1="440" y1="106" x2="520" y2="106" stroke-width="1.3" marker-end="url(#a4)" style="stroke:var(--ok)" />
+      <!-- E -->
+      <text x="522" y="34" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="12" letter-spacing="1" style="fill:var(--ok)">OPTION E — ATTESTÉ</text>
+      <rect x="522" y="46" width="150" height="120" rx="9" fill="none" stroke="currentColor" stroke-width="1.4" />
+      <text x="597" y="92" text-anchor="middle" font-family="system-ui, -apple-system, Roboto, sans-serif" font-size="13" fill="currentColor">bundle OKF</text>
+      <text x="597" y="110" text-anchor="middle" font-family="system-ui, -apple-system, Roboto, sans-serif" font-size="12" fill="currentColor">(identique)</text>
+      <rect x="536" y="120" width="122" height="38" rx="6" fill-opacity="0.12" stroke-width="1.1" style="fill:var(--ok);stroke:var(--ok)" />
+      <text x="597" y="144" text-anchor="middle" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="10.5" style="fill:var(--ok)">+ sidecar</text>
+      <rect x="522" y="178" width="150" height="52" rx="8" fill-opacity="0.09" stroke-width="1.2" style="fill:var(--ok);stroke:var(--ok)" />
+      <g font-family="system-ui, -apple-system, Roboto, sans-serif" font-size="11" fill="currentColor">
+        <text x="597" y="194" text-anchor="middle">signatures · preuves hash</text>
+        <text x="597" y="210" text-anchor="middle">carte d'edges typées</text>
+      </g>
+      <text x="597" y="226" text-anchor="middle" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="10.5" style="fill:var(--ok)">→ vérifiable</text>
+      <defs><marker id="a4" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><polygon points="0,0 9,4 0,8" style="fill:var(--ok)" /></marker></defs>
+    </svg></div>
+        <figcaption><b>Même bundle, une garantie en plus.</b> E reste OKF-conforme mais joint des fichiers d'attestation qui laissent un consommateur vérifier signatures, intégrité et relations. La garantie ne vaut que si le consommateur <b>honore</b> le sidecar — d'où la condition 5 (voir la reco).</figcaption>
+      </figure>
+    </div></div>
+
+    <div class="dec"><div class="hd"><span class="n">D-5</span><div class="t">Gouvernance : rétention, RÉVOCATION et cycle de vie — le trou central ⚠️</div></div><div class="bd">
+      <div class="row"><span class="lbl">Décide</span> une <b>politique de cycle de vie</b> posée <b>avant le premier export</b>&nbsp;: (1) <b>TTL durs</b> par bundle (et sidecar) — un bundle expire&nbsp;; (2) <b>classes de sujets non-exportables</b> (certains <code>subject=human</code> sensibles ne sortent jamais)&nbsp;; (3) <b>liste de révocation / tombstone vérifiable</b> publiée et signée, que <b>tout consommateur conforme doit honorer</b>.</div>
+      <div class="row"><span class="lbl">Sujet</span> <span class="tag fact">FACT</span> Pour un Episode <code>subject=human</code>, h2a rend <code>purpose</code> <b>et</b> <code>retention</code> obligatoires. <span class="tag fact">FACT</span> OKF n'a <b>aucun</b> expiry, redaction, scope ni révocation.</div>
+      <div class="risk"><span class="lbl">Risque</span> <span class="tag judg">JUDGMENT</span> <b>Un gate de rétention au moment de l'export ne suffit pas.</b> Un Episode supprimé / tombstoné <b>plus tard</b> (droit à l'effacement — RGPD art. 17 — ou révocation de consentement) <b>persiste dans les bundles déjà exportés, sans synchronisation</b> → la garantie de gouvernance est <b>invalidée après coup</b>. C'est un trou distinct de la simple perte de fidélité.</div>
+      <div class="revs"><span class="rev"><b>Gemini 3.8 high</b> : rectification MAJEURE R3.3 — <b>trou révocation / TTL</b> → politique de cycle de vie exigée</span><span class="rev"><b>Opus (indépendant)</b> : « risque le plus <b>sous-pondéré</b> : rétention / sujet-humain » → intégré (§2.6)</span></div>
+      <figure>
+        <div class="figscroll"><svg viewBox="0 0 700 210" role="img" aria-label="Timeline : un Episode est exporté en trois bundles OKF au temps t0, puis tombstoné dans h2a au temps t1 par droit à l'effacement ; les bundles exportés persistent sans synchronisation, invalidant la garantie de gouvernance.">
+      <line x1="40" y1="80" x2="660" y2="80" stroke="currentColor" stroke-width="1.2" />
+      <!-- t0 export -->
+      <circle cx="150" cy="80" r="5" style="fill:var(--accent)" />
+      <text x="150" y="60" text-anchor="middle" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="11" style="fill:var(--accent)">t0 · export</text>
+      <g font-family="system-ui, -apple-system, Roboto, sans-serif" font-size="10.5" fill="currentColor">
+        <rect x="118" y="98" width="20" height="26" rx="3" fill="none" stroke="currentColor" stroke-width="1" />
+        <rect x="142" y="98" width="20" height="26" rx="3" fill="none" stroke="currentColor" stroke-width="1" />
+        <rect x="166" y="98" width="20" height="26" rx="3" fill="none" stroke="currentColor" stroke-width="1" />
+        <text x="152" y="140" text-anchor="middle" style="fill:var(--ink-soft)">bundles diffusés</text>
+      </g>
+      <!-- t1 erasure -->
+      <circle cx="470" cy="80" r="5" style="fill:var(--risk)" />
+      <text x="470" y="60" text-anchor="middle" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="11" style="fill:var(--risk)">t1 · droit à l'effacement</text>
+      <text x="470" y="108" text-anchor="middle" font-family="system-ui, -apple-system, Roboto, sans-serif" font-size="11" fill="currentColor">Episode tombstoné dans h2a</text>
+      <!-- persistence arrow -->
+      <line x1="186" y1="150" x2="640" y2="150" stroke-width="1.3" stroke-dasharray="5 4" marker-end="url(#a5)" style="stroke:var(--risk)" />
+      <text x="410" y="172" text-anchor="middle" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="10.5" style="fill:var(--risk)">les bundles exportés persistent — aucune synchro</text>
+      <text x="620" y="128" text-anchor="middle" font-family="system-ui, -apple-system, Roboto, sans-serif" font-size="10.5" style="fill:var(--ink-soft)">?</text>
+      <defs><marker id="a5" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><polygon points="0,0 9,4 0,8" style="fill:var(--risk)" /></marker></defs>
+    </svg></div>
+        <figcaption><b>Effacé ici, encore là-bas.</b> Sans garde, un sujet effacé côté h2a survit dans les bundles déjà diffusés. La reco exige donc une politique de cycle de vie <b>avant le premier export</b>&nbsp;: TTL durs, classes non-exportables, et une liste de révocation vérifiable que tout consommateur doit honorer.</figcaption>
+      </figure>
+    </div></div>
+
+    <div class="dec"><div class="hd"><span class="n">D-6</span><div class="t">Barrière architecturale anti-réimport (pas une simple exclusion de principe)</div></div><div class="bd">
+      <div class="row"><span class="lbl">Décide</span> le bridge d'export n'a <b>aucun</b> chemin de code d'import&nbsp;; tout import OKF serait un <b>module séparé, owned, gated</b> — une décision distincte. La garde n'est <b>pas</b> de scanner la neutralité du <i>bridge</i> (il doit porter OKF par conception) mais (i) un <b>scan de non-import / non-ré-export sur la closure de publication de <code>graphify-memory</code></b> et (ii) le contrat de sink §D-2.</div>
+      <div class="row"><span class="lbl">Sujet</span> <span class="tag judg">JUDGMENT</span> Exclure l'import « au niveau de la reco » <b>sans barrière</b> ne tient pas&nbsp;: sous pression, quelqu'un rebranchera le bundle en entrée.</div>
+      <div class="risk"><span class="lbl">Risque</span> Une <b>tentation de ré-import</b> non barrée rouvrirait l'hybride bidirectionnel <b>explicitement exclu</b> — et avec lui la surface d'admission et les risques d'intégrité/gouvernance.</div>
+      <div class="revs"><span class="rev"><b>Gemini 3.8 high</b> : foreground — « tentation de ré-import » → <b>barrière architecturale</b> (§2.8, §5.5-1)</span><span class="rev"><b>Opus (indépendant)</b> : garde de neutralité de §5.3 d'abord mal spécifiée (scanner le bridge ne prouve rien) → <b>corrigé</b> en scan de closure</span></div>
+    </div></div>
+  </section>
+
+  <section>
+    <h2>Les cinq options (A–E, rejetées incluses) — coût · réversibilité · neutralité · intégrité</h2>
+    <p style="margin-top:0;color:var(--ink-soft);font-size:14px">Une seule touche la neutralité graphify (A)&nbsp;; une seule préserve à la fois interop <i>et</i> intégrité vérifiable (E). B, C, E préservent la neutralité — via le contrat de sink §D-2 et le bridge non ré-exporté (D1).</p>
+
+    <div class="opts">
+      <div class="opt fallback">
+        <div class="opt-top"><span class="opt-id">A</span><span class="opt-name">Aligner pleinement (natif)</span><span class="opt-tag rej">écartée</span></div>
+        <div class="attrs"><span class="attr w">coût <span class="v">élevé</span></span><span class="attr b">réversibilité <span class="v">faible</span></span><span class="attr b">neutralité <span class="v">touchée</span></span><span class="attr b">intégrité <span class="v">détruite</span></span></div>
+        <div class="pc"><div class="for">Interop maximale, un seul format, pas d'adapter séparé.</div><div class="against">La <b>seule</b> à toucher la neutralité D1 ; <b>détruit</b> signatures, hash-chain et edges typées ; migration lourde.</div></div>
+      </div>
+      <div class="opt">
+        <div class="opt-top"><span class="opt-id">B</span><span class="opt-name">Export injecté « nu »</span><span class="opt-tag rej">dominée par E</span></div>
+        <div class="attrs"><span class="attr">coût <span class="v">moyen-bas</span></span><span class="attr g">réversibilité <span class="v">élevée</span></span><span class="attr g">neutralité <span class="v">préservée</span></span><span class="attr b">intégrité <span class="v">jetée</span></span></div>
+        <div class="pc"><div class="for">Interop réelle sans toucher la neutralité ; additif ; le moins cher.</div><div class="against">Bundle non vérifiable → <b>trust-laundering</b> ; dégradation sémantique. Même effort qu'E, moins la garantie.</div></div>
+      </div>
+      <div class="opt fallback">
+        <div class="opt-top"><span class="opt-id">C</span><span class="opt-name">Ne pas aligner</span><span class="opt-tag legit">repli légitime</span></div>
+        <div class="attrs"><span class="attr g">coût <span class="v">nul</span></span><span class="attr">réversibilité <span class="v">N-A</span></span><span class="attr g">neutralité <span class="v">préservée</span></span><span class="attr g">intégrité <span class="v">intacte</span></span></div>
+        <div class="pc"><div class="for">Coût nul, zéro dette, aucune perte d'intégrité ni risque privacy. <b>OKF est peut-être inutile</b> : pour un humain, un générateur de rapport Markdown suffit ; pour une machine, liens non-typés + zéro intégrité rendent OKF inadapté à une mémoire vérifiée.</div><div class="against">Ferme l'interop OKF si un consommateur apparaît ; ignore une norme émergente.</div></div>
+      </div>
+      <div class="opt fallback">
+        <div class="opt-top"><span class="opt-id">D</span><span class="opt-name">Hybride vers le natif</span><span class="opt-tag rej">rouvre les risques</span></div>
+        <div class="attrs"><span class="attr g">coût <span class="v">bas (ét.1)</span></span><span class="attr g">réversibilité <span class="v">élevée (ét.1)</span></span><span class="attr w">neutralité <span class="v">à risque (ét.2)</span></span><span class="attr w">intégrité <span class="v">à risque (ét.2)</span></span></div>
+        <div class="pc"><div class="for">Garde l'optionalité vers A ; décision par étapes (pas de sync bidirectionnel).</div><div class="against">Deux passes de gouvernance ; l'étape 2 (natif) <b>rouvre</b> exactement neutralité et intégrité.</div></div>
+      </div>
+      <div class="opt win">
+        <div class="opt-top"><span class="opt-id">E</span><span class="opt-name">Export injecté <b>attesté</b></span><span class="opt-tag reco">★ recommandée</span></div>
+        <div class="attrs"><span class="attr w">coût <span class="v">moyen</span></span><span class="attr g">réversibilité <span class="v">élevée</span></span><span class="attr g">neutralité <span class="v">préservée</span></span><span class="attr g">intégrité <span class="v">vérifiable</span></span></div>
+        <div class="pc"><div class="for">OKF conforme <b>+ sidecar d'attestation</b> (signatures détachées, preuves de hash merklisées, carte d'edges typées) : interop <b>sans jeter l'intégrité</b> ; vérifiable en aval ; additif et réversible.</div><div class="against">Coût &gt; B (attestation à produire/maintenir) ; vérifiable <b>seulement si</b> le consommateur honore le sidecar ; conditionnée à un consommateur réel.</div></div>
+      </div>
+    </div>
+
+    <figure>
+      <div class="figscroll"><svg viewBox="0 0 640 360" role="img" aria-label="Carte des options sur deux axes : neutralité graphify préservée en horizontal, intégrité préservée en vertical. E occupe le coin préservé-préservé, B est préservé mais jette l'intégrité, C préserve les deux par abstention, A touche la neutralité et détruit l'intégrité, D dérive vers le mauvais coin.">
+      <!-- axes -->
+      <line x1="70" y1="300" x2="600" y2="300" stroke="currentColor" stroke-width="1.2" marker-end="url(#a3)" />
+      <line x1="90" y1="320" x2="90" y2="40" stroke="currentColor" stroke-width="1.2" marker-end="url(#a3)" />
+      <text x="600" y="322" text-anchor="end" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="11" fill="currentColor">neutralité préservée →</text>
+      <text x="78" y="36" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="11" fill="currentColor">↑ intégrité préservée</text>
+      <text x="150" y="322" text-anchor="middle" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="10.5" style="fill:var(--ink-faint)">touchée</text>
+      <!-- quadrant guide -->
+      <line x1="345" y1="60" x2="345" y2="300" stroke-width="1" stroke-dasharray="2 5" style="stroke:var(--line)" />
+      <line x1="90" y1="180" x2="600" y2="180" stroke-width="1" stroke-dasharray="2 5" style="stroke:var(--line)" />
+      <!-- points -->
+      <!-- A: touched neutrality, destroyed integrity (bottom-left) -->
+      <circle cx="175" cy="255" r="17" fill-opacity="0.14" stroke-width="1.5" style="fill:var(--risk);stroke:var(--risk)" />
+      <text x="175" y="260" text-anchor="middle" font-family="Georgia, serif" font-size="17" font-weight="600" style="fill:var(--risk)">A</text>
+      <text x="175" y="292" text-anchor="middle" font-family="system-ui, -apple-system, Roboto, sans-serif" font-size="11" fill="currentColor">natif</text>
+      <!-- B: preserved neutrality, integrity thrown (bottom-right) -->
+      <circle cx="470" cy="248" r="17" fill="none" stroke="currentColor" stroke-width="1.5" />
+      <text x="470" y="253" text-anchor="middle" font-family="Georgia, serif" font-size="17" font-weight="600" fill="currentColor">B</text>
+      <text x="470" y="285" text-anchor="middle" font-family="system-ui, -apple-system, Roboto, sans-serif" font-size="11" fill="currentColor">nu</text>
+      <!-- D: drifts -->
+      <circle cx="415" cy="205" r="15" fill="none" stroke-width="1.4" style="stroke:var(--warn)" />
+      <text x="415" y="210" text-anchor="middle" font-family="Georgia, serif" font-size="15" font-weight="600" style="fill:var(--warn)">D</text>
+      <path d="M 425 195 q 30 -20 60 -30" fill="none" stroke-width="1.2" stroke-dasharray="4 3" marker-end="url(#a3w)" style="stroke:var(--warn)" />
+      <text x="470" y="150" text-anchor="middle" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="9.5" style="fill:var(--warn)">ét.2 dérive</text>
+      <!-- C: preserved both by abstention (top-right, muted) -->
+      <circle cx="540" cy="105" r="17" fill="none" stroke-width="1.5" style="stroke:var(--accent)" />
+      <text x="540" y="110" text-anchor="middle" font-family="Georgia, serif" font-size="17" font-weight="600" style="fill:var(--accent)">C</text>
+      <text x="540" y="137" text-anchor="middle" font-family="system-ui, -apple-system, Roboto, sans-serif" font-size="11" fill="currentColor">abstention</text>
+      <!-- E: preserved both, actively (top-right) -->
+      <circle cx="440" cy="95" r="21" fill-opacity="0.14" stroke-width="2" style="fill:var(--ok);stroke:var(--ok)" />
+      <text x="440" y="101" text-anchor="middle" font-family="Georgia, serif" font-size="20" font-weight="600" style="fill:var(--ok)">E</text>
+      <text x="440" y="132" text-anchor="middle" font-family="system-ui, -apple-system, Roboto, sans-serif" font-size="11.5" font-weight="600" style="fill:var(--ok)">attesté ★</text>
+      <defs>
+        <marker id="a3" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><polygon points="0,0 9,4 0,8" fill="currentColor" /></marker>
+        <marker id="a3w" markerWidth="8" markerHeight="8" refX="6" refY="3.5" orient="auto"><polygon points="0,0 8,3.5 0,7" style="fill:var(--warn)" /></marker>
+      </defs>
+    </svg></div>
+      <figcaption><b>Le seul coin qui gagne les deux.</b> Neutralité en horizontal, intégrité en vertical. E est la seule option qui livre l'interop OKF <i>en restant</i> neutre <b>et</b> intègre. B partage le côté neutre mais jette l'intégrité&nbsp;; C préserve les deux par abstention&nbsp;; A occupe le mauvais coin&nbsp;; D y dérive à l'étape 2.</figcaption>
+    </figure>
+  </section>
+
+  <section>
+    <h2>La recommandation E — sous conditions dures, sinon repli C</h2>
+    <p class="lead"><span class="tag judg">JUDGMENT</span> <b>Jugement décisif&nbsp;:</b> E est la seule option qui livre de l'interop OKF <b>tout en</b> (1) préservant la <b>neutralité graphify</b> (STOP-trigger owner, garanti par le sink §D-2) <b>et</b> (2) préservant l'<b>intégrité vérifiable</b> de h2a (le journal signé reste le canon&nbsp;; l'attestation le rend vérifiable en aval). <b>E domine B</b>&nbsp;; <b>A</b> est écartée (seule à toucher la neutralité + détruit l'intégrité)&nbsp;; <b>D</b> garde l'optionalité mais son étape 2 rouvre les deux risques qu'E ferme.</p>
+
+    <p><span class="lbl">Les 5 conditions dures (sinon bascule vers C)</span></p>
+    <ol class="cond">
+      <li><b>Export-seule + barrière anti-réimport</b> (D-6)&nbsp;: le bridge n'a aucun chemin d'import ; l'import OKF = module séparé, owned, gated.</li>
+      <li><b>Attestation obligatoire</b> (E, jamais B nu)&nbsp;: signatures détachées + preuves de hash merklisées + carte d'edges typées.</li>
+      <li><b>Politique de cycle de vie / révocation</b> (D-5)&nbsp;: TTL durs + classes non-exportables + liste de révocation vérifiable honorée par les consommateurs.</li>
+      <li><b>Contrat de sink neutre</b> (D-2)&nbsp;: <code>EpisodeStreamSink</code> générique ; OKF interdit dans <code>h2a</code> et <code>graphify-memory</code> ; garde = scan de closure de publication.</li>
+      <li><b>Conditionné à un consommateur OKF réel qui VÉRIFIE l'attestation</b>&nbsp;: sinon <b>rester en C</b>.</li>
+    </ol>
+
+    <div class="risk"><span class="lbl">Le steelman de C (cas le plus fort CONTRE ma reco — non vide)</span> <span class="tag judg">JUDGMENT</span> <b>C est un rival réel, pas un lot de consolation.</b> (a) <b>Aucun consommateur OKF n'existe</b>&nbsp;: bâtir un bridge attesté pour un format que personne ne lit est de la <b>dette spéculative</b>. (b) L'attestation ne vaut que si le consommateur la <b>vérifie</b> — OKF ne l'y oblige pas&nbsp;; un consommateur négligent ramène E au niveau de B (trust-laundering) pour un coût supérieur. (c) Si le seul besoin réel est un rendu <b>lisible par un humain</b>, un <b>générateur de rapport</b> Markdown le fait — sans graphe, sans intégrité à faux-semblant, sans révocation orpheline. Bref&nbsp;: <b>OKF pourrait être inutile</b>, et alors E est un détour coûteux.</div>
+
+    <div class="row"><span class="lbl">Ce qui renverserait la reco</span> (a) preuve qu'aucun consommateur ne <b>vérifiera</b> l'attestation → <b>C</b>&nbsp;; (b) mandat produit « OKF = format mémoire canonique » assumant la perte d'intégrité → <b>A</b>&nbsp;; (c) besoin d'une <b>sync bidirectionnelle</b> → décision d'import séparée, gated (jamais dans ce bridge)&nbsp;; (d) impossibilité de garantir la révocation chez les consommateurs → <b>C</b> (le risque privacy l'emporte).</div>
+
+    <div class="row"><span class="lbl">Pré-mortem — « six mois plus tard, ça a échoué parce que… »</span> <b>Neutralité&nbsp;:</b> le bridge a lentement absorbé de la logique h2a, un contributeur l'a « rapproché » du moteur graphify pour « simplifier », faisant fuiter OKF dans les contrats neutres. <b>Garde&nbsp;:</b> scan de closure D1 (non-import/non-ré-export) + contrat de sink §D-2. <b>Gouvernance&nbsp;:</b> un sujet humain a exercé son droit à l'effacement, l'Episode a été tombstoné mais <b>dix bundles exportés</b> le contenaient encore → fuite privacy. <b>Garde&nbsp;:</b> politique de cycle de vie §D-5 posée avant le premier export.</div>
+
+    <div class="row"><span class="lbl">Divulgation d'intérêt de l'agent (présentateur)</span> <span class="tag judg">JUDGMENT</span> Le plus facile/rapide pour moi (ASTRA) serait <b>C</b> (rien à concevoir) ou <b>B</b> (un export nu vite écrit). Je recommande <b>E</b>, plus coûteux à concevoir et à décrire, parce qu'il sert l'intérêt de l'owner&nbsp;: intégrité vérifiable, neutralité, gouvernance, réversibilité. Là où mon intérêt pourrait diverger&nbsp;: la tentation de présenter E comme « la » solution évidente — or <b>C reste un choix légitime</b> tant qu'aucun consommateur vérifiant n'existe, et je le dis explicitement.</div>
+  </section>
+
+  <section>
+    <h2>Les revues, par reviewer (le réel, pas « on a relu ») — double-instruction : 2 jambes indépendantes</h2>
+
+    <div class="reviewer"><div class="who">Reviewer 1 — ASTRA / Opus (auteur) <span class="verd ok">self-audit gate passé</span></div>
+      <p style="margin:.5em 0">Gate <code>present-decision</code> passé sur le dossier lui-même.</p>
+      <ul class="tight">
+        <li>Tags <span class="tag fact">FACT</span> / <span class="tag judg">JUDGMENT</span> sur chaque affirmation porteuse ; symétrie de comptage des « POUR ».</li>
+        <li>Cas CONTRE la reco non vide (steelman de C) ; renversements listés ; pré-mortem ; divulgation d'intérêt.</li>
+      </ul>
+    </div>
+
+    <div class="reviewer"><div class="who">Reviewer 2 — passe Opus indépendante (sous-agent) <span class="verd cond">ACCORD-SOUS-CONDITIONS</span></div>
+      <p style="margin:.5em 0">A lu l'artefact <b>en source</b> (pas mon résumé), clause par clause.</p>
+      <ul class="tight">
+        <li>Tous les <span class="tag fact">FACT</span> <b>vérifiés en source</b> (journal <code>l.3-33</code> ; OKF v0.2 ; F1 ; D1).</li>
+        <li><b>STOP-trigger réellement évité</b>, placement D1-légal ; corroboration <code>context/decision/evidence</code> ↔ enum neutre <code>memory_kind</code>.</li>
+        <li><b>CONTRE</b> : garde de neutralité de §5.3 mal spécifiée (scanner le bridge ne prouve rien) → <b>corrigé</b> (scan de closure §5.5-4). Import OKF hors scope → <b>corrigé</b> (§1).</li>
+        <li>Symétrie de comptage OK ; le steelman de C est un <b>vrai</b> cas contraire.</li>
+        <li><b>Risque le plus sous-pondéré</b> : rétention / sujet-humain → intégré (§D-5).</li>
+      </ul>
+    </div>
+
+    <div class="reviewer"><div class="who">Reviewer 3 — passe Gemini 3.8 high (jambe indépendante, remplace la jambe Codex à sec) <span class="verd no">ISSUES FOUND → 4 rectifications</span></div>
+      <p style="margin:.5em 0"><b>Verdict initial : ISSUES FOUND — 4 rectifications, toutes intégrées ; elles renforcent le dossier. Re-revue après intégration : « sound to present ».</b></p>
+      <ul class="tight">
+        <li><b>Taxonomie</b> : « B séquencée comme D » = hand-waving → renommé <b>B/E phasé</b> (cadence) vs <b>D</b> vrai hybride ; hybride bidirectionnel exclu. <span class="tag judg">→ intégré</span></li>
+        <li><b>Option E manquante</b> — OKF <b>attesté</b> (sidecar) → ajoutée ; défense de C renforcée. <span class="tag judg">→ intégré</span></li>
+        <li><b>Trou révocation / TTL</b> (gouvernance MAJEURE) : un gate d'export ne suffit pas → politique de cycle de vie (D-5). <span class="tag judg">→ intégré</span></li>
+        <li><b>Contrat de sink</b> (neutralité à l'<b>interface</b>) : <code>EpisodeStreamSink</code> générique (D-2). <span class="tag judg">→ intégré</span></li>
+        <li>Foregrounds intégrés : <i>trust-laundering</i>, <i>dégradation sémantique</i>, <i>tentation de ré-import</i> → barrière architecturale.</li>
+      </ul>
+    </div>
+
+    <div class="reviewer"><div class="who">Jambe Codex <span class="verd gap">source-gap (crédits épuisés)</span></div>
+      <p style="margin:.5em 0">La jambe Codex n'a pas pu s'exécuter (crédits épuisés) — statut <code>source-gap</code>. Elle est <b>remplacée par Gemini 3.8 high</b> → la double-instruction est <b>satisfaite par deux jambes indépendantes</b> (Opus + Gemini), la jambe Codex restant à combler si l'owner l'exige.</p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Les enjeux réels (ouverts · différés · gatés) — et ce que valider ne livre PAS</h2>
+    <ul class="tight">
+      <li><span class="tag judg">STAKE</span> <b>Orientation, pas livraison</b>&nbsp;: ce dossier présente un choix ; il n'implémente ni le port d'export, ni l'attestation, ni le sink, ni la politique de révocation (lots séparés).</li>
+      <li><span class="tag unk">SOURCE-GAP</span> <b>Aucun consommateur OKF n'existe</b> dans la flotte à ce jour, et rien ne garantit qu'un consommateur <b>vérifiera</b> l'attestation. Si non&nbsp;: <b>rester en C</b>.</li>
+      <li><span class="tag judg">STAKE</span> <b>Vérifiabilité conditionnelle</b>&nbsp;: E ne bat B que si le consommateur <b>honore</b> le sidecar (D-4)&nbsp;; sinon le trust-laundering subsiste.</li>
+      <li><span class="tag judg">STAKE</span> <b>Révocation orpheline</b>&nbsp;: sans la politique de cycle de vie (D-5), une garantie de gouvernance est invalidée après export — à poser <b>avant</b> le premier export.</li>
+    </ul>
+    <p style="margin-top:14px"><span class="lbl">Ce que valider ne livre PAS (explicite)</span></p>
+    <ul class="tight">
+      <li><span class="tag fact">FACT</span> N'<b>implémente pas</b> le port d'export, l'attestation, le sink, ni la politique de révocation.</li>
+      <li><span class="tag fact">FACT</span> Ne <b>fournit aucun consommateur</b> OKF et ne garantit pas qu'un consommateur vérifiera l'attestation.</li>
+      <li><span class="tag fact">FACT</span> Ne <b>migre pas</b> le substrat mémoire et ne <b>rouvre pas</b> <code>M5=C</code> ni <code>F1</code>.</li>
+      <li><span class="tag fact">FACT</span> N'<b>autorise aucun import</b> OKF (barrière architecturale D-6).</li>
+      <li><span class="tag judg">JUDGMENT</span> Le bundle OKF reste une <b>projection sortante</b>&nbsp;: le <b>journal signé reste la source d'autorité</b>. L'attestation rend la projection <i>vérifiable</i>, pas <i>canonique</i>.</li>
+    </ul>
+  </section>
+
+  <details>
+    <summary>▸ Lire le dossier-source complet (spec commentée, rév. 2)</summary>
+    <div class="body"><pre class="spec"># DECISION DOSSIER — Alignement de la mémoire h2a sur Open Knowledge Format (OKF)
+
+&gt; **Statut :** présentation (design-only). Ce dossier **présente** ; il ne demande aucune signature.
+&gt; Aucune décision M1–M7 / F1–F3 du substrat mémoire n&#x27;est rouverte.
+&gt; **Cible arbitrée par l&#x27;owner (via gr-conductor) :** Google **Open Knowledge Format (OKF) v0.2**.
+&gt; **Cadrage arbitré :** étude *export/interop* — « peut-on émettre/consommer les Episodes h2a comme
+&gt; concepts OKF » — **additif et réversible**.
+&gt;
+&gt; **Auteur :** ASTRA (agent d&#x27;analyse), exécuté en Claude Opus (équivalent astra).
+&gt; **Date :** 2026-09-15 · **decisionKind :** `orientation` · **h2a-focus.** · **Révision 2** (revues intégrées).
+&gt; **Double-instruction (revues indépendantes) :** DEUX jambes indépendantes = **leg Opus** (§9-R2,
+&gt; accord-sous-conditions) **+ leg Gemini 3.8 high** (§9-R3, *ISSUES FOUND* — 4 rectifications intégrées) ;
+&gt; la jambe Codex reste `source-gap` (crédits épuisés) mais est **remplacée** par Gemini → double-instruction
+&gt; **satisfaite par 2 jambes indépendantes**.
+&gt; **Recommandation (rév. 2) :** **Option E** (export injecté **attesté**), livrée **phasée**.
+&gt;
+&gt; Chaque affirmation porteuse est taguée `[FACT]` (vérifiable + source) ou `[JUDGMENT]` (lecture d&#x27;ASTRA).
+
+---
+
+## 1. Décision demandée
+
+**h2a doit-il aligner sa représentation mémoire/connaissance sur OKF, et à quel degré ?**
+Cinq options : **A** aligner pleinement (natif) · **B** export injecté **« nu »** (OKF conforme, sans
+attestation) · **C** ne pas aligner · **D** hybride **vers le natif** (A différé derrière un gate) ·
+**E** export injecté **attesté** (OKF conforme **+ sidecar d&#x27;attestation**).
+
+**Note de taxonomie (rectif. §9-R3.1).** La « livraison **phasée** » (incrément lecture-seule sur les
+artefacts déjà publiés d&#x27;abord) est une **cadence de déploiement** de B ou E, **pas** une option en soi :
+l&#x27;ancienne formulation « B séquencée comme D » était du hand-waving. Le **seul vrai hybride** est **D** =
+trajectoire *export (B/E) maintenant → natif (A) plus tard*. Un hybride **bidirectionnel** (import+export
+synchronisés) est **explicitement exclu** (voir §2.4, §2.8).
+
+**Périmètre exact.** Surface d&#x27;**interop en export** : sérialisation d&#x27;Episodes h2a en **bundle OKF**
+(fichiers Markdown + frontmatter YAML `type` + cross-links). **Hors périmètre :** le substrat mémoire
+(déjà décidé : graphify + SQLite canonique), le ranking (`M5=C`), la gouvernance d&#x27;admission (`M4`).
+**L&#x27;ingestion (import) d&#x27;un bundle OKF externe est hors reco** et n&#x27;est pas seulement « exclue au niveau
+de la reco » : elle exige une **barrière architecturale** (le bridge d&#x27;export n&#x27;a aucun chemin de code
+d&#x27;import ; tout import serait un module séparé, owned, gated — §2.8, §5.5).
+
+---
+
+## 2. Contexte — faits, hypothèses, inconnues (séparés)
+
+### 2.1 Le modèle OKF v0.2 (cible)
+
+- `[FACT]` Un **bundle** OKF est un arbre de fichiers Markdown auto-contenu, distribuable en dépôt git,
+  tarball ou zip. Source : `GoogleCloudPlatform/open-knowledge-format` `SPEC.md` (v0.2).
+- `[FACT]` **Un seul champ de frontmatter est requis : `type`** (« the only always-required key ; a
+  concept carrying just `type` is fully conformant »). Recommandés : `title`, `description`, `resource`
+  (URI), `tags`. **Les producteurs peuvent ajouter des clés custom** ; les consommateurs **doivent
+  préserver les clés inconnues** en round-trip mais **ne sont pas tenus de les vérifier**. Source : SPEC.md v0.2.
+- `[FACT]` Les **cross-links** sont de simples liens Markdown (forme *bundle-relative* commençant par `/`,
+  recommandée). **La nature du lien (parent/child, references, depends-on…) est portée par la prose
+  environnante, PAS par le lien.** Source : SPEC.md v0.2.
+- `[FACT]` `index.md` optionnel à tout niveau (progressive disclosure) ; `okf_version: &quot;0.2&quot;` dans
+  l&#x27;`index.md` racine. Pas de taxonomie de `type` centrale : le producteur définit son vocabulaire.
+- `[JUDGMENT]` OKF est un format de **livraison de contexte** à des agents. Il **n&#x27;a aucun modèle**
+  d&#x27;intégrité (pas de hash-chain), de signature, d&#x27;edge typée, de bi-temporalité, ni d&#x27;expiry/redaction.
+  Le fait qu&#x27;il **autorise des métadonnées étendues** est précisément ce qui rend l&#x27;**option E** possible.
+
+### 2.2 La représentation mémoire/connaissance actuelle de h2a
+
+- `[FACT]` **Episode** immuable = `Context` + `Decision` + `Evidence`, portant structurellement *subject*,
+  `occurred_at` (au root, ancré à un composant), `recorded_at` canonique, **provenance citée**, `trust`,
+  `scope`, `retention` (invariant **F1**). Source : `docs/specs/2026-08-15-SPEC_STUDY_memory-core-graphify-max.md` §1.
+- `[FACT]` **Journal/envelope** : entrées **hash-chaînées signées** — `protocol/version/sequence/prevHash/`
+  `contentHash`, `actor`, `causationId`, `correlationId`, `signatures`, `artifactKind`, `contractId`.
+  Source : `packages/h2a/src/journal.ts` (`H2AJournalPayload` / `H2AJournalEntry`).
+- `[FACT]` Répartition (**M5=C**) : h2a **configure et câble** ; **graphify** est le moteur de projection,
+  embeddings, vectorisation, recall et **ranking** ; le SQLite local garde l&#x27;autorité canonique minimale.
+  Source : memory-core study §1.
+- `[FACT]` Vocabulaire connaissance déjà présent côté substrat : `MemoryNote`, `UserModel`,
+  `Persona/Soul`, `Skill`, recall role-scoped, lineage. Source :
+  `docs/specs/2026-07-25-h2a-agent-memory-merged-design.md` §5.
+
+### 2.3 La contrainte de neutralité graphify (l&#x27;axe sensible signalé par l&#x27;owner)
+
+- `[FACT]` **D1** : les contrats `graphify-memory` sont des **DTO data-only + signatures de ports** ;
+  les `.d.ts`/JSON Schema émis portent **exactement** le jeu de noms neutres, `additionalProperties:false`,
+  et **aucun** identifiant consommateur, forme *evaluator/authorship/review-leg/persona/role/roster/*
+  *coordination/topology*. **Les bridges de projection peuvent dépendre des deux côtés mais ne sont PAS
+  ré-exportés par `graphify-memory`.** Source : graphify `spec/SPEC_EVOL_AGENT_MEMORY_SUBSTRATE.md` D1.
+- `[JUDGMENT]` Conséquence directe : le vocabulaire OKF `type` (`episode`/`context`/`decision`/`evidence`)
+  et le frontmatter en forme d&#x27;Episode sont de la **sémantique consommateur (h2a)**. Les loger **dans**
+  `graphify-memory` violerait D1. Les loger **dans un bridge/adapter côté h2a** est explicitement autorisé.
+- `[JUDGMENT]` **Mais la neutralité n&#x27;est pas qu&#x27;une affaire de packaging** (rectif. §9-R3.4) : si l&#x27;API de
+  recall devait être **contorsionnée** pour servir OKF, la neutralité serait **brisée par proxy**. D&#x27;où le
+  **contrat de sink** §2.7.
+
+### 2.4 Hypothèses et inconnues
+
+- `[ASSUMPTION]` La valeur d&#x27;OKF ici est l&#x27;interop de contexte lisible par des agents tiers, pas
+  l&#x27;archivage d&#x27;intégrité (déjà couvert par le journal signé).
+- `[UNKNOWN / source-gap]` **Aucun consommateur OKF réel** n&#x27;a été trouvé dans la flotte (h2a, graphify,
+  sentropic). → Le bénéfice interop est **potentiel**, pas actif aujourd&#x27;hui. C&#x27;est le pivot de la reco.
+- `[UNKNOWN / source-gap]` Nom exact du flag « options » du `track` **vendored** h2a (surface canonique
+  sentropic `--options-json` vs surface h2a) → à confirmer par h-cond sur le binaire live (voir §Track).
+
+### 2.5 Cartographie Episode h2a → concept OKF (le fond de l&#x27;étude)
+
+| Élément h2a | Expression OKF v0.2 | Statut (B nu) | Statut (E attesté) |
+|---|---|---|---|
+| Episode (identité, subject) | 1 fichier concept `type: episode`, `title`, `resource` (URI) | couvert | couvert |
+| Context / Decision / Evidence | sections du corps ou 3 concepts liés (`type: context/decision/evidence`) — se mappent sur l&#x27;enum **déjà neutre** `memory_kind` de graphify | couvert | couvert |
+| `occurred_at` / `recorded_at` (bi-temporel) | clés custom frontmatter | couvert, non-standard | couvert |
+| provenance citée | cross-links + `resource` ; clé custom `provenance` | partiel | couvert (dans l&#x27;attestation) |
+| `trust`, `scope` | clés custom ; `scope` ↔ placement dans l&#x27;arbre | partiel | couvert (attesté) |
+| `retention` / `purpose` (obligatoires si `subject=human:&lt;ref&gt;`) | clé custom **sans exécution** : OKF n&#x27;a ni expiry ni redaction ni révocation | **risque gouvernance MAJEUR** (§2.6) | **partiel** : nécessite en plus la politique de cycle de vie §2.6 |
+| edges typées (causationId, decision→evidence, review-leg) | liens Markdown **non typés** | **perte** (dégradation sémantique) | **restauré** via une *carte d&#x27;edges typées* dans le sidecar |
+| signatures / hash-chain / `contentHash` | **aucun équivalent OKF** | **non couvert** (intégrité jetée) | **restauré** : signatures détachées + preuves de hash merklisées dans le sidecar |
+
+`[JUDGMENT]` **B « nu » jette l&#x27;intégrité fondatrice de h2a** (signatures, hash-chain, edges typées) et
+produit un artefact trivialement éditable estampillé « mémoire h2a » — voir *trust-laundering* §2.8.
+**E** restaure la vérifiabilité en aval **sans** quitter la conformité OKF (métadonnées étendues +
+fichiers sidecar), à condition que le consommateur **honore** le sidecar (§2.8, §5.1).
+
+### 2.6 Gouvernance : rétention, RÉVOCATION et cycle de vie (rectif. §9-R3.3 — MAJEUR)
+
+- `[FACT]` Pour un Episode de `subject=human:&lt;ref&gt;`, h2a rend `purpose` **et** `retention` **obligatoires**.
+  Source : memory-core study §1 (lignes ~180-181).
+- `[FACT]` OKF n&#x27;a **aucun** mécanisme d&#x27;expiry, de redaction, de scope ni de **révocation**.
+- `[JUDGMENT]` **Un gate de rétention *au moment de l&#x27;export* ne suffit pas.** Un Episode
+  supprimé / tombstoné / rédigé **plus tard** (droit à l&#x27;effacement — RGPD art. 17 — ou révocation de
+  consentement) **persiste dans le bundle OKF déjà exporté, sans synchronisation** → la garantie de
+  gouvernance est **invalidée après coup**. C&#x27;est le trou de gouvernance central, distinct de la simple
+  « perte de fidélité ».
+- `[JUDGMENT]` **Politique de cycle de vie exigée** (condition dure de la reco, §5.5) :
+  1. **TTL durs** portés par chaque bundle (et par le sidecar d&#x27;attestation) : un bundle expire.
+  2. **Classes de sujets non-exportables** : certaines catégories (`subject=human:&lt;ref&gt;` sensibles) ne
+     sont **jamais** exportées.
+  3. **Liste de révocation / tombstone vérifiable** publiée avec le bundle (et signée dans l&#x27;attestation),
+     que **tout consommateur conforme doit honorer** avant de traiter un concept.
+
+### 2.7 Contrat de sink — neutralité à l&#x27;INTERFACE, pas juste au packaging (rectif. §9-R3.4)
+
+- `[JUDGMENT]` L&#x27;interface d&#x27;export côté h2a est un **`EpisodeStreamSink` générique et domaine-agnostique** :
+  un **flux brut d&#x27;Episodes immuables** (la forme knowledge neutre F1), **sans aucune** structure ni
+  vocabulaire OKF.
+- `[JUDGMENT]` **Interdiction explicite** : aucune forme, clé, ni formatage OKF dans `h2a` (core) ni dans
+  `graphify-memory`. Toute la sémantique OKF (`type`, cross-links, sidecar) vit **uniquement** dans le
+  **bridge OKF** (package owned à part) qui **consomme** `EpisodeStreamSink`. Ainsi, même si un consommateur
+  OKF réclamait une forme particulière, l&#x27;API de recall/sink **ne se contorsionne pas** pour lui →
+  neutralité préservée **à l&#x27;interface**, pas seulement dans le nom du package.
+
+### 2.8 Risques transverses (mis en avant, pas enfouis — foreground §9-R3)
+
+- `[JUDGMENT]` **Trust-laundering.** Un bundle Markdown est **trivialement éditable**. S&#x27;il est estampillé
+  « from h2a Verified Memory » et que le consommateur **ignore** le sidecar d&#x27;attestation (OKF ne l&#x27;y
+  **oblige pas**), le label **blanchit** de la confiance sur un artefact non vérifié. → E n&#x27;élimine le
+  risque que si le consommateur **vérifie** l&#x27;attestation ; sinon le risque subsiste (argument fort pour C).
+- `[JUDGMENT]` **Dégradation sémantique.** Les edges typées de h2a → liens Markdown non typés. E la
+  compense par une carte d&#x27;edges dans le sidecar ; B ne la compense pas.
+- `[JUDGMENT]` **Tentation de ré-import.** Exclure l&#x27;import « au niveau de la reco » **sans barrière
+  architecturale** ne tient pas : sous pression, quelqu&#x27;un rebranchera le bundle en entrée. → Barrière dure
+  §1 / §5.5 : le bridge d&#x27;export n&#x27;a **aucun** chemin d&#x27;import ; l&#x27;import = module séparé, owned, gated.
+
+---
+
+## 3. Enjeux (pourquoi niveau dossier)
+
+- `[FACT]` **Cross-owner / cross-repo** : touche h2a (Episode/journal) **et** graphify (neutralité D1).
+- `[JUDGMENT]` **Surface d&#x27;interop potentiellement publique** (format externe Google) : un mauvais
+  placement ferait **fuiter le vocabulaire OKF dans les contrats neutres graphify** → violation D1
+  (l&#x27;exact *STOP-trigger* signalé par l&#x27;owner) ; ou **jetterait l&#x27;intégrité** de h2a (B nu) ; ou
+  **invaliderait une garantie de gouvernance** après export (§2.6).
+- `[FACT]` L&#x27;owner a demandé une validation **au niveau des enjeux** → dossier complet, pas un menu.
+- `[JUDGMENT]` Blast radius asymétrique : bien placé (bridge attesté + sink neutre) = additif/réversible ;
+  mal placé = dette d&#x27;architecture + risque privacy durable.
+
+---
+
+## 4. Options (une ligne par option, rejetées incluses)
+
+| id | Choix | Cas POUR le plus fort | Cas CONTRE le plus fort | Coût | Réversibilité | Neutralité graphify | Intégrité préservée | Ce qui la ferait gagner |
+|---|---|---|---|---|---|---|---|---|
+| **A** | **Aligner pleinement (natif)** — h2a/graphify émettent **et consomment** OKF nativement | Interop max ; format unique ; pas d&#x27;adapter séparé | Seule à **toucher la neutralité** (D1) ou extension non-standard ; **détruit** signatures/hash-chain/edges ; migration lourde | **Élevé** | **Faible** | **Touchée / à risque** | **Non** | Mandat « OKF = format mémoire canonique » **assumant** la perte d&#x27;intégrité |
+| **B** | **Export injecté « nu »** — bridge côté h2a → bundle OKF **conforme**, depuis la sortie neutre du recall, **sans attestation** | Interop réelle sans toucher la neutralité ; additif ; le moins cher | **Jette l&#x27;intégrité fondatrice** (bundle non vérifiable) → **trust-laundering** ; dégradation sémantique | **Moyen-bas** | **Élevée** | **Préservée** | **Non** | N&#x27;avoir besoin que d&#x27;un affichage lisible, sans exigence de vérifiabilité |
+| **C** | **Ne pas aligner** — garder Episode/journal ; aucune surface OKF | Coût nul ; zéro dette ; **aucune** perte d&#x27;intégrité ni risque privacy ; **OKF possiblement inutile** (humains → un générateur de rapport Markdown suffit ; machines → liens non-typés + zéro intégrité = OKF **inadapté** à une mémoire vérifiée) | Ferme l&#x27;interop OKF si un consommateur apparaît ; ignore une norme émergente | **Nul** | **N-A** | **Préservée** | **Oui (par abstention)** | Certitude qu&#x27;aucun consommateur OKF vérifiant n&#x27;existera |
+| **D** | **Hybride vers le natif** — export (B/E) maintenant **puis gate** vers l&#x27;adoption native (A) plus tard (**pas** de sync bidirectionnel) | Garde l&#x27;optionalité vers A ; décision par étapes ; time-boxé | Deux passes de gouvernance ; l&#x27;étape 2 (natif) **rouvre** la neutralité et l&#x27;intégrité | **Bas** (ét.1) + différé | **Élevée** (ét.1) | Préservée ét.1 ; **à risque** si on va vers A | Ét.1 oui ; ét.2 non | Vouloir prouver la valeur **et** viser le natif ensuite |
+| **E** ★ | **Export injecté ATTESTÉ** — OKF **conforme + sidecar d&#x27;attestation** (signatures détachées, preuves de hash merklisées, carte d&#x27;edges typées) ; livré **phasé** | Interop OKF **sans jeter l&#x27;intégrité** (vérifiable en aval) ; neutralité préservée ; additif/réversible ; **reste OKF-conforme** (métadonnées étendues autorisées) | Coût &gt; B (attestation à produire/maintenir) ; vérifiabilité **seulement si** le consommateur honore le sidecar ; toujours conditionné à un consommateur réel | **Moyen** | **Élevée** | **Préservée** | **Oui (si honoré)** | Vouloir de l&#x27;interop OKF **en gardant** l&#x27;intégrité vérifiable et la neutralité |
+
+`[JUDGMENT]` **Seules A (et l&#x27;étape 2 de D) touchent la neutralité graphify.** B, C, E la préservent —
+via le **contrat de sink** §2.7 (neutralité à l&#x27;interface) et le bridge non ré-exporté par
+`graphify-memory` (D1). C&#x27;est la réponse directe au *STOP-trigger* de l&#x27;owner :
+**l&#x27;option recommandée (E) ne touche pas la neutralité.**
+
+---
+
+## 5. Recommandation + rationale
+
+**Recommandation (rév. 2) : option E — export injecté ATTESTÉ — livrée PHASÉE** (incrément lecture-seule
+sur les artefacts déjà publiés d&#x27;abord), **sous les conditions §5.5**.
+
+`[JUDGMENT]` **Jugement décisif :** E est la seule option qui livre de l&#x27;interop OKF **tout en**
+(1) préservant la neutralité graphify (STOP-trigger owner, garanti par le sink §2.7), **et**
+(2) **préservant l&#x27;intégrité vérifiable** de h2a (le journal signé reste le canon ; l&#x27;attestation le rend
+vérifiable *en aval*). **E domine B** : un export « nu » (B) **jette** l&#x27;intégrité fondatrice et ouvre le
+*trust-laundering*, ce qui est inacceptable pour une mémoire qui se présente comme vérifiée. **A** est
+écartée (seule à toucher la neutralité + détruit l&#x27;intégrité). **D** garde l&#x27;optionalité mais son étape 2
+rouvre exactement les deux risques qu&#x27;E ferme. **C reste le finaliste** : si aucun consommateur OKF
+n&#x27;honore l&#x27;attestation, E est de la dette spéculative et **C est le bon défaut**.
+
+### 5.1 Cas le plus fort CONTRE ma recommandation (obligatoire, non vide)
+
+`[JUDGMENT]` **C est un rival réel, pas un lot de consolation.** (a) **Aucun consommateur OKF n&#x27;existe**
+(§2.4) ; construire un bridge attesté pour un format que personne ne lit est de la dette spéculative.
+(b) L&#x27;attestation ne vaut que si le consommateur la **vérifie** — or OKF ne l&#x27;y oblige pas (§2.1) ; un
+consommateur négligent transforme le label « h2a Verified Memory » en **trust-laundering** (§2.8), et E
+n&#x27;a alors rien apporté de plus que B tout en coûtant plus cher. (c) Si le seul besoin réel est un rendu
+**lisible par un humain**, un **générateur de rapport** Markdown le fait — sans graphe, sans intégrité à
+faux-semblant, sans risque de révocation orpheline (§2.6). Bref : **OKF pourrait être inutile**, et alors
+E est un détour coûteux.
+
+### 5.2 Ce qui renverserait la reco
+
+`[JUDGMENT]` (a) Preuve qu&#x27;aucun consommateur ne **vérifiera** l&#x27;attestation → bascule vers **C**.
+(b) Mandat produit « OKF = format mémoire canonique » assumant la perte d&#x27;intégrité → **A**. (c) Un
+consommateur exigeant une **synchronisation bidirectionnelle** → rouvre l&#x27;hybride bidirectionnel exclu et
+force une **décision d&#x27;import séparée, gated** (jamais dans ce bridge). (d) Impossibilité de garantir la
+politique de révocation §2.6 chez les consommateurs → **C** (le risque privacy l&#x27;emporte).
+
+### 5.3 Pré-mortem (« six mois plus tard, ça a échoué parce que… »)
+
+`[JUDGMENT]` **Scénario neutralité :** …le bridge a lentement absorbé de la logique h2a et un contributeur
+l&#x27;a « rapproché » du moteur graphify pour « simplifier », faisant fuiter OKF dans les contrats neutres.
+**Garde (corrigé) :** le bon contrôle n&#x27;est **pas** de scanner la neutralité du *bridge* (il **doit**
+porter OKF par conception) mais (i) un **scan de non-import / non-ré-export sur la closure de publication
+de `graphify-memory`** (D1 clauses 3-4) **et** (ii) le **contrat de sink `EpisodeStreamSink`** §2.7 qui
+garde OKF hors de l&#x27;API de recall.
+**Scénario gouvernance :** …un sujet humain a exercé son droit à l&#x27;effacement ; l&#x27;Episode a été tombstoné
+côté h2a mais **dix bundles OKF exportés** le contenaient encore, sans TTL ni liste de révocation → fuite
+privacy. **Garde :** politique de cycle de vie §2.6 (TTL durs + classes non-exportables + liste de
+révocation vérifiable) **posée avant le premier export**.
+
+### 5.4 Divulgation d&#x27;intérêt de l&#x27;agent (présentateur)
+
+`[JUDGMENT]` **Le plus facile / rapide pour moi (ASTRA)** serait **C** (rien à concevoir) ou **B** (un
+export « nu » vite écrit). Je recommande **E**, plus coûteux à concevoir et à décrire, parce que c&#x27;est
+l&#x27;option qui sert l&#x27;intérêt de l&#x27;owner : **intégrité vérifiable** (ne blanchit pas la confiance),
+**neutralité** (sink + closure), **gouvernance** (cycle de vie/révocation) et **réversibilité**. Là où mon
+intérêt pourrait diverger : la tentation de présenter E comme « la » solution évidente — or **C reste un
+choix légitime** tant qu&#x27;aucun consommateur vérifiant n&#x27;existe, et je le dis explicitement (§5.1).
+
+### 5.5 Conditions de la reco (dures — sinon bascule vers C)
+
+1. **Export-seule + barrière architecturale anti-réimport** (§2.8) : le bridge n&#x27;a aucun chemin d&#x27;import ;
+   l&#x27;import OKF = module séparé, owned, gated — décision distincte.
+2. **Attestation obligatoire (E, jamais B nu)** : signatures détachées d&#x27;Episode + preuves de hash
+   merklisées + carte d&#x27;edges typées dans le sidecar.
+3. **Politique de cycle de vie / révocation** (§2.6) : TTL durs sur bundles + classes de sujets
+   non-exportables + liste de révocation-tombstone vérifiable honorée par les consommateurs.
+4. **Contrat de sink neutre** (§2.7) : `EpisodeStreamSink` générique ; **OKF interdit** dans `h2a` et
+   `graphify-memory` ; garde = scan de closure de publication de `graphify-memory`.
+5. **Conditionné à un consommateur OKF réel qui VÉRIFIE l&#x27;attestation** (§2.4, §5.1) : sinon **rester en C**.
+
+---
+
+## 6. Réversibilité / coût
+
+- `[JUDGMENT]` **E** : rollback = supprimer le bridge, le bundle et le sidecar ; **aucune donnée canonique
+  touchée** (le journal signé reste la source). Coût = adapter de projection + mapping `type` + **générateur
+  d&#x27;attestation** (signatures détachées, arbre de Merkle, carte d&#x27;edges) + politique de cycle de vie ≈
+  **un à deux lots** (attestation = le sur-coût vs B). Sunk cost en abandon ≈ le bridge + l&#x27;attestation.
+- `[JUDGMENT]` **B** : comme E moins l&#x27;attestation ≈ un lot ; mais laisse le trou d&#x27;intégrité/gouvernance.
+- `[JUDGMENT]` **A** : migration du modèle + réécriture de contrats ; rollback **&gt; un bloc**.
+- `[JUDGMENT]` **D** : coût de l&#x27;étape 1 (= B/E) + une 2e passe de gouvernance différée.
+- `[JUDGMENT]` **C** : coût et rollback nuls.
+
+---
+
+## 7. Attendus (critères de validation de l&#x27;owner)
+
+| Critère | Source | Couvert par | Écart |
+|---|---|---|---|
+| Neutralité graphify préservée (STOP-trigger) — **à l&#x27;interface** | msg gr-conductor + §9-R3.4 | **E/B/C** (sink §2.7 + closure D1) | **A** et l&#x27;étape 2 de **D** = à risque |
+| Additif et réversible | cadrage owner | **E/B/C/D-ét.1** | A non réversible |
+| Cible = OKF v0.2 | arbitrage owner | §2.1 (SPEC.md v0.2) | aucun |
+| ≥ 4 options + trade-offs mesurés | tâche | §4 (5 options : coût·neutralité·réversibilité·intégrité·bénéfice·risque) | aucun |
+| Reco argumentée + ce que chaque option débloque | tâche | §5 + §8.1 | aucun |
+| **Intégrité préservée / vérifiable en aval** | §9-R3.2 | **E** (attestation) ; A/B jettent l&#x27;intégrité | dépend du consommateur qui vérifie |
+| **Politique révocation / TTL / cycle de vie** | §9-R3.3 | §2.6 + §5.5(3) | à implémenter avant 1er export |
+| **Contrat de sink neutre (`EpisodeStreamSink`)** | §9-R3.4 | §2.7 + §5.5(4) | à câbler (interface + CI closure) |
+| **Barrière architecturale anti-réimport** | §9-R3 foreground | §2.8 + §5.5(1) | à câbler (pas de chemin d&#x27;import) |
+| Mitigation trust-laundering | §9-R3 foreground | §2.8 + §5.5(2) (attestation vérifiée) | résiduel si consommateur néglige le sidecar |
+| Format dossier habituel (fond, revues, enjeux ouverts) | `docs/focus/decision-dossier-format.md` | §2/§4/§9/§10 | aucun |
+| Revues réelles, ≥ 2 jambes indépendantes | même source + double-instruction | §9 (Opus + Gemini) | leg Codex `source-gap`, **remplacé** par Gemini |
+| Enregistrement track prêt pour h-cond (single-writer) | tâche | §Track + fichiers payload | live-write réservé à h-cond |
+
+---
+
+## 8. Ce dont j&#x27;ai besoin de vous (plus petit choix valide)
+
+**Approuver E (export injecté attesté, livré phasé, sous conditions §5.5)** — ou choisir **A / B / C / D**,
+ou **différer**. Ce dossier **présente** ; il ne vous demande pas de signer. La signature reste un acte
+séparé, à vos conditions.
+
+### 8.1 Ce que chaque option débloque
+
+- **A** → un format mémoire unique lisible par tout agent tiers (au prix de l&#x27;intégrité et de la neutralité).
+- **B** → l&#x27;interop OKF sortante rapide, mais **sans** intégrité vérifiable (risque trust-laundering).
+- **C** → rien de neuf côté OKF ; garde toute l&#x27;énergie sur le substrat déjà décidé ; **un générateur de
+  rapport** couvre le besoin « lisible par un humain » si c&#x27;est le seul besoin réel.
+- **D** → une preuve de valeur maintenant **plus** l&#x27;optionalité vers le natif (mais l&#x27;étape 2 rouvre les risques).
+- **E** → l&#x27;interop OKF sortante **avec intégrité vérifiable en aval, neutralité et gouvernance** — sous conditions §5.5.
+
+---
+
+## 9. Revues (le fond de chaque reviewer, sans complaisance)
+
+- **Reviewer 1 — ASTRA / Opus (auteur).** Self-audit gate `present-decision` passé : tags FACT/JUDGMENT ;
+  symétrie de comptage des « POUR » ; cas CONTRE la reco non vide (§5.1) ; renversements (§5.2) ;
+  pré-mortem (§5.3) ; divulgation d&#x27;intérêt (§5.4).
+- **Reviewer 2 — passe Opus indépendante (sous-agent).** **Verdict : accord-sous-conditions.**
+  - Tous les `[FACT]` vérifiés en source (journal `l.3-33` ; OKF v0.2 web ; F1 ; D1).
+  - **STOP-trigger réellement évité**, placement D1-légal ; corroboration : `context/decision/evidence` se
+    mappent sur l&#x27;enum neutre `memory_kind`. Garde de neutralité de §5.3 initialement mal spécifié (scanner
+    le bridge ne prouve rien) → **corrigé** (§5.3, §5.5(4)). Import OKF sorti du scope → **corrigé** (§1).
+  - **Symétrie de comptage OK** ; §5.1 est un vrai steelman.
+  - **Risque le plus sous-pondéré : rétention/sujet-humain** → intégré (§2.6).
+- **Reviewer 3 — passe Gemini 3.8 high (jambe indépendante, remplace la jambe Codex à sec).**
+  **Verdict : ISSUES FOUND — 4 rectifications, toutes intégrées ; elles renforcent le dossier.**
+  1. **Taxonomie** : « B séquencée comme D » = hand-waving → renommé **B/E phasé** (cadence) vs **D** vrai
+     hybride vers le natif ; hybride bidirectionnel exclu (§1, §2.4).
+  2. **Option manquante E — OKF attesté (sidecar)** : ajoutée (§1, §4, §2.5) ; **défense de C renforcée**
+     (générateur de rapport pour l&#x27;humain ; OKF inadapté à une mémoire vérifiée) (§4-C, §5.1).
+  3. **Trou révocation / TTL** (gouvernance MAJEURE) : un gate d&#x27;export ne suffit pas ; RGPD art. 17 /
+     révocation de consentement → **politique de cycle de vie** (TTL durs, classes non-exportables, liste
+     de révocation vérifiable) (§2.6, §5.5(3)).
+  4. **Contrat de sink** (neutralité à l&#x27;**interface**) : **`EpisodeStreamSink`** générique ; OKF interdit
+     dans h2a/`graphify-memory` (§2.7, §5.5(4)).
+  - **Foreground intégrés :** *trust-laundering* (§2.8, §5.1), *dégradation sémantique* (§2.5, §2.8),
+    *tentation de ré-import* → **barrière architecturale** (§2.8, §5.5(1)).
+- **Jambe Codex — `source-gap`** (crédits épuisés), **remplacée par Gemini 3.8 high**. La double-instruction
+  est donc **satisfaite par deux jambes indépendantes** (Opus + Gemini), la jambe Codex restant à combler
+  si l&#x27;owner l&#x27;exige.
+
+---
+
+## 10. Ce que la validation ne livre PAS
+
+- `[FACT]` Elle **n&#x27;implémente pas** le port d&#x27;export, l&#x27;attestation, le sink, ni la politique de révocation
+  (lots séparés).
+- `[FACT]` Elle **ne fournit aucun consommateur OKF** (aucun n&#x27;existe dans la flotte à ce jour) — et ne
+  garantit pas qu&#x27;un consommateur **vérifiera** l&#x27;attestation.
+- `[FACT]` Elle **ne migre pas** le substrat mémoire et **ne rouvre pas** `M5=C` ni `F1`.
+- `[FACT]` Elle **n&#x27;autorise aucun import** OKF (barrière architecturale §2.8).
+- `[JUDGMENT]` Le bundle OKF reste une **projection sortante** : le **journal signé reste la source
+  d&#x27;autorité**. L&#x27;attestation rend la projection *vérifiable*, elle ne la rend pas *canonique*.
+
+---
+
+### Provenance des sources
+
+- OKF v0.2 : `github.com/GoogleCloudPlatform/open-knowledge-format` `SPEC.md` (récupéré 2026-09-15).
+- Episode/F1, rétention/`purpose` obligatoires : `docs/specs/2026-08-15-SPEC_STUDY_memory-core-graphify-max.md` §1.
+- Journal : `packages/h2a/src/journal.ts`.
+- Neutralité D1 : `graphify` `spec/SPEC_EVOL_AGENT_MEMORY_SUBSTRATE.md` D1.
+- Modèle mémoire fusionné : `docs/specs/2026-07-25-h2a-agent-memory-merged-design.md` §5.
+- Format de dossier : `docs/focus/decision-dossier-format.md`.
+- Revues : R2 passe Opus indépendante ; R3 passe Gemini 3.8 high (jambe indépendante).
+</pre></div>
+  </details>
+
+  <section class="closing">
+    <h2>Ce dossier ne te demande pas de décider</h2>
+    <p>C'est une <b>présentation</b> du fond, pour que tu juges les décisions de conception toi-même — pas un « signe ici ». Le plus petit choix valide&nbsp;: <b>approuver E</b> (export injecté attesté, livré phasé, sous les 5 conditions dures) — ou choisir <b>A / B / C / D</b>, ou <b>différer</b>. Tu décides <b>quand et comme tu veux</b>, sur tes termes.</p>
+    <p>Et la question de fond que toi seul tranches — le vrai objet de la décision, pas « les 4 rectifications sont intégrées »&nbsp;: <b>acceptes-tu de construire un pont d'export OKF <i>attesté</i> (intégrité vérifiable, neutralité préservée, révocation gouvernée), ou OKF reste-t-il inutile tant qu'aucun consommateur qui vérifie n'existe — auquel cas le repli C est le bon défaut&nbsp;?</b></p>
+  </section>
+
+  <footer>
+    Cockpit de décision Focus · surface autonome (accessible sans session claude) · design-only, rien ne merge, rien n'est signé.<br>
+    Substance des décisions + revue de chaque reviewer (Opus accord-sous-conditions · Gemini 3.8 high ISSUES FOUND→sound · Codex source-gap) + enjeux ouverts — pas un résumé de process.
+  </footer>
+</div>
+<script>
+  (function(){
+    var b=document.getElementById('tt');
+    if(!b) return;
+    b.addEventListener('click',function(){
+      var r=document.documentElement;
+      var cur=r.getAttribute('data-theme');
+      var dark=cur?cur==='dark':matchMedia('(prefers-color-scheme:dark)').matches;
+      r.setAttribute('data-theme',dark?'light':'dark');
+    });
+  })();
+</script>
+</body></html>
