@@ -193,6 +193,85 @@ describe('CLI full verb surface (Lot 7) end-to-end', () => {
     expect(text).toContain('hint')
     expect(text).toContain('create') // the hint suggests creating the missing file
   })
+
+  // --- desync round-trip false-positive fix (adversarial coverage) ---------------------------------
+  // A `.md` suffix is a false signal for "file path": `.md` is also Moldova's ccTLD, and any sentence
+  // can end in a "…foo.md" citation. A body is a file reference only when it exists on disk OR is an
+  // unambiguous, whitespace-free, colon-free path token containing a `/`. These cases must all be
+  // SKIPPED (no desync). Each of them is flagged by the original `/^[^\n]+\.md$/` heuristic (prose)
+  // and/or by the first, leakier fix (domains/emails/punctuation/glued prefixes), so this test can
+  // fail — it is a real regression anchor.
+  const NON_REFERENCES: Array<[string, string]> = [
+    ['prose citing a spec (real-world shape, with brace expansion)',
+      'Spec design-only h2a enrollment; double-consensus GO. Spec: docs/specs/2026-07-11-enrollment{,-DOSSIER}.md'],
+    ['prose citing a nested spec path', 'Consolider remote + track. Spec: docs/specs/2026-06-29-migration.md'],
+    ['email address ending in .md', 'contact@service.md'],
+    ['bare domain (.md ccTLD)', 'health.md'],
+    ['another bare domain', 'gateway.md'],
+    ['bracket glob, not a real file', 'enrollment[1-2].md'],
+    ['parenthesised token', 'draft(final).md'],
+    ['comma token', 'file,v2.md'],
+    ['glued prose label + path', 'Ref:docs/spec.md'],
+    ['another glued prose label', 'See:docs/spec.md'],
+    // POLICY (escalated default, precision-first): a MISSING path WITH whitespace is treated as prose
+    // and skipped — it is character-indistinguishable from the prose citations above.
+    ['spaced path (escalated policy: skipped)', 'docs/Getting Started.md'],
+    ['spaced ADR path (escalated policy: skipped)', 'adr/001 - Architecture.md'],
+  ]
+  it('does NOT desync-flag prose, .md domains/emails, punctuation, glued labels, or spaced paths', () => {
+    runCli(['init'], io)
+    for (const [label, body] of NON_REFERENCES) {
+      runCli(['item', 'new', '--kind', 'feature', '--title', label, '--workspace', 'ws', '--body', body], io)
+    }
+    out.length = 0
+    expect(runCli(['validate', '--commit', 'c1'], io)).toBe(0)
+    const text = out.join('')
+    // Clean line is "OK: N events, integrity + desync clean"; a finding line says "… finding(s)".
+    expect(text).toContain('OK:')
+    expect(text).not.toContain('INVALID')
+    expect(text).not.toContain('finding')
+  })
+
+  // Detection preserved: a body that is unambiguously a missing markdown *path* (nested, no
+  // whitespace, no `:`) — including one with `{}` in it — MUST still desync.
+  const MISSING_REFERENCES = [
+    'docs/specs/2026-07-11-enrollment.md',
+    'docs/api/{version}/endpoints.md',
+    './rel/spec.md',
+    '../up/spec.md',
+    '/abs/only/spec.md',
+  ]
+  it('still flags genuine missing markdown path references (nested, brace, relative, absolute)', () => {
+    for (const body of MISSING_REFERENCES) {
+      out.length = 0
+      // Fresh workspace per case so each is asserted independently.
+      const wsDir = mkdtempSync(join(tmpdir(), 'track-desync-'))
+      const wio: CliIO = { cwd: wsDir, out: (s) => out.push(s), err: (s) => out.push(s) }
+      runCli(['init'], wio)
+      runCli(['item', 'new', '--kind', 'feature', '--title', 'Spec', '--workspace', 'ws', '--body', body], wio)
+      out.length = 0
+      expect(runCli(['validate', '--commit', 'c1'], wio), `expected desync for ${body}`).toBe(1)
+      const text = out.join('')
+      expect(text).toContain('desync')
+      expect(text).toContain('missing')
+      rmSync(wsDir, { recursive: true, force: true })
+    }
+  })
+
+  it('validates a bare .md reference that exists on disk (ground truth: H1 must match the title)', () => {
+    runCli(['init'], io)
+    writeFileSync(join(dir, 'bare.md'), '# Exact Title\n\nbody\n')
+    // Matching H1 → clean.
+    runCli(['item', 'new', '--kind', 'feature', '--title', 'Exact Title', '--workspace', 'ws', '--body', 'bare.md'], io)
+    out.length = 0
+    expect(runCli(['validate', '--commit', 'c1'], io)).toBe(0)
+    expect(out.join('')).toContain('OK:')
+    // Mismatched H1 on the same existing bare file → desync (detection through rule 1).
+    runCli(['item', 'new', '--kind', 'feature', '--title', 'Different Title', '--workspace', 'ws', '--body', 'bare.md'], io)
+    out.length = 0
+    expect(runCli(['validate', '--commit', 'c1'], io)).toBe(1)
+    expect(out.join('')).toContain('desync')
+  })
 })
 
 describe('CLI input validation + review fixes (Lot 7)', () => {
