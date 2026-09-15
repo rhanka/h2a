@@ -4,11 +4,11 @@
 ASTRA (this study) did **not** write to any `.track`. This registration must be applied by **h-cond**,
 from the **live** `~/src/h2a` repository root, against the live `.track`.
 
-- **Decision:** Alignement mémoire h2a sur Open Knowledge Format (OKF v0.2)
+- **Decision:** Alignement mémoire h2a sur Open Knowledge Format (OKF v0.2) — **révision 2** (5 options A-E)
 - **decisionKind:** `orientation`
 - **workspace:** `ws:89c45cc3e040949f1a1a034529722ee877150fd2a0e3da16a7f6e9d8e27f495d`
   (dominant h2a workspace, resolved from the live `.track` at study time — h-cond re-confirms)
-- **Recommendation:** `B` (port d'export injecté, séquencé comme `D`)
+- **Recommendation:** `E` (export injecté **attesté**, livré phasé, sous conditions §5.5 du dossier)
 - **Structured payload (single source of truth):**
   `spec/DECISION_OPENKNOWLEDGE_ALIGNMENT_20260915T164937Z.track-payload.json`
 - **Dossier artifact:** `spec/DECISION_OPENKNOWLEDGE_ALIGNMENT_20260915T164937Z.md`
@@ -31,7 +31,7 @@ track decision new \
 #    Preferred flags (sentropic-canonical track surface):
 track decision dossier <decisionId> \
   --options-json "$(python3 -c 'import json;print(json.dumps(json.load(open("spec/DECISION_OPENKNOWLEDGE_ALIGNMENT_20260915T164937Z.track-payload.json"))["dossier"]["options"]))')" \
-  --recommendation B \
+  --recommendation E \
   --rationale "$(python3 -c 'import json;print(json.load(open("spec/DECISION_OPENKNOWLEDGE_ALIGNMENT_20260915T164937Z.track-payload.json"))["dossier"]["recommendation"]["rationale"])')"
 
 # 3) point the decision at the committed dossier file (record-only artifact evidence)
