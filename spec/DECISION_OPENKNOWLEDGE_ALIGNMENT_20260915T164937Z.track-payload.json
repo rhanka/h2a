@@ -1,0 +1,71 @@
+{
+  "decisionKind": "orientation",
+  "title": "Alignement mémoire h2a sur Open Knowledge Format (OKF v0.2)",
+  "workspace": "ws:89c45cc3e040949f1a1a034529722ee877150fd2a0e3da16a7f6e9d8e27f495d",
+  "dossier": {
+    "context": "Cible OKF v0.2 (arbitrée par l'owner) : connaissance = fichiers Markdown + frontmatter YAML (seul champ requis: type) cross-linkes en graphe, neutre provider/DB/modele. Etude cadree export/interop, additif et reversible : peut-on emettre/consommer les Episodes h2a (Context+Decision+Evidence, F1) comme concepts OKF ? Contrainte sensible : la neutralite graphify (D1) interdit tout vocabulaire consommateur dans les contrats graphify-memory ; un bridge de projection peut dependre des deux cotes mais n'est pas re-exporte par graphify-memory. Dossier: spec/DECISION_OPENKNOWLEDGE_ALIGNMENT_20260915T164937Z.md.",
+    "options": [
+      {
+        "id": "A",
+        "title": "Aligner pleinement OKF",
+        "summary": "h2a/graphify emettent ET consomment OKF nativement comme representation memoire de 1re classe.",
+        "pros": [
+          "Interop maximale, un seul format lisible par tout agent tiers",
+          "Aucun adapter separe a maintenir"
+        ],
+        "cons": [
+          "Seule option qui touche la neutralite graphify (fuite du vocabulaire OKF dans le moteur, viole D1) ou force une extension non-standard",
+          "Perd signatures, hash-chain et edges typees qu'OKF ne sait pas porter",
+          "Migration lourde, rollback superieur a un bloc"
+        ]
+      },
+      {
+        "id": "B",
+        "title": "Aligner partiellement via un port d'export injecte",
+        "summary": "Un bridge injecte (cote h2a / owned a part) serialise les Episodes vers un bundle OKF depuis la sortie neutre du recall graphify.",
+        "pros": [
+          "Interop OKF reelle sans toucher la neutralite (OKF vit dans le bridge, non re-exporte par graphify-memory)",
+          "Additif et reversible ; le journal signe reste la source d'autorite",
+          "Consomme le recall neutre existant (M5=C)"
+        ],
+        "cons": [
+          "Un adapter et un mapping type a maintenir",
+          "Export lossy: edges typees et integrite non portees par OKF",
+          "Benefice reel seulement si un consommateur OKF existe (aucun trouve a ce jour)"
+        ]
+      },
+      {
+        "id": "C",
+        "title": "Ne pas aligner",
+        "summary": "Garder Episode/journal tel quel, aucune surface OKF.",
+        "pros": [
+          "Cout nul, zero dette, aucune perte d'integrite",
+          "Aucun risque pour la neutralite graphify"
+        ],
+        "cons": [
+          "Ferme l'interop OKF et la lisibilite par agents tiers",
+          "Ignore une norme d'interop emergente"
+        ]
+      },
+      {
+        "id": "D",
+        "title": "Hybride (incrementiel puis gate)",
+        "summary": "Increment lecture-seule maintenant (= B a scope reduit: exporter seulement les dossiers/decisions deja publies), gate de decision avant tout pas natif.",
+        "pros": [
+          "Livre une valeur interop minimale vite",
+          "Garde l'optionalite vers A intacte",
+          "Time-boxe et reversible ; neutralite preservee"
+        ],
+        "cons": [
+          "Deux passes de gouvernance",
+          "Surface d'abord etroite"
+        ]
+      }
+    ],
+    "qa": [],
+    "recommendation": {
+      "optionId": "B",
+      "rationale": "B (sequencee comme D: increment lecture-seule d'abord) est la seule option qui livre de l'interop OKF tout en preservant la neutralite graphify (l'exact STOP-trigger de l'owner) et l'integrite signee de h2a. A est ecartee: seule a toucher la neutralite (D1) et detruit signatures/hash-chain/edges typees. C ferme l'interop sans contrepartie alors que B est additif et reversible a cout moyen-bas. Le journal signe reste le canon; OKF est une projection sortante lossy, jamais la source d'autorite. Conditions adoptees apres revue independante: (1) export-seule, import OKF hors reco derriere un gate separe; (2) gate sujet-humain/retention avant tout export (OKF n'a ni expiry ni redaction); (3) garde de neutralite = scan de non-import/non-re-export sur la closure de publication de graphify-memory, pas un scan du bridge; (4) conditionne a l'apparition d'un consommateur OKF reel, sinon rester en C."
+    }
+  }
+}
