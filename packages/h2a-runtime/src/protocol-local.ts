@@ -17,11 +17,29 @@ export function profileUsesLlmMeshGateway(profile: string): boolean {
   return profile === "claude" || profile === "claude-code";
 }
 
+/**
+ * Resolve the EFFECTIVE llm-mesh gateway posture for a launch.
+ *
+ * Owner decision (2026-09): a launch is DIRECT unless the gateway is asked for
+ * EXPLICITLY (`--gw` / `--llm-gateway` / MCP gateway:'required'). The
+ * non-explicit posture "auto" therefore resolves to "direct" here, so a child
+ * launched from a session whose environment already carries
+ * ANTHROPIC_BASE_URL/ANTHROPIC_AUTH_TOKEN no longer inherits the gateway — the
+ * subsequent `injectLlmMeshGatewayEnv("direct")` scrubs those vars. Only an
+ * explicit "gateway" engages it; "direct" stays direct. A profile that does not
+ * consume the Anthropic-compatible gateway is always direct regardless.
+ *
+ * The RAW request value (still "auto" when neither flag was passed) is kept by
+ * the caller for the registry pin decision (`gatewayMode !== "auto"` = explicit),
+ * so an "auto" launch stays UNPINNED and restore keeps following the live
+ * default; the explicit --gw/--no-gw re-emission on restore is unaffected.
+ */
 export function gatewayModeForProfile<T extends "auto" | "gateway" | "direct">(
   profile: string,
   requested: T,
 ): T | "direct" {
-  return profileUsesLlmMeshGateway(profile) ? requested : "direct";
+  if (!profileUsesLlmMeshGateway(profile)) return "direct";
+  return requested === "auto" ? "direct" : requested;
 }
 export type SessionTarget = "docker" | "k3s" | "scaleway-kapsule" | "gke";
 export type UatExposurePolicy =

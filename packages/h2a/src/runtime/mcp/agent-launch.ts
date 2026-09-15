@@ -257,14 +257,17 @@ function contractResult(value: unknown, request: H2aRunRequest): unknown {
   const result = value as Record<string, unknown>;
   const session = result.session as Record<string, unknown> | undefined;
   const expectedMode = request.headless ? "headless" : "interactive";
+  // Owner decision (2026-09): a launch is direct unless the gateway is asked for
+  // EXPLICITLY. "auto" (the MCP default) now resolves to direct, exactly like
+  // "off"; only "required" engages the local llm-mesh gateway. AGY is always
+  // direct. The runtime is held to that posture, so every accepted mode has a
+  // determined expected gateway (no undefined pass-through).
   const expectedGateway =
     request.profile === "agy"
       ? "direct"
       : request.gateway === "required"
         ? "gateway"
-        : request.gateway === "off"
-          ? "direct"
-          : undefined;
+        : "direct";
   const attach = result.attach as Record<string, unknown> | null | undefined;
   // The native-terminal host (feat/native-terminal-host) keys a session by its
   // name, not a tmux pane, so a native `h2a.run.result` legitimately omits
