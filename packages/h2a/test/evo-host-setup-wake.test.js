@@ -14,9 +14,9 @@ function healthyHostInstallations() {
 }
 
 // Wake is essential to coordination → `h2a host setup` renders a coordination-ready
-// snippet by default: mcp-serve --auto-open --auto-upgrade --wake local-tmux.
-// local-tmux (not auto) wakes in a tmux pane and no-ops outside it (auto would
-// fall through to headless and spawn a new agent). Opt out with --no-wake.
+// snippet by default: mcp-serve --auto-open --auto-upgrade --wake auto.
+// For self-wake, auto is deliberately bounded to native then local-tmux; it
+// never includes the headless driver. Opt out with --no-wake.
 
 function cap() {
   let stdout = "";
@@ -34,7 +34,7 @@ function cap() {
   };
 }
 
-test("host setup: coordination-ready by default (--auto-open --auto-upgrade --wake local-tmux)", () => {
+test("host setup: coordination-ready by default (--auto-open --auto-upgrade --wake auto)", () => {
   for (const host of ["claude", "codex"]) {
     const s = cap();
     const rc = runCli(["host", "setup", "--host", host, "--print"], s, {
@@ -44,7 +44,7 @@ test("host setup: coordination-ready by default (--auto-open --auto-upgrade --wa
     const out = s.stdoutText;
     assert.ok(out.includes("--auto-open"), `${host}: --auto-open by default`);
     assert.ok(out.includes("--auto-upgrade"), `${host}: --auto-upgrade by default`);
-    assert.ok(out.includes("--wake") && out.includes("local-tmux"), `${host}: --wake local-tmux by default`);
+    assert.ok(out.includes("--wake") && out.includes("auto"), `${host}: --wake auto by default`);
     assert.ok(out.includes(`"--host"`) && out.includes(`"${host}"`), `${host}: --host ${host}`);
   }
 });

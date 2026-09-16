@@ -39,6 +39,7 @@ export type {
   LegacyAdoptionDecision
 } from "./migration.js";
 export {
+  identityKeyPaths,
   resolveLiveIdentity,
   sanitizeDeclaredCapabilities,
   H2A_CLI_DECLARED_CAPABILITIES,

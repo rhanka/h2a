@@ -1,4 +1,13 @@
 export {
+  H2A_SEND_MAX_MESSAGE_BYTES,
+  sendLocalMessage,
+  type H2ASendMessageBody,
+  type H2ASendSigner,
+  type SendLocalMessageInput,
+  type SendLocalMessageResult
+} from "./runtime/send.js";
+
+export {
   H2A_ABC_MODEL_CAPABILITIES,
   H2A_ABC_MODEL_IDS,
   H2A_ABC_MODEL_PROFILES,
@@ -893,6 +902,7 @@ export {
 
 export {
   resolveProviderSession,
+  identityKeyPaths,
   defaultProviderSessionReaders,
   readHostSessionName,
   createHostSessionNameRefresher,

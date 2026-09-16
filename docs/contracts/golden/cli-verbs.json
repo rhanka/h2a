@@ -84,6 +84,7 @@
   "outbox read",
   "register",
   "report-context",
+  "send",
   "sessions",
   "status",
   "store migrate",

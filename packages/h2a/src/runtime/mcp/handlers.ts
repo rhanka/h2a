@@ -59,6 +59,7 @@ import { conductorLaunchCheck } from "../governance/launch-check.js";
 import { canonicalAddress, isHostQualifiedAddress, listPresence, resolveRecipient, writePresence } from "../local-files/index.js";
 import { createLocalStore } from "../local-files/store.js";
 import type { LocalStore } from "../local-files/store.js";
+import { sendLocalMessage, type H2ASendSigner } from "../send.js";
 import { lastSpawnRequestAt, recordSpawnRequest, spawnAllowed } from "../governance/spawns.js";
 import { gatherNhiSnapshot } from "../nhi.js";
 import { agentVersion } from "../version/agent-version.js";
@@ -307,6 +308,28 @@ export function handleInbox(
     }
   } catch (err) {
     return safeError(err);
+  }
+}
+
+export function handleSend(
+  store: LocalStore,
+  signer: H2ASendSigner | undefined,
+  args: { to?: unknown; message?: unknown } | undefined
+): McpToolResult | McpErrorResult {
+  if (!signer) {
+    return { error: "h2a_send: unavailable without a trusted auto-open signing identity" };
+  }
+  if (!args || typeof args.to !== "string" || typeof args.message !== "string") {
+    return { error: "h2a_send: 'to' and 'message' strings are required" };
+  }
+  const unknown = Object.keys(args).filter((key) => key !== "to" && key !== "message");
+  if (unknown.length > 0) {
+    return { error: `h2a_send: unsupported argument(s): ${unknown.join(", ")}` };
+  }
+  try {
+    return { ...sendLocalMessage({ store, to: args.to, message: args.message, signer }) };
+  } catch (error) {
+    return safeError(error);
   }
 }
 
