@@ -286,3 +286,23 @@ The model is stress-tested against real organizational settings and external sta
 h2a originates from a user brief on 16 May 2026 ([INTENTION.md](./INTENTION.md), verbatim preserved). Initial working name: `a2a-cli` (the repo and folder still carry that name). The umbrella name was frozen to `h2a` by DEC-025 on 17 May 2026, because the scope goes beyond pure agent-to-agent — it covers multi-human coordination, human-in-the-loop, governance and contracts.
 
 `@sentropic/h2a-cli@0.1.0` was published with a `bin` entry broken by npm autocorrection and is deprecated (DEC-029). `0.1.6` and then `0.1.24` are the successive supported baselines.
+
+### Cluster-mesh messaging (0.98.0)
+
+`h2a send <peer> "<message>"` keeps the local inbox backend by default. Select
+`--backend cluster-mesh` (or `H2A_MESSAGE_BACKEND=cluster-mesh`) and set
+`H2A_CLUSTER_MESH_MODULE` to an absolute trusted deployment module. It exports
+`createMessaging({root, instance})` returning `{store, context}`: your
+`ClusterMeshMessagingPort` transport and its authenticated
+`MessagingProductContext`. The principal must match the local signing identity.
+This module is deployment code and is never accepted as a tool argument.
+
+Start the recipient's `h2a mcp-serve --auto-open ... --backend cluster-mesh`
+with the same transport configuration. Both sides need their local signing
+keys and registered peer public keys. The sidecar verifies received signatures
+before delivering to the existing inbox and wake path. `h2a_send` accepts the
+same optional `backend` choice. Send success reports transport acceptance;
+it does not guarantee that the receiver has processed or awakened.
+
+See [the messaging contract](docs/specs/2026-09-15-SPEC_EVOL_cluster-mesh-send.md)
+for deployment, key identity and rejection/retry behavior.
