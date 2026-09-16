@@ -68,7 +68,8 @@ import {
   type H2aRunDelegation,
   type H2aRunExecutor
 } from "./agent-launch.js";
-import type { H2ASendSigner } from "../send.js";
+import type { H2ASendSigner, H2AMessageBackend } from "../send.js";
+import type { H2aClusterMeshMessaging } from "../cluster-mesh-messaging.js";
 import { createDiscoveryPager, type DiscoveryPager } from "./discovery-pagination.js";
 import { createPayloadStore, type PayloadStore } from "./payload-store.js";
 import { resolveFrameBudget, type FrameBudget } from "./frame-budget.js";
@@ -94,6 +95,8 @@ export interface CreateMcpServerOptions {
   store?: LocalStore;
   /** Trusted local sidecar identity used by h2a_send; never supplied by tool args. */
   sendContext?: H2ASendSigner;
+  messageBackend?: H2AMessageBackend;
+  clusterMesh?: H2aClusterMeshMessaging;
   /**
    * L2: the asynchronous identity readiness controller. When present, mutating /
    * signed / identity-requiring tools are refused with a bounded typed error
@@ -144,7 +147,7 @@ export interface McpServer {
     name: string,
     args: Record<string, unknown> | undefined,
     context?: McpCallContext
-  ): McpToolResult | McpErrorResult | McpTransportResult;
+  ): McpToolResult | McpErrorResult | McpTransportResult | Promise<McpToolResult | McpErrorResult | McpTransportResult>;
   /** Per-server SessionRegistry, exposed for transport-layer shutdown hooks. */
   readonly sessions: SessionRegistry;
   /** Per-server NotificationDispatcher (DEC-052). */
@@ -331,7 +334,7 @@ export function createMcpServer(options: CreateMcpServerOptions): McpServer {
     name: string,
     args: Record<string, unknown> | undefined,
     _context?: McpCallContext
-  ): McpToolResult | McpErrorResult | McpTransportResult {
+  ): ReturnType<McpServer["callTool"]> {
     if (name === "h2a_identity_status") {
       return { content: [{ type: "text", text: JSON.stringify(identityStatus()) }] };
     }
@@ -374,11 +377,9 @@ export function createMcpServer(options: CreateMcpServerOptions): McpServer {
       case "h2a_inbox":
         return handleInbox(store, args as never);
       case "h2a_send":
-        return handleSend(
-          store,
-          options.getSendContext?.() ?? options.sendContext,
-          args as never
-        );
+        return handleSend(store, options.getSendContext?.() ?? options.sendContext, args as never, {
+          backend: options.messageBackend, clusterMesh: options.clusterMesh
+        });
       case "h2a_append_journal":
         return handleAppendJournal(store, args as never);
       case "h2a_open_negotiation":
