@@ -7,7 +7,7 @@
         "--host",
         "codex",
         "--wake",
-        "local-tmux",
+        "auto",
         "--auto-open"
       ]
     }

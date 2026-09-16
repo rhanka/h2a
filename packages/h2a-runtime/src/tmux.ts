@@ -1850,7 +1850,7 @@ export function readLaunchContext(session: string): LaunchContext | undefined {
 }
 
 function commandNeedsLocalTmuxWake(commandLine: string): boolean {
-  return /(?:^|\s)--wake(?:=|\s+)local-tmux(?:\s|$)/.test(commandLine);
+  return /(?:^|\s)--wake(?:=|\s+)(?:local-tmux|auto)(?:\s|$)/.test(commandLine);
 }
 
 /**
@@ -1884,7 +1884,7 @@ export function startH2aWindow(
   const agentPane = resolveAgentPane(session);
   if (needsLocalTmuxWake && !agentPane) {
     stderr.write(
-      `[h2a] h2a window skipped: agent pane could not be resolved for ${session}; refusing to publish a false --wake local-tmux target.\n`,
+      `[h2a] h2a window skipped: agent pane could not be resolved for ${session}; refusing to publish a false tmux wake target.\n`,
     );
     return false;
   }
