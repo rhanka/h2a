@@ -25,6 +25,7 @@ import {
   handleLoopStop,
   handleEscalate,
   handleInbox,
+  handleSend,
   handleNhiAttest,
   handleNhiExport,
   handleNhiInventory,
@@ -66,6 +67,7 @@ import {
   type H2aRunDelegation,
   type H2aRunExecutor
 } from "./agent-launch.js";
+import type { H2ASendSigner } from "../send.js";
 
 export interface CreateMcpServerOptions {
   /** Filesystem root for the backing local-files store. */
@@ -82,6 +84,8 @@ export interface CreateMcpServerOptions {
    * with the CLI.
    */
   store?: LocalStore;
+  /** Trusted local sidecar identity used by h2a_send; never supplied by tool args. */
+  sendContext?: H2ASendSigner;
   /**
    * Optional SessionRegistry overrides. Disabled `autoHeartbeat` is the
    * sane default for in-process tests; the stdio transport enables it.
@@ -183,6 +187,8 @@ export function createMcpServer(options: CreateMcpServerOptions): McpServer {
         return handleDiscoverInstances(store, args as never);
       case "h2a_inbox":
         return handleInbox(store, args as never);
+      case "h2a_send":
+        return handleSend(store, options.sendContext, args as never);
       case "h2a_append_journal":
         return handleAppendJournal(store, args as never);
       case "h2a_open_negotiation":

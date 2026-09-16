@@ -22,6 +22,7 @@ import {
   createReplayGuard,
   parseSignedDriveInstruction,
   runMcpServe,
+  verifyEnvelopeSignature,
   verifySignedDriveInstruction,
 } from "../dist/index.js";
 import { NativeTerminalClient } from "../../h2a-runtime/dist/native-terminal/client.js";
@@ -37,8 +38,6 @@ const NATIVE_HOST_PROCESS = join(
   "native-terminal",
   "process.js",
 );
-const NOW = Date.parse("2026-09-13T14:00:00.000Z");
-
 const RAW_RECEIVER_SOURCE = String.raw`
 import { appendFileSync, writeFileSync } from "node:fs";
 
@@ -64,19 +63,6 @@ async function eventually(read, accept, label) {
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
   throw new Error(`${label} did not become observable; last=${JSON.stringify(last)}`);
-}
-
-function messageEnvelope(id, from, to, text) {
-  return {
-    protocol: "sentropic.h2a",
-    version: "0.1",
-    id,
-    type: "event",
-    actor: { instance: from, role: "AGENTS", scope: "scope:pty-messaging" },
-    target: { instance: to },
-    body: { kind: "message", topic: "MESSAGE", text },
-    createdAt: new Date(NOW - 1_000).toISOString(),
-  };
 }
 
 async function startNativePair(profiles) {
@@ -202,14 +188,28 @@ async function startReceiver(fixture, target) {
   const stdout = new PassThrough();
   const stderr = new PassThrough();
   let diagnostics = "";
-  stdout.resume();
+  let protocolOutput = "";
+  let nextRequestId = 1;
+  const responses = new Map();
+  stdout.on("data", (chunk) => {
+    protocolOutput += chunk.toString("utf8");
+    for (;;) {
+      const newline = protocolOutput.indexOf("\n");
+      if (newline < 0) break;
+      const line = protocolOutput.slice(0, newline);
+      protocolOutput = protocolOutput.slice(newline + 1);
+      if (!line.trim()) continue;
+      const parsed = JSON.parse(line);
+      if (parsed.id !== undefined) responses.set(parsed.id, parsed);
+    }
+  });
   stderr.on("data", (chunk) => void (diagnostics += chunk));
   const serving = runMcpServe(
     {
       root: fixture.storeRoot,
       "auto-open": "true",
       host: target.profile,
-      wake: "local-tmux",
+      wake: "auto",
     },
     {
       stdin,
@@ -239,6 +239,23 @@ async function startReceiver(fixture, target) {
   return {
     instance,
     diagnostics: () => diagnostics,
+    async send(to, message) {
+      const id = nextRequestId++;
+      stdin.write(`${JSON.stringify({
+        jsonrpc: "2.0",
+        id,
+        method: "tools/call",
+        params: { name: "h2a_send", arguments: { to, message } }
+      })}\n`);
+      const response = await eventually(
+        async () => responses.get(id),
+        Boolean,
+        `${target.profile} h2a_send MCP response`
+      );
+      assert.equal(response.error, undefined, JSON.stringify(response.error));
+      assert.equal(response.result.isError, false, response.result.content?.[0]?.text);
+      return JSON.parse(response.result.content[0].text);
+    },
     async close() {
       stdin.end();
       assert.equal(await serving, 0, diagnostics);
@@ -251,6 +268,15 @@ async function assertDelivered(fixture, target, receiver, expectedEnvelope) {
     fixture.store.readInbox(expectedEnvelope.target.instance).at(-1),
     expectedEnvelope,
     "native and tmux delivery must share the unchanged durable message envelope",
+  );
+  assert.equal(
+    fixture.store.listInstanceKeys(expectedEnvelope.actor.instance).some((publicKey) =>
+      verifyEnvelopeSignature(expectedEnvelope, publicKey, {
+        by: expectedEnvelope.actor.instance,
+      })
+    ),
+    true,
+    "durable message envelope must verify against the sender's active key",
   );
   const input = await eventually(
     async () => existsSync(target.capturePath) ? readFileSync(target.capturePath) : Buffer.alloc(0),
@@ -270,7 +296,7 @@ async function assertDelivered(fixture, target, receiver, expectedEnvelope) {
       at: parsed.payload.at,
     },
     {
-      envelopeKeys: ["actor", "body", "createdAt", "id", "protocol", "target", "type", "version"],
+      envelopeKeys: ["actor", "body", "createdAt", "id", "protocol", "signatures", "target", "type", "version"],
       driveKeys: ["at", "from", "instruction", "nonce", "to"],
       from: expectedEnvelope.target.instance,
       to: expectedEnvelope.target.instance,
@@ -314,12 +340,10 @@ async function proveRoundTrip(leftProfile, rightProfile) {
     const right = await startReceiver(fixture, fixture.targets[1]);
     receivers.push(right);
 
-    const outward = messageEnvelope("pty-message-outward", left.instance, right.instance, "outward");
-    fixture.store.putInboxMessage(right.instance, outward);
+    const outward = (await left.send(right.instance, "outward")).envelope;
     await assertDelivered(fixture, fixture.targets[1], right, outward);
 
-    const reply = messageEnvelope("pty-message-reply", right.instance, left.instance, "reply");
-    fixture.store.putInboxMessage(left.instance, reply);
+    const reply = (await right.send(left.instance, "reply")).envelope;
     await assertDelivered(fixture, fixture.targets[0], left, reply);
   } finally {
     for (const receiver of receivers.reverse()) await receiver.close();

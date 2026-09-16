@@ -78,7 +78,7 @@ const { spawnSync: realSpawnSync } =
     "node:child_process",
   );
 
-const H2A_CMD = "h2a mcp-serve --auto-open --auto-upgrade --wake local-tmux";
+const H2A_CMD = "h2a mcp-serve --auto-open --auto-upgrade --wake auto";
 const ORIGINAL_TMUX_ENV = process.env.TMUX;
 const ORIGINAL_ANTHROPIC_BASE_URL = process.env.ANTHROPIC_BASE_URL;
 const ORIGINAL_ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
@@ -1132,7 +1132,7 @@ describe("startH2aWindow", () => {
     expect(err.text()).toContain("h2a window failed");
   });
 
-  it("refuses to start --wake local-tmux when no agent pane can be resolved", () => {
+  it("refuses to start --wake auto when no agent pane can be resolved", () => {
     spawnSyncMock.mockImplementation((cmd: string, args: string[]) => {
       if (cmd === "bash") return { status: 0 };
       if (cmd === "tmux" && args[0] === "list-windows")
@@ -1325,7 +1325,7 @@ describe("startH2aWindowVerified", () => {
         };
       }
       if (cmd === "ps") {
-        return { status: 0, stdout: "h2a mcp-serve --wake local-tmux\n" };
+        return { status: 0, stdout: "h2a mcp-serve --wake auto\n" };
       }
       return { status: 0, stdout: "" };
     });

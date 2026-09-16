@@ -154,6 +154,15 @@ export const H2A_CLI_VERB_CONTRACTS: readonly H2ACliVerbContract[] = [
     optionalFlags: ["root", "role", "scope"],
     description: "List registered instances, optionally filtered by role/scope."
   },
+  {
+    verb: "send",
+    outputShape: "action",
+    exitCodes: [0, 1, 2, 3],
+    requiredFlags: [],
+    optionalFlags: ["root", "from"],
+    description:
+      "Send one signed message with `h2a send <target> <message>` through the local peer inbox; target may be an exact instance or unique registered/live display name."
+  },
 
   // --- objective loop (h2a + track + remote MVP) ---
   {
@@ -506,9 +515,9 @@ export const H2A_CLI_VERB_CONTRACTS: readonly H2ACliVerbContract[] = [
     outputShape: "stream",
     exitCodes: [0, 1],
     requiredFlags: [],
-    optionalFlags: ["root", "auto-open", "host", "instance", "scope", "upgrade-check", "auto-upgrade", "no-restart"],
+    optionalFlags: ["root", "auto-open", "host", "instance", "scope", "wake", "upgrade-check", "auto-upgrade", "no-restart"],
     description:
-      "Run the built-in MCP server speaking JSON-RPC 2.0 over stdio (long-running). `--auto-open` opens a presence session at boot (EVO-6, DEC-105). Version handling is **opt-in** (no network on a default boot): `--auto-upgrade` self-installs @latest and re-execs in place (process.execve, same PID/stdio so the host stays connected; `--no-restart` keeps next-launch); `--upgrade-check` prints a cached availability notice only — EVO-8/DEC-107/108."
+      "Run the built-in MCP server speaking JSON-RPC 2.0 over stdio (long-running). `--auto-open` opens a presence session at boot (EVO-6, DEC-105); `--wake auto` uses native delivery with local-tmux fallback. Version handling is **opt-in** (no network on a default boot): `--auto-upgrade` self-installs @latest and re-execs in place (process.execve, same PID/stdio so the host stays connected; `--no-restart` keeps next-launch); `--upgrade-check` prints a cached availability notice only — EVO-8/DEC-107/108."
   },
   {
     verb: "track-mcp",
@@ -630,7 +639,7 @@ export const H2A_CLI_VERB_CONTRACTS: readonly H2ACliVerbContract[] = [
     requiredFlags: ["host"],
     optionalFlags: ["endpoint", "url", "root", "print", "write", "force", "no-wake"],
     description:
-      "Render or merge exactly one `mcpServers.h2a` endpoint for a supported host. `--endpoint local` (default) renders coordination-ready stdio `mcp-serve --auto-open --auto-upgrade --wake local-tmux`; `--endpoint remote --url <http(s)://…>` renders an HTTP MCP URL and rejects local-only flags. The selected endpoint exposes h2a plus Track's read-only tools. Reconfiguration removes recognized h2a aliases and standalone Track MCP entries instead of stacking them. `--print` (default) emits the snippet; `--write <file>` safely merges JSON only (native YAML/JSONC is refused); `--force` is only for intentionally replacing malformed JSON. Codex and Claude setup then inspect the selected host without repairing it: an incoherent installation is named, recommends `h2a doctor --repair`, and exits 2."
+      "Render or merge exactly one `mcpServers.h2a` endpoint for a supported host. `--endpoint local` (default) renders coordination-ready stdio `mcp-serve --auto-open --auto-upgrade --wake auto`; `--endpoint remote --url <http(s)://…>` renders an HTTP MCP URL and rejects local-only flags. The selected endpoint exposes h2a plus Track's read-only tools. Reconfiguration removes recognized h2a aliases and standalone Track MCP entries instead of stacking them. `--print` (default) emits the snippet; `--write <file>` safely merges JSON only (native YAML/JSONC is refused); `--force` is only for intentionally replacing malformed JSON. Codex and Claude setup then inspect the selected host without repairing it: an incoherent installation is named, recommends `h2a doctor --repair`, and exits 2."
   },
   {
     verb: "host plugin",
