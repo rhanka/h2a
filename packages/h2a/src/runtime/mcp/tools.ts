@@ -228,12 +228,13 @@ const H2A_COORDINATION_TOOL_DESCRIPTORS: McpToolDescriptor[] = [
   {
     name: "h2a_send",
     description:
-      "Send one signed message to an exact peer instance or unique peer display name through the local inbox.",
+      "Send one signed message to an exact peer instance or unique peer display name through the local inbox (default) or the configured cluster-mesh backend.",
     inputSchema: {
       type: "object",
       properties: {
         to: { type: "string" },
-        message: { type: "string" }
+        message: { type: "string" },
+        backend: { type: "string", enum: ["local", "cluster-mesh"] }
       },
       required: ["to", "message"],
       additionalProperties: false

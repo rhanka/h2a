@@ -157,7 +157,7 @@ import {
   sanitizeStorePaths,
   writePresence
 } from "./runtime/local-files/index.js";
-import { sendLocalMessage } from "./runtime/send.js";
+import { messageBackend, sendMessage } from "./runtime/send.js";
 import {
   H2A_MCP_READY_FILE_ENV,
   H2A_MCP_READY_NONCE_ENV,
@@ -361,7 +361,7 @@ export function renderCliHelp(): string {
     "  h2a init [--root <path>]",
     "  h2a register --json <json> [--root <path>]",
     "  h2a discover [--role <role>] [--scope <scope>] [--root <path>]",
-    "  h2a send <target> \"<message>\" [--from <instance>] [--root <path>]",
+    "  h2a send <target> \"<message>\" [--from <instance>] [--root <path>] [--backend local|cluster-mesh]",
     "  h2a subagent register --parent <instance> --name <name> [--capabilities a,b] [--root <path>]",
     "  h2a subagent list [--parent <instance>] [--root <path>]",
     "  h2a subagent route --to <subagent-address> --json <envelope> [--mailbox inbox|outbox] [--root <path>]",
@@ -401,7 +401,7 @@ export function renderCliHelp(): string {
     "  h2a inbox pop --instance <id> --envelope <id> [--root <path>]",
     "  h2a outbox put --instance <id> --json <envelope> [--root <path>]",
     "  h2a outbox read --instance <id> [--root <path>]",
-    "  h2a mcp-serve [--root <path>] [--auto-open [--host <h>] [--instance <id>] [--scope <s>]] [--wake <native|logging>] [--upgrade-check | --auto-upgrade [--no-restart]]   (--auto-open joins the bus at startup; --wake injects a signed h2a-tagged wake into the host on inbox arrival, EVO-1, needs --auto-open; --auto-upgrade self-updates + restarts in place; --upgrade-check = notice only; both opt-in/no network by default; /h2a disconnect to leave)",
+    "  h2a mcp-serve [--root <path>] [--backend local|cluster-mesh] [--auto-open [--host <h>] [--instance <id>] [--scope <s>]] [--wake <native|logging>] [--upgrade-check | --auto-upgrade [--no-restart]]   (--auto-open joins the bus at startup; --wake injects a signed h2a-tagged wake into the host on inbox arrival, EVO-1, needs --auto-open; --auto-upgrade self-updates + restarts in place; --upgrade-check = notice only; both opt-in/no network by default; /h2a disconnect to leave)",
     "  h2a upgrade [--check]   (--check: report current vs latest; bare: npm i -g @sentropic/h2a@latest)",
     "  h2a remote serve [--port <n>] [--host <h>] [--path </h2a/envelopes>] [--root <path>]",
     "  h2a remote send --url <u> --instance <signer> --private-key <pem> --json <envelope>",
@@ -531,7 +531,7 @@ function resolveRoot(flags: Record<string, string>, cwd: () => string): string {
   return resolveRootInfo(flags, cwd).root;
 }
 
-function cmdSend(argv: readonly string[], streams: H2ACliStreams): number {
+function cmdSend(argv: readonly string[], streams: H2ACliStreams): number | Promise<number> {
   const flags: Record<string, string> = {};
   const positionals: string[] = [];
   for (let index = 0; index < argv.length; index++) {
@@ -542,7 +542,7 @@ function cmdSend(argv: readonly string[], streams: H2ACliStreams): number {
     }
     if (token.startsWith("--")) {
       const name = token.slice(2);
-      if (name !== "root" && name !== "from") {
+      if (name !== "root" && name !== "from" && name !== "backend") {
         streams.stderr.write(`h2a send: unsupported option --${name}\n`);
         return 1;
       }
@@ -559,7 +559,7 @@ function cmdSend(argv: readonly string[], streams: H2ACliStreams): number {
   }
   if (positionals.length !== 2) {
     streams.stderr.write(
-      "h2a send: usage: h2a send <target> \"<message>\" [--from <instance>] [--root <path>]\n"
+      "h2a send: usage: h2a send <target> \"<message>\" [--from <instance>] [--root <path>] [--backend local|cluster-mesh]\n"
     );
     return 1;
   }
@@ -617,14 +617,22 @@ function cmdSend(argv: readonly string[], streams: H2ACliStreams): number {
     return 3;
   }
   try {
-    const result = sendLocalMessage({
+    const result = sendMessage({
       store,
       to: positionals[0],
       message: positionals[1],
-      signer: { instance: sender, privateKeyPem }
+      signer: { instance: sender, privateKeyPem },
+      backend: messageBackend(flags.backend ?? process.env.H2A_MESSAGE_BACKEND)
     });
-    streams.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
-    return 0;
+    const output = (value: unknown) => {
+      streams.stdout.write(`${JSON.stringify(value, null, 2)}\n`);
+      return 0;
+    };
+    if (result instanceof Promise) return result.then(output).catch((error: Error) => {
+      streams.stderr.write(`h2a send: ${error.message}\n`);
+      return classifyStoreError(error.message);
+    });
+    return output(result);
   } catch (error) {
     streams.stderr.write(`h2a send: ${(error as Error).message}\n`);
     return classifyStoreError((error as Error).message);
@@ -2035,8 +2043,19 @@ try {
     if (autoOpen?.migrationNotice) {
       io.stderr.write(`h2a mcp-serve: ${autoOpen.migrationNotice}\n`);
     }
+    const backend = messageBackend(flags.backend ?? process.env.H2A_MESSAGE_BACKEND);
+    let clusterMesh;
+    if (backend === "cluster-mesh") {
+      if (!autoOpen || !identityPrivateKeyPem) throw new Error("cluster-mesh requires --auto-open and a local signing key");
+      const { loadClusterMeshMessaging } = await import("./runtime/cluster-mesh-messaging.js");
+      clusterMesh = await loadClusterMeshMessaging(createLocalStore({ root }), {
+        instance: autoOpen.instance, privateKeyPem: identityPrivateKeyPem
+      });
+    }
     await runMcpStdio({
       root,
+      messageBackend: backend,
+      ...(clusterMesh ? { clusterMesh } : {}),
       workspaceRoot: process.cwd(),
       stdin: io.stdin as never,
       stdout: io.stdout as never,
@@ -7250,7 +7269,7 @@ export function runCli(
     stderr: process.stderr
   },
   options: H2ACliOptions = {}
-): number {
+): number | Promise<number> {
   const { command, flags } = parseFlags(argv);
 
   if (command && TRACK_FACADE_VERBS.has(command)) {

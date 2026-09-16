@@ -16,6 +16,7 @@ import {
 } from "./local-files/paths.js";
 import { listPresence } from "./local-files/presence.js";
 import type { LocalStore } from "./local-files/store.js";
+import type { H2aClusterMeshMessaging } from "./cluster-mesh-messaging.js";
 
 export const H2A_SEND_MAX_MESSAGE_BYTES = 64 * 1024;
 
@@ -83,11 +84,11 @@ function resolveRegisteredName(
 }
 
 /**
- * Create and persist one authenticated local message. This is the only send
- * primitive used by the CLI and MCP adapters: resolution, signing and the
+ * Prepare one authenticated message for either transport. The CLI and MCP
+ * adapters share this primitive: resolution, signing and the
  * active-key check cannot drift between surfaces.
  */
-export function sendLocalMessage(input: SendLocalMessageInput): SendLocalMessageResult {
+function prepareMessage(input: SendLocalMessageInput): SendLocalMessageResult {
   const requestedRecipient = requiredText(input.to, "target").trim();
   const message = requiredText(input.message, "message");
   if (Buffer.byteLength(message, "utf8") > H2A_SEND_MAX_MESSAGE_BYTES) {
@@ -151,7 +152,6 @@ export function sendLocalMessage(input: SendLocalMessageInput): SendLocalMessage
     throw new Error(`h2a send: private key is not active for ${input.signer.instance}`);
   }
 
-  input.store.putInboxMessage(recipient, envelope);
   const resolutionKind = registeredName.resolved ? "registered-name" : resolution.kind;
   const reason = registeredName.resolved
     ? `registered name resolved to ${recipient}.`
@@ -172,4 +172,39 @@ export function sendLocalMessage(input: SendLocalMessageInput): SendLocalMessage
     ...(reason ? { reason } : {}),
     envelope
   };
+}
+
+export function sendLocalMessage(input: SendLocalMessageInput): SendLocalMessageResult {
+  const result = prepareMessage(input);
+  input.store.putInboxMessage(result.recipient, result.envelope);
+  return result;
+}
+
+export type H2AMessageBackend = "local" | "cluster-mesh";
+
+export function messageBackend(value: unknown = "local"): H2AMessageBackend {
+  if (value !== "local" && value !== "cluster-mesh") {
+    throw new Error("h2a send: backend must be local or cluster-mesh");
+  }
+  return value;
+}
+
+/** Both adapters use the existing resolution/signing contract; only transport changes. */
+export function sendMessage(input: SendLocalMessageInput & {
+  readonly backend?: H2AMessageBackend;
+  readonly clusterMesh?: H2aClusterMeshMessaging;
+}): SendLocalMessageResult | Promise<SendLocalMessageResult & {
+  readonly backend: "cluster-mesh";
+  readonly messageId: string;
+}> {
+  if (messageBackend(input.backend) === "local") return sendLocalMessage(input);
+  const prepared = prepareMessage(input);
+  return (async () => {
+    const { loadClusterMeshMessaging } = await import("./cluster-mesh-messaging.js");
+    const mesh = input.clusterMesh ?? await loadClusterMeshMessaging(input.store, input.signer);
+    if (mesh.instance !== input.signer.instance) throw new Error("cluster-mesh: sender identity mismatch");
+    const sent = await mesh.send(prepared.envelope);
+    if (!sent.ok) throw new Error(`h2a send: cluster-mesh rejected message: ${sent.reason}`);
+    return { ...prepared, backend: "cluster-mesh", messageId: sent.messageId };
+  })();
 }
