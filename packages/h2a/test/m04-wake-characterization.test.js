@@ -783,7 +783,8 @@ test("signed send reaches inbox-wake through native-to-real-tmux chain fallback"
 
     const captured = await eventually(
       () => readCapture(target.capturePath).subarray(baseline),
-      (bytes) => bytes.length > 2,
+      (bytes) =>
+        bytes.length > 2 && bytes.subarray(-2).equals(Buffer.from("\r\r")),
       "real tmux fallback wake",
     );
     const line = captured.subarray(0, -2).toString("utf8");
