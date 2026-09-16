@@ -148,7 +148,7 @@ Return shape (all cases exit 0 except user errors):
 
 ### `/h2a send <peer> "<text>"`
 
-Compose and route an envelope to a named peer.
+Send an authenticated message to a named peer through the native core tool.
 
 **Resolve-before-send rule (0.59.0+):** Always resolve the peer to its LIVE full id (`host:label:uuid12`) via `h2a_discover_sessions` BEFORE sending. A bare `host:label` sent to an ambiguous target (>1 live agent sharing that alias) or a phantom target (0 live, 0 registered) is now **REFUSED** by `h2a_inbox put` / `h2a` CLI with exit 1. Never invent a sub-label. The safe pattern is: discover → pick the exact live `host:label:uuid12` → send to that. A bare alias is only acceptable for a dormant/wake-drop or exactly 1 live match (the tool surfaces the live candidate in `liveCandidate`).
 
@@ -160,41 +160,19 @@ Steps:
    - If the user names a peer by PURPOSE/role, call `h2a_discover_sessions` with `{ scope: "<purpose>" }`. If the user names a peer by FRIENDLY NAME, call `h2a_discover_sessions` with `{ name: "<substring>" }`. NEVER grep the registry for a name: instance ids are workspace-derived (`host:slug(workspace):uuid`) so a text search misses. If several match, list and ask; if none, the agent hasn't advertised that scope/name.
    - If `<peer>` is missing, list discover and ask the user to pick.
 2. If `"<text>"` is missing, prompt the user for the content.
-3. Compose an `H2AEnvelope` JSON:
-   ```json
-   {
-     "protocol": "sentropic.h2a",
-     "version": "0.1",
-     "id": "env:<epoch-ms>:<4hex>",
-     "type": "event",
-     "actor": {
-       "instance": "<this-agent-instance>",
-       "role": "<this-agent-role-or-AGENTS>",
-       "scope": "<shared-scope-or-default>"
-     },
-     "body": { "kind": "message", "text": "<text>" },
-     "createdAt": "<ISO-8601-now>"
-   }
-   ```
-4. **Hard rule: the recipient MUST be host-qualified (`<host>:<label>`, e.g. `claude:radar-immobilier`). A bare label (e.g. `radar-immobilier`) is rejected — the same label can live on several hosts (claude, codex, …), so a bare label is ambiguous and routes to an orphan inbox nobody reads.**
-
-   Call `h2a_inbox` with `{ action: "put", instance: "<peer>", envelope }`.
-
-   **Conversation threading (optional, lightweight):** To continue an existing back-and-forth as a thread, add two top-level fields to the envelope JSON before putting it:
-   - `"threadId": "<id>"` — reuse the `threadId` from the peer's previous envelope, or mint a fresh one as `thr:<epoch-ms>:<4hex>` to start a new thread.
-   - `"replyTo": "<prev-envelope-id>"` — the `id` of the envelope you are replying to.
-
-   To reconstruct the ordered fil of a thread (for supervision or before opening a formal negotiation):
-   ```sh
-   h2a thread --id <threadId> --instance <self-instance> --root <root>
-   ```
-   This returns the envelopes (from your inbox + outbox) that share that `threadId`, sorted ascending by `createdAt`, deduped. No new store — storage is derived on the fly.
-
-5. **Report honestly per the target's liveness** (h2a writes the inbox unconditionally — it does NOT yet error on a dead target, so YOU must say which it was):
+3. Call `h2a_send` with exactly `{ to: "<peer>", message: "<text>" }`.
+   The local MCP sidecar supplies its trusted signing identity; never request,
+   construct, or pass a private key or sender field. The tool resolves the peer,
+   constructs the canonical envelope, verifies the sender's active key, and only
+   then writes the inbox. If the tool is unavailable because the sidecar has no
+   auto-open signing identity, report that error; do not fall back to unsigned
+   `h2a_inbox put`.
+4. **Report honestly from the tool result:**
    - target was **live** in discover → *"Delivered to `<peer>` (live) — push fires if subscribed."*
    - target was **NOT live** → *"`<peer>` is dormant — envelope deposited for its wake (no live session; it will only see this once woken)."* Never claim "Delivered" to a dormant/unknown peer.
 
-For richer payloads (file pointer, deliverable, status update), set `body.kind` to a category and add the relevant fields; ask the user if ambiguous.
+For richer payloads, use the formal negotiation/inbox contracts; `h2a_send` is
+deliberately the small signed text-message primitive.
 
 ### `/h2a receive`
 

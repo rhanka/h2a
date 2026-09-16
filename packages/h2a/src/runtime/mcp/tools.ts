@@ -226,6 +226,20 @@ const H2A_COORDINATION_TOOL_DESCRIPTORS: McpToolDescriptor[] = [
     }
   },
   {
+    name: "h2a_send",
+    description:
+      "Send one signed message to an exact peer instance or unique peer display name through the local inbox.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        to: { type: "string" },
+        message: { type: "string" }
+      },
+      required: ["to", "message"],
+      additionalProperties: false
+    }
+  },
+  {
     name: "h2a_append_journal",
     description:
       "Append a journal event to a negotiation's chained journal.jsonl.",

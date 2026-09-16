@@ -13,12 +13,17 @@
 
 import assert from "node:assert/strict";
 import { generateKeyPairSync, randomBytes } from "node:crypto";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { H2A_CLI_VERB_CONTRACTS, runCli } from "../dist/index.js";
+import {
+  H2A_CLI_VERB_CONTRACTS,
+  createLocalStore,
+  identityKeyPaths,
+  runCli
+} from "../dist/index.js";
 
 function captureStreams(cwd) {
   let stdout = "";
@@ -301,6 +306,17 @@ function buildHappyArgv(verb, ctx) {
       ];
     case "discover":
       return ["discover", "--root", root];
+    case "send": {
+      const sender = "claude:req-001";
+      const privateKeyPem = readFileSync(privateKeyPath, "utf8");
+      const publicKeyPem = readFileSync(publicKeyPath, "utf8");
+      const store = createLocalStore({ root });
+      store.addInstanceKey(sender, publicKeyPem);
+      const localKey = identityKeyPaths(root, sender).privateKeyPath;
+      mkdirSync(join(root, "keys"), { recursive: true });
+      writeFileSync(localKey, privateKeyPem, "utf8");
+      return ["send", sender, "contract hello", "--from", sender, "--root", root];
+    }
     case "loop create":
       return [
         "loop",
@@ -873,6 +889,7 @@ test("H2A_CLI_VERB_CONTRACTS covers every dispatchable verb (smoke)", () => {
     "init",
     "register",
     "discover",
+    "send",
     "loop create",
     "loop enable-auto-tick",
     "loop list",

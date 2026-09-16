@@ -27,7 +27,7 @@ test("the published h2a package carries a singleton h2a MCP endpoint", () => {
       "--host",
       "codex",
       "--wake",
-      "local-tmux",
+      "auto",
       "--auto-open"
     ]
   });
