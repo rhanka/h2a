@@ -30,7 +30,8 @@ import {
   type ResolvedIdentityMessage
 } from "./identity-state.js";
 import type { H2aRunDelegation, H2aRunExecutor } from "./agent-launch.js";
-import type { H2ASendSigner } from "../send.js";
+import type { H2ASendSigner, H2AMessageBackend } from "../send.js";
+import type { H2aClusterMeshMessaging } from "../cluster-mesh-messaging.js";
 import {
   boundNotificationFrame,
   boundResponseFrame,
@@ -77,6 +78,8 @@ export interface RunMcpStdioOptions {
   runExecutor?: H2aRunExecutor;
   /** Trusted signer resolved by mcp-serve, never from JSON-RPC arguments. */
   sendContext?: H2ASendSigner;
+  messageBackend?: H2AMessageBackend;
+  clusterMesh?: H2aClusterMeshMessaging;
   /** Readable stream of newline-delimited JSON-RPC requests. */
   stdin: Readable;
   /** Writable stream for newline-delimited JSON-RPC responses. */
@@ -282,11 +285,11 @@ function successResponse(id: unknown, result: unknown): JsonRpcSuccessResponse {
   return { jsonrpc: "2.0", id, result };
 }
 
-function handleMethod(
+async function handleMethod(
   server: McpServer,
   method: string,
   params: unknown
-): unknown {
+): Promise<unknown> {
   if (method === "initialize") {
     return {
       protocolVersion: PROTOCOL_VERSION,
@@ -304,7 +307,7 @@ function handleMethod(
       p.arguments && typeof p.arguments === "object"
         ? (p.arguments as Record<string, unknown>)
         : {};
-    const result = server.callTool(name, args);
+    const result = await server.callTool(name, args);
     if (isMcpTransportResult(result)) return result;
     const isError = Boolean(
       result && typeof result === "object" && "error" in (result as object)
@@ -379,6 +382,8 @@ export function runMcpStdio(options: RunMcpStdioOptions): Promise<void> {
     workspaceRoot: options.workspaceRoot ?? process.cwd(),
     ...(options.runExecutor ? { runExecutor: options.runExecutor } : {}),
     ...(options.sendContext ? { sendContext: options.sendContext } : {}),
+    messageBackend: options.messageBackend,
+    clusterMesh: options.clusterMesh,
     // L2: with a deferred identity, the store must not write on boot so
     // initialize/tools-list/status answer on a read-only or not-yet-created root.
     ...(options.identityRequest ? { storeInitialize: false } : {}),
@@ -491,10 +496,12 @@ export function runMcpStdio(options: RunMcpStdioOptions): Promise<void> {
   // pushed presence/inbox/negotiation notifications.
   server.notifications.start();
 
+  let meshTimer: ReturnType<typeof setInterval> | undefined;
   let didShutdown = false;
   function shutdown(reason: "transport_closed" | "signal" = "transport_closed"): void {
     if (didShutdown) return;
     didShutdown = true;
+    if (meshTimer) clearInterval(meshTimer);
     try {
       // L2: the transport is gone — cancel any in-flight identity resolution so
       // no NEW transaction starts and no late activation/ACK can follow. A
@@ -707,6 +714,28 @@ export function runMcpStdio(options: RunMcpStdioOptions): Promise<void> {
     identityController.start();
   }
 
+  if (options.clusterMesh && options.autoOpen) {
+    if (options.clusterMesh.instance !== options.autoOpen.instance) {
+      shutdown();
+      throw new Error("cluster-mesh: receiver identity mismatch");
+    }
+    let polling = false;
+    const poll = async () => {
+      if (didShutdown || polling) return;
+      polling = true;
+      try {
+        const result = await options.clusterMesh!.drain();
+        if (result.rejected.length) stderr.write(`h2a mcp-serve: cluster-mesh rejected ${result.rejected.length} unverified message(s)\n`);
+        if (!didShutdown) server.notifications.tick();
+      } catch (error) {
+        stderr.write(`h2a mcp-serve: cluster-mesh receive failed: ${(error as Error).message}\n`);
+      } finally { polling = false; }
+    };
+    meshTimer = setInterval(() => void poll(), notifyIntervalMs ?? 1000);
+    meshTimer.unref();
+    void poll();
+  }
+
   // Publish only after every synchronous boot step above has completed and
   // immediately before constructing the stdio loop. Auto-upgrade/re-exec runs
   // in runMcpServe before this function, so it cannot acknowledge early.
@@ -748,7 +777,8 @@ export function runMcpStdio(options: RunMcpStdioOptions): Promise<void> {
       options.signal.addEventListener("abort", onAbort, { once: true });
     }
 
-    rl.on("line", (line) => {
+    let pending = Promise.resolve();
+    const handleLine = async (line: string) => {
       const trimmed = line.trim();
       if (trimmed.length === 0) return;
 
@@ -804,7 +834,7 @@ export function runMcpStdio(options: RunMcpStdioOptions): Promise<void> {
             ...(requestId !== undefined ? { requestId } : {})
           });
         }
-        const result = handleMethod(server, request.method, request.params);
+        const result = await handleMethod(server, request.method, request.params);
         if (!isNotification) {
           // L1: the SINGLE bounded writer serializes ONCE, bounds the exact UTF-8
           // bytes to the frame budget (an oversize result becomes a bounded -32010
@@ -863,13 +893,17 @@ export function runMcpStdio(options: RunMcpStdioOptions): Promise<void> {
           errorResponse(request.id ?? null, -32603, `Internal error: ${message}`)
         );
       }
+    };
+    rl.on("line", (line) => {
+      pending = pending.then(() => handleLine(line));
     });
 
     rl.on("close", () => {
-      shutdown();
-      // Flush the bounded writer before resolving so the last frame is on the
-      // wire before the process (bin.ts awaits this promise) can exit.
-      void writeChain.finally(() => resolve());
+      void pending.then(() => {
+        shutdown();
+        // Flush bounded output after asynchronous cluster-mesh requests finish.
+        void writeChain.finally(() => resolve());
+      }, (error) => { shutdown(); reject(error); });
     });
     rl.on("error", (err) => {
       shutdown();

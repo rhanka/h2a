@@ -756,8 +756,8 @@ async function claimCentralMarker(
   }
 }
 
-function centralToolResult(server: McpServer, name: string, args: Record<string, unknown>): CallToolResult {
-  const result = server.callTool(name, args);
+async function centralToolResult(server: McpServer, name: string, args: Record<string, unknown>): Promise<CallToolResult> {
+  const result = await server.callTool(name, args);
   const shaped: CallToolResult = isMcpTransportResult(result)
     ? (result as CallToolResult)
     : {
