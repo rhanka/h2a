@@ -59,7 +59,8 @@ import { conductorLaunchCheck } from "../governance/launch-check.js";
 import { canonicalAddress, isHostQualifiedAddress, listPresence, resolveRecipient, writePresence } from "../local-files/index.js";
 import { createLocalStore } from "../local-files/store.js";
 import type { LocalStore } from "../local-files/store.js";
-import { sendLocalMessage, type H2ASendSigner } from "../send.js";
+import { messageBackend, sendMessage, type H2ASendSigner, type H2AMessageBackend } from "../send.js";
+import type { H2aClusterMeshMessaging } from "../cluster-mesh-messaging.js";
 import { lastSpawnRequestAt, recordSpawnRequest, spawnAllowed } from "../governance/spawns.js";
 import { gatherNhiSnapshot } from "../nhi.js";
 import { agentVersion } from "../version/agent-version.js";
@@ -314,20 +315,26 @@ export function handleInbox(
 export function handleSend(
   store: LocalStore,
   signer: H2ASendSigner | undefined,
-  args: { to?: unknown; message?: unknown } | undefined
-): McpToolResult | McpErrorResult {
+  args: { to?: unknown; message?: unknown; backend?: unknown } | undefined,
+  options: { backend?: H2AMessageBackend; clusterMesh?: H2aClusterMeshMessaging } = {}
+): McpToolResult | McpErrorResult | Promise<McpToolResult | McpErrorResult> {
   if (!signer) {
     return { error: "h2a_send: unavailable without a trusted auto-open signing identity" };
   }
   if (!args || typeof args.to !== "string" || typeof args.message !== "string") {
     return { error: "h2a_send: 'to' and 'message' strings are required" };
   }
-  const unknown = Object.keys(args).filter((key) => key !== "to" && key !== "message");
+  const unknown = Object.keys(args).filter((key) => key !== "to" && key !== "message" && key !== "backend");
   if (unknown.length > 0) {
     return { error: `h2a_send: unsupported argument(s): ${unknown.join(", ")}` };
   }
   try {
-    return { ...sendLocalMessage({ store, to: args.to, message: args.message, signer }) };
+    const result = sendMessage({
+      store, to: args.to, message: args.message, signer,
+      backend: messageBackend(args.backend === undefined ? options.backend : args.backend),
+      clusterMesh: options.clusterMesh
+    });
+    return result instanceof Promise ? result.then((value) => ({ ...value })).catch(safeError) : { ...result };
   } catch (error) {
     return safeError(error);
   }

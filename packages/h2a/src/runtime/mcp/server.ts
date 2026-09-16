@@ -67,7 +67,8 @@ import {
   type H2aRunDelegation,
   type H2aRunExecutor
 } from "./agent-launch.js";
-import type { H2ASendSigner } from "../send.js";
+import type { H2ASendSigner, H2AMessageBackend } from "../send.js";
+import type { H2aClusterMeshMessaging } from "../cluster-mesh-messaging.js";
 
 export interface CreateMcpServerOptions {
   /** Filesystem root for the backing local-files store. */
@@ -86,6 +87,8 @@ export interface CreateMcpServerOptions {
   store?: LocalStore;
   /** Trusted local sidecar identity used by h2a_send; never supplied by tool args. */
   sendContext?: H2ASendSigner;
+  messageBackend?: H2AMessageBackend;
+  clusterMesh?: H2aClusterMeshMessaging;
   /**
    * Optional SessionRegistry overrides. Disabled `autoHeartbeat` is the
    * sane default for in-process tests; the stdio transport enables it.
@@ -103,7 +106,7 @@ export interface CreateMcpServerOptions {
 
 export interface McpServer {
   listTools(): McpToolDescriptor[];
-  callTool(name: string, args: Record<string, unknown> | undefined): McpToolResult | McpErrorResult | McpTransportResult;
+  callTool(name: string, args: Record<string, unknown> | undefined): McpToolResult | McpErrorResult | McpTransportResult | Promise<McpToolResult | McpErrorResult | McpTransportResult>;
   /** Per-server SessionRegistry, exposed for transport-layer shutdown hooks. */
   readonly sessions: SessionRegistry;
   /** Per-server NotificationDispatcher (DEC-052). */
@@ -153,7 +156,7 @@ export function createMcpServer(options: CreateMcpServerOptions): McpServer {
   function callTool(
     name: string,
     args: Record<string, unknown> | undefined
-  ): McpToolResult | McpErrorResult | McpTransportResult {
+  ): ReturnType<McpServer["callTool"]> {
     if (TRACK_READ_TOOL_NAMES.has(name)) {
       try {
         const result = callTrackReadTool(
@@ -188,7 +191,9 @@ export function createMcpServer(options: CreateMcpServerOptions): McpServer {
       case "h2a_inbox":
         return handleInbox(store, args as never);
       case "h2a_send":
-        return handleSend(store, options.sendContext, args as never);
+        return handleSend(store, options.sendContext, args as never, {
+          backend: options.messageBackend, clusterMesh: options.clusterMesh
+        });
       case "h2a_append_journal":
         return handleAppendJournal(store, args as never);
       case "h2a_open_negotiation":

@@ -340,5 +340,7 @@ if (argv[0] === "--version" || argv[0] === "-v" || argv[0] === "version") {
 } else if (shouldDispatchRuntime(argv)) {
   runAsync(`runtime:${argv[0]}`, dispatchRuntime());
 } else {
-  process.exitCode = runCli(argv);
+  const result = runCli(argv);
+  if (result instanceof Promise) runAsync(argv[0] ?? "", result);
+  else process.exitCode = result;
 }
