@@ -47,9 +47,23 @@ bump package versions and do not merge the delivery PR.
   one low-severity advisory).
 - `npm run build`: pass.
 - Focused send/wake/native/tmux and contract suites: pass.
-- `npm test`: pass — Node 2,135 tests (2,097 pass, 17 skipped, 21 TODO,
+- `npm test`: pass on final product commit `c57f18db` — Node 2,137 tests
+  (2,099 pass, 17 skipped, 21 TODO,
   0 fail); Track Vitest 1,193/1,193 pass.
 - `scripts/check-public-contract.sh`: pass (53 MCP tools, 99 CLI verbs,
   core anti-cycle check).
 - `harness verify --json`: pass.
 - Version manifests and lockfile: unchanged.
+
+## Feedback Loop
+
+- Owner: core CLI maintainers — status: deferred, non-gating. Add explicit
+  negative tests for zero/multiple ambient sender candidates when this
+  resolution policy next changes; the current branch fails closed.
+- Owner: identity maintainers — status: rejected for this Linux-local delivery.
+  `safeKeyName` is pre-existing and removes `/`, so the review found no path
+  traversal; cross-platform helper unification belongs to a separate change.
+- Owner: this branch — status: resolved. Corrected the stale `deliver-hint`
+  reason and added direct-alias plus CLI auto-detection tests in `c57f18db`.
+- Owner: this branch — status: refuted. The real PTY integration exercises
+  `mcp-serve` → `sendContext` → `h2a_send` end-to-end in both directions.
