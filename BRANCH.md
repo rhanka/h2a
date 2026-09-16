@@ -29,7 +29,7 @@ bump package versions and do not merge the delivery PR.
 - [x] Wire trusted-signer MCP `h2a_send` and update the packaged skill.
 - [x] Switch wake defaults/setup to bounded `auto` and preserve tmux metadata.
 - [x] Add focused signing, resolution, MCP, native and real tmux tests.
-- [ ] Run build, scoped tests, full suite, two-peer review, then open the PR.
+- [x] Run build, scoped tests, full suite, two-peer review, then open the PR.
 
 ## Verification gates
 
@@ -54,6 +54,7 @@ bump package versions and do not merge the delivery PR.
   core anti-cycle check).
 - `harness verify --json`: pass.
 - Version manifests and lockfile: unchanged.
+- Delivery PR: #270 against `main`, open and intentionally unmerged.
 
 ## Feedback Loop
 
