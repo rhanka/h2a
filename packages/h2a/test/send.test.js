@@ -114,6 +114,25 @@ test("sendLocalMessage resolves a live display name and deposits a sender-signed
   assert.deepEqual(f.store.readInbox(f.recipient), [result.envelope]);
 });
 
+test("sendLocalMessage turns a unique live alias hint into honest direct delivery", (t) => {
+  const f = fixture(t);
+  live(f.root, f.recipient);
+  const result = sendLocalMessage({
+    store: f.store,
+    to: "claude:receiver",
+    message: "direct",
+    signer: { instance: f.sender, privateKeyPem: f.senderKeys.privateKeyPem }
+  });
+
+  assert.equal(result.resolution, "deliver-hint");
+  assert.equal(result.recipient, f.recipient);
+  assert.equal(result.recipientLive, true);
+  assert.equal(result.dormant, false);
+  assert.equal(result.reason, `live alias resolved directly to ${f.recipient}.`);
+  assert.deepEqual(f.store.readInbox(f.recipient), [result.envelope]);
+  assert.deepEqual(f.store.readInbox("claude:receiver"), []);
+});
+
 test("sendLocalMessage resolves a dormant registered name without claiming live delivery", (t) => {
   const f = fixture(t);
   const result = sendLocalMessage({
@@ -198,6 +217,29 @@ test("h2a send positional CLI uses the existing local key and writes a signed en
   );
 });
 
+test("h2a send CLI auto-detects the unique registered identity for its workspace", (t) => {
+  const f = fixture(t);
+  const keyPath = identityKeyPaths(f.root, f.sender).privateKeyPath;
+  mkdirSync(join(f.root, "keys"), { recursive: true });
+  writeFileSync(keyPath, f.senderKeys.privateKeyPem, { mode: 0o600 });
+  const previousInstance = process.env.H2A_INSTANCE;
+  delete process.env.H2A_INSTANCE;
+  t.after(() => {
+    if (previousInstance === undefined) delete process.env.H2A_INSTANCE;
+    else process.env.H2A_INSTANCE = previousInstance;
+  });
+
+  const cap = capture(f.dir);
+  const rc = runCli(
+    ["send", f.recipient, "auto sender", "--root", f.root],
+    cap.streams
+  );
+  assert.equal(rc, 0, cap.stderr());
+  const result = JSON.parse(cap.stdout());
+  assert.equal(result.from, f.sender);
+  assert.equal(f.store.readInbox(f.recipient).length, 1);
+});
+
 test("h2a_send MCP is strict and uses only its trusted sidecar signer", (t) => {
   const f = fixture(t);
   const descriptor = H2A_CLI_MCP_TOOL_DESCRIPTORS.find((tool) => tool.name === "h2a_send");
@@ -220,4 +262,3 @@ test("h2a_send MCP is strict and uses only its trusted sidecar signer", (t) => {
   assert.equal(result.ok, true);
   assert.equal(f.store.readInbox(f.recipient).length, 1);
 });
-

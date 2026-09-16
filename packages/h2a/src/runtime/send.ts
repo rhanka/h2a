@@ -155,6 +155,8 @@ export function sendLocalMessage(input: SendLocalMessageInput): SendLocalMessage
   const resolutionKind = registeredName.resolved ? "registered-name" : resolution.kind;
   const reason = registeredName.resolved
     ? `registered name resolved to ${recipient}.`
+    : resolution.kind === "deliver-hint"
+      ? `live alias resolved directly to ${recipient}.`
     : "reason" in resolution
       ? resolution.reason
       : undefined;
@@ -171,4 +173,3 @@ export function sendLocalMessage(input: SendLocalMessageInput): SendLocalMessage
     envelope
   };
 }
-
