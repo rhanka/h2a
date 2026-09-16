@@ -3,8 +3,8 @@
 Baseline du **contrat public** capturée le 2026-06-29 (P1 de la migration track+remote, cf `../../specs/2026-06-29-h2a-migration-track-remote.md`).
 
 ## Fichiers
-- **`mcp-tools.json`** — les 37 outils MCP `h2a_*` exposés sur le bus local (surface du bus, dont le mutateur local-only `h2a_run`). Source : `h2a mcp-tools` (trié).
-- **`cli-verbs.json`** — les 98 verbes dispatchables de la CLI. Source : `H2A_CLI_VERB_CONTRACTS` (`packages/h2a/src/cli-contract.ts`, trié). Évolution : `keys prove-control` (PR #30, 97 → 98), `explain` (98 → 99), `loop enable-auto-tick` (99 → 100), puis le retrait de `report-ai` et `report-ai install-track-config` (100 → 98). Le chemin cité pointait sur `packages/h2a-cli/`, qui est un stub déprécié.
+- **`mcp-tools.json`** — les 38 outils MCP `h2a_*` exposés sur le bus local (surface du bus, dont les mutateurs local-only `h2a_run` et `h2a_send`). Source : `h2a mcp-tools` (trié).
+- **`cli-verbs.json`** — les 99 verbes dispatchables de la CLI. Source : `H2A_CLI_VERB_CONTRACTS` (`packages/h2a/src/cli-contract.ts`, trié). Évolution : `keys prove-control` (PR #30, 97 → 98), `explain` (98 → 99), `loop enable-auto-tick` (99 → 100), puis le retrait de `report-ai` et `report-ai install-track-config` (100 → 98), et `send` (98 → 99). Le chemin cité pointait sur `packages/h2a-cli/`, qui est un stub déprécié.
 
 ### Les comptes annoncés sont gardés (2026-07-25)
 

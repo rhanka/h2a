@@ -157,6 +157,7 @@ import {
   sanitizeStorePaths,
   writePresence
 } from "./runtime/local-files/index.js";
+import { sendLocalMessage } from "./runtime/send.js";
 import {
   H2A_MCP_READY_FILE_ENV,
   H2A_MCP_READY_NONCE_ENV,
@@ -237,6 +238,7 @@ import {
 import {
   H2A_CLI_DECLARED_CAPABILITIES,
   createHostSessionNameRefresher,
+  identityKeyPaths,
   resolveLiveIdentity
 } from "./runtime/identity/index.js";
 import {
@@ -359,6 +361,7 @@ export function renderCliHelp(): string {
     "  h2a init [--root <path>]",
     "  h2a register --json <json> [--root <path>]",
     "  h2a discover [--role <role>] [--scope <scope>] [--root <path>]",
+    "  h2a send <target> \"<message>\" [--from <instance>] [--root <path>]",
     "  h2a subagent register --parent <instance> --name <name> [--capabilities a,b] [--root <path>]",
     "  h2a subagent list [--parent <instance>] [--root <path>]",
     "  h2a subagent route --to <subagent-address> --json <envelope> [--mailbox inbox|outbox] [--root <path>]",
@@ -413,7 +416,7 @@ export function renderCliHelp(): string {
     "  h2a drumbeat escalations [--root <path>]",
     "  h2a drumbeat relance-inbox [--instance <id>] [--relauncher logging|local-tmux|headless|auto] [--root <path>]",
     "  h2a drumbeat watch [--interval-ms <n>] [--max-relances <n>] [--relauncher logging|local-tmux|remote|headless|auto] [--instance <signer> --private-key <pem>] [--decider logging|<command>] [--decider-after <k>] [--decider-enforce] [--root <path>]",
-    "  h2a host setup --host <codex|claude|gemini|agy|hermes|opencode> [--endpoint local|remote] [--url <https://…/mcp>] [--root <path>] [--print | --write <file>] [--force] [--no-wake]   (selects exactly one h2a endpoint; local renders mcp-serve --auto-open --auto-upgrade --wake local-tmux by default)",
+    "  h2a host setup --host <codex|claude|gemini|agy|hermes|opencode> [--endpoint local|remote] [--url <https://…/mcp>] [--root <path>] [--print | --write <file>] [--force] [--no-wake]   (selects exactly one h2a endpoint; local renders mcp-serve --auto-open --auto-upgrade --wake auto by default)",
     "  h2a host status [--host <name>]",
     "  h2a host plugin --host <codex|claude|gemini|agy|hermes|opencode> --instance <id> [--status <work-status>] [--root <path>] [--write <settings.json> [--force]] [--scaffold <dir>]   (--write installs the Stop hook for claude|gemini|codex|hermes|opencode; --scaffold writes codex's full local marketplace + trust step; agy is poll-only)",
     "  h2a store migrate [--from <v>] [--to <v>] [--sanitize-paths] [--dry-run] [--root <path>]",
@@ -526,6 +529,106 @@ function resolveRootInfo(
 
 function resolveRoot(flags: Record<string, string>, cwd: () => string): string {
   return resolveRootInfo(flags, cwd).root;
+}
+
+function cmdSend(argv: readonly string[], streams: H2ACliStreams): number {
+  const flags: Record<string, string> = {};
+  const positionals: string[] = [];
+  for (let index = 0; index < argv.length; index++) {
+    const token = argv[index];
+    if (token === "--") {
+      positionals.push(...argv.slice(index + 1));
+      break;
+    }
+    if (token.startsWith("--")) {
+      const name = token.slice(2);
+      if (name !== "root" && name !== "from") {
+        streams.stderr.write(`h2a send: unsupported option --${name}\n`);
+        return 1;
+      }
+      const value = argv[index + 1];
+      if (!value || value.startsWith("--")) {
+        streams.stderr.write(`h2a send: --${name} requires a value\n`);
+        return 1;
+      }
+      flags[name] = value;
+      index++;
+      continue;
+    }
+    positionals.push(token);
+  }
+  if (positionals.length !== 2) {
+    streams.stderr.write(
+      "h2a send: usage: h2a send <target> \"<message>\" [--from <instance>] [--root <path>]\n"
+    );
+    return 1;
+  }
+
+  const cwd = streams.cwd ?? (() => process.cwd());
+  const root = resolveRoot(flags, cwd);
+  const store = createLocalStore({ root });
+  let sender = flags.from ?? process.env.H2A_INSTANCE?.trim();
+  if (!sender) {
+    const sessions = listPresence(root);
+    const nativeSession = process.env.H2A_NATIVE_PTY_SESSION;
+    const tmuxPane = process.env.TMUX_PANE;
+    let candidates = sessions
+      .filter(
+        (session) =>
+          (nativeSession && session.launchContext?.nativePty?.session === nativeSession) ||
+          (tmuxPane && session.launchContext?.tmux?.pane === tmuxPane)
+      )
+      .map((session) => session.instance);
+    if (candidates.length === 0) {
+      const current = (() => {
+        try {
+          return realpathSync(cwd());
+        } catch {
+          return cwd();
+        }
+      })();
+      candidates = sessions
+        .filter((session) => session.workspace?.path === current)
+        .map((session) => session.instance);
+      if (candidates.length === 0) {
+        candidates = store
+          .listInstances()
+          .filter((registration) => registration.workspace?.path === current)
+          .map((registration) => registration.instance);
+      }
+    }
+    const unique = [...new Set(candidates)];
+    if (unique.length !== 1) {
+      streams.stderr.write(
+        `h2a send: cannot identify one local sender${unique.length > 1 ? ` (candidates: ${unique.join(", ")})` : ""}; pass --from <instance> or H2A_INSTANCE\n`
+      );
+      return 1;
+    }
+    sender = unique[0];
+  }
+
+  let privateKeyPem: string;
+  try {
+    privateKeyPem = readFileSync(identityKeyPaths(root, sender).privateKeyPath, "utf8");
+  } catch (error) {
+    streams.stderr.write(
+      `h2a send: cannot read the local private key for ${sender} (${(error as Error).message})\n`
+    );
+    return 3;
+  }
+  try {
+    const result = sendLocalMessage({
+      store,
+      to: positionals[0],
+      message: positionals[1],
+      signer: { instance: sender, privateKeyPem }
+    });
+    streams.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+    return 0;
+  } catch (error) {
+    streams.stderr.write(`h2a send: ${(error as Error).message}\n`);
+    return classifyStoreError((error as Error).message);
+  }
 }
 
 /**
@@ -1876,6 +1979,16 @@ try {
   // inbox arrival (requires --auto-open + a resolvable private key).
   const WAKE_KINDS: readonly string[] = ["logging", "native", "local-tmux", "headless", "auto"];
   const nativeSessionId = nativePtyWakeTarget(readinessEnv);
+  let identityPrivateKeyPem: string | undefined;
+  if (autoOpen?.privateKeyPath) {
+    try {
+      identityPrivateKeyPem = readFileSync(autoOpen.privateKeyPath, "utf8");
+    } catch (err) {
+      io.stderr.write(
+        `h2a mcp-serve: local signing unavailable (cannot read key): ${(err as Error).message}\n`
+      );
+    }
+  }
   let wake: {
     driver: H2ADriver;
     privateKeyPem: string;
@@ -1888,17 +2001,15 @@ try {
   } else if (flags.wake === "headless") {
     // A self-wake must NEVER spawn a new agent. headless does exactly that.
     io.stderr.write(
-      "h2a mcp-serve: --wake headless is unsafe (it would spawn a NEW agent on inbox arrival, not wake this one); use local-tmux. ignored\n"
+      "h2a mcp-serve: --wake headless is unsafe (it would spawn a NEW agent on inbox arrival, not wake this one); use auto. ignored\n"
     );
-  } else if (flags.wake !== undefined && autoOpen?.privateKeyPath) {
+  } else if (flags.wake !== undefined && autoOpen?.privateKeyPath && identityPrivateKeyPem) {
     try {
-      const privateKeyPem = readFileSync(autoOpen.privateKeyPath, "utf8");
       const log = (line: string) => io.stderr.write(`${line}\n`);
       // `auto` for a self-wake is native→local-tmux ONLY (no headless leg — its
       // fallback spawns a new agent, wrong for waking yourself).
-      // A native sidecar deliberately keeps the shared configured command
-      // (`--wake local-tmux`): its launcher marker switches only this process
-      // to the native backchannel, leaving the tmux launch path unchanged.
+      // The shared `--wake auto` configuration stays bounded here: its native
+      // launcher marker chooses the backchannel first, with tmux as fallback.
       const driver =
         flags.wake === "auto"
           ? chainDriver(nativePtyBackchannelDriver(log), localTmuxDriver({ log }))
@@ -1910,7 +2021,7 @@ try {
             );
       wake = {
         driver,
-        privateKeyPem,
+        privateKeyPem: identityPrivateKeyPem,
         ...(nativeSessionId !== undefined ? { nativeSessionId } : {})
       };
     } catch (err) {
@@ -1931,6 +2042,9 @@ try {
       stdout: io.stdout as never,
       stderr: io.stderr as never,
       ...(autoOpen ? { autoOpen } : {}),
+      ...(autoOpen && identityPrivateKeyPem
+        ? { sendContext: { instance: autoOpen.instance, privateKeyPem: identityPrivateKeyPem } }
+        : {}),
       ...(readiness ? { readiness } : {}),
       ...(wake ? { wake } : {}),
       ...(io.signal ? { signal: io.signal } : {})
@@ -4163,7 +4277,7 @@ function cmdHostSetup(
     "--host",
     host,
     "--auto-upgrade",
-    ...(wakeEnabled ? ["--wake", "local-tmux"] : [])
+    ...(wakeEnabled ? ["--wake", "auto"] : [])
   ];
   if (endpoint === "local" && !wakeEnabled) {
     streams.stderr.write(
@@ -7207,6 +7321,7 @@ export function runCli(
   if (command === "init") return cmdInit(flags, streams);
   if (command === "register") return cmdRegister(flags, streams);
   if (command === "discover") return cmdDiscover(flags, streams);
+  if (command === "send") return cmdSend(argv.slice(1), streams);
   if (command === "subagent") return cmdSubagent(argv.slice(1), streams);
   if (command === "loop") return cmdLoop(argv.slice(1), streams);
   if (command === "canevas") return cmdCanevas(argv.slice(1), streams);

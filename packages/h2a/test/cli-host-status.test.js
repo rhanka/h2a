@@ -65,7 +65,7 @@ test("h2a host setup --host agy renders the Antigravity MCP config slot (EVO-0)"
     "agy",
     "--auto-upgrade",
     "--wake",
-    "local-tmux"
+    "auto"
   ]);
   // path hint points at agy's embedded-runtime config slot
   assert.match(streams.stderrText, /mcp_config\.json/);

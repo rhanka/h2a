@@ -186,6 +186,7 @@ const CORE_GROUP_BY_FIRST_WORD: Readonly<Record<string, H2ACommandGroupId>> = {
   // `h2a blockage …` | Explicit governance and coordination concepts" and
   // § Advanced "`h2a message inbox|thread|outbox …`".
   inbox: "COORDINATE",
+  send: "COORDINATE",
   outbox: "COORDINATE",
   thread: "COORDINATE",
   drive: "COORDINATE",
