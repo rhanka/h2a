@@ -154,7 +154,7 @@ export type H2aConfig = {
 
 /** Default h2a side-window command (a2a-cli launcher contract). */
 export const DEFAULT_H2A_COMMAND =
-  "h2a mcp-serve --auto-open --auto-upgrade --wake local-tmux";
+  "h2a mcp-serve --auto-open --auto-upgrade --wake auto";
 
 /**
  * Local LLM gateway runtime policy. The credential/account material itself

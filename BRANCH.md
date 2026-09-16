@@ -1,80 +1,55 @@
-# h2a run AGY + Codex plugin parity
+# Native signed `h2a send`
 
 ## Objective
 
-Finish structured `h2a run agy` support in the runtime and expose the same
-profile through the packaged Codex `h2a_run` MCP surface. AGY stays direct,
-the initial prompt never enters process argv, and existing Claude/Codex launch
-contracts remain compatible.
+Ship the core `h2a send` contract and `h2a_send` MCP tool for patch 0.97.1,
+with authenticated local inbox delivery and native/tmux wake coverage. Do not
+bump package versions and do not merge the delivery PR.
 
 ## Base and ownership
 
-- Branch: `fix/h2a-run-agy-plugin`
-- Base: `origin/main@d79991ce64330a4f273a4e5049197b83bf22685f`
-- H2A runtime owns agent argv, prompt delivery, gateway posture and launch
-  results.
-- The packaged h2a Codex plugin owns the MCP schema, validator and `h2a-run`
-  skill contract.
+- Branch: `feat/h2a-send-cli`
+- Base: `origin/main`
+- `packages/h2a` owns identity, signing, resolution, store writes, CLI and MCP.
+- `packages/h2a-runtime` owns launcher defaults and tmux sidecar setup only.
 - `.track/**` remains single-writer and is forbidden in this worktree.
 
 ## Scope
 
-- `BRANCH.md`
-- `packages/h2a-runtime/src/agent-launch-args.ts`
-- `packages/h2a-runtime/src/agent-launch-args.test.ts`
-- `packages/h2a-runtime/src/index.ts`
-- `packages/h2a/src/runtime/mcp/agent-launch.ts`
-- `packages/h2a/src/runtime/mcp/tools.ts`
-- `packages/h2a/test/mcp-run.test.js`
-- `packages/h2a/skills/h2a-run/SKILL.md`
-
-## Contract
-
-- Structured CLI and MCP launch profiles are `claude|codex|agy`.
-- `--agent stp` / `agent: "stp"` is forwarded only for AGY and rejected for
-  Claude or Codex.
-- `gemini-3.7-flash-high` is forwarded unchanged. AGY effort is limited to
-  `low|medium|high`; `xhigh` is rejected.
-- AGY is direct-only: CLI `--gw` and MCP `gateway: "required"` are rejected;
-  `auto` and `off` must yield `session.gateway: "direct"`.
-- AGY run-once maps to `--input-format stream-json --output-format stream-json`.
-  The prompt is serialized as one escaped `user` event and supplied
-  on stdin and never serialized into argv.
-- Interactive AGY does not receive print-mode flags. Structured resume maps
-  h2a `-r/--resume` to AGY `--conversation <id>`.
-- Help, the packaged `h2a-run` skill, the MCP descriptor and the runtime
-  validator describe the same constraints.
+- `packages/h2a/src/**` and focused `packages/h2a/test/**` contracts.
+- `packages/h2a/skills/h2a/SKILL.md` for the public send workflow.
+- `packages/h2a-runtime/src/config.ts`, `tmux.ts`, and focused tests.
+- Packaged host/plugin configuration that renders the wake default.
+- This plan, the EVOL spec, and final review evidence.
 
 ## Lots
 
-- [x] Preserve and finish the interrupted runtime/MCP implementation.
-- [x] Add focused positive and negative contract tests.
-- [x] Align CLI help, MCP schema and the packaged `h2a-run` skill.
-- [x] Run scoped tests, typecheck and plugin/skill validators.
-- [x] Rebuild `h2a-runtime`, build and pack h2a, then inspect compiled/package
-  contents.
-- [x] Review the final diff and create one atomic commit.
+- [x] Add the shared signed-send service and active-key verification.
+- [x] Wire the positional CLI verb, help/contract/map, and identity resolution.
+- [x] Wire trusted-signer MCP `h2a_send` and update the packaged skill.
+- [x] Switch wake defaults/setup to bounded `auto` and preserve tmux metadata.
+- [x] Add focused signing, resolution, MCP, native and real tmux tests.
+- [ ] Run build, scoped tests, full suite, two-peer review, then open the PR.
 
 ## Verification gates
 
-- Runtime argv tests cover AGY interactive, run-once and conversation resume,
-  plus `xhigh`, unsafe agent and Claude/Codex agent rejection.
-- MCP tests cover the descriptor, direct invocation, stdin prompt isolation,
-  direct-only result attestation and negative validation.
-- Compiled CLI help exposes the AGY profile, `--agent`, AGY effort limit and
-  AGY print-mode headless behavior.
-- `typecheck`, `validate_plugin.py` and `quick_validate.py` pass.
-- `h2a-runtime` is rebuilt before the h2a tarball is produced; compiled AGY
-  argv and packaged plugin/skill content are inspected from built artifacts.
-- No Gemini/AGY provider process is launched during verification.
+- No unsigned envelope can be written through CLI or MCP send.
+- Name ambiguity and stale/private-key mismatch are refused before persistence.
+- Native and tmux chain paths are exercised by real integration tests.
+- Help, CLI manifest, MCP schema, plugin configuration, and runtime defaults
+  agree with the implementation.
+- `git diff origin/main -- package*.json` contains no version bump.
+- Final PR targets `main`, remains unmerged, and carries no AI attribution.
 
-## Verification results
+## Verification evidence
 
-- Runtime argv suite: 13/13 passed.
-- MCP + packaged-manifest suites: 12/12 passed.
-- Monorepo `typecheck`: passed.
-- Codex `validate_plugin.py` and skill `quick_validate.py`: passed.
-- Real h2a tarball: `sentropic-h2a-0.96.1.tgz`, 893 entries,
-  SHA-1 `dce20ae6b2b77503f7d201dddaf767e0647fb303`.
-- Compiled CLI negative smokes (`AGY --gw`, AGY `xhigh`, Codex `--agent stp`):
-  each refused with exit code 2 before host/provider startup.
+- `npm ci`: pass (286 packages added; audit reported the repository's existing
+  one low-severity advisory).
+- `npm run build`: pass.
+- Focused send/wake/native/tmux and contract suites: pass.
+- `npm test`: pass — Node 2,135 tests (2,097 pass, 17 skipped, 21 TODO,
+  0 fail); Track Vitest 1,193/1,193 pass.
+- `scripts/check-public-contract.sh`: pass (53 MCP tools, 99 CLI verbs,
+  core anti-cycle check).
+- `harness verify --json`: pass.
+- Version manifests and lockfile: unchanged.

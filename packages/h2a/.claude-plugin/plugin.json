@@ -14,7 +14,7 @@
         "--host",
         "claude",
         "--wake",
-        "local-tmux",
+        "auto",
         "--auto-open",
         "--auto-upgrade"
       ]

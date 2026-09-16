@@ -137,7 +137,7 @@ function safeKeyName(instance: string): string {
   return instance.replace(/[:/]/g, "-");
 }
 
-function keyPaths(root: string, instance: string): { privateKeyPath: string; publicKeyPath: string } {
+export function identityKeyPaths(root: string, instance: string): { privateKeyPath: string; publicKeyPath: string } {
   const keysDir = join(root, "keys");
   return {
     privateKeyPath: join(keysDir, `${safeKeyName(instance)}.key.pem`),
@@ -197,7 +197,7 @@ function generateKeypair(): { privateKeyPem: string; publicKeyPem: string } {
 function readKeypair(root: string, instance: string):
   | { privateKeyPem: string; publicKeyPem: string; privateKeyPath: string; publicKeyPath: string }
   | undefined {
-  const paths = keyPaths(root, instance);
+  const paths = identityKeyPaths(root, instance);
   if (!existsSync(paths.privateKeyPath) || !existsSync(paths.publicKeyPath)) return undefined;
   return {
     privateKeyPem: readFileSync(paths.privateKeyPath, "utf8"),
@@ -220,7 +220,7 @@ function ensureKeypair(
     };
   }
 
-  const paths = keyPaths(root, instance);
+  const paths = identityKeyPaths(root, instance);
   mkdirSync(join(root, "keys"), { recursive: true });
   const adopted = adoptFromInstance ? readKeypair(root, adoptFromInstance) : undefined;
   if (adopted) {

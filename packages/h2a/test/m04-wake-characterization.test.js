@@ -21,12 +21,15 @@ import {
   createReplayGuard,
   createInboxWakeHandler,
   createLocalStore,
+  chainDriver,
   decideInboxWake,
   latestLaunchContext,
   localTmuxDriver,
   nativeBackchannelDriver,
   parseSignedDriveInstruction,
   runCli,
+  sendLocalMessage,
+  verifyEnvelopeSignature,
   verifySignedDriveInstruction,
   writePresence,
 } from "../dist/index.js";
@@ -712,6 +715,90 @@ test("should characterize M04 envelope selection and exact signed wake on local-
     if (previousActivity === undefined) delete process.env.H2A_WAKE_DEFER_ACTIVITY_MS;
     else process.env.H2A_WAKE_DEFER_ACTIVITY_MS = previousActivity;
     await target.close();
+  }
+});
+
+test("signed send reaches inbox-wake through native-to-real-tmux chain fallback", async () => {
+  const target = await startTmuxTarget();
+  const previousActivity = process.env.H2A_WAKE_DEFER_ACTIVITY_MS;
+  process.env.H2A_WAKE_DEFER_ACTIVITY_MS = "0";
+  const root = freshDirectory("signed-send-chain");
+  try {
+    const store = createLocalStore({ root });
+    const sender = "claude:m04-sender:111111111111";
+    const senderKeys = keyPair();
+    const receiverKeys = keyPair();
+    for (const [instance, publicKeyPem] of [
+      [sender, senderKeys.publicKeyPem],
+      [INSTANCE, receiverKeys.publicKeyPem],
+    ]) {
+      store.registerInstance({
+        id: instance,
+        instance,
+        roles: ["AGENTS"],
+        scopes: ["scope:m04-characterization"],
+        capabilities: [],
+        endpoints: [],
+        publicKeys: [publicKeyPem],
+        acceptedPolicies: [],
+        createdAt: new Date(NOW).toISOString(),
+      });
+    }
+
+    let nativeAttempts = 0;
+    const driver = chainDriver(
+      nativeBackchannelDriver({
+        send: () => {
+          nativeAttempts += 1;
+          return false;
+        },
+      }),
+      localTmuxDriver(),
+    );
+    const handler = createInboxWakeHandler({
+      instance: INSTANCE,
+      readInbox: () => store.readInbox(INSTANCE),
+      privateKeyPem: receiverKeys.privateKeyPem,
+      driver,
+      host: "codex",
+      resolveLaunchContext: () => target.launchContext,
+      now,
+    });
+    const baseline = readCapture(target.capturePath).length;
+    const sent = sendLocalMessage({
+      store,
+      to: INSTANCE,
+      message: "va check ton inbox",
+      signer: { instance: sender, privateKeyPem: senderKeys.privateKeyPem },
+      now,
+      randomId: () => "44444444-4444-4444-8444-444444444444",
+    });
+    assert.equal(
+      verifyEnvelopeSignature(sent.envelope, senderKeys.publicKeyPem, { by: sender }),
+      true,
+      "message envelope is signed by the sender before inbox-wake sees it",
+    );
+    assert.equal(await handler(), true);
+    assert.equal(nativeAttempts, 1, "auto chain tries native before tmux");
+
+    const captured = await eventually(
+      () => readCapture(target.capturePath).subarray(baseline),
+      (bytes) => bytes.length > 2,
+      "real tmux fallback wake",
+    );
+    const line = captured.subarray(0, -2).toString("utf8");
+    const verifiedWake = verifySignedDriveInstruction(line, {
+      resolvePublicKeys: (instance) => store.listInstanceKeys(instance),
+      guard: createReplayGuard(),
+      now: NOW,
+    });
+    assert.equal(verifiedWake.ok, true, "wake line is separately signed by the receiver");
+    assert.deepEqual(captured.subarray(-2), Buffer.from("\r\r"));
+  } finally {
+    if (previousActivity === undefined) delete process.env.H2A_WAKE_DEFER_ACTIVITY_MS;
+    else process.env.H2A_WAKE_DEFER_ACTIVITY_MS = previousActivity;
+    await target.close();
+    rmSync(root, { recursive: true, force: true });
   }
 });
 

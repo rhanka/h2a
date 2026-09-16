@@ -100,7 +100,7 @@ describe("h2a config", () => {
       central: { enabled: false },
     });
     expect(DEFAULT_H2A_COMMAND).toBe(
-      "h2a mcp-serve --auto-open --auto-upgrade --wake local-tmux",
+      "h2a mcp-serve --auto-open --auto-upgrade --wake auto",
     );
   });
 

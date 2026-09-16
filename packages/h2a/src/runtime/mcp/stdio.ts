@@ -21,6 +21,7 @@ import {
   type McpServer
 } from "./server.js";
 import type { H2aRunDelegation, H2aRunExecutor } from "./agent-launch.js";
+import type { H2ASendSigner } from "../send.js";
 
 /**
  * Minimal subset of the JSON-RPC 2.0 spec we accept on the wire. The spec
@@ -55,6 +56,8 @@ export interface RunMcpStdioOptions {
   workspaceRoot?: string;
   /** Test seam for h2a_run; production uses the argv-only subprocess bridge. */
   runExecutor?: H2aRunExecutor;
+  /** Trusted signer resolved by mcp-serve, never from JSON-RPC arguments. */
+  sendContext?: H2ASendSigner;
   /** Readable stream of newline-delimited JSON-RPC requests. */
   stdin: Readable;
   /** Writable stream for newline-delimited JSON-RPC responses. */
@@ -294,6 +297,7 @@ export function runMcpStdio(options: RunMcpStdioOptions): Promise<void> {
     root,
     workspaceRoot: options.workspaceRoot ?? process.cwd(),
     ...(options.runExecutor ? { runExecutor: options.runExecutor } : {}),
+    ...(options.sendContext ? { sendContext: options.sendContext } : {}),
     delegationContext: () => delegation,
     sessions: {
       autoHeartbeat: true,
