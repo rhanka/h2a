@@ -51,6 +51,26 @@ describe("prepareLlmMeshForRestore", () => {
     };
   }
 
+  it.each([undefined, "auto", "direct"] as const)(
+    "does not bootstrap a globally enabled gateway in %s mode",
+    async (mode) => {
+      const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+      const fixture = context({ runtimeEnabled: true });
+      for (const dryRun of [false, true]) {
+        await prepareLlmMeshForRestore({ ...(mode ? { mode } : {}), dryRun }, fixture);
+      }
+      expect(fixture.injectGateway).not.toHaveBeenCalled();
+      expect(stderr).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([true, false])("starts an explicitly requested gateway with global enabled=%s", async (runtimeEnabled) => {
+    vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    const fixture = context({ runtimeEnabled });
+    await prepareLlmMeshForRestore({ mode: "gateway" }, fixture);
+    expect(fixture.injectGateway).toHaveBeenCalledExactlyOnceWith("gateway");
+  });
+
   it("does not require a consumer-side account inventory", async () => {
     const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     const fixture = context();
