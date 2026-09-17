@@ -2324,7 +2324,7 @@ export interface RestoreLlmMeshPreparationContext {
 export async function prepareLlmMeshForRestore(
   opts: {
     dryRun?: boolean;
-    mode?: "auto" | "gateway";
+    mode?: "auto" | "gateway" | "direct";
   } = {},
   context: RestoreLlmMeshPreparationContext = {
     runtimeEnabled: getLlmMeshRuntimeConfig().enabled,
@@ -2335,7 +2335,9 @@ export async function prepareLlmMeshForRestore(
   },
 ): Promise<void> {
   const mode = opts.mode ?? "auto";
-  if (mode !== "gateway" && !context.runtimeEnabled) return;
+  // Global enablement is not restore consent. Pinned sessions request --gw
+  // individually through their launch command; only --gw prewarms globally.
+  if (mode !== "gateway") return;
   const config = context.config ?? {};
   const port = config.port ?? 3002;
   const pid = context.gatewayPid;
@@ -9621,13 +9623,13 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         }
 
         if (opts.reattach) restoreOpts.reattach = true;
-        // Forced-direct restore must NOT spin up the gateway; otherwise prepare
-        // it as before (no-op when the gateway is disabled).
-        if (forceGateway !== "direct") {
+        // Only explicit --gw prewarms globally. In auto mode, any pinned
+        // gateway session acquires its gateway through its own launch.
+        if (forceGateway === "gateway") {
           try {
             await prepareLlmMeshForRestore({
               dryRun: Boolean(opts.dryRun),
-              mode: forceGateway ?? "auto",
+              mode: forceGateway,
             });
           } catch (error) {
             process.stderr.write(`[h2a] ${(error as Error).message}\n`);
