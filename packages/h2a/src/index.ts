@@ -1,6 +1,16 @@
 export {
+  createClusterMeshMessaging,
+  loadClusterMeshMessaging,
+  type H2aClusterMeshConnection,
+  type H2aClusterMeshMessaging
+} from "./runtime/cluster-mesh-messaging.js";
+
+export {
   H2A_SEND_MAX_MESSAGE_BYTES,
   sendLocalMessage,
+  sendMessage,
+  messageBackend,
+  type H2AMessageBackend,
   type H2ASendMessageBody,
   type H2ASendSigner,
   type SendLocalMessageInput,

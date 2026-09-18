@@ -118,6 +118,8 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run typecheck
+      - name: Verify messaging backends and receive signatures
+        run: node --test packages/h2a/test/send.test.js packages/h2a/test/cluster-mesh-messaging.test.js
       - run: npm test
       - name: Exercise the native multi-session terminal host
         run: >-

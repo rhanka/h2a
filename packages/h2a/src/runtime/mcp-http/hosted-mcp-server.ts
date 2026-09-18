@@ -29,6 +29,9 @@ export function dispatchHostedTool(
     };
   }
   const result = h2a.callTool(name, args);
+  if (result instanceof Promise) {
+    throw new Error("hosted read-only tools must be synchronous");
+  }
   if (isMcpTransportResult(result)) return result;
   if (result && typeof result === "object" && "error" in result && typeof result.error === "string") {
     return { content: [{ type: "text", text: result.error }], isError: true };
