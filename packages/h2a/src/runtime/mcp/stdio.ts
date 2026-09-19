@@ -15,6 +15,8 @@ import {
 import { createLocalStore } from "../local-files/index.js";
 import { reapDeadInstancePresence } from "../local-files/presence.js";
 import { agentVersion } from "../version/agent-version.js";
+import { currentCliVersion } from "../upgrade/index.js";
+import { getActiveMcpTrace } from "./phase-trace.js";
 import {
   createMcpServer,
   isMcpTransportResult,
@@ -22,6 +24,16 @@ import {
 } from "./server.js";
 import type { H2aRunDelegation, H2aRunExecutor } from "./agent-launch.js";
 import type { H2ASendSigner } from "../send.js";
+import {
+  boundNotificationFrame,
+  boundResponseFrame,
+  buildInvalidRequestId,
+  encodeFrame,
+  isAcceptableRequestId,
+  type EncodedFrame,
+  type JsonRpcId
+} from "./frame-budget.js";
+import type { PayloadRecoveryRef } from "./payload-store.js";
 
 /**
  * Minimal subset of the JSON-RPC 2.0 spec we accept on the wire. The spec
@@ -143,7 +155,23 @@ function envInt(name: string): number | undefined {
 
 const PROTOCOL_VERSION = "2025-06-18";
 const SERVER_NAME = "@sentropic/h2a";
-const SERVER_VERSION = "0.1.1";
+
+// The MCP `serverInfo.version` MUST be the real package version, not a frozen
+// literal — a stale `0.1.1` made `initialize` disagree with the plugin manifest
+// and `h2a --version`, defeating the version-drift diagnosis (#275). Resolved
+// from package.json via `currentCliVersion()` and cached (initialize is rare,
+// but the read is trivial and total — it falls back to "0.0.0" on any error).
+let cachedServerVersion: string | undefined;
+function serverVersion(): string {
+  if (cachedServerVersion === undefined) {
+    try {
+      cachedServerVersion = currentCliVersion();
+    } catch {
+      cachedServerVersion = "0.0.0";
+    }
+  }
+  return cachedServerVersion;
+}
 
 function currentTmuxSessionForSidecar(): string | undefined {
   const pane = process.env.TMUX_PANE;
@@ -208,10 +236,6 @@ function publishReadinessAck(
   }
 }
 
-function writeResponse(stdout: Writable, response: JsonRpcResponse): void {
-  stdout.write(`${JSON.stringify(response)}\n`);
-}
-
 function errorResponse(
   id: unknown,
   code: number,
@@ -235,7 +259,7 @@ function handleMethod(
   if (method === "initialize") {
     return {
       protocolVersion: PROTOCOL_VERSION,
-      serverInfo: { name: SERVER_NAME, version: SERVER_VERSION },
+      serverInfo: { name: SERVER_NAME, version: serverVersion() },
       capabilities: { tools: {} }
     };
   }
@@ -280,6 +304,13 @@ class MethodNotFoundError extends Error {
  */
 export function runMcpStdio(options: RunMcpStdioOptions): Promise<void> {
   const { root, stdin, stdout, stderr } = options;
+  // L0 trace: the ambient per-attempt trace installed by bin.ts. Undefined in
+  // unit tests and normal CLI verbs → every call is a no-op. It only ever
+  // writes to stderr, never to the JSON-RPC stdout stream.
+  const trace = getActiveMcpTrace();
+  // Only the FIRST tool response is the calibration milestone; the rest are
+  // still measured but tagged distinctly.
+  let firstToolCallTraced = false;
   if (options.readiness && !options.autoOpen) {
     throw new Error("structured readiness requires successful auto-open");
   }
@@ -293,6 +324,14 @@ export function runMcpStdio(options: RunMcpStdioOptions): Promise<void> {
   // The stdio transport carries live agent sessions; enable autoHeartbeat so
   // the presence file stays fresh while this mcp-serve process is alive.
   let delegation: H2aRunDelegation | undefined;
+  // L1: forward reference — the notification sink is installed on the server
+  // below, but the bounded emitter needs `server.frameBudget`/`payloadStore`,
+  // which only exist after creation. Ticks are unref'd and interval-driven, so
+  // the real emitter is always assigned before the first tick fires.
+  let emitNotification: (
+    notification: unknown,
+    meta: { method: string; topic?: string | undefined }
+  ) => { accepted: boolean } = () => ({ accepted: false });
   const server = createMcpServer({
     root,
     workspaceRoot: options.workspaceRoot ?? process.cwd(),
@@ -306,11 +345,97 @@ export function runMcpStdio(options: RunMcpStdioOptions): Promise<void> {
     },
     notifications: {
       ...(notifyIntervalMs !== undefined ? { intervalMs: notifyIntervalMs } : {}),
-      sink: (notification) => {
-        stdout.write(`${JSON.stringify(notification)}\n`);
-      }
+      sink: (notification) =>
+        emitNotification(notification, {
+          method: notification.method,
+          topic:
+            typeof notification.params?.topic === "string"
+              ? notification.params.topic
+              : undefined
+        })
     }
   });
+
+  // ---------------------------------------------------------------------------
+  // L1: the SINGLE bounded output writer. Every frame — success, error, parse
+  // error, initialize, tools/list, a preformatted Track result, AND every pushed
+  // notification — is bounded to the frame budget here; there is NO direct write
+  // to `stdout` anywhere else. Writes are ordered and drain-aware (backpressure),
+  // and the queue is byte-bounded so a slow reader cannot grow memory unbounded.
+  // ---------------------------------------------------------------------------
+  const frameBudget = server.frameBudget;
+  const recover = (intactJson: string): PayloadRecoveryRef | undefined => {
+    try {
+      return server.payloadStore.persistOutput(Buffer.from(intactJson, "utf8"));
+    } catch {
+      return undefined;
+    }
+  };
+  const MAX_QUEUE_BYTES = 8 * 1024 * 1024;
+  let writeChain: Promise<void> = Promise.resolve();
+  let queuedBytes = 0;
+  function enqueueLine(line: string): void {
+    const bytes = Buffer.byteLength(line, "utf8");
+    queuedBytes += bytes;
+    writeChain = writeChain
+      .then(
+        () =>
+          new Promise<void>((resolve, reject) => {
+            const flushed = stdout.write(line, (err) => {
+              if (err) reject(err);
+            });
+            if (flushed) resolve();
+            else stdout.once("drain", resolve);
+          })
+      )
+      .then(
+        () => {
+          queuedBytes -= bytes;
+        },
+        (err) => {
+          queuedBytes -= bytes;
+          throw err;
+        }
+      );
+    writeChain.catch((err) => {
+      const message = err instanceof Error ? err.message : String(err);
+      try {
+        stderr.write(`h2a mcp-serve: stdout write error: ${message}\n`);
+      } catch {
+        /* stderr is diagnostic-only; a broken diagnostic sink is not fatal */
+      }
+    });
+  }
+  /** Bound and enqueue a JSON-RPC response; returns the frame ACTUALLY emitted. */
+  function emitResponse(id: JsonRpcId, responseObject: unknown): EncodedFrame {
+    const frame = boundResponseFrame(id, responseObject, frameBudget, recover);
+    enqueueLine(frame.line);
+    return frame;
+  }
+  emitNotification = (notification, meta): { accepted: boolean } => {
+    if (queuedBytes > MAX_QUEUE_BYTES) {
+      // Queue bound: drop rather than grow memory unbounded. A response is never
+      // dropped; a notification is retried by the dispatcher (snapshot held).
+      try {
+        stderr.write(`h2a mcp-serve: notification queue full; dropped ${meta.method}\n`);
+      } catch {
+        /* diagnostic only */
+      }
+      return { accepted: false };
+    }
+    const outcome = boundNotificationFrame(notification, meta, frameBudget, recover);
+    if (!outcome) {
+      try {
+        stderr.write(`h2a mcp-serve: dropped unserializable notification ${meta.method}\n`);
+      } catch {
+        /* diagnostic only */
+      }
+      return { accepted: false };
+    }
+    enqueueLine(outcome.frame.line);
+    return { accepted: outcome.accepted };
+  };
+
   // DEC-052: start the periodic diff scan so subscribed sessions receive
   // pushed presence/inbox/negotiation notifications.
   server.notifications.start();
@@ -362,6 +487,7 @@ export function runMcpStdio(options: RunMcpStdioOptions): Promise<void> {
         }
       });
       autoOpenedSessionId = opened.sessionId;
+      trace?.phase("session_open");
       // Spec 2026-07-25-h2a-lane-addressing §D1b: follow the host-native title
       // for the life of the session, so a rename converges into presence within
       // one heartbeat instead of staying stale until the host reconnects.
@@ -447,6 +573,7 @@ export function runMcpStdio(options: RunMcpStdioOptions): Promise<void> {
   if (options.readiness && autoOpenedSessionId) {
     try {
       publishReadinessAck(options.readiness, autoOpenedSessionId);
+      trace?.phase("readiness_ack");
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       stderr.write(`h2a mcp-serve: readiness ACK failed: ${message}\n`);
@@ -470,7 +597,8 @@ export function runMcpStdio(options: RunMcpStdioOptions): Promise<void> {
       } catch {
         // ignore
       }
-      resolve();
+      // Flush the bounded writer before resolving so no queued frame is lost.
+      void writeChain.finally(() => resolve());
     };
     if (options.signal) {
       if (options.signal.aborted) {
@@ -493,7 +621,7 @@ export function runMcpStdio(options: RunMcpStdioOptions): Promise<void> {
         request = JSON.parse(trimmed) as JsonRpcRequest;
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
-        writeResponse(stdout, errorResponse(null, -32700, "Parse error", message));
+        emitResponse(null, errorResponse(null, -32700, "Parse error", message));
         return;
       }
 
@@ -507,17 +635,69 @@ export function runMcpStdio(options: RunMcpStdioOptions): Promise<void> {
       // request (DEC-115).
       const isNotification = !("id" in request);
 
+      // L1: reject an incoming id we cannot correlate within budget (a huge
+      // string, an object, an array) BEFORE building any response — so every
+      // response id below is a finite number, null, or a ≤128-byte string.
+      if (!isNotification && !isAcceptableRequestId(request.id)) {
+        emitResponse(null, buildInvalidRequestId());
+        return;
+      }
+
       if (request.jsonrpc !== "2.0" || typeof request.method !== "string") {
         if (!isNotification) {
-          writeResponse(stdout, errorResponse(request.id ?? null, -32600, "Invalid Request"));
+          emitResponse(
+            (request.id ?? null) as JsonRpcId,
+            errorResponse(request.id ?? null, -32600, "Invalid Request")
+          );
         }
         return;
       }
 
       try {
+        const requestId =
+          typeof request.id === "string" || typeof request.id === "number"
+            ? request.id
+            : undefined;
+        if (trace && request.method === "initialize") {
+          trace.phase("initialize_recv", {
+            method: "initialize",
+            ...(requestId !== undefined ? { requestId } : {})
+          });
+        }
         const result = handleMethod(server, request.method, request.params);
         if (!isNotification) {
-          writeResponse(stdout, successResponse(request.id ?? null, result));
+          // L1: the SINGLE bounded writer serializes ONCE, bounds the exact UTF-8
+          // bytes to the frame budget (an oversize result becomes a bounded -32010
+          // with a recovery ref — never a raw >B write), and returns the frame
+          // ACTUALLY emitted so the L0 calibration measures the true wire size.
+          const emitted = emitResponse(
+            (request.id ?? null) as JsonRpcId,
+            successResponse(request.id ?? null, result)
+          );
+          // L0 calibration semantics: the PAYLOAD bytes (no trailing newline),
+          // as before the single-writer refactor. The budget itself counts the
+          // newline; the trace stays payload-exact so the L0 witness is unchanged.
+          const bytes = Buffer.byteLength(emitted.json, "utf8");
+          if (trace) {
+            const rid = requestId !== undefined ? { requestId } : {};
+            if (request.method === "initialize") {
+              trace.phase("initialize_sent", { bytes, ...rid });
+            } else if (request.method === "tools/list") {
+              trace.phase("tools_list_sent", { bytes, ...rid });
+            } else if (request.method === "tools/call") {
+              const rawName =
+                request.params && typeof request.params === "object"
+                  ? (request.params as { name?: unknown }).name
+                  : undefined;
+              const toolField = typeof rawName === "string" ? { tool: rawName } : {};
+              trace.phase(firstToolCallTraced ? "tool_sent" : "tool_first_sent", {
+                bytes,
+                ...rid,
+                ...toolField
+              });
+              firstToolCallTraced = true;
+            }
+          }
         }
       } catch (err) {
         if (isNotification) {
@@ -530,16 +710,16 @@ export function runMcpStdio(options: RunMcpStdioOptions): Promise<void> {
           return;
         }
         if (err instanceof MethodNotFoundError) {
-          writeResponse(
-            stdout,
+          emitResponse(
+            (request.id ?? null) as JsonRpcId,
             errorResponse(request.id ?? null, -32601, `Method not found: ${err.method}`)
           );
           return;
         }
         const message = err instanceof Error ? err.message : String(err);
         stderr.write(`h2a mcp-serve: internal error: ${message}\n`);
-        writeResponse(
-          stdout,
+        emitResponse(
+          (request.id ?? null) as JsonRpcId,
           errorResponse(request.id ?? null, -32603, `Internal error: ${message}`)
         );
       }
@@ -547,7 +727,9 @@ export function runMcpStdio(options: RunMcpStdioOptions): Promise<void> {
 
     rl.on("close", () => {
       shutdown();
-      resolve();
+      // Flush the bounded writer before resolving so the last frame is on the
+      // wire before the process (bin.ts awaits this promise) can exit.
+      void writeChain.finally(() => resolve());
     });
     rl.on("error", (err) => {
       shutdown();

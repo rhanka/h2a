@@ -28,6 +28,7 @@ import {
   shouldDispatchRuntime
 } from "./bin-routing.js";
 import { runFocusServeCli } from "./runtime/focus/serve.js";
+import { createMcpTrace, setActiveMcpTrace } from "./runtime/mcp/phase-trace.js";
 
 const argv = process.argv.slice(2);
 
@@ -114,6 +115,18 @@ if (argv[0] === "--version" || argv[0] === "-v" || argv[0] === "version") {
   process.stdout.write(`${readOwnVersion()}\n`);
   process.exitCode = 0;
 } else if (argv[0] === "mcp-serve") {
+  // L0 tracing: mint the per-attempt trace at the earliest point of the
+  // process body and install it as the ambient trace so the deep boot path
+  // (cli → identity → store/locks → stdio) can emit correlated spans without
+  // threading a trace object through every signature. This records the process
+  // START only — the static imports above already ran, so bin.ts does NOT
+  // claim to measure them; the external `mcp-phase-probe.mjs` preload supplies
+  // that import envelope.
+  const mcpTrace = createMcpTrace({ role: "server" });
+  setActiveMcpTrace(mcpTrace);
+  // `code` carries the running build version on this milestone (the closed
+  // event shape keeps no dedicated `version` field); it is non-secret.
+  mcpTrace.phase("process_start", { code: readOwnVersion() });
   // Graceful shutdown: a host kill (or orderly stop) cleans presence
   // immediately (sessions → `closed`) rather than leaving it to expire as
   // false-live. We override the default signal terminate, so we MUST guarantee
