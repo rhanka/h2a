@@ -159,6 +159,7 @@ import {
 } from "./runtime/local-files/index.js";
 import { messageBackend, sendMessage } from "./runtime/send.js";
 import {
+  getActiveMcpTrace,
   H2A_MCP_READY_FILE_ENV,
   H2A_MCP_READY_NONCE_ENV,
   runMcpStdio
@@ -1865,10 +1866,19 @@ export async function runMcpServe(
     stderr: process.stderr
   }
 ): Promise<number> {
+  const trace = getActiveMcpTrace();
+  trace?.phase("mcp_serve_enter");
   const cwd = io.cwd ?? (() => process.cwd());
   warnIfCwdRootFallback(flags, cwd, { stderr: io.stderr, stdout: io.stdout, cwd });
-  const root = resolveRoot(flags, cwd);
-  const autoOpen = resolveAutoOpen(flags, cwd);
+  const root = trace
+    ? trace.span("root_resolve", () => resolveRoot(flags, cwd))
+    : resolveRoot(flags, cwd);
+  // Identity/auto-open resolution reads keys, binds and registers — the deep
+  // spans (provider, key read, lock wait, registry parse) are emitted from
+  // live.ts / bindings.ts / locks.ts / store.ts under this same attempt.
+  const autoOpen = trace
+    ? trace.span("identity_resolve", () => resolveAutoOpen(flags, cwd))
+    : resolveAutoOpen(flags, cwd);
   const readinessEnv = io.env ?? process.env;
   const readyFile = readinessEnv[H2A_MCP_READY_FILE_ENV];
   const readyNonce = readinessEnv[H2A_MCP_READY_NONCE_ENV];
@@ -1977,6 +1987,7 @@ try {
         );
         worker.once("error", () => {});
         worker.unref();
+        trace?.phase("upgrade_launch", { code: wantAutoUpgrade ? "auto" : "check" });
       }
     } catch {
       // best-effort: worker launch failure must never block serving.
@@ -2052,6 +2063,7 @@ try {
         instance: autoOpen.instance, privateKeyPem: identityPrivateKeyPem
       });
     }
+    trace?.phase("transport_enter");
     await runMcpStdio({
       root,
       messageBackend: backend,

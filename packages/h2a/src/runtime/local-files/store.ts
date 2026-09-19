@@ -4,6 +4,7 @@ import {
   mkdirSync,
   readFileSync,
   readdirSync,
+  statSync,
   unlinkSync,
   writeFileSync
 } from "node:fs";
@@ -45,8 +46,9 @@ import {
   type H2ASignature
 } from "@sentropic/h2a";
 
-import { withLockSync } from "./locks.js";
+import { withLockSync, type LockObservation } from "./locks.js";
 import { withLeaseSync } from "./lease.js";
+import { getActiveMcpTrace } from "../mcp/phase-trace.js";
 import {
   inboxDir,
   inboxDirRaw,
@@ -372,14 +374,32 @@ export function createLocalStore(options: CreateLocalStoreOptions): LocalStore {
   // is the same-machine default (DEC-036); `lease` is the cross-host primitive
   // (DEC-065) for a shared RWX store. Both share the `(path, fn, opts)` shape;
   // the lease handle arg is simply ignored by the store's sync sections.
+  // L0 passive lock instrumentation: forward the primitive's observations to
+  // the ambient MCP trace (logical lock id only — never the owner payload).
+  // Undefined trace → no observe callback is attached and behaviour is byte-for
+  // -byte identical to before. Detailed-gated so a normal CLI run adds nothing.
+  function lockObserver(): ((event: LockObservation) => void) | undefined {
+    const trace = getActiveMcpTrace();
+    if (!trace?.detailed) return undefined;
+    return (event) => {
+      trace.phase(`lock_${event.event}`, {
+        tool: event.lock,
+        ...(event.waitMs !== undefined ? { waitMs: event.waitMs } : {}),
+        ...(event.holdMs !== undefined ? { holdMs: event.holdMs } : {})
+      });
+    };
+  }
+
   function lock<T>(
     lockPath: string,
     fn: () => T,
     opts: typeof lockOpts
   ): T {
-    return lockMode === "lease"
-      ? withLeaseSync(lockPath, fn, opts)
-      : withLockSync(lockPath, fn, opts);
+    if (lockMode === "lease") {
+      return withLeaseSync(lockPath, fn, opts);
+    }
+    const observe = lockObserver();
+    return withLockSync(lockPath, fn, observe ? { ...opts, observe } : opts);
   }
 
   const registryLock = join(paths.registry, ".lock");
@@ -399,6 +419,27 @@ export function createLocalStore(options: CreateLocalStoreOptions): LocalStore {
   }
 
   function listInstances(): H2AActorRegistration[] {
+    // L0 registry-read measurement (detailed-gated so the hot path is untouched
+    // when not tracing): the registry file size in bytes, recorded SEPARATELY
+    // from any lock hold. This is the read the identity-resolution boot performs
+    // against a large `instances.jsonl` — the candidate cause surface for T8.
+    const trace = getActiveMcpTrace();
+    if (trace?.detailed) {
+      let bytes = 0;
+      try {
+        bytes = statSync(paths.instances).size;
+      } catch {
+        /* a missing/rotating registry is not a measurement failure */
+      }
+      return trace.span("registry_read", () =>
+        readJsonl<H2AActorRegistration>(paths.instances).map((reg) => ({
+          ...reg,
+          roles: toArray(reg.roles),
+          scopes: toArray(reg.scopes)
+        })),
+        { bytes }
+      );
+    }
     return readJsonl<H2AActorRegistration>(paths.instances).map((reg) => ({
       ...reg,
       roles: toArray(reg.roles),

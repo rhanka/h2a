@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url";
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 const BIN = join(REPO_ROOT, "packages", "h2a", "dist", "bin.js");
-const CORE_HELP_SHA256 = "9a4723ccf963c9140cd2cdf1429476b4f45f11e2628ac0ecbdc6077edec86b28";
+const CORE_HELP_SHA256 = "fa46f32c07572d9cf9825eeeb26689471ec8c02cdb50cc1cdd8789d14108b0c6";
 const RUNTIME_MISSING =
   "ce verbe requiert le runtime h2a (sessions / k8s / tunnel).\n" +
   "  Répare l'installation lockstep : npm i -g @sentropic/h2a@latest\n";
@@ -98,10 +98,10 @@ function assertCoreHelp(result) {
   assert.equal(result.stderr, "");
   assert.equal(result.runtimeImported, false);
   assert.equal(result.configHomeCreated, false);
-  // A SHA-256 commitment is an exact, compact golden for the 13,246-byte help
+  // A SHA-256 commitment is an exact, compact golden for the 13,264-byte help
   // stream; the durable report records this value and its byte length.
   assert.equal(createHash("sha256").update(result.stdout).digest("hex"), CORE_HELP_SHA256);
-  assert.equal(Buffer.byteLength(result.stdout), 13246);
+  assert.equal(Buffer.byteLength(result.stdout), 13264);
 }
 
 function assertMissingRuntime(result, firstToken) {

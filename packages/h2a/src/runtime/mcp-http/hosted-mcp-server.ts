@@ -15,6 +15,7 @@ import {
 import { currentCliVersion } from "../upgrade/index.js";
 import { H2A_CLI_MCP_TOOL_DESCRIPTORS } from "../mcp/tools.js";
 import { isMcpTransportResult, type McpServer } from "../mcp/server.js";
+import { boundCallToolResult } from "../mcp/frame-budget.js";
 import { hostedReadOnlyDescriptors, isHostedReadOnlyTool } from "./readonly-allowlist.js";
 
 export function dispatchHostedTool(
@@ -32,11 +33,20 @@ export function dispatchHostedTool(
   if (result instanceof Promise) {
     throw new Error("hosted read-only tools must be synchronous");
   }
-  if (isMcpTransportResult(result)) return result;
-  if (result && typeof result === "object" && "error" in result && typeof result.error === "string") {
-    return { content: [{ type: "text", text: result.error }], isError: true };
-  }
-  return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+  const shaped: CallToolResult = isMcpTransportResult(result)
+    ? (result as CallToolResult)
+    : result && typeof result === "object" && "error" in result && typeof result.error === "string"
+      ? { content: [{ type: "text", text: result.error }], isError: true }
+      : { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+  // L1: bound the final SDK frame emitted to the hosted client (tenant-confined
+  // recovery ref); a hosted read never emits a frame over the budget.
+  return boundCallToolResult(shaped as never, h2a.frameBudget, (j) => {
+    try {
+      return h2a.payloadStore.persistOutput(Buffer.from(j, "utf8"));
+    } catch {
+      return undefined;
+    }
+  }) as CallToolResult;
 }
 
 /** SDK Server exposing only the read-only allowlist, dispatching to the h2a callTool. */
