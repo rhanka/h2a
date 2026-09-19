@@ -101,6 +101,17 @@ describe("registry", () => {
     expect(third.convId).toBe("conv-42");
   });
 
+  it("persists and preserves the pinned Claude --bare choice across re-enroll", () => {
+    const first = enroll({ ...baseInput, bare: true }, regPath);
+    expect(first.bare).toBe(true);
+    // a re-enroll that omits bare keeps the pin (resume/restore honor it)
+    const second = enroll({ ...baseInput, convId: "conv-9" }, regPath);
+    expect(second.bare).toBe(true);
+    // an explicit choice overrides the pin
+    const third = enroll({ ...baseInput, bare: false }, regPath);
+    expect(third.bare).toBe(false);
+  });
+
   it("persists delegated-work provenance and the observed worker pid", () => {
     const entry = enroll({
       ...baseInput,
