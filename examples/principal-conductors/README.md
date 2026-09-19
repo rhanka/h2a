@@ -36,7 +36,10 @@ The `run.mjs` script:
 8. Starts the MCP server (`node packages/h2a-cli/dist/bin.js mcp-serve --root <tempRoot>`)
    as a child process, sends an `initialize`, a `tools/list`, then a
    `tools/call` `h2a_discover_instances({ role: "CONDUCTOR" })` and prints the
-   list returned by the server (the 15 conductors).
+   list returned by the server (the 15 conductors). Since 0.97.3 discovery is
+   **paginated** (default page = the 200 most recent inscriptions), so the
+   example loops `nextCursor` until `hasMore` is false and restarts on a
+   `cursor_stale`; a registry larger than one page is traversed in full.
 9. Cleans up all temporary directories.
 
 The script exits `0` on full success and prints a green summary line.

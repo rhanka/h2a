@@ -38,13 +38,41 @@ const H2A_COORDINATION_TOOL_DESCRIPTORS: McpToolDescriptor[] = [
   {
     name: "h2a_discover_instances",
     description:
-      "List instances from the registry, optionally filtered by role and/or scope.",
+      "List instances from the registry, optionally filtered by role and/or scope. " +
+      "Bounded and paginated: with no cursor it returns the 200 MOST RECENT inscriptions " +
+      "(createdAt desc) plus { total, hasMore, nextCursor, generation, limit, returned }. " +
+      "To traverse the whole registry, call again with the returned nextCursor until it is null; " +
+      "keep the same role/scope/limit (or omit them and let the cursor carry them). A stale/invalid " +
+      "cursor fails explicitly (cursor_stale / invalid_cursor) rather than silently restarting.",
     inputSchema: {
       type: "object",
       properties: {
-        role: { type: "string" },
-        scope: { type: "string" }
-      }
+        role: { type: "string", maxLength: 64 },
+        scope: { type: "string", maxLength: 256 },
+        limit: { type: "integer", minimum: 1, maximum: 1000, default: 200 },
+        cursor: { type: "string", minLength: 1, maxLength: 2048 }
+      },
+      additionalProperties: false
+    }
+  },
+  {
+    name: "h2a_read_payload",
+    description:
+      "Read-only chunked recovery of an oversize MCP output (a response or notification that " +
+      "exceeded the frame budget). Returns base64 bytes so no UTF-8 codepoint is cut: " +
+      "{ ref, encoding:'base64', data, offset, nextOffset, totalBytes, sha256, expiresAt }. " +
+      "Loop while nextOffset is non-null (advancing offset by the real bytes returned), then " +
+      "decode and verify sha256 after full reassembly. maxBytes is a maximum (≤65536); the server " +
+      "may return fewer to stay within the frame budget. Tenant-confined; needs no signing identity.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        ref: { type: "string", minLength: 1, maxLength: 512 },
+        offset: { type: "integer", minimum: 0 },
+        maxBytes: { type: "integer", minimum: 1, maximum: 65536, default: 65536 }
+      },
+      required: ["ref"],
+      additionalProperties: false
     }
   },
   {

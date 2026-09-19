@@ -15,6 +15,9 @@ import type { McpToolDescriptor, McpToolName } from "../mcp/tools.js";
 /** Phase-1 read-only surface: "claude.ai has the info" (discover / nhi / posture). */
 export const H2A_HOSTED_READONLY_TOOLS: readonly McpToolName[] = [
   "h2a_discover_instances",
+  // L1: read-only, tenant-confined recovery of an oversize output. The ref is a
+  // per-root capability, so a hosted read cannot reach another tenant's payload.
+  "h2a_read_payload",
   "h2a_discover_sessions",
   "h2a_nhi_inventory",
   "h2a_nhi_report",
