@@ -31,7 +31,7 @@ import { join } from "node:path";
 
 import { verifyCanonical, type H2ASignature } from "@sentropic/h2a";
 
-import { localStorePaths, withLockSync } from "../local-files/index.js";
+import { localStorePaths, withLock, withLockSync } from "../local-files/index.js";
 import { getActiveMcpTrace } from "../mcp/phase-trace.js";
 
 /**
@@ -185,4 +185,91 @@ export function reclaimOrMint(
     reclaimStale: false,
     ...(observe ? { observe } : {})
   });
+}
+
+/**
+ * L2 options for the ASYNC (MCP identity worker) reclaim/mint transaction.
+ */
+export interface ReclaimOrMintOptions {
+  /**
+   * Cooperative cancellation (transport closed / signal). When aborted BEFORE the
+   * lock is held, the wait stops and the attempt throws; a transaction already
+   * entered under the lock finishes so no half-written binding is left.
+   */
+  readonly signal?: AbortSignal;
+  /** Monotone remaining budget (ms) bounding the lock wait for this attempt. */
+  readonly deadlineMs?: number;
+  /**
+   * Materialize keys / registration / alias BEFORE the binding row is appended
+   * (mint path only), all inside the held identity lock. This closes the
+   * publish-order window through which a concurrent worker that read the fresh
+   * binding — but not yet its keyring — could fail proof-of-possession and mint a
+   * DUPLICATE identity. The binding is always the LAST durable write.
+   */
+  readonly beforePublish?: (
+    result: ReclaimOrMintResult,
+    heldLocks: { readonly identity: true }
+  ) => void;
+}
+
+/**
+ * Async twin of {@link reclaimOrMint} used by the L2 identity worker. Identical
+ * invariants — proof-of-possession gates reclaim, a fail-closed fence
+ * (`reclaimStale:false`) refuses an ambiguous sentinel, `reclaimOrMint*` stays
+ * the UNIQUE append of a binding row — but the lock WAIT is asynchronous so the
+ * worker can receive an IPC cancel between poll attempts instead of blocking the
+ * event loop inside `Atomics.wait`. On a mint, `beforePublish` publishes the
+ * keyring/registration/alias before the binding append (window closure, T5).
+ */
+export async function reclaimOrMintAsync(
+  root: string,
+  key: IdentityBindingKey,
+  deps: ReclaimOrMintDeps,
+  options: ReclaimOrMintOptions = {}
+): Promise<ReclaimOrMintResult> {
+  mkdirSync(identityDir(root), { recursive: true });
+  const trace = getActiveMcpTrace();
+  const observe = trace?.detailed
+    ? (event: { event: string; waitMs?: number; holdMs?: number }): void => {
+        trace.phase(`binding_lock_${event.event}`, {
+          tool: "identity",
+          ...(event.waitMs !== undefined ? { waitMs: event.waitMs } : {}),
+          ...(event.holdMs !== undefined ? { holdMs: event.holdMs } : {})
+        });
+      }
+    : undefined;
+  return withLock(
+    bindingsLock(root),
+    () => {
+      const existing = findBinding(root, key);
+      if (existing && deps.verifyProof(existing)) {
+        return { action: "reclaim", instance: existing.instance, agentUuid: existing.agentUuid };
+      }
+      const minted = deps.mint();
+      const result: ReclaimOrMintResult = {
+        action: "mint",
+        instance: minted.instance,
+        agentUuid: minted.agentUuid
+      };
+      // Publish keys / registration / alias BEFORE the binding row so no reader
+      // can observe a binding whose keyring is not yet provable.
+      options.beforePublish?.(result, { identity: true });
+      appendFileSync(
+        bindingsFile(root),
+        `${JSON.stringify({ ...key, instance: minted.instance, agentUuid: minted.agentUuid, at: new Date(deps.now()).toISOString() } satisfies H2AIdentityBinding)}\n`,
+        "utf8"
+      );
+      return result;
+    },
+    {
+      ownerMetadata: {
+        protocol: IDENTITY_BINDING_FENCE_PROTOCOL,
+        fenceEpoch: randomUUID()
+      },
+      reclaimStale: false,
+      ...(options.signal ? { signal: options.signal } : {}),
+      ...(options.deadlineMs !== undefined ? { timeoutMs: options.deadlineMs } : {}),
+      ...(observe ? { observe } : {})
+    }
+  );
 }

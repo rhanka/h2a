@@ -36,8 +36,13 @@ const MILESTONES = [
   "tool_first_sent"
 ];
 
-// Deep boot spans that correlate import → identity → lock → registry read.
-const DEEP_SPANS = ["identity_provider", "identity_register", "registry_read"];
+// L2: identity resolution moved OFF the parent's synchronous boot path into a
+// dedicated child worker, so the parent now traces the identity LIFECYCLE
+// (pending → ready/failed) instead of the deep provider/register/registry/lock
+// spans — those run in the child, off the MCP event loop (the #249 fix). On
+// un-instrumented main NO span is emitted at all, so the lifecycle span is
+// absent there too → the L0 RED/GREEN contract is preserved.
+const IDENTITY_LIFECYCLE_SPAN = "identity_pending";
 
 let cached;
 const roots = [];
@@ -97,16 +102,20 @@ test("phase-trace: emits the lifecycle milestone spans (absent on main → RED)"
   }
 });
 
-test("phase-trace: emits the deep import→identity→lock→registry spans", async () => {
+test("phase-trace: emits the async identity lifecycle span, deferred off the boot path", async () => {
   const s = await session();
   const phases = new Set(s.events.map((e) => e.phase));
-  for (const d of DEEP_SPANS) {
-    assert.ok(phases.has(d), `missing deep span: ${d}`);
-  }
-  // The identity write path takes the binding lock: at least one lock event.
+  // L2: the parent traces that identity entered the async pending window.
   assert.ok(
-    s.events.some((e) => /_lock_(wait|acquired|released)$/.test(e.phase) || e.phase.startsWith("lock_")),
-    "no lock wait/acquire/release span on the identity write path"
+    phases.has(IDENTITY_LIFECYCLE_SPAN),
+    `missing identity lifecycle span: ${IDENTITY_LIFECYCLE_SPAN}`
+  );
+  // Identity is OFF the boot critical path: initialize is sent before identity
+  // could ever become ready (it never waits on the shared-identity section).
+  const seqOf = (p) => s.events.find((e) => e.phase === p)?.seq ?? Infinity;
+  assert.ok(
+    seqOf("initialize_sent") < seqOf("identity_ready"),
+    "initialize must be sent before identity becomes ready (identity is not on the boot critical path)"
   );
 });
 

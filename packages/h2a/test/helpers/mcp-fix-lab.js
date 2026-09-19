@@ -228,6 +228,49 @@ export function notify(handle, notification) {
   handle.child.stdin.write(`${JSON.stringify(notification)}\n`);
 }
 
+let toolCallSeq = 1_000_000;
+
+/** Call one MCP tool by name and return the raw RPC result (L2 convenience). */
+export function callTool(handle, name, args = {}, opts = {}) {
+  const id = opts.id ?? ++toolCallSeq;
+  return callRpc(
+    handle,
+    { jsonrpc: "2.0", id, method: "tools/call", params: { name, arguments: args } },
+    opts
+  );
+}
+
+/** Parse the first text content of a tool result as JSON (or undefined). */
+export function parseToolJson(res) {
+  const text = res?.message?.result?.content?.[0]?.text;
+  if (typeof text !== "string") return undefined;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return undefined;
+  }
+}
+
+/** Read the current `h2a_identity_status` state object. */
+export async function readIdentityStatus(handle, opts = {}) {
+  return parseToolJson(await callTool(handle, "h2a_identity_status", {}, opts));
+}
+
+/**
+ * Poll `h2a_identity_status` until `predicate(status)` holds or the deadline
+ * elapses. Returns the last status seen (so the caller asserts on it either way).
+ */
+export async function waitForIdentity(handle, predicate, { timeoutMs = 25_000, pollMs = 200 } = {}) {
+  const start = Date.now();
+  let last;
+  while (Date.now() - start < timeoutMs) {
+    last = await readIdentityStatus(handle, { timeoutMs: 10_000 });
+    if (last && predicate(last)) return last;
+    await new Promise((r) => setTimeout(r, pollMs));
+  }
+  return last;
+}
+
 /** All parsed trace events (`h2a.mcp.phase ...`) seen on stderr so far. */
 export function collectFrames(handle) {
   const events = [];
@@ -254,7 +297,9 @@ export function startLiveHolder({ root, lock = "registry" }) {
   const src = `
 import { openSync, writeFileSync, closeSync, unlinkSync } from "node:fs";
 import { hostname } from "node:os";
-const lockPath = process.argv[2];
+// With node --input-type=module --eval <src> -- <lockPath> the positional lands
+// at argv[1] (there is no script-path slot for --eval).
+const lockPath = process.argv[1];
 let fd;
 try {
   fd = openSync(lockPath, "wx");
