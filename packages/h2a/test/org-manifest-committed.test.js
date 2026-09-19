@@ -20,18 +20,19 @@ import { H2A_ORG_MANIFEST_FILENAME, parseOrgManifest, validateOrgManifest } from
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
 const ROOT_SCOPE = "org:h2a";
 
-/** The twelve durable actors of DOC-06 (docs/agents/RECALL.md), plus the human owner. */
-const TRANSVERSE = ["cond", "arch", "harness", "cyber"];
-const DOMAIN = [
-  "coop",
-  "runtime",
-  "track",
-  "plugins",
-  "memory",
-  "portal",
-  "agents",
-  "gateway"
-];
+/**
+ * The five durable roles decided by the owner on 2026-09-19 (dossier « Rôles h2a », option A,
+ * D1=A), plus the human owner: Conduite (`cond`), Cadre et assurance (`arch`), Moteur
+ * (`runtime`), Expérience (`portal`), Plateforme (`infra`). They replace the twelve actors of
+ * DOC-06; the old → new mapping lives in docs/governance/RACI.md.
+ */
+const ROLES = ["cond", "arch", "runtime", "portal", "infra"];
+/**
+ * The twelve-actor names retired by that decision. Pinned separately from ROLES so that a stale
+ * manifest line (e.g. `harness` left behind next to `arch`) names the retired actor in the
+ * failure instead of surfacing as an anonymous "extra" instance.
+ */
+const RETIRED = ["harness", "cyber", "coop", "track", "plugins", "memory", "agents", "gateway"];
 /**
  * WP → the single actor accountable for it, **derived from `docs/governance/RACI.md` table A and
  * never duplicated here**. A copy would have to be edited in lockstep with the document, and the
@@ -93,17 +94,22 @@ test("exactly one PRINCIPAL and exactly one CONDUCTOR are declared", () => {
   assert.equal(byRole("PRINCIPAL").length, 1);
 });
 
-test("the twelve durable actors are all declared, and nothing else is an actor", () => {
+test("the five durable roles are all declared, and nothing else is an actor", () => {
   const manifest = committedManifest();
   const declared = manifest.instances.map((i) => i.instance);
-  for (const actor of [...TRANSVERSE, ...DOMAIN]) {
-    assert.ok(declared.includes(actor), `actor "${actor}" is missing from the manifest`);
+  for (const actor of ROLES) {
+    assert.ok(declared.includes(actor), `role "${actor}" is missing from the manifest`);
+  }
+  for (const actor of RETIRED) {
+    assert.ok(
+      !declared.includes(actor),
+      `retired actor "${actor}" is still declared — the owner decision of 2026-09-19 folds it into a role`
+    );
   }
   const principals = manifest.instances.filter((i) => i.role === "PRINCIPAL").map((i) => i.instance);
-  const extra = declared.filter(
-    (i) => ![...TRANSVERSE, ...DOMAIN, ...principals].includes(i)
-  );
+  const extra = declared.filter((i) => ![...ROLES, ...principals].includes(i));
   assert.deepEqual(extra, [], "an undeclared actor appeared — amend the RACI, not just the manifest");
+  assert.equal(declared.length, ROLES.length + principals.length, "an instance is declared twice");
 });
 
 test("every WP is owned by exactly one actor — the invariant, not one particular map", () => {
