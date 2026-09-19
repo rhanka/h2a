@@ -49,3 +49,17 @@ export {
   type McpPushNotification,
   type NotificationSink
 } from "./notifications.js";
+
+export {
+  createMcpTrace,
+  getActiveMcpTrace,
+  setActiveMcpTrace,
+  TRACE_LINE_PREFIX,
+  TRACE_DETAIL_ENV,
+  type McpTrace,
+  type McpTraceEvent,
+  type McpTraceFields,
+  type McpTraceOptions,
+  type McpTraceRole,
+  type McpTraceEventKind
+} from "./phase-trace.js";

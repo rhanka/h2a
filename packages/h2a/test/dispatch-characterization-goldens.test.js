@@ -9,7 +9,9 @@ import { fileURLToPath } from "node:url";
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 const BIN = join(REPO_ROOT, "packages", "h2a", "dist", "bin.js");
-const CORE_HELP_SHA256 = "3d94ede19022f89db5538095ce7f5b8b1f13d46716af7bbbe6cbe5260e9525be";
+// Updated for L1: the new `h2a_read_payload` tool appears in the help's
+// "MCP tools:" line (+18 bytes → 13,202), a legitimate public-surface change.
+const CORE_HELP_SHA256 = "5c2a31e5828ea72babed36b831fe4b132d0741deae289ce07b978c8d390cefa8";
 const RUNTIME_MISSING =
   "ce verbe requiert le runtime h2a (sessions / k8s / tunnel).\n" +
   "  Répare l'installation lockstep : npm i -g @sentropic/h2a@latest\n";
@@ -101,7 +103,7 @@ function assertCoreHelp(result) {
   // A SHA-256 commitment is an exact, compact golden for the 13,184-byte help
   // stream; the durable report records this value and its byte length.
   assert.equal(createHash("sha256").update(result.stdout).digest("hex"), CORE_HELP_SHA256);
-  assert.equal(Buffer.byteLength(result.stdout), 13184);
+  assert.equal(Buffer.byteLength(result.stdout), 13202);
 }
 
 function assertMissingRuntime(result, firstToken) {

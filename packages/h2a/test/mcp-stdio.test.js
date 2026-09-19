@@ -12,6 +12,7 @@ import { PassThrough } from "node:stream";
 import test from "node:test";
 
 import {
+  currentCliVersion,
   H2A_CLI_MCP_TOOL_NAMES,
   runMcpServe,
   runMcpStdio
@@ -318,7 +319,10 @@ test("runMcpStdio: initialize returns the expected serverInfo", async () => {
     assert.equal(res.id, 1);
     assert.equal(res.result.protocolVersion, "2025-06-18");
     assert.equal(res.result.serverInfo.name, "@sentropic/h2a");
-    assert.equal(res.result.serverInfo.version, "0.1.1");
+    // L0: the MCP serverInfo.version is the REAL package version (via
+    // currentCliVersion), no longer a frozen "0.1.1" that drifted from the
+    // plugin manifest and `h2a --version` (#275 diagnosis).
+    assert.equal(res.result.serverInfo.version, currentCliVersion());
     assert.deepEqual(res.result.capabilities, { tools: {} });
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -511,6 +515,53 @@ test("runMcpStdio: missing jsonrpc field returns -32600 Invalid Request", async 
     const [res] = responses;
     assert.equal(res.error.code, -32600);
     assert.match(res.error.message, /invalid request/i);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("L1: tools/list advertises h2a_read_payload and discover returns a bounded page shape", async () => {
+  const root = freshRoot();
+  try {
+    const responses = await runScenario(root, [
+      JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize" }),
+      JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" }),
+      JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/list" }),
+      JSON.stringify({ jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "h2a_discover_instances", arguments: {} } })
+    ]);
+    const list = responses.find((r) => r.id === 2);
+    const names = list.result.tools.map((t) => t.name);
+    assert.ok(names.includes("h2a_read_payload"), "h2a_read_payload is advertised");
+    const discoverDesc = list.result.tools.find((t) => t.name === "h2a_discover_instances");
+    assert.equal(discoverDesc.inputSchema.properties.limit.default, 200, "discover default limit is 200");
+    assert.equal(discoverDesc.inputSchema.additionalProperties, false);
+
+    const disc = responses.find((r) => r.id === 3);
+    assert.notEqual(disc.result.isError, true);
+    const page = JSON.parse(disc.result.content[0].text);
+    assert.equal(page.total, 0);
+    assert.equal(page.hasMore, false);
+    assert.equal(page.nextCursor, null);
+    assert.equal(page.returned, 0);
+    assert.deepEqual(page.instances, []);
+    assert.equal(typeof page.generation, "string");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("L1: a request id that is a huge string is refused with -32600 id:null before execution", async () => {
+  const root = freshRoot();
+  try {
+    const responses = await runScenario(root, [
+      JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize" }),
+      JSON.stringify({ jsonrpc: "2.0", id: "z".repeat(4096), method: "tools/list" }),
+      JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/list" })
+    ]);
+    const nullErr = responses.find((r) => r.id === null && r.error && r.error.code === -32600);
+    assert.ok(nullErr, "the oversize id is refused with id:null");
+    const ok = responses.find((r) => r.id === 2);
+    assert.ok(Array.isArray(ok.result.tools), "the connection survives and still serves requests");
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
