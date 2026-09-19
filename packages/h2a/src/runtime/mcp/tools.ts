@@ -733,6 +733,10 @@ const H2A_COORDINATION_TOOL_DESCRIPTORS: McpToolDescriptor[] = [
           type: "string",
           enum: ["low", "medium", "high", "xhigh"],
           description: "AGY accepts low, medium or high; xhigh is rejected."
+        },
+        bare: {
+          type: "boolean",
+          description: "Claude under the gateway only: true opts into bare mode (skips onboarding but strips Claude's native tools/hooks/skills); omitted or false keeps the native tools (the default)."
         }
       },
       required: ["profile", "name", "workspace", "prompt", "background"],
