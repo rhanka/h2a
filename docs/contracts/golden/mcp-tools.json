@@ -30,6 +30,7 @@
   "h2a_nhi_report",
   "h2a_offer",
   "h2a_open_negotiation",
+  "h2a_read_payload",
   "h2a_register_instance",
   "h2a_run",
   "h2a_send",

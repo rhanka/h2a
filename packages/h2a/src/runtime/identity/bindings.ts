@@ -32,6 +32,7 @@ import { join } from "node:path";
 import { verifyCanonical, type H2ASignature } from "@sentropic/h2a";
 
 import { localStorePaths, withLockSync } from "../local-files/index.js";
+import { getActiveMcpTrace } from "../mcp/phase-trace.js";
 
 /**
  * The one protocol accepted by the DEF identity-binding writer.  The cull
@@ -149,6 +150,19 @@ export function reclaimOrMint(
   deps: ReclaimOrMintDeps
 ): ReclaimOrMintResult {
   mkdirSync(identityDir(root), { recursive: true });
+  // L0 (detailed-gated): observe the binding lock's wait/acquire/hold so the
+  // trace shows time spent contending the identity write — a logical lock id,
+  // never a binding row's content.
+  const trace = getActiveMcpTrace();
+  const observe = trace?.detailed
+    ? (event: { event: string; waitMs?: number; holdMs?: number }): void => {
+        trace.phase(`binding_lock_${event.event}`, {
+          tool: "identity",
+          ...(event.waitMs !== undefined ? { waitMs: event.waitMs } : {}),
+          ...(event.holdMs !== undefined ? { holdMs: event.holdMs } : {})
+        });
+      }
+    : undefined;
   return withLockSync(bindingsLock(root), () => {
     const existing = findBinding(root, key);
     if (existing && deps.verifyProof(existing)) {
@@ -168,6 +182,7 @@ export function reclaimOrMint(
     },
     // A cull fence is fail-closed.  Reclaiming an apparently stale sentinel
     // would turn an ambiguous owner/fence state into a concurrent write.
-    reclaimStale: false
+    reclaimStale: false,
+    ...(observe ? { observe } : {})
   });
 }

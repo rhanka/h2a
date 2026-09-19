@@ -20,6 +20,7 @@ import {
 } from "@sentropic/h2a";
 
 import { createLocalStore } from "../local-files/store.js";
+import { getActiveMcpTrace } from "../mcp/phase-trace.js";
 import { findBinding, reclaimOrMint, verifyReclaimProof } from "./bindings.js";
 import {
   decideLegacyAdoption,
@@ -295,6 +296,10 @@ function ensureRegistered(input: {
 }
 
 export function resolveLiveIdentity(input: ResolveLiveIdentityInput): ResolvedLiveIdentity {
+  // L0 identity spans: provider resolution, key prep, proof, enrollment, alias.
+  // NEVER a PEM or a private path in an event — only the phase and its timing.
+  const trace = getActiveMcpTrace();
+  const step = <T>(name: string, fn: () => T): T => (trace ? trace.span(name, fn) : fn());
   const host = input.host || "agent";
   const label = labelFromCwd(input.cwd);
   if (input.explicitInstance) {
@@ -302,7 +307,9 @@ export function resolveLiveIdentity(input: ResolveLiveIdentityInput): ResolvedLi
   }
 
   const readers = input.readers ?? defaultProviderSessionReaders;
-  const provider = resolveProviderSession({ host, cwd: input.cwd, readers });
+  const provider = step("identity_provider", () =>
+    resolveProviderSession({ host, cwd: input.cwd, readers })
+  );
   const realPath = realWorkspacePath(input.cwd);
   const workspaceId =
     durableWorkspaceId(realPath) ??
@@ -350,15 +357,19 @@ export function resolveLiveIdentity(input: ResolveLiveIdentityInput): ResolvedLi
   const result =
     host === "remote"
       ? { action: "mint" as const, ...mintRemote() }
-      : reclaimOrMint(
-          input.root,
-          { host, providerSessionId, workspaceId: workspace.id },
-          {
-            verifyProof: (binding) => provesLocalKey(input.root, binding.instance),
-            mint,
-            now
-          }
+      : step("identity_binding", () =>
+          reclaimOrMint(
+            input.root,
+            { host, providerSessionId, workspaceId: workspace.id },
+            {
+              verifyProof: (binding) =>
+                step("identity_proof", () => provesLocalKey(input.root, binding.instance)),
+              mint,
+              now
+            }
+          )
         );
+  trace?.phase("identity_action", { code: result.action });
 
   const existingBinding = findBinding(input.root, {
     host,
@@ -371,27 +382,33 @@ export function resolveLiveIdentity(input: ResolveLiveIdentityInput): ResolvedLi
   });
   const adoptedFrom =
     result.action === "mint" && legacyDecision.adopt ? legacyInstance : undefined;
-  const keypair = ensureKeypair(input.root, result.instance, adoptedFrom);
-  ensureRegistered({
-    root: input.root,
-    instance: result.instance,
-    agentUuid: result.agentUuid,
-    workspace,
-    name,
-    publicKeyPem: keypair.publicKeyPem,
-    scopes,
-    // Declared at mint only: an already-registered instance keeps whatever it
-    // declared then. Nothing downstream may treat this list as authority, so a
-    // narrow/empty list is a display gap, never a permission gap.
-    declaredCapabilities: sanitizeDeclaredCapabilities(input.declaredCapabilities),
-    now
-  });
-  recordIdentityAlias(input.root, {
-    instance: result.instance,
-    legacyInstance,
-    adoptedKeyring: Boolean(adoptedFrom),
-    at: new Date(now()).toISOString()
-  });
+  const keypair = step("identity_keys", () =>
+    ensureKeypair(input.root, result.instance, adoptedFrom)
+  );
+  step("identity_register", () =>
+    ensureRegistered({
+      root: input.root,
+      instance: result.instance,
+      agentUuid: result.agentUuid,
+      workspace,
+      name,
+      publicKeyPem: keypair.publicKeyPem,
+      scopes,
+      // Declared at mint only: an already-registered instance keeps whatever it
+      // declared then. Nothing downstream may treat this list as authority, so a
+      // narrow/empty list is a display gap, never a permission gap.
+      declaredCapabilities: sanitizeDeclaredCapabilities(input.declaredCapabilities),
+      now
+    })
+  );
+  step("identity_alias", () =>
+    recordIdentityAlias(input.root, {
+      instance: result.instance,
+      legacyInstance,
+      adoptedKeyring: Boolean(adoptedFrom),
+      at: new Date(now()).toISOString()
+    })
+  );
 
   return {
     instance: result.instance,
