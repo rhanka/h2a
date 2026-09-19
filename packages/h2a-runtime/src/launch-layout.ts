@@ -86,10 +86,11 @@ export function tabCommand(
   const nativePin =
     tab.hostKind === "local-native" ? "H2A_SESSION_HOST=native " : "";
   const tmuxPin = tab.hostKind === "local-tmux" ? " --tmux" : "";
+  const bareFlag = tab.bare === true ? " --bare" : tab.bare === false ? " --no-bare" : "";
   const runCmd = (extra: string) =>
     `${nativePin}h2a run ${q(tab.tool ?? "shell")} ${q(tab.cwd)} ` +
     (tab.sid ? `--resume ${q(tab.sid)} ` : "") +
-    `--name ${q(tab.label)}${gwFlag}${tmuxPin}${extra}`;
+    `--name ${q(tab.label)}${gwFlag}${bareFlag}${tmuxPin}${extra}`;
   if (opts.attachSession) {
     // `h2a attach` resolves the exact managed name and honors the session's
     // RECORDED host (tmux attach for tmux sessions, the native bridge for
