@@ -63,3 +63,17 @@ export {
   type McpTraceRole,
   type McpTraceEventKind
 } from "./phase-trace.js";
+
+export {
+  createIdentityController,
+  forkIdentityWorker,
+  MCP_IDENTITY_TIMEOUT_MS,
+  type ActivationResult,
+  type CreateIdentityControllerOptions,
+  type IdentityFailureCode,
+  type IdentityWorkerHandle,
+  type McpIdentityController,
+  type McpIdentityRequest,
+  type McpIdentityStatus,
+  type ResolvedIdentityMessage
+} from "./identity-state.js";

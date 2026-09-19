@@ -1,7 +1,7 @@
 import { createInterface } from "node:readline";
 import { spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { linkSync, unlinkSync, writeFileSync } from "node:fs";
+import { linkSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import type { Readable, Writable } from "node:stream";
 
 import type { H2AWorkspaceRef } from "@sentropic/h2a";
@@ -22,6 +22,13 @@ import {
   isMcpTransportResult,
   type McpServer
 } from "./server.js";
+import {
+  createIdentityController,
+  type ActivationResult,
+  type McpIdentityController,
+  type McpIdentityRequest,
+  type ResolvedIdentityMessage
+} from "./identity-state.js";
 import type { H2aRunDelegation, H2aRunExecutor } from "./agent-launch.js";
 import type { H2ASendSigner } from "../send.js";
 import {
@@ -135,6 +142,30 @@ export interface RunMcpStdioOptions {
     readonly privateKeyPem: string;
     /** Concrete native PTY session receiving the signed self-wake line. */
     readonly nativeSessionId?: string;
+  };
+  /**
+   * L2: the DEFERRED identity request. When present (and `autoOpen` is NOT),
+   * the transport answers `initialize` / `tools/list` / `h2a_identity_status`
+   * IMMEDIATELY and resolves identity asynchronously in a child worker; the
+   * presence session, live signer, wake and readiness ACK are published only
+   * once identity is really bound (state `identity_ready`). Mutually exclusive
+   * with the eager `autoOpen` path (kept for the existing consumers/tests).
+   */
+  identityRequest?: McpIdentityRequest;
+  /**
+   * L2: how to activate once the worker resolved a valid identity. `buildAutoOpen`
+   * turns the resolved identity into the presence-session config (same shape as
+   * `autoOpen`); `buildWake` builds the inbox-wake config from the private key
+   * read AFTER activation; `readiness` carries the structured-launch challenge.
+   * Supplied by `runMcpServe`; never a public MCP/CLI option.
+   */
+  identityActivation?: {
+    buildAutoOpen: (identity: ResolvedIdentityMessage) => NonNullable<RunMcpStdioOptions["autoOpen"]>;
+    buildWake?: (
+      privateKeyPem: string,
+      instance: string,
+      host: string | undefined
+    ) => NonNullable<RunMcpStdioOptions["wake"]> | undefined;
   };
   /**
    * Optional abort signal for graceful shutdown. When it aborts, the server
@@ -311,9 +342,20 @@ export function runMcpStdio(options: RunMcpStdioOptions): Promise<void> {
   // Only the FIRST tool response is the calibration milestone; the rest are
   // still measured but tagged distinctly.
   let firstToolCallTraced = false;
-  if (options.readiness && !options.autoOpen) {
+  if (options.readiness && !options.autoOpen && !options.identityRequest) {
     throw new Error("structured readiness requires successful auto-open");
   }
+  if (options.autoOpen && options.identityRequest) {
+    throw new Error("autoOpen and identityRequest are mutually exclusive");
+  }
+  // L2: the live signing identity, set only once identity is really bound. The
+  // server reads it on each h2a_send via `getSendContext`, so a signer that only
+  // becomes available after asynchronous activation is picked up with no rebuild.
+  let liveSendContext: H2ASendSigner | undefined = options.sendContext;
+  // Forward reference to the identity controller; assigned below when the
+  // deferred identity path is used. The server guards signed/mutating tools by
+  // reading its state on every call.
+  let identityController: McpIdentityController | undefined;
   const heartbeatIntervalMs =
     options.heartbeatIntervalMs ?? envInt("H2A_HEARTBEAT_INTERVAL_MS");
   const notifyIntervalMs =
@@ -337,6 +379,15 @@ export function runMcpStdio(options: RunMcpStdioOptions): Promise<void> {
     workspaceRoot: options.workspaceRoot ?? process.cwd(),
     ...(options.runExecutor ? { runExecutor: options.runExecutor } : {}),
     ...(options.sendContext ? { sendContext: options.sendContext } : {}),
+    // L2: with a deferred identity, the store must not write on boot so
+    // initialize/tools-list/status answer on a read-only or not-yet-created root.
+    ...(options.identityRequest ? { storeInitialize: false } : {}),
+    // L2: the live signer is read on each call so post-activation availability
+    // (or its absence after a failure) is always reflected honestly.
+    getSendContext: () => liveSendContext,
+    get identity() {
+      return identityController;
+    },
     delegationContext: () => delegation,
     sessions: {
       autoHeartbeat: true,
@@ -441,9 +492,18 @@ export function runMcpStdio(options: RunMcpStdioOptions): Promise<void> {
   server.notifications.start();
 
   let didShutdown = false;
-  function shutdown(): void {
+  function shutdown(reason: "transport_closed" | "signal" = "transport_closed"): void {
     if (didShutdown) return;
     didShutdown = true;
+    try {
+      // L2: the transport is gone — cancel any in-flight identity resolution so
+      // no NEW transaction starts and no late activation/ACK can follow. A
+      // transaction already entered under a lock finishes cooperatively; a
+      // blocked worker is logged, never SIGKILL'd (it may hold a fence).
+      identityController?.cancel(reason);
+    } catch {
+      /* best effort */
+    }
     try {
       server.notifications.stop();
       server.sessions.closeAll("closed");
@@ -457,76 +517,99 @@ export function runMcpStdio(options: RunMcpStdioOptions): Promise<void> {
   // it (presence-honesty — proof the host→server channel is carrying traffic).
   let autoOpenedSessionId: string | undefined;
 
-  // DEC-105 (EVO-6): auto-open a presence session at boot when requested, so
-  // the host joins the bus at startup. Historically this is best-effort; a
-  // structured readiness challenge upgrades failure to fatal because no ACK
-  // may be published for an unreachable sidecar.
+  // DEC-105 (EVO-6): open the presence session at boot. Extracted so BOTH the
+  // eager path (identity already resolved) and the L2 deferred path (identity
+  // resolved asynchronously in the worker) publish presence the same way. Throws
+  // on open failure so each caller maps it to its own contract.
+  type AutoOpenConfig = NonNullable<RunMcpStdioOptions["autoOpen"]>;
+  function openAutoOpenSession(cfg: AutoOpenConfig): string {
+    const opened = server.sessions.open({
+      instance: cfg.instance,
+      ...(cfg.host !== undefined ? { host: cfg.host } : {}),
+      ...(cfg.workspace !== undefined ? { workspace: cfg.workspace } : {}),
+      ...(cfg.name !== undefined ? { name: cfg.name } : {}),
+      version: agentVersion(cfg.host),
+      // Auto-capture our owning local terminal (native session or inherited
+      // tmux pane) so loop scheduling has an explicit wake target.
+      ...((() => {
+        const lc = detectLocalLaunchContext(
+          process.env,
+          undefined,
+          `h2a mcp-serve --host ${cfg.host ?? ""}`.trim()
+        );
+        return lc ? { launchContext: lc } : {};
+      })()),
+      interests: {
+        scopes: [...(cfg.scopes ?? ["scope:default"])],
+        negotiations: []
+      }
+    });
+    trace?.phase("session_open");
+    // Spec 2026-07-25-h2a-lane-addressing §D1b: follow the host-native title
+    // for the life of the session so a rename converges into presence within
+    // one heartbeat. Absent when the operator passed an explicit `--name`.
+    if (cfg.refreshDisplayName) {
+      server.sessions.setDisplayNameResolver(opened.sessionId, cfg.refreshDisplayName);
+    }
+    const delegatorTmuxSession = currentTmuxSessionForSidecar();
+    if (delegatorTmuxSession && cfg.delegationEligible === true) {
+      delegation = {
+        origin: "mcp:h2a_run",
+        delegatorInstance: cfg.instance,
+        delegatorTmuxSession
+      };
+      recordTmuxOwner(delegatorTmuxSession, cfg.instance);
+    }
+    stderr.write(`h2a mcp-serve: auto-opened session for ${cfg.instance}\n`);
+    // Reap the false-live presence left by a previous connection of THIS agent
+    // that the host dropped without signalling. Best-effort, same-instance only.
+    try {
+      const reaped = reapDeadInstancePresence(root, cfg.instance, opened.sessionId);
+      if (reaped.length > 0) {
+        stderr.write(
+          `h2a mcp-serve: reaped ${reaped.length} stale presence file(s) for ${cfg.instance}\n`
+        );
+      }
+    } catch {
+      // best-effort
+    }
+    return opened.sessionId;
+  }
+
+  // EVO-1 wake (bug #3): wake the idle host when a new inbox envelope arrives.
+  function armInboxWake(cfg: AutoOpenConfig, wakeCfg: NonNullable<RunMcpStdioOptions["wake"]>): void {
+    const wakeInstance = cfg.instance;
+    const wakeStore = createLocalStore({ root });
+    const wake = createInboxWakeHandler({
+      instance: wakeInstance,
+      readInbox: () => wakeStore.readInbox(wakeInstance),
+      privateKeyPem: wakeCfg.privateKeyPem,
+      driver: wakeCfg.driver,
+      ...(cfg.host !== undefined ? { host: cfg.host } : {}),
+      // Self-wake targets THIS process's OWN tmux pane (inherited $TMUX_PANE).
+      resolveLaunchContext: () =>
+        detectTmuxLaunchContext(
+          process.env,
+          undefined,
+          `h2a mcp-serve --host ${cfg.host ?? ""}`.trim()
+        ),
+      ...(wakeCfg.nativeSessionId !== undefined
+        ? { resolveNativeSessionId: () => wakeCfg.nativeSessionId }
+        : {}),
+      log: (line) => stderr.write(`h2a mcp-serve: ${line}\n`)
+    });
+    server.notifications.setOnInboxArrival((instance) => {
+      if (instance === wakeInstance) void wake();
+    });
+    stderr.write(`h2a mcp-serve: inbox-wake armed for ${wakeInstance}\n`);
+  }
+
+  // Eager auto-open: identity was resolved synchronously before the transport
+  // (the historical path, kept for existing consumers/tests). Best-effort unless
+  // a structured readiness challenge upgrades failure to fatal.
   if (options.autoOpen) {
     try {
-      const opened = server.sessions.open({
-        instance: options.autoOpen.instance,
-        ...(options.autoOpen.host !== undefined ? { host: options.autoOpen.host } : {}),
-        ...(options.autoOpen.workspace !== undefined
-          ? { workspace: options.autoOpen.workspace }
-          : {}),
-        ...(options.autoOpen.name !== undefined ? { name: options.autoOpen.name } : {}),
-        version: agentVersion(options.autoOpen.host),
-        // Auto-capture our owning local terminal (native session or inherited
-        // tmux pane) so loop scheduling has an explicit wake target.
-        ...((() => {
-          const lc = detectLocalLaunchContext(
-            process.env,
-            undefined,
-            `h2a mcp-serve --host ${options.autoOpen.host ?? ""}`.trim()
-          );
-          return lc ? { launchContext: lc } : {};
-        })()),
-        interests: {
-          scopes: [...(options.autoOpen.scopes ?? ["scope:default"])],
-          negotiations: []
-        }
-      });
-      autoOpenedSessionId = opened.sessionId;
-      trace?.phase("session_open");
-      // Spec 2026-07-25-h2a-lane-addressing §D1b: follow the host-native title
-      // for the life of the session, so a rename converges into presence within
-      // one heartbeat instead of staying stale until the host reconnects.
-      // Absent when the operator passed an explicit `--name`.
-      if (options.autoOpen.refreshDisplayName) {
-        server.sessions.setDisplayNameResolver(
-          opened.sessionId,
-          options.autoOpen.refreshDisplayName
-        );
-      }
-      const delegatorTmuxSession = currentTmuxSessionForSidecar();
-      if (delegatorTmuxSession && options.autoOpen.delegationEligible === true) {
-        delegation = {
-          origin: "mcp:h2a_run",
-          delegatorInstance: options.autoOpen.instance,
-          delegatorTmuxSession,
-        };
-        recordTmuxOwner(delegatorTmuxSession, options.autoOpen.instance);
-      }
-      stderr.write(
-        `h2a mcp-serve: auto-opened session for ${options.autoOpen.instance}\n`
-      );
-      // Reap the false-live presence left by a previous connection of THIS
-      // agent that the host dropped without signalling (process lingered,
-      // blind heartbeat kept presence "live"). Best-effort, same-instance only.
-      try {
-        const reaped = reapDeadInstancePresence(
-          root,
-          options.autoOpen.instance,
-          opened.sessionId
-        );
-        if (reaped.length > 0) {
-          stderr.write(
-            `h2a mcp-serve: reaped ${reaped.length} stale presence file(s) for ${options.autoOpen.instance}\n`
-          );
-        }
-      } catch {
-        // best-effort
-      }
+      autoOpenedSessionId = openAutoOpenSession(options.autoOpen);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       stderr.write(`h2a mcp-serve: auto-open failed: ${message}\n`);
@@ -535,36 +618,72 @@ export function runMcpStdio(options: RunMcpStdioOptions): Promise<void> {
         throw new Error(`structured auto-open failed: ${message}`);
       }
     }
-    // EVO-1 wake (bug #3): wake the idle host when a new inbox envelope arrives.
-    if (options.wake) {
-      const wakeInstance = options.autoOpen.instance;
-      const wakeStore = createLocalStore({ root });
-      const wake = createInboxWakeHandler({
-        instance: wakeInstance,
-        readInbox: () => wakeStore.readInbox(wakeInstance),
-        privateKeyPem: options.wake.privateKeyPem,
-        driver: options.wake.driver,
-        ...(options.autoOpen.host !== undefined ? { host: options.autoOpen.host } : {}),
-        // Self-wake targets THIS process's OWN tmux pane (inherited $TMUX_PANE),
-        // NOT latestLaunchContext(instance) — with concurrent sessions sharing one
-        // perennial id (durable bug #1), an instance lookup could inject keystrokes
-        // into a DIFFERENT agent's terminal. Native inbox delivery belongs to PR-1.
-        resolveLaunchContext: () =>
-          detectTmuxLaunchContext(
-            process.env,
-            undefined,
-            `h2a mcp-serve --host ${options.autoOpen?.host ?? ""}`.trim()
-          ),
-        ...(options.wake.nativeSessionId !== undefined
-          ? { resolveNativeSessionId: () => options.wake?.nativeSessionId }
-          : {}),
-        log: (line) => stderr.write(`h2a mcp-serve: ${line}\n`)
-      });
-      server.notifications.setOnInboxArrival((instance) => {
-        if (instance === wakeInstance) void wake();
-      });
-      stderr.write(`h2a mcp-serve: inbox-wake armed for ${wakeInstance}\n`);
-    }
+    if (options.wake) armInboxWake(options.autoOpen, options.wake);
+  }
+
+  // L2 deferred identity: the transport is already live (initialize / tools/list
+  // / h2a_identity_status answer immediately). The child worker resolves identity
+  // OFF this event loop; only once it is really bound do we open the presence
+  // session, arm the live signer and wake, and publish the correlated readiness
+  // ACK. No provisional key, no early availability ACK.
+  if (options.identityRequest) {
+    const activation = options.identityActivation;
+    const activate = (identity: ResolvedIdentityMessage): ActivationResult => {
+      if (!activation) {
+        return { ok: false, cause: "identity_worker_failed", message: "no activation wiring" };
+      }
+      // An explicit --instance override resolves with no key path: presence
+      // opens but no signer is available (h2a_send stays refused, honestly).
+      let privateKeyPem: string | undefined;
+      if (identity.privateKeyPath) {
+        try {
+          privateKeyPem = readFileSync(identity.privateKeyPath, "utf8");
+        } catch (err) {
+          return {
+            ok: false,
+            cause: "identity_storage_failed",
+            message: `cannot read identity key: ${err instanceof Error ? err.message : String(err)}`
+          };
+        }
+      }
+      const cfg = activation.buildAutoOpen(identity);
+      let sessionId: string;
+      try {
+        sessionId = openAutoOpenSession(cfg);
+      } catch (err) {
+        return {
+          ok: false,
+          cause: "session_open_failed",
+          message: err instanceof Error ? err.message : String(err)
+        };
+      }
+      autoOpenedSessionId = sessionId;
+      if (privateKeyPem !== undefined) {
+        const wakeCfg = activation.buildWake?.(privateKeyPem, cfg.instance, cfg.host);
+        if (wakeCfg) armInboxWake(cfg, wakeCfg);
+        // Only NOW is a trusted local signer available for h2a_send.
+        liveSendContext = { instance: cfg.instance, privateKeyPem };
+      }
+      if (options.readiness) {
+        try {
+          publishReadinessAck(options.readiness, sessionId);
+          trace?.phase("readiness_ack");
+        } catch (err) {
+          return {
+            ok: false,
+            cause: "readiness_ack_failed",
+            message: err instanceof Error ? err.message : String(err)
+          };
+        }
+      }
+      return { ok: true, sessionId, signer: liveSendContext };
+    };
+    identityController = createIdentityController({
+      request: options.identityRequest,
+      activate,
+      log: (line) => stderr.write(`h2a mcp-serve: ${line}\n`)
+    });
+    identityController.start();
   }
 
   // Publish only after every synchronous boot step above has completed and
@@ -591,7 +710,7 @@ export function runMcpStdio(options: RunMcpStdioOptions): Promise<void> {
     // sessions so presence is marked `closed` immediately rather than lingering
     // as false-live until expiry. Idempotent with the rl `close` path below.
     const onAbort = (): void => {
-      shutdown();
+      shutdown("signal");
       try {
         rl.close();
       } catch {
