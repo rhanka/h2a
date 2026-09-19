@@ -20,7 +20,17 @@ export interface McpPushNotification {
   };
 }
 
-export type NotificationSink = (notification: McpPushNotification) => void;
+/**
+ * L1: a sink may return a receipt so the dispatcher advances a session's
+ * snapshot ONLY after the notification left bounded (or its intact bytes were
+ * persisted). `void`/`undefined` is treated as accepted, keeping existing mock
+ * sinks working. When a push is not accepted (persistence impossible), the
+ * session's snapshot is NOT advanced, so the diff is retried next tick — no ACK
+ * of a purely-ephemeral event is fabricated.
+ */
+export type NotificationReceipt = { readonly accepted: boolean } | void;
+
+export type NotificationSink = (notification: McpPushNotification) => NotificationReceipt;
 
 interface InboxSnapshot {
   /** Set of envelope ids seen in this session's inbox at last scan. */
@@ -139,6 +149,11 @@ export class NotificationDispatcher {
 
     for (const session of ownSessions) {
       const prev = this.snapshots.get(session.sessionId) ?? emptyDiffState();
+      // L1: a session's snapshot advances only if EVERY emitted diff was accepted
+      // (bounded/persisted). One unaccepted push holds the whole session snapshot
+      // so the diffs are retried next tick — an at-least-once guarantee that never
+      // fabricates an ACK for a dropped ephemeral notification.
+      let accepted = true;
 
       // 1. Presence join/leave (excluding self)
       const others = new Set(
@@ -149,14 +164,14 @@ export class NotificationDispatcher {
           if (!prev.peers.has(sid)) {
             const peer = freshPeers.find((p) => p.sessionId === sid);
             if (peer) {
-              this.push(session.sessionId, "presence.peer_joined", {
+              accepted = this.push(session.sessionId, "presence.peer_joined", {
                 peer: {
                   sessionId: peer.sessionId,
                   instance: peer.instance,
                   host: peer.host,
                   interests: peer.interests
                 }
-              });
+              }) && accepted;
             }
           }
         }
@@ -164,9 +179,9 @@ export class NotificationDispatcher {
       if (isInterestedIn(session, "presence.peer_left")) {
         for (const sid of prev.peers) {
           if (!others.has(sid)) {
-            this.push(session.sessionId, "presence.peer_left", {
+            accepted = this.push(session.sessionId, "presence.peer_left", {
               peer: { sessionId: sid }
-            });
+            }) && accepted;
           }
         }
       }
@@ -178,10 +193,10 @@ export class NotificationDispatcher {
       if (isInterestedIn(session, "inbox.envelope_arrived")) {
         for (const envelopeId of inboxIds) {
           if (!prev.inbox.envelopeIds.has(envelopeId)) {
-            this.push(session.sessionId, "inbox.envelope_arrived", {
+            accepted = this.push(session.sessionId, "inbox.envelope_arrived", {
               instance: session.instance,
               envelopeId
-            });
+            }) && accepted;
           }
         }
         // EVO-1 wake (bug #3): nudge the host every tick while the inbox is
@@ -200,11 +215,11 @@ export class NotificationDispatcher {
           const prevCount =
             prev.negotiations.get(negotiationId)?.count ?? 0;
           if (count > prevCount) {
-            this.push(session.sessionId, "negotiation.event_appended", {
+            accepted = this.push(session.sessionId, "negotiation.event_appended", {
               negotiationId,
               newEntries: count - prevCount,
               totalEntries: count
-            });
+            }) && accepted;
           }
           negotiationSnap.set(negotiationId, { count });
         }
@@ -221,43 +236,56 @@ export class NotificationDispatcher {
       if (isInterestedIn(session, "peer.blocked")) {
         for (const b of inScope) {
           if (!prev.blocked.has(b.instance)) {
-            this.push(session.sessionId, "peer.blocked", {
+            accepted = this.push(session.sessionId, "peer.blocked", {
               instance: b.instance,
               scope: b.scope,
               reason: b.reason,
               ...(b.needs ? { needs: b.needs } : {})
-            });
+            }) && accepted;
           }
         }
       }
       if (isInterestedIn(session, "peer.unblocked")) {
         for (const instance of prev.blocked) {
           if (!blockedNow.has(instance)) {
-            this.push(session.sessionId, "peer.unblocked", { instance });
+            accepted = this.push(session.sessionId, "peer.unblocked", { instance }) && accepted;
           }
         }
       }
 
-      this.snapshots.set(session.sessionId, {
-        peers: others,
-        inbox: { envelopeIds: new Set(inboxIds) },
-        negotiations: negotiationSnap,
-        blocked: blockedNow
-      });
+      if (accepted) {
+        this.snapshots.set(session.sessionId, {
+          peers: others,
+          inbox: { envelopeIds: new Set(inboxIds) },
+          negotiations: negotiationSnap,
+          blocked: blockedNow
+        });
+      }
+      // else: keep the previous snapshot so the unaccepted diffs are retried.
     }
   }
 
+  /** Emit one notification; returns whether the sink accepted it (see NotificationReceipt). */
   private push(
     sessionId: string,
     topic: H2ASessionNotificationTopic,
     data: Record<string, unknown>
-  ): void {
-    if (!this.sink) return;
-    if (!H2A_SESSION_NOTIFICATION_TOPICS.includes(topic)) return;
-    this.sink({
+  ): boolean {
+    if (!this.sink) return true;
+    if (!H2A_SESSION_NOTIFICATION_TOPICS.includes(topic)) return true;
+    const receipt = this.sink({
       jsonrpc: "2.0",
       method: "notifications/h2a",
       params: { topic, sessionId, data }
     });
+    // Accepted unless the sink explicitly returns `{ accepted: false }`. A sink
+    // that returns void, or any other value (e.g. a legacy `array.push` count),
+    // is treated as accepted so existing sinks keep advancing the snapshot.
+    return !(
+      receipt !== null &&
+      typeof receipt === "object" &&
+      "accepted" in receipt &&
+      (receipt as { accepted?: unknown }).accepted === false
+    );
   }
 }
