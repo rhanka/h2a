@@ -2128,11 +2128,55 @@ function gatewayModeFromOptions(opts: {
   return "auto";
 }
 
-function shouldUseClaudeBare(profile: string): boolean {
-  return (
-    profileUsesLlmMeshGateway(profile) &&
-    Boolean(process.env.ANTHROPIC_BASE_URL && process.env.ANTHROPIC_AUTH_TOKEN)
-  );
+/**
+ * Whether a Claude launch under the llm-mesh gateway should carry `--bare`.
+ *
+ * `--bare` skips Claude Code onboarding but ALSO strips Claude's native tool
+ * surface (hooks / skills / CLAUDE.md / LSP and, over the gateway, tools such as
+ * SendMessage / CronCreate / Monitor / AskUserQuestion). It is only meaningful
+ * for a Claude profile actually running under the gateway (the env probe below).
+ *
+ * RETURN-CONDITION (2026-09-18, owner): when the caller expresses no explicit
+ * choice, DO NOT force `--bare` — keep the native tools. This default was
+ * historically `true`. Flip DEFAULT_CLAUDE_BARE_UNDER_GATEWAY back to `true` (or
+ * drop the option entirely) ONLY once the h2a equivalents for the objective
+ * loop, SendMessage and AskUserQuestion are implemented AND demonstrated working
+ * under the gateway. Until then `--bare` stays an explicit opt-in.
+ */
+export const DEFAULT_CLAUDE_BARE_UNDER_GATEWAY = false;
+
+export function resolveClaudeBare(
+  profile: string,
+  explicit?: boolean,
+  gatewayActive = Boolean(process.env.ANTHROPIC_BASE_URL && process.env.ANTHROPIC_AUTH_TOKEN),
+): boolean {
+  if (
+    !profileUsesLlmMeshGateway(profile) ||
+    !gatewayActive
+  ) {
+    return false;
+  }
+  return explicit ?? DEFAULT_CLAUDE_BARE_UNDER_GATEWAY;
+}
+
+/**
+ * Explicit `--bare` / `--no-bare` choice from the run options, mirroring
+ * `gatewayModeFromOptions`. Defensive against commander's `--no-bare` negation
+ * (which sets `bare=false`) AND a separately-declared `noBare` flag. Returns
+ * `undefined` when the operator expressed no choice (so the default applies).
+ */
+export function bareChoiceFromOptions(opts: {
+  bare?: boolean;
+  noBare?: boolean;
+}): boolean | undefined {
+  const wantsBare = opts.bare === true;
+  const wantsNoBare = opts.bare === false || opts.noBare === true;
+  if (wantsBare && wantsNoBare) {
+    throw new Error("pass either --bare or --no-bare, not both");
+  }
+  if (wantsBare) return true;
+  if (wantsNoBare) return false;
+  return undefined;
 }
 
 async function injectLlmMeshGatewayEnv(
@@ -2247,7 +2291,7 @@ async function prepareNativeRestart(
       effectiveMode !== "gateway",
       session.name,
     );
-    const useBare = shouldUseClaudeBare(session.profile);
+    const useBare = resolveClaudeBare(session.profile, session.bare);
     return {
       command: localCliCommand(session.profile),
       args: session.convId
@@ -5294,6 +5338,14 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
     .option("--gw", "alias for --llm-gateway")
     .option("--no-llm-gateway", "launch without llm-mesh gateway env")
     .option("--no-gw", "alias for --no-llm-gateway")
+    .option(
+      "--bare",
+      "opt into Claude Code bare mode under --gw (skips onboarding but strips native tools/hooks/skills); default keeps native tools",
+    )
+    .option(
+      "--no-bare",
+      "keep Claude's native tools under --gw (default; overrides a pinned --bare on resume/restore)",
+    )
     .action(
       async (
         slug: string | undefined,
@@ -5308,6 +5360,8 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           gw?: boolean;
           noLlmGateway?: boolean;
           noGw?: boolean;
+          bare?: boolean;
+          noBare?: boolean;
         },
       ) => {
         // NOTE: tmux availability is checked AFTER host resolution below — a
@@ -5425,6 +5479,8 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
               enrolledAt: new Date().toISOString(),
               lastSeenAt: new Date().toISOString(),
               source: "run" as const,
+              bare: registryEntry?.convId === resolvedConvId ? registryEntry?.bare : undefined,
+              gatewayMode: registryEntry?.convId === resolvedConvId ? registryEntry?.gatewayMode : undefined,
             }
           : registryEntry;
         // WHICH host serves this resume — resolved BEFORE ANY act (F1): every
@@ -5553,17 +5609,17 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           process.exitCode = 2;
           return;
         }
-        const effectiveGatewayMode = gatewayModeForProfile(profile, gatewayMode);
+        const effectiveGatewayMode = gatewayModeForProfile(
+          profile, gatewayMode === "auto" ? entry.gatewayMode ?? "auto" : gatewayMode,
+        );
         let gateway: string | undefined;
-        // `--bare` skips Claude Code onboarding; it is only safe to skip when the
-        // launch actually runs under the gateway AND the parent already carries
-        // gateway env (a nested gateway session). A DIRECT launch — now the
-        // default even under a parent that itself runs under the gateway — must
-        // NEVER carry --bare, or the child would skip onboarding while its
-        // Anthropic env is scrubbed. The mode gate is evaluated pre-injection,
-        // alongside the parent-env probe in shouldUseClaudeBare.
-        const useBare =
-          effectiveGatewayMode !== "direct" && shouldUseClaudeBare(profile);
+        // Resolve against the selected mode, not the parent's environment:
+        // required gateway injection below must succeed before either launch.
+        const useBare = resolveClaudeBare(
+          profile,
+          bareChoiceFromOptions(opts) ?? entry.bare,
+          effectiveGatewayMode === "gateway",
+        );
         const command = localCliCommand(profile);
         const args = localResumeArgs(profile, entry.convId, {
           bare: useBare,
@@ -5853,7 +5909,8 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           cwd: entry.cwd,
           sessionClass,
           ...(entry.convId ? { convId: entry.convId } : {}),
-          ...(gatewayMode !== "auto" ? { gatewayMode } : {}),
+          gatewayMode: effectiveGatewayMode,
+          bare: useBare,
         });
         process.stderr.write(
           `[h2a] resumed local session ${resumeSlug} (${profile} resume${entry.convId ? ` ${entry.convId}` : ""} in ${entry.cwd})\n`,
@@ -5936,6 +5993,14 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
     .option("--gw", "alias for --llm-gateway")
     .option("--no-llm-gateway", "launch without llm-mesh gateway env")
     .option("--no-gw", "alias for --no-llm-gateway")
+    .option(
+      "--bare",
+      "opt into Claude Code bare mode under --gw (skips onboarding but strips native tools/hooks/skills); default keeps native tools",
+    )
+    .option(
+      "--no-bare",
+      "keep Claude's native tools under --gw (default; overrides a pinned --bare on resume/restore)",
+    )
     .action(
       async (
         profile: string,
@@ -5960,6 +6025,8 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           gw?: boolean;
           noLlmGateway?: boolean;
           noGw?: boolean;
+          bare?: boolean;
+          noBare?: boolean;
         },
       ) => {
         const structuredLaunch =
@@ -6250,7 +6317,23 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         }
         // By default launches are direct. --llm-gateway/--gw opts into the
         // local gateway for any profile that consumes Anthropic-compatible env.
-        const launchGatewayMode = gatewayModeForProfile(profile, gatewayMode);
+        const resumeRegistry = opts.resume ? loadRegistry() : undefined;
+        if (resumeRegistry?.state === "unknown") {
+          throw new Error("cannot recover pinned launch options: registry unreadable");
+        }
+        const resumeEntries = resumeRegistry?.entries.filter((entry) =>
+          isManagedLocalKind(entry.kind) && entry.convId === opts.resume &&
+          entry.cwd === cwd && entry.tool === profile,
+        ) ?? [];
+        if (resumeEntries.some((entry) =>
+          entry.bare !== resumeEntries[0]?.bare || entry.gatewayMode !== resumeEntries[0]?.gatewayMode,
+        )) {
+          throw new Error("cannot recover pinned launch options: conflicting registry rows");
+        }
+        const pinnedLaunch = resumeEntries[0];
+        const launchGatewayMode = gatewayModeForProfile(
+          profile, gatewayMode === "auto" ? pinnedLaunch?.gatewayMode ?? "auto" : gatewayMode,
+        );
         const command = localCliCommand(profile);
         // A detached/background or run-once launch is a worker, even when its
         // agent later emits a Claude SessionStart hook. Stamp this through tmux
@@ -6317,7 +6400,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             process.exitCode = 1;
             return;
           }
-          const useBare = shouldUseClaudeBare(profile);
+          const useBare = resolveClaudeBare(profile, bareChoiceFromOptions(opts) ?? pinnedLaunch?.bare);
           let args: string[];
           try {
             args =
@@ -6620,7 +6703,8 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             cwd,
             sessionClass,
             ...(opts.resume !== undefined ? { convId: opts.resume } : {}),
-            ...(gatewayMode !== "auto" ? { gatewayMode } : {}),
+            gatewayMode: launchGatewayMode,
+            bare: useBare,
           });
           started.push({
             name,
@@ -8509,6 +8593,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             ...(entry.gatewayMode !== undefined
               ? { gatewayMode: entry.gatewayMode }
               : {}),
+            ...(entry.bare !== undefined ? { bare: entry.bare } : {}),
           }),
         );
         const result = await executeNativeRestart<PreparedNativeRestart>(
@@ -8583,6 +8668,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
                     ? { convId: candidate.convId }
                     : {}),
                   ...(mode !== "auto" ? { gatewayMode: mode } : {}),
+                  ...(candidate.bare !== undefined ? { bare: candidate.bare } : {}),
                 });
               } finally {
                 restore();
@@ -8730,6 +8816,8 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             process.exitCode = 1;
             return;
           }
+          const relaunchMode = gatewayModeForProfile(nativeEntry.tool, nativeEntry.gatewayMode ?? "auto");
+          await injectLlmMeshGatewayEnv(relaunchMode, relaunchMode !== "gateway", actName);
           if (!killNativeSessionTree(actName)) {
             process.stderr.write(
               `[h2a] native session ${slug} could not be killed; nothing was relaunched.\n`,
@@ -8739,7 +8827,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           }
           const profile = nativeEntry.tool;
           const command = localCliCommand(profile);
-          const useBare = shouldUseClaudeBare(profile);
+          const useBare = resolveClaudeBare(profile, nativeEntry.bare);
           const args = nativeEntry.convId
             ? localResumeArgs(profile, nativeEntry.convId, { bare: useBare })
             : localStartArgs(profile, { bare: useBare });
@@ -8764,6 +8852,8 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             ...(relaunched.pid !== undefined ? { pid: relaunched.pid } : {}),
             cwd: nativeEntry.cwd,
             sessionClass: nativeEntry.sessionClass ?? "human",
+            gatewayMode: relaunchMode,
+            bare: useBare,
             ...(nativeEntry.convId ? { convId: nativeEntry.convId } : {}),
           });
           process.stderr.write(
@@ -9072,7 +9162,9 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             action.profile,
             action.command,
             entry.cwd,
-            action.args,
+            localResumeArgs(action.profile, action.convId, {
+              bare: resolveClaudeBare(action.profile, entry.bare),
+            }),
             action.slug,
             undefined,
             {
@@ -9094,6 +9186,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             ...(entry.gatewayMode !== undefined
               ? { gatewayMode: entry.gatewayMode }
               : {}),
+            ...(entry.bare !== undefined ? { bare: entry.bare } : {}),
           });
           const wake = wakeRelaunchedSession(
             relaunchContinuationPrompt(entry.task),
