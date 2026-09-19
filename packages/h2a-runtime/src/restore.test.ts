@@ -229,6 +229,13 @@ describe("registry-first discovery", () => {
     ).toEqual([]);
   });
 
+  it.each([true, false])("carries pinned bare=%s through discovery and restore command", (bare) => {
+    const [session] = registrySessions(home, [registryEntry("impots", { gatewayMode: "gateway", bare })]);
+    expect(session?.bare).toBe(bare);
+    const command = tabCommand({ cwd: "/repo", label: "impots", tool: "claude", sid: "conv", gatewayMode: "gateway", bare });
+    expect(command).toContain(bare ? " --bare" : " --no-bare");
+  });
+
   it("carries the pinned gatewayMode from the registry entry onto the session", () => {
     const entries = [registryEntry("impots", { gatewayMode: "direct" })];
     const [session] = registrySessions(home, entries);

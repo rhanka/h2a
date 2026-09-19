@@ -22,6 +22,8 @@ export type H2aRunRequest = {
   gateway: H2aRunGateway;
   headless: boolean;
   h2aSidecar: boolean;
+  /** Claude-under-gateway only: opt into bare mode; omitted keeps native tools. */
+  bare?: boolean;
   agent?: string;
   model?: string;
   effort?: H2aRunEffort;
@@ -46,6 +48,7 @@ const ALLOWED_KEYS = new Set([
   "gateway",
   "headless",
   "h2aSidecar",
+  "bare",
   "agent",
   "model",
   "effort",
@@ -171,6 +174,10 @@ export function validateH2aRunRequest(
   if (headless && h2aSidecar) {
     throw new Error("h2a_run: headless sessions cannot keep an h2a sidecar");
   }
+  const bare = args.bare;
+  if (bare !== undefined && typeof bare !== "boolean") {
+    throw new Error("h2a_run: 'bare' must be boolean");
+  }
 
   const model = args.model;
   if (model !== undefined && (typeof model !== "string" || !SAFE_MODEL.test(model))) {
@@ -204,6 +211,7 @@ export function validateH2aRunRequest(
     gateway: gateway as H2aRunGateway,
     headless,
     h2aSidecar,
+    ...(bare !== undefined ? { bare } : {}),
     ...(agent !== undefined ? { agent } : {}),
     ...(model !== undefined ? { model } : {}),
     ...(effort !== undefined ? { effort: effort as H2aRunEffort } : {}),
@@ -239,6 +247,11 @@ export function buildH2aRunInvocation(
         ? ["--gw"]
         : request.gateway === "off"
           ? ["--no-gw"]
+          : []),
+      ...(request.bare === true
+        ? ["--bare"]
+        : request.bare === false
+          ? ["--no-bare"]
           : []),
       ...(request.agent ? ["--agent", request.agent] : []),
       ...(request.model ? ["--model", request.model] : []),
