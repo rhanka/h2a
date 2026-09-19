@@ -183,6 +183,28 @@ test("MCP launch records post-launch delegation evidence outside the CLI argv/en
   });
 });
 
+test("h2a_run threads --bare / --no-bare into the CLI invocation; default omits both", () => {
+  const base = {
+    profile: "claude",
+    name: "gw-native",
+    workspace: "/opt/ws",
+    prompt: "hi",
+    background: true,
+    gateway: "required",
+    headless: false,
+    h2aSidecar: true
+  };
+  const none = buildH2aRunInvocation(base, "/opt/h2a/bin.js");
+  assert.equal(none.args.includes("--bare"), false);
+  assert.equal(none.args.includes("--no-bare"), false);
+  const bare = buildH2aRunInvocation({ ...base, bare: true }, "/opt/h2a/bin.js");
+  assert.ok(bare.args.includes("--bare"));
+  assert.equal(bare.args.includes("--no-bare"), false);
+  const noBare = buildH2aRunInvocation({ ...base, bare: false }, "/opt/h2a/bin.js");
+  assert.ok(noBare.args.includes("--no-bare"));
+  assert.equal(noBare.args.includes("--bare"), false);
+});
+
 test("stdio tools/call exposes the same h2a_run contract", async () => {
   await withWorkspaceAsync(async ({ workspaceRoot, workspace, storeRoot }) => {
     const stdin = new PassThrough();
