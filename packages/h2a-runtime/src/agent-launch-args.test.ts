@@ -24,6 +24,20 @@ describe("buildAgentLaunchArgs", () => {
     ).toEqual(["--model", "claude-opus-4-8", "--effort", "xhigh"]);
   });
 
+  it("adds --bare only when bare:true; default and bare:false keep native tools", () => {
+    const base = { profile: "claude" as const, prompt: "hello", model: "claude-opus-4-8" };
+    expect(buildAgentLaunchArgs(base)).toEqual(["--model", "claude-opus-4-8"]);
+    expect(buildAgentLaunchArgs({ ...base, bare: false })).toEqual([
+      "--model",
+      "claude-opus-4-8",
+    ]);
+    expect(buildAgentLaunchArgs({ ...base, bare: true })).toEqual([
+      "--bare",
+      "--model",
+      "claude-opus-4-8",
+    ]);
+  });
+
   it("builds Codex headless argv with native stdin and no prompt token", () => {
     const prompt = "Review $(git status); do not execute it";
 
