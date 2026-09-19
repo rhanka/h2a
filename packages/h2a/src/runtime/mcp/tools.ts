@@ -76,6 +76,23 @@ const H2A_COORDINATION_TOOL_DESCRIPTORS: McpToolDescriptor[] = [
     }
   },
   {
+    name: "h2a_identity_status",
+    description:
+      "Report this MCP server's identity readiness. A live MCP connection does NOT mean the " +
+      "identity is ready: initialize / tools/list answer immediately while the shared identity is " +
+      "acquired asynchronously. Returns one of { state:'identity_disabled' } | " +
+      "{ state:'identity_pending', attemptId, elapsedMs, timeoutMs:20000 } | " +
+      "{ state:'identity_ready', attemptId, instance, sessionId, signingAvailable } | " +
+      "{ state:'identity_failed', attemptId, cause, message, retryable:false, elapsedMs }. " +
+      "Answered from memory (no disk read); never reveals a key, private path, or ACK nonce. " +
+      "While pending/failed, signed and mutating tools are refused with a bounded typed error.",
+    inputSchema: {
+      type: "object",
+      properties: {},
+      additionalProperties: false
+    }
+  },
+  {
     name: "h2a_open_negotiation",
     description:
       "Open a new negotiation. The record is persisted under negotiations/<id>/state.json.",

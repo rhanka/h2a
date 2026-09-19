@@ -154,7 +154,7 @@ test("runMcpServe: internal readiness without auto-open exits nonzero and emits 
   }
 });
 
-test("runMcpServe: auto-upgrade cannot block initialize or reexec the live stdio session", { timeout: 2_000 }, async () => {
+test("runMcpServe: auto-upgrade cannot block initialize or reexec the live stdio session", { timeout: 8_000 }, async () => {
   const root = freshRoot();
   const readyFile = join(root, "ready.json");
   const stdin = new PassThrough();
@@ -245,9 +245,24 @@ test("runMcpServe: auto-upgrade cannot block initialize or reexec the live stdio
 
     assert.equal(response.result.serverInfo.name, "@sentropic/h2a");
     assert.equal(events.includes("initialize-before-install"), true);
-    const ack = JSON.parse(readFileSync(readyFile, "utf8"));
-    assert.equal(ack.nonce, "44444444-4444-4444-8444-444444444444");
+    // L2: initialize must not wait for the install — checked at the moment it
+    // returned. (The readiness ACK is now published only AFTER identity is bound,
+    // which happens asynchronously in the identity worker, so it is polled below.)
     assert.equal(installFinished, false, "readiness and initialize must not wait for install");
+    // L2: the structured readiness ACK stays published only after identity is
+    // really bound (never at bare boot). Poll (bounded) for it instead of reading
+    // it synchronously; the nonce assertion still proves it is the correlated ACK.
+    let ack;
+    for (let i = 0; i < 200; i++) {
+      try {
+        ack = JSON.parse(readFileSync(readyFile, "utf8"));
+        break;
+      } catch {
+        await new Promise((r) => setTimeout(r, 10));
+      }
+    }
+    assert.ok(ack, "readiness ACK must be published after identity binds");
+    assert.equal(ack.nonce, "44444444-4444-4444-8444-444444444444");
 
     // Yield to the scheduled upgrade and prove it was not accidentally
     // dropped merely to make startup fast.

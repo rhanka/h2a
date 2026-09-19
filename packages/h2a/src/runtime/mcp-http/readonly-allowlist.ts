@@ -18,6 +18,9 @@ export const H2A_HOSTED_READONLY_TOOLS: readonly McpToolName[] = [
   // L1: read-only, tenant-confined recovery of an oversize output. The ref is a
   // per-root capability, so a hosted read cannot reach another tenant's payload.
   "h2a_read_payload",
+  // L2: read-only identity readiness (empty schema, no key) — a hosted client may
+  // observe pending/ready/failed without exposing any signing material.
+  "h2a_identity_status",
   "h2a_discover_sessions",
   "h2a_nhi_inventory",
   "h2a_nhi_report",
