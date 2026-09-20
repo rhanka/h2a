@@ -97,6 +97,31 @@ export interface CreateLocalStoreOptions {
    * critical section plus inter-host clock skew. Default 30000.
    */
   leaseMs?: number;
+  /**
+   * L2: when `false`, DO NOT create the store layout — no directory, no schema
+   * sentinel, no empty `instances.jsonl`. An existing sentinel is still read and
+   * validated; an absent root simply yields empty reads (a genuinely unreadable
+   * file is NOT flattened to an empty list). Used by the MCP transport so
+   * `initialize` / `tools/list` / `h2a_identity_status` and every read-only tool
+   * answer on a read-only or not-yet-created root, before identity is ready.
+   * Default `true` (unchanged behavior for every existing caller).
+   */
+  initialize?: boolean;
+  /**
+   * L2: when `true`, every mutating method refuses with a typed
+   * `StorageReadonlyError` ("storage_readonly") instead of attempting a write.
+   * Read paths are unaffected. Default `false`.
+   */
+  readOnly?: boolean;
+}
+
+/** L2: a mutator refused because the store was opened read-only. */
+export class StorageReadonlyError extends Error {
+  readonly code = "storage_readonly";
+  constructor(operation: string) {
+    super(`storage_readonly: ${operation} refused on a read-only store`);
+    this.name = "StorageReadonlyError";
+  }
 }
 
 /**
@@ -353,13 +378,30 @@ function envLeaseMs(): number | undefined {
 
 export function createLocalStore(options: CreateLocalStoreOptions): LocalStore {
   const paths = localStorePaths(options.root);
-  ensureLayout(paths);
-  ensureSchemaSentinel(paths.root, {
-    allowVersionMismatch: options.allowVersionMismatch === true
-  });
-
-  if (!existsSync(paths.instances)) {
-    writeFileSync(paths.instances, "", { encoding: "utf8" });
+  const initialize = options.initialize !== false;
+  const readOnly = options.readOnly === true;
+  if (initialize) {
+    ensureLayout(paths);
+    ensureSchemaSentinel(paths.root, {
+      allowVersionMismatch: options.allowVersionMismatch === true
+    });
+    if (!existsSync(paths.instances)) {
+      writeFileSync(paths.instances, "", { encoding: "utf8" });
+    }
+  } else {
+    // Non-initializing open (L2): create nothing. Only VALIDATE a sentinel that
+    // already exists — an incompatible one still fails closed (an unsupported
+    // schema is a refusal, never a silent write); an absent one is left absent.
+    if (existsSync(join(paths.root, H2A_STORE_SCHEMA_FILE))) {
+      ensureSchemaSentinel(paths.root, {
+        allowVersionMismatch: options.allowVersionMismatch === true
+      });
+    }
+  }
+  // L2 defense-in-depth: a mutator on a read-only store refuses with a typed
+  // error rather than surfacing a raw EROFS from deep in an append.
+  function assertWritable(operation: string): void {
+    if (readOnly) throw new StorageReadonlyError(operation);
   }
 
   const lockTimeoutMs = options.lockTimeoutMs ?? 5000;
@@ -452,6 +494,7 @@ export function createLocalStore(options: CreateLocalStoreOptions): LocalStore {
   }
 
   function registerInstance(reg: H2AActorRegistration): void {
+    assertWritable("registerInstance");
     lock(
       registryLock,
       () => {
@@ -491,6 +534,7 @@ export function createLocalStore(options: CreateLocalStoreOptions): LocalStore {
   }
 
   function addInstanceKey(instanceId: string, publicKeyPem: string): void {
+    assertWritable("addInstanceKey");
     lock(
       registryLock,
       () => {
@@ -1330,6 +1374,7 @@ export function createLocalStore(options: CreateLocalStoreOptions): LocalStore {
   }
 
   function putInboxMessage(actor: string, envelope: H2AEnvelope): void {
+    assertWritable("putInboxMessage");
     const validation = validateH2AEnvelope(envelope);
     if (!validation.ok) {
       throw new Error("putInboxMessage: invalid H2A envelope — " + validation.errors.join("; "));
