@@ -36,8 +36,13 @@ const MILESTONES = [
   "tool_first_sent"
 ];
 
-// Deep boot spans that correlate import → identity → lock → registry read.
-const DEEP_SPANS = ["identity_provider", "identity_register", "registry_read"];
+// L2: identity resolution moved OFF the parent's synchronous boot path into a
+// dedicated child worker, so the parent now traces the identity LIFECYCLE
+// (pending → ready/failed) instead of the deep provider/register/registry/lock
+// spans — those run in the child, off the MCP event loop (the #249 fix). On
+// un-instrumented main NO span is emitted at all, so the lifecycle span is
+// absent there too → the L0 RED/GREEN contract is preserved.
+const IDENTITY_LIFECYCLE_SPAN = "identity_pending";
 
 let cached;
 const roots = [];
@@ -62,6 +67,27 @@ async function session() {
     params: { name: "h2a_discover_instances", arguments: {} }
   });
   raws.push(tc.raw);
+  // F3: WAIT for identity to actually become ready before collecting the trace,
+  // so `identity_ready` is genuinely present (the ordering assert is not vacuous)
+  // AND the child worker's identity/lock/registry spans have all been emitted.
+  let readyState;
+  for (let i = 0; i < 100; i++) {
+    const st = await callRpc(handle, {
+      jsonrpc: "2.0",
+      id: 1000 + i,
+      method: "tools/call",
+      params: { name: "h2a_identity_status", arguments: {} }
+    });
+    try {
+      readyState = JSON.parse(st.message.result.content[0].text);
+    } catch {
+      readyState = undefined;
+    }
+    if (readyState && (readyState.state === "identity_ready" || readyState.state === "identity_failed")) {
+      break;
+    }
+    await new Promise((r) => setTimeout(r, 100));
+  }
   await stopChildren(handle);
   const events = collectFrames(handle);
   cached = {
@@ -97,26 +123,65 @@ test("phase-trace: emits the lifecycle milestone spans (absent on main → RED)"
   }
 });
 
-test("phase-trace: emits the deep import→identity→lock→registry spans", async () => {
+test("phase-trace: emits the async identity lifecycle span, deferred off the boot path", async () => {
   const s = await session();
   const phases = new Set(s.events.map((e) => e.phase));
-  for (const d of DEEP_SPANS) {
-    assert.ok(phases.has(d), `missing deep span: ${d}`);
-  }
-  // The identity write path takes the binding lock: at least one lock event.
+  // L2: the parent traces that identity entered the async pending window AND that
+  // it actually became ready (session() waits for it — so this is not vacuous).
   assert.ok(
-    s.events.some((e) => /_lock_(wait|acquired|released)$/.test(e.phase) || e.phase.startsWith("lock_")),
-    "no lock wait/acquire/release span on the identity write path"
+    phases.has(IDENTITY_LIFECYCLE_SPAN),
+    `missing identity lifecycle span: ${IDENTITY_LIFECYCLE_SPAN}`
+  );
+  assert.ok(phases.has("identity_ready"), "identity_ready must actually be emitted");
+  // Identity is OFF the boot critical path: initialize is sent BEFORE identity
+  // becomes ready (it never waits on the shared-identity section). Both spans are
+  // present, so this ordering is a real comparison, not `< Infinity`.
+  const seqOf = (p) => {
+    const e = s.events.find((ev) => ev.phase === p);
+    assert.ok(e, `expected span present for ordering: ${p}`);
+    return e.seq;
+  };
+  assert.ok(
+    seqOf("initialize_sent") < seqOf("identity_ready"),
+    "initialize must be sent before identity becomes ready (identity is not on the boot critical path)"
   );
 });
 
-test("phase-trace: events are well-formed and correlated by attemptId + pid", async () => {
+test("phase-trace: the #249 identity/lock/registry instrumentation is emitted (relocated to the child worker)", async () => {
+  const s = await session();
+  // The deep spans moved WITH identity resolution into the child worker; they are
+  // emitted under role=identity-child (correlated to the same attemptId) and
+  // forwarded to the parent's stderr — never silently dropped.
+  const childPhases = new Set(s.events.filter((e) => e.role === "identity-child").map((e) => e.phase));
+  for (const deep of ["identity_provider", "identity_register", "registry_read"]) {
+    assert.ok(childPhases.has(deep), `missing relocated deep span: ${deep}`);
+  }
+  // The identity write path takes the binding lock: at least one lock event.
+  assert.ok(
+    s.events.some(
+      (e) =>
+        e.role === "identity-child" &&
+        (/_lock_(wait|acquired|released)$/.test(e.phase) || e.phase.startsWith("lock_"))
+    ),
+    "no binding/registry lock span on the identity write path"
+  );
+  // Correlation preserved: the child spans share the parent's attemptId.
+  const serverAttempt = s.events.find((e) => e.role === "server")?.attemptId;
+  const childAttempt = s.events.find((e) => e.role === "identity-child")?.attemptId;
+  assert.ok(serverAttempt && childAttempt, "both roles emitted spans");
+  assert.equal(childAttempt, serverAttempt, "child spans correlate to the parent attemptId");
+});
+
+test("phase-trace: events are well-formed and correlated by attemptId (+ role/pid)", async () => {
   const s = await session();
   const attempts = new Set();
-  const pids = new Set();
+  const serverPids = new Set();
   for (const e of s.events) {
     assert.equal(e.v, 1, "event schema version must be 1");
-    assert.equal(e.role, "server", "boot events are role=server");
+    assert.ok(
+      e.role === "server" || e.role === "identity-child",
+      `unexpected role: ${e.role}`
+    );
     assert.match(
       String(e.attemptId),
       /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
@@ -127,11 +192,13 @@ test("phase-trace: events are well-formed and correlated by attemptId + pid", as
     assert.equal(typeof e.monotonicMs, "number");
     assert.ok(["begin", "end", "error", "sample"].includes(e.event), `bad event kind: ${e.event}`);
     attempts.add(e.attemptId);
-    pids.add(e.pid);
+    if (e.role === "server") serverPids.add(e.pid);
   }
-  assert.equal(attempts.size, 1, "all events share ONE attemptId");
-  assert.equal(pids.size, 1, "all events share ONE pid");
-  assert.equal([...pids][0], s.childPid, "the traced pid is the server child pid");
+  // ONE attemptId correlates the server boot spans AND the relocated child spans.
+  assert.equal(attempts.size, 1, "all events (server + identity-child) share ONE attemptId");
+  // The server-role boot spans all come from the mcp-serve child process.
+  assert.equal(serverPids.size, 1, "all server-role events share ONE pid");
+  assert.equal([...serverPids][0], s.childPid, "the server-role traced pid is the mcp-serve child pid");
 });
 
 test("phase-trace: serverInfo.version is the real package version, not a frozen literal", async () => {
@@ -140,18 +207,31 @@ test("phase-trace: serverInfo.version is the real package version, not a frozen 
   assert.equal(s.initVersion, currentCliVersion());
 });
 
-test("phase-trace: seq and monotonicMs are non-decreasing in emit order", async () => {
+test("phase-trace: seq and monotonicMs are non-decreasing in emit order (per role)", async () => {
   const s = await session();
-  for (let i = 1; i < s.events.length; i++) {
-    assert.ok(s.events[i].seq > s.events[i - 1].seq, "seq must strictly increase");
-    assert.ok(
-      s.events[i].monotonicMs >= s.events[i - 1].monotonicMs,
-      "monotonicMs must not go backwards"
-    );
+  // seq/monotonicMs are per-TRACE counters. The server and the identity-child are
+  // distinct processes with independent counters, so monotonicity is asserted
+  // WITHIN each role, not across the interleaved merge.
+  for (const role of ["server", "identity-child"]) {
+    const roleEvents = s.events.filter((e) => e.role === role);
+    for (let i = 1; i < roleEvents.length; i++) {
+      assert.ok(roleEvents[i].seq > roleEvents[i - 1].seq, `${role}: seq must strictly increase`);
+      assert.ok(
+        roleEvents[i].monotonicMs >= roleEvents[i - 1].monotonicMs,
+        `${role}: monotonicMs must not go backwards`
+      );
+    }
   }
-  // Lifecycle ordering: process start precedes transport, which precedes the
-  // first emitted response.
-  const seqOf = (phase) => s.events.find((e) => e.phase === phase)?.seq ?? Infinity;
+  // Lifecycle ordering within the server boot trace: process start precedes
+  // transport, which precedes the first emitted response.
+  const server = s.events.filter((e) => e.role === "server");
+  // Presence-asserting (matches the identity-ordering seqOf above): a missing
+  // span throws here instead of passing vacuously via `< Infinity`.
+  const seqOf = (phase) => {
+    const e = server.find((ev) => ev.phase === phase);
+    assert.ok(e, `expected server span present for ordering: ${phase}`);
+    return e.seq;
+  };
   assert.ok(seqOf("process_start") < seqOf("transport_enter"), "process_start before transport_enter");
   assert.ok(seqOf("transport_enter") < seqOf("initialize_sent"), "transport_enter before initialize_sent");
   assert.ok(seqOf("initialize_sent") < seqOf("tools_list_sent"), "initialize before tools/list");

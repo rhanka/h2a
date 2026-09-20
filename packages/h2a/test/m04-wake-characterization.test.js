@@ -229,25 +229,38 @@ async function startTmuxTarget() {
   const eventsPath = join(directory, "events.jsonl");
   const session = `h2a-m04-${process.pid}-${randomBytes(4).toString("hex")}`;
   writeFileSync(observerPath, RAW_OBSERVER_SOURCE);
-  const started = spawnSync(
-    "tmux",
-    [
-      "new-session",
-      "-d",
-      "-x",
-      "80",
-      "-y",
-      "24",
-      "-s",
-      session,
-      process.execPath,
-      observerPath,
-      capturePath,
-      eventsPath,
-    ],
-    { encoding: "utf8" },
+  let started;
+  for (let attempt = 1; attempt <= 5; attempt += 1) {
+    started = spawnSync(
+      "tmux",
+      [
+        "new-session",
+        "-d",
+        "-x",
+        "80",
+        "-y",
+        "24",
+        "-s",
+        session,
+        process.execPath,
+        observerPath,
+        capturePath,
+        eventsPath,
+      ],
+      { encoding: "utf8" },
+    );
+    if (started.status === 0) break;
+    // tmux new-session can lose a server-startup race under concurrent session
+    // creation on CI runners (status 1, "server exited unexpectedly"); back off
+    // and retry the FIXTURE SETUP rather than failing on a transient infra hiccup.
+    // A genuine failure still surfaces below, legibly, after the bounded retries.
+    await new Promise((resolve) => setTimeout(resolve, 150 * attempt));
+  }
+  assert.equal(
+    started.status,
+    0,
+    `tmux new-session did not start after 5 attempts: ${started.stderr || started.error?.message}`,
   );
-  assert.equal(started.status, 0, started.stderr || started.error?.message);
   const paneResult = spawnSync(
     "tmux",
     ["display-message", "-p", "-t", session, "#{pane_id}"],
