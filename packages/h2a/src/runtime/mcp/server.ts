@@ -72,6 +72,8 @@ import { createDiscoveryPager, type DiscoveryPager } from "./discovery-paginatio
 import { createPayloadStore, type PayloadStore } from "./payload-store.js";
 import { resolveFrameBudget, type FrameBudget } from "./frame-budget.js";
 import { PAYLOAD_MAX_READ_BYTES } from "./payload-store.js";
+import { H2A_CLI_MCP_TOOL_NAMES } from "../../mcp.js";
+import type { McpIdentityController, McpIdentityStatus } from "./identity-state.js";
 
 export interface CreateMcpServerOptions {
   /** Filesystem root for the backing local-files store. */
@@ -91,6 +93,20 @@ export interface CreateMcpServerOptions {
   /** Trusted local sidecar identity used by h2a_send; never supplied by tool args. */
   sendContext?: H2ASendSigner;
   /**
+   * L2: the asynchronous identity readiness controller. When present, mutating /
+   * signed / identity-requiring tools are refused with a bounded typed error
+   * while identity is `identity_pending` or `identity_failed`, and
+   * `h2a_identity_status` reports the live state. Absent → `identity_disabled`
+   * (the historical explicit mode) and no gating.
+   */
+  identity?: McpIdentityController;
+  /**
+   * L2: the LIVE signing identity, read on each `h2a_send` so a signer that only
+   * becomes available after asynchronous activation is picked up without
+   * rebuilding the server. Falls back to `sendContext` when absent.
+   */
+  getSendContext?: () => H2ASendSigner | undefined;
+  /**
    * Optional SessionRegistry overrides. Disabled `autoHeartbeat` is the
    * sane default for in-process tests; the stdio transport enables it.
    */
@@ -105,6 +121,14 @@ export interface CreateMcpServerOptions {
   };
   /** L1: frame budget override (tests). Defaults to `resolveFrameBudget()`. */
   frameBudget?: FrameBudget;
+  /**
+   * L2: when `false`, the auto-created store does NOT initialize the layout
+   * (no directory / sentinel / file writes) so `initialize` / `tools/list` /
+   * `h2a_identity_status` and every read-only tool answer on a read-only or
+   * not-yet-created root before identity is ready. Ignored when `store` is
+   * supplied. Default `true` (unchanged for existing callers).
+   */
+  storeInitialize?: boolean;
 }
 
 /** L1: optional per-call transport context (reserved for exact-id budgeting). */
@@ -147,6 +171,74 @@ export function isMcpTransportResult(value: unknown): value is McpTransportResul
 
 const TRACK_READ_TOOL_NAMES = new Set<string>(TRACK_READ_TOOL_DESCRIPTORS.map((tool) => tool.name));
 
+/** Every tool name the server actually implements (h2a + Track read surface). */
+const KNOWN_TOOL_NAMES = new Set<string>([
+  ...H2A_CLI_MCP_TOOL_NAMES,
+  ...TRACK_READ_TOOL_NAMES
+]);
+
+/**
+ * L2: the tools that stay available while identity is pending/failed — a MCP
+ * connection is up even though the shared identity is not yet bound. Every one
+ * of these is a pure READ that needs no signing identity and performs no
+ * implicit write; each was audited against its handler. `h2a_inbox` is allowed
+ * ONLY for `action:"read"` (checked at the call site). `h2a_conductor_launch_check`
+ * is deliberately NOT here (its read path still has effects) and every unlisted
+ * known tool is refused by default. Track read tools are always allowed.
+ */
+const IDENTITY_INDEPENDENT_TOOLS = new Set<string>([
+  "h2a_identity_status",
+  "h2a_read_payload",
+  "h2a_discover_instances",
+  "h2a_discover_sessions",
+  "h2a_conflict_posture",
+  "h2a_nhi_report",
+  "h2a_nhi_inventory",
+  "h2a_nhi_export",
+  "h2a_blockage_list",
+  "h2a_conductor",
+  "h2a_loop_list",
+  "h2a_loop_status"
+]);
+
+/** A bounded typed error emitted for a guarded tool while identity is pending. */
+function identityPendingError(): McpTransportResult {
+  return {
+    content: [
+      {
+        type: "text",
+        text: JSON.stringify({
+          error: "identity_pending",
+          code: "identity_pending",
+          message: "identity is not ready",
+          retryable: true,
+          retryAfterMs: 250
+        })
+      }
+    ],
+    isError: true
+  };
+}
+
+/** A bounded typed error emitted for a guarded tool after identity failed. */
+function identityFailedError(cause: string): McpTransportResult {
+  return {
+    content: [
+      {
+        type: "text",
+        text: JSON.stringify({
+          error: "identity_failed",
+          code: "identity_failed",
+          cause,
+          message: "identity initialization failed; reconnect after correcting the cause",
+          retryable: false
+        })
+      }
+    ],
+    isError: true
+  };
+}
+
 /**
  * Build an in-process MCP server backed by the local-files runtime.
  *
@@ -155,7 +247,12 @@ const TRACK_READ_TOOL_NAMES = new Set<string>(TRACK_READ_TOOL_DESCRIPTORS.map((t
  * unit-tested today and wrapped in a real MCP transport in a later slice.
  */
 export function createMcpServer(options: CreateMcpServerOptions): McpServer {
-  const store = options.store ?? createLocalStore({ root: options.root });
+  const store =
+    options.store ??
+    createLocalStore({
+      root: options.root,
+      ...(options.storeInitialize === false ? { initialize: false } : {})
+    });
   const sessions = new SessionRegistry(options.root, {
     autoHeartbeat: false,
     ...(options.sessions ?? {})
@@ -179,11 +276,43 @@ export function createMcpServer(options: CreateMcpServerOptions): McpServer {
     payloadStore
   });
 
+  /** L2: report the live identity readiness state (memory-only, no disk read). */
+  function identityStatus(): McpIdentityStatus {
+    return options.identity ? options.identity.status() : { state: "identity_disabled" };
+  }
+
+  /**
+   * L2 guard: while identity is pending/failed, refuse a KNOWN tool that is not
+   * identity-independent (and refuse `h2a_inbox` unless it is a read) with a
+   * bounded typed error. Returns undefined to let the call proceed. An UNKNOWN
+   * name is left to fall through to the switch's "unknown tool" error.
+   */
+  function guardIdentity(
+    name: string,
+    args: Record<string, unknown> | undefined
+  ): McpTransportResult | undefined {
+    if (!options.identity) return undefined;
+    const st = options.identity.status();
+    if (st.state === "identity_ready" || st.state === "identity_disabled") return undefined;
+    if (!KNOWN_TOOL_NAMES.has(name)) return undefined; // unknown → switch handles it
+    if (TRACK_READ_TOOL_NAMES.has(name)) return undefined;
+    if (IDENTITY_INDEPENDENT_TOOLS.has(name)) return undefined;
+    if (name === "h2a_inbox" && (args?.action === "read")) return undefined;
+    return st.state === "identity_pending"
+      ? identityPendingError()
+      : identityFailedError(st.cause);
+  }
+
   function callTool(
     name: string,
     args: Record<string, unknown> | undefined,
     _context?: McpCallContext
   ): McpToolResult | McpErrorResult | McpTransportResult {
+    if (name === "h2a_identity_status") {
+      return { content: [{ type: "text", text: JSON.stringify(identityStatus()) }] };
+    }
+    const guard = guardIdentity(name, args);
+    if (guard) return guard;
     if (TRACK_READ_TOOL_NAMES.has(name)) {
       try {
         const result = callTrackReadTool(
@@ -220,7 +349,11 @@ export function createMcpServer(options: CreateMcpServerOptions): McpServer {
       case "h2a_inbox":
         return handleInbox(store, args as never);
       case "h2a_send":
-        return handleSend(store, options.sendContext, args as never);
+        return handleSend(
+          store,
+          options.getSendContext?.() ?? options.sendContext,
+          args as never
+        );
       case "h2a_append_journal":
         return handleAppendJournal(store, args as never);
       case "h2a_open_negotiation":
