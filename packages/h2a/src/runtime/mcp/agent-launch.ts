@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 
 import { isOsTemporaryPath } from "../path-safety.js";
 
-export const H2A_RUN_PROFILES = ["claude", "codex", "agy"] as const;
+export const H2A_RUN_PROFILES = ["claude", "codex", "agy", "muse"] as const;
 export type H2aRunProfile = (typeof H2A_RUN_PROFILES)[number];
 export const H2A_RUN_EFFORTS = ["low", "medium", "high", "xhigh"] as const;
 export type H2aRunEffort = (typeof H2A_RUN_EFFORTS)[number];
@@ -105,7 +105,7 @@ export function validateH2aRunRequest(
 
   const profile = requiredString(args, "profile");
   if (!(H2A_RUN_PROFILES as readonly string[]).includes(profile)) {
-    throw new Error("h2a_run: 'profile' must be claude|codex|agy");
+    throw new Error("h2a_run: 'profile' must be claude|codex|agy|muse");
   }
   const name = requiredString(args, "name");
   if (!SAFE_NAME.test(name)) {
@@ -161,6 +161,11 @@ export function validateH2aRunRequest(
   if (profile === "agy" && gateway === "required") {
     throw new Error(
       "h2a_run: gateway 'required' is unsupported for agy (AGY uses its direct provider)",
+    );
+  }
+  if (profile === "muse" && gateway === "required") {
+    throw new Error(
+      "h2a_run: gateway 'required' is unsupported for muse (muse talks to the Meta provider, not the Anthropic-compatible llm-mesh)",
     );
   }
   const headless = args.headless ?? false;
@@ -272,11 +277,11 @@ function contractResult(value: unknown, request: H2aRunRequest): unknown {
   const expectedMode = request.headless ? "headless" : "interactive";
   // Owner decision (2026-09): a launch is direct unless the gateway is asked for
   // EXPLICITLY. "auto" (the MCP default) now resolves to direct, exactly like
-  // "off"; only "required" engages the local llm-mesh gateway. AGY is always
-  // direct. The runtime is held to that posture, so every accepted mode has a
+  // "off"; only "required" engages the local llm-mesh gateway. AGY and Muse are
+  // always direct. The runtime is held to that posture, so every accepted mode has a
   // determined expected gateway (no undefined pass-through).
   const expectedGateway =
-    request.profile === "agy"
+    request.profile === "agy" || request.profile === "muse"
       ? "direct"
       : request.gateway === "required"
         ? "gateway"

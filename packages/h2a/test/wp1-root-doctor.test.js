@@ -246,7 +246,7 @@ test("doctor: inboxHygiene warns on case-dup, host-less, and phantom 3-seg dirs"
   }
 });
 
-test("doctor: agy/hermes/opencode are known host prefixes (not classified host-less)", () => {
+test("doctor: agy/hermes/opencode/muse are known host prefixes (not classified host-less)", () => {
   const dir = mkdtempSync(join(tmpdir(), "wp1-known-hosts-"));
   const savedEnv = process.env.H2A_ROOT;
   try {
@@ -263,7 +263,8 @@ test("doctor: agy/hermes/opencode are known host prefixes (not classified host-l
     const known = [
       "agy__proj__abc123def456",
       "hermes__proj__abc123def456",
-      "opencode__proj__abc123def456"
+      "opencode__proj__abc123def456",
+      "muse__proj__abc123def456"
     ];
     for (const name of [...known, "react__proj__abc123def456"]) {
       mkdirSync(join(inboxDir, name), { recursive: true });

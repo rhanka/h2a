@@ -64,7 +64,7 @@ export {
 export type DiscoveredSession = {
   project: string;
   mtimeMs: number;
-  tool: "claude" | "codex" | "agy";
+  tool: "claude" | "codex" | "agy" | "muse";
   sid: string;
   cwd: string;
   /** "registry" = enrolled live session (reliable); "scan" = mtime guess. */

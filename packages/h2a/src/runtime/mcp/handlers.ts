@@ -1422,7 +1422,7 @@ export function notImplemented(toolName: string): McpErrorResult {
 }
 
 const LOOP_AGENT_HOSTS: ReadonlySet<H2ALoopAgent["host"]> = new Set([
-  "claude", "codex", "agy", "gemini", "mistral", "hermes", "opencode", "shell"
+  "claude", "codex", "agy", "gemini", "mistral", "hermes", "opencode", "shell", "muse"
 ]);
 
 /** Resolve host from fresh presence instead of guessing from an instance label. */
