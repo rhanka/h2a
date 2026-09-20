@@ -8,6 +8,7 @@ export const CLI_PROFILES = [
   "agy",
   "gemini",
   "mistral",
+  "muse",
 ] as const;
 
 export type CliProfile = (typeof CLI_PROFILES)[number];
@@ -29,15 +30,13 @@ export function profileUsesLlmMeshGateway(profile: string): boolean {
  * explicit "gateway" engages it; "direct" stays direct. A profile that does not
  * consume the Anthropic-compatible gateway is always direct regardless.
  *
- * The RAW request value (still "auto" when neither flag was passed) is kept by
- * the caller for the registry pin decision (`gatewayMode !== "auto"` = explicit),
- * so an "auto" launch stays UNPINNED and restore keeps following the live
- * default; the explicit --gw/--no-gw re-emission on restore is unaffected.
+ * The effective value excludes "auto": callers can persist the actual launch
+ * posture alongside the bare choice so resume reproduces it.
  */
-export function gatewayModeForProfile<T extends "auto" | "gateway" | "direct">(
+export function gatewayModeForProfile(
   profile: string,
-  requested: T,
-): T | "direct" {
+  requested: "auto" | "gateway" | "direct",
+): "gateway" | "direct" {
   if (!profileUsesLlmMeshGateway(profile)) return "direct";
   return requested === "auto" ? "direct" : requested;
 }

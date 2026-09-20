@@ -64,6 +64,8 @@ import { lastSpawnRequestAt, recordSpawnRequest, spawnAllowed } from "../governa
 import { gatherNhiSnapshot } from "../nhi.js";
 import { agentVersion } from "../version/agent-version.js";
 import type { SessionRegistry } from "./sessions.js";
+import type { DiscoveryPager } from "./discovery-pagination.js";
+import type { McpTransportResult } from "./server.js";
 import {
   createObjectiveLoop,
   declareObjectiveLoopDone,
@@ -154,10 +156,31 @@ function bestConfidence(
   return "unknown";
 }
 
+/**
+ * L1: bounded, paginated discovery. With a `pager` (always supplied by the live
+ * server) the result is the 200-most-recent page (default), a byte-budgeted page,
+ * or a typed error result (`isError:true`, JSON body). Without a pager — a legacy
+ * in-process direct call — it falls back to the historical exhaustive result so
+ * unit tests that never construct a server keep working.
+ */
 export function handleDiscoverInstances(
   store: LocalStore,
-  args: { role?: H2ARole; scope?: string } | undefined
-): McpToolResult | McpErrorResult {
+  args: { role?: string; scope?: string; limit?: number; cursor?: string } | undefined,
+  pager?: DiscoveryPager
+): McpToolResult | McpErrorResult | McpTransportResult {
+  if (pager) {
+    const outcome = pager.discover(args);
+    // Spread into an object literal so the concrete page type satisfies the
+    // index-signature McpToolResult; `.instances` stays readable in-process.
+    if (outcome.kind === "page") return { ...outcome.page };
+    const { code, message, data } = outcome.error;
+    return {
+      content: [
+        { type: "text", text: JSON.stringify({ code, message, ...(data ?? {}) }) }
+      ],
+      isError: true
+    };
+  }
   try {
     let instances = store.listInstances();
     // DEC-110: gate discovery on the effective org view (registration ∪
@@ -1399,7 +1422,7 @@ export function notImplemented(toolName: string): McpErrorResult {
 }
 
 const LOOP_AGENT_HOSTS: ReadonlySet<H2ALoopAgent["host"]> = new Set([
-  "claude", "codex", "agy", "gemini", "mistral", "hermes", "opencode", "shell"
+  "claude", "codex", "agy", "gemini", "mistral", "hermes", "opencode", "shell", "muse"
 ]);
 
 /** Resolve host from fresh presence instead of guessing from an instance label. */

@@ -38,6 +38,7 @@ import {
   isMcpTransportResult,
   type McpServer
 } from "./mcp/server.js";
+import { boundCallToolResult } from "./mcp/frame-budget.js";
 
 export const H2A_MCP_CENTRAL_ENV = "H2A_MCP_CENTRAL";
 export const H2A_MCP_CENTRAL_ENDPOINT_ENV = "H2A_MCP_CENTRAL_ENDPOINT";
@@ -757,12 +758,21 @@ async function claimCentralMarker(
 
 function centralToolResult(server: McpServer, name: string, args: Record<string, unknown>): CallToolResult {
   const result = server.callTool(name, args);
-  if (isMcpTransportResult(result)) return result;
-  const isError = Boolean(result && typeof result === "object" && "error" in result);
-  return {
-    content: [{ type: "text", text: JSON.stringify(result) }],
-    isError
-  };
+  const shaped: CallToolResult = isMcpTransportResult(result)
+    ? (result as CallToolResult)
+    : {
+        content: [{ type: "text", text: JSON.stringify(result) }],
+        isError: Boolean(result && typeof result === "object" && "error" in result)
+      };
+  // L1: bound the final SDK frame — an oversize tool result becomes a bounded
+  // -32010-style error result with a recovery ref, never a raw >B frame.
+  return boundCallToolResult(shaped as never, server.frameBudget, (j) => {
+    try {
+      return server.payloadStore.persistOutput(Buffer.from(j, "utf8"));
+    } catch {
+      return undefined;
+    }
+  }) as CallToolResult;
 }
 
 function createCentralProtocolServer(mcp: McpServer): Server {

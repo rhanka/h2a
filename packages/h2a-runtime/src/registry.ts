@@ -36,7 +36,7 @@ import {
 import type { SessionClass } from "./session-class.js";
 import { nativeSessionLiveness } from "./native-host.js";
 
-export type RegistryTool = "claude" | "codex" | "agy";
+export type RegistryTool = "claude" | "codex" | "agy" | "muse";
 export type RegistryKind = "local-tmux" | "local-native" | "local" | "remote";
 
 /** Managed local interactive session hosted by tmux OR the native PTY host. */
@@ -210,6 +210,14 @@ export type RegistryEntry = {
    */
   gatewayMode?: "gateway" | "direct";
   /**
+   * Pinned Claude `--bare` choice, captured at launch. `--bare` strips Claude's
+   * native tool surface (see `resolveClaudeBare`); it is re-emitted verbatim by
+   * resume and `remote restore` so a restored session keeps the posture it was
+   * launched with instead of re-deriving it (which would otherwise flip a
+   * no-bare session to bare, or vice-versa). Absent = no pinned choice.
+   */
+  bare?: boolean;
+  /**
    * Durable restore pin: local-tmux/run/human rows with UUID convId and no
    * endedAt are retained by prune across long offline windows.
    */
@@ -247,6 +255,8 @@ export type EnrollInput = {
   model?: string;
   effort?: string;
   gatewayMode?: "gateway" | "direct";
+  /** Pinned Claude `--bare` choice (see RegistryEntry.bare). */
+  bare?: boolean;
   /** Explicit override for restore pinning (internal only). */
   restorePinned?: boolean;
 };
@@ -794,7 +804,7 @@ function isRegistryEntry(raw: unknown): raw is RegistryEntry {
   const e = raw as Record<string, unknown>;
   return (
     typeof e.id === "string" &&
-    (e.tool === "claude" || e.tool === "codex" || e.tool === "agy") &&
+    (e.tool === "claude" || e.tool === "codex" || e.tool === "agy" || e.tool === "muse") &&
     (e.kind === "local-tmux" || e.kind === "local-native" || e.kind === "local" || e.kind === "remote") &&
     typeof e.cwd === "string" &&
     typeof e.enrolledAt === "string" &&
@@ -1059,6 +1069,8 @@ function applyEnroll(
   if (effort !== undefined) entry.effort = effort;
   const gatewayMode = input.gatewayMode ?? prev?.gatewayMode;
   if (gatewayMode !== undefined) entry.gatewayMode = gatewayMode;
+  const bare = input.bare ?? prev?.bare;
+  if (bare !== undefined) entry.bare = bare;
   if (input.restorePinned !== undefined) {
     entry.restorePinned = input.restorePinned;
   } else if (prev?.restorePinned !== undefined) {
@@ -1391,6 +1403,9 @@ export function coerceRegistryTool(profile: string): RegistryTool | undefined {
     case "agy":
     case "antigravity":
       return "agy";
+    case "muse":
+    case "muse-code":
+      return "muse";
     default:
       return undefined;
   }
@@ -1416,6 +1431,7 @@ export function enrollFromRun(args: {
   cwd: string;
   convId?: string;
   gatewayMode?: "gateway" | "direct";
+  bare?: boolean;
   sessionClass: RegistrySessionClass;
   delegationOrigin?: DelegationOrigin;
   delegatorInstance?: string;
@@ -1453,6 +1469,7 @@ export function enrollFromRun(args: {
         : {}),
       ...(args.convId !== undefined ? { convId: args.convId } : {}),
       ...(args.gatewayMode !== undefined ? { gatewayMode: args.gatewayMode } : {}),
+      ...(args.bare !== undefined ? { bare: args.bare } : {}),
     });
   } catch {
     // best-effort: the tmux session is up regardless

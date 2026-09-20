@@ -19,6 +19,7 @@ export type H2AHostPluginMechanism =
   | "codex-app-server"
   | "agy-plugin-poll"
   | "hermes-hooks"
+  | "muse-poll"
   | "opencode-plugin";
 
 export interface H2AHostPluginTarget {
@@ -32,7 +33,7 @@ export interface H2AHostPluginTarget {
   readonly push: boolean;
 }
 
-/** The supported hosts, at parity (codex/claude/gemini/agy/hermes/opencode). */
+/** The supported hosts, at parity (codex/claude/gemini/agy/hermes/muse/opencode). */
 export const H2A_HOST_PLUGIN_TARGETS: Readonly<Record<string, H2AHostPluginTarget>> = {
   claude: {
     host: "claude",
@@ -75,6 +76,13 @@ export const H2A_HOST_PLUGIN_TARGETS: Readonly<Record<string, H2AHostPluginTarge
     mechanism: "opencode-plugin",
     push: true,
     hint: "Register the record command with an OpenCode plugin/hook so session stops are recorded."
+  },
+  muse: {
+    host: "muse",
+    resumeCommand: "muse resume --last",
+    mechanism: "muse-poll",
+    push: false,
+    hint: "muse exposes no verified stop-hook surface: poll `h2a drumbeat scan` / `h2a blockage list`, and run the record command on clean quit where a hook exists. Skills install to $CONFIG_DIR/skills (verified) via `h2a install-skills --host muse`."
   }
 };
 
@@ -96,7 +104,7 @@ export interface H2AStopHookRender {
   readonly record: string;
   /** Pre-action host hook: verifies signed h2a drive prompts before the host acts. */
   readonly receive: string;
-  /** Poll-only hosts (agy): the command to discover peers' stalls/blockages. */
+  /** Poll-only hosts (agy, muse): the command to discover peers' stalls/blockages. */
   readonly poll?: string;
 }
 
@@ -131,7 +139,7 @@ export function renderStopHook(
     hint: target.hint,
     record,
     receive,
-    // Poll command for every host (agy uses it as its only path; the others
+    // Poll command for every host (agy and muse use it as their only path; the others
     // can use it as a manual fallback). Drumbeat scan + blockage list.
     poll: `h2a drumbeat scan${rootArg}`
   };

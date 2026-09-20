@@ -32,6 +32,9 @@ export const PROFILE_AUTH_FILES: Readonly<
     ".gemini/config/mcp_config.json",
   ],
   mistral: [],
+  // Verified: `~/.config/muse/auth.json` holds the stored provider credentials
+  // (see `muse auth`); the login entrypoint is `muse login`.
+  muse: [".config/muse/auth.json"],
 };
 
 export type AuthBundle = Readonly<Record<string, string>>;
@@ -39,6 +42,7 @@ export type AuthBundle = Readonly<Record<string, string>>;
 const REQUIRED_AUTH_BUNDLE_PROFILES: Partial<Record<CliProfile, string>> = {
   codex: "codex login",
   claude: "claude auth login",
+  muse: "muse login",
 };
 
 export class AuthBundleMissingError extends Error {

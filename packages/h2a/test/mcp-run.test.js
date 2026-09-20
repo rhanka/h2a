@@ -113,7 +113,8 @@ test("h2a_run descriptor is exact, background-only, and shared by the local MCP"
     assert.deepEqual(descriptor.inputSchema.properties.profile.enum, [
       "claude",
       "codex",
-      "agy"
+      "agy",
+      "muse"
     ]);
     assert.equal(
       descriptor.inputSchema.properties.agent.pattern,
@@ -124,7 +125,7 @@ test("h2a_run descriptor is exact, background-only, and shared by the local MCP"
 
 test("h2a_run validates every structured profile and returns the real launcher result", () => {
   withWorkspace(({ workspaceRoot, workspace, storeRoot }) => {
-    for (const profile of ["claude", "codex", "agy"]) {
+    for (const profile of ["claude", "codex", "agy", "muse"]) {
       let captured;
       const server = createMcpServer({
         root: storeRoot,
@@ -181,6 +182,28 @@ test("MCP launch records post-launch delegation evidence outside the CLI argv/en
     assert.equal(invocation.args.some((arg) => arg.includes("delegat")), false);
     assert.equal(invocation.env, undefined);
   });
+});
+
+test("h2a_run threads --bare / --no-bare into the CLI invocation; default omits both", () => {
+  const base = {
+    profile: "claude",
+    name: "gw-native",
+    workspace: "/opt/ws",
+    prompt: "hi",
+    background: true,
+    gateway: "required",
+    headless: false,
+    h2aSidecar: true
+  };
+  const none = buildH2aRunInvocation(base, "/opt/h2a/bin.js");
+  assert.equal(none.args.includes("--bare"), false);
+  assert.equal(none.args.includes("--no-bare"), false);
+  const bare = buildH2aRunInvocation({ ...base, bare: true }, "/opt/h2a/bin.js");
+  assert.ok(bare.args.includes("--bare"));
+  assert.equal(bare.args.includes("--no-bare"), false);
+  const noBare = buildH2aRunInvocation({ ...base, bare: false }, "/opt/h2a/bin.js");
+  assert.ok(noBare.args.includes("--no-bare"));
+  assert.equal(noBare.args.includes("--bare"), false);
 });
 
 test("stdio tools/call exposes the same h2a_run contract", async () => {
@@ -281,6 +304,18 @@ test("h2a_run rejects unknown fields, unsafe workspaces and invalid combinations
       () =>
         validateH2aRunRequest(
           request(workspace, {
+            profile: "muse",
+            headless: false,
+            gateway: "required"
+          }),
+          workspaceRoot
+        ),
+      /required.*unsupported for muse/i
+    );
+    assert.throws(
+      () =>
+        validateH2aRunRequest(
+          request(workspace, {
             profile: "agy",
             headless: false,
             gateway: "off",
@@ -290,7 +325,7 @@ test("h2a_run rejects unknown fields, unsafe workspaces and invalid combinations
         ),
       /agy.*effort.*low.*medium.*high/i
     );
-    for (const profile of ["claude", "codex"]) {
+    for (const profile of ["claude", "codex", "muse"]) {
       assert.throws(
         () =>
           validateH2aRunRequest(

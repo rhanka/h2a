@@ -232,7 +232,7 @@ test("Hermes/OpenCode render h2a MCP setup snippets", () => {
   }
 });
 
-for (const host of ["codex", "claude", "gemini", "agy", "hermes", "opencode"]) {
+for (const host of ["codex", "claude", "gemini", "agy", "hermes", "opencode", "muse"]) {
   test(`h2a host setup --endpoint remote renders one URL endpoint for ${host}`, () => {
     const streams = captureStreams("/tmp");
     const rc = runCli(
