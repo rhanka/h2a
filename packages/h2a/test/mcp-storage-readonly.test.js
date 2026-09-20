@@ -26,7 +26,7 @@ import test from "node:test";
 import {
   callRpc,
   callTool,
-  copySeed,
+  labRoot,
   parseToolJson,
   spawnMcp,
   stopChildren,
@@ -39,7 +39,7 @@ if (process.env.H2A_MCP_REQUIRE_REAL_SEED === "1" && !SEED) {
     "H2A_MCP_REQUIRE_REAL_SEED=1 but H2A_MCP_TEST_SEED is unset — the real seed is mandatory (no reduced fixture)."
   );
 }
-const maybe = SEED ? test : test.skip;
+const maybe = test; // F4: always run — synthetic corpus fallback when the private seed is absent
 
 function chmodTree(path, mode) {
   execFileSync("chmod", ["-R", mode, path]);
@@ -49,7 +49,7 @@ maybe(
   "T11 read-only storage (EACCES): connection + status stay available; identity_failed storage_permission_denied; no mutation",
   { timeout: 40_000 },
   async () => {
-    const root = copySeed(SEED);
+    const root = labRoot(SEED);
     // Remove write everywhere (keep r-x): every store write (layout, sentinel,
     // registry append) now fails with EACCES; reads still work.
     chmodTree(root, "a-w");
@@ -145,7 +145,7 @@ maybe(
     // transport store yields empty reads (never flattens an unreadable file to
     // empty), and initialize/tools-list answer. Identity may then create the
     // layout and resolve — the point here is that an absent root does not crash.
-    const parent = copySeed(SEED, { dest: undefined });
+    const parent = labRoot(SEED, { dest: undefined });
     const root = join(parent, "brand-new-root");
     let h;
     try {
