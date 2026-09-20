@@ -17,6 +17,7 @@ import { spawn } from "node:child_process";
 import {
   chmodSync,
   cpSync,
+  mkdirSync,
   mkdtempSync,
   statSync,
   writeFileSync
@@ -59,6 +60,35 @@ export function copySeed(seedDir, opts = {}) {
   cpSync(seedDir, dest, { recursive: true, dereference: true, force: true });
   chmodSync(dest, 0o700);
   return dest;
+}
+
+/**
+ * Return a lab store root for a behavioral case: a private copy of the real seed
+ * when `seedDir` is set, otherwise a FRESH SYNTHETIC corpus (an empty 0700 root
+ * with the minimal `registry/ identity/ keys/` layout) so the behavioral
+ * assertions RUN in public CI WITHOUT the private measurement seed (per the
+ * brief's "public CI generates its synthetic corpus"). The private-seed path is
+ * reserved for the size / real-registry cases; the behavioral contract (pending/
+ * ready/failed, guard, decoupling, window closure, storage) needs only a live
+ * holder + real processes, which the synthetic corpus supports identically.
+ */
+export function labRoot(seedDir, opts = {}) {
+  if (seedDir) return copySeed(seedDir, opts);
+  const dest = opts.dest ?? mkdtempSync(join(tmpdir(), "h2a-mcp-synth-"));
+  chmodSync(dest, 0o700);
+  for (const sub of ["registry", "identity", "keys"]) {
+    mkdirSync(join(dest, sub), { recursive: true });
+  }
+  // Empty append-only stores so a live holder can lock `registry/.lock` and the
+  // MCP server / identity worker read an empty registry (then mint into it).
+  writeFileSync(join(dest, "registry", "instances.jsonl"), "", { encoding: "utf8" });
+  writeFileSync(join(dest, "registry", "keys.jsonl"), "", { encoding: "utf8" });
+  return dest;
+}
+
+/** True when a case is running on the synthetic corpus (no private seed). */
+export function usingSyntheticCorpus() {
+  return !process.env.H2A_MCP_TEST_SEED;
 }
 
 /** Bytes of the seed registry file, for calibration context (0 if absent). */

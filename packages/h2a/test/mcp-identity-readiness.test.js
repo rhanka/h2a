@@ -20,7 +20,7 @@ import test from "node:test";
 import {
   callRpc,
   callTool,
-  copySeed,
+  labRoot,
   parseToolJson,
   readIdentityStatus,
   spawnMcp,
@@ -35,7 +35,7 @@ if (process.env.H2A_MCP_REQUIRE_REAL_SEED === "1" && !SEED) {
     "H2A_MCP_REQUIRE_REAL_SEED=1 but H2A_MCP_TEST_SEED is unset — the real seed is mandatory (no reduced fixture)."
   );
 }
-const maybe = SEED ? test : test.skip;
+const maybe = test; // F4: always run — synthetic corpus fallback when the private seed is absent
 
 // Mirrors MCP_IDENTITY_TIMEOUT_MS (identity-state.ts). Kept a LOCAL literal so the
 // file still loads on main@4be46caf (the L2 export is absent there) — the RED must
@@ -49,7 +49,7 @@ maybe(
   "T3 identity-independent connection under a live registry lock (initialize/tools-list decoupled, pending visible)",
   { timeout: 45_000 },
   async () => {
-    const root = copySeed(SEED);
+    const root = labRoot(SEED);
     // Hold the registry lock LIVE past main's ~5 s lock timeout. Identity mint
     // must registerInstance → registry lock, so main blocks here before ANY
     // handshake; the candidate keeps the transport responsive.
@@ -116,7 +116,7 @@ maybe(
   "T5 pending→ready: signed/mutating tools refused while pending, available after real activation",
   { timeout: 45_000 },
   async () => {
-    const root = copySeed(SEED);
+    const root = labRoot(SEED);
     const h = spawnMcp({
       root,
       args: ["--auto-open", "--host", "claude"],
@@ -186,7 +186,7 @@ maybe(
   "T5 pending→failed: identity_timeout at ~20s from pending, no ACK, no presence, signed tools refused",
   { timeout: 40_000 },
   async () => {
-    const root = copySeed(SEED);
+    const root = labRoot(SEED);
     const holder = startLiveHolder({ root, lock: "registry" });
     await holder.ready;
     const h = spawnMcp({
@@ -235,7 +235,7 @@ maybe(
   "T5 transport close while pending: clean shutdown, no readiness ACK, no orphan",
   { timeout: 30_000 },
   async () => {
-    const root = copySeed(SEED);
+    const root = labRoot(SEED);
     const holder = startLiveHolder({ root, lock: "registry" });
     await holder.ready;
     const h = spawnMcp({

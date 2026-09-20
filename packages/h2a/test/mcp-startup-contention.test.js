@@ -24,7 +24,7 @@ import test from "node:test";
 
 import {
   callRpc,
-  copySeed,
+  labRoot,
   readIdentityStatus,
   spawnMcp,
   startLiveHolder,
@@ -38,7 +38,7 @@ if (process.env.H2A_MCP_REQUIRE_REAL_SEED === "1" && !SEED) {
     "H2A_MCP_REQUIRE_REAL_SEED=1 but H2A_MCP_TEST_SEED is unset — the real seed is mandatory (no reduced fixture)."
   );
 }
-const maybe = SEED ? test : test.skip;
+const maybe = test; // F4: always run — synthetic corpus fallback when the private seed is absent
 
 // Mirrors MCP_IDENTITY_TIMEOUT_MS (identity-state.ts). Kept as a LOCAL literal on
 // purpose: importing the L2-only export would make this file fail to load on
@@ -67,7 +67,7 @@ maybe(
   "startup contention: initialize returns while the lock is held; all resolve after a controlled release; no duplicate binding",
   { timeout: 90_000 },
   async () => {
-    const root = copySeed(SEED);
+    const root = labRoot(SEED);
     const SAME = "contention-shared-conversation";
     const sameCount = 6;
     const distinctCount = 6;

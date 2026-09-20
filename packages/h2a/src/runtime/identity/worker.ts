@@ -19,6 +19,7 @@
 import { resolveLiveIdentityAsync } from "./live.js";
 import type { ResolveLiveIdentityInput } from "./live.js";
 import { LockCancelledError, LockTimeoutError } from "../local-files/locks.js";
+import { createMcpTrace, setActiveMcpTrace } from "../mcp/phase-trace.js";
 
 interface ResolveRequest {
   readonly kind: "resolve_identity";
@@ -33,6 +34,8 @@ interface ResolveRequest {
     readonly declaredCapabilities?: readonly string[];
   };
   readonly budgetMs: number;
+  /** Parent trace's attemptId so the child's L0 spans correlate (role=identity-child). */
+  readonly traceAttemptId?: string;
 }
 
 type IdentityFailureCode =
@@ -85,6 +88,19 @@ process.on("message", (raw: unknown) => {
   if (msg.kind !== "resolve_identity" || handled) return;
   handled = true;
   const req = msg as ResolveRequest;
+  // L0 (#249): relocate the identity/lock/registry instrumentation that used to
+  // run on the parent. Installing a correlated `identity-child` trace (same
+  // attemptId as the parent) makes resolveLiveIdentityAsync's provider/keys/
+  // register/alias spans, the registry_read span, and the binding-lock spans
+  // fire HERE (on the worker's stderr, which the parent forwards line by line),
+  // instead of being silently lost when resolution moved off the parent loop.
+  setActiveMcpTrace(
+    createMcpTrace({
+      role: "identity-child",
+      ...(req.traceAttemptId !== undefined ? { attemptId: req.traceAttemptId } : {}),
+      pid: process.pid
+    })
+  );
   const input: ResolveLiveIdentityInput = {
     root: req.request.root,
     host: req.request.host,
@@ -124,6 +140,7 @@ process.on("message", (raw: unknown) => {
   // the ~17 MB registry per retry under contention).
   const mintMemo: { value?: { instance: string; agentUuid: string } } = {};
   const prepCache: { prepared?: unknown } = {};
+  let attempt = 0;
   const resolveWithRetry = async () => {
     while (!abort.signal.aborted) {
       const budget = remainingMs();
@@ -136,9 +153,11 @@ process.on("message", (raw: unknown) => {
           // through a long registry wait; the loop retries outside the section.
           registryLockTimeoutMs: 250,
           mintMemo,
-          prepCache
+          prepCache,
+          attempt
         });
       } catch (err) {
+        attempt += 1;
         if (abort.signal.aborted) throw err;
         if (err instanceof LockTimeoutError && remainingMs() > 0) {
           await cancellableDelay(200);

@@ -658,6 +658,24 @@ export function runMcpStdio(options: RunMcpStdioOptions): Promise<void> {
         };
       }
       autoOpenedSessionId = sessionId;
+      // F1: if any later activation step fails, roll ALL partial work back so a
+      // failed identity never leaves a live presence session, a live signer, an
+      // armed self-wake, or (worse) a published readiness ACK behind it.
+      const rollback = (): void => {
+        try {
+          server.sessions.close(sessionId, "closed");
+        } catch {
+          /* best effort */
+        }
+        // Disarm the inbox-wake (it signs self-wake lines) — a no-op handler.
+        try {
+          server.notifications.setOnInboxArrival(() => {});
+        } catch {
+          /* best effort */
+        }
+        liveSendContext = undefined;
+        autoOpenedSessionId = undefined;
+      };
       if (privateKeyPem !== undefined) {
         const wakeCfg = activation.buildWake?.(privateKeyPem, cfg.instance, cfg.host);
         if (wakeCfg) armInboxWake(cfg, wakeCfg);
@@ -669,6 +687,9 @@ export function runMcpStdio(options: RunMcpStdioOptions): Promise<void> {
           publishReadinessAck(options.readiness, sessionId);
           trace?.phase("readiness_ack");
         } catch (err) {
+          // The ACK is the LAST step; a failure here would otherwise leave the
+          // session/signer/wake live under a `failed` state — roll them back.
+          rollback();
           return {
             ok: false,
             cause: "readiness_ack_failed",
