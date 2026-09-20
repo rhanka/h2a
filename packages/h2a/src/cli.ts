@@ -162,7 +162,10 @@ import {
   getActiveMcpTrace,
   H2A_MCP_READY_FILE_ENV,
   H2A_MCP_READY_NONCE_ENV,
-  runMcpStdio
+  runMcpStdio,
+  type McpIdentityRequest,
+  type ResolvedIdentityMessage,
+  type RunMcpStdioOptions
 } from "./runtime/mcp/index.js";
 import { bridgeCentralMcpStdio, startCentralMcpServer } from "./runtime/mcp-central.js";
 import { renderK8sSidecar } from "./runtime/deploy/k8s-sidecar.js";
@@ -1686,10 +1689,37 @@ function cmdComprehension(
  * with `PassThrough` streams instead of going through this verb.
  */
 /**
+ * L2: build the DEFERRED identity request from `mcp-serve` flags — pure, total,
+ * and lock-free (no key read, no registry parse, no lock wait). The transport
+ * hands this to a child worker that resolves identity OFF the MCP event loop, so
+ * `initialize` / `tools/list` / `h2a_identity_status` answer immediately. The
+ * synchronous {@link resolveAutoOpen} is kept unchanged for existing consumers.
+ */
+export function buildMcpIdentityRequest(
+  flags: Record<string, string>,
+  cwd: () => string
+): McpIdentityRequest {
+  const host = flags.host ?? "agent";
+  return {
+    root: resolveRoot(flags, cwd),
+    host,
+    cwd: cwd(),
+    declaredCapabilities: [...H2A_CLI_DECLARED_CAPABILITIES],
+    ...(flags.instance !== undefined ? { explicitInstance: flags.instance } : {}),
+    ...(flags.name !== undefined ? { name: flags.name } : {}),
+    ...(flags.scope !== undefined ? { scopes: [flags.scope] } : {})
+  };
+}
+
+/**
  * DEC-105 (EVO-6): resolve the auto-open session config from `mcp-serve` flags.
  * `--auto-open` enables it; the instance is `--instance <id>` or, if absent,
  * `<host>:<cwd-leaf>` (host = `--host` or "agent"). Pure + total so it can be
  * unit-tested without spawning the server. Returns undefined when not enabled.
+ *
+ * NOTE (L2): `mcp-serve` no longer calls this on its boot path — it defers
+ * identity via {@link buildMcpIdentityRequest}. This stays exported for the CLI
+ * consumers and tests that resolve identity synchronously.
  */
 export function resolveAutoOpen(
   flags: Record<string, string>,
@@ -1865,12 +1895,14 @@ export async function runMcpServe(
   const root = trace
     ? trace.span("root_resolve", () => resolveRoot(flags, cwd))
     : resolveRoot(flags, cwd);
-  // Identity/auto-open resolution reads keys, binds and registers — the deep
-  // spans (provider, key read, lock wait, registry parse) are emitted from
-  // live.ts / bindings.ts / locks.ts / store.ts under this same attempt.
-  const autoOpen = trace
-    ? trace.span("identity_resolve", () => resolveAutoOpen(flags, cwd))
-    : resolveAutoOpen(flags, cwd);
+  // L2: identity is resolved ASYNCHRONOUSLY in a dedicated child worker so
+  // `initialize` / `tools/list` / `h2a_identity_status` answer immediately even
+  // under a live lock. Here we ONLY capture the deferred request — no key read,
+  // no lock wait, no ~17 MB registry parse on this event loop (the #249
+  // "move-don't-shrink" trap is avoided by not resolving synchronously at all).
+  // `--auto-open` absent → no identity (the explicit mode, unchanged).
+  const identityRequest =
+    flags["auto-open"] !== undefined ? buildMcpIdentityRequest(flags, cwd) : undefined;
   const readinessEnv = io.env ?? process.env;
   const readyFile = readinessEnv[H2A_MCP_READY_FILE_ENV];
   const readyNonce = readinessEnv[H2A_MCP_READY_NONCE_ENV];
@@ -1987,65 +2019,91 @@ try {
   }
 
   // EVO-1 inbox wake (bug #3): --wake <driver-kind> injects a signed wake on
-  // inbox arrival (requires --auto-open + a resolvable private key).
+  // inbox arrival (requires --auto-open + a resolvable private key). The KIND is
+  // validated eagerly; the driver is BUILT only after asynchronous activation,
+  // when the resolved private key is available (deferred `buildWake`).
   const WAKE_KINDS: readonly string[] = ["logging", "native", "local-tmux", "headless", "auto"];
   const nativeSessionId = nativePtyWakeTarget(readinessEnv);
-  let identityPrivateKeyPem: string | undefined;
-  if (autoOpen?.privateKeyPath) {
-    try {
-      identityPrivateKeyPem = readFileSync(autoOpen.privateKeyPath, "utf8");
-    } catch (err) {
-      io.stderr.write(
-        `h2a mcp-serve: local signing unavailable (cannot read key): ${(err as Error).message}\n`
-      );
-    }
-  }
-  let wake: {
-    driver: H2ADriver;
-    privateKeyPem: string;
-    nativeSessionId?: string;
-  } | undefined;
+  let wakeKind: string | undefined;
   if (flags.wake !== undefined && !WAKE_KINDS.includes(flags.wake)) {
     io.stderr.write(
       "h2a mcp-serve: --wake must be one of logging|native|local-tmux|headless|auto; ignored\n"
     );
   } else if (flags.wake === "headless") {
-    // A self-wake must NEVER spawn a new agent. headless does exactly that.
     io.stderr.write(
       "h2a mcp-serve: --wake headless is unsafe (it would spawn a NEW agent on inbox arrival, not wake this one); use auto. ignored\n"
     );
-  } else if (flags.wake !== undefined && autoOpen?.privateKeyPath && identityPrivateKeyPem) {
+  } else if (flags.wake !== undefined && identityRequest === undefined) {
+    io.stderr.write("h2a mcp-serve: --wake requires --auto-open; ignored\n");
+  } else if (flags.wake !== undefined) {
+    wakeKind = flags.wake;
+  }
+
+  // L2 activation wiring: turn the ASYNC-resolved identity into the presence
+  // config + wake driver + live signer. Runs only once identity is really bound.
+  const buildAutoOpen = (identity: ResolvedIdentityMessage): NonNullable<
+    RunMcpStdioOptions["autoOpen"]
+  > => {
+    const host = flags.host;
+    if (identity.migrationNotice) {
+      io.stderr.write(`h2a mcp-serve: ${identity.migrationNotice}\n`);
+    }
+    // §D1b: follow the host title only when the name was implicit and a real
+    // provider session id was readable, and only for a host we can re-read.
+    const refreshableHost = host === "claude" || host === "codex";
+    const refreshDisplayName =
+      flags.name === undefined && identity.providerSessionId !== undefined && refreshableHost
+        ? createHostSessionNameRefresher({
+            host,
+            cwd: cwd(),
+            sessionId: identity.providerSessionId
+          })
+        : undefined;
+    // The worker sends the real workspace object over IPC (typed `unknown` there
+    // because IPC carries no nominal types); it is an H2AWorkspaceRef at runtime.
+    const workspace = identity.workspace as H2AWorkspaceRef | undefined;
+    return {
+      instance: identity.instance,
+      ...(host ? { host } : {}),
+      ...(workspace !== undefined ? { workspace } : {}),
+      ...(identity.name !== undefined ? { name: identity.name } : {}),
+      ...(refreshDisplayName ? { refreshDisplayName } : {}),
+      ...(flags.scope ? { scopes: [flags.scope] } : {}),
+      // An explicit --instance is an operator label, not an owned identity: it
+      // may open presence but never attributes an h2a_run delegation.
+      ...(flags.instance === undefined ? { delegationEligible: true as const } : {})
+    };
+  };
+  const buildWake = (
+    privateKeyPem: string,
+    _instance: string,
+    host: string | undefined
+  ): NonNullable<RunMcpStdioOptions["wake"]> | undefined => {
+    if (wakeKind === undefined) return undefined;
     try {
       const log = (line: string) => io.stderr.write(`${line}\n`);
-      // `auto` for a self-wake is native→local-tmux ONLY (no headless leg — its
-      // fallback spawns a new agent, wrong for waking yourself).
-      // The shared `--wake auto` configuration stays bounded here: its native
-      // launcher marker chooses the backchannel first, with tmux as fallback.
       const driver =
-        flags.wake === "auto"
+        wakeKind === "auto"
           ? chainDriver(nativePtyBackchannelDriver(log), localTmuxDriver({ log }))
           : buildDriveDriver(
-              nativeSessionId !== undefined && flags.wake === "local-tmux"
+              nativeSessionId !== undefined && wakeKind === "local-tmux"
                 ? "native"
-                : flags.wake as H2ADriverKind,
+                : (wakeKind as H2ADriverKind),
               log
             );
-      wake = {
+      void host;
+      return {
         driver,
-        privateKeyPem: identityPrivateKeyPem,
+        privateKeyPem,
         ...(nativeSessionId !== undefined ? { nativeSessionId } : {})
       };
     } catch (err) {
-      io.stderr.write(`h2a mcp-serve: --wake disabled (cannot read key): ${(err as Error).message}\n`);
+      io.stderr.write(`h2a mcp-serve: --wake disabled: ${(err as Error).message}\n`);
+      return undefined;
     }
-  } else if (flags.wake !== undefined && !autoOpen) {
-    io.stderr.write("h2a mcp-serve: --wake requires --auto-open; ignored\n");
-  }
+  };
 
   try {
-    if (autoOpen?.migrationNotice) {
-      io.stderr.write(`h2a mcp-serve: ${autoOpen.migrationNotice}\n`);
-    }
     trace?.phase("transport_enter");
     await runMcpStdio({
       root,
@@ -2053,12 +2111,10 @@ try {
       stdin: io.stdin as never,
       stdout: io.stdout as never,
       stderr: io.stderr as never,
-      ...(autoOpen ? { autoOpen } : {}),
-      ...(autoOpen && identityPrivateKeyPem
-        ? { sendContext: { instance: autoOpen.instance, privateKeyPem: identityPrivateKeyPem } }
+      ...(identityRequest
+        ? { identityRequest, identityActivation: { buildAutoOpen, buildWake } }
         : {}),
       ...(readiness ? { readiness } : {}),
-      ...(wake ? { wake } : {}),
       ...(io.signal ? { signal: io.signal } : {})
     });
     return 0;

@@ -5,6 +5,7 @@ import {
   mkdirSync,
   readFileSync,
   realpathSync,
+  unlinkSync,
   writeFileSync
 } from "node:fs";
 import { hostname } from "node:os";
@@ -21,7 +22,7 @@ import {
 
 import { createLocalStore } from "../local-files/store.js";
 import { getActiveMcpTrace } from "../mcp/phase-trace.js";
-import { findBinding, reclaimOrMint, verifyReclaimProof } from "./bindings.js";
+import { findBinding, reclaimOrMint, reclaimOrMintAsync, verifyReclaimProof } from "./bindings.js";
 import {
   decideLegacyAdoption,
   legacyAliasAlreadyAdopted,
@@ -236,6 +237,26 @@ function ensureKeypair(
   return { publicKeyPem: generated.publicKeyPem, ...paths };
 }
 
+/**
+ * F5: cheaply remove a mint-race LOSER's orphan keypair files. When a contender
+ * pre-registered a mint candidate (keys + registration + alias) but then RECLAIMED
+ * a different instance under the lock, its candidate keypair is unused — unlink it
+ * so a stray private key does not linger (N-1 per same-conversation burst). The
+ * APPEND-ONLY registration/alias rows are NOT cheaply removable (that is exactly
+ * the registry growth L3 compaction addresses) and are left for L3. Best-effort:
+ * a failure never affects the resolved identity.
+ */
+function cleanupOrphanKeypair(root: string, instance: string): void {
+  const paths = identityKeyPaths(root, instance);
+  for (const p of [paths.privateKeyPath, paths.publicKeyPath]) {
+    try {
+      unlinkSync(p);
+    } catch {
+      /* already gone / never written — fine */
+    }
+  }
+}
+
 function provesLocalKey(root: string, instance: string): boolean {
   const store = createLocalStore({ root });
   const keypair = readKeypair(root, instance);
@@ -262,32 +283,54 @@ function ensureRegistered(input: {
   /** Declared, display-only capabilities; already sanitized by the caller. */
   readonly declaredCapabilities: readonly string[];
   readonly now: () => number;
+  /**
+   * L2 (async path): a SHORT registry-lock timeout so the registration attempt
+   * does not hold the identity lock through a long registry wait — the caller
+   * releases the identity lock and retries outside the section (brief lock rule
+   * "acquisition registry immédiate ; s'il est occupé, relâcher identity").
+   */
+  readonly lockTimeoutMs?: number;
+  /**
+   * L2 (async mint path): skip the pre-check reads (`findInstance` /
+   * `listInstanceKeys`, each a full registry parse) and go straight to the
+   * idempotent `registerInstance` — its dedup runs INSIDE the registry lock, so
+   * a contended attempt fails on the lock wait WITHOUT parsing the registry.
+   * The registry parse then runs at most once, only when the lock is acquired.
+   */
+  readonly skipExistingCheck?: boolean;
 }): void {
-  const store = createLocalStore({ root: input.root });
+  const store = createLocalStore({
+    root: input.root,
+    ...(input.lockTimeoutMs !== undefined ? { lockTimeoutMs: input.lockTimeoutMs } : {})
+  });
+  const buildRegistration = (): H2AActorRegistration => ({
+    id: input.instance,
+    instance: input.instance,
+    roles: ["AGENTS"],
+    scopes: [...input.scopes],
+    // AUTHORITY-BEARING and intentionally left EMPTY, exactly as before this
+    // workstream: it is the subagent ceiling and the attestation right. A
+    // display list must never be written here (architect ruling, 2026-07-25).
+    capabilities: [],
+    endpoints: [{ kind: "local-files", uri: `file://${input.root}` }],
+    publicKeys: [input.publicKeyPem],
+    acceptedPolicies: [],
+    agentUuid: input.agentUuid,
+    workspace: input.workspace,
+    name: input.name,
+    createdAt: new Date(input.now()).toISOString(),
+    // The declared DISPLAY list, kept structurally apart from `capabilities`.
+    ...(input.declaredCapabilities.length > 0
+      ? { declaredCapabilities: [...input.declaredCapabilities] }
+      : {})
+  });
+  if (input.skipExistingCheck) {
+    store.registerInstance(buildRegistration());
+    return;
+  }
   const existing = store.findInstance(input.instance);
   if (!existing) {
-    const registration: H2AActorRegistration = {
-      id: input.instance,
-      instance: input.instance,
-      roles: ["AGENTS"],
-      scopes: [...input.scopes],
-      // AUTHORITY-BEARING and intentionally left EMPTY, exactly as before this
-      // workstream: it is the subagent ceiling and the attestation right. A
-      // display list must never be written here (architect ruling, 2026-07-25).
-      capabilities: [],
-      endpoints: [{ kind: "local-files", uri: `file://${input.root}` }],
-      publicKeys: [input.publicKeyPem],
-      acceptedPolicies: [],
-      agentUuid: input.agentUuid,
-      workspace: input.workspace,
-      name: input.name,
-      createdAt: new Date(input.now()).toISOString(),
-      // The declared DISPLAY list, kept structurally apart from `capabilities`.
-      ...(input.declaredCapabilities.length > 0
-        ? { declaredCapabilities: [...input.declaredCapabilities] }
-        : {})
-    };
-    store.registerInstance(registration);
+    store.registerInstance(buildRegistration());
     return;
   }
   if (!store.listInstanceKeys(input.instance).includes(input.publicKeyPem)) {
@@ -331,21 +374,25 @@ export function resolveLiveIdentity(input: ResolveLiveIdentityInput): ResolvedLi
     : undefined;
   const name = input.name ?? hostName ?? label;
 
+  // The mint candidate is memoized so the SAME identity is pre-registered (below)
+  // and then committed — a would-be reclaim discards it, but it is never re-minted.
+  let mintMemo: { instance: string; agentUuid: string } | undefined;
   const mint = () => {
+    if (mintMemo) return mintMemo;
     const agentUuid = mintAgentUuid();
-    return {
-      agentUuid,
-      instance: deriveInstanceId({ host, label: name, uuid: agentUuid })
-    };
+    mintMemo = { agentUuid, instance: deriveInstanceId({ host, label: name, uuid: agentUuid }) };
+    return mintMemo;
   };
   const mintRemote = () => {
+    if (mintMemo) return mintMemo;
     const agentUuid = mintAgentUuid();
-    return {
+    mintMemo = {
       agentUuid,
       instance: provider.providerSessionId
         ? remoteBridgeInstance(provider.providerSessionId)
         : deriveInstanceId({ host, label: name, uuid: agentUuid })
     };
+    return mintMemo;
   };
 
   // Re-anchor: the conversation UUID is the identity unit. When no provider
@@ -354,61 +401,94 @@ export function resolveLiveIdentity(input: ResolveLiveIdentityInput): ResolvedLi
   // behavior instead of minting a fresh id on every connect.
   const providerSessionId =
     provider.providerSessionId ?? `fallback:${host}:${workspace.id}`;
-  const result =
-    host === "remote"
-      ? { action: "mint" as const, ...mintRemote() }
-      : step("identity_binding", () =>
-          reclaimOrMint(
-            input.root,
-            { host, providerSessionId, workspaceId: workspace.id },
-            {
-              verifyProof: (binding) =>
-                step("identity_proof", () => provesLocalKey(input.root, binding.instance)),
-              mint,
-              now
-            }
-          )
-        );
-  trace?.phase("identity_action", { code: result.action });
-
-  const existingBinding = findBinding(input.root, {
-    host,
-    providerSessionId,
-    workspaceId: workspace.id
-  });
+  const key = { host, providerSessionId, workspaceId: workspace.id };
   const legacyDecision = decideLegacyAdoption({
     legacyAlreadyAdopted: legacyAliasAlreadyAdopted(input.root, legacyInstance),
     provedLegacyPossession: provesLocalKey(input.root, legacyInstance)
   });
-  const adoptedFrom =
-    result.action === "mint" && legacyDecision.adopt ? legacyInstance : undefined;
-  const keypair = step("identity_keys", () =>
-    ensureKeypair(input.root, result.instance, adoptedFrom)
-  );
-  step("identity_register", () =>
-    ensureRegistered({
-      root: input.root,
-      instance: result.instance,
-      agentUuid: result.agentUuid,
-      workspace,
-      name,
-      publicKeyPem: keypair.publicKeyPem,
-      scopes,
-      // Declared at mint only: an already-registered instance keeps whatever it
-      // declared then. Nothing downstream may treat this list as authority, so a
-      // narrow/empty list is a display gap, never a permission gap.
-      declaredCapabilities: sanitizeDeclaredCapabilities(input.declaredCapabilities),
-      now
-    })
-  );
-  step("identity_alias", () =>
-    recordIdentityAlias(input.root, {
-      instance: result.instance,
-      legacyInstance,
-      adoptedKeyring: Boolean(adoptedFrom),
-      at: new Date(now()).toISOString()
-    })
-  );
+  const declared = sanitizeDeclaredCapabilities(input.declaredCapabilities);
+
+  // F2(b): publish keyring / registration / alias for an instance. Callers invoke
+  // this BEFORE the binding append (window closure BY ORDER), so a concurrent
+  // reader — CLI OR MCP — can never observe a binding whose keyring is not yet
+  // provable and mint a duplicate for the same (host, providerSessionId).
+  const publishIdentity = (
+    resolvedInstance: string,
+    agentUuid: string,
+    action: "reclaim" | "mint",
+    opts: { skipExistingCheck?: boolean } = {}
+  ): { publicKeyPem: string; privateKeyPath: string; publicKeyPath: string } => {
+    const adoptedFrom = action === "mint" && legacyDecision.adopt ? legacyInstance : undefined;
+    const keypair = step("identity_keys", () => ensureKeypair(input.root, resolvedInstance, adoptedFrom));
+    step("identity_register", () =>
+      ensureRegistered({
+        root: input.root,
+        instance: resolvedInstance,
+        agentUuid,
+        workspace,
+        name,
+        publicKeyPem: keypair.publicKeyPem,
+        scopes,
+        // Declared at mint only: an already-registered instance keeps whatever it
+        // declared then. Nothing downstream may treat this list as authority, so a
+        // narrow/empty list is a display gap, never a permission gap.
+        declaredCapabilities: declared,
+        now,
+        ...(opts.skipExistingCheck ? { skipExistingCheck: true } : {})
+      })
+    );
+    step("identity_alias", () =>
+      recordIdentityAlias(input.root, {
+        instance: resolvedInstance,
+        legacyInstance,
+        adoptedKeyring: Boolean(adoptedFrom),
+        at: new Date(now()).toISOString()
+      })
+    );
+    return keypair;
+  };
+
+  let keypair: { publicKeyPem: string; privateKeyPath: string; publicKeyPath: string };
+  let result: { action: "reclaim" | "mint"; instance: string; agentUuid: string };
+  if (host === "remote") {
+    result = { action: "mint" as const, ...mintRemote() };
+    keypair = publishIdentity(result.instance, result.agentUuid, "mint", { skipExistingCheck: true });
+  } else {
+    // Proof of the observed binding, computed before the lock; the binding write
+    // still re-verifies proof UNDER the lock (no cache here), so a reclaim is
+    // authoritative even if the binding changed between this read and the lock.
+    const preBinding = findBinding(input.root, key);
+    const preProof = preBinding
+      ? step("identity_proof", () => provesLocalKey(input.root, preBinding.instance))
+      : false;
+    let mintKeypair: typeof keypair | undefined;
+    if (!(preBinding && preProof)) {
+      // Mint likely: publish keyring / registration / alias BEFORE the binding.
+      const cand = mint();
+      mintKeypair = publishIdentity(cand.instance, cand.agentUuid, "mint", { skipExistingCheck: true });
+    }
+    result = step("identity_binding", () =>
+      reclaimOrMint(input.root, key, {
+        verifyProof: (binding) =>
+          step("identity_proof", () => provesLocalKey(input.root, binding.instance)),
+        mint,
+        now
+      })
+    );
+    if (result.action === "mint") {
+      keypair = mintKeypair ?? publishIdentity(result.instance, result.agentUuid, "mint", { skipExistingCheck: true });
+    } else {
+      // F5: we pre-registered a mint candidate but raced into a reclaim — unlink
+      // the unused candidate's orphan keypair (append-only rows left for L3).
+      if (mintKeypair && mintMemo && mintMemo.instance !== result.instance) {
+        cleanupOrphanKeypair(input.root, mintMemo.instance);
+      }
+      keypair = publishIdentity(result.instance, result.agentUuid, "reclaim");
+    }
+  }
+  trace?.phase("identity_action", { code: result.action });
+
+  const existingBinding = findBinding(input.root, key);
 
   return {
     instance: result.instance,
@@ -426,6 +506,285 @@ export function resolveLiveIdentity(input: ResolveLiveIdentityInput): ResolvedLi
     migrationNotice:
       result.action === "mint" || !existingBinding
         ? `identity migration: ${result.instance} reads legacy ${legacyInstance}; ${legacyDecision.reason}`
+        : undefined
+  };
+}
+
+export interface ResolveLiveIdentityAsyncOptions {
+  /** Cooperative cancellation propagated to the identity-lock wait. */
+  readonly signal?: AbortSignal;
+  /** Remaining budget (ms) bounding the identity-lock wait for this attempt. */
+  readonly deadlineMs?: number;
+  /**
+   * Short registry-lock timeout for the registration write so a contended
+   * attempt fails fast and releases the identity lock (instead of holding it
+   * through a long registry wait), letting the worker retry outside the section.
+   */
+  readonly registryLockTimeoutMs?: number;
+  /**
+   * Memo shared across the worker's retry attempts so the mint CANDIDATE
+   * (uuid + derived instance + its keypair) is generated ONCE — a retry reuses
+   * the same candidate instead of minting (and generating a keypair) again.
+   */
+  readonly mintMemo?: { value?: { instance: string; agentUuid: string } };
+  /**
+   * Cache of the expensive OUTSIDE-lock reads (provider, proof, legacy decision —
+   * each a full registry parse) shared across the worker's retry attempts, so a
+   * contended retry does NOT re-parse the ~17 MB registry. Safe: the
+   * authoritative reclaim/mint decision is re-made UNDER the lock (fresh
+   * `findBinding` + a `verifyProof` that recomputes when the binding changed).
+   */
+  readonly prepCache?: { prepared?: unknown };
+  /**
+   * 0-based attempt index within the worker's retry loop. Only the FIRST attempt
+   * (0) may trust a POSITIVE cached proof (it is ms-fresh vs. the pre-read); any
+   * retry recomputes the proof under the lock, and a NEGATIVE cached proof is
+   * ALWAYS recomputed under the lock (F2: a keyring published by a racing writer
+   * between the pre-read and the lock must be seen, or a duplicate is minted).
+   */
+  readonly attempt?: number;
+}
+
+interface AsyncPrepared {
+  readonly provider: ReturnType<typeof resolveProviderSession>;
+  readonly workspace: H2AWorkspaceRef;
+  readonly legacyInstance: string;
+  readonly scopes: readonly string[];
+  readonly name: string;
+  readonly key: { readonly host: string; readonly providerSessionId: string; readonly workspaceId: string };
+  readonly preBinding: ReturnType<typeof findBinding>;
+  readonly preProof: boolean;
+  readonly legacyDecision: ReturnType<typeof decideLegacyAdoption>;
+  readonly declared: readonly H2ADeclaredCapability[];
+}
+
+/**
+ * L2 async resolution used ONLY by the identity worker child.
+ *
+ * Same result and same security invariants as {@link resolveLiveIdentity}, with
+ * two deliberate reductions that are safe to make off the parent's event loop:
+ *
+ *  1. **Proof outside the lock.** The existing binding is read and its
+ *     proof-of-possession (keypair read + registry keyring parse + signature) is
+ *     computed BEFORE the identity lock is taken, then re-checked under the lock
+ *     against the binding actually found — so the ~17 MB registry parse and the
+ *     ed25519 sign do NOT run inside the critical section on the reconnect
+ *     (reclaim) hot path. If the binding raced (its instance changed under the
+ *     lock), the proof for that row is recomputed inline (rare, correct).
+ *  2. **Binding published last.** On a mint, the keyring / registration / alias
+ *     are published inside the held lock BEFORE the binding row is appended, so
+ *     no concurrent worker can see a binding whose keyring is not yet provable
+ *     and mint a duplicate.
+ *
+ * The lock WAIT is asynchronous (cancellable between polls); a transaction
+ * already entered under the lock still finishes cooperatively.
+ */
+export async function resolveLiveIdentityAsync(
+  input: ResolveLiveIdentityInput,
+  options: ResolveLiveIdentityAsyncOptions = {}
+): Promise<ResolvedLiveIdentity> {
+  const host = input.host || "agent";
+  if (input.explicitInstance) {
+    return { instance: input.explicitInstance, host, action: "override" };
+  }
+  const now = input.now ?? Date.now;
+  // L0 (#249) spans, relocated to the worker: the ambient trace here is the
+  // worker's `identity-child` trace, so provider/keys/register/alias/proof spans
+  // fire on the worker's stderr instead of being lost off the parent loop.
+  const trace = getActiveMcpTrace();
+  const step = <T>(name: string, fn: () => T): T => (trace ? trace.span(name, fn) : fn());
+
+  // Expensive OUTSIDE-lock reads are computed ONCE and cached across the worker's
+  // retry attempts (a contended retry must not re-parse the ~17 MB registry).
+  const cache = (options.prepCache ?? {}) as { prepared?: AsyncPrepared };
+  if (!cache.prepared) {
+    const label = labelFromCwd(input.cwd);
+    const readers = input.readers ?? defaultProviderSessionReaders;
+    const provider = step("identity_provider", () =>
+      resolveProviderSession({ host, cwd: input.cwd, readers })
+    );
+    const realPath = realWorkspacePath(input.cwd);
+    const workspaceId =
+      durableWorkspaceId(realPath) ??
+      provider.workspaceHint ??
+      deriveWorkspaceId({ machineId: readMachineId(), path: realPath });
+    const workspace: H2AWorkspaceRef = { id: workspaceId, path: realPath, host, label };
+    const legacyInstance = `${host}:${label}`;
+    const scopes = input.scopes?.length ? input.scopes : ["scope:default"];
+    const hostName =
+      input.name === undefined
+        ? readHostSessionName({ host, cwd: input.cwd, sessionId: provider.providerSessionId })
+        : undefined;
+    const name = input.name ?? hostName ?? label;
+    const providerSessionId = provider.providerSessionId ?? `fallback:${host}:${workspace.id}`;
+    const key = { host, providerSessionId, workspaceId: workspace.id };
+    // The binding read (small file) + its proof-of-possession (keypair read +
+    // registry keyring parse + ed25519 sign) done OUTSIDE the lock.
+    const preBinding = findBinding(input.root, key);
+    const preProof = preBinding
+      ? step("identity_proof", () => provesLocalKey(input.root, preBinding.instance))
+      : false;
+    const legacyDecision = decideLegacyAdoption({
+      legacyAlreadyAdopted: legacyAliasAlreadyAdopted(input.root, legacyInstance),
+      provedLegacyPossession: provesLocalKey(input.root, legacyInstance)
+    });
+    cache.prepared = {
+      provider,
+      workspace,
+      legacyInstance,
+      scopes,
+      name,
+      key,
+      preBinding,
+      preProof,
+      legacyDecision,
+      declared: sanitizeDeclaredCapabilities(input.declaredCapabilities)
+    };
+  }
+  const P = cache.prepared;
+
+  const mint = () => {
+    if (options.mintMemo?.value) return options.mintMemo.value;
+    const agentUuid = mintAgentUuid();
+    const minted = { agentUuid, instance: deriveInstanceId({ host, label: P.name, uuid: agentUuid }) };
+    if (options.mintMemo) options.mintMemo.value = minted;
+    return minted;
+  };
+  const mintRemote = () => {
+    if (options.mintMemo?.value) return options.mintMemo.value;
+    const agentUuid = mintAgentUuid();
+    const minted = {
+      agentUuid,
+      instance: P.provider.providerSessionId
+        ? remoteBridgeInstance(P.provider.providerSessionId)
+        : deriveInstanceId({ host, label: P.name, uuid: agentUuid })
+    };
+    if (options.mintMemo) options.mintMemo.value = minted;
+    return minted;
+  };
+
+  const publishIdentity = (
+    resolvedInstance: string,
+    agentUuid: string,
+    action: "reclaim" | "mint",
+    opts: { skipExistingCheck?: boolean } = {}
+  ): { publicKeyPem: string; privateKeyPath: string; publicKeyPath: string } => {
+    const adoptedFrom = action === "mint" && P.legacyDecision.adopt ? P.legacyInstance : undefined;
+    const keypair = step("identity_keys", () => ensureKeypair(input.root, resolvedInstance, adoptedFrom));
+    step("identity_register", () =>
+      ensureRegistered({
+        root: input.root,
+        instance: resolvedInstance,
+        agentUuid,
+        workspace: P.workspace,
+        name: P.name,
+        publicKeyPem: keypair.publicKeyPem,
+        scopes: P.scopes,
+        declaredCapabilities: P.declared,
+        now,
+        ...(options.registryLockTimeoutMs !== undefined
+          ? { lockTimeoutMs: options.registryLockTimeoutMs }
+          : {}),
+        ...(opts.skipExistingCheck ? { skipExistingCheck: true } : {})
+      })
+    );
+    step("identity_alias", () =>
+      recordIdentityAlias(input.root, {
+        instance: resolvedInstance,
+        legacyInstance: P.legacyInstance,
+        adoptedKeyring: Boolean(adoptedFrom),
+        at: new Date(now()).toISOString()
+      })
+    );
+    return keypair;
+  };
+
+  let keypair: { publicKeyPem: string; privateKeyPath: string; publicKeyPath: string };
+  let result: { action: "reclaim" | "mint"; instance: string; agentUuid: string };
+
+  if (host === "remote") {
+    result = { action: "mint" as const, ...mintRemote() };
+    keypair = publishIdentity(result.instance, result.agentUuid, "mint", { skipExistingCheck: true });
+  } else {
+    const willReclaim = Boolean(P.preBinding && P.preProof);
+    let mintKeypair: typeof keypair | undefined;
+    if (!willReclaim) {
+      // Mint likely: publish keyring / registration / alias BEFORE the binding
+      // append — window closure BY ORDER (a reader can only observe the binding
+      // after its keyring is durable). Done OUTSIDE the tiny identity-lock
+      // section; a contended attempt fails here on the SHORT registry timeout
+      // (no registry parse, since the dedup runs inside the lock) and the worker
+      // retries WITHOUT re-parsing (this prep is cached) and WITHOUT the identity
+      // lock held.
+      const cand = mint();
+      mintKeypair = publishIdentity(cand.instance, cand.agentUuid, "mint", { skipExistingCheck: true });
+    }
+    // The critical section is now TINY: fresh findBinding + (reclaim | append).
+    // No registry parse, no keygen, no proof sign under the identity lock on the
+    // hot path. `reclaimOrMint*` remains the UNIQUE binding append.
+    result = await reclaimOrMintAsync(
+      input.root,
+      P.key,
+      {
+        // F2 TOCTOU: trust the cached proof ONLY when it is a POSITIVE proof, for
+        // the SAME binding, on the FIRST attempt (ms-fresh vs the pre-read).
+        // Otherwise recompute the proof UNDER the lock:
+        //  - negative cache: a racing (sync-order) writer may have published the
+        //    keyring after our pre-read; not re-checking mints a DUPLICATE binding.
+        //  - positive on a retry: a key may have been revoked during contention.
+        //  - a changed binding: the cache is for a different row.
+        verifyProof: (binding) => {
+          const trustCache =
+            (options.attempt ?? 0) === 0 &&
+            binding.instance === P.preBinding?.instance &&
+            P.preProof === true;
+          return trustCache
+            ? true
+            : step("identity_proof", () => provesLocalKey(input.root, binding.instance));
+        },
+        mint,
+        now
+      },
+      {
+        ...(options.signal ? { signal: options.signal } : {}),
+        ...(options.deadlineMs !== undefined ? { deadlineMs: options.deadlineMs } : {})
+      }
+    );
+    if (result.action === "mint") {
+      keypair =
+        mintKeypair ??
+        publishIdentity(result.instance, result.agentUuid, "mint", { skipExistingCheck: true });
+    } else {
+      // Reclaim (or raced into a reclaim): ensure the keyring/registration exist
+      // (idempotent). Any pre-registered mint candidate we did not use is an
+      // orphan registration with no binding — allowed (never a keyless binding).
+      // F5: unlink the unused candidate's orphan KEYPAIR (cheap); the append-only
+      // registration/alias rows are left for L3 compaction.
+      if (mintKeypair && options.mintMemo?.value && options.mintMemo.value.instance !== result.instance) {
+        cleanupOrphanKeypair(input.root, options.mintMemo.value.instance);
+      }
+      keypair = publishIdentity(result.instance, result.agentUuid, "reclaim");
+    }
+  }
+
+  const existingBinding = findBinding(input.root, P.key);
+
+  return {
+    instance: result.instance,
+    host,
+    workspace: P.workspace,
+    name: P.name,
+    legacyInstance: P.legacyInstance,
+    action: result.action,
+    providerSessionSource: P.provider.source,
+    ...(P.provider.providerSessionId !== undefined
+      ? { providerSessionId: P.provider.providerSessionId }
+      : {}),
+    privateKeyPath: keypair.privateKeyPath,
+    publicKeyPath: keypair.publicKeyPath,
+    migrationNotice:
+      result.action === "mint" || !existingBinding
+        ? `identity migration: ${result.instance} reads legacy ${P.legacyInstance}; ${P.legacyDecision.reason}`
         : undefined
   };
 }

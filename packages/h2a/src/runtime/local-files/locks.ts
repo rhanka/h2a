@@ -95,6 +95,25 @@ export interface WithLockOptions {
    * `holdMs`) and `timeout` (with `waitMs`). It cannot change locking behaviour.
    */
   readonly observe?: (event: LockObservation) => void;
+  /**
+   * L2 cooperative cancellation (async `withLock` only). When aborted while
+   * WAITING for the lock, the wait stops and `withLock` rejects with a
+   * `LockCancelledError` — the worker then stops before entering a new critical
+   * section. Once the lock is HELD, `fn` runs to completion (a transaction
+   * already entered finishes cleanly); the signal never interrupts a held
+   * section, so no half-written state is left behind.
+   */
+  readonly signal?: AbortSignal;
+}
+
+/** Thrown by the async `withLock` when its signal aborts DURING the wait. */
+export class LockCancelledError extends Error {
+  readonly lockPath: string;
+  constructor(lockPath: string, reason?: string) {
+    super(`LockCancelledError: acquisition of ${lockPath} was cancelled${reason ? ` (${reason})` : ""}`);
+    this.name = "LockCancelledError";
+    this.lockPath = lockPath;
+  }
 }
 
 export class LockTimeoutError extends Error {
@@ -241,6 +260,10 @@ export async function withLock<T>(
   let attempts = 0;
   notifyObserver(observe, { lock, event: "wait" });
   while (true) {
+    if (options.signal?.aborted) {
+      notifyObserver(observe, { lock, event: "timeout", waitMs: Date.now() - startedAt, attempts });
+      throw new LockCancelledError(lockPath, String(options.signal.reason ?? "aborted"));
+    }
     attempts++;
     const attempt = acquire(lockPath, selfHostname, options);
     if (attempt.ok) break;
