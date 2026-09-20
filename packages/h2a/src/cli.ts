@@ -123,6 +123,7 @@ import { H2A_GEMINI_HOST } from "./hosts/gemini.js";
 import { H2A_AGY_HOST } from "./hosts/agy.js";
 import { H2A_HERMES_HOST } from "./hosts/hermes.js";
 import { H2A_OPENCODE_HOST } from "./hosts/opencode.js";
+import { H2A_MUSE_HOST } from "./hosts/muse.js";
 import {
   doctorHostInstallations,
   findLiveSessionsPredatingHostConfig,
@@ -337,7 +338,8 @@ const CLI_HOSTS = [
   H2A_GEMINI_HOST,
   H2A_AGY_HOST,
   H2A_HERMES_HOST,
-  H2A_OPENCODE_HOST
+  H2A_OPENCODE_HOST,
+  H2A_MUSE_HOST
 ] as const;
 
 export function renderCliHelp(): string {
@@ -417,13 +419,13 @@ export function renderCliHelp(): string {
     "  h2a drumbeat escalations [--root <path>]",
     "  h2a drumbeat relance-inbox [--instance <id>] [--relauncher logging|local-tmux|headless|auto] [--root <path>]",
     "  h2a drumbeat watch [--interval-ms <n>] [--max-relances <n>] [--relauncher logging|local-tmux|remote|headless|auto] [--instance <signer> --private-key <pem>] [--decider logging|<command>] [--decider-after <k>] [--decider-enforce] [--root <path>]",
-    "  h2a host setup --host <codex|claude|gemini|agy|hermes|opencode> [--endpoint local|remote] [--url <https://…/mcp>] [--root <path>] [--print | --write <file>] [--force] [--no-wake]   (selects exactly one h2a endpoint; local renders mcp-serve --auto-open --auto-upgrade --wake auto by default)",
+    "  h2a host setup --host <codex|claude|gemini|agy|hermes|opencode|muse> [--endpoint local|remote] [--url <https://…/mcp>] [--root <path>] [--print | --write <file>] [--force] [--no-wake]   (selects exactly one h2a endpoint; local renders mcp-serve --auto-open --auto-upgrade --wake auto by default)",
     "  h2a host status [--host <name>]",
-    "  h2a host plugin --host <codex|claude|gemini|agy|hermes|opencode> --instance <id> [--status <work-status>] [--root <path>] [--write <settings.json> [--force]] [--scaffold <dir>]   (--write installs the Stop hook for claude|gemini|codex|hermes|opencode; --scaffold writes codex's full local marketplace + trust step; agy is poll-only)",
+    "  h2a host plugin --host <codex|claude|gemini|agy|hermes|opencode|muse> --instance <id> [--status <work-status>] [--root <path>] [--write <settings.json> [--force]] [--scaffold <dir>]   (--write installs the Stop hook for claude|gemini|codex|hermes|opencode; --scaffold writes codex's full local marketplace + trust step; agy and muse are poll-only)",
     "  h2a store migrate [--from <v>] [--to <v>] [--sanitize-paths] [--dry-run] [--root <path>]",
     "",
     "High-level coordination (DEC-054):",
-    "  h2a connect --host <codex|claude|gemini|agy|hermes|opencode|remote> [--root <path>] [--instance <id>] [--name <display>]",
+    "  h2a connect --host <codex|claude|gemini|agy|hermes|opencode|muse|remote> [--root <path>] [--instance <id>] [--name <display>]",
     "  h2a conductor [--workspace <id|path>] [--root <path>]   (who is the live conductor/owner of a workspace — derived from presence; conductor=role CONDUCTOR if set, else null; candidates=in-workspace live agents)",
     "  h2a conductor-launch-check [--workspace <id|path>] [--root <path>] [--idle-ms <ms>]   (DRY-RUN: polls track workspace-activity; recommends launching a conductor if work is stalled and none is live — h2a does NOT spawn; launch parked pending spawn policy + remote)",
     "  h2a conductor-launch --workspace <id|path> [--root <path>] [--idle-ms <ms>] [--confirm] [--remote <instance>] [--instance <self>]   (D3 EMIT: if stalled+no conductor, emits a launch-REQUEST envelope to a live remote agent — gated by --confirm + 1/30min/workspace cap; h2a NEVER spawns; remote does the actual spawn)",
@@ -447,7 +449,7 @@ export function renderCliHelp(): string {
     "  h2a blockage list [--scope <s>] [--active] [--root <path>]",
     "  h2a blockage resolve --instance <id> [--by <id>] [--root <path>]",
     "  h2a sysml verify --json <envelope> --public-key <pem-file> [--by <id>] [--content-integrity --api-base <url> [--auth <token>]]",
-    "  h2a install-skills --host <claude|codex|gemini|agy> [--scope user|project] [--force]",
+    "  h2a install-skills --host <claude|codex|gemini|agy|muse> [--scope user|project] [--force]",
     "  h2a deploy k8s-sidecar [--instance <id>] [--host <h>] [--root <path>] [--image <ref>] [--cli-version <ver>] [--write <file>]",
     "  h2a deploy k8s-tenant [--namespace <ns>] [--root <path>] [--replicas <n>] [--storage <size>] [--storage-class <sc>] [--lease-ms <ms>] [--image <ref>] [--cli-version <ver>] [--write <file>]",
     "  h2a loop create --name <n> --goal <text> [--auto-tick] [--repo <path[:role]>] [--track <json>] [--agent <host:role:placement> [--launch-stdin]] [--root <path>]",
@@ -2627,7 +2629,7 @@ function parseLoopTrack(value: string): H2ALoopTrackRef {
 function parseLoopAgent(value: string, index: number): H2ALoopAgent {
   const [host, role, placement] = value.split(":");
   if (!host || !role || !placement) throw new Error("--agent must be <host:role:placement>");
-  if (!["claude", "codex", "agy", "gemini", "mistral", "hermes", "opencode", "shell"].includes(host)) {
+  if (!["claude", "codex", "agy", "gemini", "mistral", "hermes", "opencode", "shell", "muse"].includes(host)) {
     throw new Error(`--agent host is unsupported: ${host}`);
   }
   if (!["local", "remote", "auto", "headless-local", "headless-remote", "interactive-local", "interactive-remote"].includes(placement)) {
@@ -4317,6 +4319,8 @@ function cmdHostSetup(
     snippet = H2A_HERMES_HOST.renderMcpConfig(renderOpts);
   } else if (host === "opencode") {
     snippet = H2A_OPENCODE_HOST.renderMcpConfig(renderOpts);
+  } else if (host === "muse") {
+    snippet = H2A_MUSE_HOST.renderMcpConfig(renderOpts);
   } else {
     streams.stderr.write(
       `h2a host setup: unknown --host "${host}". Supported: ${CLI_HOSTS.map((h) => h.host).join(", ")}.\n`
@@ -4644,9 +4648,9 @@ function cmdHostPlugin(flags: Record<string, string>, streams: H2ACliStreams): n
   // verified against `~/.codex/.../hooks/hooks.json`). agy is poll-only (no
   // daemon), so --write is refused for it and the rendered hook + hint surface.
   if (flags.write) {
-    if (flags.host === "agy") {
+    if (flags.host === "agy" || flags.host === "muse") {
       streams.stderr.write(
-        `h2a host plugin: --write is not available for agy (poll-only, no daemon). ` +
+        `h2a host plugin: --write is not available for ${flags.host} (poll-only, no verified stop-hook surface). ` +
           `Use the poll path: ${render.poll}\n`
       );
       return 1;
@@ -5689,6 +5693,7 @@ function cmdDoctor(
         "agy",
         "hermes",
         "opencode",
+        "muse",
         "remote"
       ]);
 
@@ -6225,17 +6230,17 @@ function cmdConnect(
 ): number {
   if (!flags.host) {
     streams.stderr.write(
-      "h2a connect: --host <codex|claude|gemini|agy|hermes|opencode|remote> is required\n"
+      "h2a connect: --host <codex|claude|gemini|agy|hermes|opencode|muse|remote> is required\n"
     );
     return 1;
   }
   if (
-    !["codex", "claude", "gemini", "agy", "hermes", "opencode", "remote"].includes(
+    !["codex", "claude", "gemini", "agy", "hermes", "opencode", "muse", "remote"].includes(
       flags.host
     )
   ) {
     streams.stderr.write(
-      `h2a connect: unknown --host "${flags.host}". Supported: codex, claude, gemini, agy, hermes, opencode, remote.\n`
+      `h2a connect: unknown --host "${flags.host}". Supported: codex, claude, gemini, agy, hermes, opencode, muse, remote.\n`
     );
     return 1;
   }
@@ -6438,6 +6443,25 @@ function targetSpecFor(
         ? join(resolveHostConfigRoot("codex"), "skills")
         : join(homedir(), homeDir, "skills"),
       projectBase: join(cwd, projectDir, "skills"),
+      extension: "SKILL.md",
+      write: (base, skillName, _parsed, raw) => {
+        const dir = join(base, skillName);
+        mkdirSync(dir, { recursive: true });
+        const target = join(dir, "SKILL.md");
+        writeFileSync(target, raw, "utf8");
+        return target;
+      }
+    };
+  }
+  if (host === "muse") {
+    // Muse Code consumes Claude-format SKILL.md. User scope is verified:
+    // `muse skills install --scope user` lands in $CONFIG_DIR/skills
+    // (~/.config/muse/skills). Project scope follows the same layout under
+    // the workspace `.muse/` dir (pickup requires workspace trust).
+    return {
+      host: "muse",
+      userBase: join(homedir(), ".config", "muse", "skills"),
+      projectBase: join(cwd, ".muse", "skills"),
       extension: "SKILL.md",
       write: (base, skillName, _parsed, raw) => {
         const dir = join(base, skillName);
@@ -6718,7 +6742,7 @@ function cmdInstallSkills(
   const host = flags.host;
   if (!host) {
     streams.stderr.write(
-      "h2a install-skills: --host <claude|codex|gemini|agy|hermes|opencode> is required\n"
+      "h2a install-skills: --host <claude|codex|gemini|agy|hermes|opencode|muse> is required\n"
     );
     return 1;
   }
@@ -6726,7 +6750,7 @@ function cmdInstallSkills(
   const spec = targetSpecFor(host, cwd());
   if (!spec) {
     streams.stderr.write(
-      `h2a install-skills: unknown --host "${host}". Supported: claude, codex, gemini, agy, hermes, opencode.\n`
+      `h2a install-skills: unknown --host "${host}". Supported: claude, codex, gemini, agy, hermes, opencode, muse.\n`
     );
     return 1;
   }
@@ -6805,6 +6829,11 @@ function cmdInstallSkills(
         // then pulls it into agy with `agy plugin import gemini`.
         ...(host === "agy"
           ? { importHint: "agy plugin import gemini   # then: agy plugin enable h2a" }
+          : {}),
+        // muse owns its store ($CONFIG_DIR/skills for user scope); no import
+        // step — verify pickup with `muse skills list`.
+        ...(host === "muse"
+          ? { verifyHint: "muse skills list   # project scope (.muse/skills) needs workspace trust" }
           : {})
       },
       null,

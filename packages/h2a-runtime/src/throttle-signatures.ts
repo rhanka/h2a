@@ -108,6 +108,11 @@ const SIGNATURES: Readonly<Record<DelegateType, ReadonlyArray<Signature>>> = {
       re: /\brate limit\b.*\b(?:reached|exceeded)\b/i,
     },
   ],
+  // No measured muse transient-error shape yet: muse's stderr rate-limit
+  // phrasing is unobserved, and the conservatism guard above forbids
+  // unverified patterns — so the table stays empty (a missed throttle fails
+  // the job normally instead of misfiring a resume) until a real tail is seen.
+  muse: [],
 };
 
 /**
@@ -118,7 +123,7 @@ const SIGNATURES: Readonly<Record<DelegateType, ReadonlyArray<Signature>>> = {
  *
  * @param tailText the captured tail of `output.log` (caller passes ~last 60
  *   lines; we re-bound defensively so an over-long buffer can't widen the scan).
- * @param type the delegate tool (claude | codex | agy) — selects the table.
+ * @param type the delegate tool (claude | codex | agy | muse) — selects the table.
  */
 export function detectThrottle(
   tailText: string,
