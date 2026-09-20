@@ -18,12 +18,14 @@ export {
   listBindings,
   findBinding,
   verifyReclaimProof,
-  reclaimOrMint
+  reclaimOrMint,
+  reclaimOrMintAsync
 } from "./bindings.js";
 export type {
   H2AIdentityBinding,
   IdentityBindingKey,
   ReclaimOrMintDeps,
+  ReclaimOrMintOptions,
   ReclaimOrMintResult
 } from "./bindings.js";
 export {
@@ -41,6 +43,7 @@ export type {
 export {
   identityKeyPaths,
   resolveLiveIdentity,
+  resolveLiveIdentityAsync,
   sanitizeDeclaredCapabilities,
   H2A_CLI_DECLARED_CAPABILITIES,
   H2A_DECLARED_CAPABILITIES
@@ -48,5 +51,6 @@ export {
 export type {
   H2ADeclaredCapability,
   ResolveLiveIdentityInput,
+  ResolveLiveIdentityAsyncOptions,
   ResolvedLiveIdentity
 } from "./live.js";

@@ -259,9 +259,21 @@ export class SessionRegistry {
     return Array.from(this.entries.values(), (entry) => entry.session);
   }
 
-  /** Scan all presence files under root (own + peers), filtered by freshness. */
-  scanFresh(now: number = Date.now()): H2ASession[] {
-    return listPresence(this.root, { now, expiryMs: this.expiryMs });
+  /**
+   * Scan all presence files under root (own + peers), filtered by freshness.
+   *
+   * L2: `sweep:false` performs a DEGRADED read that never deletes a stale/
+   * malformed presence file — used while identity is pending/failed (and on a
+   * read-only store) so a discovery / inbox-read stays a pure read and never
+   * attempts a write. The default (`sweep` omitted / true) keeps the historical
+   * best-effort cleanup.
+   */
+  scanFresh(now: number = Date.now(), options?: { sweep?: boolean }): H2ASession[] {
+    return listPresence(this.root, {
+      now,
+      expiryMs: this.expiryMs,
+      ...(options?.sweep !== undefined ? { sweep: options.sweep } : {})
+    });
   }
 
   /**
