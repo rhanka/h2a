@@ -2,6 +2,7 @@ export const H2A_CLI_MCP_TOOL_NAMES = [
   "h2a_register_instance",
   "h2a_discover_instances",
   "h2a_read_payload",
+  "h2a_identity_status",
   "h2a_open_negotiation",
   "h2a_offer",
   "h2a_counteroffer",
