@@ -141,15 +141,18 @@ jobs:
           if npm view "@sentropic/track@$v" version >/dev/null 2>&1; then
             echo "@sentropic/track@$v already on registry; skipping."
           else
-            npm publish --workspace @sentropic/track --access public
+            if ! npm publish --workspace @sentropic/track --access public; then
+              echo "::error::@sentropic/track@$v: npm publish failed (not published)." >&2
+              exit 1
+            fi
           fi
           for attempt in $(seq 1 18); do
             if npm view "@sentropic/track@$v" version >/dev/null 2>&1; then
               break
             fi
             if [[ "$attempt" -eq 18 ]]; then
-              echo "::error::@sentropic/track@$v is not visible on registry after 18 attempts." >&2
-              exit 1
+              echo "::warning::@sentropic/track@$v was published but is not visible on registry after 18 attempts — registry propagation lag; not failing the step." >&2
+              break
             fi
             echo "@sentropic/track@$v is not visible on registry yet; retrying in 10 seconds (attempt $attempt/18)." >&2
             sleep 10
@@ -161,15 +164,18 @@ jobs:
           if npm view "@sentropic/h2a-runtime@$v" version >/dev/null 2>&1; then
             echo "@sentropic/h2a-runtime@$v already on registry; skipping."
           else
-            npm publish --workspace @sentropic/h2a-runtime --access public
+            if ! npm publish --workspace @sentropic/h2a-runtime --access public; then
+              echo "::error::@sentropic/h2a-runtime@$v: npm publish failed (not published)." >&2
+              exit 1
+            fi
           fi
           for attempt in $(seq 1 18); do
             if npm view "@sentropic/h2a-runtime@$v" version >/dev/null 2>&1; then
               break
             fi
             if [[ "$attempt" -eq 18 ]]; then
-              echo "::error::@sentropic/h2a-runtime@$v is not visible on registry after 18 attempts." >&2
-              exit 1
+              echo "::warning::@sentropic/h2a-runtime@$v was published but is not visible on registry after 18 attempts — registry propagation lag; not failing the step." >&2
+              break
             fi
             echo "@sentropic/h2a-runtime@$v is not visible on registry yet; retrying in 10 seconds (attempt $attempt/18)." >&2
             sleep 10
@@ -181,15 +187,18 @@ jobs:
           if npm view "@sentropic/h2a@$v" version >/dev/null 2>&1; then
             echo "@sentropic/h2a@$v already on registry; skipping."
           else
-            npm publish --workspace @sentropic/h2a --access public
+            if ! npm publish --workspace @sentropic/h2a --access public; then
+              echo "::error::@sentropic/h2a@$v: npm publish failed (not published)." >&2
+              exit 1
+            fi
           fi
           for attempt in $(seq 1 18); do
             if npm view "@sentropic/h2a@$v" version >/dev/null 2>&1; then
               break
             fi
             if [[ "$attempt" -eq 18 ]]; then
-              echo "::error::@sentropic/h2a@$v is not visible on registry after 18 attempts." >&2
-              exit 1
+              echo "::warning::@sentropic/h2a@$v was published but is not visible on registry after 18 attempts — registry propagation lag; not failing the step." >&2
+              break
             fi
             echo "@sentropic/h2a@$v is not visible on registry yet; retrying in 10 seconds (attempt $attempt/18)." >&2
             sleep 10
@@ -201,15 +210,18 @@ jobs:
           if npm view "@sentropic/h2a-cli@$v" version >/dev/null 2>&1; then
             echo "@sentropic/h2a-cli@$v already on registry; skipping."
           else
-            npm publish --workspace @sentropic/h2a-cli --access public
+            if ! npm publish --workspace @sentropic/h2a-cli --access public; then
+              echo "::error::@sentropic/h2a-cli@$v: npm publish failed (not published)." >&2
+              exit 1
+            fi
           fi
           for attempt in $(seq 1 18); do
             if npm view "@sentropic/h2a-cli@$v" version >/dev/null 2>&1; then
               break
             fi
             if [[ "$attempt" -eq 18 ]]; then
-              echo "::error::@sentropic/h2a-cli@$v is not visible on registry after 18 attempts." >&2
-              exit 1
+              echo "::warning::@sentropic/h2a-cli@$v was published but is not visible on registry after 18 attempts — registry propagation lag; not failing the step." >&2
+              break
             fi
             echo "@sentropic/h2a-cli@$v is not visible on registry yet; retrying in 10 seconds (attempt $attempt/18)." >&2
             sleep 10
