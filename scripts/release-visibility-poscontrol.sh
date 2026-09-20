@@ -48,15 +48,15 @@ npm() {
 fail=0
 echo "CASE 1 — genuine non-publish (npm publish FAILS): must BLOCK (exit != 0)"
 STUB_VIEW=1 STUB_PUBLISH=1 run_step "@sentropic/h2a" "0.97.4"; rc=$?
-echo "  => rc=$rc  $([[ $rc -ne 0 ]] && echo 'PASS (still blocks a real non-publish)' || { echo 'FAIL (false success!)'; fail=1; })"
+if [[ $rc -ne 0 ]]; then echo "  => rc=$rc  PASS (still blocks a real non-publish)"; else echo "  => rc=$rc  FAIL (false success!)"; fail=1; fi
 echo
 echo "CASE 2 — published but never visible (publish OK, view lags): must NOT fail (exit 0, warns)"
 STUB_VIEW=1 STUB_PUBLISH=0 run_step "@sentropic/h2a" "0.97.4"; rc=$?
-echo "  => rc=$rc  $([[ $rc -eq 0 ]] && echo 'PASS (no false failure of a succeeded publish)' || { echo 'FAIL (still false-fails!)'; fail=1; })"
+if [[ $rc -eq 0 ]]; then echo "  => rc=$rc  PASS (no false failure of a succeeded publish)"; else echo "  => rc=$rc  FAIL (still false-fails!)"; fail=1; fi
 echo
 echo "CASE 3 — already on registry (idempotent skip): must pass (exit 0)"
 STUB_VIEW=0 STUB_PUBLISH=0 run_step "@sentropic/h2a" "0.97.4"; rc=$?
-echo "  => rc=$rc  $([[ $rc -eq 0 ]] && echo 'PASS (idempotency preserved)' || { echo 'FAIL'; fail=1; })"
+if [[ $rc -eq 0 ]]; then echo "  => rc=$rc  PASS (idempotency preserved)"; else echo "  => rc=$rc  FAIL"; fail=1; fi
 echo
 echo "RESULT: $([[ $fail -eq 0 ]] && echo 'ALL PASS' || echo 'SOME FAILED')"
 exit $fail
