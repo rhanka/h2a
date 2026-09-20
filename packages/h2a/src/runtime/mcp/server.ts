@@ -68,6 +68,10 @@ import {
   type H2aRunExecutor
 } from "./agent-launch.js";
 import type { H2ASendSigner } from "../send.js";
+import { createDiscoveryPager, type DiscoveryPager } from "./discovery-pagination.js";
+import { createPayloadStore, type PayloadStore } from "./payload-store.js";
+import { resolveFrameBudget, type FrameBudget } from "./frame-budget.js";
+import { PAYLOAD_MAX_READ_BYTES } from "./payload-store.js";
 
 export interface CreateMcpServerOptions {
   /** Filesystem root for the backing local-files store. */
@@ -99,15 +103,30 @@ export interface CreateMcpServerOptions {
     intervalMs?: number;
     sink?: NotificationSink;
   };
+  /** L1: frame budget override (tests). Defaults to `resolveFrameBudget()`. */
+  frameBudget?: FrameBudget;
+}
+
+/** L1: optional per-call transport context (reserved for exact-id budgeting). */
+export interface McpCallContext {
+  readonly budget?: FrameBudget;
 }
 
 export interface McpServer {
   listTools(): McpToolDescriptor[];
-  callTool(name: string, args: Record<string, unknown> | undefined): McpToolResult | McpErrorResult | McpTransportResult;
+  callTool(
+    name: string,
+    args: Record<string, unknown> | undefined,
+    context?: McpCallContext
+  ): McpToolResult | McpErrorResult | McpTransportResult;
   /** Per-server SessionRegistry, exposed for transport-layer shutdown hooks. */
   readonly sessions: SessionRegistry;
   /** Per-server NotificationDispatcher (DEC-052). */
   readonly notifications: NotificationDispatcher;
+  /** L1: per-root durable store for oversize output recovery. */
+  readonly payloadStore: PayloadStore;
+  /** L1: the frame budget bounding every emission of this server. */
+  readonly frameBudget: FrameBudget;
 }
 
 /** A tool result already formatted for the MCP transport (used by Track reads). */
@@ -150,9 +169,20 @@ export function createMcpServer(options: CreateMcpServerOptions): McpServer {
       H2A_SESSION_DEFAULT_HEARTBEAT_INTERVAL_MS
   );
 
+  // L1: per-root recovery store + per-server paginating discovery pager. The
+  // pager carries a random per-instance HMAC secret + epoch, so a cursor from a
+  // restarted server fails `cursor_stale` (never a silent first page).
+  const frameBudget = options.frameBudget ?? resolveFrameBudget();
+  const payloadStore = createPayloadStore(options.root);
+  const discoveryPager: DiscoveryPager = createDiscoveryPager(store, {
+    budget: frameBudget,
+    payloadStore
+  });
+
   function callTool(
     name: string,
-    args: Record<string, unknown> | undefined
+    args: Record<string, unknown> | undefined,
+    _context?: McpCallContext
   ): McpToolResult | McpErrorResult | McpTransportResult {
     if (TRACK_READ_TOOL_NAMES.has(name)) {
       try {
@@ -184,7 +214,9 @@ export function createMcpServer(options: CreateMcpServerOptions): McpServer {
       case "h2a_register_instance":
         return handleRegisterInstance(store, args as never);
       case "h2a_discover_instances":
-        return handleDiscoverInstances(store, args as never);
+        return handleDiscoverInstances(store, args as never, discoveryPager);
+      case "h2a_read_payload":
+        return handleReadPayload(payloadStore, args, frameBudget);
       case "h2a_inbox":
         return handleInbox(store, args as never);
       case "h2a_send":
@@ -276,6 +308,52 @@ export function createMcpServer(options: CreateMcpServerOptions): McpServer {
     listTools: () => H2A_CLI_MCP_TOOL_DESCRIPTORS.slice(),
     callTool,
     sessions,
-    notifications
+    notifications,
+    payloadStore,
+    frameBudget
   };
+}
+
+/**
+ * L1 `h2a_read_payload`: chunked, read-only recovery of an oversize output's
+ * INTACT bytes (base64), so "recover" never points at another too-big response.
+ * Tenant-confined by the per-root store; needs no signing identity. It never
+ * re-runs an effectful tool — it returns already-produced bytes.
+ */
+function handleReadPayload(
+  payloadStore: PayloadStore,
+  args: Record<string, unknown> | undefined,
+  budget: FrameBudget
+): McpTransportResult {
+  const toolError = (code: string, message: string): McpTransportResult => ({
+    content: [{ type: "text", text: JSON.stringify({ code, message }) }],
+    isError: true
+  });
+  const ref = args?.ref;
+  if (typeof ref !== "string" || ref.length === 0) {
+    return toolError("payload_not_found", "ref is required");
+  }
+  const rawOffset = args?.offset;
+  if (rawOffset !== undefined && (typeof rawOffset !== "number" || !Number.isInteger(rawOffset) || rawOffset < 0)) {
+    return toolError("invalid_offset", "offset must be a non-negative integer");
+  }
+  const rawMax = args?.maxBytes;
+  if (
+    rawMax !== undefined &&
+    (typeof rawMax !== "number" || !Number.isInteger(rawMax) || rawMax < 1 || rawMax > PAYLOAD_MAX_READ_BYTES)
+  ) {
+    return toolError("invalid_offset", "maxBytes must be an integer between 1 and 65536");
+  }
+  const offset = typeof rawOffset === "number" ? rawOffset : 0;
+  const requested = typeof rawMax === "number" ? rawMax : PAYLOAD_MAX_READ_BYTES;
+  // maxBytes is a MAXIMUM: reduce the chunk further so the FINAL serialized frame
+  // (base64 ≈ 4/3 expansion + the JSON envelope, double-encoded into content
+  // text) stays within the budget — a recovery read must never itself overflow.
+  const budgetChunk = Math.max(1, Math.floor((budget.maxBytes - 4096) * 3 / 4));
+  const maxBytes = Math.max(1, Math.min(requested, budgetChunk));
+  const result = payloadStore.readPayload(ref, offset, maxBytes);
+  if ("error" in result) {
+    return toolError(result.error, `payload read failed: ${result.error}`);
+  }
+  return { content: [{ type: "text", text: JSON.stringify(result) }] };
 }

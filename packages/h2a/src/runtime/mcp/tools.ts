@@ -38,13 +38,41 @@ const H2A_COORDINATION_TOOL_DESCRIPTORS: McpToolDescriptor[] = [
   {
     name: "h2a_discover_instances",
     description:
-      "List instances from the registry, optionally filtered by role and/or scope.",
+      "List instances from the registry, optionally filtered by role and/or scope. " +
+      "Bounded and paginated: with no cursor it returns the 200 MOST RECENT inscriptions " +
+      "(createdAt desc) plus { total, hasMore, nextCursor, generation, limit, returned }. " +
+      "To traverse the whole registry, call again with the returned nextCursor until it is null; " +
+      "keep the same role/scope/limit (or omit them and let the cursor carry them). A stale/invalid " +
+      "cursor fails explicitly (cursor_stale / invalid_cursor) rather than silently restarting.",
     inputSchema: {
       type: "object",
       properties: {
-        role: { type: "string" },
-        scope: { type: "string" }
-      }
+        role: { type: "string", maxLength: 64 },
+        scope: { type: "string", maxLength: 256 },
+        limit: { type: "integer", minimum: 1, maximum: 1000, default: 200 },
+        cursor: { type: "string", minLength: 1, maxLength: 2048 }
+      },
+      additionalProperties: false
+    }
+  },
+  {
+    name: "h2a_read_payload",
+    description:
+      "Read-only chunked recovery of an oversize MCP output (a response or notification that " +
+      "exceeded the frame budget). Returns base64 bytes so no UTF-8 codepoint is cut: " +
+      "{ ref, encoding:'base64', data, offset, nextOffset, totalBytes, sha256, expiresAt }. " +
+      "Loop while nextOffset is non-null (advancing offset by the real bytes returned), then " +
+      "decode and verify sha256 after full reassembly. maxBytes is a maximum (≤65536); the server " +
+      "may return fewer to stay within the frame budget. Tenant-confined; needs no signing identity.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        ref: { type: "string", minLength: 1, maxLength: 512 },
+        offset: { type: "integer", minimum: 0 },
+        maxBytes: { type: "integer", minimum: 1, maximum: 65536, default: 65536 }
+      },
+      required: ["ref"],
+      additionalProperties: false
     }
   },
   {
@@ -687,11 +715,11 @@ const H2A_COORDINATION_TOOL_DESCRIPTORS: McpToolDescriptor[] = [
   {
     name: "h2a_run",
     description:
-      "Launch one background Claude, Codex or AGY agent in an existing workspace through the canonical h2a run runtime. AGY is direct (no llm-mesh gateway) and supports run-once mode through --print. Returns verified tmux/session metadata; never creates a branch or worktree.",
+      "Launch one background Claude, Codex, AGY or Muse agent in an existing workspace through the canonical h2a run runtime. AGY and Muse are direct (no llm-mesh gateway); AGY supports run-once mode through --print. Muse is interactive/background only (muse exec has no stdin prompt contract, so headless is rejected). Returns verified tmux/session metadata; never creates a branch or worktree.",
     inputSchema: {
       type: "object",
       properties: {
-        profile: { type: "string", enum: ["claude", "codex", "agy"] },
+        profile: { type: "string", enum: ["claude", "codex", "agy", "muse"] },
         name: {
           type: "string",
           pattern: "^[A-Za-z0-9_-]{1,64}$"
@@ -712,17 +740,17 @@ const H2A_COORDINATION_TOOL_DESCRIPTORS: McpToolDescriptor[] = [
         gateway: {
           type: "string",
           enum: ["auto", "required", "off"],
-          description: "Direct by default: auto (the default) and off both launch direct; only required opts a Claude session into the local llm-mesh gateway. AGY is always direct, so required is rejected."
+          description: "Direct by default: auto (the default) and off both launch direct; only required opts a Claude session into the local llm-mesh gateway. AGY and Muse are always direct, so required is rejected for them."
         },
         headless: {
           type: "boolean",
-          description: "Run once; AGY maps this to stream-json input/output and keeps the prompt on stdin."
+          description: "Run once; AGY maps this to stream-json input/output and keeps the prompt on stdin. Muse rejects headless (muse exec has no stdin prompt contract)."
         },
         h2aSidecar: { type: "boolean" },
         agent: {
           type: "string",
           pattern: "^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$",
-          description: "AGY agent override; rejected for Claude and Codex."
+          description: "AGY agent override; rejected for Claude, Codex and Muse."
         },
         model: {
           type: "string",
@@ -731,7 +759,11 @@ const H2A_COORDINATION_TOOL_DESCRIPTORS: McpToolDescriptor[] = [
         effort: {
           type: "string",
           enum: ["low", "medium", "high", "xhigh"],
-          description: "AGY accepts low, medium or high; xhigh is rejected."
+          description: "AGY accepts low, medium or high; xhigh is rejected. Muse maps effort to its native --reasoning-effort."
+        },
+        bare: {
+          type: "boolean",
+          description: "Claude under the gateway only: true opts into bare mode (skips onboarding but strips Claude's native tools/hooks/skills); omitted or false keeps the native tools (the default)."
         }
       },
       required: ["profile", "name", "workspace", "prompt", "background"],

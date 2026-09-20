@@ -284,19 +284,38 @@ async function main() {
     });
     info("tools/list", `${tools.result.tools.length} tools`);
 
-    const discover = await sendJsonRpc(mcpChild, {
-      jsonrpc: "2.0",
-      id: 3,
-      method: "tools/call",
-      params: {
-        name: "h2a_discover_instances",
-        arguments: { role: "CONDUCTOR" }
+    // L1 (0.97.3): `h2a_discover_instances` is now PAGINATED. With no cursor it
+    // returns the 200 most recent inscriptions plus { total, hasMore, nextCursor }.
+    // A large consumer must LOOP nextCursor to traverse the whole registry; a
+    // `cursor_stale` error means the registry changed mid-traversal, so the
+    // accumulator is abandoned and discovery restarts clean (no silent gaps).
+    async function discoverAllConductors() {
+      const acc = [];
+      let cursor;
+      let rid = 1000;
+      for (;;) {
+        const args = cursor ? { cursor } : { role: "CONDUCTOR" };
+        const res = await sendJsonRpc(mcpChild, {
+          jsonrpc: "2.0",
+          id: rid++,
+          method: "tools/call",
+          params: { name: "h2a_discover_instances", arguments: args }
+        });
+        const payload = JSON.parse(res.result.content[0].text);
+        if (res.result.isError) {
+          if (payload.code === "cursor_stale") {
+            acc.length = 0;
+            cursor = undefined;
+            continue;
+          }
+          throw new Error(`discover returned isError: ${res.result.content[0].text}`);
+        }
+        for (const inst of payload.instances) acc.push(inst);
+        if (!payload.hasMore) return acc;
+        cursor = payload.nextCursor;
       }
-    });
-    if (discover.result.isError) {
-      throw new Error(`discover returned isError: ${discover.result.content[0].text}`);
     }
-    const discoverPayload = JSON.parse(discover.result.content[0].text);
+    const discoverPayload = { instances: await discoverAllConductors() };
     const conductorIds = discoverPayload.instances.map((i) => i.id).sort();
     info("MCP returned", `${conductorIds.length} conductors`);
     process.stdout.write(`  ${DIM(conductorIds.join(", "))}\n`);

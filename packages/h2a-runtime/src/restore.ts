@@ -64,7 +64,7 @@ export {
 export type DiscoveredSession = {
   project: string;
   mtimeMs: number;
-  tool: "claude" | "codex" | "agy";
+  tool: "claude" | "codex" | "agy" | "muse";
   sid: string;
   cwd: string;
   /** "registry" = enrolled live session (reliable); "scan" = mtime guess. */
@@ -73,6 +73,7 @@ export type DiscoveredSession = {
   label?: string;
   /** Pinned llm-mesh gateway posture (from an explicit --gw/--no-gw at launch). */
   gatewayMode?: "gateway" | "direct";
+  bare?: boolean;
   /**
    * Persisted local terminal host of a registry-backed session
    * (isManagedLocalKind). Under tmux abandonment a NON-LIVE session's
@@ -120,6 +121,7 @@ export type LayoutTab = {
   origin?: "registry" | "scan";
   /** Pinned llm-mesh gateway posture; re-emitted as --gw/--no-gw on restore. */
   gatewayMode?: "gateway" | "direct";
+  bare?: boolean;
   /** Persisted local host; drives the drain view + native replacement pin. */
   hostKind?: "local-tmux" | "local-native";
   /** Exact managed session name (registry-backed tabs). */
@@ -667,6 +669,7 @@ export function registrySessions(
     };
     if (e.label !== undefined) session.label = e.label;
     if (e.gatewayMode !== undefined) session.gatewayMode = e.gatewayMode;
+    if (e.bare !== undefined) session.bare = e.bare;
     // WHICH host serves this tab is decided by the ONE symmetric resolver
     // (resolveManagedHost) over this plan's registry read, with the plan's
     // single probe snapshot injected — restore never re-implements the
@@ -908,6 +911,7 @@ export function groupSessions(
       };
       if (s.origin !== undefined) tab.origin = s.origin;
       if (s.gatewayMode !== undefined) tab.gatewayMode = s.gatewayMode;
+      if (s.bare !== undefined) tab.bare = s.bare;
       if (s.hostKind !== undefined) tab.hostKind = s.hostKind;
       if (s.managedName !== undefined) tab.managedName = s.managedName;
       if (s.attachLive !== undefined) tab.attachLive = s.attachLive;

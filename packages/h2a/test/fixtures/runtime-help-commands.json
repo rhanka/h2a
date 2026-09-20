@@ -1,6 +1,6 @@
 {
   "note": "Pins EVERY top-level command row of the runtime entrypoint's --help: term, description and the intention group it renders under. Generated from the built runtime; regenerate deliberately, never to make a red test green. The ROOT description is intentionally NOT here - it is top-level prose and it changed by design; it is pinned separately as rootDescriptionContains.",
-  "commandCount": 48,
+  "commandCount": 49,
   "descriptionsWrapped": false,
   "rootDescriptionContains": [
     "The unified sentropic CLI and core",
@@ -31,6 +31,11 @@
       "group": "Start — begin, return to, or end a work session:",
       "term": "mistral|mistralcli [options] [commandArgs...]",
       "description": "Run mistral via h2a"
+    },
+    {
+      "group": "Start — begin, return to, or end a work session:",
+      "term": "muse|muse-code [options] [commandArgs...]",
+      "description": "Run muse via h2a"
     },
     {
       "group": "Start — begin, return to, or end a work session:",
@@ -195,7 +200,7 @@
     {
       "group": "Recover & supervise sessions (advanced):",
       "term": "enroll [options]",
-      "description": "Plumbing for the live-session registry (feeds `h2a ls`/`h2a restore`). Hook mode (--hook claude-start|claude-end) is wired by --install-hooks into ~/.claude/settings.json (idempotent; backs up settings.json.bak.<epoch>) and always exits 0 so it can never break the host claude session. codex has no reliable session hook: codex sessions are enrolled by `h2a run` and by the restore filesystem-scan fallback. Manual mode: --tool/--cwd/--conv/--pid/--label."
+      "description": "Plumbing for the live-session registry (feeds `h2a ls`/`h2a restore`). Hook mode (--hook claude-start|claude-end) is wired by --install-hooks into ~/.claude/settings.json (idempotent; backs up settings.json.bak.<epoch>) and always exits 0 so it can never break the host claude session. codex and muse have no reliable session hook: their sessions are enrolled by `h2a run` and by the restore filesystem-scan fallback. Manual mode: --tool/--cwd/--conv/--pid/--label."
     },
     {
       "group": "Recover & supervise sessions (advanced):",
