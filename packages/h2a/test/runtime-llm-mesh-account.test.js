@@ -37,7 +37,7 @@ test(
     const canonical = run("llm-mesh", "account", "enroll", "--help");
     assert.equal(canonical.status, 0, canonical.output);
     assert.match(canonical.output, /Usage: h2a llm-mesh account enroll/);
-    assert.match(canonical.output, /cloud-code or codex/);
+    assert.match(canonical.output, /cloud-code, codex, or\s+muse/);
 
     for (const command of ["list", "ls"]) {
       const help = run("llm-mesh", "account", command, "--help");

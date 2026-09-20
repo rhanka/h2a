@@ -2228,7 +2228,7 @@ async function injectLlmMeshGatewayEnv(
     delete process.env.ANTHROPIC_AUTH_TOKEN;
     if (mode === "gateway") {
       throw new Error(
-        "llm-mesh gateway is required but unavailable; no agent was started. Run `h2a llm-mesh start` or `h2a llm-mesh account enroll codex|cloud-code` first",
+        "llm-mesh gateway is required but unavailable; no agent was started. Run `h2a llm-mesh start` or `h2a llm-mesh account enroll codex|cloud-code|muse` first",
       );
     }
     if (allowDirectFallback) {
@@ -2352,7 +2352,7 @@ export async function prepareStructuredGateway(
   const gateway = await inject(mode);
   if (mode === "gateway" && !gateway) {
     throw new Error(
-      "llm-mesh gateway is required but unavailable; no agent was started. Run `h2a llm-mesh start` or `h2a llm-mesh account enroll codex|cloud-code` first",
+      "llm-mesh gateway is required but unavailable; no agent was started. Run `h2a llm-mesh start` or `h2a llm-mesh account enroll codex|cloud-code|muse` first",
     );
   }
   return gateway;
@@ -10460,7 +10460,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
     .command("enroll <provider>")
     .description(
       "Enroll through the sentropic-owned OAuth state machine " +
-        "(cloud-code or codex)",
+        "(cloud-code, codex, or muse CLI-store import)",
     )
     .option("--config-ref <ref>", "sentropic configuration reference for OAuth")
     .action(
@@ -10470,10 +10470,10 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           configRef?: string;
         },
       ) => {
-        if (provider !== "cloud-code" && provider !== "codex") {
+        if (provider !== "cloud-code" && provider !== "codex" && provider !== "muse") {
           process.stderr.write(
             `[h2a] llm-mesh account: unsupported provider "${provider}". ` +
-              "Supported: cloud-code, codex\n",
+              "Supported: cloud-code, codex, muse\n",
           );
           process.exitCode = 1;
           return;
