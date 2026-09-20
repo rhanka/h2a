@@ -13,6 +13,7 @@ describe("profiles", () => {
     expect(resolveProfile("codex").command).toBe("codex");
     expect(resolveProfile("claude").command).toBe("claude");
     expect(resolveProfile("agy").command).toBe("agy");
+    expect(resolveProfile("muse").command).toBe("muse");
     expect(resolveProfile("gemini").command).toBe("gemini");
     expect(resolveProfile("mistral").command).toBe("mistral");
     expect(resolveProfile("shell").command).toBe("/bin/bash");
@@ -28,6 +29,12 @@ describe("profiles", () => {
     expect(withResume(codex, "abc").args).toEqual(["resume", "abc"]);
     expect(withResume(codex, true).args).toEqual(["resume", "--last"]);
     expect(withResume(codex, undefined).args).toEqual([]);
+
+    // muse resumes via a SUBCOMMAND like codex (verified: muse resume --help).
+    const muse = resolveProfile("muse");
+    expect(withResume(muse, "abc").args).toEqual(["resume", "abc"]);
+    expect(withResume(muse, true).args).toEqual(["resume", "--last"]);
+    expect(withResume(muse, undefined).args).toEqual([]);
 
     // claude: explicit id → --resume <id>; most recent → --continue (bare
     // --resume would open the interactive picker).
@@ -51,6 +58,7 @@ describe("profiles", () => {
 
   it("isCliProfile narrows known names", () => {
     expect(isCliProfile("codex")).toBe(true);
+    expect(isCliProfile("muse")).toBe(true);
     expect(isCliProfile("not-real")).toBe(false);
   });
 
@@ -62,6 +70,8 @@ describe("profiles", () => {
     expect(coerceCliProfileName("gemini-cli")).toBe("gemini");
     expect(coerceCliProfileName("mistralcli")).toBe("mistral");
     expect(coerceCliProfileName("codex")).toBe("codex");
+    expect(coerceCliProfileName("muse")).toBe("muse");
+    expect(coerceCliProfileName("muse-code")).toBe("muse");
     expect(coerceCliProfileName("not-real")).toBeUndefined();
   });
 });

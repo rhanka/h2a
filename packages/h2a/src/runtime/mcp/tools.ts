@@ -715,11 +715,11 @@ const H2A_COORDINATION_TOOL_DESCRIPTORS: McpToolDescriptor[] = [
   {
     name: "h2a_run",
     description:
-      "Launch one background Claude, Codex or AGY agent in an existing workspace through the canonical h2a run runtime. AGY is direct (no llm-mesh gateway) and supports run-once mode through --print. Returns verified tmux/session metadata; never creates a branch or worktree.",
+      "Launch one background Claude, Codex, AGY or Muse agent in an existing workspace through the canonical h2a run runtime. AGY and Muse are direct (no llm-mesh gateway); AGY supports run-once mode through --print. Muse is interactive/background only (muse exec has no stdin prompt contract, so headless is rejected). Returns verified tmux/session metadata; never creates a branch or worktree.",
     inputSchema: {
       type: "object",
       properties: {
-        profile: { type: "string", enum: ["claude", "codex", "agy"] },
+        profile: { type: "string", enum: ["claude", "codex", "agy", "muse"] },
         name: {
           type: "string",
           pattern: "^[A-Za-z0-9_-]{1,64}$"
@@ -740,17 +740,17 @@ const H2A_COORDINATION_TOOL_DESCRIPTORS: McpToolDescriptor[] = [
         gateway: {
           type: "string",
           enum: ["auto", "required", "off"],
-          description: "Direct by default: auto (the default) and off both launch direct; only required opts a Claude session into the local llm-mesh gateway. AGY is always direct, so required is rejected."
+          description: "Direct by default: auto (the default) and off both launch direct; only required opts a Claude session into the local llm-mesh gateway. AGY and Muse are always direct, so required is rejected for them."
         },
         headless: {
           type: "boolean",
-          description: "Run once; AGY maps this to stream-json input/output and keeps the prompt on stdin."
+          description: "Run once; AGY maps this to stream-json input/output and keeps the prompt on stdin. Muse rejects headless (muse exec has no stdin prompt contract)."
         },
         h2aSidecar: { type: "boolean" },
         agent: {
           type: "string",
           pattern: "^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$",
-          description: "AGY agent override; rejected for Claude and Codex."
+          description: "AGY agent override; rejected for Claude, Codex and Muse."
         },
         model: {
           type: "string",
@@ -759,7 +759,7 @@ const H2A_COORDINATION_TOOL_DESCRIPTORS: McpToolDescriptor[] = [
         effort: {
           type: "string",
           enum: ["low", "medium", "high", "xhigh"],
-          description: "AGY accepts low, medium or high; xhigh is rejected."
+          description: "AGY accepts low, medium or high; xhigh is rejected. Muse maps effort to its native --reasoning-effort."
         },
         bare: {
           type: "boolean",

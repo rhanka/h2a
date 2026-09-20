@@ -31,16 +31,16 @@ test("h2a host status (no filter) lists every known host with wave info", () => 
   const parsed = JSON.parse(streams.stdoutText);
   assert.equal(parsed.ok, true);
   assert.ok(Array.isArray(parsed.hosts));
-  assert.equal(parsed.hosts.length, 6);
+  assert.equal(parsed.hosts.length, 7);
 
   const byHost = Object.fromEntries(parsed.hosts.map((h) => [h.host, h]));
-  for (const host of ["codex", "claude", "gemini", "agy", "hermes", "opencode"]) {
+  for (const host of ["codex", "claude", "gemini", "agy", "hermes", "opencode", "muse"]) {
     assert.ok(byHost[host], `${host} entry must be present`);
     assert.equal(byHost[host].wave, 1);
   }
 
   // MCP adapter is wired in-process + stdio for all supported hosts.
-  for (const host of ["codex", "claude", "gemini", "agy", "hermes", "opencode"]) {
+  for (const host of ["codex", "claude", "gemini", "agy", "hermes", "opencode", "muse"]) {
     assert.equal(byHost[host].mcpAdapterShipped, true);
     assert.equal(byHost[host].hostSetupShipped, true);
     assert.equal(byHost[host].hostScenarioShipped, true);

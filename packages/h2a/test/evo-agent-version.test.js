@@ -21,7 +21,9 @@ function homeWithSkill(host, content) {
           ? join(home, ".hermes", "skills", "h2a")
           : host === "opencode"
             ? join(home, ".config", "opencode", "skills", "h2a")
-            : join(home, ".gemini", "commands");
+            : host === "muse"
+              ? join(home, ".config", "muse", "skills", "h2a")
+              : join(home, ".gemini", "commands");
   mkdirSync(dir, { recursive: true });
   writeFileSync(join(dir, host === "gemini" ? "h2a.toml" : "SKILL.md"), content, "utf8");
   return home;
@@ -46,6 +48,10 @@ test("readInstalledSkillVersion: reads the version stamp from the installed host
   const openHome = homeWithSkill("opencode", "---\nname: h2a\nversion: 5.5.5\ndescription: x\n---\nb");
   assert.equal(readInstalledSkillVersion("opencode", openHome), "5.5.5");
   rmSync(openHome, { recursive: true, force: true });
+
+  const museHome = homeWithSkill("muse", "---\nname: h2a\nversion: 7.7.7\ndescription: x\n---\nb");
+  assert.equal(readInstalledSkillVersion("muse", museHome), "7.7.7");
+  rmSync(museHome, { recursive: true, force: true });
 
   // best-effort: unknown host, missing file, and unstamped skill → undefined
   assert.equal(readInstalledSkillVersion("nope", "/tmp"), undefined);
