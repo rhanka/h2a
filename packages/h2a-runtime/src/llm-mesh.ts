@@ -91,8 +91,23 @@ export interface LlmMeshConfig {
 
 export interface LlmMeshEnrollmentAccount {
   accountId: string;
-  provider: "cloud-code" | "codex";
+  provider: "cloud-code" | "codex" | "muse";
   label: string;
+}
+
+/**
+ * Structural extension for facades that implement Muse CLI-store import
+ * (MuseEnrollmentProvider mesh-side, BR75). Declared structurally — not taken
+ * from @sentropic/llm-mesh types — so h2a keeps working against older
+ * facades; the runtime guard below fails closed when the method is absent
+ * instead of throwing a bare TypeError.
+ */
+export interface LlmMeshFacadeWithMuseImport extends LlmMeshFacade {
+  completeMuseImport(
+    enrollmentId: string,
+    code: string,
+    ownerScopeRef: string,
+  ): Promise<{ accountId: string; label: string }>;
 }
 
 export interface FacadeEnrollmentOptions {
@@ -163,16 +178,50 @@ function openEnrollmentBrowser(url: string): void {
  * the facade/keyring and are not copied into h2a config.
  */
 export async function enrollViaFacade(
-  provider: "cloud-code" | "codex",
+  provider: "cloud-code" | "codex" | "muse",
   options: FacadeEnrollmentOptions = {},
 ): Promise<LlmMeshEnrollmentAccount> {
   const facade = options.facade ?? createCliLlmMeshFacade();
-  const session = await facade.enroll(provider, {
+  const ownerScope = options.ownerScope ?? llmMeshOwnerScopeRef();
+  // The installed @sentropic/llm-mesh types predate the muse provider, but
+  // enroll passes the id through opaquely — a muse-capable facade resolves
+  // it, an older one fails with its own unknown-provider error. Cast is
+  // load-bearing until the dep bump, not a lie about the contract.
+  const session = await facade.enroll(provider as "codex", {
     configRef: options.configRef ?? process.env.H2A_LLM_MESH_CONFIG_REF ?? "default",
     mode: "cli",
     redirectUri: options.redirectUri ?? "http://127.0.0.1",
-    ownerScope: options.ownerScope ?? llmMeshOwnerScopeRef(),
+    ownerScope,
   });
+
+  if (provider === "muse") {
+    // Muse CLI-store import (BR75): no browser or device round-trip — the
+    // owner act was the muse login itself. The ownerScope binds the enrolling
+    // owner explicitly (never inferred); it doubles as the completion code
+    // the mesh provider carries but does not validate.
+    if (session.kind !== "local-import") {
+      throw new Error("Muse enrollment did not return a local-import session");
+    }
+    const completeMuseImport = (
+      facade as Partial<LlmMeshFacadeWithMuseImport>
+    ).completeMuseImport;
+    if (typeof completeMuseImport !== "function") {
+      throw new Error(
+        "Muse enrollment needs facade.completeMuseImport — upgrade @sentropic/llm-mesh " +
+        "to a version with the Muse enrollment provider",
+      );
+    }
+    process.stdout.write(
+      `[h2a] llm-mesh: importing Muse CLI credentials from ${session.source} for ${ownerScope}\n`,
+    );
+    const completed = await completeMuseImport.call(
+      facade,
+      session.enrollmentId,
+      ownerScope,
+      ownerScope,
+    );
+    return { accountId: completed.accountId, provider, label: completed.label };
+  }
 
   const completed = provider === "cloud-code"
     ? await (async () => {

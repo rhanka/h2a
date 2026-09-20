@@ -168,6 +168,65 @@ describe("facade enrollment", () => {
     expect(facade.waitForCallback).not.toHaveBeenCalled();
   });
 
+  it("completes a Muse CLI-store import without browser or device round-trip", async () => {
+    const facade = {
+      enroll: vi.fn().mockResolvedValue({
+        kind: "local-import",
+        enrollmentId: "enroll-muse",
+        source: "muse-cli-auth-file",
+        expiresAt: "2026-08-07T01:00:00.000Z",
+      }),
+      waitForCallback: vi.fn(),
+      pollForCompletion: vi.fn(),
+      completeMuseImport: vi.fn().mockResolvedValue({
+        accountId: "acct_muse_abc123",
+        label: "Muse (owner@example.com)",
+      }),
+    } as unknown as LlmMeshFacade;
+    vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+
+    await expect(enrollViaFacade("muse", {
+      facade,
+      ownerScope: "cli:test-host",
+    })).resolves.toEqual({
+      accountId: "acct_muse_abc123",
+      provider: "muse",
+      label: "Muse (owner@example.com)",
+    });
+
+    expect(facade.enroll).toHaveBeenCalledWith("muse", {
+      configRef: "default",
+      mode: "cli",
+      ownerScope: "cli:test-host",
+      redirectUri: "http://127.0.0.1",
+    });
+    expect(facade.completeMuseImport).toHaveBeenCalledWith(
+      "enroll-muse",
+      "cli:test-host",
+      "cli:test-host",
+    );
+    expect(facade.waitForCallback).not.toHaveBeenCalled();
+    expect(facade.pollForCompletion).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when the facade predates Muse import support", async () => {
+    const facade = {
+      enroll: vi.fn().mockResolvedValue({
+        kind: "local-import",
+        enrollmentId: "enroll-muse",
+        source: "muse-cli-auth-file",
+        expiresAt: "2026-08-07T01:00:00.000Z",
+      }),
+      waitForCallback: vi.fn(),
+      pollForCompletion: vi.fn(),
+    } as unknown as LlmMeshFacade;
+    vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+
+    await expect(enrollViaFacade("muse", { facade })).rejects.toThrow(
+      "completeMuseImport",
+    );
+  });
+
 });
 
 describe("facade account administration", () => {
