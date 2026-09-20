@@ -169,8 +169,22 @@ export function forkIdentityWorker(
       );
       return;
     }
+    // Forward the worker's stderr LINE BY LINE so a `h2a.mcp.phase …` trace span
+    // (L0, role=identity-child) is never split across a chunk boundary when it is
+    // re-emitted on the parent's stderr. Diagnostics flow through unchanged.
+    let stderrBuf = "";
     child.stderr?.on("data", (chunk) => {
-      log?.(`identity-worker: ${String(chunk).trimEnd()}`);
+      stderrBuf += String(chunk);
+      let nl;
+      while ((nl = stderrBuf.indexOf("\n")) !== -1) {
+        const line = stderrBuf.slice(0, nl);
+        stderrBuf = stderrBuf.slice(nl + 1);
+        if (line.length > 0) log?.(`identity-worker: ${line}`);
+      }
+    });
+    child.stderr?.on("end", () => {
+      if (stderrBuf.trimEnd().length > 0) log?.(`identity-worker: ${stderrBuf.trimEnd()}`);
+      stderrBuf = "";
     });
     child.on("message", (msg: unknown) => {
       const m = msg as { kind?: string } | undefined;
@@ -193,7 +207,17 @@ export function forkIdentityWorker(
       if (!sawResult) exitCb?.();
     });
     try {
-      child.send({ kind: "resolve_identity", v: 1, request, budgetMs });
+      // Correlate the worker's L0 spans to THIS attempt's trace (same attemptId,
+      // role=identity-child) so the relocated identity/lock/registry spans stay
+      // joinable with the parent's server-role boot spans.
+      const traceAttemptId = getActiveMcpTrace()?.attemptId;
+      child.send({
+        kind: "resolve_identity",
+        v: 1,
+        request,
+        budgetMs,
+        ...(traceAttemptId !== undefined ? { traceAttemptId } : {})
+      });
     } catch (err) {
       errorCb?.("identity_worker_failed", err instanceof Error ? err.message : String(err));
     }
@@ -311,12 +335,13 @@ export function createIdentityController(
       fail(result.cause, result.message);
       return;
     }
-    // Post-activation deadline guard: if we crossed 20 s while activating, do not
-    // publish positive availability.
-    if (elapsedMs() >= timeoutMs || cancelled) {
-      fail("identity_timeout", `identity crossed the deadline during activation`);
-      return;
-    }
+    // F1: a FULLY-SUCCESSFUL activation is terminal-ready. We do NOT re-check the
+    // deadline here: activation already opened the presence session, armed the
+    // signer/wake and published the correlated readiness ACK — failing now would
+    // leave a live ACK + presence + wake behind a `failed` state (a wedged
+    // connection). The deadline is enforced BEFORE activation (above) and by the
+    // parent timer; if activation itself fails, `activate` rolls its own partial
+    // work back before returning `{ok:false}`.
     terminal = true;
     clearTimer();
     liveSigner = result.signer;

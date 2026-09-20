@@ -16,11 +16,21 @@
  */
 
 import assert from "node:assert/strict";
-import { existsSync, readFileSync } from "node:fs";
+import { spawn } from "node:child_process";
+import { existsSync, mkdtempSync, readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { callRpc, copySeed, spawnMcp, startLiveHolder, stopChildren } from "./helpers/mcp-fix-lab.js";
+import {
+  callRpc,
+  H2A_BIN,
+  labRoot,
+  spawnMcp,
+  startLiveHolder,
+  stopChildren,
+  waitForIdentity
+} from "./helpers/mcp-fix-lab.js";
 
 const SEED = process.env.H2A_MCP_TEST_SEED;
 if (process.env.H2A_MCP_REQUIRE_REAL_SEED === "1" && !SEED) {
@@ -28,7 +38,7 @@ if (process.env.H2A_MCP_REQUIRE_REAL_SEED === "1" && !SEED) {
     "H2A_MCP_REQUIRE_REAL_SEED=1 but H2A_MCP_TEST_SEED is unset — the real seed is mandatory (no reduced fixture)."
   );
 }
-const maybe = SEED ? test : test.skip;
+const maybe = test; // F4: always run — synthetic corpus fallback when the private seed is absent
 const N = Math.max(1, Number.parseInt(process.env.H2A_MCP_TEST_N ?? "36", 10) || 36);
 // Mirrors MCP_IDENTITY_TIMEOUT_MS (identity-state.ts) as a LOCAL literal (the L2
 // export is absent on main@4be46caf; importing it would turn the RED into an import
@@ -85,7 +95,7 @@ maybe(
   `T4 ${N} distinct conversations resolve to distinct identities (green→green)`,
   { timeout: 90_000 },
   async () => {
-    const root = copySeed(SEED);
+    const root = labRoot(SEED);
     const prefix = "t4-distinct-";
     const handles = Array.from({ length: N }, (_, i) =>
       spawnMcp({ root, args: ["--auto-open", "--host", "claude"], env: { CLAUDE_CODE_SESSION_ID: `${prefix}${i}` } })
@@ -117,7 +127,7 @@ maybe(
   `T4 ${N} connections on ONE conversation → one identity, exactly one binding (window closure)`,
   { timeout: 90_000 },
   async () => {
-    const root = copySeed(SEED);
+    const root = labRoot(SEED);
     const CONV = "t4-shared-conversation";
     const handles = Array.from({ length: N }, () =>
       spawnMcp({ root, args: ["--auto-open", "--host", "claude"], env: { CLAUDE_CODE_SESSION_ID: CONV } })
@@ -147,7 +157,7 @@ maybe(
   `T4 holder: ${N} connect while the registry lock is held, then all resolve after release`,
   { timeout: 90_000 },
   async () => {
-    const root = copySeed(SEED);
+    const root = labRoot(SEED);
     const prefix = "t4-holder-";
     const holder = startLiveHolder({ root, lock: "registry" });
     await holder.ready;
@@ -181,6 +191,97 @@ maybe(
           return stopChildren(h);
         })
       );
+    }
+  }
+);
+
+/**
+ * Run the one-shot SYNC CLI writer `h2a connect` (cli.ts cmdConnect →
+ * resolveLiveIdentity, the sync publish path) for a conversation, and resolve
+ * when the process exits. A secret-free env with a throwaway HOME; the store is
+ * addressed by explicit --root.
+ */
+function runConnect(root, conv) {
+  const home = mkdtempSync(join(tmpdir(), "h2a-connect-home-"));
+  return new Promise((resolve) => {
+    let stderr = "";
+    const child = spawn(
+      process.execPath,
+      [H2A_BIN, "connect", "--root", root, "--host", "claude"],
+      {
+        stdio: ["ignore", "ignore", "pipe"],
+        env: {
+          PATH: process.env.PATH ?? "",
+          HOME: home,
+          NO_COLOR: "1",
+          CLAUDE_CODE_SESSION_ID: conv
+        }
+      }
+    );
+    child.stderr?.on("data", (chunk) => {
+      stderr += String(chunk);
+    });
+    // Resolve with the ACTUAL exit code so the witness can prove each sync
+    // writer really ran. A silently-failed connect must not let the
+    // one-binding assertion pass on the MCP writer alone (a mute witness).
+    child.on("close", (code) => resolve({ code: code ?? -1, stderr }));
+    child.on("error", (err) => resolve({ code: -1, stderr: `${stderr}${err.message}` }));
+  });
+}
+
+// F2: a SYNC CLI-order writer (`h2a connect`) racing the ASYNC MCP writer on ONE
+// conversation must still yield EXACTLY ONE binding. RED on main@4be46caf: BOTH
+// writers publish the binding BEFORE the keyring (old order), so a concurrent
+// reader cannot prove possession and mints a duplicate (the 36→1 regression for
+// mixed CLI+MCP writers). GREEN on the candidate: both paths publish the keyring/
+// registration/alias BEFORE the binding, so proof-of-possession reclaims → 1.
+maybe(
+  "F2 mixed sync-CLI + async-MCP writers on ONE conversation → exactly one binding",
+  { timeout: 90_000 },
+  async () => {
+    const root = labRoot(SEED);
+    const CONV = "f2-mixed-conversation";
+    // Launch the async MCP writer and several one-shot sync writers near
+    // simultaneously so they contend on the identity/registry write.
+    const mcp = spawnMcp({
+      root,
+      args: ["--auto-open", "--host", "claude"],
+      env: { CLAUDE_CODE_SESSION_ID: CONV }
+    });
+    const connects = Array.from({ length: 5 }, () => runConnect(root, CONV));
+    try {
+      // Drive the async writer's transport so its identity worker is resolving too.
+      await callRpc(mcp, { jsonrpc: "2.0", id: 1, method: "initialize" }, { timeoutMs: 15_000 });
+      const connectResults = await Promise.all(connects);
+      // Witness integrity: the mixed-writer claim only means something if the 5
+      // SYNC writers actually ran. A silently-failed connect would leave the MCP
+      // writer as the sole author and make the one-binding assertion pass
+      // vacuously. Prove every sync writer exited 0 (mint OR reclaim) FIRST.
+      const connectCodes = connectResults.map((r) => r.code);
+      assert.ok(
+        connectResults.every((r) => r.code === 0),
+        `all 5 sync 'h2a connect' writers must exit 0 for a real mixed-writer witness (codes=${JSON.stringify(
+          connectCodes
+        )}; stderr=${JSON.stringify(connectResults.map((r) => r.stderr.slice(0, 200)))})`
+      );
+      await waitForIdentity(
+        mcp,
+        (s) => s.state === "identity_ready" || s.state === "identity_failed",
+        { timeoutMs: 25_000 }
+      );
+      // Settle so any would-be duplicate binding would have been written.
+      await new Promise((r) => setTimeout(r, 1_500));
+      const forConv = readBindings(root).filter((b) => b.providerSessionId === CONV);
+      assert.equal(
+        forConv.length,
+        1,
+        `exactly one binding for the mixed-writer conversation (was ${forConv.length}; instances=${JSON.stringify(
+          forConv.map((b) => b.instance)
+        )})`
+      );
+    } finally {
+      mcp.child.stdin.end();
+      await stopChildren(mcp);
     }
   }
 );
