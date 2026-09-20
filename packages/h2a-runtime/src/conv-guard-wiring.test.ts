@@ -1313,7 +1313,7 @@ describe("h2a resume <slug>", () => {
     expect(stderrText()).toContain("h2a attach projA");
   });
 
-  it("uses Anthropic gateway auth token with claude --bare", async () => {
+  it("uses Anthropic gateway auth token without implicit bare", async () => {
     acquireLlmMeshSessionEnv.mockResolvedValue({
       ANTHROPIC_BASE_URL: "http://localhost:3002",
       ANTHROPIC_AUTH_TOKEN: "gw-test",
@@ -1341,6 +1341,30 @@ describe("h2a resume <slug>", () => {
     );
   });
 
+  it.each([true, false])("honors pinned bare=%s on resume without parent gateway env", async (bare) => {
+    acquireLlmMeshSessionEnv.mockResolvedValue({
+      ANTHROPIC_BASE_URL: "http://localhost:3002",
+      ANTHROPIC_AUTH_TOKEN: "gw-test",
+    });
+    writeRegistry([{ ...registrySession(), gatewayMode: "gateway", bare }]);
+    expect(await main(["node", "remote", "resume", "projA"])).toBe(0);
+    expect(startLocalSession.mock.calls[0]?.[3]).toEqual([
+      ...(bare ? ["--bare"] : []), "--resume", "conv-dup",
+    ]);
+  });
+
+  it.each(["--bare", "--no-bare"])("honors explicit %s on gateway resume", async (flag) => {
+    acquireLlmMeshSessionEnv.mockResolvedValue({
+      ANTHROPIC_BASE_URL: "http://localhost:3002",
+      ANTHROPIC_AUTH_TOKEN: "gw-test",
+    });
+    writeRegistry([{ ...registrySession(), bare: flag !== "--bare" }]);
+    expect(await main(["node", "remote", "resume", "projA", "--gw", flag])).toBe(0);
+    expect(startLocalSession.mock.calls[0]?.[3]).toEqual([
+      ...(flag === "--bare" ? ["--bare"] : []), "--resume", "conv-dup",
+    ]);
+  });
+
   it("overwrites stale parent Anthropic env with current llm-mesh token", async () => {
     process.env.ANTHROPIC_BASE_URL = "http://localhost:3002";
     process.env.ANTHROPIC_AUTH_TOKEN = "gw-stale";
@@ -1358,7 +1382,7 @@ describe("h2a resume <slug>", () => {
       "claude",
       "claude",
       "/home/u/src/projA",
-      ["--bare", "--resume", "conv-dup"],
+      ["--resume", "conv-dup"],
       "projA",
       undefined,
       { attachedTerminal: true, sessionClass: "background" },
@@ -1791,6 +1815,19 @@ describe("h2a run -r <conv> single-writer guard", () => {
     expect(stderrText()).not.toContain("llm-mesh");
   });
 
+  it.each([true, false])("run --resume preserves registered bare=%s and gateway posture", async (bare) => {
+    acquireLlmMeshSessionEnv.mockResolvedValue({
+      ANTHROPIC_BASE_URL: "http://localhost:3002",
+      ANTHROPIC_AUTH_TOKEN: "gw-test",
+    });
+    writeRegistry([{ ...registrySession(), cwd: SCRATCH, gatewayMode: "gateway", bare }]);
+    expect(await main(["node", "remote", "run", "claude", SCRATCH,
+      "--name", "resumed", "--resume", "conv-dup", "--no-attach"])).toBe(0);
+    expect(startLocalSession.mock.calls[0]?.[3]).toEqual([
+      ...(bare ? ["--bare"] : []), "--resume", "conv-dup",
+    ]);
+  });
+
   it("reclaims a stale tmux name reservation when neither managed name is live", async () => {
     findLocalSession.mockImplementation((target: string) =>
       target === "projA"
@@ -1809,7 +1846,7 @@ describe("h2a run -r <conv> single-writer guard", () => {
       "remote",
       "run",
       "claude",
-      "/home/u/src/projA",
+      SCRATCH,
       "--name",
       "projA",
       "--no-attach",

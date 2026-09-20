@@ -32,16 +32,18 @@ import { occupiesSlot } from "./registry.js";
 import { humanAge } from "./migrate-candidates.js";
 import { AGY_DEFAULT_MODEL } from "./profiles.js";
 
-export type DelegateType = RegistryTool; // claude | codex | agy
+export type DelegateType = RegistryTool; // claude | codex | agy | muse
 
 const DELEGATE_BIN: Readonly<Record<DelegateType, string>> = {
   claude: "claude",
   codex: "codex",
   agy: "agy",
+  muse: "muse",
 };
 
 const CLAUDE_EFFORTS = new Set(["low", "medium", "high", "xhigh", "max"]);
 const CODEX_EFFORTS = new Set(["low", "medium", "high", "xhigh"]);
+const MUSE_EFFORTS = new Set(["low", "medium", "high", "xhigh"]);
 
 /** Refuse an effort the selected CLI cannot honor instead of dropping it. */
 export function assertDelegateEffort(
@@ -54,6 +56,9 @@ export function assertDelegateEffort(
   }
   if (type === "codex" && !CODEX_EFFORTS.has(effort)) {
     throw new Error("invalid Codex effort (use low|medium|high|xhigh)");
+  }
+  if (type === "muse" && !MUSE_EFFORTS.has(effort)) {
+    throw new Error("invalid Muse effort (use low|medium|high|xhigh)");
   }
 }
 
@@ -82,6 +87,12 @@ function delegateModelEffortFlags(
     case "agy":
       // AGY defaults to Gemini 3.7-flash unless explicitly overridden.
       return ["--model", model ?? AGY_DEFAULT_MODEL, "--effort", effort ?? "medium"];
+    case "muse": {
+      return [
+        ...(model ? ["--model", model] : []),
+        ...(effort ? ["--reasoning-effort", effort] : []),
+      ];
+    }
   }
 }
 
@@ -97,16 +108,19 @@ export function assertSafeName(name: string): void {
 }
 
 export function isDelegateType(value: string): value is DelegateType {
-  return value === "claude" || value === "codex" || value === "agy";
+  return value === "claude" || value === "codex" || value === "agy" || value === "muse";
 }
 
 /**
  * The EXACT argv for the agent binary, by type and mode. Pure, exported for
  * tests. The task is ALWAYS a single trailing token (no shell concat):
  *  - interactive: the agent starts live, primed with the task as a positional
- *    initial prompt (claude/codex/agy all accept a bare positional prompt);
- *  - headless: a run-once-exit print mode — claude `-p`, codex `exec`. agy has
- *    no confirmed headless mode (design R3), so headless agy throws.
+ *    initial prompt (claude/codex/agy/muse all accept a bare positional prompt —
+ *    `muse [PROMPT]`);
+ *  - headless: a run-once-exit print mode — claude `-p`, codex `exec`,
+ *    muse `exec <task>` (positional prompt IS the documented exec contract,
+ *    unlike `h2a run`'s no-prompt-in-argv rule which rejects headless muse).
+ *    agy has no confirmed headless mode (design R3), so headless agy throws.
  *
  * Returns `{ command, args }` where args ends with the task token.
  */
@@ -131,6 +145,8 @@ export function buildDelegateArgs(
     case "claude":
       return { command, args: [...modelFlags, "-p", task] };
     case "codex":
+      return { command, args: [...modelFlags, "exec", task] };
+    case "muse":
       return { command, args: [...modelFlags, "exec", task] };
     case "agy":
       throw new Error(
@@ -164,6 +180,9 @@ export const THROTTLE_BACKOFF_CAP_MS = 30 * 60_000; // 30 min
  *  - claude: `-p --continue <task>` (print mode, continue the last conversation).
  *  - codex:  `exec resume --last <task>` (resume the most recent rollout).
  *  - agy:    no confirmed headless mode → throws (same as buildDelegateArgs).
+ *  - muse:   no headless resume mode → throws: `muse exec` takes a positional
+ *    PROMPT, so `exec resume --last` would address the MODEL as text, not the
+ *    CLI. Resume muse interactively instead.
  *
  * The task stays a single trailing token (no shell concat). Pure, exported for
  * tests.
@@ -191,6 +210,10 @@ export function buildThrottleResumeArgs(
     case "agy":
       throw new Error(
         "agy has no confirmed headless resume mode — interactive resume is phase 2",
+      );
+    case "muse":
+      throw new Error(
+        "muse has no headless resume mode — `muse exec` takes a positional prompt, resume it interactively",
       );
   }
 }

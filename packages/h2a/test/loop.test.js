@@ -172,8 +172,8 @@ test("h2a loop create/status/agents/logs expose stable JSON shapes", () => {
   }
 });
 
-test("h2a loop create --agent accepts every host adapter incl. hermes/opencode", () => {
-  for (const host of ["hermes", "opencode", "agy"]) {
+test("h2a loop create --agent accepts every host adapter incl. hermes/opencode/muse", () => {
+  for (const host of ["hermes", "opencode", "agy", "muse"]) {
     const dir = freshRoot();
     const root = join(dir, ".h2a");
     try {

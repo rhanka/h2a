@@ -1,4 +1,4 @@
-export const AGENT_LAUNCH_PROFILES = ["claude", "codex", "agy"] as const;
+export const AGENT_LAUNCH_PROFILES = ["claude", "codex", "agy", "muse"] as const;
 export type AgentLaunchProfile = (typeof AGENT_LAUNCH_PROFILES)[number];
 
 export const AGENT_LAUNCH_EFFORTS = ["low", "medium", "high", "xhigh"] as const;
@@ -76,7 +76,7 @@ export function buildAgentLaunchStdin(
 }
 
 /**
- * Build argv for a managed Claude/Codex/AGY session. `prompt` is validated here but
+ * Build argv for a managed Claude/Codex/AGY/Muse session. `prompt` is validated here but
  * is deliberately NEVER serialized into argv: interactive launches paste it
  * through tmux stdin, while headless launches feed it to the CLI's native
  * stdin contract.
@@ -122,6 +122,26 @@ export function buildAgentLaunchArgs(options: AgentLaunchArgsOptions): string[] 
           ]
         : []),
       ...(options.resumeId ? ["--conversation", options.resumeId] : []),
+    ];
+  }
+
+  if (options.profile === "muse") {
+    if (options.headless) {
+      // Verified against `muse exec --help`: the prompt travels as a positional
+      // argv or --prompt-file — there is NO stdin prompt contract (stdin
+      // "missing prompt" was measured), so headless would either leak the
+      // prompt into argv or need a tempfile. Refuse loudly instead of doing
+      // either silently; interactive/background launches paste via tmux.
+      throw new Error(
+        "headless muse launch is not supported: muse exec has no stdin prompt contract",
+      );
+    }
+    return [
+      ...(options.model ? ["--model", options.model] : []),
+      ...(options.effort ? ["--reasoning-effort", options.effort] : []),
+      // `muse resume` is a subcommand and must lead the argv (like codex);
+      // root flags may appear on either side of it.
+      ...(options.resumeId ? ["resume", options.resumeId] : []),
     ];
   }
 

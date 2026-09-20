@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 
 import { isOsTemporaryPath } from "../path-safety.js";
 
-export const H2A_RUN_PROFILES = ["claude", "codex", "agy"] as const;
+export const H2A_RUN_PROFILES = ["claude", "codex", "agy", "muse"] as const;
 export type H2aRunProfile = (typeof H2A_RUN_PROFILES)[number];
 export const H2A_RUN_EFFORTS = ["low", "medium", "high", "xhigh"] as const;
 export type H2aRunEffort = (typeof H2A_RUN_EFFORTS)[number];
@@ -22,6 +22,8 @@ export type H2aRunRequest = {
   gateway: H2aRunGateway;
   headless: boolean;
   h2aSidecar: boolean;
+  /** Claude-under-gateway only: opt into bare mode; omitted keeps native tools. */
+  bare?: boolean;
   agent?: string;
   model?: string;
   effort?: H2aRunEffort;
@@ -46,6 +48,7 @@ const ALLOWED_KEYS = new Set([
   "gateway",
   "headless",
   "h2aSidecar",
+  "bare",
   "agent",
   "model",
   "effort",
@@ -102,7 +105,7 @@ export function validateH2aRunRequest(
 
   const profile = requiredString(args, "profile");
   if (!(H2A_RUN_PROFILES as readonly string[]).includes(profile)) {
-    throw new Error("h2a_run: 'profile' must be claude|codex|agy");
+    throw new Error("h2a_run: 'profile' must be claude|codex|agy|muse");
   }
   const name = requiredString(args, "name");
   if (!SAFE_NAME.test(name)) {
@@ -160,6 +163,11 @@ export function validateH2aRunRequest(
       "h2a_run: gateway 'required' is unsupported for agy (AGY uses its direct provider)",
     );
   }
+  if (profile === "muse" && gateway === "required") {
+    throw new Error(
+      "h2a_run: gateway 'required' is unsupported for muse (muse talks to the Meta provider, not the Anthropic-compatible llm-mesh)",
+    );
+  }
   const headless = args.headless ?? false;
   if (typeof headless !== "boolean") {
     throw new Error("h2a_run: 'headless' must be boolean");
@@ -170,6 +178,10 @@ export function validateH2aRunRequest(
   }
   if (headless && h2aSidecar) {
     throw new Error("h2a_run: headless sessions cannot keep an h2a sidecar");
+  }
+  const bare = args.bare;
+  if (bare !== undefined && typeof bare !== "boolean") {
+    throw new Error("h2a_run: 'bare' must be boolean");
   }
 
   const model = args.model;
@@ -204,6 +216,7 @@ export function validateH2aRunRequest(
     gateway: gateway as H2aRunGateway,
     headless,
     h2aSidecar,
+    ...(bare !== undefined ? { bare } : {}),
     ...(agent !== undefined ? { agent } : {}),
     ...(model !== undefined ? { model } : {}),
     ...(effort !== undefined ? { effort: effort as H2aRunEffort } : {}),
@@ -240,6 +253,11 @@ export function buildH2aRunInvocation(
         : request.gateway === "off"
           ? ["--no-gw"]
           : []),
+      ...(request.bare === true
+        ? ["--bare"]
+        : request.bare === false
+          ? ["--no-bare"]
+          : []),
       ...(request.agent ? ["--agent", request.agent] : []),
       ...(request.model ? ["--model", request.model] : []),
       ...(request.effort ? ["--effort", request.effort] : []),
@@ -259,11 +277,11 @@ function contractResult(value: unknown, request: H2aRunRequest): unknown {
   const expectedMode = request.headless ? "headless" : "interactive";
   // Owner decision (2026-09): a launch is direct unless the gateway is asked for
   // EXPLICITLY. "auto" (the MCP default) now resolves to direct, exactly like
-  // "off"; only "required" engages the local llm-mesh gateway. AGY is always
-  // direct. The runtime is held to that posture, so every accepted mode has a
+  // "off"; only "required" engages the local llm-mesh gateway. AGY and Muse are
+  // always direct. The runtime is held to that posture, so every accepted mode has a
   // determined expected gateway (no undefined pass-through).
   const expectedGateway =
-    request.profile === "agy"
+    request.profile === "agy" || request.profile === "muse"
       ? "direct"
       : request.gateway === "required"
         ? "gateway"

@@ -223,3 +223,47 @@ test("NotificationDispatcher does not push topics the session did not subscribe 
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("L1: a sink returning {accepted:false} holds the snapshot so the diff is retried", () => {
+  const root = freshRoot("receipt");
+  try {
+    const received = [];
+    let accept = false; // first the persistence 'fails' → not accepted
+    const server = createMcpServer({
+      root,
+      notifications: {
+        sink: (n) => {
+          received.push(n);
+          return { accepted: accept };
+        }
+      }
+    });
+    server.callTool("h2a_session_open", {
+      instance: "claude:proj-1",
+      sessionId: "sess:claude-1",
+      subscribedTopics: ["inbox.envelope_arrived"]
+    });
+    server.notifications.tick(); // baseline
+    server.callTool("h2a_inbox", {
+      action: "put",
+      instance: "claude:proj-1",
+      envelope: envelope("env:R", "claude", "codex:proj-2")
+    });
+
+    // Not accepted: the snapshot must NOT advance, so a second tick re-emits.
+    server.notifications.tick();
+    server.notifications.tick();
+    const before = received.filter((n) => n.params.topic === "inbox.envelope_arrived").length;
+    assert.ok(before >= 2, "an unaccepted push is retried on the next tick (at-least-once)");
+
+    // Once accepted, the snapshot advances and the diff stops repeating.
+    accept = true;
+    server.notifications.tick();
+    const acceptedCount = received.filter((n) => n.params.topic === "inbox.envelope_arrived").length;
+    server.notifications.tick();
+    const afterCount = received.filter((n) => n.params.topic === "inbox.envelope_arrived").length;
+    assert.equal(afterCount, acceptedCount, "after acceptance the snapshot advances; no further re-emit");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});

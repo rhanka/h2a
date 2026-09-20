@@ -16,6 +16,7 @@ const DEFAULT_PROFILES: Readonly<Record<CliProfile, ProfileConfig>> = {
   agy: { profile: "agy", command: "agy", args: ["--model", AGY_DEFAULT_MODEL] },
   gemini: { profile: "gemini", command: "gemini", args: [] },
   mistral: { profile: "mistral", command: "mistral", args: [] },
+  muse: { profile: "muse", command: "muse", args: [] },
 };
 
 /**
@@ -25,6 +26,9 @@ const DEFAULT_PROFILES: Readonly<Record<CliProfile, ProfileConfig>> = {
  * - claude's bare `--resume` opens an interactive picker (useless headless in
  *   a pod) — the most-recent form is `--continue`, explicit is `--resume <id>`;
  * - agy follows claude's shape (`--resume <id>` / `--continue`).
+ * - muse resumes via a SUBCOMMAND like codex (`muse resume <id>`,
+ *   `muse resume --last` for the most recent — verified against `muse resume
+ *   --help`) which must LEAD the argv.
  * - gemini/mistral are exposed as runnable profiles, but their stable resume
  *   argv is not established here; returning [] avoids promising continuity we
  *   cannot verify.
@@ -35,6 +39,7 @@ export function resumeArgsFor(
 ): string[] {
   switch (config.profile) {
     case "codex":
+    case "muse":
       return sessionId === true ? ["resume", "--last"] : ["resume", sessionId];
     case "claude":
     case "agy":
@@ -49,6 +54,7 @@ const PROFILE_ALIASES: Readonly<Record<string, CliProfile>> = {
   antigravity: "agy",
   "gemini-cli": "gemini",
   mistralcli: "mistral",
+  "muse-code": "muse",
 };
 
 export function isCliProfile(value: string): value is CliProfile {
@@ -77,9 +83,10 @@ export function withResume(
   if (sessionId === undefined) return config;
   const extra = resumeArgsFor(config, sessionId);
   if (extra.length === 0) return config;
-  // codex's `resume` is a subcommand — it must lead the argv; flags append.
+  // codex's and muse's `resume` are subcommands — they must lead the argv;
+  // flags append.
   const args =
-    config.profile === "codex"
+    config.profile === "codex" || config.profile === "muse"
       ? [...extra, ...config.args]
       : [...config.args, ...extra];
   return { ...config, args };

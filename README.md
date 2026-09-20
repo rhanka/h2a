@@ -212,7 +212,7 @@ Focus Web is served directly by h2a from the production artifact included in `@s
 
 | Family | Tools |
 |---|---|
-| Registry | `h2a_register_instance`, `h2a_discover_instances` |
+| Registry | `h2a_register_instance`, `h2a_discover_instances` (paginated since 0.97.3: default page = 200 most recent; loop `nextCursor` until `hasMore` is false), `h2a_read_payload` (chunked recovery of an oversize output) |
 | Session (DEC-051) | `h2a_session_open`, `h2a_session_close`, `h2a_discover_sessions` |
 | Negotiation | `h2a_open_negotiation`, `h2a_offer`, `h2a_counteroffer`, `h2a_sign`, `h2a_stabilize`, `h2a_append_journal`, `h2a_escalate`, comprehension/conflict tools |
 | Mailbox | `h2a_inbox` (`read` / `put` / `pop`) |

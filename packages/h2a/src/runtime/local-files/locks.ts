@@ -27,6 +27,43 @@
 
 import { closeSync, openSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { hostname } from "node:os";
+import { basename, dirname } from "node:path";
+
+/**
+ * A passive observation of a lock critical section, for the L0 phase trace.
+ * `lock` is a LOGICAL id (the lock's parent directory name, e.g. `registry` /
+ * `identity`) — never the lock owner payload or any binding content. Emitting
+ * an observation never changes the lock's timeout, poll or reclaim policy, and
+ * a throwing observer can never break the critical section.
+ */
+export interface LockObservation {
+  readonly lock: string;
+  readonly event: "wait" | "acquired" | "released" | "timeout";
+  readonly waitMs?: number;
+  readonly holdMs?: number;
+  readonly attempts?: number;
+}
+
+function logicalLockId(lockPath: string): string {
+  try {
+    const label = basename(dirname(lockPath)) || basename(lockPath);
+    return label.length > 64 ? label.slice(0, 64) : label;
+  } catch {
+    return "lock";
+  }
+}
+
+function notifyObserver(
+  observe: ((event: LockObservation) => void) | undefined,
+  event: LockObservation
+): void {
+  if (!observe) return;
+  try {
+    observe(event);
+  } catch {
+    /* a passive observer must never disturb the critical section */
+  }
+}
 
 export interface LockOwner {
   readonly pid: number;
@@ -52,6 +89,12 @@ export interface WithLockOptions {
    * reason to silently continue.
    */
   readonly reclaimStale?: boolean;
+  /**
+   * Passive instrumentation hook (L0). Called on `wait` (once, before the first
+   * acquire attempt), `acquired` (with `waitMs`/`attempts`), `released` (with
+   * `holdMs`) and `timeout` (with `waitMs`). It cannot change locking behaviour.
+   */
+  readonly observe?: (event: LockObservation) => void;
 }
 
 export class LockTimeoutError extends Error {
@@ -189,22 +232,32 @@ export async function withLock<T>(
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const pollMs = options.pollMs ?? DEFAULT_POLL_MS;
   const selfHostname = hostname();
+  const observe = options.observe;
+  const lock = observe ? logicalLockId(lockPath) : "";
 
-  const deadline = Date.now() + timeoutMs;
+  const startedAt = Date.now();
+  const deadline = startedAt + timeoutMs;
   let lastSeen: LockOwner | undefined;
+  let attempts = 0;
+  notifyObserver(observe, { lock, event: "wait" });
   while (true) {
+    attempts++;
     const attempt = acquire(lockPath, selfHostname, options);
     if (attempt.ok) break;
     lastSeen = attempt.lastSeen ?? lastSeen;
     if (Date.now() >= deadline) {
+      notifyObserver(observe, { lock, event: "timeout", waitMs: Date.now() - startedAt, attempts });
       throw new LockTimeoutError(lockPath, lastSeen, timeoutMs);
     }
     await delay(pollMs);
   }
+  const acquiredAt = Date.now();
+  notifyObserver(observe, { lock, event: "acquired", waitMs: acquiredAt - startedAt, attempts });
 
   try {
     return await fn();
   } finally {
+    notifyObserver(observe, { lock, event: "released", holdMs: Date.now() - acquiredAt });
     try {
       unlinkSync(lockPath);
     } catch {
@@ -221,22 +274,32 @@ export function withLockSync<T>(
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const pollMs = options.pollMs ?? DEFAULT_POLL_MS;
   const selfHostname = hostname();
+  const observe = options.observe;
+  const lock = observe ? logicalLockId(lockPath) : "";
 
-  const deadline = Date.now() + timeoutMs;
+  const startedAt = Date.now();
+  const deadline = startedAt + timeoutMs;
   let lastSeen: LockOwner | undefined;
+  let attempts = 0;
+  notifyObserver(observe, { lock, event: "wait" });
   while (true) {
+    attempts++;
     const attempt = acquire(lockPath, selfHostname, options);
     if (attempt.ok) break;
     lastSeen = attempt.lastSeen ?? lastSeen;
     if (Date.now() >= deadline) {
+      notifyObserver(observe, { lock, event: "timeout", waitMs: Date.now() - startedAt, attempts });
       throw new LockTimeoutError(lockPath, lastSeen, timeoutMs);
     }
     busyWaitSync(pollMs);
   }
+  const acquiredAt = Date.now();
+  notifyObserver(observe, { lock, event: "acquired", waitMs: acquiredAt - startedAt, attempts });
 
   try {
     return fn();
   } finally {
+    notifyObserver(observe, { lock, event: "released", holdMs: Date.now() - acquiredAt });
     try {
       unlinkSync(lockPath);
     } catch {

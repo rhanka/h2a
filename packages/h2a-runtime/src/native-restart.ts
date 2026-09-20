@@ -20,6 +20,8 @@ export type NativeRestartCandidate = Readonly<{
   convId?: string;
   sessionClass?: "human" | "background";
   gatewayMode?: "gateway" | "direct";
+  /** Pinned Claude `--bare` choice, carried from the registry row so a restart reproduces it. */
+  bare?: boolean;
 }>;
 
 export type NativeRestartSnapshot =

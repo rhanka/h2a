@@ -42,6 +42,17 @@ test("host plugin marks agy as poll-only (no daemon) with a poll command", () =>
   assert.equal(r.mechanism, "agy-plugin-poll");
 });
 
+test("host plugin marks muse as poll-only (no verified stop-hook) with a poll command", () => {
+  const { rc, stdout } = plugin("muse");
+  assert.equal(rc, 0);
+  const r = JSON.parse(stdout);
+  assert.equal(r.host, "muse");
+  assert.equal(r.push, false);
+  assert.match(r.poll, /h2a drumbeat scan/);
+  assert.equal(r.mechanism, "muse-poll");
+  assert.match(r.record, /muse resume --last/);
+});
+
 test("host plugin --write claude merges an idempotent Stop hook into settings.json (DEC-102)", () => {
   const dir = mkdtempSync(join(tmpdir(), "h2a-hook-"));
   const settings = join(dir, "settings.json");
@@ -214,15 +225,17 @@ test("host plugin --scaffold is refused for non-codex hosts (manifest is codex-s
   }
 });
 
-test("host plugin --write is refused for agy only (poll-only, no daemon)", () => {
+test("host plugin --write is refused for agy and muse (poll-only, no verified stop-hook)", () => {
   const dir = mkdtempSync(join(tmpdir(), "h2a-hook-"));
   try {
-    let stderr = "";
-    const rc = runCli(["host", "plugin", "--host", "agy", "--instance", "agy:p1", "--write", join(dir, "x.json")], {
-      stdout: { write: () => {} }, stderr: { write: (c) => void (stderr += c) }
-    });
-    assert.equal(rc, 1);
-    assert.match(stderr, /not available for agy/);
+    for (const host of ["agy", "muse"]) {
+      let stderr = "";
+      const rc = runCli(["host", "plugin", "--host", host, "--instance", `${host}:p1`, "--write", join(dir, "x.json")], {
+        stdout: { write: () => {} }, stderr: { write: (c) => void (stderr += c) }
+      });
+      assert.equal(rc, 1);
+      assert.match(stderr, new RegExp(`not available for ${host}`));
+    }
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
