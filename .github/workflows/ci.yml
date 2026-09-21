@@ -126,6 +126,30 @@ jobs:
           packages/h2a-runtime/src/native-terminal/host.test.ts
           packages/h2a-runtime/src/native-terminal/server.test.ts
           packages/h2a-runtime/src/native-terminal/process.functional.test.ts
+      # The suites that exercise the llm-mesh / llm-gateway dependency ranges live in
+      # h2a-runtime + apps/llm-gateway, which `npm test` (packages/h2a + track, plus the
+      # native-terminal leg above) does NOT cover. Without this step a range bump would
+      # ride a CI that exercises nothing that changed — a false green. Gated here so the
+      # dependency contract is proven in CI, not only on a maintainer's box.
+      # Scope is deliberately the suites that IMPORT/exercise the dependency (or its
+      # routing contract). enroll.test.ts is NOT here: it covers Claude-hook + session
+      # REGISTRY enrolment (pid/endedAt liveness), imports neither package, and is
+      # environment-fragile — gating it would be a false-red unrelated to these ranges.
+      - name: Exercise the llm-mesh / llm-gateway consumer suites
+        run: >-
+          npx --no-install vitest run
+          packages/h2a-runtime/src/llm-mesh.test.ts
+          packages/h2a-runtime/src/llm-mesh-resolution.test.ts
+          packages/h2a-runtime/src/llm-routing-config.test.ts
+          packages/h2a-runtime/src/llm-gateway-runtime/native-tools.test.ts
+          packages/h2a-runtime/src/llm-gateway-runtime/index.test.ts
+      - name: Exercise the llm-gateway app (second dependency consumer)
+        # typecheck first: the app is not in the root `tsc -b` references, so its
+        # vitest (transpile-only) would let a type-only break against the bumped
+        # packages ride green otherwise.
+        run: |
+          npm run typecheck -w @sentropic/remote-llm-gateway
+          npm run test -w @sentropic/remote-llm-gateway
       # migration P2: le contrat public (surface MCP/CLI + anti-cycle core) ne doit pas dériver sans bump
       - run: bash scripts/check-public-contract.sh
         if: runner.os == 'Linux'
