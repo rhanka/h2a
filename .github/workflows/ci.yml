@@ -142,8 +142,14 @@ jobs:
           packages/h2a-runtime/src/llm-mesh-resolution.test.ts
           packages/h2a-runtime/src/llm-routing-config.test.ts
           packages/h2a-runtime/src/llm-gateway-runtime/native-tools.test.ts
+          packages/h2a-runtime/src/llm-gateway-runtime/index.test.ts
       - name: Exercise the llm-gateway app (second dependency consumer)
-        run: npm run test -w @sentropic/remote-llm-gateway
+        # typecheck first: the app is not in the root `tsc -b` references, so its
+        # vitest (transpile-only) would let a type-only break against the bumped
+        # packages ride green otherwise.
+        run: |
+          npm run typecheck -w @sentropic/remote-llm-gateway
+          npm run test -w @sentropic/remote-llm-gateway
       # migration P2: le contrat public (surface MCP/CLI + anti-cycle core) ne doit pas dériver sans bump
       - run: bash scripts/check-public-contract.sh
         if: runner.os == 'Linux'
