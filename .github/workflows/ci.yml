@@ -131,13 +131,15 @@ jobs:
       # native-terminal leg above) does NOT cover. Without this step a range bump would
       # ride a CI that exercises nothing that changed — a false green. Gated here so the
       # dependency contract is proven in CI, not only on a maintainer's box.
+      # Scope is deliberately the suites that IMPORT/exercise the dependency (or its
+      # routing contract). enroll.test.ts is NOT here: it covers Claude-hook + session
+      # REGISTRY enrolment (pid/endedAt liveness), imports neither package, and is
+      # environment-fragile — gating it would be a false-red unrelated to these ranges.
       - name: Exercise the llm-mesh / llm-gateway consumer suites
         run: >-
           npx --no-install vitest run
           packages/h2a-runtime/src/llm-mesh.test.ts
           packages/h2a-runtime/src/llm-mesh-resolution.test.ts
-          packages/h2a-runtime/src/enroll.test.ts
-          packages/h2a-runtime/src/sentropic/enroll-flow.test.ts
           packages/h2a-runtime/src/llm-routing-config.test.ts
           packages/h2a-runtime/src/llm-gateway-runtime/native-tools.test.ts
       - name: Exercise the llm-gateway app (second dependency consumer)
