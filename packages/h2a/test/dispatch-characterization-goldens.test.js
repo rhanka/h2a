@@ -11,7 +11,15 @@ const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 const BIN = join(REPO_ROOT, "packages", "h2a", "dist", "bin.js");
 // Updated for L1: the new `h2a_read_payload` tool appears in the help's
 // "MCP tools:" line (+18 bytes → 13,202), a legitimate public-surface change.
-const CORE_HELP_SHA256 = "5c2a31e5828ea72babed36b831fe4b132d0741deae289ce07b978c8d390cefa8";
+// Updated for L2: the new `h2a_identity_status` tool joins the same line
+// (+21 bytes → 13,223), a legitimate public-surface change.
+// Updated for muse-host (4232fc52): the core (runtime-absent) help gains the `muse`
+// host. The +36 bytes are entirely in cli.ts `renderCliHelp`: the `|muse` alternative
+// on the host setup / host plugin / connect / install-skills usage lines, the "agy and
+// muse are poll-only" note, and the `Hosts:` line from CLI_HOSTS. It is NOT the
+// cli-help-groups spelling (that lives in h2a-runtime and never reaches the core help),
+// and the RUNTIME_VERBS `muse` entry does not affect this stream either.
+const CORE_HELP_SHA256 = "8db3d4d9cececc54f1f31521e18c7d6724aeb82c4b6f84f48939f022fbff5afd";
 const RUNTIME_MISSING =
   "ce verbe requiert le runtime h2a (sessions / k8s / tunnel).\n" +
   "  Répare l'installation lockstep : npm i -g @sentropic/h2a@latest\n";
@@ -100,10 +108,10 @@ function assertCoreHelp(result) {
   assert.equal(result.stderr, "");
   assert.equal(result.runtimeImported, false);
   assert.equal(result.configHomeCreated, false);
-  // A SHA-256 commitment is an exact, compact golden for the 13,184-byte help
-  // stream; the durable report records this value and its byte length.
+  // A SHA-256 commitment is an exact, compact golden for the help stream; the
+  // durable report records this value and its byte length.
   assert.equal(createHash("sha256").update(result.stdout).digest("hex"), CORE_HELP_SHA256);
-  assert.equal(Buffer.byteLength(result.stdout), 13202);
+  assert.equal(Buffer.byteLength(result.stdout), 13259);
 }
 
 function assertMissingRuntime(result, firstToken) {
