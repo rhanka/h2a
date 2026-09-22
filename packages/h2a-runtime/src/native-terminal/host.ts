@@ -666,9 +666,26 @@ export class NativeTerminalHost {
     };
     this.#sessions.set(record.id, record);
 
+    // Carry of the previous chunk so a DSR split across chunks is still seen.
+    // At most 3 chars: a full 4-char query can never hide entirely in it.
+    let dsrTail = "";
     record.dataSubscription = record.pty.onData((data) => {
       if (record.exit !== null || data.length === 0) return;
       record.replay.append(data);
+      // Answer Device Status Report cursor queries (ESC[6n) like a real
+      // terminal/tmux: TUIs that require a cursor-position report (muse
+      // aborts with "cursor position could not be read" without it).
+      const window = dsrTail + data;
+      dsrTail = window.slice(-3);
+      const queries = window.split("\x1b[6n").length - 1;
+      for (let i = 0; i < queries; i++) {
+        try {
+          record.pty.write("\x1b[1;1R");
+        } catch {
+          // Child already gone; nothing left to answer.
+          break;
+        }
+      }
     });
     record.exitSubscription = record.pty.onExit((event) => {
       if (record.exit !== null) return;
