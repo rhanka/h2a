@@ -264,6 +264,7 @@ const RUNTIME_VERBS: readonly {
   { group: "START", verb: "agy", summary: "Shortcut for `h2a run agy` (alias: antigravity)." },
   { group: "START", verb: "gemini", summary: "Shortcut for `h2a run gemini` (alias: gemini-cli)." },
   { group: "START", verb: "mistral", summary: "Shortcut for `h2a run mistral` (alias: mistralcli)." },
+  { group: "START", verb: "muse", summary: "Shortcut for `h2a run muse` (alias: muse-code)." },
   { group: "START", verb: "opencode", summary: "Shortcut for `h2a run opencode`." },
   { group: "START", verb: "shell", summary: "Shortcut for `h2a run shell`." },
   { group: "START", verb: "attach", summary: "Attach this terminal to a live local or remote session." },

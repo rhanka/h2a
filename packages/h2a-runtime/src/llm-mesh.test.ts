@@ -227,6 +227,41 @@ describe("facade enrollment", () => {
     );
   });
 
+  // llm-mesh 0.19 prerequisite (bumped from 0.17): Cloud Code acquisition now
+  // REQUIRES `cloudaicompanionProject` — fetchAvailableModels throws on an empty
+  // project where 0.17 tolerated its absence. That throw is raised inside the
+  // sentropic-owned facade during callback/acquisition, and the full real path only
+  // fires behind a live Google OAuth loopback callback, i.e. a real account (the
+  // sentropic-side Antigravity enrollment fix is that prerequisite). We cannot drive
+  // the real throw here without an account — a written limit, not a workaround. What
+  // we DO own and pin is that our wrapper never SWALLOWS the failure: the operator
+  // must see it, not receive a bogus account. This is the red arm; the green arm is
+  // "waits for Cloud Code callback without receiving provider credentials" above.
+  it("surfaces a Cloud Code acquisition failure instead of masking it (0.19 cloudaicompanionProject prerequisite)", async () => {
+    const prerequisite = new Error(
+      "Cloud Code fetchAvailableModels requires cloudaicompanionProject",
+    );
+    const facade = {
+      enroll: vi.fn().mockResolvedValue({
+        kind: "authorization-url",
+        enrollmentId: "enroll-cloud",
+        url: "https://accounts.example/authorize",
+        expiresAt: "2026-08-07T01:00:00.000Z",
+      }),
+      waitForCallback: vi.fn().mockRejectedValue(prerequisite),
+      pollForCompletion: vi.fn(),
+    } as unknown as LlmMeshFacade;
+    const openBrowser = vi.fn();
+    vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+
+    await expect(enrollViaFacade("cloud-code", { facade, openBrowser }))
+      .rejects.toThrow("Cloud Code fetchAvailableModels requires cloudaicompanionProject");
+    // The failure fired at the acquisition step, AFTER the browser was opened — it is
+    // the callback/acquisition that surfaces it, not a pre-flight guard we added.
+    expect(openBrowser).toHaveBeenCalledWith("https://accounts.example/authorize");
+    expect(facade.waitForCallback).toHaveBeenCalledWith("enroll-cloud");
+  });
+
 });
 
 describe("facade account administration", () => {
