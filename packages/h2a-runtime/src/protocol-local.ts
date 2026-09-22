@@ -8,6 +8,7 @@ export const CLI_PROFILES = [
   "agy",
   "gemini",
   "mistral",
+  "muse",
 ] as const;
 
 export type CliProfile = (typeof CLI_PROFILES)[number];

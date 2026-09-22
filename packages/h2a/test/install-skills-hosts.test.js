@@ -174,7 +174,8 @@ test("install-skills --host claude renders h2a + track + harness from a single s
 for (const [host, projectDir] of [
   ["codex", ".codex"],
   ["hermes", ".hermes"],
-  ["opencode", ".opencode"]
+  ["opencode", ".opencode"],
+  ["muse", ".muse"]
 ]) {
   test(`install-skills --host ${host} renders the same three sources under ${projectDir}`, () => {
     const cwd = freshCwd();
@@ -260,6 +261,31 @@ test("install-skills --host agy renders the .toml commands + emits an importHint
     );
     // agy has no own skill store → the summary tells the user to import it.
     assert.match(parsed.importHint, /agy plugin import gemini/);
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("install-skills --host muse renders SKILL.md dirs + emits a verifyHint", () => {
+  const cwd = freshCwd();
+  try {
+    const streams = captureStreams(cwd);
+    const rc = runCli(
+      ["install-skills", "--host", "muse", "--scope", "project"],
+      streams
+    );
+    assert.equal(rc, 0, streams.stderrText);
+    const parsed = JSON.parse(streams.stdoutText);
+    assert.equal(parsed.ok, true);
+    assert.equal(parsed.host, "muse");
+    // muse owns its store; project scope follows the $CONFIG_DIR layout.
+    assert.equal(parsed.targetBase, join(cwd, ".muse", "skills"));
+    assert.ok(
+      parsed.installed.some((f) => f.endsWith(`${sep}h2a${sep}SKILL.md`)),
+      "expected h2a/SKILL.md"
+    );
+    // No import step — the summary tells the user how to verify pickup.
+    assert.match(parsed.verifyHint, /muse skills list/);
   } finally {
     rmSync(cwd, { recursive: true, force: true });
   }
@@ -416,7 +442,7 @@ test("install-skills rejects unknown host", () => {
       streams
     );
     assert.equal(rc, 1);
-    assert.match(streams.stderrText, /Supported: claude, codex, gemini, agy/);
+    assert.match(streams.stderrText, /Supported: claude, codex, gemini, agy, hermes, opencode, muse\./);
   } finally {
     rmSync(cwd, { recursive: true, force: true });
   }

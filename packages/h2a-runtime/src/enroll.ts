@@ -275,7 +275,7 @@ export function manualEnroll(
   if (!tool) {
     return {
       ok: false,
-      error: `unknown tool "${opts.tool}" (known: claude, codex, agy)`,
+      error: `unknown tool "${opts.tool}" (known: claude, codex, agy, muse)`,
     };
   }
   const cwd = resolve(opts.cwd ?? process.cwd());
