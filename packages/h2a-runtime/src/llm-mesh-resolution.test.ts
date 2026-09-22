@@ -5,7 +5,7 @@
  * copy nested under this package's node_modules, and/or a copy hoisted at
  * the repo root for other dependents such as `@sentropic/llm-gateway`). A
  * copy whose version does not satisfy h2a-runtime's declared range
- * (packages/h2a-runtime/package.json, currently `^0.19.0`) may be missing an
+ * (packages/h2a-runtime/package.json, currently `^0.21.0`) may be missing an
  * export this package imports (e.g. `./facade`), so if it ever wins
  * resolution, every test file whose import chain reaches src/llm-mesh.ts
  * fails to COLLECT — vitest prints "Test Files 1 failed / Tests no tests",
