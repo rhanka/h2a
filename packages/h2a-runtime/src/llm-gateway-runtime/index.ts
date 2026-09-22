@@ -4,6 +4,8 @@ import {
   CloudCodeRuntimeClient,
   CodexRuntimeClient,
   GeminiAdapter,
+  MuseAdapter,
+  MuseRuntimeClient,
   OpenAIAdapter,
   createLlmMesh,
   createProviderRegistry,
@@ -51,6 +53,7 @@ const runtimeMesh = () => createLlmMesh({
   registry: createProviderRegistry([
     new OpenAIAdapter({ client: new CodexRuntimeClient() }),
     new GeminiAdapter({ client: new CloudCodeRuntimeClient() }),
+    new MuseAdapter({ client: new MuseRuntimeClient() }),
   ]),
 });
 
