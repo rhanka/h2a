@@ -41,7 +41,8 @@ function connect(host) {
 // render ITS OWN setup snippet.
 for (const [host, hintRe, exampleRe] of [
   ["hermes", /hermes/i, /\.hermes/],
-  ["opencode", /opencode/i, /opencode/]
+  ["opencode", /opencode/i, /opencode/],
+  ["muse", /muse/i, /muse/]
 ]) {
   test(`h2a connect --host ${host} succeeds and renders the ${host} setup snippet (not agy)`, () => {
     const { rc, streams, dir } = connect(host);
@@ -69,7 +70,7 @@ test("h2a connect still rejects a truly unknown host", () => {
   try {
     assert.equal(rc, 1);
     assert.match(streams.stderrText, /unknown --host "borg"/);
-    assert.match(streams.stderrText, /hermes, opencode/);
+    assert.match(streams.stderrText, /opencode, muse/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

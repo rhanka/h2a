@@ -436,7 +436,7 @@ import {
   strategyRoutingConfig,
 } from "./llm-routing-config.js";
 
-const KNOWN_PROFILE_HELP = `${CLI_PROFILES.join(", ")} (aliases: claude-code, antigravity, gemini-cli, mistralcli)`;
+const KNOWN_PROFILE_HELP = `${CLI_PROFILES.join(", ")} (aliases: claude-code, antigravity, gemini-cli, mistralcli, muse-code)`;
 
 export const packageName = "@sentropic/h2a-runtime";
 export const H2A_RUNTIME_CLI_API_VERSION = 1;
@@ -2053,6 +2053,8 @@ const LOCAL_CLI: Readonly<Record<string, string>> = {
   codex: "codex",
   agy: "agy",
   antigravity: "agy",
+  muse: "muse",
+  "muse-code": "muse",
   gemini: "gemini",
   "gemini-cli": "gemini",
   mistral: "mistral",
@@ -2080,6 +2082,8 @@ function localResumeArgs(
         ...(convId ? [convId] : []),
       ];
     case "codex":
+    case "muse":
+    case "muse-code":
       return [
         "resume",
         ...(opts.last && !convId ? ["--last"] : []),
@@ -2826,6 +2830,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
     ["agy", "antigravity"],
     ["gemini", "gemini-cli"],
     ["mistral", "mistralcli"],
+    ["muse", "muse-code"],
     ["opencode", undefined],
     ["shell", undefined],
   ] as const) {
@@ -6039,7 +6044,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           opts.json === true;
         if (structuredLaunch && !isAgentLaunchProfile(profile)) {
           process.stderr.write(
-            `[h2a] structured run supports only claude|codex|agy (got "${profile}")\n`,
+            `[h2a] structured run supports only claude|codex|agy|muse (got "${profile}")\n`,
           );
           process.exitCode = 2;
           return;
@@ -9752,7 +9757,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         "Hook mode (--hook claude-start|claude-end) is wired by --install-hooks into " +
         "~/.claude/settings.json (idempotent; backs up settings.json.bak.<epoch>) and " +
         "always exits 0 so it can never break the host claude session. " +
-        "codex has no reliable session hook: codex sessions are enrolled by `h2a run` " +
+        "codex and muse have no reliable session hook: their sessions are enrolled by `h2a run` " +
         "and by the restore filesystem-scan fallback. Manual mode: --tool/--cwd/--conv/--pid/--label.",
     )
     .option(
@@ -9767,7 +9772,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
       "--settings <path>",
       "settings.json path for --install-hooks (default: ~/.claude/settings.json)",
     )
-    .option("--tool <tool>", "manual mode: claude | codex | agy")
+    .option("--tool <tool>", "manual mode: claude | codex | agy | muse")
     .option(
       "--cwd <dir>",
       "manual mode: session working directory (default: cwd)",
