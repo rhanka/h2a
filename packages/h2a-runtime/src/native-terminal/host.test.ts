@@ -295,6 +295,37 @@ describe("NativeTerminalHost", () => {
     ]);
   });
 
+  it("should answer DSR cursor queries with a cursor-position report", () => {
+    const { spawner, ptys } = stubSpawner();
+    const host = new NativeTerminalHost({
+      generation: "host-generation-dsr",
+      replayBytesPerSession: 4096,
+      spawner,
+      registryPath,
+    });
+
+    createSession(host, "tui");
+    const pty = ptys.get("tui")!;
+    pty.emitData("banner\x1b[6n");
+    expect(pty.write).toHaveBeenCalledTimes(1);
+    expect(pty.write).toHaveBeenLastCalledWith("\x1b[1;1R");
+
+    // A query split across chunks is still answered exactly once.
+    pty.emitData("pre\x1b[");
+    expect(pty.write).toHaveBeenCalledTimes(1);
+    pty.emitData("6npost");
+    expect(pty.write).toHaveBeenCalledTimes(2);
+
+    // Ordinary output (incl. a lone ESC) triggers no answer.
+    pty.emitData("plain\x1b[row");
+    expect(pty.write).toHaveBeenCalledTimes(2);
+
+    // No answer after exit.
+    pty.emitExit({ exitCode: 0 });
+    pty.emitData("\x1b[6n");
+    expect(pty.write).toHaveBeenCalledTimes(2);
+  });
+
   it("should let the controller escalate one stopping session without affecting another", () => {
     const { spawner, ptys } = stubSpawner();
     const host = new NativeTerminalHost({
