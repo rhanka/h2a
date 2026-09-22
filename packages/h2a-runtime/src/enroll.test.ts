@@ -443,4 +443,17 @@ describe("manualEnroll", () => {
     expect(manualEnroll({ tool: "claude", pid: "abc" }, regPath).ok).toBe(false);
     expect(loadEntries(regPath)).toEqual([]);
   });
+
+  it("enrolls a muse session like codex (run/manual path, no hooks)", () => {
+    const result = manualEnroll(
+      { tool: "muse", cwd: "/home/u/src/projM", conv: "muse-1", label: "projM" },
+      regPath,
+    );
+    expect(result.ok).toBe(true);
+    expect(loadEntries(regPath)[0]).toMatchObject({
+      id: "muse-1",
+      tool: "muse",
+      source: "run",
+    });
+  });
 });

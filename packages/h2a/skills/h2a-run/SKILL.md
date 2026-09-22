@@ -19,9 +19,9 @@ This plugin's PreToolUse hook (`packages/h2a/hooks/deny-manual-h2a-cli.mjs`) blo
 
 None of these require knowing a provider model id up front:
 
-1. **Profile** — `claude`, `codex`, or `agy` (which CLI to launch). Default to whichever CLI the user is already in if unstated; ask if genuinely ambiguous.
+1. **Profile** — `claude`, `codex`, `agy`, or `muse` (which CLI to launch). Default to whichever CLI the user is already in if unstated; ask if genuinely ambiguous.
 2. **Model flavor** — a nickname like *terra*, *sol* (aka *fable*), *luna*, or unstated (→ the CLI's own default model). Resolves to a `--model` / `model` value (Step 2).
-3. **Effort** — `low | medium | high | xhigh`. For Claude/Codex, "max" means `xhigh`; AGY accepts only `low | medium | high` and rejects both `xhigh` and "max".
+3. **Effort** — `low | medium | high | xhigh`. For Claude/Codex/Muse, "max" means `xhigh`; AGY accepts only `low | medium | high` and rejects both `xhigh` and "max".
 
 ## Step 2 — resolve the model flavor (source-of-truth caveat)
 
@@ -41,11 +41,13 @@ Any non-default flavor needs the llm-mesh gateway to translate the Anthropic-sha
 
 AGY is the exception to the named-flavor rule: it talks to its provider directly. Use `gateway: "off"` for `profile: "agy"`; `"required"` is rejected. AGY accepts effort `low|medium|high`, not `xhigh`, and supports run-once mode through its verified `--print` stdin contract. Resolve the exact AGY model with `agy models`; for example, the displayed "Gemini 3.7 Flash (High)" id is `gemini-3.7-flash-high`.
 
+Muse talks to the Meta provider directly: always `gateway: "off"` (or `"auto"`, which resolves direct); `"required"` is rejected. Muse maps `effort` to its native `--reasoning-effort` (all four levels) and `model` to `--model`. Muse is interactive/background only — `headless: true` is rejected because `muse exec` has no stdin prompt contract (verified: piped stdin reports "missing prompt").
+
 ## Step 4 — compose the call
 
 ### `h2a_run` MCP tool (what this agent must use)
 
-Required: `profile` (`"claude"|"codex"|"agy"`), `name` (`^[A-Za-z0-9_-]{1,64}$`), `workspace` (absolute path, must exist, must stay inside the MCP server's startup workspace root), `prompt` (1–65536 UTF-8 bytes, sent on stdin — never put it in argv), `background` (must be literal `true`). Optional: `agent` (AGY only; for example `"stp"`), `model` (free-text, format-checked only — see Step 2 for the value), `effort` (`"low"|"medium"|"high"|"xhigh"`; AGY rejects `xhigh`), `gateway` (`"auto"|"required"|"off"`, default `"auto"`; AGY uses `"off"`), `headless` (default `false`; AGY maps `true` to `--print`), `h2aSidecar` (default `!headless`; cannot be `true` together with `headless: true`).
+Required: `profile` (`"claude"|"codex"|"agy"|"muse"`), `name` (`^[A-Za-z0-9_-]{1,64}$`), `workspace` (absolute path, must exist, must stay inside the MCP server's startup workspace root), `prompt` (1–65536 UTF-8 bytes, sent on stdin — never put it in argv), `background` (must be literal `true`). Optional: `agent` (AGY only; for example `"stp"`), `model` (free-text, format-checked only — see Step 2 for the value), `effort` (`"low"|"medium"|"high"|"xhigh"`; AGY rejects `xhigh`), `gateway` (`"auto"|"required"|"off"`, default `"auto"`; AGY and Muse use `"off"`, `"required"` is rejected for them), `headless` (default `false`; AGY maps `true` to `--print`; Muse rejects `true`), `h2aSidecar` (default `!headless`; cannot be `true` together with `headless: true`).
 
 Example — "terra, xhigh, headless, on this repo":
 
