@@ -199,7 +199,14 @@ export async function enrollViaFacade(
     // owner act was the muse login itself. The ownerScope binds the enrolling
     // owner explicitly (never inferred); it doubles as the completion code
     // the mesh provider carries but does not validate.
-    if (session.kind !== "local-import") {
+    // Installed mesh types predate the local-import kind (same load-bearing
+    // cast pattern as the enroll call above); runtime shape verified live.
+    const museSession = session as unknown as {
+      kind: string;
+      source: string;
+      enrollmentId: string;
+    };
+    if (museSession.kind !== "local-import") {
       throw new Error("Muse enrollment did not return a local-import session");
     }
     const completeMuseImport = (
@@ -212,11 +219,11 @@ export async function enrollViaFacade(
       );
     }
     process.stdout.write(
-      `[h2a] llm-mesh: importing Muse CLI credentials from ${session.source} for ${ownerScope}\n`,
+      `[h2a] llm-mesh: importing Muse CLI credentials from ${museSession.source} for ${ownerScope}\n`,
     );
     const completed = await completeMuseImport.call(
       facade,
-      session.enrollmentId,
+      museSession.enrollmentId,
       ownerScope,
       ownerScope,
     );
