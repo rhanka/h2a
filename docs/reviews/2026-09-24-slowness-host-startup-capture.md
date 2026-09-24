@@ -65,3 +65,15 @@ Status: the differential experiment (mcp-serve-direct vs h2a_run+gateway) remain
 Reframe of OQ-3: it is NOT one 17 MB parse at startup — it is **55 ms PER lookup, on every call**. A handful of calls in the identity-acquisition path already accounts for the ~650 ms calm-window baseline. Under 48 lanes and ~35 % CPU stall the 55 ms stretches and the call count does not drop, so crossing the 20 s deadline stops being a mystery and becomes arithmetic: (calls in the acquisition path) × (stretched per-call ms).
 
 Next measurement (a COUNTER, not a campaign): instrument the identity-acquisition path to COUNT `listInstances` calls, then compare (call count × 55 ms) against the 650 ms observed at calm. If they concur, the cause is established and the fix is obvious — cache the registry with mtime-based invalidation, or index it by id. This is a cross-cutting change (38 sites) and gets its own cycle + review; it does NOT ride the drive-consent publication.
+
+### Second lever — the registry is 85 % dead (h-cond, 2026-09-24), no code change
+
+Registrations by creation month in `~/h2a-workspace/.h2a/registry/instances.jsonl` (27,003 rows total): 2026-06 = 1,372; **2026-07 = 22,875 (85 % of the file)**; 2026-08 = 1,744; 2026-09 = 1,009. Live lanes: **48**. The 16.7 MB size is ~24,000 June–August registrations nothing ever purged; the July spike (22,875 in one month) is anomalous on its own.
+
+Two INDEPENDENT levers on the 55 ms, and they compose: the **cache** removes the cost of REPEATED calls (code, 38 sites, own cycle); the **purge** reduces the cost of EACH call including the first — 16.7 MB → ~1–2 MB would drop 55 ms toward ~5 ms with no code change, a ~10× on the whole system. Purged AND cached, the cost disappears.
+
+But purge is NOT free and is an OWNER decision: `listInstanceKeys` resolves public keys from `registration.publicKeys`, so deleting a registration destroys the ability to verify anything that instance ever signed — negotiation journals, attestations, historical entries referencing it become unverifiable. A naive purge trades slowness for evidence loss.
+
+Conditioning facts to establish BEFORE any purge (deferred behind the drive-consent publication; instruction only, not run here): (1) how many of the 27,003 registrations are still REFERENCED by a journal / attestation / verifiable signature — "a few hundred" → purge-with-archival is viable and the owner can decide on numbers; "most" → purge is ruled out and only the cache remains; (2) what produced the 22,875 July registrations — a mass-registering mechanism that does not clean up will keep doing it, so purge without fixing the source only delays.
+
+Useful irony (a known-but-unpropagated limit): `identity/live.ts:294-296` already comments "each a full registry parse" and its async mint path deliberately avoids them — the cost was identified and worked around LOCALLY, without treating the cause or propagating the finding. Exactly the failure our write-it-down discipline exists to prevent.
