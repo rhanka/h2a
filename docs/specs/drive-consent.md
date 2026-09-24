@@ -87,27 +87,47 @@ there is no store reused across CLI processes. The earlier inventory estimated
 about 25 call sites; this checkout has 36 textual `createLocalStore(` call sites
 in `packages/h2a/src/cli.ts`. This debt covers CLI startup as well as MCP startup.
 
-Every full pass emits structured JSON to stderr with event
-`drive-consent.full-verification`, `durationMs`, `identityDeadlineMs`,
-`budgetFraction`, `thresholdMs`, `due`, `track` and `action`. Reserve 90% of the
-identity-acquisition deadline for registry, key, session and readiness work:
-full verification must consume **no more than 10%** of that deadline per startup.
-The threshold is computed from `MCP_IDENTITY_TIMEOUT_MS * 0.1`, not a fixed
-millisecond value, so it follows future changes to the deadline. Today that is
-20,000 × 0.1 = **2,000 ms**, approximately **324 MB / 165,123 cumulative receptions**
-at this measured slope. Startup costs sum across all consent pair journals.
-Periodic verification reports against the same budget so growth is visible
-before the next CLI invocation or MCP restart.
+Server store creation always emits a structured JSON measurement to stderr with
+event `drive-consent.full-verification` (once at process startup); subsequent
+60-second full passes also report the trend. Only `createMcpServer` opts in via
+`alwaysEmitConsentBudget: true`. The option defaults to false, so CLI creations
+and periodic passes emit fresh measurements only at or above the alert threshold.
+No CLI call sites need an override; initialize/readOnly remain storage capabilities.
+Even when negotiations are absent, the signal path runs with a near-zero duration.
 
-Crossing the threshold emits `due:true`, Track `01M39VC11XBNSE8W2ASMQRRKZV`, and
-`action:"ESCALATE debt -> due"`. The runtime cannot safely mutate the owner's
-single-writer Track store, and this worktree forbids .track writes. **Instruction
-to h-cond, the owner/conductor of h-runtime:** inspect MCP stderr and captured CLI
-stderr **daily and at every deployment/startup performance review**; on the first
-`due:true` event, move Track 01M39VC11XBNSE8W2ASMQRRKZV from debt to due in the
-canonical owner checkout, attaching the duration, deadline, threshold, date and
-runtime/CLI source. Perform that escalation in the same review, not at a later
-backlog sweep. Absence of a collected signal is not evidence of budget compliance.
+The alert threshold is **5% × MCP_IDENTITY_TIMEOUT_MS = 1,000 ms**; escalation is
+**10% × MCP_IDENTITY_TIMEOUT_MS = 2,000 ms**. Alert is strictly below escalation,
+giving advance warning; escalation reserves 90% of the 20,000 ms identity-acquisition
+budget for registry, key, session and readiness work. Both follow future deadline
+changes. Measurements include `durationMs`, `alertThresholdMs`, `thresholdMs`
+(escalation), `identityDeadlineMs`, `budgetFraction`, `due`, `track` and `action`.
+Startup costs sum across all consent pair journals. At the measured slope,
+2,000 ms corresponds to approximately **324 MB / 165,123 cumulative receptions**.
+
+At or above escalation, the signal emits `due:true` and
+`action:"ESCALATE debt -> due"`, and best-effort writes
+`<store root>/drive-consent-budget.json`: durationMs, thresholdMs,
+identityDeadlineMs, crossedAt (ISO), and track `01M39VC11XBNSE8W2ASMQRRKZV`.
+The durable marker lives on the writable **server store root**, not in an agent
+session. Every subsequent creation (and periodic pass) rereads and re-emits the
+saved crossing with `replayed:true` before measuring again, even for a quiet CLI.
+It persists until handled by this precise recheck rule: a fresh measurement
+strictly below escalation best-effort removes it, after replay; a measurement at
+or above escalation rewrites it with the latest crossing. Recovery does not undo
+a canonical Track escalation.
+
+All marker reads, writes and removals are best-effort under try/catch. The read-only
+startup contract takes precedence: on a read-only root (EACCES/EROFS), the marker
+cannot persist, but the crossing stderr signal still emits and marker I/O never
+fails store creation or changes availability. A failed removal leaves the marker
+for replay on the next creation/pass. No missing store directories are created by
+this signal path. Absence of a marker is not proof of budget compliance.
+
+An escalation crossing means Track **01M39VC11XBNSE8W2ASMQRRKZV moves debt -> due**.
+The canonical Track mutation is performed by **h-cond from the canonical owner
+checkout**, attaching the crossing evidence; this worktree is not the canonical
+Track writer. The persistent marker supplies the durable outstanding signal;
+no daily watcher agent session is required.
 
 The 24-hour scale replay (`adv-24h-after.mjs`, actual 86,400 receptions at one
 simulated reception/second) produced 169,424,497 bytes, zero legitimate refusals,

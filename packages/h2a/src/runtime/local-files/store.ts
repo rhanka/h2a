@@ -77,6 +77,8 @@ import { listIdentityAliases, mergeInboxDedup } from "../identity/migration.js";
 
 export interface CreateLocalStoreOptions {
   root: string;
+  /** Emit every consent verification measurement (MCP server); CLI defaults to alerts only. */
+  alwaysEmitConsentBudget?: boolean;
   /**
    * Timeout (ms) for acquiring any per-store advisory file lock. Defaults to
    * 5000. Tests use a much smaller value to exercise the timeout path
@@ -923,23 +925,43 @@ export function createLocalStore(options: CreateLocalStoreOptions): LocalStore {
     return index;
   }
   function verifyConsentHistory(): void {
+    const markerPath = join(paths.root,'drive-consent-budget.json');
+    // Replay before rechecking: even a recovered store reports its outstanding crossing.
+    try {
+      const marker = JSON.parse(readFileSync(markerPath,'utf8'));
+      console.error(JSON.stringify({...marker,event:'drive-consent.full-verification',
+        due:true,replayed:true,action:'ESCALATE debt -> due'}));
+    } catch { /* Observability must never make a read-only store unavailable. */ }
     const started = performance.now();
-    if (!existsSync(paths.negotiations)) return;
-    for (const dir of readdirSync(paths.negotiations)) {
-      if (!dir.startsWith('drive-consent__')) continue;
-      // Pair IDs contain the sha256: prefix too; both colons are escaped
-      // by safePathSegment. Hashes themselves contain no underscores.
-      const id = dir.replaceAll('__',':');
-      try { rebuildConsentIndex(id); } catch (error) { consentFailures.set(id,error); }
+    try {
+      if (!existsSync(paths.negotiations)) return;
+      for (const dir of readdirSync(paths.negotiations)) {
+        if (!dir.startsWith('drive-consent__')) continue;
+        // Pair IDs contain the sha256: prefix too; both colons are escaped
+        // by safePathSegment. Hashes themselves contain no underscores.
+        const id = dir.replaceAll('__',':');
+        try { rebuildConsentIndex(id); } catch (error) { consentFailures.set(id,error); }
+      }
+    } finally {
+      const durationMs = performance.now()-started;
+      // Reserve 90% of identity acquisition for all other startup work.
+      const budgetFraction = 0.1;
+      const thresholdMs = MCP_IDENTITY_TIMEOUT_MS * budgetFraction;
+      const alertThresholdMs = MCP_IDENTITY_TIMEOUT_MS * 0.05;
+      const due = durationMs >= thresholdMs;
+      const track = '01M39VC11XBNSE8W2ASMQRRKZV';
+      // Emit independently of marker persistence, including on EACCES/EROFS roots.
+      if (options.alwaysEmitConsentBudget || durationMs >= alertThresholdMs) {
+        console.error(JSON.stringify({event:'drive-consent.full-verification',durationMs,
+          alertThresholdMs,thresholdMs,budgetFraction,identityDeadlineMs:MCP_IDENTITY_TIMEOUT_MS,
+          due,track,action:due ? 'ESCALATE debt -> due' : 'observe'}));
+      }
+      try {
+        if (due) writeFileSync(markerPath,JSON.stringify({durationMs,thresholdMs,
+          identityDeadlineMs:MCP_IDENTITY_TIMEOUT_MS,crossedAt:new Date().toISOString(),track})+'\n');
+        else unlinkSync(markerPath);
+      } catch { /* Best effort only: marker failures never block store creation. */ }
     }
-    const durationMs = performance.now()-started;
-    // Reserve 90% of identity acquisition for all other startup work.
-    const budgetFraction = 0.1;
-    const thresholdMs = MCP_IDENTITY_TIMEOUT_MS * budgetFraction;
-    console.error(JSON.stringify({event:'drive-consent.full-verification',durationMs,
-      thresholdMs,budgetFraction,identityDeadlineMs:MCP_IDENTITY_TIMEOUT_MS,
-      due:durationMs >= thresholdMs,track:'01M39VC11XBNSE8W2ASMQRRKZV',
-      action:durationMs >= thresholdMs ? 'ESCALATE debt -> due' : 'observe'}));
   }
   verifyConsentHistory();
   // Weak reference avoids retaining short-lived CLI/MCP stores indefinitely.
