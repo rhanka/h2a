@@ -1,0 +1,245 @@
+import assert from "node:assert/strict";
+import { generateKeyPairSync, randomUUID } from "node:crypto";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import test from "node:test";
+import { computeHash, signCanonical, createReplayGuard } from "@sentropic/h2a";
+import { createLocalStore, acceptDriveInstruction, formatSignedDriveInstruction } from "../dist/index.js";
+
+const scope = {action:"drive.instruction", direction:"from->to"};
+function keys() {
+  const k = generateKeyPairSync("ed25519");
+  return {privateKeyPem:k.privateKey.export({format:"pem",type:"pkcs8"}).toString(), publicKeyPem:k.publicKey.export({format:"pem",type:"spki"}).toString()};
+}
+function fixture(t) {
+  const root = mkdtempSync(join(tmpdir(),"drive-consent-"));
+  t.after(()=>rmSync(root,{recursive:true,force:true}));
+  const store = createLocalStore({root});
+  const a=keys(), b=keys(), now=Date.now();
+  for (const [id,k] of [["codex:a",a],["codex:b",b]]) store.registerInstance({id,instance:id,roles:["AGENTS"],scopes:[id],capabilities:[],endpoints:[],publicKeys:[k.publicKeyPem],acceptedPolicies:[],createdAt:new Date(now).toISOString()});
+  return {root,store,a,b,now};
+}
+
+import { appendJournalEntry, createJournalEntry } from '@sentropic/h2a';
+import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { once } from 'node:events';
+import { createMcpServer, authorizeDrive, verifyDriveOnReceive, remoteDriveServerForStore } from '../dist/index.js';
+import { remoteDriveRejectionStatus } from '../dist/runtime/drive/index.js';
+import { negotiationJournalFile } from '../dist/runtime/local-files/paths.js';
+import { consentPairId, DRIVE_CONSENT_MAX_GRANT_MS, DRIVE_CONSENT_MAX_ANSWER_MS } from '../dist/runtime/drive/consent.js';
+
+const A='codex:a',B='codex:b';
+const iso=n=>new Date(n).toISOString();
+function register(store,id,k,extra={}){store.registerInstance({id,instance:id,roles:['AGENTS'],scopes:[id],capabilities:[],endpoints:[],publicKeys:[k.publicKeyPem],acceptedPolicies:[],createdAt:iso(Date.now()),...extra});}
+function rewriteRegistration(f,id,extra){writeFileSync(f.store.paths.instances,f.store.listInstances().map(r=>JSON.stringify(r.id===id?{...r,...extra}:r)).join('\n')+'\n');}
+function bodies(f,{from=A,to=B,created=f.now,answer=created+900000,end=created+3600000,principal}={}){
+  const a=f.store.findInstance(from),b=f.store.findInstance(to);
+  const binding={from,to,...(a?.agentUuid?{fromAgentUuid:a.agentUuid}:{}),...(b?.agentUuid?{toAgentUuid:b.agentUuid}:{})};
+  const request={kind:'h2a.drive.consent.request',v:1,requestId:randomUUID(),...binding,scope,createdAt:iso(created),answerBy:iso(answer),requestedNotAfter:iso(end)};
+  const grant={kind:'h2a.drive.consent.grant',v:1,requestId:request.requestId,requestHash:computeHash(request),...binding,scope,notBefore:iso(created),notAfter:iso(end),issuedAt:iso(created),...(principal!==undefined?{principal}:{})};
+  return {request,grant};
+}
+function event(f,p,k,by,extra={}){return {id:randomUUID(),type:p.kind.endsWith('request')?'propose':p.kind.endsWith('refusal')?'reject':p.kind.endsWith('revocation')?'withdraw':'accept',actor:{instance:by,role:'AGENTS',scope:'drive-consent'},negotiationId:consentPairId(p.from,p.to),createdAt:iso(p.issuedAt ? Date.parse(p.issuedAt) : p.createdAt ? Date.parse(p.createdAt) : f.now),body:{kind:p.kind,payload:p,signature:signCanonical(p,{by,privateKeyPem:k.privateKeyPem}),...extra}};}
+// Adversarial disk fixture bypasses writer hygiene to exercise the reader.
+function raw(f,e){const file=negotiationJournalFile(f.store.paths,e.negotiationId);mkdirSync(join(file,'..'),{recursive:true});const entries=f.store.readNegotiationJournal(e.negotiationId);const prev=entries.at(-1);appendFileSync(file,JSON.stringify(prev?appendJournalEntry(prev,e):createJournalEntry(e))+'\n');}
+function seed(f,opts={}){const p=bodies(f,opts);raw(f,event(f,p.request,f.a,p.request.from));raw(f,event(f,p.grant,opts.to===A?f.a:f.b,p.grant.to));return p;}
+function negative(p,kind,now){return {kind:'h2a.drive.consent.'+kind,v:1,from:p.request.from,to:p.request.to,requestId:p.request.requestId,requestHash:computeHash(p.request),at:iso(now)};}
+async function receive(f,{now=f.now,from=A,to=B,key=f.a,store=f.store}={}){let count=0;const line=formatSignedDriveInstruction({from,to,instruction:'perform approved pair work',privateKeyPem:key.privateKeyPem,at:iso(now)});const result=await acceptDriveInstruction(line,{store,now,guard:createReplayGuard(),expectedTo:to,inject:()=>{count++;return true;}});assert.equal(count,result.ok?1:0);return result;}
+function rpc(server,name,args){const result=server.callTool('h2a_drive_consent_'+name,args);assert.equal(result.isError,undefined,result.content[0].text);return JSON.parse(result.content[0].text);}
+function server(f,instance,k){const s=createMcpServer({root:f.root,store:f.store,sendContext:k?{instance,privateKeyPem:k.privateKeyPem}:undefined});return s;}
+
+for(const state of ['absent','pending','refused','expired','revoked']) for(const path of ['self','conductor','principal','mandate','agents-only','no-shared-scope','missing-from','missing-to','missing-both']) test(`legacy_authorization_paths_are_unchanged_by_consent: ${path}/${state}`,async t=>{
+  const f=fixture(t);let from=A,to=path==='self'?A:B;
+  if(path==='conductor')rewriteRegistration(f,B,{conductor:A});
+  if(path==='principal')rewriteRegistration(f,B,{principal:A});
+  if(path==='mandate'||path==='no-shared-scope')rewriteRegistration(f,A,{roles:['PRINCIPAL'],scopes:['shared']});
+  if(path==='mandate'||path==='agents-only')rewriteRegistration(f,B,{scopes:path==='agents-only'?[A]:['shared']});
+  if(state!=='absent'){
+    const p=bodies(f,{from,to,created:state==='expired'?f.now-7200000:f.now,answer:state==='expired'?f.now-3600000:f.now+900000,end:state==='expired'?f.now-1:f.now+3600000});
+    raw(f,event(f,p.request,f.a,from));
+    if(state==='refused'||state==='revoked')raw(f,event(f,negative(p,state==='refused'?'refusal':'revocation',f.now),to===A?f.a:f.b,to));
+  }
+  if(path.startsWith('missing')){const remove=path==='missing-both'?[A,B]:[path==='missing-from'?A:B];writeFileSync(f.store.paths.instances,f.store.listInstances().filter(r=>!remove.includes(r.id)).map(JSON.stringify).join('\n')+'\n');}
+  const allowed=['self','conductor','principal','mandate'].includes(path);
+  const missing=path.startsWith('missing');
+  const expected=allowed?{ok:true}:{ok:false,reason:missing?'missing-registration':'unauthorized'};
+  const narrow={findInstance:f.store.findInstance};assert.deepEqual(authorizeDrive(narrow,{from,to}),expected);
+  if(allowed||missing||state==='absent')assert.deepEqual(authorizeDrive(f.store,{from,to},{now:f.now}),expected);
+  const received=await receive(f,{from,to});
+  assert.equal(received.ok,allowed);
+  if(missing)assert.equal(received.reason,path==='missing-to'?'missing-registration':'no-public-key');
+  if(allowed)assert.deepEqual(authorizeDrive({...f.store,findDriveConsent:()=>{throw Error('unavailable');}},{from,to}),{ok:true});
+});
+
+test('bound MCP request -> target grant -> receive, principal-absent is distinct',async t=>{
+  const f=fixture(t),a=server(f,A,f.a),b=server(f,B,f.b);
+  const r=rpc(a,'request',{to:B,answerBy:iso(Date.now()+900000),requestedNotAfter:iso(Date.now()+3600000)});
+  const start=Date.now()+1000;
+  const g=rpc(b,'respond',{from:A,requestId:r.payload.requestId,decision:'grant',notBefore:iso(start),notAfter:iso(start+60000)});
+  assert.equal(g.projection.decision.ok,false); // notBefore is still in the future
+  assert.equal((await receive(f,{now:start})).ok,true);
+  const audit=f.store.findDriveConsent(A,B,start);
+  assert.equal(audit.decision.principalDecision,'principal-absent');
+  assert.match(audit.limit,/0 \/ 26,964/);assert.match(audit.limit,/NOT attributable/);
+  assert.ok(f.store.readDriveConsentChain(A,B).some(e=>e.body.event==='drive-admitted'));
+});
+
+test('principal required and present authorizes; missing key or bound session refuses',async t=>{
+  const f=fixture(t),p=keys(),P='codex:principal';register(f.store,P,p);rewriteRegistration(f,B,{principal:P});
+  const pair=bodies(f,{principal:P});raw(f,event(f,pair.request,f.a,A));raw(f,event(f,pair.grant,f.b,B));
+  assert.equal((await receive(f)).reason,'consent-principal-unavailable');
+  const principal=server(f,P,p);
+  rpc(principal,'cosign',{from:A,to:B,grantId:computeHash(pair.grant)});
+  f.now=Date.now();assert.equal((await receive(f)).ok,true);
+  assert.equal(f.store.findDriveConsent(A,B,f.now).decision.principalDecision,'co-signed');
+  f.store.revokeInstanceKey(P,p.publicKeyPem);
+  assert.equal((await receive(f)).reason,'consent-principal-unavailable');
+  assert.match(server(f,P).callTool('h2a_drive_consent_cosign',{from:A,to:B,grantId:computeHash(pair.grant)}).content[0].text,/no bound signing session/);
+});
+
+test('target cannot issue a grant without an active principal key',t=>{
+  const f=fixture(t);rewriteRegistration(f,B,{principal:'codex:missing-principal'});
+  const pair=bodies(f,{principal:'codex:missing-principal'});raw(f,event(f,pair.request,f.a,A));
+  const out=server(f,B,f.b).callTool('h2a_drive_consent_respond',{from:A,requestId:pair.request.requestId,decision:'grant',notBefore:iso(Date.now()+1000),notAfter:iso(Date.now()+60000)});
+  assert.equal(out.isError,true);assert.match(out.content[0].text,/consent-principal-unavailable/);
+});
+
+for(const kind of ['refusal','revocation'])test(`${kind} prevents receive; historical key rotation never resurrects`,async t=>{
+  const f=fixture(t),p=seed(f);assert.equal((await receive(f)).ok,true);
+  const k2=keys();f.store.addInstanceKey(B,k2.publicKeyPem);raw(f,event(f,negative(p,kind,f.now),k2,B));
+  const code=kind==='refusal'?'consent-refused':'consent-revoked';assert.equal((await receive(f)).reason,code);
+  f.store.revokeInstanceKey(B,k2.publicKeyPem);assert.equal((await receive(f)).reason,code);
+  const renewed=seed(f);assert.notEqual(renewed.request.requestId,p.request.requestId);assert.equal((await receive(f)).ok,true);
+});
+
+for(const arm of ['target-key-revoked','grant-expired','answer-expired','48h-grant','answer-cap','widened-window','scope','cross-pair','artifactHash','wrong-signer','tamper','identity-rebind'])test(`reader guard ${arm} with positive control`,async t=>{
+  const f=fixture(t);let p=bodies(f);raw(f,event(f,p.request,f.a,A));
+  if(arm==='answer-expired'){
+    assert.equal((await receive(f,{now:f.now+900000})).reason,'consent-expired');
+    const renewed=seed(f,{created:f.now+900000});assert.ok(renewed);assert.equal((await receive(f,{now:f.now+900001})).ok,true);return;
+  }
+  let g=event(f,p.grant,f.b,B);
+  if(arm==='48h-grant')g=event(f,{...p.grant,notAfter:iso(f.now+48*3600000)},f.b,B);
+  if(arm==='widened-window')g=event(f,{...p.grant,notAfter:iso(f.now+3600001)},f.b,B);
+  if(arm==='scope')g=event(f,{...p.grant,scope:{action:'drive.*',direction:'from->to'}},f.b,B);
+  if(arm==='cross-pair')g=event(f,{...p.grant,from:'codex:x'},f.b,B),g.negotiationId=consentPairId(A,B);
+  if(arm==='artifactHash')g.body.signature=signCanonical({artifactHash:computeHash(p.grant)},{by:B,privateKeyPem:f.b.privateKeyPem});
+  if(arm==='wrong-signer')g.body.signature=signCanonical(p.grant,{by:B,privateKeyPem:f.a.privateKeyPem});
+  if(arm==='tamper')g.body.payload.notAfter=iso(f.now+3600010);
+  if(arm==='answer-cap'){
+    p=bodies(f,{answer:f.now+DRIVE_CONSENT_MAX_ANSWER_MS+1,end:f.now+DRIVE_CONSENT_MAX_ANSWER_MS+60000});raw(f,event(f,p.request,f.a,A));g=event(f,p.grant,f.b,B);
+  }
+  raw(f,g);
+  if(arm==='target-key-revoked'){assert.equal((await receive(f)).ok,true);f.store.revokeInstanceKey(B,f.b.publicKeyPem);assert.equal((await receive(f)).ok,false);const k=keys();f.store.addInstanceKey(B,k.publicKeyPem);f.b=k;seed(f);assert.equal((await receive(f)).ok,true);return;}
+  if(arm==='grant-expired'){assert.equal((await receive(f,{now:f.now+3599999})).ok,true);assert.equal((await receive(f,{now:f.now+3600000})).reason,'consent-expired');seed(f,{created:f.now+3600000});assert.equal((await receive(f,{now:f.now+3600001})).ok,true);return;}
+  if(arm==='identity-rebind')rewriteRegistration(f,B,{agentUuid:randomUUID()});
+  assert.equal((await receive(f)).ok,false);
+  seed(f);assert.equal((await receive(f)).ok,true);
+});
+
+test('namespace/stabilize guards; unsupported MCP identity arguments; legitimate grant unaffected',async t=>{
+  const f=fixture(t),p=seed(f),id=consentPairId(A,B);
+  assert.throws(()=>f.store.appendNegotiationEvent(id,event(f,p.grant,f.b,B)),/Reserved/);
+  assert.throws(()=>f.store.stabilizeNegotiation(id),/drive-consent/);
+  for(const extra of [{instance:B},{privateKeyPem:f.b.privateKeyPem}]){
+    const out=server(f,A,f.a).callTool('h2a_drive_consent_respond',{from:A,requestId:p.request.requestId,decision:'grant',...extra});assert.equal(out.isError,true);assert.match(out.content[0].text,/unsupported argument/);
+  }
+  assert.equal((await receive(f)).ok,true);
+  assert.equal((await receive(f,{from:B,to:A,key:f.b})).reason,'unauthorized');
+});
+
+test('forged negative evidence is ignored and reported, not a denial',async t=>{
+  const f=fixture(t),p=seed(f);raw(f,event(f,negative(p,'revocation',f.now),f.a,'codex:outsider'));
+  assert.equal((await receive(f)).ok,true);assert.ok(f.store.findDriveConsent(A,B,f.now).anomalies.length);
+});
+
+test('restart, receiver clock rollback, and transport freshness remain distinct',async t=>{
+  const f=fixture(t);seed(f);assert.equal((await receive(f,{now:f.now+600000})).ok,true);
+  const reopened=createLocalStore({root:f.root});assert.equal((await receive(f,{now:f.now+3600000,store:reopened})).reason,'consent-expired');
+  assert.equal((await receive(f,{now:f.now,store:reopened})).reason,'consent-unavailable');
+  seed(f,{created:f.now+3600001});assert.equal((await receive(f,{now:f.now+3600002,store:reopened})).ok,true);
+});
+
+test('all new policy refusals map explicitly to HTTP 403; infrastructure to 503',()=>{
+  for(const code of ['consent-pending','consent-refused','consent-expired','consent-revoked','consent-invalid','consent-principal-unavailable'])assert.equal(remoteDriveRejectionStatus(code),403);
+  assert.equal(remoteDriveRejectionStatus('consent-unavailable'),503);
+});
+
+test('HTTP receive honors target authority; sender mirror cannot authorize another store',async t=>{
+  const f=fixture(t),other=fixture(t); // replace mirror registrations with the same identities/keys
+  writeFileSync(other.store.paths.instances,readFileSync(f.store.paths.instances));
+  seed(f);let count=0;
+  const s=remoteDriveServerForStore(other.store,{to:B,now:()=>f.now,inject:()=>{count++;return true;}});s.listen(0,'127.0.0.1');await once(s,'listening');t.after(()=>s.close());
+  const url=`http://127.0.0.1:${s.address().port}/h2a/drive`;
+  const post=()=>fetch(url,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({line:formatSignedDriveInstruction({from:A,to:B,instruction:'continue',privateKeyPem:f.a.privateKeyPem,at:iso(f.now)})})});
+  assert.equal((await post()).status,403);assert.equal(count,0);
+  other.a=f.a;other.b=f.b;other.now=f.now;const p=seed(other);assert.equal((await post()).status,202);assert.equal(count,1);
+  raw(other,event(other,negative(p,'revocation',f.now),f.b,B));assert.equal((await post()).status,403);assert.equal(count,1);
+});
+
+import { withLockSync } from '../dist/runtime/local-files/locks.js';
+
+test('a single injected receiver clock authorizes; real backdated writes remain refused',async t=>{
+  const f=fixture(t);f.now-=60000;const p=seed(f);
+  assert.equal((await receive(f)).ok,true);
+  assert.equal(verifyDriveOnReceive(f.store,formatSignedDriveInstruction({from:A,to:B,instruction:'second receiver path',privateKeyPem:f.a.privateKeyPem,at:iso(f.now)}),{to:B,now:f.now,guard:createReplayGuard()}).ok,true);
+  const renewed=bodies(f,{created:f.now+1});
+  assert.throws(()=>f.store.recordDriveConsentEnvelope(event(f,renewed.request,f.a,A),f.now-1),/clock rollback/);
+  const malformed=event(f,renewed.grant,f.b,B);malformed.createdAt=iso(f.now);
+  raw(f,event(f,negative(p,'revocation',f.now),f.b,B));raw(f,event(f,renewed.request,f.a,A));raw(f,malformed);
+  assert.equal((await receive(f,{now:f.now+1})).ok,false);
+  seed(f,{created:f.now+2});assert.equal((await receive(f,{now:f.now+2})).ok,true);
+});
+
+test('lock contention fails closed and authorizes again after release',async t=>{
+  const f=fixture(t);seed(f);const store=createLocalStore({root:f.root,lockTimeoutMs:1});
+  withLockSync(join(store.paths.registry,'.lock'),()=>assert.equal(authorizeDrive(store,{from:A,to:B},{now:f.now}).reason,'consent-unavailable'));
+  assert.equal((await receive(f,{store})).ok,true);
+});
+
+test('mutable accepted state and inbox-only grant never authorize',async t=>{
+  const f=fixture(t),p=bodies(f),id=consentPairId(A,B);
+  f.store.openNegotiation({id,scope:'drive-consent',parties:[A,B],subject:'drive-consent',status:'proposed',requiredSigners:[B],createdAt:iso(f.now),updatedAt:iso(f.now)});
+  raw(f,event(f,p.request,f.a,A));
+  f.store.updateNegotiationStatus(id,'accepted');
+  // An inbox file is transport only, even with a valid target signature.
+  f.store.putInboxMessage(A,{protocol:'sentropic.h2a',version:'0.1',...event(f,p.grant,f.b,B)});
+  assert.equal(f.store.readInbox(A).length,1);
+  assert.equal((await receive(f)).reason,'consent-pending');
+  raw(f,event(f,p.grant,f.b,B));assert.equal((await receive(f)).ok,true);
+});
+
+test('admission rechecks revocation and key removal after successful preflight',async t=>{
+  for(const mutation of ['revoke','key']){
+    const f=fixture(t),p=seed(f);assert.equal((await receive(f)).ok,true);
+    const store={...f.store,commitDriveConsentAdmission(...args){
+      if(mutation==='revoke')raw(f,event(f,negative(p,'revocation',f.now),f.b,B));
+      else f.store.revokeInstanceKey(B,f.b.publicKeyPem);
+      return f.store.commitDriveConsentAdmission(...args);
+    }};
+    assert.equal((await receive(f,{store})).ok,false);
+  }
+});
+
+test('missing durations reject; exact read-time caps permit a valid grant',async t=>{
+  const f=fixture(t),a=server(f,A,f.a);
+  assert.equal(a.callTool('h2a_drive_consent_request',{to:B}).isError,true);
+  seed(f,{answer:f.now+DRIVE_CONSENT_MAX_ANSWER_MS,end:f.now+DRIVE_CONSENT_MAX_GRANT_MS});
+  assert.equal((await receive(f)).ok,true);
+});
+
+test('audit distinguishes no request from refusal and retains measured custody limits',async t=>{
+  const f=fixture(t);
+  assert.deepEqual((await receive(f)),{ok:false,reason:'unauthorized'});
+  let entries=f.store.readDriveConsentChain(A,B);
+  assert.equal(entries.at(-1).body.requestState,'no-request');
+  const p=seed(f);assert.equal((await receive(f)).ok,true);
+  raw(f,event(f,negative(p,'refusal',f.now),f.b,B));
+  assert.equal((await receive(f)).reason,'consent-refused');
+  entries=f.store.readDriveConsentChain(A,B);
+  const audit=entries.at(-1).body;
+  assert.equal(audit.requestState,'request-present');assert.equal(audit.decision.reason,'consent-refused');
+  assert.match(audit.limit,/registry\/instances.jsonl/);assert.match(audit.limit,/0 \/ 26,964/);
+  assert.match(audit.limit,/keys\//);assert.match(audit.limit,/26,964 private keys, mode 0600/);assert.match(audit.limit,/NOT attributable/);
+});

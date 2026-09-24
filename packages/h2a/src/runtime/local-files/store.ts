@@ -1,5 +1,6 @@
 import {
   appendFileSync,
+  openSync, closeSync, fsyncSync,
   existsSync,
   mkdirSync,
   readFileSync,
@@ -46,6 +47,8 @@ import {
   type H2ASignature
 } from "@sentropic/h2a";
 
+import { consentPairId, isConsentId, projectConsent, verified, evidence, DRIVE_CONSENT_LIMIT, type ConsentProjection, type ConsentDecision } from '../drive/consent.js';
+import { authorizeDrive, type H2ADriveAuthorizeResult, type H2ADriveInstructionPayload } from '../drive/index.js';
 import { withLockSync, type LockObservation } from "./locks.js";
 import { withLeaseSync } from "./lease.js";
 import { getActiveMcpTrace } from "../mcp/phase-trace.js";
@@ -175,6 +178,10 @@ export interface H2ADerivedDecisionDossier {
 
 export interface LocalStore {
   paths: LocalStorePaths;
+  readDriveConsentChain(from: string, to: string): H2AJournalEntry<unknown>[];
+  findDriveConsent(from: string, to: string, now?: number): ConsentProjection;
+  recordDriveConsentEnvelope(event: H2AJournalPayload<unknown>, now?: number): ConsentProjection;
+  commitDriveConsentAdmission(payload: H2ADriveInstructionPayload, signature: H2ASignature, now?: number): H2ADriveAuthorizeResult | {ok:false;reason:"replayed" | "bad-signature"};
   registerInstance(reg: H2AActorRegistration): void;
   listInstances(): H2AActorRegistration[];
   findInstance(id: string): H2AActorRegistration | undefined;
@@ -799,6 +806,7 @@ export function createLocalStore(options: CreateLocalStoreOptions): LocalStore {
     negotiationId: string,
     payload: H2AJournalPayload<TBody>
   ): H2AJournalEntry<TBody> {
+    if (isConsentId(negotiationId)) throw new Error("Reserved drive-consent namespace");
     ensureDir(negotiationDir(paths, negotiationId));
     return lock(
       negotiationLock(negotiationId),
@@ -814,6 +822,90 @@ export function createLocalStore(options: CreateLocalStoreOptions): LocalStore {
       },
       lockOpts
     );
+  }
+
+
+  function readDriveConsentChain(from: string, to: string): H2AJournalEntry<unknown>[] {
+    return readNegotiationJournalUnlocked(consentPairId(from, to));
+  }
+
+  // All authority mutations share registry -> negotiation lock order. Lease
+  // mode has no demonstrated fencing for this feature and fails closed.
+  function consentTransaction<T>(from: string, to: string, fn: (entries: H2AJournalEntry<unknown>[], append: (body: unknown, type?: H2AJournalPayload['type']) => void, now: number) => T, clock?: number): T {
+    assertWritable('drive-consent');
+    if (lockMode !== 'pid') throw new Error('consent-unavailable: unsupported lease topology');
+    const id = consentPairId(from, to);
+    ensureDir(negotiationDir(paths, id));
+    return lock(registryLock, () => lock(negotiationLock(id), () => {
+      const now = clock ?? Date.now();
+      const entries = readNegotiationJournalUnlocked(id);
+      let high = 0;
+      for (const entry of entries) {
+        const body = entry.body as {kind?:string;observedAt?:number};
+        if (body?.kind === 'drive-consent.audit' && typeof body.observedAt === 'number') high = Math.max(high, body.observedAt);
+      }
+      if (!Number.isFinite(now) || now < high) throw new Error('consent-unavailable: receiver clock rollback');
+      const durable = (event: H2AJournalPayload<unknown>): void => {
+        const previous = entries[entries.length - 1];
+        const entry = previous ? appendJournalEntry(previous, event) : createJournalEntry(event);
+        const file = negotiationJournalFile(paths, id);
+        const fd = openSync(file, 'a', 0o600);
+        try { appendFileSync(fd, JSON.stringify(entry) + '\n', 'utf8'); fsyncSync(fd); } finally { closeSync(fd); }
+        for (const dir of [negotiationDir(paths, id), paths.negotiations]) {
+          const d = openSync(dir, 'r'); try { fsyncSync(d); } finally { closeSync(d); }
+        }
+        entries.push(entry);
+      };
+      const append = (body: unknown, type: H2AJournalPayload['type'] = 'event'): void => durable({id:'consent:' + computeHash({body,sequence:entries.length,now}),type,actor:{instance:to,role:'AGENTS',scope:'drive-consent'},negotiationId:id,createdAt:new Date(now).toISOString(),body});
+      return fn(entries, append, now);
+    }, lockOpts), lockOpts);
+  }
+
+  function consentError(error: unknown): ConsentProjection {
+    const message = error instanceof Error ? error.message : String(error);
+    return {decision:{ok:false,reason:/corrupt journal|JSON/.test(message)?'consent-invalid':'consent-unavailable'},anomalies:[message],requests:0,limit:DRIVE_CONSENT_LIMIT};
+  }
+  function findDriveConsent(from: string, to: string, clock?: number): ConsentProjection {
+    try { return consentTransaction(from,to,(entries,append,now)=>{
+      const result = projectConsent({findInstance,listInstanceKeys,listKeyEvents},from,to,entries,now);
+      append({kind:'drive-consent.audit',observedAt:now,decision:result.decision,requestState:result.requests?'request-present':'no-request',anomalies:result.anomalies,limit:DRIVE_CONSENT_LIMIT});
+      return result;
+    },clock); } catch(error) { return consentError(error); }
+  }
+  function recordDriveConsentEnvelope(event: H2AJournalPayload<unknown>, clock?: number): ConsentProjection {
+    if (!evidence(event.body)) throw new Error('consent-invalid: malformed evidence');
+    const body = event.body;
+    const from = body.payload.from, to = body.payload.to;
+    if (typeof from !== 'string' || typeof to !== 'string' || event.negotiationId !== consentPairId(from,to)) throw new Error('consent-invalid: pair');
+    return consentTransaction(from,to,(entries,append,now)=>{
+      // The receipt timestamp is always assigned here, never by the caller.
+      const candidate = {...event,createdAt:new Date(now).toISOString()};
+      const previous = entries[entries.length-1];
+      const entry = previous ? appendJournalEntry(previous,candidate) : createJournalEntry(candidate);
+      const result = projectConsent({findInstance,listInstanceKeys,listKeyEvents},from,to,[...entries,entry],now);
+      if (result.anomalies.includes(event.id)) throw new Error('consent-invalid: rejected evidence');
+      const by=body.signature.by;
+      const expected = body.payload.kind==='h2a.drive.consent.request' ? from : to;
+      if (!(by===expected || (body.payload.kind==='h2a.drive.consent.revocation' && by===from)) || !verified({findInstance,listInstanceKeys,listKeyEvents},body.payload,body.signature,by)) throw new Error('consent-invalid: signer');
+      // append assigns a local event id; full signed body remains immutable.
+      if (!entries.some(e=>computeHash(e.body)===computeHash(body))) append(body,event.type);
+      append({kind:'drive-consent.audit',observedAt:now,decision:result.decision,limit:DRIVE_CONSENT_LIMIT});
+      return result;
+    },clock);
+  }
+  function commitDriveConsentAdmission(payload: H2ADriveInstructionPayload, signature: H2ASignature, clock?: number): H2ADriveAuthorizeResult | {ok:false;reason:'replayed'|'bad-signature'} {
+    try { return consentTransaction(payload.from,payload.to,(entries,append,now)=>{
+      const result = projectConsent({findInstance,listInstanceKeys,listKeyEvents},payload.from,payload.to,entries,now);
+      const authority = authorizeDrive({findInstance,findDriveConsent:()=>result},payload,{now});
+      if (authority.ok && !('via' in authority)) return authority;
+      if (!authority.ok) { append({kind:'drive-consent.audit',observedAt:now,decision:authority,limit:DRIVE_CONSENT_LIMIT}); return authority; }
+      if (!result.decision.ok) { append({kind:'drive-consent.audit',observedAt:now,decision:result.decision,limit:DRIVE_CONSENT_LIMIT}); return result.decision; }
+      if (!verified({findInstance,listInstanceKeys,listKeyEvents},payload,signature,payload.from)) return {ok:false as const,reason:'bad-signature' as const};
+      const admissionId=computeHash({from:payload.from,to:payload.to,nonce:payload.nonce});
+      if(entries.some(e=>(e.body as {admissionId?:string})?.admissionId===admissionId)) return {ok:false as const,reason:'replayed' as const};
+      append({kind:'drive-consent.audit',event:'drive-admitted',observedAt:now,admissionId,payloadHash:computeHash(payload),instructionHash:computeHash(payload.instruction),decision:result.decision,execution:'unknown',limit:DRIVE_CONSENT_LIMIT});
+      return result.decision;
+    },clock); } catch(error) { return consentError(error).decision; }
   }
 
   function asPlainRecord(value: unknown): Record<string, unknown> | undefined {
@@ -1085,6 +1177,7 @@ export function createLocalStore(options: CreateLocalStoreOptions): LocalStore {
     negotiationId: string,
     options: { eventId?: string } = {}
   ) {
+    if (isConsentId(negotiationId) || readNegotiation(negotiationId)?.subject === "drive-consent") throw new Error("Cannot stabilize drive-consent");
     ensureDir(negotiationDir(paths, negotiationId));
     return lock(
       negotiationLock(negotiationId),
@@ -1522,6 +1615,7 @@ export function createLocalStore(options: CreateLocalStoreOptions): LocalStore {
     addInstanceKey,
     listInstanceKeys,
     listKeyEvents,
+    readDriveConsentChain, findDriveConsent, recordDriveConsentEnvelope, commitDriveConsentAdmission,
     revokeInstanceKey,
     grantOrgMembership,
     listOrgMembership,
