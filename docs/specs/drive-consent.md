@@ -144,3 +144,39 @@ pairs with 10 revocations both retained **24 evidence entries**; 1,000 pairs wit
 observes 2R signed terminal entries plus four live/diagnostic entries, independent
 of the expired unrevoked history. Replay IDs remain bounded by the 48-hour window,
 so their size depends on the reception rate within that window.
+
+## Denial-reason classes (membership rule)
+
+Every `ConsentReason` belongs to one of three classes, separated by the criterion
+**"is re-requesting a fresh consent the legitimate next step?"**. The classes bound what
+the derived index (a cache of the journal) may return in place of the full-journal
+`projectConsent` verdict.
+
+- **Approximable** — `unauthorized`, `consent-pending`, `consent-expired`. All mean "no
+  consent is in force; requesting one is the legitimate next step." Re-requesting is the
+  feature, so the index MAY return any of these in place of another (never toward grant);
+  confusing one for another costs nothing an honest caller would not already do.
+- **Exact-decision** — `consent-revoked`, `consent-refused`, `consent-principal-unavailable`,
+  `consent-invalid`. All mean "a decision was made, or a structural block exists";
+  re-requesting is not legitimate (revoked/refused: the target said no) or useless
+  (principal-unavailable / invalid: a structural block). The index MUST return these
+  EXACTLY as `projectConsent` does. `consent-invalid` is exact only WHEN A VALID REQUEST
+  EXISTS (a conflict or structural block on a valid request); a journal with no valid
+  request carries no decision to protect and resolves to `unauthorized` (approximable) —
+  retaining requestless orphan evidence would be an attack surface defending no authority.
+- **Transient-unavailable** — `consent-unavailable`. Means "the consent subsystem could not
+  be consulted right now" (store unavailable, journal changed mid-rebuild, receiver-clock
+  rollback, unsupported lease topology, non-finite clock). It asserts NEITHER "no consent"
+  NOR "a decision"; the caller must RETRY THE CHECK, not re-request. It is produced by the
+  store/admission layer, outside `projectConsent`'s verdict, so it is not part of the
+  index-vs-journal approximation — but it MUST NOT be approximated to either other class:
+  toward the approximable class it would tell a possibly-consented caller to re-request;
+  toward the exact class it would assert a decision that was not made.
+
+**Membership rule (binding).** Every reason ADDED to `ConsentReason` MUST declare its class
+here, by the same criterion. A reason with no declared class defaults, in a reader's and a
+pruner's mind, to the approximable class — the WRONG side for any decision, structural-block
+or could-not-determine reason. An enumeration without a membership rule degrades at each
+addition. Worked example: a future `consent-quarantined` (only if the item-2 validity
+condition in docs/reviews ever materializes — a receive/mirror path admitting envelopes) is
+EXACT: a held-back negative is a decision pending replay, not an absence of consent.

@@ -7,6 +7,14 @@ export const DRIVE_CONSENT_MAX_ANSWER_MS = 60 * 60 * 1000;
 export const DRIVE_CONSENT_DEFAULT_GRANT_MS = 60 * 60 * 1000;
 export const DRIVE_CONSENT_MAX_GRANT_MS = 24 * 60 * 60 * 1000;
 export const DRIVE_CONSENT_LIMIT = 'Signatures prove active-key possession, not intent. Source: owner build brief decision 2, 2026-09-24: earlier measurement of 53,904 private-key files under one OS account in /home/antoinefa/h2a-workspace/.h2a/keys, including a direct cross-lane key read. Source: ~/h2a-workspace/.h2a/registry/instances.jsonl, count 2026-09-24: 0 / 26,964 live registrations carry a principal, so conditional co-signing is inert on that fleet. Source: ~/h2a-workspace/.h2a/keys/, measurement 2026-09-24: 26,964 private keys, mode 0600, all owned by the current uid; any same-uid lane can read a principal key, so co-signature is explicit but NOT attributable to human intent. Out-of-band principal custody does not exist; per-agent custody deferred to Track 01M38WH19VE7VGW8QY0P9NHHVX.';
+// Reason classes (see docs/specs/drive-consent.md "Denial-reason classes"), by the
+// criterion "is re-requesting a fresh consent legitimate?": APPROXIMABLE {unauthorized,
+// consent-pending, consent-expired} (no consent in force) — the derived index may
+// substitute among these, never toward grant; EXACT {consent-revoked, consent-refused,
+// consent-principal-unavailable, consent-invalid when a valid request exists} (a decision
+// or structural block) — the index must return these verbatim; TRANSIENT {consent-
+// unavailable} (could-not-determine — retry the check, infer nothing). Every NEW reason
+// MUST declare its class in that spec section; default-to-approximable is the wrong side.
 export type ConsentReason = 'unauthorized' | 'consent-pending' | 'consent-refused' | 'consent-expired' | 'consent-revoked' | 'consent-invalid' | 'consent-unavailable' | 'consent-principal-unavailable';
 export type ConsentDecision = {ok:true;via:'consent';grantId:string;requestId:string;notAfter:string;principalDecision:'principal-absent'|'co-signed'} | {ok:false;reason:ConsentReason};
 export interface ConsentProjection { decision:ConsentDecision; anomalies:string[]; requests:number; limit:typeof DRIVE_CONSENT_LIMIT; }
