@@ -306,3 +306,97 @@ test('future status reads do not consume current authority or advance the high-w
   assert.equal(f.store.findDriveConsent(A,B,f.now+72*3600000).decision.ok,false);
   assert.equal((await receive(f)).ok,true);
 });
+
+for (const kind of ["refusal", "revocation"]) test(`aged ${kind} still overrides a live request in existing journals`, async t => {
+  const f=fixture(t), H=3600000, created=f.now+24*H;
+  const p=bodies(f,{created,answer:created+H,end:created+25*H});
+  p.grant.notBefore=iso(created+H);
+  raw(f,event(f,negative(p,kind,f.now),f.b,B));
+  raw(f,event(f,p.request,f.a,A));
+  raw(f,event(f,p.grant,f.b,B));
+  const advance=f.now+48*H+1000;
+  const next=bodies(f,{created:advance});
+  f.store.recordDriveConsentEnvelope(event(f,next.request,f.a,A),advance);
+  const now=advance+1000;
+  const {projectConsent}=await import("../dist/runtime/drive/consent.js");
+  const expected=projectConsent(f.store,A,B,f.store.readDriveConsentChain(A,B),now).decision;
+  assert.deepEqual(expected,{ok:false,reason:kind==="refusal"?"consent-refused":"consent-revoked"});
+  for (const store of [f.store,createLocalStore({root:f.root})]) {
+    assert.deepEqual(store.findDriveConsent(A,B,now).decision,expected);
+    assert.equal((await receive(f,{store,now})).reason,expected.reason);
+  }
+});
+
+test("envelope admission rejects orphan evidence and request clock skew without writes", t => {
+  const f=fixture(t), p=bodies(f);
+  for (const payload of [p.grant,negative(p,"refusal",f.now),negative(p,"revocation",f.now),{...p.grant,pair:true}]) {
+    assert.throws(()=>f.store.recordDriveConsentEnvelope(event(f,payload,f.b,B),f.now),/orphan evidence/);
+  }
+  for (const delta of [-60001,60001]) {
+    const request=bodies(f,{created:f.now+delta}).request;
+    assert.throws(()=>f.store.recordDriveConsentEnvelope(event(f,request,f.a,A),f.now),/request clock skew/);
+  }
+  assert.equal(f.store.readDriveConsentChain(A,B).length,0);
+  for (const delta of [-60000,60000]) {
+    const request=bodies(f,{created:f.now+delta}).request;
+    assert.doesNotThrow(()=>f.store.recordDriveConsentEnvelope(event(f,request,f.a,A),f.now));
+  }
+  f.store.recordDriveConsentEnvelope(event(f,p.request,f.a,A),f.now);
+  assert.equal(f.store.recordDriveConsentEnvelope(event(f,p.grant,f.b,B),f.now).decision.ok,true);
+});
+
+// Deliberate age-boundary corpus complements the seeded fuzz generator.
+for (const mode of ['request','pair','pair-expired','renewal','late-request','late-pair-request']) test(
+  'index revocation fidelity corpus: '+mode, async t => {
+    const {projectConsent}=await import('../dist/runtime/drive/consent.js');
+    const f=fixture(t), H=3600000, p=seed(f);
+    const at=f.now+72*H;
+    if (!mode.startsWith('late-')) {
+      const rev=mode.startsWith('pair')
+        ? {kind:'h2a.drive.consent.revocation',v:1,from:A,to:B,pair:true,
+            at:iso(mode==='pair'?at:f.now),notAfter:iso(mode==='pair'?at+H:f.now+H)}
+        : negative(p,'revocation',f.now);
+      // Old RECEIPT, independently signed time window (historical disk fixture).
+      raw(f,event(f,rev,f.b,B));
+    }
+    if (mode.startsWith('late-')) {
+      const middle=bodies(f,{created:f.now+24*H});
+      f.store.recordDriveConsentEnvelope(event(f,middle.request,f.a,A),f.now+24*H);
+    }
+    const next=bodies(f,{created:at});
+    f.store.recordDriveConsentEnvelope(event(f,next.request,f.a,A),at);
+    // Advance the persisted pruning clock and exercise the warm index.
+    f.store.findDriveConsent(A,B,at);
+    if (mode.startsWith('late-')) {
+      const rev={...negative(p,'revocation',at),...(mode==='late-pair-request'?{pair:true,notAfter:iso(at)}:{})};
+      f.store.recordDriveConsentEnvelope(event(f,rev,f.b,B),at);
+    }
+    if (mode==='renewal') f.store.recordDriveConsentEnvelope(event(f,next.grant,f.b,B),at);
+    const full=projectConsent(f.store,A,B,f.store.readDriveConsentChain(A,B),at).decision;
+    if (mode==='renewal') assert.equal(full.ok,true);
+    else assert.equal(full.reason,mode==='pair-expired'?'consent-expired':'consent-revoked');
+    for (const store of [f.store,createLocalStore({root:f.root})]) {
+      const indexed=store.findDriveConsent(A,B,at).decision;
+      if (!full.ok) assert.equal(indexed.ok,false);
+      if (indexed.ok) assert.equal(full.ok,true);
+      if (full.reason==='consent-revoked') assert.equal(indexed.reason,'consent-revoked');
+      if (mode==='renewal'||mode==='pair-expired') assert.deepEqual(indexed,full);
+    }
+  });
+
+test('full verification emits the deadline-derived escalation signal', async t => {
+  const {MCP_IDENTITY_TIMEOUT_MS}=await import('../dist/runtime/mcp/identity-state.js');
+  const lines=[];
+  t.mock.method(console,'error',line=>lines.push(JSON.parse(line)));
+  let ticks=0;
+  // Only the measurement clock is controlled; no timer or timeout is changed.
+  t.mock.method(performance,'now',()=>ticks++ * MCP_IDENTITY_TIMEOUT_MS * 0.1);
+  fixture(t);
+  const signal=lines.find(line=>line.event==='drive-consent.full-verification');
+  assert.ok(signal);
+  assert.equal(signal.thresholdMs,MCP_IDENTITY_TIMEOUT_MS*signal.budgetFraction);
+  assert.equal(signal.budgetFraction,0.1);
+  assert.equal(signal.due,true);
+  assert.equal(signal.action,'ESCALATE debt -> due');
+  assert.equal(signal.track,'01M39VC11XBNSE8W2ASMQRRKZV');
+});

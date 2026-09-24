@@ -15,6 +15,7 @@ import {
   H2A_ARTIFACT_KINDS,
   H2A_AUTHORITY_MATRIX,
   H2A_DECLARATION_INTERET_BODY_KIND,
+  H2A_DEFAULT_MAX_SKEW_MS,
   appendJournalEntry,
   assertValidNegotiationState,
   canSignArtifactKind,
@@ -47,7 +48,9 @@ import {
   type H2ASignature
 } from "@sentropic/h2a";
 
-import { consentPairId, isConsentId, projectConsent, verified, evidence, DRIVE_CONSENT_LIMIT, type ConsentProjection, type ConsentDecision } from '../drive/consent.js';
+import { MCP_IDENTITY_TIMEOUT_MS } from '../mcp/identity-state.js';
+
+import { consentPairId, isConsentId, projectConsent, verified, evidence, instant, DRIVE_CONSENT_LIMIT, type ConsentProjection, type ConsentDecision } from '../drive/consent.js';
 import { authorizeDrive, type H2ADriveAuthorizeResult, type H2ADriveInstructionPayload } from '../drive/index.js';
 import { withLockSync, type LockObservation } from "./locks.js";
 import { withLeaseSync } from "./lease.js";
@@ -858,11 +861,15 @@ export function createLocalStore(options: CreateLocalStoreOptions): LocalStore {
     } else index.entries.push(entry);
   }
   function pruneConsentIndex(index: ConsentIndex, now: number): void {
-    // Request/grant caps fit within 25h. Keep 48h of evidence (including
-    // negative evidence); no still-live grant can refer to an older request.
-    index.entries = index.entries.filter(e => Date.parse(e.createdAt) >= now-consentWindow);
+    // Compute liveness before applying receipt age: a negative may have been
+    // received long before the live request it overrides in an existing journal.
     const live = new Set<unknown>();
     const known = new Set<unknown>();
+    // Signed terminal evidence plus its request is O(revocations), not O(history).
+    // Reverify it in projectConsent: never cache a revoked verdict.
+    const revokedHashes = new Set(index.entries.flatMap(e =>
+      evidence(e.body) && e.body.payload.kind === 'h2a.drive.consent.revocation'
+        ? [e.body.payload.requestHash] : []));
     let lastExpired: {id: unknown; end: number} | undefined;
     for (const entry of index.entries) {
       if (!evidence(entry.body) || entry.body.payload.kind !== 'h2a.drive.consent.request') continue;
@@ -870,16 +877,26 @@ export function createLocalStore(options: CreateLocalStoreOptions): LocalStore {
       known.add(p.requestId);
       const end = Date.parse(String(p.requestedNotAfter));
       if (!Number.isFinite(end) || end > now) live.add(p.requestId);
-      else if (!lastExpired || end > lastExpired.end) lastExpired = {id:p.requestId,end};
+      else if ((!lastExpired || end > lastExpired.end) &&
+        typeof p.from === 'string' && typeof p.to === 'string' &&
+        projectConsent({findInstance,listInstanceKeys,listKeyEvents},p.from,p.to,[entry],now).requests > 0) {
+        lastExpired = {id:p.requestId,end};
+      }
     }
-    // One expired request group preserves denial diagnostics; historical
-    // expired grants do not accumulate in the admission resolver.
+    // Keep one request witness even beyond receipt age: pair revocation is
+    // considered by the source of truth only when a valid request exists.
     if (lastExpired) live.add(lastExpired.id);
     index.entries = index.entries.filter(entry => {
-      if (!evidence(entry.body)) return true;
+      if (!evidence(entry.body)) return Date.parse(entry.createdAt) >= now-consentWindow;
       const p = entry.body.payload;
-      if (p.pair === true) return Date.parse(String(p.notAfter)) > now;
-      return !known.has(p.requestId) || live.has(p.requestId);
+      if (p.kind === 'h2a.drive.consent.request' && revokedHashes.has(computeHash(p))) return true;
+      if (p.kind === 'h2a.drive.consent.revocation') {
+        // pair:true can ALSO be request-related in historical journals; that
+        // terminal meaning survives its pair window, exactly as in projection.
+        return known.has(p.requestId) || p.pair === true && instant(p.notAfter) > now;
+      }
+      if (known.has(p.requestId)) return live.has(p.requestId);
+      return Date.parse(entry.createdAt) >= now-consentWindow;
     });
     for (const [id,at] of index.admissions) {
       if (at >= now-consentWindow) break;
@@ -906,6 +923,7 @@ export function createLocalStore(options: CreateLocalStoreOptions): LocalStore {
     return index;
   }
   function verifyConsentHistory(): void {
+    const started = performance.now();
     if (!existsSync(paths.negotiations)) return;
     for (const dir of readdirSync(paths.negotiations)) {
       if (!dir.startsWith('drive-consent__')) continue;
@@ -914,6 +932,14 @@ export function createLocalStore(options: CreateLocalStoreOptions): LocalStore {
       const id = dir.replaceAll('__',':');
       try { rebuildConsentIndex(id); } catch (error) { consentFailures.set(id,error); }
     }
+    const durationMs = performance.now()-started;
+    // Reserve 90% of identity acquisition for all other startup work.
+    const budgetFraction = 0.1;
+    const thresholdMs = MCP_IDENTITY_TIMEOUT_MS * budgetFraction;
+    console.error(JSON.stringify({event:'drive-consent.full-verification',durationMs,
+      thresholdMs,budgetFraction,identityDeadlineMs:MCP_IDENTITY_TIMEOUT_MS,
+      due:durationMs >= thresholdMs,track:'01M39VC11XBNSE8W2ASMQRRKZV',
+      action:durationMs >= thresholdMs ? 'ESCALATE debt -> due' : 'observe'}));
   }
   verifyConsentHistory();
   // Weak reference avoids retaining short-lived CLI/MCP stores indefinitely.
@@ -971,6 +997,25 @@ export function createLocalStore(options: CreateLocalStoreOptions): LocalStore {
     const from = body.payload.from, to = body.payload.to;
     if (typeof from !== 'string' || typeof to !== 'string' || event.negotiationId !== consentPairId(from,to)) throw new Error('consent-invalid: pair');
     return consentTransaction(from,to,(entries,append,now,index)=>{
+      const p = body.payload;
+      if (p.kind === 'h2a.drive.consent.request') {
+        const created = instant(p.createdAt);
+        if (!Number.isFinite(created) || Math.abs(created-now) > H2A_DEFAULT_MAX_SKEW_MS) throw new Error('consent-invalid: request clock skew');
+      } else if (!(p.kind === 'h2a.drive.consent.revocation' && p.pair === true) ||
+        (typeof p.requestId === 'string' && typeof p.requestHash === 'string')) {
+        const matchesRequest = (e: H2AJournalEntry<unknown>): boolean => evidence(e.body) &&
+          e.body.payload.kind === 'h2a.drive.consent.request' &&
+          e.body.payload.requestId === p.requestId && computeHash(e.body.payload) === p.requestHash;
+        // Old requests can have left the derived index; absence there alone
+        // does not establish that the signed request is absent from the chain.
+        if (!entries.some(matchesRequest)) {
+          const history = readDriveConsentChain(from,to);
+          if (!history.some(matchesRequest) && !(p.kind === 'h2a.drive.consent.revocation' && p.pair === true)) throw new Error('consent-invalid: orphan evidence');
+          // A late terminal event must bring back its signed request witness,
+          // including any conflicting evidence, before projecting the append.
+          entries.push(...history.filter(e => evidence(e.body) && e.body.payload.requestId === p.requestId));
+        }
+      }
       // The receipt timestamp is always assigned here, never by the caller.
       const candidate = {...event,createdAt:new Date(now).toISOString()};
       const previous = index.last;
