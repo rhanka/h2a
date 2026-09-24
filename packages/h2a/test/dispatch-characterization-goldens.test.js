@@ -19,7 +19,9 @@ const BIN = join(REPO_ROOT, "packages", "h2a", "dist", "bin.js");
 // muse are poll-only" note, and the `Hosts:` line from CLI_HOSTS. It is NOT the
 // cli-help-groups spelling (that lives in h2a-runtime and never reaches the core help),
 // and the RUNTIME_VERBS `muse` entry does not affect this stream either.
-const CORE_HELP_SHA256 = "8db3d4d9cececc54f1f31521e18c7d6724aeb82c4b6f84f48939f022fbff5afd";
+// Drive consent adds exactly five MCP names (+132 bytes). Removing those names
+// recovers the previous 13,259-byte stream and its SHA-256 byte-for-byte.
+const CORE_HELP_SHA256 = "fd1d488ff03784c62c2f46d596426fd36556681ef2dd20c8548c128f79ba4821";
 const RUNTIME_MISSING =
   "ce verbe requiert le runtime h2a (sessions / k8s / tunnel).\n" +
   "  Répare l'installation lockstep : npm i -g @sentropic/h2a@latest\n";
@@ -111,7 +113,7 @@ function assertCoreHelp(result) {
   // A SHA-256 commitment is an exact, compact golden for the help stream; the
   // durable report records this value and its byte length.
   assert.equal(createHash("sha256").update(result.stdout).digest("hex"), CORE_HELP_SHA256);
-  assert.equal(Buffer.byteLength(result.stdout), 13259);
+  assert.equal(Buffer.byteLength(result.stdout), 13391);
 }
 
 function assertMissingRuntime(result, firstToken) {
