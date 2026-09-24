@@ -53,6 +53,17 @@ export function projectConsent(store:ConsentReader,from:string,to:string,entries
     return valid;
   });
   if(!requests.length) return done({ok:false,reason:events.length?'consent-invalid':'unauthorized'});
+  // Pair revocation is independent of journal order and overrides every
+  // conflicting live grant throughout the revoked requests' remaining window.
+  const pairRevoked=events.some(({body,entry})=>{
+    const p=body.payload;
+    if(p.kind!=='h2a.drive.consent.revocation'||p.pair!==true)return false;
+    const at=instant(p.at),end=instant(p.notAfter),by=body.signature.by;
+    const valid=bound(p) && (by===from||by===to) && Number.isFinite(at) && end>=at && end-at<=DRIVE_CONSENT_MAX_GRANT_MS+DRIVE_CONSENT_MAX_ANSWER_MS && verified(store,p,body.signature,by,true);
+    if(!valid)anomalies.push(entry.id);
+    return valid && now<end;
+  });
+  if(pairRevoked)return done({ok:false,reason:'consent-revoked'},requests.length);
   const decisions:ConsentDecision[]=[];
   for(const {body:requestBody} of requests){
     const request=requestBody.payload,hash=computeHash(request);
@@ -75,6 +86,7 @@ export function projectConsent(store:ConsentReader,from:string,to:string,entries
       return valid;
     });
     if(new Set(grants.map(g=>computeHash(g.body.payload))).size>1){decisions.push({ok:false,reason:'consent-invalid'});continue;}
+    if(!grants.length && b.principal!==undefined && related.some(({body})=>body.payload.kind==='h2a.drive.consent.grant' && body.payload.principal===undefined && verified(store,body.payload,body.signature,to))){decisions.push({ok:false,reason:'consent-principal-unavailable'});continue;}
     if(!grants.length){decisions.push({ok:false,reason:now>=instant(request.answerBy)?'consent-expired':related.some(e=>e.body.payload.kind==='h2a.drive.consent.grant')?'consent-invalid':'consent-pending'});continue;}
     const g=grants[0].body.payload;
     if(now>=instant(g.notAfter)){decisions.push({ok:false,reason:'consent-expired'});continue;}

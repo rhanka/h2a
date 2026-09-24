@@ -194,7 +194,7 @@ test('a single injected receiver clock authorizes; real backdated writes remain 
 
 test('lock contention fails closed and authorizes again after release',async t=>{
   const f=fixture(t);seed(f);const store=createLocalStore({root:f.root,lockTimeoutMs:1});
-  withLockSync(join(store.paths.registry,'.lock'),()=>assert.equal(authorizeDrive(store,{from:A,to:B},{now:f.now}).reason,'consent-unavailable'));
+  withLockSync(join(store.paths.registry,'.lock'),()=>assert.equal(verifyDriveOnReceive(store,formatSignedDriveInstruction({from:A,to:B,instruction:'go',privateKeyPem:f.a.privateKeyPem,at:iso(f.now)}),{to:B,now:f.now,guard:createReplayGuard()}).reason,'consent-unavailable'));
   assert.equal((await receive(f,{store})).ok,true);
 });
 
@@ -229,17 +229,80 @@ test('missing durations reject; exact read-time caps permit a valid grant',async
   assert.equal((await receive(f)).ok,true);
 });
 
-test('audit distinguishes no request from refusal and retains measured custody limits',async t=>{
+test('status and authorization reads append nothing, including absent and refused pairs',async t=>{
   const f=fixture(t);
-  assert.deepEqual((await receive(f)),{ok:false,reason:'unauthorized'});
-  let entries=f.store.readDriveConsentChain(A,B);
-  assert.equal(entries.at(-1).body.requestState,'no-request');
+  assert.deepEqual(await receive(f),{ok:false,reason:'unauthorized'});
+  assert.equal(f.store.readDriveConsentChain(A,B).length,0);
+  rpc(server(f),'status',{from:A,to:B});
+  assert.equal(f.store.readDriveConsentChain(A,B).length,0);
   const p=seed(f);assert.equal((await receive(f)).ok,true);
   raw(f,event(f,negative(p,'refusal',f.now),f.b,B));
+  const before=readFileSync(negotiationJournalFile(f.store.paths,consentPairId(A,B)),'utf8');
   assert.equal((await receive(f)).reason,'consent-refused');
-  entries=f.store.readDriveConsentChain(A,B);
-  const audit=entries.at(-1).body;
-  assert.equal(audit.requestState,'request-present');assert.equal(audit.decision.reason,'consent-refused');
-  assert.match(audit.limit,/registry\/instances.jsonl/);assert.match(audit.limit,/0 \/ 26,964/);
-  assert.match(audit.limit,/keys\//);assert.match(audit.limit,/26,964 private keys, mode 0600/);assert.match(audit.limit,/NOT attributable/);
+  const status=rpc(server(f),'status',{from:A,to:B});
+  assert.equal(status.decision.reason,'consent-refused');
+  assert.equal(readFileSync(negotiationJournalFile(f.store.paths,consentPairId(A,B)),'utf8'),before);
+  assert.match(status.limit,/NOT attributable/);
+});
+
+test('one pair revoke without requestId defeats two live grants in either order',async t=>{
+  for(const reverse of [false,true]){
+    const f=fixture(t);seed(f);seed(f);
+    assert.equal((await receive(f)).ok,true);
+    const rev=rpc(server(f,B,f.b),'revoke',{from:A,to:B});
+    assert.equal(rev.payload.pair,true);
+    assert.equal((await receive(f,{now:Date.now()})).reason,'consent-revoked');
+    seed(f,{created:Date.now()}); // A conflicting later grant cannot bypass it.
+    assert.equal((await receive(f,{now:Date.now()})).reason,'consent-revoked');
+    if(reverse){
+      const entries=f.store.readDriveConsentChain(A,B).filter(e=>e.body.kind!=='drive-consent.audit').reverse();
+      const file=negotiationJournalFile(f.store.paths,consentPairId(A,B));
+      writeFileSync(file,'');let previous;
+      for(const entry of entries){const {protocol,version,sequence,prevHash,contentHash,...payload}=entry;previous=previous?appendJournalEntry(previous,payload):createJournalEntry(payload);appendFileSync(file,JSON.stringify(previous)+'\n');}
+      assert.equal((await receive(f,{now:Date.now()})).reason,'consent-revoked');
+    }
+  }
+});
+
+for(const options of [{lockMode:'lease'},{readOnly:true}])test('unavailable admission store preserves plain unauthorized HTTP 403 '+JSON.stringify(options),async t=>{
+  const f=fixture(t),store=createLocalStore({root:f.root,...options});
+  const result=await receive(f,{store});assert.equal(result.reason,'unauthorized');
+  assert.equal(remoteDriveRejectionStatus(result.reason),403);
+  seed(f);assert.equal((await receive(f,{store})).reason,'consent-unavailable');
+});
+
+test('principal added after grant reports principal unavailable',async t=>{
+  const f=fixture(t);seed(f);rewriteRegistration(f,B,{principal:'codex:p'});
+  assert.equal((await receive(f)).reason,'consent-principal-unavailable');
+});
+
+test('admission replay survives fresh guards and reconstruction on restart',async t=>{
+  const f=fixture(t);seed(f);
+  const line=formatSignedDriveInstruction({from:A,to:B,instruction:'once',privateKeyPem:f.a.privateKeyPem,at:iso(f.now)});
+  const accept=store=>acceptDriveInstruction(line,{store,now:f.now,guard:createReplayGuard(),expectedTo:B,inject:()=>true});
+  assert.equal((await accept(f.store)).ok,true);
+  assert.equal((await accept(f.store)).reason,'replayed');
+  assert.equal((await accept(createLocalStore({root:f.root}))).reason,'replayed');
+});
+
+test('startup and periodic full verification detect alteration of covered history outside registry lock',async t=>{
+  const f=fixture(t);seed(f);assert.equal((await receive(f)).ok,true);
+  let periodic;
+  t.mock.method(globalThis,'setInterval',(callback,ms)=>{assert.equal(ms,60000);periodic=callback;return {unref(){}};});
+  const reopened=createLocalStore({root:f.root,lockTimeoutMs:1});
+  assert.equal(typeof periodic,'function');
+  const file=negotiationJournalFile(f.store.paths,consentPairId(A,B));
+  const bytes=readFileSync(file,'utf8');
+  writeFileSync(file,bytes.replace('drive.instruction','drive.instructioX'));
+  withLockSync(join(f.store.paths.registry,'.lock'),()=>periodic());
+  assert.equal((await receive(f,{store:reopened})).reason,'consent-invalid');
+  assert.equal((await receive(f,{store:createLocalStore({root:f.root})})).reason,'consent-invalid');
+  writeFileSync(file,bytes);
+  assert.equal((await receive(f,{store:reopened})).ok,true);
+});
+
+test('future status reads do not consume current authority or advance the high-water mark',async t=>{
+  const f=fixture(t);seed(f);assert.equal((await receive(f)).ok,true);
+  assert.equal(f.store.findDriveConsent(A,B,f.now+72*3600000).decision.ok,false);
+  assert.equal((await receive(f)).ok,true);
 });
