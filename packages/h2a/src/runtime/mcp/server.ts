@@ -252,6 +252,7 @@ export function createMcpServer(options: CreateMcpServerOptions): McpServer {
     options.store ??
     createLocalStore({
       root: options.root,
+      alwaysEmitConsentBudget: true,
       ...(options.storeInitialize === false ? { initialize: false } : {})
     });
   const sessions = new SessionRegistry(options.root, {
