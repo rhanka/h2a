@@ -863,6 +863,11 @@ export function createLocalStore(options: CreateLocalStoreOptions): LocalStore {
     } else index.entries.push(entry);
   }
   function pruneConsentIndex(index: ConsentIndex, now: number): void {
+    const regCache = new Map<string, ReturnType<typeof findInstance>>();
+    const reg = (id: string) => {
+      if (!regCache.has(id)) regCache.set(id, findInstance(id));
+      return regCache.get(id);
+    };
     // Compute liveness before applying receipt age: a negative may have been
     // received long before the live request it overrides in an existing journal.
     const live = new Set<unknown>();
@@ -880,7 +885,7 @@ export function createLocalStore(options: CreateLocalStoreOptions): LocalStore {
       } else if (p.kind === 'h2a.drive.consent.grant') {
         const hash = computeHash(p), previous = grantHashes.get(p.requestHash);
         if (previous !== undefined && previous !== hash ||
-          p.principal === undefined && typeof p.to === 'string' && findInstance(p.to)?.principal !== undefined) {
+          p.principal === undefined && typeof p.to === 'string' && reg(p.to)?.principal !== undefined) {
           decisiveGrantHashes.add(p.requestHash);
         }
         grantHashes.set(p.requestHash,hash);
@@ -895,7 +900,7 @@ export function createLocalStore(options: CreateLocalStoreOptions): LocalStore {
       if (!Number.isFinite(end) || end > now) live.add(p.requestId);
       else if ((!lastExpired || end > lastExpired.end) &&
         typeof p.from === 'string' && typeof p.to === 'string' &&
-        projectConsent({findInstance,listInstanceKeys,listKeyEvents},p.from,p.to,[entry],now).requests > 0) {
+        projectConsent({findInstance:reg,listInstanceKeys,listKeyEvents},p.from,p.to,[entry],now).requests > 0) {
         lastExpired = {id:p.requestId,end};
       }
     }
