@@ -33,3 +33,17 @@ Caveat (obtained differently): the CAPTURING agent ran via `codex exec` direct (
 ## Raw artifacts (may be purged from cache — named here per the archival rule)
 
 Under `/home/antoinefa/.cache-tmp/host-startup/`: `capture.cjs`, `probe.cjs`, `analyze.cjs`, `write-report.cjs`, `summary.json`, full `report.md`, and three capture directories with raw `stderr.log` / timestamped `capture.jsonl` / per-pid `probe-<pid>.jsonl`. Trace attempt IDs: capture-1 `cd174af8-488f-4e52-b06e-5583afce1313`; capture-2-warm `cf3639f8-73f8-4a86-a68f-4aa1b0cbab48`; capture-3-warm `1f815056-4318-4f43-9f69-ad308bfc18e4`. Installed `dist/bin.js` SHA-256 `c6f502d84fc163c0aea7fcbf52dbecb8c18dc898e8aede73bd8cb8d24833cdb0`.
+
+## 2026-09-24 differential — the added path, not the registry (reorients the fleet-floor hypothesis)
+
+A `h2a_run` launch (profile `claude`, gateway required) failed `identity_timeout` TWICE, once in a CONFIRMED CALM window: CPU PSI some avg10 **0.00 %**, loadavg1 **6.23**. This is a direct COUNTER-EXAMPLE to the fleet-floor / restart-herd hypothesis above: a herd that materializes the 17 MB registry across ~48 simultaneous lanes would explain failures AT A SPIKE; it does NOT explain a failure AT CALM. The floor hypothesis is thereby WEAKENED (not disproven — it may still contribute at spikes), and the standing "hypothesis, not cause" caveat now has a concrete calm-window failure it does not cover.
+
+What the calm failure ISOLATES — the cleanest differential of this investigation. Same host, same 26,965-row registry, same calm instant, two acquisition paths that diverge by a factor of ~30:
+- `mcp-serve` direct → identity ready in **644–700 ms** (the calm baseline above);
+- `h2a_run` profile `claude` **with gateway** → exceeds the **20 s** deadline (`identity_timeout`).
+
+The variable is therefore neither the registry, nor the load, nor the parse. It is **what `h2a_run` + gateway do IN ADDITION to `mcp-serve`** — gateway cold-start, profile resolution, a service wait, or whatever the added path contains.
+
+Consequence on the order of the still-due experiments (deferred behind the drive-consent publication; NOT run here): the DIFFERENTIAL comes BEFORE the variable-N acquisition curve (N ∈ {1, 4, 16, 48}). Read the `h2a_run` gateway-profile code path and instrument only what it adds over `mcp-serve`. If the added path explains the 20 s, the N-curve becomes secondary; if the added path is cheap, the calm-window failure stays unexplained and the N-curve regains its full meaning. Either way the next step is determined — which was not true before this differential. (Note: this is code-reading plus a few traces, not a campaign.)
+
+Caveat on attribution: the `codex exec`-direct channel used for delegation does NOT go through h2a identity acquisition at all, which is why it never hits this timeout — a third data point consistent with "the cost is in the h2a identity/gateway path, not in the work itself."
