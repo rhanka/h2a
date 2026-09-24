@@ -1,3 +1,4 @@
+import { handleDriveConsent, CONSENT_TOOLS } from "../drive/consent-tools.js";
 import { createLocalStore, type LocalStore } from "../local-files/store.js";
 
 import {
@@ -251,6 +252,7 @@ export function createMcpServer(options: CreateMcpServerOptions): McpServer {
     options.store ??
     createLocalStore({
       root: options.root,
+      alwaysEmitConsentBudget: true,
       ...(options.storeInitialize === false ? { initialize: false } : {})
     });
   const sessions = new SessionRegistry(options.root, {
@@ -338,6 +340,7 @@ export function createMcpServer(options: CreateMcpServerOptions): McpServer {
         };
       }
     }
+    if ((CONSENT_TOOLS as readonly string[]).includes(name)) return handleDriveConsent(store, options.getSendContext ? options.getSendContext() : options.sendContext, name, args);
     const toolName = name as McpToolName;
     switch (toolName) {
       case "h2a_register_instance":
