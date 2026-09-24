@@ -20,6 +20,12 @@ export interface McpToolDescriptor {
  * @sentropic/h2a invariants, not in the MCP shim.
  */
 const H2A_COORDINATION_TOOL_DESCRIPTORS: McpToolDescriptor[] = [
+{"name":"h2a_drive_consent_request","description":"Drive consent request. Pair/time scope; explicit dates required. Signing uses the bound MCP identity. Signatures prove key possession, not human intent.","inputSchema":{"type":"object","properties":{"to":{"type":"string"},"answerBy":{"type":"string"},"requestedNotAfter":{"type":"string"},"purpose":{"type":"string"}},"required":["to","answerBy","requestedNotAfter"],"additionalProperties":false}},
+{"name":"h2a_drive_consent_respond","description":"Drive consent respond. Pair/time scope; explicit dates required. Signing uses the bound MCP identity. Signatures prove key possession, not human intent.","inputSchema":{"type":"object","properties":{"from":{"type":"string"},"requestId":{"type":"string"},"decision":{"type":"string"},"notBefore":{"type":"string"},"notAfter":{"type":"string"},"reason":{"type":"string"}},"required":["from","requestId","decision"],"additionalProperties":false}},
+{"name":"h2a_drive_consent_cosign","description":"Drive consent cosign. Pair/time scope; explicit dates required. Signing uses the bound MCP identity. Signatures prove key possession, not human intent.","inputSchema":{"type":"object","properties":{"from":{"type":"string"},"to":{"type":"string"},"grantId":{"type":"string"}},"required":["from","to","grantId"],"additionalProperties":false}},
+{"name":"h2a_drive_consent_revoke","description":"Drive consent revoke. Pair/time scope; explicit dates required. Signing uses the bound MCP identity. Signatures prove key possession, not human intent.","inputSchema":{"type":"object","properties":{"from":{"type":"string"},"to":{"type":"string"},"requestId":{"type":"string"},"reason":{"type":"string"}},"required":["from","to","requestId"],"additionalProperties":false}},
+{"name":"h2a_drive_consent_status","description":"Drive consent status. Pair/time scope; explicit dates required. Signing uses the bound MCP identity. Signatures prove key possession, not human intent.","inputSchema":{"type":"object","properties":{"from":{"type":"string"},"to":{"type":"string"}},"required":["from","to"],"additionalProperties":false}},
+
   {
     name: "h2a_register_instance",
     description:

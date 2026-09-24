@@ -24,6 +24,7 @@ import {
   type H2ASignature
 } from "@sentropic/h2a";
 
+import type { ConsentReason, ConsentDecision } from "./consent.js";
 import type { LocalStore } from "../local-files/store.js";
 import { listPresence } from "../local-files/index.js";
 import {
@@ -76,9 +77,10 @@ export interface VerifySignedDriveInstructionOptions {
   readonly now?: number;
 }
 
-export type H2ADriveAuthorizeReason = "missing-registration" | "unauthorized";
+export type H2ADriveAuthorizeReason = "missing-registration" | ConsentReason;
 
 export type H2ADriveAuthorizeResult =
+  | ConsentDecision
   | { readonly ok: true }
   | { readonly ok: false; readonly reason: H2ADriveAuthorizeReason };
 
@@ -93,7 +95,7 @@ export type H2ADriveAcceptResult =
   | { readonly ok: false; readonly reason: H2ADriveAcceptReason };
 
 export interface AcceptDriveInstructionOptions {
-  readonly store: Pick<LocalStore, "findInstance" | "listInstanceKeys">;
+  readonly store: Pick<LocalStore, "findInstance" | "listInstanceKeys"> & Partial<Pick<LocalStore, "findDriveConsent" | "commitDriveConsentAdmission">>;
   readonly guard: H2AReplayGuard;
   readonly expectedTo?: string;
   readonly now?: number;
@@ -337,8 +339,9 @@ function canIssueMandate(reg: H2AActorRegistration): boolean {
 }
 
 export function authorizeDrive(
-  store: Pick<LocalStore, "findInstance">,
-  request: { readonly from: string; readonly to: string }
+  store: Pick<LocalStore, "findInstance"> & Partial<Pick<LocalStore, "findDriveConsent">>,
+  request: { readonly from: string; readonly to: string },
+  options?: { now?: number }
 ): H2ADriveAuthorizeResult {
   const from = store.findInstance(request.from);
   const to = store.findInstance(request.to);
@@ -348,11 +351,15 @@ export function authorizeDrive(
   if (hasSharedScope(from, to) && canIssueMandate(from)) {
     return { ok: true };
   }
+  if (store.findDriveConsent) {
+    try { return store.findDriveConsent(request.from, request.to, options?.now).decision; }
+    catch { return {ok:false,reason:"consent-unavailable"}; }
+  }
   return { ok: false, reason: "unauthorized" };
 }
 
 export function verifyDriveOnReceive(
-  store: Pick<LocalStore, "findInstance" | "listInstanceKeys">,
+  store: Pick<LocalStore, "findInstance" | "listInstanceKeys"> & Partial<Pick<LocalStore, "findDriveConsent" | "commitDriveConsentAdmission">>,
   line: string,
   options: VerifyDriveOnReceiveOptions
 ): H2ADriveReceiveResult {
@@ -370,8 +377,13 @@ export function verifyDriveOnReceive(
   const auth = authorizeDrive(store, {
     from: verified.payload.from,
     to: verified.payload.to
-  });
+  }, {now:options.now});
   if (!auth.ok) return auth;
+  if ("via" in auth) {
+    const admission = store.commitDriveConsentAdmission?.(verified.payload, parsed.signature, options.now);
+    if (!admission) return {ok:false,reason:"consent-unavailable"};
+    if (!admission.ok) return admission;
+  }
   return {
     ok: true,
     from: verified.payload.from,
@@ -400,8 +412,13 @@ export async function acceptDriveInstruction(
   const authorized = authorizeDrive(options.store, {
     from: verified.payload.from,
     to: verified.payload.to
-  });
+  }, { now: options.now });
   if (!authorized.ok) return authorized;
+  if ("via" in authorized) {
+    const admission = options.store.commitDriveConsentAdmission?.(verified.payload, parsed.signature, options.now);
+    if (!admission) return {ok:false,reason:"consent-unavailable"};
+    if (!admission.ok) return admission;
+  }
 
   const injected = await options.inject(verified.payload);
   if (!injected) return { ok: false, reason: "inject-failed" };
@@ -588,6 +605,12 @@ export function remoteDriveRejectionStatus(reason: H2ADriveRemoteReason): number
       return 401;
     case "missing-registration":
     case "unauthorized":
+    case "consent-pending":
+    case "consent-refused":
+    case "consent-expired":
+    case "consent-revoked":
+    case "consent-invalid":
+    case "consent-principal-unavailable":
     case "target-mismatch":
       return 403;
     case "replayed":
@@ -595,6 +618,8 @@ export function remoteDriveRejectionStatus(reason: H2ADriveRemoteReason): number
     case "expired":
     case "future":
       return 422;
+    case "consent-unavailable":
+      return 503;
     case "inject-failed":
       return 502;
     case "payload-too-large":
@@ -691,7 +716,7 @@ export function createRemoteDriveServer(options: RemoteDriveServerOptions): Serv
 }
 
 export function remoteDriveServerForStore(
-  store: Pick<LocalStore, "findInstance" | "listInstanceKeys">,
+  store: Pick<LocalStore, "findInstance" | "listInstanceKeys"> & Partial<Pick<LocalStore, "findDriveConsent" | "commitDriveConsentAdmission">>,
   options: RemoteDriveServerForStoreOptions
 ): Server {
   return createRemoteDriveServer({ ...options, store });
