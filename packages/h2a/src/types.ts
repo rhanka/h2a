@@ -153,7 +153,7 @@ export interface H2ANegotiationRecord {
   id: string;
   scope: string;
   parties: string[];
-  subject: "contract" | "policy" | "engagement" | "amendment";
+  subject: "contract" | "policy" | "engagement" | "amendment" | "drive-consent";
   status: H2ANegotiationState;
   requiredSigners: string[];
   baseArtifactHash?: string;
