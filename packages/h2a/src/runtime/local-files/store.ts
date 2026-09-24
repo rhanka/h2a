@@ -1,5 +1,6 @@
 import {
   appendFileSync,
+  openSync, closeSync, fsyncSync,
   existsSync,
   mkdirSync,
   readFileSync,
@@ -14,6 +15,7 @@ import {
   H2A_ARTIFACT_KINDS,
   H2A_AUTHORITY_MATRIX,
   H2A_DECLARATION_INTERET_BODY_KIND,
+  H2A_DEFAULT_MAX_SKEW_MS,
   appendJournalEntry,
   assertValidNegotiationState,
   canSignArtifactKind,
@@ -46,6 +48,10 @@ import {
   type H2ASignature
 } from "@sentropic/h2a";
 
+import { MCP_IDENTITY_TIMEOUT_MS } from '../mcp/identity-state.js';
+
+import { consentPairId, isConsentId, projectConsent, verified, evidence, instant, DRIVE_CONSENT_LIMIT, type ConsentProjection, type ConsentDecision } from '../drive/consent.js';
+import { authorizeDrive, type H2ADriveAuthorizeResult, type H2ADriveInstructionPayload } from '../drive/index.js';
 import { withLockSync, type LockObservation } from "./locks.js";
 import { withLeaseSync } from "./lease.js";
 import { getActiveMcpTrace } from "../mcp/phase-trace.js";
@@ -71,6 +77,8 @@ import { listIdentityAliases, mergeInboxDedup } from "../identity/migration.js";
 
 export interface CreateLocalStoreOptions {
   root: string;
+  /** Emit every consent verification measurement (MCP server); CLI defaults to alerts only. */
+  alwaysEmitConsentBudget?: boolean;
   /**
    * Timeout (ms) for acquiring any per-store advisory file lock. Defaults to
    * 5000. Tests use a much smaller value to exercise the timeout path
@@ -175,6 +183,10 @@ export interface H2ADerivedDecisionDossier {
 
 export interface LocalStore {
   paths: LocalStorePaths;
+  readDriveConsentChain(from: string, to: string): H2AJournalEntry<unknown>[];
+  findDriveConsent(from: string, to: string, now?: number): ConsentProjection;
+  recordDriveConsentEnvelope(event: H2AJournalPayload<unknown>, now?: number): ConsentProjection;
+  commitDriveConsentAdmission(payload: H2ADriveInstructionPayload, signature: H2ASignature, now?: number): H2ADriveAuthorizeResult | {ok:false;reason:"replayed" | "bad-signature"};
   registerInstance(reg: H2AActorRegistration): void;
   listInstances(): H2AActorRegistration[];
   findInstance(id: string): H2AActorRegistration | undefined;
@@ -799,6 +811,7 @@ export function createLocalStore(options: CreateLocalStoreOptions): LocalStore {
     negotiationId: string,
     payload: H2AJournalPayload<TBody>
   ): H2AJournalEntry<TBody> {
+    if (isConsentId(negotiationId)) throw new Error("Reserved drive-consent namespace");
     ensureDir(negotiationDir(paths, negotiationId));
     return lock(
       negotiationLock(negotiationId),
@@ -814,6 +827,269 @@ export function createLocalStore(options: CreateLocalStoreOptions): LocalStore {
       },
       lockOpts
     );
+  }
+
+
+  function readDriveConsentChain(from: string, to: string): H2AJournalEntry<unknown>[] {
+    return readNegotiationJournalUnlocked(consentPairId(from, to));
+  }
+
+  // Derived domain index only: never a source of authority or a verified-head
+  // shortcut. External changes rebuild from the entire journal. Full historical
+  // verification also runs at startup and periodically, outside registryLock.
+  const consentWindow = 48 * 60 * 60 * 1000;
+  type ConsentIndex = {
+    stamp: string; entries: H2AJournalEntry<unknown>[];
+    last?: H2AJournalEntry<unknown>; high: number;
+    admissions: Map<string, number>;
+  };
+  const consentIndexes = new Map<string, ConsentIndex>();
+  const consentFailures = new Map<string, unknown>();
+  const consentMaintenance = {indexes:consentIndexes, verify:verifyConsentHistory};
+  function consentStamp(id: string): string {
+    const file = negotiationJournalFile(paths,id);
+    if (!existsSync(file)) return '';
+    const s = statSync(file, {bigint:true});
+    return [s.ino,s.size,s.mtimeNs,s.ctimeNs].join(':');
+  }
+  function indexConsentEntry(index: ConsentIndex, entry: H2AJournalEntry<unknown>): void {
+    index.last = entry;
+    const body = entry.body as {kind?:string;observedAt?:number;admissionId?:string};
+    if (body?.kind === 'drive-consent.audit') {
+      if (typeof body.observedAt === 'number') {
+        index.high = Math.max(index.high,body.observedAt);
+        if (body.admissionId) index.admissions.set(body.admissionId,body.observedAt);
+      }
+    } else index.entries.push(entry);
+  }
+  function pruneConsentIndex(index: ConsentIndex, now: number): void {
+    const regCache = new Map<string, ReturnType<typeof findInstance>>();
+    const reg = (id: string) => {
+      if (!regCache.has(id)) regCache.set(id, findInstance(id));
+      return regCache.get(id);
+    };
+    // Compute liveness before applying receipt age: a negative may have been
+    // received long before the live request it overrides in an existing journal.
+    const live = new Set<unknown>();
+    const known = new Set<unknown>();
+    // Retain decisive evidence and its request: O(negatives + conflicts), not
+    // O(history). projectConsent still verifies it; no verdict is cached.
+    const terminalHashes = new Set<unknown>();
+    const decisiveGrantHashes = new Set<unknown>();
+    const grantHashes = new Map<unknown, string>();
+    for (const entry of index.entries) {
+      if (!evidence(entry.body)) continue;
+      const p = entry.body.payload;
+      if (p.kind === 'h2a.drive.consent.revocation' || p.kind === 'h2a.drive.consent.refusal') {
+        terminalHashes.add(p.requestHash);
+      } else if (p.kind === 'h2a.drive.consent.grant') {
+        const hash = computeHash(p), previous = grantHashes.get(p.requestHash);
+        if (previous !== undefined && previous !== hash ||
+          p.principal === undefined && typeof p.to === 'string' && reg(p.to)?.principal !== undefined) {
+          decisiveGrantHashes.add(p.requestHash);
+        }
+        grantHashes.set(p.requestHash,hash);
+      }
+    }
+    let lastExpired: {id: unknown; end: number} | undefined;
+    for (const entry of index.entries) {
+      if (!evidence(entry.body) || entry.body.payload.kind !== 'h2a.drive.consent.request') continue;
+      const p = entry.body.payload;
+      known.add(p.requestId);
+      const end = Date.parse(String(p.requestedNotAfter));
+      if (!Number.isFinite(end) || end > now) live.add(p.requestId);
+      else if ((!lastExpired || end > lastExpired.end) &&
+        typeof p.from === 'string' && typeof p.to === 'string' &&
+        projectConsent({findInstance:reg,listInstanceKeys,listKeyEvents},p.from,p.to,[entry],now).requests > 0) {
+        lastExpired = {id:p.requestId,end};
+      }
+    }
+    // Keep one request witness even beyond receipt age: pair revocation is
+    // considered by the source of truth only when a valid request exists.
+    if (lastExpired) live.add(lastExpired.id);
+    index.entries = index.entries.filter(entry => {
+      if (!evidence(entry.body)) return Date.parse(entry.createdAt) >= now-consentWindow;
+      const p = entry.body.payload;
+      if (p.kind === 'h2a.drive.consent.request') {
+        const hash = computeHash(p);
+        if (terminalHashes.has(hash) || decisiveGrantHashes.has(hash)) return true;
+      }
+      if (known.has(p.requestId) && (p.kind === 'h2a.drive.consent.refusal' ||
+        p.kind === 'h2a.drive.consent.grant' && decisiveGrantHashes.has(p.requestHash))) return true;
+      if (p.kind === 'h2a.drive.consent.revocation') {
+        // pair:true can ALSO be request-related in historical journals; that
+        // terminal meaning survives its pair window, exactly as in projection.
+        return known.has(p.requestId) || p.pair === true && instant(p.notAfter) > now;
+      }
+      if (known.has(p.requestId)) return live.has(p.requestId);
+      return Date.parse(entry.createdAt) >= now-consentWindow;
+    });
+    for (const [id,at] of index.admissions) {
+      if (at >= now-consentWindow) break;
+      index.admissions.delete(id);
+    }
+  }
+  function rebuildConsentIndex(id: string): ConsentIndex {
+    const stamp = consentStamp(id);
+    const entries = readNegotiationJournalUnlocked(id);
+    if (stamp !== consentStamp(id)) throw Error('consent-unavailable: journal changed during rebuild');
+    const index: ConsentIndex = {stamp,entries:[],high:0,admissions:new Map()};
+    for (const entry of entries) indexConsentEntry(index,entry);
+    pruneConsentIndex(index,index.high);
+    consentIndexes.set(id,index);
+    consentFailures.delete(id);
+    return index;
+  }
+  function consentIndex(id: string, now: number): ConsentIndex {
+    let index = consentMaintenance.indexes.get(id);
+    if (!index || index.stamp !== consentStamp(id)) index = rebuildConsentIndex(id);
+    if (consentFailures.has(id)) throw consentFailures.get(id);
+    if (!Number.isFinite(now) || now < index.high) throw Error('consent-unavailable: receiver clock rollback');
+    pruneConsentIndex(index,index.high);
+    return index;
+  }
+  function verifyConsentHistory(): void {
+    const markerPath = join(paths.root,'drive-consent-budget.json');
+    // Replay before rechecking: even a recovered store reports its outstanding crossing.
+    try {
+      const marker = JSON.parse(readFileSync(markerPath,'utf8'));
+      console.error(JSON.stringify({...marker,event:'drive-consent.full-verification',
+        due:true,replayed:true,action:'ESCALATE debt -> due'}));
+    } catch { /* Observability must never make a read-only store unavailable. */ }
+    const started = performance.now();
+    try {
+      if (!existsSync(paths.negotiations)) return;
+      for (const dir of readdirSync(paths.negotiations)) {
+        if (!dir.startsWith('drive-consent__')) continue;
+        // Pair IDs contain the sha256: prefix too; both colons are escaped
+        // by safePathSegment. Hashes themselves contain no underscores.
+        const id = dir.replaceAll('__',':');
+        try { rebuildConsentIndex(id); } catch (error) { consentFailures.set(id,error); }
+      }
+    } finally {
+      const durationMs = performance.now()-started;
+      // Reserve 90% of identity acquisition for all other startup work.
+      const budgetFraction = 0.1;
+      const thresholdMs = MCP_IDENTITY_TIMEOUT_MS * budgetFraction;
+      const alertThresholdMs = MCP_IDENTITY_TIMEOUT_MS * 0.05;
+      const due = durationMs >= thresholdMs;
+      const track = '01M39VC11XBNSE8W2ASMQRRKZV';
+      // Emit independently of marker persistence, including on EACCES/EROFS roots.
+      if (options.alwaysEmitConsentBudget || durationMs >= alertThresholdMs) {
+        console.error(JSON.stringify({event:'drive-consent.full-verification',durationMs,
+          alertThresholdMs,thresholdMs,budgetFraction,identityDeadlineMs:MCP_IDENTITY_TIMEOUT_MS,
+          due,track,action:due ? 'ESCALATE debt -> due' : 'observe'}));
+      }
+      try {
+        if (due) writeFileSync(markerPath,JSON.stringify({durationMs,thresholdMs,
+          identityDeadlineMs:MCP_IDENTITY_TIMEOUT_MS,crossedAt:new Date().toISOString(),track})+'\n');
+        else unlinkSync(markerPath);
+      } catch { /* Best effort only: marker failures never block store creation. */ }
+    }
+  }
+  verifyConsentHistory();
+  // Weak reference avoids retaining short-lived CLI/MCP stores indefinitely.
+  const historyRef = new WeakRef(consentMaintenance);
+  const historyTimer = setInterval(() => {
+    const maintenance = historyRef.deref();
+    if (maintenance) maintenance.verify(); else clearInterval(historyTimer);
+  }, 60_000);
+  historyTimer.unref();
+
+  // Scan/rebuild before taking registryLock, then check the file stamp under
+  // the original registry -> pair lock order. Never scan under registryLock.
+  function consentTransaction<T>(from: string, to: string, fn: (entries: H2AJournalEntry<unknown>[], append: (body: unknown, type?: H2AJournalPayload['type']) => void, now: number, index: ConsentIndex) => T, clock?: number): T {
+    assertWritable('drive-consent');
+    if (lockMode !== 'pid') throw new Error('consent-unavailable: unsupported lease topology');
+    const id = consentPairId(from, to);
+    ensureDir(negotiationDir(paths, id));
+    const now = clock ?? Date.now();
+    const index = consentIndex(id,now);
+    return lock(registryLock, () => lock(negotiationLock(id), () => {
+      if (index.stamp !== consentStamp(id)) throw Error('consent-unavailable: journal changed before admission');
+      const append = (body: unknown, type: H2AJournalPayload['type'] = 'event'): void => {
+        const event = {id:'consent:' + computeHash({body,previous:index.last?.contentHash,now}),type,actor:{instance:to,role:'AGENTS' as const,scope:'drive-consent'},negotiationId:id,createdAt:new Date(now).toISOString(),body};
+        const entry = index.last ? appendJournalEntry(index.last,event) : createJournalEntry(event);
+        const fd = openSync(negotiationJournalFile(paths,id), 'a', 0o600);
+        try { appendFileSync(fd, JSON.stringify(entry) + '\n', 'utf8'); fsyncSync(fd); } finally { closeSync(fd); }
+        for (const dir of [negotiationDir(paths, id), paths.negotiations]) {
+          const d = openSync(dir, 'r'); try { fsyncSync(d); } finally { closeSync(d); }
+        }
+        indexConsentEntry(index,entry);
+        index.stamp = consentStamp(id);
+      };
+      return fn(index.entries, append, now, index);
+    }, lockOpts), lockOpts);
+  }
+
+  function consentError(error: unknown): ConsentProjection {
+    const message = error instanceof Error ? error.message : String(error);
+    return {decision:{ok:false,reason:/corrupt journal|JSON/.test(message)?'consent-invalid':'consent-unavailable'},anomalies:[message],requests:0,limit:DRIVE_CONSENT_LIMIT};
+  }
+  function findDriveConsent(from: string, to: string, clock?: number): ConsentProjection {
+    try {
+      const now = clock ?? Date.now();
+      const index = consentIndex(consentPairId(from,to),now);
+      const result = projectConsent({findInstance,listInstanceKeys,listKeyEvents},from,to,index.entries,now);
+      if (!result.decision.ok && result.decision.reason === 'unauthorized') return result;
+      if (readOnly || lockMode !== 'pid') throw Error('consent-unavailable: admission store unavailable');
+      return result;
+    } catch(error) { return consentError(error); }
+  }
+
+  function recordDriveConsentEnvelope(event: H2AJournalPayload<unknown>, clock?: number): ConsentProjection {
+    if (!evidence(event.body)) throw new Error('consent-invalid: malformed evidence');
+    const body = event.body;
+    const from = body.payload.from, to = body.payload.to;
+    if (typeof from !== 'string' || typeof to !== 'string' || event.negotiationId !== consentPairId(from,to)) throw new Error('consent-invalid: pair');
+    return consentTransaction(from,to,(entries,append,now,index)=>{
+      const p = body.payload;
+      if (p.kind === 'h2a.drive.consent.request') {
+        const created = instant(p.createdAt);
+        if (!Number.isFinite(created) || Math.abs(created-now) > H2A_DEFAULT_MAX_SKEW_MS) throw new Error('consent-invalid: request clock skew');
+      } else if (!(p.kind === 'h2a.drive.consent.revocation' && p.pair === true) ||
+        (typeof p.requestId === 'string' && typeof p.requestHash === 'string')) {
+        const matchesRequest = (e: H2AJournalEntry<unknown>): boolean => evidence(e.body) &&
+          e.body.payload.kind === 'h2a.drive.consent.request' &&
+          e.body.payload.requestId === p.requestId && computeHash(e.body.payload) === p.requestHash;
+        // Old requests can have left the derived index; absence there alone
+        // does not establish that the signed request is absent from the chain.
+        if (!entries.some(matchesRequest)) {
+          const history = readDriveConsentChain(from,to);
+          if (!history.some(matchesRequest) && !(p.kind === 'h2a.drive.consent.revocation' && p.pair === true)) throw new Error('consent-invalid: orphan evidence');
+          // A late terminal event must bring back its signed request witness,
+          // including any conflicting evidence, before projecting the append.
+          entries.push(...history.filter(e => evidence(e.body) && e.body.payload.requestId === p.requestId));
+        }
+      }
+      // The receipt timestamp is always assigned here, never by the caller.
+      const candidate = {...event,createdAt:new Date(now).toISOString()};
+      const previous = index.last;
+      const entry = previous ? appendJournalEntry(previous,candidate) : createJournalEntry(candidate);
+      const result = projectConsent({findInstance,listInstanceKeys,listKeyEvents},from,to,[...entries,entry],now);
+      if (result.anomalies.includes(event.id)) throw new Error('consent-invalid: rejected evidence');
+      const by=body.signature.by;
+      const expected = body.payload.kind==='h2a.drive.consent.request' ? from : to;
+      if (!(by===expected || (body.payload.kind==='h2a.drive.consent.revocation' && by===from)) || !verified({findInstance,listInstanceKeys,listKeyEvents},body.payload,body.signature,by)) throw new Error('consent-invalid: signer');
+      // append assigns a local event id; full signed body remains immutable.
+      if (!entries.some(e=>computeHash(e.body)===computeHash(body))) append(body,event.type);
+      append({kind:'drive-consent.audit',observedAt:now,decision:result.decision,limit:DRIVE_CONSENT_LIMIT});
+      return result;
+    },clock);
+  }
+  function commitDriveConsentAdmission(payload: H2ADriveInstructionPayload, signature: H2ASignature, clock?: number): H2ADriveAuthorizeResult | {ok:false;reason:'replayed'|'bad-signature'} {
+    try { return consentTransaction(payload.from,payload.to,(entries,append,now,index)=>{
+      const result = projectConsent({findInstance,listInstanceKeys,listKeyEvents},payload.from,payload.to,entries,now);
+      const authority = authorizeDrive({findInstance,findDriveConsent:()=>result},payload,{now});
+      if (authority.ok && !('via' in authority)) return authority;
+      if (!authority.ok) { append({kind:'drive-consent.audit',observedAt:now,decision:authority,limit:DRIVE_CONSENT_LIMIT}); return authority; }
+      if (!result.decision.ok) { append({kind:'drive-consent.audit',observedAt:now,decision:result.decision,limit:DRIVE_CONSENT_LIMIT}); return result.decision; }
+      if (!verified({findInstance,listInstanceKeys,listKeyEvents},payload,signature,payload.from)) return {ok:false as const,reason:'bad-signature' as const};
+      const admissionId=computeHash({from:payload.from,to:payload.to,nonce:payload.nonce});
+      if(index.admissions.has(admissionId)) return {ok:false as const,reason:'replayed' as const};
+      append({kind:'drive-consent.audit',event:'drive-admitted',observedAt:now,admissionId,payloadHash:computeHash(payload),instructionHash:computeHash(payload.instruction),decision:result.decision,execution:'unknown',limit:DRIVE_CONSENT_LIMIT});
+      return result.decision;
+    },clock); } catch(error) { return consentError(error).decision; }
   }
 
   function asPlainRecord(value: unknown): Record<string, unknown> | undefined {
@@ -1085,6 +1361,7 @@ export function createLocalStore(options: CreateLocalStoreOptions): LocalStore {
     negotiationId: string,
     options: { eventId?: string } = {}
   ) {
+    if (isConsentId(negotiationId) || readNegotiation(negotiationId)?.subject === "drive-consent") throw new Error("Cannot stabilize drive-consent");
     ensureDir(negotiationDir(paths, negotiationId));
     return lock(
       negotiationLock(negotiationId),
@@ -1522,6 +1799,7 @@ export function createLocalStore(options: CreateLocalStoreOptions): LocalStore {
     addInstanceKey,
     listInstanceKeys,
     listKeyEvents,
+    readDriveConsentChain, findDriveConsent, recordDriveConsentEnvelope, commitDriveConsentAdmission,
     revokeInstanceKey,
     grantOrgMembership,
     listOrgMembership,
