@@ -16,7 +16,7 @@ Refusals: `unauthorized`, `consent-pending`, `consent-refused`, `consent-expired
 
 ## Bounded admission and full historical verification
 
-The append-only pair journal is the sole source of truth. Each open store derives an in-memory domain index from it: live pair request/grant/revocation evidence within the 48-hour cap window (all live requests fit within 25 hours), plus one expired request group for denial diagnostics, admission IDs within 48 hours for replay detection, and the per-pair anti-rollback high-water scalar. No signature-verification result is cached: the resolver verifies relevant signed evidence and active keys for every reception. The final journal entry is retained only to construct the next hash-chain link, not as a historical integrity certificate.
+The append-only pair journal is the sole source of truth. Each open store derives an in-memory domain index from it: live pair request/grant/revocation evidence within the 48-hour cap window (all live requests fit within 25 hours), plus one valid expired request group for denial diagnostics and signed per-request terminal revocation markers with their request witnesses (O(revocations), not O(history)), admission IDs within 48 hours for replay detection, and the per-pair anti-rollback high-water scalar. No signature-verification result is cached: the resolver verifies relevant signed evidence and active keys for every reception. The final journal entry is retained only to construct the next hash-chain link, not as a historical integrity certificate.
 
 A missing or suspect index is fully reconstructed from the journal, never self-authorizing. An external journal fingerprint change (inode, size, nanosecond mtime/ctime) causes reconstruction outside the registry lock. A receiver store performs full-chain verification at startup and every 60 seconds while alive, outside admission and outside the registry lock. Each periodic pass reads and verifies the whole chain, including already-covered entries; it does not trust a cached verified head plus delta. A detected fault prevents consent authorization. Ordinary journal reads also retain full verification. Corrupt on-disk journals retain the existing `consent-invalid` / 403 mapping.
 
@@ -35,3 +35,92 @@ These are owner-provided measurements, not a new scan during this build. `DRIVE_
 A holder of a revoked target key can still submit historically verifiable refusal/revocation evidence. This is a deliberate denial-of-service-only capability: it cannot grant authority.
 
 MCP mutations write `observedAt = Date.now()`. A later `h2a drive receive --now` earlier than the last MCP write returns `consent-unavailable` / 503 as clock rollback. This mixed-clock behavior is inert when production receivers and MCP writers use the same wall clock; synthetic clocks must account for the last write.
+
+## Index fidelity and renewal (binding Option A)
+
+The full-journal `projectConsent` is unchanged and remains the source of truth.
+The permanent corpus in `packages/h2a/test/drive-consent-index.test.js` reuses the
+owner-supplied `fuzz-index.mjs` generator (ten deterministic seeds (original 1–7 plus 42, 123, 999), 40 journals
+of 60 checkpoints each, warm and reopened stores). Its invariant is asymmetric:
+if the full journal refuses, the index refuses; if the index grants, the full
+journal grants. Other denial reasons may approximate within refusal, never toward
+a grant. Whenever the full projection's winning reason is `consent-revoked`,
+the index must return exactly that reason. Any change to pruning, retention or
+index construction MUST rerun this corpus and the age-boundary corpus in
+`drive-consent-e2e.test.js`.
+
+Receipt age cannot erase a still-authoritative signed revocation. A request-specific
+revocation retains its signed request witness after expiry, and both signatures
+are evaluated again by the projection. A mere new peer request cannot authorize;
+a genuinely new target-signed grant on a new request ID can, in both projections.
+A pair revocation retains its evidence and a valid request witness within its
+signed window; past its signed end it does not manufacture a revoked verdict.
+Historical evidence that also binds a request hash retains the request-terminal
+meaning that the full projection already assigns it. Late terminal writes restore
+the matching request group from the verified journal if it has left the index.
+
+## Journal growth, startup budget and operational action
+
+Measured 2026-09-24 in the direct Codex build checkout (non-production): the
+owner's `scratchpad/adv.mjs 2000` produced **3,924,093 bytes for 2,000 receptions**,
+or **1.9620465 MB per 1,000 receptions** (decimal MB; includes initial request,
+grant and audit overhead). Source script:
+`/home/antoinefa/.cache-tmp/claude-1000/-home-antoinefa-src-h2a/a03ecf8e-c55d-48d0-b155-aa94f319ef58/scratchpad/adv.mjs`.
+The instrumented copy `/home/antoinefa/.cache-tmp/drive-consent-build/adv-measured.mjs`
+reopened the 3,926,053-byte journal (after its extra final reception) five times;
+emitted full-pass durations were 24.625, 23.382, 24.247, 22.656 and 24.237 ms
+(median **24.237 ms**, approximately **6.17 ms/MB**).
+Raw evidence: `growth-complete.log` in that same build-report directory. Measurements
+include concurrent verification load and warm filesystem caches; these are local
+measurements, not fleet guarantees.
+
+At **one reception per second**, seven days means 604,800 receptions, about
+**1,186.65 MB** and an extrapolated **7,325 ms per full pass**; 30 days means
+2,592,000 receptions, about **5,085.62 MB** and **31,395 ms per full pass** at the
+measured slope. These week/month values are linear projections, not executions
+of week/month-sized journals; memory and I/O pressure may increase them.
+
+The startup full pass runs **once per MCP server process** when its store is
+created and reused, followed by full periodic passes every 60 seconds. The **CLI
+pays the startup full pass once per command invocation** that creates a store;
+there is no store reused across CLI processes. The earlier inventory estimated
+about 25 call sites; this checkout has 36 textual `createLocalStore(` call sites
+in `packages/h2a/src/cli.ts`. This debt covers CLI startup as well as MCP startup.
+
+Every full pass emits structured JSON to stderr with event
+`drive-consent.full-verification`, `durationMs`, `identityDeadlineMs`,
+`budgetFraction`, `thresholdMs`, `due`, `track` and `action`. Reserve 90% of the
+identity-acquisition deadline for registry, key, session and readiness work:
+full verification must consume **no more than 10%** of that deadline per startup.
+The threshold is computed from `MCP_IDENTITY_TIMEOUT_MS * 0.1`, not a fixed
+millisecond value, so it follows future changes to the deadline. Today that is
+20,000 × 0.1 = **2,000 ms**, approximately **324 MB / 165,123 cumulative receptions**
+at this measured slope. Startup costs sum across all consent pair journals.
+Periodic verification reports against the same budget so growth is visible
+before the next CLI invocation or MCP restart.
+
+Crossing the threshold emits `due:true`, Track `01M39VC11XBNSE8W2ASMQRRKZV`, and
+`action:"ESCALATE debt -> due"`. The runtime cannot safely mutate the owner's
+single-writer Track store, and this worktree forbids .track writes. **Instruction
+to h-cond, the owner/conductor of h-runtime:** inspect MCP stderr and captured CLI
+stderr **daily and at every deployment/startup performance review**; on the first
+`due:true` event, move Track 01M39VC11XBNSE8W2ASMQRRKZV from debt to due in the
+canonical owner checkout, attaching the duration, deadline, threshold, date and
+runtime/CLI source. Perform that escalation in the same review, not at a later
+backlog sweep. Absence of a collected signal is not evidence of budget compliance.
+
+The 24-hour scale replay (`adv-24h-after.mjs`, actual 86,400 receptions at one
+simulated reception/second) produced 169,424,497 bytes, zero legitimate refusals,
+345,532 ms total, 3.851 ms first reception and 2.935 ms last reception. This
+measures reception with an already-open store, not the separate startup pass.
+`24h-final.log` contains the raw result. The growth slope is consistent with
+`adv.mjs`; the startup/full-pass cost remains O(journal size).
+
+A measurement-only copy of the compiled store counted entries after the unchanged
+pruning function (`measure-markers.mjs`, `markers-final.log`; instrumentation is
+not shipped). With requests separated by 72 hours, 100 and 1,000 request/grant
+pairs with 10 revocations both retained **24 evidence entries**; 1,000 pairs with
+100 revocations retained **204 entries**. All renewal grants authorized. This
+observes 2R signed terminal entries plus four live/diagnostic entries, independent
+of the expired unrevoked history. Replay IDs remain bounded by the 48-hour window,
+so their size depends on the reception rate within that window.
