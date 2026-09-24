@@ -867,11 +867,25 @@ export function createLocalStore(options: CreateLocalStoreOptions): LocalStore {
     // received long before the live request it overrides in an existing journal.
     const live = new Set<unknown>();
     const known = new Set<unknown>();
-    // Signed terminal evidence plus its request is O(revocations), not O(history).
-    // Reverify it in projectConsent: never cache a revoked verdict.
-    const revokedHashes = new Set(index.entries.flatMap(e =>
-      evidence(e.body) && e.body.payload.kind === 'h2a.drive.consent.revocation'
-        ? [e.body.payload.requestHash] : []));
+    // Retain decisive evidence and its request: O(negatives + conflicts), not
+    // O(history). projectConsent still verifies it; no verdict is cached.
+    const terminalHashes = new Set<unknown>();
+    const decisiveGrantHashes = new Set<unknown>();
+    const grantHashes = new Map<unknown, string>();
+    for (const entry of index.entries) {
+      if (!evidence(entry.body)) continue;
+      const p = entry.body.payload;
+      if (p.kind === 'h2a.drive.consent.revocation' || p.kind === 'h2a.drive.consent.refusal') {
+        terminalHashes.add(p.requestHash);
+      } else if (p.kind === 'h2a.drive.consent.grant') {
+        const hash = computeHash(p), previous = grantHashes.get(p.requestHash);
+        if (previous !== undefined && previous !== hash ||
+          p.principal === undefined && typeof p.to === 'string' && findInstance(p.to)?.principal !== undefined) {
+          decisiveGrantHashes.add(p.requestHash);
+        }
+        grantHashes.set(p.requestHash,hash);
+      }
+    }
     let lastExpired: {id: unknown; end: number} | undefined;
     for (const entry of index.entries) {
       if (!evidence(entry.body) || entry.body.payload.kind !== 'h2a.drive.consent.request') continue;
@@ -891,7 +905,12 @@ export function createLocalStore(options: CreateLocalStoreOptions): LocalStore {
     index.entries = index.entries.filter(entry => {
       if (!evidence(entry.body)) return Date.parse(entry.createdAt) >= now-consentWindow;
       const p = entry.body.payload;
-      if (p.kind === 'h2a.drive.consent.request' && revokedHashes.has(computeHash(p))) return true;
+      if (p.kind === 'h2a.drive.consent.request') {
+        const hash = computeHash(p);
+        if (terminalHashes.has(hash) || decisiveGrantHashes.has(hash)) return true;
+      }
+      if (known.has(p.requestId) && (p.kind === 'h2a.drive.consent.refusal' ||
+        p.kind === 'h2a.drive.consent.grant' && decisiveGrantHashes.has(p.requestHash))) return true;
       if (p.kind === 'h2a.drive.consent.revocation') {
         // pair:true can ALSO be request-related in historical journals; that
         // terminal meaning survives its pair window, exactly as in projection.
