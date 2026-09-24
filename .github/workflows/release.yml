@@ -251,19 +251,42 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          max_attempts=6
+          # Post-publish install race: npm installability propagates AFTER visibility
+          # and later than the old 6x10s=60s budget. Measured on v0.97.6 and v0.97.7:
+          # ~170s to become visible, and `npm i -g` still failing ETARGET (attempts
+          # 1..6 over ~42s) on both runs, while `npm view` had already succeeded and
+          # npm now serves the version. Installability lags visibility, so aligning the
+          # budget with the visibility checks (18x10s=180s) is a MINIMUM, not
+          # necessarily sufficient — which is why the overflow is non-blocking below.
+          max_attempts=18
           retry_delay_seconds=10
+          installed=0
           for attempt in $(seq 1 "$max_attempts"); do
             if npm i -g "@sentropic/h2a@$RELEASE_VERSION"; then
+              installed=1
               break
             fi
-            if [[ "$attempt" -eq "$max_attempts" ]]; then
-              echo "::error::@sentropic/h2a@$RELEASE_VERSION was not installable after $max_attempts attempts." >&2
-              exit 1
-            fi
-            echo "@sentropic/h2a@$RELEASE_VERSION is not available yet; retrying in $retry_delay_seconds seconds (attempt $attempt/$max_attempts)." >&2
+            echo "@sentropic/h2a@$RELEASE_VERSION is not installable yet; retrying in $retry_delay_seconds seconds (attempt $attempt/$max_attempts)." >&2
             sleep "$retry_delay_seconds"
           done
+          if [[ "$installed" -ne 1 ]]; then
+            # Positive control (same method as #283: keep a hard-fail path for the real
+            # failure). The authoritative "did we publish" signal is the return code of
+            # `npm publish`, already made blocking upstream by #283 (`npm publish ... ||
+            # exit 1`); by the time this step runs, publication is already proven. This
+            # `npm view` is a DEFENSIVE GUARD, not the source of truth. It distinguishes
+            # "never published" from "published but not yet installable": if the version
+            # is NOT visible on the registry -> HARD FAIL, so this step can still say
+            # "nothing shipped". If it IS visible, this is pure installability
+            # propagation lag on an already-successful publish -> warn, never paint a
+            # delivered release red.
+            if npm view "@sentropic/h2a@$RELEASE_VERSION" version >/dev/null 2>&1; then
+              echo "::warning::@sentropic/h2a@$RELEASE_VERSION is visible on the registry but not installable after $max_attempts attempts — installability propagation lag; publication already succeeded, not failing the step. NOTE: the post-release doctor verification did not run for this release." >&2
+              exit 0
+            fi
+            echo "::error::@sentropic/h2a@$RELEASE_VERSION is neither installable nor visible on the registry after $max_attempts attempts — treating as a publication failure." >&2
+            exit 1
+          fi
           root="$(mktemp -d)/.h2a"
           # Initialize the bus so doctor can inspect host installations instead of
           # failing only on a missing root/schema. --repair --dry-run reports host
