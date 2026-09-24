@@ -41,6 +41,11 @@ export function handleDriveConsent(store:LocalStore,signer:H2ASendSigner|undefin
       if(!verified(store,grant.payload,coSignature,b.principal))throw Error('consent-principal-unavailable: no active principal signing key');
       const projection=store.recordDriveConsentEnvelope({id:randomUUID(),type:'accept',actor:{instance:to,role:'AGENTS',scope:'drive-consent'},negotiationId:consentPairId(from,to),createdAt:at,body:{...grant,coSignature}});
       return result(projection);
+    }else if(name==='h2a_drive_consent_revoke' && args.requestId===undefined){
+      if(signer.instance!==from&&signer.instance!==to)throw Error('consent-invalid: parties only');
+      const live=entries.map(e=>e.body).filter(evidence).filter(e=>e.payload.kind==='h2a.drive.consent.request' && instant(e.payload.requestedNotAfter)>now && verified(store,e.payload,e.signature,from,true));
+      const notAfter=Math.max(now,...live.map(e=>instant(e.payload.requestedNotAfter)));
+      payload={kind:'h2a.drive.consent.revocation',v:1,...bindings,pair:true,at,notAfter:new Date(notAfter).toISOString(),...(args.reason!==undefined?{reason:args.reason}:{})};type='withdraw';
     }else{
       const requestId=text('requestId');
       const request=entries.map(e=>e.body).filter(evidence).find(e=>e.payload.kind==='h2a.drive.consent.request'&&e.payload.requestId===requestId);
