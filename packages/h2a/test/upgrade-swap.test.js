@@ -212,6 +212,53 @@ test("B3 DETERMINISTIC GATE: a forced succession interleave yields at most one h
   }
 });
 
+// CI GATE (deterministic, Lemma C — targeted unlink): a successor that elected itself
+// for a dead holder g must unlink LOCK only while it is STILL exactly g. We pause the
+// successor at `beforeRetireUnlink` (it has already decided LOCK == g), then — in that
+// window — REPLACE LOCK with a fresh, LIVE owner r0 (a different token: a manual
+// intervention or a new holder). On resume the successor must NOT delete r0 and must
+// NOT acquire; it re-evaluates and finds r0 live (busy). Pre-Lemma-C code decided from
+// the stale read and blind-unlinked r0 — deleting a live holder's lock, then acquiring.
+test("Lemma C GATE: a LOCK replaced by a live owner during the retire window is never deleted", { timeout: 25_000 }, async () => {
+  const prefix = freshPrefix();
+  const otherPrefix = freshPrefix();
+  let holder, succ;
+  try {
+    mkdirSync(prefix, { recursive: true });
+    mkdirSync(otherPrefix, { recursive: true });
+    // A genuinely LIVE holder in a DIFFERENT prefix, so its on-disk record describes
+    // an alive process on this host (livenessOf → live). We reuse that record as r0.
+    holder = spawn(process.execPath, [LOCK_CHILD, otherPrefix], { encoding: "utf8" });
+    assert.equal(await firstLinePromise(holder), true, "the live owner acquired its own prefix lock");
+    const r0 = readFileSync(lockPath(otherPrefix), "utf8");
+    const r0token = JSON.parse(r0).token;
+
+    // Seed a certainly-dead holder g in our prefix, then pause a successor right
+    // before it unlinks g.
+    assert.equal(await seedKilledHolder(prefix), true, "seed a dead holder to trigger the reclaim path");
+    const pause = join(prefix, "pause.sentinel");
+    const reached = join(prefix, "reached.sentinel");
+    succ = spawn(process.execPath, [HOOK_CHILD, prefix, "beforeRetireUnlink", pause, reached], { encoding: "utf8" });
+    const succFirst = firstLinePromise(succ);
+    assert.equal(await waitFile(reached, 12_000), true, "the successor reached the pre-unlink hook");
+
+    // In the retire window, LOCK becomes a live owner r0 (a token != g).
+    writeFileSync(lockPath(prefix), r0, "utf8");
+
+    writeFileSync(pause, "go", "utf8"); // let the successor resume
+    const succAcq = await succFirst;
+
+    assert.equal(succAcq, false, "the successor must NOT acquire: LOCK is now a live owner, not g");
+    assert.equal(existsSync(lockPath(prefix)), true, "LOCK must survive: a lock we do not own is never deleted");
+    assert.equal(JSON.parse(readFileSync(lockPath(prefix), "utf8")).token, r0token, "LOCK still bears the live owner's token, untouched");
+  } finally {
+    try { succ?.kill("SIGKILL"); } catch { /* */ }
+    try { holder?.kill("SIGTERM"); } catch { /* */ }
+    rmSync(prefix, { recursive: true, force: true });
+    rmSync(otherPrefix, { recursive: true, force: true });
+  }
+});
+
 // Opt-in LOAD test (statistical, time/load-dependent). Not in the default suite —
 // run with H2A_LOCK_STRESS=1. Establishes frequency under real concurrency; the
 // deterministic gate above is the regression guard.

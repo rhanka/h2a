@@ -164,6 +164,7 @@ test("runMcpServe: auto-upgrade cannot block initialize or reexec the live stdio
   const originalExecve = Object.getOwnPropertyDescriptor(process, "execve");
   const originalGuard = process.env.H2A_UPGRADE_REEXECED;
   let installFinished = false;
+  let swapped = false;
   let execveCalls = 0;
   let stdoutBuffer = "";
   let diagnostics = "";
@@ -242,8 +243,10 @@ test("runMcpServe: auto-upgrade cannot block initialize or reexec the live stdio
           },
           probeStagedVersion: () => "999.0.0",
           verifyStagedNative: () => ({ ok: true }),
-          swapPackageDir: () => ({ ok: true, repaired: false }),
-          readGlobalPkgVersion: () => "999.0.0",
+          swapPackageDir: () => { swapped = true; return { ok: true, repaired: false }; },
+          // Stateful: the pre-swap (idempotence) read sees the pre-existing version, so
+          // the install proceeds; the post-swap verification sees the installed target.
+          readGlobalPkgVersion: () => (swapped ? "999.0.0" : "0.0.0"),
           writeDiagnostics: () => {},
           now: () => 1,
           readCache: () => undefined,
