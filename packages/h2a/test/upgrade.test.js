@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
@@ -8,12 +10,14 @@ import {
   isNewerVersion,
   performUpgrade,
   performAutoUpgrade,
+  defaultUpgradeRuntime,
   upgradeCachePath,
   canReexec,
   reexecSelf,
   H2A_AUTO_UPGRADE_CHECK_TTL_MS,
   H2A_REEXEC_GUARD_ENV,
-  H2A_UPGRADE_CHECK_TTL_MS
+  H2A_UPGRADE_CHECK_TTL_MS,
+  STALE_LOCK_ALERT_MS
 } from "../dist/index.js";
 
 // Legacy check-flow fake (fetchLatest/runInstall/now/cache) for checkUpgrade +
@@ -198,6 +202,77 @@ test("performAutoUpgrade is idempotent under the lock: a peer lane's install sho
   assert.equal(calls.swap, 0, "no swap when already at target");
   assert.ok(calls.released >= 1, "the lock is still released");
 });
+
+// Idempotence requires a LOADABLE native module: a version-correct install whose native
+// binding fails to load (e.g. a manual `npm i -g` interrupted mid-write) is broken, not
+// current. It must be re-staged, never short-circuited to already-current.
+test("performAutoUpgrade idempotence: a version-correct but broken-native install is re-staged, not declared current", () => {
+  let nativeCalls = 0;
+  const { runtime, calls } = stagedFake({
+    latest: "999.0.0",
+    installed: "999.0.0", // pre-swap global already reports the target...
+    runtime: {
+      // ...but its native module fails on the idempotence check (1st call); the freshly
+      // staged one loads (2nd call), so the re-stage repairs it.
+      verifyStagedNative: () => {
+        nativeCalls++;
+        return nativeCalls === 1 ? { ok: false, error: "broken native binding" } : { ok: true };
+      }
+    }
+  });
+  const r = performAutoUpgrade(CUR, { runtime, cachePath: "/x", prefix: "/fake/prefix" });
+  assert.notEqual(r.outcome, "already-current", "a broken-native install must not be declared current");
+  assert.equal(r.outcome, "upgraded", "it re-stages and swaps to repair the broken install");
+  assert.ok(calls.stage >= 1, "the broken install is re-staged");
+  assert.ok(calls.swap >= 1, "and swapped");
+});
+
+// R2 staleness alert: a lock far older than any legitimate upgrade, held "live" ONLY
+// because its start time is not comparable on this kernel (a reused PID may be masking a
+// dead holder), is surfaced as a diagnostic — WITHOUT any reclaim and WITHOUT advising
+// removal. Uses a REAL prefix + a real lock record (correct reader identity) since the
+// alert re-reads the on-disk record; the fake acquire returns busy.
+test("performAutoUpgrade R2: an old, undatable-live lock is surfaced (diagnostic only, no reclaim)", () => {
+  const prefix = mkdtempSync(join(tmpdir(), "h2a-r2-"));
+  const lockFile = join(prefix, ".h2a-upgrade.lock");
+  try {
+    // Acquire once with the REAL runtime to get a record carrying this process's true
+    // identity (host/boot/ns/pid/start), then release and rewrite it as old + undatable.
+    const NOW = 10_000_000_000; // the fake clock the alert's age check reads
+    const lease = defaultUpgradeRuntime.acquirePrefixLock(prefix);
+    assert.equal(lease.acquired, true, "seed: the real lock acquired");
+    const rec = JSON.parse(readFileSync(lockFile, "utf8"));
+    lease.release();
+    rec.timeNs = null; // proc start no longer comparable ⇒ live is undatable
+    rec.at = NOW - (STALE_LOCK_ALERT_MS + 60_000); // older than the alert threshold, on the fake clock
+    writeFileSync(lockFile, JSON.stringify(rec), "utf8");
+
+    const diags = [];
+    const { runtime } = stagedFake({
+      latest: "999.0.0",
+      now: NOW,
+      lock: { acquired: false, reason: "busy", release: () => {} },
+      runtime: { resolvePrefix: () => prefix, writeDiagnostics: (_path, record) => diags.push(record) }
+    });
+    const r = performAutoUpgrade(CUR, { runtime, prefix });
+    assert.equal(r.outcome, "skipped-locked", "a busy lock still just skips (no reclaim)");
+    assert.equal(existsSyncLock(lockFile), true, "the lock is never removed by the alert");
+    const alert = diags.find((d) => typeof d.error === "string" && d.error.includes("not confirmable on this kernel"));
+    assert.ok(alert, "an old, undatable-live lock raises the staleness diagnostic");
+    assert.doesNotMatch(alert.error, /remove/i, "the alert must never advise removing the lock");
+  } finally {
+    rmSync(prefix, { recursive: true, force: true });
+  }
+});
+
+function existsSyncLock(p) {
+  try {
+    readFileSync(p);
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 test("performAutoUpgrade fails (install intact) when the staged binary reports the wrong version", () => {
   const { runtime, calls } = stagedFake({ latest: "999.0.0", probed: "1.2.3" });

@@ -332,6 +332,14 @@ function readJsonIfExists(path: string): Record<string, unknown> | undefined {
 // touch a per-token private staging dir. H3: tokens are random (>= 96 bits)
 // and never republished.
 
+/**
+ * R2 staleness-alert threshold. An upgrade held under the lock completes in seconds to
+ * a few minutes (bounded tarball fetch + stage + atomic swap), so a lock far older than
+ * that whose holder reads "live" ONLY for want of a comparable start time is worth
+ * surfacing (a reused PID may be masking a dead holder). Set well above any legitimate
+ * hold. It NEVER triggers a reclaim — purely diagnostic (I7: `at` informs, never decides).
+ */
+export const STALE_LOCK_ALERT_MS = 30 * 60 * 1000;
 /** Acquire rounds before giving up (a retry means a rival won meanwhile). */
 export const PREFIX_LOCK_MAX_ROUNDS = 3;
 /** Succession chain depth before failing closed with a diagnostic. */
@@ -534,8 +542,20 @@ function procMapsToSelf(): boolean {
  * so a reader using a different source never concludes "dead" from a
  * format/TZ-fragile comparison (C1).
  */
-function procStartInfo(pid: number): { state?: string; start?: string } | undefined {
-  if (procMapsToSelf()) {
+// `platform`/`mapsToSelf` are injected only by tests (mis-mapped-/proc / non-Linux
+// sims); production passes none.
+export function procStartInfo(
+  pid: number,
+  platform: NodeJS.Platform = process.platform,
+  mapsToSelf: () => boolean = procMapsToSelf
+): { state?: string; start?: string } | undefined {
+  // B3: under Linux a mis-mapped /proc (unshare --pid without --mount-proc) makes
+  // BOTH /proc AND `ps` (procps also reads /proc/<pid>) describe a process from
+  // another namespace — an untrusted start that can falsely differ and yield a false
+  // death ⇒ two holders (I3). Treat it as undatable (⇒ live), never fall back to the
+  // same bad /proc. Off Linux `ps` reads the real process table, so it stays valid.
+  if (platform === "linux" && !mapsToSelf()) return undefined;
+  if (mapsToSelf()) {
     try {
       const s = readFileSync(`/proc/${pid}/stat`, "utf8");
       const close = s.lastIndexOf(")");
@@ -617,7 +637,8 @@ function parseLockRec(raw: unknown): LockRec {
   // malformed record → corrupt → fail-closed. No back-compat exception is carved
   // for a "v4 without timeNs" — the redesign was never published, so no such lock
   // exists outside fixtures (kept in step with makeLockRec). The VALUE may be null
-  // (genuine unknown time namespace), which the liveness guard treats as undecidable.
+  // (genuine unknown time namespace); the liveness guard then treats the proc start
+  // as undatable ⇒ "live" (never reclaim, never a false death), not undecidable.
   if (typeof host !== "string" || host.length === 0) throw new Error("bad host");
   if (boot !== null && typeof boot !== "string") throw new Error("bad boot");
   if (ns !== null && typeof ns !== "string") throw new Error("bad ns");
@@ -713,23 +734,47 @@ function publishLockRecord(path: string, rec: LockRec): PublishStatus {
 
 type Liveness = "dead" | "live" | "undecidable";
 
+/** Injected only by tests (platform / start-probe sims); production passes none. */
+interface LivenessDeps {
+  readonly platform?: NodeJS.Platform;
+  readonly probe?: (pid: number) => { state?: string; start?: string } | undefined;
+}
+
 /**
- * Single liveness classifier. `isCertainlyDead` is exactly its "dead" arm, so
- * the acquisition predicate stays faithful while the reason mapping ("busy"
- * vs "dead-undecidable") cannot drift from the predicate. Never derives
- * "dead" from a TZ/format-fragile comparison: differing start sources or a
- * boot difference outside Linux both yield "undecidable" (C1).
+ * A "live" verdict is `datable` when it came from a CONFIRMED, comparable start
+ * (same source, known equal time namespace) — the holder is provably the recorded
+ * process. It is NOT datable when "live" was reached only because the start was
+ * undatable (source mismatch, unknown/differing time namespace, or no start) — there
+ * a reused PID could be masking a dead holder. This bit is used solely to target the
+ * staleness alert (R2); it must never influence a reclaim decision.
  */
-export function livenessOf(r: LockRec, self: SelfIdent): Liveness {
-  if (r.host !== self.host) return "undecidable"; // other machine: undecidable
-  if (r.boot && self.boot && r.boot !== self.boot) {
-    if (process.platform !== "linux") return "undecidable"; // TZ/format-fragile outside Linux
-    return "dead"; // previous boot (Linux boot_id is stable)
+interface LivenessInfo {
+  readonly verdict: Liveness;
+  readonly datable: boolean;
+}
+
+/**
+ * Single liveness classifier. `livenessOf` and `isCertainlyDead` are exactly its
+ * "verdict"/"dead" arm, and the R2 staleness alert reads its `datable` bit, so none
+ * of them can drift from this one decision. Never derives "dead" from a fragile
+ * comparison: a source mismatch or an unknown/differing time namespace both yield a
+ * safe "live" (undatable), and a corrupt "legacy" start yields "undecidable" (C1).
+ */
+function classifyLiveness(r: LockRec, self: SelfIdent, deps: LivenessDeps = {}): LivenessInfo {
+  const platform = deps.platform ?? process.platform;
+  const probe = deps.probe ?? procStartInfo;
+  if (r.host !== self.host) return { verdict: "undecidable", datable: false }; // other machine
+  // B1: only a Linux boot_id is a stable, trustworthy boot identity, so a difference
+  // there is a previous boot ⇒ dead. Off Linux a boot difference must NOT short-circuit
+  // to undecidable (that wedged a Mac rebooted mid-lock forever); fall through to
+  // kill(0) + the start comparison, which decide the incident class on any platform.
+  if (r.boot && self.boot && r.boot !== self.boot && platform === "linux") {
+    return { verdict: "dead", datable: false };
   }
-  // B2: an unreadable namespace on EITHER side is a genuine unknown — two records
-  // with a null namespace must never be treated as co-located (null-equality).
-  if (r.ns === null || self.ns === null) return "undecidable";
-  if (r.ns !== self.ns) return "undecidable"; // other, known pid namespace: undecidable
+  // An unreadable namespace on EITHER side is a genuine unknown — two records with a
+  // null namespace must never be treated as co-located (null-equality).
+  if (r.ns === null || self.ns === null) return { verdict: "undecidable", datable: false };
+  if (r.ns !== self.ns) return { verdict: "undecidable", datable: false }; // other, known ns
   // From here the namespace is known AND shared, so a PID's absence is conclusive.
   let exists = false;
   try {
@@ -737,37 +782,46 @@ export function livenessOf(r: LockRec, self: SelfIdent): Liveness {
     exists = true;
   } catch (e) {
     const code = errnoOf(e);
-    // PID absent in a known, shared namespace ⇒ dead, with certainty, no start-time.
-    if (code === "ESRCH") return "dead";
+    // PID absent in a known, shared namespace ⇒ dead, with certainty, no start time.
+    if (code === "ESRCH") return { verdict: "dead", datable: false };
     if (code === "EPERM") exists = true; // exists, no permission: keep checking
-    else return "undecidable";
+    else return { verdict: "undecidable", datable: false };
   }
-  const p = procStartInfo(r.pid); // undefined when unknown
-  if (p?.state === "Z") return "dead"; // zombie never runs again (Linux)
+  const p = probe(r.pid); // undefined when unknown
+  if (p?.state === "Z") return { verdict: "dead", datable: false }; // zombie never runs again
   if (r.start !== null && p?.start !== undefined) {
-    if (startSource(r.start) !== startSource(p.start)) return "undecidable";
+    const rSrc = startSource(r.start);
+    const pSrc = startSource(p.start);
+    // A "legacy" (malformed, pre-source-prefix) start is not a trustworthy value ⇒
+    // undecidable (fail closed). Any other source mismatch (proc vs ps) is simply not
+    // comparable ⇒ undatable ⇒ live.
+    if (rSrc === "legacy" || pSrc === "legacy") return { verdict: "undecidable", datable: false };
+    if (rSrc !== pSrc) return { verdict: "live", datable: false };
     // proc starttime is expressed relative to the reader's time namespace, so a
-    // proc-sourced comparison is only meaningful when both time namespaces are KNOWN
-    // and EQUAL. Otherwise the recorded start is UNDATABLE for this comparison ⇒ the
-    // same safe+quiet outcome as an undatable start below: "live" — never reclaim,
-    // never a false death, and (unlike undecidable) never a false M-2 alarm on a
-    // healthy live holder whose time base we simply cannot read. This never wedges
-    // an incident: the PID-absent branch above concludes "dead" without timeNs, so a
-    // disappeared holder is still reclaimed even when the time base is unknown. The
-    // only cost is a genuinely-reused PID left alive until it exits — rare and safe.
+    // proc-sourced comparison is only meaningful when both time namespaces are KNOWN and
+    // EQUAL. Otherwise the recorded start is UNDATABLE ⇒ "live" — never reclaim, never a
+    // false death, never a false M-2 alarm. This never wedges an incident: the PID-absent
+    // branch concluded "dead" without a start. The only cost is a genuinely-reused PID
+    // left alive until it exits — rare, bounded, and surfaced by the R2 staleness alert.
     // ps starttime is absolute wall-clock (TZ-normalised) and needs no gate.
-    if (startSource(r.start) === "proc" && (r.timeNs === null || self.timeNs === null || r.timeNs !== self.timeNs)) {
-      return "live";
+    if (rSrc === "proc" && (r.timeNs === null || self.timeNs === null || r.timeNs !== self.timeNs)) {
+      return { verdict: "live", datable: false };
     }
-    return p.start !== r.start ? "dead" : "live"; // PID reused vs same process
+    return p.start !== r.start
+      ? { verdict: "dead", datable: true } // PID reused (a confirmed different start)
+      : { verdict: "live", datable: true }; // same, confirmed process
   }
   // Present but with an undatable start ⇒ live: never reclaim a live-or-unknown holder.
-  return exists ? "live" : "undecidable";
+  return { verdict: exists ? "live" : "undecidable", datable: false };
+}
+
+export function livenessOf(r: LockRec, self: SelfIdent, deps: LivenessDeps = {}): Liveness {
+  return classifyLiveness(r, self, deps).verdict;
 }
 
 /** No false positive: true implies certainly dead; any doubt is alive (I3). */
 function isCertainlyDead(r: LockRec): boolean {
-  return livenessOf(r, me()) === "dead";
+  return classifyLiveness(r, me()).verdict === "dead";
 }
 
 function lockDenied(reason: PrefixLockReason): PrefixLockLease {
@@ -1857,6 +1911,9 @@ export function performAutoUpgrade(
     const reason = lock.reason ?? "busy";
     if (reason.startsWith("error:")) {
       const code = reason.slice("error:".length);
+      // R5: use the error-specific hint (permissions advice only for EACCES/EPERM/EROFS,
+      // an ENOSPC message, or a plain code) instead of always blaming permissions.
+      const hint = describeLockReason(reason);
       diag({
         at: startedAt,
         durationMs: nowFn() - startedAt,
@@ -1864,26 +1921,38 @@ export function performAutoUpgrade(
         current,
         target,
         outcome: "failed",
-        error: `prefix lock unavailable (${code}): check permissions on ${resolvedPrefix}`
+        error: `prefix lock unavailable (${code}): ${hint} on ${resolvedPrefix}`
       });
       recordFailure("failed");
       return {
         current,
         target,
         outcome: "failed",
-        message: `auto-upgrade to ${target} failed: cannot lock prefix ${resolvedPrefix} (${code}); check directory permissions (see ${logPath})`,
+        message: `auto-upgrade to ${target} failed: cannot lock prefix ${resolvedPrefix}: ${hint} (see ${logPath})`,
         logPath
       };
     }
     if (reason === "dead-undecidable") {
+      // R4: show the RECORDED holder identity and the reader's namespace, and advise
+      // removal ONLY after confirming that holder is truly gone in ITS OWN namespace —
+      // a live holder in another container/namespace (nsenter -p) or another machine
+      // must never be broken on the strength of "PID absent in MY namespace".
       const lockFile = lockPathFor(resolvedPrefix);
-      const baseMsg =
-        "prefix lock owner liveness undecidable (possible new PID namespace, host identity change, corrupt LOCK, or succession chain depth exceeded); manual intervention required";
+      const rec = readLockRecord(lockFile);
+      const readerNs = me().ns ?? "unknown";
+      const holder =
+        rec === "absent" || rec === "corrupt"
+          ? `LOCK unreadable (${rec})`
+          : `holder host=${rec.host} ns=${rec.ns ?? "unknown"} pid=${rec.pid} acquiredAt=${new Date(rec.at).toISOString()}`;
+      const advice =
+        rec === "absent" || rec === "corrupt"
+          ? `Inspect ${lockFile} and its ${lockFile}.succ.* files before any removal.`
+          : `Remove ${lockFile} (and its ${lockFile}.succ.* files) ONLY after confirming pid ${rec.pid} on host ${rec.host} is truly gone in ITS OWN namespace — never remove a holder merely absent from yours (a live holder in another container/namespace or machine must not be broken).`;
       const thrown = lockThrewFlag
         ? `lock acquisition threw (${lockThrew instanceof Error ? lockThrew.message : String(lockThrew)}); `
         : "";
       const fullError =
-        `${thrown}${baseMsg}: if no upgrade is running (PID absent on this host), remove ${lockFile} and its ${lockFile}.succ.* files, then start a new attempt`;
+        `${thrown}prefix lock owner liveness undecidable (a different/unreadable PID namespace, another machine, a corrupt LOCK, or succession depth exceeded); manual intervention required. ${holder}; this reader ns=${readerNs}. ${advice}`;
       diag({
         at: startedAt,
         durationMs: nowFn() - startedAt,
@@ -1901,6 +1970,36 @@ export function performAutoUpgrade(
         message: `auto-upgrade blocked: ${fullError} (see ${logPath})`,
         logPath
       };
+    }
+    // reason === "busy": a live holder. R2 staleness alert (DIAGNOSTIC ONLY, never a
+    // reclaim): if this lock is far older than any legitimate upgrade AND its holder
+    // reads "live" ONLY because its start time is not comparable on this kernel (so a
+    // reused PID could be masking a dead holder), surface it. `at` informs; it never
+    // decides (I7). No removal is advised — an operator killing a live holder on the
+    // strength of a message is a hand-made double-holder (the R4 lesson).
+    try {
+      const rec = readLockRecord(lockPathFor(resolvedPrefix));
+      if (rec !== "absent" && rec !== "corrupt") {
+        const info = classifyLiveness(rec, me());
+        const ageMs = nowFn() - rec.at;
+        if (info.verdict === "live" && !info.datable && ageMs > STALE_LOCK_ALERT_MS) {
+          diag({
+            at: startedAt,
+            durationMs: nowFn() - startedAt,
+            prefix: resolvedPrefix,
+            current,
+            target,
+            outcome: "skipped-locked",
+            reason,
+            error:
+              `prefix lock held ~${Math.round(ageMs / 60000)} min by pid ${rec.pid} (host ${rec.host}); ` +
+              `its identity is not confirmable on this kernel (start time not comparable), so a reused PID may be masking a dead holder. ` +
+              `Informational only — no action is taken and none is advised automatically; investigate whether pid ${rec.pid} is genuinely the running upgrade.`
+          });
+        }
+      }
+    } catch {
+      // best-effort: the staleness alert must never affect the outcome
     }
     const detail = describeLockReason(reason);
     return {
@@ -1921,15 +2020,26 @@ export function performAutoUpgrade(
 
     // Idempotence under the lock: the version check ran BEFORE acquiring the lock,
     // so a peer lane may have installed `target` while we waited. Re-read the live
-    // global version now that we hold the lock; if it already IS target, do not
-    // re-stage ~130 MB — report already-current. The lock releases in `finally`.
+    // global version now that we hold the lock; if it already IS target AND its native
+    // module actually loads, do not re-stage ~130 MB — report already-current. The lock
+    // releases in `finally`. A version-correct install whose native module fails to load
+    // is NOT up to date, it is broken (e.g. a manual `npm i -g` interrupted mid-write):
+    // we must fall through and re-stage to repair it, never declare it current.
     let installed: string | undefined;
     try {
       installed = doReadGlobal(resolvedPrefix);
     } catch {
       installed = undefined;
     }
+    let installedNativeOk = false;
     if (installed === target) {
+      try {
+        installedNativeOk = doVerifyNative(stagedPkgDirFromPrefix(resolvedPrefix)).ok;
+      } catch {
+        installedNativeOk = false;
+      }
+    }
+    if (installed === target && installedNativeOk) {
       if (cachePath) {
         try {
           const prev = readEntry();

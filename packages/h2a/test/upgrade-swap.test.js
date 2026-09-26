@@ -157,12 +157,14 @@ test("prefix lock: a LIVE holder is NEVER reclaimed (liveness, not age — the f
   }
 });
 
-// B-1 (cross-platform liveness safety): a LIVE holder whose lock records a start
-// from a DIFFERENT source (e.g. a macOS `ps:` record read by a Linux `proc:`
-// reader — or a mixed roll) must be UNDECIDABLE, never "dead". Comparing
-// format-fragile start values across sources is exactly what let two TZ-skewed
-// lanes declare a live holder dead. The rule: on any doubt, never dead.
-test("B-1: a live holder whose start-time comes from a different source is never reclaimed", { timeout: 20_000 }, async () => {
+// B-1 / R1 (cross-source liveness safety): a LIVE holder whose lock records a start
+// from a DIFFERENT source (e.g. a macOS `ps:` record read by a Linux `proc:` reader —
+// or a mixed roll) has an UNDATABLE start ⇒ "live", so it is never reclaimed. Comparing
+// format-fragile start values across sources is exactly what let two TZ-skewed lanes
+// declare a live holder dead. R1: this is the SAME rule as an unknown time namespace —
+// not comparable ⇒ live (busy), NOT undecidable (which would raise a false M-2 alarm on
+// a healthy holder). It still must never be reclaimed; only the reason changes to "busy".
+test("B-1/R1: a live holder whose start-time comes from a different source is never reclaimed (busy, not undecidable)", { timeout: 20_000 }, async () => {
   const prefix = freshPrefix();
   mkdirSync(prefix, { recursive: true });
   const holder = spawn(process.execPath, [LOCK_CHILD, prefix], { encoding: "utf8" });
@@ -175,7 +177,7 @@ test("B-1: a live holder whose start-time comes from a different source is never
     writeFileSync(lockPath(prefix), JSON.stringify(rec), "utf8");
     const b = rt.acquirePrefixLock(prefix);
     assert.equal(b.acquired, false, "a live holder with a cross-source start-time must not be reclaimed");
-    assert.notEqual(b.reason, "busy", "the outcome is undecidable (doubt), not a plain live-busy");
+    assert.equal(b.reason, "busy", "an undatable cross-source start ⇒ live ⇒ busy (never undecidable/M-2 on a healthy holder)");
   } finally {
     holder.kill("SIGTERM");
     rmSync(prefix, { recursive: true, force: true });
