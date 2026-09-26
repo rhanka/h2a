@@ -232,9 +232,11 @@ import {
 import { verifyEnvelopeSysmlRef } from "./runtime/sysml/index.js";
 import {
   checkUpgrade,
-  performUpgrade,
+  performAutoUpgrade,
+  isQuietUpgradeOutcome,
   currentCliVersion,
   upgradeCachePath,
+  H2A_CLI_PACKAGE,
   H2A_AUTO_UPGRADE_CHECK_TTL_MS,
   H2A_REEXEC_GUARD_ENV,
   H2A_UPGRADE_CHECK_TTL_MS,
@@ -287,6 +289,46 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 // `dist/cli.js` lives in `packages/h2a-cli/dist/`; skills are at
 // `packages/h2a-cli/skills/`. Two levels up from the dist file.
 const SKILLS_DIR = resolvePath(HERE, "..", "skills");
+
+/**
+ * Source of the DETACHED boot auto-upgrade worker (launched via
+ * `node --input-type=module --eval <this> -- <moduleUrl> <root> <ttl> <mode>`). It imports
+ * the upgrade module by URL and runs the check/upgrade in the background. The body is wrapped
+ * in a catch — a boot-upgrade failure must never affect the MCP server. Exported (module-level,
+ * static: it reads all inputs from argv, never a closure) so a test can launch the REAL source,
+ * not a copy. `isQuietUpgradeOutcome` is called OPTIONALLY (`?.`): if the imported module is an
+ * older build that lacks the export (a rollback/downgrade during boot on the hinge release), the
+ * result is `undefined` and the message is SHOWN (fail-open) rather than the M-2/R2 alarm being
+ * silently lost — presence of the export is not guaranteed across a version skew.
+ */
+export const MCP_UPGRADE_WORKER_SOURCE = String.raw`
+const [moduleUrl, root, ttl, mode] = process.argv.slice(1);
+try {
+  const upgrade = await import(moduleUrl);
+  const current = upgrade.currentCliVersion();
+  if (mode === "auto") {
+    const result = upgrade.performAutoUpgrade(current, {
+      cachePath: upgrade.upgradeCachePath(root),
+      ttlMs: Number(ttl)
+    });
+    // Shared quiet set (isQuietUpgradeOutcome): blocked-undecidable (M-2) and skipped-locked-stale
+    // (R2) surface at boot. Optional call: a missing export ⇒ undefined ⇒ show the message.
+    if (!upgrade.isQuietUpgradeOutcome?.(result.outcome)) {
+      process.stderr.write("h2a mcp-serve: " + result.message + "\n");
+    }
+  } else {
+    const result = upgrade.checkUpgrade(current, {
+      cachePath: upgrade.upgradeCachePath(root),
+      ttlMs: Number(ttl)
+    });
+    if (result.upgradeAvailable) {
+      process.stderr.write("h2a mcp-serve: h2a " + result.latest + " available (current " + current + ") — run \`h2a upgrade\`\n");
+    }
+  }
+} catch {
+  // Best-effort background maintenance must not affect the MCP server.
+}
+`;
 
 /**
  * Pattern matchers used to map known store-level error messages to exit code
@@ -407,8 +449,8 @@ export function renderCliHelp(): string {
     "  h2a inbox pop --instance <id> --envelope <id> [--root <path>]",
     "  h2a outbox put --instance <id> --json <envelope> [--root <path>]",
     "  h2a outbox read --instance <id> [--root <path>]",
-    "  h2a mcp-serve [--root <path>] [--auto-open [--host <h>] [--instance <id>] [--scope <s>]] [--wake <native|logging>] [--upgrade-check | --auto-upgrade [--no-restart]]   (--auto-open joins the bus at startup; --wake injects a signed h2a-tagged wake into the host on inbox arrival, EVO-1, needs --auto-open; --auto-upgrade self-updates + restarts in place; --upgrade-check = notice only; both opt-in/no network by default; /h2a disconnect to leave)",
-    "  h2a upgrade [--check]   (--check: report current vs latest; bare: npm i -g @sentropic/h2a@latest)",
+    "  h2a mcp-serve [--root <path>] [--auto-open [--host <h>] [--instance <id>] [--scope <s>]] [--wake <native|logging>] [--upgrade-check | --auto-upgrade [--no-restart]]   (--auto-open joins the bus at startup; --wake injects a signed h2a-tagged wake into the host on inbox arrival, EVO-1, needs --auto-open; --auto-upgrade self-updates via a non-destructive staged swap, the new version applies on the next launch (the live stdio session is never re-exec'd); --upgrade-check = notice only; both opt-in/no network by default; /h2a disconnect to leave)",
+    "  h2a upgrade [--check]   (--check: report current vs latest; bare: non-destructive staged self-update)",
     "  h2a remote serve [--port <n>] [--host <h>] [--path </h2a/envelopes>] [--root <path>]",
     "  h2a remote send --url <u> --instance <signer> --private-key <pem> --json <envelope>",
     "  h2a remote mirror-serve [--port <n>] [--host <h>] [--path </h2a/mirror>] [--enrolled-keys-file <json>] [--root <path>]   (EVO-13 instance-mirror ingester; enrolled keys also via H2A_MIRROR_ENROLLED_KEYS base64)",
@@ -1817,24 +1859,36 @@ export function cmdUpgrade(
     streams.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
     return 0;
   }
-  const result = checkUpgrade(current, { ...(runtime ? { runtime } : {}), force: true });
-  if (!result.upgradeAvailable) {
+  // Explicit, user-invoked upgrade. Use the same non-destructive staged path as
+  // the boot auto-upgrade (bounded — no infinite terminal wait). No cachePath is
+  // passed, so it always checks fresh and is never throttled for an explicit run.
+  const result = performAutoUpgrade(current, { ...(runtime ? { runtime } : {}) });
+  if (result.outcome === "upgraded") {
     streams.stdout.write(
-      `${JSON.stringify({ ok: true, current, latest: result.latest ?? current, upgraded: false, reason: "already current or registry unreachable" }, null, 2)}\n`
+      `${JSON.stringify({ ok: true, current, latest: result.target, upgraded: true, verified: result.verifiedVersion, package: H2A_CLI_PACKAGE, ...(result.logPath ? { log: result.logPath } : {}) }, null, 2)}\n`
     );
     return 0;
   }
-  const ok = performUpgrade(runtime);
-  streams.stdout.write(
-    `${JSON.stringify({ ok, current, latest: result.latest, upgraded: ok, package: "@sentropic/h2a" }, null, 2)}\n`
-  );
-  if (!ok) {
-    streams.stderr.write(
-      "h2a upgrade: global install failed — run `npm i -g @sentropic/h2a@latest` manually (or check your install method).\n"
+  if (result.outcome === "already-current") {
+    streams.stdout.write(
+      `${JSON.stringify({ ok: true, current, latest: result.target ?? current, upgraded: false, reason: "already current or registry unreachable" }, null, 2)}\n`
     );
-    return 1;
+    return 0;
   }
-  return 0;
+  // The target is published but not yet installable (propagation delay). A full
+  // `npm i -g` would hit the same registry and fail too, so we do not force it;
+  // the staged path retries on a later run. Nothing was mutated.
+  if (result.outcome === "deferred-propagation") {
+    streams.stdout.write(
+      `${JSON.stringify({ ok: true, current, latest: result.target, upgraded: false, reason: "update published but not yet installable; retry later", ...(result.logPath ? { log: result.logPath } : {}) }, null, 2)}\n`
+    );
+    return 0;
+  }
+  // skipped-locked / failed.
+  streams.stdout.write(
+    `${JSON.stringify({ ok: false, current, latest: result.target, upgraded: false, outcome: result.outcome, reason: result.message, ...(result.logPath ? { log: result.logPath } : {}) }, null, 2)}\n`
+  );
+  return 1;
 }
 
 /**
@@ -1945,61 +1999,48 @@ export async function runMcpServe(
       if (io.upgradeRuntime) {
         // Injectable source-proof seam. Production never runs the synchronous
         // runtime here; its spawnSync calls live only in the detached worker.
+        // This path and the worker below call the SAME orchestration
+        // (`performAutoUpgrade` / `checkUpgrade`) — no duplicated upgrade logic.
         setImmediate(() => {
           try {
             const current = currentCliVersion();
-            const result = checkUpgrade(current, {
-              cachePath: upgradeCachePath(root),
-              ttlMs,
-              runtime: io.upgradeRuntime
-            });
-            if (!result.upgradeAvailable) return;
             if (wantAutoUpgrade) {
-              const ok = performUpgrade(io.upgradeRuntime);
-              io.stderr.write(
-                ok
-                  ? `h2a mcp-serve: auto-upgraded ${current} → ${result.latest} (applies on next launch)\n`
-                  : `h2a mcp-serve: auto-upgrade to ${result.latest} failed; staying on ${current}\n`
-              );
+              const result = performAutoUpgrade(current, {
+                runtime: io.upgradeRuntime,
+                cachePath: upgradeCachePath(root),
+                ttlMs
+              });
+              // Stay quiet on the common no-op / benign-skip outcomes so a mass restart
+              // does not spam stderr; report actionable states only. The quiet set is the
+              // single source of truth isQuietUpgradeOutcome (shared with the boot worker):
+              // blocked-undecidable (M-2) and skipped-locked-stale (R2) are NOT quiet and
+              // surface at boot.
+              if (!isQuietUpgradeOutcome(result.outcome)) {
+                io.stderr.write(`h2a mcp-serve: ${result.message}\n`);
+              }
             } else {
-              io.stderr.write(
-                `h2a mcp-serve: h2a ${result.latest} available (current ${current}) — run \`h2a upgrade\`\n`
-              );
+              const result = checkUpgrade(current, {
+                cachePath: upgradeCachePath(root),
+                ttlMs,
+                runtime: io.upgradeRuntime
+              });
+              if (result.upgradeAvailable) {
+                io.stderr.write(
+                  `h2a mcp-serve: h2a ${result.latest} available (current ${current}) — run \`h2a upgrade\`\n`
+                );
+              }
             }
           } catch {
             // best-effort: a check/upgrade failure must never affect serving.
           }
         });
       } else {
-        const workerSource = String.raw`
-const [moduleUrl, root, ttl, mode] = process.argv.slice(1);
-try {
-  const upgrade = await import(moduleUrl);
-  const current = upgrade.currentCliVersion();
-  const result = upgrade.checkUpgrade(current, {
-    cachePath: upgrade.upgradeCachePath(root),
-    ttlMs: Number(ttl)
-  });
-  if (result.upgradeAvailable) {
-    if (mode === "auto") {
-      const ok = upgrade.performUpgrade();
-      process.stderr.write(ok
-        ? "h2a mcp-serve: auto-upgraded " + current + " → " + result.latest + " (applies on next launch)\n"
-        : "h2a mcp-serve: auto-upgrade to " + result.latest + " failed; staying on " + current + "\n");
-    } else {
-      process.stderr.write("h2a mcp-serve: h2a " + result.latest + " available (current " + current + ") — run \`h2a upgrade\`\n");
-    }
-  }
-} catch {
-  // Best-effort background maintenance must not affect the MCP server.
-}
-`;
         const worker = spawn(
           process.execPath,
           [
             "--input-type=module",
             "--eval",
-            workerSource,
+            MCP_UPGRADE_WORKER_SOURCE,
             "--",
             new URL("./runtime/upgrade/index.js", import.meta.url).href,
             root,
