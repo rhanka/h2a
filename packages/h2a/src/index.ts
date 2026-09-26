@@ -944,6 +944,8 @@ export {
   parseSemver,
   checkUpgrade,
   performUpgrade,
+  performAutoUpgrade,
+  defaultUpgradeRuntime,
   currentCliVersion,
   upgradeCachePath,
   canReexec,
@@ -955,7 +957,11 @@ export {
   type ReexecOptions,
   type UpgradeRuntime,
   type UpgradeCacheEntry,
-  type UpgradeCheckResult
+  type UpgradeCheckResult,
+  type AutoUpgradeResult,
+  type AutoUpgradeOptions,
+  type UpgradeThrottle,
+  type UpgradeDiagnosticsRecord
 } from "./runtime/upgrade/index.js";
 
 export { cmdKeepalive, cmdUpgrade, cmdOrg, cmdCoach, keepaliveOnce, cmdConductorLaunch, cmdPresenceReap, cmdWakeRequest } from "./cli.js";

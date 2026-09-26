@@ -517,7 +517,7 @@ export const H2A_CLI_VERB_CONTRACTS: readonly H2ACliVerbContract[] = [
     requiredFlags: [],
     optionalFlags: ["root", "auto-open", "host", "instance", "scope", "wake", "upgrade-check", "auto-upgrade", "no-restart"],
     description:
-      "Run the built-in MCP server speaking JSON-RPC 2.0 over stdio (long-running). `--auto-open` opens a presence session at boot (EVO-6, DEC-105); `--wake auto` uses native delivery with local-tmux fallback. Version handling is **opt-in** (no network on a default boot): `--auto-upgrade` self-installs @latest and re-execs in place (process.execve, same PID/stdio so the host stays connected; `--no-restart` keeps next-launch); `--upgrade-check` prints a cached availability notice only — EVO-8/DEC-107/108."
+      "Run the built-in MCP server speaking JSON-RPC 2.0 over stdio (long-running). `--auto-open` opens a presence session at boot (EVO-6, DEC-105); `--wake auto` uses native delivery with local-tmux fallback. Version handling is **opt-in** (no network on a default boot): `--auto-upgrade` self-updates @latest via a non-destructive staged swap serialized by a per-prefix lock (fetch tarball → stage under a staging prefix → verify → atomic rename with a repairable marker); the new version applies on the next launch and the live stdio session is never re-exec'd; `--upgrade-check` prints a cached availability notice only — EVO-8/DEC-107/108."
   },
   {
     verb: "track-mcp",
