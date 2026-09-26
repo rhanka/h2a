@@ -944,10 +944,20 @@ export {
   parseSemver,
   checkUpgrade,
   performUpgrade,
+  performAutoUpgrade,
+  defaultUpgradeRuntime,
   currentCliVersion,
   upgradeCachePath,
   canReexec,
   reexecSelf,
+  // Liveness classifier + namespace readers: exported for the platform-simulation
+  // tests (macOS/Windows/no-/proc) that cannot run on a single-platform CI otherwise.
+  livenessOf,
+  readPidNs,
+  readTimeNs,
+  procStartInfo,
+  isQuietUpgradeOutcome,
+  STALE_LOCK_ALERT_MS,
   H2A_CLI_PACKAGE,
   H2A_AUTO_UPGRADE_CHECK_TTL_MS,
   H2A_UPGRADE_CHECK_TTL_MS,
@@ -955,10 +965,14 @@ export {
   type ReexecOptions,
   type UpgradeRuntime,
   type UpgradeCacheEntry,
-  type UpgradeCheckResult
+  type UpgradeCheckResult,
+  type AutoUpgradeResult,
+  type AutoUpgradeOptions,
+  type UpgradeThrottle,
+  type UpgradeDiagnosticsRecord
 } from "./runtime/upgrade/index.js";
 
-export { cmdKeepalive, cmdUpgrade, cmdOrg, cmdCoach, keepaliveOnce, cmdConductorLaunch, cmdPresenceReap, cmdWakeRequest } from "./cli.js";
+export { cmdKeepalive, cmdUpgrade, cmdOrg, cmdCoach, keepaliveOnce, cmdConductorLaunch, cmdPresenceReap, cmdWakeRequest, MCP_UPGRADE_WORKER_SOURCE } from "./cli.js";
 
 export {
   conductorFor,
