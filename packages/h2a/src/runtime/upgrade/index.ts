@@ -387,6 +387,8 @@ interface LockIdent {
   readonly host: string;
   readonly boot: string | null;
   readonly ns: string | null;
+  /** Reader's time namespace; gates proc-sourced start comparisons (B2). */
+  readonly timeNs: string | null;
   readonly pid: number;
   readonly start: string | null;
 }
@@ -472,11 +474,57 @@ function readBootId(): string | null {
   return null;
 }
 
-function readPidNs(): string | null {
+// B2 decomposition: distinguish "this platform has no namespaces" (a KNOWN fact —
+// one space per host) from "the namespace exists but is unreadable" (a genuine
+// unknown). Only the latter is null; the former is the sentinel "host" so same-host
+// liveness stays decidable (macOS/Windows/BSD). `platform`/`readLink` are injected
+// only by tests (macOS/Windows/no-/proc sims); production passes none.
+//
+// readPidNs is the CONSERVATIVE gate that decides reclaim at all: an unknown (null)
+// pid namespace makes even a PID-absent holder undecidable, because "absent" in an
+// unknown namespace proves nothing. Any Linux /proc failure → null, never a false
+// "host" that could match a foreign namespace.
+export function readPidNs(
+  platform: NodeJS.Platform = process.platform,
+  readLink: (p: string) => string = readlinkSync
+): string | null {
+  if (platform !== "linux") return "host";
   try {
-    return readlinkSync("/proc/self/ns/pid");
+    return readLink("/proc/self/ns/pid");
   } catch {
-    return null;
+    return null; // the namespace exists here but is unreadable: genuine unknown
+  }
+}
+
+// The reader's time namespace (Linux): /proc/<pid>/stat starttime is expressed
+// relative to it, so two lanes in different time namespaces read different values
+// for the same live process. timeNs is consulted ONLY to gate the start-time
+// COMPARISON (the PID-present branch of livenessOf); the PID-absent incident branch
+// never needs it. So this reader is SYMMETRIC with readPidNs on purpose — no ENOENT
+// special-case: a genuinely masked /proc (e.g. gVisor exposing ns/pid but not
+// ns/time while time namespaces are in use) must yield null (⇒ "start not
+// comparable ⇒ live"), never a false "host" that would compare across time bases
+// and risk a false death (the B-1 class). null here is safe and quiet, not a wedge.
+export function readTimeNs(
+  platform: NodeJS.Platform = process.platform,
+  readLink: (p: string) => string = readlinkSync
+): string | null {
+  if (platform !== "linux") return "host";
+  try {
+    return readLink("/proc/self/ns/time");
+  } catch {
+    return null; // no readable time namespace: start times are not comparable
+  }
+}
+
+// Trust /proc for start/state only when it maps to THIS process's pid namespace.
+// Under `unshare --pid` without `--mount-proc`, `kill` targets the right process
+// but `/proc/<pid>` describes another — a false start mismatch or zombie.
+function procMapsToSelf(): boolean {
+  try {
+    return readlinkSync("/proc/self") === String(process.pid);
+  } catch {
+    return false;
   }
 }
 
@@ -487,18 +535,20 @@ function readPidNs(): string | null {
  * format/TZ-fragile comparison (C1).
  */
 function procStartInfo(pid: number): { state?: string; start?: string } | undefined {
-  try {
-    const s = readFileSync(`/proc/${pid}/stat`, "utf8");
-    const close = s.lastIndexOf(")");
-    if (close >= 0) {
-      const after = s.slice(close + 1).trim().split(/\s+/);
-      // after[0] is state (field 3); after[19] is starttime (field 22).
-      if (after.length >= 20 && after[0] && after[19]) {
-        return { state: after[0], start: `proc:${after[19]}` };
+  if (procMapsToSelf()) {
+    try {
+      const s = readFileSync(`/proc/${pid}/stat`, "utf8");
+      const close = s.lastIndexOf(")");
+      if (close >= 0) {
+        const after = s.slice(close + 1).trim().split(/\s+/);
+        // after[0] is state (field 3); after[19] is starttime (field 22).
+        if (after.length >= 20 && after[0] && after[19]) {
+          return { state: after[0], start: `proc:${after[19]}` };
+        }
       }
+    } catch {
+      // no /proc for this pid: fall through to ps
     }
-  } catch {
-    // no /proc for this pid: fall through to ps
   }
   try {
     const r = spawnSync("ps", ["-o", "lstart=", "-p", String(pid)], {
@@ -532,6 +582,7 @@ function me(): SelfIdent {
     host: readHostId(),
     boot: readBootId(),
     ns: readPidNs(),
+    timeNs: readTimeNs(),
     pid: process.pid,
     start: procStartInfo(process.pid)?.start ?? null
   };
@@ -549,6 +600,7 @@ function makeLockRec(token: string, target?: string): LockRec {
     host: self.host,
     boot: self.boot,
     ns: self.ns,
+    timeNs: self.timeNs,
     pid: self.pid,
     start: self.start,
     token,
@@ -560,10 +612,16 @@ function makeLockRec(token: string, target?: string): LockRec {
 function parseLockRec(raw: unknown): LockRec {
   if (typeof raw !== "object" || raw === null) throw new Error("bad lock record");
   const o = raw as Record<string, unknown>;
-  const { host, boot, ns, pid, start, token, target, at } = o;
+  const { host, boot, ns, timeNs, pid, start, token, target, at } = o;
+  // timeNs is a required field like host/boot/ns/pid/start: an absent field is a
+  // malformed record → corrupt → fail-closed. No back-compat exception is carved
+  // for a "v4 without timeNs" — the redesign was never published, so no such lock
+  // exists outside fixtures (kept in step with makeLockRec). The VALUE may be null
+  // (genuine unknown time namespace), which the liveness guard treats as undecidable.
   if (typeof host !== "string" || host.length === 0) throw new Error("bad host");
   if (boot !== null && typeof boot !== "string") throw new Error("bad boot");
   if (ns !== null && typeof ns !== "string") throw new Error("bad ns");
+  if (timeNs !== null && typeof timeNs !== "string") throw new Error("bad timeNs");
   if (typeof pid !== "number" || !Number.isInteger(pid) || pid <= 0) throw new Error("bad pid");
   if (start !== null && typeof start !== "string") throw new Error("bad start");
   if (typeof token !== "string" || !LOCK_TOKEN_RE.test(token)) throw new Error("bad token");
@@ -573,6 +631,7 @@ function parseLockRec(raw: unknown): LockRec {
     host,
     boot,
     ns,
+    timeNs,
     pid,
     start,
     token,
@@ -661,19 +720,24 @@ type Liveness = "dead" | "live" | "undecidable";
  * "dead" from a TZ/format-fragile comparison: differing start sources or a
  * boot difference outside Linux both yield "undecidable" (C1).
  */
-function livenessOf(r: LockRec, self: SelfIdent): Liveness {
+export function livenessOf(r: LockRec, self: SelfIdent): Liveness {
   if (r.host !== self.host) return "undecidable"; // other machine: undecidable
   if (r.boot && self.boot && r.boot !== self.boot) {
     if (process.platform !== "linux") return "undecidable"; // TZ/format-fragile outside Linux
     return "dead"; // previous boot (Linux boot_id is stable)
   }
-  if (r.ns !== self.ns) return "undecidable"; // other pid namespace: undecidable
+  // B2: an unreadable namespace on EITHER side is a genuine unknown — two records
+  // with a null namespace must never be treated as co-located (null-equality).
+  if (r.ns === null || self.ns === null) return "undecidable";
+  if (r.ns !== self.ns) return "undecidable"; // other, known pid namespace: undecidable
+  // From here the namespace is known AND shared, so a PID's absence is conclusive.
   let exists = false;
   try {
     process.kill(r.pid, 0);
     exists = true;
   } catch (e) {
     const code = errnoOf(e);
+    // PID absent in a known, shared namespace ⇒ dead, with certainty, no start-time.
     if (code === "ESRCH") return "dead";
     if (code === "EPERM") exists = true; // exists, no permission: keep checking
     else return "undecidable";
@@ -682,8 +746,22 @@ function livenessOf(r: LockRec, self: SelfIdent): Liveness {
   if (p?.state === "Z") return "dead"; // zombie never runs again (Linux)
   if (r.start !== null && p?.start !== undefined) {
     if (startSource(r.start) !== startSource(p.start)) return "undecidable";
+    // proc starttime is expressed relative to the reader's time namespace, so a
+    // proc-sourced comparison is only meaningful when both time namespaces are KNOWN
+    // and EQUAL. Otherwise the recorded start is UNDATABLE for this comparison ⇒ the
+    // same safe+quiet outcome as an undatable start below: "live" — never reclaim,
+    // never a false death, and (unlike undecidable) never a false M-2 alarm on a
+    // healthy live holder whose time base we simply cannot read. This never wedges
+    // an incident: the PID-absent branch above concludes "dead" without timeNs, so a
+    // disappeared holder is still reclaimed even when the time base is unknown. The
+    // only cost is a genuinely-reused PID left alive until it exits — rare and safe.
+    // ps starttime is absolute wall-clock (TZ-normalised) and needs no gate.
+    if (startSource(r.start) === "proc" && (r.timeNs === null || self.timeNs === null || r.timeNs !== self.timeNs)) {
+      return "live";
+    }
     return p.start !== r.start ? "dead" : "live"; // PID reused vs same process
   }
+  // Present but with an undatable start ⇒ live: never reclaim a live-or-unknown holder.
   return exists ? "live" : "undecidable";
 }
 
@@ -802,24 +880,43 @@ function retireDeadToken(
       round,
       depth
     });
-    let unlinkCode: string | undefined;
-    try {
-      unlinkSync(lockPath); // (S) removes exactly g (Lemma C)
-    } catch (e) {
-      unlinkCode = errnoOf(e);
+    // Lemma C (targeted removal), hardened: re-read LOCK as the LAST step before the
+    // unlink and remove it ONLY while it is STILL exactly g. Successor uniqueness
+    // (Lemma B) + monotonicity (I2) prove LOCK cannot legally change from g under this
+    // sole successor, so in production this re-read always confirms g. It is the
+    // defense-in-depth that also holds under manual intervention / a fresh owner /
+    // corruption appearing in this window: such a LOCK bears a different token (or is
+    // corrupt) and is NEVER deleted — we only ever unlink a lock we still own.
+    const now = readLockRecord(lockPath);
+    if (now === "corrupt") return lockDenied("dead-undecidable"); // keep our SUCC: fail closed
+    if (now !== "absent" && now.token !== g) {
+      // A different owner appeared in the window: our SUCC(g) is inert. Purge it and
+      // retry against the new LOCK — never delete a lock we do not own.
+      purgeSuccession(prefix, lockPath, g);
+      return "retry";
     }
-    invokeLockHook(hooks.afterRetireUnlink, {
-      prefix,
-      lockPath,
-      path: lockPath,
-      target: g,
-      round,
-      depth
-    });
-    // LOCK != g not established: keep our SUCC file, fail closed.
-    if (unlinkCode !== undefined && unlinkCode !== "ENOENT") {
-      return lockDenied(`error:${unlinkCode}`);
+    if (now !== "absent") {
+      // now.token === g: safe to remove exactly g.
+      let unlinkCode: string | undefined;
+      try {
+        unlinkSync(lockPath); // (S) removes exactly g (Lemma C)
+      } catch (e) {
+        unlinkCode = errnoOf(e);
+      }
+      invokeLockHook(hooks.afterRetireUnlink, {
+        prefix,
+        lockPath,
+        path: lockPath,
+        target: g,
+        round,
+        depth
+      });
+      // LOCK != g not established: keep our SUCC file, fail closed.
+      if (unlinkCode !== undefined && unlinkCode !== "ENOENT") {
+        return lockDenied(`error:${unlinkCode}`);
+      }
     }
+    // now === "absent": g already removed by someone else; fall through to publish.
   }
   // From here LOCK != g forever (I2): every SUCC targeting g is inert.
   purgeSuccession(prefix, lockPath, g); // unlink SUCC files whose target === g
@@ -1056,7 +1153,16 @@ export function describeLockReason(reason: PrefixLockLease["reason"]): string {
   if (reason === "dead-undecidable") {
     return "lock held by an owner whose liveness cannot be decided; manual intervention required (if PID absent on this host, remove the lock and its .succ. files)";
   }
-  return `cannot access the global prefix (${reason.slice("error:".length)}); check directory permissions`;
+  const code = reason.slice("error:".length);
+  // Error-specific hint: only permission-class codes warrant the "check permissions"
+  // advice; other codes get an accurate, non-misleading message.
+  if (code === "EACCES" || code === "EPERM" || code === "EROFS") {
+    return `cannot access the global prefix (${code}); check directory permissions`;
+  }
+  if (code === "ENOSPC") {
+    return "cannot write to the global prefix (ENOSPC); no space left on device";
+  }
+  return `cannot access the global prefix (${code})`;
 }
 
 export const defaultUpgradeRuntime: UpgradeRuntime = {
@@ -1094,10 +1200,18 @@ export const defaultUpgradeRuntime: UpgradeRuntime = {
     }
   },
   writeCache(path, entry) {
+    // Atomic replace: write a sibling temp then rename, so a concurrent reader (or a
+    // crash mid-write) never observes a half-written, unparseable cache file.
+    const tmp = `${path}.tmp.${randomBytes(6).toString("hex")}`;
     try {
-      writeFileSync(path, `${JSON.stringify(entry, null, 2)}\n`, "utf8");
+      writeFileSync(tmp, `${JSON.stringify(entry, null, 2)}\n`, "utf8");
+      renameSync(tmp, path);
     } catch {
-      // best-effort
+      try {
+        unlinkSync(tmp);
+      } catch {
+        // best-effort
+      }
     }
   },
   resolvePrefix() {
@@ -1528,7 +1642,17 @@ export function reexecSelf(options: ReexecOptions = {}): boolean {
 export interface AutoUpgradeResult {
   readonly current: string;
   readonly target?: string;
-  readonly outcome: "upgraded" | "already-current" | "deferred-propagation" | "failed" | "skipped-locked" | "skipped-throttled";
+  readonly outcome:
+    | "upgraded"
+    | "already-current"
+    | "deferred-propagation"
+    | "failed"
+    | "skipped-locked"
+    | "skipped-throttled"
+    // M-2: an UNDECIDABLE lock owner (dead-or-unknown, manual intervention) is a
+    // distinct, boot-VISIBLE outcome — never folded into the quiet skipped-locked
+    // (a live installer in progress), so the wedge class surfaces at boot.
+    | "blocked-undecidable";
   readonly verifiedVersion?: string;
   readonly message: string;
   readonly logPath?: string;
@@ -1766,14 +1890,14 @@ export function performAutoUpgrade(
         prefix: resolvedPrefix,
         current,
         target,
-        outcome: "skipped-locked",
+        outcome: "blocked-undecidable",
         reason,
         error: fullError
       });
       return {
         current,
         target,
-        outcome: "skipped-locked",
+        outcome: "blocked-undecidable",
         message: `auto-upgrade blocked: ${fullError} (see ${logPath})`,
         logPath
       };
@@ -1793,6 +1917,40 @@ export function performAutoUpgrade(
       completeRepair(resolvedPrefix);
     } catch {
       // best-effort
+    }
+
+    // Idempotence under the lock: the version check ran BEFORE acquiring the lock,
+    // so a peer lane may have installed `target` while we waited. Re-read the live
+    // global version now that we hold the lock; if it already IS target, do not
+    // re-stage ~130 MB — report already-current. The lock releases in `finally`.
+    let installed: string | undefined;
+    try {
+      installed = doReadGlobal(resolvedPrefix);
+    } catch {
+      installed = undefined;
+    }
+    if (installed === target) {
+      if (cachePath) {
+        try {
+          const prev = readEntry();
+          writeEntry({
+            checkedAt: prev?.checkedAt ?? startedAt,
+            latest: target,
+            lastAttemptAt: nowFn(),
+            consecutiveFailures: 0,
+            lastAttemptVersion: target,
+            lastOutcome: "ok"
+          });
+        } catch {
+          // best-effort
+        }
+      }
+      return {
+        current: installed,
+        target,
+        outcome: "already-current",
+        message: `already current (${installed}); another lane installed ${target} before this one acquired the lock`
+      };
     }
 
     // Sibling staging dirs under the global prefix (same filesystem, never /tmp).

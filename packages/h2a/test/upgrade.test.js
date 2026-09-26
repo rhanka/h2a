@@ -56,7 +56,13 @@ function stagedFake(overrides = {}) {
     probeStagedVersion: () => { calls.probe++; return overrides.probed ?? latest; },
     verifyStagedNative: () => { calls.native++; return overrides.native ?? { ok: true }; },
     swapPackageDir: () => { calls.swap++; return overrides.swap ?? { ok: true, repaired: false }; },
-    readGlobalPkgVersion: () => { calls.verify++; return overrides.verified ?? latest; },
+    // Stateful, to model reality: BEFORE the swap the global prefix holds the
+    // pre-existing version (drives the post-lock idempotence check); AFTER the swap
+    // it holds the newly installed version (drives the post-swap verification).
+    readGlobalPkgVersion: () => {
+      calls.verify++;
+      return calls.swap > 0 ? (overrides.verified ?? latest) : (overrides.installed ?? CUR);
+    },
     writeDiagnostics: () => { calls.diag++; },
     ...overrides.runtime
   };
@@ -131,7 +137,9 @@ test("performAutoUpgrade POSITIVE CONTROL: a legitimate upgrade succeeds end to 
   assert.equal(calls.probe, 1);
   assert.equal(calls.native, 1, "the staged native module must be validated before swap");
   assert.equal(calls.swap, 1);
-  assert.equal(calls.verify, 1);
+  // Two global reads: the post-lock idempotence check (pre-swap) + the post-swap
+  // verification. The idempotence read saw the pre-existing version, so the upgrade ran.
+  assert.equal(calls.verify, 2);
   assert.ok(calls.released >= 1, "prefix lock must be released");
   assert.equal(calls.written.lastOutcome, "ok");
 });
@@ -160,6 +168,35 @@ test("performAutoUpgrade skips (no mutation) when another lane holds the prefix 
   assert.equal(r.outcome, "skipped-locked");
   assert.equal(calls.fetch, 0);
   assert.equal(calls.swap, 0);
+});
+
+// M-2: an UNDECIDABLE lock owner (dead-or-unknown → manual intervention) is a distinct,
+// boot-VISIBLE outcome — never folded into the quiet skipped-locked (a live installer),
+// so the wedge class (the 4-incident lineage) surfaces at boot instead of hiding.
+test("performAutoUpgrade surfaces an undecidable lock owner as blocked-undecidable, not skipped-locked (M-2)", () => {
+  const { runtime, calls } = stagedFake({
+    latest: "999.0.0",
+    lock: { acquired: false, reason: "dead-undecidable", release: () => {} }
+  });
+  const r = performAutoUpgrade(CUR, { runtime, cachePath: "/x", prefix: "/fake/prefix" });
+  assert.equal(r.outcome, "blocked-undecidable");
+  assert.match(r.message, /undecidable/);
+  assert.equal(calls.fetch, 0, "no work is attempted behind an undecidable lock");
+  assert.equal(calls.swap, 0);
+});
+
+// Idempotence under the lock: the version check runs BEFORE the lock, so a peer lane
+// may install the target while we wait. Once we hold the lock, re-reading the global
+// version must short-circuit — no re-fetch/stage/swap of ~130 MB.
+test("performAutoUpgrade is idempotent under the lock: a peer lane's install short-circuits with no re-stage", () => {
+  const { runtime, calls } = stagedFake({ latest: "999.0.0", installed: "999.0.0" });
+  const r = performAutoUpgrade(CUR, { runtime, cachePath: "/x", prefix: "/fake/prefix" });
+  assert.equal(r.outcome, "already-current");
+  assert.equal(r.current, "999.0.0");
+  assert.equal(calls.fetch, 0, "no tarball fetch when the global is already at target");
+  assert.equal(calls.stage, 0, "no staging when already at target");
+  assert.equal(calls.swap, 0, "no swap when already at target");
+  assert.ok(calls.released >= 1, "the lock is still released");
 });
 
 test("performAutoUpgrade fails (install intact) when the staged binary reports the wrong version", () => {
@@ -227,7 +264,9 @@ test("performAutoUpgrade backoff escalates across boots crossing the TTL (M-3)",
     probeStagedVersion: () => "999.0.0",
     verifyStagedNative: () => ({ ok: true }),
     swapPackageDir: () => ({ ok: true }),
-    readGlobalPkgVersion: () => "999.0.0",
+    // The fetch always defers, so no swap ever lands: the global stays at the
+    // pre-existing version (the post-lock idempotence check must not short-circuit).
+    readGlobalPkgVersion: () => CUR,
     writeDiagnostics: () => {}
   });
   const counters = [];
