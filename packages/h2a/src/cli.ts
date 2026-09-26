@@ -291,6 +291,46 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const SKILLS_DIR = resolvePath(HERE, "..", "skills");
 
 /**
+ * Source of the DETACHED boot auto-upgrade worker (launched via
+ * `node --input-type=module --eval <this> -- <moduleUrl> <root> <ttl> <mode>`). It imports
+ * the upgrade module by URL and runs the check/upgrade in the background. The body is wrapped
+ * in a catch — a boot-upgrade failure must never affect the MCP server. Exported (module-level,
+ * static: it reads all inputs from argv, never a closure) so a test can launch the REAL source,
+ * not a copy. `isQuietUpgradeOutcome` is called OPTIONALLY (`?.`): if the imported module is an
+ * older build that lacks the export (a rollback/downgrade during boot on the hinge release), the
+ * result is `undefined` and the message is SHOWN (fail-open) rather than the M-2/R2 alarm being
+ * silently lost — presence of the export is not guaranteed across a version skew.
+ */
+export const MCP_UPGRADE_WORKER_SOURCE = String.raw`
+const [moduleUrl, root, ttl, mode] = process.argv.slice(1);
+try {
+  const upgrade = await import(moduleUrl);
+  const current = upgrade.currentCliVersion();
+  if (mode === "auto") {
+    const result = upgrade.performAutoUpgrade(current, {
+      cachePath: upgrade.upgradeCachePath(root),
+      ttlMs: Number(ttl)
+    });
+    // Shared quiet set (isQuietUpgradeOutcome): blocked-undecidable (M-2) and skipped-locked-stale
+    // (R2) surface at boot. Optional call: a missing export ⇒ undefined ⇒ show the message.
+    if (!upgrade.isQuietUpgradeOutcome?.(result.outcome)) {
+      process.stderr.write("h2a mcp-serve: " + result.message + "\n");
+    }
+  } else {
+    const result = upgrade.checkUpgrade(current, {
+      cachePath: upgrade.upgradeCachePath(root),
+      ttlMs: Number(ttl)
+    });
+    if (result.upgradeAvailable) {
+      process.stderr.write("h2a mcp-serve: h2a " + result.latest + " available (current " + current + ") — run \`h2a upgrade\`\n");
+    }
+  }
+} catch {
+  // Best-effort background maintenance must not affect the MCP server.
+}
+`;
+
+/**
  * Pattern matchers used to map known store-level error messages to exit code
  * 2 (state/runtime conflict) instead of the default 1 (user error). Anything
  * not matched here keeps the conservative 1 — DEC-034 explicitly opts for
@@ -1995,39 +2035,12 @@ export async function runMcpServe(
           }
         });
       } else {
-        const workerSource = String.raw`
-const [moduleUrl, root, ttl, mode] = process.argv.slice(1);
-try {
-  const upgrade = await import(moduleUrl);
-  const current = upgrade.currentCliVersion();
-  if (mode === "auto") {
-    const result = upgrade.performAutoUpgrade(current, {
-      cachePath: upgrade.upgradeCachePath(root),
-      ttlMs: Number(ttl)
-    });
-    // Shared quiet set (isQuietUpgradeOutcome): blocked-undecidable (M-2) and skipped-locked-stale (R2) surface at boot.
-    if (!upgrade.isQuietUpgradeOutcome(result.outcome)) {
-      process.stderr.write("h2a mcp-serve: " + result.message + "\n");
-    }
-  } else {
-    const result = upgrade.checkUpgrade(current, {
-      cachePath: upgrade.upgradeCachePath(root),
-      ttlMs: Number(ttl)
-    });
-    if (result.upgradeAvailable) {
-      process.stderr.write("h2a mcp-serve: h2a " + result.latest + " available (current " + current + ") — run \`h2a upgrade\`\n");
-    }
-  }
-} catch {
-  // Best-effort background maintenance must not affect the MCP server.
-}
-`;
         const worker = spawn(
           process.execPath,
           [
             "--input-type=module",
             "--eval",
-            workerSource,
+            MCP_UPGRADE_WORKER_SOURCE,
             "--",
             new URL("./runtime/upgrade/index.js", import.meta.url).href,
             root,
