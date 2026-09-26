@@ -13,7 +13,7 @@
  */
 
 import assert from "node:assert/strict";
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
 
@@ -204,7 +204,9 @@ maybe(
       });
       assert.equal(failed.state, "identity_failed");
       assert.equal(failed.cause, "identity_timeout");
-      assert.equal(failed.retryable, false);
+      // identity_timeout is a TRANSIENT failure (a dead/contended/expired lock): retryable,
+      // a later tool call re-attempts (bounded). Only PERMANENT causes stay terminal.
+      assert.equal(failed.retryable, true);
       // The deadline is measured from entering pending and is not reset: ~20 000 ms
       // (the controller's own monotonic elapsedMs, ±tolerance).
       assert.ok(
@@ -212,11 +214,13 @@ maybe(
         `identity_failed elapsedMs must be ~20000 (was ${failed.elapsedMs})`
       );
 
-      // Signed tools refused terminally with the typed failed error.
+      // Signed tools are refused with the typed failed error. The registry lock is still held,
+      // and this call lands within the retry min-interval, so it returns the memoized transient
+      // failure (retryable:true) rather than kicking a fresh attempt.
       const send = parseToolJson(await callTool(h, "h2a_send", { to: "claude:peer", message: "hi" }));
       assert.equal(send.error, "identity_failed");
       assert.equal(send.cause, "identity_timeout");
-      assert.equal(send.retryable, false);
+      assert.equal(send.retryable, true);
 
       // No availability was ever published: no presence session, no signature.
       const presence = existsSync(join(root, "presence"))
@@ -265,6 +269,60 @@ maybe(
     } finally {
       holder.stop();
       await stopChildren(h);
+    }
+  }
+);
+
+// T-retry (0.97.9): the memoized identity_failed was TERMINAL for the process lifetime, so a
+// fleet that booted while the identity lock was held by a dead process stayed wedged until each
+// server restarted. The fix: a TRANSIENT identity_failed re-attempts on a later tool call
+// (bounded). RED on the pre-fix binary (the memoized failure is returned forever; ready is never
+// reached without a restart). H2A_IDENTITY_RETRY_MIN_MS=0 lets the re-attempt kick immediately.
+maybe(
+  "T-retry: a dead-process-held lock fails identity, then freeing it + a tool call reaches ready (no restart)",
+  { timeout: 60_000 },
+  async () => {
+    const root = labRoot(SEED);
+    // Hold the IDENTITY lock (bindings lock, reclaimStale:false — a dead holder is NOT auto-reclaimed,
+    // unlike the registry lock), then SIGKILL the holder: the sentinel survives owned by a now-dead pid
+    // → identity readiness times out (transient). This is the exact incident (a dead-process-held
+    // identity lock). mkdir the identity dir first so the holder can create the sentinel.
+    mkdirSync(join(root, "identity"), { recursive: true });
+    const holder = startLiveHolder({ root, lock: "identity" });
+    await holder.ready;
+    holder.child.kill("SIGKILL");
+    const lockPath = holder.lockPath;
+    const h = spawnMcp({
+      root,
+      args: ["--auto-open", "--host", "claude"],
+      env: { CLAUDE_CODE_SESSION_ID: "t-retry", H2A_IDENTITY_RETRY_MIN_MS: "0" }
+    });
+    try {
+      await callRpc(h, { jsonrpc: "2.0", id: 1, method: "initialize" }, { timeoutMs: 15_000 });
+      const failed = await waitForIdentity(h, (s) => s.state === "identity_failed", {
+        timeoutMs: 28_000,
+        pollMs: 300
+      });
+      assert.equal(failed.cause, "identity_timeout");
+      assert.equal(failed.retryable, true, "a lock-timeout failure is transient/retryable");
+
+      // Free the dead holder's lock, then a NEW tool call re-attempts — WITHOUT restarting the process.
+      unlinkSync(lockPath);
+      const send = parseToolJson(await callTool(h, "h2a_send", { to: "claude:peer", message: "hi" }));
+      assert.equal(send.error, "identity_pending", "the gated tool call kicked a fresh attempt, not the memoized failure");
+
+      const ready = await waitForIdentity(h, (s) => s.state === "identity_ready" || s.state === "identity_failed", {
+        timeoutMs: 28_000,
+        pollMs: 300
+      });
+      assert.equal(ready.state, "identity_ready", "the session self-recovers to ready without a restart");
+    } finally {
+      stopChildren(h);
+      try {
+        holder.stop();
+      } catch {
+        /* already dead */
+      }
     }
   }
 );

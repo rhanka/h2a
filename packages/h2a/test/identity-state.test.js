@@ -110,3 +110,86 @@ test("F1: a worker result that arrives AFTER the deadline never activates", () =
   assert.equal(st.state, "identity_failed");
   assert.equal(st.cause, "identity_timeout");
 });
+
+// --- Bounded on-demand retry for a TRANSIENT identity failure (0.97.9) ---
+// A dead/contended/expired lock surfaces as identity_timeout and latches identity_failed;
+// pre-fix this was terminal for the process lifetime (retryable:false, no retry()), so every
+// later tool call returned the memoized failure. These pin the fix RED-first: they call
+// controller.retry() (which did not exist) and expect identity_timeout to be retryable.
+
+// Drive a first attempt to identity_failed(identity_timeout) via the late-result path
+// (clock crosses the deadline before the worker resolves), then return the controller + clock.
+function failedTransientController({ retryMinIntervalMs }) {
+  const w = fakeWorker();
+  const clock = { ns: 0n };
+  let activateCalls = 0;
+  const controller = createIdentityController({
+    request,
+    timeoutMs: 5_000,
+    retryMinIntervalMs,
+    nowNs: () => clock.ns,
+    spawnWorker: w.make,
+    activate: () => {
+      activateCalls += 1;
+      return { ok: true, sessionId: "sess:retry", signer: { instance: identity.instance, privateKeyPem: "PEM" } };
+    }
+  });
+  controller.start();
+  clock.ns = 6_000n * 1_000_000n; // past the 5s deadline
+  w.handle.resolved(identity); // late result → fail("identity_timeout")
+  const st = controller.status();
+  assert.equal(st.state, "identity_failed");
+  assert.equal(st.cause, "identity_timeout");
+  assert.equal(st.retryable, true, "identity_timeout is a TRANSIENT (retryable) failure");
+  return { controller, clock, w, activateCalls: () => activateCalls };
+}
+
+test("retry: a transient identity_failed re-attempts on demand after the min interval and reaches ready (no restart)", () => {
+  const { controller, clock, w } = failedTransientController({ retryMinIntervalMs: 30_000 });
+  const firstAttempt = controller.status().attemptId;
+
+  // Within the interval: retry is refused, the memoized failure is kept.
+  assert.equal(controller.retry(), false, "no re-attempt within the min interval");
+  assert.equal(controller.status().state, "identity_failed");
+
+  // Past the interval: a tool call re-attempts (state → pending, NEW attemptId), no restart.
+  clock.ns += 31_000n * 1_000_000n;
+  assert.equal(controller.retry(), true, "a re-attempt is kicked once the interval elapsed");
+  const pending = controller.status();
+  assert.equal(pending.state, "identity_pending");
+  assert.notEqual(pending.attemptId, firstAttempt, "the re-attempt has a fresh attemptId");
+
+  // The re-attempt's worker resolves within its deadline → identity_ready, same process.
+  w.handle.resolved(identity);
+  const ready = controller.status();
+  assert.equal(ready.state, "identity_ready", "the session self-recovers to ready without a restart");
+  assert.ok(controller.signer(), "the live signer is available after self-recovery");
+});
+
+test("retry: one attempt at a time — a second retry while pending is a no-op", () => {
+  const { controller, clock } = failedTransientController({ retryMinIntervalMs: 0 });
+  assert.equal(controller.retry(), true, "first retry kicks");
+  assert.equal(controller.status().state, "identity_pending");
+  assert.equal(controller.retry(), false, "a second retry while pending never starts a concurrent attempt");
+});
+
+test("retry: a PERMANENT identity_failed never re-attempts (stays terminal)", () => {
+  const w = fakeWorker();
+  const clock = { ns: 0n };
+  const controller = createIdentityController({
+    request,
+    timeoutMs: 5_000,
+    retryMinIntervalMs: 0, // even with zero interval, a permanent cause must not retry
+    nowNs: () => clock.ns,
+    spawnWorker: w.make,
+    activate: () => ({ ok: false, cause: "storage_permission_denied", message: "EACCES" })
+  });
+  controller.start();
+  w.handle.resolved(identity); // activation fails permanently
+  const st = controller.status();
+  assert.equal(st.state, "identity_failed");
+  assert.equal(st.cause, "storage_permission_denied");
+  assert.equal(st.retryable, false, "a permanent cause is not retryable");
+  assert.equal(controller.retry(), false, "a permanent failure never re-attempts");
+  assert.equal(controller.status().state, "identity_failed", "still terminal");
+});

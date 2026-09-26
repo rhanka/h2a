@@ -89,9 +89,12 @@ const H2A_COORDINATION_TOOL_DESCRIPTORS: McpToolDescriptor[] = [
       "acquired asynchronously. Returns one of { state:'identity_disabled' } | " +
       "{ state:'identity_pending', attemptId, elapsedMs, timeoutMs:20000 } | " +
       "{ state:'identity_ready', attemptId, instance, sessionId, signingAvailable } | " +
-      "{ state:'identity_failed', attemptId, cause, message, retryable:false, elapsedMs }. " +
+      "{ state:'identity_failed', attemptId, cause, message, retryable, elapsedMs }. " +
       "Answered from memory (no disk read); never reveals a key, private path, or ACK nonce. " +
-      "While pending/failed, signed and mutating tools are refused with a bounded typed error.",
+      "While pending/failed, signed and mutating tools are refused with a bounded typed error. " +
+      "A TRANSIENT failure (retryable:true — e.g. identity_timeout from a dead/contended lock) " +
+      "self-heals: a later tool call runs a bounded new attempt, so status moves back to " +
+      "identity_pending with a fresh attemptId. A PERMANENT failure (retryable:false) stays terminal.",
     inputSchema: {
       type: "object",
       properties: {},
