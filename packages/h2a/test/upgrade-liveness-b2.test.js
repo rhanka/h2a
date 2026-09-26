@@ -205,3 +205,13 @@ test("N6 procStartInfo(darwin-sim): uses ps (real process table), producing a ps
   const info = procStartInfo(process.pid, "darwin", () => false);
   assert.ok(info && typeof info.start === "string" && info.start.startsWith("ps:"), "off Linux ⇒ ps: start");
 });
+
+// R-BSD: `ps` is trusted ONLY on darwin (absolute fork time). On FreeBSD/OpenBSD ps start
+// is boot-relative and its boot time is re-derived on a clock step, so it is not stable —
+// a clock jump could false-death a live holder (I3). Those platforms ⇒ undefined (live).
+test("R-BSD procStartInfo: FreeBSD/OpenBSD do NOT trust ps (undatable ⇒ live), only darwin does", () => {
+  assert.equal(procStartInfo(process.pid, "freebsd", () => false), undefined);
+  assert.equal(procStartInfo(process.pid, "openbsd", () => false), undefined);
+  const dar = procStartInfo(process.pid, "darwin", () => false);
+  assert.ok(dar && typeof dar.start === "string" && dar.start.startsWith("ps:"), "darwin still uses ps");
+});
