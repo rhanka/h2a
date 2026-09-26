@@ -223,16 +223,28 @@ test("runMcpServe: auto-upgrade cannot block initialize or reexec the live stdio
             events.push("upgrade-check");
             return "999.0.0";
           },
-          runInstall() {
+          // The staged auto-upgrade orchestration replaces the old single
+          // runInstall. The bounded latch now lives in the staging step: a real
+          // stage/swap blocks the event loop, so this keeps the boot-ordering
+          // regression observable while staying deterministic and network-free.
+          resolvePrefix: () => root,
+          completeRepairIfPending: () => false,
+          acquirePrefixLock: () => ({ acquired: true, release: () => {} }),
+          fetchTarball: () => {
             events.push("install-start");
-            // A real install is spawnSync and blocks the event loop. This
-            // bounded latch makes the old boot ordering observably fail while
-            // keeping the regression test deterministic and network-free.
+            return { ok: true, file: join(root, "staged.tgz") };
+          },
+          stageInstall: () => {
             Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 100);
             installFinished = true;
             events.push("install-finish");
-            return true;
+            return { ok: true };
           },
+          probeStagedVersion: () => "999.0.0",
+          verifyStagedNative: () => ({ ok: true }),
+          swapPackageDir: () => ({ ok: true, repaired: false }),
+          readGlobalPkgVersion: () => "999.0.0",
+          writeDiagnostics: () => {},
           now: () => 1,
           readCache: () => undefined,
           writeCache: () => {}

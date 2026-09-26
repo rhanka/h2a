@@ -21,7 +21,13 @@ const BIN = join(REPO_ROOT, "packages", "h2a", "dist", "bin.js");
 // and the RUNTIME_VERBS `muse` entry does not affect this stream either.
 // Drive consent adds exactly five MCP names (+132 bytes). Removing those names
 // recovers the previous 13,259-byte stream and its SHA-256 byte-for-byte.
-const CORE_HELP_SHA256 = "fd1d488ff03784c62c2f46d596426fd36556681ef2dd20c8548c128f79ba4821";
+// Updated for the auto-upgrade redesign (DEC-107, 0.97.8): the `mcp-serve` usage
+// line replaces the stale "self-updates + restarts in place" wording (which the
+// stdio boot path never did) with the accurate staged-swap / applies-next-launch
+// description (+102 bytes), and the `h2a upgrade` line's stale "bare: npm i -g …"
+// becomes "bare: non-destructive staged self-update" (+4 bytes). Both are entirely
+// in cli.ts `renderCliHelp`; no MCP tool names change.
+const CORE_HELP_SHA256 = "0e2f215b3a02d09ce1381b8fdf5f34bc439e79ec6ff15791dcd4a4d9a4ca1cf8";
 const RUNTIME_MISSING =
   "ce verbe requiert le runtime h2a (sessions / k8s / tunnel).\n" +
   "  Répare l'installation lockstep : npm i -g @sentropic/h2a@latest\n";
@@ -113,7 +119,8 @@ function assertCoreHelp(result) {
   // A SHA-256 commitment is an exact, compact golden for the help stream; the
   // durable report records this value and its byte length.
   assert.equal(createHash("sha256").update(result.stdout).digest("hex"), CORE_HELP_SHA256);
-  assert.equal(Buffer.byteLength(result.stdout), 13391);
+  // 13,391 + 102 (mcp-serve wording) + 4 (h2a upgrade wording) for DEC-107 (0.97.8).
+  assert.equal(Buffer.byteLength(result.stdout), 13497);
 }
 
 function assertMissingRuntime(result, firstToken) {
