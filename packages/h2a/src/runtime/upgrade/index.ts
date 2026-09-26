@@ -565,13 +565,18 @@ export function procStartInfo(
   platform: NodeJS.Platform = process.platform,
   mapsToSelf: () => boolean = procMapsToSelf
 ): { state?: string; start?: string } | undefined {
-  // Under Linux the ONLY trustworthy start is /proc field 22 (proc:).
-  // - B3: a mis-mapped /proc (unshare --pid without --mount-proc) makes both /proc AND
-  //   `ps` (procps reads /proc/<pid>) describe another namespace's process ⇒ undatable.
-  // - N5: `ps` lstart under Linux derives from btime + starttime and moves on a wall-clock
-  //   step, so it is NOT a stable identity either. So under Linux we never fall back to ps:
-  //   /proc when it maps to us, otherwise undefined (undatable ⇒ live). Off Linux, `ps`
-  //   reads the real process table and is the correct, stable source.
+  // A start time is only trusted from a source whose value is STABLE for the life of the
+  // process (never moving under a wall-clock step), else a clock jump while the lock is held
+  // could make a live holder's start "differ" ⇒ a false death ⇒ two holders (I3).
+  // - Linux: /proc field 22 (proc:) is the only trusted source.
+  //   - B3: a mis-mapped /proc (unshare --pid without --mount-proc) makes both /proc AND
+  //     `ps` (procps reads /proc/<pid>) describe another namespace's process ⇒ undatable.
+  //   - N5: `ps` lstart under Linux derives from btime + starttime and moves on a clock step,
+  //     so it is not stable either. So under Linux: /proc when it maps to us, else undefined.
+  // - darwin: `ps lstart` is the ABSOLUTE fork wall-clock time (p_starttime), stable ⇒ trusted.
+  // - R-BSD: on FreeBSD/OpenBSD `ps` start is boot-relative and its boot time is re-derived on
+  //   a clock step, so it is NOT stable. Every other non-Linux platform (incl. Windows, no ps)
+  //   ⇒ undefined (undatable ⇒ live). In doubt, never dead.
   if (platform === "linux") {
     if (!mapsToSelf()) return undefined;
     try {
@@ -589,6 +594,7 @@ export function procStartInfo(
     }
     return undefined;
   }
+  if (platform !== "darwin") return undefined; // only darwin ps is a stable source
   try {
     const r = spawnSync("ps", ["-o", "lstart=", "-p", String(pid)], {
       encoding: "utf8",
@@ -822,7 +828,8 @@ function classifyLiveness(r: LockRec, self: SelfIdent, deps: LivenessDeps = {}):
     // false death, never a false M-2 alarm. This never wedges an incident: the PID-absent
     // branch concluded "dead" without a start. The only cost is a genuinely-reused PID
     // left alive until it exits — rare, bounded, and surfaced by the R2 staleness alert.
-    // ps starttime is absolute wall-clock (TZ-normalised) and needs no gate.
+    // A ps: start now arises ONLY on darwin (procStartInfo trusts ps only there), where
+    // lstart is the absolute fork wall-clock (TZ-normalised), stable ⇒ it needs no time gate.
     if (rSrc === "proc" && (r.timeNs === null || self.timeNs === null || r.timeNs !== self.timeNs)) {
       return { verdict: "live", datable: false };
     }
@@ -1215,6 +1222,17 @@ function sweepUpgradeResidues(prefix: string, lockToken?: string): void {
   } catch {
     // best-effort
   }
+}
+
+/**
+ * Boot outcomes that stay QUIET so a mass restart does not spam stderr. Everything else —
+ * `upgraded`/`failed`/`deferred-propagation`, and critically `blocked-undecidable` (M-2) and
+ * `skipped-locked-stale` (R2) — is actionable and MUST surface at boot. The single source of
+ * truth for both the in-process seam and the boot worker, so the two cannot drift and can be
+ * tested once. Do NOT add blocked-undecidable or skipped-locked-stale here.
+ */
+export function isQuietUpgradeOutcome(outcome: string): boolean {
+  return outcome === "already-current" || outcome === "skipped-throttled" || outcome === "skipped-locked";
 }
 
 /**
