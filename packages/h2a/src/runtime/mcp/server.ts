@@ -74,6 +74,7 @@ import { createPayloadStore, type PayloadStore } from "./payload-store.js";
 import { resolveFrameBudget, type FrameBudget } from "./frame-budget.js";
 import { PAYLOAD_MAX_READ_BYTES } from "./payload-store.js";
 import { H2A_CLI_MCP_TOOL_NAMES } from "../../mcp.js";
+import { MCP_IDENTITY_RETRY_MIN_MS } from "./identity-state.js";
 import type { McpIdentityController, McpIdentityStatus } from "./identity-state.js";
 
 export interface CreateMcpServerOptions {
@@ -221,8 +222,18 @@ function identityPendingError(): McpTransportResult {
   };
 }
 
-/** A bounded typed error emitted for a guarded tool after identity failed. */
-function identityFailedError(cause: string): McpTransportResult {
+/**
+ * A bounded typed error emitted for a guarded tool after identity failed. `retryable` is
+ * true for a TRANSIENT cause (identity_timeout): a later tool call runs a fresh attempt, so
+ * the caller should retry rather than reconnect. `retryAfterMs` hints when the next call can
+ * kick a new attempt (the retry min-interval). A PERMANENT cause is retryable:false — the
+ * caller must correct the cause and reconnect.
+ */
+function identityFailedError(
+  cause: string,
+  retryable: boolean,
+  retryAfterMs?: number
+): McpTransportResult {
   return {
     content: [
       {
@@ -231,8 +242,11 @@ function identityFailedError(cause: string): McpTransportResult {
           error: "identity_failed",
           code: "identity_failed",
           cause,
-          message: "identity initialization failed; reconnect after correcting the cause",
-          retryable: false
+          message: retryable
+            ? "identity initialization failed transiently; retry — a new attempt runs on a later tool call once the retry interval elapses"
+            : "identity initialization failed; reconnect after correcting the cause",
+          retryable,
+          ...(retryAfterMs !== undefined ? { retryAfterMs } : {})
         })
       }
     ],
@@ -300,9 +314,17 @@ export function createMcpServer(options: CreateMcpServerOptions): McpServer {
     if (TRACK_READ_TOOL_NAMES.has(name)) return undefined;
     if (IDENTITY_INDEPENDENT_TOOLS.has(name)) return undefined;
     if (name === "h2a_inbox" && (args?.action === "read")) return undefined;
-    return st.state === "identity_pending"
-      ? identityPendingError()
-      : identityFailedError(st.cause);
+    if (st.state === "identity_pending") return identityPendingError();
+    // identity_failed. A TRANSIENT failure (identity_timeout — a dead/contended/expired
+    // lock) becomes self-healing: THIS tool call triggers a bounded on-demand re-attempt.
+    // If a fresh attempt kicked, report pending (retryable). Otherwise we are within the
+    // retry min-interval, so return the memoized transient failure (still retryable, with a
+    // hint). A PERMANENT failure stays terminal (retryable:false) and never re-attempts.
+    if (st.retryable) {
+      if (options.identity.retry()) return identityPendingError();
+      return identityFailedError(st.cause, true, MCP_IDENTITY_RETRY_MIN_MS);
+    }
+    return identityFailedError(st.cause, false);
   }
 
   function callTool(
