@@ -198,3 +198,10 @@ test("R1 legacy source: two legacy (malformed) starts are undecidable, never a f
   const probe = () => ({ start: "legacy-B-no-prefix" }); // both legacy, different values
   assert.equal(livenessOf(r, self, { platform: "linux", probe }), "undecidable");
 });
+
+// N6: off Linux, procStartInfo uses `ps` (the real process table), never /proc — macOS
+// and Windows have no /proc, so the ps path must stay reachable.
+test("N6 procStartInfo(darwin-sim): uses ps (real process table), producing a ps: start", () => {
+  const info = procStartInfo(process.pid, "darwin", () => false);
+  assert.ok(info && typeof info.start === "string" && info.start.startsWith("ps:"), "off Linux ⇒ ps: start");
+});

@@ -433,6 +433,22 @@ function errnoOf(e: unknown): string {
   return typeof code === "string" && code.length > 0 ? code : "EIO";
 }
 
+// N3: `at` is validated only as a finite number (parseLockRec), so it may be out of
+// Date's representable range; `new Date(at).toISOString()` would throw a RangeError.
+// Never let a diagnostic string crash the caller (at boot the exception would swallow
+// the whole M-2 alarm; `h2a upgrade` would abort). Fall back to the raw number.
+function safeAtIso(at: number): string {
+  const ms = Number(at);
+  if (Number.isFinite(ms) && Math.abs(ms) <= 8.64e15) {
+    try {
+      return new Date(ms).toISOString();
+    } catch {
+      // fall through
+    }
+  }
+  return `epoch-ms:${at}`;
+}
+
 function readHostId(): string {
   try {
     const v = readFileSync("/etc/machine-id", "utf8").trim();
@@ -549,13 +565,15 @@ export function procStartInfo(
   platform: NodeJS.Platform = process.platform,
   mapsToSelf: () => boolean = procMapsToSelf
 ): { state?: string; start?: string } | undefined {
-  // B3: under Linux a mis-mapped /proc (unshare --pid without --mount-proc) makes
-  // BOTH /proc AND `ps` (procps also reads /proc/<pid>) describe a process from
-  // another namespace — an untrusted start that can falsely differ and yield a false
-  // death ⇒ two holders (I3). Treat it as undatable (⇒ live), never fall back to the
-  // same bad /proc. Off Linux `ps` reads the real process table, so it stays valid.
-  if (platform === "linux" && !mapsToSelf()) return undefined;
-  if (mapsToSelf()) {
+  // Under Linux the ONLY trustworthy start is /proc field 22 (proc:).
+  // - B3: a mis-mapped /proc (unshare --pid without --mount-proc) makes both /proc AND
+  //   `ps` (procps reads /proc/<pid>) describe another namespace's process ⇒ undatable.
+  // - N5: `ps` lstart under Linux derives from btime + starttime and moves on a wall-clock
+  //   step, so it is NOT a stable identity either. So under Linux we never fall back to ps:
+  //   /proc when it maps to us, otherwise undefined (undatable ⇒ live). Off Linux, `ps`
+  //   reads the real process table and is the correct, stable source.
+  if (platform === "linux") {
+    if (!mapsToSelf()) return undefined;
     try {
       const s = readFileSync(`/proc/${pid}/stat`, "utf8");
       const close = s.lastIndexOf(")");
@@ -567,8 +585,9 @@ export function procStartInfo(
         }
       }
     } catch {
-      // no /proc for this pid: fall through to ps
+      // no readable /proc for this pid: undatable
     }
+    return undefined;
   }
   try {
     const r = spawnSync("ps", ["-o", "lstart=", "-p", String(pid)], {
@@ -1205,7 +1224,10 @@ function sweepUpgradeResidues(prefix: string, lockToken?: string): void {
 export function describeLockReason(reason: PrefixLockLease["reason"]): string {
   if (reason === undefined || reason === "busy") return "another installation in progress";
   if (reason === "dead-undecidable") {
-    return "lock held by an owner whose liveness cannot be decided; manual intervention required (if PID absent on this host, remove the lock and its .succ. files)";
+    // R4: do NOT advise a blanket removal — a holder unreadable here may be alive in
+    // another namespace/machine. The performAutoUpgrade path emits the fully-qualified
+    // guidance (recorded holder identity + reader ns); this stays generic and safe.
+    return "lock held by an owner whose liveness cannot be decided; manual intervention required (inspect the recorded holder before removing the lock — never remove one that may be alive in another namespace or machine)";
   }
   const code = reason.slice("error:".length);
   // Error-specific hint: only permission-class codes warrant the "check permissions"
@@ -1706,7 +1728,11 @@ export interface AutoUpgradeResult {
     // M-2: an UNDECIDABLE lock owner (dead-or-unknown, manual intervention) is a
     // distinct, boot-VISIBLE outcome — never folded into the quiet skipped-locked
     // (a live installer in progress), so the wedge class surfaces at boot.
-    | "blocked-undecidable";
+    | "blocked-undecidable"
+    // R2/N1: a live holder whose identity is not confirmable on this kernel (start not
+    // comparable) and whose lock is far older than any legitimate upgrade — a distinct,
+    // boot-VISIBLE outcome so the (bounded) reuse-detection loss is surfaced, not silent.
+    | "skipped-locked-stale";
   readonly verifiedVersion?: string;
   readonly message: string;
   readonly logPath?: string;
@@ -1943,7 +1969,7 @@ export function performAutoUpgrade(
       const holder =
         rec === "absent" || rec === "corrupt"
           ? `LOCK unreadable (${rec})`
-          : `holder host=${rec.host} ns=${rec.ns ?? "unknown"} pid=${rec.pid} acquiredAt=${new Date(rec.at).toISOString()}`;
+          : `holder host=${rec.host} ns=${rec.ns ?? "unknown"} pid=${rec.pid} acquiredAt=${safeAtIso(rec.at)}`;
       const advice =
         rec === "absent" || rec === "corrupt"
           ? `Inspect ${lockFile} and its ${lockFile}.succ.* files before any removal.`
@@ -1974,32 +2000,45 @@ export function performAutoUpgrade(
     // reason === "busy": a live holder. R2 staleness alert (DIAGNOSTIC ONLY, never a
     // reclaim): if this lock is far older than any legitimate upgrade AND its holder
     // reads "live" ONLY because its start time is not comparable on this kernel (so a
-    // reused PID could be masking a dead holder), surface it. `at` informs; it never
-    // decides (I7). No removal is advised — an operator killing a live holder on the
-    // strength of a message is a hand-made double-holder (the R4 lesson).
+    // reused PID could be masking a dead holder), surface it as a distinct, boot-VISIBLE
+    // outcome (N1: plain skipped-locked is suppressed at boot, which would hide exactly
+    // the loss B2's acceptance relies on making visible). `at` informs; it never decides
+    // (I7). No removal is advised — an operator killing a live holder on the strength of
+    // a message is a hand-made double-holder (the R4 lesson).
+    let staleAlert: string | undefined;
     try {
       const rec = readLockRecord(lockPathFor(resolvedPrefix));
       if (rec !== "absent" && rec !== "corrupt") {
         const info = classifyLiveness(rec, me());
         const ageMs = nowFn() - rec.at;
         if (info.verdict === "live" && !info.datable && ageMs > STALE_LOCK_ALERT_MS) {
-          diag({
-            at: startedAt,
-            durationMs: nowFn() - startedAt,
-            prefix: resolvedPrefix,
-            current,
-            target,
-            outcome: "skipped-locked",
-            reason,
-            error:
-              `prefix lock held ~${Math.round(ageMs / 60000)} min by pid ${rec.pid} (host ${rec.host}); ` +
-              `its identity is not confirmable on this kernel (start time not comparable), so a reused PID may be masking a dead holder. ` +
-              `Informational only — no action is taken and none is advised automatically; investigate whether pid ${rec.pid} is genuinely the running upgrade.`
-          });
+          staleAlert =
+            `prefix lock held ~${Math.round(ageMs / 60000)} min by pid ${rec.pid} (host ${rec.host}); ` +
+            `its identity is not confirmable on this kernel (start time not comparable), so a reused PID may be masking a dead holder. ` +
+            `Informational only — no action is taken and none is advised automatically; investigate whether pid ${rec.pid} is genuinely the running upgrade.`;
         }
       }
     } catch {
-      // best-effort: the staleness alert must never affect the outcome
+      // best-effort: the staleness check must never affect the outcome
+    }
+    if (staleAlert !== undefined) {
+      diag({
+        at: startedAt,
+        durationMs: nowFn() - startedAt,
+        prefix: resolvedPrefix,
+        current,
+        target,
+        outcome: "skipped-locked-stale",
+        reason,
+        error: staleAlert
+      });
+      return {
+        current,
+        target,
+        outcome: "skipped-locked-stale",
+        message: `auto-upgrade skipped (stale lock): ${staleAlert} (see ${logPath})`,
+        logPath
+      };
     }
     const detail = describeLockReason(reason);
     return {
@@ -2034,7 +2073,10 @@ export function performAutoUpgrade(
     let installedNativeOk = false;
     if (installed === target) {
       try {
-        installedNativeOk = doVerifyNative(stagedPkgDirFromPrefix(resolvedPrefix)).ok;
+        // N2: the LIVE global package dir is layout-dependent (nested on Linux/macOS,
+        // flat on Windows). Use resolveGlobalPkgDir, not the always-nested staged path,
+        // or the native check would fail forever on Windows and re-stage every lane.
+        installedNativeOk = doVerifyNative(resolveGlobalPkgDir(resolvedPrefix)).ok;
       } catch {
         installedNativeOk = false;
       }

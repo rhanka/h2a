@@ -1971,8 +1971,10 @@ export async function runMcpServe(
               });
               // Stay quiet on the common no-op / benign-skip outcomes so a mass
               // restart does not spam stderr; report actionable states only. NOTE:
-              // `blocked-undecidable` (M-2) is deliberately NOT suppressed — a wedged,
-              // liveness-undecidable lock owner must surface at boot. Do not add it here.
+              // `blocked-undecidable` (M-2) and `skipped-locked-stale` (R2) are
+              // deliberately NOT suppressed — a wedged, liveness-undecidable owner and a
+              // long-held, identity-unconfirmable lock must both surface at boot. Do not
+              // add either here.
               if (
                 result.outcome !== "already-current" &&
                 result.outcome !== "skipped-throttled" &&
@@ -2007,7 +2009,7 @@ try {
       cachePath: upgrade.upgradeCachePath(root),
       ttlMs: Number(ttl)
     });
-    // blocked-undecidable (M-2) is intentionally NOT suppressed: a wedged lock must surface at boot.
+    // blocked-undecidable (M-2) and skipped-locked-stale (R2) are intentionally NOT suppressed: both must surface at boot.
     if (result.outcome !== "already-current" && result.outcome !== "skipped-throttled" && result.outcome !== "skipped-locked") {
       process.stderr.write("h2a mcp-serve: " + result.message + "\n");
     }
