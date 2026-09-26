@@ -278,6 +278,43 @@ test("B3 LOAD (opt-in): N processes racing a killed-holder lock → exactly one 
   }
 });
 
+// N2 (Windows layout regression): the post-lock idempotence native check must resolve the
+// LIVE global package dir by layout (flat <prefix>/node_modules/<pkg> on Windows, nested
+// <prefix>/lib/node_modules/<pkg> on Linux/macOS), not the always-nested staged path — or
+// on Windows it would never find the native module, never report already-current, and
+// re-stage ~130 MB on every lane. Real fs + real readGlobalPkgVersion/verifyStagedNative.
+test("N2 idempotence: a flat-layout global at target with a loadable native is already-current (no re-stage)", () => {
+  const prefix = freshPrefix();
+  try {
+    writeSelfContainedPkg(join(prefix, "node_modules", H2A_CLI_PACKAGE), "999.0.0", { withNative: true });
+    const calls = { fetch: 0, stage: 0, swap: 0 };
+    const runtime = {
+      now: () => 1,
+      readCache: () => undefined,
+      writeCache: () => {},
+      fetchLatest: () => "999.0.0",
+      runInstall: () => true,
+      resolvePrefix: () => prefix,
+      completeRepairIfPending: () => false,
+      acquirePrefixLock: () => ({ acquired: true, release: () => {} }),
+      fetchTarball: () => { calls.fetch++; return { ok: true, file: "/x.tgz" }; },
+      stageInstall: () => { calls.stage++; return { ok: true }; },
+      probeStagedVersion: () => "999.0.0",
+      verifyStagedNative: rt.verifyStagedNative, // REAL: loads node-pty from the given dir
+      swapPackageDir: () => { calls.swap++; return { ok: true, repaired: false }; },
+      readGlobalPkgVersion: rt.readGlobalPkgVersion, // REAL: finds the flat layout
+      writeDiagnostics: () => {}
+    };
+    const r = performAutoUpgrade("0.97.7", { runtime, prefix });
+    assert.equal(r.outcome, "already-current", "a flat-layout install at target with a loadable native is current");
+    assert.equal(calls.fetch, 0, "no re-fetch");
+    assert.equal(calls.stage, 0, "no re-stage on the flat (Windows) layout");
+    assert.equal(calls.swap, 0);
+  } finally {
+    rmSync(prefix, { recursive: true, force: true });
+  }
+});
+
 test("verifyStagedNative: loads a present native module, fails when it cannot load", () => {
   const prefix = freshPrefix();
   try {

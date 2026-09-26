@@ -255,11 +255,71 @@ test("performAutoUpgrade R2: an old, undatable-live lock is surfaced (diagnostic
       runtime: { resolvePrefix: () => prefix, writeDiagnostics: (_path, record) => diags.push(record) }
     });
     const r = performAutoUpgrade(CUR, { runtime, prefix });
-    assert.equal(r.outcome, "skipped-locked", "a busy lock still just skips (no reclaim)");
+    // N1: the alert must be a distinct, boot-VISIBLE outcome (plain skipped-locked is
+    // suppressed at boot), carrying the message + logPath — never a reclaim.
+    assert.equal(r.outcome, "skipped-locked-stale", "an old, undatable-live lock is surfaced, not the quiet skipped-locked");
+    assert.match(r.message, /not confirmable on this kernel/);
+    assert.ok(r.logPath, "the stale outcome carries the logPath for the operator");
     assert.equal(existsSyncLock(lockFile), true, "the lock is never removed by the alert");
-    const alert = diags.find((d) => typeof d.error === "string" && d.error.includes("not confirmable on this kernel"));
-    assert.ok(alert, "an old, undatable-live lock raises the staleness diagnostic");
-    assert.doesNotMatch(alert.error, /remove/i, "the alert must never advise removing the lock");
+    assert.doesNotMatch(r.message, /\bremove\b/i, "the alert must never advise removing the lock");
+    const alert = diags.find((d) => d.outcome === "skipped-locked-stale");
+    assert.ok(alert, "the staleness diagnostic is also written to the log");
+  } finally {
+    rmSync(prefix, { recursive: true, force: true });
+  }
+});
+
+// N6 (negative R2): a YOUNG busy lock, or a datable-live holder, must NOT raise the stale
+// outcome — it stays the quiet skipped-locked (no false alarm on a healthy fresh install).
+test("performAutoUpgrade R2 negative: a young busy lock stays quiet skipped-locked (no false stale alarm)", () => {
+  const prefix = mkdtempSync(join(tmpdir(), "h2a-r2n-"));
+  const lockFile = join(prefix, ".h2a-upgrade.lock");
+  try {
+    const NOW = 10_000_000_000;
+    const lease = defaultUpgradeRuntime.acquirePrefixLock(prefix);
+    assert.equal(lease.acquired, true);
+    const rec = JSON.parse(readFileSync(lockFile, "utf8"));
+    lease.release();
+    rec.timeNs = null; // undatable...
+    rec.at = NOW - 1000; // ...but held only ~1s: well under the threshold
+    writeFileSync(lockFile, JSON.stringify(rec), "utf8");
+    const { runtime } = stagedFake({
+      latest: "999.0.0",
+      now: NOW,
+      lock: { acquired: false, reason: "busy", release: () => {} },
+      runtime: { resolvePrefix: () => prefix }
+    });
+    const r = performAutoUpgrade(CUR, { runtime, prefix });
+    assert.equal(r.outcome, "skipped-locked", "a young lock must not raise the stale outcome");
+  } finally {
+    rmSync(prefix, { recursive: true, force: true });
+  }
+});
+
+// N3: parseLockRec accepts any finite `at`, so `new Date(at).toISOString()` in the
+// blocked-undecidable message could throw a RangeError and (at boot) silently swallow the
+// whole M-2 alarm. safeAtIso must keep the diagnostic from crashing on an out-of-range at.
+test("performAutoUpgrade N3: an out-of-range lock timestamp never crashes the blocked-undecidable diagnostic", () => {
+  const prefix = mkdtempSync(join(tmpdir(), "h2a-n3-"));
+  const lockFile = join(prefix, ".h2a-upgrade.lock");
+  try {
+    const lease = defaultUpgradeRuntime.acquirePrefixLock(prefix);
+    assert.equal(lease.acquired, true);
+    const rec = JSON.parse(readFileSync(lockFile, "utf8"));
+    lease.release();
+    rec.at = 1e300; // finite but far outside Date's representable range
+    writeFileSync(lockFile, JSON.stringify(rec), "utf8");
+    const { runtime } = stagedFake({
+      latest: "999.0.0",
+      lock: { acquired: false, reason: "dead-undecidable", release: () => {} },
+      runtime: { resolvePrefix: () => prefix }
+    });
+    let r;
+    assert.doesNotThrow(() => {
+      r = performAutoUpgrade(CUR, { runtime, prefix });
+    }, "an out-of-range at must not throw out of performAutoUpgrade");
+    assert.equal(r.outcome, "blocked-undecidable");
+    assert.match(r.message, /epoch-ms:/, "the raw timestamp is shown when it is not a valid date");
   } finally {
     rmSync(prefix, { recursive: true, force: true });
   }
