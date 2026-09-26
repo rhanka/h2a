@@ -28,6 +28,15 @@ import { getActiveMcpTrace } from "./phase-trace.js";
 /** The single identity deadline (ms), measured from entering identity_pending. */
 export const MCP_IDENTITY_TIMEOUT_MS = 20_000;
 
+/**
+ * Minimum wall-clock gap between identity attempts after a TRANSIENT failure. A stuck
+ * attempt (a dead / contended / expired lock surfaces as identity_timeout) latches
+ * identity_failed; a later tool call re-attempts, but at most one attempt per this
+ * interval, so a hot-looping caller cannot spawn a worker per call. Overridable for
+ * tests/ops via H2A_IDENTITY_RETRY_MIN_MS.
+ */
+export const MCP_IDENTITY_RETRY_MIN_MS = 30_000;
+
 export type IdentityFailureCode =
   | "identity_timeout"
   | "storage_readonly"
@@ -37,6 +46,14 @@ export type IdentityFailureCode =
   | "identity_storage_failed"
   | "session_open_failed"
   | "readiness_ack_failed";
+
+/**
+ * TRANSIENT failure causes: a fresh attempt can succeed once the external blocker clears
+ * (a dead / contended / expired identity lock manifests as identity_timeout). Everything
+ * else — storage read-only/permission/space, proof mismatch, worker crash, activation —
+ * is PERMANENT: it stays terminal and is never retried on demand.
+ */
+const TRANSIENT_FAILURE_CAUSES: ReadonlySet<IdentityFailureCode> = new Set(["identity_timeout"]);
 
 export type McpIdentityStatus =
   | { state: "identity_disabled" }
@@ -53,13 +70,24 @@ export type McpIdentityStatus =
       attemptId: string;
       cause: IdentityFailureCode;
       message: string;
-      retryable: false;
+      // true for a TRANSIENT cause (identity_timeout): a later tool call re-attempts
+      // (bounded by MCP_IDENTITY_RETRY_MIN_MS). false for a PERMANENT cause: terminal.
+      retryable: boolean;
       elapsedMs: number;
     };
 
 export interface McpIdentityController {
   status(): McpIdentityStatus;
   start(): void;
+  /**
+   * On-demand bounded retry from a TRANSIENT identity_failed. Returns true iff it kicked
+   * a fresh attempt (state → identity_pending with a new attemptId). Returns false and
+   * leaves the memoized state untouched when: the state is not a transient failure, a
+   * previous attempt is still pending, the controller was cancelled, or less than
+   * MCP_IDENTITY_RETRY_MIN_MS has elapsed since the last failure. Never re-attempts a
+   * PERMANENT failure. Safe to call on every gated tool call.
+   */
+  retry(): boolean;
   cancel(reason: "transport_closed" | "signal"): void;
   signer(): H2ASendSigner | undefined;
 }
@@ -119,6 +147,11 @@ export interface CreateIdentityControllerOptions {
   readonly nowNs?: () => bigint;
   /** Test seam: deadline in ms. Defaults to MCP_IDENTITY_TIMEOUT_MS. */
   readonly timeoutMs?: number;
+  /**
+   * Minimum gap between transient re-attempts (ms). Defaults to
+   * H2A_IDENTITY_RETRY_MIN_MS or MCP_IDENTITY_RETRY_MIN_MS. Tests set it small.
+   */
+  readonly retryMinIntervalMs?: number;
 }
 
 /** Minimal handle over the identity worker child (real fork or test double). */
@@ -252,6 +285,11 @@ export function createIdentityController(
   options: CreateIdentityControllerOptions
 ): McpIdentityController {
   const timeoutMs = options.timeoutMs ?? MCP_IDENTITY_TIMEOUT_MS;
+  // Env parse must accept 0 (a valid "no interval" for tests/ops); `|| default` would drop it.
+  const envRetryMin = Number.parseInt(process.env.H2A_IDENTITY_RETRY_MIN_MS ?? "", 10);
+  const retryMinIntervalMs =
+    options.retryMinIntervalMs ??
+    (Number.isFinite(envRetryMin) && envRetryMin >= 0 ? envRetryMin : MCP_IDENTITY_RETRY_MIN_MS);
   const nowNs = options.nowNs ?? process.hrtime.bigint;
   const spawnWorker =
     options.spawnWorker ??
@@ -265,6 +303,8 @@ export function createIdentityController(
   let liveSigner: H2ASendSigner | undefined;
   let terminal = false;
   let cancelled = false;
+  // Monotonic timestamp of the last transient failure, for the retry min-interval gate.
+  let failedAtNs = 0n;
 
   const elapsedMs = (): number => Number((nowNs() - startedNs) / 1_000_000n);
 
@@ -279,12 +319,14 @@ export function createIdentityController(
     if (terminal) return;
     terminal = true;
     clearTimer();
+    failedAtNs = nowNs();
     state = {
       state: "identity_failed",
       attemptId,
       cause,
       message,
-      retryable: false,
+      // Transient (identity_timeout) ⇒ a later tool call re-attempts; permanent ⇒ terminal.
+      retryable: TRANSIENT_FAILURE_CAUSES.has(cause),
       elapsedMs: elapsedMs()
     };
     liveSigner = undefined;
@@ -360,6 +402,35 @@ export function createIdentityController(
     );
   };
 
+  // Launch ONE identity attempt: fresh attemptId, pending state, deadline timer, worker.
+  // Every callback and the deadline are gated on the attemptId captured here, so a late
+  // callback from a superseded attempt (after a retry) can never act on the current one.
+  const beginAttempt = (): void => {
+    terminal = false;
+    attemptId = randomAttemptId();
+    const thisAttempt = attemptId;
+    startedNs = nowNs();
+    state = { state: "identity_pending", attemptId, elapsedMs: 0, timeoutMs: 20000 };
+    getActiveMcpTrace()?.phase("identity_pending");
+    deadlineTimer = setTimeout(() => {
+      if (attemptId !== thisAttempt) return;
+      fail("identity_timeout", `identity did not become ready within ${timeoutMs}ms`);
+    }, timeoutMs);
+    deadlineTimer.unref?.();
+    worker = spawnWorker(options.request, timeoutMs);
+    worker.onError((cause, message) => {
+      if (attemptId === thisAttempt) fail(cause, message);
+    });
+    worker.onExitWithoutResult(() => {
+      if (attemptId === thisAttempt) {
+        fail("identity_worker_failed", "identity worker exited without a result");
+      }
+    });
+    worker.onResolved((identity) => {
+      if (attemptId === thisAttempt) onResolved(identity);
+    });
+  };
+
   return {
     status(): McpIdentityStatus {
       if (state.state === "identity_pending") {
@@ -368,24 +439,23 @@ export function createIdentityController(
       return state;
     },
     start(): void {
+      // Identity is NOT on the boot critical path (initialize/tools-list answer while
+      // pending — the #249 fix); it starts once from inert.
       if (state.state !== "identity_disabled") return;
-      attemptId = randomAttemptId();
-      startedNs = nowNs();
-      state = { state: "identity_pending", attemptId, elapsedMs: 0, timeoutMs: 20000 };
-      // L0 trace reuse: mark that identity entered the async pending window on the
-      // parent (initialize/tools-list are already answerable — identity is NOT on
-      // the boot critical path anymore, which is the #249 fix).
-      getActiveMcpTrace()?.phase("identity_pending");
-      deadlineTimer = setTimeout(() => {
-        fail("identity_timeout", `identity did not become ready within ${timeoutMs}ms`);
-      }, timeoutMs);
-      deadlineTimer.unref?.();
-      worker = spawnWorker(options.request, timeoutMs);
-      worker.onError((cause, message) => fail(cause, message));
-      worker.onExitWithoutResult(() =>
-        fail("identity_worker_failed", "identity worker exited without a result")
-      );
-      worker.onResolved(onResolved);
+      beginAttempt();
+    },
+    retry(): boolean {
+      if (cancelled) return false;
+      // Only a TRANSIENT failure re-attempts; permanent stays terminal, pending/ready/disabled
+      // never re-attempt here.
+      if (state.state !== "identity_failed") return false;
+      if (!TRANSIENT_FAILURE_CAUSES.has(state.cause)) return false;
+      // At most one attempt per interval, so a hot-looping caller cannot spawn a worker per
+      // call; within the interval the memoized failure is kept (returned by status()).
+      if (Number((nowNs() - failedAtNs) / 1_000_000n) < retryMinIntervalMs) return false;
+      // One attempt at a time is guaranteed: we only enter from identity_failed, never pending.
+      beginAttempt();
+      return true;
     },
     cancel(reason): void {
       cancelled = true;
