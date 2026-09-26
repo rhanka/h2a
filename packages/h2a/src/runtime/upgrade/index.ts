@@ -791,8 +791,10 @@ function classifyLiveness(r: LockRec, self: SelfIdent, deps: LivenessDeps = {}):
   if (r.host !== self.host) return { verdict: "undecidable", datable: false }; // other machine
   // B1: only a Linux boot_id is a stable, trustworthy boot identity, so a difference
   // there is a previous boot ⇒ dead. Off Linux a boot difference must NOT short-circuit
-  // to undecidable (that wedged a Mac rebooted mid-lock forever); fall through to
-  // kill(0) + the start comparison, which decide the incident class on any platform.
+  // to undecidable (that wedged a Mac rebooted mid-lock forever); fall through to kill(0)
+  // (PID absent ⇒ dead, on every platform) then the start comparison (only conclusive
+  // where the start is datable — Linux /proc and darwin ps; on BSD/Windows it is undatable
+  // ⇒ live, so after a reboot a reused PID blocks until it exits, surfaced by R2).
   if (r.boot && self.boot && r.boot !== self.boot && platform === "linux") {
     return { verdict: "dead", datable: false };
   }

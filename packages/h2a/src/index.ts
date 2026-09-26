@@ -972,7 +972,7 @@ export {
   type UpgradeDiagnosticsRecord
 } from "./runtime/upgrade/index.js";
 
-export { cmdKeepalive, cmdUpgrade, cmdOrg, cmdCoach, keepaliveOnce, cmdConductorLaunch, cmdPresenceReap, cmdWakeRequest } from "./cli.js";
+export { cmdKeepalive, cmdUpgrade, cmdOrg, cmdCoach, keepaliveOnce, cmdConductorLaunch, cmdPresenceReap, cmdWakeRequest, MCP_UPGRADE_WORKER_SOURCE } from "./cli.js";
 
 export {
   conductorFor,

@@ -301,7 +301,7 @@ test("performAutoUpgrade R2 negative: a young busy lock stays quiet skipped-lock
 // confirmed live process) must NOT raise the stale outcome. The alert targets only the
 // undatable case (a reused PID could mask a dead holder); a confirmed-live holder, however
 // long it holds, is not that case — no false alarm on a healthy Linux host.
-test("performAutoUpgrade R2 negative: an old but DATABLE-live lock stays quiet skipped-locked", () => {
+test("performAutoUpgrade R2 negative: an old but DATABLE-live lock stays quiet skipped-locked", (t) => {
   const prefix = mkdtempSync(join(tmpdir(), "h2a-r2d-"));
   const lockFile = join(prefix, ".h2a-upgrade.lock");
   try {
@@ -310,6 +310,13 @@ test("performAutoUpgrade R2 negative: an old but DATABLE-live lock stays quiet s
     assert.equal(lease.acquired, true);
     const rec = JSON.parse(readFileSync(lockFile, "utf8"));
     lease.release();
+    // This test needs a DATABLE holder: a proc-sourced start on a kernel with a readable
+    // time namespace. On a kernel < 5.6 / gVisor / non-Linux the start is undatable, so the
+    // "datable ⇒ quiet" premise does not hold — skip rather than false-fail (CI is ubuntu).
+    if (rec.timeNs === null || typeof rec.start !== "string" || !rec.start.startsWith("proc:")) {
+      t.skip("holder start is not datable on this kernel (no comparable time namespace)");
+      return;
+    }
     // Keep the real proc start AND the real timeNs (comparable ⇒ datable), just age it.
     rec.at = NOW - (STALE_LOCK_ALERT_MS + 60_000);
     writeFileSync(lockFile, JSON.stringify(rec), "utf8");
