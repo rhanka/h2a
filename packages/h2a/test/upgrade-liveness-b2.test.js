@@ -9,7 +9,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { livenessOf, readPidNs, readTimeNs } from "../dist/index.js";
+import { livenessOf, procStartInfo, readPidNs, readTimeNs } from "../dist/index.js";
 
 const ABSENT_PID = 999_999_999; // no such process → kill(0) ESRCH
 const tok = "a".repeat(20);
@@ -148,4 +148,53 @@ test("B2 masked-/proc: ns/pid readable, ns/time hidden, PID present ⇒ live (no
     at: Date.now()
   };
   assert.equal(livenessOf(r, self), "live");
+});
+
+// B1: off Linux, a boot DIFFERENCE must NOT short-circuit to undecidable (that wedged a
+// Mac rebooted mid-lock forever). It falls through to kill(0) + the start comparison,
+// which decide the incident class on any platform. platform is injected because
+// livenessOf reads process.platform (= linux on CI) for the boot check otherwise.
+test("B1 boot-diff(darwin-sim): a boot difference with the PID absent ⇒ dead (reclaimable), not undecidable", () => {
+  const self = { host: "h", boot: "boot-NEW", ns: "host", timeNs: "host", pid: process.pid, start: "ps:now" };
+  const dead = { host: "h", boot: "boot-OLD", ns: "host", timeNs: "host", pid: ABSENT_PID, start: "ps:then", token: tok, at: Date.now() };
+  assert.equal(livenessOf(dead, self, { platform: "darwin" }), "dead");
+});
+
+test("B1 boot-diff(darwin-sim): a boot difference with the PID present and a matching start ⇒ live", () => {
+  const self = { host: "h", boot: "boot-NEW", ns: "host", timeNs: "host", pid: process.pid, start: "ps:now" };
+  const r = { host: "h", boot: "boot-OLD", ns: "host", timeNs: "host", pid: process.pid, start: "ps:SAME", token: tok, at: Date.now() };
+  const probe = () => ({ start: "ps:SAME" }); // confirmed same process (same ps start)
+  assert.equal(livenessOf(r, self, { platform: "darwin", probe }), "live");
+});
+
+// B3: under Linux a mis-mapped /proc (unshare --pid without --mount-proc) makes BOTH
+// /proc AND ps read the wrong namespace's process. procStartInfo must return undefined
+// (undatable ⇒ live), never fall back to ps — a false different start would double-hold.
+test("B3 procStartInfo(linux, mis-mapped /proc): returns undefined, never a ps fallback", () => {
+  assert.equal(procStartInfo(process.pid, "linux", () => false), undefined);
+});
+
+test("B3 livenessOf(linux, mis-mapped /proc): a present PID with an undatable start ⇒ live, never a false dead", () => {
+  const self = { host: "h", boot: "b", ns: "nsX", timeNs: "host", pid: process.pid, start: "proc:1" };
+  const r = { host: "h", boot: "b", ns: "nsX", timeNs: "host", pid: process.pid, start: "proc:999999999", token: tok, at: Date.now() };
+  const probe = () => undefined; // mis-mapped /proc: no datable start
+  assert.equal(livenessOf(r, self, { platform: "linux", probe }), "live");
+});
+
+// R1: a start comparison across DIFFERENT sources (proc vs ps) is not comparable ⇒
+// undatable ⇒ live (never undecidable/M-2 on a healthy holder). Same rule as an unknown
+// time namespace. A "legacy" (malformed, pre-source-prefix) start is untrustworthy and
+// must stay undecidable (fail closed) — never a fragile dead/live from raw values.
+test("R1 cross-source: a proc record vs a ps probe on a live PID ⇒ live (undatable), not undecidable", () => {
+  const self = { host: "h", boot: "b", ns: "nsX", timeNs: "host", pid: process.pid, start: "proc:1" };
+  const r = { host: "h", boot: "b", ns: "nsX", timeNs: "host", pid: process.pid, start: "proc:1", token: tok, at: Date.now() };
+  const probe = () => ({ start: "ps:Mon Sep 24 08:44:00 2026" });
+  assert.equal(livenessOf(r, self, { platform: "linux", probe }), "live");
+});
+
+test("R1 legacy source: two legacy (malformed) starts are undecidable, never a fragile dead", () => {
+  const self = { host: "h", boot: "b", ns: "nsX", timeNs: "host", pid: process.pid, start: "proc:1" };
+  const r = { host: "h", boot: "b", ns: "nsX", timeNs: "host", pid: process.pid, start: "legacy-A-no-prefix", token: tok, at: Date.now() };
+  const probe = () => ({ start: "legacy-B-no-prefix" }); // both legacy, different values
+  assert.equal(livenessOf(r, self, { platform: "linux", probe }), "undecidable");
 });
