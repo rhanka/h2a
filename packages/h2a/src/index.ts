@@ -950,6 +950,11 @@ export {
   upgradeCachePath,
   canReexec,
   reexecSelf,
+  // Liveness classifier + namespace readers: exported for the platform-simulation
+  // tests (macOS/Windows/no-/proc) that cannot run on a single-platform CI otherwise.
+  livenessOf,
+  readPidNs,
+  readTimeNs,
   H2A_CLI_PACKAGE,
   H2A_AUTO_UPGRADE_CHECK_TTL_MS,
   H2A_UPGRADE_CHECK_TTL_MS,
