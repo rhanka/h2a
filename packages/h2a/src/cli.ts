@@ -233,6 +233,7 @@ import { verifyEnvelopeSysmlRef } from "./runtime/sysml/index.js";
 import {
   checkUpgrade,
   performAutoUpgrade,
+  isQuietUpgradeOutcome,
   currentCliVersion,
   upgradeCachePath,
   H2A_CLI_PACKAGE,
@@ -1969,17 +1970,12 @@ export async function runMcpServe(
                 cachePath: upgradeCachePath(root),
                 ttlMs
               });
-              // Stay quiet on the common no-op / benign-skip outcomes so a mass
-              // restart does not spam stderr; report actionable states only. NOTE:
-              // `blocked-undecidable` (M-2) and `skipped-locked-stale` (R2) are
-              // deliberately NOT suppressed — a wedged, liveness-undecidable owner and a
-              // long-held, identity-unconfirmable lock must both surface at boot. Do not
-              // add either here.
-              if (
-                result.outcome !== "already-current" &&
-                result.outcome !== "skipped-throttled" &&
-                result.outcome !== "skipped-locked"
-              ) {
+              // Stay quiet on the common no-op / benign-skip outcomes so a mass restart
+              // does not spam stderr; report actionable states only. The quiet set is the
+              // single source of truth isQuietUpgradeOutcome (shared with the boot worker):
+              // blocked-undecidable (M-2) and skipped-locked-stale (R2) are NOT quiet and
+              // surface at boot.
+              if (!isQuietUpgradeOutcome(result.outcome)) {
                 io.stderr.write(`h2a mcp-serve: ${result.message}\n`);
               }
             } else {
@@ -2009,8 +2005,8 @@ try {
       cachePath: upgrade.upgradeCachePath(root),
       ttlMs: Number(ttl)
     });
-    // blocked-undecidable (M-2) and skipped-locked-stale (R2) are intentionally NOT suppressed: both must surface at boot.
-    if (result.outcome !== "already-current" && result.outcome !== "skipped-throttled" && result.outcome !== "skipped-locked") {
+    // Shared quiet set (isQuietUpgradeOutcome): blocked-undecidable (M-2) and skipped-locked-stale (R2) surface at boot.
+    if (!upgrade.isQuietUpgradeOutcome(result.outcome)) {
       process.stderr.write("h2a mcp-serve: " + result.message + "\n");
     }
   } else {

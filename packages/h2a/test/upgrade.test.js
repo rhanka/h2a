@@ -11,6 +11,7 @@ import {
   performUpgrade,
   performAutoUpgrade,
   defaultUpgradeRuntime,
+  isQuietUpgradeOutcome,
   upgradeCachePath,
   canReexec,
   reexecSelf,
@@ -296,6 +297,35 @@ test("performAutoUpgrade R2 negative: a young busy lock stays quiet skipped-lock
   }
 });
 
+// N6(d): an OLD lock whose holder is DATABLE (its start time is comparable — a healthy,
+// confirmed live process) must NOT raise the stale outcome. The alert targets only the
+// undatable case (a reused PID could mask a dead holder); a confirmed-live holder, however
+// long it holds, is not that case — no false alarm on a healthy Linux host.
+test("performAutoUpgrade R2 negative: an old but DATABLE-live lock stays quiet skipped-locked", () => {
+  const prefix = mkdtempSync(join(tmpdir(), "h2a-r2d-"));
+  const lockFile = join(prefix, ".h2a-upgrade.lock");
+  try {
+    const NOW = 10_000_000_000;
+    const lease = defaultUpgradeRuntime.acquirePrefixLock(prefix);
+    assert.equal(lease.acquired, true);
+    const rec = JSON.parse(readFileSync(lockFile, "utf8"));
+    lease.release();
+    // Keep the real proc start AND the real timeNs (comparable ⇒ datable), just age it.
+    rec.at = NOW - (STALE_LOCK_ALERT_MS + 60_000);
+    writeFileSync(lockFile, JSON.stringify(rec), "utf8");
+    const { runtime } = stagedFake({
+      latest: "999.0.0",
+      now: NOW,
+      lock: { acquired: false, reason: "busy", release: () => {} },
+      runtime: { resolvePrefix: () => prefix }
+    });
+    const r = performAutoUpgrade(CUR, { runtime, prefix });
+    assert.equal(r.outcome, "skipped-locked", "a datable-live holder must not raise the stale outcome, even when old");
+  } finally {
+    rmSync(prefix, { recursive: true, force: true });
+  }
+});
+
 // N3: parseLockRec accepts any finite `at`, so `new Date(at).toISOString()` in the
 // blocked-undecidable message could throw a RangeError and (at boot) silently swallow the
 // whole M-2 alarm. safeAtIso must keep the diagnostic from crashing on an out-of-range at.
@@ -512,4 +542,17 @@ test("reexecSelf returns false when execve throws (catchable)", () => {
 
 test("canReexec reflects process.execve availability", () => {
   assert.equal(canReexec(), typeof process.execve === "function");
+});
+
+// N6(c): the boot-visibility filter is a single shared predicate (used by both the
+// in-process seam and the boot worker). The actionable states — crucially blocked-undecidable
+// (M-2) and skipped-locked-stale (R2) — must NOT be quiet, or a wedged/stale lock would be
+// invisible at boot (the visibility B2's acceptance depends on).
+test("isQuietUpgradeOutcome: only benign no-op skips are quiet; M-2 and R2 stale surface at boot", () => {
+  for (const quiet of ["already-current", "skipped-throttled", "skipped-locked"]) {
+    assert.equal(isQuietUpgradeOutcome(quiet), true, `${quiet} should be quiet`);
+  }
+  for (const loud of ["upgraded", "failed", "deferred-propagation", "blocked-undecidable", "skipped-locked-stale"]) {
+    assert.equal(isQuietUpgradeOutcome(loud), false, `${loud} must surface at boot`);
+  }
 });

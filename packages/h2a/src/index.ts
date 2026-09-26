@@ -956,6 +956,7 @@ export {
   readPidNs,
   readTimeNs,
   procStartInfo,
+  isQuietUpgradeOutcome,
   STALE_LOCK_ALERT_MS,
   H2A_CLI_PACKAGE,
   H2A_AUTO_UPGRADE_CHECK_TTL_MS,
