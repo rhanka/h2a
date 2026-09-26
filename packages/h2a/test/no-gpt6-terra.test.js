@@ -12,10 +12,13 @@ import { fileURLToPath } from "node:url";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(HERE, "..", "..", ".."); // packages/h2a/test -> repo root
-const SELF = fileURLToPath(import.meta.url);
 const ROOTS = ["packages", "apps"].map((d) => join(REPO_ROOT, d));
 const SKIP_DIRS = new Set(["node_modules", "dist", ".git", "coverage", ".turbo", ".tsbuild"]);
 const TEXT_EXT = /\.(ts|tsx|js|jsx|mjs|cjs|json|md|txt|yml|yaml)$/;
+// Guard PRODUCTION paths (source, skills, configs), not tests. Test files legitimately name
+// the forbidden id to assert its ABSENCE (this guard, and the gpt6-catalog test), so scanning
+// them would false-positive; a test can't route terra in production anyway.
+const TEST_FILE = /(^|[./\\])(test|__tests__)([./\\]|$)|\.test\.[cm]?[jt]sx?$/;
 const FORBIDDEN = ["gpt", "6", "terra"].join("-"); // avoid this file matching its own scan
 
 function* walk(dir) {
@@ -43,8 +46,8 @@ test("no h2a path routes terra to gpt-6-terra (terra stays gpt-5.6-terra)", () =
   const hits = [];
   for (const root of ROOTS) {
     for (const file of walk(root)) {
-      if (file === SELF) continue; // this guard names the forbidden id in its own text
       if (!TEXT_EXT.test(file)) continue;
+      if (TEST_FILE.test(file)) continue; // tests may assert the id's absence; guard production paths
       let content;
       try {
         content = readFileSync(file, "utf8");
