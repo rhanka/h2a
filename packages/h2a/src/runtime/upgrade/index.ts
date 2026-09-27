@@ -1209,7 +1209,7 @@ export function performAutoUpgrade(
       const advice =
         rec === "absent" || rec === "corrupt"
           ? `Inspect ${lockFile} and its ${lockFile}.succ.* files before any removal.`
-          : `Remove ${lockFile} (and its ${lockFile}.succ.* files) ONLY after confirming pid ${rec.pid} on host ${rec.host} is truly gone in ITS OWN namespace — never remove a holder merely absent from yours (a live holder in another container/namespace or machine must not be broken).`;
+          : `Do not remove ${lockFile} or its ${lockFile}.succ.* files on this process's authority alone: a clone can share the lock directory. Before manual intervention, compare holder boot=${rec.boot ?? "unknown"} with this reader boot=${reader.boot ?? "unknown"}; a PID check is meaningless across different boots. Confirm holder pid ${rec.pid} on host ${rec.host} is truly gone in ITS OWN namespace; a holder merely absent from yours may be live in another container, namespace, or machine.`;
       const thrown = lockThrewFlag
         ? `lock acquisition threw (${lockThrew instanceof Error ? lockThrew.message : String(lockThrew)}); `
         : "";

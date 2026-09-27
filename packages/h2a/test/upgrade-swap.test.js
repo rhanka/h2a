@@ -14,13 +14,16 @@ import { fileURLToPath } from "node:url";
 import test from "node:test";
 
 import { defaultUpgradeRuntime, performAutoUpgrade, H2A_CLI_PACKAGE } from "../dist/index.js";
-import { readHostId } from "../dist/runtime/local-files/succession-lock.js";
+import { me } from "../dist/runtime/local-files/succession-lock.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const LOCK_CHILD = join(HERE, "upgrade-lock-child.mjs");
 const HOOK_CHILD = join(HERE, "upgrade-lock-hook-child.mjs");
 const rt = defaultUpgradeRuntime;
-const strong = readHostId().hostKind === "machine-id";
+const self = me();
+const supportsLivenessProof = ["linux", "darwin"].includes(process.platform)
+  && self.hostKind === "machine-id"
+  && self.boot !== null;
 
 function firstLinePromise(p) {
   return new Promise((resolve) => {
@@ -129,7 +132,7 @@ test("prefix lock: release only removes the lock the caller owns (no stealing an
   }
 });
 
-test("prefix lock: a lock left by a KILLED holder (certainly-dead pid) is reclaimed", { skip: !strong && "requires a strong machine identity (Lot 4 §2)", timeout: 20_000 }, async () => {
+test("prefix lock: a lock left by a KILLED holder (certainly-dead pid) is reclaimed", { skip: !supportsLivenessProof && "requires a supported, strong host identity with a known boot (Lot 4 §2)", timeout: 20_000 }, async () => {
   const prefix = freshPrefix();
   try {
     mkdirSync(prefix, { recursive: true });
@@ -144,7 +147,7 @@ test("prefix lock: a lock left by a KILLED holder (certainly-dead pid) is reclai
   }
 });
 
-test("prefix lock: a LIVE holder is NEVER reclaimed (liveness, not age — the fail-closed safety)", { skip: !strong && "requires a strong machine identity (Lot 4 §2)", timeout: 20_000 }, async () => {
+test("prefix lock: a LIVE holder is NEVER reclaimed (liveness, not age — the fail-closed safety)", { skip: !supportsLivenessProof && "requires a supported, strong host identity with a known boot (Lot 4 §2)", timeout: 20_000 }, async () => {
   const prefix = freshPrefix();
   mkdirSync(prefix, { recursive: true });
   const holder = spawn(process.execPath, [LOCK_CHILD, prefix], { encoding: "utf8" });
@@ -166,7 +169,7 @@ test("prefix lock: a LIVE holder is NEVER reclaimed (liveness, not age — the f
 // declare a live holder dead. R1: this is the SAME rule as an unknown time namespace —
 // not comparable ⇒ live (busy), NOT undecidable (which would raise a false M-2 alarm on
 // a healthy holder). It still must never be reclaimed; only the reason changes to "busy".
-test("B-1/R1: a live holder whose start-time comes from a different source is never reclaimed (busy, not undecidable)", { skip: !strong && "requires a strong machine identity (Lot 4 §2)", timeout: 20_000 }, async () => {
+test("B-1/R1: a live holder whose start-time comes from a different source is never reclaimed (busy, not undecidable)", { skip: !supportsLivenessProof && "requires a supported, strong host identity with a known boot (Lot 4 §2)", timeout: 20_000 }, async () => {
   const prefix = freshPrefix();
   mkdirSync(prefix, { recursive: true });
   const holder = spawn(process.execPath, [LOCK_CHILD, prefix], { encoding: "utf8" });
@@ -190,7 +193,7 @@ test("B-1/R1: a live holder whose start-time comes from a different source is ne
 // after it elected itself successor of the dead holder), race actor B into the
 // same reclaim while A is paused, then release A. A broken reclaim lets both hold;
 // the proven algorithm admits at most one.
-test("B3 DETERMINISTIC GATE: a forced succession interleave yields at most one holder", { skip: !strong && "requires a strong machine identity (Lot 4 §2)", timeout: 25_000 }, async () => {
+test("B3 DETERMINISTIC GATE: a forced succession interleave yields at most one holder", { skip: !supportsLivenessProof && "requires a supported, strong host identity with a known boot (Lot 4 §2)", timeout: 25_000 }, async () => {
   const prefix = freshPrefix();
   let A, B;
   try {
@@ -223,7 +226,7 @@ test("B3 DETERMINISTIC GATE: a forced succession interleave yields at most one h
 // intervention or a new holder). On resume the successor must NOT delete r0 and must
 // NOT acquire; it re-evaluates and finds r0 live (busy). Pre-Lemma-C code decided from
 // the stale read and blind-unlinked r0 — deleting a live holder's lock, then acquiring.
-test("Lemma C GATE: a LOCK replaced by a live owner during the retire window is never deleted", { skip: !strong && "requires a strong machine identity (Lot 4 §2)", timeout: 25_000 }, async () => {
+test("Lemma C GATE: a LOCK replaced by a live owner during the retire window is never deleted", { skip: !supportsLivenessProof && "requires a supported, strong host identity with a known boot (Lot 4 §2)", timeout: 25_000 }, async () => {
   const prefix = freshPrefix();
   const otherPrefix = freshPrefix();
   let holder, succ;
