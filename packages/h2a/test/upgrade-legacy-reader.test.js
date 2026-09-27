@@ -9,6 +9,7 @@ import {
   acquirePrefixLock,
   classifyLiveness,
   lockPathFor,
+  parseLockRec,
   readLockHolder,
   readLockRecord
 } from "../dist/runtime/local-files/succession-lock.js";
@@ -23,15 +24,24 @@ const SELF = {
   start: null
 };
 
-// These are synthetic fixtures, constructed from the exact JSON.stringify payload
-// written by local-files/locks.ts. They intentionally never inspect a real identity
-// store or a user-owned .stale-* file.
+// These synthetic fixtures model the JSON.stringify payload shape written by
+// local-files/locks.ts, both with and without optional ownerMetadata. They intentionally
+// never inspect a real identity store or a user-owned .stale-* file.
 const LEGACY_VECTORS = [
   { pid: 2910836, hostname: "legacy-builder-host", startedAt: "2026-09-20T12:34:56.000Z" },
   { pid: 2910837, hostname: "legacy-builder-host", startedAt: "2026-09-20T12:35:56.000Z" },
   { pid: 2910838, hostname: "legacy-worker-host", startedAt: "2026-09-20T12:36:56.000Z" },
-  { pid: 2910839, hostname: "legacy-worker-host", startedAt: "2026-09-20T12:37:56.000Z" }
+  { pid: 2910839, hostname: "legacy-worker-host", startedAt: "2026-09-20T12:37:56.000Z", protocol: "identity-binding-fence-v1" },
+  { pid: 2910840, hostname: "legacy-worker-host", startedAt: "2026-09-20T12:38:56.000Z", fenceEpoch: "48d13e5a-d932-40e3-a35f-9de14498179a" }
 ];
+
+const IDENTITY_BINDING_LEGACY = {
+  pid: 2910840,
+  hostname: "identity-binding-host",
+  startedAt: "2026-09-20T12:38:56.000Z",
+  protocol: "identity-binding-fence-v1",
+  fenceEpoch: "48d13e5a-d932-40e3-a35f-9de14498179a"
+};
 
 function tokenFor(raw) {
   return `legacy-${createHash("sha256").update(raw).digest("hex")}`;
@@ -44,7 +54,7 @@ function assertNoLegacyFields(record, label) {
   assert.equal(Object.hasOwn(record, "token"), true, `${label} remains a v4 record`);
 }
 
-test("T-legacy: reads only the exact locks.ts legacy shape and derives its token from raw bytes", () => {
+test("T-legacy: reads only the locks.ts legacy key set and derives its token from raw bytes", () => {
   const root = mkdtempSync(join(tmpdir(), "h2a-legacy-reader-"));
   const path = join(root, ".h2a-upgrade.lock");
   try {
@@ -59,6 +69,24 @@ test("T-legacy: reads only the exact locks.ts legacy shape and derives its token
       // Existing v4-only callers still fail closed on the legacy record.
       assert.equal(readLockRecord(path), "corrupt", `legacy pid ${fixture.pid} is not a v4 record`);
     }
+
+    // Identity binding adds both optional LockOwner metadata fields. Pin each exact
+    // byte vector so the pre-v4 fencing token remains suitable for a later re-read.
+    const identityRaw = JSON.stringify(IDENTITY_BINDING_LEGACY);
+    writeFileSync(path, identityRaw);
+    assert.deepEqual(readLockHolder(path), {
+      kind: "legacy",
+      token: "legacy-c608da4d084ad2b9422f7c8fa649da95d232bb96f4660b2f76a8d60ac11b85ca",
+      ...IDENTITY_BINDING_LEGACY
+    });
+
+    const identityNewlineRaw = `${identityRaw}\n`;
+    writeFileSync(path, identityNewlineRaw);
+    assert.deepEqual(readLockHolder(path), {
+      kind: "legacy",
+      token: "legacy-20bc776a0727955d6a269434c6e7554f480851ddd56b24e02d14f5f98839d8bf",
+      ...IDENTITY_BINDING_LEGACY
+    });
 
     // The final newline is part of the token input. Keep this precomputed vector
     // rather than normalizing or reserializing the JSON before hashing.
@@ -77,6 +105,9 @@ test("T-legacy: reads only the exact locks.ts legacy shape and derives its token
       ["string pid", { pid: "1", hostname: "host", startedAt: "now" }],
       ["non-string hostname", { pid: 1, hostname: 2, startedAt: "now" }],
       ["non-string startedAt", { pid: 1, hostname: "host", startedAt: 2 }],
+      ["non-string protocol", { pid: 1, hostname: "host", startedAt: "now", protocol: 2 }],
+      ["non-string fenceEpoch", { pid: 1, hostname: "host", startedAt: "now", fenceEpoch: 2 }],
+      ["five legacy keys plus an extra key", { ...IDENTITY_BINDING_LEGACY, extra: true }],
       ["legacy plus v4 token", { pid: 1, hostname: "host", startedAt: "now", token: "a".repeat(20) }],
       ["legacy plus unrelated field", { pid: 1, hostname: "host", startedAt: "now", extra: true }]
     ]) {
@@ -88,7 +119,44 @@ test("T-legacy: reads only the exact locks.ts legacy shape and derives its token
   }
 });
 
-test("T-legacy: never probes a legacy PID and reports it undecidable even when absent on this hostname", () => {
+test("T-legacy: remains disjoint from v4 parsing and rejects the legacy token namespace", () => {
+  const root = mkdtempSync(join(tmpdir(), "h2a-legacy-v4-disjoint-"));
+  const path = join(root, ".h2a-upgrade.lock");
+  const v4 = {
+    ...SELF,
+    pid: 999_999_999,
+    start: "btime:1",
+    token: "a".repeat(20),
+    at: 0
+  };
+  try {
+    writeFileSync(path, JSON.stringify({ ...v4, hostname: "legacy-host", startedAt: "legacy-start" }));
+    const valid = readLockHolder(path);
+    assert.notEqual(valid, "absent");
+    assert.notEqual(valid, "corrupt");
+    assert.equal(valid.kind, undefined, "v4 parsing remains first and does not expose a legacy kind");
+
+    for (const [label, value] of [
+      ["legacy-prefixed v4 token", { ...v4, token: `legacy-${"a".repeat(64)}` }],
+      ["v4 missing time namespace", (() => {
+        const { timeNs: _timeNs, ...withoutTimeNs } = v4;
+        return { ...withoutTimeNs, hostname: "legacy-host", startedAt: "legacy-start", protocol: "p", fenceEpoch: "e" };
+      })()],
+      ["v4 invalid host identity", { ...v4, hostKind: "invalid" }]
+    ]) {
+      writeFileSync(path, JSON.stringify(value));
+      assert.equal(readLockHolder(path), "corrupt", label);
+    }
+    assert.throws(
+      () => parseLockRec({ ...v4, token: `legacy-${"a".repeat(64)}` }),
+      /bad token/
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("T-legacy: never probes a legacy PID and reports it undecidable even with strong v4 fields", () => {
   const root = mkdtempSync(join(tmpdir(), "h2a-legacy-liveness-"));
   const path = lockPathFor(root);
   const legacy = { pid: 999_999_999, hostname: SELF.host, startedAt: "2026-09-20T12:34:56.000Z" };
@@ -101,9 +169,26 @@ test("T-legacy: never probes a legacy PID and reports it undecidable even when a
     assert.notEqual(holder, "corrupt");
     process.kill = () => {
       killCalls++;
-      throw new Error("legacy PID probe must not run");
+      throw Object.assign(new Error("legacy PID probe must not run"), { code: "ESRCH" });
     };
     assert.deepEqual(classifyLiveness(holder, SELF, {
+      platform: "linux",
+      probe: () => { throw new Error("legacy start probe must not run"); }
+    }), { verdict: "undecidable", datable: false });
+    const strongLegacy = {
+      kind: "legacy",
+      token: `legacy-${"a".repeat(64)}`,
+      hostname: "legacy-builder-host",
+      startedAt: "2026-09-20T12:34:56.000Z",
+      host: SELF.host,
+      hostKind: "machine-id",
+      boot: SELF.boot,
+      ns: SELF.ns,
+      timeNs: SELF.timeNs,
+      pid: 999_999_999,
+      start: "btime:1"
+    };
+    assert.deepEqual(classifyLiveness(strongLegacy, SELF, {
       platform: "linux",
       probe: () => { throw new Error("legacy start probe must not run"); }
     }), { verdict: "undecidable", datable: false });
