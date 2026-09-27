@@ -220,25 +220,34 @@ describe('./ingest barrel — END-TO-END in-process submit through ONLY the barr
   })
 })
 
-describe('./ingest package export — the compiled subpath resolves at runtime', () => {
-  it('the build emits dist/ingest/index.js and it is importable with the named submit surface', () => {
+describe('./ingest package export — compiled entry and export mapping', () => {
+  it('the build emits an ingest entry in a temporary outDir with the named submit surface', async () => {
     const repoRoot = join(here, '..', '..')
-    // Build emits the curated barrel's compiled entrypoint (the file `@sentropic/track/ingest` maps to).
-    execFileSync('npx', ['tsc', '-p', 'tsconfig.build.json'], { cwd: repoRoot, stdio: 'pipe' })
-    const distEntry = join(repoRoot, 'dist', 'ingest', 'index.js')
-    expect(existsSync(distEntry)).toBe(true)
+    const outDir = mkdtempSync(join(tmpdir(), 'track-ingest-build-'))
+    try {
+      // Build the curated barrel in an isolated directory: Track tests may run concurrently with
+      // consumers of the package's already-built dist/ tree, so a test must never rewrite it.
+      execFileSync('npx', ['tsc', '-p', 'tsconfig.build.json', '--outDir', outDir], { cwd: repoRoot, stdio: 'pipe' })
+      const compiledEntry = join(outDir, 'ingest', 'index.js')
+      expect(existsSync(compiledEntry)).toBe(true)
+
+      // Import the emitted file itself so the check covers the compiled barrel, not the source barrel.
+      const mod = (await import(pathToFileURL(compiledEntry).href)) as Record<string, unknown>
+      expect(typeof mod['ingest']).toBe('function')
+      expect(mod['INGEST_CONTRACT_VERSION']).toBe('2.2.0')
+      expect(typeof mod['IngestError']).toBe('function')
+      expect(typeof mod['isBindingAuth']).toBe('function')
+      expect(Array.isArray(mod['BINDING_AUTH'])).toBe(true)
+      expect(Object.isFrozen(mod['BINDING_AUTH'])).toBe(true)
+    } finally {
+      rmSync(outDir, { recursive: true, force: true })
+    }
   }, 120_000)
 
-  it('the compiled barrel re-exports the named submit values (runtime import of the emitted file)', async () => {
+  it('the package export resolves ./ingest to its published dist entry', () => {
     const repoRoot = join(here, '..', '..')
-    const distEntry = join(repoRoot, 'dist', 'ingest', 'index.js')
-    if (!existsSync(distEntry)) execFileSync('npx', ['tsc', '-p', 'tsconfig.build.json'], { cwd: repoRoot, stdio: 'pipe' })
-    const mod = (await import(pathToFileURL(distEntry).href)) as Record<string, unknown>
-    expect(typeof mod['ingest']).toBe('function')
-    expect(mod['INGEST_CONTRACT_VERSION']).toBe('2.2.0')
-    expect(typeof mod['IngestError']).toBe('function')
-    expect(typeof mod['isBindingAuth']).toBe('function')
-    expect(Array.isArray(mod['BINDING_AUTH'])).toBe(true)
-    expect(Object.isFrozen(mod['BINDING_AUTH'])).toBe(true)
-  }, 120_000)
+    expect(import.meta.resolve('@sentropic/track/ingest')).toBe(
+      pathToFileURL(join(repoRoot, 'dist', 'ingest', 'index.js')).href,
+    )
+  })
 })
