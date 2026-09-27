@@ -363,6 +363,22 @@ export class NativeTerminalHostSupervisor {
         throw error;
       }
       if (this.#spawned?.exitCode !== null || this.#spawned.signalCode !== null) {
+        if (this.#spawnedReachedHealth) {
+          // This host completed a health handshake before it died, so it is
+          // not a failed replacement. It exited after #clearGoneSpawn's
+          // first observation; complete its required containment pass before
+          // starting takeover again.
+          this.#clearGoneSpawn();
+          if (this.#pendingDeadOwnedHostPid === undefined) {
+            throw new Error("known healthy native terminal host exited without a pid");
+          }
+          const ownerPid = this.#pendingDeadOwnedHostPid;
+          await this.#reconcileDeadHostOrphans({
+            requireReapedForOwnerPid: ownerPid,
+          });
+          this.#pendingDeadOwnedHostPid = undefined;
+          return this.#connectOrStart();
+        }
         const diagnostic = this.#spawnDiagnostic.trim();
         const error = new Error(
           `native terminal host exited before accepting connections (${this.#spawned?.exitCode ?? this.#spawned?.signalCode ?? "unknown"})${diagnostic ? `: ${diagnostic}` : ""}`,
