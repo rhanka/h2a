@@ -1,13 +1,13 @@
 // `./ingest` curated submit barrel — the in-process SUBMIT seam for the M5 canevas host (architect-ratified
 // "submit = A": the host imports track in-process and carries auth via the IngestContext; the HTTP gateway —
 // M3 — stays deferred). These tests pin the barrel's named export surface and an END-TO-END in-process submit
-// through ONLY the barrel's exports, and assert the build emits the subpath's compiled entrypoint so the
-// `@sentropic/track/ingest` package export resolves at runtime.
+// through ONLY the barrel's exports. They also compile the entry in an isolated repo-local temporary directory,
+// load it with native Node resolution, and pin the effective build configuration and published export mapping.
 
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdtempSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -220,25 +220,60 @@ describe('./ingest barrel — END-TO-END in-process submit through ONLY the barr
   })
 })
 
-describe('./ingest package export — the compiled subpath resolves at runtime', () => {
-  it('the build emits dist/ingest/index.js and it is importable with the named submit surface', () => {
+describe('./ingest package export — compiled entry and export mapping', () => {
+  it('the build emits an ingest entry in a repo-local temporary outDir with the native named submit surface', () => {
     const repoRoot = join(here, '..', '..')
-    // Build emits the curated barrel's compiled entrypoint (the file `@sentropic/track/ingest` maps to).
-    execFileSync('npx', ['tsc', '-p', 'tsconfig.build.json'], { cwd: repoRoot, stdio: 'pipe' })
-    const distEntry = join(repoRoot, 'dist', 'ingest', 'index.js')
-    expect(existsSync(distEntry)).toBe(true)
+    const scratchRoot = join(repoRoot, '..', '..', 'tmp')
+    mkdirSync(scratchRoot, { recursive: true })
+    const outDir = mkdtempSync(join(scratchRoot, 'track-ingest-build-'))
+    try {
+      // Build the curated barrel in an isolated directory: Track tests may run concurrently with
+      // consumers of the package's already-built dist/ tree, so a test must never rewrite it.
+      execFileSync('npx', ['tsc', '-p', 'tsconfig.build.json', '--outDir', outDir], { cwd: repoRoot, stdio: 'pipe' })
+      const compiledEntry = join(outDir, 'ingest', 'index.js')
+      expect(existsSync(compiledEntry)).toBe(true)
+
+      // A plain Node child, rather than Vitest/Vite, loads the emitted file from its actual location.
+      // The repo-local tmp/ parent lets native resolution find the workspace's hoisted dependencies.
+      const nativeSurface = JSON.parse(
+        execFileSync(
+          process.execPath,
+          [
+            '--input-type=module',
+            '--eval',
+            `const mod = await import(process.argv[1]); process.stdout.write(JSON.stringify({
+              ingest: typeof mod.ingest,
+              contractVersion: mod.INGEST_CONTRACT_VERSION,
+              ingestError: typeof mod.IngestError,
+              isBindingAuth: typeof mod.isBindingAuth,
+              bindingAuth: Array.isArray(mod.BINDING_AUTH) && Object.isFrozen(mod.BINDING_AUTH),
+            }))`,
+            pathToFileURL(compiledEntry).href,
+          ],
+          { cwd: repoRoot, encoding: 'utf8' },
+        ),
+      ) as Record<string, unknown>
+      expect(nativeSurface).toEqual({
+        ingest: 'function',
+        contractVersion: '2.2.0',
+        ingestError: 'function',
+        isBindingAuth: 'function',
+        bindingAuth: true,
+      })
+    } finally {
+      rmSync(outDir, { recursive: true, force: true })
+    }
   }, 120_000)
 
-  it('the compiled barrel re-exports the named submit values (runtime import of the emitted file)', async () => {
+  it('the package export resolves ./ingest to its published dist entry', () => {
     const repoRoot = join(here, '..', '..')
-    const distEntry = join(repoRoot, 'dist', 'ingest', 'index.js')
-    if (!existsSync(distEntry)) execFileSync('npx', ['tsc', '-p', 'tsconfig.build.json'], { cwd: repoRoot, stdio: 'pipe' })
-    const mod = (await import(pathToFileURL(distEntry).href)) as Record<string, unknown>
-    expect(typeof mod['ingest']).toBe('function')
-    expect(mod['INGEST_CONTRACT_VERSION']).toBe('2.2.0')
-    expect(typeof mod['IngestError']).toBe('function')
-    expect(typeof mod['isBindingAuth']).toBe('function')
-    expect(Array.isArray(mod['BINDING_AUTH'])).toBe(true)
-    expect(Object.isFrozen(mod['BINDING_AUTH'])).toBe(true)
-  }, 120_000)
+    const shown = JSON.parse(
+      execFileSync('npx', ['tsc', '-p', 'tsconfig.build.json', '--showConfig'], { cwd: repoRoot, encoding: 'utf8' }),
+    ) as { compilerOptions: { outDir: string; rootDir: string } }
+    expect(resolve(repoRoot, shown.compilerOptions.outDir)).toBe(join(repoRoot, 'dist'))
+    expect(resolve(repoRoot, shown.compilerOptions.rootDir)).toBe(join(repoRoot, 'src'))
+    expect(import.meta.resolve('@sentropic/track/ingest')).toBe(
+      pathToFileURL(join(repoRoot, 'dist', 'ingest', 'index.js')).href,
+    )
+  })
 })
