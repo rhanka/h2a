@@ -13,6 +13,7 @@ import { livenessOf, procStartInfo, readPidNs, readTimeNs } from "../dist/index.
 
 const ABSENT_PID = 999_999_999; // no such process → kill(0) ESRCH
 const tok = "a".repeat(20);
+const strong = { hostKind: "machine-id" };
 
 const throwCode = (code) => () => {
   const e = new Error(code);
@@ -47,11 +48,13 @@ test("B2 readPidNs: any Linux /proc failure is the conservative unknown (null), 
   assert.equal(readPidNs("linux", throwCode("EACCES")), null);
 });
 
-// Vivacity: a certainly-dead holder recorded on a no-namespace platform must be
-// reclaimable. Built through the REAL readers so a regression to null re-wedges it.
+// Lot 4 §2 permits the no-namespace dead-holder proof on darwin, but an unsupported
+// platform cannot establish co-location at all. Built through the REAL readers so a
+// regression to null still exercises the darwin path.
 for (const plat of ["darwin", "win32"]) {
-  test(`B2 vivacity(${plat}-sim): a dead holder is certainly-dead (reclaimable), never undecidable`, () => {
+  test(`B2 vivacity(${plat}-sim): platform gate preserves only the §2-supported proof`, () => {
     const self = {
+      ...strong,
       host: "h",
       boot: "b",
       ns: readPidNs(plat),
@@ -60,6 +63,7 @@ for (const plat of ["darwin", "win32"]) {
       start: "ps:now"
     };
     const dead = {
+      ...strong,
       host: "h",
       boot: "b",
       ns: "host",
@@ -69,7 +73,7 @@ for (const plat of ["darwin", "win32"]) {
       token: tok,
       at: Date.now()
     };
-    assert.equal(livenessOf(dead, self), "dead");
+    assert.equal(livenessOf(dead, self, { platform: plat }), plat === "darwin" ? "dead" : "undecidable");
   });
 }
 
@@ -77,8 +81,8 @@ for (const plat of ["darwin", "win32"]) {
 // so a disappeared holder is reclaimed even when the time base is UNKNOWN (null). This
 // is what keeps an unknown time namespace from ever wedging a real incident.
 test("B2 vivacity(unknown time base): a disappeared holder is reclaimed with timeNs null", () => {
-  const self = { host: "h", boot: "b", ns: "nsX", timeNs: null, pid: process.pid, start: "proc:1" };
-  const dead = { host: "h", boot: "b", ns: "nsX", timeNs: null, pid: ABSENT_PID, start: "proc:2", token: tok, at: Date.now() };
+  const self = { ...strong, host: "h", boot: "b", ns: "nsX", timeNs: null, pid: process.pid, start: "proc:1" };
+  const dead = { ...strong, host: "h", boot: "b", ns: "nsX", timeNs: null, pid: ABSENT_PID, start: "proc:2", token: tok, at: Date.now() };
   assert.equal(livenessOf(dead, self), "dead"); // pid absent in a known shared ns ⇒ dead
 });
 
@@ -86,8 +90,8 @@ test("B2 vivacity(unknown time base): a disappeared holder is reclaimed with tim
 // treated as co-located. A live holder (this very process) would otherwise be
 // declared dead and its lock reclaimed → a second holder.
 test("B2 null-namespace: two null namespaces are undecidable, never a false co-location", () => {
-  const self = { host: "h", boot: "b", ns: null, timeNs: null, pid: process.pid, start: "proc:1" };
-  const r = { host: "h", boot: "b", ns: null, timeNs: null, pid: process.pid, start: "proc:1", token: tok, at: Date.now() };
+  const self = { ...strong, host: "h", boot: "b", ns: null, timeNs: null, pid: process.pid, start: "proc:1" };
+  const r = { ...strong, host: "h", boot: "b", ns: null, timeNs: null, pid: process.pid, start: "proc:1", token: tok, at: Date.now() };
   assert.equal(livenessOf(r, self), "undecidable");
 });
 
@@ -96,10 +100,11 @@ test("B2 null-namespace: two null namespaces are undecidable, never a false co-l
 // reclaimed AND never falsely declared dead. Critically it is NOT undecidable, so a
 // healthy live holder with an unreadable time base raises no false M-2 alarm.
 test("B2 time-namespace: an unknown time namespace on a proc comparison is 'live' (undatable), not undecidable", () => {
-  const self = { host: "h", boot: "b", ns: "nsX", timeNs: "host", pid: process.pid, start: "proc:1" };
+  const self = { ...strong, host: "h", boot: "b", ns: "nsX", timeNs: "host", pid: process.pid, start: "proc:1" };
   // Same live pid, a DIFFERENT recorded proc start, but the record's time namespace
   // is unknown: the comparison cannot conclude reuse ⇒ undatable ⇒ live.
   const r = {
+    ...strong,
     host: "h",
     boot: "b",
     ns: "nsX",
@@ -115,8 +120,9 @@ test("B2 time-namespace: an unknown time namespace on a proc comparison is 'live
 // Two DIFFERENT known time namespaces on a proc comparison are also not comparable
 // (the classic time-ns skew) ⇒ undatable ⇒ live. Never a false death, no M-2 noise.
 test("B2 time-namespace: two different known time namespaces on a proc comparison are 'live' (undatable)", () => {
-  const self = { host: "h", boot: "b", ns: "nsX", timeNs: "time:[A]", pid: process.pid, start: "proc:1" };
+  const self = { ...strong, host: "h", boot: "b", ns: "nsX", timeNs: "time:[A]", pid: process.pid, start: "proc:1" };
   const r = {
+    ...strong,
     host: "h",
     boot: "b",
     ns: "nsX",
@@ -135,9 +141,10 @@ test("B2 time-namespace: two different known time namespaces on a proc compariso
 // live holder) AND no false death (we cannot compare start times across time bases).
 test("B2 masked-/proc: ns/pid readable, ns/time hidden, PID present ⇒ live (no reclaim, no false death)", () => {
   const nsId = readPidNs("linux"); // a real readable id on this CI /proc
-  const self = { host: "h", boot: "b", ns: nsId, timeNs: readTimeNs("linux", throwCode("ENOENT")), pid: process.pid, start: "proc:1" };
+  const self = { ...strong, host: "h", boot: "b", ns: nsId, timeNs: readTimeNs("linux", throwCode("ENOENT")), pid: process.pid, start: "proc:1" };
   assert.equal(self.timeNs, null, "a hidden ns/time reads as unknown (null), never a false 'host'");
   const r = {
+    ...strong,
     host: "h",
     boot: "b",
     ns: nsId,
@@ -150,21 +157,19 @@ test("B2 masked-/proc: ns/pid readable, ns/time hidden, PID present ⇒ live (no
   assert.equal(livenessOf(r, self), "live");
 });
 
-// B1: off Linux, a boot DIFFERENCE must NOT short-circuit to undecidable (that wedged a
-// Mac rebooted mid-lock forever). It falls through to kill(0) + the start comparison,
-// which decide the incident class on any platform. platform is injected because
-// livenessOf reads process.platform (= linux on CI) for the boot check otherwise.
-test("B1 boot-diff(darwin-sim): a boot difference with the PID absent ⇒ dead (reclaimable), not undecidable", () => {
-  const self = { host: "h", boot: "boot-NEW", ns: "host", timeNs: "host", pid: process.pid, start: "ps:now" };
-  const dead = { host: "h", boot: "boot-OLD", ns: "host", timeNs: "host", pid: ABSENT_PID, start: "ps:then", token: tok, at: Date.now() };
-  assert.equal(livenessOf(dead, self, { platform: "darwin" }), "dead");
+// Lot 4 §2 makes a boot difference undecidable even on darwin: without the Lot 5
+// per-instance UUID, cloned VM images can share a machine-id and pid-namespace inode.
+test("B1 boot-diff(darwin-sim): a boot difference is undecidable, not dead", () => {
+  const self = { ...strong, host: "h", boot: "boot-NEW", ns: "host", timeNs: "host", pid: process.pid, start: "ps:now" };
+  const dead = { ...strong, host: "h", boot: "boot-OLD", ns: "host", timeNs: "host", pid: ABSENT_PID, start: "ps:then", token: tok, at: Date.now() };
+  assert.equal(livenessOf(dead, self, { platform: "darwin" }), "undecidable");
 });
 
-test("B1 boot-diff(darwin-sim): a boot difference with the PID present and a matching start ⇒ live", () => {
-  const self = { host: "h", boot: "boot-NEW", ns: "host", timeNs: "host", pid: process.pid, start: "ps:now" };
-  const r = { host: "h", boot: "boot-OLD", ns: "host", timeNs: "host", pid: process.pid, start: "ps:SAME", token: tok, at: Date.now() };
+test("B1 boot-diff(darwin-sim): a boot difference with the PID present is still undecidable", () => {
+  const self = { ...strong, host: "h", boot: "boot-NEW", ns: "host", timeNs: "host", pid: process.pid, start: "ps:now" };
+  const r = { ...strong, host: "h", boot: "boot-OLD", ns: "host", timeNs: "host", pid: process.pid, start: "ps:SAME", token: tok, at: Date.now() };
   const probe = () => ({ start: "ps:SAME" }); // confirmed same process (same ps start)
-  assert.equal(livenessOf(r, self, { platform: "darwin", probe }), "live");
+  assert.equal(livenessOf(r, self, { platform: "darwin", probe }), "undecidable");
 });
 
 // B3: under Linux a mis-mapped /proc (unshare --pid without --mount-proc) makes BOTH
@@ -175,8 +180,8 @@ test("B3 procStartInfo(linux, mis-mapped /proc): returns undefined, never a ps f
 });
 
 test("B3 livenessOf(linux, mis-mapped /proc): a present PID with an undatable start ⇒ live, never a false dead", () => {
-  const self = { host: "h", boot: "b", ns: "nsX", timeNs: "host", pid: process.pid, start: "proc:1" };
-  const r = { host: "h", boot: "b", ns: "nsX", timeNs: "host", pid: process.pid, start: "proc:999999999", token: tok, at: Date.now() };
+  const self = { ...strong, host: "h", boot: "b", ns: "nsX", timeNs: "host", pid: process.pid, start: "proc:1" };
+  const r = { ...strong, host: "h", boot: "b", ns: "nsX", timeNs: "host", pid: process.pid, start: "proc:999999999", token: tok, at: Date.now() };
   const probe = () => undefined; // mis-mapped /proc: no datable start
   assert.equal(livenessOf(r, self, { platform: "linux", probe }), "live");
 });
@@ -186,15 +191,15 @@ test("B3 livenessOf(linux, mis-mapped /proc): a present PID with an undatable st
 // time namespace. A "legacy" (malformed, pre-source-prefix) start is untrustworthy and
 // must stay undecidable (fail closed) — never a fragile dead/live from raw values.
 test("R1 cross-source: a proc record vs a ps probe on a live PID ⇒ live (undatable), not undecidable", () => {
-  const self = { host: "h", boot: "b", ns: "nsX", timeNs: "host", pid: process.pid, start: "proc:1" };
-  const r = { host: "h", boot: "b", ns: "nsX", timeNs: "host", pid: process.pid, start: "proc:1", token: tok, at: Date.now() };
+  const self = { ...strong, host: "h", boot: "b", ns: "nsX", timeNs: "host", pid: process.pid, start: "proc:1" };
+  const r = { ...strong, host: "h", boot: "b", ns: "nsX", timeNs: "host", pid: process.pid, start: "proc:1", token: tok, at: Date.now() };
   const probe = () => ({ start: "ps:Mon Sep 24 08:44:00 2026" });
   assert.equal(livenessOf(r, self, { platform: "linux", probe }), "live");
 });
 
 test("R1 legacy source: two legacy (malformed) starts are undecidable, never a fragile dead", () => {
-  const self = { host: "h", boot: "b", ns: "nsX", timeNs: "host", pid: process.pid, start: "proc:1" };
-  const r = { host: "h", boot: "b", ns: "nsX", timeNs: "host", pid: process.pid, start: "legacy-A-no-prefix", token: tok, at: Date.now() };
+  const self = { ...strong, host: "h", boot: "b", ns: "nsX", timeNs: "host", pid: process.pid, start: "proc:1" };
+  const r = { ...strong, host: "h", boot: "b", ns: "nsX", timeNs: "host", pid: process.pid, start: "legacy-A-no-prefix", token: tok, at: Date.now() };
   const probe = () => ({ start: "legacy-B-no-prefix" }); // both legacy, different values
   assert.equal(livenessOf(r, self, { platform: "linux", probe }), "undecidable");
 });
