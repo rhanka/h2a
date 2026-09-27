@@ -229,6 +229,24 @@ test("performAutoUpgrade describes weak host and boot provenance for an undecida
   }
 });
 
+test("T-legacy: performAutoUpgrade keeps a legacy holder blocked and identifies it without advising local removal", () => {
+  const prefix = mkdtempSync(join(tmpdir(), "h2a-legacy-diagnostic-"));
+  const legacy = { pid: 2910836, hostname: "legacy-builder-host", startedAt: "2026-09-20T12:34:56.000Z" };
+  try {
+    writeFileSync(join(prefix, ".h2a-upgrade.lock"), JSON.stringify(legacy), "utf8");
+    const { runtime } = stagedFake({
+      prefix,
+      lock: { acquired: false, reason: "dead-undecidable", release: () => {} }
+    });
+    const result = performAutoUpgrade(CUR, { runtime, prefix });
+    assert.equal(result.outcome, "blocked-undecidable");
+    assert.match(result.message, /legacy holder pid=2910836 hostname=legacy-builder-host startedAt=2026-09-20T12:34:56\.000Z token=legacy-/);
+    assert.match(result.message, /Do not remove .* on this process's authority alone/);
+  } finally {
+    rmSync(prefix, { recursive: true, force: true });
+  }
+});
+
 // Idempotence under the lock: the version check runs BEFORE the lock, so a peer lane
 // may install the target while we wait. Once we hold the lock, re-reading the global
 // version must short-circuit — no re-fetch/stage/swap of ~130 MB.
