@@ -328,6 +328,7 @@ import {
   isOlderThan,
   lockPathFor,
   me,
+  readLockHolder,
   readLockRecord,
   safeAtIso
 } from "../local-files/succession-lock.js";
@@ -1200,16 +1201,20 @@ export function performAutoUpgrade(
       // a live holder in another container/namespace (nsenter -p) or another machine
       // must never be broken on the strength of "PID absent in MY namespace".
       const lockFile = lockPathFor(resolvedPrefix);
-      const rec = readLockRecord(lockFile);
+      const rec = readLockHolder(lockFile);
       const reader = me();
       const holder =
         rec === "absent" || rec === "corrupt"
           ? `LOCK unreadable (${rec})`
-          : `holder host=${rec.host} hostKind=${rec.hostKind ?? "unknown"} boot=${rec.boot ?? "unknown"} ns=${rec.ns ?? "unknown"} pid=${rec.pid} acquiredAt=${safeAtIso(rec.at)}`;
+          : rec.kind === "legacy"
+            ? `legacy holder pid=${rec.pid} hostname=${rec.hostname} startedAt=${rec.startedAt} token=${rec.token}`
+            : `holder host=${rec.host} hostKind=${rec.hostKind ?? "unknown"} boot=${rec.boot ?? "unknown"} ns=${rec.ns ?? "unknown"} pid=${rec.pid} acquiredAt=${safeAtIso(rec.at)}`;
       const advice =
         rec === "absent" || rec === "corrupt"
           ? `Inspect ${lockFile} and its ${lockFile}.succ.* files before any removal.`
-          : `Do not remove ${lockFile} or its ${lockFile}.succ.* files on this process's authority alone: a clone can share the lock directory. Before manual intervention, compare holder boot=${rec.boot ?? "unknown"} with this reader boot=${reader.boot ?? "unknown"}; a PID check is meaningless across different boots. Confirm holder pid ${rec.pid} on host ${rec.host} is truly gone in ITS OWN namespace; a holder merely absent from yours may be live in another container, namespace, or machine.`;
+          : rec.kind === "legacy"
+            ? `Do not remove ${lockFile} or its ${lockFile}.succ.* files on this process's authority alone: this legacy holder has no boot or namespace provenance. Confirm holder pid ${rec.pid} on host ${rec.hostname} is truly gone in its own execution context; a holder merely absent from yours may be live in another container, namespace, or machine.`
+            : `Do not remove ${lockFile} or its ${lockFile}.succ.* files on this process's authority alone: a clone can share the lock directory. Before manual intervention, compare holder boot=${rec.boot ?? "unknown"} with this reader boot=${reader.boot ?? "unknown"}; a PID check is meaningless across different boots. Confirm holder pid ${rec.pid} on host ${rec.host} is truly gone in ITS OWN namespace; a holder merely absent from yours may be live in another container, namespace, or machine.`;
       const thrown = lockThrewFlag
         ? `lock acquisition threw (${lockThrew instanceof Error ? lockThrew.message : String(lockThrew)}); `
         : "";
