@@ -1,10 +1,11 @@
 // B2 liveness decomposition (platform simulations that a single-platform CI cannot
-// otherwise exercise). Each test is RED against the pre-B2 behaviour:
-//   - the namespace readers ignored the platform → returned the Linux id (or null)
-//     instead of the known "host" sentinel, so a macOS/Windows dead holder read as
-//     a foreign namespace → undecidable → NEVER reclaimed (the 4-incident class);
-//   - livenessOf compared two null namespaces as if co-located, and skipped the
-//     time-namespace check when it was unknown → a live holder declared "dead".
+// otherwise exercise). These cases keep the namespace and start-time rules pinned:
+//   - the namespace readers must return the known "host" sentinel when a platform
+//     has no PID/time namespace. Under Lot 4 §2, only darwin may use that fact for a
+//     death proof; Windows and other unsupported platforms intentionally stay
+//     undecidable;
+//   - livenessOf must never compare two unknown namespaces as co-located, or skip a
+//     time-namespace check when it is unknown and declare a live holder "dead".
 // The classifier + livenessOf are exported from the package for exactly this matrix.
 import assert from "node:assert/strict";
 import test from "node:test";
