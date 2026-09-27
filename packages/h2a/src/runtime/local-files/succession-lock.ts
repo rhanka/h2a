@@ -121,6 +121,8 @@ export interface PrefixLockHooks {
 
 interface LockIdent {
   readonly host: string;
+  /** Missing only on records written before host provenance was recorded. */
+  readonly hostKind?: HostKind;
   readonly boot: string | null;
   readonly ns: string | null;
   /** Reader's time namespace; gates proc-sourced start comparisons (B2). */
@@ -177,20 +179,83 @@ export function safeAtIso(at: number): string {
   return `epoch-ms:${at}`;
 }
 
-function readHostId(): string {
+export type HostKind = "machine-id" | "weak";
+
+interface HostIdentity {
+  readonly host: string;
+  readonly hostKind: HostKind;
+}
+
+interface HostIdentityDeps {
+  readonly platform?: NodeJS.Platform;
+  readonly readFile?: (path: string) => string;
+  readonly hostname?: () => string;
+  readonly ioreg?: () => { readonly status: number | null; readonly stdout: string | null };
+}
+
+const MACHINE_ID_RE = /^[0-9a-f]{32}$/;
+const IO_PLATFORM_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const STATIC_COMMAND_ENV = { LC_ALL: "C", TZ: "UTC0" };
+const SYSCTL_PATH = process.platform === "darwin"
+  ? "/usr/sbin/sysctl"
+  : process.platform === "freebsd" || process.platform === "openbsd"
+    ? "/sbin/sysctl"
+    : "/usr/sbin/sysctl";
+
+function weakHost(hostnameReader: () => string): HostIdentity {
   try {
-    const v = readFileSync("/etc/machine-id", "utf8").trim();
-    if (v) return v;
-  } catch {
-    // fall through to hostname
-  }
-  try {
-    const h = hostname().trim();
-    if (h) return h;
+    const host = hostnameReader().trim();
+    if (host) return { host, hostKind: "weak" };
   } catch {
     // fall through to sentinel
   }
-  return "unknown-host";
+  return { host: "unknown-host", hostKind: "weak" };
+}
+
+function parseIoPlatformUuid(output: string): string | undefined {
+  const matches = output
+    .split("\n")
+    .map((line) => line.trim().match(/^"IOPlatformUUID"\s*=\s*"([0-9a-f-]+)"$/i)?.[1])
+    .filter((value): value is string => value !== undefined);
+  if (matches.length !== 1 || !IO_PLATFORM_UUID_RE.test(matches[0])) return undefined;
+  return matches[0].toLowerCase();
+}
+
+/**
+ * Reads a machine-scoped host identity. The injected readers make source selection
+ * deterministic in tests without consulting process environment variables.
+ */
+export function readHostId(deps: HostIdentityDeps = {}): HostIdentity {
+  const platform = deps.platform ?? process.platform;
+  const readFile = deps.readFile ?? ((path: string) => readFileSync(path, "utf8"));
+  const hostnameReader = deps.hostname ?? hostname;
+  if (platform === "linux") {
+    try {
+      const host = readFile("/etc/machine-id").trim();
+      if (MACHINE_ID_RE.test(host)) return { host, hostKind: "machine-id" };
+    } catch {
+      // fall through to a weak hostname
+    }
+  } else if (platform === "darwin") {
+    try {
+      const ioreg = deps.ioreg ?? (() => {
+        const r = spawnSync("/usr/sbin/ioreg", ["-rd1", "-c", "IOPlatformExpertDevice"], {
+          encoding: "utf8",
+          timeout: 2000,
+          env: STATIC_COMMAND_ENV
+        });
+        return { status: r.status, stdout: typeof r.stdout === "string" ? r.stdout : null };
+      });
+      const result = ioreg();
+      const host = result.status === 0 && typeof result.stdout === "string"
+        ? parseIoPlatformUuid(result.stdout)
+        : undefined;
+      if (host !== undefined) return { host, hostKind: "machine-id" };
+    } catch {
+      // fall through to a weak hostname
+    }
+  }
+  return weakHost(hostnameReader);
 }
 
 function readBootId(): string | null {
@@ -202,10 +267,10 @@ function readBootId(): string | null {
   }
   // Outside Linux prefer the stable session UUID (TZ-independent) when present.
   try {
-    const r = spawnSync("sysctl", ["-n", "kern.bootsessionuuid"], {
+    const r = spawnSync(SYSCTL_PATH, ["-n", "kern.bootsessionuuid"], {
       encoding: "utf8",
       timeout: 2000,
-      env: { ...process.env, LC_ALL: "C", TZ: "UTC0" }
+      env: STATIC_COMMAND_ENV
     });
     const v = (r.stdout ?? "").trim();
     if (r.status === 0 && v) return v;
@@ -213,10 +278,10 @@ function readBootId(): string | null {
     // best-effort
   }
   try {
-    const r = spawnSync("sysctl", ["-n", "kern.boottime"], {
+    const r = spawnSync(SYSCTL_PATH, ["-n", "kern.boottime"], {
       encoding: "utf8",
       timeout: 2000,
-      env: { ...process.env, LC_ALL: "C", TZ: "UTC0" }
+      env: STATIC_COMMAND_ENV
     });
     const v = (r.stdout ?? "").trim();
     if (r.status === 0 && v) return v;
@@ -324,10 +389,10 @@ export function procStartInfo(
   }
   if (platform !== "darwin") return undefined; // only darwin ps is a stable source
   try {
-    const r = spawnSync("ps", ["-o", "lstart=", "-p", String(pid)], {
+    const r = spawnSync("/bin/ps", ["-o", "lstart=", "-p", String(pid)], {
       encoding: "utf8",
       timeout: 5000,
-      env: { ...process.env, LC_ALL: "C", TZ: "UTC0" }
+      env: STATIC_COMMAND_ENV
     });
     const v = (r.stdout ?? "").trim();
     if (r.status === 0 && v) return { start: `ps:${v}` };
@@ -344,6 +409,7 @@ function startSource(s: string): "proc" | "ps" | "legacy" {
 }
 
 interface SelfIdent extends LockIdent {
+  readonly hostKind: HostKind;
   readonly pid: number;
 }
 
@@ -351,14 +417,18 @@ let ME_CACHE: SelfIdent | undefined;
 
 /** This process's identity, computed once and memoized. */
 export function me(): SelfIdent {
-  ME_CACHE ??= {
-    host: readHostId(),
-    boot: readBootId(),
-    ns: readPidNs(),
-    timeNs: readTimeNs(),
-    pid: process.pid,
-    start: procStartInfo(process.pid)?.start ?? null
-  };
+  ME_CACHE ??= (() => {
+    const host = readHostId();
+    return {
+      host: host.host,
+      hostKind: host.hostKind,
+      boot: readBootId(),
+      ns: readPidNs(),
+      timeNs: readTimeNs(),
+      pid: process.pid,
+      start: procStartInfo(process.pid)?.start ?? null
+    };
+  })();
   return ME_CACHE;
 }
 
@@ -371,6 +441,7 @@ export function makeLockRec(token: string, target?: string): LockRec {
   const self = me();
   return {
     host: self.host,
+    hostKind: self.hostKind,
     boot: self.boot,
     ns: self.ns,
     timeNs: self.timeNs,
@@ -385,7 +456,7 @@ export function makeLockRec(token: string, target?: string): LockRec {
 export function parseLockRec(raw: unknown): LockRec {
   if (typeof raw !== "object" || raw === null) throw new Error("bad lock record");
   const o = raw as Record<string, unknown>;
-  const { host, boot, ns, timeNs, pid, start, token, target, at } = o;
+  const { host, hostKind, boot, ns, timeNs, pid, start, token, target, at } = o;
   // timeNs is a required field like host/boot/ns/pid/start: an absent field is a
   // malformed record → corrupt → fail-closed. No back-compat exception is carved
   // for a "v4 without timeNs" — the redesign was never published, so no such lock
@@ -393,6 +464,9 @@ export function parseLockRec(raw: unknown): LockRec {
   // (genuine unknown time namespace); the liveness guard then treats the proc start
   // as undatable ⇒ "live" (never reclaim, never a false death), not undecidable.
   if (typeof host !== "string" || host.length === 0) throw new Error("bad host");
+  // A missing provenance was written by versions <= 0.97.9. It is valid legacy
+  // state, but classifyLiveness treats it as unknown and therefore undecidable.
+  if (hostKind !== undefined && hostKind !== "machine-id" && hostKind !== "weak") throw new Error("bad hostKind");
   if (boot !== null && typeof boot !== "string") throw new Error("bad boot");
   if (ns !== null && typeof ns !== "string") throw new Error("bad ns");
   if (timeNs !== null && typeof timeNs !== "string") throw new Error("bad timeNs");
@@ -403,6 +477,7 @@ export function parseLockRec(raw: unknown): LockRec {
   if (typeof at !== "number" || !Number.isFinite(at)) throw new Error("bad at");
   return {
     host,
+    ...(hostKind !== undefined ? { hostKind } : {}),
     boot,
     ns,
     timeNs,
@@ -516,16 +591,13 @@ interface LivenessInfo {
 export function classifyLiveness(r: LockRec, self: SelfIdent, deps: LivenessDeps = {}): LivenessInfo {
   const platform = deps.platform ?? process.platform;
   const probe = deps.probe ?? procStartInfo;
-  if (r.host !== self.host) return { verdict: "undecidable", datable: false }; // other machine
-  // B1: only a Linux boot_id is a stable, trustworthy boot identity, so a difference
-  // there is a previous boot ⇒ dead. Off Linux a boot difference must NOT short-circuit
-  // to undecidable (that wedged a Mac rebooted mid-lock forever); fall through to kill(0)
-  // (PID absent ⇒ dead, on every platform) then the start comparison (only conclusive
-  // where the start is datable — Linux /proc and darwin ps; on BSD/Windows it is undatable
-  // ⇒ live, so after a reboot a reused PID blocks until it exits, surfaced by R2).
-  if (r.boot && self.boot && r.boot !== self.boot && platform === "linux") {
-    return { verdict: "dead", datable: false };
-  }
+  // Lot 4 §2 permits a death proof only for a strong machine identity on Linux or
+  // darwin, with the same known host and boot. Check this before every PID/start probe:
+  // cloned images can share a machine-id and an initial pid namespace inode.
+  if (platform !== "linux" && platform !== "darwin") return { verdict: "undecidable", datable: false };
+  if (r.hostKind !== "machine-id" || self.hostKind !== "machine-id") return { verdict: "undecidable", datable: false };
+  if (r.host !== self.host) return { verdict: "undecidable", datable: false };
+  if (r.boot === null || self.boot === null || r.boot !== self.boot) return { verdict: "undecidable", datable: false };
   // An unreadable namespace on EITHER side is a genuine unknown — two records with a
   // null namespace must never be treated as co-located (null-equality).
   if (r.ns === null || self.ns === null) return { verdict: "undecidable", datable: false };
