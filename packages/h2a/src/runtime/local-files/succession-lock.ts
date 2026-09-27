@@ -2,7 +2,8 @@
  * Succession lock (v4) — single-machine succession protocol.
  *
  * Extracted from `runtime/upgrade/index.ts` (Lot 4, step 1: neutral
- * intra-package move — zero behaviour change). This is the shared lock primitive
+ * intra-package move). Lot 4 §2 adds fail-closed host and boot provenance before
+ * any death proof. This is the shared lock primitive
  * used by the auto-upgrade prefix lock today, and (later lots) by the identity
  * binding lock. It is a LEAF: it imports only `node:fs/os/crypto/child_process`
  * and nothing from the store, so `upgrade/index.ts` and `local-files/locks.ts`
@@ -191,16 +192,24 @@ interface HostIdentityDeps {
   readonly readFile?: (path: string) => string;
   readonly hostname?: () => string;
   readonly ioreg?: () => { readonly status: number | null; readonly stdout: string | null };
+  readonly spawn?: typeof spawnSync;
 }
 
 const MACHINE_ID_RE = /^[0-9a-f]{32}$/;
 const IO_PLATFORM_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const STATIC_COMMAND_ENV = { LC_ALL: "C", TZ: "UTC0" };
-const SYSCTL_PATH = process.platform === "darwin"
-  ? "/usr/sbin/sysctl"
-  : process.platform === "freebsd" || process.platform === "openbsd"
-    ? "/sbin/sysctl"
-    : "/usr/sbin/sysctl";
+
+function isNullMachineId(value: string): boolean {
+  return /^0+$/.test(value.replaceAll("-", ""));
+}
+
+function sysctlPath(platform: NodeJS.Platform): string {
+  return platform === "darwin"
+    ? "/usr/sbin/sysctl"
+    : platform === "freebsd" || platform === "openbsd"
+      ? "/sbin/sysctl"
+      : "/usr/sbin/sysctl";
+}
 
 function weakHost(hostnameReader: () => string): HostIdentity {
   try {
@@ -217,7 +226,7 @@ function parseIoPlatformUuid(output: string): string | undefined {
     .split("\n")
     .map((line) => line.trim().match(/^"IOPlatformUUID"\s*=\s*"([0-9a-f-]+)"$/i)?.[1])
     .filter((value): value is string => value !== undefined);
-  if (matches.length !== 1 || !IO_PLATFORM_UUID_RE.test(matches[0])) return undefined;
+  if (matches.length !== 1 || !IO_PLATFORM_UUID_RE.test(matches[0]) || isNullMachineId(matches[0])) return undefined;
   return matches[0].toLowerCase();
 }
 
@@ -232,14 +241,14 @@ export function readHostId(deps: HostIdentityDeps = {}): HostIdentity {
   if (platform === "linux") {
     try {
       const host = readFile("/etc/machine-id").trim();
-      if (MACHINE_ID_RE.test(host)) return { host, hostKind: "machine-id" };
+      if (MACHINE_ID_RE.test(host) && !isNullMachineId(host)) return { host, hostKind: "machine-id" };
     } catch {
       // fall through to a weak hostname
     }
   } else if (platform === "darwin") {
     try {
       const ioreg = deps.ioreg ?? (() => {
-        const r = spawnSync("/usr/sbin/ioreg", ["-rd1", "-c", "IOPlatformExpertDevice"], {
+        const r = (deps.spawn ?? spawnSync)("/usr/sbin/ioreg", ["-rd1", "-c", "IOPlatformExpertDevice"], {
           encoding: "utf8",
           timeout: 2000,
           env: STATIC_COMMAND_ENV
@@ -258,16 +267,26 @@ export function readHostId(deps: HostIdentityDeps = {}): HostIdentity {
   return weakHost(hostnameReader);
 }
 
-function readBootId(): string | null {
+interface BootIdentityDeps {
+  readonly platform?: NodeJS.Platform;
+  readonly readFile?: (path: string) => string;
+  readonly spawn?: typeof spawnSync;
+}
+
+/** Reads the current boot identity; readers are injectable for platform simulations. */
+export function readBootId(deps: BootIdentityDeps = {}): string | null {
+  const platform = deps.platform ?? process.platform;
+  const readFile = deps.readFile ?? ((path: string) => readFileSync(path, "utf8"));
+  const spawn = deps.spawn ?? spawnSync;
   try {
-    const v = readFileSync("/proc/sys/kernel/random/boot_id", "utf8").trim();
+    const v = readFile("/proc/sys/kernel/random/boot_id").trim();
     if (v) return v;
   } catch {
     // not Linux: fall through to sysctl below
   }
   // Outside Linux prefer the stable session UUID (TZ-independent) when present.
   try {
-    const r = spawnSync(SYSCTL_PATH, ["-n", "kern.bootsessionuuid"], {
+    const r = spawn(sysctlPath(platform), ["-n", "kern.bootsessionuuid"], {
       encoding: "utf8",
       timeout: 2000,
       env: STATIC_COMMAND_ENV
@@ -278,7 +297,7 @@ function readBootId(): string | null {
     // best-effort
   }
   try {
-    const r = spawnSync(SYSCTL_PATH, ["-n", "kern.boottime"], {
+    const r = spawn(sysctlPath(platform), ["-n", "kern.boottime"], {
       encoding: "utf8",
       timeout: 2000,
       env: STATIC_COMMAND_ENV
@@ -293,9 +312,10 @@ function readBootId(): string | null {
 
 // B2 decomposition: distinguish "this platform has no namespaces" (a KNOWN fact —
 // one space per host) from "the namespace exists but is unreadable" (a genuine
-// unknown). Only the latter is null; the former is the sentinel "host" so same-host
-// liveness stays decidable (macOS/Windows/BSD). `platform`/`readLink` are injected
-// only by tests (macOS/Windows/no-/proc sims); production passes none.
+// unknown). Only the latter is null; the former is the sentinel "host". Lot 4 §2
+// permits that no-namespace liveness proof only on darwin; Windows and BSD still fail
+// closed as undecidable. `platform`/`readLink` are injected only by tests
+// (macOS/Windows/no-/proc sims); production passes none.
 //
 // readPidNs is the CONSERVATIVE gate that decides reclaim at all: an unknown (null)
 // pid namespace makes even a PID-absent holder undecidable, because "absent" in an
@@ -351,12 +371,13 @@ function procMapsToSelf(): boolean {
  * so a reader using a different source never concludes "dead" from a
  * format/TZ-fragile comparison (C1).
  */
-// `platform`/`mapsToSelf` are injected only by tests (mis-mapped-/proc / non-Linux
-// sims); production passes none.
+// `platform`/`mapsToSelf`/`spawn` are injected only by tests (mis-mapped-/proc /
+// non-Linux sims); production passes none.
 export function procStartInfo(
   pid: number,
   platform: NodeJS.Platform = process.platform,
-  mapsToSelf: () => boolean = procMapsToSelf
+  mapsToSelf: () => boolean = procMapsToSelf,
+  spawn: typeof spawnSync = spawnSync
 ): { state?: string; start?: string } | undefined {
   // A start time is only trusted from a source whose value is STABLE for the life of the
   // process (never moving under a wall-clock step), else a clock jump while the lock is held
@@ -369,7 +390,8 @@ export function procStartInfo(
   // - darwin: `ps lstart` is the ABSOLUTE fork wall-clock time (p_starttime), stable ⇒ trusted.
   // - R-BSD: on FreeBSD/OpenBSD `ps` start is boot-relative and its boot time is re-derived on
   //   a clock step, so it is NOT stable. Every other non-Linux platform (incl. Windows, no ps)
-  //   ⇒ undefined (undatable ⇒ live). In doubt, never dead.
+  //   ⇒ undefined. Lock liveness on those platforms is already undecidable under Lot 4 §2.
+  //   In doubt, never dead.
   if (platform === "linux") {
     if (!mapsToSelf()) return undefined;
     try {
@@ -389,7 +411,7 @@ export function procStartInfo(
   }
   if (platform !== "darwin") return undefined; // only darwin ps is a stable source
   try {
-    const r = spawnSync("/bin/ps", ["-o", "lstart=", "-p", String(pid)], {
+    const r = spawn("/bin/ps", ["-o", "lstart=", "-p", String(pid)], {
       encoding: "utf8",
       timeout: 5000,
       env: STATIC_COMMAND_ENV
@@ -466,6 +488,8 @@ export function parseLockRec(raw: unknown): LockRec {
   if (typeof host !== "string" || host.length === 0) throw new Error("bad host");
   // A missing provenance was written by versions <= 0.97.9. It is valid legacy
   // state, but classifyLiveness treats it as unknown and therefore undecidable.
+  // Unknown values are corrupt and fail closed. Lot 5 must carry an instance UUID in
+  // a separate field rather than extending this persisted hostKind enum.
   if (hostKind !== undefined && hostKind !== "machine-id" && hostKind !== "weak") throw new Error("bad hostKind");
   if (boot !== null && typeof boot !== "string") throw new Error("bad boot");
   if (ns !== null && typeof ns !== "string") throw new Error("bad ns");
@@ -652,6 +676,11 @@ export function isCertainlyDead(r: LockRec): boolean {
   return classifyLiveness(r, me()).verdict === "dead";
 }
 
+interface AcquirePrefixLockDeps {
+  /** Test-only identity seam; production always uses the memoized process identity. */
+  readonly self?: () => SelfIdent;
+}
+
 function lockDenied(reason: PrefixLockReason): PrefixLockLease {
   return { acquired: false, release: () => {}, reason };
 }
@@ -669,14 +698,18 @@ function invokeLockHook(
 }
 
 /** opus `acquirePrefixLock`, plus M5 reasons and test-only critical hooks. */
-export function acquirePrefixLock(prefix: string, hooks: PrefixLockHooks = {}): PrefixLockLease {
+export function acquirePrefixLock(
+  prefix: string,
+  hooks: PrefixLockHooks = {},
+  deps: AcquirePrefixLockDeps = {}
+): PrefixLockLease {
   const lockPath = lockPathFor(prefix);
   try {
     mkdirSync(prefix, { recursive: true });
   } catch (e) {
     return lockDenied(`error:${errnoOf(e)}`);
   }
-  const self = me();
+  const self = deps.self?.() ?? me();
   for (let round = 0; round < PREFIX_LOCK_MAX_ROUNDS; round++) {
     if (round === 0) {
       invokeLockHook(hooks.beforePublishLock, { prefix, lockPath, path: lockPath, round, depth: 0 });

@@ -1195,17 +1195,17 @@ export function performAutoUpgrade(
       };
     }
     if (reason === "dead-undecidable") {
-      // R4: show the RECORDED holder identity and the reader's namespace, and advise
+      // R4: show the RECORDED holder identity and the reader's provenance, and advise
       // removal ONLY after confirming that holder is truly gone in ITS OWN namespace —
       // a live holder in another container/namespace (nsenter -p) or another machine
       // must never be broken on the strength of "PID absent in MY namespace".
       const lockFile = lockPathFor(resolvedPrefix);
       const rec = readLockRecord(lockFile);
-      const readerNs = me().ns ?? "unknown";
+      const reader = me();
       const holder =
         rec === "absent" || rec === "corrupt"
           ? `LOCK unreadable (${rec})`
-          : `holder host=${rec.host} ns=${rec.ns ?? "unknown"} pid=${rec.pid} acquiredAt=${safeAtIso(rec.at)}`;
+          : `holder host=${rec.host} hostKind=${rec.hostKind ?? "unknown"} boot=${rec.boot ?? "unknown"} ns=${rec.ns ?? "unknown"} pid=${rec.pid} acquiredAt=${safeAtIso(rec.at)}`;
       const advice =
         rec === "absent" || rec === "corrupt"
           ? `Inspect ${lockFile} and its ${lockFile}.succ.* files before any removal.`
@@ -1214,7 +1214,7 @@ export function performAutoUpgrade(
         ? `lock acquisition threw (${lockThrew instanceof Error ? lockThrew.message : String(lockThrew)}); `
         : "";
       const fullError =
-        `${thrown}prefix lock owner liveness undecidable (a different/unreadable PID namespace, another machine, a corrupt LOCK, or succession depth exceeded); manual intervention required. ${holder}; this reader ns=${readerNs}. ${advice}`;
+        `${thrown}prefix lock owner liveness undecidable (weak or unknown host identity (hostname fallback or record from 0.97.9 or earlier), boot differs or is unknown (reboot or cloned image), platform outside linux/darwin, a different/unreadable PID namespace, another machine, a corrupt LOCK, or succession depth exceeded); manual intervention required. ${holder}; this reader host=${reader.host} hostKind=${reader.hostKind} boot=${reader.boot ?? "unknown"} ns=${reader.ns ?? "unknown"}. ${advice}`;
       diag({
         at: startedAt,
         durationMs: nowFn() - startedAt,
