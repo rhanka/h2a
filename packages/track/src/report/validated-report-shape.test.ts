@@ -55,7 +55,12 @@ const base = { baselineCommit: 'c1' as const, decisions: true, wpTree: true }
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), 'track-validated-'))
   eventsPath = join(dir, '.track', 'events.jsonl')
-  t = new Track(new EventStore(eventsPath), { by: 'human:x', now })
+  let sequence = 0
+  t = new Track(new EventStore(eventsPath), {
+    by: 'human:x',
+    now,
+    newId: () => `01KY${String(++sequence).padStart(22, '0')}`,
+  })
 })
 afterEach(() => rmSync(dir, { recursive: true, force: true }))
 
