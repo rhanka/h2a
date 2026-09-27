@@ -20,9 +20,12 @@ import {
   H2A_UPGRADE_CHECK_TTL_MS,
   STALE_LOCK_ALERT_MS
 } from "../dist/index.js";
-import { readHostId } from "../dist/runtime/local-files/succession-lock.js";
+import { me } from "../dist/runtime/local-files/succession-lock.js";
 
-const strong = readHostId().hostKind === "machine-id";
+const self = me();
+const supportsLivenessProof = ["linux", "darwin"].includes(process.platform)
+  && self.hostKind === "machine-id"
+  && self.boot !== null;
 
 // Legacy check-flow fake (fetchLatest/runInstall/now/cache) for checkUpgrade +
 // performUpgrade, whose signatures are unchanged.
@@ -218,6 +221,9 @@ test("performAutoUpgrade describes weak host and boot provenance for an undecida
     assert.match(result.message, /weak or unknown host identity/);
     assert.match(result.message, /boot differs or is unknown/);
     assert.match(result.message, /platform outside linux\/darwin/);
+    assert.match(result.message, /compare holder boot=holder-boot with this reader boot=/);
+    assert.match(result.message, /a PID check is meaningless across different boots/);
+    assert.match(result.message, /Do not remove .* on this process's authority alone/);
   } finally {
     rmSync(prefix, { recursive: true, force: true });
   }
@@ -266,7 +272,7 @@ test("performAutoUpgrade idempotence: a version-correct but broken-native instal
 // dead holder), is surfaced as a diagnostic — WITHOUT any reclaim and WITHOUT advising
 // removal. Uses a REAL prefix + a real lock record (correct reader identity) since the
 // alert re-reads the on-disk record; the fake acquire returns busy.
-test("performAutoUpgrade R2: an old, undatable-live lock is surfaced (diagnostic only, no reclaim)", { skip: !strong && "requires a strong machine identity (Lot 4 §2)" }, () => {
+test("performAutoUpgrade R2: an old, undatable-live lock is surfaced (diagnostic only, no reclaim)", { skip: !supportsLivenessProof && "requires a supported, strong host identity with a known boot (Lot 4 §2)" }, () => {
   const prefix = mkdtempSync(join(tmpdir(), "h2a-r2-"));
   const lockFile = join(prefix, ".h2a-upgrade.lock");
   try {
