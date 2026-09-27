@@ -1,6 +1,6 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { once } from "node:events";
-import { chmod, mkdtemp, readFile, readdir, readlink, rm, stat } from "node:fs/promises";
+import { chmod, mkdtemp, readFile, readdir, readlink, rm, stat, unlink } from "node:fs/promises";
 import { createConnection } from "node:net";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
@@ -279,7 +279,12 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
       directory,
     );
     const hardCrashPgid = hardCrashPids[0]!;
-    process.kill(firstPing.hostPid, "SIGKILL");
+    supervisor.disconnect();
+    // The missing socket makes the takeover clear its existing connection
+    // before the host death is observed. The queued hard death then lands in
+    // the startup poll, the lifecycle edge this test must cover.
+    await unlink(socketPath);
+    setTimeout(() => process.kill(firstPing.hostPid, "SIGKILL"), 0);
     // A parent-death signal can kill the guardian before its shell trap has
     // broadcast to the group. The supervisor therefore treats the next
     // takeover of this health-checked, known-dead host as containment work:
