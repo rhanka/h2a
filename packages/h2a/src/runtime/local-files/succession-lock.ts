@@ -459,8 +459,7 @@ function newToken(): string {
   return randomBytes(16).toString("hex");
 }
 
-export function makeLockRec(token: string, target?: string): LockRec {
-  const self = me();
+function makeLockRecFor(self: SelfIdent, token: string, target?: string): LockRec {
   return {
     host: self.host,
     hostKind: self.hostKind,
@@ -473,6 +472,10 @@ export function makeLockRec(token: string, target?: string): LockRec {
     ...(target !== undefined ? { target } : {}),
     at: Date.now()
   };
+}
+
+export function makeLockRec(token: string, target?: string): LockRec {
+  return makeLockRecFor(me(), token, target);
 }
 
 export function parseLockRec(raw: unknown): LockRec {
@@ -715,7 +718,7 @@ export function acquirePrefixLock(
       invokeLockHook(hooks.beforePublishLock, { prefix, lockPath, path: lockPath, round, depth: 0 });
     }
     const tok = newToken();
-    const pub = publishLockRecord(lockPath, makeLockRec(tok));
+    const pub = publishLockRecord(lockPath, makeLockRecFor(self, tok));
     if (pub.status === "ok") return makeLease(prefix, lockPath, tok);
     if (pub.status === "error") return lockDenied(`error:${pub.code}`);
     if (pub.status === "retry") continue;
@@ -724,7 +727,7 @@ export function acquirePrefixLock(
     if (cur === "corrupt") return lockDenied("dead-undecidable"); // fail closed
     const live = livenessOf(cur, self);
     if (live !== "dead") return lockDenied(live === "live" ? "busy" : "dead-undecidable");
-    const next = succeedDeadToken(prefix, lockPath, cur.token, hooks, round);
+    const next = succeedDeadToken(prefix, lockPath, cur.token, hooks, round, self);
     if (next !== "retry") return next;
   }
   return lockDenied("busy");
@@ -740,13 +743,13 @@ function succeedDeadToken(
   lockPath: string,
   g: string,
   hooks: PrefixLockHooks,
-  round: number
+  round: number,
+  self: SelfIdent
 ): PrefixLockLease | "retry" {
-  const self = me();
   let t = g;
   for (let depth = 0; depth < PREFIX_LOCK_MAX_CHAIN; depth++) {
     const tok = newToken();
-    const pub = publishLockRecord(succPathFor(lockPath, t), makeLockRec(tok, g));
+    const pub = publishLockRecord(succPathFor(lockPath, t), makeLockRecFor(self, tok, g));
     if (pub.status === "ok") {
       invokeLockHook(hooks.afterPublishSucc, {
         prefix,
@@ -757,7 +760,7 @@ function succeedDeadToken(
         round,
         depth
       });
-      return retireDeadToken(prefix, lockPath, g, hooks, round, depth);
+      return retireDeadToken(prefix, lockPath, g, hooks, round, depth, self);
     }
     if (pub.status === "error") return lockDenied(`error:${pub.code}`);
     if (pub.status === "retry") return "retry";
@@ -782,7 +785,8 @@ function retireDeadToken(
   g: string,
   hooks: PrefixLockHooks,
   round: number,
-  depth: number
+  depth: number,
+  self: SelfIdent
 ): PrefixLockLease | "retry" {
   const cur = readLockRecord(lockPath);
   if (cur === "corrupt") return lockDenied("dead-undecidable"); // keep our SUCC: fail closed
@@ -836,7 +840,7 @@ function retireDeadToken(
   // From here LOCK != g forever (I2): every SUCC targeting g is inert.
   purgeSuccession(prefix, lockPath, g); // unlink SUCC files whose target === g
   const tok = newToken();
-  const pub = publishLockRecord(lockPath, makeLockRec(tok));
+  const pub = publishLockRecord(lockPath, makeLockRecFor(self, tok));
   if (pub.status === "ok") return makeLease(prefix, lockPath, tok);
   if (pub.status === "exists" || pub.status === "retry") return "retry";
   return lockDenied(`error:${pub.code}`);

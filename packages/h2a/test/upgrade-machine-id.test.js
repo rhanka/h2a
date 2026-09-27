@@ -27,38 +27,53 @@ function successionLockSource() {
   );
 }
 
-function processEnvAccesses(source) {
+const ALLOWED_PROCESS_PROPERTIES = new Set(["platform", "pid", "kill", "on", "off"]);
+
+function isSpawnCallee(node) {
+  if (ts.isParenthesizedExpression(node)) return isSpawnCallee(node.expression);
+  if (ts.isIdentifier(node)) return node.text === "spawn" || node.text === "spawnSync";
+  if (ts.isPropertyAccessExpression(node)) return node.name.text === "spawn" || node.name.text === "spawnSync";
+  return ts.isBinaryExpression(node)
+    && node.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken
+    && (isSpawnCallee(node.left) || isSpawnCallee(node.right));
+}
+
+function sourceSafetyViolations(source) {
   const file = ts.createSourceFile("succession-lock.ts", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
-  const accesses = [];
-  const isProcess = (node) => ts.isIdentifier(node) && node.text === "process";
-  const bindingName = (node) => ts.isIdentifier(node) || ts.isStringLiteral(node) ? node.text : undefined;
+  const violations = [];
   const visit = (node) => {
-    if (ts.isPropertyAccessExpression(node) && isProcess(node.expression) && node.name.text === "env") {
-      accesses.push(node.getText(file));
+    if (
+      ts.isImportDeclaration(node)
+      && ts.isStringLiteral(node.moduleSpecifier)
+      && (node.moduleSpecifier.text === "process" || node.moduleSpecifier.text === "node:process")
+    ) {
+      violations.push(`process import: ${node.getText(file)}`);
+    }
+    if (ts.isIdentifier(node) && (node.text === "globalThis" || node.text === "global")) {
+      violations.push(`global reference: ${node.getText(file)}`);
     }
     if (
-      ts.isElementAccessExpression(node)
-      && isProcess(node.expression)
-      && node.argumentExpression !== undefined
-      && ts.isStringLiteral(node.argumentExpression)
-      && node.argumentExpression.text === "env"
+      ts.isIdentifier(node)
+      && node.text === "process"
+      && (!ts.isPropertyAccessExpression(node.parent)
+        || node.parent.expression !== node
+        || !ALLOWED_PROCESS_PROPERTIES.has(node.parent.name.text))
     ) {
-      accesses.push(node.getText(file));
+      violations.push(`disallowed process access: ${node.getText(file)}`);
     }
-    if (
-      ts.isVariableDeclaration(node)
-      && node.initializer !== undefined
-      && isProcess(node.initializer)
-      && ts.isObjectBindingPattern(node.name)
-    ) {
-      for (const element of node.name.elements) {
-        if (bindingName(element.propertyName ?? element.name) === "env") accesses.push(node.getText(file));
-      }
+    if (ts.isCallExpression(node) && isSpawnCallee(node.expression)) {
+      const options = node.arguments[2];
+      const hasStaticEnv = ts.isObjectLiteralExpression(options)
+        && options.properties.some((property) =>
+          (ts.isPropertyAssignment(property) || ts.isShorthandPropertyAssignment(property))
+          && property.name.getText(file) === "env"
+        );
+      if (!hasStaticEnv) violations.push(`spawn without static env: ${node.getText(file)}`);
     }
     ts.forEachChild(node, visit);
   };
   visit(file);
-  return accesses;
+  return violations;
 }
 
 const self = {
@@ -174,8 +189,22 @@ test("T-machine-id: unsupported platforms never read the Linux machine-id path",
   }
 });
 
-test("T-structurel: succession-lock does not access the process environment", () => {
-  assert.deepEqual(processEnvAccesses(successionLockSource()), []);
+test("T-structurel: succession-lock permits only explicit process properties and static command environments", () => {
+  const source = successionLockSource();
+  assert.deepEqual(sourceSafetyViolations(source), []);
+  for (const [label, probe] of [
+    ["named process import", 'import { env } from "node:process";'],
+    ["namespace process import", 'import * as proc from "node:process"; proc.env;'],
+    ["globalThis process", "globalThis.process.env;"],
+    ["parenthesized process", "(process).env;"],
+    ["template-computed process", "process[`env`];"],
+    ["process alias", "const p = process; p.env;"],
+    ["destructured assignment", "({ env: x } = process);"],
+    ["Reflect process access", 'Reflect.get(process, "env");'],
+    ["spawn without env", 'spawnSync("/bin/true", [], { encoding: "utf8" });']
+  ]) {
+    assert.notDeepEqual(sourceSafetyViolations(`${probe}\n${source}`), [], `${label} must be rejected`);
+  }
 });
 
 test("T-machine-id: host, boot, and ps commands use absolute paths with a static environment", () => {
@@ -210,6 +239,27 @@ test("T-machine-id: host, boot, and ps commands use absolute paths with a static
       args: ["-n", "kern.bootsessionuuid"],
       options: { encoding: "utf8", timeout: 2000, env: STATIC_COMMAND_ENV }
     }], `${platform} sysctl command`);
+
+    const fallbackCalls = [];
+    assert.equal(readBootId({
+      platform,
+      readFile: () => { throw new Error("no proc boot id"); },
+      spawn: (actual, args, options) => {
+        fallbackCalls.push({ command: actual, args, options });
+        return fallbackCalls.length === 1
+          ? { status: 1, stdout: "" }
+          : { status: 0, stdout: "boot-time\n" };
+      }
+    }), "boot-time");
+    assert.deepEqual(fallbackCalls, [{
+      command,
+      args: ["-n", "kern.bootsessionuuid"],
+      options: { encoding: "utf8", timeout: 2000, env: STATIC_COMMAND_ENV }
+    }, {
+      command,
+      args: ["-n", "kern.boottime"],
+      options: { encoding: "utf8", timeout: 2000, env: STATIC_COMMAND_ENV }
+    }], `${platform} fallback sysctl command`);
   }
 
   const psCalls = [];
@@ -233,14 +283,14 @@ test("T-machine-id: me memoizes host acquisition across lock operations", {
   const originalReadFileSync = fs.readFileSync;
   const originalSpawnSync = childProcess.spawnSync;
   let machineIdReads = 0;
-  let spawns = 0;
+  let hostIdentitySpawns = 0;
   try {
     fs.readFileSync = (path, ...args) => {
       if (path === "/etc/machine-id") machineIdReads++;
       return originalReadFileSync(path, ...args);
     };
     childProcess.spawnSync = (...args) => {
-      spawns++;
+      if (args[0] === "/usr/sbin/ioreg") hostIdentitySpawns++;
       return originalSpawnSync(...args);
     };
     syncBuiltinESMExports();
@@ -250,7 +300,7 @@ test("T-machine-id: me memoizes host acquisition across lock operations", {
     const record = lock.makeLockRec("c".repeat(20));
     lock.makeLockRec("d".repeat(20));
     assert.equal(lock.isCertainlyDead(record), false);
-    assert.deepEqual({ machineIdReads, spawns }, { machineIdReads: 1, spawns: 0 });
+    assert.deepEqual({ machineIdReads, hostIdentitySpawns }, { machineIdReads: 1, hostIdentitySpawns: 0 });
   } finally {
     fs.readFileSync = originalReadFileSync;
     childProcess.spawnSync = originalSpawnSync;
@@ -272,14 +322,73 @@ test("T-machine-id: a weak host rejects an existing lock without acquiring it", 
     };
     writeFileSync(join(prefix, ".h2a-upgrade.lock"), JSON.stringify({
       ...self,
-      host: "weak-holder",
-      pid: 99_999,
+      pid: 999_999_999,
       token: "e".repeat(20),
       at: Date.now()
     }), "utf8");
     const lease = acquirePrefixLock(prefix, {}, { self: () => self });
     assert.equal(lease.acquired, false);
     assert.equal(lease.reason, "dead-undecidable");
+  } finally {
+    rmSync(prefix, { recursive: true, force: true });
+  }
+});
+
+function lockIdentity(record) {
+  return {
+    host: record.host,
+    hostKind: record.hostKind,
+    boot: record.boot,
+    ns: record.ns,
+    timeNs: record.timeNs,
+    pid: record.pid,
+    start: record.start
+  };
+}
+
+test("T-machine-id: injected self classifies successors and publishes every acquired record", {
+  skip: !["linux", "darwin"].includes(process.platform) && "requires a supported liveness platform"
+}, () => {
+  const prefix = mkdtempSync(join(tmpdir(), "h2a-injected-self-"));
+  const holderToken = "f".repeat(20);
+  const successorToken = "d".repeat(20);
+  const self = {
+    host: "injected-machine",
+    hostKind: "machine-id",
+    boot: "injected-boot",
+    ns: "pid:[1]",
+    timeNs: "time:[1]",
+    pid: process.pid,
+    start: null
+  };
+  try {
+    writeFileSync(join(prefix, ".h2a-upgrade.lock"), JSON.stringify({
+      ...self,
+      pid: 999_999_999,
+      token: holderToken,
+      at: Date.now()
+    }), "utf8");
+    writeFileSync(join(prefix, `.h2a-upgrade.lock.succ.${holderToken}`), JSON.stringify({
+      ...self,
+      pid: 999_999_999,
+      token: successorToken,
+      target: holderToken,
+      at: Date.now()
+    }), "utf8");
+    let publishedSuccessor;
+    const lease = acquirePrefixLock(prefix, {
+      afterPublishSucc: ({ path }) => {
+        publishedSuccessor = JSON.parse(readFileSync(path, "utf8"));
+      }
+    }, { self: () => self });
+    assert.equal(lease.acquired, true, "the injected identity classifies an existing successor");
+    assert.deepEqual(lockIdentity(publishedSuccessor), self, "the new successor carries the injected identity");
+    assert.deepEqual(
+      lockIdentity(JSON.parse(readFileSync(join(prefix, ".h2a-upgrade.lock"), "utf8"))),
+      self,
+      "the replacement lock carries the injected identity"
+    );
+    lease.release();
   } finally {
     rmSync(prefix, { recursive: true, force: true });
   }
