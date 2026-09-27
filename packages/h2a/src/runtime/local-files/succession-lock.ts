@@ -142,11 +142,12 @@ interface LockRec extends LockIdent {
 }
 
 /**
- * Read-only view of the pre-v4 `{pid,hostname,startedAt}` lock written by
- * `local-files/locks.ts`. It is deliberately distinct from a v4 `LockRec`:
- * legacy data lacks the machine, boot, namespace, and process-start proof
- * needed to decide death. Its token fingerprints the exact bytes read so a
- * later operator-only break can fence the observed record without rewriting it.
+ * Read-only view of the pre-v4 lock written by `local-files/locks.ts`. Its
+ * optional metadata is used by identity binding, but it remains deliberately
+ * distinct from a v4 `LockRec`: legacy data lacks the machine, boot, namespace,
+ * and process-start proof needed to decide death. Its token fingerprints the
+ * exact bytes read so a later operator-only break can fence the observed record
+ * without rewriting it.
  */
 export interface LegacyLockHolder {
   readonly kind: "legacy";
@@ -154,6 +155,8 @@ export interface LegacyLockHolder {
   readonly pid: number;
   readonly hostname: string;
   readonly startedAt: string;
+  readonly protocol?: string;
+  readonly fenceEpoch?: string;
 }
 
 /** A readable v4 record or the separate, always-undecidable legacy view. */
@@ -519,7 +522,7 @@ export function parseLockRec(raw: unknown): LockRec {
   if (timeNs !== null && typeof timeNs !== "string") throw new Error("bad timeNs");
   if (typeof pid !== "number" || !Number.isInteger(pid) || pid <= 0) throw new Error("bad pid");
   if (start !== null && typeof start !== "string") throw new Error("bad start");
-  if (typeof token !== "string" || !LOCK_TOKEN_RE.test(token)) throw new Error("bad token");
+  if (typeof token !== "string" || token.startsWith("legacy-") || !LOCK_TOKEN_RE.test(token)) throw new Error("bad token");
   if (target !== undefined && typeof target !== "string") throw new Error("bad target");
   if (typeof at !== "number" || !Number.isFinite(at)) throw new Error("bad at");
   return {
@@ -540,12 +543,19 @@ function parseLegacyLockHolder(raw: unknown, bytes: Buffer): LegacyLockHolder {
   if (typeof raw !== "object" || raw === null || Array.isArray(raw)) throw new Error("bad legacy lock record");
   const o = raw as Record<string, unknown>;
   const keys = Object.keys(o);
-  if (keys.length !== 3 || !keys.includes("pid") || !keys.includes("hostname") || !keys.includes("startedAt")) {
+  if (
+    !keys.includes("pid")
+    || !keys.includes("hostname")
+    || !keys.includes("startedAt")
+    || !keys.every((key) => key === "pid" || key === "hostname" || key === "startedAt" || key === "protocol" || key === "fenceEpoch")
+  ) {
     throw new Error("bad legacy lock fields");
   }
   if (typeof o.pid !== "number" || !Number.isInteger(o.pid) || o.pid <= 0) throw new Error("bad legacy pid");
   if (typeof o.hostname !== "string") throw new Error("bad legacy hostname");
   if (typeof o.startedAt !== "string") throw new Error("bad legacy startedAt");
+  if (o.protocol !== undefined && typeof o.protocol !== "string") throw new Error("bad legacy protocol");
+  if (o.fenceEpoch !== undefined && typeof o.fenceEpoch !== "string") throw new Error("bad legacy fenceEpoch");
   return {
     kind: "legacy",
     // Do not trim, decode/re-encode, or JSON.stringify the input: a final `\n`
@@ -553,7 +563,9 @@ function parseLegacyLockHolder(raw: unknown, bytes: Buffer): LegacyLockHolder {
     token: `legacy-${createHash("sha256").update(bytes).digest("hex")}`,
     pid: o.pid,
     hostname: o.hostname,
-    startedAt: o.startedAt
+    startedAt: o.startedAt,
+    ...(o.protocol !== undefined ? { protocol: o.protocol } : {}),
+    ...(o.fenceEpoch !== undefined ? { fenceEpoch: o.fenceEpoch } : {})
   };
 }
 
