@@ -418,16 +418,18 @@ export type NativeTerminalCreateOptions = Readonly<{
  * identity check ran at all (e.g. `forceStopAll`, or the group was already
  * confirmed empty before any check).
  */
+export type NativeTerminalReapRefusalCause =
+  | "pgid-mismatch"
+  | "unsupported-process-groups"
+  | "recycled"
+  | "membership-unprovable";
+
 export type NativeTerminalReapOutcome = Readonly<
   | {
       sessionId: string;
       status: "refused";
       reason: string;
-      cause?:
-        | "pgid-mismatch"
-        | "unsupported-process-groups"
-        | "recycled"
-        | "membership-unprovable";
+      cause?: NativeTerminalReapRefusalCause;
     }
   | {
       sessionId: string;
@@ -462,6 +464,7 @@ export class NativeTerminalHost {
   readonly #spawner: PtySpawner;
   readonly #sessions = new Map<string, SessionRecord>();
   readonly #registryPath: string | undefined;
+  readonly #socketPath: string | undefined;
   readonly #reaper: NativeTerminalProcessGroupReaper;
   readonly #log: (line: string) => void;
   readonly #forceKillTimeoutMs: number;
@@ -482,6 +485,13 @@ export class NativeTerminalHost {
     spawner: PtySpawner;
     /** Durable store for pgid persistence; defaults to the real registry path. */
     registryPath?: string;
+    /**
+     * The socket this host serves, recorded on every durable row it writes
+     * (see `RegistryEntry.ownerHostSocketPath`). Optional: a host constructed
+     * without it (the reconcile-only throwaway below, and unit tests that
+     * never publish a socket) simply writes rows with no socket attribution.
+     */
+    socketPath?: string;
     /** Injectable so tests never send real signals at fabricated pgids. */
     reaper?: NativeTerminalProcessGroupReaper;
     /** Diagnostic sink for the force-kill chain; defaults to prefixed stderr. */
@@ -524,6 +534,7 @@ export class NativeTerminalHost {
     this.#maxSessions = maxSessions;
     this.#spawner = options.spawner;
     this.#registryPath = options.registryPath;
+    this.#socketPath = options.socketPath;
     this.#reaper = options.reaper ?? posixProcessGroupReaper;
     this.#log =
       options.log ??
@@ -618,14 +629,16 @@ export class NativeTerminalHost {
       // killed has no other way to learn this session's pgid). A session
       // whose pgid did not durably persist would be unreapable after a host
       // crash — refuse to create it rather than leave an untracked child.
-      // The OWNER attribution (this host's own pid + start-time) rides along
-      // on the same durable write: it is what lets a LATER reconcile pass
-      // prove THIS host is dead (not just unreachable) before ever reaping
-      // this row — see `reconcileDeadHostOrphans`. The GROUP-LEADER's own
-      // start-time (leader pid == pgid) and the GROUP token both ride along
-      // the same write for the SAME reason one level down: they are what
-      // let a LATER kill re-prove the group itself is still the one this
-      // row was written for, not a recycled pgid — see
+      // The OWNER attribution (this host's own pid + start-time, plus the
+      // socket it serves) rides along on the same durable write: the pid and
+      // start-time are what let a LATER reconcile pass prove THIS host is
+      // dead (not just unreachable) before ever reaping this row, and the
+      // socket is what keeps a fail-closed containment decision SCOPED to the
+      // supervisor that owns it — see `reconcileDeadHostOrphans`. The
+      // GROUP-LEADER's own start-time (leader pid == pgid) and the GROUP
+      // token both ride along the same write for the SAME reason one level
+      // down: they are what let a LATER kill re-prove the group itself is
+      // still the one this row was written for, not a recycled pgid — see
       // `#verifyGroupLeaderIdentity`.
       const ownStartTime = readProcessStartTime(process.pid);
       const leaderStartTime = this.#readLeaderStartTime(pty.pgid);
@@ -636,6 +649,7 @@ export class NativeTerminalHost {
         {
           pid: process.pid,
           ...(ownStartTime === undefined ? {} : { startTime: ownStartTime }),
+          ...(this.#socketPath === undefined ? {} : { socketPath: this.#socketPath }),
         },
         leaderStartTime,
         groupToken,
@@ -1315,11 +1329,37 @@ export class NativeTerminalHost {
   }
 }
 
-/** Per-entry outcome of a `reconcileDeadHostOrphans` pass. */
+/**
+ * Per-entry outcome of a `reconcileDeadHostOrphans` pass.
+ *
+ * `ownerSocketPath`, carried on the three PROVEN-DEAD outcomes, is the durable
+ * socket attribution of the row (see `RegistryEntry.ownerHostSocketPath`). It
+ * exists so a caller can answer "is this unconfirmed orphan MY socket's
+ * containment problem" without guessing; it is absent on a legacy row that was
+ * written before the attribution existed.
+ *
+ * `cause` forwards `reapOrphan`'s own refusal cause, and its ABSENCE is
+ * meaningful: every cause above is a refusal taken with the group observed
+ * ALIVE (the reaper short-circuits to `reaped` on an already-empty group), so
+ * a caused refusal is positive evidence that the group survived its owner. A
+ * cause-less refusal means only that the pgid could not be resolved — the row
+ * was pruned by a concurrent reconcile that DID confirm the reap, or the
+ * registry turned unreadable between the snapshot and the lookup. That is an
+ * absence of information, not a surviving group, and a caller must not treat
+ * the two alike.
+ */
 export type NativeTerminalReconcileOutcome = Readonly<
-  | { sessionId: string; status: "reaped"; ownerPid: number; pgid: number }
-  | { sessionId: string; status: "reap-timed-out"; ownerPid: number; pgid: number }
-  | { sessionId: string; status: "reap-refused"; ownerPid: number; pgid: number; reason: string }
+  | { sessionId: string; status: "reaped"; ownerPid: number; ownerSocketPath?: string; pgid: number }
+  | { sessionId: string; status: "reap-timed-out"; ownerPid: number; ownerSocketPath?: string; pgid: number }
+  | {
+      sessionId: string;
+      status: "reap-refused";
+      ownerPid: number;
+      ownerSocketPath?: string;
+      pgid: number;
+      reason: string;
+      cause?: NativeTerminalReapRefusalCause;
+    }
   | { sessionId: string; status: "skipped-alive"; ownerPid: number }
   | { sessionId: string; status: "skipped-unresolvable"; ownerPid: number }
   | { sessionId: string; status: "skipped-no-owner" }
@@ -1446,14 +1486,18 @@ export async function reconcileDeadHostOrphans(options: {
     log(
       `native-terminal session ${entry.sessionId}: owning host pid=${owner.pid} is PROVEN DEAD — reaping its orphan process group pgid=${entry.pgid}.`,
     );
+    const attribution = {
+      ownerPid: owner.pid,
+      ...(owner.socketPath !== undefined ? { ownerSocketPath: owner.socketPath } : {}),
+      pgid: entry.pgid,
+    };
     const outcome = await reap(entry.sessionId, entry.pgid, signal);
     if (outcome.status === "reaped") {
       pruneNativeTerminalPgidEntry(entry.sessionId, options.registryPath);
       outcomes.push({
         sessionId: entry.sessionId,
         status: "reaped",
-        ownerPid: owner.pid,
-        pgid: entry.pgid,
+        ...attribution,
       });
     } else if (outcome.status === "reap-timed-out") {
       log(
@@ -1462,17 +1506,16 @@ export async function reconcileDeadHostOrphans(options: {
       outcomes.push({
         sessionId: entry.sessionId,
         status: "reap-timed-out",
-        ownerPid: owner.pid,
-        pgid: entry.pgid,
+        ...attribution,
       });
     } else {
       log(`native-terminal session ${entry.sessionId}: reap refused (${outcome.reason}).`);
       outcomes.push({
         sessionId: entry.sessionId,
         status: "reap-refused",
-        ownerPid: owner.pid,
-        pgid: entry.pgid,
+        ...attribution,
         reason: outcome.reason,
+        ...(outcome.cause !== undefined ? { cause: outcome.cause } : {}),
       });
     }
   }
