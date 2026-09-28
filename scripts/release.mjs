@@ -224,7 +224,7 @@ export function resolveReleaseBranch(currentBranch, newVersion) {
   const current = (currentBranch ?? "").trim();
   if (current === "" || current === "HEAD") {
     throw new Error(
-      "release: detached HEAD — check out main (a release/vX.Y.Z branch is created) or the feature branch first."
+      "detached HEAD — check out main (a release/vX.Y.Z branch is created) or the feature branch first."
     );
   }
   if (current === MAIN_BRANCH) {
