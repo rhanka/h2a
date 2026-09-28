@@ -1,4 +1,5 @@
 import { spawn, type ChildProcess } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { EventEmitter, once } from "node:events";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -22,6 +23,10 @@ const SCRATCH_ROOT = join(
 
 let scratch: string;
 let registryPath: string;
+// Real process groups a test starts on purpose (an unrelated live group whose
+// pgid number a stale durable row points at). They outlive the assertions, so
+// this suite owns their cleanup even when an assertion aborts the test.
+const strayProcessGroups = new Set<number>();
 
 beforeEach(() => {
   mkdirSync(SCRATCH_ROOT, { recursive: true });
@@ -30,8 +35,35 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  for (const pgid of strayProcessGroups) {
+    try {
+      process.kill(-pgid, "SIGKILL");
+    } catch {
+      // Already gone; nothing of this test's making is left to collect.
+    }
+  }
+  strayProcessGroups.clear();
   rmSync(scratch, { recursive: true, force: true });
 });
+
+function running(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code !== "ESRCH";
+  }
+}
+
+/** Read a real /proc start-time, retrying while the process is still forking. */
+async function realStartTime(pid: number): Promise<number> {
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const startTime = readProcessStartTime(pid);
+    if (startTime !== undefined) return startTime;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error(`could not read a real start-time for pid=${pid}`);
+}
 
 /**
  * A fake spawned host process: an EventEmitter shaped enough to satisfy
@@ -208,13 +240,16 @@ describe.skipIf(process.platform !== "linux")(
 
     /**
      * Fabricate a durably-recorded session whose owning host is PROVABLY gone
-     * and whose row is attributed to `socketPath`, then drive one takeover
-     * with an injected reap outcome. Returns the supervisor's rejection.
+     * and whose row is attributed to `rowSocketPath ?? socketPath`, then drive
+     * one takeover of `socketPath` with an injected reap outcome. Returns the
+     * supervisor's rejection. The two paths differ only where a test needs an
+     * ALIAS SPELLING of the same socket on the row.
      */
     async function takeoverWithReapOutcome(
       sessionId: string,
       socketPath: string,
       outcome: (sessionId: string, pgid: number) => NativeTerminalReapOutcome,
+      rowSocketPath: string = socketPath,
     ): Promise<{ error: Error; spawnHost: NativeTerminalHostSpawn }> {
       const owner = spawn(process.execPath, ["-e", "setTimeout(() => {}, 300)"]);
       const ownerPid = owner.pid!;
@@ -227,7 +262,7 @@ describe.skipIf(process.platform !== "linux")(
       persistNativeTerminalPgid(sessionId, 7_777, registryPath, {
         pid: ownerPid,
         startTime: ownerStartTime,
-        socketPath,
+        socketPath: rowSocketPath,
       });
       owner.kill("SIGKILL");
       await once(owner, "exit");
@@ -272,6 +307,135 @@ describe.skipIf(process.platform !== "linux")(
       expect(error.message).toMatch(/is contained: session contained-session/);
       expect(error.message).toMatch(/membership-unprovable/);
       expect(spawnHost).not.toHaveBeenCalled();
+    });
+
+    /** An alias spelling of the same socket: one doubled separator. */
+    function aliasSpellingOf(socketPath: string): string {
+      const alias = socketPath.replace(/\/([^/]+)$/, "//$1");
+      expect(alias).not.toBe(socketPath);
+      return alias;
+    }
+
+    const unprovableRefusal = (sessionId: string): NativeTerminalReapOutcome => ({
+      sessionId,
+      status: "refused",
+      reason: "no surviving member carries the persisted session token",
+      cause: "membership-unprovable",
+    });
+
+    it("SOCKET_ATTRIBUTION_ON_A_ROW_IS_COMPARED_AS_A_PATH_NOT_AS_A_RAW_STRING", async () => {
+      // The socket attribution is an IDENTITY, not a label: a row carrying an
+      // alias spelling of this very socket must not let the supervisor fail
+      // OPEN over a durable group that survived its host on it.
+      const socketPath = deadSocketPath();
+      const { error, spawnHost } = await takeoverWithReapOutcome(
+        "alias-row-session",
+        socketPath,
+        unprovableRefusal,
+        aliasSpellingOf(socketPath),
+      );
+
+      expect(error.message).toMatch(/is contained: session alias-row-session/);
+      expect(spawnHost).not.toHaveBeenCalled();
+    });
+
+    it("A_SUPERVISOR_BUILT_ON_AN_ALIAS_SPELLING_IS_CONTAINED_BY_ITS_OWN_SOCKETS_ROW", async () => {
+      // The same identity, from the other side: the supervisor is constructed
+      // with the alias spelling while the row carries the canonical one.
+      const socketPath = deadSocketPath();
+      const { error, spawnHost } = await takeoverWithReapOutcome(
+        "alias-supervisor-session",
+        aliasSpellingOf(socketPath),
+        unprovableRefusal,
+        socketPath,
+      );
+
+      expect(error.message).toMatch(/is contained: session alias-supervisor-session/);
+      expect(spawnHost).not.toHaveBeenCalled();
+    });
+
+    it("SUPERVISOR_STILL_TAKES_OVER_WHEN_A_RECYCLED_PGID_PROVES_THE_ORIGINAL_GROUP_IS_GONE", async () => {
+      // A row attributed to THIS socket, owner PROVEN dead, whose pgid NUMBER
+      // is now held by an unrelated LIVE group leader of a different
+      // start-time. Nothing here is injected: the real default reaper reads
+      // the real /proc and returns `refused/recycled`.
+      //
+      // That refusal is not "a PTY group outlived its host", it is the
+      // OPPOSITE. A pid number stays allocated as long as any task still
+      // references it as pid, tgid, PGID or sid, and a process group id is
+      // not reused before the group's lifetime ends, so a live leader at
+      // pid == pgid with a DIFFERENT start-time proves every member of the
+      // original group is gone. The row is stale: prune it and take over.
+      //
+      // The unrelated group must also come out of this untouched — a refusal
+      // that "contains" this socket by pointing an operator at someone
+      // else's process group is the failure mode this case exists to close.
+      const socketPath = deadSocketPath();
+      const unrelated = spawn(
+        process.execPath,
+        ["-e", "setTimeout(() => {}, 60_000)"],
+        { detached: true, stdio: "ignore" },
+      );
+      const unrelatedPgid = unrelated.pid!;
+      strayProcessGroups.add(unrelatedPgid);
+      unrelated.unref();
+      const unrelatedStartTime = await realStartTime(unrelatedPgid);
+
+      const owner = spawn(process.execPath, ["-e", "setTimeout(() => {}, 300)"]);
+      const ownerPid = owner.pid!;
+      const ownerStartTime = await realStartTime(ownerPid);
+      persistNativeTerminalPgid(
+        "recycled-session",
+        unrelatedPgid,
+        registryPath,
+        { pid: ownerPid, startTime: ownerStartTime, socketPath },
+        // The baseline this row was written with, i.e. the start-time of the
+        // group leader THAT GROUP had — necessarily not the current holder's.
+        unrelatedStartTime - 1,
+        randomUUID(),
+      );
+      owner.kill("SIGKILL");
+      await once(owner, "exit");
+
+      const logs: string[] = [];
+      const { spawnHost } = fakeSpawnHost();
+      const supervisor = new NativeTerminalHostSupervisor({
+        socketPath,
+        replayBytesPerSession: 1024,
+        registryPath,
+        spawnHost,
+        startupTimeoutMs: 80,
+        spawnTerminationGraceMs: 30,
+        log: (line) => logs.push(line),
+      });
+
+      const error = await supervisor.client().then(
+        () => {
+          throw new Error("expected the takeover to reject");
+        },
+        (rejection: Error) => rejection,
+      );
+
+      // The fake host never opens a real socket, so the takeover it DID start
+      // ends in the ordinary readiness error — never in a containment block.
+      expect(error.message).toMatch(/did not become ready/i);
+      expect(error.message).not.toMatch(/is contained/);
+      expect(spawnHost).toHaveBeenCalled();
+      // The stale row is gone, so no later pass re-derives a block from it.
+      expect(readNativeTerminalPgid("recycled-session", registryPath)).toEqual({
+        status: "unresolved",
+        reason: expect.stringMatching(/no pgid recorded/i),
+      });
+      // Nothing was signalled at the unrelated group.
+      expect(running(unrelatedPgid)).toBe(true);
+      expect(
+        logs.some(
+          (line) =>
+            line.includes("recycled-session") &&
+            /original process group/i.test(line) &&
+            /prun/i.test(line),
+        ),
+      ).toBe(true);
     });
 
     it("SUPERVISOR_STILL_TAKES_OVER_WHEN_A_CONCURRENT_PASS_ALREADY_PRUNED_THE_ROW", async () => {

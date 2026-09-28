@@ -1,3 +1,4 @@
+import { spawn, type ChildProcess } from "node:child_process";
 import {
   mkdirSync,
   mkdtempSync,
@@ -13,6 +14,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PtyHandle, PtySpawner } from "../pty.js";
 import { readNativeTerminalPgid } from "../registry.js";
 import {
+  groupIsOnlyZombies,
   NativeTerminalHost,
   posixProcessGroupReaper,
   type NativeTerminalProcessGroupReaper,
@@ -93,6 +95,9 @@ const SCRATCH_ROOT = join(
 
 let scratch: string;
 let registryPath: string;
+// Real processes a test starts to observe real /proc states. They outlive the
+// assertions, so this suite owns their cleanup even when one aborts the test.
+const strayProcesses = new Set<ChildProcess>();
 
 beforeEach(() => {
   mkdirSync(SCRATCH_ROOT, { recursive: true });
@@ -101,8 +106,63 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  for (const child of strayProcesses) {
+    if (child.pid !== undefined) {
+      try {
+        process.kill(-child.pid, "SIGKILL");
+      } catch {
+        // Not a group leader, or already gone.
+      }
+    }
+    child.kill("SIGKILL");
+  }
+  strayProcesses.clear();
   rmSync(scratch, { recursive: true, force: true });
 });
+
+/** `/proc/<pid>/stat` field 3 (state), or undefined when unreadable. */
+function processState(pid: number): string | undefined {
+  try {
+    const raw = readFileSync(`/proc/${pid}/stat`, "utf8");
+    return raw.slice(raw.lastIndexOf(") ") + 2).split(" ")[0];
+  } catch {
+    return undefined;
+  }
+}
+
+/** States of every /proc member of `pgid` (field 5 is the pgrp). */
+function processGroupStates(pgid: number): string[] {
+  const states: string[] = [];
+  for (const name of readdirSync("/proc")) {
+    if (!/^\d+$/.test(name)) continue;
+    try {
+      const raw = readFileSync(`/proc/${name}/stat`, "utf8");
+      const fields = raw.slice(raw.lastIndexOf(") ") + 2).split(" ");
+      if (Number(fields[2]) === pgid) states.push(fields[0]!);
+    } catch {
+      // Exited mid-scan.
+    }
+  }
+  return states;
+}
+
+async function eventuallyTrue(read: () => boolean): Promise<void> {
+  for (let attempt = 0; attempt < 200; attempt += 1) {
+    if (read()) return;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error("condition did not become true within 2s");
+}
+
+async function eventuallyNumber(read: () => number): Promise<number> {
+  let last = Number.NaN;
+  for (let attempt = 0; attempt < 200; attempt += 1) {
+    last = read();
+    if (Number.isSafeInteger(last) && last > 0) return last;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error(`no usable number was produced within 2s (last: ${last})`);
+}
 
 /**
  * A fake group reaper: NEVER sends real signals at StubPty's fabricated
@@ -404,6 +464,75 @@ describe("NativeTerminalHost", () => {
     expect(alive.size).toBe(0);
   });
 
+  it("DURABLE_ROW_IS_PRUNED_WHEN_A_SESSIONS_PTY_EXITS_AND_ITS_GROUP_IS_CONFIRMED_EMPTY", async () => {
+    // A durable row exists to make a session reapable AFTER its host died. A
+    // row whose group the OS already reports empty makes no session reapable:
+    // it is a stale record, and every one of them is re-examined at the next
+    // host death, against whatever holds that pgid NUMBER by then. Prune it at
+    // the moment it becomes stale instead of accumulating one row per session
+    // a long-lived host ever created.
+    const { spawner, ptys } = stubSpawner();
+    const { reaper, alive } = fakeReaper();
+    const host = new NativeTerminalHost({
+      generation: "host-generation-prune-on-exit",
+      replayBytesPerSession: 32,
+      spawner,
+      registryPath,
+      reaper,
+    });
+    createSession(host, "alpha");
+    createSession(host, "beta");
+    const alphaPgid = ptys.get("alpha")!.pgid;
+    alive.add(ptys.get("beta")!.pgid); // beta's group stays alive
+    expect(readNativeTerminalPgid("alpha", registryPath)).toMatchObject({
+      status: "resolved",
+      pgid: alphaPgid,
+    });
+
+    ptys.get("alpha")!.emitExit({ exitCode: 0 });
+    ptys.get("beta")!.emitExit({ exitCode: 0 });
+
+    expect(readNativeTerminalPgid("alpha", registryPath)).toEqual({
+      status: "unresolved",
+      reason: expect.stringMatching(/no pgid recorded/i),
+    });
+    // beta's leader exited but its GROUP is still alive — the ordinary orphan
+    // (a shell that exits leaving a backgrounded descendant). Its durable row
+    // is the only way a later pass can reap that group: it must survive.
+    expect(readNativeTerminalPgid("beta", registryPath)).toMatchObject({
+      status: "resolved",
+      pgid: ptys.get("beta")!.pgid,
+    });
+  });
+
+  it("DURABLE_ROWS_ARE_PRUNED_FOR_EVERY_SESSION_FORCESTOPALL_PROVED_DEAD", async () => {
+    // The graceful host-shutdown path ends in forceStopAll, which PROVES each
+    // group empty before returning. A row kept past that proof is stale by
+    // construction, so the host that proved it prunes it.
+    const { spawner, ptys } = stubSpawner();
+    const { reaper, alive } = fakeReaper();
+    const host = new NativeTerminalHost({
+      generation: "host-generation-prune-on-force-stop",
+      replayBytesPerSession: 32,
+      spawner,
+      registryPath,
+      reaper,
+    });
+    createSession(host, "alpha");
+    createSession(host, "beta");
+    alive.add(ptys.get("alpha")!.pgid);
+    alive.add(ptys.get("beta")!.pgid);
+
+    await host.forceStopAll("SIGKILL");
+
+    for (const id of ["alpha", "beta"]) {
+      expect(readNativeTerminalPgid(id, registryPath)).toEqual({
+        status: "unresolved",
+        reason: expect.stringMatching(/no pgid recorded/i),
+      });
+    }
+  });
+
   it("should WAIT for the reaper to confirm death, not resolve on the strength of merely emitting the signal (INV-1)", async () => {
     const { spawner, ptys } = stubSpawner();
     const alive = new Set<number>();
@@ -682,6 +811,7 @@ describe("NativeTerminalHost", () => {
       membershipUnprovable: 0,
       unverifiedLegacy: 0,
       tokenVerified: 0,
+      zombieGroup: 0,
     });
   });
 
@@ -729,6 +859,7 @@ describe("NativeTerminalHost", () => {
       membershipUnprovable: 0,
       unverifiedLegacy: 0,
       tokenVerified: 0,
+      zombieGroup: 0,
     });
     expect(warnings.some((line) =>
       /REFUSING/.test(line) &&
@@ -787,6 +918,7 @@ describe("NativeTerminalHost", () => {
       membershipUnprovable: 0,
       unverifiedLegacy: 0,
       tokenVerified: 1,
+      zombieGroup: 0,
     });
     expect(warnings.some((line) =>
       /PROCEEDING/.test(line) &&
@@ -817,6 +949,9 @@ describe("NativeTerminalHost", () => {
       log: (line) => warnings.push(line),
       readLeaderStartTime: () => undefined, // leader always absent
       findGroupMemberToken: find,
+      // The group has at least one LIVE member, so the zombie re-check below
+      // the token scan cannot rescue it: the refusal must stand.
+      groupIsOnlyZombies: () => false,
     });
     createSession(host, "alpha"); // persists a groupToken, but nothing will ever carry it
     const pgid = ptys.get("alpha")!.pgid;
@@ -846,6 +981,7 @@ describe("NativeTerminalHost", () => {
       membershipUnprovable: 1,
       unverifiedLegacy: 0,
       tokenVerified: 0,
+      zombieGroup: 0,
     });
     expect(warnings.some((line) =>
       /REFUSING/.test(line) &&
@@ -854,6 +990,120 @@ describe("NativeTerminalHost", () => {
       line.includes("sessionId=alpha") &&
       line.includes(`pgid=${pgid}`)
     )).toBe(true);
+  });
+
+  it("PGID_GUARD_TREATS_A_GROUP_REDUCED_TO_ZOMBIES_AS_DEAD_INSTEAD_OF_UNPROVABLE", async () => {
+    // The race the leader-absent refusal cannot tell apart on its own: a host
+    // is SIGKILLed, its PTY guardian's parent-death trap broadcasts to the
+    // group, the LEADER is already reaped, and the remaining members are
+    // ZOMBIES. kill(-pgid, 0) still succeeds (a zombie is still attached to
+    // its pgid), the leader is unreadable, and a zombie's environ is empty, so
+    // no member can carry the session token. That refusal is
+    // `membership-unprovable`, which now blocks the socket — for a group in
+    // which nothing can execute any terminal work ever again.
+    //
+    // Re-check the group before refusing: a group reduced to zombies is DEAD
+    // for containment. No signal is emitted (kill(-pgid) would only wait for
+    // some other parent to reap them) and the row is confirmed reaped.
+    const { spawner, ptys } = stubSpawner();
+    const { reaper, killGroup, alive } = fakeReaper();
+    const { find } = fakeGroupMemberTokenProbe(); // nobody carries the token
+    const warnings: string[] = [];
+    const host = new NativeTerminalHost({
+      generation: "host-generation-pgid-zombie-group",
+      replayBytesPerSession: 32,
+      spawner,
+      registryPath,
+      reaper,
+      log: (line) => warnings.push(line),
+      readLeaderStartTime: () => undefined, // leader already reaped
+      findGroupMemberToken: find,
+      groupIsOnlyZombies: (pgid) => pgid === ptys.get("alpha")?.pgid,
+    });
+    createSession(host, "alpha");
+    const pgid = ptys.get("alpha")!.pgid;
+    alive.add(pgid); // the OS still reports the group alive: zombies are members
+
+    const outcome = await host.reapOrphan("alpha");
+
+    expect(outcome).toEqual({
+      sessionId: "alpha",
+      status: "reaped",
+      pgid,
+      elapsedMs: expect.any(Number),
+    });
+    expect(killGroup).not.toHaveBeenCalled();
+    expect(host.pgidGuardCounters).toEqual({
+      recycled: 0,
+      membershipUnprovable: 0,
+      unverifiedLegacy: 0,
+      tokenVerified: 0,
+      zombieGroup: 1,
+    });
+    expect(warnings.some((line) =>
+      /zombie/i.test(line) &&
+      line.includes("cause=zombie-group") &&
+      line.includes("sessionId=alpha") &&
+      line.includes(`pgid=${pgid}`)
+    )).toBe(true);
+  });
+
+  it("REAL_PROC_ZOMBIE_CENSUS_ANSWERS_ONLY_FROM_POSITIVE_EVIDENCE", async () => {
+    // The unit test above injects the census, so it is blind to a regression
+    // inside the real /proc reader. This one drives the REAL exported helper
+    // against REAL zombies, in both directions.
+    //
+    // A group whose ONLY member is a zombie: a Node parent spawns a detached
+    // (setsid, so pgid == its own pid) child that exits at once, then blocks in
+    // a busy loop — so it can never process SIGCHLD and the child stays a
+    // zombie for the whole window.
+    const zombieOnly = spawn(process.execPath, [
+      "-e",
+      "const c=require('child_process').spawn('/bin/true',[],{detached:true,stdio:'ignore'});" +
+        "process.stdout.write(String(c.pid)+'\\n');" +
+        "const end=Date.now()+8000;while(Date.now()<end){}",
+    ], { stdio: ["ignore", "pipe", "ignore"] });
+    strayProcesses.add(zombieOnly);
+    // A group with a zombie AND a live member: the leader execs into a long
+    // sleep (so it never reaps) after backgrounding a short-lived child.
+    const mixed = spawn("/bin/sh", ["-c", "sleep 0.05 & exec sleep 30"], {
+      detached: true,
+      stdio: "ignore",
+    });
+    strayProcesses.add(mixed);
+    try {
+      let zombieOnlyOut = "";
+      zombieOnly.stdout!.setEncoding("utf8");
+      zombieOnly.stdout!.on("data", (chunk: string) => {
+        zombieOnlyOut += chunk;
+      });
+      const zombiePgid = await eventuallyNumber(() => Number(zombieOnlyOut.trim()));
+      const mixedPgid = mixed.pid!;
+      await eventuallyTrue(() => processState(zombiePgid) === "Z");
+      await eventuallyTrue(
+        () => processGroupStates(mixedPgid).some((state) => state === "Z"),
+      );
+
+      // Both groups are reported ALIVE by the standard probe — that is what
+      // makes a zombie-only group block containment in the first place.
+      expect(posixProcessGroupReaper.isGroupAlive(zombiePgid)).toBe(true);
+      expect(posixProcessGroupReaper.isGroupAlive(mixedPgid)).toBe(true);
+
+      expect(groupIsOnlyZombies(zombiePgid)).toBe(true);
+      // A single live member is enough to keep failing closed, even next to a
+      // real zombie.
+      expect(groupIsOnlyZombies(mixedPgid)).toBe(false);
+      // No positive evidence at all (nothing in that group): never "dead".
+      expect(groupIsOnlyZombies(0x7fffffff)).toBe(false);
+      expect(groupIsOnlyZombies(process.pid)).toBe(false);
+    } finally {
+      zombieOnly.kill("SIGKILL");
+      try {
+        process.kill(-mixed.pid!, "SIGKILL");
+      } catch {
+        // Already gone.
+      }
+    }
   });
 
   it("PGID_GUARD_PROCEEDS_BUT_FLAGS_UNVERIFIED_WHEN_A_LEGACY_ROW_HAS_NO_PERSISTED_LEADER_STARTTIME", async () => {
@@ -909,6 +1159,7 @@ describe("NativeTerminalHost", () => {
       membershipUnprovable: 0,
       unverifiedLegacy: 1,
       tokenVerified: 0,
+      zombieGroup: 0,
     });
     expect(warnings.some((line) =>
       /PROCEEDING/.test(line) &&

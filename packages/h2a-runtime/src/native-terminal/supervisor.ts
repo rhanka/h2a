@@ -1,6 +1,7 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { once } from "node:events";
+import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { NativeTerminalClient } from "./client.js";
@@ -9,6 +10,8 @@ import {
   reconcileDeadHostOrphans,
   type NativeTerminalOwnerHostProbe,
   type NativeTerminalReapOutcome,
+  type NativeTerminalReapRefusalCause,
+  type NativeTerminalReconcileOutcome,
 } from "./host.js";
 import {
   NATIVE_TERMINAL_DEFAULT_MAX_SESSIONS,
@@ -20,6 +23,133 @@ import {
   type NativeTerminalPing,
   type NativeTerminalStopSignal,
 } from "./protocol.js";
+
+/**
+ * A supervisor REFUSED to hand out, publish or adopt a host because a durable
+ * PTY group attributed to its socket is known to have outlived its host — the
+ * socket-scoped fail-closed containment verdict (see
+ * `NativeTerminalHostSupervisor#reconcileDeadHostOrphans`).
+ *
+ * Typed, and distinct from every startup/connection failure, because it is a
+ * VERDICT rather than a hiccup: a caller that retries a lost connection must
+ * NOT retry this. The supervisor's own retry paths rethrow it immediately
+ * instead of treating it as "the host is not ready yet", so it never becomes a
+ * reconcile storm, and it is never recorded as a spawn failure (nothing failed
+ * to start — starting anything is exactly what was refused).
+ */
+export class NativeTerminalContainmentError extends Error {
+  readonly socketPath: string;
+  readonly sessionId: string | undefined;
+  readonly ownerPid: number | undefined;
+  readonly pgid: number | undefined;
+  readonly outcomeStatus: string | undefined;
+  /** `reapOrphan`'s refusal cause, when the verdict came from a refusal. */
+  readonly refusalCause: NativeTerminalReapRefusalCause | undefined;
+
+  constructor(
+    message: string,
+    details: {
+      socketPath: string;
+      sessionId?: string;
+      ownerPid?: number;
+      pgid?: number;
+      outcomeStatus?: string;
+      refusalCause?: NativeTerminalReapRefusalCause;
+    },
+  ) {
+    super(message);
+    this.name = "NativeTerminalContainmentError";
+    this.socketPath = details.socketPath;
+    this.sessionId = details.sessionId;
+    this.ownerPid = details.ownerPid;
+    this.pgid = details.pgid;
+    this.outcomeStatus = details.outcomeStatus;
+    this.refusalCause = details.refusalCause;
+  }
+}
+
+/**
+ * Whether a reconcile outcome discharges the proof THIS supervisor owes for a
+ * host it force-killed itself. Deliberately stricter than the socket-scoped
+ * rule below: on this path, anything short of "the group is gone" keeps failing
+ * closed — an absence of information included — because the obligation exists
+ * precisely because we destroyed the only process that could have cleaned up.
+ *
+ * Exactly two outcomes end it: a confirmed reap, and a refusal whose cause
+ * PROVED the original group gone (a recycled pgid number, reported by
+ * reconcile as `pruned-recycled-pgid`; see `NativeTerminalReconcileOutcome`).
+ */
+function dischargesOwnedHostProof(outcome: NativeTerminalReconcileOutcome): boolean {
+  return (
+    outcome.status === "reaped" ||
+    outcome.status === "pruned-recycled-pgid" ||
+    (outcome.status === "reap-refused" && outcome.cause === "recycled")
+  );
+}
+
+/**
+ * Whether a `reap-refused` cause is positive evidence that a PTY group
+ * outlived its host and is STILL ALIVE. `reapOrphan` short-circuits to
+ * `reaped` whenever the OS already reports the group empty, so:
+ *
+ *  - `membership-unprovable` / `unsupported-process-groups` — the group was
+ *    observed alive and could not be proven to be (or killed as) this
+ *    session's: blocking evidence.
+ *  - `pgid-mismatch` — taken BEFORE any liveness probe, and only after
+ *    reconcile re-read the row once (see `reconcileDeadHostOrphans`); it
+ *    survives that re-read only while the row keeps being rewritten under a
+ *    proven-dead owner, which is not a state to hand a terminal out in.
+ *  - `recycled` — the OPPOSITE of a survivor: the pgid number is held by an
+ *    unrelated live leader, which proves the original group is gone. Reconcile
+ *    already reports it as `pruned-recycled-pgid`; this stays defence in depth
+ *    for an injected or legacy reap that returns the refusal directly.
+ *  - NO cause — the pgid could not be resolved at all, which is what the loser
+ *    of a race between two reconcile passes sees once the winner confirmed the
+ *    reap and pruned the row. An absence of information, not a survivor.
+ */
+function provesASurvivingGroup(
+  cause: NativeTerminalReapRefusalCause | undefined,
+): boolean {
+  return (
+    cause === "membership-unprovable" ||
+    cause === "unsupported-process-groups" ||
+    cause === "pgid-mismatch"
+  );
+}
+
+/**
+ * Cause-specific recovery line carried by a containment verdict. NEVER tells
+ * an operator to kill a pgid that was not proven to belong to the dead host:
+ * `membership-unprovable` is precisely the state where that group may be an
+ * unrelated process, so it asks for inspection first. Every hint also names
+ * how the block lifts on its own (a later pass finding the group empty), so a
+ * refusal is never a dead end.
+ */
+function recoveryHint(
+  outcome: Readonly<{
+    sessionId: string;
+    pgid: number;
+    status: "reap-refused" | "reap-timed-out";
+    cause?: NativeTerminalReapRefusalCause;
+  }>,
+): string {
+  const inspect = `Inspect it first: ps -o pid,pgid,stat,args -g ${outcome.pgid}.`;
+  const lifts =
+    `The block lifts as soon as any later pass finds pgid=${outcome.pgid} empty and prunes the durable row for session ${outcome.sessionId}.`;
+  if (outcome.status === "reap-timed-out") {
+    return `The group WAS proven to be this session's PTY tree and did not die within the force-kill timeout (an unkillable or uninterruptible-sleep member). ${inspect} ${lifts}`;
+  }
+  switch (outcome.cause) {
+    case "membership-unprovable":
+      return `The group at pgid=${outcome.pgid} is alive but could NOT be proven to be this session's PTY tree, so it may belong to an unrelated process: do NOT signal it on the strength of this message. ${inspect} ${lifts}`;
+    case "pgid-mismatch":
+      return `The durable row for session ${outcome.sessionId} is being rewritten while its owner is proven dead, so no group was identified and nothing was signalled. Retry once the writer settles; ${lifts}`;
+    case "unsupported-process-groups":
+      return `This platform has no POSIX process groups, so neither a group kill nor a group-empty proof exists here; nothing was signalled.`;
+    default:
+      return `Nothing was signalled. ${inspect} ${lifts}`;
+  }
+}
 
 const NATIVE_TERMINAL_SPAWN_BACKOFF_BASE_MS = 250;
 const NATIVE_TERMINAL_SPAWN_BACKOFF_MAX_MS = 5_000;
@@ -233,7 +363,15 @@ export class NativeTerminalHostSupervisor {
         throw new RangeError(`${label} must be a positive safe integer`);
       }
     }
-    this.#socketPath = options.socketPath;
+    // NORMALIZED once, here, because this string is not only a connect target
+    // but also the IDENTITY a durable row is attributed to (see the
+    // socket-scoped rule in #reconcileDeadHostOrphans). Two spellings of the
+    // same socket — a doubled separator, a "." segment, a relative path —
+    // would otherwise compare unequal and fail OPEN. The host normalizes the
+    // spelling it records the same way (see NativeTerminalHost), and the
+    // comparison normalizes the row's value too, so a row written by an older
+    // host is still attributed correctly.
+    this.#socketPath = resolve(options.socketPath);
     this.#generationFactory = options.generationFactory ?? randomUUID;
     this.#replayBytesPerSession = options.replayBytesPerSession;
     this.#maxSessions = maxSessions;
@@ -286,7 +424,14 @@ export class NativeTerminalHostSupervisor {
         this.#requestTimeoutMs,
       );
       return await this.#adoptHealthyConnection(connected);
-    } catch {
+    } catch (error) {
+      // A containment verdict is NOT a connection failure. The adoption above
+      // can reach one, and treating it as "nothing answered" would start
+      // takeover — which, on a pass that no longer carries blocking evidence,
+      // spawns a replacement host beside the perfectly healthy one whose
+      // adoption was just refused. Surface the verdict instead; the caller owes
+      // a proof, not a retry.
+      if (error instanceof NativeTerminalContainmentError) throw error;
       // TAKEOVER preflight. A lost connection is the UNKNOWN, never proof
       // that the previous host died, so this pass reaps only entries whose
       // owning host is independently PROVEN dead. It runs BEFORE the backoff
@@ -349,6 +494,16 @@ export class NativeTerminalHostSupervisor {
         );
         return await this.#adoptHealthyConnection(connected);
       } catch (error) {
+        // Same discrimination as the takeover preflight above, and the reason
+        // this loop must make it: retrying a containment verdict runs one
+        // reconcile pass per iteration (a pass that reaps a live group can take
+        // the whole force-kill timeout), then reports the verdict as a startup
+        // failure and reaps a host that is healthy. Surface it now — and abandon
+        // an owned launch that never became usable, rather than leak it.
+        if (error instanceof NativeTerminalContainmentError) {
+          await this.#abandonUnhealthyOwnedSpawn();
+          throw error;
+        }
         lastError = error;
       }
       if (this.#spawnError) {
@@ -388,6 +543,12 @@ export class NativeTerminalHostSupervisor {
       try {
         await this.#terminateOwnedSpawn(spawned);
       } catch (terminationError) {
+        // A containment verdict raised while reaping this child outranks the
+        // readiness failure: it names the session, pgid and owner an operator
+        // needs, and it must not be recorded as one more startup failure.
+        if (terminationError instanceof NativeTerminalContainmentError) {
+          throw terminationError;
+        }
         const combined = new Error(
           `${error.message}; failed to reap owned child: ${String(terminationError)}`,
         );
@@ -420,6 +581,11 @@ export class NativeTerminalHostSupervisor {
         await this.#terminateOwnedSpawn(spawned);
       } catch (error) {
         connected.client.close();
+        // Reaping the loser can itself hit the containment gate (a forced kill
+        // requires the proof). That verdict must reach the caller as itself:
+        // wrapped in an adoption message it would look like a retryable
+        // adoption hiccup and be retried.
+        if (error instanceof NativeTerminalContainmentError) throw error;
         throw new Error(
           `native terminal host adoption could not reap losing owned child: ${String(error)}`,
         );
@@ -443,6 +609,33 @@ export class NativeTerminalHostSupervisor {
     }
     this.#resetSpawnBackoff();
     return connected.client;
+  }
+
+  /**
+   * Give up on an owned spawn that never completed a health handshake, because
+   * this call is about to reject instead of waiting for it: a child nobody will
+   * ever connect to must not be left behind.
+   *
+   * A child that DID reach health is deliberately left alone. It is a published,
+   * healthy host serving this socket — not the thing a containment verdict
+   * objects to — and reaping it would only turn one containment obligation into
+   * two (its own durable rows would then have a dead owner) while destroying a
+   * host the socket can reuse the moment the block lifts. Nothing is handed out
+   * either way: the verdict still rejects.
+   *
+   * Termination failures are logged, never substituted for the verdict that is
+   * about to be thrown.
+   */
+  async #abandonUnhealthyOwnedSpawn(): Promise<void> {
+    const spawned = this.#spawned;
+    if (!spawned || childExited(spawned) || this.#spawnedReachedHealth) return;
+    try {
+      await this.#terminateOwnedSpawn(spawned);
+    } catch (error) {
+      this.#log(
+        `failed to reap the owned native-terminal host abandoned on a containment refusal: ${String(error)}`,
+      );
+    }
   }
 
   async #terminateOwnedSpawn(spawned: ChildProcess): Promise<void> {
@@ -511,9 +704,16 @@ export class NativeTerminalHostSupervisor {
    *    this socket while its PTY group is known to have outlived its host is
    *    the same containment failure.
    *
-   * One pass per connection HAND-OUT, not per request: `client()` returns its
-   * cached client after a plain ping, so this runs when a connection is newly
-   * established — startup, and each host replacement — never on the hot path.
+   * One pass per connection HAND-OUT, not per request: within one supervisor,
+   * `client()` returns its cached client after a plain ping, so this runs when
+   * a connection is newly established — startup, and each host replacement.
+   * Production, however, builds a FRESH supervisor per `create` /
+   * `ensure-host` op process (see op.ts), so every such op runs one full pass,
+   * including the destructive reaps of other sockets' proven-dead rows. The
+   * cost is O(durable rows) per op, which is why the in-memory
+   * `#pendingDeadOwnedHostPid` cannot be the durable half of the rule: it
+   * never outlives one op process, and the socket-scoped verdict re-derived
+   * from the store is what holds across invocations.
    */
   async #containDeadOwnedHost(): Promise<void> {
     this.#clearGoneSpawn();
@@ -555,23 +755,28 @@ export class NativeTerminalHostSupervisor {
    * SOCKET-SCOPED FAIL-CLOSED PUBLICATION. The same is true one step wider,
    * and this is what makes the guarantee hold ACROSS supervisors rather than
    * only inside the one that happened to own the dead host. A completed pass
-   * that PROVED an owner dead and then could not confirm its reap is positive
-   * evidence that a PTY group has outlived its host and is STILL ALIVE:
-   * `reapOrphan` short-circuits to `reaped` whenever the OS already reports
-   * the group empty, so a `reap-timed-out`, or a `reap-refused` carrying a
-   * cause (`recycled`, `membership-unprovable`, `pgid-mismatch`,
-   * `unsupported-process-groups`), is never "the group was already gone".
-   * Publishing a replacement host, or adopting a competitor's, on that socket
-   * would resume terminal work over that group — the invisible-orphan bug
-   * this whole mechanism exists to close. So any such outcome whose row is
-   * attributed to THIS socket throws, whether or not the dead owner was ever
-   * this supervisor's child.
+   * that PROVED an owner dead and then reported an outcome carrying positive
+   * evidence that the PTY group is STILL ALIVE (`reap-timed-out`, or a
+   * `reap-refused` whose cause `provesASurvivingGroup` — see that predicate
+   * for the per-cause reasoning) must not be followed by a hand-out:
+   * publishing a replacement host, or adopting a competitor's, on that socket
+   * would resume terminal work over that group — the invisible-orphan bug this
+   * whole mechanism exists to close. So any such outcome whose row is
+   * attributed to THIS socket throws a `NativeTerminalContainmentError`,
+   * whether or not the dead owner was ever this supervisor's child.
    *
-   * A CAUSE-LESS `reap-refused` is deliberately excluded: it means only that
-   * the pgid could not be resolved, which is exactly what the loser of a race
-   * between two reconcile passes sees once the winner confirmed the reap and
-   * pruned the row. Treating that as a surviving group would convert a
-   * successful concurrent containment into an outage.
+   * The excluded outcomes are excluded because they carry no such evidence,
+   * and the difference is never guessed:
+   *  - a CAUSE-LESS `reap-refused` means only that the pgid could not be
+   *    resolved, which is exactly what the loser of a race between two
+   *    reconcile passes sees once the winner confirmed the reap and pruned the
+   *    row. Treating that as a surviving group would convert a successful
+   *    concurrent containment into an outage;
+   *  - `recycled` PROVES the original group is gone rather than surviving (an
+   *    unrelated live leader now holds that pgid number), so reconcile prunes
+   *    the row and reports `pruned-recycled-pgid`. Blocking there would strand
+   *    a socket on a stale row AND point an operator at an unrelated process
+   *    group.
    *
    * Two limits are deliberate and declared rather than papered over:
    *  - A row with no `ownerSocketPath` (written before that attribution
@@ -585,7 +790,10 @@ export class NativeTerminalHostSupervisor {
    *    until then this socket has NO native terminal. That is the intended
    *    trade — availability for an unkillable or unidentifiable PTY tree is
    *    exactly what must not be silently granted — and every refusal names
-   *    the session, pgid and owner pid needed to resolve it by hand.
+   *    the session, pgid and owner pid needed to resolve it by hand, plus a
+   *    cause-specific recovery line (`recoveryHint`) that asks an operator to
+   *    INSPECT a group before acting whenever that group was not proven to be
+   *    the dead host's.
    */
   async #reconcileDeadHostOrphans(options: {
     requireReapedForOwnerPid?: number;
@@ -610,8 +818,13 @@ export class NativeTerminalHostSupervisor {
       // a surviving group: it stays best-effort unless this supervisor owes a
       // specific proof for its own killed host.
       if (options.requireReapedForOwnerPid === undefined) return;
-      throw new Error(
+      throw new NativeTerminalContainmentError(
         `forced native-terminal host reap could not inspect durable PTY groups: ${summary.reason}`,
+        {
+          socketPath: this.#socketPath,
+          ownerPid: options.requireReapedForOwnerPid,
+          outcomeStatus: "registry-unreadable",
+        },
       );
     }
     if (options.requireReapedForOwnerPid !== undefined) {
@@ -619,11 +832,21 @@ export class NativeTerminalHostSupervisor {
         (outcome) =>
           "ownerPid" in outcome &&
           outcome.ownerPid === options.requireReapedForOwnerPid &&
-          outcome.status !== "reaped",
+          !dischargesOwnedHostProof(outcome),
       );
       if (unconfirmed !== undefined) {
-        throw new Error(
+        throw new NativeTerminalContainmentError(
           `forced native-terminal host reap did not confirm owner pid=${options.requireReapedForOwnerPid} session ${unconfirmed.sessionId}: ${unconfirmed.status}`,
+          {
+            socketPath: this.#socketPath,
+            sessionId: unconfirmed.sessionId,
+            outcomeStatus: unconfirmed.status,
+            ownerPid: options.requireReapedForOwnerPid,
+            ...("pgid" in unconfirmed ? { pgid: unconfirmed.pgid } : {}),
+            ...("cause" in unconfirmed && unconfirmed.cause !== undefined
+              ? { refusalCause: unconfirmed.cause }
+              : {}),
+          },
         );
       }
     }
@@ -635,17 +858,25 @@ export class NativeTerminalHostSupervisor {
         outcome.status !== "reap-refused" &&
         outcome.status !== "reap-timed-out"
       ) continue;
-      if (outcome.ownerSocketPath !== this.#socketPath) continue;
-      // A refusal with NO cause did not observe a surviving group at all: the
-      // pgid simply could not be resolved, which is what a supervisor racing
-      // another one sees after the OTHER pass confirmed the reap and pruned
-      // the row (reconcile prunes on "reaped" only). Blocking there would
-      // turn a successful concurrent containment into an outage.
-      if (outcome.status === "reap-refused" && outcome.cause === undefined) {
+      if (
+        outcome.ownerSocketPath === undefined ||
+        resolve(outcome.ownerSocketPath) !== this.#socketPath
+      ) continue;
+      if (outcome.status === "reap-refused" && !provesASurvivingGroup(outcome.cause)) {
         continue;
       }
-      throw new Error(
-        `native terminal socket ${this.#socketPath} is contained: session ${outcome.sessionId} pgid=${outcome.pgid} owned by proven-dead host pid=${outcome.ownerPid} was not confirmed reaped (${outcome.status}${outcome.status === "reap-refused" ? `/${outcome.cause}` : ""}); refusing to start or adopt a host over a surviving PTY group`,
+      throw new NativeTerminalContainmentError(
+        `native terminal socket ${this.#socketPath} is contained: session ${outcome.sessionId} pgid=${outcome.pgid} owned by proven-dead host pid=${outcome.ownerPid} was not confirmed reaped (${outcome.status}${outcome.status === "reap-refused" && outcome.cause !== undefined ? `/${outcome.cause}` : ""}); refusing to start or adopt a host over a surviving PTY group. ${recoveryHint(outcome)}`,
+        {
+          socketPath: this.#socketPath,
+          sessionId: outcome.sessionId,
+          outcomeStatus: outcome.status,
+          ownerPid: outcome.ownerPid,
+          pgid: outcome.pgid,
+          ...(outcome.status === "reap-refused" && outcome.cause !== undefined
+            ? { refusalCause: outcome.cause }
+            : {}),
+        },
       );
     }
   }

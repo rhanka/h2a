@@ -11,10 +11,15 @@ import { persistNativeTerminalPgid, readNativeTerminalPgid } from "../registry.j
 import { NativeTerminalClient } from "./client.js";
 import {
   NativeTerminalHost,
+  readProcessStartTime,
   reconcileDeadHostOrphans,
   type NativeTerminalReapOutcome,
 } from "./host.js";
-import { NativeTerminalHostSupervisor, type NativeTerminalHostSpawn } from "./supervisor.js";
+import {
+  NativeTerminalContainmentError,
+  NativeTerminalHostSupervisor,
+  type NativeTerminalHostSpawn,
+} from "./supervisor.js";
 import { NATIVE_TERMINAL_MAX_FRAME_BYTES } from "./protocol.js";
 
 const children = new Set<ChildProcess>();
@@ -135,6 +140,85 @@ async function processGroupMemberPids(processGroup: number): Promise<number[]> {
 async function directChildren(pid: number): Promise<number[]> {
   const raw = await readFile(`/proc/${pid}/task/${pid}/children`, "utf8");
   return raw.trim().length === 0 ? [] : raw.trim().split(/\s+/).map(Number);
+}
+
+/** Ping whoever currently serves `socketPath`, and leave no connection open. */
+async function pingSocket(socketPath: string): Promise<number> {
+  const probe = await NativeTerminalClient.connect(socketPath, {
+    connectTimeoutMs: 1_000,
+    requestTimeoutMs: 1_000,
+  });
+  try {
+    return (await probe.ping()).hostPid;
+  } finally {
+    probe.close();
+  }
+}
+
+/**
+ * Durably record one native-terminal row attributed to `socketPath` whose
+ * owning host is PROVEN dead, without creating any PTY at all: a real process
+ * is started, its real /proc start-time recorded, and then killed, so
+ * `defaultOwnerHostProbe` proves it dead from real evidence. The pgid the row
+ * carries is that same (already-gone) pid, so no signal could reach anything
+ * even if something tried — every reap in the tests using this is injected.
+ */
+async function persistProvenDeadOwnerRow(
+  sessionId: string,
+  socketPath: string,
+  registryPath: string,
+): Promise<number> {
+  const owner = spawn(process.execPath, ["-e", "setTimeout(() => {}, 200)"]);
+  const ownerPid = owner.pid!;
+  const startTime = await eventually(
+    () => readProcessStartTime(ownerPid),
+    (value) => typeof value === "number",
+  );
+  owner.kill("SIGKILL");
+  await once(owner, "exit");
+  persistNativeTerminalPgid(sessionId, ownerPid, registryPath, {
+    pid: ownerPid,
+    startTime,
+    socketPath,
+  });
+  return ownerPid;
+}
+
+/**
+ * An injected reap that always refuses (so the durable row is never pruned),
+ * but whose refusal carries BLOCKING evidence — a cause taken over a group
+ * observed alive — only on the reconcile passes `blocks` selects. Every other
+ * pass returns a CAUSE-LESS refusal, the absence of information a supervisor
+ * racing another one sees, which deliberately does not block.
+ *
+ * Which pass blocks is the whole point of the two regressions below: a
+ * containment verdict must be surfaced by the pass that produced it, never
+ * downgraded into "the host is not ready yet" and then re-decided by a later,
+ * weaker pass.
+ */
+function injectedRefusals(blocks: (passNumber: number) => boolean): {
+  reapOrphan: (sessionId: string) => Promise<NativeTerminalReapOutcome>;
+  calls: string[];
+} {
+  const calls: string[] = [];
+  return {
+    calls,
+    reapOrphan: async (sessionId: string) => {
+      calls.push(sessionId);
+      return blocks(calls.length)
+        ? {
+            sessionId,
+            status: "refused" as const,
+            reason: "injected refusal over a group observed alive",
+            cause: "membership-unprovable" as const,
+          }
+        : {
+            sessionId,
+            status: "refused" as const,
+            reason: `no pgid recorded for terminal session ${sessionId}`,
+          };
+    },
+  };
 }
 
 async function createStubbornWorkload(
@@ -517,6 +601,79 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
     await once(distractor, "exit");
   });
 
+  it("should re-read a row rewritten under a reconcile pass instead of blocking on the snapshot mismatch", async () => {
+    // `pgid-mismatch` is the ONE refusal cause taken before any liveness probe:
+    // `reapOrphan` compares the pass's immutable snapshot with the row it
+    // re-resolves and refuses on any difference, having observed no group at
+    // all. Treating that as "a PTY group outlived its host" would contain a
+    // whole socket over a row that no longer exists — here the row belongs to a
+    // LIVE host again, because a same-id session was recreated in between.
+    //
+    // The re-read decides only whether anything is still owed. It never becomes
+    // the pgid to act on: see "should refuse reconciliation when the fresh PGID
+    // lookup differs from its immutable snapshot" above, which holds that line.
+    const directory = await mkdtemp(join(tmpdir(), "h2a-native-terminal-rewritten-row-"));
+    directories.add(directory);
+    const registryPath = join(directory, "registry.json");
+    const deadOwnerPid = await persistProvenDeadOwnerRow(
+      "rewritten-session",
+      join(directory, "host.sock"),
+      registryPath,
+    );
+
+    const liveOwnerStartTime = readProcessStartTime(process.pid);
+    let probes = 0;
+    const reapCalls: Array<{ sessionId: string; pgid: number }> = [];
+    const summary = await reconcileDeadHostOrphans({
+      registryPath,
+      ownerProbe: (owner) => {
+        probes += 1;
+        if (probes === 1) {
+          // Between this pass's snapshot and the reap's own lookup, a live host
+          // recreates a session under the same id — the only way a row is ever
+          // rewritten.
+          persistNativeTerminalPgid("rewritten-session", 5_353, registryPath, {
+            pid: process.pid,
+            ...(liveOwnerStartTime === undefined ? {} : { startTime: liveOwnerStartTime }),
+          });
+          return "dead";
+        }
+        // The re-read row names this very test process: alive, and provably so.
+        expect(owner.pid).toBe(process.pid);
+        return "alive";
+      },
+      // Mirrors reapOrphan's own immutable-snapshot check, without signalling.
+      reap: async (sessionId, pgid) => {
+        reapCalls.push({ sessionId, pgid });
+        const lookup = readNativeTerminalPgid(sessionId, registryPath);
+        if (lookup.status === "resolved" && lookup.pgid !== pgid) {
+          return {
+            sessionId,
+            status: "refused",
+            reason: `immutable snapshot pgid=${pgid} differs from re-resolved pgid=${lookup.pgid}`,
+            cause: "pgid-mismatch",
+          };
+        }
+        return { sessionId, status: "reaped", pgid, elapsedMs: 0 };
+      },
+    });
+
+    expect(summary).toEqual({
+      status: "completed",
+      outcomes: [
+        { sessionId: "rewritten-session", status: "skipped-alive", ownerPid: process.pid },
+      ],
+    });
+    // One reap attempt, against the SNAPSHOT pgid only: the rewritten pgid is
+    // never handed to a reap by this pass.
+    expect(reapCalls).toEqual([{ sessionId: "rewritten-session", pgid: deadOwnerPid }]);
+    // And the row a live host now owns is left exactly as that host wrote it.
+    expect(readNativeTerminalPgid("rewritten-session", registryPath)).toMatchObject({
+      status: "resolved",
+      pgid: 5_353,
+    });
+  });
+
   it("should let a FRESH host — one that never knew the session — reap it from its durably persisted pgid after brutal host death", async () => {
     const directory = await mkdtemp(join(tmpdir(), "h2a-native-terminal-fresh-reap-"));
     directories.add(directory);
@@ -706,22 +863,39 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
   // the supervisor's own startup diagnostic. Bound each wait explicitly and
   // derive the test budget from those bounds. Nothing below waits unbounded.
   const HOST_STARTUP_BUDGET_MS = 5_000;
+  // `supervisor.client()` can overrun startupTimeoutMs by the work of one last
+  // iteration: a connect + ping pair, each bounded by
+  // NATIVE_TERMINAL_HEALTH_TIMEOUT_MS (1s), plus the containment reconcile
+  // pass that an adoption runs. The pass is bounded by the force-kill timeout
+  // only when it actually reaps a group; this scenario has no proven-dead
+  // owner at all (one live host, then its own graceful stop), so its passes
+  // are registry reads.
+  const CLIENT_OVERRUN_BUDGET_MS = 2 * 1_000;
   // process.ts drains for at most GRACEFUL_DRAIN_MS + FORCED_DRAIN_MS
   // (500 + 500) around the group SIGKILL, whose confirmation poll measured
   // ~55ms for this single-process group.
   const HOST_SHUTDOWN_BUDGET_MS = 3_000;
+  // The three `eventually()` waits of this scenario (pty output, session
+  // death, socket removal): 200 attempts x 10ms plus the work per attempt.
+  const EVENTUALLY_BUDGET_MS = 3 * 2_000;
+  // Worst case of every bounded wait above, and nothing else: no term here
+  // stands for an unbounded wait.
   const GRACEFUL_SHUTDOWN_BUDGET_MS =
-    2 * HOST_STARTUP_BUDGET_MS + HOST_SHUTDOWN_BUDGET_MS + 1_000;
+    2 * (HOST_STARTUP_BUDGET_MS + CLIENT_OVERRUN_BUDGET_MS) +
+    HOST_SHUTDOWN_BUDGET_MS +
+    EVENTUALLY_BUDGET_MS +
+    1_000;
 
   it("should stop its PTYs and remove its socket on graceful host shutdown", async () => {
     const directory = await mkdtemp(join(tmpdir(), "h2a-native-terminal-shutdown-"));
     directories.add(directory);
     const socketPath = join(directory, "host.sock");
+    const registryPath = join(directory, "registry.json");
     const entry = fileURLToPath(new URL("./process.ts", import.meta.url));
     let child: ChildProcess | undefined;
     const supervisor = new NativeTerminalHostSupervisor({
       socketPath,
-      registryPath: join(directory, "registry.json"),
+      registryPath,
       replayBytesPerSession: 1024,
       // Pinned, not inherited: the test budget above is derived from this
       // number, so it must not drift with the supervisor's default.
@@ -772,6 +946,14 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
       () => stat(socketPath).then(() => true, (error: NodeJS.ErrnoException) => error.code !== "ENOENT"),
       (exists) => !exists,
     );
+    // A host that shut down cleanly proved this session's group dead on its way
+    // out (the pty ignores SIGTERM, so the drain escalates to forceStopAll), so
+    // it leaves NO durable row behind. Stale rows are what a later host death
+    // re-examines against whatever holds their pgid NUMBER by then.
+    expect(readNativeTerminalPgid("graceful", registryPath)).toEqual({
+      status: "unresolved",
+      reason: expect.stringMatching(/no pgid recorded/i),
+    });
     const restarted = await supervisor.client();
     expect(supervisor.spawnedPid).not.toBe(stoppedHostPid);
     expect(await restarted.ping()).toMatchObject({ generation: "restart-generation" });
@@ -1656,4 +1838,183 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
       status: "resolved",
     });
   });
+
+  // The two containment-refusal regressions below boot a real host (bounded by
+  // the startup budget they pin) and make one further hand-out attempt. The RED
+  // they were written against retried the refused pass for the WHOLE startup
+  // budget before reporting anything, so their test budget must exceed it:
+  // otherwise a red run reports an anonymous "Test timed out" instead of the
+  // reconcile storm it exists to show.
+  const CONTAINED_HANDOUT_STARTUP_BUDGET_MS = 10_000;
+  const CONTAINED_HANDOUT_TEST_BUDGET_MS = 3 * CONTAINED_HANDOUT_STARTUP_BUDGET_MS;
+
+  it("should surface a containment refusal from the readiness loop instead of retrying it and killing its own healthy host", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "h2a-native-terminal-contained-readiness-"));
+    directories.add(directory);
+    const socketPath = join(directory, "host.sock");
+    const registryPath = join(directory, "registry.json");
+    const entry = fileURLToPath(new URL("./process.ts", import.meta.url));
+    await persistProvenDeadOwnerRow("contained-readiness-tree", socketPath, registryPath);
+
+    // Pass 1 — the takeover preflight — does NOT block, so this supervisor
+    // spawns a real host; the block lands on the ADOPTION of that host, inside
+    // the readiness loop. Containment is a VERDICT there, not a connection
+    // failure: swallowing it and retrying runs one reconcile pass per loop
+    // iteration (a pass that reaps a live group can take the whole force-kill
+    // timeout), then reports the verdict as a startup failure and SIGTERMs a
+    // host that is perfectly healthy.
+    const { reapOrphan, calls } = injectedRefusals((pass) => pass > 1);
+    let spawnCount = 0;
+    let hostChild: ChildProcess | undefined;
+    const supervisor = new NativeTerminalHostSupervisor({
+      socketPath,
+      registryPath,
+      replayBytesPerSession: 1024,
+      startupTimeoutMs: CONTAINED_HANDOUT_STARTUP_BUDGET_MS,
+      spawnTerminationGraceMs: 100,
+      reapOrphan,
+      log: () => {},
+      generationFactory: () => `contained-readiness-${spawnCount}`,
+      spawnHost: (options) => {
+        spawnCount += 1;
+        hostChild = spawn(process.execPath, [
+          "--import",
+          "tsx",
+          entry,
+          "--socket",
+          options.socketPath,
+          "--generation",
+          options.generation,
+          "--replay-bytes",
+          String(options.replayBytesPerSession),
+          ...(options.registryPath !== undefined ? ["--registry-path", options.registryPath] : []),
+        ], { cwd: dirname(entry), env: process.env, stdio: ["ignore", "pipe", "pipe"] });
+        children.add(hostChild);
+        return hostChild;
+      },
+    });
+
+    const rejection = await supervisor.client().then(
+      () => {
+        throw new Error("expected the adoption to be refused");
+      },
+      (error: unknown) => error,
+    );
+
+    expect(rejection).toBeInstanceOf(NativeTerminalContainmentError);
+    expect((rejection as Error).message).toMatch(
+      /is contained: session contained-readiness-tree/,
+    );
+    // The verdict reaches the caller as itself, not wrapped in a startup
+    // diagnostic that names no cause.
+    expect((rejection as Error).message).not.toMatch(/did not become ready/i);
+    // Exactly one pass per hand-out attempt: the preflight and the adoption.
+    expect(calls).toEqual([
+      "contained-readiness-tree",
+      "contained-readiness-tree",
+    ]);
+    // The host this supervisor spawned completed its health handshake and is
+    // serving the socket. Containment objects to resuming terminal work over an
+    // unreaped PTY group, not to that host: it must not be mistaken for a
+    // failed startup and signalled.
+    expect(spawnCount).toBe(1);
+    expect({ exitCode: hostChild!.exitCode, signalCode: hostChild!.signalCode })
+      .toEqual({ exitCode: null, signalCode: null });
+    expect(await pingSocket(socketPath)).toBe(hostChild!.pid);
+
+    // Nor is it a spawn failure: the next attempt re-derives the same verdict
+    // from the durable store instead of answering "come back later".
+    const second = await supervisor.client().then(
+      () => {
+        throw new Error("expected the second adoption to be refused too");
+      },
+      (error: unknown) => error,
+    );
+    expect(second).toBeInstanceOf(NativeTerminalContainmentError);
+    expect((second as Error).message).toMatch(/is contained: session contained-readiness-tree/);
+    expect((second as Error).message).not.toMatch(/backoff/i);
+    expect(calls).toHaveLength(3);
+    expect(spawnCount).toBe(1);
+  }, CONTAINED_HANDOUT_TEST_BUDGET_MS);
+
+  it("should refuse a healthy host published outside it rather than spawn a replacement beside it", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "h2a-native-terminal-contained-adopt-"));
+    directories.add(directory);
+    const socketPath = join(directory, "host.sock");
+    const registryPath = join(directory, "registry.json");
+    const entry = fileURLToPath(new URL("./process.ts", import.meta.url));
+    await persistProvenDeadOwnerRow("contained-adopt-tree", socketPath, registryPath);
+
+    // A healthy host published by something outside this supervisor.
+    const external = spawn(process.execPath, [
+      "--import",
+      "tsx",
+      entry,
+      "--socket",
+      socketPath,
+      "--generation",
+      "contained-adopt-external",
+      "--replay-bytes",
+      "1024",
+      "--registry-path",
+      registryPath,
+    ], { cwd: dirname(entry), env: process.env, stdio: ["ignore", "pipe", "pipe"] });
+    children.add(external);
+    const externalPid = await eventually(
+      () => pingSocket(socketPath).catch(() => undefined),
+      (pid) => typeof pid === "number",
+    );
+    expect(externalPid).toBe(external.pid);
+
+    // Only the FIRST pass blocks — the one the adoption of that healthy host
+    // runs. A later pass is cause-less, i.e. non-blocking: that is exactly what
+    // turned this verdict into a takeover once it was caught as a connection
+    // failure, and a replacement was then spawned beside a healthy host.
+    const { reapOrphan, calls } = injectedRefusals((pass) => pass === 1);
+    let spawnCount = 0;
+    const supervisor = new NativeTerminalHostSupervisor({
+      socketPath,
+      registryPath,
+      replayBytesPerSession: 1024,
+      startupTimeoutMs: CONTAINED_HANDOUT_STARTUP_BUDGET_MS,
+      spawnTerminationGraceMs: 100,
+      reapOrphan,
+      log: () => {},
+      generationFactory: () => "contained-adopt-replacement",
+      spawnHost: (options) => {
+        spawnCount += 1;
+        const child = spawn(process.execPath, [
+          "--import",
+          "tsx",
+          entry,
+          "--socket",
+          options.socketPath,
+          "--generation",
+          options.generation,
+          "--replay-bytes",
+          String(options.replayBytesPerSession),
+          ...(options.registryPath !== undefined ? ["--registry-path", options.registryPath] : []),
+        ], { cwd: dirname(entry), env: process.env, stdio: ["ignore", "pipe", "pipe"] });
+        children.add(child);
+        return child;
+      },
+    });
+
+    const rejection = await supervisor.client().then(
+      () => {
+        throw new Error("expected the adoption to be refused");
+      },
+      (error: unknown) => error,
+    );
+
+    expect(rejection).toBeInstanceOf(NativeTerminalContainmentError);
+    expect((rejection as Error).message).toMatch(/is contained: session contained-adopt-tree/);
+    // No replacement: the refusal stopped at the pass that decided it.
+    expect(spawnCount).toBe(0);
+    expect(calls).toEqual(["contained-adopt-tree"]);
+    // And the host it refused to adopt is untouched, still serving.
+    expect({ exitCode: external.exitCode, signalCode: external.signalCode })
+      .toEqual({ exitCode: null, signalCode: null });
+    expect(await pingSocket(socketPath)).toBe(external.pid);
+  }, CONTAINED_HANDOUT_TEST_BUDGET_MS);
 });

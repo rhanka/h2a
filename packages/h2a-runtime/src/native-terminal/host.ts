@@ -1,5 +1,6 @@
 import { readFileSync, readdirSync } from "node:fs";
 import { randomUUID } from "node:crypto";
+import { resolve } from "node:path";
 
 import type { PtyHandle, PtySpawner } from "../pty.js";
 // Durable session identity (incl. pgid) lives in the single registry store by
@@ -250,6 +251,62 @@ export function groupCarriesSessionToken(pgid: number, expectedToken: string): b
   return false;
 }
 
+/**
+ * States (`/proc/<pid>/stat` field 3) of every process currently in group
+ * `pgid`. Returns undefined when the scan itself could not run (no /proc, a
+ * readdir failure) — DISTINCT from an empty array, which means "/proc was read
+ * and showed no member": callers must not confuse "unknown" with "none".
+ */
+function listProcessGroupMemberStates(pgid: number): string[] | undefined {
+  if (process.platform !== "linux") return undefined;
+  let names: string[];
+  try {
+    names = readdirSync("/proc");
+  } catch {
+    return undefined;
+  }
+  const states: string[] = [];
+  for (const name of names) {
+    if (!/^\d+$/.test(name)) continue;
+    try {
+      const raw = readFileSync(`/proc/${name}/stat`, "utf8");
+      const commandEnd = raw.lastIndexOf(")");
+      const fields = raw.slice(commandEnd + 2).split(" ");
+      if (Number(fields[2]) === pgid) states.push(fields[0] ?? "");
+    } catch {
+      // Exited mid-scan; not a member we can act on either way.
+    }
+  }
+  return states;
+}
+
+/**
+ * True iff /proc positively shows at least one member of `pgid` and EVERY
+ * member is a ZOMBIE (state `Z`) — a group that is DEAD for containment: a
+ * zombie is an exit status waiting to be collected by its parent, it executes
+ * nothing, and no terminal work can ever resume in it.
+ *
+ * Why this needs its own probe: `kill(-pgid, 0)` answers ALIVE for such a
+ * group (a zombie is still attached to its pgid), and a zombie's
+ * `/proc/<pid>/environ` is empty, so it can carry no session token either.
+ * Without this re-check, the leader-absent branch of
+ * `#verifyGroupLeaderIdentity` classifies the group as
+ * `membership-unprovable` — an unidentifiable SURVIVOR — and a socket is then
+ * contained on account of processes that are already dead. Emitting
+ * `kill(-pgid, SIGKILL)` there would not help either: a zombie cannot be
+ * killed again, so the confirmation poll would run to its timeout.
+ *
+ * Fails CLOSED in every uncertain case — non-Linux, an unreadable scan, or no
+ * member found at all (which contradicts the liveness probe that led here and
+ * is therefore not evidence of anything): the answer is false, i.e. "not
+ * proven dead", never a manufactured death verdict.
+ */
+export function groupIsOnlyZombies(pgid: number): boolean {
+  const states = listProcessGroupMemberStates(pgid);
+  if (states === undefined || states.length === 0) return false;
+  return states.every((state) => state === "Z");
+}
+
 function processExists(pid: number): boolean {
   try {
     process.kill(pid, 0);
@@ -471,11 +528,13 @@ export class NativeTerminalHost {
   readonly #forceKillPollIntervalMs: number;
   readonly #readLeaderStartTime: (pid: number) => number | undefined;
   readonly #findGroupMemberToken: (pgid: number, expectedToken: string) => boolean;
+  readonly #groupIsOnlyZombies: (pgid: number) => boolean;
   readonly #pgidGuardCounters = {
     recycled: 0,
     membershipUnprovable: 0,
     unverifiedLegacy: 0,
     tokenVerified: 0,
+    zombieGroup: 0,
   };
 
   constructor(options: {
@@ -507,6 +566,11 @@ export class NativeTerminalHost {
      * defaults to the real `groupCarriesSessionToken`. Consulted ONLY when
      * the leader is absent — see `#verifyGroupLeaderIdentity`. */
     findGroupMemberToken?: (pgid: number, expectedToken: string) => boolean;
+    /** Injectable so tests never touch a real /proc for fabricated pgids;
+     * defaults to the real `groupIsOnlyZombies`. Consulted ONLY when the
+     * leader is absent AND no member carries the token, as the last re-check
+     * before refusing — see `#verifyGroupLeaderIdentity`. */
+    groupIsOnlyZombies?: (pgid: number) => boolean;
   }) {
     if (
       options.generation.trim().length === 0 ||
@@ -534,7 +598,15 @@ export class NativeTerminalHost {
     this.#maxSessions = maxSessions;
     this.#spawner = options.spawner;
     this.#registryPath = options.registryPath;
-    this.#socketPath = options.socketPath;
+    // NORMALIZED before it is ever recorded: this string is the socket
+    // ATTRIBUTION a supervisor's socket-scoped containment decision is derived
+    // from (see `RegistryEntry.ownerHostSocketPath`), and two spellings of the
+    // same socket — a doubled separator, a "." segment, a relative path —
+    // would compare unequal and fail OPEN. The supervisor normalizes its own
+    // socket path the same way, and normalizes the row's value at comparison
+    // time so rows written before this still match.
+    this.#socketPath =
+      options.socketPath === undefined ? undefined : resolve(options.socketPath);
     this.#reaper = options.reaper ?? posixProcessGroupReaper;
     this.#log =
       options.log ??
@@ -550,6 +622,7 @@ export class NativeTerminalHost {
       options.readLeaderStartTime ?? readProcessStartTime;
     this.#findGroupMemberToken =
       options.findGroupMemberToken ?? groupCarriesSessionToken;
+    this.#groupIsOnlyZombies = options.groupIsOnlyZombies ?? groupIsOnlyZombies;
   }
 
   get generation(): string {
@@ -557,7 +630,7 @@ export class NativeTerminalHost {
   }
 
   /**
-   * COUNTABLE per arch condition 1/2: the four DISCERNIBLE outcomes of the
+   * COUNTABLE per arch condition 1/2: the five DISCERNIBLE outcomes of the
    * group-leader-identity guard, so "has this guard ever refused (and why),
    * or ever proceeded WITHOUT the fast leader-start-time proof" is
    * answerable later without re-deriving it from raw logs.
@@ -568,16 +641,19 @@ export class NativeTerminalHost {
    * counted at all (it is the expected common case). `unverifiedLegacy` is
    * an UNPROVEN proceed (the kill WAS emitted) on a row with no baseline —
    * neither a leader-start-time nor a group-token — to check against at
-   * all, the fail-open branch of `#verifyGroupLeaderIdentity`. Never
-   * collapsed: a proven kill and an unproven one must never look alike
-   * here, exactly as a refusal and a proceed must never look alike — see
-   * `NativeTerminalReapOutcome`'s `cause`/`verified`.
+   * all, the fail-open branch of `#verifyGroupLeaderIdentity`.
+   * `zombieGroup` is neither a refusal nor a kill: the group was found
+   * reduced to zombies, i.e. already dead, so NOTHING was emitted and the
+   * reap is reported confirmed. Never collapsed: a proven kill, an unproven
+   * one, a refusal and an already-dead group must never look alike here —
+   * see `NativeTerminalReapOutcome`'s `cause`/`verified`.
    */
   get pgidGuardCounters(): Readonly<{
     recycled: number;
     membershipUnprovable: number;
     unverifiedLegacy: number;
     tokenVerified: number;
+    zombieGroup: number;
   }> {
     return { ...this.#pgidGuardCounters };
   }
@@ -703,6 +779,12 @@ export class NativeTerminalHost {
     });
     record.exitSubscription = record.pty.onExit((event) => {
       if (record.exit !== null) return;
+      // A durable row exists to make this session reapable after THIS host
+      // dies. Once the group is confirmed empty the row can no longer make
+      // anything reapable — it is a stale record that a later host death would
+      // re-examine against whatever holds that pgid NUMBER by then. Drop it
+      // here, on POSITIVE proof only (see `#pruneDurableRowIfGroupEmpty`).
+      this.#pruneDurableRowIfGroupEmpty(record, "its pty exited");
       const exit: { exitCode: number; signal?: number } = {
         exitCode: event.exitCode,
       };
@@ -969,6 +1051,11 @@ export class NativeTerminalHost {
               `terminal session ${record.id} pgid=${record.pty.pgid} did not confirm dead within ${this.#forceKillTimeoutMs}ms`,
             ),
           );
+        } else {
+          // PROVEN empty by the call above, so the durable row cannot make
+          // anything reapable any more — the same staleness the pty-exit path
+          // prunes, reached through the shutdown path instead.
+          this.#pruneDurableRowIfGroupEmpty(record, "forceStopAll proved its group dead");
         }
       } catch (error) {
         errors.push(error);
@@ -1080,8 +1167,16 @@ export class NativeTerminalHost {
    *       independent of the leader -> PROCEED, `verified: true`, cause
    *       `"token-verified"`.
    *     - a persisted token exists and NO surviving member carries it ->
-   *       cannot positively prove this group's identity by any means ->
-   *       REFUSE, cause `"membership-unprovable"` (conservative
+   *       ONE re-check before refusing: a group the OS reports alive whose
+   *       every member is a ZOMBIE is already dead (see
+   *       `groupIsOnlyZombies` — a zombie is attached to its pgid, executes
+   *       nothing, and its environ is empty so it could never have carried
+   *       the token). That is `alreadyDead`, cause `"zombie-group"`:
+   *       NOTHING is signalled and the reap is reported CONFIRMED, because
+   *       a group with no live member cannot resume terminal work and a
+   *       group-kill would only poll to its timeout.
+   *     - otherwise -> cannot positively prove this group's identity by any
+   *       means -> REFUSE, cause `"membership-unprovable"` (conservative
    *       refuse-and-leak: this may well be our OWN orphan, already fully
    *       dead, but we cannot tell that apart from a live unrelated group
    *       we simply cannot identify). DISTINCT from `"recycled"` in the
@@ -1097,7 +1192,8 @@ export class NativeTerminalHost {
   ):
     | { proceed: true; verified: true; cause?: "token-verified" }
     | { proceed: true; verified: false; cause: "unverified-legacy" }
-    | { proceed: false; cause: "recycled" | "membership-unprovable" } {
+    | { proceed: false; alreadyDead: true; cause: "zombie-group" }
+    | { proceed: false; alreadyDead?: false; cause: "recycled" | "membership-unprovable" } {
     const currentStartTime = this.#readLeaderStartTime(pgid);
     if (currentStartTime !== undefined) {
       if (persistedLeaderStartTime === undefined) {
@@ -1131,6 +1227,19 @@ export class NativeTerminalHost {
         `PROCEEDING to kill process group pgid=${pgid} for session ${sessionId}: the leader is unreadable, but a surviving GROUP MEMBER carries the persisted session token — positive proof of membership. cause=token-verified sessionId=${sessionId} pgid=${pgid}`,
       );
       return { proceed: true, verified: true, cause: "token-verified" };
+    }
+    // Last re-check before a refusal that would contain a whole socket: a
+    // group whose every remaining member is a ZOMBIE is already dead. This is
+    // the shape a host SIGKILL leaves behind when the guardian's parent-death
+    // broadcast lands, the leader is reaped first, and some member's exit
+    // status has not been collected yet — the leader is unreadable and a
+    // zombie's environ is empty, so neither anchor above could answer.
+    if (this.#groupIsOnlyZombies(pgid)) {
+      this.#pgidGuardCounters.zombieGroup += 1;
+      this.#log(
+        `NOT signalling process group pgid=${pgid} for session ${sessionId}: the leader is UNREADABLE and every remaining member of the group is a ZOMBIE — the group is already dead (a zombie executes nothing and cannot be killed again), so this reap is CONFIRMED without emitting any signal. cause=zombie-group sessionId=${sessionId} pgid=${pgid}`,
+      );
+      return { proceed: false, alreadyDead: true, cause: "zombie-group" };
     }
     this.#pgidGuardCounters.membershipUnprovable += 1;
     this.#log(
@@ -1214,6 +1323,13 @@ export class NativeTerminalHost {
         verify.sessionId,
       );
       if (!verdict.proceed) {
+        if (verdict.alreadyDead) {
+          // The group was found reduced to zombies: dead, with no signal
+          // emitted and nothing left to wait for. Reported exactly like the
+          // already-empty short-circuit above — no `verified` flag, because
+          // this proves the group's STATE, not its identity.
+          return { status: "dead", elapsedMs: 0 };
+        }
         return { status: "refused", cause: verdict.cause };
       }
       verified = verdict.verified;
@@ -1247,6 +1363,39 @@ export class NativeTerminalHost {
         return { status: "timed-out", elapsedMs };
       }
       await delay(this.#forceKillPollIntervalMs);
+    }
+  }
+
+  /**
+   * Drop a session's durable pgid row, but ONLY on the OS's positive proof
+   * that its process group is empty — the same asymmetry every other decision
+   * here applies, one step further: a row is the ONLY way a later pass can
+   * reach a group that outlived its session leader (the ordinary orphan: a
+   * shell that exits normally leaving a backgrounded descendant), so an
+   * ambiguous probe must KEEP the row. `isGroupAlive` answers "alive" for
+   * EPERM and for anything it cannot decide, which is exactly the fail-safe
+   * direction here.
+   *
+   * Best-effort and never throws: pruning is hygiene, and a registry that
+   * cannot be written must not turn a pty exit or a host shutdown into a
+   * failure. A row left behind is the pre-existing behaviour, not a new risk.
+   */
+  #pruneDurableRowIfGroupEmpty(record: SessionRecord, because: string): void {
+    try {
+      // Rows are keyed by session id alone, so a same-id session created
+      // elsewhere owns this key now. Prune only a row that still points at THIS
+      // session's group — never someone else's durable record.
+      const row = readNativeTerminalPgid(record.id, this.#registryPath);
+      if (row.status !== "resolved" || row.pgid !== record.pty.pgid) return;
+      if (this.#reaper.isGroupAlive(record.pty.pgid)) return;
+      if (!pruneNativeTerminalPgidEntry(record.id, this.#registryPath)) return;
+      this.#log(
+        `pruned the durable pgid row of terminal session ${record.id} (pgid=${record.pty.pgid}): ${because} and the OS reports the group empty`,
+      );
+    } catch (error) {
+      this.#log(
+        `could not prune the durable pgid row of terminal session ${record.id} (pgid=${record.pty.pgid}): ${String(error)}`,
+      );
     }
   }
 
@@ -1339,14 +1488,21 @@ export class NativeTerminalHost {
  * written before the attribution existed.
  *
  * `cause` forwards `reapOrphan`'s own refusal cause, and its ABSENCE is
- * meaningful: every cause above is a refusal taken with the group observed
- * ALIVE (the reaper short-circuits to `reaped` on an already-empty group), so
- * a caused refusal is positive evidence that the group survived its owner. A
- * cause-less refusal means only that the pgid could not be resolved — the row
- * was pruned by a concurrent reconcile that DID confirm the reap, or the
- * registry turned unreadable between the snapshot and the lookup. That is an
- * absence of information, not a surviving group, and a caller must not treat
- * the two alike.
+ * meaningful. A cause-less refusal means only that the pgid could not be
+ * resolved — the row was pruned by a concurrent reconcile that DID confirm the
+ * reap, or the registry turned unreadable between the snapshot and the lookup.
+ * That is an absence of information, not a surviving group, and a caller must
+ * not treat the two alike.
+ *
+ * The causes that DO reach a caller are the two taken with the group observed
+ * ALIVE and its identity unprovable — `membership-unprovable` and
+ * `unsupported-process-groups` — plus `pgid-mismatch`, which is taken BEFORE
+ * any liveness probe and only after this pass has re-read the row once (see
+ * the revalidation in `reconcileDeadHostOrphans`): it survives that re-read
+ * only while the row keeps being rewritten under a proven-dead owner.
+ * `recycled` never reaches a caller as a refusal at all — it is positive
+ * proof that the original group is GONE, reported as
+ * `"pruned-recycled-pgid"`, never as a survivor.
  */
 export type NativeTerminalReconcileOutcome = Readonly<
   | { sessionId: string; status: "reaped"; ownerPid: number; ownerSocketPath?: string; pgid: number }
@@ -1360,6 +1516,32 @@ export type NativeTerminalReconcileOutcome = Readonly<
       reason: string;
       cause?: NativeTerminalReapRefusalCause;
     }
+  /**
+   * The reap refused with cause `recycled`: the pgid NUMBER this row carries
+   * is now held by an unrelated live group leader of a different start-time.
+   * A pid number stays allocated while ANY task still references it as pid,
+   * tgid, PGID or sid, and a process group id is not reused before that
+   * group's lifetime ends — so this PROVES every member of the original group
+   * is gone. The stale row is pruned and reported here, distinctly from every
+   * outcome that carries evidence of a SURVIVING group; nothing was signalled,
+   * and the pgid must not be signalled by anyone acting on this outcome.
+   */
+  | {
+      sessionId: string;
+      status: "pruned-recycled-pgid";
+      ownerPid: number;
+      ownerSocketPath?: string;
+      pgid: number;
+      reason: string;
+    }
+  /**
+   * The row was REWRITTEN between this pass's snapshot and the reap's own
+   * lookup, and the re-read row no longer describes a proven-dead owner's
+   * orphan (it is gone, has lost its owner attribution, or its owner is now
+   * alive under a different pgid). Nothing was signalled and nothing is owed:
+   * a verdict about a row that no longer exists is not containment.
+   */
+  | { sessionId: string; status: "skipped-row-changed"; reason: string }
   | { sessionId: string; status: "skipped-alive"; ownerPid: number }
   | { sessionId: string; status: "skipped-unresolvable"; ownerPid: number }
   | { sessionId: string; status: "skipped-no-owner" }
@@ -1397,9 +1579,12 @@ export type NativeTerminalReconcileSummary = Readonly<
  *    (unresolvable is treated exactly like alive: never guess).
  *  - `ownerProbe` reports "dead" (pid gone, or recycled — a live pid whose
  *    start-time no longer matches) -> reap that entry's orphan process group
- *    via `reap`, then prune the entry once the reap is CONFIRMED (`"reaped"`
- *    only — a `"reap-timed-out"` leaves the row for a future pass instead of
- *    losing the only durable record of an unconfirmed pgid).
+ *    via `reap`, then prune the entry once the reap is CONFIRMED (`"reaped"`)
+ *    or once the refusal itself PROVED the original group gone
+ *    (`cause: "recycled"` -> `"pruned-recycled-pgid"`). A
+ *    `"reap-timed-out"`, or a refusal that leaves the group's fate unknown,
+ *    keeps the row for a future pass instead of losing the only durable
+ *    record of an unconfirmed pgid.
  *
  * Best-effort per entry: one entry's failure does not stop the pass over the
  * rest (each entry is an independent host/session; a single problem entry
@@ -1453,6 +1638,18 @@ export async function reconcileDeadHostOrphans(options: {
     return { status: "refused", reason: snapshot.reason };
   }
 
+  /**
+   * Re-read ONE row from the durable store, for the `pgid-mismatch` path
+   * below: the reap resolved a pgid different from this pass's snapshot, so
+   * the row was rewritten (a same-id session recreated) in between. Returns
+   * undefined when the row is gone or unreadable.
+   */
+  const rereadEntry = (sessionId: string) => {
+    const fresh = listNativeTerminalPgidEntries(options.registryPath);
+    if (!fresh.known) return undefined;
+    return fresh.entries.find((candidate) => candidate.sessionId === sessionId);
+  };
+
   const outcomes: NativeTerminalReconcileOutcome[] = [];
   for (const entry of snapshot.entries) {
     if (!entry.owner) {
@@ -1486,13 +1683,77 @@ export async function reconcileDeadHostOrphans(options: {
     log(
       `native-terminal session ${entry.sessionId}: owning host pid=${owner.pid} is PROVEN DEAD — reaping its orphan process group pgid=${entry.pgid}.`,
     );
+    const outcome = await reap(entry.sessionId, entry.pgid, signal);
+    if (outcome.status === "refused" && outcome.cause === "pgid-mismatch") {
+      // The row was REWRITTEN between this pass's snapshot and the reap's own
+      // lookup, so `reapOrphan` refused BEFORE probing any group — the one
+      // refusal cause that never observed liveness at all. Blocking a caller
+      // on it would be a verdict derived from a row that no longer exists, so
+      // re-read the row once and decide from what it says NOW.
+      //
+      // RE-READ, NEVER RE-TARGET: the re-read is used only to decide whether
+      // anything is still owed, never as the pgid to act on. Killing the group
+      // a rewritten row now points at is exactly the TOCTOU the immutable
+      // snapshot exists to prevent (`reapOrphan`'s `expectedPgid`), and the
+      // functional regression "should refuse reconciliation when the fresh
+      // PGID lookup differs from its immutable snapshot" holds that line. A
+      // row that still names a proven-dead owner therefore keeps the caused
+      // refusal — fail closed — and the NEXT pass snapshots the new pgid and
+      // reaps it properly.
+      const fresh = rereadEntry(entry.sessionId);
+      if (fresh?.owner === undefined) {
+        const reason = fresh === undefined
+          ? "the row is gone or unreadable"
+          : "the row lost its owning-host attribution";
+        log(
+          `native-terminal session ${entry.sessionId}: the durable row changed under this pass (${reason}) — nothing was signalled, reaping nothing.`,
+        );
+        outcomes.push({
+          sessionId: entry.sessionId,
+          status: "skipped-row-changed",
+          reason,
+        });
+        continue;
+      }
+      const freshVerdict = ownerProbe(fresh.owner);
+      if (freshVerdict !== "dead") {
+        log(
+          `native-terminal session ${entry.sessionId}: the durable row was rewritten under this pass and now names owning host pid=${fresh.owner.pid}, whose liveness is "${freshVerdict}" — reaping nothing.`,
+        );
+        outcomes.push({
+          sessionId: entry.sessionId,
+          status: freshVerdict === "alive" ? "skipped-alive" : "skipped-unresolvable",
+          ownerPid: fresh.owner.pid,
+        });
+        continue;
+      }
+      log(
+        `native-terminal session ${entry.sessionId}: the durable row was rewritten under this pass (snapshot pgid=${entry.pgid}, now pgid=${fresh.pgid}) and still names a PROVEN DEAD owner pid=${fresh.owner.pid} — keeping the refusal; NOTHING was signalled, and the next pass will act on the row it snapshots itself.`,
+      );
+    }
     const attribution = {
       ownerPid: owner.pid,
       ...(owner.socketPath !== undefined ? { ownerSocketPath: owner.socketPath } : {}),
       pgid: entry.pgid,
     };
-    const outcome = await reap(entry.sessionId, entry.pgid, signal);
-    if (outcome.status === "reaped") {
+    if (outcome.status === "refused" && outcome.cause === "recycled") {
+      // POSITIVE proof that the original group is GONE, not that one
+      // survived: the pgid number is held by an unrelated live leader of a
+      // different start-time, which the kernel could not have issued while any
+      // member of the original group still referenced that number. Prune the
+      // stale row — leaving it would re-derive this same verdict on every
+      // later pass — and never point an operator at that pgid.
+      pruneNativeTerminalPgidEntry(entry.sessionId, options.registryPath);
+      log(
+        `native-terminal session ${entry.sessionId}: pgid=${entry.pgid} is now held by an UNRELATED live process group leader, which PROVES the original process group of this session is gone — pruning the stale durable row. NOTHING was signalled; pgid=${entry.pgid} must NOT be killed, it does not belong to this session.`,
+      );
+      outcomes.push({
+        sessionId: entry.sessionId,
+        status: "pruned-recycled-pgid",
+        ...attribution,
+        reason: outcome.reason,
+      });
+    } else if (outcome.status === "reaped") {
       pruneNativeTerminalPgidEntry(entry.sessionId, options.registryPath);
       outcomes.push({
         sessionId: entry.sessionId,
