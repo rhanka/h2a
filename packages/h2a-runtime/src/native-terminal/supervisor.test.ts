@@ -1,7 +1,7 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { EventEmitter, once } from "node:events";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -108,6 +108,26 @@ function fakeSpawnHost(): { spawnHost: NativeTerminalHostSpawn; host: FakeHostPr
     host,
     spawnHost: vi.fn(() => host as unknown as ChildProcess),
   };
+}
+
+/**
+ * Edit one durable native-terminal row in place. Used to fabricate a FRAME
+ * (pid namespace / boot id) no test can produce for real without root: a
+ * second pid namespace, or a reboot.
+ */
+function patchDurableRow(
+  sessionId: string,
+  patch: (row: Record<string, unknown>) => void,
+): void {
+  const store = JSON.parse(readFileSync(registryPath, "utf8")) as {
+    entries: Array<Record<string, unknown>>;
+  };
+  const row = store.entries.find(
+    (entry) => entry.id === `native-terminal-pty:${sessionId}`,
+  );
+  if (row === undefined) throw new Error(`no durable row for ${sessionId}`);
+  patch(row);
+  writeFileSync(registryPath, JSON.stringify(store, null, 2), "utf8");
 }
 
 /** A socket path inside `scratch` that nothing ever listens on: connecting
@@ -461,6 +481,125 @@ describe.skipIf(process.platform !== "linux")(
             /prun/i.test(line),
         ),
       ).toBe(true);
+    });
+
+    it("SUPERVISOR_STILL_TAKES_OVER_WHEN_A_ROW_FROM_A_PREVIOUS_BOOT_PROVES_ITS_GROUP_GONE", async () => {
+      // A row attributed to THIS socket, owner PROVEN dead, written before the
+      // current boot — and whose pgid NUMBER is now held by a live, unrelated
+      // group. A reboot ends every process of the previous boot, so the row's
+      // own group is PROVEN gone: this is the strongest form of the `recycled`
+      // proof, not an absence of one. Blocking here would hold the socket
+      // hostage until an unrelated process happens to exit.
+      //
+      // Nothing is injected below the reap: the real default reaper reads the
+      // real /proc and the real frame.
+      const socketPath = deadSocketPath();
+      const unrelated = spawn(
+        process.execPath,
+        ["-e", "setTimeout(() => {}, 60_000)"],
+        { detached: true, stdio: "ignore" },
+      );
+      const unrelatedPgid = unrelated.pid!;
+      strayProcessGroups.add(unrelatedPgid);
+      unrelated.unref();
+      // The leader start-time MATCHES what the row records, so nothing but the
+      // boot id can decide this: a match would otherwise authorize a SIGKILL.
+      const unrelatedStartTime = await realStartTime(unrelatedPgid);
+
+      const owner = spawn(process.execPath, ["-e", "setTimeout(() => {}, 300)"]);
+      const ownerPid = owner.pid!;
+      const ownerStartTime = await realStartTime(ownerPid);
+      persistNativeTerminalPgid(
+        "stale-boot-session",
+        unrelatedPgid,
+        registryPath,
+        { pid: ownerPid, startTime: ownerStartTime, socketPath },
+        unrelatedStartTime,
+        randomUUID(),
+      );
+      patchDurableRow("stale-boot-session", (row) => {
+        expect(row.pgidPidNamespace).toBeTypeOf("string");
+        expect(row.pgidBootId).toBeTypeOf("string");
+        row.pgidBootId = "00000000-0000-4000-8000-000000000000";
+      });
+      owner.kill("SIGKILL");
+      await once(owner, "exit");
+
+      const logs: string[] = [];
+      const { spawnHost } = fakeSpawnHost();
+      const supervisor = new NativeTerminalHostSupervisor({
+        socketPath,
+        replayBytesPerSession: 1024,
+        registryPath,
+        spawnHost,
+        startupTimeoutMs: 80,
+        spawnTerminationGraceMs: 30,
+        log: (line) => logs.push(line),
+      });
+
+      const error = await supervisor.client().then(
+        () => {
+          throw new Error("expected the takeover to reject");
+        },
+        (rejection: Error) => rejection,
+      );
+
+      expect(error.message).toMatch(/did not become ready/i);
+      expect(error.message).not.toMatch(/is contained/);
+      expect(spawnHost).toHaveBeenCalled();
+      expect(readNativeTerminalPgid("stale-boot-session", registryPath)).toEqual({
+        status: "unresolved",
+        reason: expect.stringMatching(/no pgid recorded/i),
+      });
+      // The live group that merely inherited the number is untouched.
+      expect(running(unrelatedPgid)).toBe(true);
+      expect(
+        logs.some(
+          (line) =>
+            line.includes("stale-boot-session") &&
+            /previous boot/i.test(line) &&
+            /prun/i.test(line),
+        ),
+      ).toBe(true);
+    });
+
+    it("SUPERVISOR_DOES_NOT_CLAIM_A_PROVEN_DEAD_OWNER_WHEN_THE_OWNER_PROBE_FAILED", async () => {
+      // A `reap-failed` taken BEFORE the owner's liveness was established still
+      // blocks — nothing was proven about the group either — but the operator
+      // message must not assert a death nobody proved.
+      const socketPath = deadSocketPath();
+      persistNativeTerminalPgid("probe-failure-session", 7_778, registryPath, {
+        pid: process.pid,
+        startTime: readProcessStartTime(process.pid)!,
+        socketPath,
+      });
+      const { spawnHost } = fakeSpawnHost();
+      const supervisor = new NativeTerminalHostSupervisor({
+        socketPath,
+        replayBytesPerSession: 1024,
+        registryPath,
+        spawnHost,
+        startupTimeoutMs: 80,
+        spawnTerminationGraceMs: 30,
+        ownerProbe: () => {
+          throw new Error("owner probe failed: EIO");
+        },
+        log: () => {},
+      });
+
+      const error = await supervisor.client().then(
+        () => {
+          throw new Error("expected the takeover to reject");
+        },
+        (rejection: Error) => rejection,
+      );
+
+      expect(error).toBeInstanceOf(NativeTerminalContainmentError);
+      expect(error.message).toMatch(/is contained: session probe-failure-session/);
+      expect(error.message).toMatch(/reap-failed/);
+      expect(error.message).not.toMatch(/proven-dead host/);
+      expect(error.message).toMatch(/never proven/i);
+      expect(spawnHost).not.toHaveBeenCalled();
     });
 
     it("SUPERVISOR_STILL_TAKES_OVER_WHEN_A_CONCURRENT_PASS_ALREADY_PRUNED_THE_ROW", async () => {
