@@ -7,14 +7,23 @@ import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { persistNativeTerminalPgid } from "../registry.js";
+import { persistNativeTerminalPgid, readNativeTerminalPgid } from "../registry.js";
 import { NativeTerminalClient } from "./client.js";
-import { NativeTerminalHost, reconcileDeadHostOrphans } from "./host.js";
+import {
+  NativeTerminalHost,
+  reconcileDeadHostOrphans,
+  type NativeTerminalReapOutcome,
+} from "./host.js";
 import { NativeTerminalHostSupervisor, type NativeTerminalHostSpawn } from "./supervisor.js";
 import { NATIVE_TERMINAL_MAX_FRAME_BYTES } from "./protocol.js";
 
 const children = new Set<ChildProcess>();
 const directories = new Set<string>();
+// PTY process groups a test deliberately leaves unreaped (an injected reap
+// that always refuses). The group survives its host by design there, so this
+// suite — not the production reaper — owns its cleanup, including when an
+// assertion aborts the test before its own teardown.
+const processGroups = new Set<number>();
 
 afterEach(async () => {
   for (const child of children) {
@@ -22,6 +31,14 @@ afterEach(async () => {
     if (child.exitCode === null && child.signalCode === null) await once(child, "exit");
   }
   children.clear();
+  for (const pgid of processGroups) {
+    try {
+      process.kill(-pgid, "SIGKILL");
+    } catch {
+      // Already empty; nothing of this test's making is left to collect.
+    }
+  }
+  processGroups.clear();
   for (const directory of directories) await rm(directory, { recursive: true, force: true });
   directories.clear();
 });
@@ -1322,5 +1339,268 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
     expect((await reconnectedFirst.ping()).hostPid).toBe(firstPing.hostPid);
     expect((await reconnectedSecond.ping()).hostPid).toBe(firstPing.hostPid);
     expect(spawnCount).toBe(2);
+  });
+
+  it("should reap its dead host's durable group before adopting a replacement a competing supervisor published", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "h2a-native-terminal-concurrent-adopt-"));
+    directories.add(directory);
+    const socketPath = join(directory, "host.sock");
+    const registryPath = join(directory, "registry.json");
+    const entry = fileURLToPath(new URL("./process.ts", import.meta.url));
+    const spawnRealHost = (options: {
+      socketPath: string;
+      generation: string;
+      replayBytesPerSession: number;
+      registryPath?: string;
+    }): ChildProcess => {
+      const child = spawn(process.execPath, [
+        "--import",
+        "tsx",
+        entry,
+        "--socket",
+        options.socketPath,
+        "--generation",
+        options.generation,
+        "--replay-bytes",
+        String(options.replayBytesPerSession),
+        ...(options.registryPath !== undefined ? ["--registry-path", options.registryPath] : []),
+      ], { cwd: dirname(entry), env: process.env, stdio: ["ignore", "pipe", "pipe"] });
+      children.add(child);
+      return child;
+    };
+
+    const ownerLogs: string[] = [];
+    let ownerSpawnCount = 0;
+    let ownerChild: ChildProcess | undefined;
+    const owner = new NativeTerminalHostSupervisor({
+      socketPath,
+      registryPath,
+      replayBytesPerSession: 1024,
+      startupTimeoutMs: 30_000,
+      spawnTerminationGraceMs: 100,
+      log: (line) => ownerLogs.push(line),
+      generationFactory: () => `concurrent-adopt-owner-${ownerSpawnCount}`,
+      spawnHost: (options) => {
+        ownerSpawnCount += 1;
+        ownerChild = spawnRealHost(options);
+        return ownerChild;
+      },
+    });
+
+    const first = await owner.client();
+    const firstPing = await first.ping();
+    const stubbornPids = await createStubbornWorkload(
+      first,
+      "concurrent-adopt-tree",
+      directory,
+    );
+    const stubbornPgid = stubbornPids[0]!;
+    processGroups.add(stubbornPgid);
+
+    // A COMPETING supervisor publishes a replacement while the owning host is
+    // still alive — the schedule the socket publication lock does not cover,
+    // because nothing here is wrong yet: the competitor's own takeover
+    // reconcile correctly refuses to touch a row whose owner is alive.
+    owner.disconnect();
+    await unlink(socketPath);
+    const competitorLogs: string[] = [];
+    let competitorSpawnCount = 0;
+    const competitor = new NativeTerminalHostSupervisor({
+      socketPath,
+      registryPath,
+      replayBytesPerSession: 1024,
+      startupTimeoutMs: 30_000,
+      spawnTerminationGraceMs: 100,
+      log: (line) => competitorLogs.push(line),
+      generationFactory: () => "concurrent-adopt-competitor",
+      spawnHost: (options) => {
+        competitorSpawnCount += 1;
+        return spawnRealHost(options);
+      },
+    });
+    const competitorPing = await (await competitor.client()).ping();
+    expect(competitorSpawnCount).toBe(1);
+    expect(competitorPing.hostPid).not.toBe(firstPing.hostPid);
+    expect(
+      competitorLogs.some((line) => /PROVEN DEAD/.test(line)),
+    ).toBe(false);
+
+    // Only NOW does the owning host die. Its durable group has no live owner
+    // left, and the owner supervisor's next call succeeds on the FIRST
+    // connect: it adopts the competitor's host instead of taking over, so the
+    // takeover reconcile never runs. The adoption itself must therefore carry
+    // the containment.
+    process.kill(firstPing.hostPid, "SIGKILL");
+    await once(ownerChild!, "exit");
+    const adopted = await owner.client();
+
+    expect((await adopted.ping()).hostPid).toBe(competitorPing.hostPid);
+    expect(ownerSpawnCount).toBe(1);
+    expect(
+      ownerLogs.some(
+        (line) =>
+          line.includes("concurrent-adopt-tree") && line.includes("PROVEN DEAD"),
+      ),
+    ).toBe(true);
+    expect(readNativeTerminalPgid("concurrent-adopt-tree", registryPath)).toEqual({
+      status: "unresolved",
+      reason: expect.stringMatching(/no pgid recorded/i),
+    });
+    expect(await processGroupMemberPids(stubbornPgid)).toEqual([]);
+    const stubbornStates = await Promise.all(stubbornPids.map(processObservation));
+    expect(stubbornStates.every((state) => state.missing === true)).toBe(true);
+  });
+
+  it("should refuse to publish or adopt any host while a refused reap leaves this socket's proven-dead owner unconfirmed", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "h2a-native-terminal-refused-reap-"));
+    directories.add(directory);
+    const socketPath = join(directory, "host.sock");
+    const registryPath = join(directory, "registry.json");
+    const entry = fileURLToPath(new URL("./process.ts", import.meta.url));
+    const hostArgs = (generation: string): string[] => [
+      "--import",
+      "tsx",
+      entry,
+      "--socket",
+      socketPath,
+      "--generation",
+      generation,
+      "--replay-bytes",
+      "1024",
+      "--registry-path",
+      registryPath,
+    ];
+    const reapCalls: string[] = [];
+    // Every reap this test triggers REFUSES, the outcome the fail-closed rule
+    // exists for: the durable group is proven ownerless and still alive, and
+    // nothing may resume terminal work on this socket over it.
+    const refuseReap = async (
+      sessionId: string,
+      _pgid: number,
+    ): Promise<NativeTerminalReapOutcome> => {
+      reapCalls.push(sessionId);
+      return {
+        sessionId,
+        status: "refused",
+        reason: "injected refusal for the concurrent-containment regression",
+        cause: "membership-unprovable",
+      };
+    };
+
+    let ownerSpawnCount = 0;
+    let ownerChild: ChildProcess | undefined;
+    const owner = new NativeTerminalHostSupervisor({
+      socketPath,
+      registryPath,
+      replayBytesPerSession: 1024,
+      startupTimeoutMs: 30_000,
+      spawnTerminationGraceMs: 100,
+      reapOrphan: refuseReap,
+      log: () => {},
+      generationFactory: () => `refused-reap-owner-${ownerSpawnCount}`,
+      spawnHost: () => {
+        ownerSpawnCount += 1;
+        ownerChild = spawn(process.execPath, hostArgs(`refused-reap-owner-${ownerSpawnCount}`), {
+          cwd: dirname(entry),
+          env: process.env,
+          stdio: ["ignore", "pipe", "pipe"],
+        });
+        children.add(ownerChild);
+        return ownerChild;
+      },
+    });
+
+    const first = await owner.client();
+    const firstPing = await first.ping();
+    const stubbornPids = await createStubbornWorkload(
+      first,
+      "refused-reap-tree",
+      directory,
+    );
+    processGroups.add(stubbornPids[0]!);
+    process.kill(firstPing.hostPid, "SIGKILL");
+    await once(ownerChild!, "exit");
+    owner.disconnect();
+    await unlink(socketPath);
+
+    // 1. The owning supervisor fails closed on its own refused reap.
+    await expect(owner.client()).rejects.toThrow(
+      /did not confirm owner pid=\d+ session refused-reap-tree/,
+    );
+    expect(ownerSpawnCount).toBe(1);
+    expect(reapCalls).toContain("refused-reap-tree");
+
+    // 2. A competing supervisor must not turn that refusal into a published
+    //    replacement. The dead host was never its child, so only the durable
+    //    socket attribution on the row can tell it this is its containment
+    //    problem.
+    let competitorSpawnCount = 0;
+    const competitor = new NativeTerminalHostSupervisor({
+      socketPath,
+      registryPath,
+      replayBytesPerSession: 1024,
+      startupTimeoutMs: 30_000,
+      spawnTerminationGraceMs: 100,
+      reapOrphan: refuseReap,
+      log: () => {},
+      generationFactory: () => "refused-reap-competitor",
+      spawnHost: () => {
+        competitorSpawnCount += 1;
+        const child = spawn(process.execPath, hostArgs("refused-reap-competitor"), {
+          cwd: dirname(entry),
+          env: process.env,
+          stdio: ["ignore", "pipe", "pipe"],
+        });
+        children.add(child);
+        return child;
+      },
+    });
+    await expect(competitor.client()).rejects.toThrow(
+      /is contained: session refused-reap-tree/,
+    );
+    expect(competitorSpawnCount).toBe(0);
+
+    // 3. A healthy host published by something outside both supervisors is
+    //    still not a way back in: neither the owner (which owes a proof for
+    //    its own dead child) nor the competitor (which owes one for this
+    //    socket) may adopt it.
+    const external = spawn(process.execPath, hostArgs("refused-reap-external"), {
+      cwd: dirname(entry),
+      env: process.env,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    children.add(external);
+    const externalPid = await eventually(
+      async () => {
+        try {
+          const probe = await NativeTerminalClient.connect(socketPath, {
+            connectTimeoutMs: 500,
+            requestTimeoutMs: 500,
+          });
+          try {
+            return (await probe.ping()).hostPid;
+          } finally {
+            probe.close();
+          }
+        } catch {
+          return undefined;
+        }
+      },
+      (pid) => typeof pid === "number",
+    );
+    expect(externalPid).toBe(external.pid);
+    await expect(owner.client()).rejects.toThrow(
+      /did not confirm owner pid=\d+ session refused-reap-tree/,
+    );
+    await expect(competitor.client()).rejects.toThrow(
+      /is contained: session refused-reap-tree/,
+    );
+    expect(ownerSpawnCount).toBe(1);
+    expect(competitorSpawnCount).toBe(0);
+    // The refused row is never pruned: the block lifts only when the group is
+    // actually confirmed reaped, not when a caller retries.
+    expect(readNativeTerminalPgid("refused-reap-tree", registryPath)).toMatchObject({
+      status: "resolved",
+    });
   });
 });
