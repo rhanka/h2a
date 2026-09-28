@@ -83,7 +83,9 @@ function dischargesOwnedHostProof(outcome: NativeTerminalReconcileOutcome): bool
   return (
     outcome.status === "reaped" ||
     outcome.status === "pruned-recycled-pgid" ||
-    (outcome.status === "reap-refused" && outcome.cause === "recycled")
+    outcome.status === "pruned-stale-boot-row" ||
+    (outcome.status === "reap-refused" &&
+      (outcome.cause === "recycled" || outcome.cause === "stale-boot"))
   );
 }
 
@@ -103,6 +105,10 @@ function dischargesOwnedHostProof(outcome: NativeTerminalReconcileOutcome): bool
  *    unrelated live leader, which proves the original group is gone. Reconcile
  *    already reports it as `pruned-recycled-pgid`; this stays defence in depth
  *    for an injected or legacy reap that returns the refusal directly.
+ *  - `stale-boot` — the OPPOSITE of a survivor too, and for a stronger reason:
+ *    the row was written before this boot, in this reader's own pid namespace,
+ *    and a reboot ends every process of the boot before it. Reconcile reports
+ *    it as `pruned-stale-boot-row`; same defence in depth as `recycled`.
  *  - NO cause — the pgid could not be resolved at all, which is what the loser
  *    of a race between two reconcile passes sees once the winner confirmed the
  *    reap and pruned the row. An absence of information, not a survivor.
@@ -131,20 +137,27 @@ function recoveryHint(
     pgid: number;
     status: "reap-refused" | "reap-timed-out" | "reap-failed";
     cause?: NativeTerminalReapRefusalCause;
+    ownerDeathUnproven?: true;
   }>,
 ): string {
   const inspect = `Inspect it first: ps -o pid,pgid,stat,args -g ${outcome.pgid}.`;
   const lifts =
     `The block lifts as soon as any later pass finds pgid=${outcome.pgid} empty and prunes the durable row for session ${outcome.sessionId}.`;
+  /** The one recovery that never waits on a third party: drop the row itself. */
+  const byHand =
+    `If inspection shows pgid=${outcome.pgid} is NOT this session's PTY tree, do not wait for that unrelated process to exit: remove the durable row for session ${outcome.sessionId} from the registry by hand (its id is "native-terminal-pty:${outcome.sessionId}").`;
   if (outcome.status === "reap-failed") {
-    return `The reap of this row THREW before proving anything (the durable store or the probe failed), so the group was never identified and nothing was signalled: it may be alive. Fix the durable store first, then retry. ${inspect} ${lifts}`;
+    const owner = outcome.ownerDeathUnproven === true
+      ? `The OWNING HOST's own liveness was never proven either (its probe failed), so this row's owner is not known to be dead.`
+      : `The owning host is proven dead.`;
+    return `The evaluation of this row FAILED before proving anything (the durable store or a probe failed), so the group was never identified and nothing was signalled: it may be alive. ${owner} Fix the durable store first, then retry. ${inspect} ${lifts}`;
   }
   if (outcome.status === "reap-timed-out") {
     return `The group WAS proven to be this session's PTY tree and did not die within the force-kill timeout (an unkillable or uninterruptible-sleep member). ${inspect} ${lifts}`;
   }
   switch (outcome.cause) {
     case "membership-unprovable":
-      return `The group at pgid=${outcome.pgid} is alive but could NOT be proven to be this session's PTY tree, so it may belong to an unrelated process: do NOT signal it on the strength of this message. ${inspect} ${lifts}`;
+      return `The group at pgid=${outcome.pgid} is alive but could NOT be proven to be this session's PTY tree, so it may belong to an unrelated process: do NOT signal it on the strength of this message. ${inspect} ${byHand} ${lifts}`;
     case "pgid-mismatch":
       return `The durable row for session ${outcome.sessionId} is being rewritten while its owner is proven dead, so no group was identified and nothing was signalled. Retry once the writer settles; ${lifts}`;
     case "unsupported-process-groups":
@@ -278,6 +291,7 @@ export class NativeTerminalHostSupervisor {
         sessionId: string,
         pgid: number,
         signal: NativeTerminalStopSignal,
+        expected?: { groupToken?: string },
       ) => Promise<NativeTerminalReapOutcome>)
     | undefined;
   readonly #log: (line: string) => void;
@@ -322,6 +336,7 @@ export class NativeTerminalHostSupervisor {
       sessionId: string,
       pgid: number,
       signal: NativeTerminalStopSignal,
+      expected?: { groupToken?: string },
     ) => Promise<NativeTerminalReapOutcome>;
     /** Diagnostic sink for the orphan-reconcile pass; defaults to prefixed stderr. */
     log?: (line: string) => void;
@@ -891,8 +906,15 @@ export class NativeTerminalHostSupervisor {
       if (outcome.status === "reap-refused" && !provesASurvivingGroup(outcome.cause)) {
         continue;
       }
+      // A `reap-failed` taken before the owner probe answered proves nothing
+      // about the owner either — the containment is identical, but the message
+      // must not assert a death nobody proved.
+      const ownership =
+        outcome.status === "reap-failed" && outcome.ownerDeathUnproven === true
+          ? `owned by host pid=${outcome.ownerPid} (whose own death was never proven)`
+          : `owned by proven-dead host pid=${outcome.ownerPid}`;
       throw new NativeTerminalContainmentError(
-        `native terminal socket ${this.#socketPath} is contained: session ${outcome.sessionId} pgid=${outcome.pgid} owned by proven-dead host pid=${outcome.ownerPid} was not confirmed reaped (${outcome.status}${outcome.status === "reap-refused" && outcome.cause !== undefined ? `/${outcome.cause}` : ""}); refusing to start or adopt a host over a surviving PTY group. ${recoveryHint(outcome)}`,
+        `native terminal socket ${this.#socketPath} is contained: session ${outcome.sessionId} pgid=${outcome.pgid} ${ownership} was not confirmed reaped (${outcome.status}${outcome.status === "reap-refused" && outcome.cause !== undefined ? `/${outcome.cause}` : ""}); refusing to start or adopt a host over a surviving PTY group. ${recoveryHint(outcome)}`,
         {
           socketPath: this.#socketPath,
           sessionId: outcome.sessionId,

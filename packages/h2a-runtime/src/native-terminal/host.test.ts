@@ -13,7 +13,11 @@ import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { PtyHandle, PtySpawner } from "../pty.js";
-import { persistNativeTerminalPgid, readNativeTerminalPgid } from "../registry.js";
+import {
+  persistNativeTerminalPgid,
+  pruneNativeTerminalPgidEntry,
+  readNativeTerminalPgid,
+} from "../registry.js";
 import {
   groupIsOnlyZombies,
   NativeTerminalHost,
@@ -972,10 +976,12 @@ describe("NativeTerminalHost", () => {
     expect(killGroup).toHaveBeenCalledWith(pgid, "SIGKILL");
     expect(host.pgidGuardCounters).toEqual({
       recycled: 0,
+      staleBoot: 0,
       membershipUnprovable: 0,
       unverifiedLegacy: 0,
       tokenVerified: 0,
       zombieGroup: 0,
+      groupDrained: 0,
     });
   });
 
@@ -1020,10 +1026,12 @@ describe("NativeTerminalHost", () => {
     expect(killGroup).not.toHaveBeenCalled();
     expect(host.pgidGuardCounters).toEqual({
       recycled: 1,
+      staleBoot: 0,
       membershipUnprovable: 0,
       unverifiedLegacy: 0,
       tokenVerified: 0,
       zombieGroup: 0,
+      groupDrained: 0,
     });
     expect(warnings.some((line) =>
       /REFUSING/.test(line) &&
@@ -1079,10 +1087,12 @@ describe("NativeTerminalHost", () => {
     expect(killGroup).toHaveBeenCalledWith(pgid, "SIGKILL");
     expect(host.pgidGuardCounters).toEqual({
       recycled: 0,
+      staleBoot: 0,
       membershipUnprovable: 0,
       unverifiedLegacy: 0,
       tokenVerified: 1,
       zombieGroup: 0,
+      groupDrained: 0,
     });
     expect(warnings.some((line) =>
       /PROCEEDING/.test(line) &&
@@ -1153,10 +1163,12 @@ describe("NativeTerminalHost", () => {
     expect(killGroup).not.toHaveBeenCalled();
     expect(host.pgidGuardCounters).toEqual({
       recycled: 0,
+      staleBoot: 0,
       membershipUnprovable: 1,
       unverifiedLegacy: 0,
       tokenVerified: 0,
       zombieGroup: 0,
+      groupDrained: 0,
     });
     expect(
       warnings.some(
@@ -1262,10 +1274,12 @@ describe("NativeTerminalHost", () => {
     expect(killGroup).not.toHaveBeenCalled();
     expect(host.pgidGuardCounters).toEqual({
       recycled: 0,
+      staleBoot: 0,
       membershipUnprovable: 1,
       unverifiedLegacy: 0,
       tokenVerified: 0,
       zombieGroup: 0,
+      groupDrained: 0,
     });
     expect(warnings.some((line) =>
       /REFUSING/.test(line) &&
@@ -1319,10 +1333,12 @@ describe("NativeTerminalHost", () => {
     expect(killGroup).not.toHaveBeenCalled();
     expect(host.pgidGuardCounters).toEqual({
       recycled: 0,
+      staleBoot: 0,
       membershipUnprovable: 0,
       unverifiedLegacy: 0,
       tokenVerified: 0,
       zombieGroup: 1,
+      groupDrained: 0,
     });
     expect(warnings.some((line) =>
       /zombie/i.test(line) &&
@@ -1330,6 +1346,246 @@ describe("NativeTerminalHost", () => {
       line.includes("sessionId=alpha") &&
       line.includes(`pgid=${pgid}`)
     )).toBe(true);
+  });
+
+  it("PGID_GUARD_CONFIRMS_A_GROUP_THAT_DRAINED_DURING_THE_IDENTITY_CHECKS", async () => {
+    // The liveness probe that admits a group to the identity checks runs ONCE,
+    // before them. The checks that follow (frame, leader start-time, token
+    // scan, two full /proc censuses) take real time, and a group whose last
+    // zombies are collected meanwhile is EMPTY by the time they answer: the
+    // census reports "not proven all-zombie" (its first scan is already empty,
+    // or its two scans disagree), and the refusal below blocks a socket over a
+    // group the OS would now answer ESRCH for.
+    //
+    // Re-probe the group before refusing. ESRCH is the same positive
+    // proof-of-death the short-circuit above the guard and the confirmation
+    // poll already rely on, so this cannot manufacture a death verdict: a live
+    // group — leaderless or `Zl` — still answers ALIVE and is still refused.
+    const { spawner, ptys } = stubSpawner();
+    const { reaper, killGroup, alive } = fakeReaper();
+    const { find } = fakeGroupMemberTokenProbe(); // nobody carries the token
+    const warnings: string[] = [];
+    const host = new NativeTerminalHost({
+      generation: "host-generation-pgid-drained",
+      replayBytesPerSession: 32,
+      spawner,
+      registryPath,
+      reaper,
+      log: (line) => warnings.push(line),
+      readLeaderStartTime: () => undefined, // leader already reaped
+      findGroupMemberToken: find,
+      // The census is exactly where the drain lands: the parent collects the
+      // last zombies while it scans, so it answers `false` AND the group is
+      // gone by the time it returns.
+      groupIsOnlyZombies: (pgid) => {
+        alive.delete(pgid);
+        return false;
+      },
+    });
+    createSession(host, "alpha");
+    const pgid = ptys.get("alpha")!.pgid;
+    alive.add(pgid); // alive when the reap starts: the checks are entered
+
+    const outcome = await host.reapOrphan("alpha");
+
+    expect(outcome).toEqual({
+      sessionId: "alpha",
+      status: "reaped",
+      pgid,
+      elapsedMs: expect.any(Number),
+    });
+    expect(killGroup).not.toHaveBeenCalled();
+    expect(host.pgidGuardCounters).toMatchObject({
+      membershipUnprovable: 0,
+      zombieGroup: 0,
+      groupDrained: 1,
+    });
+    expect(warnings.some((line) =>
+      /NOT signalling/i.test(line) &&
+      line.includes("cause=group-drained") &&
+      line.includes("sessionId=alpha") &&
+      line.includes(`pgid=${pgid}`)
+    )).toBe(true);
+  });
+
+  it("PGID_GUARD_STILL_REFUSES_A_GROUP_THAT_IS_STILL_ALIVE_AFTER_THE_IDENTITY_CHECKS", async () => {
+    // The counter-mutant of the case above: the re-probe must be a PROOF, not
+    // a way out. A group that is still there when the checks end is still
+    // unidentifiable, and still blocks.
+    const { spawner, ptys } = stubSpawner();
+    const { reaper, killGroup, alive } = fakeReaper();
+    const { find } = fakeGroupMemberTokenProbe();
+    const host = new NativeTerminalHost({
+      generation: "host-generation-pgid-still-alive",
+      replayBytesPerSession: 32,
+      spawner,
+      registryPath,
+      reaper,
+      log: () => {},
+      readLeaderStartTime: () => undefined,
+      findGroupMemberToken: find,
+      groupIsOnlyZombies: () => false, // a LIVE leaderless group: nothing drained
+    });
+    createSession(host, "alpha");
+    const pgid = ptys.get("alpha")!.pgid;
+    alive.add(pgid);
+
+    expect(await host.reapOrphan("alpha")).toMatchObject({
+      status: "refused",
+      cause: "membership-unprovable",
+    });
+    expect(killGroup).not.toHaveBeenCalled();
+    expect(host.pgidGuardCounters).toMatchObject({
+      membershipUnprovable: 1,
+      groupDrained: 0,
+    });
+  });
+
+  it.skipIf(process.platform !== "linux")(
+    "PGID_GUARD_PROVES_THE_GROUP_GONE_WHEN_THE_ROW_WAS_WRITTEN_BEFORE_THIS_BOOT",
+    async () => {
+      // A `pgidBootId` that differs from this reader's is POSITIVE proof that
+      // every process the row describes has ended: a reboot ends every process
+      // of the previous boot. It is therefore the strongest form of the
+      // `recycled` proof, not an absence of one — and treating it as
+      // `membership-unprovable` blocks the socket until an UNRELATED live
+      // process that merely inherited the pgid NUMBER happens to exit.
+      //
+      // The proof is admissible only in the reader's own pid namespace: a pid
+      // number means nothing across namespaces, so an unknown or different
+      // namespace still proves nothing (see the case above this one).
+      const { spawner, ptys } = stubSpawner();
+      const { reaper, killGroup, alive } = fakeReaper();
+      const { read, values } = fakeLeaderStartTimeReader(1000);
+      const warnings: string[] = [];
+      const host = new NativeTerminalHost({
+        generation: "host-generation-pgid-stale-boot",
+        replayBytesPerSession: 32,
+        spawner,
+        registryPath,
+        reaper,
+        log: (line) => warnings.push(line),
+        readLeaderStartTime: read,
+      });
+      createSession(host, "alpha");
+      const pgid = ptys.get("alpha")!.pgid;
+      // The row keeps THIS reader's pid namespace and takes a foreign boot id.
+      patchDurableRow("alpha", (row) => {
+        expect(row.pgidPidNamespace).toBeTypeOf("string");
+        expect(row.pgidBootId).toBeTypeOf("string");
+        row.pgidBootId = "00000000-0000-4000-8000-000000000000";
+      });
+      // The pgid NUMBER is held by a live, unrelated group leader now.
+      alive.add(pgid);
+      values.set(pgid, 2000);
+
+      const outcome = await host.reapOrphan("alpha");
+
+      expect(outcome).toEqual({
+        sessionId: "alpha",
+        status: "refused",
+        reason: expect.stringMatching(/stale-boot/i),
+        cause: "stale-boot",
+      });
+      // The live group that now holds this number is NEVER signalled.
+      expect(killGroup).not.toHaveBeenCalled();
+      expect(host.pgidGuardCounters).toMatchObject({
+        staleBoot: 1,
+        membershipUnprovable: 0,
+        recycled: 0,
+      });
+      expect(warnings.some((line) =>
+        /NOT signalling/i.test(line) &&
+        line.includes("cause=stale-boot") &&
+        line.includes("sessionId=alpha") &&
+        line.includes(`pgid=${pgid}`)
+      )).toBe(true);
+    },
+  );
+
+  it.skipIf(process.platform !== "linux")(
+    "PGID_GUARD_GRANTS_NO_STALE_BOOT_PROOF_ACROSS_A_PID_NAMESPACE",
+    async () => {
+      // Same foreign boot id, but the row also comes from another pid
+      // namespace: the pid the row names is not the pid this reader resolves
+      // under that number, so nothing about it can be proven either way. The
+      // blocking refusal stands.
+      const { spawner, ptys } = stubSpawner();
+      const { reaper, killGroup, alive } = fakeReaper();
+      const { read, values } = fakeLeaderStartTimeReader(1000);
+      const host = new NativeTerminalHost({
+        generation: "host-generation-pgid-stale-boot-foreign-ns",
+        replayBytesPerSession: 32,
+        spawner,
+        registryPath,
+        reaper,
+        log: () => {},
+        readLeaderStartTime: read,
+      });
+      createSession(host, "alpha");
+      const pgid = ptys.get("alpha")!.pgid;
+      patchDurableRow("alpha", (row) => {
+        row.pgidPidNamespace = "4026599999";
+        row.pgidBootId = "00000000-0000-4000-8000-000000000000";
+      });
+      alive.add(pgid);
+      values.set(pgid, 2000);
+
+      expect(await host.reapOrphan("alpha")).toMatchObject({
+        status: "refused",
+        cause: "membership-unprovable",
+      });
+      expect(killGroup).not.toHaveBeenCalled();
+      expect(host.pgidGuardCounters).toMatchObject({
+        staleBoot: 0,
+        membershipUnprovable: 1,
+      });
+    },
+  );
+
+  it("REAP_REFUSES_WHEN_THE_RE_READ_ROW_CARRIES_A_DIFFERENT_GROUP_TOKEN", async () => {
+    // The immutable snapshot a reconcile pass acts on is (pgid, groupToken),
+    // and every prune compares BOTH. The kill side compared the pgid number
+    // alone: a session id recreated within one pass whose new PTY leader is
+    // handed back the same, just-freed pid number re-reads as "same pgid" and
+    // the LIVE group is killed. The token is a per-session UUID, so comparing
+    // it closes that window.
+    const { spawner, ptys } = stubSpawner();
+    const { reaper, killGroup, alive } = fakeReaper();
+    const warnings: string[] = [];
+    const host = new NativeTerminalHost({
+      generation: "host-generation-pgid-token-mismatch",
+      replayBytesPerSession: 32,
+      spawner,
+      registryPath,
+      reaper,
+      log: (line) => warnings.push(line),
+      readLeaderStartTime: () => 1000,
+    });
+    createSession(host, "alpha");
+    const pgid = ptys.get("alpha")!.pgid;
+    alive.add(pgid);
+
+    const outcome = await host.reapOrphan("alpha", "SIGKILL", pgid, {
+      groupToken: "the-token-the-caller-snapshotted",
+    });
+
+    expect(outcome).toEqual({
+      sessionId: "alpha",
+      status: "refused",
+      reason: expect.stringMatching(/group token/i),
+      cause: "pgid-mismatch",
+    });
+    expect(killGroup).not.toHaveBeenCalled();
+    // The matching token still reaps: the check is the token and nothing else.
+    const token = (
+      readNativeTerminalPgid("alpha", registryPath) as { groupToken?: string }
+    ).groupToken;
+    expect(token).toBeTypeOf("string");
+    expect(
+      await host.reapOrphan("alpha", "SIGKILL", pgid, { groupToken: token }),
+    ).toMatchObject({ status: "reaped" });
+    expect(killGroup).toHaveBeenCalledWith(pgid, "SIGKILL");
   });
 
   it("REAL_PROC_ZOMBIE_CENSUS_ANSWERS_ONLY_FROM_POSITIVE_EVIDENCE", async () => {
@@ -1496,6 +1752,30 @@ describe("NativeTerminalHost", () => {
     expect(call).toBe(2);
   });
 
+  it("ZOMBIE_CENSUS_IS_UNKNOWN_WHEN_NO_MOUNT_LINE_DESCRIBES_THE_TREE_IT_READS", () => {
+    // The census answers only when the mount table POSITIVELY shows the proc
+    // mount it is about to read WITHOUT `hidepid`. A mount table that names no
+    // such mount at all is not that evidence — it is an unreadable frame, the
+    // same epistemic state as a mount table that could not be read — yet it
+    // used to fall through to "not hidden", i.e. "complete view".
+    const noProcLine = procFixture({
+      mountinfo: "26 1 0:5 / /sys rw,nosuid,nodev,noexec,relatime - sysfs sysfs rw\n",
+      processes: [
+        { pid: 4_601, pgrp: 4_600, state: "Z", tasks: [{ tid: 4_601, state: "Z" }] },
+      ],
+    });
+    expect(groupIsOnlyZombies(4_600, noProcLine)).toBe(false);
+
+    // A mount line for a DIFFERENT tree is no evidence about this one either.
+    const otherTree = procFixture({
+      mountinfo: "54 46 0:25 / /proc rw,relatime shared:12 - proc proc rw\n",
+      processes: [
+        { pid: 4_701, pgrp: 4_700, state: "Z", tasks: [{ tid: 4_701, state: "Z" }] },
+      ],
+    });
+    expect(groupIsOnlyZombies(4_700, otherTree)).toBe(false);
+  });
+
   it.skipIf(!HAS_CC)(
     "REAL_PROC_CENSUS_REFUSES_A_REAL_MULTITHREADED_PROCESS_WHOSE_LEADER_THREAD_EXITED",
     async () => {
@@ -1599,10 +1879,12 @@ describe("NativeTerminalHost", () => {
     expect(killGroup).toHaveBeenCalledWith(pgid, "SIGKILL");
     expect(host.pgidGuardCounters).toEqual({
       recycled: 0,
+      staleBoot: 0,
       membershipUnprovable: 0,
       unverifiedLegacy: 1,
       tokenVerified: 0,
       zombieGroup: 0,
+      groupDrained: 0,
     });
     expect(warnings.some((line) =>
       /PROCEEDING/.test(line) &&
@@ -1993,6 +2275,206 @@ describe("NativeTerminalHost", () => {
         (line) => /reap FAILED/i.test(line) && line.includes("throwing-row"),
       ),
     ).toBe(true);
+  });
+
+  it("RECONCILE_BLOCKS_WHEN_THE_STORE_IS_UNREADABLE_AFTER_A_PGID_MISMATCH", async () => {
+    // The `pgid-mismatch` re-read exists to tell "the row this pass owed a
+    // verdict for is gone" from "it is still owed". An UNREADABLE store answers
+    // neither: it is an absence of information about a row whose owner is
+    // proven dead and whose group was never probed. Reporting it as the
+    // non-blocking `skipped-row-changed` lets a supervisor whose socket owns
+    // that row start a host over a group whose fate was never decided.
+    persistNativeTerminalPgid("mismatch-row", 30_401, registryPath, {
+      pid: 4_242_801,
+      startTime: 41,
+      socketPath: "/sockets/mine.sock",
+    });
+    const logs: string[] = [];
+
+    const summary = await reconcileDeadHostOrphans({
+      registryPath,
+      ownerProbe: () => "dead",
+      reap: async (sessionId) => {
+        // The store turns unreadable strictly BETWEEN the reap and the re-read
+        // (EACCES, ENOSPC, a partial write by a concurrent rebuild).
+        writeFileSync(registryPath, "{ this is not a registry", "utf8");
+        return {
+          sessionId,
+          status: "refused",
+          reason: "immutable snapshot pgid=30401 differs from re-resolved pgid=30999",
+          cause: "pgid-mismatch",
+        };
+      },
+      log: (line) => logs.push(line),
+    });
+
+    expect(summary).toEqual({
+      status: "completed",
+      outcomes: [
+        {
+          sessionId: "mismatch-row",
+          status: "reap-failed",
+          ownerPid: 4_242_801,
+          ownerSocketPath: "/sockets/mine.sock",
+          pgid: 30_401,
+          reason: expect.stringMatching(/unreadable|malformed/i),
+        },
+      ],
+    });
+    expect(
+      logs.some(
+        (line) => /reap FAILED/i.test(line) && line.includes("mismatch-row"),
+      ),
+    ).toBe(true);
+  });
+
+  it("RECONCILE_STILL_SKIPS_A_PGID_MISMATCH_WHOSE_ROW_IS_READABLY_GONE", async () => {
+    // The counter-mutant: a store that reads fine and no longer holds the row
+    // is a POSITIVE answer — nothing is owed — and must stay non-blocking.
+    persistNativeTerminalPgid("vanished-row", 30_402, registryPath, {
+      pid: 4_242_802,
+      startTime: 42,
+      socketPath: "/sockets/mine.sock",
+    });
+
+    const summary = await reconcileDeadHostOrphans({
+      registryPath,
+      ownerProbe: () => "dead",
+      reap: async (sessionId) => {
+        pruneNativeTerminalPgidEntry(sessionId, registryPath);
+        return {
+          sessionId,
+          status: "refused",
+          reason: "immutable snapshot pgid=30402 differs from re-resolved pgid=30999",
+          cause: "pgid-mismatch",
+        };
+      },
+      log: () => {},
+    });
+
+    expect(summary).toEqual({
+      status: "completed",
+      outcomes: [
+        {
+          sessionId: "vanished-row",
+          status: "skipped-row-changed",
+          reason: expect.stringMatching(/gone/i),
+        },
+      ],
+    });
+  });
+
+  it("RECONCILE_PRUNES_A_ROW_FROM_A_PREVIOUS_BOOT_AS_PROOF_ITS_GROUP_IS_GONE", async () => {
+    // `stale-boot` is a PROOF that the original group ended, like `recycled`:
+    // prune the row, report it as its own outcome, and never point anyone at
+    // the pgid number — a live unrelated group may hold it now.
+    persistNativeTerminalPgid("stale-boot-row", 30_301, registryPath, {
+      pid: 4_242_701,
+      startTime: 31,
+      socketPath: "/sockets/mine.sock",
+    });
+    const logs: string[] = [];
+
+    const summary = await reconcileDeadHostOrphans({
+      registryPath,
+      ownerProbe: () => "dead",
+      reap: async (sessionId) => ({
+        sessionId,
+        status: "refused",
+        reason: "this row was written before the current boot (stale-boot)",
+        cause: "stale-boot",
+      }),
+      log: (line) => logs.push(line),
+    });
+
+    expect(summary).toEqual({
+      status: "completed",
+      outcomes: [
+        {
+          sessionId: "stale-boot-row",
+          status: "pruned-stale-boot-row",
+          ownerPid: 4_242_701,
+          ownerSocketPath: "/sockets/mine.sock",
+          pgid: 30_301,
+          reason: expect.stringMatching(/stale-boot/i),
+        },
+      ],
+    });
+    expect(readNativeTerminalPgid("stale-boot-row", registryPath)).toEqual({
+      status: "unresolved",
+      reason: expect.stringMatching(/no pgid recorded/i),
+    });
+    expect(
+      logs.some(
+        (line) =>
+          line.includes("stale-boot-row") &&
+          /previous boot/i.test(line) &&
+          /must NOT be killed/i.test(line),
+      ),
+    ).toBe(true);
+  });
+
+  it("RECONCILE_DOES_NOT_CLAIM_A_PROVEN_DEAD_OWNER_WHEN_THE_OWNER_PROBE_FAILED", async () => {
+    // `reap-failed` covers every per-entry failure, including one taken BEFORE
+    // the owner's death was established. The row must still block its socket —
+    // nothing was proven about its group either — but the verdict must not
+    // assert a death nobody proved.
+    persistNativeTerminalPgid("probe-throws-row", 30_501, registryPath, {
+      pid: 4_242_901,
+      startTime: 51,
+      socketPath: "/sockets/mine.sock",
+    });
+    const reap = vi.fn();
+
+    const summary = await reconcileDeadHostOrphans({
+      registryPath,
+      ownerProbe: () => {
+        throw new Error("owner probe failed: EIO");
+      },
+      reap: reap as never,
+      log: () => {},
+    });
+
+    expect(summary).toEqual({
+      status: "completed",
+      outcomes: [
+        {
+          sessionId: "probe-throws-row",
+          status: "reap-failed",
+          ownerPid: 4_242_901,
+          ownerSocketPath: "/sockets/mine.sock",
+          pgid: 30_501,
+          ownerDeathUnproven: true,
+          reason: expect.stringMatching(/EIO/),
+        },
+      ],
+    });
+    expect(reap).not.toHaveBeenCalled();
+    // A failure AFTER the owner was proven dead keeps the plain shape.
+    expect(
+      (
+        await reconcileDeadHostOrphans({
+          registryPath,
+          ownerProbe: () => "dead",
+          reap: async () => {
+            throw new Error("reap failed after the owner was proven dead");
+          },
+          log: () => {},
+        })
+      ),
+    ).toEqual({
+      status: "completed",
+      outcomes: [
+        {
+          sessionId: "probe-throws-row",
+          status: "reap-failed",
+          ownerPid: 4_242_901,
+          ownerSocketPath: "/sockets/mine.sock",
+          pgid: 30_501,
+          reason: expect.stringMatching(/after the owner was proven dead/),
+        },
+      ],
+    });
   });
 
   it("should never resurrect a lease when an exited session id is reused", () => {
