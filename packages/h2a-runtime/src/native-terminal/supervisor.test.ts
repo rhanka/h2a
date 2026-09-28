@@ -8,7 +8,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { persistNativeTerminalPgid, readNativeTerminalPgid } from "../registry.js";
 import { readProcessStartTime, type NativeTerminalReapOutcome } from "./host.js";
-import { NativeTerminalHostSupervisor, type NativeTerminalHostSpawn } from "./supervisor.js";
+import {
+  NativeTerminalContainmentError,
+  NativeTerminalHostSupervisor,
+  type NativeTerminalHostSpawn,
+} from "./supervisor.js";
 import type { NativeTerminalStopSignal } from "./protocol.js";
 
 // Scratch dir inside the package (never /tmp), like the other native-terminal
@@ -169,7 +173,7 @@ describe.skipIf(process.platform !== "linux")(
           (line) => /live-session/.test(line) && /still alive/i.test(line),
         ),
       ).toBe(true);
-      expect(readNativeTerminalPgid("live-session", registryPath)).toEqual({
+      expect(readNativeTerminalPgid("live-session", registryPath)).toMatchObject({
         status: "resolved",
         pgid: 5_555,
       });
@@ -351,6 +355,27 @@ describe.skipIf(process.platform !== "linux")(
       );
 
       expect(error.message).toMatch(/is contained: session alias-supervisor-session/);
+      expect(spawnHost).not.toHaveBeenCalled();
+    });
+
+    it("SUPERVISOR_IS_CONTAINED_WHEN_A_REAP_THROWS_ON_A_ROW_ATTRIBUTED_TO_ITS_SOCKET", async () => {
+      // A reap that THROWS (the registry turned unreadable, a write failed)
+      // proves nothing about the group. Treating it as a cleanup hiccup hands
+      // the socket to a new host over a PTY group whose fate is unknown, which
+      // is exactly the containment failure the socket-scoped rule exists for.
+      // The verdict must also be TYPED, so no retry path re-decides it.
+      const socketPath = deadSocketPath();
+      const { error, spawnHost } = await takeoverWithReapOutcome(
+        "reap-failure-session",
+        socketPath,
+        () => {
+          throw new Error("registry write failed mid-reap: EACCES");
+        },
+      );
+
+      expect(error).toBeInstanceOf(NativeTerminalContainmentError);
+      expect(error.message).toMatch(/is contained: session reap-failure-session/);
+      expect(error.message).toMatch(/reap-failed/);
       expect(spawnHost).not.toHaveBeenCalled();
     });
 

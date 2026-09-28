@@ -129,13 +129,16 @@ function recoveryHint(
   outcome: Readonly<{
     sessionId: string;
     pgid: number;
-    status: "reap-refused" | "reap-timed-out";
+    status: "reap-refused" | "reap-timed-out" | "reap-failed";
     cause?: NativeTerminalReapRefusalCause;
   }>,
 ): string {
   const inspect = `Inspect it first: ps -o pid,pgid,stat,args -g ${outcome.pgid}.`;
   const lifts =
     `The block lifts as soon as any later pass finds pgid=${outcome.pgid} empty and prunes the durable row for session ${outcome.sessionId}.`;
+  if (outcome.status === "reap-failed") {
+    return `The reap of this row THREW before proving anything (the durable store or the probe failed), so the group was never identified and nothing was signalled: it may be alive. Fix the durable store first, then retry. ${inspect} ${lifts}`;
+  }
   if (outcome.status === "reap-timed-out") {
     return `The group WAS proven to be this session's PTY tree and did not die within the force-kill timeout (an unkillable or uninterruptible-sleep member). ${inspect} ${lifts}`;
   }
@@ -758,7 +761,10 @@ export class NativeTerminalHostSupervisor {
    * that PROVED an owner dead and then reported an outcome carrying positive
    * evidence that the PTY group is STILL ALIVE (`reap-timed-out`, or a
    * `reap-refused` whose cause `provesASurvivingGroup` — see that predicate
-   * for the per-cause reasoning) must not be followed by a hand-out:
+   * for the per-cause reasoning), or an outcome that proves NOTHING AT ALL
+   * about that group (`reap-failed`: this row's own evaluation threw, so the
+   * group was never identified and the row is still there), must not be
+   * followed by a hand-out:
    * publishing a replacement host, or adopting a competitor's, on that socket
    * would resume terminal work over that group — the invisible-orphan bug this
    * whole mechanism exists to close. So any such outcome whose row is
@@ -771,7 +777,10 @@ export class NativeTerminalHostSupervisor {
    *    resolved, which is exactly what the loser of a race between two
    *    reconcile passes sees once the winner confirmed the reap and pruned the
    *    row. Treating that as a surviving group would convert a successful
-   *    concurrent containment into an outage;
+   *    concurrent containment into an outage. Note the contrast with
+   *    `reap-failed`, which is NOT excluded: there the row is still in the
+   *    store and its evaluation failed outright, so nothing explains the
+   *    missing proof;
    *  - `recycled` PROVES the original group is gone rather than surviving (an
    *    unrelated live leader now holds that pgid number), so reconcile prunes
    *    the row and reports `pruned-recycled-pgid`. Blocking there would strand
@@ -810,8 +819,24 @@ export class NativeTerminalHostSupervisor {
       this.#log(
         `native-terminal orphan reconcile failed: ${String(error)}`,
       );
-      if (options.requireReapedForOwnerPid !== undefined) throw error;
-      return;
+      if (options.requireReapedForOwnerPid === undefined) return;
+      // The pass itself failed while this supervisor owed a specific proof for
+      // a host IT killed. That is a containment failure, not a hiccup — and it
+      // must be TYPED: a raw error here reaches the readiness loop as "the host
+      // is not ready yet" and is retried every poll interval until the
+      // deadline (the reconcile-storm shape), instead of being surfaced once.
+      // Defence in depth: `reconcileDeadHostOrphans` now contains every
+      // per-entry failure itself, so this path is not reachable through any
+      // injected seam.
+      if (error instanceof NativeTerminalContainmentError) throw error;
+      throw new NativeTerminalContainmentError(
+        `forced native-terminal host reap could not complete its durable PTY inspection: ${String(error)}`,
+        {
+          socketPath: this.#socketPath,
+          ownerPid: options.requireReapedForOwnerPid,
+          outcomeStatus: "reconcile-threw",
+        },
+      );
     }
     if (summary.status === "refused") {
       // An unreadable registry is an absence of information, not evidence of
@@ -856,7 +881,8 @@ export class NativeTerminalHostSupervisor {
     for (const outcome of summary.outcomes) {
       if (
         outcome.status !== "reap-refused" &&
-        outcome.status !== "reap-timed-out"
+        outcome.status !== "reap-timed-out" &&
+        outcome.status !== "reap-failed"
       ) continue;
       if (
         outcome.ownerSocketPath === undefined ||
