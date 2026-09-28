@@ -206,6 +206,97 @@ describe.skipIf(process.platform !== "linux")(
       });
     });
 
+    /**
+     * Fabricate a durably-recorded session whose owning host is PROVABLY gone
+     * and whose row is attributed to `socketPath`, then drive one takeover
+     * with an injected reap outcome. Returns the supervisor's rejection.
+     */
+    async function takeoverWithReapOutcome(
+      sessionId: string,
+      socketPath: string,
+      outcome: (sessionId: string, pgid: number) => NativeTerminalReapOutcome,
+    ): Promise<{ error: Error; spawnHost: NativeTerminalHostSpawn }> {
+      const owner = spawn(process.execPath, ["-e", "setTimeout(() => {}, 300)"]);
+      const ownerPid = owner.pid!;
+      let ownerStartTime: number | undefined;
+      for (let attempt = 0; attempt < 20 && ownerStartTime === undefined; attempt += 1) {
+        ownerStartTime = readProcessStartTime(ownerPid);
+        if (ownerStartTime === undefined) await new Promise((r) => setTimeout(r, 10));
+      }
+      expect(ownerStartTime).toBeTypeOf("number");
+      persistNativeTerminalPgid(sessionId, 7_777, registryPath, {
+        pid: ownerPid,
+        startTime: ownerStartTime,
+        socketPath,
+      });
+      owner.kill("SIGKILL");
+      await once(owner, "exit");
+
+      const { spawnHost } = fakeSpawnHost();
+      const supervisor = new NativeTerminalHostSupervisor({
+        socketPath,
+        replayBytesPerSession: 1024,
+        registryPath,
+        spawnHost,
+        startupTimeoutMs: 80,
+        spawnTerminationGraceMs: 30,
+        reapOrphan: async (id, pgid) => outcome(id, pgid),
+        log: () => {},
+      });
+      const error = await supervisor.client().then(
+        () => {
+          throw new Error("expected the takeover to reject");
+        },
+        (rejection: Error) => rejection,
+      );
+      return { error, spawnHost };
+    }
+
+    it("SUPERVISOR_REFUSES_A_NEW_HOST_WHILE_ITS_SOCKETS_PROVEN_DEAD_OWNER_IS_UNCONFIRMED", async () => {
+      // A caused refusal is taken with the group observed ALIVE, so it is
+      // positive evidence that a PTY tree outlived its host. No replacement
+      // may be started for that socket, even though this supervisor never
+      // owned the dead host.
+      const socketPath = deadSocketPath();
+      const { error, spawnHost } = await takeoverWithReapOutcome(
+        "contained-session",
+        socketPath,
+        (sessionId) => ({
+          sessionId,
+          status: "refused",
+          reason: "no surviving member carries the persisted session token",
+          cause: "membership-unprovable",
+        }),
+      );
+
+      expect(error.message).toMatch(/is contained: session contained-session/);
+      expect(error.message).toMatch(/membership-unprovable/);
+      expect(spawnHost).not.toHaveBeenCalled();
+    });
+
+    it("SUPERVISOR_STILL_TAKES_OVER_WHEN_A_CONCURRENT_PASS_ALREADY_PRUNED_THE_ROW", async () => {
+      // The loser of a race between two reconcile passes sees a CAUSE-LESS
+      // refusal: the winner confirmed the reap and pruned the row, so the
+      // pgid no longer resolves. That is an absence of information, not a
+      // surviving group — takeover must proceed exactly as before.
+      const socketPath = deadSocketPath();
+      const { error, spawnHost } = await takeoverWithReapOutcome(
+        "raced-session",
+        socketPath,
+        (sessionId) => ({
+          sessionId,
+          status: "refused",
+          reason: `no pgid recorded for terminal session ${sessionId}`,
+        }),
+      );
+
+      // The fake host never opens a real socket, so the takeover it DID start
+      // ends in the ordinary readiness error — never in a containment block.
+      expect(error.message).toMatch(/did not become ready/i);
+      expect(error.message).not.toMatch(/is contained/);
+      expect(spawnHost).toHaveBeenCalled();
+    });
+
     // 2026-08-10: reaping resolves pgid via readNativeTerminalPgid (2-state global reader), NOT #199's 3-state per-identity loadRegistry.
     // De-skip when the reaping migrates to loadRegistry (per-identity unknown, never a global once).
     it.skip('reap treats unknown per identity, never as a global state', () => {});

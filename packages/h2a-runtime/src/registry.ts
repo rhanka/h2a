@@ -150,6 +150,21 @@ export type RegistryEntry = {
    */
   ownerHostPid?: number;
   ownerHostStartTime?: number;
+  /**
+   * The native-terminal SOCKET the owning host was serving when it wrote this
+   * row — the attribution that makes a containment decision SCOPED. A
+   * supervisor that refuses to publish a replacement host while one of its
+   * socket's proven-dead owners is still unconfirmed (see
+   * `NativeTerminalHostSupervisor`) must be able to tell "a row belonging to
+   * the socket I am taking over" from "a row belonging to some other socket's
+   * host in the same durable store" — otherwise one unreapable group would
+   * block every unrelated native terminal too. Absent on legacy rows (written
+   * before this attribution existed): those stay on the pre-existing
+   * best-effort path rather than manufacture a socket verdict from missing
+   * data, the same asymmetry `ownerHostStartTime` and `pgidLeaderStartTime`
+   * already apply one level down.
+   */
+  ownerHostSocketPath?: string;
   enrolledAt: string;
   lastSeenAt: string;
   endedAt?: string;
@@ -638,7 +653,12 @@ function nativeTerminalPgidEntryId(sessionId: string): string {
  * untracked, unreapable session.
  */
 /** Owning-host attribution captured at PTY-creation time (see `RegistryEntry.ownerHostPid`). */
-export type NativeTerminalPgidOwner = { pid: number; startTime?: number };
+export type NativeTerminalPgidOwner = {
+  pid: number;
+  startTime?: number;
+  /** Socket that host was serving (see `RegistryEntry.ownerHostSocketPath`). */
+  socketPath?: string;
+};
 
 export function persistNativeTerminalPgid(
   sessionId: string,
@@ -668,6 +688,7 @@ export function persistNativeTerminalPgid(
       ...(groupToken !== undefined ? { pgidGroupToken: groupToken } : {}),
       ...(owner !== undefined ? { ownerHostPid: owner.pid } : {}),
       ...(owner?.startTime !== undefined ? { ownerHostStartTime: owner.startTime } : {}),
+      ...(owner?.socketPath !== undefined ? { ownerHostSocketPath: owner.socketPath } : {}),
     };
     const next =
       idx >= 0
@@ -773,6 +794,7 @@ export function listNativeTerminalPgidEntries(
     if (typeof e.ownerHostPid === "number") {
       const owner: NativeTerminalPgidOwner = { pid: e.ownerHostPid };
       if (typeof e.ownerHostStartTime === "number") owner.startTime = e.ownerHostStartTime;
+      if (typeof e.ownerHostSocketPath === "string") owner.socketPath = e.ownerHostSocketPath;
       entry.owner = owner;
     }
     entries.push(entry);
@@ -836,6 +858,7 @@ function isRegistryEntry(raw: unknown): raw is RegistryEntry {
       (typeof e.ownerHostStartTime === "number" &&
         Number.isInteger(e.ownerHostStartTime) &&
         e.ownerHostStartTime >= 0)) &&
+    (e.ownerHostSocketPath === undefined || typeof e.ownerHostSocketPath === "string") &&
     (e.delegatorInstance === undefined || typeof e.delegatorInstance === "string") &&
     (e.delegatorTmuxSession === undefined || typeof e.delegatorTmuxSession === "string") &&
     (e.restorePinned === undefined || typeof e.restorePinned === "boolean")
