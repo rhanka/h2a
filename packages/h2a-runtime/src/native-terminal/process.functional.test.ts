@@ -53,6 +53,33 @@ async function eventually<T>(read: () => Promise<T> | T, accept: (value: T) => b
   throw new Error(`condition did not become true; last value: ${JSON.stringify(last)}`);
 }
 
+/**
+ * Wait for a host child to exit, with an explicit deadline. `once(child,
+ * "exit")` alone is the one open-ended wait in a shutdown scenario: a host
+ * that hangs mid-shutdown reports as an anonymous "Test timed out", which
+ * names neither the step nor the process. Name it instead.
+ */
+async function exitWithin(
+  child: ChildProcess,
+  timeoutMs: number,
+): Promise<[number | null, NodeJS.Signals | null]> {
+  const deadline = new AbortController();
+  const timer = setTimeout(() => deadline.abort(), timeoutMs);
+  try {
+    return await once(child, "exit", { signal: deadline.signal }) as [
+      number | null,
+      NodeJS.Signals | null,
+    ];
+  } catch (error) {
+    if (!deadline.signal.aborted) throw error;
+    throw new Error(
+      `native terminal host pid=${child.pid} did not exit within ${timeoutMs}ms`,
+    );
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 function running(pid: number): boolean {
   try {
     process.kill(pid, 0);
@@ -663,6 +690,29 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
     expect(finalStates.every((state) => state.missing === true)).toBe(true);
   });
 
+  // This scenario's wall clock is dominated by work none of its assertions
+  // measure: TWO complete host startups — each a `node --import tsx` boot
+  // plus node-pty's native binding, all of it spent before the host runs its
+  // first line — around one bounded host shutdown. Measured on this suite:
+  // ~0.11s per startup on an idle box, ~0.45s at 2.5x cpu oversubscription,
+  // ~0.75s at 4x, ~4.7s at 24x. The shutdown itself is flat at ~0.58s at
+  // every load (the PTY ignores SIGTERM by design, so process.ts always
+  // spends its full graceful drain before escalating to the group SIGKILL).
+  //
+  // vitest's implicit 5s default was therefore SMALLER than the budget the
+  // supervisor is allowed for ONE of the two startups it awaits. A host that
+  // was merely booting slowly on a loaded runner — not failing — produced
+  // "Test timed out in 5000ms": a verdict that names no step and preempts
+  // the supervisor's own startup diagnostic. Bound each wait explicitly and
+  // derive the test budget from those bounds. Nothing below waits unbounded.
+  const HOST_STARTUP_BUDGET_MS = 5_000;
+  // process.ts drains for at most GRACEFUL_DRAIN_MS + FORCED_DRAIN_MS
+  // (500 + 500) around the group SIGKILL, whose confirmation poll measured
+  // ~55ms for this single-process group.
+  const HOST_SHUTDOWN_BUDGET_MS = 3_000;
+  const GRACEFUL_SHUTDOWN_BUDGET_MS =
+    2 * HOST_STARTUP_BUDGET_MS + HOST_SHUTDOWN_BUDGET_MS + 1_000;
+
   it("should stop its PTYs and remove its socket on graceful host shutdown", async () => {
     const directory = await mkdtemp(join(tmpdir(), "h2a-native-terminal-shutdown-"));
     directories.add(directory);
@@ -673,6 +723,9 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
       socketPath,
       registryPath: join(directory, "registry.json"),
       replayBytesPerSession: 1024,
+      // Pinned, not inherited: the test budget above is derived from this
+      // number, so it must not drift with the supervisor's default.
+      startupTimeoutMs: HOST_STARTUP_BUDGET_MS,
       generationFactory: (() => {
         const generations = ["shutdown-generation", "restart-generation"];
         return () => generations.shift() ?? `unexpected-${generations.length}`;
@@ -712,7 +765,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
 
     const stoppedHostPid = child!.pid!;
     child!.kill("SIGTERM");
-    const [code, signal] = await once(child!, "exit") as [number | null, NodeJS.Signals | null];
+    const [code, signal] = await exitWithin(child!, HOST_SHUTDOWN_BUDGET_MS);
     expect({ code, signal }).toEqual({ code: 0, signal: null });
     await eventually(() => running(session.pid), (alive) => !alive);
     await eventually(
@@ -722,7 +775,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
     const restarted = await supervisor.client();
     expect(supervisor.spawnedPid).not.toBe(stoppedHostPid);
     expect(await restarted.ping()).toMatchObject({ generation: "restart-generation" });
-  });
+  }, GRACEFUL_SHUTDOWN_BUDGET_MS);
 
   it("should let the owning controller escalate a real stubborn PTY from TERM to KILL", async () => {
     const directory = await mkdtemp(join(tmpdir(), "h2a-native-terminal-escalate-"));
