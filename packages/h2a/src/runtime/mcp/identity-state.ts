@@ -45,7 +45,8 @@ export type IdentityFailureCode =
   | "identity_proof_failed"
   | "identity_storage_failed"
   | "session_open_failed"
-  | "readiness_ack_failed";
+  | "readiness_ack_failed"
+  | "messaging_backend_failed";
 
 /**
  * TRANSIENT failure causes: a fresh attempt can succeed once the external blocker clears
@@ -130,7 +131,7 @@ export type ActivationResult =
   | { ok: true; sessionId: string; signer?: H2ASendSigner }
   | { ok: false; cause: IdentityFailureCode; message: string };
 
-export interface CreateIdentityControllerOptions {
+export interface CreateIdentityControllerOptions<P = unknown> {
   readonly request: McpIdentityRequest;
   /**
    * Perform the real activation once the worker resolved a valid identity and
@@ -138,7 +139,8 @@ export interface CreateIdentityControllerOptions {
    * publish the correlated readiness ACK, build the live signer. Returning
    * `{ok:false}` fails the identity terminally (no partial availability).
    */
-  readonly activate: (identity: ResolvedIdentityMessage) => ActivationResult;
+  readonly prepare?: (identity: ResolvedIdentityMessage, signal: AbortSignal) => Promise<P>;
+  readonly activate: (identity: ResolvedIdentityMessage, prepared?: P) => ActivationResult;
   /** Diagnostic sink (stderr). Never protocol traffic. */
   readonly log?: (line: string) => void;
   /** Test seam: fork a worker child. Production uses the real fork below. */
@@ -281,8 +283,8 @@ export function forkIdentityWorker(
  * Build the identity controller for one MCP attachment. It starts inert and
  * transitions `identity_pending → identity_ready | identity_failed` exactly once.
  */
-export function createIdentityController(
-  options: CreateIdentityControllerOptions
+export function createIdentityController<P = unknown>(
+  options: CreateIdentityControllerOptions<P>
 ): McpIdentityController {
   const timeoutMs = options.timeoutMs ?? MCP_IDENTITY_TIMEOUT_MS;
   // Env parse must accept 0 (a valid "no interval" for tests/ops); `|| default` would drop it.
@@ -303,6 +305,8 @@ export function createIdentityController(
   let liveSigner: H2ASendSigner | undefined;
   let terminal = false;
   let cancelled = false;
+  let resolving = false;
+  let preparation = new AbortController();
   // Monotonic timestamp of the last transient failure, for the retry min-interval gate.
   let failedAtNs = 0n;
 
@@ -316,8 +320,9 @@ export function createIdentityController(
   };
 
   const fail = (cause: IdentityFailureCode, message: string): void => {
-    if (terminal) return;
+    if (terminal || cancelled) return;
     terminal = true;
+    preparation.abort();
     clearTimer();
     failedAtNs = nowNs();
     state = {
@@ -342,7 +347,8 @@ export function createIdentityController(
   };
 
   const onResolved = (identity: ResolvedIdentityMessage): void => {
-    if (terminal || cancelled) return;
+    if (terminal || cancelled || resolving) return;
+    resolving = true;
     // Deadline re-check at the activation boundary: a late worker result never
     // reactivates the connection.
     if (elapsedMs() >= timeoutMs) {
@@ -366,9 +372,42 @@ export function createIdentityController(
         return;
       }
     }
+    if (!options.prepare) {
+      commit(identity);
+      return;
+    }
+    // The original deadline stays armed throughout preparation. Both outcomes
+    // pass this one synchronous admission check immediately before commit/fail.
+    const thisAttempt = attemptId;
+    const settled = (prepared: P | undefined, error?: unknown): void => {
+      if (attemptId !== thisAttempt) return;
+      if (terminal || cancelled) return;
+      if (elapsedMs() >= timeoutMs) {
+        fail("identity_timeout", `identity did not become ready within ${timeoutMs}ms`);
+        return;
+      }
+      if (error !== undefined) {
+        const cause = error instanceof Error && error.cause === "identity_storage_failed"
+          ? "identity_storage_failed" : "messaging_backend_failed";
+        fail(cause, error instanceof Error ? error.message : String(error));
+        return;
+      }
+      commit(identity, prepared);
+    };
+    try {
+      void options.prepare(identity, preparation.signal).then(
+        (prepared) => settled(prepared),
+        (error) => settled(undefined, error ?? new Error("messaging preparation failed"))
+      );
+    } catch (error) {
+      settled(undefined, error ?? new Error("messaging preparation failed"));
+    }
+  };
+
+  const commit = (identity: ResolvedIdentityMessage, prepared?: P): void => {
     let result: ActivationResult;
     try {
-      result = options.activate(identity);
+      result = options.activate(identity, prepared);
     } catch (err) {
       fail("session_open_failed", err instanceof Error ? err.message : String(err));
       return;
@@ -407,6 +446,8 @@ export function createIdentityController(
   // callback from a superseded attempt (after a retry) can never act on the current one.
   const beginAttempt = (): void => {
     terminal = false;
+    resolving = false;
+    preparation = new AbortController();
     attemptId = randomAttemptId();
     const thisAttempt = attemptId;
     startedNs = nowNs();
@@ -441,7 +482,7 @@ export function createIdentityController(
     start(): void {
       // Identity is NOT on the boot critical path (initialize/tools-list answer while
       // pending — the #249 fix); it starts once from inert.
-      if (state.state !== "identity_disabled") return;
+      if (cancelled || state.state !== "identity_disabled") return;
       beginAttempt();
     },
     retry(): boolean {
@@ -459,6 +500,7 @@ export function createIdentityController(
     },
     cancel(reason): void {
       cancelled = true;
+      preparation.abort();
       clearTimer();
       try {
         worker?.cancel(reason);

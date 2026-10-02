@@ -97,6 +97,7 @@ export interface CreateMcpServerOptions {
   sendContext?: H2ASendSigner;
   messageBackend?: H2AMessageBackend;
   clusterMesh?: H2aClusterMeshMessaging;
+  getClusterMesh?: () => H2aClusterMeshMessaging | undefined;
   /**
    * L2: the asynchronous identity readiness controller. When present, mutating /
    * signed / identity-requiring tools are refused with a bounded typed error
@@ -378,7 +379,7 @@ export function createMcpServer(options: CreateMcpServerOptions): McpServer {
         return handleInbox(store, args as never);
       case "h2a_send":
         return handleSend(store, options.getSendContext?.() ?? options.sendContext, args as never, {
-          backend: options.messageBackend, clusterMesh: options.clusterMesh
+          backend: options.messageBackend, clusterMesh: options.getClusterMesh?.() ?? options.clusterMesh
         });
       case "h2a_append_journal":
         return handleAppendJournal(store, args as never);
