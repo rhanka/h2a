@@ -11,14 +11,32 @@ V1 releases are lockstep across the public packages:
 - `@sentropic/h2a-runtime`
 - `@sentropic/track` (record-only system of record; folded into the monorepo, published in lockstep)
 
-From a clean `main` checkout aligned with `origin/main`:
+`main` is PR-only for everyone (admins included; required CI checks, no approval).
+The version commit therefore goes through a PR, and the tag is created only
+after the merge, on the merged commit.
+
+From a clean `main` checkout aligned with `origin/main` (the script switches to
+a new `release/vX.Y.Z` branch), or from the feature branch that carries the
+bump (see `docs/governance/agent-release-policy.md`):
 
 ```sh
 git pull --ff-only origin main
-npm run release -- --version 0.2.0
-git push origin HEAD
+npm run release -- --version 0.2.0          # commits on release/v0.2.0, no tag
+git push -u origin release/v0.2.0
+gh pr create --base main --head release/v0.2.0 --fill
+gh pr checks release/v0.2.0 --watch --required
+gh pr merge release/v0.2.0 --squash
+git fetch origin main
+SHA=$(gh pr view release/v0.2.0 --json mergeCommit --jq .mergeCommit.oid)
+git merge-base --is-ancestor "$SHA" origin/main
+git show "$SHA:packages/h2a/package.json" | grep -q '"version": "0.2.0"'
+git tag -a v0.2.0 "$SHA" -m "release: v0.2.0"   # -s when commit.gpgsign=true
 git push origin v0.2.0
 ```
+
+Never tag before the merge: a squash or rebase merge rewrites the commit, so a
+pre-merge tag would point outside `main`, and `release.yml` refuses any tag
+that is not reachable from `origin/main`.
 
 `npm run release -- --version X.Y.Z` performs only local preparation:
 
@@ -27,10 +45,10 @@ git push origin v0.2.0
 3. Verifies those commands did not dirty the worktree.
 4. Bumps `package.json`, `package-lock.json`, and every workspace manifest (`packages/h2a`, `packages/h2a-cli`, `packages/h2a-runtime`, `packages/track`).
 5. Aligns the lockstep dependency carets to `^X.Y.Z`: `@sentropic/h2a-cli` → `@sentropic/h2a`, and `@sentropic/h2a` → `@sentropic/track`.
-6. Commits the version bump as `release: vX.Y.Z`.
-7. Creates an annotated tag `vX.Y.Z` (signed when `git config commit.gpgsign` is `true`).
+6. Commits the version bump as `release: vX.Y.Z` on a branch: from `main` it first creates `release/vX.Y.Z`; from another branch it commits there; a detached HEAD is refused; it never commits on `main`.
+7. Prints the next steps (branch push, PR, green CI, merge, fetch, annotated tag on the merged commit verified on `origin/main` — signed when `git config commit.gpgsign` is `true` — and tag push).
 
-The script deliberately does **not** publish to npm and does **not** push to GitHub. `--dry-run` prints the planned commands and file bumps without writing files or running git/npm commands.
+The script deliberately does **not** create the tag, does **not** publish to npm and does **not** push to GitHub. `--dry-run` prints the planned commands and file bumps without writing files or running git/npm commands.
 
 The version must be a strict `X.Y.Z` SemVer triple with no leading `v`, no pre-release/build metadata, and no leading zeros.
 
