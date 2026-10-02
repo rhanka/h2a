@@ -22,9 +22,29 @@ import { join } from "node:path";
 import { resolveHostConfigRoot } from "../host-config-root.js";
 import type { ProviderSessionReaders } from "./resolver.js";
 
-/** First newline-delimited line of a (possibly large) file, decoded best-effort. */
+/**
+ * Read only the metadata record, not the append-only transcript body. Codex
+ * inspects up to 100 rollouts: reading each whole file made identity resolution
+ * depend on hundreds of MB of conversation history. Bound malformed headers too.
+ * Decode after assembling the bytes so short reads cannot split UTF-8 characters.
+ */
 function firstLine(path: string): string {
-  return readFileSync(path, "utf8").split("\n", 1)[0] ?? "";
+  const maxBytes = 64 * 1024;
+  const buffer = Buffer.allocUnsafe(maxBytes);
+  const fd = openSync(path, "r");
+  try {
+    let length = 0;
+    while (length < maxBytes) {
+      const size = readSync(fd, buffer, length, Math.min(4096, maxBytes - length), length);
+      if (size === 0) return buffer.subarray(0, length).toString("utf8");
+      const newline = buffer.subarray(length, length + size).indexOf(10);
+      if (newline !== -1) return buffer.subarray(0, length + newline).toString("utf8");
+      length += size;
+    }
+    return "";
+  } finally {
+    closeSync(fd);
+  }
 }
 
 function newestFirst(paths: string[]): string[] {
