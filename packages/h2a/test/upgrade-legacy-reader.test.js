@@ -1,3 +1,5 @@
+import { __test } from "./succession-lock-test-seam.mjs";
+const acquirePrefixLock = (prefix, hooks, deps) => __test.acquirePrefixLock(prefix, {}, { ...deps, hooks });
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -6,7 +8,6 @@ import { join } from "node:path";
 import test from "node:test";
 
 import {
-  acquirePrefixLock,
   classifyLiveness,
   lockPathFor,
   parseLockRec,

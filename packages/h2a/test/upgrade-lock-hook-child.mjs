@@ -4,7 +4,7 @@
 // racer. Prints {acquired} as one JSON line, then holds until SIGTERM.
 // Usage: node upgrade-lock-hook-child.mjs <prefix> <hookName> <pauseSentinel> <reachedSentinel>
 import { existsSync, writeFileSync } from "node:fs";
-import { defaultUpgradeRuntime } from "../dist/index.js";
+import { __test } from "./succession-lock-test-seam.mjs";
 
 const [prefix, hookName, pauseSentinel, reachedSentinel] = process.argv.slice(2);
 
@@ -22,7 +22,7 @@ function waitForSentinel() {
 const hooks = { [hookName]: () => waitForSentinel() };
 
 try {
-  const lock = defaultUpgradeRuntime.acquirePrefixLock(prefix, hooks);
+  const lock = __test.acquirePrefixLock(prefix, {}, { hooks });
   process.stdout.write(`${JSON.stringify({ acquired: lock.acquired, pid: process.pid })}\n`);
   if (!lock.acquired) process.exit(0);
   const release = () => { try { lock.release(); } catch {} process.exit(0); };
