@@ -310,10 +310,12 @@ describe("native primitives through the active LLM gateway", () => {
         tools: nativePrimitives.map(({ name }) => toolDefinition(name)),
       });
 
-      expect(response.status).toBe(503);
+      // llm-gateway 0.19.1 maps a capabilities-unmet plan refusal to a
+      // non-retryable 400, never a retryable overloaded_error.
+      expect(response.status).toBe(400);
       expect(await response.json()).toEqual({
         type: "error",
-        error: { type: "overloaded_error", message: "service temporarily unavailable" },
+        error: { type: "invalid_request_error", message: "invalid request" },
       });
       expect(observation.inputs).toHaveLength(1);
       expect(observation.inputs[0]?.requiredCapabilities).toContain("tools");
