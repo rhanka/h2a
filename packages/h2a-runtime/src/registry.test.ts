@@ -24,6 +24,7 @@ import {
   type RegistryEntry,
 } from "./registry.js";
 import { DEFAULT_LAYOUT } from "./config.js";
+import { readMachineId } from "./proc-identity.js";
 
 // Scratch dir inside the package (never /tmp), like the other test suites.
 const SCRATCH_ROOT = join(
@@ -1140,16 +1141,35 @@ describe("localLsRows", () => {
 describe("native-terminal pgid persistence", () => {
   it("round-trips a session's pgid through the same durable registry file", () => {
     persistNativeTerminalPgid("orphan-tree", 4242, regPath);
-    expect(readNativeTerminalPgid("orphan-tree", regPath)).toEqual({
-      status: "resolved",
-      pgid: 4242,
-    });
+    const lookup = readNativeTerminalPgid("orphan-tree", regPath);
+    expect(lookup).toMatchObject({ status: "resolved", pgid: 4242 });
+    // Every row also records the FRAME its pids and start-times are valid in —
+    // the writer's pid namespace and the kernel boot id — so a later reader can
+    // refuse to re-prove them across a namespace boundary or a reboot (see
+    // proc-identity.ts). Captured by the writer, not by the caller: on Linux it
+    // is always there.
+    if (process.platform === "linux") {
+      expect(lookup).toMatchObject({
+        pidNamespace: expect.any(String),
+        bootId: expect.any(String),
+      });
+    }
+    // The machine id completes that frame (it alone tells a previous boot of
+    // this machine from another machine sharing the registry). It is recorded
+    // exactly when this machine has a well-formed one, and never invented.
+    const machineId = readMachineId();
+    if (machineId === undefined) {
+      expect(lookup).not.toHaveProperty("machineId");
+    } else {
+      expect(machineId).toMatch(/^[0-9a-f]{32}$/);
+      expect(lookup).toMatchObject({ machineId });
+    }
   });
 
   it("upserts on a second persist for the same session id (no duplicate rows)", () => {
     persistNativeTerminalPgid("recycled", 100, regPath);
     persistNativeTerminalPgid("recycled", 200, regPath);
-    expect(readNativeTerminalPgid("recycled", regPath)).toEqual({
+    expect(readNativeTerminalPgid("recycled", regPath)).toMatchObject({
       status: "resolved",
       pgid: 200,
     });
@@ -1191,7 +1211,7 @@ describe("native-terminal pgid persistence", () => {
   it("survives an unrelated entries-only write (enroll) without being clobbered", () => {
     persistNativeTerminalPgid("surviving-session", 999, regPath);
     enroll(baseInput, regPath);
-    expect(readNativeTerminalPgid("surviving-session", regPath)).toEqual({
+    expect(readNativeTerminalPgid("surviving-session", regPath)).toMatchObject({
       status: "resolved",
       pgid: 999,
     });
