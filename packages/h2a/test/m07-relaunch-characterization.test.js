@@ -668,17 +668,20 @@ test("should characterize local-native relaunch as detached with NO_CONTROLLING_
   const observerPath = join(directory, "observe-no-tty.mjs");
   const outputPath = join(directory, "outcome.json");
   const source = String.raw`
-import { readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, renameSync, writeFileSync } from "node:fs";
 const raw = readFileSync("/proc/self/stat", "utf8");
 const end = raw.lastIndexOf(") ");
 const fields = raw.slice(end + 2).split(" ");
 const ttyNr = Number(fields[4]);
-writeFileSync(process.argv[2], JSON.stringify({
+const output = process.argv[2];
+const temporary = output + ".tmp";
+writeFileSync(temporary, JSON.stringify({
   code: ttyNr === 0 ? "NO_CONTROLLING_TERMINAL" : "CONTROLLING_TERMINAL_PRESENT",
   stdinIsTTY: process.stdin.isTTY === true,
   stdoutIsTTY: process.stdout.isTTY === true,
   ttyNr,
 }));
+renameSync(temporary, output);
 `;
   writeFileSync(observerPath, source);
   try {
