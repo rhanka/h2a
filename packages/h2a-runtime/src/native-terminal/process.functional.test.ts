@@ -10,6 +10,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { persistNativeTerminalPgid, readNativeTerminalPgid } from "../registry.js";
 import { NativeTerminalClient } from "./client.js";
 import {
+  NATIVE_TERMINAL_FORCE_KILL_TIMEOUT_MS,
   NativeTerminalHost,
   readProcessStartTime,
   reconcileDeadHostOrphans,
@@ -20,7 +21,10 @@ import {
   NativeTerminalHostSupervisor,
   type NativeTerminalHostSpawn,
 } from "./supervisor.js";
-import { NATIVE_TERMINAL_MAX_FRAME_BYTES } from "./protocol.js";
+import {
+  NATIVE_TERMINAL_HEALTH_TIMEOUT_MS,
+  NATIVE_TERMINAL_MAX_FRAME_BYTES,
+} from "./protocol.js";
 
 const children = new Set<ChildProcess>();
 const directories = new Set<string>();
@@ -254,6 +258,63 @@ async function createStubbornWorkload(
   return [session.pid, targetChildren[0]!, Number(match[1])];
 }
 
+/*
+ * Bounded waits the real-host scenarios below are budgeted from. A scenario
+ * that boots real hosts sets its own test timeout to the SUM of the bounded
+ * waits it performs, so a slow but healthy run never ends in vitest's implicit
+ * "Test timed out in 5000ms" — a verdict that names no step and preempts the
+ * supervisor's own diagnostic for the very failure the scenario exists to show.
+ */
+
+/**
+ * The `startupTimeoutMs` every scenario pins for a REAL host start
+ * (`node --import tsx process.ts`: spawn, tsx transform, node-pty binding,
+ * listen, first ping) — equal to the supervisor's production default, and
+ * never shared with a phase that WANTS a short deadline (a hung child that must
+ * miss readiness): one budget cannot be short for one phase and realistic for
+ * the other.
+ *
+ * Measured spawn -> first successful ping, the probe pinned to ONE core shared
+ * with N busy-loop hogs (N+1 runnable tasks), 15 sequential boots each:
+ *
+ *   runnable tasks/core   Node 22 mean (max)   Node 20 mean (max)
+ *   1 (idle)              247 ms (323)         200 ms (359)
+ *   4                     806 ms (846)         508 ms (524)
+ *   6                     1225 ms (1271)       741 ms (785)
+ *   8                     1613 ms (1725)       992 ms (1030)
+ *
+ * A start costs ~200 ms of CPU on Node 22 and its wall time grows linearly
+ * with the runnable tasks on its core (the graceful-shutdown scenario measured
+ * ~4.7 s at 24x oversubscription, the same slope). A 1 s budget is therefore
+ * exceeded from ~5 runnable tasks per core on; 5 s holds up to ~24, and is
+ * 2.9x the worst sample above.
+ */
+const HOST_STARTUP_BUDGET_MS = 5_000;
+/**
+ * `supervisor.client()` can overrun its startup deadline by the work of one
+ * last readiness iteration: a connect + ping pair, each bounded by
+ * NATIVE_TERMINAL_HEALTH_TIMEOUT_MS, plus the containment reconcile pass an
+ * adoption runs. That pass is bounded by the force-kill timeout only when it
+ * actually REAPS a group (see FORCED_REAP_BUDGET_MS); otherwise it is registry
+ * reads.
+ */
+const CLIENT_OVERRUN_BUDGET_MS = 2 * NATIVE_TERMINAL_HEALTH_TIMEOUT_MS;
+/**
+ * A containment pass that reaps a real group waits for the OS to report it
+ * empty for at most the reconcile host's force-kill timeout, then reports
+ * `reap-timed-out`. Budgeted in full wherever a scenario reaps: a group that
+ * survives its kill is exactly what those scenarios exist to catch, and its
+ * survivor diagnostic only exists once that timeout has elapsed.
+ */
+const FORCED_REAP_BUDGET_MS = NATIVE_TERMINAL_FORCE_KILL_TIMEOUT_MS;
+/** One `eventually()` wait: 200 attempts x 10 ms, plus the work per attempt. */
+const EVENTUALLY_BUDGET_MS = 2_000;
+/**
+ * The `spawnTerminationGraceMs` pinned by the scenarios that reap an owned
+ * child: SIGTERM, then SIGKILL, each waited for at most this long.
+ */
+const SPAWN_TERMINATION_GRACE_MS = 100;
+
 describe.skipIf(process.platform !== "linux")("native terminal host process", () => {
   it("should keep two real PTYs alive through client reconnect without per-operation Node spawns", async () => {
     const directory = await mkdtemp(join(tmpdir(), "h2a-native-terminal-functional-"));
@@ -357,6 +418,41 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
     expect(running(ping.hostPid)).toBe(false);
   });
 
+  // How long the reaper below waits for a host it SIGSTOPped: that host can
+  // never answer, so this window only has to expire.
+  const STOPPED_HOST_STARTUP_MS = 500;
+  // This scenario chains three real host starts, two real group reaps and a
+  // reaper phase against a stopped host. It ran on vitest's implicit 5 s
+  // default, which a healthy run exceeds at 4 vitest instances per core
+  // (measured, Node 22: 3.0 s idle; 5.9-6.8 s over 20 green runs there, where
+  // all 20 runs on the 5 s default had failed): the only failure it then
+  // reports is "Test timed out", never the supervisor's own diagnostic. Its budget is the sum of the
+  // bounded waits it performs, in order, and nothing else:
+  //  1. first host start — S + O;
+  //  2. its stubborn workload — two eventually() waits;
+  //  3. the takeover after the hard death: the containment pass REAPS the
+  //     hard-crash group (F), then a replacement start (S), with one overrun
+  //     for the iteration that observed the death and one for the
+  //     replacement's own loop (2 O);
+  //  4. the replacement's stubborn workload — two eventually() waits;
+  //  5. the reaper against the SIGSTOPped host: a health probe (connect +
+  //     ping, = O) before and one inside its startup window, then SIGTERM and
+  //     SIGKILL, each waited for at most the termination grace;
+  //  6. cleanup: the containment pass REAPS the forced-reap group (F), then a
+  //     fresh host start (S + O).
+  // (S = HOST_STARTUP_BUDGET_MS, O = CLIENT_OVERRUN_BUDGET_MS,
+  // F = FORCED_REAP_BUDGET_MS.) F dominates and is kept in full: a group that
+  // outlives its kill is the regression this scenario exists to catch, and
+  // the survivor list naming it is only reported once F has elapsed.
+  const HARD_DEATH_BUDGET_MS =
+    3 * HOST_STARTUP_BUDGET_MS +
+    6 * CLIENT_OVERRUN_BUDGET_MS +
+    2 * FORCED_REAP_BUDGET_MS +
+    4 * EVENTUALLY_BUDGET_MS +
+    STOPPED_HOST_STARTUP_MS +
+    2 * SPAWN_TERMINATION_GRACE_MS +
+    1_000;
+
   it("should kill a signal-resistant PTY tree after hard host death and forced host reaping", async () => {
     const directory = await mkdtemp(join(tmpdir(), "h2a-native-terminal-parent-death-"));
     directories.add(directory);
@@ -392,8 +488,9 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
       socketPath,
       registryPath: join(directory, "registry.json"),
       replayBytesPerSession: 1024,
-      startupTimeoutMs: 30_000,
-      spawnTerminationGraceMs: 100,
+      // Pinned, not inherited: the test budget is derived from these numbers.
+      startupTimeoutMs: HOST_STARTUP_BUDGET_MS,
+      spawnTerminationGraceMs: SPAWN_TERMINATION_GRACE_MS,
       log: (line) => reconcileLogs.push(line),
       generationFactory: () => generations[spawnCount] ?? `unexpected-${spawnCount}`,
       spawnHost,
@@ -445,8 +542,8 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
       socketPath,
       registryPath: join(directory, "registry.json"),
       replayBytesPerSession: 1024,
-      startupTimeoutMs: 500,
-      spawnTerminationGraceMs: 100,
+      startupTimeoutMs: STOPPED_HOST_STARTUP_MS,
+      spawnTerminationGraceMs: SPAWN_TERMINATION_GRACE_MS,
       log: (line) => reconcileLogs.push(line),
       generationFactory: () => "parent-death-reap-timeout",
       spawnHost: () => spawnedHosts[1]!,
@@ -456,8 +553,8 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
       socketPath,
       registryPath: join(directory, "registry.json"),
       replayBytesPerSession: 1024,
-      startupTimeoutMs: 30_000,
-      spawnTerminationGraceMs: 100,
+      startupTimeoutMs: HOST_STARTUP_BUDGET_MS,
+      spawnTerminationGraceMs: SPAWN_TERMINATION_GRACE_MS,
       log: (line) => reconcileLogs.push(line),
       generationFactory: () => "parent-death-cleanup",
       spawnHost,
@@ -505,9 +602,9 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
     // flow — the real death confirmed above must not be surviving DESPITE
     // the guard, it must not have been blocked BY it either.
     expect(
-      reconcileLogs.some((line) => /REFUSING to kill process group/.test(line)),
+      reconcileLogs.some((line) => /REFUSING to (kill|act on) process group/.test(line)),
     ).toBe(false);
-  });
+  }, HARD_DEATH_BUDGET_MS);
 
   it("should refuse reconciliation when the fresh PGID lookup differs from its immutable snapshot", async () => {
     const directory = await mkdtemp(join(tmpdir(), "h2a-native-terminal-immutable-pgid-"));
@@ -861,29 +958,23 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
   // was merely booting slowly on a loaded runner — not failing — produced
   // "Test timed out in 5000ms": a verdict that names no step and preempts
   // the supervisor's own startup diagnostic. Bound each wait explicitly and
-  // derive the test budget from those bounds. Nothing below waits unbounded.
-  const HOST_STARTUP_BUDGET_MS = 5_000;
-  // `supervisor.client()` can overrun startupTimeoutMs by the work of one last
-  // iteration: a connect + ping pair, each bounded by
-  // NATIVE_TERMINAL_HEALTH_TIMEOUT_MS (1s), plus the containment reconcile
-  // pass that an adoption runs. The pass is bounded by the force-kill timeout
-  // only when it actually reaps a group; this scenario has no proven-dead
-  // owner at all (one live host, then its own graceful stop), so its passes
-  // are registry reads.
-  const CLIENT_OVERRUN_BUDGET_MS = 2 * 1_000;
+  // derive the test budget from those bounds (HOST_STARTUP_BUDGET_MS and
+  // CLIENT_OVERRUN_BUDGET_MS above). Nothing below waits unbounded. This
+  // scenario has no proven-dead owner at all (one live host, then its own
+  // graceful stop), so its containment passes are registry reads: no
+  // FORCED_REAP_BUDGET_MS term.
+  //
   // process.ts drains for at most GRACEFUL_DRAIN_MS + FORCED_DRAIN_MS
   // (500 + 500) around the group SIGKILL, whose confirmation poll measured
   // ~55ms for this single-process group.
   const HOST_SHUTDOWN_BUDGET_MS = 3_000;
-  // The three `eventually()` waits of this scenario (pty output, session
-  // death, socket removal): 200 attempts x 10ms plus the work per attempt.
-  const EVENTUALLY_BUDGET_MS = 3 * 2_000;
-  // Worst case of every bounded wait above, and nothing else: no term here
-  // stands for an unbounded wait.
+  // Worst case of every bounded wait of this scenario, and nothing else: no
+  // term here stands for an unbounded wait. Its three `eventually()` waits are
+  // the pty output, the session death and the socket removal.
   const GRACEFUL_SHUTDOWN_BUDGET_MS =
     2 * (HOST_STARTUP_BUDGET_MS + CLIENT_OVERRUN_BUDGET_MS) +
     HOST_SHUTDOWN_BUDGET_MS +
-    EVENTUALLY_BUDGET_MS +
+    3 * EVENTUALLY_BUDGET_MS +
     1_000;
 
   it("should stop its PTYs and remove its socket on graceful host shutdown", async () => {
@@ -1358,6 +1449,27 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
     expect(spawnCount).toBe(2);
   });
 
+  // The first backoff step (NATIVE_TERMINAL_SPAWN_BACKOFF_BASE_MS = 250 ms)
+  // plus a margin, waited for before the replacement may start.
+  const FIRST_BACKOFF_WAIT_MS = 275;
+  // ONE supervisor drives both phases (the backoff state is its own), so ONE
+  // startupTimeoutMs bounds both: the hung child's window, which must expire,
+  // and the replacement's REAL host start. It was 1 s — the hung phase's wish —
+  // which a real start exceeds from ~5 runnable tasks per core on (see
+  // HOST_STARTUP_BUDGET_MS): the replacement then failed with "did not become
+  // ready", and the same failure reproduced on the pre-fix base. It is now the
+  // real-start budget; the hung phase simply waits that long. Budget, in order:
+  // the hung window plus one overrun and the SIGTERM/SIGKILL waits; one
+  // eventually() wait; the backoff wait; the replacement start plus one
+  // overrun. Neither phase reaps a group (the hung child is no host, the
+  // replacement creates no session), so no FORCED_REAP_BUDGET_MS term.
+  const BACKOFF_REPLACEMENT_BUDGET_MS =
+    2 * (HOST_STARTUP_BUDGET_MS + CLIENT_OVERRUN_BUDGET_MS) +
+    2 * SPAWN_TERMINATION_GRACE_MS +
+    EVENTUALLY_BUDGET_MS +
+    FIRST_BACKOFF_WAIT_MS +
+    1_000;
+
   it("should reap an owned host that misses readiness before a backoff-governed replacement", async () => {
     const directory = await mkdtemp(join(tmpdir(), "h2a-native-terminal-hung-start-"));
     directories.add(directory);
@@ -1369,8 +1481,8 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
       socketPath,
       registryPath: join(directory, "registry.json"),
       replayBytesPerSession: 1024,
-      startupTimeoutMs: 1_000,
-      spawnTerminationGraceMs: 100,
+      startupTimeoutMs: HOST_STARTUP_BUDGET_MS,
+      spawnTerminationGraceMs: SPAWN_TERMINATION_GRACE_MS,
       generationFactory: () => `hung-generation-${spawnCount + 1}`,
       spawnHost: (options) => {
         spawnCount += 1;
@@ -1412,13 +1524,29 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
     await expect(supervisor.client()).rejects.toThrow(/restart backoff active/i);
     expect(spawnCount).toBe(1);
 
-    await new Promise((resolve) => setTimeout(resolve, 275));
+    await new Promise((resolve) => setTimeout(resolve, FIRST_BACKOFF_WAIT_MS));
     const replacement = await supervisor.client();
     expect(spawnCount).toBe(2);
     expect(await replacement.ping()).toMatchObject({
       generation: "hung-generation-2",
     });
-  });
+  }, BACKOFF_REPLACEMENT_BUDGET_MS);
+
+  // Same single-budget shape as the backoff scenario above: the losing
+  // supervisor's ONE startupTimeoutMs bounds its hung child's window — which
+  // must last until the WINNER's real host is up, so it can be adopted — and,
+  // later, its own replacement's real start. Both are real-start waits, so
+  // both get HOST_STARTUP_BUDGET_MS (the winner pins it too). Budget, in order:
+  // one eventually() wait; the winner's start plus one overrun (the losing
+  // adoption resolves within it, plus the reap of its hung child and one
+  // overrun); one eventually() wait; the replacement start plus one overrun.
+  // No session is ever created, so no FORCED_REAP_BUDGET_MS term.
+  const LOSING_CHILD_BUDGET_MS =
+    2 * (HOST_STARTUP_BUDGET_MS + CLIENT_OVERRUN_BUDGET_MS) +
+    CLIENT_OVERRUN_BUDGET_MS +
+    2 * SPAWN_TERMINATION_GRACE_MS +
+    2 * EVENTUALLY_BUDGET_MS +
+    1_000;
 
   it("should reap its losing owned child before adopting and later replacing a winning host", async () => {
     const directory = await mkdtemp(join(tmpdir(), "h2a-native-terminal-adopt-reap-"));
@@ -1432,8 +1560,8 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
       socketPath,
       registryPath: join(directory, "registry.json"),
       replayBytesPerSession: 1024,
-      startupTimeoutMs: 1_000,
-      spawnTerminationGraceMs: 100,
+      startupTimeoutMs: HOST_STARTUP_BUDGET_MS,
+      spawnTerminationGraceMs: SPAWN_TERMINATION_GRACE_MS,
       generationFactory: () =>
         losingGenerations[losingSpawnCount] ?? `losing-${losingSpawnCount}`,
       spawnHost: (options) => {
@@ -1478,6 +1606,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
       socketPath,
       registryPath: join(directory, "registry.json"),
       replayBytesPerSession: 1024,
+      startupTimeoutMs: HOST_STARTUP_BUDGET_MS,
       generationFactory: () => "winning-generation",
       spawnHost: (options) => {
         winningChild = spawn(process.execPath, [
@@ -1513,7 +1642,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
     const replacement = await losing.client();
     expect(losingSpawnCount).toBe(2);
     expect((await replacement.ping()).hostPid).not.toBe(winningPing.hostPid);
-  });
+  }, LOSING_CHILD_BUDGET_MS);
 
   it("should converge competing supervisors on one socket without repeated host spawns", async () => {
     const directory = await mkdtemp(join(tmpdir(), "h2a-native-terminal-race-"));
