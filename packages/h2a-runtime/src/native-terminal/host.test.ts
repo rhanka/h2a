@@ -23,6 +23,7 @@ import {
   NativeTerminalHost,
   posixProcessGroupReaper,
   reconcileDeadHostOrphans,
+  type NativeTerminalProcFrame,
   type NativeTerminalProcessGroupReaper,
 } from "./host.js";
 import type { NativeTerminalStopSignal } from "./protocol.js";
@@ -977,6 +978,7 @@ describe("NativeTerminalHost", () => {
     expect(host.pgidGuardCounters).toEqual({
       recycled: 0,
       staleBoot: 0,
+      foreignFrame: 0,
       membershipUnprovable: 0,
       unverifiedLegacy: 0,
       tokenVerified: 0,
@@ -1027,6 +1029,7 @@ describe("NativeTerminalHost", () => {
     expect(host.pgidGuardCounters).toEqual({
       recycled: 1,
       staleBoot: 0,
+      foreignFrame: 0,
       membershipUnprovable: 0,
       unverifiedLegacy: 0,
       tokenVerified: 0,
@@ -1088,6 +1091,7 @@ describe("NativeTerminalHost", () => {
     expect(host.pgidGuardCounters).toEqual({
       recycled: 0,
       staleBoot: 0,
+      foreignFrame: 0,
       membershipUnprovable: 0,
       unverifiedLegacy: 0,
       tokenVerified: 1,
@@ -1129,7 +1133,9 @@ describe("NativeTerminalHost", () => {
     // sees under the same number. Granting `recycled` there PRUNES the row and
     // releases the socket on a proof that does not hold; and a coincidental
     // start-time MATCH would authorize a group SIGKILL at an unrelated group.
-    // Both must fail closed instead.
+    // Both must fail closed instead — under `foreign-frame`, not
+    // `membership-unprovable`: a local inspection of that pgid describes this
+    // reader's process space, not the one that wrote the row.
     const { spawner, ptys } = stubSpawner();
     const { reaper, killGroup, alive } = fakeReaper();
     const { read, values } = fakeLeaderStartTimeReader(1000);
@@ -1157,14 +1163,15 @@ describe("NativeTerminalHost", () => {
     expect(outcome).toEqual({
       sessionId: "alpha",
       status: "refused",
-      reason: expect.stringMatching(/membership-unprovable/i),
-      cause: "membership-unprovable",
+      reason: expect.stringMatching(/foreign-frame/i),
+      cause: "foreign-frame",
     });
     expect(killGroup).not.toHaveBeenCalled();
     expect(host.pgidGuardCounters).toEqual({
       recycled: 0,
       staleBoot: 0,
-      membershipUnprovable: 1,
+      foreignFrame: 1,
+      membershipUnprovable: 0,
       unverifiedLegacy: 0,
       tokenVerified: 0,
       zombieGroup: 0,
@@ -1175,7 +1182,7 @@ describe("NativeTerminalHost", () => {
         (line) =>
           /REFUSING/.test(line) &&
           /pid namespace|boot/i.test(line) &&
-          line.includes("cause=membership-unprovable") &&
+          line.includes("cause=foreign-frame") &&
           line.includes("sessionId=alpha"),
       ),
     ).toBe(true);
@@ -1275,6 +1282,7 @@ describe("NativeTerminalHost", () => {
     expect(host.pgidGuardCounters).toEqual({
       recycled: 0,
       staleBoot: 0,
+      foreignFrame: 0,
       membershipUnprovable: 1,
       unverifiedLegacy: 0,
       tokenVerified: 0,
@@ -1334,6 +1342,7 @@ describe("NativeTerminalHost", () => {
     expect(host.pgidGuardCounters).toEqual({
       recycled: 0,
       staleBoot: 0,
+      foreignFrame: 0,
       membershipUnprovable: 0,
       unverifiedLegacy: 0,
       tokenVerified: 0,
@@ -1469,10 +1478,12 @@ describe("NativeTerminalHost", () => {
       });
       createSession(host, "alpha");
       const pgid = ptys.get("alpha")!.pgid;
-      // The row keeps THIS reader's pid namespace and takes a foreign boot id.
+      // The row keeps THIS reader's pid namespace AND machine id, and takes a
+      // foreign boot id: a previous boot of this very machine.
       patchDurableRow("alpha", (row) => {
         expect(row.pgidPidNamespace).toBeTypeOf("string");
         expect(row.pgidBootId).toBeTypeOf("string");
+        expect(row.pgidMachineId).toBeTypeOf("string");
         row.pgidBootId = "00000000-0000-4000-8000-000000000000";
       });
       // The pgid NUMBER is held by a live, unrelated group leader now.
@@ -1491,6 +1502,7 @@ describe("NativeTerminalHost", () => {
       expect(killGroup).not.toHaveBeenCalled();
       expect(host.pgidGuardCounters).toMatchObject({
         staleBoot: 1,
+        foreignFrame: 0,
         membershipUnprovable: 0,
         recycled: 0,
       });
@@ -1533,12 +1545,221 @@ describe("NativeTerminalHost", () => {
 
       expect(await host.reapOrphan("alpha")).toMatchObject({
         status: "refused",
-        cause: "membership-unprovable",
+        cause: "foreign-frame",
       });
       expect(killGroup).not.toHaveBeenCalled();
       expect(host.pgidGuardCounters).toMatchObject({
         staleBoot: 0,
-        membershipUnprovable: 1,
+        foreignFrame: 1,
+        membershipUnprovable: 0,
+      });
+    },
+  );
+
+  /**
+   * A host whose leader start-time reader sees a LIVE, UNRELATED leader at the
+   * row's pgid (a different start-time), for the frame cases below: every one
+   * of them must refuse without signalling, and only the frame decides how.
+   */
+  function hostOverAnUnrelatedLiveLeader(
+    generation: string,
+    readFrame?: () => NativeTerminalProcFrame,
+  ): {
+    host: NativeTerminalHost;
+    pgid: number;
+    killGroup: ReturnType<typeof fakeReaper>["killGroup"];
+    warnings: string[];
+  } {
+    const { spawner, ptys } = stubSpawner();
+    const { reaper, killGroup, alive } = fakeReaper();
+    const { read, values } = fakeLeaderStartTimeReader(1000);
+    const warnings: string[] = [];
+    const host = new NativeTerminalHost({
+      generation,
+      replayBytesPerSession: 32,
+      spawner,
+      registryPath,
+      reaper,
+      log: (line) => warnings.push(line),
+      readLeaderStartTime: read,
+      ...(readFrame !== undefined ? { readFrame } : {}),
+    });
+    createSession(host, "alpha");
+    const pgid = ptys.get("alpha")!.pgid;
+    alive.add(pgid);
+    values.set(pgid, 2000);
+    return { host, pgid, killGroup, warnings };
+  }
+
+  /** The frame the writer recorded on the "alpha" row. */
+  function recordedFrame(): { pidNamespace: string; bootId: string; machineId: string } {
+    const lookup = readNativeTerminalPgid("alpha", registryPath);
+    if (
+      lookup.status !== "resolved" ||
+      lookup.pidNamespace === undefined ||
+      lookup.bootId === undefined ||
+      lookup.machineId === undefined
+    ) {
+      throw new Error(`the writer recorded no complete frame: ${JSON.stringify(lookup)}`);
+    }
+    return {
+      pidNamespace: lookup.pidNamespace,
+      bootId: lookup.bootId,
+      machineId: lookup.machineId,
+    };
+  }
+
+  const FOREIGN_BOOT_ID = "00000000-0000-4000-8000-000000000000";
+  const FOREIGN_MACHINE_ID = "0123456789abcdef0123456789abcdef";
+
+  it.skipIf(process.platform !== "linux")(
+    "PGID_GUARD_GRANTS_NO_STALE_BOOT_PROOF_TO_A_ROW_WRITTEN_BY_ANOTHER_MACHINE",
+    async () => {
+      // A registry shared by two machines (a networked `$HOME`): machine A's
+      // row carries the init pid namespace inode — identical on EVERY kernel —
+      // and A's boot id, which differs from this reader's. Without the machine
+      // id that is byte-for-byte what a previous boot of THIS machine looks
+      // like, and treating it as proof prunes the only durable record of a
+      // group that may be alive on A right now. Nothing here can decide it:
+      // refuse, blocking, and signal nothing.
+      //
+      // The REAL reader frame is used: only the row is foreign.
+      const { host, pgid, killGroup, warnings } =
+        hostOverAnUnrelatedLiveLeader("host-generation-pgid-other-machine");
+      patchDurableRow("alpha", (row) => {
+        expect(row.pgidPidNamespace).toBeTypeOf("string");
+        row.pgidBootId = FOREIGN_BOOT_ID;
+        row.pgidMachineId = FOREIGN_MACHINE_ID;
+      });
+
+      expect(await host.reapOrphan("alpha")).toEqual({
+        sessionId: "alpha",
+        status: "refused",
+        reason: expect.stringMatching(/foreign-frame/i),
+        cause: "foreign-frame",
+      });
+      expect(killGroup).not.toHaveBeenCalled();
+      expect(host.pgidGuardCounters).toMatchObject({
+        staleBoot: 0,
+        foreignFrame: 1,
+        recycled: 0,
+      });
+      expect(warnings.some((line) =>
+        /ANOTHER machine/.test(line) &&
+        line.includes("cause=foreign-frame") &&
+        line.includes(`pgid=${pgid}`)
+      )).toBe(true);
+      // The row is kept for whoever can decide it.
+      expect(readNativeTerminalPgid("alpha", registryPath)).toMatchObject({
+        status: "resolved",
+        pgid,
+      });
+    },
+  );
+
+  it.skipIf(process.platform !== "linux")(
+    "PGID_GUARD_GRANTS_NO_STALE_BOOT_PROOF_WHEN_EITHER_SIDE_HAS_NO_MACHINE_ID",
+    async () => {
+      // "Same machine" must be KNOWN on both sides: a row written before the
+      // machine id was recorded (or where it was unreadable), and a reader
+      // that cannot read its own, are both no statement at all.
+      const rowWithout = hostOverAnUnrelatedLiveLeader("host-generation-pgid-row-no-machine");
+      patchDurableRow("alpha", (row) => {
+        row.pgidBootId = FOREIGN_BOOT_ID;
+        delete row.pgidMachineId;
+      });
+      expect(await rowWithout.host.reapOrphan("alpha")).toMatchObject({
+        status: "refused",
+        cause: "foreign-frame",
+      });
+      expect(rowWithout.killGroup).not.toHaveBeenCalled();
+      expect(rowWithout.host.pgidGuardCounters).toMatchObject({
+        staleBoot: 0,
+        foreignFrame: 1,
+      });
+      expect(rowWithout.warnings.some((line) =>
+        /not known on both sides/.test(line) && line.includes("cause=foreign-frame")
+      )).toBe(true);
+
+      let frame: ReturnType<typeof recordedFrame> | undefined;
+      const readerWithout = hostOverAnUnrelatedLiveLeader(
+        "host-generation-pgid-reader-no-machine",
+        () => ({ pidNamespace: frame!.pidNamespace, bootId: "reader-boot" }),
+      );
+      frame = recordedFrame();
+      expect(await readerWithout.host.reapOrphan("alpha")).toMatchObject({
+        status: "refused",
+        cause: "foreign-frame",
+      });
+      expect(readerWithout.killGroup).not.toHaveBeenCalled();
+      expect(readerWithout.host.pgidGuardCounters).toMatchObject({
+        staleBoot: 0,
+        foreignFrame: 1,
+      });
+    },
+  );
+
+  it.skipIf(process.platform !== "linux")(
+    "PGID_GUARD_GRANTS_NO_STALE_BOOT_PROOF_WITHOUT_A_KNOWN_BOOT_ID_ON_BOTH_SIDES",
+    async () => {
+      // The boot half of the same rule: a different boot is a proof only when
+      // BOTH boot ids are known. Same namespace, same machine.
+      //
+      // The READER cannot read its boot id.
+      let frame: ReturnType<typeof recordedFrame> | undefined;
+      const readerWithout = hostOverAnUnrelatedLiveLeader(
+        "host-generation-pgid-reader-no-boot",
+        () => ({ pidNamespace: frame!.pidNamespace, machineId: frame!.machineId }),
+      );
+      frame = recordedFrame();
+      expect(await readerWithout.host.reapOrphan("alpha")).toMatchObject({
+        status: "refused",
+        cause: "foreign-frame",
+      });
+      expect(readerWithout.killGroup).not.toHaveBeenCalled();
+      expect(readerWithout.host.pgidGuardCounters).toMatchObject({
+        staleBoot: 0,
+        foreignFrame: 1,
+      });
+
+      // The ROW records no boot id (the reader's frame is the real one).
+      const rowWithout = hostOverAnUnrelatedLiveLeader("host-generation-pgid-row-no-boot");
+      patchDurableRow("alpha", (row) => {
+        expect(row.pgidMachineId).toBeTypeOf("string");
+        delete row.pgidBootId;
+      });
+      expect(await rowWithout.host.reapOrphan("alpha")).toMatchObject({
+        status: "refused",
+        cause: "foreign-frame",
+      });
+      expect(rowWithout.killGroup).not.toHaveBeenCalled();
+      expect(rowWithout.host.pgidGuardCounters).toMatchObject({
+        staleBoot: 0,
+        foreignFrame: 1,
+      });
+    },
+  );
+
+  it.skipIf(process.platform !== "linux")(
+    "PGID_GUARD_IGNORES_THE_MACHINE_ID_WITHIN_ONE_BOOT",
+    async () => {
+      // The machine id gates ONLY the boot proof. Within one boot id the kernel
+      // is the same, so the pids are comparable whatever machine id either side
+      // reads: a start-time mismatch there is still the `recycled` proof.
+      let frame: ReturnType<typeof recordedFrame> | undefined;
+      const { host, killGroup } = hostOverAnUnrelatedLiveLeader(
+        "host-generation-pgid-same-boot",
+        () => ({ pidNamespace: frame!.pidNamespace, bootId: frame!.bootId }),
+      );
+      frame = recordedFrame();
+      expect(await host.reapOrphan("alpha")).toMatchObject({
+        status: "refused",
+        cause: "recycled",
+      });
+      expect(killGroup).not.toHaveBeenCalled();
+      expect(host.pgidGuardCounters).toMatchObject({
+        recycled: 1,
+        foreignFrame: 0,
       });
     },
   );
@@ -1880,6 +2101,7 @@ describe("NativeTerminalHost", () => {
     expect(host.pgidGuardCounters).toEqual({
       recycled: 0,
       staleBoot: 0,
+      foreignFrame: 0,
       membershipUnprovable: 0,
       unverifiedLegacy: 1,
       tokenVerified: 0,
@@ -2412,6 +2634,46 @@ describe("NativeTerminalHost", () => {
           /must NOT be killed/i.test(line),
       ),
     ).toBe(true);
+  });
+
+  it("RECONCILE_FORWARDS_EACH_ROWS_SNAPSHOT_TOKEN_TO_THE_REAP", async () => {
+    // The kill side compares pgid AND group token against the immutable
+    // snapshot (see REAP_REFUSES_WHEN_THE_RE_READ_ROW_CARRIES_A_DIFFERENT_GROUP_TOKEN),
+    // but only if reconcile hands it the token it snapshotted. A pass that
+    // dropped it would reach the reap with the pgid alone, reopening the
+    // same-number successor kill. A legacy row carries no token and keeps its
+    // exact pre-token call shape.
+    persistNativeTerminalPgid(
+      "tokened-row",
+      30_501,
+      registryPath,
+      { pid: 4_242_901, startTime: 51, socketPath: "/sockets/mine.sock" },
+      77,
+      "tok-X",
+    );
+    persistNativeTerminalPgid("legacy-row", 30_502, registryPath, {
+      pid: 4_242_902,
+      startTime: 52,
+      socketPath: "/sockets/mine.sock",
+    });
+    const reap = vi.fn(async (sessionId: string, pgid: number) => ({
+      sessionId,
+      status: "reaped" as const,
+      pgid,
+      elapsedMs: 0,
+    }));
+
+    await reconcileDeadHostOrphans({
+      registryPath,
+      ownerProbe: () => "dead",
+      reap,
+      log: () => {},
+    });
+
+    expect(reap.mock.calls).toStrictEqual([
+      ["tokened-row", 30_501, "SIGKILL", { groupToken: "tok-X" }],
+      ["legacy-row", 30_502, "SIGKILL"],
+    ]);
   });
 
   it("RECONCILE_DOES_NOT_CLAIM_A_PROVEN_DEAD_OWNER_WHEN_THE_OWNER_PROBE_FAILED", async () => {

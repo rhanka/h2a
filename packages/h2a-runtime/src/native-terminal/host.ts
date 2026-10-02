@@ -18,9 +18,9 @@ import {
   type NativeTerminalPgidEntry,
   type NativeTerminalPgidOwner,
 } from "../registry.js";
-// The pid-namespace/boot anchor a durable row is only re-provable within — the
-// SAME definition the row was written with (see proc-identity.ts).
-import { readBootId, readPidNamespaceId } from "../proc-identity.js";
+// The pid-namespace/boot/machine anchor a durable row is only re-provable
+// within — the SAME definition the row was written with (see proc-identity.ts).
+import { readBootId, readMachineId, readPidNamespaceId } from "../proc-identity.js";
 import {
   TerminalReplayBuffer,
   type TerminalOutputChunk,
@@ -650,12 +650,43 @@ export type NativeTerminalReapRefusalCause =
   | "recycled"
   /**
    * The row records a boot id different from this reader's, in this reader's
-   * OWN pid namespace: every process it describes ended when that boot did.
-   * A refusal like `recycled` — nothing was signalled — but a POSITIVE proof
-   * that the original group is gone, never evidence of a survivor.
+   * OWN pid namespace ON THIS SAME MACHINE: every process it describes ended
+   * when that boot did. A refusal like `recycled` — nothing was signalled —
+   * but a POSITIVE proof that the original group is gone, never evidence of a
+   * survivor.
    */
   | "stale-boot"
+  /**
+   * The row was written in a frame this reader cannot prove is its own:
+   * another or an unknown pid namespace, or another boot of a machine not
+   * proven to be this one (see proc-identity.ts). Every pid and start-time on
+   * it names something else here, so nothing about its group can be decided
+   * from this reader — not that it survived, not that it is gone. Nothing was
+   * signalled. Kept apart from `membership-unprovable` because a local
+   * inspection of the pgid proves nothing either: it describes this reader's
+   * process space, not the one that wrote the row.
+   */
+  | "foreign-frame"
   | "membership-unprovable";
+
+/** The frame a durable row's pids and start-times are valid in (see
+ * proc-identity.ts), recorded by the writer and re-read by the reader. */
+export type NativeTerminalProcFrame = Readonly<{
+  pidNamespace?: string;
+  bootId?: string;
+  machineId?: string;
+}>;
+
+function readCurrentProcFrame(): NativeTerminalProcFrame {
+  const pidNamespace = readPidNamespaceId();
+  const bootId = readBootId();
+  const machineId = readMachineId();
+  return {
+    ...(pidNamespace !== undefined ? { pidNamespace } : {}),
+    ...(bootId !== undefined ? { bootId } : {}),
+    ...(machineId !== undefined ? { machineId } : {}),
+  };
+}
 
 export type NativeTerminalReapOutcome = Readonly<
   | {
@@ -712,9 +743,11 @@ export class NativeTerminalHost {
   readonly #readLeaderStartTime: (pid: number) => number | undefined;
   readonly #findGroupMemberToken: (pgid: number, expectedToken: string) => boolean;
   readonly #groupIsOnlyZombies: (pgid: number) => boolean;
+  readonly #readFrame: () => NativeTerminalProcFrame;
   readonly #pgidGuardCounters = {
     recycled: 0,
     staleBoot: 0,
+    foreignFrame: 0,
     membershipUnprovable: 0,
     unverifiedLegacy: 0,
     tokenVerified: 0,
@@ -756,6 +789,12 @@ export class NativeTerminalHost {
      * leader is absent AND no member carries the token, as the last re-check
      * before refusing — see `#verifyGroupLeaderIdentity`. */
     groupIsOnlyZombies?: (pgid: number) => boolean;
+    /** Injectable so tests can stand in for another machine, boot or pid
+     * namespace without root; defaults to the real proc-identity readers.
+     * The READER's frame, compared with the one a durable row records before
+     * any pid-based proof is derived from that row — see
+     * `#verifyGroupLeaderIdentity`. */
+    readFrame?: () => NativeTerminalProcFrame;
   }) {
     if (
       options.generation.trim().length === 0 ||
@@ -808,6 +847,7 @@ export class NativeTerminalHost {
     this.#findGroupMemberToken =
       options.findGroupMemberToken ?? groupCarriesSessionToken;
     this.#groupIsOnlyZombies = options.groupIsOnlyZombies ?? groupIsOnlyZombies;
+    this.#readFrame = options.readFrame ?? readCurrentProcFrame;
   }
 
   get generation(): string {
@@ -833,14 +873,18 @@ export class NativeTerminalHost {
    * still there when the checks began and the OS positively reported it EMPTY
    * when they ended. `staleBoot` is a refusal that PROVES the group gone (the
    * row predates this boot), counted apart from `recycled` because the two
-   * rest on different facts. Never collapsed: a proven kill, an unproven one,
-   * a refusal that proves death, a refusal that proves nothing, and an
-   * already-dead group must never look alike here — see
+   * rest on different facts. `foreignFrame` is a refusal that proves NOTHING
+   * because the row was written in a frame this reader cannot prove is its
+   * own, counted apart from `membershipUnprovable`, which judged a group in
+   * this reader's own process space. Never collapsed: a proven kill, an
+   * unproven one, a refusal that proves death, a refusal that proves nothing,
+   * and an already-dead group must never look alike here — see
    * `NativeTerminalReapOutcome`'s `cause`/`verified`.
    */
   get pgidGuardCounters(): Readonly<{
     recycled: number;
     staleBoot: number;
+    foreignFrame: number;
     membershipUnprovable: number;
     unverifiedLegacy: number;
     tokenVerified: number;
@@ -1341,8 +1385,11 @@ export class NativeTerminalHost {
         sessionId,
         persistedLeaderStartTime: lookup.leaderStartTime,
         persistedGroupToken: lookup.groupToken,
-        persistedPidNamespace: lookup.pidNamespace,
-        persistedBootId: lookup.bootId,
+        persistedFrame: {
+          ...(lookup.pidNamespace !== undefined ? { pidNamespace: lookup.pidNamespace } : {}),
+          ...(lookup.bootId !== undefined ? { bootId: lookup.bootId } : {}),
+          ...(lookup.machineId !== undefined ? { machineId: lookup.machineId } : {}),
+        },
       },
     );
     if (outcome.status === "dead") {
@@ -1372,31 +1419,47 @@ export class NativeTerminalHost {
    * of acting, never merely inherited. POSITIVE proof only (INV-1) —
    * ambiguity always REFUSES, never kills. In order:
    *
-   *  0. The row's FRAME (`pgidPidNamespace`/`pgidBootId`, see
-   *     proc-identity.ts) is checked FIRST, because every comparison below is
-   *     between a number persisted then and a number read now, and that is
-   *     meaningless across a pid namespace or a reboot. Three cases:
-   *     - SAME, KNOWN pid namespace, DIFFERENT boot id -> the row is from a
-   *       previous boot of this very pid space, and a reboot ends every
-   *       process of the boot before it. That is POSITIVE proof that every
-   *       process this row describes has ended — the strongest form of the
-   *       `recycled` proof, not an absence of one. REFUSE (nothing is ever
-   *       signalled: the pgid NUMBER may well be held by an unrelated live
-   *       group now, and it must not be touched) with cause `"stale-boot"`,
-   *       which reconcile reads as proof and prunes the row on. DECLARED
-   *       EXCEPTION, out of model: a process checkpointed before the reboot
-   *       and restored after it (CRIU) can carry its pid across boots. h2a
-   *       never checkpoints a PTY host, and no supported deployment restores
-   *       one; a deployment that does must disable this proof.
-   *     - Any other mismatch, including an UNKNOWN namespace on either side
-   *       -> REFUSE, cause `"membership-unprovable"` (a start-time mismatch
-   *       would otherwise be read as `recycled` and prune the row; a
-   *       coincidental MATCH would authorize a kill at a group this row never
-   *       described). A pid number means nothing outside the namespace it was
-   *       resolved in, so the boot proof above is not available there either.
-   *     - A row that records NO frame is not refused here — that would strand
-   *       every row written before the field existed — but it cannot earn the
-   *       `recycled` PROOF either (see branch 2).
+   *  0. The row's FRAME (`pgidPidNamespace`/`pgidBootId`/`pgidMachineId`,
+   *     see proc-identity.ts) is checked FIRST, because every comparison below
+   *     is between a number persisted then and a number read now, and that is
+   *     meaningless across a pid namespace, a reboot or a machine. Three cases:
+   *     - SAME, KNOWN pid namespace, DIFFERENT boot id, SAME, KNOWN machine id
+   *       -> the row is from a previous boot of this very pid space on this
+   *       very machine, and a reboot ends every process of the boot before
+   *       it. That is POSITIVE proof that every process this row describes
+   *       has ended — the strongest form of the `recycled` proof, not an
+   *       absence of one. REFUSE (nothing is ever signalled: the pgid NUMBER
+   *       may well be held by an unrelated live group now, and it must not be
+   *       touched) with cause `"stale-boot"`, which reconcile reads as proof
+   *       and prunes the row on. The machine id is what makes this a proof:
+   *       the init pid namespace has the SAME inode on every kernel and a boot
+   *       id is random per boot, so without it the very same two fields are
+   *       also what a row written by ANOTHER machine sharing this registry
+   *       (a networked `$HOME`) looks like — and that machine's group may be
+   *       alive. DECLARED EXCEPTIONS, out of model: a process checkpointed
+   *       before the reboot and restored after it (CRIU) can carry its pid
+   *       across boots, and two machines cloned from one image without
+   *       regenerating machine-id(5) are indistinguishable. h2a never
+   *       checkpoints a PTY host, and a deployment that restores one, or that
+   *       shares one registry between machines with duplicated machine ids,
+   *       must not rely on this proof.
+   *     - Any other mismatch — including an UNKNOWN namespace, boot id or
+   *       (for the boot proof) machine id on either side -> REFUSE, cause
+   *       `"foreign-frame"` (a start-time mismatch would otherwise be read as
+   *       `recycled` and prune the row; a coincidental MATCH would authorize a
+   *       kill at a group this row never described). A pid number means
+   *       nothing outside the frame it was resolved in, so neither proof is
+   *       available there, and neither is any local inspection: blocking.
+   *     - A row that records NO pid-space frame is not refused here — that
+   *       would strand every row written before the field existed — but it
+   *       cannot earn the `recycled` PROOF either (see branch 2).
+   *     DECLARED LIMIT, outside this guard: the already-empty short-circuit in
+   *     `#killGroupAndConfirmDead` answers BEFORE this frame check, so a row
+   *     whose pgid number is empty in this reader's process space is reported
+   *     reaped (and pruned) whatever frame it records. Within one machine that
+   *     is the pre-existing behaviour every row has always had; across
+   *     machines sharing one registry it is NOT a proof, and that deployment
+   *     shape is not covered.
    *  1. Leader **readable**, no start-time baseline was ever persisted (a
    *     legacy row, or a write-time read failure) -> nothing to compare
    *     against -> cannot be checked for recycling at all, so this PROCEEDS
@@ -1465,7 +1528,7 @@ export class NativeTerminalHost {
     persistedLeaderStartTime: number | undefined,
     persistedGroupToken: string | undefined,
     sessionId: string,
-    frame: { pidNamespace?: string; bootId?: string } = {},
+    frame: NativeTerminalProcFrame = {},
   ):
     | { proceed: true; verified: true; cause?: "token-verified" }
     | { proceed: true; verified: false; cause: "unverified-legacy" }
@@ -1473,7 +1536,7 @@ export class NativeTerminalHost {
     | {
         proceed: false;
         alreadyDead?: false;
-        cause: "recycled" | "stale-boot" | "membership-unprovable";
+        cause: "recycled" | "stale-boot" | "foreign-frame" | "membership-unprovable";
       } {
     // FRAME CHECK, before any pid-based comparison. Every proof below compares a
     // number persisted earlier with a number read now, and that is meaningful
@@ -1486,28 +1549,36 @@ export class NativeTerminalHost {
     // is the behaviour that predates the `recycled` outcome.
     //
     // ONE mismatch is different, and is separated out below: same pid namespace,
-    // different BOOT. That is not an absence of proof, it is the strongest proof
-    // available — a reboot ends every process of the boot before it — so it
-    // prunes instead of blocking. It is still a refusal: nothing is signalled,
-    // because an unrelated live group may hold the pgid number by now.
+    // different BOOT, same MACHINE. That is not an absence of proof, it is the
+    // strongest proof available — a reboot ends every process of the boot
+    // before it — so it prunes instead of blocking. It is still a refusal:
+    // nothing is signalled, because an unrelated live group may hold the pgid
+    // number by now.
     const anchoredFrame =
       frame.pidNamespace !== undefined && frame.bootId !== undefined;
     if (frame.pidNamespace !== undefined || frame.bootId !== undefined) {
-      const currentPidNamespace = readPidNamespaceId();
-      const currentBootId = readBootId();
+      const current = this.#readFrame();
       // The boot proof is admissible only inside ONE pid space, KNOWN on both
       // sides: a pid resolved in another namespace is a different process, and
       // an unknown namespace on either side is no statement at all.
       const sameKnownPidNamespace =
         frame.pidNamespace !== undefined &&
-        currentPidNamespace !== undefined &&
-        frame.pidNamespace === currentPidNamespace;
-      if (
-        sameKnownPidNamespace &&
+        current.pidNamespace !== undefined &&
+        frame.pidNamespace === current.pidNamespace;
+      // ...and only on ONE machine, KNOWN on both sides. The init pid
+      // namespace has the same inode on every kernel and boot ids are random
+      // per boot, so "same namespace, different boot" is ALSO what a row written
+      // by another machine sharing this registry looks like — a machine whose
+      // group may be alive right now. Only the machine id tells the two apart.
+      const sameKnownMachine =
+        frame.machineId !== undefined &&
+        current.machineId !== undefined &&
+        frame.machineId === current.machineId;
+      const differentKnownBoot =
         frame.bootId !== undefined &&
-        currentBootId !== undefined &&
-        frame.bootId !== currentBootId
-      ) {
+        current.bootId !== undefined &&
+        frame.bootId !== current.bootId;
+      if (sameKnownPidNamespace && sameKnownMachine && differentKnownBoot) {
         // PROOF, not an absence of one: a reboot ends every process of the
         // boot before it, so every process this row describes has ended. The
         // pgid NUMBER may be held by an unrelated live group now, which is
@@ -1515,19 +1586,26 @@ export class NativeTerminalHost {
         // point anyone at it.
         this.#pgidGuardCounters.staleBoot += 1;
         this.#log(
-          `NOT signalling process group pgid=${pgid} for session ${sessionId}: this row was written at boot ${String(frame.bootId)} and this reader is at boot ${String(currentBootId)}, in the same pid namespace ${String(currentPidNamespace)} — the reboot ENDED every process this row describes, so its group is PROVEN gone. The number pgid=${pgid} may belong to an unrelated live group now and must NOT be killed. cause=stale-boot sessionId=${sessionId} pgid=${pgid}`,
+          `NOT signalling process group pgid=${pgid} for session ${sessionId}: this row was written at boot ${String(frame.bootId)} and this reader is at boot ${String(current.bootId)}, in the same pid namespace ${String(current.pidNamespace)} on the same machine ${String(current.machineId)} — the reboot ENDED every process this row describes, so its group is PROVEN gone. The number pgid=${pgid} may belong to an unrelated live group now and must NOT be killed. cause=stale-boot sessionId=${sessionId} pgid=${pgid}`,
         );
         return { proceed: false, cause: "stale-boot" };
       }
       if (
-        frame.pidNamespace !== currentPidNamespace ||
-        frame.bootId !== currentBootId
+        frame.pidNamespace !== current.pidNamespace ||
+        frame.bootId !== current.bootId
       ) {
-        this.#pgidGuardCounters.membershipUnprovable += 1;
+        // Says WHY nothing could be proven, because the two shapes call for
+        // different checks by whoever reads this: a boot change that only lacks
+        // the machine proof is either a reboot of this machine or another
+        // machine; anything else is another (or an unknown) pid space.
+        const why = sameKnownPidNamespace && differentKnownBoot
+          ? `a different boot in the same pid namespace inode is what a previous boot of THIS machine looks like, but also what ANOTHER machine sharing this registry looks like, and the machine ids that would tell them apart are ${frame.machineId === undefined || current.machineId === undefined ? "not known on both sides" : "DIFFERENT"}`
+          : "no pid or start-time on it can be re-proven here";
+        this.#pgidGuardCounters.foreignFrame += 1;
         this.#log(
-          `REFUSING to act on process group pgid=${pgid} for session ${sessionId}: this row records pid namespace ${String(frame.pidNamespace)} and boot ${String(frame.bootId)}, but this reader is in pid namespace ${String(currentPidNamespace)} at boot ${String(currentBootId)} — no pid or start-time on it can be re-proven here. PROCESSES MAY SURVIVE UNCOLLECTED. cause=membership-unprovable sessionId=${sessionId} pgid=${pgid}`,
+          `REFUSING to act on process group pgid=${pgid} for session ${sessionId}: this row records pid namespace ${String(frame.pidNamespace)}, boot ${String(frame.bootId)} and machine ${String(frame.machineId)}, but this reader is in pid namespace ${String(current.pidNamespace)} at boot ${String(current.bootId)} on machine ${String(current.machineId)} — ${why}. Inspecting pgid=${pgid} HERE proves nothing about this row. PROCESSES MAY SURVIVE UNCOLLECTED. cause=foreign-frame sessionId=${sessionId} pgid=${pgid}`,
         );
-        return { proceed: false, cause: "membership-unprovable" };
+        return { proceed: false, cause: "foreign-frame" };
       }
     }
     const currentStartTime = this.#readLeaderStartTime(pgid);
@@ -1631,8 +1709,7 @@ export class NativeTerminalHost {
       sessionId: string;
       persistedLeaderStartTime: number | undefined;
       persistedGroupToken: string | undefined;
-      persistedPidNamespace: string | undefined;
-      persistedBootId: string | undefined;
+      persistedFrame: NativeTerminalProcFrame;
     },
   ): Promise<
     | { status: "dead"; elapsedMs: number; verified?: boolean }
@@ -1643,6 +1720,7 @@ export class NativeTerminalHost {
           | "unsupported-process-groups"
           | "recycled"
           | "stale-boot"
+          | "foreign-frame"
           | "membership-unprovable";
       }
   > {
@@ -1685,14 +1763,7 @@ export class NativeTerminalHost {
         verify.persistedLeaderStartTime,
         verify.persistedGroupToken,
         verify.sessionId,
-        {
-          ...(verify.persistedPidNamespace !== undefined
-            ? { pidNamespace: verify.persistedPidNamespace }
-            : {}),
-          ...(verify.persistedBootId !== undefined
-            ? { bootId: verify.persistedBootId }
-            : {}),
-        },
+        verify.persistedFrame,
       );
       if (!verdict.proceed) {
         if (verdict.alreadyDead) {
@@ -1927,7 +1998,10 @@ export class NativeTerminalHost {
  *
  * The causes that DO reach a caller are the two taken with the group observed
  * ALIVE and its identity unprovable — `membership-unprovable` and
- * `unsupported-process-groups` — plus `pgid-mismatch`, which is taken BEFORE
+ * `unsupported-process-groups` — `foreign-frame`, taken when the pgid number
+ * answers ALIVE here but the row was written in a frame (pid namespace, boot,
+ * machine) this reader cannot prove is its own, so nothing about the row's
+ * own group is decidable — plus `pgid-mismatch`, which is taken BEFORE
  * any liveness probe and only after this pass has re-read the row once (see
  * the revalidation in `reconcileDeadHostOrphans`): it survives that re-read
  * only while the row keeps being rewritten under a proven-dead owner.
@@ -1993,15 +2067,16 @@ export type NativeTerminalReconcileOutcome = Readonly<
     }
   /**
    * The reap refused with cause `stale-boot`: the row records a boot id
-   * different from this reader's, in this reader's OWN pid namespace. A reboot
-   * ends every process of the boot before it, so this PROVES every member of
-   * the original group is gone — the strongest form of the `recycled` proof,
-   * not an absence of one. The stale row is pruned and reported here,
+   * different from this reader's, in this reader's OWN pid namespace, and the
+   * same machine id as this reader's. A reboot ends every process of the boot
+   * before it, so this PROVES every member of the original group is gone — the
+   * strongest form of the `recycled` proof, not an absence of one. The stale row is pruned and reported here,
    * distinctly from every outcome that carries evidence of a SURVIVING group.
    * Nothing was signalled, and the pgid NUMBER must not be signalled by anyone
-   * acting on this outcome: an unrelated live group may hold it now. The one
-   * declared exception, out of model, is a process checkpointed before the
-   * reboot and restored after it (CRIU) — see `#verifyGroupLeaderIdentity`.
+   * acting on this outcome: an unrelated live group may hold it now. The
+   * declared exceptions, out of model, are a process checkpointed before the
+   * reboot and restored after it (CRIU), and machines that share one registry
+   * AND one duplicated machine id — see `#verifyGroupLeaderIdentity`.
    */
   | {
       sessionId: string;
@@ -2323,7 +2398,9 @@ export async function reconcileDeadHostOrphans(options: {
       } else if (outcome.status === "refused" && outcome.cause === "stale-boot") {
         // POSITIVE proof that the original group is GONE, exactly like
         // `recycled` and for a stronger reason: the row was written before this
-        // boot, in this reader's own pid namespace, and a reboot ends every
+        // boot, in this reader's own pid namespace on this same machine (the
+        // machine id is what rules out another machine sharing this registry
+        // — see `#verifyGroupLeaderIdentity`), and a reboot ends every
         // process of the boot before it. Prune the stale row — leaving it would
         // re-derive this same verdict on every later pass, holding the socket
         // until whatever unrelated process inherited the pgid NUMBER exits —

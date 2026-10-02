@@ -39,7 +39,7 @@ import {
 } from "./tmux.js";
 import type { SessionClass } from "./session-class.js";
 import { nativeSessionLiveness } from "./native-host.js";
-import { readBootId, readPidNamespaceId } from "./proc-identity.js";
+import { readBootId, readMachineId, readPidNamespaceId } from "./proc-identity.js";
 
 export type RegistryTool = "claude" | "codex" | "agy" | "muse";
 export type RegistryKind = "local-tmux" | "local-native" | "local" | "remote";
@@ -156,6 +156,15 @@ export type RegistryEntry = {
    */
   pgidPidNamespace?: string;
   pgidBootId?: string;
+  /**
+   * The writer's machine id (machine-id(5)), part of the same frame. The two
+   * fields above cannot tell "a previous boot of this machine" from "another
+   * machine sharing this registry": the init pid namespace has the same inode
+   * on every kernel. So the `"stale-boot"` proof ("a reboot ended every process
+   * this row describes") is granted only when this is known and equal on both
+   * sides; a row without it never gets that proof. See proc-identity.ts.
+   */
+  pgidMachineId?: string;
   /**
    * Owning host attribution for a native-terminal-pty row (see `pgid` above).
    * `ownerHostPid` is the pid of the host process that created this PTY and
@@ -697,6 +706,7 @@ export function persistNativeTerminalPgid(
   // `RegistryEntry.pgidPidNamespace`), so no caller may forget it.
   const pidNamespace = readPidNamespaceId();
   const bootId = readBootId();
+  const machineId = readMachineId();
   withRegistryLock(path, (entries) => {
     const now = new Date().toISOString();
     const idx = entries.findIndex((e) => e.id === id);
@@ -713,6 +723,7 @@ export function persistNativeTerminalPgid(
       ...(groupToken !== undefined ? { pgidGroupToken: groupToken } : {}),
       ...(pidNamespace !== undefined ? { pgidPidNamespace: pidNamespace } : {}),
       ...(bootId !== undefined ? { pgidBootId: bootId } : {}),
+      ...(machineId !== undefined ? { pgidMachineId: machineId } : {}),
       ...(owner !== undefined ? { ownerHostPid: owner.pid } : {}),
       ...(owner?.startTime !== undefined ? { ownerHostStartTime: owner.startTime } : {}),
       ...(owner?.socketPath !== undefined ? { ownerHostSocketPath: owner.socketPath } : {}),
@@ -736,6 +747,7 @@ export type NativeTerminalPgidLookup =
        * `RegistryEntry.pgidPidNamespace`); absent on a row written before it. */
       pidNamespace?: string;
       bootId?: string;
+      machineId?: string;
     }
   | { status: "unresolved"; reason: string };
 
@@ -791,6 +803,9 @@ export function readNativeTerminalPgid(
       ? { pidNamespace: entry.pgidPidNamespace }
       : {}),
     ...(typeof entry.pgidBootId === "string" ? { bootId: entry.pgidBootId } : {}),
+    ...(typeof entry.pgidMachineId === "string"
+      ? { machineId: entry.pgidMachineId }
+      : {}),
   };
 }
 
@@ -958,6 +973,7 @@ function isRegistryEntry(raw: unknown): raw is RegistryEntry {
     (e.ownerHostSocketPath === undefined || typeof e.ownerHostSocketPath === "string") &&
     (e.pgidPidNamespace === undefined || typeof e.pgidPidNamespace === "string") &&
     (e.pgidBootId === undefined || typeof e.pgidBootId === "string") &&
+    (e.pgidMachineId === undefined || typeof e.pgidMachineId === "string") &&
     (e.delegatorInstance === undefined || typeof e.delegatorInstance === "string") &&
     (e.delegatorTmuxSession === undefined || typeof e.delegatorTmuxSession === "string") &&
     (e.restorePinned === undefined || typeof e.restorePinned === "boolean")
