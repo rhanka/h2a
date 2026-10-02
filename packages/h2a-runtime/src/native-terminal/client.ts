@@ -60,6 +60,13 @@ export class NativeTerminalClient {
     socket.setEncoding("utf8");
     socket.on("data", (chunk: string) => this.#onData(chunk));
     socket.on("error", (error) => this.#fail(error));
+    // The host's end-of-stream ends this connection: no response can follow
+    // it, and from the next tick on Node turns every write into an EPIPE until
+    // 'close' arrives, a loop iteration or more later. Failing closed only on
+    // 'close' let a request issued in between reject with Node's raw "This
+    // socket has been ended by the other party" instead of this client's own
+    // closed-connection error, and kept requests in flight waiting for nothing.
+    socket.on("end", () => this.#fail(new Error("terminal host connection closed")));
     socket.on("close", () => this.#fail(new Error("terminal host connection closed")));
   }
 
