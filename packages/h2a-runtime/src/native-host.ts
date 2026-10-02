@@ -337,10 +337,8 @@ export function nativeSendEnter(name: string): boolean {
 }
 
 /**
- * capturePane twin. IMPORTANT semantic difference: tmux returns the RENDERED
- * screen; this returns the ANSI-stripped tail of the output stream. For probe
- * matching (prompt echo, modal text) the stream tail carries the same visible
- * text — full-screen-repaint TUIs re-emit their frame into the tail.
+ * capturePane twin: returns the rendered current screen, including cursor
+ * positioning and erasures, just like tmux capture-pane.
  */
 export function nativeCapture(name: string, bytes = 16_384): string | undefined {
   const { status, payload } = runOp(

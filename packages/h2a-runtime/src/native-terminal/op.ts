@@ -45,6 +45,7 @@ import type {
 } from "./host.js";
 import { NativeTerminalHostSupervisor } from "./supervisor.js";
 import { defaultNativeTerminalSocketPath } from "./socket-path.js";
+import { renderTerminalScreen } from "./screen.js";
 
 const DETACH_BYTE = 0x1c; // Ctrl-\
 
@@ -695,7 +696,9 @@ export async function runNativeTerminalOp(argv: ReadonlyArray<string>): Promise<
       const raw = await readAll(client, required(parsed, "id"));
       client.close();
       const budget = Number(parsed.flags.get("bytes") ?? 16384);
-      emit({ text: stripAnsi(raw.slice(-budget)) });
+      // Cutting/stripping the stream first loses cursor positioning, joins
+      // words and retains erased startup/modal text. Inspect the drawn screen.
+      emit({ text: (await renderTerminalScreen(raw)).slice(-budget) });
       return 0;
     }
     case "pid": {
