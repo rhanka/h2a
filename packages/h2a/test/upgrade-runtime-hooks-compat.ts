@@ -1,7 +1,8 @@
 import { defaultUpgradeRuntime, type UpgradeRuntime, type PrefixLockHooks, type PrefixLockHookContext, type AcquirePrefixLockOptions } from "@sentropic/h2a";
 
-// Cases D and E use only names exported by 0.97.9. They pin both a
-// contextually typed implementer and a hook type derived from the member.
+// The contextual implementer and member-derived hook cases below use
+// UpgradeRuntime/defaultUpgradeRuntime, exported by 0.97.9. The later cases
+// exercise hook aliases and AcquirePrefixLockOptions newly exported at the root.
 const contextualRuntime: Pick<UpgradeRuntime, "acquirePrefixLock"> = {
   acquirePrefixLock(prefix, hooks) {
     hooks?.beforePublishLock?.({} as never);
