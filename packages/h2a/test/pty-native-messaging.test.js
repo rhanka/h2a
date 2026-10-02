@@ -16,6 +16,7 @@ import { dirname, join } from "node:path";
 import { PassThrough } from "node:stream";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
+import { waitForIdentity } from "./helpers/identity-readiness.js";
 
 import {
   createLocalStore,
@@ -63,18 +64,6 @@ async function eventually(read, accept, label) {
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
   throw new Error(`${label} did not become observable; last=${JSON.stringify(last)}`);
-}
-
-async function waitForIdentity(read, pause = () => new Promise((resolve) => setTimeout(resolve, 10))) {
-  // The worker owns the deadline. A registry row can appear before activation;
-  // wait for the MCP readiness contract (presence, signer and wake activated).
-  for (;;) {
-    const status = await read();
-    if (status.state === "identity_ready") return status;
-    assert.equal(status.state, "identity_pending", JSON.stringify(status));
-    assert.ok(status.elapsedMs < status.timeoutMs, JSON.stringify(status));
-    await pause();
-  }
 }
 
 test("should await identity readiness while the worker remains within its advertised deadline", async () => {
