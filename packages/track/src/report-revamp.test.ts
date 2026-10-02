@@ -30,7 +30,12 @@ beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), 'track-revamp-'))
   eventsPath = join(dir, '.track', 'events.jsonl')
   store = new EventStore(eventsPath)
-  t = new Track(store, { by: 'human:x', now })
+  let sequence = 0
+  t = new Track(store, {
+    by: 'human:x',
+    now,
+    newId: () => `01KY${String(++sequence).padStart(22, '0')}`,
+  })
 })
 afterEach(() => rmSync(dir, { recursive: true, force: true }))
 
