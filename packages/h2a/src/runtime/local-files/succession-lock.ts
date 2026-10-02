@@ -2,7 +2,8 @@
  * Succession lock (v4) — single-machine succession protocol.
  *
  * Extracted from `runtime/upgrade/index.ts` (Lot 4, step 1: neutral
- * intra-package move — zero behaviour change). This is the shared lock primitive
+ * intra-package move). Lot 4 §2 adds fail-closed host and boot provenance before
+ * any death proof. This is the shared lock primitive
  * used by the auto-upgrade prefix lock today, and (later lots) by the identity
  * binding lock. It is a LEAF: it imports only `node:fs/os/crypto/child_process`
  * and nothing from the store, so `upgrade/index.ts` and `local-files/locks.ts`
@@ -12,7 +13,7 @@
  * moved unchanged from its original location.
  */
 
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import {
   closeSync,
@@ -121,6 +122,8 @@ export interface PrefixLockHooks {
 
 interface LockIdent {
   readonly host: string;
+  /** Missing only on records written before host provenance was recorded. */
+  readonly hostKind?: HostKind;
   readonly boot: string | null;
   readonly ns: string | null;
   /** Reader's time namespace; gates proc-sourced start comparisons (B2). */
@@ -130,11 +133,34 @@ interface LockIdent {
 }
 
 interface LockRec extends LockIdent {
+  /** v4 records never carry a discriminator; legacy views use `kind: "legacy"`. */
+  readonly kind?: never;
   readonly token: string;
   readonly target?: string;
   /** Diagnostic only, never decides (I7). */
   readonly at: number;
 }
+
+/**
+ * Read-only view of the pre-v4 lock written by `local-files/locks.ts`. Its
+ * optional metadata is used by identity binding, but it remains deliberately
+ * distinct from a v4 `LockRec`: legacy data lacks the machine, boot, namespace,
+ * and process-start proof needed to decide death. Its token fingerprints the
+ * exact bytes read so a later operator-only break can fence the observed record
+ * without rewriting it.
+ */
+export interface LegacyLockHolder {
+  readonly kind: "legacy";
+  readonly token: string;
+  readonly pid: number;
+  readonly hostname: string;
+  readonly startedAt: string;
+  readonly protocol?: string;
+  readonly fenceEpoch?: string;
+}
+
+/** A readable v4 record or the separate, always-undecidable legacy view. */
+export type LockHolder = LockRec | LegacyLockHolder;
 
 /** Tokens are hex (plus -/_ tolerance); anything else in a record is corruption. */
 const LOCK_TOKEN_RE = /^[A-Za-z0-9_-]{12,128}$/;
@@ -177,35 +203,116 @@ export function safeAtIso(at: number): string {
   return `epoch-ms:${at}`;
 }
 
-function readHostId(): string {
+export type HostKind = "machine-id" | "weak";
+
+interface HostIdentity {
+  readonly host: string;
+  readonly hostKind: HostKind;
+}
+
+interface HostIdentityDeps {
+  readonly platform?: NodeJS.Platform;
+  readonly readFile?: (path: string) => string;
+  readonly hostname?: () => string;
+  readonly ioreg?: () => { readonly status: number | null; readonly stdout: string | null };
+  readonly spawn?: typeof spawnSync;
+}
+
+const MACHINE_ID_RE = /^[0-9a-f]{32}$/;
+const IO_PLATFORM_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const STATIC_COMMAND_ENV = { LC_ALL: "C", TZ: "UTC0" };
+
+function isNullMachineId(value: string): boolean {
+  return /^0+$/.test(value.replaceAll("-", ""));
+}
+
+function sysctlPath(platform: NodeJS.Platform): string {
+  return platform === "darwin"
+    ? "/usr/sbin/sysctl"
+    : platform === "freebsd" || platform === "openbsd"
+      ? "/sbin/sysctl"
+      : "/usr/sbin/sysctl";
+}
+
+function weakHost(hostnameReader: () => string): HostIdentity {
   try {
-    const v = readFileSync("/etc/machine-id", "utf8").trim();
-    if (v) return v;
-  } catch {
-    // fall through to hostname
-  }
-  try {
-    const h = hostname().trim();
-    if (h) return h;
+    const host = hostnameReader().trim();
+    if (host) return { host, hostKind: "weak" };
   } catch {
     // fall through to sentinel
   }
-  return "unknown-host";
+  return { host: "unknown-host", hostKind: "weak" };
 }
 
-function readBootId(): string | null {
+function parseIoPlatformUuid(output: string): string | undefined {
+  const matches = output
+    .split("\n")
+    .map((line) => line.trim().match(/^"IOPlatformUUID"\s*=\s*"([0-9a-f-]+)"$/i)?.[1])
+    .filter((value): value is string => value !== undefined);
+  if (matches.length !== 1 || !IO_PLATFORM_UUID_RE.test(matches[0]) || isNullMachineId(matches[0])) return undefined;
+  return matches[0].toLowerCase();
+}
+
+/**
+ * Reads a machine-scoped host identity. The injected readers make source selection
+ * deterministic in tests without consulting process environment variables.
+ */
+export function readHostId(deps: HostIdentityDeps = {}): HostIdentity {
+  const platform = deps.platform ?? process.platform;
+  const readFile = deps.readFile ?? ((path: string) => readFileSync(path, "utf8"));
+  const hostnameReader = deps.hostname ?? hostname;
+  if (platform === "linux") {
+    try {
+      const host = readFile("/etc/machine-id").trim();
+      if (MACHINE_ID_RE.test(host) && !isNullMachineId(host)) return { host, hostKind: "machine-id" };
+    } catch {
+      // fall through to a weak hostname
+    }
+  } else if (platform === "darwin") {
+    try {
+      const ioreg = deps.ioreg ?? (() => {
+        const r = (deps.spawn ?? spawnSync)("/usr/sbin/ioreg", ["-rd1", "-c", "IOPlatformExpertDevice"], {
+          encoding: "utf8",
+          timeout: 2000,
+          env: STATIC_COMMAND_ENV
+        });
+        return { status: r.status, stdout: typeof r.stdout === "string" ? r.stdout : null };
+      });
+      const result = ioreg();
+      const host = result.status === 0 && typeof result.stdout === "string"
+        ? parseIoPlatformUuid(result.stdout)
+        : undefined;
+      if (host !== undefined) return { host, hostKind: "machine-id" };
+    } catch {
+      // fall through to a weak hostname
+    }
+  }
+  return weakHost(hostnameReader);
+}
+
+interface BootIdentityDeps {
+  readonly platform?: NodeJS.Platform;
+  readonly readFile?: (path: string) => string;
+  readonly spawn?: typeof spawnSync;
+}
+
+/** Reads the current boot identity; readers are injectable for platform simulations. */
+export function readBootId(deps: BootIdentityDeps = {}): string | null {
+  const platform = deps.platform ?? process.platform;
+  const readFile = deps.readFile ?? ((path: string) => readFileSync(path, "utf8"));
+  const spawn = deps.spawn ?? spawnSync;
   try {
-    const v = readFileSync("/proc/sys/kernel/random/boot_id", "utf8").trim();
+    const v = readFile("/proc/sys/kernel/random/boot_id").trim();
     if (v) return v;
   } catch {
     // not Linux: fall through to sysctl below
   }
   // Outside Linux prefer the stable session UUID (TZ-independent) when present.
   try {
-    const r = spawnSync("sysctl", ["-n", "kern.bootsessionuuid"], {
+    const r = spawn(sysctlPath(platform), ["-n", "kern.bootsessionuuid"], {
       encoding: "utf8",
       timeout: 2000,
-      env: { ...process.env, LC_ALL: "C", TZ: "UTC0" }
+      env: STATIC_COMMAND_ENV
     });
     const v = (r.stdout ?? "").trim();
     if (r.status === 0 && v) return v;
@@ -213,10 +320,10 @@ function readBootId(): string | null {
     // best-effort
   }
   try {
-    const r = spawnSync("sysctl", ["-n", "kern.boottime"], {
+    const r = spawn(sysctlPath(platform), ["-n", "kern.boottime"], {
       encoding: "utf8",
       timeout: 2000,
-      env: { ...process.env, LC_ALL: "C", TZ: "UTC0" }
+      env: STATIC_COMMAND_ENV
     });
     const v = (r.stdout ?? "").trim();
     if (r.status === 0 && v) return v;
@@ -228,9 +335,10 @@ function readBootId(): string | null {
 
 // B2 decomposition: distinguish "this platform has no namespaces" (a KNOWN fact —
 // one space per host) from "the namespace exists but is unreadable" (a genuine
-// unknown). Only the latter is null; the former is the sentinel "host" so same-host
-// liveness stays decidable (macOS/Windows/BSD). `platform`/`readLink` are injected
-// only by tests (macOS/Windows/no-/proc sims); production passes none.
+// unknown). Only the latter is null; the former is the sentinel "host". Lot 4 §2
+// permits that no-namespace liveness proof only on darwin; Windows and BSD still fail
+// closed as undecidable. `platform`/`readLink` are injected only by tests
+// (macOS/Windows/no-/proc sims); production passes none.
 //
 // readPidNs is the CONSERVATIVE gate that decides reclaim at all: an unknown (null)
 // pid namespace makes even a PID-absent holder undecidable, because "absent" in an
@@ -286,12 +394,13 @@ function procMapsToSelf(): boolean {
  * so a reader using a different source never concludes "dead" from a
  * format/TZ-fragile comparison (C1).
  */
-// `platform`/`mapsToSelf` are injected only by tests (mis-mapped-/proc / non-Linux
-// sims); production passes none.
+// `platform`/`mapsToSelf`/`spawn` are injected only by tests (mis-mapped-/proc /
+// non-Linux sims); production passes none.
 export function procStartInfo(
   pid: number,
   platform: NodeJS.Platform = process.platform,
-  mapsToSelf: () => boolean = procMapsToSelf
+  mapsToSelf: () => boolean = procMapsToSelf,
+  spawn: typeof spawnSync = spawnSync
 ): { state?: string; start?: string } | undefined {
   // A start time is only trusted from a source whose value is STABLE for the life of the
   // process (never moving under a wall-clock step), else a clock jump while the lock is held
@@ -304,7 +413,8 @@ export function procStartInfo(
   // - darwin: `ps lstart` is the ABSOLUTE fork wall-clock time (p_starttime), stable ⇒ trusted.
   // - R-BSD: on FreeBSD/OpenBSD `ps` start is boot-relative and its boot time is re-derived on
   //   a clock step, so it is NOT stable. Every other non-Linux platform (incl. Windows, no ps)
-  //   ⇒ undefined (undatable ⇒ live). In doubt, never dead.
+  //   ⇒ undefined. Lock liveness on those platforms is already undecidable under Lot 4 §2.
+  //   In doubt, never dead.
   if (platform === "linux") {
     if (!mapsToSelf()) return undefined;
     try {
@@ -324,10 +434,10 @@ export function procStartInfo(
   }
   if (platform !== "darwin") return undefined; // only darwin ps is a stable source
   try {
-    const r = spawnSync("ps", ["-o", "lstart=", "-p", String(pid)], {
+    const r = spawn("/bin/ps", ["-o", "lstart=", "-p", String(pid)], {
       encoding: "utf8",
       timeout: 5000,
-      env: { ...process.env, LC_ALL: "C", TZ: "UTC0" }
+      env: STATIC_COMMAND_ENV
     });
     const v = (r.stdout ?? "").trim();
     if (r.status === 0 && v) return { start: `ps:${v}` };
@@ -344,6 +454,7 @@ function startSource(s: string): "proc" | "ps" | "legacy" {
 }
 
 interface SelfIdent extends LockIdent {
+  readonly hostKind: HostKind;
   readonly pid: number;
 }
 
@@ -351,14 +462,18 @@ let ME_CACHE: SelfIdent | undefined;
 
 /** This process's identity, computed once and memoized. */
 export function me(): SelfIdent {
-  ME_CACHE ??= {
-    host: readHostId(),
-    boot: readBootId(),
-    ns: readPidNs(),
-    timeNs: readTimeNs(),
-    pid: process.pid,
-    start: procStartInfo(process.pid)?.start ?? null
-  };
+  ME_CACHE ??= (() => {
+    const host = readHostId();
+    return {
+      host: host.host,
+      hostKind: host.hostKind,
+      boot: readBootId(),
+      ns: readPidNs(),
+      timeNs: readTimeNs(),
+      pid: process.pid,
+      start: procStartInfo(process.pid)?.start ?? null
+    };
+  })();
   return ME_CACHE;
 }
 
@@ -367,10 +482,10 @@ function newToken(): string {
   return randomBytes(16).toString("hex");
 }
 
-export function makeLockRec(token: string, target?: string): LockRec {
-  const self = me();
+function makeLockRecFor(self: SelfIdent, token: string, target?: string): LockRec {
   return {
     host: self.host,
+    hostKind: self.hostKind,
     boot: self.boot,
     ns: self.ns,
     timeNs: self.timeNs,
@@ -382,10 +497,14 @@ export function makeLockRec(token: string, target?: string): LockRec {
   };
 }
 
+export function makeLockRec(token: string, target?: string): LockRec {
+  return makeLockRecFor(me(), token, target);
+}
+
 export function parseLockRec(raw: unknown): LockRec {
   if (typeof raw !== "object" || raw === null) throw new Error("bad lock record");
   const o = raw as Record<string, unknown>;
-  const { host, boot, ns, timeNs, pid, start, token, target, at } = o;
+  const { host, hostKind, boot, ns, timeNs, pid, start, token, target, at } = o;
   // timeNs is a required field like host/boot/ns/pid/start: an absent field is a
   // malformed record → corrupt → fail-closed. No back-compat exception is carved
   // for a "v4 without timeNs" — the redesign was never published, so no such lock
@@ -393,16 +512,22 @@ export function parseLockRec(raw: unknown): LockRec {
   // (genuine unknown time namespace); the liveness guard then treats the proc start
   // as undatable ⇒ "live" (never reclaim, never a false death), not undecidable.
   if (typeof host !== "string" || host.length === 0) throw new Error("bad host");
+  // A missing provenance was written by versions <= 0.97.9. It is valid legacy
+  // state, but classifyLiveness treats it as unknown and therefore undecidable.
+  // Unknown values are corrupt and fail closed. Lot 5 must carry an instance UUID in
+  // a separate field rather than extending this persisted hostKind enum.
+  if (hostKind !== undefined && hostKind !== "machine-id" && hostKind !== "weak") throw new Error("bad hostKind");
   if (boot !== null && typeof boot !== "string") throw new Error("bad boot");
   if (ns !== null && typeof ns !== "string") throw new Error("bad ns");
   if (timeNs !== null && typeof timeNs !== "string") throw new Error("bad timeNs");
   if (typeof pid !== "number" || !Number.isInteger(pid) || pid <= 0) throw new Error("bad pid");
   if (start !== null && typeof start !== "string") throw new Error("bad start");
-  if (typeof token !== "string" || !LOCK_TOKEN_RE.test(token)) throw new Error("bad token");
+  if (typeof token !== "string" || token.startsWith("legacy-") || !LOCK_TOKEN_RE.test(token)) throw new Error("bad token");
   if (target !== undefined && typeof target !== "string") throw new Error("bad target");
   if (typeof at !== "number" || !Number.isFinite(at)) throw new Error("bad at");
   return {
     host,
+    ...(hostKind !== undefined ? { hostKind } : {}),
     boot,
     ns,
     timeNs,
@@ -414,13 +539,65 @@ export function parseLockRec(raw: unknown): LockRec {
   };
 }
 
-/** opus `read`: ENOENT -> absent, anything else unreadable -> corrupt (I1). */
-export function readLockRecord(path: string): LockRec | "absent" | "corrupt" {
+function parseLegacyLockHolder(raw: unknown, bytes: Buffer): LegacyLockHolder {
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) throw new Error("bad legacy lock record");
+  const o = raw as Record<string, unknown>;
+  const keys = Object.keys(o);
+  if (
+    !keys.includes("pid")
+    || !keys.includes("hostname")
+    || !keys.includes("startedAt")
+    || !keys.every((key) => key === "pid" || key === "hostname" || key === "startedAt" || key === "protocol" || key === "fenceEpoch")
+  ) {
+    throw new Error("bad legacy lock fields");
+  }
+  if (typeof o.pid !== "number" || !Number.isInteger(o.pid) || o.pid <= 0) throw new Error("bad legacy pid");
+  if (typeof o.hostname !== "string") throw new Error("bad legacy hostname");
+  if (typeof o.startedAt !== "string") throw new Error("bad legacy startedAt");
+  if (o.protocol !== undefined && typeof o.protocol !== "string") throw new Error("bad legacy protocol");
+  if (o.fenceEpoch !== undefined && typeof o.fenceEpoch !== "string") throw new Error("bad legacy fenceEpoch");
+  return {
+    kind: "legacy",
+    // Do not trim, decode/re-encode, or JSON.stringify the input: a final `\n`
+    // is part of this fencing token by design and is covered by T-legacy.
+    token: `legacy-${createHash("sha256").update(bytes).digest("hex")}`,
+    pid: o.pid,
+    hostname: o.hostname,
+    startedAt: o.startedAt,
+    ...(o.protocol !== undefined ? { protocol: o.protocol } : {}),
+    ...(o.fenceEpoch !== undefined ? { fenceEpoch: o.fenceEpoch } : {})
+  };
+}
+
+/**
+ * Reads a v4 record or the exact legacy locks.ts shape. The legacy token hashes
+ * the raw file bytes before JSON decoding, so visually equivalent files (notably
+ * with or without a trailing newline) are different observed holders.
+ */
+export function readLockHolder(path: string): LockHolder | "absent" | "corrupt" {
   try {
-    return parseLockRec(JSON.parse(readFileSync(path, "utf8")));
+    const bytes = readFileSync(path);
+    const parsed = JSON.parse(bytes.toString("utf8"));
+    try {
+      return parseLockRec(parsed);
+    } catch {
+      return parseLegacyLockHolder(parsed, bytes);
+    }
   } catch (e) {
     return (e as NodeJS.ErrnoException | undefined)?.code === "ENOENT" ? "absent" : "corrupt";
   }
+}
+
+/**
+ * v4-only reader retained for existing protocol callers. A readable legacy holder
+ * remains `corrupt` here so a caller that was not explicitly upgraded to the
+ * distinct legacy view continues to fail closed.
+ */
+export function readLockRecord(path: string): LockRec | "absent" | "corrupt" {
+  const holder = readLockHolder(path);
+  return holder !== "absent" && holder !== "corrupt" && holder.kind === "legacy"
+    ? "corrupt"
+    : holder;
 }
 
 type PublishStatus = { status: "ok" } | { status: "exists" } | { status: "retry" } | { status: "error"; code: string };
@@ -513,19 +690,20 @@ interface LivenessInfo {
  * comparison: a source mismatch or an unknown/differing time namespace both yield a
  * safe "live" (undatable), and a corrupt "legacy" start yields "undecidable" (C1).
  */
-export function classifyLiveness(r: LockRec, self: SelfIdent, deps: LivenessDeps = {}): LivenessInfo {
+export function classifyLiveness(r: LockHolder, self: SelfIdent, deps: LivenessDeps = {}): LivenessInfo {
+  // Legacy records have no machine/boot/namespace/start provenance. In particular,
+  // even a same-host ESRCH PID may have been reused, so never probe it and never
+  // promote the holder to dead. The operator escape hatch consumes this token later.
+  if (r.kind === "legacy") return { verdict: "undecidable", datable: false };
   const platform = deps.platform ?? process.platform;
   const probe = deps.probe ?? procStartInfo;
-  if (r.host !== self.host) return { verdict: "undecidable", datable: false }; // other machine
-  // B1: only a Linux boot_id is a stable, trustworthy boot identity, so a difference
-  // there is a previous boot ⇒ dead. Off Linux a boot difference must NOT short-circuit
-  // to undecidable (that wedged a Mac rebooted mid-lock forever); fall through to kill(0)
-  // (PID absent ⇒ dead, on every platform) then the start comparison (only conclusive
-  // where the start is datable — Linux /proc and darwin ps; on BSD/Windows it is undatable
-  // ⇒ live, so after a reboot a reused PID blocks until it exits, surfaced by R2).
-  if (r.boot && self.boot && r.boot !== self.boot && platform === "linux") {
-    return { verdict: "dead", datable: false };
-  }
+  // Lot 4 §2 permits a death proof only for a strong machine identity on Linux or
+  // darwin, with the same known host and boot. Check this before every PID/start probe:
+  // cloned images can share a machine-id and an initial pid namespace inode.
+  if (platform !== "linux" && platform !== "darwin") return { verdict: "undecidable", datable: false };
+  if (r.hostKind !== "machine-id" || self.hostKind !== "machine-id") return { verdict: "undecidable", datable: false };
+  if (r.host !== self.host) return { verdict: "undecidable", datable: false };
+  if (r.boot === null || self.boot === null || r.boot !== self.boot) return { verdict: "undecidable", datable: false };
   // An unreadable namespace on EITHER side is a genuine unknown — two records with a
   // null namespace must never be treated as co-located (null-equality).
   if (r.ns === null || self.ns === null) return { verdict: "undecidable", datable: false };
@@ -571,13 +749,18 @@ export function classifyLiveness(r: LockRec, self: SelfIdent, deps: LivenessDeps
   return { verdict: exists ? "live" : "undecidable", datable: false };
 }
 
-export function livenessOf(r: LockRec, self: SelfIdent, deps: LivenessDeps = {}): Liveness {
+export function livenessOf(r: LockHolder, self: SelfIdent, deps: LivenessDeps = {}): Liveness {
   return classifyLiveness(r, self, deps).verdict;
 }
 
 /** No false positive: true implies certainly dead; any doubt is alive (I3). */
 export function isCertainlyDead(r: LockRec): boolean {
   return classifyLiveness(r, me()).verdict === "dead";
+}
+
+interface AcquirePrefixLockDeps {
+  /** Test-only identity seam; production always uses the memoized process identity. */
+  readonly self?: () => SelfIdent;
 }
 
 function lockDenied(reason: PrefixLockReason): PrefixLockLease {
@@ -597,29 +780,33 @@ function invokeLockHook(
 }
 
 /** opus `acquirePrefixLock`, plus M5 reasons and test-only critical hooks. */
-export function acquirePrefixLock(prefix: string, hooks: PrefixLockHooks = {}): PrefixLockLease {
+export function acquirePrefixLock(
+  prefix: string,
+  hooks: PrefixLockHooks = {},
+  deps: AcquirePrefixLockDeps = {}
+): PrefixLockLease {
   const lockPath = lockPathFor(prefix);
   try {
     mkdirSync(prefix, { recursive: true });
   } catch (e) {
     return lockDenied(`error:${errnoOf(e)}`);
   }
-  const self = me();
+  const self = deps.self?.() ?? me();
   for (let round = 0; round < PREFIX_LOCK_MAX_ROUNDS; round++) {
     if (round === 0) {
       invokeLockHook(hooks.beforePublishLock, { prefix, lockPath, path: lockPath, round, depth: 0 });
     }
     const tok = newToken();
-    const pub = publishLockRecord(lockPath, makeLockRec(tok));
+    const pub = publishLockRecord(lockPath, makeLockRecFor(self, tok));
     if (pub.status === "ok") return makeLease(prefix, lockPath, tok);
     if (pub.status === "error") return lockDenied(`error:${pub.code}`);
     if (pub.status === "retry") continue;
-    const cur = readLockRecord(lockPath);
+    const cur = readLockHolder(lockPath);
     if (cur === "absent") continue; // released meanwhile
     if (cur === "corrupt") return lockDenied("dead-undecidable"); // fail closed
     const live = livenessOf(cur, self);
     if (live !== "dead") return lockDenied(live === "live" ? "busy" : "dead-undecidable");
-    const next = succeedDeadToken(prefix, lockPath, cur.token, hooks, round);
+    const next = succeedDeadToken(prefix, lockPath, cur.token, hooks, round, self);
     if (next !== "retry") return next;
   }
   return lockDenied("busy");
@@ -635,13 +822,13 @@ function succeedDeadToken(
   lockPath: string,
   g: string,
   hooks: PrefixLockHooks,
-  round: number
+  round: number,
+  self: SelfIdent
 ): PrefixLockLease | "retry" {
-  const self = me();
   let t = g;
   for (let depth = 0; depth < PREFIX_LOCK_MAX_CHAIN; depth++) {
     const tok = newToken();
-    const pub = publishLockRecord(succPathFor(lockPath, t), makeLockRec(tok, g));
+    const pub = publishLockRecord(succPathFor(lockPath, t), makeLockRecFor(self, tok, g));
     if (pub.status === "ok") {
       invokeLockHook(hooks.afterPublishSucc, {
         prefix,
@@ -652,7 +839,7 @@ function succeedDeadToken(
         round,
         depth
       });
-      return retireDeadToken(prefix, lockPath, g, hooks, round, depth);
+      return retireDeadToken(prefix, lockPath, g, hooks, round, depth, self);
     }
     if (pub.status === "error") return lockDenied(`error:${pub.code}`);
     if (pub.status === "retry") return "retry";
@@ -677,7 +864,8 @@ function retireDeadToken(
   g: string,
   hooks: PrefixLockHooks,
   round: number,
-  depth: number
+  depth: number,
+  self: SelfIdent
 ): PrefixLockLease | "retry" {
   const cur = readLockRecord(lockPath);
   if (cur === "corrupt") return lockDenied("dead-undecidable"); // keep our SUCC: fail closed
@@ -731,7 +919,7 @@ function retireDeadToken(
   // From here LOCK != g forever (I2): every SUCC targeting g is inert.
   purgeSuccession(prefix, lockPath, g); // unlink SUCC files whose target === g
   const tok = newToken();
-  const pub = publishLockRecord(lockPath, makeLockRec(tok));
+  const pub = publishLockRecord(lockPath, makeLockRecFor(self, tok));
   if (pub.status === "ok") return makeLease(prefix, lockPath, tok);
   if (pub.status === "exists" || pub.status === "retry") return "retry";
   return lockDenied(`error:${pub.code}`);
