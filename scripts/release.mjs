@@ -17,13 +17,22 @@
  *          `@sentropic/h2a` dependency caret to `^X.Y.Z`)
  *        - `packages/h2a-runtime/package.json` (heavy runtime, lockstep)
  *        - `packages/track/package.json` (record-only system of record, lockstep)
- *   3. Stage and commit those package files with `release: vX.Y.Z`.
- *   4. Create an annotated tag `vX.Y.Z` (signed only if
- *      `git config commit.gpgsign` is true, mirroring the user's setup).
- *   5. Print the manual next steps (`git push origin HEAD`, then tag).
+ *   3. Stage and commit those package files with `release: vX.Y.Z` on a
+ *      branch, never on `main` (`main` is PR-only, admins included):
+ *        - launched from `main`: switches to a new `release/vX.Y.Z` branch;
+ *        - launched from another branch (e.g. the feature branch, see
+ *          `docs/governance/agent-release-policy.md`): commits there;
+ *        - detached HEAD: refused.
+ *   4. Print the manual next steps: push the branch, `gh pr create`, wait
+ *      for green CI, merge, then `git fetch`, create the annotated tag
+ *      `vX.Y.Z` on the MERGED commit once verified on `origin/main`
+ *      (signed only if `git config commit.gpgsign` is true), push the tag.
  *
- * The publish itself happens in CI (`.github/workflows/release.yml`), gated
- * on the tag push. Nothing in this script touches the npm registry.
+ * No tag is created locally: a squash or rebase merge rewrites the commit, so
+ * a pre-merge tag would point outside `main` (and `release.yml` refuses a
+ * tag that is not on `origin/main`). The publish itself happens in CI
+ * (`.github/workflows/release.yml`), gated on the tag push. Nothing in this
+ * script touches the network.
  *
  * Usage:
  *
@@ -31,7 +40,8 @@
  *   node scripts/release.mjs --version 0.2.0 --dry-run
  *
  * Pure helpers (`parseVersion`, `bumpPackageJsonContent`,
- * `bumpPackageLockContent`, `gitStatusIsClean`) are exported so the unit-test
+ * `bumpPackageLockContent`, `gitStatusIsClean`, `resolveReleaseBranch`,
+ * `planReleaseGitSteps`, `formatNextSteps`) are exported so the unit-test
  * suite can exercise them without spawning a subprocess.
  */
 import { spawnSync } from "node:child_process";
@@ -197,6 +207,99 @@ export function gitStatusIsClean(porcelainOutput) {
   return porcelainOutput.trim().length === 0;
 }
 
+const MAIN_BRANCH = "main";
+
+/**
+ * Decide on which branch the version commit lands. `main` is PR-only, so a
+ * run from `main` moves to a fresh `release/vX.Y.Z` branch; any other branch
+ * is kept (the bump may ride in the feature PR itself). A detached HEAD is
+ * refused because there would be no branch to open a PR from.
+ *
+ * @param {string} currentBranch - Output of `git rev-parse --abbrev-ref HEAD`.
+ * @param {string} newVersion - Target version, validated by `parseVersion`.
+ * @returns {{ branch: string, create: boolean }}
+ */
+export function resolveReleaseBranch(currentBranch, newVersion) {
+  parseVersion(newVersion); // validate
+  const current = (currentBranch ?? "").trim();
+  if (current === "" || current === "HEAD") {
+    throw new Error(
+      "detached HEAD — check out main (a release/vX.Y.Z branch is created) or the feature branch first."
+    );
+  }
+  if (current === MAIN_BRANCH) {
+    return { branch: `release/v${newVersion}`, create: true };
+  }
+  return { branch: current, create: false };
+}
+
+/**
+ * Local git steps run after the bump: optional branch switch, stage, commit.
+ * Deliberately no `git tag` (the tag goes on the merged commit) and no push.
+ *
+ * @param {{ version: string, currentBranch: string }} input
+ * @returns {{ branch: string, steps: Array<{ label: string, command: string, args: string[] }> }}
+ */
+export function planReleaseGitSteps({ version, currentBranch }) {
+  const { branch, create } = resolveReleaseBranch(currentBranch, version);
+  const tag = `v${version}`;
+  const steps = [];
+  if (create) {
+    steps.push({
+      label: `Create release branch ${branch} (main is PR-only)`,
+      command: "git",
+      args: ["switch", "-c", branch]
+    });
+  }
+  steps.push({ label: "Stage version bumps", command: "git", args: ["add", ...PACKAGE_FILES] });
+  steps.push({
+    label: "Commit version bumps",
+    command: "git",
+    args: ["commit", "-m", `release: ${tag}`]
+  });
+  return { branch, steps };
+}
+
+/**
+ * Manual next steps: branch push -> PR -> green CI -> merge -> fetch ->
+ * annotated tag on the merged commit verified on origin/main -> tag push.
+ *
+ * @param {{ version: string, branch: string, signTag?: boolean }} input
+ * @returns {string}
+ */
+export function formatNextSteps({ version, branch, signTag = false }) {
+  const tag = `v${version}`;
+  const tagFlags = signTag ? "-s -a" : "-a";
+  return [
+    "",
+    "Next steps (manual — nothing in this script touches the network):",
+    "",
+    "  # 1. Publish the version commit through a PR (main is PR-only)",
+    `  git push -u origin ${branch}`,
+    `  gh pr create --base main --head ${branch} --fill`,
+    "",
+    "  # 2. Wait for the required CI checks to be green, then merge",
+    `  gh pr checks ${branch} --watch --required`,
+    `  gh pr merge ${branch} --squash`,
+    "",
+    "  # 3. Tag the MERGED commit (never the pre-merge local commit)",
+    "  git fetch origin main",
+    `  SHA=$(gh pr view ${branch} --json mergeCommit --jq .mergeCommit.oid)`,
+    '  git merge-base --is-ancestor "$SHA" origin/main',
+    `  git show "$SHA:packages/h2a/package.json" | grep -q '"version": "${version}"'`,
+    `  git tag ${tagFlags} ${tag} "$SHA" -m "release: ${tag}"`,
+    `  git push origin ${tag}`,
+    "",
+    "On tag push, .github/workflows/release.yml runs:",
+    "  - tag-on-main gate (refuses a tag not reachable from origin/main)",
+    "  - typecheck + tests",
+    "  - version sanity gate (tag vs package.json)",
+    "  - npm publish --access public via npm Trusted Publishing (track + h2a + h2a-cli + h2a-runtime)",
+    "  - gh release create --generate-notes",
+    ""
+  ].join("\n");
+}
+
 function parseArgs(argv) {
   const args = { version: undefined, dryRun: false };
   for (let i = 0; i < argv.length; i++) {
@@ -220,9 +323,11 @@ function printHelp() {
     [
       "Usage: npm run release -- --version <X.Y.Z> [--dry-run]",
       "",
-      "Bumps both packages to the same X.Y.Z, runs typecheck + tests,",
-      "commits, and creates an annotated tag `vX.Y.Z`. Publish itself",
-      "happens in CI on tag push (see .github/workflows/release.yml).",
+      "Runs typecheck + tests, bumps every package to the same X.Y.Z and",
+      "commits `release: vX.Y.Z` on a branch (release/vX.Y.Z when run from",
+      "main; never on main). No tag is created: tag the merged commit after",
+      "the PR is merged. Publish happens in CI on tag push",
+      "(see .github/workflows/release.yml).",
       ""
     ].join("\n")
   );
@@ -283,6 +388,19 @@ function assertCleanWorktree() {
   }
 }
 
+function currentBranchName() {
+  const result = spawnSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], {
+    cwd: REPO_ROOT,
+    encoding: "utf8"
+  });
+  if (result.status !== 0) {
+    throw new Error(
+      `git rev-parse --abbrev-ref HEAD failed (exit code ${result.status ?? "signal:" + result.signal}).`
+    );
+  }
+  return (result.stdout ?? "").trim();
+}
+
 function gitConfigBool(key) {
   const result = spawnSync("git", ["config", "--get", key], {
     cwd: REPO_ROOT,
@@ -328,6 +446,13 @@ async function main(argv) {
     `\n=== h2a release prep — target ${tag}${dryRun ? " (dry-run)" : ""} ===\n`
   );
 
+  // Resolve the target branch up front so a detached HEAD fails before the
+  // (long) verification run. In dry-run we still read the branch (read-only).
+  const plan = planReleaseGitSteps({
+    version: newVersion,
+    currentBranch: currentBranchName()
+  });
+
   runStep("Check clean worktree", "git", ["status", "--porcelain"], { dryRun });
   if (!dryRun) assertCleanWorktree();
 
@@ -341,48 +466,17 @@ async function main(argv) {
   process.stdout.write("\n→ Bump package.json files\n");
   bumpAllPackages(newVersion, { dryRun });
 
-  runStep(
-    "Stage version bumps",
-    "git",
-    ["add", ...PACKAGE_FILES],
-    { dryRun }
-  );
-
-  runStep(
-    "Commit version bumps",
-    "git",
-    ["commit", "-m", `release: ${tag}`],
-    { dryRun }
-  );
+  for (const step of plan.steps) {
+    if (step.args[0] === "commit" && !dryRun && currentBranchName() === MAIN_BRANCH) {
+      // Defence in depth: main is PR-only; never commit the bump on it.
+      throw new Error("refusing to commit the release bump directly on main.");
+    }
+    runStep(step.label, step.command, step.args, { dryRun });
+  }
 
   const signTag = dryRun ? false : gitConfigBool("commit.gpgsign");
-  const tagArgs = ["tag"];
-  if (signTag) tagArgs.push("-s");
-  tagArgs.push("-a", tag, "-m", `release: ${tag}`);
-  runStep(
-    signTag
-      ? "Create signed annotated tag"
-      : "Create annotated tag (unsigned — commit.gpgsign=false)",
-    "git",
-    tagArgs,
-    { dryRun }
-  );
-
   process.stdout.write(
-    [
-      "",
-      "Next steps (manual — nothing in this script touches the network):",
-      "",
-      `  git push origin HEAD`,
-      `  git push origin ${tag}`,
-      "",
-      "On tag push, .github/workflows/release.yml runs:",
-      "  - typecheck + tests",
-      "  - version sanity gate (tag vs package.json)",
-      "  - npm publish --access public via npm Trusted Publishing (track + h2a + h2a-cli + h2a-runtime)",
-      "  - gh release create --generate-notes",
-      ""
-    ].join("\n")
+    formatNextSteps({ version: newVersion, branch: plan.branch, signTag })
   );
 }
 
