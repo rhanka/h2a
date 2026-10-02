@@ -114,6 +114,7 @@ export async function runNativeTerminalHostProcess(argv: ReadonlyArray<string>):
     replayBytesPerSession: options.replayBytesPerSession,
     maxSessions: options.maxSessions,
     spawner: nodePtySpawner,
+    socketPath: options.socketPath,
     ...(options.registryPath !== undefined ? { registryPath: options.registryPath } : {}),
   });
   const server = await startNativeTerminalHostServer({ socketPath: options.socketPath, host });
