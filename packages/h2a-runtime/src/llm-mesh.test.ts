@@ -168,6 +168,69 @@ describe("facade enrollment", () => {
     expect(facade.waitForCallback).not.toHaveBeenCalled();
   });
 
+  it("completes Muse device-flow enrollment via completeMuseDeviceImport (muse-code)", async () => {
+    const facade = {
+      enroll: vi.fn().mockResolvedValue({
+        kind: "device-code",
+        enrollmentId: "enroll-muse-code",
+        userCode: "WXYZ-1234",
+        verificationUrl: "https://auth.meta.com/device",
+        expiresAt: "2026-08-07T01:00:00.000Z",
+        intervalSeconds: 5,
+      }),
+      waitForCallback: vi.fn(),
+      pollForCompletion: vi.fn(),
+      completeMuseDeviceImport: vi.fn().mockResolvedValue({
+        accountId: "account-muse-code",
+        label: "Muse",
+      }),
+    } as unknown as LlmMeshFacade;
+    vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+
+    await expect(enrollViaFacade("muse-code", {
+      facade,
+      ownerScope: "cli:test-host",
+    })).resolves.toEqual({
+      accountId: "account-muse-code",
+      provider: "muse-code",
+      label: "Muse",
+    });
+    expect(facade.enroll).toHaveBeenCalledWith("muse-code", {
+      configRef: "default",
+      mode: "cli",
+      ownerScope: "cli:test-host",
+      redirectUri: "http://127.0.0.1",
+    });
+    expect(facade.completeMuseDeviceImport).toHaveBeenCalledWith(
+      "enroll-muse-code",
+      "cli:test-host",
+    );
+    // The generic poll is hard-wired to the codex provider mesh-side and
+    // must never receive a muse enrollment id.
+    expect(facade.pollForCompletion).not.toHaveBeenCalled();
+    expect(facade.waitForCallback).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when the facade predates Muse device-flow support", async () => {
+    const facade = {
+      enroll: vi.fn().mockResolvedValue({
+        kind: "device-code",
+        enrollmentId: "enroll-muse-code",
+        userCode: "WXYZ-1234",
+        verificationUrl: "https://auth.meta.com/device",
+        expiresAt: "2026-08-07T01:00:00.000Z",
+        intervalSeconds: 5,
+      }),
+      waitForCallback: vi.fn(),
+      pollForCompletion: vi.fn(),
+    } as unknown as LlmMeshFacade;
+    vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+
+    await expect(enrollViaFacade("muse-code", { facade })).rejects.toThrow(
+      "completeMuseDeviceImport",
+    );
+  });
+
   it("completes a Muse CLI-store import without browser or device round-trip", async () => {
     const facade = {
       enroll: vi.fn().mockResolvedValue({
