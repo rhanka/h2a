@@ -130,6 +130,7 @@ import {
   sleepSync,
   type PromptDeliveryResult,
 } from "./prompt-delivery.js";
+import { startLaunchGuard, type LaunchGuard, type LaunchOwnership } from "./launch-guard.js";
 import { buildLaunchContext } from "./launch-context.js";
 import {
   attachNativeSession,
@@ -6448,6 +6449,8 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           let agentPane: string | undefined;
           let promptFile: string | undefined;
           let promptDelivery: PromptDeliveryResult | undefined;
+          let launchGuard: LaunchGuard | undefined;
+          let launchOwnership: LaunchOwnership | undefined;
           if (opts.json && opts.name) {
             process.stderr.write(
               `${STRUCTURED_LAUNCH_PHASE_PREFIX}${JSON.stringify({
@@ -6550,6 +6553,20 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             process.exitCode = 1;
             return;
           }
+          if (structuredLaunch && !opts.headless && initialPrompt !== undefined) {
+            if (sessionHost === "native") {
+              const owned = nativeSessionState(name);
+              if (owned.state !== "found") throw new Error("cannot attest the created native session");
+              launchOwnership = { host: "native", sessions: [{
+                name, generation: owned.session.generation, incarnation: owned.session.incarnation,
+              }] };
+            } else {
+              const ownedPid = localSessionPanePid(agentPane!);
+              if (ownedPid === undefined) throw new Error("cannot attest the created tmux pane");
+              launchOwnership = { host: "tmux", sessions: [{ name, pane: agentPane!, pid: ownedPid }] };
+            }
+            launchGuard = startLaunchGuard(join(cwd, ".h2a", "runs", slug), launchOwnership);
+          }
           let h2aSidecarStarted = false;
           if (h2aSidecar && sessionHost === "native") {
             h2aSidecarStarted = startNativeH2aSidecar(name, cwd, h2a.command, {
@@ -6568,6 +6585,13 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
               return;
             }
             if (h2aSidecarStarted) {
+              if (launchGuard && launchOwnership?.host === "native") {
+                const owned = nativeSessionState(`${name}.h2a`);
+                if (owned.state !== "found") throw new Error("cannot attest the created native sidecar");
+                launchOwnership.sessions.push({ name: `${name}.h2a`,
+                  generation: owned.session.generation, incarnation: owned.session.incarnation });
+                launchGuard.own(launchOwnership);
+              }
               process.stderr.write(
                 `[h2a] h2a sidecar session started for ${slug} (${h2a.command})\n`,
               );
@@ -6622,6 +6646,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
                   name,
                   initialPrompt,
                   nativePromptDeliveryDeps(sleepSync),
+                  { profile },
                 )
               : deliverInitialPrompt(agentPane!, initialPrompt, {
                   capturePane: capturePaneVisible,
@@ -6631,7 +6656,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
                   cpuMs: paneTreeCpuMs,
                   sleep: sleepSync,
                   now: () => Date.now(),
-                });
+                }, { profile });
             if (promptDelivery.state !== "working") {
               cleanupHeadlessPromptFile(promptFile);
               // Only claim the session is gone when the kill actually reported
@@ -6666,6 +6691,12 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
                     : ""),
               );
               process.exitCode = 1;
+              if (opts.json && promptDelivery.state === "provider-blocked") {
+                process.stdout.write(`${JSON.stringify({ kind: "h2a.run.failure", version: 1,
+                  state: "provider-blocked", launchId: slug, error: promptDelivery.reason,
+                  stopped, retrySafe: false, prompt: { delivered: true, waitedMs: promptDelivery.waitedMs },
+                })}\n`);
+              }
               return;
             }
           }
@@ -6721,6 +6752,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             ...(resultJson !== undefined ? { resultJson } : {}),
             ...(promptDelivery !== undefined ? { promptDelivery } : {}),
           });
+          launchGuard?.complete();
           // The writer is now durable in the registry. End the short critical
           // section before a foreground attach can keep this command alive.
           resumeClaim?.release();

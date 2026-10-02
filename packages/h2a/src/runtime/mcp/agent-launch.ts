@@ -1,5 +1,6 @@
 import { spawnSync } from "node:child_process";
-import { appendFileSync, mkdirSync, realpathSync, statSync } from "node:fs";
+import { randomUUID } from "node:crypto";
+import { appendFileSync, mkdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { isAbsolute, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -344,18 +345,42 @@ export function executeH2aRunWithSpawn(
   spawn: typeof spawnSync,
 ): unknown {
   const invocation = buildH2aRunInvocation(request);
+  const launchToken = randomUUID();
   const result = spawn(invocation.command, invocation.args, {
     cwd: invocation.cwd,
     input: invocation.input,
     encoding: "utf8",
     stdio: ["pipe", "pipe", "pipe"],
     shell: false,
-    timeout: 30_000,
+    env: { ...process.env, H2A_RUN_LAUNCH_TOKEN: launchToken },
+    // Readiness + paste + activity + native RPCs + cleanup. The previous 30s
+    // deadline killed the owner inside the runtime's 90s readiness budget.
+    timeout: request.profile === "codex" || request.profile === "muse" ? 270_000 : 180_000,
     maxBuffer: 1_048_576,
   });
   if (result.error) {
     const timedOut = (result.error as NodeJS.ErrnoException).code === "ETIMEDOUT";
     if (timedOut) {
+      if (!retrySafeAfterTimeout(result.stderr ?? "", request.name)) {
+        // The independent runtime guard sees EOF when spawnSync kills the
+        // launcher. Wait for its fenced cleanup receipt, without re-launching
+        // or ever retyping the brief.
+        const deadline = Date.now() + 30_000;
+        const path = join(request.workspace, ".h2a", "runs", request.name, "launch.json");
+        for (;;) {
+          try {
+            const receipt = JSON.parse(readFileSync(path, "utf8")) as { state?: string; token?: string };
+            if (receipt.token !== launchToken) break;
+            if (receipt.state === "stopped") {
+              return { error: "h2a_run: runtime timed out; the owned launch was stopped",
+                state: "stopped", launchId: request.name, retrySafe: false };
+            }
+            if (receipt.state !== "launching") break;
+          } catch { break; }
+          if (Date.now() >= deadline) break;
+          Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 100);
+        }
+      }
       return {
         error: "h2a_run: launch status unknown after runtime timeout",
         state: "unknown",
@@ -366,6 +391,14 @@ export function executeH2aRunWithSpawn(
     throw result.error;
   }
   if (result.status !== 0) {
+    try {
+      const failure = JSON.parse(result.stdout ?? "") as Record<string, unknown>;
+      const prompt = failure.prompt as Record<string, unknown> | undefined;
+      if (failure.kind === "h2a.run.failure" && failure.version === 1 &&
+          failure.state === "provider-blocked" && failure.launchId === request.name &&
+          typeof failure.error === "string" && typeof failure.stopped === "boolean" &&
+          failure.retrySafe === false && prompt?.delivered === true) return failure;
+    } catch { /* A non-JSON failure still surfaces the runtime diagnostic. */ }
     const detail = (result.stderr ?? "").trim().slice(-2_000);
     throw new Error(
       `h2a_run: h2a run failed (exit ${result.status ?? "?"})${detail ? `: ${detail}` : ""}`,
