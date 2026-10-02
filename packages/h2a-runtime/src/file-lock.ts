@@ -37,32 +37,50 @@ function spinSleep(ms: number): void {
 }
 
 /**
+ * ONE attempt at the lockfile guarding `path` (exclusive create), with the same
+ * stale-lock takeover as `acquireFileLock` but NO waiting at all: returns the fd,
+ * or undefined when someone else holds it right now.
+ *
+ * For callers that must not block the event loop for the wait budget below —
+ * hygiene-only mutations that are better retried later than spun on (see the
+ * PTY-exit prune in native-terminal/host.ts). A caller that needs the mutation
+ * to happen must use `acquireFileLock`/`withFileLock` instead: this one reports
+ * "not now", which is not the same as "done".
+ */
+export function tryAcquireFileLock(path: string): number | undefined {
+  const lp = lockPath(path);
+  mkdirSync(dirname(path), { recursive: true });
+  // Two attempts at most: the second exists only for the case the first found a
+  // STALE lockfile (or raced the holder releasing one) and cleared the way.
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      return openSync(lp, "wx"); // O_CREAT|O_EXCL|O_WRONLY
+    } catch {
+      if (attempt > 0) return undefined; // someone else won it: not now
+      try {
+        const age = Date.now() - statSync(lp).mtimeMs;
+        if (age <= LOCK_STALE_MS) return undefined; // genuinely held: not now
+        rmSync(lp, { force: true }); // crashed holder: break it and retry once
+      } catch {
+        // Raced with the holder releasing it → retry the create once.
+      }
+    }
+  }
+  return undefined;
+}
+
+/**
  * Acquire the lockfile guarding `path` (exclusive create). Returns the fd on
  * success, or undefined if it could not be acquired within LOCK_MAX_WAIT_MS (the
  * caller then proceeds best-effort). Breaks a STALE lock (holder crashed) by age.
  */
 export function acquireFileLock(path: string): number | undefined {
-  const lp = lockPath(path);
-  mkdirSync(dirname(path), { recursive: true });
   const deadline = Date.now() + LOCK_MAX_WAIT_MS;
   for (;;) {
-    try {
-      const fd = openSync(lp, "wx"); // O_CREAT|O_EXCL|O_WRONLY
-      return fd;
-    } catch {
-      // Held — break it if it is stale (a crashed holder left it behind).
-      try {
-        const age = Date.now() - statSync(lp).mtimeMs;
-        if (age > LOCK_STALE_MS) {
-          rmSync(lp, { force: true });
-          continue; // retry the exclusive create immediately
-        }
-      } catch {
-        // raced with the holder releasing it → just retry the create
-      }
-      if (Date.now() >= deadline) return undefined; // give up, proceed best-effort
-      spinSleep(LOCK_SPIN_MS);
-    }
+    const fd = tryAcquireFileLock(path);
+    if (fd !== undefined) return fd;
+    if (Date.now() >= deadline) return undefined; // give up, proceed best-effort
+    spinSleep(LOCK_SPIN_MS);
   }
 }
 
