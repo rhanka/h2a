@@ -21,8 +21,11 @@ const RELEASE_SCRIPT = resolve(HERE, "..", "..", "..", "scripts", "release.mjs")
 const {
   bumpPackageJsonContent,
   bumpPackageLockContent,
+  formatNextSteps,
   gitStatusIsClean,
-  parseVersion
+  parseVersion,
+  planReleaseGitSteps,
+  resolveReleaseBranch
 } = await import(pathToFileURL(RELEASE_SCRIPT).href);
 
 test("parseVersion accepts strict X.Y.Z and returns numeric components", () => {
@@ -212,4 +215,93 @@ test("gitStatusIsClean accepts empty porcelain output only", () => {
   assert.equal(gitStatusIsClean("\n"), true);
   assert.equal(gitStatusIsClean(" M package.json\n"), false);
   assert.equal(gitStatusIsClean("?? scripts/release.mjs\n"), false);
+});
+
+// PR-only `main` (branch protection applies to admins too): the version
+// commit must land on a branch, go through a PR with green CI, and the tag is
+// created only AFTER the merge, on the merged commit verified on origin/main.
+
+test("resolveReleaseBranch creates release/vX.Y.Z when launched from main", () => {
+  assert.deepEqual(resolveReleaseBranch("main", "0.2.0"), {
+    branch: "release/v0.2.0",
+    create: true
+  });
+});
+
+test("resolveReleaseBranch keeps the current non-main branch (bump inside the feature PR)", () => {
+  assert.deepEqual(resolveReleaseBranch("feat/foo", "0.2.0"), {
+    branch: "feat/foo",
+    create: false
+  });
+  assert.deepEqual(resolveReleaseBranch("release/v0.2.0", "0.2.0"), {
+    branch: "release/v0.2.0",
+    create: false
+  });
+});
+
+test("resolveReleaseBranch refuses a detached HEAD or an empty branch name", () => {
+  assert.throws(() => resolveReleaseBranch("HEAD", "0.2.0"), /detached/i);
+  assert.throws(() => resolveReleaseBranch("", "0.2.0"), /detached/i);
+  assert.throws(() => resolveReleaseBranch("main", "v0.2.0"));
+});
+
+test("planReleaseGitSteps from main switches to release/vX.Y.Z before committing", () => {
+  const { branch, steps } = planReleaseGitSteps({ version: "0.2.0", currentBranch: "main" });
+  assert.equal(branch, "release/v0.2.0");
+  const switchIdx = steps.findIndex(
+    (s) => s.command === "git" && s.args[0] === "switch" && s.args.includes("release/v0.2.0")
+  );
+  const commitIdx = steps.findIndex((s) => s.command === "git" && s.args[0] === "commit");
+  assert.ok(switchIdx >= 0, "expected a `git switch -c release/v0.2.0` step");
+  assert.ok(commitIdx > switchIdx, "commit must happen after leaving main");
+  assert.deepEqual(steps[commitIdx].args, ["commit", "-m", "release: v0.2.0"]);
+});
+
+test("planReleaseGitSteps never commits on main and never creates a tag", () => {
+  for (const currentBranch of ["main", "feat/foo"]) {
+    const { steps } = planReleaseGitSteps({ version: "0.2.0", currentBranch });
+    assert.equal(
+      steps.some((s) => s.command === "git" && s.args[0] === "tag"),
+      false,
+      `no local tag before merge (from ${currentBranch})`
+    );
+    assert.equal(
+      steps.some((s) => s.command === "git" && s.args[0] === "push"),
+      false,
+      "the script never touches the network"
+    );
+  }
+  const fromFeature = planReleaseGitSteps({ version: "0.2.0", currentBranch: "feat/foo" });
+  assert.equal(fromFeature.branch, "feat/foo");
+  assert.equal(
+    fromFeature.steps.some((s) => s.args[0] === "switch"),
+    false,
+    "stays on the feature branch"
+  );
+});
+
+test("formatNextSteps describes branch push -> PR -> CI -> merge -> tag on merged commit", () => {
+  const text = formatNextSteps({ version: "0.2.0", branch: "release/v0.2.0" });
+  assert.equal(text.includes("git push origin HEAD"), false, "direct push to main is refused");
+  const order = [
+    "git push -u origin release/v0.2.0",
+    "gh pr create",
+    "gh pr checks release/v0.2.0 --watch",
+    "gh pr merge release/v0.2.0",
+    "git fetch origin main",
+    "git merge-base --is-ancestor",
+    "git tag -a v0.2.0",
+    "git push origin v0.2.0"
+  ];
+  let cursor = -1;
+  for (const needle of order) {
+    const at = text.indexOf(needle);
+    assert.ok(at > cursor, `expected "${needle}" after previous step`);
+    cursor = at;
+  }
+});
+
+test("formatNextSteps uses a signed tag when requested", () => {
+  const text = formatNextSteps({ version: "0.2.0", branch: "feat/foo", signTag: true });
+  assert.match(text, /git tag -s -a v0\.2\.0/);
 });

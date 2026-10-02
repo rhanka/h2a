@@ -24,7 +24,11 @@ import { uptime } from "node:os";
 import { dirname, join } from "node:path";
 
 import { getLayoutConfig, resolveConfigPath } from "./config.js";
-import { acquireFileLock, releaseFileLock } from "./file-lock.js";
+import {
+  acquireFileLock,
+  releaseFileLock,
+  tryAcquireFileLock,
+} from "./file-lock.js";
 import {
   localSessionName,
   managedSessionCandidates,
@@ -35,6 +39,7 @@ import {
 } from "./tmux.js";
 import type { SessionClass } from "./session-class.js";
 import { nativeSessionLiveness } from "./native-host.js";
+import { readBootId, readMachineId, readPidNamespaceId } from "./proc-identity.js";
 
 export type RegistryTool = "claude" | "codex" | "agy" | "muse";
 export type RegistryKind = "local-tmux" | "local-native" | "local" | "remote";
@@ -137,6 +142,30 @@ export type RegistryEntry = {
    */
   pgidGroupToken?: string;
   /**
+   * The FRAME every pid and start-time on this row was taken in: the writer's
+   * pid-namespace inode (`/proc/self/ns/pid`) and the kernel boot id. Written
+   * automatically by `persistNativeTerminalPgid` — no writer can forget them —
+   * and re-checked by `#verifyGroupLeaderIdentity` in native-terminal/host.ts,
+   * which refuses to derive ANY pid-based proof from a row whose frame does not
+   * match the reader's: across a namespace boundary or a reboot, the same pid
+   * number names a different process and start-times are measured from a
+   * different epoch. In particular the `"recycled"` proof ("this pgid is held by
+   * an unrelated live leader, so the original group is gone") is granted only
+   * when both match; a row that carries neither (written before this anchor
+   * existed) never gets that proof. See proc-identity.ts for the full rationale.
+   */
+  pgidPidNamespace?: string;
+  pgidBootId?: string;
+  /**
+   * The writer's machine id (machine-id(5)), part of the same frame. The two
+   * fields above cannot tell "a previous boot of this machine" from "another
+   * machine sharing this registry": the init pid namespace has the same inode
+   * on every kernel. So the `"stale-boot"` proof ("a reboot ended every process
+   * this row describes") is granted only when this is known and equal on both
+   * sides; a row without it never gets that proof. See proc-identity.ts.
+   */
+  pgidMachineId?: string;
+  /**
    * Owning host attribution for a native-terminal-pty row (see `pgid` above).
    * `ownerHostPid` is the pid of the host process that created this PTY and
    * durably persisted its pgid; `ownerHostStartTime` is that host's own
@@ -150,6 +179,21 @@ export type RegistryEntry = {
    */
   ownerHostPid?: number;
   ownerHostStartTime?: number;
+  /**
+   * The native-terminal SOCKET the owning host was serving when it wrote this
+   * row — the attribution that makes a containment decision SCOPED. A
+   * supervisor that refuses to publish a replacement host while one of its
+   * socket's proven-dead owners is still unconfirmed (see
+   * `NativeTerminalHostSupervisor`) must be able to tell "a row belonging to
+   * the socket I am taking over" from "a row belonging to some other socket's
+   * host in the same durable store" — otherwise one unreapable group would
+   * block every unrelated native terminal too. Absent on legacy rows (written
+   * before this attribution existed): those stay on the pre-existing
+   * best-effort path rather than manufacture a socket verdict from missing
+   * data, the same asymmetry `ownerHostStartTime` and `pgidLeaderStartTime`
+   * already apply one level down.
+   */
+  ownerHostSocketPath?: string;
   enrolledAt: string;
   lastSeenAt: string;
   endedAt?: string;
@@ -638,7 +682,12 @@ function nativeTerminalPgidEntryId(sessionId: string): string {
  * untracked, unreapable session.
  */
 /** Owning-host attribution captured at PTY-creation time (see `RegistryEntry.ownerHostPid`). */
-export type NativeTerminalPgidOwner = { pid: number; startTime?: number };
+export type NativeTerminalPgidOwner = {
+  pid: number;
+  startTime?: number;
+  /** Socket that host was serving (see `RegistryEntry.ownerHostSocketPath`). */
+  socketPath?: string;
+};
 
 export function persistNativeTerminalPgid(
   sessionId: string,
@@ -652,6 +701,12 @@ export function persistNativeTerminalPgid(
     throw new RangeError("pgid must be a positive safe integer");
   }
   const id = nativeTerminalPgidEntryId(sessionId);
+  // The FRAME this row's pids and start-times are valid in, captured HERE rather
+  // than passed in: a row without it cannot be re-proven by a later reader (see
+  // `RegistryEntry.pgidPidNamespace`), so no caller may forget it.
+  const pidNamespace = readPidNamespaceId();
+  const bootId = readBootId();
+  const machineId = readMachineId();
   withRegistryLock(path, (entries) => {
     const now = new Date().toISOString();
     const idx = entries.findIndex((e) => e.id === id);
@@ -666,8 +721,12 @@ export function persistNativeTerminalPgid(
       pgid,
       ...(leaderStartTime !== undefined ? { pgidLeaderStartTime: leaderStartTime } : {}),
       ...(groupToken !== undefined ? { pgidGroupToken: groupToken } : {}),
+      ...(pidNamespace !== undefined ? { pgidPidNamespace: pidNamespace } : {}),
+      ...(bootId !== undefined ? { pgidBootId: bootId } : {}),
+      ...(machineId !== undefined ? { pgidMachineId: machineId } : {}),
       ...(owner !== undefined ? { ownerHostPid: owner.pid } : {}),
       ...(owner?.startTime !== undefined ? { ownerHostStartTime: owner.startTime } : {}),
+      ...(owner?.socketPath !== undefined ? { ownerHostSocketPath: owner.socketPath } : {}),
     };
     const next =
       idx >= 0
@@ -679,7 +738,17 @@ export function persistNativeTerminalPgid(
 
 /** Result of resolving a native-terminal session's durable pgid. */
 export type NativeTerminalPgidLookup =
-  | { status: "resolved"; pgid: number; leaderStartTime?: number; groupToken?: string }
+  | {
+      status: "resolved";
+      pgid: number;
+      leaderStartTime?: number;
+      groupToken?: string;
+      /** The frame the two numbers above are valid in (see
+       * `RegistryEntry.pgidPidNamespace`); absent on a row written before it. */
+      pidNamespace?: string;
+      bootId?: string;
+      machineId?: string;
+    }
   | { status: "unresolved"; reason: string };
 
 /**
@@ -730,6 +799,13 @@ export function readNativeTerminalPgid(
     ...(typeof entry.pgidGroupToken === "string"
       ? { groupToken: entry.pgidGroupToken }
       : {}),
+    ...(typeof entry.pgidPidNamespace === "string"
+      ? { pidNamespace: entry.pgidPidNamespace }
+      : {}),
+    ...(typeof entry.pgidBootId === "string" ? { bootId: entry.pgidBootId } : {}),
+    ...(typeof entry.pgidMachineId === "string"
+      ? { machineId: entry.pgidMachineId }
+      : {}),
   };
 }
 
@@ -738,6 +814,13 @@ export type NativeTerminalPgidEntry = Readonly<{
   sessionId: string;
   pgid: number;
   owner?: NativeTerminalPgidOwner;
+  /**
+   * The row's `pgidGroupToken`, carried so a reconcile pass can COMPARE-AND-
+   * DELETE on the identity it actually snapshotted (see
+   * `pruneNativeTerminalPgidEntry`), not merely on the session id. Absent on a
+   * legacy row, which then constrains the delete by pgid alone.
+   */
+  groupToken?: string;
 }>;
 
 /** Outcome of enumerating every native-terminal-pty row in the registry. */
@@ -766,13 +849,20 @@ export function listNativeTerminalPgidEntries(
     if (!e.id.startsWith(NATIVE_TERMINAL_PGID_ENTRY_ID_PREFIX)) continue;
     if (typeof e.pgid !== "number") continue;
     const sessionId = e.id.slice(NATIVE_TERMINAL_PGID_ENTRY_ID_PREFIX.length);
-    const entry: { sessionId: string; pgid: number; owner?: NativeTerminalPgidOwner } = {
+    const entry: {
+      sessionId: string;
+      pgid: number;
+      owner?: NativeTerminalPgidOwner;
+      groupToken?: string;
+    } = {
       sessionId,
       pgid: e.pgid,
     };
+    if (typeof e.pgidGroupToken === "string") entry.groupToken = e.pgidGroupToken;
     if (typeof e.ownerHostPid === "number") {
       const owner: NativeTerminalPgidOwner = { pid: e.ownerHostPid };
       if (typeof e.ownerHostStartTime === "number") owner.startTime = e.ownerHostStartTime;
+      if (typeof e.ownerHostSocketPath === "string") owner.socketPath = e.ownerHostSocketPath;
       entry.owner = owner;
     }
     entries.push(entry);
@@ -781,22 +871,66 @@ export function listNativeTerminalPgidEntries(
 }
 
 /**
+ * Outcome of pruning one native-terminal-pty row. Three states, never collapsed:
+ *
+ *  - `"pruned"` — the row matched `expected` and was deleted;
+ *  - `"kept"` — there was nothing to delete: no such row (already pruned by a
+ *    concurrent pass, or never existed), or the STORED row no longer matches
+ *    `expected`, i.e. it belongs to someone else now;
+ *  - `"lock-unavailable"` — only with `waitForLock: false`: another process held
+ *    the registry lock, so nothing was read or written at all. NOT "kept": the
+ *    caller learned nothing and may retry.
+ */
+export type NativeTerminalPruneOutcome = "pruned" | "kept" | "lock-unavailable";
+
+/**
  * Remove a single native-terminal-pty row once its orphan group has been
- * reaped (or it is otherwise confirmed handled). Returns false when the id
- * was not present (already pruned, or never existed) — a no-op, not an
- * error, since a reconcile pass may race a concurrent prune of the same row.
+ * reaped (or it is otherwise confirmed handled).
+ *
+ * COMPARE-AND-DELETE. Rows are keyed by session id ALONE and session ids are
+ * caller-chosen (`op.ts --id`), so the same id is legitimately reincarnated by a
+ * LIVE host — deleting "the row for this id" would then delete a live PTY tree's
+ * only durable record, the invisible orphan the whole native-terminal reaping
+ * mechanism exists to prevent. `expected` therefore states what the caller
+ * proved something about, and the row is deleted only while it STILL says that,
+ * re-read inside the same critical section as the delete. A caller that omits a
+ * field does not constrain it (a legacy row carries no `pgidGroupToken`).
+ *
+ * The lock itself is BEST-EFFORT (bounded spin, then last-writer-wins — see
+ * file-lock.ts): this narrows the rewrite window to one uncontended critical
+ * section, it does not make the compare-and-delete atomic against a writer that
+ * proceeded without the lock.
  */
 export function pruneNativeTerminalPgidEntry(
   sessionId: string,
   path: string = resolveRegistryPath(),
-): boolean {
+  expected?: { pgid?: number; groupToken?: string },
+  options?: { waitForLock?: boolean },
+): NativeTerminalPruneOutcome {
   const id = nativeTerminalPgidEntryId(sessionId);
-  return withRegistryLock(path, (entries) => {
+  const prune = (entries: RegistryEntry[]) => {
     const idx = entries.findIndex((e) => e.id === id);
-    if (idx < 0) return { entries, result: false, save: false };
+    const stored = idx < 0 ? undefined : entries[idx]!;
+    if (stored === undefined) {
+      return { entries, result: "kept" as NativeTerminalPruneOutcome, save: false };
+    }
+    if (expected?.pgid !== undefined && stored.pgid !== expected.pgid) {
+      return { entries, result: "kept" as NativeTerminalPruneOutcome, save: false };
+    }
+    if (
+      expected?.groupToken !== undefined &&
+      stored.pgidGroupToken !== expected.groupToken
+    ) {
+      return { entries, result: "kept" as NativeTerminalPruneOutcome, save: false };
+    }
     const next = entries.slice(0, idx).concat(entries.slice(idx + 1));
-    return { entries: next, result: true };
-  });
+    return { entries: next, result: "pruned" as NativeTerminalPruneOutcome };
+  };
+  if (options?.waitForLock === false) {
+    const attempt = tryWithRegistryLock(path, prune);
+    return attempt.ran ? attempt.result : "lock-unavailable";
+  }
+  return withRegistryLock(path, prune);
 }
 
 function isRegistryEntry(raw: unknown): raw is RegistryEntry {
@@ -836,6 +970,10 @@ function isRegistryEntry(raw: unknown): raw is RegistryEntry {
       (typeof e.ownerHostStartTime === "number" &&
         Number.isInteger(e.ownerHostStartTime) &&
         e.ownerHostStartTime >= 0)) &&
+    (e.ownerHostSocketPath === undefined || typeof e.ownerHostSocketPath === "string") &&
+    (e.pgidPidNamespace === undefined || typeof e.pgidPidNamespace === "string") &&
+    (e.pgidBootId === undefined || typeof e.pgidBootId === "string") &&
+    (e.pgidMachineId === undefined || typeof e.pgidMachineId === "string") &&
     (e.delegatorInstance === undefined || typeof e.delegatorInstance === "string") &&
     (e.delegatorTmuxSession === undefined || typeof e.delegatorTmuxSession === "string") &&
     (e.restorePinned === undefined || typeof e.restorePinned === "boolean")
@@ -911,7 +1049,46 @@ export function withRegistryLock<T>(
     save?: boolean;
   },
 ): T {
-  const fd = acquireFileLock(path);
+  return runUnderRegistryLock(acquireFileLock(path), path, fn);
+}
+
+/**
+ * `withRegistryLock` for a mutation that must NOT block: the lock is attempted
+ * ONCE (`tryAcquireFileLock`) and, when another process holds it right now, `fn`
+ * does not run at all and this returns `{ ran: false }` — the caller retries
+ * later or gives up.
+ *
+ * Why this variant exists: taking the lock costs up to LOCK_MAX_WAIT_MS of
+ * BUSY-WAIT (see file-lock.ts), which is fine for a CLI act and unacceptable on
+ * a long-lived server's event loop. A hygiene-only mutation there is better
+ * postponed than paid for in frozen I/O — see the PTY-exit prune in
+ * native-terminal/host.ts. Note the asymmetry with `withRegistryLock`, which
+ * runs `fn` even when the lock could not be taken (best-effort,
+ * last-writer-wins): here "not now" is reported instead, never silently
+ * downgraded to an unlocked write.
+ */
+export function tryWithRegistryLock<T>(
+  path: string,
+  fn: (entries: RegistryEntry[]) => {
+    entries: RegistryEntry[];
+    result: T;
+    save?: boolean;
+  },
+): { ran: true; result: T } | { ran: false } {
+  const fd = tryAcquireFileLock(path);
+  if (fd === undefined) return { ran: false };
+  return { ran: true, result: runUnderRegistryLock(fd, path, fn) };
+}
+
+function runUnderRegistryLock<T>(
+  fd: number | undefined,
+  path: string,
+  fn: (entries: RegistryEntry[]) => {
+    entries: RegistryEntry[];
+    result: T;
+    save?: boolean;
+  },
+): T {
   try {
     // WRITE-path raw read: enrolment deliberately REBUILDS a missing/corrupt
     // registry (a hiccup must not brick every future enrolment), so an
