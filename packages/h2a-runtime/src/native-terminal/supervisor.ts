@@ -75,9 +75,12 @@ export class NativeTerminalContainmentError extends Error {
  * closed — an absence of information included — because the obligation exists
  * precisely because we destroyed the only process that could have cleaned up.
  *
- * Exactly two outcomes end it: a confirmed reap, and a refusal whose cause
- * PROVED the original group gone (a recycled pgid number, reported by
- * reconcile as `pruned-recycled-pgid`; see `NativeTerminalReconcileOutcome`).
+ * Exactly two kinds of outcome end it: a confirmed reap, and a refusal whose
+ * cause PROVED the original group gone — a recycled pgid number (reported by
+ * reconcile as `pruned-recycled-pgid`) or a row written under a previous boot
+ * of this same machine (`pruned-stale-boot-row`); see
+ * `NativeTerminalReconcileOutcome`. The two raw refusals are accepted too, as
+ * defence in depth for a reap that returns them directly.
  */
 function dischargesOwnedHostProof(outcome: NativeTerminalReconcileOutcome): boolean {
   return (
@@ -106,9 +109,17 @@ function dischargesOwnedHostProof(outcome: NativeTerminalReconcileOutcome): bool
  *    already reports it as `pruned-recycled-pgid`; this stays defence in depth
  *    for an injected or legacy reap that returns the refusal directly.
  *  - `stale-boot` — the OPPOSITE of a survivor too, and for a stronger reason:
- *    the row was written before this boot, in this reader's own pid namespace,
- *    and a reboot ends every process of the boot before it. Reconcile reports
- *    it as `pruned-stale-boot-row`; same defence in depth as `recycled`.
+ *    the row was written before this boot, in this reader's own pid namespace
+ *    on this same machine, and a reboot ends every process of the boot before
+ *    it. Reconcile reports it as `pruned-stale-boot-row`; same defence in
+ *    depth as `recycled`.
+ *  - `foreign-frame` — the pgid number answered ALIVE here, but the row was
+ *    written in a frame this reader cannot prove is its own (another or an
+ *    unknown pid namespace, or another boot of a machine not proven to be this
+ *    one — e.g. another machine sharing this registry). Not a proof of a
+ *    survivor, but not a proof of anything else either: the row's own group
+ *    may be alive where it was written, and this reader cannot decide it, so
+ *    it blocks — the fail-closed side of an undecidable verdict.
  *  - NO cause — the pgid could not be resolved at all, which is what the loser
  *    of a race between two reconcile passes sees once the winner confirmed the
  *    reap and pruned the row. An absence of information, not a survivor.
@@ -118,6 +129,7 @@ function provesASurvivingGroup(
 ): boolean {
   return (
     cause === "membership-unprovable" ||
+    cause === "foreign-frame" ||
     cause === "unsupported-process-groups" ||
     cause === "pgid-mismatch"
   );
@@ -158,6 +170,12 @@ function recoveryHint(
   switch (outcome.cause) {
     case "membership-unprovable":
       return `The group at pgid=${outcome.pgid} is alive but could NOT be proven to be this session's PTY tree, so it may belong to an unrelated process: do NOT signal it on the strength of this message. ${inspect} ${byHand} ${lifts}`;
+    case "foreign-frame":
+      // No `inspect`/`byHand` here: both rest on a local `ps`, and this row's
+      // pids name a DIFFERENT process space than this reader's, so a local
+      // "that is not our tree" would lead to deleting the only record of a
+      // group that may be alive where the row was written.
+      return `The durable row for session ${outcome.sessionId} was written in a different pid namespace, boot or machine than this reader's (its pgidPidNamespace/pgidBootId/pgidMachineId fields name it), so whatever answers at pgid=${outcome.pgid} HERE cannot be identified as that row's group and nothing was signalled: a local ps of it proves nothing either way, and it must NOT be signalled. Check the group from the machine and pid namespace that wrote the row; remove the row (id "native-terminal-pty:${outcome.sessionId}") by hand only once that frame no longer exists or its group is confirmed gone there. ${lifts}`;
     case "pgid-mismatch":
       return `The durable row for session ${outcome.sessionId} is being rewritten while its owner is proven dead, so no group was identified and nothing was signalled. Retry once the writer settles; ${lifts}`;
     case "unsupported-process-groups":
