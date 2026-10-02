@@ -534,7 +534,10 @@ function delay(milliseconds: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
-const NATIVE_TERMINAL_FORCE_KILL_TIMEOUT_MS = 30_000;
+/** How long a group kill waits for the OS to report the group empty before
+ * reporting it timed out. Exported so a caller that budgets a wait around a
+ * reap (the functional suite) derives it from this value instead of copying it. */
+export const NATIVE_TERMINAL_FORCE_KILL_TIMEOUT_MS = 30_000;
 const NATIVE_TERMINAL_FORCE_KILL_POLL_INTERVAL_MS = 50;
 /** Deferred pty-exit prune: retry spacing and attempt budget (hygiene only —
  * see `#schedulePruneOfExitedSession`). 8 x 25 ms bounds how long a contended
