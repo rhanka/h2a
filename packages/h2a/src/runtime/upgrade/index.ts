@@ -328,6 +328,7 @@ import {
   isOlderThan,
   lockPathFor,
   me,
+  readLockHolder,
   readLockRecord,
   safeAtIso
 } from "../local-files/succession-lock.js";
@@ -1195,26 +1196,30 @@ export function performAutoUpgrade(
       };
     }
     if (reason === "dead-undecidable") {
-      // R4: show the RECORDED holder identity and the reader's namespace, and advise
+      // R4: show the RECORDED holder identity and the reader's provenance, and advise
       // removal ONLY after confirming that holder is truly gone in ITS OWN namespace —
       // a live holder in another container/namespace (nsenter -p) or another machine
       // must never be broken on the strength of "PID absent in MY namespace".
       const lockFile = lockPathFor(resolvedPrefix);
-      const rec = readLockRecord(lockFile);
-      const readerNs = me().ns ?? "unknown";
+      const rec = readLockHolder(lockFile);
+      const reader = me();
       const holder =
         rec === "absent" || rec === "corrupt"
           ? `LOCK unreadable (${rec})`
-          : `holder host=${rec.host} ns=${rec.ns ?? "unknown"} pid=${rec.pid} acquiredAt=${safeAtIso(rec.at)}`;
+          : rec.kind === "legacy"
+            ? `legacy holder pid=${rec.pid} hostname=${JSON.stringify(rec.hostname)} startedAt=${JSON.stringify(rec.startedAt)} protocol=${JSON.stringify(rec.protocol ?? null)} fenceEpoch=${JSON.stringify(rec.fenceEpoch ?? null)} token=${rec.token}`
+            : `holder host=${rec.host} hostKind=${rec.hostKind ?? "unknown"} boot=${rec.boot ?? "unknown"} ns=${rec.ns ?? "unknown"} pid=${rec.pid} acquiredAt=${safeAtIso(rec.at)}`;
       const advice =
         rec === "absent" || rec === "corrupt"
           ? `Inspect ${lockFile} and its ${lockFile}.succ.* files before any removal.`
-          : `Remove ${lockFile} (and its ${lockFile}.succ.* files) ONLY after confirming pid ${rec.pid} on host ${rec.host} is truly gone in ITS OWN namespace — never remove a holder merely absent from yours (a live holder in another container/namespace or machine must not be broken).`;
+          : rec.kind === "legacy"
+            ? `Do not remove ${lockFile} or its ${lockFile}.succ.* files on this process's authority alone: this legacy holder has no boot or namespace provenance. Confirm holder pid ${rec.pid} on host ${JSON.stringify(rec.hostname)} is truly gone in its own execution context; a holder merely absent from yours may be live in another container, namespace, or machine.`
+            : `Do not remove ${lockFile} or its ${lockFile}.succ.* files on this process's authority alone: a clone can share the lock directory. Before manual intervention, compare holder boot=${rec.boot ?? "unknown"} with this reader boot=${reader.boot ?? "unknown"}; a PID check is meaningless across different boots. Confirm holder pid ${rec.pid} on host ${rec.host} is truly gone in ITS OWN namespace; a holder merely absent from yours may be live in another container, namespace, or machine.`;
       const thrown = lockThrewFlag
         ? `lock acquisition threw (${lockThrew instanceof Error ? lockThrew.message : String(lockThrew)}); `
         : "";
       const fullError =
-        `${thrown}prefix lock owner liveness undecidable (a different/unreadable PID namespace, another machine, a corrupt LOCK, or succession depth exceeded); manual intervention required. ${holder}; this reader ns=${readerNs}. ${advice}`;
+        `${thrown}prefix lock owner liveness undecidable (weak or unknown host identity (hostname fallback or record from 0.97.9 or earlier), boot differs or is unknown (reboot or cloned image), platform outside linux/darwin, a different/unreadable PID namespace, a legacy (pre-v4) LOCK record without machine/boot/namespace provenance, another machine, a corrupt LOCK, or succession depth exceeded); manual intervention required. ${holder}; this reader host=${reader.host} hostKind=${reader.hostKind} boot=${reader.boot ?? "unknown"} ns=${reader.ns ?? "unknown"}. ${advice}`;
       diag({
         at: startedAt,
         durationMs: nowFn() - startedAt,
