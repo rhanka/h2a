@@ -2156,6 +2156,18 @@ export async function runMcpServe(
 
   try {
     const backend = messageBackend(flags.backend ?? process.env.H2A_MESSAGE_BACKEND);
+    const modulePath = process.env.H2A_CLUSTER_MESH_MODULE;
+    if (backend === "cluster-mesh") {
+      if (!identityRequest) throw new Error("cluster-mesh requires --auto-open and a local signing key");
+      if (!modulePath || !isAbsolute(modulePath)) throw new Error("cluster-mesh requires an absolute H2A_CLUSTER_MESH_MODULE");
+    }
+    const bindMessaging: NonNullable<RunMcpStdioOptions["identityActivation"]>["bindMessaging"] = backend === "cluster-mesh"
+      ? async (signer, signal) => {
+          const { loadClusterMeshMessaging } = await import("./runtime/cluster-mesh-messaging.js");
+          signal.throwIfAborted();
+          return loadClusterMeshMessaging(createLocalStore({ root, initialize: false }), signer, modulePath);
+        }
+      : undefined;
     trace?.phase("transport_enter");
     await runMcpStdio({
       root,
@@ -2165,7 +2177,7 @@ export async function runMcpServe(
       stdout: io.stdout as never,
       stderr: io.stderr as never,
       ...(identityRequest
-        ? { identityRequest, identityActivation: { buildAutoOpen, buildWake } }
+        ? { identityRequest, identityActivation: { buildAutoOpen, buildWake, ...(bindMessaging ? { bindMessaging } : {}) } }
         : {}),
       ...(readiness ? { readiness } : {}),
       ...(io.signal ? { signal: io.signal } : {})
