@@ -13,6 +13,9 @@ import { TrackReader } from '../read/contract.js'
 import { Track } from '../track.js'
 import { renderSnapshot, snapshotJson } from './snapshot.js'
 
+// Each real CLI launch owns its bounded bootstrap budget; this case runs two.
+const CLI_TIMEOUT_MS = 5_000
+
 let dir: string
 let eventsPath: string
 
@@ -99,10 +102,10 @@ describe('SnapshotV1', () => {
     const invoke = (cwd: string, tz: string, lang: string): string => {
       const env: NodeJS.ProcessEnv = { ...process.env, TZ: tz, LANG: lang, LC_ALL: lang }
       delete env['TRACK_DIR']
-      return execFileSync(tsx, [bin, 'snapshot', '--commit', 'c1'], { cwd, env, encoding: 'utf8' })
+      return execFileSync(tsx, [bin, 'snapshot', '--commit', 'c1'], { cwd, env, encoding: 'utf8', timeout: CLI_TIMEOUT_MS })
     }
     expect(invoke(nested, 'Pacific/Auckland', 'C')).toBe(invoke(dir, 'America/Toronto', 'C.UTF-8'))
-  })
+  }, 2 * CLI_TIMEOUT_MS)
 
   it('should label diagnostics as factual and rule-derived, never AI advice', () => {
     const snapshot = new TrackReader(eventsPath).snapshot({ baselineInput: 'c1', resolvedCommit: 'c1' })
