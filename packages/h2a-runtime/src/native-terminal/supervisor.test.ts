@@ -330,6 +330,36 @@ describe.skipIf(process.platform !== "linux")(
 
       expect(error.message).toMatch(/is contained: session contained-session/);
       expect(error.message).toMatch(/membership-unprovable/);
+      // The group was judged in THIS process space, so a local inspection is
+      // meaningful and the by-hand recovery is offered.
+      expect(error.message).toMatch(/Inspect it first: ps/);
+      expect(error.message).toMatch(/If inspection shows .* by hand/);
+      expect(spawnHost).not.toHaveBeenCalled();
+    });
+
+    it("SUPERVISOR_NEVER_OFFERS_A_LOCAL_INSPECTION_FOR_A_ROW_FROM_A_FOREIGN_FRAME", async () => {
+      // `foreign-frame` blocks like `membership-unprovable`, but its pids name
+      // ANOTHER process space: "inspect pgid N here, and if it is not this
+      // session's tree, delete the row" would lead an operator to delete the
+      // only durable record of a group that may be alive where it was written.
+      const socketPath = deadSocketPath();
+      const { error, spawnHost } = await takeoverWithReapOutcome(
+        "foreign-frame-session",
+        socketPath,
+        (sessionId) => ({
+          sessionId,
+          status: "refused",
+          reason: "orphan process group could not be safely reaped (foreign-frame)",
+          cause: "foreign-frame",
+        }),
+      );
+
+      expect(error).toBeInstanceOf(NativeTerminalContainmentError);
+      expect((error as NativeTerminalContainmentError).refusalCause).toBe("foreign-frame");
+      expect(error.message).toMatch(/is contained: session foreign-frame-session/);
+      expect(error.message).toMatch(/machine and pid namespace that wrote the row/);
+      expect(error.message).not.toMatch(/Inspect it first: ps/);
+      expect(error.message).not.toMatch(/If inspection shows/);
       expect(spawnHost).not.toHaveBeenCalled();
     });
 
@@ -520,6 +550,9 @@ describe.skipIf(process.platform !== "linux")(
       patchDurableRow("stale-boot-session", (row) => {
         expect(row.pgidPidNamespace).toBeTypeOf("string");
         expect(row.pgidBootId).toBeTypeOf("string");
+        // Same machine: the proof needs the writer's machine id, and the
+        // writer records it on its own.
+        expect(row.pgidMachineId).toBeTypeOf("string");
         row.pgidBootId = "00000000-0000-4000-8000-000000000000";
       });
       owner.kill("SIGKILL");
@@ -559,6 +592,85 @@ describe.skipIf(process.platform !== "linux")(
             line.includes("stale-boot-session") &&
             /previous boot/i.test(line) &&
             /prun/i.test(line),
+        ),
+      ).toBe(true);
+    });
+
+    it("SUPERVISOR_IS_CONTAINED_BY_A_ROW_ANOTHER_MACHINE_WROTE_INTO_A_SHARED_REGISTRY", async () => {
+      // The same row as the previous-boot case, except that ANOTHER machine
+      // wrote it: machine A shares this registry (a networked `$HOME`) and its
+      // default socket path is the same string as ours. A's host pid is absent
+      // here, so its owner reads "dead"; the init pid namespace inode is the
+      // same on every kernel; the boot id differs. Only the machine id tells
+      // this apart from a previous boot of THIS machine — and A's group may be
+      // alive. Pruning here would delete the only durable record of it, so this
+      // must block instead, signal nothing, and keep the row.
+      const socketPath = deadSocketPath();
+      const unrelated = spawn(
+        process.execPath,
+        ["-e", "setTimeout(() => {}, 60_000)"],
+        { detached: true, stdio: "ignore" },
+      );
+      const unrelatedPgid = unrelated.pid!;
+      strayProcessGroups.add(unrelatedPgid);
+      unrelated.unref();
+      const unrelatedStartTime = await realStartTime(unrelatedPgid);
+
+      const owner = spawn(process.execPath, ["-e", "setTimeout(() => {}, 300)"]);
+      const ownerPid = owner.pid!;
+      const ownerStartTime = await realStartTime(ownerPid);
+      persistNativeTerminalPgid(
+        "other-machine-session",
+        unrelatedPgid,
+        registryPath,
+        { pid: ownerPid, startTime: ownerStartTime, socketPath },
+        unrelatedStartTime,
+        randomUUID(),
+      );
+      patchDurableRow("other-machine-session", (row) => {
+        expect(row.pgidPidNamespace).toBeTypeOf("string");
+        row.pgidBootId = "00000000-0000-4000-8000-000000000000";
+        row.pgidMachineId = "0123456789abcdef0123456789abcdef";
+      });
+      owner.kill("SIGKILL");
+      await once(owner, "exit");
+
+      const logs: string[] = [];
+      const { spawnHost } = fakeSpawnHost();
+      const supervisor = new NativeTerminalHostSupervisor({
+        socketPath,
+        replayBytesPerSession: 1024,
+        registryPath,
+        spawnHost,
+        startupTimeoutMs: 80,
+        spawnTerminationGraceMs: 30,
+        log: (line) => logs.push(line),
+      });
+
+      const error = await supervisor.client().then(
+        () => {
+          throw new Error("expected the takeover to reject");
+        },
+        (rejection: Error) => rejection,
+      );
+
+      expect(error).toBeInstanceOf(NativeTerminalContainmentError);
+      expect((error as NativeTerminalContainmentError).refusalCause).toBe("foreign-frame");
+      expect(error.message).toMatch(/is contained: session other-machine-session/);
+      expect(spawnHost).not.toHaveBeenCalled();
+      // The row is KEPT: it is the only durable record of A's group.
+      expect(readNativeTerminalPgid("other-machine-session", registryPath)).toMatchObject({
+        status: "resolved",
+        pgid: unrelatedPgid,
+      });
+      // The local group that merely holds the same number is untouched.
+      expect(running(unrelatedPgid)).toBe(true);
+      expect(
+        logs.some(
+          (line) =>
+            line.includes("other-machine-session") &&
+            /ANOTHER machine/.test(line) &&
+            line.includes("cause=foreign-frame"),
         ),
       ).toBe(true);
     });

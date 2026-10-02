@@ -24,6 +24,7 @@ import {
   type RegistryEntry,
 } from "./registry.js";
 import { DEFAULT_LAYOUT } from "./config.js";
+import { readMachineId } from "./proc-identity.js";
 
 // Scratch dir inside the package (never /tmp), like the other test suites.
 const SCRATCH_ROOT = join(
@@ -1152,6 +1153,16 @@ describe("native-terminal pgid persistence", () => {
         pidNamespace: expect.any(String),
         bootId: expect.any(String),
       });
+    }
+    // The machine id completes that frame (it alone tells a previous boot of
+    // this machine from another machine sharing the registry). It is recorded
+    // exactly when this machine has a well-formed one, and never invented.
+    const machineId = readMachineId();
+    if (machineId === undefined) {
+      expect(lookup).not.toHaveProperty("machineId");
+    } else {
+      expect(machineId).toMatch(/^[0-9a-f]{32}$/);
+      expect(lookup).toMatchObject({ machineId });
     }
   });
 
