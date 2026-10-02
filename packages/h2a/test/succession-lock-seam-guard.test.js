@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
@@ -8,18 +9,19 @@ import ts from "typescript";
 
 const root = fileURLToPath(new URL("../../../", import.meta.url));
 const seamName = "succession-lock-test-seam.mjs";
+const seamFragment = "succession-lock-test-";
 
-// Check the dependency destination, independently of the loading spelling or
-// alias. Every static string/template reference to the seam is forbidden outside
-// tests, including query/hash suffixes, URL and createRequire constructions.
+// Forbid the seam's name fragment anywhere in non-test code, even when the
+// destination is split or interpolated. Also inspect decoded literal fragments
+// so URL encoding and JavaScript escapes cannot hide the fragment.
 function violations(source) {
   const file = ts.createSourceFile("consumer.ts", source, ts.ScriptTarget.Latest, true);
-  const found = [];
+  const found = source.includes(seamFragment) ? [seamFragment] : [];
   const visit = (node) => {
     if (ts.isStringLiteralLike(node) || ts.isTemplateHead(node) || ts.isTemplateMiddle(node) || ts.isTemplateTail(node)) {
       let destination = node.text;
       try { destination = decodeURIComponent(destination); } catch { /* Not a URL. */ }
-      if (destination.includes(seamName)) found.push(node.text);
+      if (destination.includes(seamFragment)) found.push(node.text);
     }
     ts.forEachChild(node, visit);
   };
@@ -53,25 +55,50 @@ test("T-guard: every literal destination is rejected regardless of import syntax
     `const r = createRequire(import.meta.url); const alias = r; alias("../test/${seamName}#x");`,
     `new URL("../test/${seamName}", import.meta.url);`,
     `import("file:///repo/test/%73uccession-lock-test-seam.mjs?rr3");`,
+    'import("../test/\\u0073uccession-lock-test-seam.mjs");',
     `import(\`../test/${seamName}?rr3\`);`,
     `import(\`../test/${seamName}?\${revision}\`);`
   ]) assert.notDeepEqual(violations(source), [], source);
   assert.deepEqual(violations('import("./succession-lock.js?rr3");'), []);
 });
 
-test("T-guard: dist and the package exports cannot load the seam", async () => {
+test("T-guard: split literals cannot reference the seam", () => {
+  const source = 'import("../../test/succession-lock-test-" + "seam.mjs");';
+  assert.notDeepEqual(violations(source), [], source);
+});
+
+test("T-guard: interpolated templates cannot reference the seam", () => {
+  const source = 'import(`../../test/succession-lock-test-${n}.mjs`);';
+  assert.notDeepEqual(violations(source), [], source);
+});
+
+test("T-guard: dist, the npm pack tarball and package exports cannot load the seam", async () => {
   const dist = join(root, "packages/h2a/dist");
   function walk(dir) {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
       const path = join(dir, entry.name);
       if (entry.isDirectory()) walk(path);
       else {
-        assert.equal(entry.name.includes("test-seam"), false, path);
-        if (/\.[cm]?js$/.test(entry.name)) assert.deepEqual(violations(readFileSync(path, "utf8")), [], path);
+        assert.equal(entry.name.includes(seamFragment), false, path);
+        const source = readFileSync(path, "utf8");
+        assert.equal(source.includes(seamFragment), false, path);
+        if (/\.[cm]?[jt]s$/.test(entry.name)) assert.deepEqual(violations(source), [], path);
       }
     }
   }
   walk(dist);
+  const packed = mkdtempSync(join(tmpdir(), "h2a-seam-pack-"));
+  try {
+    execFileSync("npm", ["pack", "--json", "--pack-destination", packed], {
+      cwd: join(root, "packages/h2a"), encoding: "utf8"
+    });
+    const archives = readdirSync(packed).filter((name) => name.endsWith(".tgz"));
+    assert.equal(archives.length, 1);
+    execFileSync("tar", ["-xzf", join(packed, archives[0]), "-C", packed]);
+    walk(join(packed, "package"));
+  } finally {
+    rmSync(packed, { recursive: true, force: true });
+  }
   assert.equal(existsSync(join(dist, "runtime/local-files", seamName)), false);
   await assert.rejects(import("@sentropic/h2a/test/succession-lock-test-seam.mjs"), { code: "ERR_PACKAGE_PATH_NOT_EXPORTED" });
   const manifest = JSON.parse(readFileSync(join(root, "packages/h2a/package.json"), "utf8"));
