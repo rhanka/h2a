@@ -91,7 +91,7 @@ export interface LlmMeshConfig {
 
 export interface LlmMeshEnrollmentAccount {
   accountId: string;
-  provider: "cloud-code" | "codex" | "muse";
+  provider: "cloud-code" | "codex" | "muse" | "muse-code";
   label: string;
 }
 
@@ -107,6 +107,11 @@ export interface LlmMeshFacadeWithMuseImport extends LlmMeshFacade {
     enrollmentId: string,
     code: string,
     ownerScopeRef: string,
+  ): Promise<{ accountId: string; label: string }>;
+  completeMuseDeviceImport(
+    enrollmentId: string,
+    ownerScopeRef: string,
+    maxAttempts?: number,
   ): Promise<{ accountId: string; label: string }>;
 }
 
@@ -178,7 +183,7 @@ function openEnrollmentBrowser(url: string): void {
  * the facade/keyring and are not copied into h2a config.
  */
 export async function enrollViaFacade(
-  provider: "cloud-code" | "codex" | "muse",
+  provider: "cloud-code" | "codex" | "muse" | "muse-code",
   options: FacadeEnrollmentOptions = {},
 ): Promise<LlmMeshEnrollmentAccount> {
   const facade = options.facade ?? createCliLlmMeshFacade();
@@ -225,6 +230,40 @@ export async function enrollViaFacade(
       facade,
       museSession.enrollmentId,
       ownerScope,
+      ownerScope,
+    );
+    return { accountId: completed.accountId, provider, label: completed.label };
+  }
+
+  if (provider === "muse-code") {
+    // Native Meta device flow (RFC 8628, MuseCodeEnrollmentProvider
+    // mesh-side): print the user code + verification URL, then complete via
+    // the muse-specific device import — NOT the generic pollForCompletion,
+    // which the mesh service hard-wires to the codex provider.
+    const deviceSession = session as unknown as {
+      kind: string;
+      enrollmentId: string;
+      userCode: string;
+      verificationUrl: string;
+    };
+    if (deviceSession.kind !== "device-code") {
+      throw new Error("Muse device-flow enrollment did not return a device code");
+    }
+    const completeMuseDeviceImport = (
+      facade as Partial<LlmMeshFacadeWithMuseImport>
+    ).completeMuseDeviceImport;
+    if (typeof completeMuseDeviceImport !== "function") {
+      throw new Error(
+        "Muse device-flow enrollment needs facade.completeMuseDeviceImport — upgrade @sentropic/llm-mesh " +
+        "to a version with the muse-code enrollment provider",
+      );
+    }
+    process.stdout.write(
+      `[h2a] llm-mesh: enter code ${deviceSession.userCode} at ${deviceSession.verificationUrl}\n`,
+    );
+    const completed = await completeMuseDeviceImport.call(
+      facade,
+      deviceSession.enrollmentId,
       ownerScope,
     );
     return { accountId: completed.accountId, provider, label: completed.label };
