@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PassThrough } from "node:stream";
@@ -443,7 +443,8 @@ test("subprocess bridge sets shell:false and fails closed on API/runtime skew", 
 
     executeH2aRunWithSpawn(req, (_command, args, options) => {
       assert.equal(args.includes("--delegation-origin"), false);
-      assert.equal(options.env, undefined);
+      assert.match(options.env.H2A_RUN_LAUNCH_TOKEN, /^[0-9a-f-]{36}$/);
+      assert.equal(options.env.H2A_DELEGATION_ORIGIN, undefined);
       return { status: 0, stdout: JSON.stringify(runtimeResult(req)), stderr: "" };
     });
 
@@ -645,4 +646,39 @@ test("timeout after session creation was attempted forbids blind retry", () => {
       retrySafe: false
     });
   });
+});
+
+test("profile launch budgets should include readiness, paste, activity and cleanup", () => {
+ withWorkspace(({workspaceRoot,workspace})=>{
+  for(const [profile,expected] of [["codex",270000],["muse",270000],["claude",180000],["agy",180000]]){
+   const req=validateH2aRunRequest({...request(workspace),profile,effort:"high"},workspaceRoot);
+   executeH2aRunWithSpawn(req,(_command,_args,options)=>{
+    assert.equal(options.timeout,expected);
+    return {status:0,stdout:JSON.stringify(runtimeResult(req)),stderr:""};
+   });
+  }
+ });
+});
+
+test("timeout cleanup receipt should be fenced to this attempt without inviting duplicate work", () => {
+ withWorkspace(({workspaceRoot,workspace})=>{
+  const req=validateH2aRunRequest(request(workspace),workspaceRoot);
+  const invoke=(tokenMatches)=>executeH2aRunWithSpawn(req,(_command,_args,options)=>{
+   const dir=join(workspace,".h2a","runs",req.name);mkdirSync(dir,{recursive:true});
+   writeFileSync(join(dir,"launch.json"),JSON.stringify({state:"stopped",token:tokenMatches?options.env.H2A_RUN_LAUNCH_TOKEN:"previous-attempt"}));
+   const error=Object.assign(new Error("timeout"),{code:"ETIMEDOUT"});
+   return {status:null,stdout:"",stderr:'[h2a] h2a.run.phase/v1 {"launchId":"review-worker","phase":"creation-attempted"}\n',error};
+  });
+  assert.equal(invoke(false).state,"unknown");
+  assert.deepEqual(invoke(true),{error:"h2a_run: runtime timed out; the owned launch was stopped",state:"stopped",launchId:req.name,retrySafe:false});
+ });
+});
+
+test("a verified provider-blocked failure should retain delivery and cleanup evidence",()=>{
+ withWorkspace(({workspaceRoot,workspace})=>{
+  const req=validateH2aRunRequest(request(workspace),workspaceRoot);
+  const failure={kind:"h2a.run.failure",version:1,state:"provider-blocked",launchId:req.name,error:"quota",stopped:true,retrySafe:false,prompt:{delivered:true}};
+  assert.deepEqual(executeH2aRunWithSpawn(req,()=>({status:1,stdout:JSON.stringify(failure),stderr:"quota"})),failure);
+  assert.throws(()=>executeH2aRunWithSpawn(req,()=>({status:1,stdout:JSON.stringify({...failure,launchId:"other-worker"}),stderr:"quota"})),/exit 1.*quota/);
+ });
 });
