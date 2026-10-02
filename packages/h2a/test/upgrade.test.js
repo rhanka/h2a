@@ -20,6 +20,12 @@ import {
   H2A_UPGRADE_CHECK_TTL_MS,
   STALE_LOCK_ALERT_MS
 } from "../dist/index.js";
+import { me } from "../dist/runtime/local-files/succession-lock.js";
+
+const self = me();
+const supportsLivenessProof = ["linux", "darwin"].includes(process.platform)
+  && self.hostKind === "machine-id"
+  && self.boot !== null;
 
 // Legacy check-flow fake (fetchLatest/runInstall/now/cache) for checkUpgrade +
 // performUpgrade, whose signatures are unchanged.
@@ -190,6 +196,39 @@ test("performAutoUpgrade surfaces an undecidable lock owner as blocked-undecidab
   assert.equal(calls.swap, 0);
 });
 
+test("performAutoUpgrade describes weak host and boot provenance for an undecidable lock", () => {
+  const prefix = mkdtempSync(join(tmpdir(), "h2a-undecidable-"));
+  try {
+    writeFileSync(join(prefix, ".h2a-upgrade.lock"), JSON.stringify({
+      host: "holder-host",
+      hostKind: "weak",
+      boot: "holder-boot",
+      ns: "pid:[1]",
+      timeNs: "time:[1]",
+      pid: 99_999,
+      start: null,
+      token: "a".repeat(20),
+      at: 0
+    }), "utf8");
+    const { runtime } = stagedFake({
+      prefix,
+      lock: { acquired: false, reason: "dead-undecidable", release: () => {} }
+    });
+    const result = performAutoUpgrade(CUR, { runtime, prefix });
+    assert.equal(result.outcome, "blocked-undecidable");
+    assert.match(result.message, /holder host=holder-host hostKind=weak boot=holder-boot/);
+    assert.match(result.message, /this reader host=.* hostKind=(?:machine-id|weak) boot=/);
+    assert.match(result.message, /weak or unknown host identity/);
+    assert.match(result.message, /boot differs or is unknown/);
+    assert.match(result.message, /platform outside linux\/darwin/);
+    assert.match(result.message, /compare holder boot=holder-boot with this reader boot=/);
+    assert.match(result.message, /a PID check is meaningless across different boots/);
+    assert.match(result.message, /Do not remove .* on this process's authority alone/);
+  } finally {
+    rmSync(prefix, { recursive: true, force: true });
+  }
+});
+
 // Idempotence under the lock: the version check runs BEFORE the lock, so a peer lane
 // may install the target while we wait. Once we hold the lock, re-reading the global
 // version must short-circuit — no re-fetch/stage/swap of ~130 MB.
@@ -233,7 +272,7 @@ test("performAutoUpgrade idempotence: a version-correct but broken-native instal
 // dead holder), is surfaced as a diagnostic — WITHOUT any reclaim and WITHOUT advising
 // removal. Uses a REAL prefix + a real lock record (correct reader identity) since the
 // alert re-reads the on-disk record; the fake acquire returns busy.
-test("performAutoUpgrade R2: an old, undatable-live lock is surfaced (diagnostic only, no reclaim)", () => {
+test("performAutoUpgrade R2: an old, undatable-live lock is surfaced (diagnostic only, no reclaim)", { skip: !supportsLivenessProof && "requires a supported, strong host identity with a known boot (Lot 4 §2)" }, () => {
   const prefix = mkdtempSync(join(tmpdir(), "h2a-r2-"));
   const lockFile = join(prefix, ".h2a-upgrade.lock");
   try {
