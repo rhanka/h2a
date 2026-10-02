@@ -13,7 +13,7 @@
  * moved unchanged from its original location.
  */
 
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import {
   closeSync,
@@ -133,11 +133,34 @@ interface LockIdent {
 }
 
 interface LockRec extends LockIdent {
+  /** v4 records never carry a discriminator; legacy views use `kind: "legacy"`. */
+  readonly kind?: never;
   readonly token: string;
   readonly target?: string;
   /** Diagnostic only, never decides (I7). */
   readonly at: number;
 }
+
+/**
+ * Read-only view of the pre-v4 lock written by `local-files/locks.ts`. Its
+ * optional metadata is used by identity binding, but it remains deliberately
+ * distinct from a v4 `LockRec`: legacy data lacks the machine, boot, namespace,
+ * and process-start proof needed to decide death. Its token fingerprints the
+ * exact bytes read so a later operator-only break can fence the observed record
+ * without rewriting it.
+ */
+export interface LegacyLockHolder {
+  readonly kind: "legacy";
+  readonly token: string;
+  readonly pid: number;
+  readonly hostname: string;
+  readonly startedAt: string;
+  readonly protocol?: string;
+  readonly fenceEpoch?: string;
+}
+
+/** A readable v4 record or the separate, always-undecidable legacy view. */
+export type LockHolder = LockRec | LegacyLockHolder;
 
 /** Tokens are hex (plus -/_ tolerance); anything else in a record is corruption. */
 const LOCK_TOKEN_RE = /^[A-Za-z0-9_-]{12,128}$/;
@@ -499,7 +522,7 @@ export function parseLockRec(raw: unknown): LockRec {
   if (timeNs !== null && typeof timeNs !== "string") throw new Error("bad timeNs");
   if (typeof pid !== "number" || !Number.isInteger(pid) || pid <= 0) throw new Error("bad pid");
   if (start !== null && typeof start !== "string") throw new Error("bad start");
-  if (typeof token !== "string" || !LOCK_TOKEN_RE.test(token)) throw new Error("bad token");
+  if (typeof token !== "string" || token.startsWith("legacy-") || !LOCK_TOKEN_RE.test(token)) throw new Error("bad token");
   if (target !== undefined && typeof target !== "string") throw new Error("bad target");
   if (typeof at !== "number" || !Number.isFinite(at)) throw new Error("bad at");
   return {
@@ -516,13 +539,65 @@ export function parseLockRec(raw: unknown): LockRec {
   };
 }
 
-/** opus `read`: ENOENT -> absent, anything else unreadable -> corrupt (I1). */
-export function readLockRecord(path: string): LockRec | "absent" | "corrupt" {
+function parseLegacyLockHolder(raw: unknown, bytes: Buffer): LegacyLockHolder {
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) throw new Error("bad legacy lock record");
+  const o = raw as Record<string, unknown>;
+  const keys = Object.keys(o);
+  if (
+    !keys.includes("pid")
+    || !keys.includes("hostname")
+    || !keys.includes("startedAt")
+    || !keys.every((key) => key === "pid" || key === "hostname" || key === "startedAt" || key === "protocol" || key === "fenceEpoch")
+  ) {
+    throw new Error("bad legacy lock fields");
+  }
+  if (typeof o.pid !== "number" || !Number.isInteger(o.pid) || o.pid <= 0) throw new Error("bad legacy pid");
+  if (typeof o.hostname !== "string") throw new Error("bad legacy hostname");
+  if (typeof o.startedAt !== "string") throw new Error("bad legacy startedAt");
+  if (o.protocol !== undefined && typeof o.protocol !== "string") throw new Error("bad legacy protocol");
+  if (o.fenceEpoch !== undefined && typeof o.fenceEpoch !== "string") throw new Error("bad legacy fenceEpoch");
+  return {
+    kind: "legacy",
+    // Do not trim, decode/re-encode, or JSON.stringify the input: a final `\n`
+    // is part of this fencing token by design and is covered by T-legacy.
+    token: `legacy-${createHash("sha256").update(bytes).digest("hex")}`,
+    pid: o.pid,
+    hostname: o.hostname,
+    startedAt: o.startedAt,
+    ...(o.protocol !== undefined ? { protocol: o.protocol } : {}),
+    ...(o.fenceEpoch !== undefined ? { fenceEpoch: o.fenceEpoch } : {})
+  };
+}
+
+/**
+ * Reads a v4 record or the exact legacy locks.ts shape. The legacy token hashes
+ * the raw file bytes before JSON decoding, so visually equivalent files (notably
+ * with or without a trailing newline) are different observed holders.
+ */
+export function readLockHolder(path: string): LockHolder | "absent" | "corrupt" {
   try {
-    return parseLockRec(JSON.parse(readFileSync(path, "utf8")));
+    const bytes = readFileSync(path);
+    const parsed = JSON.parse(bytes.toString("utf8"));
+    try {
+      return parseLockRec(parsed);
+    } catch {
+      return parseLegacyLockHolder(parsed, bytes);
+    }
   } catch (e) {
     return (e as NodeJS.ErrnoException | undefined)?.code === "ENOENT" ? "absent" : "corrupt";
   }
+}
+
+/**
+ * v4-only reader retained for existing protocol callers. A readable legacy holder
+ * remains `corrupt` here so a caller that was not explicitly upgraded to the
+ * distinct legacy view continues to fail closed.
+ */
+export function readLockRecord(path: string): LockRec | "absent" | "corrupt" {
+  const holder = readLockHolder(path);
+  return holder !== "absent" && holder !== "corrupt" && holder.kind === "legacy"
+    ? "corrupt"
+    : holder;
 }
 
 type PublishStatus = { status: "ok" } | { status: "exists" } | { status: "retry" } | { status: "error"; code: string };
@@ -615,7 +690,11 @@ interface LivenessInfo {
  * comparison: a source mismatch or an unknown/differing time namespace both yield a
  * safe "live" (undatable), and a corrupt "legacy" start yields "undecidable" (C1).
  */
-export function classifyLiveness(r: LockRec, self: SelfIdent, deps: LivenessDeps = {}): LivenessInfo {
+export function classifyLiveness(r: LockHolder, self: SelfIdent, deps: LivenessDeps = {}): LivenessInfo {
+  // Legacy records have no machine/boot/namespace/start provenance. In particular,
+  // even a same-host ESRCH PID may have been reused, so never probe it and never
+  // promote the holder to dead. The operator escape hatch consumes this token later.
+  if (r.kind === "legacy") return { verdict: "undecidable", datable: false };
   const platform = deps.platform ?? process.platform;
   const probe = deps.probe ?? procStartInfo;
   // Lot 4 §2 permits a death proof only for a strong machine identity on Linux or
@@ -670,7 +749,7 @@ export function classifyLiveness(r: LockRec, self: SelfIdent, deps: LivenessDeps
   return { verdict: exists ? "live" : "undecidable", datable: false };
 }
 
-export function livenessOf(r: LockRec, self: SelfIdent, deps: LivenessDeps = {}): Liveness {
+export function livenessOf(r: LockHolder, self: SelfIdent, deps: LivenessDeps = {}): Liveness {
   return classifyLiveness(r, self, deps).verdict;
 }
 
@@ -722,7 +801,7 @@ export function acquirePrefixLock(
     if (pub.status === "ok") return makeLease(prefix, lockPath, tok);
     if (pub.status === "error") return lockDenied(`error:${pub.code}`);
     if (pub.status === "retry") continue;
-    const cur = readLockRecord(lockPath);
+    const cur = readLockHolder(lockPath);
     if (cur === "absent") continue; // released meanwhile
     if (cur === "corrupt") return lockDenied("dead-undecidable"); // fail closed
     const live = livenessOf(cur, self);
