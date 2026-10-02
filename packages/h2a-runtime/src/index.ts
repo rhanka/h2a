@@ -10460,7 +10460,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
     .command("enroll <provider>")
     .description(
       "Enroll through the sentropic-owned OAuth state machine " +
-        "(cloud-code, codex, or muse CLI-store import)",
+        "(cloud-code, codex, muse CLI-store import, or muse-code device flow)",
     )
     .option("--config-ref <ref>", "sentropic configuration reference for OAuth")
     .action(
@@ -10470,10 +10470,10 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           configRef?: string;
         },
       ) => {
-        if (provider !== "cloud-code" && provider !== "codex" && provider !== "muse") {
+        if (provider !== "cloud-code" && provider !== "codex" && provider !== "muse" && provider !== "muse-code") {
           process.stderr.write(
             `[h2a] llm-mesh account: unsupported provider "${provider}". ` +
-              "Supported: cloud-code, codex, muse\n",
+              "Supported: cloud-code, codex, muse, muse-code\n",
           );
           process.exitCode = 1;
           return;
