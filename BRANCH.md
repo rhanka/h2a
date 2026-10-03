@@ -1,47 +1,88 @@
-# Lot 4 — étape 2d : stillHeld
+# Lot 4 — step 2e: operator break
 
-## Objectif et base
+## Objective and base
 
-Branche `lot4/2d-still-held`, depuis `origin/main` à
-`dd52059c13c16a62b65b8fe9fc2736bd2b1c8b9a`.
-Référence : `docs/specs/2026-09-26-SPEC_lot4-identity-succession-lock.md`, §3, §4 et §8.
+Branch `lot4/2e-operator-break`, stacked on `lot4/2d-still-held`
+(`100d6f56a4b680a827447e22fc3bae028f6275a7`), whose base is
+`origin/main` at `dd52059c13c16a62b65b8fe9fc2736bd2b1c8b9a`.
+Reference: `docs/specs/2026-09-26-SPEC_lot4-identity-succession-lock.md`, §3, §5 and §8.
 
-## Périmètre
+## Scope
 
 - `packages/h2a/src/runtime/local-files/succession-lock.ts`
-- `packages/h2a/src/runtime/upgrade/index.ts` : bail de refus conforme au type.
-- `packages/h2a/test/succession-lock-still-held.test.js`
-- `packages/h2a/test/upgrade-runtime-hooks-compat.ts` : double de bail conforme.
-- `BRANCH.md`
+- `packages/h2a/src/index.ts`: export the operator API and result types.
+- `packages/h2a/src/cli-command-map.ts`: list the runtime recovery commands.
+- `packages/h2a-runtime/src/index.ts`: CLI commands and their help.
+- `packages/h2a-runtime/src/cli-help-groups.ts`
+- `packages/h2a/test/succession-lock-operator.test.js`
+- `packages/h2a/test/succession-lock-operator-cli.test.js`
+- `packages/h2a/test/succession-lock-test-seam.mjs`: test-only pre-election window.
+- `packages/h2a/test/fixtures/runtime-help-commands.json`
+- `docs/operator-identity-unlock.md`, its README link, and this plan.
+- `scripts/run-tests.mjs`: bounded file concurrency, required by the full gate.
 
-Aucune migration du binding, aucun changement du store réel, de `.track`,
-des dépendances ou des versions. Pas de PR ni de fusion.
+No identity-binding migration, real identity-store access, dependency/version
+change, `.track` write, PR creation, push to main, or merge.
 
-## Livraison
+## Verification scope exception
 
-- [x] Ajouter `stillHeld(): boolean` à tous les baux.
-- [x] Confirmer le token par lecture fraîche, sans sonde de vivacité ni écriture.
-- [x] Refuser après release, token différent, absence, corruption, legacy ou lecture incertaine.
-- [x] Préserver le LOCK gagnant lors d'une release périmée.
+Two full campaigns on the unchanged 2e product failed the same native PTY
+identity-readiness observation; the isolated file passed 2/2. The local runner
+exposes 32 CPUs and used CPU-count-sized file concurrency while each file can
+fork MCP workers and real PTY hosts. Bound Node file concurrency to at most 8
+(and retain the smaller CPU count on small hosts), preserving every assertion,
+timeout, discovered file and test. This is the smallest direct change to the
+blocking validation infrastructure; no product behavior is changed. Rollback:
+remove the explicit concurrency argument and its import.
+
+## Delivery
+
+- [x] Require the expected token; reject malformed, stale, absent or corrupt state.
+- [x] Refuse live holders, including with an explicit assertion; report their PID.
+- [x] Elect through SUCC before retirement; never acquire or republish LOCK.
+- [x] Undecidable holders require `assertDead`; legacy stays undecidable and uses
+  the synthetic raw-byte token. Return a typed `legacy-record` diagnostic and count.
+- [x] Preserve `operator:true` and `target === g` in operator succession records.
+- [x] Re-read the expected token immediately before unlink; preserve the winning LOCK.
+- [x] Expose `h2a identity unlock` and `h2a lock break`, requiring `--token`.
+- [x] Document expected tokens, legacy hashing, assertions and refusal behavior.
+- [x] Cover T-operator ×3, post-break automatic succession, and operator interruption
+  during the identity controller's `retry()` with real filesystem locks.
 
 ## Validation
 
-- RED : 6 tests nouveaux, 0 réussite, 6 échecs (`stillHeld` absent).
-- GREEN : 6/6 nouveaux tests réussis.
-- Ciblés : `node --test packages/h2a/test/upgrade*.test.js packages/h2a/test/succession-lock*.test.js`
-  — 124 tests, 123 réussites, 1 ignoré, 0 échec.
-- `npm run build` : réussi.
-- `npm run typecheck` : réussi.
-- `npm test` : réussi. Node : 267 fichiers, 2 430 tests,
-  2 387 réussites, 21 ignorés, 22 TODO, 0 échec.
-  Track : 87 fichiers, 1 193/1 193 tests réussis.
-- Une campagne ciblée intermédiaire a chevauché le nettoyage de dist par le build
-  de `npm test` : 1 échec de démarrage d'enfant. La campagne finale, après la
-  reconstruction, passe intégralement sans changement de code.
-- Journaux locaux : `tmp/2d-red.log`, `tmp/2d-targeted-final.log`,
-  `tmp/2d-build.log`, `tmp/2d-typecheck.log`, `tmp/2d-full.log`.
+- Initial API RED: 5 tests, 0 pass, 5 fail (`breakLockAsOperator` absent).
+- Initial CLI RED: 3 tests, 0 pass, 3 fail (commands absent).
+- Baseline witness against compiled 2d: all 10 final operator/CLI tests fail.
+  Only module paths are redirected; test assertions and protocol instrumentation
+  are unchanged (`tmp/red-2e-on-2d`, `tmp/2e-red-on-2d.log`).
+- Operator/CLI GREEN: 10/10 pass.
+- Focused upgrade, succession-lock and CLI map: 154 tests, 153 pass,
+  1 skipped, 0 fail (`tmp/2e-targeted.log`).
+- `npm run build`: pass (`tmp/2e-build.log`).
+- `npm run typecheck`: pass (`tmp/2e-typecheck.log`).
+- First `npm test`: Node 2,440 tests, 2,396 pass, 1 fail, 21 skipped, 22 TODO;
+  Track 1,193/1,193 pass (`tmp/2e-full.log`). The failing native PTY codex-to-codex
+  test reported an identity not observable within its polling budget.
+- Minimal reproduction: `node --test packages/h2a/test/pty-native-messaging.test.js`
+  passes 2/2 with unchanged assertions and timeouts (`tmp/2e-pty-repro.log`).
+- Second full campaign on unchanged product code: same single native PTY failure;
+  Node 2,440 tests, 2,396 pass, 1 fail, 21 skipped, 22 TODO; Track 1,193/1,193
+  pass (`tmp/2e-full-final.log`).
+- Final `npm test` with bounded runner concurrency: pass. Node: 269 files,
+  2,440 tests, 2,397 pass, 21 skipped, 22 TODO, 0 fail. Track: 87 files,
+  1,193/1,193 pass (`tmp/2e-full-bounded.log`). Both real native PTY round trips
+  pass in the full campaign, with the original assertions and timeouts.
+- Final typecheck after the runner change: pass (`tmp/2e-typecheck-final.log`).
+- The final full gate also reruns and passes `npm run build`, vendor checks
+  and the Focus import check. No timing failure is allowlisted.
 
 ## Unverified
 
-CI distante et revue indépendante non exécutées. macOS réel, isolation PID de
-la flotte et transition multi-versions non vérifiés ; limites de §9 conservées.
+Remote CI and independent review have not run. The retry integration uses the
+real controller and lock protocol with a worker double; the identity binding
+writer is still the pre-migration implementation until later Lot 4 steps.
+Real macOS behavior, fleet PID isolation and multi-version transition remain
+unverified as described in spec §9. The exact scheduler condition behind the
+32-file-concurrency PTY failures was not directly measured; the bounded runner
+passes the complete gate and leaves all product timing checks intact. No real identity secrets were inspected.

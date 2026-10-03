@@ -19,6 +19,8 @@ instrument('else if (first !== "absent") {',
   'else if (first !== "absent") {\n                invoke(hooks.afterReadFirst, { prefix, lockPath, path: lockPath, round, depth: 0 });');
 instrument("const tok = newToken();\n        const pub = publishLockRecord(lockPath, makeLockRecFor(self, tok));",
   "if (round === 0) invoke(hooks.beforePublishLock, { prefix, lockPath, path: lockPath, round, depth: 0 });\n        const tok = newToken();\n        const pub = publishLockRecord(lockPath, makeLockRecFor(self, tok));");
+instrument("const next = succeedDeadToken(prefix, lockPath, cur.token, self);",
+  "invoke(hooks.beforeSucceedDeadToken, { prefix, lockPath, path: lockPath, target: cur.token, round, depth: 0 });\n    const next = succeedDeadToken(prefix, lockPath, cur.token, self);");
 instrument("cur.token, self)", "cur.token, self, hooks, round)");
 instrument("function succeedDeadToken(prefix, lockPath, g, self) {",
   "function succeedDeadToken(prefix, lockPath, g, self, hooks, round) {");
