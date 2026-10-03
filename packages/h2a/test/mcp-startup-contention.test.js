@@ -40,13 +40,6 @@ if (process.env.H2A_MCP_REQUIRE_REAL_SEED === "1" && !SEED) {
 }
 const maybe = test; // F4: always run — synthetic corpus fallback when the private seed is absent
 
-// Mirrors MCP_IDENTITY_TIMEOUT_MS (identity-state.ts). Kept as a LOCAL literal on
-// purpose: importing the L2-only export would make this file fail to load on
-// main@4be46caf (an import error, not the intended behavioral RED). The decoupling
-// bound below is a FRACTION of this deadline, so a lock-BLOCKED initialize (~20s /
-// server death) still fails while scheduler jitter under CI parallel load does not.
-const IDENTITY_DEADLINE_MS = 20_000;
-
 function bindingsFor(root, providerSessionId) {
   const file = join(root, "identity", "bindings.jsonl");
   if (!existsSync(file)) return [];
@@ -95,35 +88,15 @@ maybe(
     }
     const all = [...sameHandles, ...distinctHandles];
     try {
-      // Every initialize must return WHILE the lock is held. The bound is a
-      // FRACTION of the identity deadline, not a tight wall-clock: the invariant
-      // is that the transport is DECOUPLED from the shared-identity section — a
-      // lock-blocked initialize would scale to the ~20 s deadline (or the server
-      // would die, as main does), so half the deadline discriminates that cleanly
-      // while absorbing CI scheduler jitter under full-suite parallelism. The
-      // decoupling is then PROVEN structurally (jitter-immune) by the pending
-      // check below, which reads status while the lock is still provably held.
-      const t0 = Date.now();
-      const latencies = await Promise.all(
-        all.map((h) =>
-          callRpc(h, { jsonrpc: "2.0", id: 1, method: "initialize" }, { timeoutMs: 18_000 }).then(
-            () => Date.now() - t0
-          )
-        )
+      // Bootstrap scheduling is outside the transport contract. Prove that
+      // initialize answers successfully while the live lock still blocks every
+      // identity, rather than comparing process startup to a fraction of the
+      // identity deadline. A transport coupled to identity times out here.
+      const initialized = await Promise.all(
+        all.map((h) => callRpc(h, { jsonrpc: "2.0", id: 1, method: "initialize" }, { timeoutMs: 18_000 }))
       );
-      const maxInit = Math.max(...latencies);
-      assert.ok(
-        maxInit < IDENTITY_DEADLINE_MS / 2,
-        `initialize must return well before the identity deadline while contended (max ${maxInit}ms, bound ${IDENTITY_DEADLINE_MS / 2}ms)`
-      );
+      for (const response of initialized) assert.equal(response.message.error, undefined);
 
-      // Structural, jitter-IMMUNE decoupling proof: the lock has NOT been released
-      // yet (the release is the next step), so identity CANNOT have resolved — the
-      // product invariant forces `identity_pending`. It does not matter whether the
-      // initialize round-trip above took 200 ms or 3 s under load; what matters is
-      // that initialize returned AND identity is still pending while the lock is
-      // held. A regression where initialize waited on identity would have hung the
-      // call above (lock held) and timed out, not reached here.
       const held = await Promise.all(all.map((h) => readIdentityStatus(h, { timeoutMs: 15_000 })));
       assert.ok(
         held.every((s) => s?.state === "identity_pending"),

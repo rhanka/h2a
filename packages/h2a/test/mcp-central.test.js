@@ -816,8 +816,13 @@ test("finding-1: an in-progress reclaim lock never admits a second live owner", 
         runtimeBase: f.runtimeBase,
         reclaimRaceDirectory,
         reclaimRaceIndex: index,
-        exclusiveRaceDirectory
+        exclusiveRaceDirectory,
+        waitForStart: true
       }));
+      // Process bootstrap is outside the publication race. Start its measured
+      // phase only after the child has loaded the server and installed its gate.
+      await launchers[index].ready;
+      launchers[index].release();
       assert.equal(
         await waitForFiles([join(exclusiveRaceDirectory, `ready-${index}`)], 3_000),
         true,
@@ -861,14 +866,7 @@ test("finding-1: an in-progress reclaim lock never admits a second live owner", 
   }
 });
 
-// QUARANTINE 2026-09-20 — Track 01M2ZR1DAFEVB6326Z4MSVK4ZZ. PRE-EXISTING flake, NOT L2:
-// this 24-process reclaim race is parallelism-sensitive and loses timing on CI 2-core
-// runners (3/3 fail on 737d4919 CI, across the original run + two announced re-runs) while
-// stable locally (0/15 under multi-core stress). The SAME rate holds on main@4be46caf
-// reclaim src, so L2 did not introduce it. Marked `todo` so it still RUNS and stays visible
-// in the test count, but its failure does not gate CI. LIFT this todo when the race is made
-// contention-robust (see the Track item).
-test("F3 lock: a controlled 24-process reclaim race elects one verified reclaimer", { ...linux, todo: "quarantined pre-existing CI flake (Track 01M2ZR1DAFEVB6326Z4MSVK4ZZ, 2026-09-20): parallelism-sensitive 24-process reclaim race, ~3/3 CI-flake on 2-core runners vs 0/15 local, identical rate on main; lift when stabilized" }, async () => {
+test("F3 lock: a controlled 24-process reclaim race elects one verified reclaimer", linux, async () => {
   const f = fixture();
   const launchers = [];
   try {
@@ -887,8 +885,11 @@ test("F3 lock: a controlled 24-process reclaim race elects one verified reclaime
       root: join(f.directory, "first-store"),
       runtimeBase: f.runtimeBase,
       reclaimRaceDirectory: raceDirectory,
-      reclaimRaceIndex: 0
+      reclaimRaceIndex: 0,
+      waitForStart: true
     }));
+    await launchers[0].ready;
+    launchers[0].release();
     assert.equal(await waitForFiles([join(raceDirectory, "ready-0")], 3_000), true);
 
     for (const [index, endpointValue] of endpoints.slice(1).entries()) {

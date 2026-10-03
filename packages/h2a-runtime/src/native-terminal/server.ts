@@ -141,6 +141,10 @@ function createOptions(params: unknown): NativeTerminalCreateOptions {
     throw new TypeError("terminal env values must be strings");
   }
   return {
+    ...(options.launchFence !== undefined ? { launchFence: {
+      generation: requiredIdentifier(requiredRecord(options.launchFence, "launch fence").generation, "launch generation"),
+      incarnation: requiredIdentifier(requiredRecord(options.launchFence, "launch fence").incarnation, "launch incarnation"),
+    } } : {}),
     id: requiredIdentifier(options.id, "terminal session id"),
     command: requiredString(options.command, "terminal command"),
     args: options.args,
@@ -167,6 +171,7 @@ function dispatch(host: NativeTerminalHost, context: ConnectionContext, request:
   switch (request.operation) {
     case "ping":
       return {
+        launchFence: true,
         generation: host.generation,
         hostPid: process.pid,
         protocolVersion: NATIVE_TERMINAL_PROTOCOL_VERSION,
