@@ -29,7 +29,7 @@ import {
   writeSync
 } from "node:fs";
 import { hostname } from "node:os";
-import { basename, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 
 // ---------------------------------------------------------------------------
 // Prefix lock (v4): single-machine succession protocol.
@@ -84,6 +84,8 @@ export type PrefixLockReason = "busy" | "dead-undecidable" | `error:${string}`;
 /** Lease on the global prefix. `token` is present only when acquired. */
 export interface PrefixLockLease {
   readonly acquired: boolean;
+  /** Fresh token check; false after release or any uncertain read. */
+  stillHeld(): boolean;
   release(): void;
   readonly reason?: PrefixLockReason;
   /** Winning token; present only when acquired. Never republished (I2). */
@@ -138,6 +140,8 @@ interface LockRec extends LockIdent {
   readonly kind?: never;
   readonly token: string;
   readonly target?: string;
+  /** Explicit operator assertion; the succession target remains unchanged. */
+  readonly operator?: true;
   /** Diagnostic only, never decides (I7). */
   readonly at: number;
 }
@@ -505,7 +509,7 @@ export function makeLockRec(token: string, target?: string): LockRec {
 export function parseLockRec(raw: unknown): LockRec {
   if (typeof raw !== "object" || raw === null) throw new Error("bad lock record");
   const o = raw as Record<string, unknown>;
-  const { host, hostKind, boot, ns, timeNs, pid, start, token, target, at } = o;
+  const { host, hostKind, boot, ns, timeNs, pid, start, token, target, operator, at } = o;
   // timeNs is a required field like host/boot/ns/pid/start: an absent field is a
   // malformed record → corrupt → fail-closed. No back-compat exception is carved
   // for a "v4 without timeNs" — the redesign was never published, so no such lock
@@ -525,6 +529,7 @@ export function parseLockRec(raw: unknown): LockRec {
   if (start !== null && typeof start !== "string") throw new Error("bad start");
   if (typeof token !== "string" || token.startsWith("legacy-") || !LOCK_TOKEN_RE.test(token)) throw new Error("bad token");
   if (target !== undefined && typeof target !== "string") throw new Error("bad target");
+  if (operator !== undefined && (operator !== true || target === undefined)) throw new Error("bad operator");
   if (typeof at !== "number" || !Number.isFinite(at)) throw new Error("bad at");
   return {
     host,
@@ -536,6 +541,7 @@ export function parseLockRec(raw: unknown): LockRec {
     start,
     token,
     ...(target !== undefined ? { target } : {}),
+    ...(operator === true ? { operator } : {}),
     at
   };
 }
@@ -771,8 +777,99 @@ export function isCertainlyDead(r: LockRec): boolean {
   return classifyLiveness(r, me()).verdict === "dead";
 }
 
+export interface BreakLockAsOperatorOptions {
+  readonly expectToken: string;
+  /** Explicit assertion for an undecidable holder; never authorizes a live one. */
+  readonly assertDead?: boolean;
+}
+
+export type OperatorBreakReason = "invalid-token" | "absent" | "corrupt" | "token-mismatch"
+  | "live" | "assert-dead-required" | "busy" | "dead-undecidable" | `error:${string}`;
+
+export interface OperatorBreakResult {
+  readonly broken: boolean;
+  readonly reason?: OperatorBreakReason;
+  readonly token?: string;
+  readonly pid?: number;
+  /** Number of legacy records encountered in this operation. */
+  readonly legacyRecords: 0 | 1;
+  readonly diagnostic?: { readonly code: "legacy-record"; readonly command: string };
+}
+
+/**
+ * Token-fenced escape hatch, using the same one-shot SUCC election as acquisition.
+ * It never owns or republishes LOCK and never sends a destructive process signal.
+ * An automatic successor already elected for g excludes the operator. After g is
+ * removed, a pending automatic retire sees absence and may publish a fresh LOCK.
+ */
+export function breakLockAsOperator(lockPath: string, options: BreakLockAsOperatorOptions): OperatorBreakResult {
+  const g = options?.expectToken;
+  if (typeof g !== "string" || !LOCK_TOKEN_RE.test(g)
+    || (g.startsWith("legacy-") && !/^legacy-[a-f0-9]{64}$/.test(g))) {
+    return { broken: false, reason: "invalid-token", legacyRecords: 0 };
+  }
+  const holder = readLockHolder(lockPath);
+  if (holder === "absent" || holder === "corrupt") {
+    return { broken: false, reason: holder, legacyRecords: 0 };
+  }
+  const legacyRecords = holder.kind === "legacy" ? 1 : 0;
+  const context = {
+    token: holder.token, pid: holder.pid, legacyRecords,
+    ...(legacyRecords === 1 ? { diagnostic: {
+      code: "legacy-record" as const,
+      command: `h2a identity unlock --token ${holder.token} --assert-dead`
+    } } : {})
+  } as const;
+  const refused = (reason: OperatorBreakReason): OperatorBreakResult => ({ broken: false, reason, ...context });
+  if (holder.token !== g) return refused("token-mismatch");
+  const operatorSelf = me();
+  const verdict = classifyLiveness(holder, operatorSelf).verdict;
+  if (verdict === "live") return refused("live");
+  if (verdict === "undecidable" && options.assertDead !== true) return refused("assert-dead-required");
+
+  let t = g;
+  for (let depth = 0; depth < PREFIX_LOCK_MAX_CHAIN; depth++) {
+    // A retry never silently changes the requested target to a replacement owner.
+    const current = readLockHolder(lockPath);
+    if (current === "corrupt") return refused("corrupt");
+    if (current === "absent" || current.token !== g) return refused("token-mismatch");
+    const successor = {
+      ...makeLockRecFor(operatorSelf, newToken(), g),
+      ...(verdict === "undecidable" ? { operator: true as const } : {})
+    };
+    const published = publishLockRecord(succPathFor(lockPath, t), successor);
+    if (published.status === "error") return refused(`error:${published.code}`);
+    if (published.status === "retry") return refused("busy");
+    if (published.status === "exists") {
+      const link = readLockRecord(succPathFor(lockPath, t));
+      if (link === "absent") return refused("busy");
+      if (link === "corrupt" || link.target !== g) return refused("dead-undecidable");
+      const linkVerdict = classifyLiveness(link, operatorSelf).verdict;
+      if (linkVerdict !== "dead") return refused(linkVerdict === "live" ? "busy" : "dead-undecidable");
+      t = link.token;
+      continue;
+    }
+    // Election makes this the sole successor. Re-read as the last action before
+    // unlink, including the raw-byte legacy token, so a winning LOCK survives.
+    const confirmed = readLockHolder(lockPath);
+    if (confirmed === "corrupt") return refused("corrupt");
+    if (confirmed === "absent" || confirmed.token !== g) {
+      purgeSuccession(dirname(lockPath), lockPath, g);
+      return refused("token-mismatch");
+    }
+    try {
+      unlinkSync(lockPath);
+    } catch (error) {
+      if (errnoOf(error) !== "ENOENT") return refused(`error:${errnoOf(error)}`);
+    }
+    purgeSuccession(dirname(lockPath), lockPath, g);
+    return { broken: true, ...context };
+  }
+  return refused("dead-undecidable");
+}
+
 function lockDenied(reason: PrefixLockReason): PrefixLockLease {
-  return { acquired: false, release: () => {}, reason };
+  return { acquired: false, stillHeld: () => false, release: () => {}, reason };
 }
 
 /** Production acquisition. Extra JavaScript arguments cannot inject dependencies. */
@@ -907,6 +1004,11 @@ function retireDeadToken(
  */
 function makeLease(prefix: string, lockPath: string, token: string): PrefixLockLease {
   let done = false;
+  const stillHeld = (): boolean => {
+    if (done) return false;
+    const cur = readLockRecord(lockPath);
+    return cur !== "absent" && cur !== "corrupt" && cur.token === token;
+  };
   const release = (): void => {
     if (done) return;
     done = true;
@@ -931,7 +1033,7 @@ function makeLease(prefix: string, lockPath: string, token: string): PrefixLockL
     // best-effort
   }
   collectLockDebris(prefix, lockPath, token); // holder-only GC (I5-safe)
-  return { acquired: true, release, token };
+  return { acquired: true, stillHeld, release, token };
 }
 
 /** Unlink SUCC files whose target === g (called only when LOCK != g can hold). */
