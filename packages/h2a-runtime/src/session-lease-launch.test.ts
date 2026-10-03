@@ -31,8 +31,8 @@ vi.mock("./tmux.js", async (importOriginal) => {
 });
 
 // No gateway session is acquired for a test launch (and no live gateway is called).
-vi.mock("./llm-mesh.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("./llm-mesh.js")>();
+vi.mock("./gateway-host/daemon.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./gateway-host/daemon.js")>();
   return {
     ...actual,
     meshRunning: () => false,

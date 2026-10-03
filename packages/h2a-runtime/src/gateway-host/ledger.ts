@@ -1,10 +1,11 @@
+// Retained h2a adapter — owner decision 2026-10-03 (sessions h2a kept until convergence with sentropic workspace/session notions)
 import type {
   RouteDiagnostic,
   RoutePlan,
   RoutePlanInput,
 } from "@sentropic/cluster-mesh/llm-mesh";
 import type { RouteRequestSettlement } from "@sentropic/cluster-mesh/gateway";
-import type { SessionEntry } from "./sticky.js";
+import type { SessionEntry } from "./sessions.js";
 
 export type GatewaySessionState = "idle" | "active" | "rate-limited";
 
