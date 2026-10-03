@@ -50,12 +50,37 @@ Ces instruments restent ignorés ; ils ne changent pas le code livré.
 
 ## Validation et livraison
 
-Une suite `npm test` complète est requise sur cette branche, après celle de
-`fix/test-flakes-central-drive`, avec un `REMOTE_CLI_CONFIG_HOME` jetable.
+Une unique suite `npm test` complète a été exécutée sur cette branche, après
+celle de `fix/test-flakes-central-drive`, avec un `REMOTE_CLI_CONFIG_HOME` jetable.
 Synchronisation finale : `origin/main` à
 `8c1912d7dfed785272d7cfe5feae79333ca3919b`, par avance rapide. Les événements
 Track restent ceux de la base ; aucun changement `.track` n’est livré.
-Validation complète et push en attente de la fin de la suite release h2a.
+Le build et la suite release h2a avaient terminé avant cette exécution.
 Décision h-cond : avant chaque suite, contrôle `ps` des runners et de leur cwd
 sous `/home/antoinefa/src/h2a`. La suite externe bpmn-canvas, groupe 933523,
 ne compte pas dans cette contrainte. Aucune nouvelle campagne de charge.
+
+Commande : `REMOTE_CLI_CONFIG_HOME=<répertoire jetable> npm test`, Node
+22.22.1, commit testé `fbd2cdd7d3e9aba224ee59adb8eb7dfdf523e1fd`.
+Contrôle `ps` à 02:05:51 UTC le 3 octobre 2026 : aucun runner, suite npm ni
+build h2a actif. La première suite avait terminé à 02:05:18 UTC.
+Exécution de 02:05:51 à 02:09:46 UTC ; code de sortie 0.
+
+| Suite | Total | Réussites | Échecs | Annulations | Ignorés | TODO |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Node | 2 453 | 2 411 | 0 | 0 | 21 | 21 |
+| Track (87 fichiers) | 1 193 | 1 193 | 0 | 0 | 0 | 0 |
+
+Durées : Node 196 678,042892 ms ; Track 8,81 s. Build et contrôles focus
+réussis. Les interruptions SIGINT et SIGTERM passent ; la suite précédente,
+qui conservait la fixture UAT d’origine, a échoué sur l’attente du marqueur
+`doctor-started` sous SIGTERM. Aucune suite n’a été relancée et aucune n’a
+atteint la limite de 600 s. La cause de l’ancien blocage au-delà de cette
+limite reste non prouvée ; le rapport central/drive décrit les traces et la
+reproduction comparative nécessaires pour l’établir.
+
+Preuves locales : `tmp/h-cond-final-npm-test.log`,
+`tmp/h-cond-final-preflight.json`, `tmp/h-cond-final-npm-test.exit` et
+`tmp/h-cond-final-test-{start,end}.txt`. Le seul changement ultérieur porte
+sur ce rapport. Livraison autorisée vers `https://github.com/rhanka/h2a.git`,
+uniquement la branche nommée.
