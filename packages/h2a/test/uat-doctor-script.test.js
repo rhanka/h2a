@@ -306,7 +306,16 @@ case "$1" in
 esac
 `
   );
-  writeExecutable(join(fixture.fakeBin, "npm"), "#!/bin/sh\nexit 0\n");
+  writeExecutable(
+    join(fixture.fakeBin, "npm"),
+    `#!/bin/sh
+if [ "\${UAT_INTERRUPT_DURING_BUILD-}" = "1" ] && [ "$1" = "run" ] && [ "$2" = "build" ]; then
+  printf 'candidate-build\\n' > "$UAT_INTERRUPT_READY"
+  exec node -e 'setInterval(() => {}, 1000)'
+fi
+exit 0
+`
+  );
 
   const env = {
     ...process.env,
@@ -611,6 +620,8 @@ test("uat-doctor volatile exclusion should fail when logs_2.sqlite is reintroduc
 
 for (const signal of ["SIGINT", "SIGTERM"]) {
 test(`uat-doctor should clean its temporary tree and return 130 when interrupted by ${signal}`, async () => {
+  // Interrupt once both owned trees exist, without waiting for the doctor
+  // scenarios and their unrelated Node startups to reach the oracle probe.
   const fixture = createFixture("interrupt", false);
   const ready = join(fixture.root, "doctor-started");
   const scratchBefore = readdirSync(fixture.scratch);
@@ -618,7 +629,10 @@ test(`uat-doctor should clean its temporary tree and return 130 when interrupted
   try {
     child = spawn("bash", [SCRIPT], {
       cwd: REPO_ROOT,
-      env: ownedCandidateEnvironment(fixture, ready),
+      env: {
+        ...ownedCandidateEnvironment(fixture, ready),
+        UAT_INTERRUPT_DURING_BUILD: "1"
+      },
       detached: true,
       stdio: ["ignore", "pipe", "pipe"]
     });
@@ -639,9 +653,14 @@ test(`uat-doctor should clean its temporary tree and return 130 when interrupted
       const result = await closed;
       assert.fail(`${error.message}\nchild:${JSON.stringify(result)}\nstdout:\n${stdout}\nstderr:\n${stderr}`);
     }
+    const temporaryTrees = readdirSync(fixture.scratch).filter((entry) => !scratchBefore.includes(entry));
     process.kill(-child.pid, signal);
     const result = await closed;
 
+    assert.doesNotMatch(stdout, /=== scenario [03]/, "interrupt before unrelated doctor scenarios start");
+    assert.equal(temporaryTrees.length, 2, "both owned temporary trees must exist before interruption");
+    assert.ok(temporaryTrees.some((entry) => entry.startsWith("uat-doctor-")));
+    assert.ok(temporaryTrees.some((entry) => entry.startsWith("uat-src-")));
     assert.deepEqual(result, { code: 130, signal: null }, `stdout:\n${stdout}\nstderr:\n${stderr}`);
     assert.deepEqual(readdirSync(fixture.scratch), scratchBefore, `stdout:\n${stdout}\nstderr:\n${stderr}`);
   } finally {

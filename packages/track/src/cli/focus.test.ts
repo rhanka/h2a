@@ -17,6 +17,12 @@ import { EventStore } from '../events/store.js'
 import { Track } from '../track.js'
 import { runCli, type CliIO } from './index.js'
 
+// Load the renderer fixture during collection. These tests assert rendered
+// content and read-only behavior; a cold vendored-module import under suite
+// load must not consume the first render's default test deadline.
+import '../focus-vendor/index.js'
+import '../focus-vendor/track/index.js'
+
 let root: string
 let trackDir: string
 let eventsPath: string

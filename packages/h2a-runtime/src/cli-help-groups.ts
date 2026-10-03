@@ -127,7 +127,7 @@ export const H2A_RUNTIME_HELP_GROUPS: readonly H2aRuntimeHelpGroup[] = [
   {
     id: "SPECIALIST",
     heading: "Specialist identity tools (advanced):",
-    commands: ["identity"],
+    commands: ["identity", "lock"],
   },
   {
     // Vendored excerpt 3, § "Daily operator surface — top level", these rows:
