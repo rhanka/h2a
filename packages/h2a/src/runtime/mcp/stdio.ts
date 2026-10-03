@@ -30,7 +30,8 @@ import {
   type ResolvedIdentityMessage
 } from "./identity-state.js";
 import type { H2aRunDelegation, H2aRunExecutor } from "./agent-launch.js";
-import type { H2ASendSigner } from "../send.js";
+import type { H2ASendSigner, H2AMessageBackend } from "../send.js";
+import type { H2aClusterMeshMessaging } from "../cluster-mesh-messaging.js";
 import {
   boundNotificationFrame,
   boundResponseFrame,
@@ -77,6 +78,8 @@ export interface RunMcpStdioOptions {
   runExecutor?: H2aRunExecutor;
   /** Trusted signer resolved by mcp-serve, never from JSON-RPC arguments. */
   sendContext?: H2ASendSigner;
+  messageBackend?: H2AMessageBackend;
+  clusterMesh?: H2aClusterMeshMessaging;
   /** Readable stream of newline-delimited JSON-RPC requests. */
   stdin: Readable;
   /** Writable stream for newline-delimited JSON-RPC responses. */
@@ -160,6 +163,7 @@ export interface RunMcpStdioOptions {
    * Supplied by `runMcpServe`; never a public MCP/CLI option.
    */
   identityActivation?: {
+    bindMessaging?: (signer: H2ASendSigner, signal: AbortSignal) => Promise<H2aClusterMeshMessaging>;
     buildAutoOpen: (identity: ResolvedIdentityMessage) => NonNullable<RunMcpStdioOptions["autoOpen"]>;
     buildWake?: (
       privateKeyPem: string,
@@ -286,7 +290,7 @@ function handleMethod(
   server: McpServer,
   method: string,
   params: unknown
-): unknown {
+): unknown | Promise<unknown> {
   if (method === "initialize") {
     return {
       protocolVersion: PROTOCOL_VERSION,
@@ -351,6 +355,7 @@ export function runMcpStdio(options: RunMcpStdioOptions): Promise<void> {
   // L2: the live signing identity, set only once identity is really bound. The
   // server reads it on each h2a_send via `getSendContext`, so a signer that only
   // becomes available after asynchronous activation is picked up with no rebuild.
+  let liveClusterMesh: H2aClusterMeshMessaging | undefined;
   let liveSendContext: H2ASendSigner | undefined = options.sendContext;
   // Forward reference to the identity controller; assigned below when the
   // deferred identity path is used. The server guards signed/mutating tools by
@@ -379,6 +384,8 @@ export function runMcpStdio(options: RunMcpStdioOptions): Promise<void> {
     workspaceRoot: options.workspaceRoot ?? process.cwd(),
     ...(options.runExecutor ? { runExecutor: options.runExecutor } : {}),
     ...(options.sendContext ? { sendContext: options.sendContext } : {}),
+    messageBackend: options.messageBackend,
+    getClusterMesh: () => liveClusterMesh ?? options.clusterMesh,
     // L2: with a deferred identity, the store must not write on boot so
     // initialize/tools-list/status answer on a read-only or not-yet-created root.
     ...(options.identityRequest ? { storeInitialize: false } : {}),
@@ -491,10 +498,12 @@ export function runMcpStdio(options: RunMcpStdioOptions): Promise<void> {
   // pushed presence/inbox/negotiation notifications.
   server.notifications.start();
 
+  let meshTimer: ReturnType<typeof setInterval> | undefined;
   let didShutdown = false;
   function shutdown(reason: "transport_closed" | "signal" = "transport_closed"): void {
     if (didShutdown) return;
     didShutdown = true;
+    if (meshTimer) clearInterval(meshTimer);
     try {
       // L2: the transport is gone — cancel any in-flight identity resolution so
       // no NEW transaction starts and no late activation/ACK can follow. A
@@ -628,14 +637,30 @@ export function runMcpStdio(options: RunMcpStdioOptions): Promise<void> {
   // ACK. No provisional key, no early availability ACK.
   if (options.identityRequest) {
     const activation = options.identityActivation;
-    const activate = (identity: ResolvedIdentityMessage): ActivationResult => {
+    type Prepared = { privateKeyPem: string; clusterMesh: H2aClusterMeshMessaging };
+    const prepare = activation?.bindMessaging ? async (identity: ResolvedIdentityMessage, signal: AbortSignal): Promise<Prepared> => {
+      if (!identity.privateKeyPath) throw new Error("cluster-mesh requires a local signing key");
+      let privateKeyPem: string;
+      try {
+        privateKeyPem = readFileSync(identity.privateKeyPath, "utf8");
+      } catch (error) {
+        throw new Error(`cannot read identity key: ${error instanceof Error ? error.message : String(error)}`, { cause: "identity_storage_failed" });
+      }
+      trace?.phase("messaging_bind");
+      const clusterMesh = await activation.bindMessaging!({ instance: identity.instance, privateKeyPem }, signal);
+      if (clusterMesh.instance !== identity.instance) throw new Error("cluster-mesh: receiver identity mismatch");
+      signal.throwIfAborted();
+      trace?.phase("messaging_bound");
+      return { privateKeyPem, clusterMesh };
+    } : undefined;
+    const activate = (identity: ResolvedIdentityMessage, prepared?: Prepared): ActivationResult => {
       if (!activation) {
         return { ok: false, cause: "identity_worker_failed", message: "no activation wiring" };
       }
       // An explicit --instance override resolves with no key path: presence
       // opens but no signer is available (h2a_send stays refused, honestly).
-      let privateKeyPem: string | undefined;
-      if (identity.privateKeyPath) {
+      let privateKeyPem: string | undefined = prepared?.privateKeyPem;
+      if (!prepared && identity.privateKeyPath) {
         try {
           privateKeyPem = readFileSync(identity.privateKeyPath, "utf8");
         } catch (err) {
@@ -647,6 +672,7 @@ export function runMcpStdio(options: RunMcpStdioOptions): Promise<void> {
         }
       }
       const cfg = activation.buildAutoOpen(identity);
+      if (cfg.instance !== identity.instance) return { ok: false, cause: "session_open_failed", message: "activation identity mismatch" };
       let sessionId: string;
       try {
         sessionId = openAutoOpenSession(cfg);
@@ -674,13 +700,21 @@ export function runMcpStdio(options: RunMcpStdioOptions): Promise<void> {
           /* best effort */
         }
         liveSendContext = undefined;
+        liveClusterMesh = undefined;
+        delegation = undefined;
         autoOpenedSessionId = undefined;
       };
+      try {
       if (privateKeyPem !== undefined) {
         const wakeCfg = activation.buildWake?.(privateKeyPem, cfg.instance, cfg.host);
         if (wakeCfg) armInboxWake(cfg, wakeCfg);
         // Only NOW is a trusted local signer available for h2a_send.
         liveSendContext = { instance: cfg.instance, privateKeyPem };
+      }
+      liveClusterMesh = prepared?.clusterMesh;
+      } catch (error) {
+        rollback();
+        return { ok: false, cause: "session_open_failed", message: error instanceof Error ? error.message : String(error) };
       }
       if (options.readiness) {
         try {
@@ -697,20 +731,48 @@ export function runMcpStdio(options: RunMcpStdioOptions): Promise<void> {
           };
         }
       }
+      if (liveClusterMesh) startMeshReceive(liveClusterMesh);
       return { ok: true, sessionId, signer: liveSendContext };
     };
     identityController = createIdentityController({
       request: options.identityRequest,
       activate,
+      ...(prepare ? { prepare } : {}),
       log: (line) => stderr.write(`h2a mcp-serve: ${line}\n`)
     });
-    identityController.start();
+
+  }
+
+  if (options.clusterMesh && options.autoOpen) {
+    if (options.clusterMesh.instance !== options.autoOpen.instance) {
+      shutdown();
+      throw new Error("cluster-mesh: receiver identity mismatch");
+    }
+    startMeshReceive(options.clusterMesh);
+  }
+
+  function startMeshReceive(mesh: H2aClusterMeshMessaging): void {
+    let polling = false;
+    const poll = async () => {
+      if (didShutdown || polling) return;
+      polling = true;
+      try {
+        const result = await mesh.drain();
+        if (result.rejected.length) stderr.write(`h2a mcp-serve: cluster-mesh rejected ${result.rejected.length} unverified message(s)\n`);
+        if (!didShutdown) server.notifications.tick();
+      } catch (error) {
+        stderr.write(`h2a mcp-serve: cluster-mesh receive failed: ${(error as Error).message}\n`);
+      } finally { polling = false; }
+    };
+    meshTimer = setInterval(() => void poll(), notifyIntervalMs ?? 1000);
+    meshTimer.unref();
+    void poll();
   }
 
   // Publish only after every synchronous boot step above has completed and
   // immediately before constructing the stdio loop. Auto-upgrade/re-exec runs
   // in runMcpServe before this function, so it cannot acknowledge early.
-  if (options.readiness && autoOpenedSessionId) {
+  if (!options.identityRequest && options.readiness && autoOpenedSessionId) {
     try {
       publishReadinessAck(options.readiness, autoOpenedSessionId);
       trace?.phase("readiness_ack");
@@ -748,6 +810,7 @@ export function runMcpStdio(options: RunMcpStdioOptions): Promise<void> {
       options.signal.addEventListener("abort", onAbort, { once: true });
     }
 
+    const inFlight = new Set<Promise<unknown>>();
     rl.on("line", async (line) => {
       const trimmed = line.trim();
       if (trimmed.length === 0) return;
@@ -805,7 +868,17 @@ export function runMcpStdio(options: RunMcpStdioOptions): Promise<void> {
           });
         }
         const pending = handleMethod(server, request.method, request.params);
-        const result = pending instanceof Promise ? await pending : pending;
+        // Drain asynchronous mesh requests at EOF while detached launches stay
+        // independent of the client transport's lifetime.
+        const isLaunch = request.method === "tools/call" &&
+          (request.params as { name?: unknown } | undefined)?.name === "h2a_run";
+        if (pending instanceof Promise && !isLaunch) inFlight.add(pending);
+        let result: unknown;
+        try {
+          result = pending instanceof Promise ? await pending : pending;
+        } finally {
+          if (pending instanceof Promise) inFlight.delete(pending);
+        }
         // An abandoned asynchronous call still finishes server-side; its
         // receipt stays in the name registry, without writing to a closed pipe.
         if (pending instanceof Promise && didShutdown) return;
@@ -870,14 +943,17 @@ export function runMcpStdio(options: RunMcpStdioOptions): Promise<void> {
     });
 
     rl.on("close", () => {
-      shutdown();
-      // Flush the bounded writer before resolving so the last frame is on the
-      // wire before the process (bin.ts awaits this promise) can exit.
-      void writeChain.finally(() => resolve());
+      if (identityController?.status().state === "identity_pending") identityController.cancel("transport_closed");
+      void Promise.allSettled(inFlight).then(() => {
+        shutdown();
+        // Flush bounded output after asynchronous cluster-mesh requests finish.
+        void writeChain.finally(() => resolve());
+      }, (error) => { shutdown(); reject(error); });
     });
     rl.on("error", (err) => {
       shutdown();
       reject(err);
     });
+    identityController?.start();
   });
 }

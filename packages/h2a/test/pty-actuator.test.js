@@ -176,6 +176,7 @@ test("should never relaunch when no command was recorded", async () => {
   const result = await actuator.actuate({
     registration,
     action: "relaunch",
+    launchContext: { gateway: false },
     commandRef: "must-not-be-used-as-a-launch-command",
     resolvedInstruction: resolvedInstruction("must-not-be-used-as-a-launch-command")
   });
@@ -266,6 +267,7 @@ test("should relaunch exactly once when a recorded command produces an effect", 
   const result = await actuator.actuate({
     registration,
     action: "relaunch",
+    launchContext: { gateway: false },
     commandRef: "command-ref-relaunch",
     resolvedInstruction: resolvedInstruction("signed-line-relaunch")
   });
@@ -321,6 +323,7 @@ test("should relaunch from the command persisted as the presence resume fallback
     const result = await actuator.actuate({
       registration,
       action: "relaunch",
+      launchContext: { gateway: false },
       commandRef: "command-ref-relaunch-fallback",
       resolvedInstruction: resolvedInstruction("signed-line-relaunch-fallback")
     });

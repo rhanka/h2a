@@ -193,3 +193,136 @@ test("retry: a PERMANENT identity_failed never re-attempts (stays terminal)", ()
   assert.equal(controller.retry(), false, "a permanent failure never re-attempts");
   assert.equal(controller.status().state, "identity_failed", "still terminal");
 });
+
+for (const outcome of ["ready", "timeout", "cancel", "reject", "starved"]) {
+  test(`two-phase activation: ${outcome} while preparation is pending`, async () => {
+    const w = fakeWorker();
+    let resolve, reject, signal, calls = 0, prepares = 0, clock = 0n;
+    const prepared = { handle: "inert" };
+    const controller = createIdentityController({
+      request, timeoutMs: outcome === "timeout" ? 20 : 5_000,
+      nowNs: () => clock, spawnWorker: w.make,
+      prepare: (_identity, s) => {
+        prepares++; signal = s;
+        return new Promise((yes, no) => { resolve = yes; reject = no; });
+      },
+      activate: (_identity, value) => {
+        calls++;
+        assert.equal(value, prepared);
+        return { ok: true, sessionId: "sess:prepared" };
+      }
+    });
+    controller.start();
+    w.handle.resolved(identity);
+    w.handle.resolved(identity);
+    assert.equal(prepares, 1, "duplicate worker result cannot start another preparation");
+    assert.equal(calls, 0);
+    assert.equal(controller.status().state, "identity_pending");
+    if (outcome === "timeout") await new Promise((r) => setTimeout(r, 40));
+    if (outcome === "cancel") controller.cancel("transport_closed");
+    if (outcome === "starved") clock = 6_000_000_000n;
+    if (outcome === "reject") reject(new Error("deployment failed"));
+    else resolve(prepared);
+    await new Promise((r) => setImmediate(r));
+    assert.equal(calls, outcome === "ready" ? 1 : 0);
+    if (outcome === "ready") assert.equal(controller.status().state, "identity_ready");
+    else {
+      assert.equal(signal.aborted, true);
+      assert.equal(controller.signer(), undefined);
+      if (outcome !== "cancel") assert.equal(controller.status().cause,
+        outcome === "reject" ? "messaging_backend_failed" : "identity_timeout");
+    }
+    controller.cancel("transport_closed");
+  });
+}
+
+// --- #291 bounded retry × 0.98 two-phase preparation (rebase onto 0.97.11) ---
+// Preparation state is per attempt: a transient failure while preparing must not leave the
+// re-attempt with a consumed resolving guard or an already-aborted signal, and a late
+// preparation outcome from a superseded attempt must never commit or fail the current one.
+
+/** A worker double whose resolved AND error callbacks the test drives manually. */
+function drivenWorker() {
+  const handle = { resolved: undefined, error: undefined };
+  return {
+    handle,
+    make: () => ({
+      onResolved: (cb) => { handle.resolved = cb; },
+      onError: (cb) => { handle.error = cb; },
+      onExitWithoutResult: () => {},
+      cancel: () => {}
+    })
+  };
+}
+
+test("retry × prepare: a re-attempt prepares again on a fresh signal and reaches ready", async () => {
+  const w = fakeWorker();
+  const clock = { ns: 0n };
+  const signals = [];
+  const resolvers = [];
+  const activated = [];
+  const controller = createIdentityController({
+    request, timeoutMs: 5_000, retryMinIntervalMs: 0,
+    nowNs: () => clock.ns, spawnWorker: w.make,
+    prepare: (_identity, signal) => {
+      signals.push(signal);
+      return new Promise((resolve) => resolvers.push(resolve));
+    },
+    activate: (_identity, value) => {
+      activated.push(value);
+      return { ok: true, sessionId: "sess:retry-prepare", signer: { instance: identity.instance, privateKeyPem: "PEM" } };
+    }
+  });
+  controller.start();
+  w.handle.resolved(identity);
+  assert.equal(signals.length, 1);
+  clock.ns = 6_000n * 1_000_000n; // the deadline elapses while the first preparation is pending
+  resolvers[0]({ attempt: 1 });
+  await new Promise((r) => setImmediate(r));
+  assert.equal(controller.status().cause, "identity_timeout");
+  assert.equal(signals[0].aborted, true, "the failed attempt's preparation is aborted");
+  assert.equal(controller.retry(), true);
+  w.handle.resolved(identity);
+  assert.equal(signals.length, 2, "the re-attempt prepares again (resolving guard re-armed)");
+  assert.equal(signals[1].aborted, false, "the re-attempt prepares on a fresh signal");
+  resolvers[1]({ attempt: 2 });
+  await new Promise((r) => setImmediate(r));
+  assert.equal(controller.status().state, "identity_ready");
+  assert.deepEqual(activated, [{ attempt: 2 }]);
+  controller.cancel("transport_closed");
+});
+
+for (const late of ["resolve", "reject"]) {
+  test(`retry × prepare: a superseded attempt's late ${late} never acts on the current attempt`, async () => {
+    const w = drivenWorker();
+    const settle = [];
+    const activated = [];
+    const controller = createIdentityController({
+      request, timeoutMs: 5_000, retryMinIntervalMs: 0,
+      nowNs: () => 0n, spawnWorker: w.make,
+      prepare: () => new Promise((resolve, reject) => settle.push({ resolve, reject })),
+      activate: (_identity, value) => {
+        activated.push(value);
+        return { ok: true, sessionId: "sess:current" };
+      }
+    });
+    controller.start();
+    w.handle.resolved(identity);
+    w.handle.error("identity_timeout", "identity lock contended"); // transient failure mid-preparation
+    assert.equal(controller.status().cause, "identity_timeout");
+    assert.equal(controller.retry(), true);
+    const current = controller.status().attemptId;
+    if (late === "resolve") settle[0].resolve({ attempt: 1 });
+    else settle[0].reject(new Error("stale deployment failure"));
+    await new Promise((r) => setImmediate(r));
+    assert.equal(controller.status().state, "identity_pending", "a stale outcome neither commits nor fails the re-attempt");
+    assert.equal(controller.status().attemptId, current);
+    assert.deepEqual(activated, []);
+    w.handle.resolved(identity);
+    settle[1].resolve({ attempt: 2 });
+    await new Promise((r) => setImmediate(r));
+    assert.equal(controller.status().state, "identity_ready");
+    assert.deepEqual(activated, [{ attempt: 2 }]);
+    controller.cancel("transport_closed");
+  });
+}
