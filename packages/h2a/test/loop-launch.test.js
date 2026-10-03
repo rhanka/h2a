@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import test from "node:test";
 
 import {
@@ -264,7 +264,9 @@ test("request-launch is fail-closed without a spec and invokes an injected launc
 
 test("action boundary rejects out-of-scope workspaces and persisted host/profile skew", async () => {
   const dir = workspace();
-  const outside = mkdtempSync(join(dirname(process.cwd()), "h2a-loop-outside-"));
+  // Both fixtures stay writable; the controller's directory is the boundary,
+  // so a sibling durable workspace still proves an out-of-scope refusal.
+  const outside = durableTestDir("h2a-loop-outside-");
   const root = join(dir, ".h2a");
   try {
     const outsideSpec = validateLoopLaunchSpec(launchSpec(outside));
@@ -273,10 +275,10 @@ test("action boundary rejects out-of-scope workspaces and persisted host/profile
       goal: "ship",
       agents: [{ id: "a1", host: "codex", role: "builder", placement: "local", status: "running", launch: outsideSpec }]
     });
-    assert.equal(loopLaunchWorkspaceAllowed(loop, outsideSpec, process.cwd()), false);
+    assert.equal(loopLaunchWorkspaceAllowed(loop, outsideSpec, dir), false);
     let calls = 0;
     const sink = buildActionSink({
-      controllerRoot: process.cwd(),
+      controllerRoot: dir,
       launcher: { launch: () => { calls += 1; return { ok: true }; } }
     });
     assert.deepEqual(
