@@ -1,3 +1,5 @@
+import { __test } from "./succession-lock-test-seam.mjs";
+const acquirePrefixLock = (prefix, hooks, deps) => __test.acquirePrefixLock(prefix, {}, { ...deps, hooks });
 import assert from "node:assert/strict";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire, syncBuiltinESMExports } from "node:module";
@@ -8,7 +10,6 @@ import { fileURLToPath } from "node:url";
 import ts from "typescript";
 
 import {
-  acquirePrefixLock,
   classifyLiveness,
   makeLockRec,
   parseLockRec,
