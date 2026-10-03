@@ -1,0 +1,386 @@
+[
+  {
+    "file": "apps/llm-gateway/src/index.ts",
+    "specifier": "@sentropic/llm-gateway",
+    "classification": "historical",
+    "reason": "Current historical reference; remove in the scoped eradication lots."
+  },
+  {
+    "file": "apps/llm-gateway/src/index.ts",
+    "specifier": "@sentropic/llm-mesh",
+    "classification": "historical",
+    "reason": "Current historical reference; remove in the scoped eradication lots."
+  },
+  {
+    "file": "apps/llm-gateway/src/index.ts",
+    "specifier": "@sentropic/llm-mesh/facade",
+    "classification": "historical",
+    "reason": "Current historical reference; remove in the scoped eradication lots."
+  },
+  {
+    "file": "apps/llm-gateway/src/session-ledger.ts",
+    "specifier": "@sentropic/llm-gateway",
+    "classification": "historical",
+    "reason": "Current historical reference; remove in the scoped eradication lots."
+  },
+  {
+    "file": "apps/llm-gateway/src/session-ledger.ts",
+    "specifier": "@sentropic/llm-mesh",
+    "classification": "historical",
+    "reason": "Current historical reference; remove in the scoped eradication lots."
+  },
+  {
+    "file": "packages/h2a-runtime/src/config.ts",
+    "specifier": "llm-mesh.ts",
+    "classification": "historical",
+    "reason": "Current historical reference; remove in the scoped eradication lots."
+  },
+  {
+    "file": "packages/h2a-runtime/src/conv-guard-wiring.test.ts",
+    "specifier": "llm-mesh.ts",
+    "classification": "historical",
+    "reason": "Current historical reference; remove in the scoped eradication lots."
+  },
+  {
+    "file": "packages/h2a-runtime/src/gpt6-catalog.test.ts",
+    "specifier": "@sentropic/llm-mesh",
+    "classification": "historical",
+    "reason": "Current historical reference; remove in the scoped eradication lots."
+  },
+  {
+    "file": "packages/h2a-runtime/src/index.ts",
+    "specifier": "llm-mesh.ts",
+    "classification": "historical",
+    "reason": "Current historical reference; remove in the scoped eradication lots."
+  },
+  {
+    "file": "packages/h2a-runtime/src/index.ts",
+    "specifier": "llm-routing-config.ts",
+    "classification": "historical",
+    "reason": "Current historical reference; remove in the scoped eradication lots."
+  },
+  {
+    "file": "packages/h2a-runtime/src/llm-gateway-runtime/index.test.ts",
+    "specifier": "llm-gateway-runtime/",
+    "classification": "historical",
+    "reason": "Current historical reference; remove in the scoped eradication lots."
+  },
+  {
+    "file": "packages/h2a-runtime/src/llm-gateway-runtime/index.ts",
+    "specifier": "@sentropic/llm-gateway",
+    "classification": "historical",
+    "reason": "Current historical reference; remove in the scoped eradication lots."
+  },
+  {
+    "file": "packages/h2a-runtime/src/llm-gateway-runtime/index.ts",
+    "specifier": "@sentropic/llm-mesh",
+    "classification": "historical",
+    "reason": "Current historical reference; remove in the scoped eradication lots."
+  },
+  {
+    "file": "packages/h2a-runtime/src/llm-gateway-runtime/index.ts",
+    "specifier": "llm-gateway-runtime/",
+    "classification": "historical",
+    "reason": "Current historical reference; remove in the scoped eradication lots."
+  },
+  {
+    "file": "packages/h2a-runtime/src/llm-gateway-runtime/index.ts",
+    "specifier": "llm-mesh.ts",
+    "classification": "historical",
+    "reason": "Current historical reference; remove in the scoped eradication lots."
+  },
+  {
+    "file": "packages/h2a-runtime/src/llm-gateway-runtime/index.ts",
+    "specifier": "llm-routing-config.ts",
+    "classification": "historical",
+    "reason": "Current historical reference; remove in the scoped eradication lots."
+  },
+  {
+    "file": "packages/h2a-runtime/src/llm-gateway-runtime/native-tools.test.ts",
+    "specifier": "@sentropic/llm-mesh",
+    "classification": "historical",
+    "reason": "Current historical reference; remove in the scoped eradication lots."
+  },
+  {
+    "file": "packages/h2a-runtime/src/llm-gateway-runtime/native-tools.test.ts",
+    "specifier": "llm-gateway-runtime/",
+    "classification": "historical",
+    "reason": "Current historical reference; remove in the scoped eradication lots."
+  },
+  {
+    "file": "packages/h2a-runtime/src/llm-gateway-runtime/native-tools.test.ts",
+    "specifier": "llm-mesh.ts",
+    "classification": "historical",
+    "reason": "Current historical reference; remove in the scoped eradication lots."
+  },
+  {
+    "file": "packages/h2a-runtime/src/llm-gateway-runtime/session-ledger.ts",
+    "specifier": "@sentropic/llm-gateway",
+    "classification": "historical",
+    "reason": "Current historical reference; remove in the scoped eradication lots."
+  },
+  {
+    "file": "packages/h2a-runtime/src/llm-gateway-runtime/session-ledger.ts",
+    "specifier": "@sentropic/llm-mesh",
+    "classification": "historical",
+    "reason": "Current historical reference; remove in the scoped eradication lots."
+  },
+  {
+    "file": "packages/h2a-runtime/src/llm-gateway-runtime/session-ledger.ts",
+    "specifier": "llm-gateway-runtime/",
+    "classification": "historical",
+    "reason": "Current historical reference; remove in the scoped eradication lots."
+  },
+  {
+    "file": "packages/h2a-runtime/src/llm-gateway-runtime/sticky.test.ts",
+    "specifier": "llm-gateway-runtime/",
+    "classification": "historical",
+    "reason": "Current historical reference; remove in the scoped eradication lots."
+  },
+  {
+    "file": "packages/h2a-runtime/src/llm-gateway-runtime/sticky.ts",
+    "specifier": "llm-gateway-runtime/",
+    "classification": "historical",
+    "reason": "Current historical reference; remove in the scoped eradication lots."
+  },
+  {
+    "file": "packages/h2a-runtime/src/llm-mesh-resolution.test.ts",
+    "specifier": "@sentropic/llm-gateway",
+    "classification": "historical",
+    "reason": "Current historical reference; remove in the scoped eradication lots."
+  },
+  {
+    "file": "packages/h2a-runtime/src/llm-mesh-resolution.test.ts",
+    "specifier": "@sentropic/llm-mesh",
+    "classification": "historical",
+    "reason": "Current historical reference; remove in the scoped eradication lots."
+  },
+  {
+    "file": "packages/h2a-runtime/src/llm-mesh-resolution.test.ts",
+    "specifier": "@sentropic/llm-mesh/facade",
+    "classification": "historical",
+    "reason": "Current historical reference; remove in the scoped eradication lots."
+  },
+  {
+    "file": "packages/h2a-runtime/src/llm-mesh-resolution.test.ts",
+    "specifier": "llm-mesh.ts",
+    "classification": "historical",
+    "reason": "Current historical reference; remove in the scoped eradication lots."
+  },
+  {
+    "file": "packages/h2a-runtime/src/llm-mesh-resolution.test.ts",
+    "specifier": "vitest.llm-mesh-pin.mjs",
+    "classification": "historical",
+    "reason": "Current historical reference; remove in the scoped eradication lots."
+  },
+  {
+    "file": "packages/h2a-runtime/src/llm-mesh.test.ts",
+    "specifier": "@sentropic/llm-mesh/facade",
+    "classification": "historical",
+    "reason": "Current historical reference; remove in the scoped eradication lots."
+  },
+  {
+    "file": "packages/h2a-runtime/src/llm-mesh.test.ts",
+    "specifier": "@sentropic/llm-mesh/node",
+    "classification": "historical",
+    "reason": "Current historical reference; remove in the scoped eradication lots."
+  },
+  {
+    "file": "packages/h2a-runtime/src/llm-mesh.test.ts",
+    "specifier": "llm-gateway-runtime/",
+    "classification": "historical",
+    "reason": "Current historical reference; remove in the scoped eradication lots."
+  },
+  {
+    "file": "packages/h2a-runtime/src/llm-mesh.test.ts",
+    "specifier": "llm-mesh.ts",
+    "classification": "historical",
+    "reason": "Current historical reference; remove in the scoped eradication lots."
+  },
+  {
+    "file": "packages/h2a-runtime/src/llm-mesh.ts",
+    "specifier": "@sentropic/llm-mesh",
+    "classification": "historical",
+    "reason": "Current historical reference; remove in the scoped eradication lots."
+  },
+  {
+    "file": "packages/h2a-runtime/src/llm-mesh.ts",
+    "specifier": "@sentropic/llm-mesh/enrollment",
+    "classification": "historical",
+    "reason": "Current historical reference; remove in the scoped eradication lots."
+  },
+  {
+    "file": "packages/h2a-runtime/src/llm-mesh.ts",
+    "specifier": "@sentropic/llm-mesh/facade",
+    "classification": "historical",
+    "reason": "Current historical reference; remove in the scoped eradication lots."
+  },
+  {
+    "file": "packages/h2a-runtime/src/llm-mesh.ts",
+    "specifier": "llm-mesh.ts",
+    "classification": "historical",
+    "reason": "Current historical reference; remove in the scoped eradication lots."
+  },
+  {
+    "file": "packages/h2a-runtime/src/llm-mesh.ts",
+    "specifier": "llm-routing-config.ts",
+    "classification": "historical",
+    "reason": "Current historical reference; remove in the scoped eradication lots."
+  },
+  {
+    "file": "packages/h2a-runtime/src/llm-routing-config.test.ts",
+    "specifier": "llm-routing-config.ts",
+    "classification": "historical",
+    "reason": "Current historical reference; remove in the scoped eradication lots."
+  },
+  {
+    "file": "packages/h2a-runtime/src/llm-routing-config.ts",
+    "specifier": "@sentropic/llm-mesh",
+    "classification": "historical",
+    "reason": "Current historical reference; remove in the scoped eradication lots."
+  },
+  {
+    "file": "packages/h2a-runtime/src/llm-routing-config.ts",
+    "specifier": "llm-routing-config.ts",
+    "classification": "historical",
+    "reason": "Current historical reference; remove in the scoped eradication lots."
+  },
+  {
+    "file": "packages/h2a-runtime/src/sentropic/auth-token.ts",
+    "specifier": "llm-mesh.ts",
+    "classification": "historical",
+    "reason": "Current historical reference; remove in the scoped eradication lots."
+  },
+  {
+    "file": "packages/h2a-runtime/src/session-lease-launch.test.ts",
+    "specifier": "llm-mesh.ts",
+    "classification": "historical",
+    "reason": "Current historical reference; remove in the scoped eradication lots."
+  },
+  {
+    "file": "packages/h2a-runtime/src/status-projection.ts",
+    "specifier": "llm-gateway-runtime/",
+    "classification": "historical",
+    "reason": "Current historical reference; remove in the scoped eradication lots."
+  },
+  {
+    "file": "packages/h2a-runtime/vitest.config.mjs",
+    "specifier": "@sentropic/llm-mesh",
+    "classification": "historical",
+    "reason": "Current historical reference; remove in the scoped eradication lots."
+  },
+  {
+    "file": "packages/h2a-runtime/vitest.config.mjs",
+    "specifier": "vitest.llm-mesh-pin.mjs",
+    "classification": "historical",
+    "reason": "Current historical reference; remove in the scoped eradication lots."
+  },
+  {
+    "file": "packages/h2a-runtime/vitest.llm-mesh-pin.mjs",
+    "specifier": "@sentropic/llm-gateway",
+    "classification": "historical",
+    "reason": "Current historical reference; remove in the scoped eradication lots."
+  },
+  {
+    "file": "packages/h2a-runtime/vitest.llm-mesh-pin.mjs",
+    "specifier": "@sentropic/llm-mesh",
+    "classification": "historical",
+    "reason": "Current historical reference; remove in the scoped eradication lots."
+  },
+  {
+    "file": "packages/h2a-runtime/vitest.llm-mesh-pin.mjs",
+    "specifier": "@sentropic/llm-mesh/facade",
+    "classification": "historical",
+    "reason": "Current historical reference; remove in the scoped eradication lots."
+  },
+  {
+    "file": "packages/h2a-runtime/vitest.llm-mesh-pin.mjs",
+    "specifier": "vitest.llm-mesh-pin.mjs",
+    "classification": "historical",
+    "reason": "Current historical reference; remove in the scoped eradication lots."
+  },
+  {
+    "file": "packages/h2a/test/gateway-eradication.test.js",
+    "specifier": "@sentropic/llm-mesh",
+    "classification": "negative-assertion",
+    "reason": "Scanner negative control; never loaded as a dependency."
+  },
+  {
+    "file": "packages/h2a/test/gateway-eradication.test.js",
+    "specifier": "@sentropic/llm-mesh/facade",
+    "classification": "negative-assertion",
+    "reason": "Scanner negative control; never loaded as a dependency."
+  },
+  {
+    "file": "packages/h2a/test/gateway-eradication.test.js",
+    "specifier": "llm-gateway-runtime/",
+    "classification": "negative-assertion",
+    "reason": "Scanner negative control; never loaded as a dependency."
+  },
+  {
+    "file": "packages/h2a/test/gateway-eradication.test.js",
+    "specifier": "llm-mesh.ts",
+    "classification": "negative-assertion",
+    "reason": "Scanner negative control; never loaded as a dependency."
+  },
+  {
+    "file": "packages/h2a/test/gateway-eradication.test.js",
+    "specifier": "llm-routing-config.ts",
+    "classification": "negative-assertion",
+    "reason": "Scanner negative control; never loaded as a dependency."
+  },
+  {
+    "file": "packages/h2a/test/gateway-eradication.test.js",
+    "specifier": "vitest.llm-mesh-pin.mjs",
+    "classification": "negative-assertion",
+    "reason": "Scanner negative control; never loaded as a dependency."
+  },
+  {
+    "file": "packages/h2a/test/gateway-status-transitions.test.js",
+    "specifier": "llm-gateway-runtime/",
+    "classification": "historical",
+    "reason": "Current historical reference; remove in the scoped eradication lots."
+  },
+  {
+    "file": "packages/h2a/test/runtime-status-contract.test.js",
+    "specifier": "llm-mesh.ts",
+    "classification": "historical",
+    "reason": "Current historical reference; remove in the scoped eradication lots."
+  },
+  {
+    "file": "packages/h2a/test/runtime-status-contract.test.js",
+    "specifier": "llm-routing-config.ts",
+    "classification": "historical",
+    "reason": "Current historical reference; remove in the scoped eradication lots."
+  },
+  {
+    "file": "scripts/dev-test-local.sh",
+    "specifier": "@sentropic/llm-mesh",
+    "classification": "historical",
+    "reason": "Current historical reference; remove in the scoped eradication lots."
+  },
+  {
+    "file": "scripts/dev-test-local.sh",
+    "specifier": "dev-test-local.sh symlink",
+    "classification": "historical",
+    "reason": "Historical development symlink; remove in L1."
+  },
+  {
+    "file": "scripts/dev-test-local.sh",
+    "specifier": "llm-gateway-runtime/",
+    "classification": "historical",
+    "reason": "Current historical reference; remove in the scoped eradication lots."
+  },
+  {
+    "file": "vitest.config.mjs",
+    "specifier": "@sentropic/llm-mesh",
+    "classification": "historical",
+    "reason": "Current historical reference; remove in the scoped eradication lots."
+  },
+  {
+    "file": "vitest.config.mjs",
+    "specifier": "vitest.llm-mesh-pin.mjs",
+    "classification": "historical",
+    "reason": "Current historical reference; remove in the scoped eradication lots."
+  }
+]
