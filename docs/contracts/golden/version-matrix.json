@@ -15,11 +15,11 @@
     },
     "@sentropic/remote-cli": {
       "version": "0.0.10",
-      "role": "à merger dans h2a-cli (P5/P6)"
+      "role": "Historical CLI integration baseline (P5/P6)"
     },
     "@sentropic/remote-k8s-orchestrator": {
       "version": "0.0.0",
-      "role": "lib consommée (runtime pod)"
+      "role": "Kubernetes pod runtime integration"
     },
     "@sentropic/h2a-runtime": {
       "version": "0.98.0",
