@@ -903,6 +903,13 @@ export type {
 export { agentVersion, readInstalledSkillVersion } from "./runtime/version/agent-version.js";
 
 export {
+  breakLockAsOperator,
+  type BreakLockAsOperatorOptions,
+  type OperatorBreakReason,
+  type OperatorBreakResult
+} from "./runtime/local-files/succession-lock.js";
+
+export {
   recordEscalation,
   readEscalation,
   listEscalations,
