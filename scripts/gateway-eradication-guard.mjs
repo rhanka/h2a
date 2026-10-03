@@ -25,7 +25,10 @@ export function forbiddenReferences(text) {
   const normalized = text.replace(/\\/g, "/");
   for (const path of historical) {
     const variants = path.endsWith(".ts") ? [path, path.replace(/\.ts$/, ".js")] : [path];
-    if (variants.some((variant) => normalized.includes(variant))) found.add(path);
+    if (variants.some((variant) => {
+      const escaped = variant.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      return new RegExp(`${escaped}${variant.endsWith("/") ? "" : "(?![a-zA-Z0-9_])"}`).test(normalized);
+    })) found.add(path);
   }
   return [...found].sort();
 }
@@ -54,6 +57,10 @@ export function scanSource(file, text) {
   // Text search also covers comments, shell commands, resolution strings and
   // subprocess entrypoints. Syntax inspection catches escaped/concatenated literals.
   const found = new Set(forbiddenReferences(text));
+  // Retained owner adapters are explicit ratchet entries, never provider imports.
+  for (const adapter of ["gateway-host/sessions.ts", "gateway-host/ledger.ts"]) {
+    if (file.endsWith(`/${adapter}`)) found.add(adapter);
+  }
   if (file.endsWith("dev-test-local.sh") && /\bln\s+[^\n]*-[^\s]*s\b/.test(text)) {
     found.add(["dev-test-local.sh", " symlink"].join(""));
   }
