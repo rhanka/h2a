@@ -25,7 +25,7 @@ None of these require knowing a provider model id up front:
 
 ## Step 2 — resolve the model flavor (source-of-truth caveat)
 
-**The canonical model catalog and equivalence council belong to `@sentropic/llm-mesh`**, never to h2a or this skill. This skill must not freeze a provider/model table. Before translating a nickname:
+**The canonical model catalog and equivalence council belong to the llm-mesh API exposed through `@sentropic/cluster-mesh`**, never to h2a or this skill. This skill must not freeze a provider/model table. Before translating a nickname:
 
 - if a gateway is already running for this session, query `GET <ANTHROPIC_BASE_URL>/v1/models` (the mesh's own live catalog) and match the flavor there;
 - otherwise, ask the caller for an exact model id or start the gateway and query it; never inspect or recreate a h2a-local table.
@@ -34,12 +34,12 @@ The owner-ratified xhigh aliases are intentionally narrow: Opus 5 and Opus 4.8 r
 
 ## Step 3 — gateway on/off
 
-Any non-default flavor needs the llm-mesh gateway to translate the Anthropic-shaped request to the real upstream. Default to the gateway **on** for a named flavor, off for the CLI's native default model:
+New launches are **direct by default**, including named native model ids. H2A obtains its optional local gateway engine through cluster-mesh; the host retains only local bearers, the session ledger, public preferences and daemon management.
 
-- CLI: `--gw` (alias `--llm-gateway`) forces it on, `--no-gw` (alias `--no-llm-gateway`) forces it off, omit for the CLI's own default.
-- MCP `h2a_run`: `gateway: "required"` forces it on, `"off"` forces it off, `"auto"` (default) decides. **`"required"` is rejected when `profile` is `"codex"`** — codex already talks to llm-mesh over an Anthropic-compatible surface, use `"auto"` there.
+- CLI: Claude `--gw` (alias `--llm-gateway`) requires the gateway; `--no-gw` (alias `--no-llm-gateway`) and omission use direct authentication. Use Claude with an explicit gateway requirement when translating an Anthropic-shaped request to another provider through the live mesh council.
+- MCP `h2a_run`: `gateway: "auto"` is still the schema default and resolves **direct**; `"off"` is direct too. `"required"` is Claude-only and fails before launching an agent if the composed gateway is unavailable. Codex, AGY and Muse reject `"required"`.
 
-AGY is the exception to the named-flavor rule: it talks to its provider directly. Use `gateway: "off"` for `profile: "agy"`; `"required"` is rejected. AGY accepts effort `low|medium|high`, not `xhigh`, and supports run-once mode through its verified `--print` stdin contract. Resolve the exact AGY model with `agy models`; for example, the displayed "Gemini 3.7 Flash (High)" id is `gemini-3.7-flash-high`.
+AGY talks to its provider directly. Use `gateway: "off"` for `profile: "agy"`; `"required"` is rejected. AGY accepts effort `low|medium|high`, not `xhigh`, and supports run-once mode through its verified `--print` stdin contract. Resolve the exact AGY model with `agy models`; for example, the displayed "Gemini 3.7 Flash (High)" id is `gemini-3.7-flash-high`.
 
 Muse talks to the Meta provider directly: always `gateway: "off"` (or `"auto"`, which resolves direct); `"required"` is rejected. Muse maps `effort` to its native `--reasoning-effort` (all four levels) and `model` to `--model`. Muse is interactive/background only — `headless: true` is rejected because `muse exec` has no stdin prompt contract (verified: piped stdin reports "missing prompt").
 
@@ -47,7 +47,7 @@ Muse talks to the Meta provider directly: always `gateway: "off"` (or `"auto"`, 
 
 ### `h2a_run` MCP tool (what this agent must use)
 
-Required: `profile` (`"claude"|"codex"|"agy"|"muse"`), `name` (`^[A-Za-z0-9_-]{1,64}$`), `workspace` (absolute path, must exist, must stay inside the MCP server's startup workspace root), `prompt` (1–65536 UTF-8 bytes, sent on stdin — never put it in argv), `background` (must be literal `true`). Optional: `agent` (AGY only; for example `"stp"`), `model` (free-text, format-checked only — see Step 2 for the value), `effort` (`"low"|"medium"|"high"|"xhigh"`; AGY rejects `xhigh`), `gateway` (`"auto"|"required"|"off"`, default `"auto"`; AGY and Muse use `"off"`, `"required"` is rejected for them), `headless` (default `false`; AGY maps `true` to `--print`; Muse rejects `true`), `h2aSidecar` (default `!headless`; cannot be `true` together with `headless: true`).
+Required: `profile` (`"claude"|"codex"|"agy"|"muse"`), `name` (`^[A-Za-z0-9_-]{1,64}$`), `workspace` (absolute path, must exist, must stay inside the MCP server's startup workspace root), `prompt` (1–65536 UTF-8 bytes, sent on stdin — never put it in argv), `background` (must be literal `true`). Optional: `agent` (AGY only; for example `"stp"`), `model` (free-text, format-checked only — see Step 2 for the value), `effort` (`"low"|"medium"|"high"|"xhigh"`; AGY rejects `xhigh`), `gateway` (`"auto"|"required"|"off"`, default `"auto"` resolves direct; AGY and Muse use `"off"`, `"required"` is rejected for them), `headless` (default `false`; AGY maps `true` to `--print`; Muse rejects `true`), `h2aSidecar` (default `!headless`; cannot be `true` together with `headless: true`).
 
 Example — "terra, xhigh, headless, on this repo":
 
@@ -88,7 +88,7 @@ Example — direct AGY run-once:
 ### `h2a run` CLI (reference only — non-Claude-Code hosts / humans at a terminal)
 
 ```
-h2a run codex /abs/path/to/repo --model gpt-5.6-terra --effort xhigh --gw --name terra-review --no-attach --background --json --prompt-stdin
+h2a run codex /abs/path/to/repo --model gpt-5.6-terra --effort xhigh --name terra-review --no-attach --background --json --prompt-stdin
 ```
 
 Interactive/attached form (drop the background-launch flags, add nothing else):
