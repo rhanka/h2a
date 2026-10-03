@@ -6,7 +6,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { executeH2aRun, executeH2aRunWithSpawn } from "../packages/h2a/dist/runtime/mcp/agent-launch.js";
+import { createH2aRunLauncher, executeH2aRun, executeH2aRunWithAsyncSpawn } from "../packages/h2a/dist/runtime/mcp/agent-launch.js";
 import { NativeTerminalClient } from "../packages/h2a-runtime/dist/native-terminal/client.js";
 import { stripAnsi } from "../packages/h2a-runtime/dist/native-terminal/op.js";
 import { paneIsReady } from "../packages/h2a-runtime/dist/prompt-delivery.js";
@@ -14,9 +14,39 @@ import { paneIsReady } from "../packages/h2a-runtime/dist/prompt-delivery.js";
 if (process.argv.includes("--launch")) {
   const request = JSON.parse(readFileSync(0, "utf8"));
   const cancelMs = Number(process.argv.find(arg => arg.startsWith("--cancel-after-ms="))?.split("=")[1]);
-  try { console.log(JSON.stringify(cancelMs
-    ? executeH2aRunWithSpawn(request, (command, args, options) => spawnSync(command, args, { ...options, timeout: cancelMs }))
-    : executeH2aRun(request))); }
+  try {
+    if (cancelMs) {
+      const result = await executeH2aRunWithAsyncSpawn(request, (command, args, options) => {
+        const runtime = spawn(command, args, options);
+        // Cancel at the ownership boundary, while create/verification is still
+        // in flight, rather than at a machine-speed-dependent wall deadline.
+        const receiptPath = join(request.workspace, ".h2a/runs", request.name, "launch.json");
+        const poll = setInterval(() => {
+          try {
+            const receipt = JSON.parse(readFileSync(receiptPath, "utf8"));
+            if (receipt.state === "launching" && receipt.ownership?.sessions.length === 2) {
+              clearInterval(poll);
+              runtime.kill("SIGTERM");
+            }
+          } catch { /* Ownership has not yet been published. */ }
+        }, 5);
+        runtime.once("close", () => clearInterval(poll));
+        return runtime;
+      }, cancelMs);
+      console.log(JSON.stringify(result));
+    } else {
+      const launch = createH2aRunLauncher();
+      const started = Date.now();
+      const first = await launch(request);
+      const responseMs = Date.now() - started;
+      let result = first;
+      while (result.state === "launching") {
+        await new Promise(resolve => setTimeout(resolve, 500));
+        result = await launch(request);
+      }
+      console.log(JSON.stringify({ ...result, firstResponse: first.state, responseMs }));
+    }
+  }
   catch (error) { console.log(JSON.stringify({ error: error.message })); }
 } else {
   const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -27,6 +57,8 @@ if (process.argv.includes("--launch")) {
   mkdirSync(wrappers, { recursive: true });
   const delayMs = Number(process.argv.find(arg => arg.startsWith("--mcp-delay-ms="))?.split("=")[1] ?? 45000);
   if (!Number.isSafeInteger(delayMs) || delayMs < 0) throw new Error("invalid MCP delay");
+  const startDelayMs = Number(process.argv.find(arg => arg.startsWith("--codex-start-delay-ms="))?.split("=")[1] ?? 55000);
+  if (!Number.isSafeInteger(startDelayMs) || startDelayMs < 0) throw new Error("invalid Codex startup delay");
   const shellQuote = text => "'" + text.replaceAll("'", "'\\''") + "'";
   const realCli = name => {
     const result = spawnSync("which", [name], { encoding: "utf8" });
@@ -44,16 +76,17 @@ for await(const line of createInterface({input:process.stdin})){
  else console.log(JSON.stringify({jsonrpc:'2.0',id:m.id,result:m.method==='tools/list'?{tools:[]}:{}}));
 }
 `);
-  writeFileSync(join(wrappers, "codex"), `#!/bin/sh\nexec ${shellQuote(realCli("codex"))} -c ${shellQuote('mcp_servers.launch_measure.command="'+process.execPath+'"')} -c ${shellQuote('mcp_servers.launch_measure.args='+JSON.stringify([delayedMcp]))} -c mcp_servers.launch_measure.startup_timeout_sec=120 "$@"\n`, { mode: 0o700 });
+  writeFileSync(join(wrappers, "codex"), `#!/bin/sh\nsleep ${startDelayMs / 1000}\nexec ${shellQuote(realCli("codex"))} -c ${shellQuote('mcp_servers.launch_measure.command="'+process.execPath+'"')} -c ${shellQuote('mcp_servers.launch_measure.args='+JSON.stringify([delayedMcp]))} -c mcp_servers.launch_measure.startup_timeout_sec=120 "$@"\n`, { mode: 0o700 });
   // The runtime uses bash -lc. Reapply only our test PATH after login startup.
   const bashEnv = join(campaign, "bash-env.sh");
   writeFileSync(bashEnv, `export PATH=${shellQuote(wrappers)}:"$PATH"\n`, { mode: 0o600 });
   const env = { ...process.env, PATH: wrappers + ":" + process.env.PATH,
     BASH_ENV: bashEnv,
+    REMOTE_CLI_CONFIG_HOME: join(campaign, "config"),
     H2A_NATIVE_SOCKET: socket, H2A_ROOT: join(campaign, "bus"),
     H2A_SESSION_HOST: "native" };
   const host = spawn(process.execPath, [join(root, "packages/h2a-runtime/dist/native-terminal/process.js"),
-    "--socket", socket, "--registry-path", join(socketDir, "registry.json")],
+    "--socket", socket, "--registry-path", join(campaign, "config/.config/sentropic/h2a/registry.json")],
     { env, stdio: ["ignore", "ignore", "pipe"] });
   let hostLog = "";
   host.stderr.on("data", data => { hostLog += data; });
@@ -66,7 +99,7 @@ for await(const line of createInterface({input:process.stdin})){
       catch { await sleep(100); }
     }
     if (!client) throw new Error("dedicated native host did not start");
-    for (const scenario of [{ profile: "muse" }, { profile: "codex" }, { profile: "codex", cancelMs: 4000 }]) {
+    for (const scenario of [{ profile: "muse" }, { profile: "codex" }, { profile: "codex", cancelMs: 60000 }]) {
       const { profile, cancelMs } = scenario;
       const leg = cancelMs ? "codex-cancel" : profile;
       const name = `uat-${leg}-${Date.now()}`;
@@ -108,11 +141,13 @@ for await(const line of createInterface({input:process.stdin})){
       }
       const cancelled = cancelMs && receipt.state === "stopped" && !written &&
         nativeStates.every(state => state.status === "exited" || state.status === "absent");
+      let cleanupReceipt;
+      try { cleanupReceipt = JSON.parse(readFileSync(join(runDir, "launch.json"), "utf8")); } catch { /* Report missing receipt. */ }
       const result = { profile, name, elapsedMs: Date.now() - started, readyMs, cancelMs, nativeStates,
-        mcpDelayMs: profile === "codex" ? delayMs : 0, receipt,
-        runDir: existsSync(runDir), witness: written,
-        outcome: cancelled || !cancelMs && written && receipt.ok && existsSync(runDir) ? "passed" :
-          !cancelMs && providerBlocked && (receipt.ok || receipt.state === "provider-blocked") ? "provider-blocked" : "launch-failed" };
+        mcpDelayMs: profile === "codex" ? delayMs : 0, startupDelayMs: profile === "codex" ? startDelayMs : 0, receipt,
+        runDir: existsSync(runDir), witness: written, cleanupReceipt,
+        outcome: cancelled && cleanupReceipt?.ownership?.sessions.length === 2 || !cancelMs && written && receipt.ok && existsSync(runDir) && receipt.responseMs <= 50000 ? "passed" :
+          !cancelMs && providerBlocked && (receipt.ok || receipt.state === "provider-blocked") && receipt.responseMs <= 50000 ? "provider-blocked" : "launch-failed" };
       writeFileSync(join(campaign, `${leg}.screen.txt`), stripAnsi(screen));
       writeFileSync(join(campaign, `${leg}.receipt.json`), JSON.stringify(result, null, 2));
       results.push(result);
