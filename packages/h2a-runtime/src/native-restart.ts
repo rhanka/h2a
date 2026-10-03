@@ -30,6 +30,7 @@ export type NativeRestartSnapshot =
       generation: string;
       incarnation: string;
       controlled: boolean;
+      socketPath?: string;
     }>
   | Readonly<{ state: "dead" }>
   | Readonly<{ state: "unknown" }>;
