@@ -161,7 +161,7 @@ export const H2A_CLI_VERB_CONTRACTS: readonly H2ACliVerbContract[] = [
     requiredFlags: [],
     optionalFlags: ["root", "from"],
     description:
-      "Send one signed message with `h2a send <target> <message>` through the local peer inbox; target may be an exact instance or unique registered/live display name."
+      "Send one signed message with `h2a send <target> <message>` through the local peer inbox (default) or `--backend cluster-mesh` with a trusted deployment module; target may be an exact instance or unique registered/live display name."
   },
 
   // --- objective loop (h2a + track + remote MVP) ---

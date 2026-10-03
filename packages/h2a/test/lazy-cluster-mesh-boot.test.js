@@ -90,6 +90,11 @@ export async function resolve(specifier, context, nextResolve) {
     );
 
     assert.deepEqual([drumbeat.status, receive.status], [0, 0], evidence);
+    const mcp = runLightCommand(loader, trace,
+      ["mcp-serve", "--root", root, "--auto-open", "--host", "claude"],
+      JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize" }) + "\n");
+    assert.equal(mcp.status, 0, mcp.stderr);
+    assert.match(mcp.stdout, /serverInfo/);
     assert.doesNotMatch(
       readFileSync(trace, "utf8"),
       /cluster-mesh-outer|@sentropic\/cluster-mesh/
