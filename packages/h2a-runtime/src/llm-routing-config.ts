@@ -9,7 +9,7 @@ import {
   type RoutePolicy,
   type RoutePolicyProfile,
   type RouteSelector,
-} from "@sentropic/llm-mesh";
+} from "@sentropic/cluster-mesh/llm-mesh";
 
 export interface LlmMeshRoutingConfig {
   /** Host-level public policy override. Canonical routing knowledge remains in llm-mesh. */

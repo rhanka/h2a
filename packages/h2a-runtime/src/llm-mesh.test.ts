@@ -6,8 +6,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createLlmMeshFacade,
   type LlmMeshFacade,
-} from "@sentropic/llm-mesh/facade";
-import { InMemoryKeyring } from "@sentropic/llm-mesh/node";
+} from "@sentropic/cluster-mesh/llm-mesh/facade";
+import { InMemoryKeyring } from "@sentropic/cluster-mesh/llm-mesh/node";
 
 import {
   LlmMeshManager,
