@@ -9,7 +9,7 @@ import {
   type RoutePlanner,
   type StreamEvent,
   type StreamRequest,
-} from "@sentropic/llm-mesh";
+} from "@sentropic/cluster-mesh/llm-mesh";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const plannerState = vi.hoisted(() => ({
