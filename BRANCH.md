@@ -21,7 +21,7 @@ Reference: `docs/specs/2026-09-26-SPEC_lot4-identity-succession-lock.md`, ยง3, ย
 - `docs/operator-identity-unlock.md`, its README link, and this plan.
 
 No identity-binding migration, real identity-store access, dependency/version
-change, `.track` write, PR creation, push to main, or merge.
+change, `.track` write, PR creation, push to main, or merge into main.
 
 ## Verification decision
 
@@ -29,6 +29,12 @@ h-cond requires removing the runner's eight-file concurrency limit: this
 change is outside Lot 4's scope. The runner is restored unchanged. Campaigns
 use the normal gate; every observed PTY failure must retain its exact test name
 and signature. The earlier bounded campaign below is historical evidence only.
+
+`origin/main` at `4a314f785ba9d590db4ad626fd88bcc37a9435ab` was merged
+into 2d, then 2d into 2e as requested by h-cond. The 2e runtime CLI additions
+merge automatically with main's launch changes. No path from main is deleted;
+`scripts/uat-h2a-run-launch.mjs` and `scripts/run-tests.mjs` match main exactly.
+The Track log matches both parents and the merged result; no Track write occurs.
 
 ## Delivery
 
@@ -57,8 +63,11 @@ and signature. The earlier bounded campaign below is historical evidence only.
 - `npm run build`: pass (`tmp/2e-build.log`).
 - `npm run typecheck`: pass (`tmp/2e-typecheck.log`).
 - First `npm test`: Node 2,440 tests, 2,396 pass, 1 fail, 21 skipped, 22 TODO;
-  Track 1,193/1,193 pass (`tmp/2e-full.log`). The failing native PTY codex-to-codex
-  test reported an identity not observable within its polling budget.
+  Track 1,193/1,193 pass (`tmp/2e-full.log`). Exact failing test in
+  `packages/h2a/test/pty-native-messaging.test.js`:
+  `should round-trip codex to codex through real native openpty sessions at tmux envelope parity`.
+  Signature: `ERR_TEST_FAILURE` /
+  `codex native sidecar identity did not become observable; last=undefined`.
 - Minimal reproduction: `node --test packages/h2a/test/pty-native-messaging.test.js`
   passes 2/2 with unchanged assertions and timeouts (`tmp/2e-pty-repro.log`).
 - Second full campaign on unchanged product code: same single native PTY failure;
