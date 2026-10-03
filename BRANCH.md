@@ -1,3 +1,31 @@
+# Native host generations — phase A
+
+Branch: `fix/native-host-generations`. Owner decision: 2026-10-03,
+side-by-side native hosts, phase A only. The prior plan below is historical.
+No push, PR, publication, tag, owner host/session access, or `.track` write.
+
+Scope: native host selection, the two known endpoint inventories, per-name
+owner routing, creation admission, guard/receipt socket ownership, native
+restore/drive wiring, their focused tests, and qualification documentation.
+Phase B (durable catalog/admission, migration and retirement) is excluded.
+
+- [x] A1: preserve the historical socket; select `native-terminal.lf1.sock`
+  for fenced launches when the historical host lacks `launchFence`.
+- [x] A2: resolve existing owners, refuse ambiguous owners, and preserve
+  unknown/incomplete inventories across native operations, restore and drive.
+- [x] A3/A5: admit agent and sidecar names before creation; prove no
+  containment registry write on a refused same-name launch.
+- [x] A4: retain `socketPath` in launch ownership, guard cleanup and receipts.
+- [x] Historical RED becomes GREEN; isolated MCP launches/delivers once.
+
+Qualification and limitations: `docs/reviews/native-host-generations-phase-a.md`.
+All real-host qualification uses checked private `/tmp/h2a-qual-*` fixtures.
+Only handles created by the fixture are signaled during teardown. The owner
+runtime is rejected before filesystem access or process startup. No harness
+recorder runs here: `.track` has another writer.
+
+## Historical branch plan
+
 # Synchronisation 0.98 — décision owner
 
 Intégrer origin/main (Lot 4 2a–2e et stabilisation des tests) à partir de
