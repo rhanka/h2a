@@ -2686,7 +2686,43 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
 
   const identityCommand = program
     .command("identity")
-    .description("Read-only DEF identity-cull proof packet; execution is disabled");
+    .description("Inspect identity bindings or unlock a token-fenced identity lock");
+
+  const operatorBreak = async (lockPath: string, token: string, assertDead: boolean): Promise<void> => {
+    const { breakLockAsOperator } = await import("@sentropic/h2a");
+    const result = breakLockAsOperator(lockPath, { expectToken: token, assertDead });
+    process.stdout.write(`${JSON.stringify({ path: lockPath, ...result })}\n`);
+    if (!result.broken) {
+      process.stderr.write(`[h2a] lock break refused: ${result.reason}${result.pid !== undefined ? ` (pid ${result.pid})` : ""}\n`);
+      if (result.reason === "assert-dead-required") {
+        process.stderr.write("[h2a] verify the holder has stopped, then explicitly pass --assert-dead; no PID is killed\n");
+      }
+      process.exitCode = 1;
+    }
+  };
+
+  identityCommand
+    .command("unlock")
+    .description("Break identity/.lock by expected token through SUCC; refuse live holders; never kill a PID")
+    .option("--root <path>", "h2a store root (default: H2A_ROOT or ~/h2a-workspace/.h2a)")
+    .requiredOption("--token <token>", "expected LOCK token; legacy uses legacy- + SHA-256 of exact file bytes")
+    .option("--assert-dead", "explicitly assert an undecidable holder has stopped; cannot override a live verdict")
+    .action(async (opts: { root?: string; token: string; assertDead?: boolean }) => {
+      const root = opts.root ?? process.env.H2A_ROOT ?? defaultLocalH2aRoot();
+      await operatorBreak(join(root, "identity", ".lock"), opts.token, opts.assertDead === true);
+    });
+
+  program
+    .command("lock")
+    .description("Recover a succession lock by expected token; never kill a PID")
+    .command("break")
+    .description("Retire the expected LOCK through SUCC, without acquiring or republishing it")
+    .requiredOption("--path <path>", "exact succession LOCK path")
+    .requiredOption("--token <token>", "expected LOCK token (including synthetic legacy tokens)")
+    .option("--assert-dead", "explicitly assert an undecidable holder has stopped; live holders are refused")
+    .action(async (opts: { path: string; token: string; assertDead?: boolean }) => {
+      await operatorBreak(opts.path, opts.token, opts.assertDead === true);
+    });
 
   identityCommand
     .command("cull")
