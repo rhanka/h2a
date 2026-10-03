@@ -43,6 +43,22 @@ test("should accept the typed pre-create refusal through the synchronous CLI bri
   })), capabilityFailure);
 });
 
+test("should preserve certified fleet admission refusals and reject any post-create certificate", () => {
+  for (const diagnostic of [
+    { code: "native-name-collision", id: "h2a-worker.h2a", socketPath: "/private/native-terminal.sock" },
+    { code: "native-inventory-unknown", hosts: [{ socketPath: "/private/native-terminal.sock", reason: "ECONNREFUSED" }] },
+  ]) {
+    const failure = { kind: "h2a.run.failure", version: 1, launchId: request.name, state: "not-started",
+      phase: "admission", creationAttempted: false, retrySafe: true, ...diagnostic };
+    const execute = stderr => executeH2aRunWithSpawn(request, () => ({ status: 1, stdout: JSON.stringify(failure), stderr }));
+    assert.deepEqual(execute("Launch refused before creation"), failure);
+    const launch = createH2aRunLauncher(() => execute('[h2a] h2a.run.phase/v1 {"launchId":"worker","phase":"creation-attempted"}\n'));
+    const uncertain = launch(request);
+    assert.equal(uncertain.state, "unknown");
+    assert.equal(uncertain.retrySafe, false);
+  }
+});
+
 test("should not reclassify a timed-out runtime from an unfinished failure payload", () => {
   const result = executeH2aRunWithSpawn(request, () => ({
     status: null, stdout: JSON.stringify(capabilityFailure),
