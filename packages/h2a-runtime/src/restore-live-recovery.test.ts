@@ -35,6 +35,7 @@ vi.mock("node:child_process", async (importOriginal) => {
 
 const {
   captureHostViewSnapshot,
+  managedLiveLookupFromSnapshot,
   dropDualHostIdentities,
   groupSessions,
   launchLayout,
@@ -306,6 +307,33 @@ describe("exact managed identity, never slug-union host choice", () => {
     expect(command).toContain("h2a attach 'h2a-h-infra'");
     expect(command).not.toContain("remote-h-infra");
     expect(command).not.toMatch(/h2a run|--replace/);
+  });
+});
+
+describe("native generations in restore", () => {
+  const windows = [{ title: "generation", tabs: [{ cwd: "/repo", label: "old", tool: "codex", sid: CONV_UUID,
+    hostKind: "local-native" as const, managedName: "h2a-old" }] }];
+  it("should reattach a live pre-fence session from an incomplete inventory without recreating it", () => {
+    listNativeSessions.mockReturnValue(Object.assign([runningNative("h2a-old", false)], { complete: false }));
+    const view = captureHostViewSnapshot();
+    const lookup = managedLiveLookupFromSnapshot(view);
+    expect(lookup("local-native", ["h2a-old"])).toEqual({ state: "live", name: "h2a-old" });
+    expect(lookup("local-native", ["h2a-missing"])).toEqual({ state: "unknown" });
+    expect(launchLayout(windows, view, { write: vi.fn() } as never)).toEqual({ opened: 1, skippedLive: [] });
+    expect(mapFileContent()).toContain("h2a attach 'h2a-old'");
+    expect(mapFileContent()).not.toContain("h2a run");
+  });
+  it("should refuse duplicate owners and unknown absence before opening any restore tab", () => {
+    for (const sessions of [
+      Object.assign([runningNative("h2a-old", false), runningNative("h2a-old", false)], { complete: true }),
+      Object.assign([], { complete: false }),
+    ]) {
+      listNativeSessions.mockReturnValue(sessions);
+      const view = captureHostViewSnapshot();
+      expect(managedLiveLookupFromSnapshot(view)("local-native", ["h2a-old"])).toEqual({ state: "unknown" });
+      expect(launchLayout(windows, view, { write: vi.fn() } as never)).toEqual({ opened: 0, skippedLive: [] });
+      expect(spawn).not.toHaveBeenCalled();
+    }
   });
 });
 

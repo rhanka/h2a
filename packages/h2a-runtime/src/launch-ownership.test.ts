@@ -7,7 +7,7 @@ import { NativeHostCapabilityMismatchError, startNativeHeadlessSession, startNat
 describe("ownership before native creation", () => {
   for (const sidecar of [false, true]) {
     it(`should own the ${sidecar ? "sidecar" : "agent"} before issuing create`, () => {
-      let ownership: { name: string; generation: string; incarnation: string } | undefined;
+      let ownership: { name: string; generation: string; incarnation: string; socketPath: string } | undefined;
       op.mockImplementation((_command, argv) => {
         const operation = argv[1];
         let payload: unknown;
@@ -15,10 +15,13 @@ describe("ownership before native creation", () => {
           ? { verdict: "live", state: { ...ownership, id: ownership.name, pid: 123, status: "running" } }
           : { verdict: "dead" };
         if (operation === "ensure-host") payload = { hostPid: 1, socketPath: "/test", generation: "g", launchFence: true };
+        if (operation === "admit") payload = { admitted: true };
         if (operation === "create") {
           expect(ownership).toBeDefined();
           expect(argv[argv.indexOf("--incarnation") + 1]).toBe(ownership!.incarnation);
           expect(argv[argv.indexOf("--generation") + 1]).toBe("g");
+          expect(argv[argv.indexOf("--socket") + 1]).toBe("/test");
+          expect(ownership!.socketPath).toBe("/test");
           payload = { ...ownership, pid: 123 };
         }
         return { status: 0, stdout: JSON.stringify(payload), stderr: "" };
@@ -73,18 +76,21 @@ describe("ownership before native creation", () => {
         events.push(argv[1]);
         return { status: 0, stdout: JSON.stringify(argv[1] === "probe" ? { verdict: "dead" }
           : argv[1] === "ensure-host" ? { hostPid: 123, socketPath: "/test", generation: "g", launchFence: true }
+          : argv[1] === "admit" ? { admitted: true }
           : { pid: 124 }), stderr: "" };
       });
       const metadata = { beforeCreate: () => { events.push("ownership"); }, onCreateAttempt: () => { events.push("creation-attempted"); } };
       if (sidecar) startNativeH2aSidecar("h2a-worker", "/tmp", "h2a", metadata);
       else startNativeSession("codex", "codex", "/tmp", [], "worker", metadata);
-      expect(events.slice(0, 5)).toEqual(["probe", "ensure-host", "ownership", "creation-attempted", "create"]);
+      const expected = ["probe", ...(sidecar ? ["probe"] : []), "ensure-host", "admit", "ownership", "creation-attempted", "create"];
+      expect(events.slice(0, expected.length)).toEqual(expected);
     });
   }
 
   it("should not mark creation when the ownership callback refuses", () => {
     op.mockImplementation((_command, argv) => ({ status: 0, stdout: JSON.stringify(argv[1] === "probe"
-      ? { verdict: "dead" } : { hostPid: 123, socketPath: "/test", generation: "g", launchFence: true }), stderr: "" }));
+      ? { verdict: "dead" } : argv[1] === "admit" ? { admitted: true }
+      : { hostPid: 123, socketPath: "/test", generation: "g", launchFence: true }), stderr: "" }));
     op.mockClear();
     const onCreateAttempt = vi.fn();
     expect(() => startNativeSession("codex", "codex", "/tmp", [], "worker", {
