@@ -259,6 +259,7 @@ The model is stress-tested against real organizational settings and external sta
 | [evaluations/](./evaluations/README.md) | Use-case library — org-model evaluations with Mermaid diagrams (enterprise / ecosystem / government / 15-conductors / agentic-squad) |
 | [RUNTIME_PROPOSAL.md](./RUNTIME_PROPOSAL.md) | Original minimal-runtime proposal |
 | [docs/cli-contract.md](./docs/cli-contract.md) | CLI contract, verb by verb (DEC-034) |
+| [docs/operator-identity-unlock.md](./docs/operator-identity-unlock.md) | Recover a blocked identity lock by expected token |
 | [docs/compatibility-matrix.md](./docs/compatibility-matrix.md) | Host compatibility matrix (DEC-037) |
 | [docs/release.md](./docs/release.md) | Release procedure + security notes |
 | [docs/tutorial-cross-cli.md](./docs/tutorial-cross-cli.md) | **Claude + Codex + Gemini in 5 minutes** |
