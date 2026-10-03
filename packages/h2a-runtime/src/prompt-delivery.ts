@@ -97,6 +97,13 @@ const NAMED_MODALS: ReadonlyArray<{
  * exact reason so the launch can FAIL LOUDLY instead of waiting forever.
  */
 export function detectHostModal(capture: string): HostModal | undefined {
+  // Muse 1.4.2's native stream removes cursor positioning and joins the choices.
+  if (/Do you trust this workspace\?/.test(capture) && /Trust and continue/.test(capture)) {
+    return {
+      reason: "Muse is waiting on its workspace-trust prompt",
+      hint: "trust this workspace in an interactive Muse session, then relaunch",
+    };
+  }
   // A modal is a choice list AWAITING a key press. Requiring both halves keeps
   // passive banners (an "Update available!" notice above a live composer) from
   // failing a perfectly healthy launch.
@@ -236,6 +243,26 @@ export function paneHasBlockingActivity(capture: string): boolean {
   );
 }
 
+/** Profile-specific composer evidence also works on compact native captures. */
+export function paneIsReady(capture: string, profile?: string): boolean {
+  if (paneHasBlockingActivity(capture)) return false;
+  if (profile === "codex") {
+    if (/model:\s*loading/i.test(capture)) return false;
+    return /›/.test(capture) && /·\s*(?:~|\/)/.test(capture);
+  }
+  if (profile === "muse") {
+    // Measured Muse 1.4.2: an empty ❯ composer followed by model · effort · cwd.
+    return /❯/.test(capture) && /·\s*(?:~|\/)/.test(capture);
+  }
+  return paneHasDrawnUi(capture);
+}
+
+export function promptReadinessTimeoutMs(profile?: string): number {
+  // MCP-heavy Codex/Muse startup needs its own budget. The outer MCP deadline
+  // must include paste, activity verification and cleanup in addition to this.
+  return profile === "codex" || profile === "muse" ? 180_000 : 90_000;
+}
+
 export type PromptDeliveryDeps = {
   /** Visible text of the pane, or undefined when tmux cannot be read. */
   readonly capturePane: (pane: string) => string | undefined;
@@ -252,7 +279,8 @@ export type PromptDeliveryDeps = {
 };
 
 export type PromptDeliveryOptions = {
-  /** Budget for the host to become ready (default 90s). */
+  readonly profile?: string;
+  /** Budget for readiness (Codex/Muse 180s, other profiles 90s). */
   readonly timeoutMs?: number;
   /** Delay between readiness observations (default 750ms). */
   readonly pollMs?: number;
@@ -279,6 +307,13 @@ export type LandedEvidence = "composer-text" | "collapsed-paste";
 
 export type PromptDeliveryResult =
   | {
+      readonly state: "provider-blocked";
+      readonly reason: string;
+      readonly waitedMs: number;
+      readonly evidence: LandedEvidence;
+      readonly capture: string;
+    }
+  | {
       readonly state: "working";
       readonly waitedMs: number;
       readonly cpuDeltaMs: number;
@@ -304,7 +339,6 @@ export type PromptDeliveryResult =
     };
 
 const DEFAULTS = {
-  timeoutMs: 90_000,
   pollMs: 750,
   activityMs: 30_000,
   // A booting TUI burns ~2s of CPU rendering its splash; an idle one burns ~0
@@ -367,6 +401,7 @@ function waitUntilReady(
     maxIdleRate: number;
     timeoutMs: number;
     pollMs: number;
+    profile?: string;
   },
 ):
   | { readonly ok: true; readonly idleRate: number }
@@ -376,13 +411,13 @@ function waitUntilReady(
   let previousRate: number | undefined;
   for (;;) {
     const capture = deps.capturePane(pane);
+    // A blocking host decision is actionable immediately, even while its
+    // MCP startup is consuming CPU. Never wait for it to become quiet.
+    if (capture !== undefined && detectHostModal(capture)) return { ok: true, idleRate: 0 };
     if (capture === undefined) {
       unreadable += 1;
       if (unreadable >= 3) return { ok: false, unreadable: true };
-    } else if (
-      paneHasDrawnUi(capture) &&
-      !paneHasBlockingActivity(capture)
-    ) {
+    } else if (paneIsReady(capture, options.profile)) {
       unreadable = 0;
       const before = deps.cpuMs(pane);
       const startedAt = deps.now();
@@ -400,6 +435,14 @@ function waitUntilReady(
           previousRate = undefined;
         } else {
           const rate = delta / elapsed;
+          // Muse 1.4.2 at an empty composer burned 1130ms/2.2s on 2026-10-02
+          // (MCP descendants included). A generic <0.3-core threshold rejects
+          // this ready host. A current profile composer, observed on BOTH sides
+          // of the sample, is the readiness proof; retain its real idle rate.
+          if ((options.profile === "codex" || options.profile === "muse") &&
+              paneIsReady(deps.capturePane(pane) ?? "", options.profile)) {
+            return { ok: true, idleRate: rate };
+          }
           // Clearly quiet: the common case, and the fastest path.
           if (delta <= options.quietCpuMs) return { ok: true, idleRate: rate };
           // Or STABLE AND LOW: a host idling at a steady few percent of a core
@@ -445,7 +488,7 @@ export function deliverInitialPrompt(
   deps: PromptDeliveryDeps,
   options: PromptDeliveryOptions = {},
 ): PromptDeliveryResult {
-  const timeoutMs = options.timeoutMs ?? DEFAULTS.timeoutMs;
+  const timeoutMs = options.timeoutMs ?? promptReadinessTimeoutMs(options.profile);
   const pollMs = options.pollMs ?? DEFAULTS.pollMs;
   const activityMs = options.activityMs ?? DEFAULTS.activityMs;
   const activityCpuMs = options.activityCpuMs ?? DEFAULTS.activityCpuMs;
@@ -463,6 +506,7 @@ export function deliverInitialPrompt(
     maxIdleRate,
     timeoutMs,
     pollMs,
+    ...(options.profile !== undefined ? { profile: options.profile } : {}),
   });
   if (!ready.ok) {
     return {
@@ -485,6 +529,12 @@ export function deliverInitialPrompt(
       hint: modal.hint,
       capture: captureTail(before),
     };
+  }
+  if ((options.profile === "codex" || options.profile === "muse") &&
+      !paneIsReady(before, options.profile)) {
+    return { state: "undelivered",
+      reason: "the host stopped accepting input before delivery, so the prompt was not typed",
+      waitedMs: deps.now() - startedAt, capture: captureTail(before) };
   }
 
   // 3. Type once, as one bracketed block.
@@ -603,7 +653,8 @@ export function deliverInitialPrompt(
   // So the idle rate used to excuse missing work is CAPPED: a host that is truly
   // waiting for input burns a few percent of a core at most (measured ~0 to 2.5%),
   // and anything above that is startup, which must never excuse silence.
-  const idleRateForWork = Math.min(ready.idleRate, IDLE_RATE_CAP);
+  const idleRateForWork = options.profile === "codex" || options.profile === "muse"
+    ? ready.idleRate : Math.min(ready.idleRate, IDLE_RATE_CAP);
   const activityDeadline = submittedAt + activityMs;
   let cpuDeltaMs = 0;
   for (;;) {
@@ -616,7 +667,18 @@ export function deliverInitialPrompt(
       cpuDeltaMs = cpuNow - cpuBefore;
     }
     const idleBudget = idleRateForWork * (deps.now() - submittedAt);
-    if (cpuDeltaMs - idleBudget >= activityCpuMs) {
+    // Profile TUIs explicitly announce an accepted running request. This also
+    // proves work when the provider is waiting on network rather than CPU.
+    const workingCapture = options.profile === "codex" || options.profile === "muse"
+      ? deps.capturePane(pane) ?? "" : "";
+    const providerLimit = /usage limit reached|you(?:'|’)?ve hit[^\n]*(?:limit|quota)|quota (?:exceeded|exhausted)|rate limit (?:reached|exceeded)|insufficient (?:credits|quota)/i;
+    if (providerLimit.test(workingCapture) && !providerLimit.test(before)) {
+      return { state: "provider-blocked", reason: "the provider rejected the submitted prompt: usage/quota limit",
+        waitedMs: deps.now() - startedAt, evidence, capture: captureTail(workingCapture) };
+    }
+    const acceptedActivity = /esc to interrupt/i.test(workingCapture) &&
+      !/esc to interrupt/i.test(before);
+    if (acceptedActivity || cpuDeltaMs - idleBudget >= activityCpuMs) {
       return {
         state: "working",
         waitedMs: deps.now() - startedAt,

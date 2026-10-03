@@ -742,7 +742,7 @@ const H2A_COORDINATION_TOOL_DESCRIPTORS: McpToolDescriptor[] = [
   {
     name: "h2a_run",
     description:
-      "Launch one background Claude, Codex, AGY or Muse agent in an existing workspace through the canonical h2a run runtime. AGY and Muse are direct (no llm-mesh gateway); AGY supports run-once mode through --print. Muse is interactive/background only (muse exec has no stdin prompt contract, so headless is rejected). Returns verified tmux/session metadata; never creates a branch or worktree.",
+      "Launch one background Claude, Codex, AGY or Muse agent in an existing workspace through the canonical h2a run runtime. AGY and Muse are direct (no llm-mesh gateway); AGY supports run-once mode through --print. Muse is interactive/background only (muse exec has no stdin prompt contract, so headless is rejected). Responds within 50 seconds: returns verified session metadata when finished, otherwise {state:\"launching\",launchId,retrySafe:false} while the server continues launching. Repeat h2a_run with the same name to read its current state; that name is idempotent for this MCP server lifetime, including after completion or caller cancellation, and never launches or delivers the brief again. Never creates a branch or worktree.",
     inputSchema: {
       type: "object",
       properties: {

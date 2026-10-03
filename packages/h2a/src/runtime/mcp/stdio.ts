@@ -286,11 +286,11 @@ function successResponse(id: unknown, result: unknown): JsonRpcSuccessResponse {
   return { jsonrpc: "2.0", id, result };
 }
 
-async function handleMethod(
+function handleMethod(
   server: McpServer,
   method: string,
   params: unknown
-): Promise<unknown> {
+): unknown | Promise<unknown> {
   if (method === "initialize") {
     return {
       protocolVersion: PROTOCOL_VERSION,
@@ -308,15 +308,15 @@ async function handleMethod(
       p.arguments && typeof p.arguments === "object"
         ? (p.arguments as Record<string, unknown>)
         : {};
-    const result = await server.callTool(name, args);
-    if (isMcpTransportResult(result)) return result;
-    const isError = Boolean(
-      result && typeof result === "object" && "error" in (result as object)
-    );
-    return {
-      content: [{ type: "text", text: JSON.stringify(result) }],
-      isError
+    const format = (result: unknown) => {
+      if (isMcpTransportResult(result)) return result;
+      return {
+        content: [{ type: "text", text: JSON.stringify(result) }],
+        isError: Boolean(result && typeof result === "object" && "error" in result),
+      };
     };
+    const result = server.callTool(name, args);
+    return result instanceof Promise ? result.then(format) : format(result);
   }
   // Sentinel: the caller will map this to JSON-RPC -32601.
   throw new MethodNotFoundError(method);
@@ -810,8 +810,8 @@ export function runMcpStdio(options: RunMcpStdioOptions): Promise<void> {
       options.signal.addEventListener("abort", onAbort, { once: true });
     }
 
-    let pending = Promise.resolve();
-    const handleLine = async (line: string) => {
+    const inFlight = new Set<Promise<unknown>>();
+    rl.on("line", async (line) => {
       const trimmed = line.trim();
       if (trimmed.length === 0) return;
 
@@ -867,7 +867,21 @@ export function runMcpStdio(options: RunMcpStdioOptions): Promise<void> {
             ...(requestId !== undefined ? { requestId } : {})
           });
         }
-        const result = await handleMethod(server, request.method, request.params);
+        const pending = handleMethod(server, request.method, request.params);
+        // Drain asynchronous mesh requests at EOF while detached launches stay
+        // independent of the client transport's lifetime.
+        const isLaunch = request.method === "tools/call" &&
+          (request.params as { name?: unknown } | undefined)?.name === "h2a_run";
+        if (pending instanceof Promise && !isLaunch) inFlight.add(pending);
+        let result: unknown;
+        try {
+          result = pending instanceof Promise ? await pending : pending;
+        } finally {
+          if (pending instanceof Promise) inFlight.delete(pending);
+        }
+        // An abandoned asynchronous call still finishes server-side; its
+        // receipt stays in the name registry, without writing to a closed pipe.
+        if (pending instanceof Promise && didShutdown) return;
         if (!isNotification) {
           // L1: the SINGLE bounded writer serializes ONCE, bounds the exact UTF-8
           // bytes to the frame budget (an oversize result becomes a bounded -32010
@@ -926,14 +940,11 @@ export function runMcpStdio(options: RunMcpStdioOptions): Promise<void> {
           errorResponse(request.id ?? null, -32603, `Internal error: ${message}`)
         );
       }
-    };
-    rl.on("line", (line) => {
-      pending = pending.then(() => handleLine(line));
     });
 
     rl.on("close", () => {
       if (identityController?.status().state === "identity_pending") identityController.cancel("transport_closed");
-      void pending.then(() => {
+      void Promise.allSettled(inFlight).then(() => {
         shutdown();
         // Flush bounded output after asynchronous cluster-mesh requests finish.
         void writeChain.finally(() => resolve());
