@@ -2,7 +2,7 @@ import type {
   GatewaySessionState,
   PublicAccountDescriptor,
   SessionLedgerEntry,
-} from "./llm-gateway-runtime/session-ledger.js";
+} from "./gateway-host/ledger.js";
 import { projectRemoteAgents, type RemoteAgentProjection } from "./agents-projection.js";
 import {
   loadRegistryWithDiagnostics,
