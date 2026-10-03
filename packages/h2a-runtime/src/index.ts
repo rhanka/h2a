@@ -148,6 +148,7 @@ import {
   startNativeH2aSidecar,
   startNativeHeadlessSession,
   startNativeSession,
+  NativeHostCapabilityMismatchError,
   type SessionHostKind,
 } from "./native-host.js";
 import {
@@ -6252,6 +6253,17 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           );
           return;
         }
+        // Covers the entire attempt, including an already-created agent when
+        // sidecar selection fails. Component-level refusals cannot clear it.
+        let creationAttempted = false;
+        const onCreateAttempt = (): void => {
+          creationAttempted = true;
+          if (opts.json && opts.name) {
+            process.stderr.write(`${STRUCTURED_LAUNCH_PHASE_PREFIX}${JSON.stringify({
+              launchId: opts.name, phase: "creation-attempted",
+            })}\n`);
+          }
+        };
         try {
         const reservedTmuxSlugs = tmuxAvailable()
           ? existingLocalSessionSlugs(labels, cwd)
@@ -6487,14 +6499,6 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           let promptDelivery: PromptDeliveryResult | undefined;
           let launchGuard: LaunchGuard | undefined;
           let launchOwnership: LaunchOwnership | undefined;
-          if (opts.json && opts.name) {
-            process.stderr.write(
-              `${STRUCTURED_LAUNCH_PHASE_PREFIX}${JSON.stringify({
-                launchId: opts.name,
-                phase: "creation-attempted",
-              })}\n`,
-            );
-          }
           if (opts.headless) {
             const runDir = join(cwd, ".h2a", "runs", label!);
             mkdirSync(runDir, { recursive: true });
@@ -6522,6 +6526,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
                 headlessPromptInput,
                 structuredLaunch,
                 sessionClass,
+                onCreateAttempt,
               ));
             } else {
               ({ name, slug, agentPane, promptFile } = startHeadlessSession(
@@ -6536,6 +6541,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
                 headlessPromptInput,
                 structuredLaunch,
                 sessionClass,
+                onCreateAttempt,
               ));
             }
           } else if (sessionHost === "native") {
@@ -6546,6 +6552,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
               args,
               label,
               {
+                onCreateAttempt,
                 ...(opts.resume !== undefined ? { resumeId: opts.resume } : {}),
                 ...(initialPrompt !== undefined
                   ? { terminateOnAgentExit: true }
@@ -6567,6 +6574,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
               label,
               getTmuxProfileConfig().profile,
               {
+                onCreateAttempt,
                 ...(opts.resume !== undefined
                   ? { resumeId: opts.resume }
                   : {}),
@@ -6607,6 +6615,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           let h2aSidecarStarted = false;
           if (h2aSidecar && sessionHost === "native") {
             h2aSidecarStarted = startNativeH2aSidecar(name, cwd, h2a.command, {
+              onCreateAttempt,
               ...(structuredLaunch ? { verified: true } : {}),
               ...(launchGuard && launchOwnership?.host === "native" ? { beforeCreate: (owned: { name: string; generation: string; incarnation: string }) => {
                 if (launchOwnership?.host === "native") {
@@ -6872,6 +6881,11 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             ? attachNativeSession(only.name)
             : attachLocalSession(only.name);
         return;
+        } catch (error) {
+          if (!(error instanceof NativeHostCapabilityMismatchError) || creationAttempted) throw error;
+          process.stderr.write(`[h2a] ${error.message}\n`);
+          if (opts.json && opts.name) process.stdout.write(`${JSON.stringify(error.toRunFailure(opts.name))}\n`);
+          process.exitCode = 1;
         } finally {
           resumeClaim?.release();
         }

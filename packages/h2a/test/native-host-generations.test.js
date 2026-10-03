@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, statSync } from "node:fs";
-import { dirname, join, relative, resolve } from "node:path";
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, realpathSync, rmSync, statSync, symlinkSync } from "node:fs";
+import { basename, dirname, join, relative, resolve } from "node:path";
 import test from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -21,12 +21,31 @@ const required = process.env.H2A_TEST_REQUIRE_LEGACY_HOST === "1";
 function resolvedPath(path) {
   let ancestor = resolve(path);
   const suffix = [];
-  while (!existsSync(ancestor)) {
-    suffix.unshift(ancestor.slice(dirname(ancestor).length + 1));
-    ancestor = dirname(ancestor);
+  for (;;) {
+    try { lstatSync(ancestor); break; }
+    catch (error) {
+      if (error.code !== "ENOENT") throw error;
+      suffix.unshift(basename(ancestor));
+      ancestor = dirname(ancestor);
+    }
   }
   return join(realpathSync(ancestor), ...suffix);
 }
+
+test("should refuse owner runtime paths, escaping symlinks and uncontained paths before starting any process", {
+  skip: process.platform !== "linux" && "Linux qualification path guard",
+}, () => {
+  const root = realpathSync(mkdtempSync("/tmp/h2a-qual-"));
+  try {
+    for (const path of ["/run/user/1000/h2a-nt/socket", "/run/user/1000/h2a-nt/../h2a-nt/socket", "/tmp/outside-qualification/socket"]) {
+      assert.throws(() => assertPrivatePaths(root, [path]), /REFUSING/);
+    }
+    const link = join(root, "escape");
+    symlinkSync("/run/user/1000/h2a-nt", link);
+    assert.throws(() => assertPrivatePaths(root, [join(link, "socket")]));
+    assertPrivatePaths(root, [join(root, "new-directory/socket")]);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
 
 function assertPrivatePaths(root, paths) {
   for (const path of paths) {
@@ -120,8 +139,7 @@ async function withLegacy(context, body) {
 }
 
 test("should select a second compatible host and preserve the historical sentinel (spec §8/L0; L2 pending)", {
-  skip: !required && unavailable,
-  todo: !unavailable && process.env.H2A_TEST_LEGACY_RED !== "1" ? "spec §8/L0: second-host selection awaits L2 owner ratification" : false,
+  skip: process.platform !== "linux" ? unavailable : !required && unavailable,
 }, async context => {
   await withLegacy(context, async fixture => {
     // Empty override exercises automatic selection, bounded to the explicitly
@@ -140,18 +158,55 @@ test("should select a second compatible host and preserve the historical sentine
     const result = await launch.closed;
     context.diagnostic(`raw historical launch: ${JSON.stringify(result)}`);
     await fixture.unchanged();
-    assert.equal(result.status, 0, result.stderr);
-    const { host, ownership, started } = JSON.parse(result.stdout);
-    assert.equal(host.launchFence, true);
-    assert.notEqual(host.hostPid, fixture.ping.hostPid);
-    assert.notEqual(host.generation, fixture.ping.generation);
-    assert.notEqual(host.socketPath, fixture.socketPath);
-    assert.equal(ownership.generation, host.generation);
-    assert.ok(started.pid > 0);
-    const second = await NativeTerminalClient.connect(host.socketPath);
-    try {
-      assert.equal((await second.state(started.name)).incarnation, ownership.incarnation);
-      await eventually(() => second.readOutput(started.name, 0), output => output.chunks.some(chunk => chunk.data.includes("new-launch-ready")));
-    } finally { second.close(); }
+    if (result.status !== 0) {
+      assert.match(result.stderr, /does not provide launchFence|native host cannot reserve launch ownership;/);
+      assert.deepEqual((await fixture.client.list()).map(session => session.id), ["legacy-sentinel"]);
+    }
+    // Only the pending L2 expectation is TODO. Fixture, isolation and sentinel
+    // failures remain blocking, including when the historical launch refuses.
+    await context.test("should serve the new fenced launch on a second compatible host (spec §8/L0)", {
+      todo: process.env.H2A_TEST_LEGACY_RED !== "1" && "spec §8/L0: second-host selection awaits L2 owner ratification",
+    }, async () => {
+      assert.equal(result.status, 0, result.stderr);
+      const { host, ownership, started } = JSON.parse(result.stdout);
+      assert.equal(host.launchFence, true);
+      assert.notEqual(host.hostPid, fixture.ping.hostPid);
+      assert.notEqual(host.generation, fixture.ping.generation);
+      assert.notEqual(host.socketPath, fixture.socketPath);
+      assert.equal(ownership.generation, host.generation);
+      assert.ok(started.pid > 0);
+      assertPrivatePaths(fixture.root, [host.socketPath]);
+      const second = await NativeTerminalClient.connect(host.socketPath);
+      try {
+        assert.equal((await second.state(started.name)).incarnation, ownership.incarnation);
+        await eventually(() => second.readOutput(started.name, 0), output => output.chunks.some(chunk => chunk.data.includes("new-launch-ready")));
+      } finally { second.close(); }
+    });
+  });
+});
+
+test("should refuse an explicitly imposed historical endpoint before creation with the typed CLI diagnostic (spec §7/D5)", {
+  skip: process.platform !== "linux" ? unavailable : !required && unavailable,
+}, async context => {
+  await withLegacy(context, async fixture => {
+    const launch = start(process.execPath, [join(repo, "packages/h2a/dist/bin.js"), "run", "codex", fixture.workspace,
+      "--no-attach", "--background", "--json", "--name", "qualification-explicit", "--prompt-stdin", "--no-h2a", "--no-gw"], fixture.env);
+    fixture.children.push(launch);
+    launch.child.stdin.end("trivial qualification brief");
+    const result = await launch.closed;
+    context.diagnostic(`raw explicit-endpoint launch: ${JSON.stringify(result)}`);
+    await fixture.unchanged();
+    assert.equal(result.status, 1);
+    assert.ok(!result.stderr.includes('"phase":"creation-attempted"'), result.stderr);
+    assert.match(result.stderr, /Launch refused before creation/);
+    assert.match(result.stderr, /No restart of the existing host is necessary/);
+    assert.deepEqual(JSON.parse(result.stdout), {
+      kind: "h2a.run.failure", version: 1, state: "not-started", launchId: "qualification-explicit",
+      code: "native-host-capability-mismatch", phase: "host-selection", creationAttempted: false, retrySafe: true,
+      missingCapabilities: ["launchFence"],
+      host: { socketPath: fixture.socketPath, generation: fixture.ping.generation, hostPid: fixture.ping.hostPid },
+      recovery: { action: "select-compatible-generation", automaticRetry: false },
+    });
+    assert.deepEqual((await fixture.client.list()).map(session => session.id), ["legacy-sentinel"]);
   });
 });

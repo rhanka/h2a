@@ -110,8 +110,9 @@ export function nativeHostAvailable():
 
 function runOp(
   args: ReadonlyArray<string>,
-  options: { allowFailure?: boolean } = {},
+  options: { allowFailure?: boolean; onCreateAttempt?: (() => void) | undefined } = {},
 ): { status: number; payload: unknown } {
+  options.onCreateAttempt?.();
   const r = spawnSync(process.execPath, [opEntryPath(), ...args], {
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
@@ -152,10 +153,44 @@ export function ensureNativeHost(): { hostPid: number; socketPath: string; gener
 
 export type NativeLaunchOwnership = { name: string; generation: string; incarnation: string };
 
+export type NativeHostCapabilityFailure = {
+  kind: "h2a.run.failure";
+  version: 1;
+  state: "not-started";
+  code: "native-host-capability-mismatch";
+  launchId: string;
+  phase: "host-selection";
+  creationAttempted: false;
+  retrySafe: true;
+  missingCapabilities: ["launchFence"];
+  host: { socketPath: string; generation: string; hostPid: number };
+  recovery: { action: "select-compatible-generation"; automaticRetry: false };
+};
+
+/** Evidence for this component only; callers must rule out earlier creates. */
+export class NativeHostCapabilityMismatchError extends Error {
+  constructor(readonly host: NativeHostCapabilityFailure["host"]) {
+    super(`Launch refused before creation: host ${host.generation} on ${host.socketPath} does not provide launchFence. ` +
+      "No session was created by this attempt. Its existing sessions remain active. " +
+      "Use automatic generation selection with the corrected runtime; if this socket was explicitly imposed, " +
+      "remove that constraint only for the new launch. No restart of the existing host is necessary.");
+    this.name = "NativeHostCapabilityMismatchError";
+  }
+
+  toRunFailure(launchId: string): NativeHostCapabilityFailure {
+    return {
+      kind: "h2a.run.failure", version: 1, state: "not-started",
+      code: "native-host-capability-mismatch", launchId, phase: "host-selection",
+      creationAttempted: false, retrySafe: true, missingCapabilities: ["launchFence"],
+      host: this.host, recovery: { action: "select-compatible-generation", automaticRetry: false },
+    };
+  }
+}
+
 function prepareNativeOwnership(name: string, beforeCreate?: (value: NativeLaunchOwnership) => void): string[] {
   if (!beforeCreate) return [];
-  const { generation, launchFence } = ensureNativeHost();
-  if (!launchFence) throw new Error("native host cannot reserve launch ownership; restart the host before launching");
+  const { generation, launchFence, hostPid, socketPath } = ensureNativeHost();
+  if (!launchFence) throw new NativeHostCapabilityMismatchError({ generation, hostPid, socketPath });
   const incarnation = randomUUID();
   beforeCreate({ name, generation, incarnation });
   return ["--generation", generation, "--incarnation", incarnation];
@@ -235,6 +270,7 @@ export function nativeSessionPid(name: string): number | undefined {
 
 export type NativeLaunchMetadata = {
   beforeCreate?: (value: NativeLaunchOwnership) => void;
+  onCreateAttempt?: () => void;
   readonly label?: string;
   readonly resumeId?: string;
   readonly sessionClass?: SessionClass;
@@ -315,7 +351,7 @@ export function startNativeSession(
       envFile,
       "--",
       ...agentCommand,
-    ]);
+    ], { onCreateAttempt: metadata.onCreateAttempt });
     const state = payload as NativeSessionState | undefined;
     if (!state || typeof state.pid !== "number") {
       throw new Error(`native host did not return a session state for ${slug}`);
@@ -462,6 +498,7 @@ export function startNativeHeadlessSession(
   promptInput?: string,
   refuseExisting = false,
   sessionClass?: SessionClass,
+  onCreateAttempt?: () => void,
 ): NativeStartResult & { promptFile?: string } {
   const slug = slugify(label);
   const name = localSessionName(slug);
@@ -521,7 +558,7 @@ export function startNativeHeadlessSession(
       envFile,
       "--",
       ...agentCommand,
-    ]);
+    ], { onCreateAttempt });
     const state = payload as NativeSessionState | undefined;
     if (!state || typeof state.pid !== "number") {
       throw new Error(`native host did not return a session state for ${slug}`);
@@ -541,7 +578,7 @@ export function startNativeH2aSidecar(
   name: string,
   cwd: string,
   h2aCommand: string,
-  options: { verified?: boolean; beforeCreate?: (value: NativeLaunchOwnership) => void } = {},
+  options: { verified?: boolean; beforeCreate?: (value: NativeLaunchOwnership) => void; onCreateAttempt?: () => void } = {},
 ): boolean {
   const sidecar = nativeSidecarName(name);
   const existing = nativeSessionState(sidecar);
@@ -588,7 +625,7 @@ export function startNativeH2aSidecar(
       "/bin/bash",
       "-lc",
       h2aCommand,
-    ]);
+    ], { onCreateAttempt: options.onCreateAttempt });
   } catch {
     return false;
   } finally {
