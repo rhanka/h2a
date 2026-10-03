@@ -31,8 +31,8 @@ import {
   createLlmMeshFacade,
   type LlmMeshAdministrativeFacade,
   type LlmMeshFacade,
-} from "@sentropic/llm-mesh/facade";
-import type { AccountPublic } from "@sentropic/llm-mesh/enrollment";
+} from "@sentropic/cluster-mesh/llm-mesh/facade";
+import type { AccountPublic } from "@sentropic/cluster-mesh/llm-mesh/enrollment";
 import {
   validateLlmMeshRoutingConfig,
   type LlmMeshRoutingConfig,
@@ -98,7 +98,7 @@ export interface LlmMeshEnrollmentAccount {
 /**
  * Structural extension for facades that implement Muse CLI-store import
  * (MuseEnrollmentProvider mesh-side, BR75). Declared structurally — not taken
- * from @sentropic/llm-mesh types — so h2a keeps working against older
+ * from @sentropic/cluster-mesh/llm-mesh types — so h2a keeps working against older
  * facades; the runtime guard below fails closed when the method is absent
  * instead of throwing a bare TypeError.
  */
@@ -188,7 +188,7 @@ export async function enrollViaFacade(
 ): Promise<LlmMeshEnrollmentAccount> {
   const facade = options.facade ?? createCliLlmMeshFacade();
   const ownerScope = options.ownerScope ?? llmMeshOwnerScopeRef();
-  // The installed @sentropic/llm-mesh types predate the muse provider, but
+  // The installed @sentropic/cluster-mesh/llm-mesh types predate the muse provider, but
   // enroll passes the id through opaquely — a muse-capable facade resolves
   // it, an older one fails with its own unknown-provider error. Cast is
   // load-bearing until the dep bump, not a lie about the contract.
@@ -219,7 +219,7 @@ export async function enrollViaFacade(
     ).completeMuseImport;
     if (typeof completeMuseImport !== "function") {
       throw new Error(
-        "Muse enrollment needs facade.completeMuseImport — upgrade @sentropic/llm-mesh " +
+        "Muse enrollment needs facade.completeMuseImport — upgrade @sentropic/cluster-mesh/llm-mesh " +
         "to a version with the Muse enrollment provider",
       );
     }
@@ -254,7 +254,7 @@ export async function enrollViaFacade(
     ).completeMuseDeviceImport;
     if (typeof completeMuseDeviceImport !== "function") {
       throw new Error(
-        "Muse device-flow enrollment needs facade.completeMuseDeviceImport — upgrade @sentropic/llm-mesh " +
+        "Muse device-flow enrollment needs facade.completeMuseDeviceImport — upgrade @sentropic/cluster-mesh/llm-mesh " +
         "to a version with the muse-code enrollment provider",
       );
     }
