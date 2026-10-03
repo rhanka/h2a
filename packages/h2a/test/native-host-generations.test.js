@@ -377,6 +377,13 @@ test("should route each by-name operation to the observed owner across real hist
       assert.equal((await client.state(`${id}.h2a`)).status, "exited");
       const killed = await echoSession(client, fixture, `${id}-kill`);
       assert.equal((await op(fixture, ["kill", "--id", killed.id])).status, 0);
+      const stopped = await echoSession(client, fixture, `${id}-stop`);
+      assert.equal((await op(fixture, ["stop", "--id", stopped.id])).status, 0);
+      assert.equal((await client.state(stopped.id)).status, "exited");
+      const fencedStop = await echoSession(client, fixture, `${id}-fenced-stop`);
+      assert.equal((await op(fixture, ["stop-if-incarnation", "--id", fencedStop.id, "--generation", fencedStop.generation,
+        "--incarnation", String(fencedStop.incarnation)])).status, 0);
+      assert.equal((await client.state(fencedStop.id)).status, "exited");
       context.diagnostic(`routing ${socketPath}: state, probe, pid, write, paste, enter, resize, capture, drive, attach, kill-if-incarnation, kill passed`);
     }
     const listed = (await op(fixture, ["list"])).payload;
@@ -397,7 +404,7 @@ test("should refuse ambiguous owners without attaching, writing, driving or stop
     await echoSession(second, fixture, id);
     const listed = (await op(fixture, ["list"])).payload;
     assert.equal(listed.sessions.filter(session => session.id === id).length, 2);
-    for (const verb of ["state", "probe", "pid", "capture", "write", "paste", "enter", "resize", "attach", "kill", "kill-if-incarnation", "drive"]) {
+    for (const verb of ["state", "probe", "pid", "capture", "write", "paste", "enter", "resize", "attach", "kill", "stop", "kill-if-incarnation", "stop-if-incarnation", "drive"]) {
       const result = await op(fixture, [verb, "--id", id, "--target", id, "--b64", Buffer.from("forbidden").toString("base64"),
         "--generation", "g", "--incarnation", "i", "--cols", "80", "--rows", "24"]);
       assert.equal(result.payload?.code, "ambiguous-owner", `${verb}: ${JSON.stringify(result)}`);
