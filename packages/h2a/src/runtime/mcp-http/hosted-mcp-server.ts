@@ -30,6 +30,9 @@ export function dispatchHostedTool(
     };
   }
   const result = h2a.callTool(name, args);
+  if (result instanceof Promise) {
+    throw new Error("hosted read-only tools must be synchronous");
+  }
   const shaped: CallToolResult = isMcpTransportResult(result)
     ? (result as CallToolResult)
     : result && typeof result === "object" && "error" in result && typeof result.error === "string"
