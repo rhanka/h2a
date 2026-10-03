@@ -16,8 +16,8 @@ const plannerState = vi.hoisted(() => ({
   current: undefined as RoutePlanner | undefined,
 }));
 
-vi.mock("../llm-mesh.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../llm-mesh.js")>();
+vi.mock("../llm-mesh-accounts.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../llm-mesh-accounts.js")>();
   const activePlanner = (): RoutePlanner => {
     if (!plannerState.current) throw new Error("native-tools test planner is not configured");
     return plannerState.current;
@@ -38,9 +38,9 @@ vi.mock("../llm-mesh.js", async (importOriginal) => {
   };
 });
 
-import { createLocalGatewayApp } from "./index.js";
-import { resetSessionLedger } from "./session-ledger.js";
-import { resetSessions } from "./sticky.js";
+import { createLocalGatewayApp } from "./host.js";
+import { resetSessionLedger } from "./ledger.js";
+import { resetSessions } from "./sessions.js";
 
 const MODEL = "claude-sonnet-5";
 
@@ -162,7 +162,7 @@ const observingPlanner = (
 
 const createGatewaySession = async (planner: RoutePlanner) => {
   plannerState.current = planner;
-  const app = createLocalGatewayApp({ ownerScopeRef: "cli:test-owner" });
+  const app = await createLocalGatewayApp({ ownerScopeRef: "cli:test-owner" });
   const created = await app.request("/v1/session", {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -178,7 +178,7 @@ const createGatewaySession = async (planner: RoutePlanner) => {
 };
 
 const sendMessages = (
-  app: ReturnType<typeof createLocalGatewayApp>,
+  app: Awaited<ReturnType<typeof createLocalGatewayApp>>,
   gatewayToken: string,
   body: Record<string, unknown>,
 ) => app.request("/v1/messages", {

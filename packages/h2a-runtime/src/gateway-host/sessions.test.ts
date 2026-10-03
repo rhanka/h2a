@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { acquireSession, lookupToken, resetSessions, sessionCount } from "./sticky.js";
+import { acquireSession, lookupToken, resetSessions, sessionCount } from "./sessions.js";
 
 beforeEach(resetSessions);
 
