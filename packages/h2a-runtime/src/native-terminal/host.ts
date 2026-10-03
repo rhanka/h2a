@@ -613,6 +613,8 @@ export type NativeTerminalControllerState = Readonly<{
 }>;
 
 export type NativeTerminalCreateOptions = Readonly<{
+  /** Preallocated launch ownership, fenced to this host before PTY creation. */
+  launchFence?: Readonly<{ generation: string; incarnation: string }>;
   id: string;
   command: string;
   args: ReadonlyArray<string>;
@@ -898,6 +900,11 @@ export class NativeTerminalHost {
   }
 
   create(options: NativeTerminalCreateOptions): NativeTerminalSessionState {
+    if (options.launchFence && (options.launchFence.generation !== this.#generation ||
+        typeof options.launchFence.incarnation !== "string" ||
+        !/^[0-9a-f-]{36}$/.test(options.launchFence.incarnation))) {
+      throw new Error("invalid native launch fence");
+    }
     if (
       options.id.trim().length === 0 ||
       options.id.length > NATIVE_TERMINAL_MAX_IDENTIFIER_CHARS
@@ -982,7 +989,7 @@ export class NativeTerminalHost {
 
     const record: SessionRecord = {
       id: options.id,
-      incarnation: randomUUID(),
+      incarnation: options.launchFence?.incarnation ?? randomUUID(),
       pty,
       groupToken,
       replay: new TerminalReplayBuffer(this.#replayBytesPerSession),

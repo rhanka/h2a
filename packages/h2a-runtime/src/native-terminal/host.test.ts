@@ -363,6 +363,18 @@ function createSession(host: NativeTerminalHost, id: string): void {
 }
 
 describe("NativeTerminalHost", () => {
+  it("should use reserved launch ownership and reject a different host before spawning", () => {
+    const { spawner } = stubSpawner();
+    const spawn = vi.fn(spawner);
+    const host = new NativeTerminalHost({ generation: "g", replayBytesPerSession: 1024, registryPath, spawner: spawn });
+    const options = { id: "reserved", command: "reserved", args: [], cwd: "/workspace", env: {}, cols: 80, rows: 24,
+      launchFence: { generation: "other", incarnation: "12345678-1234-1234-1234-123456789abc" } };
+    expect(() => host.create(options)).toThrow("invalid native launch fence");
+    expect(spawn).not.toHaveBeenCalled();
+    const state = host.create({ ...options, launchFence: { ...options.launchFence, generation: "g" } });
+    expect(state.incarnation).toBe(options.launchFence.incarnation);
+    expect(state.generation).toBe("g");
+  });
   it("should keep output and exit lifecycle independent across sessions", () => {
     const { spawner, ptys } = stubSpawner();
     const host = new NativeTerminalHost({
