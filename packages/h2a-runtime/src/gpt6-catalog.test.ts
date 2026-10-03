@@ -5,7 +5,7 @@
 // gpt-6-terra is unavailable on every transport (verified 2026-09-26: 400 under Codex, 404
 // on the OpenAI API), so terra stays gpt-5.6-terra.
 import { describe, expect, it } from "vitest";
-import { modelProfiles } from "@sentropic/llm-mesh";
+import { modelProfiles } from "@sentropic/cluster-mesh/llm-mesh";
 
 describe("0.97.9 gpt-6 model catalog (consumed by h2a-runtime)", () => {
   const ids = new Set((modelProfiles as ReadonlyArray<{ modelId: string }>).map((p) => p.modelId));
