@@ -63,6 +63,7 @@ import {
 import { H2A_SESSION_DEFAULT_HEARTBEAT_INTERVAL_MS } from "@sentropic/h2a";
 import {
   executeH2aRun,
+  createH2aRunLauncher,
   handleH2aRun,
   recordMcpRunDelegation,
   type H2aRunDelegation,
@@ -144,7 +145,7 @@ export interface McpServer {
     name: string,
     args: Record<string, unknown> | undefined,
     context?: McpCallContext
-  ): McpToolResult | McpErrorResult | McpTransportResult;
+  ): McpToolResult | McpErrorResult | McpTransportResult | Promise<McpToolResult | McpErrorResult>;
   /** Per-server SessionRegistry, exposed for transport-layer shutdown hooks. */
   readonly sessions: SessionRegistry;
   /** Per-server NotificationDispatcher (DEC-052). */
@@ -327,11 +328,14 @@ export function createMcpServer(options: CreateMcpServerOptions): McpServer {
     return identityFailedError(st.cause, false);
   }
 
+  const launch = createH2aRunLauncher(options.runExecutor ?? executeH2aRun, 49_000, (request, result) =>
+    recordMcpRunDelegation(store.paths.root, result, request.delegation));
+
   function callTool(
     name: string,
     args: Record<string, unknown> | undefined,
     _context?: McpCallContext
-  ): McpToolResult | McpErrorResult | McpTransportResult {
+  ): McpToolResult | McpErrorResult | McpTransportResult | Promise<McpToolResult | McpErrorResult> {
     if (name === "h2a_identity_status") {
       return { content: [{ type: "text", text: JSON.stringify(identityStatus()) }] };
     }
@@ -451,10 +455,9 @@ export function createMcpServer(options: CreateMcpServerOptions): McpServer {
           const result = handleH2aRun(
           args,
           options.workspaceRoot ?? process.cwd(),
-          options.runExecutor ?? executeH2aRun,
+          launch,
             delegation,
           );
-          recordMcpRunDelegation(store.paths.root, result, delegation);
           return result;
         }
       default:
