@@ -5,8 +5,7 @@
   "type": "module",
   "workspaces": [
     "packages/*",
-    "apps/*",
-    "!apps/focus"
+    "apps/control-plane"
   ],
   "scripts": {
     "build": "npm run build -w @sentropic/track && tsc -b",
