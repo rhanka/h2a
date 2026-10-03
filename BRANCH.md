@@ -81,6 +81,29 @@ The Track log matches both parents and the merged result; no Track write occurs.
 - The final full gate also reruns and passes `npm run build`, vendor checks
   and the Focus import check. No timing failure is allowlisted.
 
+## Campaign after main integration
+
+- `npm run build` and `npm run typecheck`: pass.
+- Focused upgrade, succession-lock and CLI map: 154 tests, 153 pass,
+  1 skipped, 0 fail, 0 cancelled, 0 TODO.
+- `pty-native-messaging.test.js`: 5 tests, 5 pass, 0 fail.
+- `npm test`: pass with the unchanged main runner. Node: 271 files,
+  2,453 tests, 2,411 pass, 21 skipped, 21 TODO, 0 fail, 0 cancelled.
+  Track: 87 files, 1,193/1,193 pass.
+- The campaign reserves its own registry with `REMOTE_CLI_CONFIG_HOME` and
+  native socket with `H2A_NATIVE_SOCKET`. No file concurrency limit, assertion
+  change, timeout change or test allowlist is introduced.
+- Logs and exact commands/environment: `tmp/h-cond-refresh/results.json`
+  and the adjacent `build.log`, `targeted.log`, `pty.log`, `typecheck.log`, `full.log`.
+- Both complete campaigns on 2d terminated at the existing Node 600,000ms
+  backstop (exit 124). The first observed `loop-tick-cli.test.js` probing the
+  ambient native registry, then one Track focus test timed out at 5,000ms.
+  The second used isolated registry/socket and observed an unfinished M02
+  native fixture; Track passed 1,193/1,193. Exact signatures and reproductions
+  are recorded on `lot4/2d-still-held` in `BRANCH.md` and its local logs.
+  The isolated M02 reproduction passed all four executable tests with six TODOs.
+  This passing 2e campaign does not erase those observed 2d failures.
+
 ## Unverified
 
 Remote CI and independent review have not run. The retry integration uses the
