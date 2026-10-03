@@ -1168,7 +1168,7 @@ export function performAutoUpgrade(
   } catch (e) {
     lockThrew = e;
     lockThrewFlag = true;
-    lock = { acquired: false, release: () => {}, reason: "dead-undecidable" };
+    lock = { acquired: false, stillHeld: () => false, release: () => {}, reason: "dead-undecidable" };
   }
   if (!lock.acquired) {
     const reason = lock.reason ?? "busy";
