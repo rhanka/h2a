@@ -1,18 +1,45 @@
 {
-  "_doc": "Baseline de compatibilité (migration P2). Versions des packages au gel du contrat (2026-06-29). La CI vérifie que les plages de compat sont respectées; tout bump de la lib core/track au-delà de la plage = revue.",
-  "capturedAt": "2026-06-29",
+  "_doc": "Compatibility baseline for h2a 0.98.x. Gateway integration uses cluster-mesh; the 0.98.1 release versions are assigned separately by the release owner.",
+  "capturedAt": "2026-10-03",
   "cli": {
-    "@sentropic/h2a-cli": "0.75.0"
+    "@sentropic/h2a-cli": "0.98.0"
   },
   "consumedLibs": {
-    "@sentropic/h2a": { "depRange": "^0.75.0", "role": "core (coordination + loop + identité = modules)" },
-    "@sentropic/track": { "version": "0.23.0", "role": "record-only (façade h2a decision/report)" },
-    "@sentropic/remote-cli": { "version": "0.0.10", "role": "à merger dans h2a-cli (P5/P6)" },
-    "@sentropic/remote-llm-gateway": { "version": "0.0.0", "role": "lib consommée (data-plane LLM)" },
-    "@sentropic/remote-k8s-orchestrator": { "version": "0.0.0", "role": "lib consommée (runtime pod)" }
+    "@sentropic/h2a": {
+      "depRange": "^0.98.0",
+      "role": "Core coordination and public CLI/MCP contracts"
+    },
+    "@sentropic/track": {
+      "version": "0.98.0",
+      "role": "Record-only decision/report facade"
+    },
+    "@sentropic/remote-cli": {
+      "version": "0.0.10",
+      "role": "à merger dans h2a-cli (P5/P6)"
+    },
+    "@sentropic/remote-k8s-orchestrator": {
+      "version": "0.0.0",
+      "role": "lib consommée (runtime pod)"
+    },
+    "@sentropic/h2a-runtime": {
+      "version": "0.98.0",
+      "role": "Local host, sessions and daemon; owns the qualified gateway dependencies"
+    },
+    "@sentropic/cluster-mesh": {
+      "version": "0.13.0",
+      "role": "Gateway composition and sole provider integration surface"
+    },
+    "@sentropic/llm-gateway": {
+      "version": "0.19.1",
+      "role": "Runtime dependency selected through cluster-mesh; no direct h2a import"
+    },
+    "@sentropic/llm-mesh": {
+      "version": "0.22.3",
+      "role": "Runtime dependency selected through cluster-mesh; one physical copy shared with gateway"
+    }
   },
   "compat": {
-    "rule": "h2a-cli X.Y.Z consomme @sentropic/h2a ^X.Y.0 (même majeure/mineure). track/gateway/mesh/k8s épinglés par plage; bridge Pod versionné séparément (P7 canary).",
+    "rule": "h2a-cli and h2a-runtime follow the h2a lockstep version. Cluster-mesh and its selected providers use the qualified exact tuple; the Pod bridge is versioned separately.",
     "busKey": "h2a",
     "mcpToolsSurface": "38 (cf mcp-tools.json)",
     "cliVerbs": "99 (cf cli-verbs.json)"
