@@ -84,6 +84,8 @@ export type PrefixLockReason = "busy" | "dead-undecidable" | `error:${string}`;
 /** Lease on the global prefix. `token` is present only when acquired. */
 export interface PrefixLockLease {
   readonly acquired: boolean;
+  /** Fresh token check; false after release or any uncertain read. */
+  stillHeld(): boolean;
   release(): void;
   readonly reason?: PrefixLockReason;
   /** Winning token; present only when acquired. Never republished (I2). */
@@ -772,7 +774,7 @@ export function isCertainlyDead(r: LockRec): boolean {
 }
 
 function lockDenied(reason: PrefixLockReason): PrefixLockLease {
-  return { acquired: false, release: () => {}, reason };
+  return { acquired: false, stillHeld: () => false, release: () => {}, reason };
 }
 
 /** Production acquisition. Extra JavaScript arguments cannot inject dependencies. */
@@ -907,6 +909,11 @@ function retireDeadToken(
  */
 function makeLease(prefix: string, lockPath: string, token: string): PrefixLockLease {
   let done = false;
+  const stillHeld = (): boolean => {
+    if (done) return false;
+    const cur = readLockRecord(lockPath);
+    return cur !== "absent" && cur !== "corrupt" && cur.token === token;
+  };
   const release = (): void => {
     if (done) return;
     done = true;
@@ -931,7 +938,7 @@ function makeLease(prefix: string, lockPath: string, token: string): PrefixLockL
     // best-effort
   }
   collectLockDebris(prefix, lockPath, token); // holder-only GC (I5-safe)
-  return { acquired: true, release, token };
+  return { acquired: true, stillHeld, release, token };
 }
 
 /** Unlink SUCC files whose target === g (called only when LOCK != g can hold). */
