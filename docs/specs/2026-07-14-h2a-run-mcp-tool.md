@@ -1,5 +1,30 @@
 # EVOL: canonical MCP `h2a_run` for Claude and Codex
 
+## Launch response and polling
+
+`h2a_run` responds within 50 seconds (the server uses a 49-second wait budget).
+If readiness and prompt delivery are still in progress, it returns
+`{ "state": "launching", "launchId": "<name>", "retrySafe": false }`.
+The asynchronous runtime continues on the server, without blocking presence
+heartbeats or inbox notifications. The runtime still has a separate bounded
+launch deadline: 270 seconds for Codex/Muse, 180 seconds for Claude/AGY.
+
+Repeat `h2a_run` with the **same name** and valid launch arguments to read the
+current state. The server keeps a name registry for its lifetime, including
+completed or failed attempts: repeated calls never spawn another agent or deliver
+another brief, even if arguments change. A cancelled client request or closed
+transport does not cancel that server-owned launch. Polling a completed attempt
+returns its final receipt. Do not switch names after a timeout: a new name is a
+new task and may duplicate effects. After an MCP server restart, the runtime's
+existing-session refusal still prevents recreating a live same-name session;
+the in-memory polling registry belongs to the previous server process.
+
+Native agent and sidecar ownership is recorded before PTY creation, with a
+preallocated incarnation fenced to the host generation. The guard owns both
+sessions while sidecar creation/verification is in flight. Runtime death stops
+the owned incarnations and publishes a fenced cleanup receipt. Confirmed cleanup
+keeps `retrySafe:false`, since stopping cannot undo a submitted task's effects.
+
 Status: committed design for a minimal local V1.
 
 ## Intent

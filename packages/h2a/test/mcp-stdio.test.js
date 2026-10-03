@@ -10,6 +10,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PassThrough } from "node:stream";
 import test from "node:test";
+import { waitForIdentity } from "./helpers/identity-readiness.js";
 
 import {
   currentCliVersion,
@@ -168,10 +169,12 @@ test("runMcpServe: auto-upgrade cannot block initialize or reexec the live stdio
   let execveCalls = 0;
   let stdoutBuffer = "";
   let diagnostics = "";
+  let serving;
   let resolveInitialize;
   const initialized = new Promise((resolve) => {
     resolveInitialize = resolve;
   });
+  let resolveIdentityStatus;
 
   stdout.on("data", (chunk) => {
     stdoutBuffer += chunk.toString("utf8");
@@ -184,6 +187,7 @@ test("runMcpServe: auto-upgrade cannot block initialize or reexec the live stdio
         events.push(installFinished ? "initialize-after-install" : "initialize-before-install");
         resolveInitialize(response);
       }
+      if (response.id === 42) resolveIdentityStatus(response);
     }
   });
   stderr.on("data", (chunk) => {
@@ -201,7 +205,7 @@ test("runMcpServe: auto-upgrade cannot block initialize or reexec the live stdio
   delete process.env.H2A_UPGRADE_REEXECED;
 
   try {
-    const serving = runMcpServe(
+    serving = runMcpServe(
       {
         root,
         "auto-open": "true",
@@ -264,19 +268,14 @@ test("runMcpServe: auto-upgrade cannot block initialize or reexec the live stdio
     // returned. (The readiness ACK is now published only AFTER identity is bound,
     // which happens asynchronously in the identity worker, so it is polled below.)
     assert.equal(installFinished, false, "readiness and initialize must not wait for install");
-    // L2: the structured readiness ACK stays published only after identity is
-    // really bound (never at bare boot). Poll (bounded) for it instead of reading
-    // it synchronously; the nonce assertion still proves it is the correlated ACK.
-    let ack;
-    for (let i = 0; i < 200; i++) {
-      try {
-        ack = JSON.parse(readFileSync(readyFile, "utf8"));
-        break;
-      } catch {
-        await new Promise((r) => setTimeout(r, 10));
-      }
-    }
-    assert.ok(ack, "readiness ACK must be published after identity binds");
+    await waitForIdentity(async () => {
+      const answered = new Promise((resolve) => { resolveIdentityStatus = resolve; });
+      stdin.write(`${JSON.stringify({ jsonrpc: "2.0", id: 42, method: "tools/call", params: { name: "h2a_identity_status", arguments: {} } })}\n`);
+      const statusResponse = await answered;
+      assert.equal(statusResponse.error, undefined);
+      return JSON.parse(statusResponse.result.content[0].text);
+    });
+    const ack = JSON.parse(readFileSync(readyFile, "utf8"));
     assert.equal(ack.nonce, "44444444-4444-4444-8444-444444444444");
 
     // Yield to the scheduled upgrade and prove it was not accidentally
@@ -294,6 +293,8 @@ test("runMcpServe: auto-upgrade cannot block initialize or reexec the live stdio
     stdin.end();
     assert.equal(await serving, 0);
   } finally {
+    stdin.end();
+    if (serving) await serving;
     if (originalExecve) {
       Object.defineProperty(process, "execve", originalExecve);
     } else {
