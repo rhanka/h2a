@@ -78,6 +78,45 @@ function retrySafeAfterTimeout(stderr: string, launchId: string): boolean {
   return preCreation && !creationAttempted;
 }
 
+function isPreCreateNativeFailure(
+  failure: Record<string, unknown>,
+  launchId: string,
+  stderr: string,
+): boolean {
+  const host = failure.host as Record<string, unknown> | undefined;
+  const recovery = failure.recovery as Record<string, unknown> | undefined;
+  const prompt = failure.prompt as Record<string, unknown> | undefined;
+  const capability = failure.code === "native-host-capability-mismatch" && failure.phase === "host-selection" &&
+    Array.isArray(failure.missingCapabilities) && failure.missingCapabilities.length === 1 &&
+    failure.missingCapabilities[0] === "launchFence" &&
+    typeof host?.socketPath === "string" && isAbsolute(host.socketPath) &&
+    typeof host.generation === "string" && host.generation.length > 0 &&
+    typeof host.hostPid === "number" && Number.isSafeInteger(host.hostPid) && host.hostPid > 0 &&
+    recovery?.action === "select-compatible-generation" && recovery.automaticRetry === false;
+  const collision = failure.code === "native-name-collision" && failure.phase === "admission" &&
+    typeof failure.id === "string" && failure.id.length > 0 &&
+    typeof failure.socketPath === "string" && isAbsolute(failure.socketPath);
+  const unknownInventory = failure.code === "native-inventory-unknown" && failure.phase === "admission" &&
+    Array.isArray(failure.hosts) && failure.hosts.length > 0 &&
+    failure.hosts.every(value => value && typeof value.socketPath === "string" && isAbsolute(value.socketPath)) &&
+    failure.hosts.some(value => typeof value.reason === "string" && value.reason.length > 0);
+  if (!(failure.kind === "h2a.run.failure" && failure.version === 1 &&
+    failure.state === "not-started" && (capability || collision || unknownInventory) &&
+    failure.launchId === launchId &&
+    failure.creationAttempted === false && failure.retrySafe === true &&
+    prompt?.delivered !== true)) return false;
+  // A refusal before sidecar creation cannot certify the whole launch if its
+  // agent was already created. Never let a component's envelope erase that.
+  for (const line of stderr.split("\n")) {
+    if (!line.startsWith(STRUCTURED_LAUNCH_PHASE_PREFIX)) continue;
+    try {
+      const phase = JSON.parse(line.slice(STRUCTURED_LAUNCH_PHASE_PREFIX.length));
+      if (phase.launchId === launchId && phase.phase === "creation-attempted") return false;
+    } catch { return false; }
+  }
+  return true;
+}
+
 function isWithin(root: string, candidate: string): boolean {
   const rel = relative(root, candidate);
   return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
@@ -394,6 +433,7 @@ export function executeH2aRunWithSpawn(
   if (result.status !== 0) {
     try {
       const failure = JSON.parse(result.stdout ?? "") as Record<string, unknown>;
+      if (isPreCreateNativeFailure(failure, request.name, result.stderr ?? "")) return failure;
       const prompt = failure.prompt as Record<string, unknown> | undefined;
       if (failure.kind === "h2a.run.failure" && failure.version === 1 &&
           failure.state === "provider-blocked" && failure.launchId === request.name &&

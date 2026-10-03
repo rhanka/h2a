@@ -29,7 +29,7 @@
  *                                     (detach: Ctrl-\\ ; exits when session exits)
  *   host-stop                         SIGTERM the host process (sessions stop)
  */
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -37,6 +37,7 @@ import { NativeTerminalClient } from "./client.js";
 import { loadRegistry, registryEntriesForNativeTarget } from "../registry.js";
 import {
   NATIVE_TERMINAL_INTERACTIVE_READ_TIMEOUT_MS,
+  NATIVE_TERMINAL_PROTOCOL_VERSION,
   NativeTerminalRemoteError,
 } from "./protocol.js";
 import type {
@@ -44,7 +45,9 @@ import type {
   NativeTerminalSessionState,
 } from "./host.js";
 import { NativeTerminalHostSupervisor } from "./supervisor.js";
-import { defaultNativeTerminalSocketPath } from "./socket-path.js";
+import { defaultNativeTerminalSocketPath, knownNativeTerminalSocketPaths,
+  inspectPrivateNativeTerminalSocket, sameNativeTerminalSocket } from "./socket-path.js";
+import { collectNativeInventory, resolveNativeOwner, type NativeInventory } from "./fleet.js";
 import { renderTerminalScreen } from "./screen.js";
 
 const DETACH_BYTE = 0x1c; // Ctrl-\
@@ -113,10 +116,62 @@ export function closeAllNativeTerminalOpClients(): void {
   openClients.clear();
 }
 
-async function connectExisting(socketPath: string): Promise<NativeTerminalClient> {
+async function connectExisting(socketPath: string, tracked = true): Promise<NativeTerminalClient> {
+  const identity = await inspectPrivateNativeTerminalSocket(socketPath);
   const client = await NativeTerminalClient.connect(socketPath);
-  openClients.add(client);
+  if (tracked) openClients.add(client);
+  try {
+    const ping = await client.ping();
+    if (ping.protocolVersion !== NATIVE_TERMINAL_PROTOCOL_VERSION || !ping.generation?.trim() ||
+      !Number.isSafeInteger(ping.hostPid) || ping.hostPid <= 0 ||
+      !sameNativeTerminalSocket(identity, await inspectPrivateNativeTerminalSocket(socketPath))) {
+      throw new Error("native host identity changed or handshake is invalid");
+    }
+  } catch (error) { client.close(); throw error; }
   return client;
+}
+
+class NativeOwnerError extends Error {
+  constructor(readonly refusal: { code: string; id: string; reason?: string; sockets?: string[] }) {
+    super(`native session ${refusal.id}: ${refusal.code}${refusal.reason ? ` (${refusal.reason})` : ""}`);
+  }
+}
+
+async function inventoryFor(parsed: Parsed): Promise<NativeInventory> {
+  const pinned = parsed.flags.get("socket");
+  return collectNativeInventory(pinned ? [pinned] : knownNativeTerminalSocketPaths(), connectExisting);
+}
+
+async function owningClient(parsed: Parsed, id: string): Promise<{ client: NativeTerminalClient; socketPath: string }> {
+  const owner = resolveNativeOwner(id, await inventoryFor(parsed));
+  if (owner.state !== "found") throw new NativeOwnerError({ code: owner.state, id,
+    ...(owner.state === "unknown" ? { reason: owner.reason } : {}),
+    ...(owner.state === "ambiguous-owner" ? { sockets: owner.sockets } : {}) });
+  return owner;
+}
+
+async function selectLaunchClient(fenced: boolean): Promise<{ client: NativeTerminalClient; socketPath: string }> {
+  const paths = knownNativeTerminalSocketPaths();
+  const imposed = process.env["H2A_NATIVE_SOCKET"];
+  if (imposed) {
+    const client = existsSync(imposed) ? await connectExisting(imposed) : await ensureClient(imposed);
+    // An imposed endpoint can never silently redirect, even when its mate is
+    // available. Capability certification is performed by the caller.
+    return { client, socketPath: imposed };
+  }
+  const historical = paths[0]!;
+  // A cold fleet can be initialized. Once either endpoint exists, failure to
+  // observe the historical host is unknown, never permission to replace it.
+  const cold = !existsSync(dirname(historical));
+  const client = cold ? await ensureClient(historical) : await connectExisting(historical);
+  const ping = await client.ping();
+  if (!fenced || paths.length === 1) return { client, socketPath: historical };
+  const compatible = paths[1]!;
+  // Initialize the second known endpoint so admission obtains a complete
+  // inventory even when the historical host already provides the fence.
+  if (existsSync(compatible)) await connectExisting(compatible); // Never reclaim an unreachable known endpoint.
+  const second = await ensureClient(compatible);
+  return ping.launchFence === true ? { client, socketPath: historical } : { client: second, socketPath: compatible };
 }
 
 async function ensureClient(socketPath: string): Promise<NativeTerminalClient> {
@@ -236,7 +291,7 @@ function defaultAttachRuntime(socketPath: string): NativeTerminalAttachRuntime {
     // runAttach owns and closes every reconnecting client. Keeping these
     // long-lived clients in the one-shot op registry would retain each closed
     // connection until the user eventually detaches.
-    connect: () => NativeTerminalClient.connect(socketPath),
+    connect: () => connectExisting(socketPath, false),
     stdin: process.stdin,
     stdout: process.stdout,
     now: () => Date.now(),
@@ -512,34 +567,37 @@ export async function runAttach(
 
 export async function runNativeTerminalOp(argv: ReadonlyArray<string>): Promise<number> {
   const parsed = parseArgv(argv);
-  const socketPath = socketPathFromEnv();
+  const socketPath = parsed.flags.get("socket") ?? socketPathFromEnv();
 
   switch (parsed.op) {
     case "ensure-host": {
-      const client = await ensureClient(socketPath);
+      let selected: { client: NativeTerminalClient; socketPath: string };
+      try {
+        selected = parsed.flags.has("socket") ? { client: await connectExisting(socketPath), socketPath }
+          : await selectLaunchClient(parsed.flags.get("fenced") === "true");
+      } catch (error) {
+        emit({ code: "native-inventory-unknown", hosts: [{ socketPath,
+          reason: error instanceof Error ? error.message : String(error) }] });
+        return 1;
+      }
+      const { client } = selected;
       const ping = await client.ping();
       client.close();
-      emit({ hostPid: ping.hostPid, generation: ping.generation, socketPath, launchFence: ping.launchFence === true });
+      emit({ hostPid: ping.hostPid, generation: ping.generation, socketPath: selected.socketPath, launchFence: ping.launchFence === true });
       return 0;
     }
     case "list": {
-      let client: NativeTerminalClient;
-      try {
-        client = await connectExisting(socketPath);
-      } catch {
-        emit({ sessions: [] });
-        return 0;
-      }
-      const sessions = await client.list();
-      client.close();
-      emit({ sessions });
+      const inventory = await inventoryFor(parsed);
+      emit({ sessions: inventory.sessions, complete: inventory.complete,
+        hosts: inventory.hosts.map(({ socketPath, reason }) => ({ socketPath, reachable: reason === undefined, ...(reason ? { reason } : {}) })) });
       return 0;
     }
     case "state": {
-      const client = await connectExisting(socketPath);
+      const owner = await owningClient(parsed, required(parsed, "id"));
+      const { client } = owner;
       const state = await client.state(required(parsed, "id"));
       client.close();
-      emit(state);
+      emit({ ...state, socketPath: owner.socketPath });
       return 0;
     }
     case "probe": {
@@ -547,51 +605,42 @@ export async function runNativeTerminalOp(argv: ReadonlyArray<string>): Promise<
       // generic nonzero exit, so the synchronous caller never has to guess
       // whether a failure meant "no session" or "the op broke":
       //  - live:    a reachable host answered and the session is running
-      //  - dead:    POSITIVE proof — a reachable host does not know the
-      //             session, or no host is listening at all (a PTY cannot
-      //             outlive its host process — the tmux-server death rule)
-      //  - unknown: anything else; never proof of death.
+      //  - dead:    every known reachable endpoint proves absence, or the
+      //             owning endpoint reports an exited session
+      //  - unknown: an incomplete inventory without a found owner; even
+      //             ENOENT/ECONNREFUSED never certify absence across hosts.
       const id = required(parsed, "id");
-      let client: NativeTerminalClient;
-      try {
-        client = await connectExisting(socketPath);
-      } catch (error) {
-        const code = (error as NodeJS.ErrnoException).code;
-        if (code === "ECONNREFUSED" || code === "ENOENT") {
-          emit({ verdict: "dead", reason: `native host is not running (${code})` });
-        } else {
-          emit({
-            verdict: "unknown",
-            reason: error instanceof Error ? error.message : String(error),
-          });
-        }
-        return 0;
-      }
-      try {
-        const state = await client.state(id);
-        emit({
-          verdict: state.status === "running" ? "live" : "dead",
-          state,
-        });
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        // The host's own "unknown terminal session" refusal is a POSITIVE
-        // absence verdict from a reachable host; any other remote/protocol
-        // error proves nothing (fail closed on the caller side).
-        emit(
-          error instanceof NativeTerminalRemoteError &&
-            message.includes("unknown terminal session")
-            ? { verdict: "dead", reason: message }
-            : { verdict: "unknown", reason: message },
-        );
-      } finally {
-        client.close();
-      }
+      const owner = resolveNativeOwner(id, await inventoryFor(parsed));
+      if (owner.state === "found") emit({ verdict: owner.session.status === "running" ? "live" : "dead",
+        state: { ...owner.session, socketPath: owner.socketPath } });
+      else if (owner.state === "absent") emit({ verdict: "dead" });
+      else emit({ verdict: "unknown", code: owner.state,
+        ...(owner.state === "unknown" ? { reason: owner.reason } : { sockets: owner.sockets, reason: "ambiguous-owner" }) });
+      return 0;
+    }
+    case "admit": {
+      const inventory = await inventoryFor({ ...parsed, flags: new Map() });
+      const ids = [required(parsed, "id"), parsed.flags.get("sidecar")].filter((id): id is string => !!id);
+      const collision = inventory.sessions.find(session => ids.includes(session.id) &&
+        (session.status !== "exited" || session.socketPath !== parsed.flags.get("launch-socket")));
+      emit(collision ? { code: "native-name-collision", id: collision.id, socketPath: collision.socketPath }
+        : !inventory.complete ? { code: "native-inventory-unknown", hosts: inventory.hosts.map(({ socketPath, reason }) => ({ socketPath, reason })) }
+        : { admitted: true });
       return 0;
     }
     case "create": {
-      const client = await ensureClient(socketPath);
+      const client = parsed.flags.has("socket") ? await connectExisting(socketPath) : await ensureClient(socketPath);
       const id = required(parsed, "id");
+      if (parsed.flags.has("incarnation") || socketPath.endsWith("/native-terminal.lf1.sock")) {
+        if (parsed.flags.has("incarnation") && (await client.ping()).launchFence !== true) throw new Error("selected native host does not provide launchFence");
+        const inventory = await inventoryFor({ ...parsed, flags: new Map() });
+        const ids = [id, ...(parsed.flags.has("sidecar") ? [required(parsed, "sidecar")]
+          : !id.endsWith(".h2a") ? [`${id}.h2a`] : [])];
+        if (!inventory.complete || inventory.sessions.some(session => ids.includes(session.id) &&
+          (session.status !== "exited" || session.socketPath !== socketPath))) {
+          throw new Error("native creation admission changed; refusing possible name collision");
+        }
+      }
       const cwd = required(parsed, "cwd");
       const cols = Number(parsed.flags.get("cols") ?? 160);
       const rows = Number(parsed.flags.get("rows") ?? 48);
@@ -621,7 +670,8 @@ export async function runNativeTerminalOp(argv: ReadonlyArray<string>): Promise<
       return 0;
     }
     case "drive": {
-      const target = nativeDriveSessionId(required(parsed, "target"));
+      const target: NativeDriveSessionResolution = parsed.flags.has("id")
+        ? { state: "found", id: required(parsed, "id") } : nativeDriveSessionId(required(parsed, "target"));
       if (target.state === "unresolved") {
         emit({ outcome: "unresolved" });
         return 0;
@@ -640,7 +690,7 @@ export async function runNativeTerminalOp(argv: ReadonlyArray<string>): Promise<
         });
         return 0;
       }
-      const client = await connectExisting(socketPath);
+      const { client } = await owningClient(parsed, target.id);
       try {
         let lease: NativeTerminalControllerLease;
         try {
@@ -670,8 +720,8 @@ export async function runNativeTerminalOp(argv: ReadonlyArray<string>): Promise<
     }
     case "write":
     case "paste": {
-      const client = await connectExisting(socketPath);
       const id = required(parsed, "id");
+      const { client } = await owningClient(parsed, id);
       const text = Buffer.from(required(parsed, "b64"), "base64").toString("utf8");
       await withController(client, id, async (lease) => {
         if (parsed.op === "paste") {
@@ -686,7 +736,7 @@ export async function runNativeTerminalOp(argv: ReadonlyArray<string>): Promise<
       return 0;
     }
     case "enter": {
-      const client = await connectExisting(socketPath);
+      const { client } = await owningClient(parsed, required(parsed, "id"));
       await withController(client, required(parsed, "id"), (lease) =>
         client.write(lease, "\r"),
       );
@@ -695,7 +745,7 @@ export async function runNativeTerminalOp(argv: ReadonlyArray<string>): Promise<
       return 0;
     }
     case "capture": {
-      const client = await connectExisting(socketPath);
+      const { client } = await owningClient(parsed, required(parsed, "id"));
       const raw = await readAll(client, required(parsed, "id"));
       client.close();
       const budget = Number(parsed.flags.get("bytes") ?? 16384);
@@ -705,15 +755,23 @@ export async function runNativeTerminalOp(argv: ReadonlyArray<string>): Promise<
       return 0;
     }
     case "pid": {
-      const client = await connectExisting(socketPath);
+      const { client } = await owningClient(parsed, required(parsed, "id"));
       const state = await client.state(required(parsed, "id"));
       client.close();
       emit({ pid: state.pid, status: state.status });
       return 0;
     }
-    case "kill": {
-      const client = await connectExisting(socketPath);
+    case "resize": {
       const id = required(parsed, "id");
+      const { client } = await owningClient(parsed, id);
+      await withController(client, id, lease => client.resize(lease, Number(required(parsed, "cols")), Number(required(parsed, "rows"))));
+      emit({ ok: true });
+      return 0;
+    }
+    case "stop":
+    case "kill": {
+      const id = required(parsed, "id");
+      const { client } = await owningClient(parsed, id);
       const signal = parsed.flags.get("signal") ?? "SIGTERM";
       if (signal !== "SIGTERM" && signal !== "SIGKILL" && signal !== "SIGINT" && signal !== "SIGHUP") {
         throw new Error(`unsupported signal: ${signal}`);
@@ -742,9 +800,10 @@ export async function runNativeTerminalOp(argv: ReadonlyArray<string>): Promise<
       emit(after);
       return after.status === "exited" ? 0 : 1;
     }
+    case "stop-if-incarnation":
     case "kill-if-incarnation": {
-      const client = await connectExisting(socketPath);
       const id = required(parsed, "id");
+      const { client } = await owningClient(parsed, id);
       const generation = required(parsed, "generation");
       const incarnation = required(parsed, "incarnation");
       const signal = parsed.flags.get("signal") ?? "SIGTERM";
@@ -785,7 +844,11 @@ export async function runNativeTerminalOp(argv: ReadonlyArray<string>): Promise<
       return after.status === "exited" ? 0 : 1;
     }
     case "attach": {
-      return runAttach(required(parsed, "id"), defaultAttachRuntime(socketPath));
+      const id = required(parsed, "id");
+      const owner = await owningClient(parsed, id);
+      owner.client.close();
+      // Reconnects retain this owner for the entire interactive operation.
+      return runAttach(id, defaultAttachRuntime(owner.socketPath));
     }
     case "host-stop": {
       let client: NativeTerminalClient;
@@ -825,6 +888,7 @@ if (isEntryPoint()) {
         process.exitCode = code;
       },
       (error: unknown) => {
+        if (error instanceof NativeOwnerError) emit(error.refusal);
         process.stderr.write(
           `[h2a-native-op] ${error instanceof Error ? error.message : String(error)}\n`,
         );

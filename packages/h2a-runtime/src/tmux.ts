@@ -543,6 +543,8 @@ export type StartLocalResult = {
 };
 
 export type ManagedLaunchMetadata = {
+  /** Called immediately before a new-session emission, never on adoption. */
+  onCreateAttempt?: () => void;
   /** Durable class inherited by the agent's SessionStart/SessionEnd hooks. */
   sessionClass?: SessionClass;
   /** Conversation id only; never pass arbitrary CLI argv as resume metadata. */
@@ -950,6 +952,7 @@ export function startLocalSession(
     terminateOnAgentExit = false,
     refuseExisting = false,
     attachedTerminal = false,
+    onCreateAttempt,
     ...launchMetadata
   } = metadata;
   ensureScrollConfig(tmuxProfile);
@@ -1001,6 +1004,7 @@ export function startLocalSession(
         ]),
     ...args,
   ];
+  onCreateAttempt?.();
   const r = spawnSync(
     TMUX,
     [
@@ -1120,6 +1124,7 @@ export function startHeadlessSession(
   promptInput?: string,
   refuseExisting = false,
   sessionClass?: SessionClass,
+  onCreateAttempt?: () => void,
 ): StartLocalResult {
   const slug = slugify(label);
   const name = localSessionName(slug);
@@ -1146,6 +1151,7 @@ export function startHeadlessSession(
     });
   }
 
+  onCreateAttempt?.();
   const r = spawnSync(
     TMUX,
     [

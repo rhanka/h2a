@@ -39,7 +39,7 @@ describe("launch guard lifecycle", () => {
     const child = Object.assign(new EventEmitter(), { stdin: new PassThrough(), unref() {} });
     try {
       const guard = startLaunchGuard(directory, { host: "native", sessions: [
-        { name: "worker", generation: "g", incarnation: "i" },
+        { name: "worker", socketPath: "/private/owned.sock", generation: "g", incarnation: "i" },
       ] }, (() => child) as never);
       guard.complete();
       child.emit("error", new Error("late spawn error"));
@@ -52,10 +52,10 @@ describe("launch guard lifecycle", () => {
   it("should attest stopped sessions without a second failing kill", () => {
     const directory = mkdtempSync(join(tmpdir(), "launch-guard-test-"));
     const child = Object.assign(new EventEmitter(), { stdin: new PassThrough(), unref() {} });
-    probe.mockReturnValue({ state: "found", session: { generation: "g", incarnation: "i", status: "exited" } });
+    probe.mockReturnValue({ state: "found", session: { socketPath: "/private/owned.sock", generation: "g", incarnation: "i", status: "exited" } });
     try {
       const guard = startLaunchGuard(directory, { host: "native", sessions: [
-        { name: "worker", generation: "g", incarnation: "i" },
+        { name: "worker", socketPath: "/private/owned.sock", generation: "g", incarnation: "i" },
       ] }, (() => child) as never);
       expect(guard.stop()).toBe(true);
       expect(stop).not.toHaveBeenCalled();

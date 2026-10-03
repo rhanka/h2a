@@ -403,6 +403,39 @@ describe("buildStructuredSessionWindowArgs (pure)", () => {
 });
 
 describe("startLocalSession agent pane metadata", () => {
+  for (const headless of [false, true]) {
+    it(`should mark ${headless ? "headless" : "interactive"} creation at the new-session emission`, () => {
+      const events: string[] = [];
+      spawnSyncMock.mockImplementation((cmd: string, args: string[]) => {
+        if (cmd === "tmux" && args[0] === "list-sessions") return { status: 1, stdout: "" };
+        if (cmd === "tmux" && args[0] === "new-session") {
+          events.push("new-session");
+          return { status: 0, stdout: "%3\n" };
+        }
+        return { status: 0, stdout: "" };
+      });
+      const onCreateAttempt = () => { events.push("creation-attempted"); };
+      if (headless) startHeadlessSession("codex", "codex", "/tmp", [], "/tmp/result", "/tmp/output", "worker",
+        "remote", undefined, true, undefined, onCreateAttempt);
+      else startLocalSession("codex", "codex", "/tmp", [], "worker", "remote", { onCreateAttempt });
+      expect(events).toEqual(["creation-attempted", "new-session"]);
+    });
+  }
+
+  it("should not mark creation when tmux refuses an existing session", () => {
+    spawnSyncMock.mockImplementation((cmd: string, args: string[]) => {
+      if (cmd === "tmux" && args[0] === "list-sessions") return {
+        status: 0, stdout: tmuxSessionRow("h2a-worker", 0, "/tmp", "codex", "worker"),
+      };
+      return { status: 0, stdout: "" };
+    });
+    const onCreateAttempt = vi.fn();
+    expect(() => startLocalSession("codex", "codex", "/tmp", [], "worker", "remote", {
+      refuseExisting: true, onCreateAttempt,
+    })).toThrow(/already exists/);
+    expect(onCreateAttempt).not.toHaveBeenCalled();
+  });
+
   it("applies the configured managed tmux profile by default before creating a session", () => {
     tmuxProfileConfigMock.mockReturnValue({ profile: "old-pc" });
     spawnSyncMock.mockImplementation((cmd: string, args: string[]) => {
