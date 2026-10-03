@@ -51,5 +51,8 @@
   "license": "MIT",
   "description": "h2a heavy runtime (sessions / k8s / tunnel, node-pty + aws-sdk). Lazily imported by @sentropic/h2a; installed separately.",
   "main": "./dist/index.js",
-  "types": "./dist/index.d.ts"
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "node ../../scripts/clean-workspace-dist.mjs && tsc -b --force"
+  }
 }
