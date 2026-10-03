@@ -304,15 +304,15 @@ function handleMethod(
       p.arguments && typeof p.arguments === "object"
         ? (p.arguments as Record<string, unknown>)
         : {};
-    const result = server.callTool(name, args);
-    if (isMcpTransportResult(result)) return result;
-    const isError = Boolean(
-      result && typeof result === "object" && "error" in (result as object)
-    );
-    return {
-      content: [{ type: "text", text: JSON.stringify(result) }],
-      isError
+    const format = (result: unknown) => {
+      if (isMcpTransportResult(result)) return result;
+      return {
+        content: [{ type: "text", text: JSON.stringify(result) }],
+        isError: Boolean(result && typeof result === "object" && "error" in result),
+      };
     };
+    const result = server.callTool(name, args);
+    return result instanceof Promise ? result.then(format) : format(result);
   }
   // Sentinel: the caller will map this to JSON-RPC -32601.
   throw new MethodNotFoundError(method);
@@ -748,7 +748,7 @@ export function runMcpStdio(options: RunMcpStdioOptions): Promise<void> {
       options.signal.addEventListener("abort", onAbort, { once: true });
     }
 
-    rl.on("line", (line) => {
+    rl.on("line", async (line) => {
       const trimmed = line.trim();
       if (trimmed.length === 0) return;
 
@@ -804,7 +804,11 @@ export function runMcpStdio(options: RunMcpStdioOptions): Promise<void> {
             ...(requestId !== undefined ? { requestId } : {})
           });
         }
-        const result = handleMethod(server, request.method, request.params);
+        const pending = handleMethod(server, request.method, request.params);
+        const result = pending instanceof Promise ? await pending : pending;
+        // An abandoned asynchronous call still finishes server-side; its
+        // receipt stays in the name registry, without writing to a closed pipe.
+        if (pending instanceof Promise && didShutdown) return;
         if (!isNotification) {
           // L1: the SINGLE bounded writer serializes ONCE, bounds the exact UTF-8
           // bytes to the frame budget (an oversize result becomes a bounded -32010

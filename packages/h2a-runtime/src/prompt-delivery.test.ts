@@ -718,3 +718,72 @@ describe("captureTail", () => {
     expect(captureTail("a\n\nb\n\n\nc\n", 2)).toBe("b\nc");
   });
 });
+
+// Native stream captures measured on 2026-10-02, before any prompt was sent.
+describe("profile readiness", () => {
+  it("should deliver once to the compact Codex status/composer with a passive warning", () => {
+    const {deps,calls}=fakePane({screen:"GPT-6.1-Sol high · ~/src/h2a⚠1warning·f2toview\n› Explain this codebase",workCpuPerSec:1000});
+    const result=deliverInitialPrompt("codex", "write witness", deps, {profile:"codex"});
+    expect(result.state).toBe("working");
+    expect(calls.pastes).toEqual(["write witness"]);
+    expect(calls.submits).toBe(1);
+  });
+  it("should not type into a quiet Codex model loading screen", () => {
+    const {deps,calls}=fakePane({screen:COMPOSER.replace("gpt-5.6-terra xhigh", "loading"),workCpuPerSec:1000});
+    const result=deliverInitialPrompt("codex", "write witness", deps, {profile:"codex",timeoutMs:4000});
+    expect(result.state).toBe("undelivered");
+    expect(calls.pastes).toEqual([]);
+  });
+  it("should identify the compact Muse workspace trust gate without typing", () => {
+    const {deps,calls}=fakePane({screen:"Do you trust this workspace?Workspace: /repo\nTrustingallowsproject-localskills,rules,hooks,andpluginconfigtoloadbeforethemodelruns.Onlytrustthisworkspacewhenyoutrustitscontents.>1  Trust and continue2QuitUseUp/Downor1/2,thenEnter.Escquits."});
+    const result=deliverInitialPrompt("muse", "write witness", deps, {profile:"muse",timeoutMs:4000});
+    expect(result.state).toBe("host-modal");
+    expect(calls.pastes).toEqual([]);
+  });
+  it("should wait past the former 30s MCP deadline and submit only once", () => {
+    const {deps,calls}=fakePane({drawnAfterCalls:48,workCpuPerSec:1000});
+    const result=deliverInitialPrompt("codex", "write witness", deps, {profile:"codex"});
+    expect(result.state).toBe("working");
+    expect(result.waitedMs).toBeGreaterThan(30000);
+    expect(calls.pastes).toEqual(["write witness"]);
+    expect(calls.submits).toBe(1);
+  });
+});
+
+describe("ready profile CPU calibration",()=>{
+ it("should accept Muse's high idle CPU without claiming that idle is work",()=>{
+  const {deps,calls}=fakePane({screen:"❯\nmuse-spark-1.3-contributor · xhigh · ~/repo",idleCpuPerSec:600});
+  const result=deliverInitialPrompt("muse","write witness",deps,{profile:"muse",activityMs:4000});
+  expect(result.state).toBe("submitted-idle");
+  expect(calls.pastes).toEqual(["write witness"]);
+  expect(calls.submits).toBe(1);
+ });
+ it("should deliver once when a ready Muse host has busy MCP descendants",()=>{
+  const {deps,calls}=fakePane({screen:"❯\nmuse-spark-1.3-contributor · xhigh · ~/repo",idleCpuPerSec:600,workCpuPerSec:1000});
+  expect(deliverInitialPrompt("muse","write witness",deps,{profile:"muse"}).state).toBe("working");
+  expect(calls.pastes).toEqual(["write witness"]);
+  expect(calls.submits).toBe(1);
+ });
+});
+
+describe("provider rejection after delivery",()=>{
+ it("should distinguish a Muse quota refusal after one submitted prompt",()=>{
+  const {deps,calls}=fakePane({screen:"❯\nmuse-spark-1.3-contributor · xhigh · ~/repo",idleCpuPerSec:600});
+  const capture=deps.capturePane;
+  const quotaDeps={...deps,capturePane:(pane:string)=>calls.submits?"❯ write witness\n◆ Usage limit reached\nYour usage resets at Oct 4 at 8:00 PM\n❯\nmuse-spark-1.3-contributor · xhigh · ~/repo":capture(pane)};
+  expect(deliverInitialPrompt("muse","write witness",quotaDeps,{profile:"muse"}).state).toBe("provider-blocked");
+  expect(calls.pastes).toEqual(["write witness"]);
+  expect(calls.submits).toBe(1);
+ });
+});
+
+describe("readiness lost before paste",()=>{
+ it("should not paste when Codex replaces its composer with loading during the quiet sample",()=>{
+  const {deps,calls}=fakePane({workCpuPerSec:1000});
+  let captures=0;
+  const changed={...deps,capturePane:()=>++captures===1?COMPOSER:"model: loading\nStarting MCP servers\nPlease wait"};
+  expect(deliverInitialPrompt("codex","write witness",changed,{profile:"codex",timeoutMs:4000}).state).toBe("undelivered");
+  expect(calls.pastes).toEqual([]);
+  expect(calls.submits).toBe(0);
+ });
+});

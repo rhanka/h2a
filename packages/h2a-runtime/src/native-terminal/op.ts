@@ -45,6 +45,7 @@ import type {
 } from "./host.js";
 import { NativeTerminalHostSupervisor } from "./supervisor.js";
 import { defaultNativeTerminalSocketPath } from "./socket-path.js";
+import { renderTerminalScreen } from "./screen.js";
 
 const DETACH_BYTE = 0x1c; // Ctrl-\
 
@@ -518,7 +519,7 @@ export async function runNativeTerminalOp(argv: ReadonlyArray<string>): Promise<
       const client = await ensureClient(socketPath);
       const ping = await client.ping();
       client.close();
-      emit({ hostPid: ping.hostPid, generation: ping.generation, socketPath });
+      emit({ hostPid: ping.hostPid, generation: ping.generation, socketPath, launchFence: ping.launchFence === true });
       return 0;
     }
     case "list": {
@@ -604,6 +605,9 @@ export async function runNativeTerminalOp(argv: ReadonlyArray<string>): Promise<
           );
       if (parsed.command.length === 0) throw new Error("create requires -- command");
       const state = await client.create({
+        ...(parsed.flags.has("incarnation") ? { launchFence: {
+          generation: required(parsed, "generation"), incarnation: required(parsed, "incarnation"),
+        } } : {}),
         id,
         command: parsed.command[0]!,
         args: parsed.command.slice(1),
@@ -695,7 +699,9 @@ export async function runNativeTerminalOp(argv: ReadonlyArray<string>): Promise<
       const raw = await readAll(client, required(parsed, "id"));
       client.close();
       const budget = Number(parsed.flags.get("bytes") ?? 16384);
-      emit({ text: stripAnsi(raw.slice(-budget)) });
+      // Cutting/stripping the stream first loses cursor positioning, joins
+      // words and retains erased startup/modal text. Inspect the drawn screen.
+      emit({ text: (await renderTerminalScreen(raw)).slice(-budget) });
       return 0;
     }
     case "pid": {
