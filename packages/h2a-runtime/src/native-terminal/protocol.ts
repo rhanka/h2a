@@ -88,6 +88,7 @@ export type NativeTerminalResponse =
   | NativeTerminalErrorResponse;
 
 export type NativeTerminalPing = Readonly<{
+  launchFence?: boolean;
   generation: string;
   hostPid: number;
   protocolVersion: typeof NATIVE_TERMINAL_PROTOCOL_VERSION;

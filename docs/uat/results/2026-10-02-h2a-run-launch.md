@@ -33,10 +33,11 @@ launch longer than the former outer deadline, rather than a hypothetical delay.
   Codex model loading, and recheck availability immediately before paste.
 - A drawn profile composer observed across CPU sampling is readiness evidence;
   the measured idle rate remains the baseline for proving subsequent CPU work.
-- Readiness budgets: Codex/Muse 180s, Claude/AGY 90s. MCP outer budgets: 270s and
-  180s respectively, including paste, activity, RPC and cleanup time.
+- Readiness budgets: Codex/Muse 180s, Claude/AGY 90s. Runtime outer deadlines:
+  270s and 180s respectively. MCP waits at most 49s, then returns `launching`
+  while the asynchronous runtime continues; repeated names read the same launch.
 - The runtime starts an independent guard owning the created native generation
-  and incarnation (including its sidecar), or tmux pane/pid. Launcher death
+  and preallocated incarnation before creation (including its sidecar), or tmux pane/pid. Launcher death
   closes the guard pipe; it stops those owned sessions and writes an atomic
   receipt. A successful launch disarms it.
 - MCP cleanup receipts are fenced by an attempt nonce. Stopped launches retain
@@ -55,14 +56,16 @@ rtk node scripts/uat-h2a-run-launch.mjs --mcp-delay-ms=45000
 The script runs the built canonical MCP bridge/runtime against real Muse and
 Codex CLIs, owns a dedicated native host/registry/bus, creates unique witnesses,
 trusts the owned Muse worktree only for the test run, and cleans its sessions and
-host. A temporary delayed MCP server exercises startup. A third leg forces the
-outer bridge deadline to 4s, exercising cleanup rather than waiting 270s.
+host. A temporary delayed MCP server and a 55s Codex startup delay exercise the
+49s response budget and subsequent polling. The cancellation leg kills the
+runtime as soon as the receipt owns both sessions, during sidecar creation or
+verification. Its 60s deadline is only a backstop for a missing ownership boundary.
 
 Exit codes: 0 all passed; 1 launch/cancellation failure; 2 provider-blocked with
 otherwise passing legs. Provider credentials remain with their CLIs; the script
 does not read authentication files or print environment credentials.
 
-Final campaign: `tmp/launch-uat-1790980499688/results.json` (local evidence).
+Round 1 campaign: `tmp/launch-uat-1790980499688/results.json` (local evidence).
 
 | Leg | Result | Observed evidence |
 | --- | --- | --- |
@@ -74,7 +77,7 @@ All campaign hosts were stopped; their host logs contain process-group reaping
 results. These receipts attest the requested model/effort and launch behavior,
 not an independently attested effective provider identity.
 
-## Verification
+## Round 1 verification
 
 - RED: three profile readiness/modal assertions failed against the original
   implementation. A later race test failed because text was pasted after
@@ -101,3 +104,84 @@ not an independently attested effective provider identity.
   results, never reported as a successful stop. An old runtime without a guard
   receipt still returns conservative unknown; no destructive name-only fallback
   is attempted.
+
+## Round 2 corrections and evidence
+
+`origin/main` at `59ea984852e8856e3116381afffd55c1fd159f39` was merged first.
+
+1. Agent and sidecar generation/incarnation are recorded before `create`. The
+   native host checks the reserved generation and adopts the reserved incarnation.
+   Older hosts without the advertised capability are refused before creation.
+   The guard allows a bounded in-flight create op to settle before certifying absence.
+2. The MCP runtime uses asynchronous `spawn`; heartbeat/notification timers keep
+   running. Stdio and central transports await the result without blocking.
+3. The server waits at most 49s. Pending launches return
+   `{state:"launching",launchId,retrySafe:false}`. A name registry retains pending
+   and final results for the server lifetime; duplicate calls never spawn or
+   submit again. Provenance is recorded when the launch completes, including
+   after the initial response. Tool description and spec document this contract.
+4. The guard's error handler checks `completed` before cleanup.
+5. Failure paths use the guard's explicit stop/final receipt. Exited owned
+   sessions count as stopped without another kill; completed cleanup is not
+   mislabeled `cleanup-failed`. The native guard starts before creation, removing
+   the unguarded post-create attestation throw. Tmux attestation failure cleans up.
+6. `drive.functional.test.ts` is unchanged. Exact test:
+   `h2a drive native PTY backchannel > should submit a signed line to a real native PTY and defer after human activity`.
+   Signature: `AssertionError: Expected values to be strictly equal: false !== true`,
+   at line 173, the `startNativeH2aSidecar(...) === true` assertion. The fixture
+   launches a script that writes the target marker and exits, while the launcher
+   deliberately requires a running sidecar at its final probe. The assertion
+   therefore races script exit: a scheduling-dependent fixture defect, rather
+   than evidence of failed native drive delivery. The same default sidecar path
+   exists on main. Main passed eight unmodified isolated replays; a branch run
+   under additional test load reproduced the signature. No fix is included.
+
+RED evidence: agent/sidecar pre-creation ownership (2 failures), guard lifecycle
+(2 failures), guard EOF receipt fencing/completion (2 failures), reserved host
+identity (1 failure), and old-host refusal (1 failure).
+The MCP registry/async tests failed before their exports existed. Regression tests
+also advance the production timer to 49,000ms and exercise an actual subprocess
+after MCP request cancellation and transport close: one runtime, one received brief.
+
+Final UAT: `tmp/launch-uat-1790985711687/results.json`, exit **2** exclusively for
+the observed Muse provider quota; no launch or cancellation failure.
+
+| Leg | Result | Evidence |
+| --- | --- | --- |
+| Codex, gpt-6.1-sol/high, startup delayed 55s | passed | Initial `launching` at 49,052ms; ready 62,149ms; prompt observation waited 58,810ms; witness at campaign elapsed 82,201ms; receipt owns agent and sidecar. |
+| Muse | provider-blocked | Ready 4,037ms; prompt observation waited 21,013ms; response 28,359ms; quota refusal; agent and sidecar exited; cleanup receipt `stopped` owns both. |
+| Codex cancellation at sidecar ownership boundary | passed | 2,510ms; both sessions exited; no witness; fenced `stopped` receipt owns both; `retrySafe:false`. |
+
+Runtime full suite: **1,512 passed, 5 skipped, 0 failed** (1,517 total) in 103 files.
+Runtime focused suite: **149 passed, 1 skipped, 0 failed** in nine files. Baseline
+archives under `tmp/` are excluded from discovery. MCP bridge: **20/20 passed**.
+The first root Node gate hit its 600s backstop; a second run in the shared local
+configuration was stopped after identifying `loop-tick-cli` as the remaining
+blocker. That file passed **9/9 in 12.6s** with an isolated native configuration
+and socket. The final root gate uses that isolation; its exact counts follow.
+
+Two completed root campaigns exposed timing failures outside these corrections:
+
+- Default file concurrency: Node 2,406 total, 2,361 passed, 2 failed,
+  21 skipped, 22 TODO, 0 cancelled. Track 1,193/1,193 passed in 87 files.
+  `mcp-central.test.js` failed `finding-1: an in-progress reclaim lock never admits
+  a second live owner`, line 821: `contender 2 staged its exclusive publication`
+  (the 3s fixture barrier). `pty-native-messaging.test.js` failed `should round-trip
+  codex to codex through real native openpty sessions at tmux envelope parity`:
+  `codex native sidecar identity did not become observable; last=undefined`.
+- Four-CPU affinity: Node 2,406 total, 2,362 passed, 1 failed, 21 skipped,
+  22 TODO, 0 cancelled. The same central barrier failed for contender 3.
+  Track 1,193/1,193 passed. No out-of-scope fixture or timeout was modified.
+- Targeted replay of both files: 22 total, 21 passed, 1 TODO, zero failures.
+
+The final `npm test` campaign uses isolated configuration/socket plus two Node
+files concurrently, with all CPUs available. A temporary preload adjusts only
+the root runner's `--test-concurrency`; no test is filtered and no deadline is
+changed. Local log: `tmp/round2-npm-two.log`.
+
+Final root gate: **exit 0**. Node: **2,406 total, 2,363 passed, 21 skipped,
+22 TODO, 0 failed, 0 cancelled** in **264 files**, 187.328s. Track:
+**1,193/1,193 passed** in **87 files**, 4.13s. The build and all three Focus
+static checks preceding the runner also passed. Runtime Vitest remains a
+separate gate; its counts are not part of root `npm test`. MCP's 20 tests are
+already included in the root Node count.

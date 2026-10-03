@@ -1,11 +1,12 @@
 /** Independent launch owner: launcher death closes stdin, even during sync waits. */
 import { spawn, type ChildProcess } from "node:child_process";
-import { mkdirSync, renameSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createInterface } from "node:readline";
 
-import { killNativeSessionIfIncarnation } from "./native-host.js";
+import { killNativeSessionIfIncarnation, nativeSessionState } from "./native-host.js";
+import { sleepSync } from "./prompt-delivery.js";
 import { killLocalSession, localSessionPanePid } from "./tmux.js";
 
 export type LaunchOwnership =
@@ -43,22 +44,43 @@ export function cleanupLaunch(ownership: LaunchOwnership, deps: CleanupDeps): bo
 export type LaunchGuard = {
   own: (ownership: LaunchOwnership) => void;
   complete: () => void;
+  stop: () => boolean;
+};
+
+function stopOwnedNative(name: string, generation: string, incarnation: string): boolean {
+  // A create op already in flight may outlive its launcher. Its deadline is
+  // 15s; allow it to settle before certifying that a reserved session is absent.
+  const deadline = Date.now() + 16_000;
+  for (;;) {
+    const probe = nativeSessionState(name);
+    if (probe.state === "found") {
+      if (probe.session.generation !== generation || probe.session.incarnation !== incarnation) return false;
+      return probe.session.status === "exited" || killNativeSessionIfIncarnation(name, generation, incarnation);
+    }
+    if (probe.state === "unknown") return false;
+    if (Date.now() >= deadline) return true;
+    sleepSync(100);
+  }
+}
+
+const cleanupDeps: CleanupDeps = {
+  stopNative: stopOwnedNative,
+  stopTmux: (name, pane, pid) => localSessionPanePid(pane) === pid && killLocalSession(name),
 };
 
 /** Only call for a freshly created session, never an existing-name attach. */
-export function startLaunchGuard(runDir: string, ownership: LaunchOwnership): LaunchGuard {
+export function startLaunchGuard(runDir: string, ownership: LaunchOwnership, spawnGuard: typeof spawn = spawn): LaunchGuard {
   mkdirSync(runDir, { recursive: true, mode: 0o700 });
   const statusPath = join(runDir, "launch.json");
-  const child: ChildProcess = spawn(process.execPath,
+  let completed = false;
+  const child: ChildProcess = spawnGuard(process.execPath,
     [fileURLToPath(new URL("./launch-guard.js", import.meta.url)), statusPath],
     { stdio: ["pipe", "ignore", "ignore"] });
   child.unref();
   (child.stdin as NodeJS.WritableStream & { unref?: () => void }).unref?.();
   child.on("error", () => {
-    const stopped = cleanupLaunch(ownership, {
-      stopNative: killNativeSessionIfIncarnation,
-      stopTmux: (name, pane, pid) => localSessionPanePid(pane) === pid && killLocalSession(name),
-    });
+    if (completed) return;
+    const stopped = cleanupLaunch(ownership, cleanupDeps);
     writeStatus(statusPath, { state: stopped ? "stopped" : "cleanup-failed",
       token: process.env.H2A_RUN_LAUNCH_TOKEN, ownership });
   });
@@ -66,33 +88,54 @@ export function startLaunchGuard(runDir: string, ownership: LaunchOwnership): La
   // crash a successfully launched worker; its file remains the cleanup proof.
   child.stdin!.on("error", () => {});
   const own = (value: LaunchOwnership) => {
+    ownership = value;
     writeStatus(statusPath, { state: "launching",
       token: process.env.H2A_RUN_LAUNCH_TOKEN, ownership: value });
     child.stdin!.write(`${JSON.stringify({ ownership: value })}\n`);
   };
   own(ownership);
+  const finish = (state: string) => {
+    completed = true;
+    writeStatus(statusPath, { state, token: process.env.H2A_RUN_LAUNCH_TOKEN, ownership });
+    child.stdin!.end(`${JSON.stringify({ completed: true, state })}\n`);
+  };
   return {
     own,
-    complete: () => { child.stdin!.end(`${JSON.stringify({ completed: true })}\n`); },
+    complete: () => finish("started"),
+    stop: () => {
+      const stopped = cleanupLaunch(ownership, cleanupDeps);
+      finish(stopped ? "stopped" : "cleanup-failed");
+      return stopped;
+    },
   };
 }
 
 async function guard(statusPath: string): Promise<void> {
   let ownership: LaunchOwnership | undefined;
   let completed = false;
+  let finalState = "started";
   for await (const line of createInterface({ input: process.stdin })) {
-    const message = JSON.parse(line) as { ownership?: LaunchOwnership; completed?: boolean };
+    const message = JSON.parse(line) as { ownership?: LaunchOwnership; completed?: boolean; state?: string };
     if (message.ownership) ownership = message.ownership;
-    if (message.completed) completed = true;
+    if (message.completed) { completed = true; finalState = message.state ?? "started"; }
+  }
+  // The atomic receipt also covers death before the pipe write was flushed.
+  if (!completed) {
+    try {
+      const receipt = JSON.parse(readFileSync(statusPath, "utf8"));
+      if (receipt.token === process.env.H2A_RUN_LAUNCH_TOKEN) {
+        ownership = receipt.ownership;
+        if (["started", "stopped", "cleanup-failed"].includes(receipt.state)) {
+          completed = true;
+          finalState = receipt.state;
+        }
+      }
+    } catch { /* Pipe ownership remains usable. */ }
   }
   if (!ownership) return;
-  const stopped = completed ? false : cleanupLaunch(ownership, {
-    stopNative: killNativeSessionIfIncarnation,
-    stopTmux: (name, pane, pid) =>
-      localSessionPanePid(pane) === pid && killLocalSession(name),
-  });
+  const stopped = completed ? false : cleanupLaunch(ownership, cleanupDeps);
   writeStatus(statusPath, {
-    state: completed ? "started" : stopped ? "stopped" : "cleanup-failed",
+    state: completed ? finalState : stopped ? "stopped" : "cleanup-failed",
     token: process.env.H2A_RUN_LAUNCH_TOKEN,
     ownership,
   });

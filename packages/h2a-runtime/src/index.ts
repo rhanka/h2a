@@ -6515,6 +6515,10 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
                   ? { terminateOnAgentExit: true }
                   : {}),
                 ...(structuredLaunch ? { refuseExisting: true } : {}),
+                ...(structuredLaunch && initialPrompt !== undefined ? { beforeCreate: (owned: { name: string; generation: string; incarnation: string }) => {
+                  launchOwnership = { host: "native", sessions: [owned] };
+                  launchGuard = startLaunchGuard(join(cwd, ".h2a", "runs", slugify(label ?? cwd)), launchOwnership);
+                } } : {}),
                 sessionClass,
               },
             ));
@@ -6554,30 +6558,33 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             return;
           }
           if (structuredLaunch && !opts.headless && initialPrompt !== undefined) {
-            if (sessionHost === "native") {
-              const owned = nativeSessionState(name);
-              if (owned.state !== "found") throw new Error("cannot attest the created native session");
-              launchOwnership = { host: "native", sessions: [{
-                name, generation: owned.session.generation, incarnation: owned.session.incarnation,
-              }] };
-            } else {
+            if (sessionHost !== "native") {
               const ownedPid = localSessionPanePid(agentPane!);
-              if (ownedPid === undefined) throw new Error("cannot attest the created tmux pane");
+              if (ownedPid === undefined) {
+                killLocalSession(name);
+                throw new Error("cannot attest the created tmux pane");
+              }
               launchOwnership = { host: "tmux", sessions: [{ name, pane: agentPane!, pid: ownedPid }] };
+              launchGuard = startLaunchGuard(join(cwd, ".h2a", "runs", slug), launchOwnership);
             }
-            launchGuard = startLaunchGuard(join(cwd, ".h2a", "runs", slug), launchOwnership);
           }
           let h2aSidecarStarted = false;
           if (h2aSidecar && sessionHost === "native") {
             h2aSidecarStarted = startNativeH2aSidecar(name, cwd, h2a.command, {
               ...(structuredLaunch ? { verified: true } : {}),
+              ...(launchGuard && launchOwnership?.host === "native" ? { beforeCreate: (owned: { name: string; generation: string; incarnation: string }) => {
+                if (launchOwnership?.host === "native") {
+                  launchOwnership.sessions.push(owned);
+                  launchGuard!.own(launchOwnership);
+                }
+              } } : {}),
             });
             if (!h2aSidecarStarted && structuredLaunch) {
               cleanupHeadlessPromptFile(promptFile);
               // OWN-CLEANUP, deliberately NOT resolver-derived (F1 sorting):
               // this kills the session THIS command just created on the host
               // it chose; the resolver could refuse and leak the partial.
-              killNativeSessionTree(name);
+              if (launchGuard) launchGuard.stop(); else killNativeSessionTree(name);
               process.stderr.write(
                 `[h2a] required h2a sidecar failed for ${slug}; the partial session was stopped\n`,
               );
@@ -6585,13 +6592,6 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
               return;
             }
             if (h2aSidecarStarted) {
-              if (launchGuard && launchOwnership?.host === "native") {
-                const owned = nativeSessionState(`${name}.h2a`);
-                if (owned.state !== "found") throw new Error("cannot attest the created native sidecar");
-                launchOwnership.sessions.push({ name: `${name}.h2a`,
-                  generation: owned.session.generation, incarnation: owned.session.incarnation });
-                launchGuard.own(launchOwnership);
-              }
               process.stderr.write(
                 `[h2a] h2a sidecar session started for ${slug} (${h2a.command})\n`,
               );
@@ -6621,7 +6621,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
               // OWN-CLEANUP, deliberately NOT resolver-derived (F1 sorting):
               // this kills the session THIS command just created on the host
               // it chose; the resolver could refuse and leak the partial.
-              killLocalSession(name);
+              if (launchGuard) launchGuard.stop(); else killLocalSession(name);
               process.stderr.write(
                 `[h2a] required h2a sidecar failed for ${slug}; the partial session was stopped\n`,
               );
@@ -6668,7 +6668,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
               // `name`/`sessionHost` are the session and host THIS command
               // just created; re-resolving could refuse and leak the partial.
               const stopped =
-                sessionHost === "native"
+                launchGuard ? launchGuard.stop() : sessionHost === "native"
                   ? killNativeSessionTree(name)
                   : killLocalSession(name);
               const detail =
@@ -6717,7 +6717,8 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             // OWN-CLEANUP, deliberately NOT resolver-derived (F1 sorting):
             // `name`/`sessionHost` are the session and host THIS command
             // just created; re-resolving could refuse and leak the partial.
-            if (sessionHost === "native") killNativeSessionTree(name);
+            if (launchGuard) launchGuard.stop();
+            else if (sessionHost === "native") killNativeSessionTree(name);
             else killLocalSession(name);
             process.stderr.write(
               `[h2a] could not verify the agent pane pid for ${slug}; the partial session was stopped\n`,

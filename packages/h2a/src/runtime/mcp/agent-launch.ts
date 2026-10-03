@@ -1,4 +1,4 @@
-import { spawnSync } from "node:child_process";
+import { spawn, type SpawnSyncOptionsWithStringEncoding, type SpawnSyncReturns } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { appendFileSync, mkdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { isAbsolute, join, relative } from "node:path";
@@ -342,7 +342,8 @@ function contractResult(value: unknown, request: H2aRunRequest): unknown {
 
 export function executeH2aRunWithSpawn(
   request: H2aRunRequest,
-  spawn: typeof spawnSync,
+  spawn: (command: string, args: string[], options: SpawnSyncOptionsWithStringEncoding) =>
+    Pick<SpawnSyncReturns<string>, "status" | "stdout" | "stderr" | "error">,
 ): unknown {
   const invocation = buildH2aRunInvocation(request);
   const launchToken = randomUUID();
@@ -413,8 +414,103 @@ export function executeH2aRunWithSpawn(
   return contractResult(parsed, request);
 }
 
-export const executeH2aRun: H2aRunExecutor = (request) =>
-  executeH2aRunWithSpawn(request, spawnSync);
+export async function executeH2aRunWithAsyncSpawn(
+  request: H2aRunRequest,
+  spawnRuntime: typeof spawn = spawn,
+  runtimeBudgetMs = request.profile === "codex" || request.profile === "muse" ? 270_000 : 180_000,
+): Promise<Record<string, unknown>> {
+  const invocation = buildH2aRunInvocation(request);
+  const launchToken = randomUUID();
+  const result = await new Promise<{ status: number | null; stdout: string; stderr: string; timedOut: boolean }>((resolve, reject) => {
+    const child = spawnRuntime(invocation.command, invocation.args, {
+      cwd: invocation.cwd, shell: false, stdio: ["pipe", "pipe", "pipe"],
+      env: { ...process.env, H2A_RUN_LAUNCH_TOKEN: launchToken },
+    });
+    let stdout = "", stderr = "", timedOut = false, overflow = false;
+    let escalation: ReturnType<typeof setTimeout> | undefined;
+    const terminate = () => {
+      child.kill("SIGTERM");
+      escalation ??= setTimeout(() => child.kill("SIGKILL"), 5_000);
+    };
+    const timer = setTimeout(() => { timedOut = true; terminate(); }, runtimeBudgetMs);
+    const collect = (stream: "stdout" | "stderr", chunk: string) => {
+      if (stream === "stdout") stdout += chunk; else stderr += chunk;
+      if (Buffer.byteLength(stdout) + Buffer.byteLength(stderr) > 1_048_576) {
+        overflow = true;
+        terminate();
+        stdout = stdout.slice(-524_288); stderr = stderr.slice(-524_288);
+      }
+    };
+    child.stdout!.setEncoding("utf8").on("data", (data: string) => collect("stdout", data));
+    child.stderr!.setEncoding("utf8").on("data", (data: string) => collect("stderr", data));
+    child.stdin!.on("error", () => {}); // A refused runtime may close stdin first.
+    child.on("error", error => { clearTimeout(timer); clearTimeout(escalation); reject(error); });
+    child.on("close", status => {
+      clearTimeout(timer);
+      clearTimeout(escalation);
+      if (overflow) reject(new Error("h2a_run: runtime output exceeded its buffer budget"));
+      else resolve({ status, stdout, stderr, timedOut: timedOut || status === null });
+    });
+    child.stdin!.end(invocation.input);
+  });
+  if (!result.timedOut) {
+    // Share contract validation with the synchronous compatibility/test seam.
+    return executeH2aRunWithSpawn(request, () => result) as Record<string, unknown>;
+  }
+  const retrySafe = retrySafeAfterTimeout(result.stderr, request.name);
+  if (!retrySafe) {
+    const deadline = Date.now() + 30_000;
+    const path = join(request.workspace, ".h2a", "runs", request.name, "launch.json");
+    do {
+      try {
+        const receipt = JSON.parse(readFileSync(path, "utf8"));
+        if (receipt.token === launchToken && receipt.state === "stopped") {
+          return { error: "h2a_run: runtime timed out; the owned launch was stopped",
+            state: "stopped", launchId: request.name, retrySafe: false };
+        }
+        if (receipt.token === launchToken && receipt.state === "cleanup-failed") break;
+      } catch { /* The guard may not yet have published its first receipt. */ }
+      await new Promise(resolve => setTimeout(resolve, 100));
+    } while (Date.now() < deadline);
+  }
+  return { error: "h2a_run: launch status unknown after runtime timeout",
+    state: "unknown", launchId: request.name, retrySafe };
+}
+
+export const executeH2aRun: H2aRunExecutor = executeH2aRunWithAsyncSpawn;
+
+/** Server lifetime registry: a caller cancellation never owns the runtime. */
+export function createH2aRunLauncher(
+  execute: H2aRunExecutor = executeH2aRun,
+  responseBudgetMs = 49_000,
+  onCompleted?: (request: H2aRunRequest, result: Record<string, unknown>) => void,
+): H2aRunExecutor {
+  const launches = new Map<string, Record<string, unknown>>();
+  return request => {
+    const existing = launches.get(request.name);
+    if (existing) return existing;
+    const launching = { state: "launching", launchId: request.name, retrySafe: false };
+    launches.set(request.name, launching);
+    const finish = (result: unknown): Record<string, unknown> => {
+      const current = result && typeof result === "object" ? result as Record<string, unknown>
+        : { error: "h2a_run: launcher returned no structured result", state: "unknown", launchId: request.name, retrySafe: false };
+      launches.set(request.name, current);
+      onCompleted?.(request, current);
+      return current;
+    };
+    const failed = (error: unknown) => finish({ error: error instanceof Error ? error.message : String(error),
+      state: "unknown", launchId: request.name, retrySafe: false });
+    try {
+      const result = execute(request);
+      if (!(result instanceof Promise)) return finish(result);
+      const pending = result.then(finish, failed);
+      return new Promise<Record<string, unknown>>(resolve => {
+        const timer = setTimeout(() => resolve(launches.get(request.name)!), Math.min(responseBudgetMs, 49_000));
+        pending.then(value => { clearTimeout(timer); resolve(value); });
+      });
+    } catch (error) { return failed(error); }
+  };
+}
 
 /**
  * Server-owned attestation record for an MCP launch. It is written only after
@@ -461,7 +557,7 @@ export function handleH2aRun(
   workspaceRoot: string,
   execute: H2aRunExecutor = executeH2aRun,
   delegation?: H2aRunDelegation,
-): Record<string, unknown> {
+): Record<string, unknown> | Promise<Record<string, unknown>> {
   try {
     const base = validateH2aRunRequest(args, workspaceRoot);
     // Provenance comes from the local MCP server's own auto-opened session,
@@ -470,6 +566,8 @@ export function handleH2aRun(
       ? { ...base, delegation }
       : base;
     const result = execute(request);
+    if (result instanceof Promise) return result.then(value => value as Record<string, unknown>, error =>
+      ({ error: error instanceof Error ? error.message : String(error) }));
     if (!result || typeof result !== "object") {
       return { error: "h2a_run: launcher returned no structured result" };
     }
