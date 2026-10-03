@@ -234,11 +234,10 @@ vi.mock("./migrate.js", () => ({
   migrateBack,
 }));
 
-vi.mock("./llm-mesh.js", () => ({
-  readLlmMeshConfig,
+vi.mock("./gateway-host/config-file.js", () => ({ readLlmMeshConfig, writeLlmMeshConfig: vi.fn() }));
+vi.mock("./gateway-host/daemon.js", () => ({
   startGateway,
   stopGateway: vi.fn(),
-  writeLlmMeshConfig: vi.fn(),
   readGatewayPid,
   llmMeshLogPath: vi.fn(() => "llm-mesh.log"),
   acquireLlmMeshSessionEnv,

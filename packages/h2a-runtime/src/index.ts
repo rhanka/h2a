@@ -420,22 +420,26 @@ import {
   formatLlmMeshAccountError,
   formatLlmMeshAccountList,
   listAccountsViaFacade,
+  removeAccountViaFacade,
+} from "./llm-mesh-accounts.js";
+import {
   readLlmMeshConfig,
+  updateLlmMeshRoutingConfig,
+} from "./gateway-host/config-file.js";
+import {
   startGateway,
   stopGateway,
   readGatewayPid,
   llmMeshLogPath,
   replaceAnthropicGatewayEnvironment,
-  removeAccountViaFacade,
   acquireLlmMeshSessionEnv,
-  updateLlmMeshRoutingConfig,
-} from "./llm-mesh.js";
+} from "./gateway-host/daemon.js";
 import {
   describeLlmMeshRoutingConfig,
   parseLlmMeshRoutingConfig,
   preferredRoutingConfig,
   strategyRoutingConfig,
-} from "./llm-routing-config.js";
+} from "./routing-preferences.js";
 
 const KNOWN_PROFILE_HELP = `${CLI_PROFILES.join(", ")} (aliases: claude-code, antigravity, gemini-cli, mistralcli, muse-code)`;
 
@@ -10712,8 +10716,8 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
   llmMeshCommand
     .command("stop")
     .description("Stop the local LLM gateway")
-    .action(() => {
-      const res = stopGateway();
+    .action(async () => {
+      const res = await stopGateway();
       if (res.stopped) {
         process.stdout.write(`[h2a] llm-mesh: stopped (pid ${res.pid})\n`);
       } else {
@@ -10729,7 +10733,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
     .option("-v, --verbose", "verbose output")
     .action(async (opts: { verbose?: boolean }) => {
       const config = readLlmMeshConfig() ?? {};
-      const stopped = stopGateway();
+      const stopped = await stopGateway();
       if (stopped.stopped) {
         process.stdout.write(
           `[h2a] llm-mesh: stopped gateway (pid ${stopped.pid})\n`,
