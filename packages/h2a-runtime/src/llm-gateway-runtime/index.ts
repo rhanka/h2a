@@ -12,13 +12,13 @@ import {
   type RoutePlanInput,
   type RoutePlanner,
   type VerifiedRoutingSubject,
-} from "@sentropic/llm-mesh";
+} from "@sentropic/cluster-mesh/llm-mesh";
 import {
   createGatewayRouter,
   stubGatewayConfig,
   type CallerAuthPort,
   type RouteMeteringSink,
-} from "@sentropic/llm-gateway";
+} from "@sentropic/cluster-mesh/gateway";
 import { Hono } from "hono";
 import {
   createCliLlmMeshFacade,

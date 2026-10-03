@@ -2,8 +2,8 @@ import type {
   RouteDiagnostic,
   RoutePlan,
   RoutePlanInput,
-} from "@sentropic/llm-mesh";
-import type { RouteRequestSettlement } from "@sentropic/llm-gateway";
+} from "@sentropic/cluster-mesh/llm-mesh";
+import type { RouteRequestSettlement } from "@sentropic/cluster-mesh/gateway";
 import type { SessionEntry } from "./sticky.js";
 
 export type GatewaySessionState = "idle" | "active" | "rate-limited";
