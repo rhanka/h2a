@@ -19,21 +19,16 @@ Reference: `docs/specs/2026-09-26-SPEC_lot4-identity-succession-lock.md`, §3, �
 - `packages/h2a/test/succession-lock-test-seam.mjs`: test-only pre-election window.
 - `packages/h2a/test/fixtures/runtime-help-commands.json`
 - `docs/operator-identity-unlock.md`, its README link, and this plan.
-- `scripts/run-tests.mjs`: bounded file concurrency, required by the full gate.
 
 No identity-binding migration, real identity-store access, dependency/version
 change, `.track` write, PR creation, push to main, or merge.
 
-## Verification scope exception
+## Verification decision
 
-Two full campaigns on the unchanged 2e product failed the same native PTY
-identity-readiness observation; the isolated file passed 2/2. The local runner
-exposes 32 CPUs and used CPU-count-sized file concurrency while each file can
-fork MCP workers and real PTY hosts. Bound Node file concurrency to at most 8
-(and retain the smaller CPU count on small hosts), preserving every assertion,
-timeout, discovered file and test. This is the smallest direct change to the
-blocking validation infrastructure; no product behavior is changed. Rollback:
-remove the explicit concurrency argument and its import.
+h-cond requires removing the runner's eight-file concurrency limit: this
+change is outside Lot 4's scope. The runner is restored unchanged. Campaigns
+use the normal gate; every observed PTY failure must retain its exact test name
+and signature. The earlier bounded campaign below is historical evidence only.
 
 ## Delivery
 
@@ -69,7 +64,7 @@ remove the explicit concurrency argument and its import.
 - Second full campaign on unchanged product code: same single native PTY failure;
   Node 2,440 tests, 2,396 pass, 1 fail, 21 skipped, 22 TODO; Track 1,193/1,193
   pass (`tmp/2e-full-final.log`).
-- Final `npm test` with bounded runner concurrency: pass. Node: 269 files,
+- Historical `npm test` with bounded runner concurrency (limit now removed): pass. Node: 269 files,
   2,440 tests, 2,397 pass, 21 skipped, 22 TODO, 0 fail. Track: 87 files,
   1,193/1,193 pass (`tmp/2e-full-bounded.log`). Both real native PTY round trips
   pass in the full campaign, with the original assertions and timeouts.
@@ -84,5 +79,4 @@ real controller and lock protocol with a worker double; the identity binding
 writer is still the pre-migration implementation until later Lot 4 steps.
 Real macOS behavior, fleet PID isolation and multi-version transition remain
 unverified as described in spec §9. The exact scheduler condition behind the
-32-file-concurrency PTY failures was not directly measured; the bounded runner
-passes the complete gate and leaves all product timing checks intact. No real identity secrets were inspected.
+earlier PTY failures was not directly measured. No real identity secrets were inspected.
