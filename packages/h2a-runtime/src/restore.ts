@@ -495,13 +495,16 @@ export function captureHostViewSnapshot(): HostViewSnapshot {
   const tmux = listLocalSessionsWithDiagnostics();
   const native: HostViewSnapshot["native"] = (() => {
     try {
+      const sessions = listNativeSessions();
       return {
         known: true as const,
-        sessions: listNativeSessions()
+        complete: sessions.complete !== false,
+        sessions: sessions
           .filter((session) => session.status === "running")
           .map((session) => ({
             name: session.id,
             controlled: session.controlled,
+            socketPath: session.socketPath,
           })),
       };
     } catch {
@@ -529,10 +532,12 @@ export function managedLiveLookupFromSnapshot(
     if (kind === "local-native") {
       if (!view.native.known) return { state: "unknown" };
       const running = view.native.sessions;
+      if (names.some(name => running.filter(session => session.name === name).length > 1)) return { state: "unknown" };
       const hit = names.find((name) =>
         running.some((session) => session.name === name),
       );
-      return hit !== undefined ? { state: "live", name: hit } : { state: "dead" };
+      return hit !== undefined ? { state: "live", name: hit }
+        : view.native.complete === false ? { state: "unknown" } : { state: "dead" };
     }
     if (!view.tmux.known) return { state: "unknown" };
     const sessions = view.tmux.sessions;

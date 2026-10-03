@@ -6,15 +6,16 @@ import { fileURLToPath } from "node:url";
 import { createInterface } from "node:readline";
 
 import { killNativeSessionIfIncarnation, nativeSessionState } from "./native-host.js";
+import type { NativeLaunchOwnership } from "./native-host.js";
 import { sleepSync } from "./prompt-delivery.js";
 import { killLocalSession, localSessionPanePid } from "./tmux.js";
 
 export type LaunchOwnership =
-  | { host: "native"; sessions: Array<{ name: string; generation: string; incarnation: string }> }
+  | { host: "native"; sessions: Array<NativeLaunchOwnership> }
   | { host: "tmux"; sessions: Array<{ name: string; pane: string; pid: number }> };
 
 type CleanupDeps = {
-  stopNative: (name: string, generation: string, incarnation: string) => boolean;
+  stopNative: (name: string, generation: string, incarnation: string, socketPath: string) => boolean;
   stopTmux: (name: string, pane: string, pid: number) => boolean;
 };
 
@@ -30,7 +31,7 @@ export function cleanupLaunch(ownership: LaunchOwnership, deps: CleanupDeps): bo
     try {
       const ok = ownership.host === "native"
         ? deps.stopNative(session.name, (session as { generation: string }).generation,
-            (session as { incarnation: string }).incarnation)
+            (session as { incarnation: string }).incarnation, (session as NativeLaunchOwnership).socketPath)
         : deps.stopTmux(session.name, (session as { pane: string }).pane,
             (session as { pid: number }).pid);
       if (!ok) stopped = false;
@@ -47,15 +48,16 @@ export type LaunchGuard = {
   stop: () => boolean;
 };
 
-function stopOwnedNative(name: string, generation: string, incarnation: string): boolean {
+function stopOwnedNative(name: string, generation: string, incarnation: string, socketPath: string): boolean {
+  if (!socketPath) return false; // No owner reference means cleanup is unproven.
   // A create op already in flight may outlive its launcher. Its deadline is
   // 15s; allow it to settle before certifying that a reserved session is absent.
   const deadline = Date.now() + 16_000;
   for (;;) {
-    const probe = nativeSessionState(name);
+    const probe = nativeSessionState(name, socketPath);
     if (probe.state === "found") {
       if (probe.session.generation !== generation || probe.session.incarnation !== incarnation) return false;
-      return probe.session.status === "exited" || killNativeSessionIfIncarnation(name, generation, incarnation);
+      return probe.session.status === "exited" || killNativeSessionIfIncarnation(name, generation, incarnation, socketPath);
     }
     if (probe.state === "unknown") return false;
     if (Date.now() >= deadline) return true;
