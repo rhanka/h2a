@@ -7,7 +7,7 @@ const contextualRuntime: Pick<UpgradeRuntime, "acquirePrefixLock"> = {
   acquirePrefixLock(prefix, hooks) {
     hooks?.beforePublishLock?.({} as never);
     void prefix;
-    return { acquired: false, reason: "busy", release: () => {} };
+    return { acquired: false, reason: "busy", stillHeld: () => false, release: () => {} };
   }
 };
 

@@ -1,70 +1,47 @@
-# Native signed `h2a send`
+# Lot 4 — étape 2d : stillHeld
 
-## Objective
+## Objectif et base
 
-Ship the core `h2a send` contract and `h2a_send` MCP tool for patch 0.97.1,
-with authenticated local inbox delivery and native/tmux wake coverage. Do not
-bump package versions and do not merge the delivery PR.
+Branche `lot4/2d-still-held`, depuis `origin/main` à
+`dd52059c13c16a62b65b8fe9fc2736bd2b1c8b9a`.
+Référence : `docs/specs/2026-09-26-SPEC_lot4-identity-succession-lock.md`, §3, §4 et §8.
 
-## Base and ownership
+## Périmètre
 
-- Branch: `feat/h2a-send-cli`
-- Base: `origin/main`
-- `packages/h2a` owns identity, signing, resolution, store writes, CLI and MCP.
-- `packages/h2a-runtime` owns launcher defaults and tmux sidecar setup only.
-- `.track/**` remains single-writer and is forbidden in this worktree.
+- `packages/h2a/src/runtime/local-files/succession-lock.ts`
+- `packages/h2a/src/runtime/upgrade/index.ts` : bail de refus conforme au type.
+- `packages/h2a/test/succession-lock-still-held.test.js`
+- `packages/h2a/test/upgrade-runtime-hooks-compat.ts` : double de bail conforme.
+- `BRANCH.md`
 
-## Scope
+Aucune migration du binding, aucun changement du store réel, de `.track`,
+des dépendances ou des versions. Pas de PR ni de fusion.
 
-- `packages/h2a/src/**` and focused `packages/h2a/test/**` contracts.
-- `packages/h2a/skills/h2a/SKILL.md` for the public send workflow.
-- `packages/h2a-runtime/src/config.ts`, `tmux.ts`, and focused tests.
-- Packaged host/plugin configuration that renders the wake default.
-- This plan, the EVOL spec, and final review evidence.
+## Livraison
 
-## Lots
+- [x] Ajouter `stillHeld(): boolean` à tous les baux.
+- [x] Confirmer le token par lecture fraîche, sans sonde de vivacité ni écriture.
+- [x] Refuser après release, token différent, absence, corruption, legacy ou lecture incertaine.
+- [x] Préserver le LOCK gagnant lors d'une release périmée.
 
-- [x] Add the shared signed-send service and active-key verification.
-- [x] Wire the positional CLI verb, help/contract/map, and identity resolution.
-- [x] Wire trusted-signer MCP `h2a_send` and update the packaged skill.
-- [x] Switch wake defaults/setup to bounded `auto` and preserve tmux metadata.
-- [x] Add focused signing, resolution, MCP, native and real tmux tests.
-- [x] Run build, scoped tests, full suite, two-peer review, then open the PR.
+## Validation
 
-## Verification gates
+- RED : 6 tests nouveaux, 0 réussite, 6 échecs (`stillHeld` absent).
+- GREEN : 6/6 nouveaux tests réussis.
+- Ciblés : `node --test packages/h2a/test/upgrade*.test.js packages/h2a/test/succession-lock*.test.js`
+  — 124 tests, 123 réussites, 1 ignoré, 0 échec.
+- `npm run build` : réussi.
+- `npm run typecheck` : réussi.
+- `npm test` : réussi. Node : 267 fichiers, 2 430 tests,
+  2 387 réussites, 21 ignorés, 22 TODO, 0 échec.
+  Track : 87 fichiers, 1 193/1 193 tests réussis.
+- Une campagne ciblée intermédiaire a chevauché le nettoyage de dist par le build
+  de `npm test` : 1 échec de démarrage d'enfant. La campagne finale, après la
+  reconstruction, passe intégralement sans changement de code.
+- Journaux locaux : `tmp/2d-red.log`, `tmp/2d-targeted-final.log`,
+  `tmp/2d-build.log`, `tmp/2d-typecheck.log`, `tmp/2d-full.log`.
 
-- No unsigned envelope can be written through CLI or MCP send.
-- Name ambiguity and stale/private-key mismatch are refused before persistence.
-- Native and tmux chain paths are exercised by real integration tests.
-- Help, CLI manifest, MCP schema, plugin configuration, and runtime defaults
-  agree with the implementation.
-- `git diff origin/main -- package*.json` contains no version bump.
-- Final PR targets `main`, remains unmerged, and carries no AI attribution.
+## Unverified
 
-## Verification evidence
-
-- `npm ci`: pass (286 packages added; audit reported the repository's existing
-  one low-severity advisory).
-- `npm run build`: pass.
-- Focused send/wake/native/tmux and contract suites: pass.
-- `npm test`: pass on final product commit `c57f18db` — Node 2,137 tests
-  (2,099 pass, 17 skipped, 21 TODO,
-  0 fail); Track Vitest 1,193/1,193 pass.
-- `scripts/check-public-contract.sh`: pass (53 MCP tools, 99 CLI verbs,
-  core anti-cycle check).
-- `harness verify --json`: pass.
-- Version manifests and lockfile: unchanged.
-- Delivery PR: #270 against `main`, open and intentionally unmerged.
-
-## Feedback Loop
-
-- Owner: core CLI maintainers — status: deferred, non-gating. Add explicit
-  negative tests for zero/multiple ambient sender candidates when this
-  resolution policy next changes; the current branch fails closed.
-- Owner: identity maintainers — status: rejected for this Linux-local delivery.
-  `safeKeyName` is pre-existing and removes `/`, so the review found no path
-  traversal; cross-platform helper unification belongs to a separate change.
-- Owner: this branch — status: resolved. Corrected the stale `deliver-hint`
-  reason and added direct-alias plus CLI auto-detection tests in `c57f18db`.
-- Owner: this branch — status: refuted. The real PTY integration exercises
-  `mcp-serve` → `sendContext` → `h2a_send` end-to-end in both directions.
+CI distante et revue indépendante non exécutées. macOS réel, isolation PID de
+la flotte et transition multi-versions non vérifiés ; limites de §9 conservées.
