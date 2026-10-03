@@ -175,10 +175,10 @@ export interface UpgradeRuntime {
   completeRepairIfPending?(prefix: string): boolean;
   /**
    * Prefix-scoped exclusive lock (link-based succession protocol, v4).
-   * The optional `hooks` parameter is test-only (deterministic succession
-   * windows); production calls with one argument. Never reads the environment.
+   * `readFirst` can skip publication. Legacy hook arguments remain type-compatible
+   * with 0.97.x but are ignored. Never reads the environment.
    */
-  acquirePrefixLock?(prefix: string, hooks?: PrefixLockHooks): PrefixLockLease;
+  acquirePrefixLock?(prefix: string, options?: AcquirePrefixLockOptions & PrefixLockHooks): PrefixLockLease;
   /** Bounded per-attempt diagnostics file. */
   writeDiagnostics?(path: string, record: UpgradeDiagnosticsRecord): void;
 }
@@ -313,6 +313,7 @@ export {
   acquirePrefixLock
 } from "../local-files/succession-lock.js";
 export type {
+  AcquirePrefixLockOptions,
   PrefixLockReason,
   PrefixLockLease,
   PrefixLockHookContext,
@@ -332,7 +333,7 @@ import {
   readLockRecord,
   safeAtIso
 } from "../local-files/succession-lock.js";
-import type { PrefixLockHooks, PrefixLockLease } from "../local-files/succession-lock.js";
+import type { AcquirePrefixLockOptions, PrefixLockHooks, PrefixLockLease } from "../local-files/succession-lock.js";
 
 function pidFromAttemptName(name: string): number | undefined {
   const m = /^\.h2a-upgrade-(?:staging|tarball)-(\d+)-/.exec(name);
@@ -794,10 +795,9 @@ export const defaultUpgradeRuntime: UpgradeRuntime = {
       return false;
     }
   },
-  // Faithful proxy of the standalone. Production callers pass no hooks, so every
-  // hook is a no-op at zero cost; a test may inject hooks via this same argument.
-  acquirePrefixLock(prefix, hooks) {
-    return acquirePrefixLock(prefix, hooks);
+  // Forward only the production option; legacy hook values are ignored.
+  acquirePrefixLock(prefix, options) {
+    return acquirePrefixLock(prefix, { readFirst: options?.readFirst });
   },
   writeDiagnostics(path, record) {
     try {
@@ -1159,7 +1159,7 @@ export function performAutoUpgrade(
   }
 
   // Serialize concurrent installers on the global prefix. Production calls
-  // without hooks (test-only critical-section windows stay no-op, zero cost).
+  // with production acquisition controls only.
   let lock: PrefixLockLease;
   let lockThrew: unknown;
   let lockThrewFlag = false;

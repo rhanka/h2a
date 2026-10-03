@@ -90,8 +90,8 @@ export interface PrefixLockLease {
   readonly token?: string;
 }
 
-/** Observation window for one deterministic-test hook invocation. */
-export interface PrefixLockHookContext {
+/** @deprecated Compatibility type only; production never invokes test hooks. */
+export type PrefixLockHookContext = {
   readonly prefix: string;
   readonly lockPath: string;
   /** File the window is about: LOCK for publish/unlink, SUCC(t) after election. */
@@ -104,13 +104,9 @@ export interface PrefixLockHookContext {
   readonly depth: number;
 }
 
-/**
- * Critical-section hooks for deterministic tests ONLY. Passed as the 2nd
- * argument of `acquirePrefixLock(prefix, hooks)` by the test; never enabled
- * via environment or configuration (there is no env/config reader for them),
- * and production calls without hooks so every hook is a no-op at zero cost.
- */
-export interface PrefixLockHooks {
+/** @deprecated Compatibility type only; the legacy argument is ignored at runtime. */
+export type PrefixLockHooks = {
+  readonly afterReadFirst?: (ctx: PrefixLockHookContext) => void;
   /** Just BEFORE the initial publish(LOCK) (round 0) — initial race window. */
   readonly beforePublishLock?: (ctx: PrefixLockHookContext) => void;
   /** Just AFTER a publish(SUCC(t)) success, BEFORE retire — unique successor elected. */
@@ -118,6 +114,11 @@ export interface PrefixLockHooks {
   /** In retire(), around the targeted unlink(LOCK) (removal-to-republish window). */
   readonly beforeRetireUnlink?: (ctx: PrefixLockHookContext) => void;
   readonly afterRetireUnlink?: (ctx: PrefixLockHookContext) => void;
+}
+
+/** Advisory acquisition control. No identity injection or hooks in production. */
+export interface AcquirePrefixLockOptions {
+  readonly readFirst?: boolean;
 }
 
 interface LockIdent {
@@ -569,23 +570,35 @@ function parseLegacyLockHolder(raw: unknown, bytes: Buffer): LegacyLockHolder {
   };
 }
 
-/**
- * Reads a v4 record or the exact legacy locks.ts shape. The legacy token hashes
- * the raw file bytes before JSON decoding, so visually equivalent files (notably
- * with or without a trailing newline) are different observed holders.
- */
-export function readLockHolder(path: string): LockHolder | "absent" | "corrupt" {
+interface LockHolderReadError {
+  readonly kind: "io-error";
+  readonly code: string;
+}
+
+/** Advisory reader: distinguish failed reads from malformed file content. */
+function readLockHolderDetailed(path: string): LockHolder | "absent" | "corrupt" | LockHolderReadError {
+  let bytes: Buffer;
   try {
-    const bytes = readFileSync(path);
+    bytes = readFileSync(path);
+  } catch (e) {
+    return errnoOf(e) === "ENOENT" ? "absent" : { kind: "io-error", code: errnoOf(e) };
+  }
+  try {
     const parsed = JSON.parse(bytes.toString("utf8"));
     try {
       return parseLockRec(parsed);
     } catch {
       return parseLegacyLockHolder(parsed, bytes);
     }
-  } catch (e) {
-    return (e as NodeJS.ErrnoException | undefined)?.code === "ENOENT" ? "absent" : "corrupt";
+  } catch {
+    return "corrupt";
   }
+}
+
+/** Legacy tokens fingerprint the exact raw bytes; read errors remain corrupt. */
+export function readLockHolder(path: string): LockHolder | "absent" | "corrupt" {
+  const holder = readLockHolderDetailed(path);
+  return typeof holder === "object" && holder.kind === "io-error" ? "corrupt" : holder;
 }
 
 /**
@@ -758,32 +771,14 @@ export function isCertainlyDead(r: LockRec): boolean {
   return classifyLiveness(r, me()).verdict === "dead";
 }
 
-interface AcquirePrefixLockDeps {
-  /** Test-only identity seam; production always uses the memoized process identity. */
-  readonly self?: () => SelfIdent;
-}
-
 function lockDenied(reason: PrefixLockReason): PrefixLockLease {
   return { acquired: false, release: () => {}, reason };
 }
 
-function invokeLockHook(
-  fn: ((ctx: PrefixLockHookContext) => void) | undefined,
-  ctx: PrefixLockHookContext
-): void {
-  if (!fn) return;
-  try {
-    fn(ctx);
-  } catch {
-    // Observation-only: a test hook must never break the protocol.
-  }
-}
-
-/** opus `acquirePrefixLock`, plus M5 reasons and test-only critical hooks. */
+/** Production acquisition. Extra JavaScript arguments cannot inject dependencies. */
 export function acquirePrefixLock(
   prefix: string,
-  hooks: PrefixLockHooks = {},
-  deps: AcquirePrefixLockDeps = {}
+  options: AcquirePrefixLockOptions = {}
 ): PrefixLockLease {
   const lockPath = lockPathFor(prefix);
   try {
@@ -791,22 +786,33 @@ export function acquirePrefixLock(
   } catch (e) {
     return lockDenied(`error:${errnoOf(e)}`);
   }
-  const self = deps.self?.() ?? me();
+  const self = me();
   for (let round = 0; round < PREFIX_LOCK_MAX_ROUNDS; round++) {
-    if (round === 0) {
-      invokeLockHook(hooks.beforePublishLock, { prefix, lockPath, path: lockPath, round, depth: 0 });
+    if (options?.readFirst) {
+      const first = readLockHolderDetailed(lockPath);
+      // An I/O failure says nothing about presence; retain ordinary errno handling.
+      if (typeof first === "object" && first.kind === "io-error") {
+        // Fall through to ordinary publication.
+      } else if (first !== "absent") {
+        if (first === "corrupt") return lockDenied("dead-undecidable");
+        const firstLiveness = classifyLiveness(first, self).verdict;
+        if (firstLiveness !== "dead") {
+          return lockDenied(firstLiveness === "live" ? "busy" : "dead-undecidable");
+        }
+      }
+      // A preliminary death authorizes nothing: publish, then read/classify afresh.
     }
     const tok = newToken();
     const pub = publishLockRecord(lockPath, makeLockRecFor(self, tok));
     if (pub.status === "ok") return makeLease(prefix, lockPath, tok);
     if (pub.status === "error") return lockDenied(`error:${pub.code}`);
     if (pub.status === "retry") continue;
-    const cur = readLockHolder(lockPath);
+    const cur = readLockRecord(lockPath); // fresh after EEXIST; sole entry to succession
     if (cur === "absent") continue; // released meanwhile
     if (cur === "corrupt") return lockDenied("dead-undecidable"); // fail closed
-    const live = livenessOf(cur, self);
+    const live = classifyLiveness(cur, self).verdict;
     if (live !== "dead") return lockDenied(live === "live" ? "busy" : "dead-undecidable");
-    const next = succeedDeadToken(prefix, lockPath, cur.token, hooks, round, self);
+    const next = succeedDeadToken(prefix, lockPath, cur.token, self);
     if (next !== "retry") return next;
   }
   return lockDenied("busy");
@@ -821,8 +827,6 @@ function succeedDeadToken(
   prefix: string,
   lockPath: string,
   g: string,
-  hooks: PrefixLockHooks,
-  round: number,
   self: SelfIdent
 ): PrefixLockLease | "retry" {
   let t = g;
@@ -830,23 +834,14 @@ function succeedDeadToken(
     const tok = newToken();
     const pub = publishLockRecord(succPathFor(lockPath, t), makeLockRecFor(self, tok, g));
     if (pub.status === "ok") {
-      invokeLockHook(hooks.afterPublishSucc, {
-        prefix,
-        lockPath,
-        path: succPathFor(lockPath, t),
-        token: tok,
-        target: g,
-        round,
-        depth
-      });
-      return retireDeadToken(prefix, lockPath, g, hooks, round, depth, self);
+      return retireDeadToken(prefix, lockPath, g, self);
     }
     if (pub.status === "error") return lockDenied(`error:${pub.code}`);
     if (pub.status === "retry") return "retry";
     const s = readLockRecord(succPathFor(lockPath, t));
     if (s === "absent") return "retry"; // chain already settled
     if (s === "corrupt" || s.target !== g) return lockDenied("dead-undecidable");
-    const live = livenessOf(s, self);
+    const live = classifyLiveness(s, self).verdict;
     if (live !== "dead") return lockDenied(live === "live" ? "busy" : "dead-undecidable");
     t = s.token; // it died: succeed it
   }
@@ -862,22 +857,11 @@ function retireDeadToken(
   prefix: string,
   lockPath: string,
   g: string,
-  hooks: PrefixLockHooks,
-  round: number,
-  depth: number,
   self: SelfIdent
 ): PrefixLockLease | "retry" {
   const cur = readLockRecord(lockPath);
   if (cur === "corrupt") return lockDenied("dead-undecidable"); // keep our SUCC: fail closed
   if (cur !== "absent" && cur.token === g) {
-    invokeLockHook(hooks.beforeRetireUnlink, {
-      prefix,
-      lockPath,
-      path: lockPath,
-      target: g,
-      round,
-      depth
-    });
     // Lemma C (targeted removal), hardened: re-read LOCK as the LAST step before the
     // unlink and remove it ONLY while it is STILL exactly g. Successor uniqueness
     // (Lemma B) + monotonicity (I2) prove LOCK cannot legally change from g under this
@@ -901,14 +885,6 @@ function retireDeadToken(
       } catch (e) {
         unlinkCode = errnoOf(e);
       }
-      invokeLockHook(hooks.afterRetireUnlink, {
-        prefix,
-        lockPath,
-        path: lockPath,
-        target: g,
-        round,
-        depth
-      });
       // LOCK != g not established: keep our SUCC file, fail closed.
       if (unlinkCode !== undefined && unlinkCode !== "ENOENT") {
         return lockDenied(`error:${unlinkCode}`);
