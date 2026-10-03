@@ -20,7 +20,7 @@
  */
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
-import { availableParallelism, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -204,10 +204,7 @@ function vitestEntrypoint(cwd) {
 
 let exitCode = 0;
 try {
-  // These files fork MCP workers and real PTY hosts. CPU-count-sized file
-  // concurrency on large hosts can starve their bounded readiness checks.
-  const nodeConcurrency = Math.min(8, availableParallelism());
-  const nodeStatus = runSuite("Node test suite", process.execPath, ["--test", `--test-concurrency=${nodeConcurrency}`, ...nodeTestFiles], REPO_ROOT, trackFixtureEnv);
+  const nodeStatus = runSuite("Node test suite", process.execPath, ["--test", ...nodeTestFiles], REPO_ROOT, trackFixtureEnv);
   const vitestStatuses = vitestSuites.map((suite) => {
     const cwd = join(REPO_ROOT, suite.dir);
     const configArgs = suite.config === undefined ? [] : ["--config", suite.config];
