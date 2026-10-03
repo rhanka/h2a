@@ -1,7 +1,7 @@
 import type { Stats } from "node:fs";
 import { lstat } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, isAbsolute, join } from "node:path";
+import { basename, dirname, isAbsolute, join } from "node:path";
 
 export type NativeTerminalSocketIdentity = Readonly<{
   dev: number;
@@ -48,6 +48,30 @@ export function defaultNativeTerminalSocketPath(
   const socketPath = join(base, "native-terminal.sock");
   assertNativeTerminalSocketPathWithinLimit(socketPath);
   return socketPath;
+}
+
+/** Stable capability contract; the name never substitutes for a handshake. */
+export function compatibleNativeTerminalSocketPath(historical = defaultNativeTerminalSocketPath()): string {
+  const path = join(dirname(historical), "native-terminal.lf1.sock");
+  assertNativeTerminalSocketPathWithinLimit(path);
+  return path;
+}
+
+export function knownNativeTerminalSocketPaths(
+  env: Readonly<Record<string, string | undefined>> = process.env,
+): readonly string[] {
+  const explicit = env["H2A_NATIVE_SOCKET"];
+  if (explicit) {
+    // A canonical endpoint override constrains launch selection, not the
+    // ownership inventory of the two generations in that private directory.
+    if (["native-terminal.sock", "native-terminal.lf1.sock"].includes(basename(explicit))) {
+      const historical = join(dirname(explicit), "native-terminal.sock");
+      return [historical, compatibleNativeTerminalSocketPath(historical)];
+    }
+    return [explicit];
+  }
+  const historical = defaultNativeTerminalSocketPath(env);
+  return [historical, compatibleNativeTerminalSocketPath(historical)];
 }
 
 /**

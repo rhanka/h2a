@@ -63,6 +63,7 @@ export function nativeSidecarName(name: string): string {
 }
 
 export type NativeSessionState = {
+  readonly socketPath?: string;
   readonly id: string;
   readonly generation: string;
   readonly incarnation: string;
@@ -110,10 +111,10 @@ export function nativeHostAvailable():
 
 function runOp(
   args: ReadonlyArray<string>,
-  options: { allowFailure?: boolean; onCreateAttempt?: (() => void) | undefined } = {},
+  options: { allowFailure?: boolean; onCreateAttempt?: (() => void) | undefined; socketPath?: string | undefined } = {},
 ): { status: number; payload: unknown } {
   options.onCreateAttempt?.();
-  const r = spawnSync(process.execPath, [opEntryPath(), ...args], {
+  const r = spawnSync(process.execPath, [opEntryPath(), ...args, ...(options.socketPath ? ["--socket", options.socketPath] : [])], {
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
     timeout: OP_TIMEOUT_MS,
@@ -125,10 +126,6 @@ function runOp(
     );
   }
   const status = r.status ?? 1;
-  if (status !== 0 && options.allowFailure !== true) {
-    const detail = (r.stderr ?? "").trim() || (r.stdout ?? "").trim();
-    throw new Error(`native host operation ${args[0]} failed: ${detail}`);
-  }
   let payload: unknown;
   const stdout = (r.stdout ?? "").trim();
   if (stdout.length > 0) {
@@ -138,12 +135,18 @@ function runOp(
       payload = undefined;
     }
   }
+  if (status !== 0 && options.allowFailure !== true) {
+    const diagnostic = payload as ConstructorParameters<typeof NativeLaunchAdmissionError>[0] | undefined;
+    if (args[0] === "ensure-host" && diagnostic?.code === "native-inventory-unknown") throw new NativeLaunchAdmissionError(diagnostic);
+    const detail = (r.stderr ?? "").trim() || (r.stdout ?? "").trim();
+    throw new Error(`native host operation ${args[0]} failed: ${detail}`);
+  }
   return { status, payload };
 }
 
 /** Spawn-or-adopt the per-user host; returns its identity. */
-export function ensureNativeHost(): { hostPid: number; socketPath: string; generation: string; launchFence: boolean } {
-  const { payload } = runOp(["ensure-host"]);
+export function ensureNativeHost(options: { fenced?: boolean } = {}): { hostPid: number; socketPath: string; generation: string; launchFence: boolean } {
+  const { payload } = runOp(["ensure-host", ...(options.fenced ? ["--fenced", "true"] : [])]);
   const record = payload as { hostPid?: number; socketPath?: string; generation?: string; launchFence?: boolean } | undefined;
   if (!record || typeof record.hostPid !== "number" || typeof record.socketPath !== "string" || typeof record.generation !== "string") {
     throw new Error("native host did not report a valid identity");
@@ -151,7 +154,27 @@ export function ensureNativeHost(): { hostPid: number; socketPath: string; gener
   return { hostPid: record.hostPid, socketPath: record.socketPath, generation: record.generation, launchFence: record.launchFence === true };
 }
 
-export type NativeLaunchOwnership = { name: string; generation: string; incarnation: string };
+export type NativeLaunchOwnership = { name: string; generation: string; incarnation: string; socketPath: string };
+
+/** Certified pre-create refusal. It cannot erase an earlier component create. */
+export class NativeLaunchAdmissionError extends Error {
+  constructor(readonly diagnostic: { code: "native-name-collision" | "native-inventory-unknown"; id?: string; socketPath?: string; hosts?: unknown }) {
+    super(`Launch refused before creation: ${diagnostic.code}${diagnostic.id ? ` (${diagnostic.id})` : ""}. No session was created by this attempt.`);
+  }
+  toRunFailure(launchId: string) {
+    return { kind: "h2a.run.failure", version: 1, state: "not-started", launchId,
+      phase: "admission", creationAttempted: false, retrySafe: true, ...this.diagnostic };
+  }
+}
+
+function admitNativeCreation(name: string, sidecar?: string, launchSocket?: string): void {
+  const { payload } = runOp(["admit", "--id", name, ...(sidecar ? ["--sidecar", sidecar] : []),
+    ...(launchSocket ? ["--launch-socket", launchSocket] : [])]);
+  const diagnostic = payload as { admitted?: boolean; code?: "native-name-collision" | "native-inventory-unknown" } | undefined;
+  if (diagnostic?.admitted === true) return;
+  throw new NativeLaunchAdmissionError(diagnostic?.code ? diagnostic as ConstructorParameters<typeof NativeLaunchAdmissionError>[0]
+    : { code: "native-inventory-unknown" });
+}
 
 export type NativeHostCapabilityFailure = {
   kind: "h2a.run.failure";
@@ -187,19 +210,33 @@ export class NativeHostCapabilityMismatchError extends Error {
   }
 }
 
-function prepareNativeOwnership(name: string, beforeCreate?: (value: NativeLaunchOwnership) => void): string[] {
-  if (!beforeCreate) return [];
-  const { generation, launchFence, hostPid, socketPath } = ensureNativeHost();
+export function preflightNativeLaunch(name: string, sidecar = nativeSidecarName(name), ownerSocket?: string): ReturnType<typeof ensureNativeHost> {
+  const selected = ownerSocket ? runOp(["ensure-host"], { socketPath: ownerSocket }).payload as ReturnType<typeof ensureNativeHost>
+    : ensureNativeHost({ fenced: true });
+  const { launchFence, hostPid, socketPath, generation } = selected;
   if (!launchFence) throw new NativeHostCapabilityMismatchError({ generation, hostPid, socketPath });
-  const incarnation = randomUUID();
-  beforeCreate({ name, generation, incarnation });
-  return ["--generation", generation, "--incarnation", incarnation];
+  admitNativeCreation(name, sidecar, socketPath);
+  return selected;
 }
 
-export function listNativeSessions(): ReadonlyArray<NativeSessionState> {
+function prepareNativeOwnership(name: string, beforeCreate?: (value: NativeLaunchOwnership) => void, sidecar?: string, ownerSocket?: string): string[] {
+  if (!beforeCreate) return [];
+  const selected = sidecar !== undefined ? preflightNativeLaunch(name, sidecar, ownerSocket)
+    : ownerSocket ? runOp(["ensure-host"], { socketPath: ownerSocket }).payload as ReturnType<typeof ensureNativeHost>
+    : ensureNativeHost({ fenced: true });
+  const { generation, launchFence, hostPid, socketPath } = selected;
+  if (!launchFence) throw new NativeHostCapabilityMismatchError({ generation, hostPid, socketPath });
+  if (sidecar === undefined) admitNativeCreation(name, undefined, socketPath);
+  const incarnation = randomUUID();
+  beforeCreate({ name, generation, incarnation, socketPath });
+  return ["--socket", socketPath, "--generation", generation, "--incarnation", incarnation,
+    ...(sidecar ? ["--sidecar", sidecar] : [])];
+}
+
+export function listNativeSessions(): ReadonlyArray<NativeSessionState> & { readonly complete?: boolean } {
   const { payload } = runOp(["list"]);
-  const record = payload as { sessions?: ReadonlyArray<NativeSessionState> } | undefined;
-  return record?.sessions ?? [];
+  const record = payload as { sessions?: ReadonlyArray<NativeSessionState>; complete?: boolean } | undefined;
+  return Object.assign([...(record?.sessions ?? [])], { complete: record?.complete === true });
 }
 
 /**
@@ -209,22 +246,22 @@ export function listNativeSessions(): ReadonlyArray<NativeSessionState> {
  * as a death certificate. The states:
  *  - "found": a reachable host answered with the session's state;
  *  - "absent": POSITIVE proof of absence — a reachable host does not know
- *    the session, or no host is listening at all (a PTY cannot outlive its
- *    host process, the same provable-death rule as a missing tmux server);
+ *    the session across every known reachable endpoint;
  *  - "unknown": the op failed (spawn error, timeout, protocol failure) —
- *    NEVER proof of death; destructive callers must fail closed on it.
+ *    NEVER proof of death, including ENOENT/ECONNREFUSED on a known endpoint;
+ *    destructive callers must fail closed on it.
  * The classification happens IN-BAND in the `probe` op (op.ts), where the
  * error codes live — never by parsing a generic failure on this side.
  */
 export type NativeStateProbe =
   | { readonly state: "found"; readonly session: NativeSessionState }
   | { readonly state: "absent" }
-  | { readonly state: "unknown"; readonly reason: string };
+  | { readonly state: "unknown"; readonly reason: string; readonly code?: "ambiguous-owner"; readonly sockets?: readonly string[] };
 
-export function nativeSessionState(name: string): NativeStateProbe {
+export function nativeSessionState(name: string, socketPath?: string): NativeStateProbe {
   let result: { status: number; payload: unknown };
   try {
-    result = runOp(["probe", "--id", name], { allowFailure: true });
+    result = runOp(["probe", "--id", name], { allowFailure: true, socketPath });
   } catch (error) {
     // Spawn-level failure (timeout, ENOMEM, …): nothing was proven.
     return {
@@ -233,7 +270,7 @@ export function nativeSessionState(name: string): NativeStateProbe {
     };
   }
   const record = result.payload as
-    | { verdict?: string; state?: NativeSessionState; reason?: string }
+    | { verdict?: string; state?: NativeSessionState; reason?: string; code?: string; sockets?: string[] }
     | undefined;
   if (result.status !== 0 || record === undefined) {
     return { state: "unknown", reason: "native probe op returned no verdict" };
@@ -245,6 +282,8 @@ export function nativeSessionState(name: string): NativeStateProbe {
   return {
     state: "unknown",
     reason: record.reason ?? "native probe op returned no verdict",
+    ...(record.code === "ambiguous-owner" ? { code: "ambiguous-owner" as const,
+      ...(record.sockets ? { sockets: record.sockets } : {}) } : {}),
   };
 }
 
@@ -294,7 +333,7 @@ export function startNativeSession(
   const slug = slugify(label ?? cwd);
   const name = localSessionName(slug);
   const existing = nativeSessionState(name);
-  if (existing.state === "unknown") {
+  if (existing.state === "unknown" && !metadata.beforeCreate) {
     // An unprovable host state must never be read as absence: creating here
     // could fabricate a twin over a live session (fail closed).
     throw new Error(
@@ -303,6 +342,8 @@ export function startNativeSession(
   }
   if (existing.state === "found" && existing.session.status !== "exited") {
     if (metadata.refuseExisting) {
+      if (metadata.beforeCreate) throw new NativeLaunchAdmissionError({ code: "native-name-collision", id: name,
+        ...(existing.session.socketPath ? { socketPath: existing.session.socketPath } : {}) });
       throw new Error(`native session ${slug} already exists; no agent was started`);
     }
     return { name, slug, pid: existing.session.pid };
@@ -336,9 +377,10 @@ export function startNativeSession(
   const envFile = join(envDir, "env.json");
   try {
     writeFileSync(envFile, JSON.stringify(env), { mode: 0o600 });
+    const ownershipArgs = prepareNativeOwnership(name, metadata.beforeCreate, nativeSidecarName(name));
     const { payload } = runOp([
       "create",
-      ...prepareNativeOwnership(name, metadata.beforeCreate),
+      ...ownershipArgs,
       "--id",
       name,
       "--cwd",
@@ -363,26 +405,26 @@ export function startNativeSession(
 }
 
 /** sendKeysLiteral twin: raw keystrokes, no interpretation. */
-export function nativeSendKeysLiteral(name: string, text: string): boolean {
+export function nativeSendKeysLiteral(name: string, text: string, socketPath?: string): boolean {
   const { status } = runOp(
     ["write", "--id", name, "--b64", Buffer.from(text, "utf8").toString("base64")],
-    { allowFailure: true },
+    { allowFailure: true, socketPath },
   );
   return status === 0;
 }
 
 /** paste-buffer -p twin: the text lands as ONE bracketed block. */
-export function nativePasteBlock(name: string, text: string): boolean {
+export function nativePasteBlock(name: string, text: string, socketPath?: string): boolean {
   const { status } = runOp(
     ["paste", "--id", name, "--b64", Buffer.from(text, "utf8").toString("base64")],
-    { allowFailure: true },
+    { allowFailure: true, socketPath },
   );
   return status === 0;
 }
 
 /** The Enter that submits a composed block. */
-export function nativeSendEnter(name: string): boolean {
-  const { status } = runOp(["enter", "--id", name], { allowFailure: true });
+export function nativeSendEnter(name: string, socketPath?: string): boolean {
+  const { status } = runOp(["enter", "--id", name], { allowFailure: true, socketPath });
   return status === 0;
 }
 
@@ -390,10 +432,10 @@ export function nativeSendEnter(name: string): boolean {
  * capturePane twin: returns the rendered current screen, including cursor
  * positioning and erasures, just like tmux capture-pane.
  */
-export function nativeCapture(name: string, bytes = 16_384): string | undefined {
+export function nativeCapture(name: string, bytes = 16_384, socketPath?: string): string | undefined {
   const { status, payload } = runOp(
     ["capture", "--id", name, "--bytes", String(bytes)],
-    { allowFailure: true },
+    { allowFailure: true, socketPath },
   );
   if (status !== 0) return undefined;
   const record = payload as { text?: string } | undefined;
@@ -401,8 +443,8 @@ export function nativeCapture(name: string, bytes = 16_384): string | undefined 
 }
 
 /** kill-session twin: SIGTERM with SIGKILL escalation inside the op. */
-export function killNativeSession(name: string): boolean {
-  const { status } = runOp(["kill", "--id", name], { allowFailure: true });
+export function killNativeSession(name: string, socketPath?: string): boolean {
+  const { status } = runOp(["kill", "--id", name], { allowFailure: true, socketPath });
   return status === 0;
 }
 
@@ -415,6 +457,7 @@ export function killNativeSessionIfIncarnation(
   name: string,
   generation: string,
   incarnation: string,
+  socketPath?: string,
 ): boolean {
   const { status } = runOp(
     [
@@ -426,7 +469,7 @@ export function killNativeSessionIfIncarnation(
       "--incarnation",
       incarnation,
     ],
-    { allowFailure: true },
+    { allowFailure: true, socketPath },
   );
   return status === 0;
 }
@@ -472,11 +515,14 @@ export function driveNativeInstruction(
  * free because the sidecar is a window inside the killed session).
  */
 export function killNativeSessionTree(name: string): boolean {
-  const killed = killNativeSession(name);
+  const main = nativeSessionState(name);
+  if (main.state === "unknown") return false;
+  const killed = main.state === "found" && killNativeSession(name, main.session.socketPath);
   // Best-effort companion cleanup: only a POSITIVELY-found sidecar is
   // killed; absent needs nothing and unknown proves nothing to act on.
-  if (nativeSessionState(nativeSidecarName(name)).state === "found") {
-    killNativeSession(nativeSidecarName(name));
+  const sidecar = nativeSessionState(nativeSidecarName(name));
+  if (sidecar.state === "found") {
+    killNativeSession(nativeSidecarName(name), sidecar.session.socketPath);
   }
   return killed;
 }
@@ -499,11 +545,12 @@ export function startNativeHeadlessSession(
   refuseExisting = false,
   sessionClass?: SessionClass,
   onCreateAttempt?: () => void,
+  beforeCreate?: (value: NativeLaunchOwnership) => void,
 ): NativeStartResult & { promptFile?: string } {
   const slug = slugify(label);
   const name = localSessionName(slug);
   const existing = nativeSessionState(name);
-  if (existing.state === "unknown") {
+  if (existing.state === "unknown" && !beforeCreate) {
     // Same fail-closed rule as startNativeSession: an unprovable host state
     // is never permission to create a possible twin.
     throw new Error(
@@ -512,6 +559,8 @@ export function startNativeHeadlessSession(
   }
   if (existing.state === "found" && existing.session.status !== "exited") {
     if (refuseExisting) {
+      if (beforeCreate) throw new NativeLaunchAdmissionError({ code: "native-name-collision", id: name,
+        ...(existing.session.socketPath ? { socketPath: existing.session.socketPath } : {}) });
       throw new Error(`native session ${slug} already exists; no agent was started`);
     }
     return { name, slug, pid: existing.session.pid };
@@ -546,6 +595,7 @@ export function startNativeHeadlessSession(
     writeFileSync(envFile, JSON.stringify(env), { mode: 0o600 });
     const { payload } = runOp([
       "create",
+      ...prepareNativeOwnership(name, beforeCreate, nativeSidecarName(name)),
       "--id",
       name,
       "--cwd",
@@ -581,6 +631,8 @@ export function startNativeH2aSidecar(
   options: { verified?: boolean; beforeCreate?: (value: NativeLaunchOwnership) => void; onCreateAttempt?: () => void } = {},
 ): boolean {
   const sidecar = nativeSidecarName(name);
+  const parent = nativeSessionState(name);
+  const ownerSocket = parent.state === "found" ? parent.session.socketPath : undefined;
   const existing = nativeSessionState(sidecar);
   if (existing.state === "unknown") {
     // Unprovable sidecar state: report failure without creating a possible
@@ -610,7 +662,8 @@ export function startNativeH2aSidecar(
     writeFileSync(envFile, JSON.stringify(env), { mode: 0o600 });
     runOp([
       "create",
-      ...prepareNativeOwnership(sidecar, options.beforeCreate),
+      ...(options.beforeCreate ? prepareNativeOwnership(sidecar, options.beforeCreate, undefined, ownerSocket)
+        : ownerSocket ? ["--socket", ownerSocket] : []),
       "--id",
       sidecar,
       "--cwd",
@@ -655,8 +708,8 @@ export function startNativeH2aSidecar(
  * Foreground interactive attach on the CURRENT terminal (tmux attach twin).
  * Blocks until the session exits or the user detaches with Ctrl-\.
  */
-export function attachNativeSession(name: string): number {
-  const r = spawnSync(process.execPath, [opEntryPath(), "attach", "--id", name], {
+export function attachNativeSession(name: string, socketPath?: string): number {
+  const r = spawnSync(process.execPath, [opEntryPath(), "attach", "--id", name, ...(socketPath ? ["--socket", socketPath] : [])], {
     stdio: "inherit",
   });
   return r.status ?? 1;
@@ -687,12 +740,24 @@ export function nativeWorkerPid(name: string): number | undefined {
  * key given to deliverInitialPrompt must be the session NAME.
  */
 export function nativePromptDeliveryDeps(sleep: (ms: number) => void): PromptDeliveryDeps {
+  const owners = new Map<string, string>();
+  const owner = (name: string): string => {
+    const pinned = owners.get(name);
+    if (pinned) return pinned;
+    const probe = nativeSessionState(name);
+    if (probe.state !== "found" || !probe.session.socketPath) throw new Error(`native prompt owner is unproven for ${name}`);
+    owners.set(name, probe.session.socketPath);
+    return probe.session.socketPath;
+  };
   return {
-    capturePane: (name) => nativeCapture(name),
-    clearComposer: (name) => nativeClearComposer(name),
-    pasteBlock: (name, text) => nativePasteBlock(name, text),
-    submit: (name) => nativeSendEnter(name),
-    cpuMs: (name) => nativeTreeCpuMs(name),
+    capturePane: (name) => nativeCapture(name, 16_384, owner(name)),
+    clearComposer: (name) => nativeSendKeysLiteral(name, "\u0015", owner(name)),
+    pasteBlock: (name, text) => nativePasteBlock(name, text, owner(name)),
+    submit: (name) => nativeSendEnter(name, owner(name)),
+    cpuMs: (name) => {
+      const probe = nativeSessionState(name, owner(name));
+      return probe.state === "found" ? readProcessTreeCpuMs(probe.session.pid, procReaderDeps()) : undefined;
+    },
     sleep,
     now: () => Date.now(),
   };

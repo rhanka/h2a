@@ -31,6 +31,7 @@ import {
   type LegacySessionEvidence,
 } from "./restore.js";
 import { main, registryEntryForResumeTarget } from "./index.js";
+import * as tmux from "./tmux.js";
 
 const SCRATCH_ROOT = join(
   dirname(fileURLToPath(import.meta.url)),
@@ -235,6 +236,7 @@ describe("attach/stop act gating on a dead recorded-native session (CLI level)",
   let prevConfigHome: string | undefined;
   let stderrLines: string[];
   let stderrSpy: ReturnType<typeof vi.spyOn>;
+  let tmuxViewSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
     mkdirSync(SCRATCH_ROOT, { recursive: true });
@@ -249,6 +251,7 @@ describe("attach/stop act gating on a dead recorded-native session (CLI level)",
     prevConfigHome = process.env.REMOTE_CLI_CONFIG_HOME;
     process.env.REMOTE_CLI_CONFIG_HOME = scratch;
     process.exitCode = undefined;
+    tmuxViewSpy = vi.spyOn(tmux, "listLocalSessionsWithDiagnostics").mockReturnValue({ known: true, sessions: [] });
     stderrLines = [];
     stderrSpy = vi
       .spyOn(process.stderr, "write")
@@ -260,6 +263,7 @@ describe("attach/stop act gating on a dead recorded-native session (CLI level)",
 
   afterEach(() => {
     stderrSpy.mockRestore();
+    tmuxViewSpy.mockRestore();
     if (prevConfigHome === undefined) delete process.env.REMOTE_CLI_CONFIG_HOME;
     else process.env.REMOTE_CLI_CONFIG_HOME = prevConfigHome;
     process.exitCode = undefined;
@@ -271,14 +275,13 @@ describe("attach/stop act gating on a dead recorded-native session (CLI level)",
   // fleet, one `tmux list-sessions` alone can take seconds — the default 5s
   // budget flakes under suite contention, so the real-environment latency is
   // budgeted explicitly.
-  it("attach refuses the act on a dead native session instead of re-routing to tmux", { timeout: 20_000 }, async () => {
-    // The native host is not running in this environment, so the recorded
-    // native session is momentarily dead: the host stays native and the ACT
-    // is refused — no tmux attach of the same name is ever attempted.
+  it("attach refuses an unreachable native owner instead of re-routing to tmux", { timeout: 20_000 }, async () => {
+    // An unreachable endpoint cannot certify absence across generations.
+    // The recorded host stays native and attaching fails closed.
     const code = await main(["node", "h2a", "attach", SLUG]);
     expect(code).toBe(1);
     const all = stderrLines.join("");
-    expect(all).toContain(`native session ${SLUG} is not running; attach refused`);
+    expect(all).toContain(`native session ${SLUG}: host state is unknown`);
   });
 
   it("stop acts on the native host for a dead recorded-native session", { timeout: 20_000 }, async () => {
