@@ -144,10 +144,14 @@ import {
   nativeSessionState,
   nativeTreeCpuMs,
   nativeWorkerPid,
+  preflightNativeLaunch,
   resolveSessionHostKind,
   startNativeH2aSidecar,
   startNativeHeadlessSession,
   startNativeSession,
+  NativeHostCapabilityMismatchError,
+  NativeLaunchAdmissionError,
+  type NativeLaunchOwnership,
   type SessionHostKind,
 } from "./native-host.js";
 import {
@@ -6252,7 +6256,21 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           );
           return;
         }
+        // Covers the entire attempt, including an already-created agent when
+        // sidecar selection fails. Component-level refusals cannot clear it.
+        let creationAttempted = false;
+        const onCreateAttempt = (): void => {
+          creationAttempted = true;
+          if (opts.json && opts.name) {
+            process.stderr.write(`${STRUCTURED_LAUNCH_PHASE_PREFIX}${JSON.stringify({
+              launchId: opts.name, phase: "creation-attempted",
+            })}\n`);
+          }
+        };
         try {
+        if (structuredLaunch && sessionHost === "native") {
+          for (const label of labels) preflightNativeLaunch(localSessionName(slugify(label ?? cwd)));
+        }
         const reservedTmuxSlugs = tmuxAvailable()
           ? existingLocalSessionSlugs(labels, cwd)
           : [];
@@ -6412,6 +6430,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           pane?: string;
           pid?: number;
           workerPid?: number;
+          socketPath?: string;
           h2aSidecar: boolean;
           outputLog?: string;
           resultJson?: string;
@@ -6487,14 +6506,6 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           let promptDelivery: PromptDeliveryResult | undefined;
           let launchGuard: LaunchGuard | undefined;
           let launchOwnership: LaunchOwnership | undefined;
-          if (opts.json && opts.name) {
-            process.stderr.write(
-              `${STRUCTURED_LAUNCH_PHASE_PREFIX}${JSON.stringify({
-                launchId: opts.name,
-                phase: "creation-attempted",
-              })}\n`,
-            );
-          }
           if (opts.headless) {
             const runDir = join(cwd, ".h2a", "runs", label!);
             mkdirSync(runDir, { recursive: true });
@@ -6522,6 +6533,11 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
                 headlessPromptInput,
                 structuredLaunch,
                 sessionClass,
+                onCreateAttempt,
+                structuredLaunch ? (owned: NativeLaunchOwnership) => {
+                  launchOwnership = { host: "native", sessions: [owned] };
+                  launchGuard = startLaunchGuard(runDir, launchOwnership);
+                } : undefined,
               ));
             } else {
               ({ name, slug, agentPane, promptFile } = startHeadlessSession(
@@ -6536,6 +6552,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
                 headlessPromptInput,
                 structuredLaunch,
                 sessionClass,
+                onCreateAttempt,
               ));
             }
           } else if (sessionHost === "native") {
@@ -6546,12 +6563,13 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
               args,
               label,
               {
+                onCreateAttempt,
                 ...(opts.resume !== undefined ? { resumeId: opts.resume } : {}),
                 ...(initialPrompt !== undefined
                   ? { terminateOnAgentExit: true }
                   : {}),
                 ...(structuredLaunch ? { refuseExisting: true } : {}),
-                ...(structuredLaunch && initialPrompt !== undefined ? { beforeCreate: (owned: { name: string; generation: string; incarnation: string }) => {
+                ...(structuredLaunch && initialPrompt !== undefined ? { beforeCreate: (owned: NativeLaunchOwnership) => {
                   launchOwnership = { host: "native", sessions: [owned] };
                   launchGuard = startLaunchGuard(join(cwd, ".h2a", "runs", slugify(label ?? cwd)), launchOwnership);
                 } } : {}),
@@ -6567,6 +6585,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
               label,
               getTmuxProfileConfig().profile,
               {
+                onCreateAttempt,
                 ...(opts.resume !== undefined
                   ? { resumeId: opts.resume }
                   : {}),
@@ -6607,8 +6626,9 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           let h2aSidecarStarted = false;
           if (h2aSidecar && sessionHost === "native") {
             h2aSidecarStarted = startNativeH2aSidecar(name, cwd, h2a.command, {
+              onCreateAttempt,
               ...(structuredLaunch ? { verified: true } : {}),
-              ...(launchGuard && launchOwnership?.host === "native" ? { beforeCreate: (owned: { name: string; generation: string; incarnation: string }) => {
+              ...(launchGuard && launchOwnership?.host === "native" ? { beforeCreate: (owned: NativeLaunchOwnership) => {
                 if (launchOwnership?.host === "native") {
                   launchOwnership.sessions.push(owned);
                   launchGuard!.own(launchOwnership);
@@ -6779,9 +6799,12 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             gatewayMode: launchGatewayMode,
             bare: useBare,
           });
+          const nativeOwnerSocket = launchOwnership?.host === "native"
+            ? launchOwnership.sessions.find(owned => owned.name === name)?.socketPath : undefined;
           started.push({
             name,
             slug,
+            ...(nativeOwnerSocket ? { socketPath: nativeOwnerSocket } : {}),
             ...(agentPane !== undefined ? { pane: agentPane } : {}),
             h2aSidecar: h2aSidecarStarted,
             ...(pid !== undefined ? { pid } : {}),
@@ -6812,6 +6835,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
               ok: true,
               state: "started",
               session: {
+                ...(only.socketPath ? { socketPath: only.socketPath } : {}),
                 id: only.slug,
                 tmuxSession: only.name,
                 host: sessionHost === "native" ? "native" : "tmux",
@@ -6872,6 +6896,11 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             ? attachNativeSession(only.name)
             : attachLocalSession(only.name);
         return;
+        } catch (error) {
+          if (!(error instanceof NativeHostCapabilityMismatchError || error instanceof NativeLaunchAdmissionError) || creationAttempted) throw error;
+          process.stderr.write(`[h2a] ${error.message}\n`);
+          if (opts.json && opts.name) process.stdout.write(`${JSON.stringify(error.toRunFailure(opts.name))}\n`);
+          process.exitCode = 1;
         } finally {
           resumeClaim?.release();
         }
@@ -8696,6 +8725,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
                 state: "live",
                 generation: probe.session.generation,
                 incarnation: probe.session.incarnation,
+                ...(probe.session.socketPath ? { socketPath: probe.session.socketPath } : {}),
                 controlled: probe.session.controlled ?? true,
               };
             },
@@ -8707,6 +8737,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
                   candidate.name,
                   snapshot.generation,
                   snapshot.incarnation,
+                  snapshot.socketPath,
                 )
               ) {
                 throw new Error("fenced native stop failed");

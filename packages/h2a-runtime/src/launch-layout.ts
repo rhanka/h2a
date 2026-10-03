@@ -33,10 +33,12 @@ export type HostViewSnapshot = {
   readonly native:
     | {
         readonly known: true;
+        readonly complete?: boolean;
         /** RUNNING native sessions only, with the controller-visibility bit. */
         readonly sessions: ReadonlyArray<{
           readonly name: string;
           readonly controlled: boolean | undefined;
+          readonly socketPath?: string | undefined;
         }>;
       }
     | { readonly known: false };
@@ -188,6 +190,10 @@ export function launchLayout(
         ]),
       )
     : undefined;
+  const ambiguousNativeNames = new Set(hostView.native.known
+    ? hostView.native.sessions.filter((session, index, sessions) =>
+      sessions.findIndex(other => other.name === session.name) !== index).map(session => session.name)
+    : []);
   // Slug-union view for LEGACY tabs without a recorded host (scan fallback)
   // ONLY — a tab that carries its persisted hostKind + exact managed name is
   // rendered from that identity and never chooses a host from a merged slug
@@ -211,6 +217,9 @@ export function launchLayout(
     ),
   ];
   const ambiguousLiveNames = ambiguousLiveSessionNames(liveSessions);
+  for (const name of ambiguousNativeNames) {
+    if (name.startsWith("h2a-")) ambiguousLiveNames.set(name.slice(4), [name, name]);
+  }
   const skippedLive: string[] = [];
   let opened = 0;
   // A gateway override can configure a NEW process but must never replace a live
@@ -246,7 +255,12 @@ export function launchLayout(
       // managed name); this block only renders the view for THAT host.
       if (t.hostKind === "local-native") {
         const exact = t.managedName ?? `h2a-${slug}`;
-        if (nativeSessionsByName === undefined) {
+        if (ambiguousNativeNames.has(exact)) {
+          stderr.write(`[h2a] restore: ambiguous-owner for "${t.label}"; refusing attach or recreation\n`);
+          continue;
+        }
+        if (nativeSessionsByName === undefined ||
+          (hostView.native.known && hostView.native.complete === false && !nativeSessionsByName.has(exact))) {
           stderr.write(
             `[h2a] restore: native host state UNKNOWN — "${t.label}" neither relaunched nor attached (fail closed)\n`,
           );
@@ -354,7 +368,8 @@ export function launchLayout(
         skippedLive.push(t.label);
         continue;
       }
-      if (!liveSession && nativeSessionsByName === undefined) {
+      if (!liveSession && (nativeSessionsByName === undefined ||
+        (hostView.native.known && hostView.native.complete === false))) {
         // The tab would LAUNCH — but the native host state is unknown, so a
         // homonymous live native session cannot be ruled out. Fail closed.
         stderr.write(

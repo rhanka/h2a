@@ -26,6 +26,7 @@ export type ActuationTarget =
   | {
       readonly kind: "native-terminal";
       readonly sessionId: string;
+      socketPath?: string;
       readonly instance: string;
       readonly host?: string;
       readonly launchContext?: H2ALaunchContext;
@@ -73,6 +74,7 @@ export interface H2aPtyActuatorDeps {
 type NativeTerminalState = {
   readonly id?: unknown;
   readonly status?: unknown;
+  readonly socketPath?: unknown;
 };
 
 let cachedNativeTerminalOpPath: string | null | undefined;
@@ -146,10 +148,10 @@ function tmuxPane(launchContext: H2ALaunchContext): string | undefined {
     : `${tmux.session}:${tmux.window}.${tmux.pane}`;
 }
 
-function nativeTerminalSession(sessionKey: string): NativeTerminalState | undefined {
+function nativeTerminalSession(sessionKey: string): NativeTerminalState | "unknown" | undefined {
   const listed = runNativeTerminalOp(["list"]);
   const sessions = listed?.sessions;
-  if (!Array.isArray(sessions)) return undefined;
+  if (!Array.isArray(sessions)) return "unknown";
   const matches = sessions.filter(
     (session): session is NativeTerminalState =>
       !!session &&
@@ -157,7 +159,7 @@ function nativeTerminalSession(sessionKey: string): NativeTerminalState | undefi
       !Array.isArray(session) &&
       (session as NativeTerminalState).id === sessionKey
   );
-  return matches.length === 1 ? matches[0] : undefined;
+  return matches.length === 1 ? matches[0] : matches.length > 1 || listed?.complete !== true ? "unknown" : undefined;
 }
 
 /**
@@ -205,10 +207,12 @@ export function resolveActuationTarget(
     }
   }
 
-  if (nativeTerminalSession(sessionKey) !== undefined) {
+  const nativeSession = nativeTerminalSession(sessionKey);
+  if (nativeSession !== undefined && nativeSession !== "unknown") {
     return {
       kind: "native-terminal",
       sessionId: sessionKey,
+      ...(typeof nativeSession.socketPath === "string" ? { socketPath: nativeSession.socketPath } : {}),
       instance: current?.instance ?? sessionKey,
       ...(current?.host !== undefined ? { host: current.host } : {}),
       ...(current?.launchContext !== undefined
@@ -217,13 +221,15 @@ export function resolveActuationTarget(
     };
   }
 
-  if (current !== undefined) {
+  if (current !== undefined || nativeSession === "unknown") {
     return {
       kind: "opaque",
       handle: sessionKey,
-      instance: current.instance,
-      ...(current.host !== undefined ? { host: current.host } : {}),
-      ...(current.launchContext !== undefined
+      instance: current?.instance ?? sessionKey,
+      ...(current?.host !== undefined ? { host: current.host } : {}),
+      // An unproven native owner must not carry a relaunch command through
+      // the opaque fallback: that could create a duplicate before probing.
+      ...(current?.launchContext !== undefined && nativeSession !== "unknown"
         ? { launchContext: current.launchContext }
         : {})
     };
@@ -267,10 +273,13 @@ export async function probeAliveness(target: ActuationTarget): Promise<H2aTarget
       return probeTmux(target, defaultRelauncherRuntime);
     }
     case "native-terminal": {
-      const state = runNativeTerminalOp(["state", "--id", target.sessionId]);
+      // Resolve once, then keep the owner's socket through probe and write.
+      const probe = runNativeTerminalOp(["probe", "--id", target.sessionId,
+        ...(target.socketPath ? ["--socket", target.socketPath] : [])]);
+      const state = probe?.state as NativeTerminalState | undefined;
+      if (!target.socketPath && typeof state?.socketPath === "string") target.socketPath = state.socketPath;
       const known = nativeState(state?.status);
       if (known !== undefined) return known;
-      const probe = runNativeTerminalOp(["probe", "--id", target.sessionId]);
       if (probe?.verdict === "dead") return "dead";
       if (probe?.verdict === "live") return "alive";
       return "unknown";
@@ -291,6 +300,8 @@ async function defaultDriver(target: ActuationTarget): Promise<H2ADriver> {
         "drive",
         "--target",
         request.to,
+        "--id", target.sessionId,
+        ...(target.socketPath ? ["--socket", target.socketPath] : []),
         "--b64",
         Buffer.from(request.instructionLine, "utf8").toString("base64")
       ]);
