@@ -168,6 +168,7 @@ try {
     ...(raceIndex === undefined || exclusiveRaceDirectory === "" ? {} : {
       beforeExclusiveMarkerPublish: async () => {
         writeFileSync(join(exclusiveRaceDirectory, "ready-" + raceIndex), "ready\\n", { flag: "wx" });
+        process.stdout.write(JSON.stringify({ kind: "staged" }) + "\\n");
         await waitForRaceFile(join(exclusiveRaceDirectory, "go-" + raceIndex));
       }
     })
@@ -210,6 +211,7 @@ function launchCentralProcess({
     }
   );
   let output = "";
+  const staged = deferred();
   let resultSettled = false;
   let readySettled = false;
   let resolveReady;
@@ -234,6 +236,8 @@ function launchCentralProcess({
               readySettled = true;
               resolveReady();
             }
+          } else if (message.kind === "staged") {
+            staged.resolve();
           } else if (!resultSettled) {
             resultSettled = true;
             resolve(message);
@@ -260,6 +264,7 @@ function launchCentralProcess({
   return {
     child,
     ready,
+    staged: staged.promise,
     result,
     release() {
       child.kill("SIGUSR2");
@@ -823,8 +828,14 @@ test("finding-1: an in-progress reclaim lock never admits a second live owner", 
       // phase only after the child has loaded the server and installed its gate.
       await launchers[index].ready;
       launchers[index].release();
+      // Observe publication itself: loading the process is not evidence that
+      // its exclusive payload has been staged. Early result/exit must fail.
+      await Promise.race([
+        launchers[index].staged,
+        launchers[index].result.then((outcome) => assert.fail(`contender ${index} returned before staging: ${JSON.stringify(outcome)}`))
+      ]);
       assert.equal(
-        await waitForFiles([join(exclusiveRaceDirectory, `ready-${index}`)], 3_000),
+        existsSync(join(exclusiveRaceDirectory, `ready-${index}`)),
         true,
         `contender ${index} staged its exclusive publication`
       );
