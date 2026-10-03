@@ -38,7 +38,7 @@ vi.mock("../llm-mesh-accounts.js", async (importOriginal) => {
   };
 });
 
-import { createLocalGatewayApp } from "./host.js";
+import { createLocalGatewayApp, LEGACY_PORTS_INERT } from "./host.js";
 import { resetSessionLedger } from "./ledger.js";
 import { resetSessions } from "./sessions.js";
 
@@ -202,10 +202,27 @@ beforeEach(() => {
   vi.stubEnv("H2A_LLM_MESH_OWNER_SCOPE", "cli:test-owner");
   resetSessions();
   resetSessionLedger();
+  // Successful planner-dispatched tool calls must never enter legacy ports (U3).
+  for (const [port, method] of [
+    [LEGACY_PORTS_INERT.pool, "listEligibleAccounts"],
+    [LEGACY_PORTS_INERT.pool, "select"],
+    [LEGACY_PORTS_INERT.pool, "snapshotModels"],
+    [LEGACY_PORTS_INERT.authResolver, "resolve"],
+    [LEGACY_PORTS_INERT.dispatch, "dispatch"],
+    [LEGACY_PORTS_INERT.dispatch, "dispatchStream"],
+  ] as const) {
+    vi.spyOn(port as Record<string, () => never>, method).mockImplementation(() => {
+      throw new Error("Legacy port reached on the routed tool path (pending upstream U3)");
+    });
+  }
 });
 
 afterEach(() => {
   plannerState.current = undefined;
+  for (const port of [LEGACY_PORTS_INERT.pool, LEGACY_PORTS_INERT.authResolver, LEGACY_PORTS_INERT.dispatch]) {
+    for (const spy of Object.values(port)) expect(spy).not.toHaveBeenCalled();
+  }
+  vi.restoreAllMocks();
   vi.unstubAllEnvs();
 });
 
