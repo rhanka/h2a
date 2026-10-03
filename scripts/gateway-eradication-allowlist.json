@@ -1,35 +1,5 @@
 [
   {
-    "file": "apps/llm-gateway/src/index.ts",
-    "specifier": "@sentropic/llm-gateway",
-    "classification": "historical",
-    "reason": "Current historical reference; remove in the scoped eradication lots."
-  },
-  {
-    "file": "apps/llm-gateway/src/index.ts",
-    "specifier": "@sentropic/llm-mesh",
-    "classification": "historical",
-    "reason": "Current historical reference; remove in the scoped eradication lots."
-  },
-  {
-    "file": "apps/llm-gateway/src/index.ts",
-    "specifier": "@sentropic/llm-mesh/facade",
-    "classification": "historical",
-    "reason": "Current historical reference; remove in the scoped eradication lots."
-  },
-  {
-    "file": "apps/llm-gateway/src/session-ledger.ts",
-    "specifier": "@sentropic/llm-gateway",
-    "classification": "historical",
-    "reason": "Current historical reference; remove in the scoped eradication lots."
-  },
-  {
-    "file": "apps/llm-gateway/src/session-ledger.ts",
-    "specifier": "@sentropic/llm-mesh",
-    "classification": "historical",
-    "reason": "Current historical reference; remove in the scoped eradication lots."
-  },
-  {
     "file": "packages/h2a-runtime/src/config.ts",
     "specifier": "llm-mesh.ts",
     "classification": "historical",
