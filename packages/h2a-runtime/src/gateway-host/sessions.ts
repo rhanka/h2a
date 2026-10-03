@@ -1,3 +1,4 @@
+// Retained h2a adapter — owner decision 2026-10-03 (sessions h2a kept until convergence with sentropic workspace/session notions)
 import { randomBytes } from "node:crypto";
 
 /**
@@ -81,6 +82,11 @@ export function lookupSessionById(sessionId: string): SessionEntry | undefined {
 
 export function sessionCount(): number {
   return sessionsByToken.size;
+}
+
+/** Public registry view for sessions that have not acquired a route yet. */
+export function listPublicSessions(): Omit<SessionEntry, "gatewayToken">[] {
+  return [...sessionsByToken.values()].map(({ gatewayToken: _bearer, ...session }) => session);
 }
 
 export function resetSessions(): void {

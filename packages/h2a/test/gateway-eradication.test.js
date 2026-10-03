@@ -9,7 +9,7 @@ const root = fileURLToPath(new URL("../../../", import.meta.url));
 test("gateway eradication ratchet rejects new violations and obsolete allowances", () => {
   const allowlist = JSON.parse(readFileSync(new URL("../../../scripts/gateway-eradication-allowlist.json", import.meta.url), "utf8"));
   for (const entry of allowlist) {
-    assert.ok(["historical", "negative-assertion"].includes(entry.classification), JSON.stringify(entry));
+    assert.ok(["negative-assertion", "retained-h2a-adapter"].includes(entry.classification), JSON.stringify(entry));
     assert.ok(entry.reason?.length > 0, JSON.stringify(entry));
   }
   assert.equal(new Set(allowlist.map(({ file, specifier }) => JSON.stringify([file, specifier]))).size, allowlist.length);
@@ -47,4 +47,8 @@ test("ratchet requires shrinking and refuses unclassified additions", () => {
   assert.deepEqual(compareAllowlist([entry], []), { unexpected: [entry], stale: [] });
   assert.deepEqual(compareAllowlist([], [entry]), { unexpected: [], stale: [entry] });
   assert.deepEqual(compareAllowlist([entry], [entry]), { unexpected: [], stale: [] });
+});
+
+test("public config filenames are not mistaken for historical JS modules", () => {
+  assert.deepEqual(scanSource("fixture.ts", 'readFile("llm-mesh.json");'), []);
 });
