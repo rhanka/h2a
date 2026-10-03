@@ -11,7 +11,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { createLocalStore, runCli } from "@sentropic/h2a";
 
 import { enroll } from "../registry.js";
-import { startNativeH2aSidecar } from "../native-host.js";
+import { nativeSidecarName, startNativeH2aSidecar } from "../native-host.js";
 import { NativeTerminalClient } from "./client.js";
 import { NativeTerminalHostSupervisor, type NativeTerminalHostSpawn } from "./supervisor.js";
 
@@ -84,6 +84,9 @@ function registerDrivePair(root: string, publicKeyPem: string): void {
 }
 
 describe.skipIf(process.platform !== "linux")("h2a drive native PTY backchannel", () => {
+  // The complete real-PTY scenario measured 5.27–9.32s on Node 22 with four
+  // CPU workers sharing two cores. Bound the whole scenario separately from
+  // readiness polling and the human-activity window, which keep their bounds.
   it("should submit a signed line to a real native PTY and defer after human activity", async () => {
     const directory = await mkdtemp(join(tmpdir(), "h2a-native-drive-functional-"));
     directories.add(directory);
@@ -127,9 +130,16 @@ describe.skipIf(process.platform !== "linux")("h2a drive native PTY backchannel"
       generationFactory: () => "native-drive-functional",
       spawnHost,
     });
+    let stopSidecar: (() => Promise<void>) | undefined;
 
     try {
       const client = await supervisor.client();
+      stopSidecar = async () => {
+        const sidecar = (await client.list()).find((session) => session.id === nativeSidecarName(sessionId));
+        if (sidecar?.status === "running") {
+          await client.stopIfIncarnation(sidecar.id, sidecar.generation, sidecar.incarnation, "SIGKILL");
+        }
+      };
       await client.create({
         id: sessionId,
         command: "/bin/sh",
@@ -168,7 +178,10 @@ describe.skipIf(process.platform !== "linux")("h2a drive native PTY backchannel"
       await writeFile(
         markerScript,
         "import { writeFileSync } from 'node:fs';\n" +
-          "writeFileSync(process.argv[2], process.env.H2A_NATIVE_TARGET_SESSION ?? '');\n",
+          "writeFileSync(process.argv[2], process.env.H2A_NATIVE_TARGET_SESSION ?? '');\n" +
+          // Model a long-lived MCP sidecar: publishing its target must not
+          // terminate it before the launcher's running-state probe.
+          "setInterval(() => {}, 1000);\n",
       );
       assert.equal(
         startNativeH2aSidecar(
@@ -185,6 +198,7 @@ describe.skipIf(process.platform !== "linux")("h2a drive native PTY backchannel"
         ),
         sessionId,
       );
+      assert.equal((await client.state(nativeSidecarName(sessionId))).status, "running");
       const keys = generateKeyPairSync("ed25519");
       const privateKeyPem = keys.privateKey.export({ format: "pem", type: "pkcs8" }).toString();
       const publicKeyPem = keys.publicKey.export({ format: "pem", type: "spki" }).toString();
@@ -299,13 +313,17 @@ describe.skipIf(process.platform !== "linux")("h2a drive native PTY backchannel"
         /native-drive-control-(?:first|second)/,
       );
     } finally {
-      supervisor.disconnect();
-      if (previousSocket === undefined) delete process.env.H2A_NATIVE_SOCKET;
-      else process.env.H2A_NATIVE_SOCKET = previousSocket;
-      if (previousConfigHome === undefined) delete process.env.REMOTE_CLI_CONFIG_HOME;
-      else process.env.REMOTE_CLI_CONFIG_HOME = previousConfigHome;
-      if (previousActivityWindow === undefined) delete process.env.H2A_WAKE_DEFER_ACTIVITY_MS;
-      else process.env.H2A_WAKE_DEFER_ACTIVITY_MS = previousActivityWindow;
+      try {
+        await stopSidecar?.();
+      } finally {
+        supervisor.disconnect();
+        if (previousSocket === undefined) delete process.env.H2A_NATIVE_SOCKET;
+        else process.env.H2A_NATIVE_SOCKET = previousSocket;
+        if (previousConfigHome === undefined) delete process.env.REMOTE_CLI_CONFIG_HOME;
+        else process.env.REMOTE_CLI_CONFIG_HOME = previousConfigHome;
+        if (previousActivityWindow === undefined) delete process.env.H2A_WAKE_DEFER_ACTIVITY_MS;
+        else process.env.H2A_WAKE_DEFER_ACTIVITY_MS = previousActivityWindow;
+      }
     }
-  });
+  }, 15_000);
 });
