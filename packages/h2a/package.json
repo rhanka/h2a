@@ -53,8 +53,6 @@
     "@hono/node-server": "^2.0.12",
     "@modelcontextprotocol/sdk": "^1.30.0",
     "@sentropic/cluster-mesh": "0.13.0",
-    "@sentropic/llm-gateway": "0.19.1",
-    "@sentropic/llm-mesh": "0.22.3",
     "@sentropic/contracts": "^0.3.0",
     "@sentropic/events": "^0.2.0",
     "@sentropic/track": "^0.98.2",
