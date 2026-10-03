@@ -14,6 +14,7 @@
  * addressing and registry entries stay uniform across hosts.
  */
 import { spawnSync } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
@@ -140,13 +141,24 @@ function runOp(
 }
 
 /** Spawn-or-adopt the per-user host; returns its identity. */
-export function ensureNativeHost(): { hostPid: number; socketPath: string } {
+export function ensureNativeHost(): { hostPid: number; socketPath: string; generation: string; launchFence: boolean } {
   const { payload } = runOp(["ensure-host"]);
-  const record = payload as { hostPid?: number; socketPath?: string } | undefined;
-  if (!record || typeof record.hostPid !== "number" || typeof record.socketPath !== "string") {
+  const record = payload as { hostPid?: number; socketPath?: string; generation?: string; launchFence?: boolean } | undefined;
+  if (!record || typeof record.hostPid !== "number" || typeof record.socketPath !== "string" || typeof record.generation !== "string") {
     throw new Error("native host did not report a valid identity");
   }
-  return { hostPid: record.hostPid, socketPath: record.socketPath };
+  return { hostPid: record.hostPid, socketPath: record.socketPath, generation: record.generation, launchFence: record.launchFence === true };
+}
+
+export type NativeLaunchOwnership = { name: string; generation: string; incarnation: string };
+
+function prepareNativeOwnership(name: string, beforeCreate?: (value: NativeLaunchOwnership) => void): string[] {
+  if (!beforeCreate) return [];
+  const { generation, launchFence } = ensureNativeHost();
+  if (!launchFence) throw new Error("native host cannot reserve launch ownership; restart the host before launching");
+  const incarnation = randomUUID();
+  beforeCreate({ name, generation, incarnation });
+  return ["--generation", generation, "--incarnation", incarnation];
 }
 
 export function listNativeSessions(): ReadonlyArray<NativeSessionState> {
@@ -222,6 +234,7 @@ export function nativeSessionPid(name: string): number | undefined {
 }
 
 export type NativeLaunchMetadata = {
+  beforeCreate?: (value: NativeLaunchOwnership) => void;
   readonly label?: string;
   readonly resumeId?: string;
   readonly sessionClass?: SessionClass;
@@ -289,6 +302,7 @@ export function startNativeSession(
     writeFileSync(envFile, JSON.stringify(env), { mode: 0o600 });
     const { payload } = runOp([
       "create",
+      ...prepareNativeOwnership(name, metadata.beforeCreate),
       "--id",
       name,
       "--cwd",
@@ -527,7 +541,7 @@ export function startNativeH2aSidecar(
   name: string,
   cwd: string,
   h2aCommand: string,
-  options: { verified?: boolean } = {},
+  options: { verified?: boolean; beforeCreate?: (value: NativeLaunchOwnership) => void } = {},
 ): boolean {
   const sidecar = nativeSidecarName(name);
   const existing = nativeSessionState(sidecar);
@@ -537,6 +551,7 @@ export function startNativeH2aSidecar(
     return false;
   }
   if (existing.state === "found" && existing.session.status === "running") {
+    if (options.beforeCreate) return false; // Never claim an existing sidecar.
     return true;
   }
   const env: Record<string, string> = {};
@@ -558,6 +573,7 @@ export function startNativeH2aSidecar(
     writeFileSync(envFile, JSON.stringify(env), { mode: 0o600 });
     runOp([
       "create",
+      ...prepareNativeOwnership(sidecar, options.beforeCreate),
       "--id",
       sidecar,
       "--cwd",

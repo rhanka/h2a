@@ -519,7 +519,7 @@ export async function runNativeTerminalOp(argv: ReadonlyArray<string>): Promise<
       const client = await ensureClient(socketPath);
       const ping = await client.ping();
       client.close();
-      emit({ hostPid: ping.hostPid, generation: ping.generation, socketPath });
+      emit({ hostPid: ping.hostPid, generation: ping.generation, socketPath, launchFence: ping.launchFence === true });
       return 0;
     }
     case "list": {
@@ -605,6 +605,9 @@ export async function runNativeTerminalOp(argv: ReadonlyArray<string>): Promise<
           );
       if (parsed.command.length === 0) throw new Error("create requires -- command");
       const state = await client.create({
+        ...(parsed.flags.has("incarnation") ? { launchFence: {
+          generation: required(parsed, "generation"), incarnation: required(parsed, "incarnation"),
+        } } : {}),
         id,
         command: parsed.command[0]!,
         args: parsed.command.slice(1),

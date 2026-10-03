@@ -24,6 +24,20 @@
 
 ## Feedback Loop
 
+### Round 2
+
+- [x] Merge origin/main (59ea9848) before correction; keep writes off .track.
+- [x] RED-first: reserve native agent/sidecar ownership before create, guard lifecycle, host fence and old-host refusal.
+- [x] Async runtime spawn; MCP response within 49s; server-lifetime name registry retains pending/final results.
+- [x] Document launching/polling and exactly-once behavior; cancelled client/closed transport regression proves one runtime and one brief.
+- [x] Guard completed flag, explicit stopped receipts and pre-create protection remove the attestation orphan path.
+- [x] In vivo: delayed Codex returns launching at 49,052ms and writes its witness; cancellation stops agent and sidecar in 2,510ms. Muse submission proved, then provider quota; script exit 2 is exclusively provider-blocked.
+- [x] Identify unchanged drive.functional fixture race: line 173 expects a running sidecar after its marker script may already have exited; false !== true. Main isolated replays pass; loaded branch replay reproduces it. Leave unchanged.
+- [x] Runtime full: 1,512 pass, 5 skip, zero fail; runtime focused: 149 pass, 1 skip; MCP bridge: 20/20 pass.
+- [x] Isolated npm test, two Node files concurrently: 2,363 pass, 21 skip, 22 TODO, zero fail/cancel (2,406 total); Track 1,193/1,193 pass. Record earlier timing failures and prepare commit/push only on this branch.
+
+Round 2 evidence and commands: docs/uat/results/2026-10-02-h2a-run-launch.md.
+
 - [x] Native trust gates are explicit launch failures; UAT trusts only its owned worktree for that run.
 - [x] Muse ready at 3–4s but idle tree measured 1130ms CPU/2.2s: composer evidence must override the generic 0.3-core readiness ceiling; this idle CPU must never count as prompt work.
 - [x] Codex launch with 45s delayed MCP measured 55.119s total, prompt delivery 48.581s: former 30s outer deadline was shorter than a legitimate launch. Codex/Muse readiness budget 180s; outer 270s includes delivery, RPCs and cleanup. Other profiles retain 90s readiness with 180s outer budget.
