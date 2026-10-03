@@ -1,70 +1,45 @@
-# Native signed `h2a send`
+# h2a_run launch readiness and cancellation
 
 ## Objective
 
-Ship the core `h2a send` contract and `h2a_send` MCP tool for patch 0.97.1,
-with authenticated local inbox delivery and native/tmux wake coverage. Do not
-bump package versions and do not merge the delivery PR.
+- [x] Fix Track 01M3JPMG8NQ6P3PW94M7KY96ZC / 01M3JPSXBHPKN3R5N7VMK84J16 from origin/main on fix/h2a-run-launch-readiness.
+- [x] Preserve single-paste/single-submit delivery and stop owned partial launches after timeout.
 
-## Base and ownership
+## Scope / Guardrails
 
-- Branch: `feat/h2a-send-cli`
-- Base: `origin/main`
-- `packages/h2a` owns identity, signing, resolution, store writes, CLI and MCP.
-- `packages/h2a-runtime` owns launcher defaults and tmux sidecar setup only.
-- `.track/**` remains single-writer and is forbidden in this worktree.
-
-## Scope
-
-- `packages/h2a/src/**` and focused `packages/h2a/test/**` contracts.
-- `packages/h2a/skills/h2a/SKILL.md` for the public send workflow.
-- `packages/h2a-runtime/src/config.ts`, `tmux.ts`, and focused tests.
-- Packaged host/plugin configuration that renders the wake default.
-- This plan, the EVOL spec, and final review evidence.
+- [x] Allowed: launcher bridge, runtime prompt delivery, native capture, launch guard, their tests, replayable UAT script, dependency needed for VT rendering, this plan and evidence.
+- [x] Forbidden: .track writes (h-cond remains single writer), secrets, Python, AI commit attribution, main push, PR creation, merge, CI reruns.
+- [x] Add @xterm/headless because stripping escape sequences loses the actual visible screen and retains erased startup text.
 
 ## Lots
 
-- [x] Add the shared signed-send service and active-key verification.
-- [x] Wire the positional CLI verb, help/contract/map, and identity resolution.
-- [x] Wire trusted-signer MCP `h2a_send` and update the packaged skill.
-- [x] Switch wake defaults/setup to bounded `auto` and preserve tmux metadata.
-- [x] Add focused signing, resolution, MCP, native and real tmux tests.
-- [x] Run build, scoped tests, full suite, two-peer review, then open the PR.
-
-## Verification gates
-
-- No unsigned envelope can be written through CLI or MCP send.
-- Name ambiguity and stale/private-key mismatch are refused before persistence.
-- Native and tmux chain paths are exercised by real integration tests.
-- Help, CLI manifest, MCP schema, plugin configuration, and runtime defaults
-  agree with the implementation.
-- `git diff origin/main -- package*.json` contains no version bump.
-- Final PR targets `main`, remains unmerged, and carries no AI attribution.
-
-## Verification evidence
-
-- `npm ci`: pass (286 packages added; audit reported the repository's existing
-  one low-severity advisory).
-- `npm run build`: pass.
-- Focused send/wake/native/tmux and contract suites: pass.
-- `npm test`: pass on final product commit `c57f18db` — Node 2,137 tests
-  (2,099 pass, 17 skipped, 21 TODO,
-  0 fail); Track Vitest 1,193/1,193 pass.
-- `scripts/check-public-contract.sh`: pass (53 MCP tools, 99 CLI verbs,
-  core anti-cycle check).
-- `harness verify --json`: pass.
-- Version manifests and lockfile: unchanged.
-- Delivery PR: #270 against `main`, open and intentionally unmerged.
+- [x] Reproduce MCP timeout at 30,039ms with a live Codex session, missing run directory and compact native capture; promote profile failures to RED tests.
+- [x] Render the native screen, recognize Codex/Muse composer and loading/modal states, calibrate profile idle CPU, and budget readiness separately from the outer deadline.
+- [x] Add independent EOF guard, exact-incarnation cleanup for native agent/sidecar, fenced cleanup receipt and conservative retry safety.
+- [x] Add structured provider-blocked evidence for a submitted prompt refused by quota.
+- [x] Add script using real provider CLIs, an isolated PTY host/bus, file witnesses, a delayed MCP server and forced cancellation.
+- [x] Complete build, typecheck, focused runtime tests and npm test.
+- [x] Record final UAT and review limitations.
+- [x] Prepare commit and push only fix/h2a-run-launch-readiness after all local gates pass.
 
 ## Feedback Loop
 
-- Owner: core CLI maintainers — status: deferred, non-gating. Add explicit
-  negative tests for zero/multiple ambient sender candidates when this
-  resolution policy next changes; the current branch fails closed.
-- Owner: identity maintainers — status: rejected for this Linux-local delivery.
-  `safeKeyName` is pre-existing and removes `/`, so the review found no path
-  traversal; cross-platform helper unification belongs to a separate change.
-- Owner: this branch — status: resolved. Corrected the stale `deliver-hint`
-  reason and added direct-alias plus CLI auto-detection tests in `c57f18db`.
-- Owner: this branch — status: refuted. The real PTY integration exercises
-  `mcp-serve` → `sendContext` → `h2a_send` end-to-end in both directions.
+### Round 2
+
+- [x] Merge origin/main (59ea9848) before correction; keep writes off .track.
+- [x] RED-first: reserve native agent/sidecar ownership before create, guard lifecycle, host fence and old-host refusal.
+- [x] Async runtime spawn; MCP response within 49s; server-lifetime name registry retains pending/final results.
+- [x] Document launching/polling and exactly-once behavior; cancelled client/closed transport regression proves one runtime and one brief.
+- [x] Guard completed flag, explicit stopped receipts and pre-create protection remove the attestation orphan path.
+- [x] In vivo: delayed Codex returns launching at 49,052ms and writes its witness; cancellation stops agent and sidecar in 2,510ms. Muse submission proved, then provider quota; script exit 2 is exclusively provider-blocked.
+- [x] Identify unchanged drive.functional fixture race: line 173 expects a running sidecar after its marker script may already have exited; false !== true. Main isolated replays pass; loaded branch replay reproduces it. Leave unchanged.
+- [x] Runtime full: 1,512 pass, 5 skip, zero fail; runtime focused: 149 pass, 1 skip; MCP bridge: 20/20 pass.
+- [x] Isolated npm test, two Node files concurrently: 2,363 pass, 21 skip, 22 TODO, zero fail/cancel (2,406 total); Track 1,193/1,193 pass. Record earlier timing failures and prepare commit/push only on this branch.
+
+Round 2 evidence and commands: docs/uat/results/2026-10-02-h2a-run-launch.md.
+
+- [x] Native trust gates are explicit launch failures; UAT trusts only its owned worktree for that run.
+- [x] Muse ready at 3–4s but idle tree measured 1130ms CPU/2.2s: composer evidence must override the generic 0.3-core readiness ceiling; this idle CPU must never count as prompt work.
+- [x] Codex launch with 45s delayed MCP measured 55.119s total, prompt delivery 48.581s: former 30s outer deadline was shorter than a legitimate launch. Codex/Muse readiness budget 180s; outer 270s includes delivery, RPCs and cleanup. Other profiles retain 90s readiness with 180s outer budget.
+- [x] Independent review selection failed: live llm-mesh catalog contained only muse-spark-1.3 and muse-spark-1.3-contributor; fewer than two eligible Claude-hosted models for the requested author profile. No consensus claimed.
+- [x] Muse returned Usage limit reached, reset Oct 4 at 8:00 PM. A provider quota refusal after proven submission is distinct from launch readiness failure.
