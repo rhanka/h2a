@@ -31,8 +31,9 @@ sur cette branche, puis commit et push vers `origin` de cette branche nommée.
 - [x] Reproduire et corriger le premier rendu Track sans changer son délai.
 - [x] Vérifier les signalements loop/M02 et consigner les limites du diagnostic.
 - [x] Terminer les campagnes sans injection : 0/20 échec.
-- [ ] Une suite `npm test` complète, sans autre runner h2a actif.
-- [ ] Commit et push de `fix/test-flakes-central-drive`.
+- [x] Une suite `npm test` complète, sans autre runner h2a actif : Node
+  2 410 réussites, 1 échec UAT SIGTERM, 21 ignorés, 21 TODO ; Track 1 193/1 193.
+- [x] Un commit par correctif ; préparer la livraison de `fix/test-flakes-central-drive`.
 
 ## Preuves
 
