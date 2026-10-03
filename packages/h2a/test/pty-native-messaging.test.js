@@ -16,6 +16,7 @@ import { dirname, join } from "node:path";
 import { PassThrough } from "node:stream";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
+import { waitForIdentity } from "./helpers/identity-readiness.js";
 
 import {
   createLocalStore,
@@ -64,6 +65,30 @@ async function eventually(read, accept, label) {
   }
   throw new Error(`${label} did not become observable; last=${JSON.stringify(last)}`);
 }
+
+test("should await identity readiness while the worker remains within its advertised deadline", async () => {
+  let reads = 0;
+  const ready = { state: "identity_ready", instance: "codex:delayed", signingAvailable: true };
+  const observed = await waitForIdentity(
+    async () => ++reads <= 350
+      ? { state: "identity_pending", elapsedMs: reads * 10, timeoutMs: 20_000 }
+      : ready,
+    async () => {},
+  );
+  assert.equal(observed, ready);
+});
+
+test("should surface a failed identity rather than continue waiting", async () => {
+  const failure = { state: "identity_failed", cause: "identity_timeout", message: "worker deadline expired" };
+  await assert.rejects(waitForIdentity(async () => failure, async () => {}), /worker deadline expired/);
+});
+
+test("should reject a pending identity that has exhausted its advertised deadline", async () => {
+  await assert.rejects(waitForIdentity(
+    async () => ({ state: "identity_pending", elapsedMs: 20_000, timeoutMs: 20_000 }),
+    async () => {},
+  ), /identity_pending/);
+});
 
 async function startNativePair(profiles) {
   assert.equal(process.platform, "linux", "native PTY messaging proof requires Linux");
@@ -222,15 +247,33 @@ async function startReceiver(fixture, target) {
       },
     },
   );
-  const instance = await eventually(
-    async () => fixture.store.listInstances().find(
-      (registration) =>
-        registration.instance.startsWith(`${target.profile}:`) &&
-        registration.workspace?.path === target.cwd,
-    )?.instance,
-    (value) => typeof value === "string",
-    `${target.profile} native sidecar identity`,
-  );
+  async function call(name, args) {
+    const id = nextRequestId++;
+    stdin.write(`${JSON.stringify({
+      jsonrpc: "2.0", id, method: "tools/call",
+      params: { name, arguments: args },
+    })}\n`);
+    const response = await eventually(
+      async () => responses.get(id), Boolean, `${target.profile} ${name} MCP response`,
+    );
+    responses.delete(id);
+    assert.equal(response.error, undefined, JSON.stringify(response.error));
+    if (name === "h2a_send") assert.equal(response.result.isError, false, response.result.content?.[0]?.text);
+    else assert.notEqual(response.result.isError, true, response.result.content?.[0]?.text);
+    return JSON.parse(response.result.content[0].text);
+  }
+  let identity;
+  try {
+    identity = await waitForIdentity(() => call("h2a_identity_status", {}));
+  } catch (error) {
+    stdin.end();
+    await serving;
+    throw error;
+  }
+  const { instance } = identity;
+  assert.equal(identity.signingAvailable, true);
+  assert.ok(instance.startsWith(`${target.profile}:`));
+  assert.equal(fixture.store.listInstances().find((row) => row.instance === instance)?.workspace?.path, target.cwd);
   await eventually(
     async () => diagnostics,
     (value) => value.includes(`inbox-wake armed for ${instance}`),
@@ -240,21 +283,7 @@ async function startReceiver(fixture, target) {
     instance,
     diagnostics: () => diagnostics,
     async send(to, message) {
-      const id = nextRequestId++;
-      stdin.write(`${JSON.stringify({
-        jsonrpc: "2.0",
-        id,
-        method: "tools/call",
-        params: { name: "h2a_send", arguments: { to, message } }
-      })}\n`);
-      const response = await eventually(
-        async () => responses.get(id),
-        Boolean,
-        `${target.profile} h2a_send MCP response`
-      );
-      assert.equal(response.error, undefined, JSON.stringify(response.error));
-      assert.equal(response.result.isError, false, response.result.content?.[0]?.text);
-      return JSON.parse(response.result.content[0].text);
+      return call("h2a_send", { to, message });
     },
     async close() {
       stdin.end();
