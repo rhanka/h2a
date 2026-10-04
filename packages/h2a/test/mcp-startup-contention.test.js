@@ -7,7 +7,8 @@
  * candidate contract under contention:
  *   - every `initialize` returns while the lock is contended (no block scaled to
  *     the client's 30 s window);
- *   - after a controlled release, EVERY identity resolves;
+ *   - after a controlled release, EVERY identity resolves, with the documented
+ *     on-demand retry for an expired attempt;
  *   - the same-conversation cohort collapses to ONE identity + ONE binding (no
  *     duplicate through the publish-order window);
  *   - the distinct cohort gets distinct identities.
@@ -28,9 +29,9 @@ import {
   readIdentityStatus,
   spawnMcp,
   startLiveHolder,
-  stopChildren,
-  waitForIdentity
+  stopChildren
 } from "./helpers/mcp-fix-lab.js";
+import { resolveCohortAfterRelease } from "./helpers/mcp-cohort-readiness.js";
 
 const SEED = process.env.H2A_MCP_TEST_SEED;
 if (process.env.H2A_MCP_REQUIRE_REAL_SEED === "1" && !SEED) {
@@ -75,7 +76,11 @@ maybe(
     // stagger flattens the spike without weakening any invariant: all processes
     // still contend on the held lock and must still resolve after release.
     const spawnConv = (conv) =>
-      spawnMcp({ root, args: ["--auto-open", "--host", "claude"], env: { CLAUDE_CODE_SESSION_ID: conv } });
+      spawnMcp({
+        root,
+        args: ["--auto-open", "--host", "claude"],
+        env: { CLAUDE_CODE_SESSION_ID: conv, H2A_IDENTITY_RETRY_MIN_MS: "0" }
+      });
     const sameHandles = [];
     const distinctHandles = [];
     for (let i = 0; i < sameCount; i++) {
@@ -107,14 +112,7 @@ maybe(
       // between the release and the pending read above.
       await holder.stop();
 
-      const finals = await Promise.all(
-        all.map((h) =>
-          waitForIdentity(h, (s) => s.state === "identity_ready" || s.state === "identity_failed", {
-            timeoutMs: 40_000,
-            pollMs: 400
-          })
-        )
-      );
+      const finals = await resolveCohortAfterRelease(all);
       const ready = finals.filter((s) => s?.state === "identity_ready");
       assert.equal(ready.length, all.length, "every identity resolves after release");
 
