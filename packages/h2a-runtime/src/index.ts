@@ -6541,7 +6541,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         const centralMcp = await prepareCentralMcpForLaunch({ profile, cwd });
         if (centralMcp?.status === "degraded") {
           process.stderr.write(
-            `[h2a] central MCP unavailable, falling back to per-session sidecar: ${centralMcp.reason}\n`,
+            `[h2a] central MCP preparation unavailable; clients retain their configured transport: ${centralMcp.reason}\n`,
           );
         }
         const started: Array<{
@@ -9959,7 +9959,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         const centralMcp = await prepareCentralMcpForRestore();
         if (centralMcp?.status === "degraded") {
           process.stderr.write(
-            `[h2a] central MCP unavailable, falling back to per-session sidecar: ${centralMcp.reason}\n`,
+            `[h2a] central MCP preparation unavailable; clients retain their configured transport: ${centralMcp.reason}\n`,
           );
         }
 

@@ -1,7 +1,7 @@
 import {
   centralMcpClientEndpoint,
   type CentralMcpPathsOptions
-} from "../runtime/mcp-central.js";
+} from "../runtime/mcp-central-discovery.js";
 
 export interface RenderMcpConfigOptions {
   /**
@@ -67,7 +67,10 @@ export function renderH2aMcpServer(
   centralPaths: CentralMcpPathsOptions = {}
 ): H2AMcpEndpointConfig {
   const centralEndpoint = centralMcpClientEndpoint(env, centralPaths);
-  if (centralEndpoint) return centralEndpoint;
+  if (centralEndpoint) return {
+    ...centralEndpoint,
+    args: [...centralEndpoint.args, ...buildArgs(options.args?.slice(1) ?? [], options.root)]
+  };
   const endpoint = options.endpoint ?? "local";
   if (endpoint !== "local" && endpoint !== "remote") {
     throw new Error(`unknown h2a endpoint "${endpoint}"`);
