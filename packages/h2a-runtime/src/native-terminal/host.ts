@@ -26,6 +26,7 @@ import {
   type TerminalOutputChunk,
   type TerminalReplayGap,
 } from "./replay-buffer.js";
+import { TerminalResetRelay } from "./reset-relay.js";
 import {
   NATIVE_TERMINAL_DEFAULT_MAX_SESSIONS,
   NATIVE_TERMINAL_MAX_IDENTIFIER_CHARS,
@@ -586,6 +587,7 @@ export type NativeTerminalReplay = Readonly<{
   chunks: ReadonlyArray<TerminalOutputChunk>;
   gap: TerminalReplayGap | null;
   latestSeq: number;
+  terminalModePrefix?: string;
 }>;
 
 export type NativeTerminalObserverAttachment = Readonly<{
@@ -937,7 +939,7 @@ export class NativeTerminalHost {
       command: options.command,
       args: options.args,
       cwd: options.cwd,
-      env: { ...options.env, [H2A_SESSION_TOKEN_ENV_VAR]: groupToken },
+      env: { ...options.env, H2A_NATIVE_TERMINAL: "1", [H2A_SESSION_TOKEN_ENV_VAR]: groupToken },
       cols: options.cols,
       rows: options.rows,
     });
@@ -1006,9 +1008,13 @@ export class NativeTerminalHost {
     // Carry of the previous chunk so a DSR split across chunks is still seen.
     // At most 3 chars: a full 4-char query can never hide entirely in it.
     let dsrTail = "";
+    const resetRelay = new TerminalResetRelay(
+      (data) => { record.replay.append(data); },
+      () => record.replay.resetSequence(),
+    );
     record.dataSubscription = record.pty.onData((data) => {
       if (record.exit !== null || data.length === 0) return;
-      record.replay.append(data);
+      resetRelay.feed(data);
       // Answer Device Status Report cursor queries (ESC[6n) like a real
       // terminal/tmux: TUIs that require a cursor-position report (muse
       // aborts with "cursor position could not be read" without it).
@@ -1026,6 +1032,7 @@ export class NativeTerminalHost {
     });
     record.exitSubscription = record.pty.onExit((event) => {
       if (record.exit !== null) return;
+      resetRelay.flush();
       // A durable row exists to make this session reapable after THIS host
       // dies. Once the group is confirmed empty the row can no longer make
       // anything reapable — it is a stale record that a later host death would

@@ -1,8 +1,19 @@
 import { describe, expect, it } from "vitest";
 
 import { TerminalReplayBuffer } from "./replay-buffer.js";
+import { TerminalModeTracker } from "./terminal-modes.js";
 
 describe("TerminalReplayBuffer", () => {
+  it("should preserve modes and a split escape sequence across replay eviction", () => {
+    const replay = new TerminalReplayBuffer(16);
+    replay.append("\x1b[?1004h\x1b[?200");
+    replay.append("4h-retained-tail");
+    const snapshot = replay.readAfter(0);
+    const tracker = new TerminalModeTracker();
+    tracker.feed(snapshot.terminalModePrefix ?? "");
+    for (const chunk of snapshot.chunks) tracker.feed(chunk.data);
+    expect(tracker.resetSequence()).toBe("\x1b[?1004l\x1b[?2004l");
+  });
   it("should assign monotonic sequences and replay chunks after a cursor", () => {
     const replay = new TerminalReplayBuffer(32);
 
