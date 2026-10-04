@@ -39,6 +39,10 @@ const BIN = join(REPO_ROOT, "packages", "h2a", "dist", "bin.js");
 // (+52 bytes, cli.ts renderCliHelp only). Removing the vibe insertions recovers the
 // launch-index-era 13,649-byte stream and its SHA-256.
 const CORE_HELP_SHA256 = "346d44703534030378e9db27e94c7a3258119c21cce7d5bf50b4d1f234aa61b7";
+// Central operator verbs (feat/mcp-central-default-claude): `h2a central status|stop|residues`
+// add 200 bytes to the core help; the host setup line switches to --allow-tracked with
+// byte-preserving wording. Values below will be regenerated after the rebase on 0.98.4.
+const CORE_HELP_SHA256 = "f390359bd847965a63488e064a30be12a19f1218ef7dc3fa4f48e1218272be84";
 const RUNTIME_MISSING =
   "ce verbe requiert le runtime h2a (sessions / k8s / tunnel).\n" +
   "  Répare l'installation lockstep : npm i -g @sentropic/h2a@latest\n";
@@ -136,6 +140,9 @@ function assertCoreHelp(result) {
   // + 32 for the vibe host (four `|vibe` usage alternatives, poll-only note, Hosts line),
   // + 52 for the vibe plugin surface (post_agent hook note replacing the poll-only listing).
   assert.equal(Buffer.byteLength(result.stdout), 13733);
+  // + 200 for the central operator verbs (status|stop|residues) and the --allow-tracked
+  // host setup rewording (regenerated after the rebase on 0.98.4).
+  assert.equal(Buffer.byteLength(result.stdout), 13849);
 }
 
 function assertMissingRuntime(result, firstToken) {
