@@ -16,6 +16,7 @@ const BIN_HARD_NATIVE_FIRST_WORDS: readonly string[] = [
   "mcp-serve",
   "mcp-central-serve",
   "mcp-central-connect",
+  "central",
   "track-mcp",
   "remote",
   "drive",
