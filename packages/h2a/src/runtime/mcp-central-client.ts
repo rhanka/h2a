@@ -1,3 +1,4 @@
+import { centralHttpRequest } from "./mcp-central-http.js";
 /** Stdio bridge with in-place recovery. This module must stay independent of the CLI/store. */
 import { createInterface } from "node:readline";
 import type { Readable, Writable } from "node:stream";
@@ -61,13 +62,13 @@ export async function bridgeCentralMcpStdio(options: CentralMcpStdioBridgeOption
     const outgoing = message.method === "initialize" ? { ...message, params: {
       protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "h2a-central-shim", version: "2" }, ...message.params
     } } : message;
-    const response = await fetch(current.endpoint, {
+    const response = await centralHttpRequest(current.endpoint, {
       method: "POST",
       headers: { authorization: `Bearer ${current.token}`, "content-type": "application/json", accept: "application/json, text/event-stream", "x-h2a-workspace": encodeURIComponent(options.workspaceRoot ?? process.cwd()), ...(options.attachment ? { "x-h2a-attachment": Buffer.from(JSON.stringify(options.attachment)).toString("base64url") } : {}), ...(sessionId ? { "mcp-session-id": sessionId } : {}) },
       body: JSON.stringify(outgoing),
       signal: AbortSignal.any([controller.signal, AbortSignal.timeout(55_000)])
     });
-    if (!response.ok) throw new Error(`central MCP HTTP ${response.status}`);
+    if (!response.ok) { await response.text(); throw new Error(`central MCP HTTP ${response.status}`); }
     if (current.generation === marker.generation) {
       sessionId = response.headers.get("mcp-session-id") ?? sessionId;
       if (sessionId) attached = true;
@@ -84,8 +85,8 @@ export async function bridgeCentralMcpStdio(options: CentralMcpStdioBridgeOption
     const currentSession = sessionId;
     const signal = AbortSignal.any([controller.signal, eventController.signal]);
     void (async () => {
-      const response = await fetch(current.endpoint, { headers: { authorization: `Bearer ${current.token}`, accept: "text/event-stream", "mcp-session-id": currentSession }, signal });
-      if (!response.ok || !response.body) throw new Error("central notification stream unavailable");
+      const response = await centralHttpRequest(current.endpoint, { headers: { authorization: `Bearer ${current.token}`, accept: "text/event-stream", "mcp-session-id": currentSession }, signal });
+      if (!response.ok) { await response.text(); throw new Error("central notification stream unavailable"); }
       let buffer = "";
       const decoder = new TextDecoder();
       for await (const chunk of response.body as unknown as AsyncIterable<Uint8Array>) {
@@ -144,10 +145,10 @@ export async function bridgeCentralMcpStdio(options: CentralMcpStdioBridgeOption
     leasing = true;
     void (async () => {
       if (broken) { await recover(); return; }
-      const response = await fetch(new URL(`/_h2a-central/lease/${sessionId}`, marker.endpoint), {
+      const response = await centralHttpRequest(new URL(`/_h2a-central/lease/${sessionId}`, marker.endpoint), {
         headers: { authorization: `Bearer ${marker.token}` }, signal: AbortSignal.any([controller.signal, AbortSignal.timeout(2000)])
       });
-      if (!response.ok) throw new Error("central attachment lease unavailable");
+      if (!response.ok) { await response.text(); throw new Error("central attachment lease unavailable"); }
       const status = await response.json() as { state?: string; instance?: string };
       if (options.attachment && status.state === "identity_ready" && status.instance) options.attachment.expectedInstance = status.instance;
       notifications();
@@ -180,6 +181,6 @@ export async function bridgeCentralMcpStdio(options: CentralMcpStdioBridgeOption
   options.signal?.removeEventListener("abort", onAbort);
   await writer.catch(() => {});
   if (sessionId) {
-    try { await fetch(marker.endpoint, { method: "DELETE", headers: { authorization: `Bearer ${marker.token}`, "mcp-session-id": sessionId }, signal: AbortSignal.timeout(1000) }); } catch { /* lease expiry handles a dead owner */ }
+    try { const response = await centralHttpRequest(marker.endpoint, { method: "DELETE", headers: { authorization: `Bearer ${marker.token}`, "mcp-session-id": sessionId }, signal: AbortSignal.timeout(1000) }); await response.text(); } catch { /* lease expiry handles a dead owner */ }
   }
 }
