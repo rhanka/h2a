@@ -1,3 +1,29 @@
+# Central MCP default for Claude
+
+Branch: `feat/mcp-central-default-claude`, based on `origin/main` at `5ca5c7bc`.
+Owner decision: 2026-10-04, implement L-H before L-A. No push, PR, publish,
+tag, attribution, Python, owner session/config/native host access, or `.track` writes.
+Real processes run only with isolated HOME, runtime directories and stores.
+
+- [x] L-H: remove implicit project/host/config writes from run and restore;
+  decouple state root from workspace; neutral daemon cwd and environment whitelist.
+- [x] L-H: explicit host writer preserves all bytes outside the h2a value,
+  backs up existing files and requires `--allow-tracked` for tracked files.
+- [ ] L-H: retain live shim stdio on restart, operator status/stop and rollback semantics.
+- [ ] L-H: report-only inventory of old central configs and repo store sentinels.
+- [ ] L-A: lightweight `mcp-serve` switch, Claude only; causal conversation
+  identity, independent attachments, shared store, private discovery, idle exit.
+- [ ] Qualification: two workspaces, restart identity continuity, T4 cohorts,
+  latency/RSS comparison, focused regressions and at most one final root suite.
+
+Evidence: ignored `tmp/mcp-evidence/`. Published 0.98.0 retains an ordinary
+graphify-ts entry in the supplied-shaped fixture, removes standalone Track and
+reformats surrounding bytes. Exact production graphify loss is not reproduced;
+do not claim otherwise. No launch-index exists on this main revision: reuse the
+existing identity storage and leave index integration to L-C, without a parallel index.
+
+## Historical plans (superseded for this branch)
+
 # Session launch latency
 
 Branch: `perf/session-launch-latency`, based on `ab7ff40e` (0.98.1).
@@ -34,23 +60,6 @@ a separate observed race; the contention lab now prepares an existing-store
 sentinel before its cohort without weakening the identity assertions.
 
 ## Historical plans (superseded for this branch)
-
-# Attach terminal mode restoration
-
-Branch: `fix/attach-terminal-mode-restore`, based on `origin/main` at
-`db12b3b7`. Scope: selective VT mode tracking in the native attach bridge,
-bounded replay checkpoints, native wrapper prompt cleanup, surviving-parent
-recovery for abrupt attach death, focused regression tests and qualification.
-No push, PR, publication, tag, owner native host/session access, or `.track`
-write. Real hosts and tmux servers use fixture-owned private runtime paths.
-
-Validation: RED-first tracker and real host/outer-PTY reproductions; focused
-checks with one worker; TypeScript build. No full suite while the parallel
-experiment is active. Qualification: `docs/reviews/attach-terminal-mode-restore.md`.
-Completed: 207 focused tests passed, 1 environment skip; `build:h2a` and
-diff checks passed. Runtime fix: `41faf4a`. SIGKILL recovery also verifies the
-outer kernel termios against the pre-attach `stty -g` snapshot.
-Prior branch plans below are historical and grant no delivery authorization.
 
 # MCP identity burst deadline tail
 
