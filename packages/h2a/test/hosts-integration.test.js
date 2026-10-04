@@ -336,7 +336,7 @@ test("h2a host setup --write preserves pre-existing mcpServers.other", () => {
   }
 });
 
-test("h2a host setup --write replaces h2a aliases and disables standalone Track MCP entries", () => {
+test("h2a host setup --write edits h2a and preserves aliases and standalone Track entries", () => {
   const dir = mkdtempSync(join(tmpdir(), "h2a-host-setup-"));
   const target = join(dir, "mcp.json");
   try {
@@ -376,13 +376,13 @@ test("h2a host setup --write replaces h2a aliases and disables standalone Track 
     const result = JSON.parse(streams.stdoutText);
     assert.equal(result.endpoint, "remote");
     assert.equal(result.replacedH2a, true);
-    assert.deepEqual(result.removedH2aMcpServers, ["h2a-local"]);
-    assert.deepEqual(result.removedTrackMcpServers, ["track", "legacy-track"]);
+    assert.deepEqual(result.removedH2aMcpServers, []);
+    assert.deepEqual(result.removedTrackMcpServers, []);
     const after = JSON.parse(readFileSync(target, "utf8"));
     assert.deepEqual(after.mcpServers.h2a, { url: "https://mcp.example.test/h2a" });
-    assert.equal(after.mcpServers["h2a-local"], undefined);
-    assert.equal(after.mcpServers.track, undefined);
-    assert.equal(after.mcpServers["legacy-track"], undefined);
+    assert.deepEqual(after.mcpServers["h2a-local"], { command: "h2a", args: ["mcp-serve"] });
+    assert.deepEqual(after.mcpServers.track, { command: "h2a", args: ["track-mcp"] });
+    assert.equal(after.mcpServers["legacy-track"].command, "node");
     assert.deepEqual(after.mcpServers["track-metrics"], { command: "prometheus-mcp", args: ["serve"] });
     assert.deepEqual(after.mcpServers.other, { command: "other-bin", args: ["serve"] });
   } finally {
@@ -416,7 +416,7 @@ test("h2a host setup refuses native TOML, YAML, and JSONC writes before it can o
   }
 });
 
-test("h2a host setup --write --force may intentionally replace malformed JSON", () => {
+test("h2a host setup --write refuses malformed JSON even with --force", () => {
   const dir = mkdtempSync(join(tmpdir(), "h2a-host-setup-"));
   const target = join(dir, "mcp.json");
   try {
@@ -434,18 +434,8 @@ test("h2a host setup --write --force may intentionally replace malformed JSON", 
       ],
       streams
     );
-    assert.equal(rc, 0);
-    const after = JSON.parse(readFileSync(target, "utf8"));
-    assert.equal(after.mcpServers.h2a.command, "h2a");
-    assert.deepEqual(after.mcpServers.h2a.args, [
-      "mcp-serve",
-      "--auto-open",
-      "--host",
-      "codex",
-      "--auto-upgrade",
-      "--wake",
-      "auto"
-    ]);
+    assert.equal(rc, 2);
+    assert.equal(readFileSync(target, "utf8"), "not json");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

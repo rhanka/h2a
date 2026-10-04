@@ -11,6 +11,8 @@ const central = vi.hoisted(() => {
     generation: string;
     pid: number;
     startedAt: string;
+    root: string;
+    protocol: number;
   };
   let marker: Marker | undefined;
   let generation = 0;
@@ -21,10 +23,12 @@ const central = vi.hoisted(() => {
     options: { env?: NodeJS.ProcessEnv },
   ) => {
     marker = {
-      endpoint: options.env?.H2A_MCP_CENTRAL_ENDPOINT ?? "",
+      endpoint: options.env?.H2A_MCP_CENTRAL_ENDPOINT ?? "http://127.0.0.1:47831/mcp",
       generation: `generation-${++generation}`,
       pid: 71_001,
       startedAt: "2026-08-24T00:00:00.000Z",
+      root: _args[_args.indexOf("--root") + 1],
+      protocol: 2,
     };
     const child = new EventEmitter() as EventEmitter & { unref(): void };
     child.unref = unref;
@@ -120,7 +124,7 @@ describe("central MCP auto-start", () => {
     expect(central.unref).toHaveBeenCalledTimes(1);
     expect(central.spawn).toHaveBeenCalledWith(
       "h2a",
-      ["mcp-central-serve", "--root", workspace],
+      ["mcp-central-serve", "--root", workspace, "--auto-start"],
       expect.objectContaining({
         detached: true,
         stdio: ["ignore", expect.any(Number), expect.any(Number)],

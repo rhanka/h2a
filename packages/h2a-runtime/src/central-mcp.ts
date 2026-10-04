@@ -12,12 +12,10 @@ import {
   openSync,
 } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 
 import { getH2aConfig, resolveConfigPath } from "./config.js";
 
-const CENTRAL_PORT_BASE = 47_000;
-const CENTRAL_PORT_SPAN = 10_000;
 const CENTRAL_START_TIMEOUT_MS = 10_000;
 const CENTRAL_START_POLL_MS = 100;
 
@@ -26,6 +24,8 @@ type CentralMarker = Readonly<{
   generation: string;
   pid: number;
   startedAt: string;
+  root?: string;
+  protocol?: number;
 }>;
 
 type CentralPing =
@@ -80,20 +80,8 @@ function delay(milliseconds: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
-function defaultCentralEndpoint(): string {
-  if (typeof process.getuid !== "function") {
-    throw new Error("central MCP requires a current uid for deterministic endpoint selection");
-  }
-  const currentUid = process.getuid();
-  const offset = ((currentUid % CENTRAL_PORT_SPAN) + CENTRAL_PORT_SPAN) % CENTRAL_PORT_SPAN;
-  return `http://127.0.0.1:${CENTRAL_PORT_BASE + offset}/mcp`;
-}
-
 function configuredCentralEndpoint(): string | undefined {
-  const h2a = getH2aConfig();
-  if (!h2a.central?.enabled) return undefined;
-  if (h2a.central.endpoint) return h2a.central.endpoint;
-  return defaultCentralEndpoint();
+  return getH2aConfig().central?.endpoint;
 }
 
 function centralLogFile(): string {
@@ -104,18 +92,19 @@ function centralLogFile(): string {
 
 async function waitForCentralStart(
   core: CoreCentralMcp,
-  endpoint: string,
+  endpoint: string | undefined,
   spawnFailure: () => Error | undefined,
 ): Promise<{ endpoint: string; generation: string }> {
   const deadline = Date.now() + CENTRAL_START_TIMEOUT_MS;
   while (Date.now() < deadline) {
     const failure = spawnFailure();
     if (failure) throw failure;
-    const ping = await core.centralMcpPing(endpoint, CENTRAL_START_POLL_MS);
-    if (ping.kind === "generation") {
-      const marker = core.readCentralMcpMarker();
-      if (marker?.endpoint === endpoint && marker.generation === ping.generation) {
-        return { endpoint, generation: ping.generation };
+    const marker = core.readCentralMcpMarker();
+    const candidate = endpoint ?? marker?.endpoint;
+    if (candidate && marker) {
+      const ping = await core.centralMcpPing(candidate, CENTRAL_START_POLL_MS);
+      if (ping.kind === "generation" && marker.endpoint === candidate && marker.generation === ping.generation) {
+        return { endpoint: candidate, generation: ping.generation };
       }
     }
     await delay(CENTRAL_START_POLL_MS);
@@ -131,8 +120,9 @@ async function waitForCentralStart(
 export async function ensureCentralMcp(
   options: Readonly<{ root?: string }> = {},
 ): Promise<Readonly<{ endpoint: string; generation: string }> | undefined> {
+  if (!getH2aConfig().central?.enabled || process.env.H2A_MCP_CENTRAL === "0" || process.env.H2A_MCP_CENTRAL === "false") return undefined;
   const endpoint = configuredCentralEndpoint();
-  if (!endpoint) return undefined;
+  const root = resolve(options.root ?? process.env.H2A_ROOT ?? join(homedir(), "h2a-workspace", ".h2a"));
   const core = await loadCoreCentralMcp();
   const marker = core.readCentralMcpMarker();
   if (marker) {
@@ -141,8 +131,9 @@ export async function ensureCentralMcp(
       throw new Error(`central MCP liveness at ${marker.endpoint} is ambiguous; refusing to start another server`);
     }
     if (ping.kind === "generation") {
-      if (marker.endpoint === endpoint && ping.generation === marker.generation) {
-        return { endpoint, generation: marker.generation };
+      if (marker.root !== root || marker.protocol !== 2) throw new Error("central MCP state root/protocol does not match this launch");
+      if ((!endpoint || marker.endpoint === endpoint) && ping.generation === marker.generation) {
+        return { endpoint: marker.endpoint, generation: marker.generation };
       }
       throw new Error(
         `central MCP marker/listener mismatch (${marker.endpoint}, generation ${marker.generation}); refusing to replace a live server`,
@@ -157,7 +148,7 @@ export async function ensureCentralMcp(
   try {
     const child = spawn(
       "h2a",
-      ["mcp-central-serve", "--root", options.root ?? process.env.H2A_ROOT ?? join(homedir(), "h2a-workspace", ".h2a")],
+      ["mcp-central-serve", "--root", root, "--auto-start"],
       {
         detached: true,
         cwd: homedir(),
@@ -165,7 +156,7 @@ export async function ensureCentralMcp(
         env: {
           ...centralSpawnEnvironment(),
           [core.H2A_MCP_CENTRAL_ENV]: "1",
-          [core.H2A_MCP_CENTRAL_ENDPOINT_ENV]: endpoint,
+          ...(endpoint ? { [core.H2A_MCP_CENTRAL_ENDPOINT_ENV]: endpoint } : {}),
         },
       },
     );
