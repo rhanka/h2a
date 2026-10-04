@@ -115,6 +115,12 @@ export const REMOTE_TMUX_PROFILE = {
  */
 export const LOCAL_WRAPPER = `relaunch="$0"; cli="$1"; shift
 "$cli" "$@"; code=$?
+if [ "\${H2A_NATIVE_TERMINAL:-}" = 1 ]; then
+  printf '\\033]777;h2a-reset\\007'
+  # Also clean commands launched manually from the persistent shell. Preserve
+  # the status seen by an existing prompt hook; the host consumes the marker.
+  export PROMPT_COMMAND='h2a_prompt_status=$?; printf "\\033]777;h2a-reset\\007"; (exit "$h2a_prompt_status"); '"\${PROMPT_COMMAND:-:}"
+fi
 printf '\\n[h2a] %s exited (code %s) — shell on %s.\\n' "$cli" "$code" "$PWD"
 printf '[h2a] relaunch: %s   (or Ctrl-D to end this session)\\n' "$relaunch"
 if [ -t 0 ]; then exec /bin/bash -l; else exit "$code"; fi`;

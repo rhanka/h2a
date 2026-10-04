@@ -34,6 +34,7 @@ import {
 import { readProcessTreeCpuMs, readWorkerPid } from "./proc-cpu.js";
 import { sleepSync, type PromptDeliveryDeps } from "./prompt-delivery.js";
 import { SESSION_CLASS_ENV, type SessionClass } from "./session-class.js";
+import { withAttachTerminalRecovery } from "./native-terminal/attach-recovery.js";
 
 const OP_TIMEOUT_MS = 15_000;
 const H2A_NATIVE_TARGET_SESSION_ENV = "H2A_NATIVE_TARGET_SESSION";
@@ -368,6 +369,8 @@ export function startNativeSession(
     if (value !== undefined) env[key] = value;
   }
   env["TERM"] = "xterm-256color";
+  // The launch runtime may still be connected to an older protocol-v1 host.
+  env["H2A_NATIVE_TERMINAL"] = "1";
   if (metadata.sessionClass !== undefined) {
     env[SESSION_CLASS_ENV] = metadata.sessionClass;
   }
@@ -709,9 +712,10 @@ export function startNativeH2aSidecar(
  * Blocks until the session exits or the user detaches with Ctrl-\.
  */
 export function attachNativeSession(name: string, socketPath?: string): number {
-  const r = spawnSync(process.execPath, [opEntryPath(), "attach", "--id", name, ...(socketPath ? ["--socket", socketPath] : [])], {
-    stdio: "inherit",
-  });
+  const r = withAttachTerminalRecovery((env) =>
+    spawnSync(process.execPath, [opEntryPath(), "attach", "--id", name, ...(socketPath ? ["--socket", socketPath] : [])], {
+      stdio: "inherit", env,
+    }));
   return r.status ?? 1;
 }
 
