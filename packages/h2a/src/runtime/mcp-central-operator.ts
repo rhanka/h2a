@@ -1,3 +1,4 @@
+import { centralHttpRequest } from "./mcp-central-http.js";
 /** Operator control uses the authenticated owner, never a marker PID signal. */
 import { existsSync, lstatSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -19,11 +20,11 @@ export async function centralOperator(action: "status" | "stop", paths: CentralM
     writeFileSync(path, JSON.stringify({ generation: marker.generation, at: new Date().toISOString() }) + "\n", { mode: 0o600 });
   }
   try {
-    const response = await fetch(new URL(`/_h2a-central/${action}`, marker.endpoint), {
+    const response = await centralHttpRequest(new URL(`/_h2a-central/${action}`, marker.endpoint), {
       method: action === "stop" ? "POST" : "GET",
       headers: { authorization: `Bearer ${marker.token}` }, signal: AbortSignal.timeout(2000)
     });
-    if (!response.ok) throw new Error(`central ${action}: HTTP ${response.status}`);
+    if (!response.ok) { await response.text(); throw new Error(`central ${action}: HTTP ${response.status}`); }
     return { running: action !== "stop", paused: existsSync(centralPausePath(paths)), ...await response.json() as object };
   } catch (error) {
     if (action === "stop") return { running: "unverified", paused: true, error: (error as Error).message };

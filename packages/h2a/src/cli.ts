@@ -80,6 +80,7 @@ import { HostConfigConflict, writeHostMcpEntry } from "./hosts/config-writer.js"
 import { executeH2aRunWithAsyncSpawn, type H2aRunExecutor } from "./runtime/mcp/agent-launch.js";
 import { captureCentralAttachment } from "./runtime/mcp-central-context.js";
 import { ensureCentralForShim } from "./runtime/mcp-central-start.js";
+import { centralOperator, centralResidueReport } from "./runtime/mcp-central-operator.js";
 import { resolveHostConfigRoot } from "./runtime/host-config-root.js";
 
 import {
@@ -470,7 +471,9 @@ export function renderCliHelp(): string {
     "  h2a drumbeat escalations [--root <path>]",
     "  h2a drumbeat relance-inbox [--instance <id>] [--relauncher logging|local-tmux|headless|auto] [--root <path>]",
     "  h2a drumbeat watch [--interval-ms <n>] [--max-relances <n>] [--relauncher logging|local-tmux|remote|headless|auto] [--instance <signer> --private-key <pem>] [--decider logging|<command>] [--decider-after <k>] [--decider-enforce] [--root <path>]",
-    "  h2a host setup --host <codex|claude|gemini|agy|hermes|opencode|muse> [--endpoint local|remote] [--url <https://…/mcp>] [--root <path>] [--print | --write <file>] [--force] [--no-wake]   (selects exactly one h2a endpoint; local renders mcp-serve --auto-open --auto-upgrade --wake auto by default)",
+    "  h2a central status|stop   (authenticated machine-local central control; stop inhibits automatic restart)",
+    "  h2a central residues [--workspace <repo>] [--agy-config <file>]   (report only; never rewrites or deletes residues)",
+    "  h2a host setup --host <codex|claude|gemini|agy|hermes|opencode|muse> [--endpoint local|remote] [--url <https://…/mcp>] [--root <path>] [--print | --write <file>] [--allow-tracked] [--no-wake]   (edits only the h2a entry, preserves surrounding bytes and creates a backup)",
     "  h2a host status [--host <name>]",
     "  h2a host plugin --host <codex|claude|gemini|agy|hermes|opencode|muse> --instance <id> [--status <work-status>] [--root <path>] [--write <settings.json> [--force]] [--scaffold <dir>]   (--write installs the Stop hook for claude|gemini|codex|hermes|opencode; --scaffold writes codex's full local marketplace + trust step; agy and muse are poll-only)",
     "  h2a store migrate [--from <v>] [--to <v>] [--sanitize-paths] [--dry-run] [--root <path>]",
@@ -7462,6 +7465,20 @@ export function runCli(
   if (command === "inbox") return cmdMailbox(argv.slice(1), "inbox", streams);
   if (command === "outbox") return cmdMailbox(argv.slice(1), "outbox", streams);
   if (command === "host") return cmdHost(argv.slice(1), streams, options);
+  if (command === "central") {
+    const sub = argv[1];
+    const { flags: centralFlags } = parseFlags(argv.slice(2));
+    if (sub === "residues") {
+      streams.stdout.write(JSON.stringify(centralResidueReport(centralFlags.workspace ?? streams.cwd?.() ?? process.cwd(), centralFlags["agy-config"]), null, 2) + "\n");
+      return 0;
+    }
+    if (sub === "status" || sub === "stop") return centralOperator(sub, centralFlags["runtime-base"] ? { runtimeBase: centralFlags["runtime-base"] } : {}).then(result => {
+      streams.stdout.write(JSON.stringify(result, null, 2) + "\n");
+      return 0;
+    });
+    streams.stderr.write("h2a central: use status, stop or residues\n");
+    return 1;
+  }
   if (command === "store") return cmdStore(argv.slice(1), streams);
   if (command === "thread") return cmdThread(flags, streams);
   if (command === "sessions") return cmdSessions(flags, streams);

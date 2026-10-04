@@ -6,12 +6,15 @@ import { join, resolve } from "node:path";
 import { createInterface } from "node:readline";
 import { PassThrough } from "node:stream";
 import { createServer } from "node:net";
+import { createServer as createHttpServer } from "node:http";
 import test from "node:test";
 import { runCli as runTrackCli } from "@sentropic/track";
 import { startCentralMcpServer } from "../dist/runtime/mcp-central.js";
 import { bridgeCentralMcpStdio } from "../dist/runtime/mcp-central-client.js";
 import { captureCentralAttachment } from "../dist/runtime/mcp-central-context.js";
 import { centralOperator, centralResidueReport } from "../dist/runtime/mcp-central-operator.js";
+import { runtimeBase } from "../dist/runtime/mcp-central-discovery.js";
+import { identityKeyPaths } from "../dist/runtime/identity/live.js";
 
 const bin = resolve("packages/h2a/dist/bin.js");
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -77,6 +80,26 @@ async function ready(channel) {
 }
 const bindings = root => readFileSync(join(root, "identity", "bindings.jsonl"), "utf8").trim().split("\n").filter(Boolean);
 
+test("missing systemd runtime chooses a fixed UID fallback, with private namespaces for isolation", () => {
+  assert.equal(runtimeBase({}, {}, () => false), `/tmp/h2a-mcp-runtime-${process.getuid()}`);
+  assert.equal(runtimeBase({}, { XDG_RUNTIME_DIR: "/private/test/runtime" }, () => false), "/private/test/runtime");
+});
+
+test("an orphaned HTTP attachment is purged and the central exits idle", { timeout: 5000 }, async () => {
+  const f = fixture();
+  let server;
+  try {
+    server = await startCentralMcpServer({ root: f.root, runtimeBase: f.runtimeBase, env: {}, idleTimeoutMs: 100, sessionLeaseMs: 100 });
+    const marker = JSON.parse(readFileSync(server.markerPath, "utf8"));
+    const response = await fetch(server.endpoint, { method: "POST", headers: { authorization: `Bearer ${marker.token}`, "content-type": "application/json", accept: "application/json, text/event-stream" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "orphan-fixture", version: "1" } } }) });
+    assert.equal(response.status, 200);
+    await response.text();
+    assert.equal((await centralOperator("status", { runtimeBase: f.runtimeBase })).attachments, 1);
+    await Promise.race([server.closed, delay(2500).then(() => { throw new Error("idle shutdown did not happen"); })]);
+    assert.equal(existsSync(server.markerPath), false);
+  } finally { await server?.stop(); f.cleanup(); }
+});
+
 test("two attached repos route Track and h2a_run to their own workspace, sharing only state", { timeout: 30_000 }, async () => {
   const f = fixture();
   let server;
@@ -125,6 +148,69 @@ test("a live shim survives central token rotation with the same identity and no 
     assert.equal(after.instance, before.instance);
     assert.equal(bindings(f.root).length, count);
   } finally { await channel?.close(); await second?.stop(); await first?.stop(); f.cleanup(); }
+});
+
+test("resume with a missing signing key fails closed without minting another binding", { timeout: 30_000 }, async () => {
+  const f = fixture();
+  let first, second, channel;
+  try {
+    const url = await endpoint();
+    first = await startCentralMcpServer({ root: f.root, runtimeBase: f.runtimeBase, env: { H2A_MCP_CENTRAL_ENDPOINT: url } });
+    channel = connect(f, url, join(f.dir, "repo-a"), "missing-resume-key");
+    await channel.call("initialize");
+    const before = await ready(channel);
+    await first.stop();
+    first = undefined;
+    const key = identityKeyPaths(f.root, before.instance).privateKeyPath;
+    rmSync(key);
+    second = await startCentralMcpServer({ root: f.root, runtimeBase: f.runtimeBase, env: { H2A_MCP_CENTRAL_ENDPOINT: url } });
+    await assert.rejects(ready(channel), /identity_failed/);
+    assert.equal(bindings(f.root).length, 1);
+    assert.equal(existsSync(key), false, "resume must not recreate the missing key");
+  } finally { await channel?.close(); await second?.stop(); await first?.stop(); f.cleanup(); }
+});
+
+test("a lost mutation reply is outcome_unknown and is never replayed during recovery", { timeout: 10_000 }, async () => {
+  const f = fixture();
+  let channel;
+  let mutationCount = 0;
+  const server = createHttpServer(async (request, response) => {
+    if (request.method === "GET") {
+      response.writeHead(200, { "content-type": "text/event-stream" });
+      response.write(": connected\n\n");
+      return;
+    }
+    if (request.method === "DELETE") { response.writeHead(204).end(); return; }
+    let body = "";
+    for await (const chunk of request) body += chunk;
+    const rpc = JSON.parse(body);
+    if (rpc.params?.name === "fixture_mutation") {
+      mutationCount++;
+      request.socket.destroy(); // The effect happened before its reply was lost.
+      return;
+    }
+    response.writeHead(200, { "content-type": "application/json", "mcp-session-id": "fixture-session" });
+    response.end(JSON.stringify({ jsonrpc: "2.0", id: rpc.id, result: { tools: [] } }));
+  }).listen(0, "127.0.0.1");
+  try {
+    await once(server, "listening");
+    const url = `http://127.0.0.1:${server.address().port}/mcp`;
+    const directory = join(f.runtimeBase, "h2a-mcp-central");
+    mkdirSync(directory, { mode: 0o700 });
+    writeFileSync(join(directory, "marker.json"), JSON.stringify({ endpoint: url, generation: "fixture", pid: process.pid, startedAt: new Date().toISOString(), token: "fixture-secret", root: f.root, protocol: 2 }), { mode: 0o600 });
+    channel = connect(f, url, join(f.dir, "repo-a"), "lost-mutation-reply");
+    await channel.call("initialize");
+    const lost = await channel.call("tools/call", { name: "fixture_mutation", arguments: {} });
+    assert.equal(lost.error.data.code, "outcome_unknown");
+    assert.equal(lost.error.data.retrySafe, false);
+    assert.ok((await channel.call("tools/list")).result);
+    assert.equal(mutationCount, 1);
+  } finally {
+    await channel?.close();
+    server.closeAllConnections();
+    await new Promise(resolve => server.close(resolve));
+    f.cleanup();
+  }
 });
 
 test("SIGTERM of the real central leaves host stdio open and resumes the same binding", { timeout: 30_000 }, async () => {
@@ -207,4 +293,56 @@ test("operator stop is authenticated, leaves shims open, and residue detection n
     assert.deepEqual(readdirSync(repo), before);
     assert.equal(readFileSync(join(repo, ".mcp.json"), "utf8"), config);
   } finally { await channel?.close(); await server?.stop(); f.cleanup(); }
+});
+
+test("mcp-serve defaults Claude to one ephemeral central without project writes; other hosts and opt-outs use stdio", { timeout: 30_000 }, async () => {
+  const f = fixture();
+  const children = [];
+  const channels = [];
+  const start = (host, repo, extra = {}) => {
+    const env = { ...f.env, CLAUDE_CODE_SESSION_ID: `default-${host}-${children.length}`, ...extra };
+    if (env.H2A_MCP_CENTRAL === undefined) delete env.H2A_MCP_CENTRAL;
+    const child = spawn(process.execPath, [bin, "mcp-serve", "--host", host, "--auto-open"], { env, cwd: repo, stdio: ["pipe", "pipe", "pipe"] });
+    children.push(child);
+    child.stderr.on("data", () => {});
+    const channel = rpcChannel(child.stdin, child.stdout);
+    channels.push(channel);
+    return channel;
+  };
+  try {
+    let generation;
+    for (const repo of [join(f.dir, "repo-a"), join(f.dir, "repo-b")]) {
+      const channel = start("claude", repo, { H2A_MCP_CENTRAL: undefined });
+      await channel.call("initialize");
+      await ready(channel);
+      const marker = JSON.parse(readFileSync(join(f.runtimeBase, "h2a-mcp-central", "marker.json"), "utf8"));
+      assert.equal(marker.protocol, 2);
+      assert.equal(marker.root, f.root);
+      if (generation) assert.equal(marker.generation, generation);
+      generation = marker.generation;
+      assert.deepEqual(readdirSync(repo), [], "initial attachment writes no project files");
+    }
+    const status = await centralOperator("status", { runtimeBase: f.runtimeBase });
+    assert.equal(status.attachments, 2);
+    const stdout = start("claude", join(f.dir, "repo-a"), { H2A_MCP_CENTRAL: "0" });
+    await stdout.call("initialize");
+    await ready(stdout);
+    for (const host of ["codex", "agy"]) {
+      const channel = start(host, join(f.dir, "repo-a"));
+      await channel.call("initialize");
+      await ready(channel);
+    }
+    const configDir = join(f.env.REMOTE_CLI_CONFIG_HOME, ".config", "sentropic", "h2a");
+    mkdirSync(configDir, { recursive: true });
+    writeFileSync(join(configDir, "config.json"), '{"h2a":{"central":{"enabled":false}}}\n');
+    const disabled = start("claude", join(f.dir, "repo-a"));
+    await disabled.call("initialize");
+    await ready(disabled);
+    assert.equal((await centralOperator("status", { runtimeBase: f.runtimeBase })).attachments, 2, "unqualified hosts/opt-outs never attach to the daemon");
+  } finally {
+    channels.forEach(channel => channel.close());
+    await Promise.all(children.map(async child => { if (child.exitCode === null && child.signalCode === null) { child.kill("SIGTERM"); await once(child, "exit"); } }));
+    await centralOperator("stop", { runtimeBase: f.runtimeBase });
+    f.cleanup();
+  }
 });
