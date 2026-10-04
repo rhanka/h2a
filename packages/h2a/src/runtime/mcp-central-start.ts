@@ -1,3 +1,4 @@
+import { centralHttpRequest } from "./mcp-central-http.js";
 /** Lightweight auto-start. Spawn this installation with no conversation environment. */
 import { spawn } from "node:child_process";
 import { closeSync, existsSync, mkdirSync, openSync } from "node:fs";
@@ -22,8 +23,9 @@ export async function ensureCentralForShim(defaultEnabled = false): Promise<Cent
     if (!marker) return undefined;
     if (marker.root !== root || marker.protocol !== 2) throw new Error("central MCP root/protocol is incompatible with this attachment");
     try {
-      const response = await fetch(new URL("/_h2a-central/ping", marker.endpoint), { signal: AbortSignal.timeout(1500) });
-      if (!response.ok || (await response.json() as { generation?: string }).generation !== marker.generation) return undefined;
+      const response = await centralHttpRequest(new URL("/_h2a-central/ping", marker.endpoint), { signal: AbortSignal.timeout(1500) });
+      if (!response.ok) { await response.text(); return undefined; }
+      if ((await response.json() as { generation?: string }).generation !== marker.generation) return undefined;
       return readCentralClientMarker(centralMcpMarkerPath());
     } catch { return undefined; } // Foreground election remains authoritative about ambiguity.
   };
