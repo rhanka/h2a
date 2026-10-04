@@ -1,5 +1,10 @@
 # Machine-local MCP central
 
+On Linux, `mcp-serve --host claude` uses the central by default when the host
+provides `CLAUDE_CODE_SESSION_ID`. Routing happens before heavy imports. Codex,
+agy, ambiguous Claude identities, explicit instance overrides, cluster-mesh,
+and unsupported state roots retain full stdio. The shipped manifests are unchanged.
+
 State root and workspace are different: the state root is `H2A_ROOT` or
 `~/h2a-workspace/.h2a`; the workspace is captured from each shim's cwd. A daemon
 never inherits a conversation id, tmux pane, or repo cwd from its launcher.

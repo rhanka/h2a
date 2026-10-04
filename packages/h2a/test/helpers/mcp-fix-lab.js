@@ -40,6 +40,7 @@ export const MAX_FRAME_BYTES = 64 * 1024 * 1024;
 export const TRACE_LINE_PREFIX = "h2a.mcp.phase ";
 
 const children = new Set();
+const centralLabs = new Map();
 
 /**
  * Copy the seed to a fresh private 0700 directory by CONTENT (never a link).
@@ -136,10 +137,13 @@ export function seedRegistryCount(root) {
  */
 function labEnv(extra = {}) {
   const home = extra.HOME ?? mkdtempSync(join(tmpdir(), "h2a-mcp-home-"));
+  const runtime = extra.XDG_RUNTIME_DIR ?? join(home, "runtime");
+  mkdirSync(runtime, { recursive: true, mode: 0o700 });
   const env = {
     PATH: process.env.PATH ?? "",
     HOME: home,
-    XDG_RUNTIME_DIR: join(home, "runtime"),
+    XDG_RUNTIME_DIR: runtime,
+    H2A_MCP_CENTRAL: "0",
     LANG: process.env.LANG ?? "C.UTF-8",
     // Deterministic, offline, never a real credential.
     NO_COLOR: "1"
@@ -160,7 +164,21 @@ function labEnv(extra = {}) {
  */
 export function spawnMcp({ root, args = [], env = {}, trace = false, seed, nodeArgs = [], bin = H2A_BIN } = {}) {
   if (!root) throw new Error("spawnMcp: an explicit --root is required");
-  const childEnv = labEnv({ ...env, ...(trace ? { H2A_MCP_TRACE: "1" } : {}) });
+  let central;
+  if (process.env.H2A_MCP_TEST_CENTRAL === "1") {
+    central = centralLabs.get(root);
+    if (!central) {
+      const home = mkdtempSync(join(tmpdir(), "h2a-mcp-central-lab-"));
+      const runtime = join(home, "runtime");
+      mkdirSync(runtime, { mode: 0o700 });
+      central = { home, runtime, active: new Set(), stopped: false };
+      centralLabs.set(root, central);
+    }
+  }
+  const childEnv = labEnv({ ...env, ...(trace ? { H2A_MCP_TRACE: "1" } : {}), ...(central ? {
+    HOME: central.home, XDG_RUNTIME_DIR: central.runtime, REMOTE_CLI_CONFIG_HOME: central.home,
+    H2A_ROOT: root, H2A_MCP_CENTRAL: "1"
+  } : {}) });
   if (seed) childEnv.H2A_MCP_TEST_SEED = seed;
   const child = spawn(
     process.execPath,
@@ -168,6 +186,7 @@ export function spawnMcp({ root, args = [], env = {}, trace = false, seed, nodeA
     { stdio: ["pipe", "pipe", "pipe"], env: childEnv }
   );
   children.add(child);
+  central?.active.add(child);
 
   const handle = {
     child,
@@ -425,6 +444,14 @@ export async function stopChildren(...handles) {
       ? handles.map((h) => h.child ?? h).filter(Boolean)
       : [...children];
   await Promise.all(targets.map((c) => stopOne(c)));
+  for (const central of centralLabs.values()) {
+    for (const child of targets) central.active.delete(child);
+    if (central.active.size === 0 && !central.stopped) {
+      central.stopped = true;
+      const { centralOperator } = await import("../../dist/runtime/mcp-central-operator.js");
+      await centralOperator("stop", { runtimeBase: central.runtime });
+    }
+  }
 }
 
 /** Write a small marker file (used by probes) with restrictive perms. */
