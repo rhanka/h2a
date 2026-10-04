@@ -458,13 +458,14 @@ export async function executeH2aRunWithAsyncSpawn(
   request: H2aRunRequest,
   spawnRuntime: typeof spawn = spawn,
   runtimeBudgetMs = request.profile === "codex" || request.profile === "muse" ? 270_000 : 180_000,
+  environment: NodeJS.ProcessEnv = process.env,
 ): Promise<Record<string, unknown>> {
   const invocation = buildH2aRunInvocation(request);
   const launchToken = randomUUID();
   const result = await new Promise<{ status: number | null; stdout: string; stderr: string; timedOut: boolean }>((resolve, reject) => {
     const child = spawnRuntime(invocation.command, invocation.args, {
       cwd: invocation.cwd, shell: false, stdio: ["pipe", "pipe", "pipe"],
-      env: { ...process.env, H2A_RUN_LAUNCH_TOKEN: launchToken },
+      env: { ...environment, H2A_RUN_LAUNCH_TOKEN: launchToken },
     });
     let stdout = "", stderr = "", timedOut = false, overflow = false;
     let escalation: ReturnType<typeof setTimeout> | undefined;

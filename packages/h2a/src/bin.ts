@@ -185,6 +185,16 @@ if (argv[0] === "--version" || argv[0] === "-v" || argv[0] === "version") {
       signal: ac.signal
     })
   );
+} else if (argv[0] === "central" && ["status", "stop", "residues"].includes(argv[1])) {
+  runAsync(`central ${argv[1]}`, (async () => {
+    const { centralOperator, centralResidueReport } = await import("./runtime/mcp-central-operator.js");
+    const flags = parseFlagsFrom(2);
+    const result = argv[1] === "residues"
+      ? centralResidueReport(flags.workspace ?? process.cwd(), flags["agy-config"])
+      : await centralOperator(argv[1] as "status" | "stop", flags["runtime-base"] ? { runtimeBase: flags["runtime-base"] } : {});
+    process.stdout.write(JSON.stringify(result, null, 2) + "\n");
+    return 0;
+  })());
 } else if (argv[0] === "track-mcp") {
   // Consolidation ④-S2 — native track MCP server (long-running stdio) served
   // IN-PROCESS via @sentropic/track. Graceful shutdown like mcp-serve so a host
