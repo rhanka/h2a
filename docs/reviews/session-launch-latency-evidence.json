@@ -1,0 +1,3139 @@
+{
+  "baselineRef": "ab7ff40eca8fbfd21fc5e268ccfb282b9661d4b0",
+  "nodeVersion": "v22.22.1",
+  "candidateSourceSha256": {
+    "packages/h2a/src/runtime/local-files/launch-index.ts": "267385ead1929765e09770f409f381781e457997ad37616875c5a2ca2d29a001",
+    "packages/h2a/src/runtime/local-files/store.ts": "48fa8b35fc9489dd212f736ebd2b3ea9b3609a592c8d1246c795f3402988dcf8",
+    "packages/h2a/src/runtime/identity/bindings.ts": "e4280df53f5bb1fa46fa73a986738e8f43ad382cff6bec9df6d5b6d591b13d99",
+    "packages/h2a/src/runtime/identity/migration.ts": "15584b86d19381ff46dc598f5bab7284aa899e4427246a551b4714aeb1f4960b",
+    "packages/h2a/src/cli.ts": "f22c1193fb43b7399aca0f14d1e4a478aa4fea33ac549f449089b5c2d2fc42ee",
+    "packages/h2a/src/cli-contract.ts": "a52172b1b87c342915b447c012803d18f9ccc514d2c82e4338f1a43c82818278",
+    "packages/h2a-runtime/src/native-host.ts": "578fd2d4e31fbcc1ebf60124e6345566937c9567c3679f518ae7ba28f7a81888",
+    "packages/h2a-runtime/src/tmux.ts": "e29f460c38e72c29619ca5fa62b1c7c1098c448754caed342768362265b18af1"
+  },
+  "scale": {
+    "counts": {
+      "instances": 29497,
+      "bindings": 28855,
+      "aliases": 29560,
+      "keypairs": 29564,
+      "presence": 307
+    },
+    "sizes": {
+      "registry/instances.jsonl": 19375696,
+      "identity/bindings.jsonl": 8172600,
+      "identity/aliases.jsonl": 3879700
+    }
+  },
+  "matrices": {
+    "before-mcp": [
+      {
+        "variant": "before",
+        "path": "mcp",
+        "size": "small",
+        "n": 1,
+        "cache": "cold",
+        "initializeMs": 886.412835,
+        "identityMs": 1196.2750119999998,
+        "serverMaxRssMiB": 109.4609375,
+        "treePeakMiB": 322.9140625,
+        "scopePeakMiB": 619.8203125,
+        "identityWorkerPeakMiB": 108.30078125,
+        "registryWaitMs": 0,
+        "registryHoldMs": 6
+      },
+      {
+        "variant": "before",
+        "path": "mcp",
+        "size": "small",
+        "n": 1,
+        "cache": "warm",
+        "initializeMs": 244.576408,
+        "identityMs": 512.769581,
+        "serverMaxRssMiB": 109.859375,
+        "treePeakMiB": 328.59375,
+        "scopePeakMiB": 628.3359375,
+        "identityWorkerPeakMiB": 106.9921875,
+        "registryWaitMs": 0,
+        "registryHoldMs": 1
+      },
+      {
+        "variant": "before",
+        "path": "mcp",
+        "size": "large",
+        "n": 1,
+        "cache": "cold",
+        "initializeMs": 264.308631,
+        "identityMs": 798.6277259999999,
+        "serverMaxRssMiB": 113.33984375,
+        "treePeakMiB": 334.1640625,
+        "scopePeakMiB": 743.47265625,
+        "identityWorkerPeakMiB": 214.03125,
+        "registryWaitMs": 0,
+        "registryHoldMs": 124
+      },
+      {
+        "variant": "before",
+        "path": "mcp",
+        "size": "large",
+        "n": 1,
+        "cache": "warm",
+        "initializeMs": 242.69131999999996,
+        "identityMs": 686.9754810000001,
+        "serverMaxRssMiB": 113.29296875,
+        "treePeakMiB": 331.5390625,
+        "scopePeakMiB": 748.73046875,
+        "identityWorkerPeakMiB": 214.87109375,
+        "registryWaitMs": 0,
+        "registryHoldMs": 80
+      },
+      {
+        "variant": "before",
+        "path": "mcp",
+        "size": "large",
+        "n": 4,
+        "cache": "cold",
+        "initializeMs": 306.318738,
+        "identityMs": 1779.954007,
+        "serverMaxRssMiB": 114.37109375,
+        "treePeakMiB": 1393.6171875,
+        "scopePeakMiB": 1265.00390625,
+        "identityWorkerPeakMiB": 221.06640625,
+        "registryWaitMs": 251,
+        "registryHoldMs": 116
+      },
+      {
+        "variant": "before",
+        "path": "mcp",
+        "size": "large",
+        "n": 4,
+        "cache": "warm",
+        "initializeMs": 315.264105,
+        "identityMs": 1247.741258,
+        "serverMaxRssMiB": 113.94921875,
+        "treePeakMiB": 1322.671875,
+        "scopePeakMiB": 1261.33984375,
+        "identityWorkerPeakMiB": 223.3359375,
+        "registryWaitMs": 201,
+        "registryHoldMs": 83
+      },
+      {
+        "variant": "before",
+        "path": "mcp",
+        "size": "large",
+        "n": 17,
+        "cache": "cold",
+        "initializeMs": 545.299063,
+        "identityMs": 4371.537183,
+        "serverMaxRssMiB": 117.578125,
+        "treePeakMiB": 5352.43359375,
+        "scopePeakMiB": 3112.34375,
+        "identityWorkerPeakMiB": 214.4453125,
+        "registryWaitMs": 252,
+        "registryHoldMs": 640
+      },
+      {
+        "variant": "before",
+        "path": "mcp",
+        "size": "large",
+        "n": 17,
+        "cache": "warm",
+        "initializeMs": 541.7549409999999,
+        "identityMs": 2807.871074,
+        "serverMaxRssMiB": 117.81640625,
+        "treePeakMiB": 5581.71484375,
+        "scopePeakMiB": 3214.4296875,
+        "identityWorkerPeakMiB": 216.71875,
+        "registryWaitMs": 253,
+        "registryHoldMs": 122
+      }
+    ],
+    "before-runtime": [
+      {
+        "variant": "before",
+        "path": "runtime",
+        "size": "small",
+        "n": 1,
+        "cache": "cold",
+        "launchMs": 8889.891604,
+        "treePeakMiB": 759.234375,
+        "scopePeakMiB": 744.015625
+      },
+      {
+        "variant": "before",
+        "path": "runtime",
+        "size": "small",
+        "n": 1,
+        "cache": "warm",
+        "launchMs": 8501.781520999999,
+        "treePeakMiB": 776.03125,
+        "scopePeakMiB": 744.28515625
+      },
+      {
+        "variant": "before",
+        "path": "runtime",
+        "size": "large",
+        "n": 1,
+        "cache": "cold",
+        "launchMs": 8743.610385,
+        "treePeakMiB": 775.734375,
+        "scopePeakMiB": 820.81640625
+      },
+      {
+        "variant": "before",
+        "path": "runtime",
+        "size": "large",
+        "n": 1,
+        "cache": "warm",
+        "launchMs": 8695.016319,
+        "treePeakMiB": 759.46484375,
+        "scopePeakMiB": 808.58984375
+      },
+      {
+        "variant": "before",
+        "path": "runtime",
+        "size": "large",
+        "n": 4,
+        "cache": "cold",
+        "launchMs": 8458.114939000001,
+        "treePeakMiB": 2821.546875,
+        "scopePeakMiB": 1691.82421875
+      },
+      {
+        "variant": "before",
+        "path": "runtime",
+        "size": "large",
+        "n": 4,
+        "cache": "warm",
+        "launchMs": 8670.001845,
+        "treePeakMiB": 2823.19921875,
+        "scopePeakMiB": 1888.73046875
+      },
+      {
+        "variant": "before",
+        "path": "runtime",
+        "size": "large",
+        "n": 17,
+        "cache": "cold",
+        "launchMs": 11516.883501999999,
+        "treePeakMiB": 11797.0703125,
+        "scopePeakMiB": 5428.2265625
+      },
+      {
+        "variant": "before",
+        "path": "runtime",
+        "size": "large",
+        "n": 17,
+        "cache": "warm",
+        "launchMs": 11055.51018,
+        "treePeakMiB": 12086.9375,
+        "scopePeakMiB": 5423.21484375
+      }
+    ],
+    "after-mcp": [
+      {
+        "variant": "after",
+        "path": "mcp",
+        "size": "small",
+        "n": 1,
+        "cache": "cold",
+        "initializeMs": 245.087719,
+        "identityMs": 536.921735,
+        "serverMaxRssMiB": 108.9921875,
+        "treePeakMiB": 337.71875,
+        "scopePeakMiB": 642.703125,
+        "identityWorkerPeakMiB": 108.33203125,
+        "registryWaitMs": 0,
+        "registryHoldMs": 3
+      },
+      {
+        "variant": "after",
+        "path": "mcp",
+        "size": "small",
+        "n": 1,
+        "cache": "warm",
+        "initializeMs": 228.582993,
+        "identityMs": 519.2946870000001,
+        "serverMaxRssMiB": 110.109375,
+        "treePeakMiB": 329.765625,
+        "scopePeakMiB": 633.421875,
+        "identityWorkerPeakMiB": 108.84375,
+        "registryWaitMs": 0,
+        "registryHoldMs": 2
+      },
+      {
+        "variant": "after",
+        "path": "mcp",
+        "size": "large",
+        "n": 1,
+        "cache": "cold",
+        "initializeMs": 241.718188,
+        "identityMs": 501.56085900000005,
+        "serverMaxRssMiB": 113.3984375,
+        "treePeakMiB": 338.73828125,
+        "scopePeakMiB": 601.1015625,
+        "identityWorkerPeakMiB": 109.7421875,
+        "registryWaitMs": 1,
+        "registryHoldMs": 2
+      },
+      {
+        "variant": "after",
+        "path": "mcp",
+        "size": "large",
+        "n": 1,
+        "cache": "warm",
+        "initializeMs": 227.61103399999996,
+        "identityMs": 480.282658,
+        "serverMaxRssMiB": 113.47265625,
+        "treePeakMiB": 336.72265625,
+        "scopePeakMiB": 598.80859375,
+        "identityWorkerPeakMiB": 108.31640625,
+        "registryWaitMs": 0,
+        "registryHoldMs": 3
+      },
+      {
+        "variant": "after",
+        "path": "mcp",
+        "size": "large",
+        "n": 4,
+        "cache": "cold",
+        "initializeMs": 273.90952799999997,
+        "identityMs": 601.016486,
+        "serverMaxRssMiB": 112.73828125,
+        "treePeakMiB": 1266.890625,
+        "scopePeakMiB": 960.0390625,
+        "identityWorkerPeakMiB": 109.5546875,
+        "registryWaitMs": 1,
+        "registryHoldMs": 3
+      },
+      {
+        "variant": "after",
+        "path": "mcp",
+        "size": "large",
+        "n": 4,
+        "cache": "warm",
+        "initializeMs": 269.24005999999997,
+        "identityMs": 575.850017,
+        "serverMaxRssMiB": 113.7265625,
+        "treePeakMiB": 1326.640625,
+        "scopePeakMiB": 1003.21875,
+        "identityWorkerPeakMiB": 109.04296875,
+        "registryWaitMs": 51,
+        "registryHoldMs": 3
+      },
+      {
+        "variant": "after",
+        "path": "mcp",
+        "size": "large",
+        "n": 17,
+        "cache": "cold",
+        "initializeMs": 543.06053,
+        "identityMs": 1086.220718,
+        "serverMaxRssMiB": 114.07421875,
+        "treePeakMiB": 5164.05078125,
+        "scopePeakMiB": 2493.6953125,
+        "identityWorkerPeakMiB": 111.45703125,
+        "registryWaitMs": 101,
+        "registryHoldMs": 6
+      },
+      {
+        "variant": "after",
+        "path": "mcp",
+        "size": "large",
+        "n": 17,
+        "cache": "warm",
+        "initializeMs": 468.714023,
+        "identityMs": 1134.6908990000002,
+        "serverMaxRssMiB": 114.41796875,
+        "treePeakMiB": 5228.140625,
+        "scopePeakMiB": 2501.796875,
+        "identityWorkerPeakMiB": 109.8828125,
+        "registryWaitMs": 152,
+        "registryHoldMs": 5
+      }
+    ],
+    "after-runtime": [
+      {
+        "variant": "after",
+        "path": "runtime",
+        "size": "small",
+        "n": 1,
+        "cache": "cold",
+        "launchMs": 7015.930863,
+        "treePeakMiB": 753.38671875,
+        "scopePeakMiB": 816.71875
+      },
+      {
+        "variant": "after",
+        "path": "runtime",
+        "size": "small",
+        "n": 1,
+        "cache": "warm",
+        "launchMs": 6899.18402,
+        "treePeakMiB": 756.453125,
+        "scopePeakMiB": 748.19921875
+      },
+      {
+        "variant": "after",
+        "path": "runtime",
+        "size": "large",
+        "n": 1,
+        "cache": "cold",
+        "launchMs": 7062.678932000001,
+        "treePeakMiB": 749.67578125,
+        "scopePeakMiB": 750.69140625
+      },
+      {
+        "variant": "after",
+        "path": "runtime",
+        "size": "large",
+        "n": 1,
+        "cache": "warm",
+        "launchMs": 6986.317683,
+        "treePeakMiB": 757.40234375,
+        "scopePeakMiB": 763.171875
+      },
+      {
+        "variant": "after",
+        "path": "runtime",
+        "size": "large",
+        "n": 4,
+        "cache": "cold",
+        "launchMs": 7073.080952,
+        "treePeakMiB": 2775.96484375,
+        "scopePeakMiB": 1606.28515625
+      },
+      {
+        "variant": "after",
+        "path": "runtime",
+        "size": "large",
+        "n": 4,
+        "cache": "warm",
+        "launchMs": 6990.825046999999,
+        "treePeakMiB": 2763.51171875,
+        "scopePeakMiB": 1606.98046875
+      },
+      {
+        "variant": "after",
+        "path": "runtime",
+        "size": "large",
+        "n": 17,
+        "cache": "cold",
+        "launchMs": 10371.314316,
+        "treePeakMiB": 11324.1328125,
+        "scopePeakMiB": 5017.58984375
+      },
+      {
+        "variant": "after",
+        "path": "runtime",
+        "size": "large",
+        "n": 17,
+        "cache": "warm",
+        "launchMs": 10650.877714000002,
+        "treePeakMiB": 11223.94921875,
+        "scopePeakMiB": 5171.2421875
+      }
+    ]
+  },
+  "phases": {
+    "before-small-cold": {
+      "initializeMs": 257.777554,
+      "identityMs": 525.737755,
+      "serverRssMiB": 112.78515625,
+      "identityWorkerPeakMiB": 113.15625,
+      "phases": {
+        "root_resolve": 0.027,
+        "identity_provider": 0.524,
+        "bindings_lookup": 1.552,
+        "aliases_lookup": 0.484,
+        "identity_keys": 1.323,
+        "registry_read": 0.895,
+        "identity_register": 2.365,
+        "identity_alias": 0.203
+      },
+      "io": {
+        "readFileSync:manifest.json": {
+          "calls": 2,
+          "ms": 0.128,
+          "bytes": 2292
+        },
+        "readFileSync:package.json": {
+          "calls": 4,
+          "ms": 0.102,
+          "bytes": 5988
+        },
+        "readFileSync:.h2a-schema.json": {
+          "calls": 3,
+          "ms": 0.048,
+          "bytes": 312
+        },
+        "readFileSync:drive-consent-budget.json": {
+          "calls": 3,
+          "ms": 0.114,
+          "bytes": 0
+        },
+        "readdirSync:negotiations": {
+          "calls": 3,
+          "ms": 0.096,
+          "bytes": 0
+        },
+        "readFileSync:claude-launch-perf-60467a3bc8fd.key.pem": {
+          "calls": 1,
+          "ms": 0.054,
+          "bytes": 119
+        },
+        "readFileSync:SKILL.md": {
+          "calls": 1,
+          "ms": 0.036,
+          "bytes": 0
+        },
+        "readdirSync:presence": {
+          "calls": 1,
+          "ms": 0.032,
+          "bytes": 0
+        },
+        "readFileSync:presence": {
+          "calls": 12,
+          "ms": 0.11,
+          "bytes": 4316
+        },
+        "spawnSync:npm": {
+          "calls": 1,
+          "ms": 110.728,
+          "bytes": 0
+        },
+        "readFileSync:upgrade-check.json": {
+          "calls": 2,
+          "ms": 0.06,
+          "bytes": 90
+        },
+        "readFileSync:bindings.jsonl": {
+          "calls": 3,
+          "ms": 1.139,
+          "bytes": 86988
+        },
+        "readFileSync:aliases.jsonl": {
+          "calls": 2,
+          "ms": 0.155,
+          "bytes": 29856
+        },
+        "readFileSync:instances.jsonl": {
+          "calls": 1,
+          "ms": 0.59,
+          "bytes": 71676
+        }
+      },
+      "moduleLoadMs": 225.905,
+      "sessionOpenAtMs": 507.675,
+      "serverActivationMs": 0.8240000000000123,
+      "messagingMs": 0,
+      "registryHoldMs": 1,
+      "bindingHoldMs": 0,
+      "registryWaitMs": 0
+    },
+    "before-small-warm": {
+      "initializeMs": 264.99627200000003,
+      "identityMs": 579.053158,
+      "serverRssMiB": 112.66796875,
+      "identityWorkerPeakMiB": 113.1953125,
+      "phases": {
+        "root_resolve": 0.074,
+        "identity_provider": 0.619,
+        "bindings_lookup": 0.803,
+        "aliases_lookup": 0.472,
+        "identity_keys": 1.751,
+        "registry_read": 0.521,
+        "identity_register": 2.659,
+        "identity_alias": 0.283
+      },
+      "io": {
+        "readFileSync:manifest.json": {
+          "calls": 2,
+          "ms": 0.155,
+          "bytes": 2292
+        },
+        "readFileSync:package.json": {
+          "calls": 4,
+          "ms": 0.115,
+          "bytes": 5988
+        },
+        "readFileSync:.h2a-schema.json": {
+          "calls": 3,
+          "ms": 0.069,
+          "bytes": 312
+        },
+        "readFileSync:drive-consent-budget.json": {
+          "calls": 3,
+          "ms": 0.152,
+          "bytes": 0
+        },
+        "readdirSync:negotiations": {
+          "calls": 3,
+          "ms": 0.157,
+          "bytes": 0
+        },
+        "readFileSync:claude-launch-perf-bbddf267d2af.key.pem": {
+          "calls": 1,
+          "ms": 0.068,
+          "bytes": 119
+        },
+        "readFileSync:SKILL.md": {
+          "calls": 1,
+          "ms": 0.048,
+          "bytes": 0
+        },
+        "readdirSync:presence": {
+          "calls": 1,
+          "ms": 0.051,
+          "bytes": 0
+        },
+        "readFileSync:presence": {
+          "calls": 12,
+          "ms": 0.19,
+          "bytes": 4316
+        },
+        "spawnSync:npm": {
+          "calls": 1,
+          "ms": 120.601,
+          "bytes": 0
+        },
+        "readFileSync:upgrade-check.json": {
+          "calls": 2,
+          "ms": 0.061,
+          "bytes": 90
+        },
+        "readFileSync:bindings.jsonl": {
+          "calls": 3,
+          "ms": 0.114,
+          "bytes": 87807
+        },
+        "readFileSync:aliases.jsonl": {
+          "calls": 2,
+          "ms": 0.044,
+          "bytes": 30136
+        },
+        "readFileSync:instances.jsonl": {
+          "calls": 1,
+          "ms": 0.057,
+          "bytes": 72434
+        }
+      },
+      "moduleLoadMs": 228.191,
+      "sessionOpenAtMs": 547.914,
+      "serverActivationMs": 1.6970000000000027,
+      "messagingMs": 0,
+      "registryHoldMs": 1,
+      "bindingHoldMs": 0,
+      "registryWaitMs": 0
+    },
+    "before-large-cold": {
+      "initializeMs": 262.55778200000003,
+      "identityMs": 763.257559,
+      "serverRssMiB": 120.65625,
+      "identityWorkerPeakMiB": 221.390625,
+      "phases": {
+        "root_resolve": 0.032,
+        "identity_provider": 0.552,
+        "bindings_lookup": 74.472,
+        "aliases_lookup": 34.03,
+        "identity_keys": 1.368,
+        "registry_read": 109.909,
+        "identity_register": 112.707,
+        "identity_alias": 11.055
+      },
+      "io": {
+        "readFileSync:manifest.json": {
+          "calls": 2,
+          "ms": 0.076,
+          "bytes": 2292
+        },
+        "readFileSync:package.json": {
+          "calls": 4,
+          "ms": 0.107,
+          "bytes": 5988
+        },
+        "readFileSync:.h2a-schema.json": {
+          "calls": 3,
+          "ms": 0.071,
+          "bytes": 312
+        },
+        "readFileSync:drive-consent-budget.json": {
+          "calls": 3,
+          "ms": 0.138,
+          "bytes": 0
+        },
+        "readdirSync:negotiations": {
+          "calls": 3,
+          "ms": 0.118,
+          "bytes": 0
+        },
+        "readFileSync:claude-launch-perf-e2de40b4efe3.key.pem": {
+          "calls": 1,
+          "ms": 0.102,
+          "bytes": 119
+        },
+        "readFileSync:SKILL.md": {
+          "calls": 1,
+          "ms": 0.054,
+          "bytes": 0
+        },
+        "readdirSync:presence": {
+          "calls": 1,
+          "ms": 0.152,
+          "bytes": 0
+        },
+        "readFileSync:presence": {
+          "calls": 309,
+          "ms": 1.903,
+          "bytes": 84029
+        },
+        "spawnSync:npm": {
+          "calls": 1,
+          "ms": 109.554,
+          "bytes": 0
+        },
+        "readFileSync:upgrade-check.json": {
+          "calls": 2,
+          "ms": 0.06,
+          "bytes": 90
+        },
+        "readFileSync:bindings.jsonl": {
+          "calls": 3,
+          "ms": 23.609,
+          "bytes": 24798189
+        },
+        "readFileSync:aliases.jsonl": {
+          "calls": 2,
+          "ms": 10.727,
+          "bytes": 7853952
+        },
+        "readFileSync:instances.jsonl": {
+          "calls": 1,
+          "ms": 48.385,
+          "bytes": 19645559
+        }
+      },
+      "moduleLoadMs": 230.612,
+      "sessionOpenAtMs": 737.048,
+      "serverActivationMs": 7.662000000000035,
+      "messagingMs": 0,
+      "registryHoldMs": 112,
+      "bindingHoldMs": 18,
+      "registryWaitMs": 0
+    },
+    "before-large-warm": {
+      "initializeMs": 285.34334,
+      "identityMs": 746.9406250000001,
+      "serverRssMiB": 120.578125,
+      "identityWorkerPeakMiB": 219.78515625,
+      "phases": {
+        "root_resolve": 0.025,
+        "identity_provider": 0.533,
+        "bindings_lookup": 69.073,
+        "aliases_lookup": 26.389,
+        "identity_keys": 1.391,
+        "registry_read": 77.833,
+        "identity_register": 80.648,
+        "identity_alias": 11.305
+      },
+      "io": {
+        "readFileSync:manifest.json": {
+          "calls": 2,
+          "ms": 0.107,
+          "bytes": 2292
+        },
+        "readFileSync:package.json": {
+          "calls": 4,
+          "ms": 0.095,
+          "bytes": 5988
+        },
+        "readFileSync:.h2a-schema.json": {
+          "calls": 3,
+          "ms": 0.082,
+          "bytes": 312
+        },
+        "readFileSync:drive-consent-budget.json": {
+          "calls": 3,
+          "ms": 0.133,
+          "bytes": 0
+        },
+        "readdirSync:negotiations": {
+          "calls": 3,
+          "ms": 0.121,
+          "bytes": 0
+        },
+        "readFileSync:claude-launch-perf-8b6e057fa51e.key.pem": {
+          "calls": 1,
+          "ms": 0.1,
+          "bytes": 119
+        },
+        "readFileSync:SKILL.md": {
+          "calls": 1,
+          "ms": 0.054,
+          "bytes": 0
+        },
+        "readdirSync:presence": {
+          "calls": 1,
+          "ms": 0.148,
+          "bytes": 0
+        },
+        "readFileSync:presence": {
+          "calls": 309,
+          "ms": 1.946,
+          "bytes": 84029
+        },
+        "spawnSync:npm": {
+          "calls": 1,
+          "ms": 119.623,
+          "bytes": 0
+        },
+        "readFileSync:upgrade-check.json": {
+          "calls": 2,
+          "ms": 0.073,
+          "bytes": 90
+        },
+        "readFileSync:bindings.jsonl": {
+          "calls": 3,
+          "ms": 13.309,
+          "bytes": 24799008
+        },
+        "readFileSync:aliases.jsonl": {
+          "calls": 2,
+          "ms": 3.876,
+          "bytes": 7854232
+        },
+        "readFileSync:instances.jsonl": {
+          "calls": 1,
+          "ms": 17.468,
+          "bytes": 19646317
+        }
+      },
+      "moduleLoadMs": 251.42,
+      "sessionOpenAtMs": 718.501,
+      "serverActivationMs": 7.733000000000061,
+      "messagingMs": 0,
+      "registryHoldMs": 80,
+      "bindingHoldMs": 19,
+      "registryWaitMs": 0
+    },
+    "after-small-cold": {
+      "initializeMs": 347.776141,
+      "identityMs": 660.266317,
+      "serverRssMiB": 113.41796875,
+      "identityWorkerPeakMiB": 112.31640625,
+      "phases": {
+        "root_resolve": 0.05,
+        "identity_provider": 0.52,
+        "bindings_lookup": 1.724,
+        "aliases_lookup": 4.785,
+        "identity_keys": 1.755,
+        "instances_lookup": 0.632,
+        "identity_register": 5.394,
+        "identity_alias": 4.897
+      },
+      "io": {
+        "readFileSync:.h2a-schema.json": {
+          "calls": 3,
+          "ms": 0.089,
+          "bytes": 312
+        },
+        "readFileSync:drive-consent-budget.json": {
+          "calls": 3,
+          "ms": 0.18,
+          "bytes": 0
+        },
+        "readdirSync:negotiations": {
+          "calls": 3,
+          "ms": 0.145,
+          "bytes": 0
+        },
+        "readFileSync:claude-launch-perf-20fd0d5f8ac2.key.pem": {
+          "calls": 1,
+          "ms": 0.061,
+          "bytes": 119
+        },
+        "readFileSync:SKILL.md": {
+          "calls": 1,
+          "ms": 0.048,
+          "bytes": 0
+        },
+        "readdirSync:presence": {
+          "calls": 1,
+          "ms": 0.044,
+          "bytes": 0
+        },
+        "readFileSync:presence": {
+          "calls": 12,
+          "ms": 0.135,
+          "bytes": 4316
+        },
+        "spawnSync:npm": {
+          "calls": 1,
+          "ms": 126.167,
+          "bytes": 0
+        },
+        "readFileSync:upgrade-check.json": {
+          "calls": 2,
+          "ms": 0.061,
+          "bytes": 90
+        },
+        "readFileSync:launch-index": {
+          "calls": 16,
+          "ms": 4.477,
+          "bytes": 166846
+        }
+      },
+      "moduleLoadMs": 307.805,
+      "sessionOpenAtMs": 631.823,
+      "serverActivationMs": 1.1370000000000573,
+      "messagingMs": 0,
+      "registryHoldMs": 4,
+      "bindingHoldMs": 1,
+      "registryWaitMs": 0
+    },
+    "after-small-warm": {
+      "initializeMs": 257.106752,
+      "identityMs": 543.027949,
+      "serverRssMiB": 113.16796875,
+      "identityWorkerPeakMiB": 113.35546875,
+      "phases": {
+        "root_resolve": 0.057,
+        "identity_provider": 0.499,
+        "bindings_lookup": 1.665,
+        "aliases_lookup": 2.002,
+        "identity_keys": 1.779,
+        "instances_lookup": 7.742,
+        "identity_register": 11.805,
+        "identity_alias": 3.026
+      },
+      "io": {
+        "readFileSync:.h2a-schema.json": {
+          "calls": 3,
+          "ms": 0.067,
+          "bytes": 312
+        },
+        "readFileSync:drive-consent-budget.json": {
+          "calls": 3,
+          "ms": 0.153,
+          "bytes": 0
+        },
+        "readdirSync:negotiations": {
+          "calls": 3,
+          "ms": 0.126,
+          "bytes": 0
+        },
+        "readFileSync:claude-launch-perf-b9057e8b203c.key.pem": {
+          "calls": 1,
+          "ms": 0.06,
+          "bytes": 119
+        },
+        "readFileSync:SKILL.md": {
+          "calls": 1,
+          "ms": 0.05,
+          "bytes": 0
+        },
+        "readdirSync:presence": {
+          "calls": 1,
+          "ms": 0.038,
+          "bytes": 0
+        },
+        "readFileSync:presence": {
+          "calls": 12,
+          "ms": 0.136,
+          "bytes": 4316
+        },
+        "spawnSync:npm": {
+          "calls": 1,
+          "ms": 113.293,
+          "bytes": 0
+        },
+        "readFileSync:upgrade-check.json": {
+          "calls": 2,
+          "ms": 0.082,
+          "bytes": 90
+        },
+        "readFileSync:launch-index": {
+          "calls": 17,
+          "ms": 8.802,
+          "bytes": 167791
+        }
+      },
+      "moduleLoadMs": 224.658,
+      "sessionOpenAtMs": 520.977,
+      "serverActivationMs": 0.9460000000000264,
+      "messagingMs": 0,
+      "registryHoldMs": 10,
+      "bindingHoldMs": 1,
+      "registryWaitMs": 0
+    },
+    "after-large-cold": {
+      "initializeMs": 251.46864899999997,
+      "identityMs": 544.1186009999999,
+      "serverRssMiB": 120.1953125,
+      "identityWorkerPeakMiB": 114.09765625,
+      "phases": {
+        "root_resolve": 0.028,
+        "identity_provider": 0.521,
+        "bindings_lookup": 5.085,
+        "aliases_lookup": 1.631,
+        "identity_keys": 1.365,
+        "instances_lookup": 0.673,
+        "identity_register": 3.962,
+        "identity_alias": 4.008
+      },
+      "io": {
+        "readFileSync:.h2a-schema.json": {
+          "calls": 3,
+          "ms": 0.054,
+          "bytes": 312
+        },
+        "readFileSync:drive-consent-budget.json": {
+          "calls": 3,
+          "ms": 0.117,
+          "bytes": 0
+        },
+        "readdirSync:negotiations": {
+          "calls": 3,
+          "ms": 0.114,
+          "bytes": 0
+        },
+        "readFileSync:claude-launch-perf-042e0c5170b4.key.pem": {
+          "calls": 1,
+          "ms": 0.053,
+          "bytes": 119
+        },
+        "readFileSync:SKILL.md": {
+          "calls": 1,
+          "ms": 0.038,
+          "bytes": 0
+        },
+        "readdirSync:presence": {
+          "calls": 1,
+          "ms": 0.142,
+          "bytes": 0
+        },
+        "readFileSync:presence": {
+          "calls": 309,
+          "ms": 1.811,
+          "bytes": 84029
+        },
+        "spawnSync:npm": {
+          "calls": 1,
+          "ms": 103.852,
+          "bytes": 0
+        },
+        "readFileSync:upgrade-check.json": {
+          "calls": 2,
+          "ms": 0.061,
+          "bytes": 90
+        },
+        "readFileSync:launch-index": {
+          "calls": 20,
+          "ms": 4.341,
+          "bytes": 460565
+        }
+      },
+      "moduleLoadMs": 221.123,
+      "sessionOpenAtMs": 519.432,
+      "serverActivationMs": 7.336999999999989,
+      "messagingMs": 0,
+      "registryHoldMs": 2,
+      "bindingHoldMs": 1,
+      "registryWaitMs": 1
+    },
+    "after-large-warm": {
+      "initializeMs": 256.496443,
+      "identityMs": 554.908801,
+      "serverRssMiB": 120.984375,
+      "identityWorkerPeakMiB": 114.73046875,
+      "phases": {
+        "root_resolve": 0.028,
+        "identity_provider": 0.52,
+        "bindings_lookup": 2.891,
+        "aliases_lookup": 1.553,
+        "identity_keys": 1.818,
+        "instances_lookup": 0.75,
+        "identity_register": 4.844,
+        "identity_alias": 3.76
+      },
+      "io": {
+        "readFileSync:.h2a-schema.json": {
+          "calls": 3,
+          "ms": 0.063,
+          "bytes": 312
+        },
+        "readFileSync:drive-consent-budget.json": {
+          "calls": 3,
+          "ms": 0.157,
+          "bytes": 0
+        },
+        "readdirSync:negotiations": {
+          "calls": 3,
+          "ms": 0.135,
+          "bytes": 0
+        },
+        "readFileSync:claude-launch-perf-e34d7c53376c.key.pem": {
+          "calls": 1,
+          "ms": 0.054,
+          "bytes": 119
+        },
+        "readFileSync:SKILL.md": {
+          "calls": 1,
+          "ms": 0.047,
+          "bytes": 0
+        },
+        "readdirSync:presence": {
+          "calls": 1,
+          "ms": 0.147,
+          "bytes": 0
+        },
+        "readFileSync:presence": {
+          "calls": 309,
+          "ms": 1.774,
+          "bytes": 84029
+        },
+        "spawnSync:npm": {
+          "calls": 1,
+          "ms": 106.845,
+          "bytes": 0
+        },
+        "readFileSync:upgrade-check.json": {
+          "calls": 2,
+          "ms": 0.067,
+          "bytes": 90
+        },
+        "readFileSync:launch-index": {
+          "calls": 20,
+          "ms": 1.426,
+          "bytes": 464031
+        }
+      },
+      "moduleLoadMs": 221.003,
+      "sessionOpenAtMs": 525.644,
+      "serverActivationMs": 7.168000000000006,
+      "messagingMs": 0,
+      "registryHoldMs": 3,
+      "bindingHoldMs": 2,
+      "registryWaitMs": 0
+    }
+  },
+  "additional": {
+    "before-mesh": {
+      "initializeMs": 235.626079,
+      "identityMs": 795.257741,
+      "serverRssMiB": 171.5625,
+      "identityWorkerPeakMiB": 215.00390625,
+      "phases": {
+        "root_resolve": 0.024,
+        "identity_provider": 0.431,
+        "bindings_lookup": 63.336,
+        "aliases_lookup": 41.295,
+        "identity_keys": 1.275,
+        "registry_read": 162.576,
+        "identity_register": 83.271,
+        "identity_alias": 11.968
+      },
+      "io": {
+        "readFileSync:manifest.json": {
+          "calls": 2,
+          "ms": 0.117,
+          "bytes": 2292
+        },
+        "readFileSync:package.json": {
+          "calls": 4,
+          "ms": 0.113,
+          "bytes": 5988
+        },
+        "readFileSync:.h2a-schema.json": {
+          "calls": 4,
+          "ms": 0.099,
+          "bytes": 416
+        },
+        "readFileSync:drive-consent-budget.json": {
+          "calls": 4,
+          "ms": 0.175,
+          "bytes": 0
+        },
+        "readdirSync:negotiations": {
+          "calls": 4,
+          "ms": 0.136,
+          "bytes": 0
+        },
+        "readFileSync:claude-launch-perf-b41a7fc97231.key.pem": {
+          "calls": 1,
+          "ms": 0.093,
+          "bytes": 119
+        },
+        "readFileSync:instances.jsonl": {
+          "calls": 2,
+          "ms": 32.459,
+          "bytes": 39294908
+        },
+        "readFileSync:keys.jsonl": {
+          "calls": 1,
+          "ms": 0.069,
+          "bytes": 0
+        },
+        "readFileSync:SKILL.md": {
+          "calls": 1,
+          "ms": 0.044,
+          "bytes": 0
+        },
+        "readdirSync:presence": {
+          "calls": 2,
+          "ms": 0.304,
+          "bytes": 0
+        },
+        "readFileSync:presence": {
+          "calls": 617,
+          "ms": 2.829,
+          "bytes": 167225
+        },
+        "readdirSync:blockage": {
+          "calls": 1,
+          "ms": 0.049,
+          "bytes": 0
+        },
+        "readFileSync:aliases.jsonl": {
+          "calls": 3,
+          "ms": 5.906,
+          "bytes": 11781908
+        },
+        "spawnSync:npm": {
+          "calls": 1,
+          "ms": 118.001,
+          "bytes": 0
+        },
+        "readFileSync:upgrade-check.json": {
+          "calls": 2,
+          "ms": 0.077,
+          "bytes": 90
+        },
+        "readFileSync:bindings.jsonl": {
+          "calls": 3,
+          "ms": 12.513,
+          "bytes": 24799827
+        }
+      },
+      "moduleLoadMs": 203.112,
+      "sessionOpenAtMs": 740.593,
+      "serverActivationMs": 9.283000000000015,
+      "messagingMs": 95.49699999999996,
+      "registryHoldMs": 82,
+      "bindingHoldMs": 19,
+      "registryWaitMs": 1
+    },
+    "before-discover": {
+      "initializeMs": 261.129944,
+      "identityMs": 715.3300559999999,
+      "serverRssMiB": 113.375,
+      "identityWorkerPeakMiB": 226.6953125,
+      "postDiscover": {
+        "elapsedMs": 166.93634799999995,
+        "frameBytes": 174744,
+        "rssKiB": 223760
+      },
+      "phases": {
+        "root_resolve": 0.03,
+        "identity_provider": 0.446,
+        "bindings_lookup": 65.434,
+        "aliases_lookup": 26.156,
+        "identity_keys": 1.31,
+        "registry_read": 82.08,
+        "identity_register": 84.533,
+        "identity_alias": 10.953
+      },
+      "io": {
+        "readFileSync:manifest.json": {
+          "calls": 2,
+          "ms": 0.107,
+          "bytes": 2292
+        },
+        "readFileSync:package.json": {
+          "calls": 4,
+          "ms": 0.108,
+          "bytes": 5988
+        },
+        "readFileSync:.h2a-schema.json": {
+          "calls": 3,
+          "ms": 0.069,
+          "bytes": 312
+        },
+        "readFileSync:drive-consent-budget.json": {
+          "calls": 3,
+          "ms": 0.151,
+          "bytes": 0
+        },
+        "readdirSync:negotiations": {
+          "calls": 3,
+          "ms": 0.118,
+          "bytes": 0
+        },
+        "readFileSync:claude-launch-perf-24ad45bb5e47.key.pem": {
+          "calls": 1,
+          "ms": 0.086,
+          "bytes": 119
+        },
+        "readFileSync:SKILL.md": {
+          "calls": 1,
+          "ms": 0.056,
+          "bytes": 0
+        },
+        "readdirSync:presence": {
+          "calls": 1,
+          "ms": 0.154,
+          "bytes": 0
+        },
+        "readFileSync:presence": {
+          "calls": 309,
+          "ms": 1.881,
+          "bytes": 84029
+        },
+        "readFileSync:instances.jsonl": {
+          "calls": 3,
+          "ms": 26.548,
+          "bytes": 58945015
+        },
+        "readFileSync:org-membership.jsonl": {
+          "calls": 2,
+          "ms": 0.071,
+          "bytes": 0
+        },
+        "spawnSync:npm": {
+          "calls": 1,
+          "ms": 119.359,
+          "bytes": 0
+        },
+        "readFileSync:upgrade-check.json": {
+          "calls": 2,
+          "ms": 0.105,
+          "bytes": 90
+        },
+        "readFileSync:bindings.jsonl": {
+          "calls": 3,
+          "ms": 12.19,
+          "bytes": 24800646
+        },
+        "readFileSync:aliases.jsonl": {
+          "calls": 2,
+          "ms": 3.954,
+          "bytes": 7854792
+        }
+      },
+      "moduleLoadMs": 227.965,
+      "sessionOpenAtMs": 687.752,
+      "serverActivationMs": 6.7560000000000855,
+      "messagingMs": 0,
+      "registryHoldMs": 83,
+      "bindingHoldMs": 22,
+      "registryWaitMs": 0
+    },
+    "before-reclaim": {
+      "initializeMs": 237.521697,
+      "identityMs": 816.3524259999999,
+      "serverRssMiB": 113.25,
+      "identityWorkerPeakMiB": 335.8828125,
+      "phases": {
+        "root_resolve": 0.024,
+        "identity_provider": 0.44,
+        "bindings_lookup": 69.369,
+        "registry_read": 226.378,
+        "identity_proof": 81.9,
+        "aliases_lookup": 21.324,
+        "identity_keys": 0.246,
+        "identity_register": 150.619,
+        "identity_alias": 11.278
+      },
+      "io": {
+        "readFileSync:manifest.json": {
+          "calls": 2,
+          "ms": 0.1,
+          "bytes": 2292
+        },
+        "readFileSync:package.json": {
+          "calls": 4,
+          "ms": 0.105,
+          "bytes": 5988
+        },
+        "readFileSync:.h2a-schema.json": {
+          "calls": 4,
+          "ms": 0.084,
+          "bytes": 416
+        },
+        "readFileSync:drive-consent-budget.json": {
+          "calls": 4,
+          "ms": 0.195,
+          "bytes": 0
+        },
+        "readdirSync:negotiations": {
+          "calls": 4,
+          "ms": 0.158,
+          "bytes": 0
+        },
+        "readFileSync:claude-launch-perf-c7e015bdb766.key.pem": {
+          "calls": 3,
+          "ms": 0.149,
+          "bytes": 357
+        },
+        "readFileSync:SKILL.md": {
+          "calls": 1,
+          "ms": 0.061,
+          "bytes": 0
+        },
+        "readdirSync:presence": {
+          "calls": 1,
+          "ms": 0.147,
+          "bytes": 0
+        },
+        "readFileSync:presence": {
+          "calls": 309,
+          "ms": 1.767,
+          "bytes": 84029
+        },
+        "spawnSync:npm": {
+          "calls": 1,
+          "ms": 129.23,
+          "bytes": 0
+        },
+        "readFileSync:upgrade-check.json": {
+          "calls": 2,
+          "ms": 0.056,
+          "bytes": 90
+        },
+        "readFileSync:bindings.jsonl": {
+          "calls": 3,
+          "ms": 11.833,
+          "bytes": 24803643
+        },
+        "readFileSync:claude-launch-perf-c7e015bdb766.pub.pem": {
+          "calls": 2,
+          "ms": 0.024,
+          "bytes": 226
+        },
+        "readFileSync:instances.jsonl": {
+          "calls": 3,
+          "ms": 44.537,
+          "bytes": 58952595
+        },
+        "readFileSync:keys.jsonl": {
+          "calls": 2,
+          "ms": 0.147,
+          "bytes": 0
+        },
+        "readFileSync:aliases.jsonl": {
+          "calls": 2,
+          "ms": 2.813,
+          "bytes": 7855912
+        }
+      },
+      "moduleLoadMs": 206.857,
+      "sessionOpenAtMs": 784.788,
+      "serverActivationMs": 6.3250000000000455,
+      "messagingMs": 0,
+      "registryHoldMs": 0,
+      "bindingHoldMs": 20,
+      "registryWaitMs": 0
+    },
+    "before-idle": {
+      "initializeMs": 259.62456099999997,
+      "identityMs": 718.9277510000001,
+      "serverRssMiB": 113.11328125,
+      "identityWorkerPeakMiB": 216.5546875,
+      "postHold": {
+        "elapsedMs": 5000,
+        "rssKiB": 133144
+      },
+      "phases": {
+        "root_resolve": 0.024,
+        "identity_provider": 0.451,
+        "bindings_lookup": 81.475,
+        "aliases_lookup": 51.31,
+        "identity_keys": 1.852,
+        "registry_read": 78.494,
+        "identity_register": 81.439,
+        "identity_alias": 11.732
+      },
+      "io": {
+        "readFileSync:manifest.json": {
+          "calls": 2,
+          "ms": 0.104,
+          "bytes": 2292
+        },
+        "readFileSync:package.json": {
+          "calls": 4,
+          "ms": 0.105,
+          "bytes": 5988
+        },
+        "readFileSync:.h2a-schema.json": {
+          "calls": 3,
+          "ms": 0.119,
+          "bytes": 312
+        },
+        "readFileSync:drive-consent-budget.json": {
+          "calls": 3,
+          "ms": 0.274,
+          "bytes": 0
+        },
+        "readdirSync:negotiations": {
+          "calls": 3,
+          "ms": 0.209,
+          "bytes": 0
+        },
+        "readFileSync:claude-launch-perf-05b0416afc6d.key.pem": {
+          "calls": 1,
+          "ms": 0.09,
+          "bytes": 119
+        },
+        "readFileSync:SKILL.md": {
+          "calls": 1,
+          "ms": 0.059,
+          "bytes": 0
+        },
+        "readdirSync:presence": {
+          "calls": 2,
+          "ms": 0.417,
+          "bytes": 0
+        },
+        "readFileSync:presence": {
+          "calls": 618,
+          "ms": 3.919,
+          "bytes": 168058
+        },
+        "readdirSync:blockage": {
+          "calls": 1,
+          "ms": 0.069,
+          "bytes": 0
+        },
+        "readFileSync:aliases.jsonl": {
+          "calls": 3,
+          "ms": 13.764,
+          "bytes": 11822120
+        },
+        "spawnSync:npm": {
+          "calls": 1,
+          "ms": 129.193,
+          "bytes": 0
+        },
+        "readFileSync:upgrade-check.json": {
+          "calls": 2,
+          "ms": 0.06,
+          "bytes": 90
+        },
+        "readFileSync:bindings.jsonl": {
+          "calls": 3,
+          "ms": 25.452,
+          "bytes": 24879084
+        },
+        "readFileSync:instances.jsonl": {
+          "calls": 1,
+          "ms": 16.806,
+          "bytes": 19722923
+        }
+      },
+      "moduleLoadMs": 224.172,
+      "sessionOpenAtMs": 690.806,
+      "serverActivationMs": 6.805999999999926,
+      "messagingMs": 0,
+      "registryHoldMs": 80,
+      "bindingHoldMs": 18,
+      "registryWaitMs": 0
+    },
+    "before-mesh-small": {
+      "initializeMs": 251.13958999999997,
+      "identityMs": 552.0271680000001,
+      "serverRssMiB": 110.79296875,
+      "identityWorkerPeakMiB": 106.41015625,
+      "phases": {
+        "root_resolve": 0.026,
+        "identity_provider": 0.532,
+        "bindings_lookup": 0.8,
+        "aliases_lookup": 0.676,
+        "identity_keys": 1.64,
+        "registry_read": 1.157,
+        "identity_register": 2.35,
+        "identity_alias": 0.274
+      },
+      "io": {
+        "readFileSync:manifest.json": {
+          "calls": 2,
+          "ms": 0.118,
+          "bytes": 2292
+        },
+        "readFileSync:package.json": {
+          "calls": 4,
+          "ms": 0.117,
+          "bytes": 5988
+        },
+        "readFileSync:.h2a-schema.json": {
+          "calls": 4,
+          "ms": 0.104,
+          "bytes": 416
+        },
+        "readFileSync:drive-consent-budget.json": {
+          "calls": 4,
+          "ms": 0.225,
+          "bytes": 0
+        },
+        "readdirSync:negotiations": {
+          "calls": 4,
+          "ms": 0.149,
+          "bytes": 0
+        },
+        "readFileSync:claude-launch-perf-3dfe253f67b4.key.pem": {
+          "calls": 1,
+          "ms": 0.088,
+          "bytes": 119
+        },
+        "readFileSync:instances.jsonl": {
+          "calls": 2,
+          "ms": 0.153,
+          "bytes": 147142
+        },
+        "readFileSync:keys.jsonl": {
+          "calls": 1,
+          "ms": 0.02,
+          "bytes": 0
+        },
+        "readFileSync:SKILL.md": {
+          "calls": 1,
+          "ms": 0.037,
+          "bytes": 0
+        },
+        "readdirSync:presence": {
+          "calls": 2,
+          "ms": 0.075,
+          "bytes": 0
+        },
+        "readFileSync:presence": {
+          "calls": 23,
+          "ms": 0.195,
+          "bytes": 7799
+        },
+        "readdirSync:blockage": {
+          "calls": 1,
+          "ms": 0.043,
+          "bytes": 0
+        },
+        "readFileSync:aliases.jsonl": {
+          "calls": 3,
+          "ms": 0.071,
+          "bytes": 45764
+        },
+        "spawnSync:npm": {
+          "calls": 1,
+          "ms": 125.636,
+          "bytes": 0
+        },
+        "readFileSync:upgrade-check.json": {
+          "calls": 2,
+          "ms": 0.061,
+          "bytes": 90
+        },
+        "readFileSync:bindings.jsonl": {
+          "calls": 3,
+          "ms": 0.104,
+          "bytes": 88626
+        }
+      },
+      "moduleLoadMs": 219.873,
+      "sessionOpenAtMs": 528.688,
+      "serverActivationMs": 1.259999999999991,
+      "messagingMs": 14.885999999999967,
+      "registryHoldMs": 1,
+      "bindingHoldMs": 1,
+      "registryWaitMs": 1
+    },
+    "before-discover-small": {
+      "initializeMs": 260.71846999999997,
+      "identityMs": 554.7800100000001,
+      "serverRssMiB": 109.7109375,
+      "identityWorkerPeakMiB": 108.609375,
+      "postDiscover": {
+        "elapsedMs": 6.883065999999985,
+        "frameBytes": 83221,
+        "rssKiB": 112492
+      },
+      "phases": {
+        "root_resolve": 0.025,
+        "identity_provider": 0.465,
+        "bindings_lookup": 0.699,
+        "aliases_lookup": 0.408,
+        "identity_keys": 1.731,
+        "registry_read": 0.496,
+        "identity_register": 2.403,
+        "identity_alias": 0.269
+      },
+      "io": {
+        "readFileSync:manifest.json": {
+          "calls": 2,
+          "ms": 0.129,
+          "bytes": 2292
+        },
+        "readFileSync:package.json": {
+          "calls": 4,
+          "ms": 0.108,
+          "bytes": 5988
+        },
+        "readFileSync:.h2a-schema.json": {
+          "calls": 3,
+          "ms": 0.064,
+          "bytes": 312
+        },
+        "readFileSync:drive-consent-budget.json": {
+          "calls": 3,
+          "ms": 0.148,
+          "bytes": 0
+        },
+        "readdirSync:negotiations": {
+          "calls": 3,
+          "ms": 0.111,
+          "bytes": 0
+        },
+        "readFileSync:claude-launch-perf-db8eb7009215.key.pem": {
+          "calls": 1,
+          "ms": 0.067,
+          "bytes": 119
+        },
+        "readFileSync:SKILL.md": {
+          "calls": 1,
+          "ms": 0.049,
+          "bytes": 0
+        },
+        "readdirSync:presence": {
+          "calls": 1,
+          "ms": 0.041,
+          "bytes": 0
+        },
+        "readFileSync:presence": {
+          "calls": 12,
+          "ms": 0.145,
+          "bytes": 4316
+        },
+        "readFileSync:instances.jsonl": {
+          "calls": 3,
+          "ms": 0.166,
+          "bytes": 223366
+        },
+        "readFileSync:org-membership.jsonl": {
+          "calls": 2,
+          "ms": 0.035,
+          "bytes": 0
+        },
+        "spawnSync:npm": {
+          "calls": 1,
+          "ms": 110.246,
+          "bytes": 0
+        },
+        "readFileSync:upgrade-check.json": {
+          "calls": 2,
+          "ms": 0.068,
+          "bytes": 90
+        },
+        "readFileSync:bindings.jsonl": {
+          "calls": 3,
+          "ms": 0.089,
+          "bytes": 89445
+        },
+        "readFileSync:aliases.jsonl": {
+          "calls": 2,
+          "ms": 0.051,
+          "bytes": 30696
+        }
+      },
+      "moduleLoadMs": 231.157,
+      "sessionOpenAtMs": 528.305,
+      "serverActivationMs": 1.0550000000000637,
+      "messagingMs": 0,
+      "registryHoldMs": 1,
+      "bindingHoldMs": 1,
+      "registryWaitMs": 1
+    },
+    "before-mesh-large": {
+      "initializeMs": 235.626079,
+      "identityMs": 795.257741,
+      "serverRssMiB": 171.5625,
+      "identityWorkerPeakMiB": 215.00390625,
+      "phases": {
+        "root_resolve": 0.024,
+        "identity_provider": 0.431,
+        "bindings_lookup": 63.336,
+        "aliases_lookup": 41.295,
+        "identity_keys": 1.275,
+        "registry_read": 162.576,
+        "identity_register": 83.271,
+        "identity_alias": 11.968
+      },
+      "io": {
+        "readFileSync:manifest.json": {
+          "calls": 2,
+          "ms": 0.117,
+          "bytes": 2292
+        },
+        "readFileSync:package.json": {
+          "calls": 4,
+          "ms": 0.113,
+          "bytes": 5988
+        },
+        "readFileSync:.h2a-schema.json": {
+          "calls": 4,
+          "ms": 0.099,
+          "bytes": 416
+        },
+        "readFileSync:drive-consent-budget.json": {
+          "calls": 4,
+          "ms": 0.175,
+          "bytes": 0
+        },
+        "readdirSync:negotiations": {
+          "calls": 4,
+          "ms": 0.136,
+          "bytes": 0
+        },
+        "readFileSync:claude-launch-perf-b41a7fc97231.key.pem": {
+          "calls": 1,
+          "ms": 0.093,
+          "bytes": 119
+        },
+        "readFileSync:instances.jsonl": {
+          "calls": 2,
+          "ms": 32.459,
+          "bytes": 39294908
+        },
+        "readFileSync:keys.jsonl": {
+          "calls": 1,
+          "ms": 0.069,
+          "bytes": 0
+        },
+        "readFileSync:SKILL.md": {
+          "calls": 1,
+          "ms": 0.044,
+          "bytes": 0
+        },
+        "readdirSync:presence": {
+          "calls": 2,
+          "ms": 0.304,
+          "bytes": 0
+        },
+        "readFileSync:presence": {
+          "calls": 617,
+          "ms": 2.829,
+          "bytes": 167225
+        },
+        "readdirSync:blockage": {
+          "calls": 1,
+          "ms": 0.049,
+          "bytes": 0
+        },
+        "readFileSync:aliases.jsonl": {
+          "calls": 3,
+          "ms": 5.906,
+          "bytes": 11781908
+        },
+        "spawnSync:npm": {
+          "calls": 1,
+          "ms": 118.001,
+          "bytes": 0
+        },
+        "readFileSync:upgrade-check.json": {
+          "calls": 2,
+          "ms": 0.077,
+          "bytes": 90
+        },
+        "readFileSync:bindings.jsonl": {
+          "calls": 3,
+          "ms": 12.513,
+          "bytes": 24799827
+        }
+      },
+      "moduleLoadMs": 203.112,
+      "sessionOpenAtMs": 740.593,
+      "serverActivationMs": 9.283000000000015,
+      "messagingMs": 95.49699999999996,
+      "registryHoldMs": 82,
+      "bindingHoldMs": 19,
+      "registryWaitMs": 1
+    },
+    "before-discover-large": {
+      "initializeMs": 261.129944,
+      "identityMs": 715.3300559999999,
+      "serverRssMiB": 113.375,
+      "identityWorkerPeakMiB": 226.6953125,
+      "postDiscover": {
+        "elapsedMs": 166.93634799999995,
+        "frameBytes": 174744,
+        "rssKiB": 223760
+      },
+      "phases": {
+        "root_resolve": 0.03,
+        "identity_provider": 0.446,
+        "bindings_lookup": 65.434,
+        "aliases_lookup": 26.156,
+        "identity_keys": 1.31,
+        "registry_read": 82.08,
+        "identity_register": 84.533,
+        "identity_alias": 10.953
+      },
+      "io": {
+        "readFileSync:manifest.json": {
+          "calls": 2,
+          "ms": 0.107,
+          "bytes": 2292
+        },
+        "readFileSync:package.json": {
+          "calls": 4,
+          "ms": 0.108,
+          "bytes": 5988
+        },
+        "readFileSync:.h2a-schema.json": {
+          "calls": 3,
+          "ms": 0.069,
+          "bytes": 312
+        },
+        "readFileSync:drive-consent-budget.json": {
+          "calls": 3,
+          "ms": 0.151,
+          "bytes": 0
+        },
+        "readdirSync:negotiations": {
+          "calls": 3,
+          "ms": 0.118,
+          "bytes": 0
+        },
+        "readFileSync:claude-launch-perf-24ad45bb5e47.key.pem": {
+          "calls": 1,
+          "ms": 0.086,
+          "bytes": 119
+        },
+        "readFileSync:SKILL.md": {
+          "calls": 1,
+          "ms": 0.056,
+          "bytes": 0
+        },
+        "readdirSync:presence": {
+          "calls": 1,
+          "ms": 0.154,
+          "bytes": 0
+        },
+        "readFileSync:presence": {
+          "calls": 309,
+          "ms": 1.881,
+          "bytes": 84029
+        },
+        "readFileSync:instances.jsonl": {
+          "calls": 3,
+          "ms": 26.548,
+          "bytes": 58945015
+        },
+        "readFileSync:org-membership.jsonl": {
+          "calls": 2,
+          "ms": 0.071,
+          "bytes": 0
+        },
+        "spawnSync:npm": {
+          "calls": 1,
+          "ms": 119.359,
+          "bytes": 0
+        },
+        "readFileSync:upgrade-check.json": {
+          "calls": 2,
+          "ms": 0.105,
+          "bytes": 90
+        },
+        "readFileSync:bindings.jsonl": {
+          "calls": 3,
+          "ms": 12.19,
+          "bytes": 24800646
+        },
+        "readFileSync:aliases.jsonl": {
+          "calls": 2,
+          "ms": 3.954,
+          "bytes": 7854792
+        }
+      },
+      "moduleLoadMs": 227.965,
+      "sessionOpenAtMs": 687.752,
+      "serverActivationMs": 6.7560000000000855,
+      "messagingMs": 0,
+      "registryHoldMs": 83,
+      "bindingHoldMs": 22,
+      "registryWaitMs": 0
+    },
+    "after-mesh": {
+      "initializeMs": 231.022224,
+      "identityMs": 521.939555,
+      "serverRssMiB": 122.83203125,
+      "identityWorkerPeakMiB": 107.9765625,
+      "phases": {
+        "root_resolve": 0.033,
+        "identity_provider": 0.506,
+        "bindings_lookup": 2.595,
+        "aliases_lookup": 2.733,
+        "identity_keys": 1.619,
+        "instances_lookup": 1.967,
+        "identity_register": 4.655,
+        "identity_alias": 3.573,
+        "keys_lookup": 0.279
+      },
+      "io": {
+        "readFileSync:.h2a-schema.json": {
+          "calls": 4,
+          "ms": 0.08,
+          "bytes": 416
+        },
+        "readFileSync:drive-consent-budget.json": {
+          "calls": 4,
+          "ms": 0.197,
+          "bytes": 0
+        },
+        "readdirSync:negotiations": {
+          "calls": 4,
+          "ms": 0.136,
+          "bytes": 0
+        },
+        "readFileSync:claude-launch-perf-e02c6732e548.key.pem": {
+          "calls": 1,
+          "ms": 0.056,
+          "bytes": 119
+        },
+        "readFileSync:launch-index": {
+          "calls": 27,
+          "ms": 1.638,
+          "bytes": 616433
+        },
+        "readFileSync:SKILL.md": {
+          "calls": 1,
+          "ms": 0.031,
+          "bytes": 0
+        },
+        "readdirSync:presence": {
+          "calls": 2,
+          "ms": 0.278,
+          "bytes": 0
+        },
+        "readFileSync:presence": {
+          "calls": 617,
+          "ms": 3.141,
+          "bytes": 167225
+        },
+        "readdirSync:blockage": {
+          "calls": 1,
+          "ms": 0.031,
+          "bytes": 0
+        },
+        "spawnSync:npm": {
+          "calls": 1,
+          "ms": 122.579,
+          "bytes": 0
+        },
+        "readFileSync:upgrade-check.json": {
+          "calls": 2,
+          "ms": 0.091,
+          "bytes": 90
+        }
+      },
+      "moduleLoadMs": 199.927,
+      "sessionOpenAtMs": 485.689,
+      "serverActivationMs": 7.7099999999999795,
+      "messagingMs": 13.107000000000028,
+      "registryHoldMs": 4,
+      "bindingHoldMs": 1,
+      "registryWaitMs": 0
+    },
+    "after-discover": {
+      "initializeMs": 243.07877800000003,
+      "identityMs": 525.231912,
+      "serverRssMiB": 113.4453125,
+      "identityWorkerPeakMiB": 109.41015625,
+      "postDiscover": {
+        "elapsedMs": 163.18715399999996,
+        "frameBytes": 174373,
+        "rssKiB": 223872
+      },
+      "phases": {
+        "root_resolve": 0.024,
+        "identity_provider": 0.439,
+        "bindings_lookup": 2.922,
+        "aliases_lookup": 1.07,
+        "identity_keys": 1.23,
+        "instances_lookup": 0.703,
+        "identity_register": 3.461,
+        "identity_alias": 2.803
+      },
+      "io": {
+        "readFileSync:.h2a-schema.json": {
+          "calls": 3,
+          "ms": 0.049,
+          "bytes": 312
+        },
+        "readFileSync:drive-consent-budget.json": {
+          "calls": 3,
+          "ms": 0.121,
+          "bytes": 0
+        },
+        "readdirSync:negotiations": {
+          "calls": 3,
+          "ms": 0.094,
+          "bytes": 0
+        },
+        "readFileSync:claude-launch-perf-c112b2933ff6.key.pem": {
+          "calls": 1,
+          "ms": 0.049,
+          "bytes": 119
+        },
+        "readFileSync:SKILL.md": {
+          "calls": 1,
+          "ms": 0.04,
+          "bytes": 0
+        },
+        "readdirSync:presence": {
+          "calls": 1,
+          "ms": 0.139,
+          "bytes": 0
+        },
+        "readFileSync:presence": {
+          "calls": 309,
+          "ms": 1.888,
+          "bytes": 84029
+        },
+        "readFileSync:instances.jsonl": {
+          "calls": 2,
+          "ms": 33.83,
+          "bytes": 39445846
+        },
+        "readFileSync:org-membership.jsonl": {
+          "calls": 2,
+          "ms": 0.115,
+          "bytes": 0
+        },
+        "spawnSync:npm": {
+          "calls": 1,
+          "ms": 128.689,
+          "bytes": 0
+        },
+        "readFileSync:upgrade-check.json": {
+          "calls": 2,
+          "ms": 0.072,
+          "bytes": 90
+        },
+        "readFileSync:launch-index": {
+          "calls": 20,
+          "ms": 1.668,
+          "bytes": 467044
+        }
+      },
+      "moduleLoadMs": 207.792,
+      "sessionOpenAtMs": 496.821,
+      "serverActivationMs": 6.779999999999973,
+      "messagingMs": 0,
+      "registryHoldMs": 3,
+      "bindingHoldMs": 2,
+      "registryWaitMs": 0
+    },
+    "after-reclaim": {
+      "initializeMs": 249.57854199999997,
+      "identityMs": 501.631672,
+      "serverRssMiB": 113.625,
+      "identityWorkerPeakMiB": 109.41796875,
+      "phases": {
+        "root_resolve": 0.034,
+        "identity_provider": 0.44,
+        "bindings_lookup": 2.264,
+        "instances_lookup": 1.146,
+        "keys_lookup": 0.224,
+        "identity_proof": 3.342,
+        "aliases_lookup": 1.153,
+        "identity_keys": 0.081,
+        "identity_register": 0.821,
+        "identity_alias": 0.85
+      },
+      "io": {
+        "readFileSync:.h2a-schema.json": {
+          "calls": 4,
+          "ms": 0.061,
+          "bytes": 416
+        },
+        "readFileSync:drive-consent-budget.json": {
+          "calls": 4,
+          "ms": 0.145,
+          "bytes": 0
+        },
+        "readdirSync:negotiations": {
+          "calls": 4,
+          "ms": 0.125,
+          "bytes": 0
+        },
+        "readFileSync:claude-launch-perf-c7e015bdb766.key.pem": {
+          "calls": 3,
+          "ms": 0.076,
+          "bytes": 357
+        },
+        "readFileSync:SKILL.md": {
+          "calls": 1,
+          "ms": 0.04,
+          "bytes": 0
+        },
+        "readdirSync:presence": {
+          "calls": 1,
+          "ms": 0.142,
+          "bytes": 0
+        },
+        "readFileSync:presence": {
+          "calls": 309,
+          "ms": 2.133,
+          "bytes": 84029
+        },
+        "spawnSync:npm": {
+          "calls": 1,
+          "ms": 118.612,
+          "bytes": 0
+        },
+        "readFileSync:upgrade-check.json": {
+          "calls": 2,
+          "ms": 0.062,
+          "bytes": 90
+        },
+        "readFileSync:launch-index": {
+          "calls": 18,
+          "ms": 0.931,
+          "bytes": 367759
+        },
+        "readFileSync:claude-launch-perf-c7e015bdb766.pub.pem": {
+          "calls": 2,
+          "ms": 0.012,
+          "bytes": 226
+        }
+      },
+      "moduleLoadMs": 212.086,
+      "sessionOpenAtMs": 467.5,
+      "serverActivationMs": 7.461000000000013,
+      "messagingMs": 0,
+      "registryHoldMs": 0,
+      "bindingHoldMs": 1,
+      "registryWaitMs": 0
+    },
+    "after-idle": {
+      "initializeMs": 254.410858,
+      "identityMs": 532.564484,
+      "serverRssMiB": 113.6640625,
+      "identityWorkerPeakMiB": 109.20703125,
+      "postHold": {
+        "elapsedMs": 5000,
+        "rssKiB": 124236
+      },
+      "phases": {
+        "root_resolve": 0.023,
+        "identity_provider": 0.462,
+        "bindings_lookup": 2.273,
+        "aliases_lookup": 3.427,
+        "identity_keys": 1.594,
+        "instances_lookup": 0.769,
+        "identity_register": 6.051,
+        "identity_alias": 4.661
+      },
+      "io": {
+        "readFileSync:.h2a-schema.json": {
+          "calls": 3,
+          "ms": 0.089,
+          "bytes": 312
+        },
+        "readFileSync:drive-consent-budget.json": {
+          "calls": 3,
+          "ms": 0.183,
+          "bytes": 0
+        },
+        "readdirSync:negotiations": {
+          "calls": 3,
+          "ms": 0.128,
+          "bytes": 0
+        },
+        "readFileSync:claude-launch-perf-e4300454afbf.key.pem": {
+          "calls": 1,
+          "ms": 0.058,
+          "bytes": 119
+        },
+        "readFileSync:SKILL.md": {
+          "calls": 1,
+          "ms": 0.056,
+          "bytes": 0
+        },
+        "readdirSync:presence": {
+          "calls": 2,
+          "ms": 0.35,
+          "bytes": 0
+        },
+        "readFileSync:presence": {
+          "calls": 618,
+          "ms": 3.147,
+          "bytes": 168058
+        },
+        "readdirSync:blockage": {
+          "calls": 1,
+          "ms": 0.047,
+          "bytes": 0
+        },
+        "readFileSync:launch-index": {
+          "calls": 28,
+          "ms": 1.819,
+          "bytes": 623630
+        },
+        "spawnSync:npm": {
+          "calls": 1,
+          "ms": 102.698,
+          "bytes": 0
+        },
+        "readFileSync:upgrade-check.json": {
+          "calls": 2,
+          "ms": 0.06,
+          "bytes": 90
+        }
+      },
+      "moduleLoadMs": 221.517,
+      "sessionOpenAtMs": 507.657,
+      "serverActivationMs": 6.509000000000071,
+      "messagingMs": 0,
+      "registryHoldMs": 4,
+      "bindingHoldMs": 2,
+      "registryWaitMs": 0
+    },
+    "after-mesh-small": {
+      "initializeMs": 229.904781,
+      "identityMs": 504.442011,
+      "serverRssMiB": 109.91796875,
+      "identityWorkerPeakMiB": 108.77734375,
+      "phases": {
+        "root_resolve": 0.023,
+        "identity_provider": 0.446,
+        "bindings_lookup": 1.558,
+        "aliases_lookup": 2.555,
+        "identity_keys": 1.648,
+        "instances_lookup": 1.473,
+        "identity_register": 3.571,
+        "identity_alias": 2.904,
+        "keys_lookup": 0.224
+      },
+      "io": {
+        "readFileSync:.h2a-schema.json": {
+          "calls": 4,
+          "ms": 0.084,
+          "bytes": 416
+        },
+        "readFileSync:drive-consent-budget.json": {
+          "calls": 4,
+          "ms": 0.207,
+          "bytes": 0
+        },
+        "readdirSync:negotiations": {
+          "calls": 4,
+          "ms": 0.145,
+          "bytes": 0
+        },
+        "readFileSync:claude-launch-perf-d412134c3144.key.pem": {
+          "calls": 1,
+          "ms": 0.077,
+          "bytes": 119
+        },
+        "readFileSync:launch-index": {
+          "calls": 22,
+          "ms": 1.475,
+          "bytes": 238284
+        },
+        "readFileSync:SKILL.md": {
+          "calls": 1,
+          "ms": 0.036,
+          "bytes": 0
+        },
+        "readdirSync:presence": {
+          "calls": 2,
+          "ms": 0.078,
+          "bytes": 0
+        },
+        "readFileSync:presence": {
+          "calls": 23,
+          "ms": 0.201,
+          "bytes": 7799
+        },
+        "readdirSync:blockage": {
+          "calls": 1,
+          "ms": 0.036,
+          "bytes": 0
+        },
+        "spawnSync:npm": {
+          "calls": 1,
+          "ms": 109.678,
+          "bytes": 0
+        },
+        "readFileSync:upgrade-check.json": {
+          "calls": 2,
+          "ms": 0.063,
+          "bytes": 90
+        }
+      },
+      "moduleLoadMs": 199.616,
+      "sessionOpenAtMs": 481.735,
+      "serverActivationMs": 1.2699999999999818,
+      "messagingMs": 17.60499999999996,
+      "registryHoldMs": 2,
+      "bindingHoldMs": 1,
+      "registryWaitMs": 1
+    },
+    "after-discover-small": {
+      "initializeMs": 241.684974,
+      "identityMs": 511.369941,
+      "serverRssMiB": 110.0859375,
+      "identityWorkerPeakMiB": 108.765625,
+      "postDiscover": {
+        "elapsedMs": 5.949117000000001,
+        "frameBytes": 91635,
+        "rssKiB": 112904
+      },
+      "phases": {
+        "root_resolve": 0.026,
+        "identity_provider": 0.453,
+        "bindings_lookup": 1.383,
+        "aliases_lookup": 2.651,
+        "identity_keys": 1.62,
+        "instances_lookup": 0.273,
+        "identity_register": 4.092,
+        "identity_alias": 6.99
+      },
+      "io": {
+        "readFileSync:.h2a-schema.json": {
+          "calls": 3,
+          "ms": 0.059,
+          "bytes": 312
+        },
+        "readFileSync:drive-consent-budget.json": {
+          "calls": 3,
+          "ms": 0.161,
+          "bytes": 0
+        },
+        "readdirSync:negotiations": {
+          "calls": 3,
+          "ms": 0.108,
+          "bytes": 0
+        },
+        "readFileSync:claude-launch-perf-819b451f7fc2.key.pem": {
+          "calls": 1,
+          "ms": 0.051,
+          "bytes": 119
+        },
+        "readFileSync:SKILL.md": {
+          "calls": 1,
+          "ms": 0.052,
+          "bytes": 0
+        },
+        "readdirSync:presence": {
+          "calls": 1,
+          "ms": 0.038,
+          "bytes": 0
+        },
+        "readFileSync:presence": {
+          "calls": 12,
+          "ms": 0.095,
+          "bytes": 4316
+        },
+        "readFileSync:instances.jsonl": {
+          "calls": 2,
+          "ms": 0.471,
+          "bytes": 164784
+        },
+        "readFileSync:org-membership.jsonl": {
+          "calls": 2,
+          "ms": 0.027,
+          "bytes": 0
+        },
+        "spawnSync:npm": {
+          "calls": 1,
+          "ms": 114.111,
+          "bytes": 0
+        },
+        "readFileSync:upgrade-check.json": {
+          "calls": 2,
+          "ms": 0.061,
+          "bytes": 90
+        },
+        "readFileSync:launch-index": {
+          "calls": 15,
+          "ms": 5.683,
+          "bytes": 169141
+        }
+      },
+      "moduleLoadMs": 205.537,
+      "sessionOpenAtMs": 477.835,
+      "serverActivationMs": 0.75,
+      "messagingMs": 0,
+      "registryHoldMs": 2,
+      "bindingHoldMs": 1,
+      "registryWaitMs": 1
+    },
+    "after-mesh-large": {
+      "initializeMs": 231.022224,
+      "identityMs": 521.939555,
+      "serverRssMiB": 122.83203125,
+      "identityWorkerPeakMiB": 107.9765625,
+      "phases": {
+        "root_resolve": 0.033,
+        "identity_provider": 0.506,
+        "bindings_lookup": 2.595,
+        "aliases_lookup": 2.733,
+        "identity_keys": 1.619,
+        "instances_lookup": 1.967,
+        "identity_register": 4.655,
+        "identity_alias": 3.573,
+        "keys_lookup": 0.279
+      },
+      "io": {
+        "readFileSync:.h2a-schema.json": {
+          "calls": 4,
+          "ms": 0.08,
+          "bytes": 416
+        },
+        "readFileSync:drive-consent-budget.json": {
+          "calls": 4,
+          "ms": 0.197,
+          "bytes": 0
+        },
+        "readdirSync:negotiations": {
+          "calls": 4,
+          "ms": 0.136,
+          "bytes": 0
+        },
+        "readFileSync:claude-launch-perf-e02c6732e548.key.pem": {
+          "calls": 1,
+          "ms": 0.056,
+          "bytes": 119
+        },
+        "readFileSync:launch-index": {
+          "calls": 27,
+          "ms": 1.638,
+          "bytes": 616433
+        },
+        "readFileSync:SKILL.md": {
+          "calls": 1,
+          "ms": 0.031,
+          "bytes": 0
+        },
+        "readdirSync:presence": {
+          "calls": 2,
+          "ms": 0.278,
+          "bytes": 0
+        },
+        "readFileSync:presence": {
+          "calls": 617,
+          "ms": 3.141,
+          "bytes": 167225
+        },
+        "readdirSync:blockage": {
+          "calls": 1,
+          "ms": 0.031,
+          "bytes": 0
+        },
+        "spawnSync:npm": {
+          "calls": 1,
+          "ms": 122.579,
+          "bytes": 0
+        },
+        "readFileSync:upgrade-check.json": {
+          "calls": 2,
+          "ms": 0.091,
+          "bytes": 90
+        }
+      },
+      "moduleLoadMs": 199.927,
+      "sessionOpenAtMs": 485.689,
+      "serverActivationMs": 7.7099999999999795,
+      "messagingMs": 13.107000000000028,
+      "registryHoldMs": 4,
+      "bindingHoldMs": 1,
+      "registryWaitMs": 0
+    },
+    "after-discover-large": {
+      "initializeMs": 243.07877800000003,
+      "identityMs": 525.231912,
+      "serverRssMiB": 113.4453125,
+      "identityWorkerPeakMiB": 109.41015625,
+      "postDiscover": {
+        "elapsedMs": 163.18715399999996,
+        "frameBytes": 174373,
+        "rssKiB": 223872
+      },
+      "phases": {
+        "root_resolve": 0.024,
+        "identity_provider": 0.439,
+        "bindings_lookup": 2.922,
+        "aliases_lookup": 1.07,
+        "identity_keys": 1.23,
+        "instances_lookup": 0.703,
+        "identity_register": 3.461,
+        "identity_alias": 2.803
+      },
+      "io": {
+        "readFileSync:.h2a-schema.json": {
+          "calls": 3,
+          "ms": 0.049,
+          "bytes": 312
+        },
+        "readFileSync:drive-consent-budget.json": {
+          "calls": 3,
+          "ms": 0.121,
+          "bytes": 0
+        },
+        "readdirSync:negotiations": {
+          "calls": 3,
+          "ms": 0.094,
+          "bytes": 0
+        },
+        "readFileSync:claude-launch-perf-c112b2933ff6.key.pem": {
+          "calls": 1,
+          "ms": 0.049,
+          "bytes": 119
+        },
+        "readFileSync:SKILL.md": {
+          "calls": 1,
+          "ms": 0.04,
+          "bytes": 0
+        },
+        "readdirSync:presence": {
+          "calls": 1,
+          "ms": 0.139,
+          "bytes": 0
+        },
+        "readFileSync:presence": {
+          "calls": 309,
+          "ms": 1.888,
+          "bytes": 84029
+        },
+        "readFileSync:instances.jsonl": {
+          "calls": 2,
+          "ms": 33.83,
+          "bytes": 39445846
+        },
+        "readFileSync:org-membership.jsonl": {
+          "calls": 2,
+          "ms": 0.115,
+          "bytes": 0
+        },
+        "spawnSync:npm": {
+          "calls": 1,
+          "ms": 128.689,
+          "bytes": 0
+        },
+        "readFileSync:upgrade-check.json": {
+          "calls": 2,
+          "ms": 0.072,
+          "bytes": 90
+        },
+        "readFileSync:launch-index": {
+          "calls": 20,
+          "ms": 1.668,
+          "bytes": 467044
+        }
+      },
+      "moduleLoadMs": 207.792,
+      "sessionOpenAtMs": 496.821,
+      "serverActivationMs": 6.779999999999973,
+      "messagingMs": 0,
+      "registryHoldMs": 3,
+      "bindingHoldMs": 2,
+      "registryWaitMs": 0
+    }
+  },
+  "runtime": {
+    "before": {
+      "operations": {
+        "spawnSync:ensure-host": {
+          "calls": 3,
+          "ms": 391.40012599999994
+        },
+        "spawnSync:admit": {
+          "calls": 3,
+          "ms": 391.6503370000002
+        },
+        "spawnSync:tmux": {
+          "calls": 3,
+          "ms": 13.966158000000007
+        },
+        "spawnSync:probe": {
+          "calls": 19,
+          "ms": 2264.1345459999993
+        },
+        "spawnSync:create": {
+          "calls": 2,
+          "ms": 273.311923
+        },
+        "spawnSync:capture": {
+          "calls": 3,
+          "ms": 354.36848400000054
+        },
+        "spawnSync:write": {
+          "calls": 1,
+          "ms": 118.01813099999981
+        },
+        "spawnSync:paste": {
+          "calls": 1,
+          "ms": 110.66228500000034
+        },
+        "spawnSync:enter": {
+          "calls": 1,
+          "ms": 110.17992700000013
+        },
+        "spawnSync:npm": {
+          "calls": 1,
+          "ms": 251.49922700000002
+        }
+      },
+      "promptWaitMs": [
+        4011
+      ],
+      "hostMs": 103.486709
+    },
+    "before-17": {
+      "operations": {
+        "spawnSync:npm": {
+          "calls": 17,
+          "ms": 14018.471478
+        },
+        "spawnSync:ensure-host": {
+          "calls": 51,
+          "ms": 9310.120131
+        },
+        "spawnSync:admit": {
+          "calls": 51,
+          "ms": 9542.721160000001
+        },
+        "spawnSync:tmux": {
+          "calls": 51,
+          "ms": 217.25601800000027
+        },
+        "spawnSync:probe": {
+          "calls": 271,
+          "ms": 72392.68016799999
+        },
+        "spawnSync:create": {
+          "calls": 34,
+          "ms": 8432.538941
+        },
+        "spawnSync:capture": {
+          "calls": 51,
+          "ms": 11308.380048
+        },
+        "spawnSync:write": {
+          "calls": 17,
+          "ms": 3455.709050000003
+        },
+        "spawnSync:paste": {
+          "calls": 17,
+          "ms": 3260.249386000003
+        },
+        "spawnSync:enter": {
+          "calls": 17,
+          "ms": 3207.230257000001
+        }
+      },
+      "promptWaitMs": [
+        4855,
+        4977,
+        5070,
+        5148,
+        5113,
+        5182,
+        5240,
+        5177,
+        5273,
+        5305,
+        5307,
+        5298,
+        5228,
+        5324,
+        5361,
+        5190,
+        5363
+      ],
+      "hostMs": 104.56239300000001
+    },
+    "after": {
+      "operations": {
+        "spawnSync:ensure-host": {
+          "calls": 3,
+          "ms": 341.56808699999976
+        },
+        "spawnSync:admit": {
+          "calls": 3,
+          "ms": 334.97301300000004
+        },
+        "spawnSync:tmux": {
+          "calls": 3,
+          "ms": 10.658731999999986
+        },
+        "spawnSync:probe": {
+          "calls": 14,
+          "ms": 1619.3671780000013
+        },
+        "spawnSync:create": {
+          "calls": 2,
+          "ms": 231.17808000000002
+        },
+        "spawnSync:capture": {
+          "calls": 3,
+          "ms": 372.0220889999996
+        },
+        "spawnSync:write": {
+          "calls": 1,
+          "ms": 114.13633999999911
+        },
+        "spawnSync:paste": {
+          "calls": 1,
+          "ms": 129.65334699999948
+        },
+        "spawnSync:enter": {
+          "calls": 1,
+          "ms": 129.7736930000001
+        },
+        "spawnSync:npm": {
+          "calls": 1,
+          "ms": 208.545288
+        }
+      },
+      "promptWaitMs": [
+        4054
+      ],
+      "hostMs": 105.86885799999999
+    },
+    "after-17": {
+      "operations": {
+        "spawnSync:npm": {
+          "calls": 17,
+          "ms": 10750.931287
+        },
+        "spawnSync:ensure-host": {
+          "calls": 51,
+          "ms": 8340.855294
+        },
+        "spawnSync:admit": {
+          "calls": 51,
+          "ms": 8727.900422
+        },
+        "spawnSync:tmux": {
+          "calls": 51,
+          "ms": 207.22741800000028
+        },
+        "spawnSync:probe": {
+          "calls": 255,
+          "ms": 54384.46445300001
+        },
+        "spawnSync:create": {
+          "calls": 34,
+          "ms": 7874.618106999998
+        },
+        "spawnSync:capture": {
+          "calls": 51,
+          "ms": 9774.858984
+        },
+        "spawnSync:write": {
+          "calls": 17,
+          "ms": 2940.4627199999995
+        },
+        "spawnSync:paste": {
+          "calls": 17,
+          "ms": 2892.518900000002
+        },
+        "spawnSync:enter": {
+          "calls": 17,
+          "ms": 3020.7292179999977
+        }
+      },
+      "promptWaitMs": [
+        4693,
+        4710,
+        4739,
+        4777,
+        4732,
+        4793,
+        4784,
+        4878,
+        4885,
+        4756,
+        4806,
+        4821,
+        4928,
+        4874,
+        4925,
+        4900,
+        4909
+      ],
+      "hostMs": 104.577368
+    }
+  },
+  "cpu": {
+    "before": [
+      {
+        "file": "CPU.20261004.015332.19.0.001.cpuprofile",
+        "function": "readJsonl",
+        "url": "tmp/launch-lab/baseline-build/packages/h2a/dist/runtime/local-files/store.js",
+        "line": 64,
+        "selfMs": 41.109
+      },
+      {
+        "file": "CPU.20261004.015332.19.0.001.cpuprofile",
+        "function": "listBindings",
+        "url": "tmp/launch-lab/baseline-build/packages/h2a/dist/runtime/identity/bindings.js",
+        "line": 48,
+        "selfMs": 17.923
+      },
+      {
+        "file": "CPU.20261004.015332.19.0.001.cpuprofile",
+        "function": "listBindings",
+        "url": "tmp/launch-lab/baseline-build/packages/h2a/dist/runtime/identity/bindings.js",
+        "line": 48,
+        "selfMs": 11.56
+      },
+      {
+        "file": "CPU.20261004.015332.19.0.001.cpuprofile",
+        "function": "listBindings",
+        "url": "tmp/launch-lab/baseline-build/packages/h2a/dist/runtime/identity/bindings.js",
+        "line": 48,
+        "selfMs": 11.412
+      },
+      {
+        "file": "CPU.20261004.015332.19.0.001.cpuprofile",
+        "function": "listIdentityAliasesMeasured",
+        "url": "tmp/launch-lab/baseline-build/packages/h2a/dist/runtime/identity/migration.js",
+        "line": 72,
+        "selfMs": 9.616
+      },
+      {
+        "file": "CPU.20261004.015332.19.0.001.cpuprofile",
+        "function": "listIdentityAliasesMeasured",
+        "url": "tmp/launch-lab/baseline-build/packages/h2a/dist/runtime/identity/migration.js",
+        "line": 72,
+        "selfMs": 9.469
+      },
+      {
+        "file": "CPU.20261004.015332.19.0.001.cpuprofile",
+        "function": "findBindingMeasured",
+        "url": "tmp/launch-lab/baseline-build/packages/h2a/dist/runtime/identity/bindings.js",
+        "line": 77,
+        "selfMs": 2.126
+      },
+      {
+        "file": "CPU.20261004.015332.19.0.001.cpuprofile",
+        "function": "legacyAliasAlreadyAdopted",
+        "url": "tmp/launch-lab/baseline-build/packages/h2a/dist/runtime/identity/migration.js",
+        "line": 91,
+        "selfMs": 2.114
+      },
+      {
+        "file": "CPU.20261004.015332.10.0.001.cpuprofile",
+        "function": "emit",
+        "url": "tmp/launch-lab/baseline-build/packages/h2a/dist/runtime/mcp/phase-trace.js",
+        "line": 83,
+        "selfMs": 2.097
+      },
+      {
+        "file": "CPU.20261004.015332.19.0.001.cpuprofile",
+        "function": "",
+        "url": "tmp/launch-lab/baseline-build/packages/h2a/dist/runtime/local-files/store.js",
+        "line": 226,
+        "selfMs": 1.438
+      },
+      {
+        "file": "CPU.20261004.015332.10.0.001.cpuprofile",
+        "function": "listPresenceWithDiagnostics",
+        "url": "tmp/launch-lab/baseline-build/packages/h2a/dist/runtime/local-files/presence.js",
+        "line": 84,
+        "selfMs": 1.077
+      },
+      {
+        "file": "CPU.20261004.015332.10.0.001.cpuprofile",
+        "function": "runMcpStdio",
+        "url": "tmp/launch-lab/baseline-build/packages/h2a/dist/runtime/mcp/stdio.js",
+        "line": 146,
+        "selfMs": 1.075
+      },
+      {
+        "file": "CPU.20261004.015332.10.0.001.cpuprofile",
+        "function": "ensureStarted",
+        "url": "tmp/launch-lab/baseline-build/packages/h2a/dist/runtime/mcp/identity-state.js",
+        "line": 59,
+        "selfMs": 1.074
+      },
+      {
+        "file": "CPU.20261004.015332.10.0.001.cpuprofile",
+        "function": "createLocalStore",
+        "url": "tmp/launch-lab/baseline-build/packages/h2a/dist/runtime/local-files/store.js",
+        "line": 135,
+        "selfMs": 1.067
+      },
+      {
+        "file": "CPU.20261004.015332.19.0.001.cpuprofile",
+        "function": "trace.span.bytes.bytes",
+        "url": "tmp/launch-lab/baseline-build/packages/h2a/dist/runtime/local-files/store.js",
+        "line": 226,
+        "selfMs": 1.067
+      },
+      {
+        "file": "CPU.20261004.015332.10.0.001.cpuprofile",
+        "function": "safeKeyName",
+        "url": "tmp/launch-lab/baseline-build/packages/h2a/dist/runtime/identity/live.js",
+        "line": 68,
+        "selfMs": 1.065
+      },
+      {
+        "file": "CPU.20261004.015332.10.0.001.cpuprofile",
+        "function": "nowIso",
+        "url": "tmp/launch-lab/baseline-build/packages/h2a/dist/runtime/mcp/sessions.js",
+        "line": 4,
+        "selfMs": 1.062
+      },
+      {
+        "file": "CPU.20261004.015332.19.0.001.cpuprofile",
+        "function": "createLocalStore",
+        "url": "tmp/launch-lab/baseline-build/packages/h2a/dist/runtime/local-files/store.js",
+        "line": 135,
+        "selfMs": 1.059
+      },
+      {
+        "file": "CPU.20261004.015332.10.0.001.cpuprofile",
+        "function": "localStorePaths",
+        "url": "tmp/launch-lab/baseline-build/packages/h2a/dist/runtime/local-files/paths.js",
+        "line": 31,
+        "selfMs": 1.057
+      },
+      {
+        "file": "CPU.20261004.015332.19.0.001.cpuprofile",
+        "function": "",
+        "url": "tmp/launch-lab/baseline-build/packages/h2a/dist/contractual.js",
+        "line": 1,
+        "selfMs": 1.056
+      },
+      {
+        "file": "CPU.20261004.015332.10.0.001.cpuprofile",
+        "function": "",
+        "url": "tmp/launch-lab/baseline-build/packages/h2a/dist/runtime/mirror/sanitize.js",
+        "line": 1,
+        "selfMs": 1.053
+      },
+      {
+        "file": "CPU.20261004.015332.10.0.001.cpuprofile",
+        "function": "",
+        "url": "tmp/launch-lab/baseline-build/packages/h2a/dist/cli-contract.js",
+        "line": 1,
+        "selfMs": 0.597
+      }
+    ],
+    "after": [
+      {
+        "file": "CPU.20261004.020351.19.0.001.cpuprofile",
+        "function": "resolveLiveIdentityAsync",
+        "url": "packages/h2a/dist/runtime/identity/live.js",
+        "line": 404,
+        "selfMs": 2.108
+      },
+      {
+        "file": "CPU.20261004.020351.10.0.001.cpuprofile",
+        "function": "localStorePaths",
+        "url": "packages/h2a/dist/runtime/local-files/paths.js",
+        "line": 31,
+        "selfMs": 2.103
+      },
+      {
+        "file": "CPU.20261004.020351.10.0.001.cpuprofile",
+        "function": "",
+        "url": "packages/h2a/dist/runtime/mcp/stdio.js",
+        "line": 611,
+        "selfMs": 1.371
+      },
+      {
+        "file": "CPU.20261004.020351.10.0.001.cpuprofile",
+        "function": "emit",
+        "url": "packages/h2a/dist/runtime/mcp/phase-trace.js",
+        "line": 83,
+        "selfMs": 1.057
+      },
+      {
+        "file": "CPU.20261004.020351.19.0.001.cpuprofile",
+        "function": "incremental.timeoutMs",
+        "url": "packages/h2a/dist/runtime/local-files/launch-index.js",
+        "line": 191,
+        "selfMs": 1.056
+      },
+      {
+        "file": "CPU.20261004.020351.19.0.001.cpuprofile",
+        "function": "withLockSync",
+        "url": "packages/h2a/dist/runtime/local-files/locks.js",
+        "line": 219,
+        "selfMs": 1.055
+      },
+      {
+        "file": "CPU.20261004.020351.19.0.001.cpuprofile",
+        "function": "readBucket",
+        "url": "packages/h2a/dist/runtime/local-files/launch-index.js",
+        "line": 98,
+        "selfMs": 1.055
+      },
+      {
+        "file": "CPU.20261004.020351.19.0.001.cpuprofile",
+        "function": "incremental.timeoutMs",
+        "url": "packages/h2a/dist/runtime/local-files/launch-index.js",
+        "line": 191,
+        "selfMs": 1.055
+      },
+      {
+        "file": "CPU.20261004.020351.10.0.001.cpuprofile",
+        "function": "runMcpServe",
+        "url": "packages/h2a/dist/cli.js",
+        "line": 1530,
+        "selfMs": 1.054
+      },
+      {
+        "file": "CPU.20261004.020351.19.0.001.cpuprofile",
+        "function": "",
+        "url": "packages/h2a/dist/runtime/mirror/sanitize.js",
+        "line": 1,
+        "selfMs": 1.054
+      },
+      {
+        "file": "CPU.20261004.020351.19.0.001.cpuprofile",
+        "function": "readBucket",
+        "url": "packages/h2a/dist/runtime/local-files/launch-index.js",
+        "line": 98,
+        "selfMs": 1.054
+      },
+      {
+        "file": "CPU.20261004.020351.19.0.001.cpuprofile",
+        "function": "parseManifest",
+        "url": "packages/h2a/dist/runtime/local-files/launch-index.js",
+        "line": 18,
+        "selfMs": 1.054
+      },
+      {
+        "file": "CPU.20261004.020351.19.0.001.cpuprofile",
+        "function": "readBucket",
+        "url": "packages/h2a/dist/runtime/local-files/launch-index.js",
+        "line": 98,
+        "selfMs": 1.054
+      },
+      {
+        "file": "CPU.20261004.020351.19.0.001.cpuprofile",
+        "function": "notifyObserver",
+        "url": "packages/h2a/dist/runtime/local-files/locks.js",
+        "line": 39,
+        "selfMs": 1.054
+      },
+      {
+        "file": "CPU.20261004.020351.10.0.001.cpuprofile",
+        "function": "handleMethod",
+        "url": "packages/h2a/dist/runtime/mcp/stdio.js",
+        "line": 99,
+        "selfMs": 1.053
+      },
+      {
+        "file": "CPU.20261004.020351.19.0.001.cpuprofile",
+        "function": "incremental.timeoutMs",
+        "url": "packages/h2a/dist/runtime/local-files/launch-index.js",
+        "line": 191,
+        "selfMs": 1.051
+      }
+    ]
+  }
+}
