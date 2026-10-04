@@ -76,6 +76,7 @@ import { runCli as runTrackCli, type CliIO } from "@sentropic/track";
 import { runHarnessCli, HARNESS_SKILLS } from "./vendor/harness/index.js";
 import { buildLaunchIndex } from "./runtime/local-files/launch-index.js";
 import { renderCommandMap } from "./cli-command-map.js";
+import { HostConfigConflict, writeHostMcpEntry } from "./hosts/config-writer.js";
 import { resolveHostConfigRoot } from "./runtime/host-config-root.js";
 
 import {
@@ -4266,39 +4267,6 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   );
 }
 
-function configsEqual(a: unknown, b: unknown): boolean {
-  return JSON.stringify(a) === JSON.stringify(b);
-}
-
-/** A host must not keep a second, standalone Track MCP beside its h2a endpoint. */
-function isStandaloneTrackMcpServer(_name: string, config: unknown): boolean {
-  // Names are not identity: `track-metrics`, for example, may be a third-party
-  // server. Remove only a server whose executable/arguments prove it is the
-  // legacy standalone Sentropic Track MCP.
-  if (!isPlainObject(config)) return false;
-  const values = [config.command, ...(Array.isArray(config.args) ? config.args : [])];
-  return values.some(
-    (value) =>
-      typeof value === "string" &&
-      (value === "track-mcp" ||
-        /[\\/]track-mcp(?:\.cmd|\.exe)?$/i.test(value) ||
-        /@sentropic[\\/]track[\\/].*[\\/]mcp[\\/]/i.test(value))
-  );
-}
-
-/** A host config may contain only one h2a MCP, even if an old installer named it differently. */
-function isH2aMcpServer(name: string, config: unknown): boolean {
-  if (/^h2a(?:[-_.]|$)/i.test(name)) return true;
-  if (!isPlainObject(config)) return false;
-  const command = config.command;
-  const args = Array.isArray(config.args) ? config.args : [];
-  return (
-    typeof command === "string" &&
-    (command === "h2a" || /[\\/]h2a(?:\.cmd|\.exe)?$/i.test(command)) &&
-    args.some((arg) => arg === "mcp-serve")
-  );
-}
-
 /** Native YAML/JSONC parsers are intentionally not guessed by the JSON writer. */
 function isUnsupportedHostWritePath(host: string, path: string): boolean {
   const normalized = path.toLowerCase();
@@ -4468,96 +4436,21 @@ function cmdHostSetup(
     return 1;
   }
 
-  // --write path: merge into the target file.
-  let existing: Record<string, unknown> = {};
-  if (existsSync(targetPath)) {
-    let raw;
-    try {
-      raw = readFileSync(targetPath, "utf8");
-    } catch (error) {
-      streams.stderr.write(
-        `h2a host setup: cannot read ${targetPath} (${(error as Error).message})\n`
-      );
-      // File/OS error — exit code 3 per DEC-034.
-      return 3;
-    }
-    if (raw.trim().length > 0) {
-      try {
-        const parsed = JSON.parse(raw);
-        if (!isPlainObject(parsed)) {
-          streams.stderr.write(
-            `h2a host setup: ${targetPath} is valid JSON but not a JSON object; refusing to merge.\n`
-          );
-          // Pre-existing on-disk state we refuse to overwrite — state conflict.
-          return 2;
-        }
-        existing = parsed;
-      } catch (error) {
-        streams.stderr.write(
-          `h2a host setup: ${targetPath} is not valid JSON (${(error as Error).message}). Use --force to overwrite intentionally.\n`
-        );
-        if (flags.force !== "true") {
-          // Pre-existing malformed file refused without --force — state conflict.
-          return 2;
-        }
-        existing = {};
-      }
-    }
-  }
-
-  if (existing.mcpServers !== undefined && !isPlainObject(existing.mcpServers)) {
-    streams.stderr.write(
-      `h2a host setup: ${targetPath} has a non-object mcpServers value; refusing to replace it.\n`
-    );
-    return 2;
-  }
-  const existingMcpServers = isPlainObject(existing.mcpServers)
-    ? existing.mcpServers
-    : {};
-  const incoming = snippet.config.mcpServers.h2a;
-  const existingH2aMcpServers = Object.keys(existingMcpServers).filter((name) =>
-    isH2aMcpServer(name, existingMcpServers[name])
-  );
-  const previous = existingMcpServers.h2a;
-  const replacedH2a =
-    existingH2aMcpServers.length > 0 &&
-    (existingH2aMcpServers.some((name) => name !== "h2a") || !configsEqual(previous, incoming));
-  const removedH2aMcpServers = existingH2aMcpServers.filter((name) => name !== "h2a");
-  const removedTrackMcpServers = Object.keys(existingMcpServers).filter(
-    (name) => !isH2aMcpServer(name, existingMcpServers[name]) && isStandaloneTrackMcpServer(name, existingMcpServers[name])
-  );
-  const retainedMcpServers = Object.fromEntries(
-    Object.entries(existingMcpServers).filter(
-      ([name, config]) =>
-        !isH2aMcpServer(name, config) && !removedTrackMcpServers.includes(name)
-    )
-  );
-
-  const merged: Record<string, unknown> = {
-    ...existing,
-    mcpServers: {
-      ...retainedMcpServers,
-      h2a: incoming
-    }
-  };
-
+  // Only the explicitly selected h2a entry is edited; preserve all other bytes.
+  let backupPath: string | undefined;
+  let replacedH2a = false;
   try {
-    const dir = dirname(targetPath);
-    if (dir && !existsSync(dir)) {
-      mkdirSync(dir, { recursive: true });
+    if (existsSync(targetPath)) {
+      const existing = JSON.parse(readFileSync(targetPath, "utf8")) as Record<string, unknown>;
+      replacedH2a = isPlainObject(existing?.mcpServers) && existing.mcpServers.h2a !== undefined;
     }
-    writeFileSync(targetPath, `${JSON.stringify(merged, null, 2)}\n`, { mode: 0o600 });
-    // `mode` applies only when a file is created. Enforce privacy for an
-    // existing config too: a rendered central command contains no token, but
-    // host config is still owner-private defense in depth.
-    chmodSync(targetPath, 0o600);
+    ({ backupPath } = writeHostMcpEntry(targetPath, snippet.config.mcpServers.h2a, flags["allow-tracked"] === "true"));
   } catch (error) {
-    streams.stderr.write(
-      `h2a host setup: cannot write ${targetPath} (${(error as Error).message})\n`
-    );
-    // File/OS error — exit code 3 per DEC-034.
-    return 3;
+    streams.stderr.write(`h2a host setup: cannot write ${targetPath} (${(error as Error).message})\n`);
+    return error instanceof HostConfigConflict || error instanceof SyntaxError ? 2 : 3;
   }
+  const removedH2aMcpServers: string[] = [];
+  const removedTrackMcpServers: string[] = [];
 
   const coherent = reportHostSetupCoherence(host, streams, options);
   streams.stdout.write(
@@ -4569,6 +4462,7 @@ function cmdHostSetup(
         path: targetPath,
         merged: true,
         replacedH2a,
+        ...(backupPath ? { backupPath } : {}),
         removedH2aMcpServers,
         removedTrackMcpServers,
         ...(coherent ? {} : { next: "h2a doctor --repair" })
