@@ -1,3 +1,20 @@
+# MCP identity burst deadline tail
+
+Branch: `fix/mcp-identity-burst-tail`, based on `origin/main` at `ab7ff40e`
+(v0.98.1). Scope: the burst and startup-contention laboratory tests, their
+bounded on-demand recovery helper, deterministic regression, and evidence.
+No production deadline or identity contract change. No push, PR, publication,
+tag, real owner identity/token store access, or `.track` write.
+
+Validation: deterministic RED/GREEN on the real Node 20 binary, ten sequential
+burst runs pinned to one CPU, focused sibling checks, and at most one full
+root test gate at the end. Qualification: `docs/reviews/mcp-identity-burst-tail.md`.
+Completed: RED 1/2, GREEN 2/2; burst 10/10 (50 passes, no failures/skips);
+siblings 62 passes, 1 EROFS environment skip; one final root `npm test` passed
+(Node: 2,456 passed / 32 skipped / 21 TODO; Track: 1,193 passed). Test fix:
+`e75e835f`. All execution receipts are under ignored `tmp/burst-evidence/`.
+Prior branch plans below are historical and grant no delivery authorization.
+
 # Native host generations — phase A
 
 Branch: `fix/native-host-generations`. Owner decision: 2026-10-03,
