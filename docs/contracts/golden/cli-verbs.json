@@ -87,6 +87,7 @@
   "send",
   "sessions",
   "status",
+  "store index-launch",
   "store migrate",
   "subagent audit",
   "subagent inbox",
