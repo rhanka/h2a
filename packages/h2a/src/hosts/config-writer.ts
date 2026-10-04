@@ -15,19 +15,22 @@ export function writeHostMcpEntry(path: string, incoming: unknown, allowTracked:
   }
   if (existsSync(parent)) {
     try {
-      execFileSync("git", ["--literal-pathspecs", "-C", realpathSync(parent), "ls-files", "--error-unmatch", "--", basename(target)], { stdio: "ignore" });
+      execFileSync("git", ["--literal-pathspecs", "-C", realpathSync(parent), "ls-files", "--error-unmatch", "--", basename(target)], { stdio: ["ignore", "ignore", "pipe"], env: { ...process.env, LC_ALL: "C" } });
       if (!allowTracked) throw new HostConfigConflict("git-tracked host config requires --allow-tracked");
     } catch (error) {
       if (error instanceof HostConfigConflict) throw error;
-      const status = (error as { status?: number }).status;
-      if (status !== 1 && status !== 128) throw new HostConfigConflict("cannot verify whether host config is git-tracked");
+      const { status, stderr } = error as { status?: number; stderr?: Buffer };
+      const outsideRepo = status === 128 && stderr?.toString().includes("not a git repository");
+      if (status !== 1 && !outsideRepo) throw new HostConfigConflict("cannot verify whether host config is git-tracked");
     }
   }
   const existed = existsSync(target);
   const original = existed ? readFileSync(target) : undefined;
   let edited: string;
   try {
-    edited = replaceJsonEntry(original?.toString("utf8") ?? "{}\n", ["mcpServers", "h2a"], incoming);
+    const text = original?.toString("utf8") ?? "{}\n";
+    if (original && !Buffer.from(text).equals(original)) throw new Error("host config is not valid UTF-8");
+    edited = replaceJsonEntry(text, ["mcpServers", "h2a"], incoming);
   } catch (error) {
     throw new HostConfigConflict(`cannot preserve host config: ${(error as Error).message}`);
   }
