@@ -1,3 +1,20 @@
+# Attach terminal mode restoration
+
+Branch: `fix/attach-terminal-mode-restore`, based on `origin/main` at
+`db12b3b7`. Scope: selective VT mode tracking in the native attach bridge,
+bounded replay checkpoints, native wrapper prompt cleanup, surviving-parent
+recovery for abrupt attach death, focused regression tests and qualification.
+No push, PR, publication, tag, owner native host/session access, or `.track`
+write. Real hosts and tmux servers use fixture-owned private runtime paths.
+
+Validation: RED-first tracker and real host/outer-PTY reproductions; focused
+checks with one worker; TypeScript build. No full suite while the parallel
+experiment is active. Qualification: `docs/reviews/attach-terminal-mode-restore.md`.
+Completed: 207 focused tests passed, 1 environment skip; `build:h2a` and
+diff checks passed. Runtime fix: `41faf4a`. SIGKILL recovery also verifies the
+outer kernel termios against the pre-attach `stty -g` snapshot.
+Prior branch plans below are historical and grant no delivery authorization.
+
 # MCP identity burst deadline tail
 
 Branch: `fix/mcp-identity-burst-tail`, based on `origin/main` at `ab7ff40e`
