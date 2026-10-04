@@ -13,8 +13,11 @@ Real processes run only with isolated HOME, runtime directories and stores.
 - [x] L-H: report-only inventory of old central configs and repo store sentinels.
 - [x] L-A: lightweight `mcp-serve` switch, Claude only; causal conversation
   identity, independent attachments, shared store, private discovery, idle exit.
-- [ ] Qualification: two workspaces, restart identity continuity, T4 cohorts,
+- [x] Focused laboratory: two workspaces, restart identity continuity, T4 cohorts,
   latency/RSS comparison, focused regressions and at most one final root suite.
+- [ ] Wider qualification: exact production graphify loss reproduction,
+  18/36-session synthetic-volume budgets, host-version matrix and a fresh
+  fully GREEN root gate in a prepared environment.
 
 Evidence: ignored `tmp/mcp-evidence/`. Published 0.98.0 retains an ordinary
 graphify-ts entry in the supplied-shaped fixture, removes standalone Track and
@@ -28,7 +31,11 @@ writer 6/6. The initial performance sample has four distinct synthetic sessions:
 stdio 435.4 MiB RSS, central + shims 420.2 MiB; shim 73.7–73.9 MiB, central
 125.1 MiB. Warm initialize 109–122 ms versus stdio 227–235 ms; cold 443 ms.
 The proposed 50 MiB shim and 18-session aggregate budgets are not qualified.
-Final root gate and acceptance report are pending. No peer consensus is claimed:
+One final root gate: Node 2,451 passes / 4 environment failures / 32 skips /
+21 TODO; Track 1,193 passes. Failed files pass a focused rerun after local C++
+PTY compilation and increasing the single-file heap cap to 768 MiB (19 passes,
+6 existing TODO). The full suite was not repeated or declared GREEN. Report:
+`docs/reviews/mcp-central-default-claude.md`. No peer consensus is claimed:
 the installed-session review route conflicts with the owner isolation constraint.
 
 ## Historical plans (superseded for this branch)
