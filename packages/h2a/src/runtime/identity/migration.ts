@@ -13,7 +13,8 @@
  * is the deterministic merge that is unit-tested in isolation.
  */
 
-import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
+import { appendLaunchRow, launchLookupKey, lookupLaunchRows } from "../local-files/launch-index.js";
 import { join } from "node:path";
 
 import type { H2AEnvelope } from "@sentropic/h2a";
@@ -101,6 +102,10 @@ function aliasesFile(root: string): string {
 
 export function listIdentityAliases(root: string, instance?: string): H2AIdentityAlias[] {
   const f = aliasesFile(root);
+  if (instance !== undefined) {
+    const indexed = lookupLaunchRows<H2AIdentityAlias>(f, "aliases", launchLookupKey("instance", instance));
+    if (indexed !== undefined) return indexed;
+  }
   if (!existsSync(f)) return [];
   const out: H2AIdentityAlias[] = [];
   for (const line of readFileSync(f, "utf8").split("\n")) {
@@ -116,17 +121,28 @@ export function listIdentityAliases(root: string, instance?: string): H2AIdentit
 }
 
 export function legacyAliasAlreadyAdopted(root: string, legacyInstance: string): boolean {
+  const indexed = lookupLaunchRows<H2AIdentityAlias>(aliasesFile(root), "aliases", launchLookupKey("adopted", legacyInstance));
+  if (indexed !== undefined) return indexed.length > 0;
   return listIdentityAliases(root).some(
     (alias) => alias.legacyInstance === legacyInstance && alias.adoptedKeyring
   );
 }
 
+/** Earliest claimant owns the shared legacy inbox; equal timestamps keep log order. */
+export function legacyAliasOwner(root: string, legacyInstance: string, allAliases?: readonly H2AIdentityAlias[]): H2AIdentityAlias | undefined {
+  const indexed = allAliases ? undefined : lookupLaunchRows<H2AIdentityAlias>(aliasesFile(root), "aliases", launchLookupKey("owner", legacyInstance));
+  const claimants = indexed ?? (allAliases ?? listIdentityAliases(root)).filter(alias => alias.legacyInstance === legacyInstance);
+  return claimants.reduce<H2AIdentityAlias | undefined>((first, alias) =>
+    !first || alias.at < first.at ? alias : first, undefined);
+}
+
 export function recordIdentityAlias(root: string, alias: H2AIdentityAlias): void {
   mkdirSync(identityDir(root), { recursive: true });
-  const exists = listIdentityAliases(root).some(
+  const indexed = lookupLaunchRows<H2AIdentityAlias>(aliasesFile(root), "aliases", launchLookupKey("pair", alias.instance, alias.legacyInstance));
+  const exists = (indexed ?? listIdentityAliases(root)).some(
     (entry) =>
       entry.instance === alias.instance && entry.legacyInstance === alias.legacyInstance
   );
   if (exists) return;
-  appendFileSync(aliasesFile(root), `${JSON.stringify(alias)}\n`, "utf8");
+  appendLaunchRow(aliasesFile(root), "aliases", alias);
 }

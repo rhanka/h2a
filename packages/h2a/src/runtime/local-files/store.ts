@@ -55,6 +55,7 @@ import { authorizeDrive, type H2ADriveAuthorizeResult, type H2ADriveInstructionP
 import { withLockSync, type LockObservation } from "./locks.js";
 import { withLeaseSync } from "./lease.js";
 import { getActiveMcpTrace } from "../mcp/phase-trace.js";
+import { appendLaunchRow, launchLookupKey, lookupLaunchRows } from "./launch-index.js";
 import {
   inboxDir,
   inboxDirRaw,
@@ -73,7 +74,7 @@ import {
   readCliPackageVersion,
   type H2AStoreSchemaSentinel
 } from "./schema.js";
-import { listIdentityAliases, mergeInboxDedup } from "../identity/migration.js";
+import { listIdentityAliases, legacyAliasOwner, mergeInboxDedup } from "../identity/migration.js";
 
 export interface CreateLocalStoreOptions {
   root: string;
@@ -502,6 +503,11 @@ export function createLocalStore(options: CreateLocalStoreOptions): LocalStore {
   }
 
   function findInstance(id: string): H2AActorRegistration | undefined {
+    const indexed = lookupLaunchRows<H2AActorRegistration>(paths.instances, "instances", launchLookupKey(id));
+    if (indexed !== undefined) {
+      const reg = indexed[0];
+      return reg ? { ...reg, roles: toArray(reg.roles), scopes: toArray(reg.scopes) } : undefined;
+    }
     return listInstances().find((entry) => entry.id === id);
   }
 
@@ -513,7 +519,7 @@ export function createLocalStore(options: CreateLocalStoreOptions): LocalStore {
         if (findInstance(reg.id)) {
           return;
         }
-        appendJsonl(paths.instances, reg);
+        appendLaunchRow(paths.instances, "instances", reg);
       },
       lockOpts
     );
@@ -524,7 +530,7 @@ export function createLocalStore(options: CreateLocalStoreOptions): LocalStore {
   // from append-only sources so a rotation never rewrites a registration.
   function listInstanceKeys(instanceId: string): string[] {
     const fromRegistration = findInstance(instanceId)?.publicKeys ?? [];
-    const events = readJsonl<H2AKeyEvent>(paths.keys).filter(
+    const events = (lookupLaunchRows<H2AKeyEvent>(paths.keys, "keys", launchLookupKey(instanceId)) ?? readJsonl<H2AKeyEvent>(paths.keys)).filter(
       (e) => e.instance === instanceId
     );
     const revoked = new Set(
@@ -556,7 +562,7 @@ export function createLocalStore(options: CreateLocalStoreOptions): LocalStore {
         if (listInstanceKeys(instanceId).includes(publicKeyPem)) {
           throw new Error(`Key already registered for ${instanceId}`);
         }
-        appendJsonl(paths.keys, {
+        appendLaunchRow(paths.keys, "keys", {
           instance: instanceId,
           publicKey: publicKeyPem,
           type: "added",
@@ -577,7 +583,7 @@ export function createLocalStore(options: CreateLocalStoreOptions): LocalStore {
         if (!listInstanceKeys(instanceId).includes(publicKeyPem)) {
           throw new Error(`Key not active for ${instanceId}`);
         }
-        appendJsonl(paths.keys, {
+        appendLaunchRow(paths.keys, "keys", {
           instance: instanceId,
           publicKey: publicKeyPem,
           type: "revoked",
@@ -1678,14 +1684,12 @@ export function createLocalStore(options: CreateLocalStoreOptions): LocalStore {
     // legacyInstance (earliest alias `at`). `adoptedKeyring` can't gate this — a
     // fresh first connect has adoptedKeyring:false too. This keeps the legit
     // "read your own migrated inbox" while closing the cross-read.
-    const allAliases = listIdentityAliases(paths.root);
-    const ownedLegacy = allAliases
-      .filter((a) => a.instance === actor)
-      .filter((a) => {
-        const claimants = allAliases.filter((x) => x.legacyInstance === a.legacyInstance);
-        const earliest = claimants.reduce((m, x) => (x.at < m.at ? x : m), claimants[0]);
-        return earliest.instance === actor;
-      })
+    const indexedAliases = lookupLaunchRows<ReturnType<typeof listIdentityAliases>[number]>(
+      join(paths.root, "identity", "aliases.jsonl"), "aliases", launchLookupKey("instance", actor));
+    // Without an index, retain the original single full read for both filters.
+    const allAliases = indexedAliases === undefined ? listIdentityAliases(paths.root) : undefined;
+    const ownedLegacy = (indexedAliases ?? allAliases!.filter(a => a.instance === actor))
+      .filter((a) => legacyAliasOwner(paths.root, a.legacyInstance, allAliases)?.instance === actor)
       .map((a) => a.legacyInstance);
     const dirs = new Set<string>();
     for (const handle of [actor, ...ownedLegacy]) {

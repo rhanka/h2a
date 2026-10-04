@@ -500,6 +500,14 @@ export const H2A_CLI_VERB_CONTRACTS: readonly H2ACliVerbContract[] = [
 
   // --- store maintenance (DEC-036) ---
   {
+    verb: "store index-launch",
+    outputShape: "action",
+    exitCodes: [0, 1, 2],
+    requiredFlags: ["root"],
+    optionalFlags: [],
+    description: "Build reversible launch indexes for existing append-only logs. Requires an explicit absolute root; retains the original logs and previous index generations."
+  },
+  {
     verb: "store migrate",
     outputShape: "action",
     exitCodes: [0, 1, 2],

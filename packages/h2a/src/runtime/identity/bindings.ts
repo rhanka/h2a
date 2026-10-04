@@ -25,7 +25,7 @@
  * (no reclaim/mint race, F3).
  */
 
-import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 
@@ -33,6 +33,7 @@ import { verifyCanonical, type H2ASignature } from "@sentropic/h2a";
 
 import { localStorePaths, withLock, withLockSync } from "../local-files/index.js";
 import { getActiveMcpTrace } from "../mcp/phase-trace.js";
+import { appendLaunchRow, launchLookupKey, lookupLaunchRows } from "../local-files/launch-index.js";
 
 /**
  * The one protocol accepted by the DEF identity-binding writer.  The cull
@@ -96,6 +97,8 @@ export function listBindings(root: string): H2AIdentityBinding[] {
  * `reclaimOrMint`.
  */
 export function findBinding(root: string, key: IdentityBindingKey): H2AIdentityBinding | undefined {
+  const indexed = lookupLaunchRows<H2AIdentityBinding>(bindingsFile(root), "bindings", launchLookupKey(key.host, key.providerSessionId));
+  if (indexed !== undefined) return indexed.at(-1);
   let found: H2AIdentityBinding | undefined;
   for (const b of listBindings(root)) {
     if (b.host === key.host && b.providerSessionId === key.providerSessionId) {
@@ -169,11 +172,10 @@ export function reclaimOrMint(
       return { action: "reclaim", instance: existing.instance, agentUuid: existing.agentUuid };
     }
     const minted = deps.mint();
-    appendFileSync(
-      bindingsFile(root),
-      `${JSON.stringify({ ...key, instance: minted.instance, agentUuid: minted.agentUuid, at: new Date(deps.now()).toISOString() } satisfies H2AIdentityBinding)}\n`,
-      "utf8"
-    );
+    appendLaunchRow(bindingsFile(root), "bindings", {
+      ...key, instance: minted.instance, agentUuid: minted.agentUuid,
+      at: new Date(deps.now()).toISOString()
+    } satisfies H2AIdentityBinding);
     return { action: "mint", instance: minted.instance, agentUuid: minted.agentUuid };
   }, {
     ownerMetadata: {
@@ -254,11 +256,10 @@ export async function reclaimOrMintAsync(
       // Publish keys / registration / alias BEFORE the binding row so no reader
       // can observe a binding whose keyring is not yet provable.
       options.beforePublish?.(result, { identity: true });
-      appendFileSync(
-        bindingsFile(root),
-        `${JSON.stringify({ ...key, instance: minted.instance, agentUuid: minted.agentUuid, at: new Date(deps.now()).toISOString() } satisfies H2AIdentityBinding)}\n`,
-        "utf8"
-      );
+      appendLaunchRow(bindingsFile(root), "bindings", {
+        ...key, instance: minted.instance, agentUuid: minted.agentUuid,
+        at: new Date(deps.now()).toISOString()
+      } satisfies H2AIdentityBinding);
       return result;
     },
     {
