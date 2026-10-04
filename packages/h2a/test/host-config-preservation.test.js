@@ -63,3 +63,15 @@ test("host setup refuses malformed and ambiguous configs even with --force", () 
     assert.equal(existsSync(join(dir, "host.json.backup")), false);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
+
+test("host setup refuses undecodable UTF-8 instead of changing foreign bytes", () => {
+  const dir = mkdtempSync(join(tmpdir(), "h2a-config-encoding-"));
+  try {
+    const path = join(dir, "host.json");
+    const original = Buffer.concat([Buffer.from('{"foreign":"'), Buffer.from([0xff]), Buffer.from('","mcpServers":{}}')]);
+    writeFileSync(path, original);
+    assert.equal(setup(path).code, 2);
+    assert.deepEqual(readFileSync(path), original);
+    assert.deepEqual(readdirSync(dir), ["host.json"]);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});

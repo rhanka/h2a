@@ -645,9 +645,9 @@ export const H2A_CLI_VERB_CONTRACTS: readonly H2ACliVerbContract[] = [
     outputShape: "resource",
     exitCodes: [0, 1, 2, 3],
     requiredFlags: ["host"],
-    optionalFlags: ["endpoint", "url", "root", "print", "write", "force", "no-wake"],
+    optionalFlags: ["endpoint", "url", "root", "print", "write", "allow-tracked", "force", "no-wake"],
     description:
-      "Render or merge exactly one `mcpServers.h2a` endpoint for a supported host. `--endpoint local` (default) renders coordination-ready stdio `mcp-serve --auto-open --auto-upgrade --wake auto`; `--endpoint remote --url <http(s)://…>` renders an HTTP MCP URL and rejects local-only flags. The selected endpoint exposes h2a plus Track's read-only tools. Reconfiguration removes recognized h2a aliases and standalone Track MCP entries instead of stacking them. `--print` (default) emits the snippet; `--write <file>` safely merges JSON only (native YAML/JSONC is refused); `--force` is only for intentionally replacing malformed JSON. Codex and Claude setup then inspect the selected host without repairing it: an incoherent installation is named, recommends `h2a doctor --repair`, and exits 2."
+      "Render the canonical `mcpServers.h2a` endpoint for a supported host. Local invokes `mcp-serve`; remote requires an HTTP(S) URL and rejects local-only flags. Explicit `--write <file>` preserves bytes outside h2a and backs up an existing file. Tracked files require `--allow-tracked`. Other servers remain intact. Native YAML/JSONC, malformed or ambiguous JSON are refused, including with `--force`. Codex and Claude setup then inspect the selected host without repairing it; an incoherent installation exits 2."
   },
   {
     verb: "host plugin",
