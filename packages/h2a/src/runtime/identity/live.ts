@@ -101,6 +101,8 @@ export interface ResolveLiveIdentityInput {
   readonly host: string;
   readonly cwd: string;
   readonly explicitInstance?: string;
+  readonly reclaimOnly?: boolean;
+  readonly expectedInstance?: string;
   readonly name?: string;
   readonly scopes?: readonly string[];
   /**
@@ -774,7 +776,7 @@ async function resolveLiveIdentityAsyncInternal(
       mintKeypair = publishIdentity(instance, agentUuid, "mint", { skipExistingCheck: true });
       publishedInstance = instance;
     };
-    if (!willReclaim) {
+    if (!willReclaim && !input.reclaimOnly) {
       // Mint likely: publish keyring / registration / alias BEFORE the binding
       // append — window closure BY ORDER (a reader can only observe the binding
       // after its keyring is durable). Done OUTSIDE the tiny identity-lock
@@ -800,6 +802,9 @@ async function resolveLiveIdentityAsyncInternal(
         //  - positive on a retry: a key may have been revoked during contention.
         //  - a changed binding: the cache is for a different row.
         verifyProof: (binding) => {
+          if (input.expectedInstance && binding.instance !== input.expectedInstance) {
+            throw new Error("identity proof failed: resumed conversation binding changed");
+          }
           const trustCache =
             (options.attempt ?? 0) === 0 &&
             binding.instance === P.preBinding?.instance &&
@@ -808,7 +813,9 @@ async function resolveLiveIdentityAsyncInternal(
             ? true
             : step("identity_proof", () => provesLocalKey(input.root, binding.instance));
         },
-        mint,
+        mint: input.reclaimOnly
+          ? () => { throw new Error("identity proof failed: resume requires the existing conversation binding"); }
+          : mint,
         now
       },
       {
