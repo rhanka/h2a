@@ -11,7 +11,7 @@ Real processes run only with isolated HOME, runtime directories and stores.
   backs up existing files and requires `--allow-tracked` for tracked files.
 - [x] L-H: retain live shim stdio on restart, operator status/stop and rollback semantics.
 - [x] L-H: report-only inventory of old central configs and repo store sentinels.
-- [ ] L-A: lightweight `mcp-serve` switch, Claude only; causal conversation
+- [x] L-A: lightweight `mcp-serve` switch, Claude only; causal conversation
   identity, independent attachments, shared store, private discovery, idle exit.
 - [ ] Qualification: two workspaces, restart identity continuity, T4 cohorts,
   latency/RSS comparison, focused regressions and at most one final root suite.
@@ -22,46 +22,18 @@ reformats surrounding bytes. Exact production graphify loss is not reproduced;
 do not claim otherwise. No launch-index exists on this main revision: reuse the
 existing identity storage and leave index integration to L-C, without a parallel index.
 
+Focused qualification passes: central/core 27; attachment/identity/stdio/wake/CLI
+130 passed and 16 intentional skips; T4 central 5/5 with four sessions; host
+writer 6/6. The initial performance sample has four distinct synthetic sessions:
+stdio 435.4 MiB RSS, central + shims 420.2 MiB; shim 73.7–73.9 MiB, central
+125.1 MiB. Warm initialize 109–122 ms versus stdio 227–235 ms; cold 443 ms.
+The proposed 50 MiB shim and 18-session aggregate budgets are not qualified.
+Final root gate and acceptance report are pending. No peer consensus is claimed:
+the installed-session review route conflicts with the owner isolation constraint.
+
 ## Historical plans (superseded for this branch)
 
 # Session launch latency
-
-Branch: `perf/session-launch-latency`, based on `ab7ff40e` (0.98.1).
-Scope: synthetic launch diagnosis, reversible log indexes, native sidecar readiness,
-focused regression tests, and measured latency/RSS reports.
-No owner store contents, native host, or live sessions; no `.track` writes.
-No push, PR, publication, tag, Python, privileged operations, or global cache eviction.
-Experiments use private roots, HOME and runtime directories in an <=8 GiB scope.
-N=17 runtime launches require measured memory headroom; rejected projections are reported.
-
-- [x] Review the interrupted candidate and generate small/large synthetic fixtures.
-- [x] Measure baseline MCP and runtime launch for N=1/4/17 within the memory budget.
-- [x] Preserve append-only sources and implement explicit, idempotent index maintenance.
-- [x] Replace the fixed sidecar crash window with a correlated post-identity ACK.
-- [x] Complete before/after matrices, focused invariant tests and final diff review.
-- [x] Prepare atomic changes and the French report for delivery.
-
-Report: `docs/reviews/session-launch-latency.md`. Central MCP root selection is
-a recorded out-of-scope defect, with a separate specification in progress.
-
-## Verification and residual work
-
-Large-root max identity readiness: 4,372 ms before, 1,135 ms after.
-Full runtime max: 11,517 ms before, 10,651 ms after; unchanged prompt checks
-still take about four seconds at N=1. Max final runtime scope: 5,171 MiB,
-below the unchanged 8 GiB cap and 85% shutdown threshold.
-Focused checks only; no full suite or external review consensus claimed.
-The final indexed burst passes at N=17; alias ownership, key revocations,
-proof gating, append-only preservation, corrupt-index fallback and readiness
-ownership are covered. Public gate: 60 MCP tools, 100 CLI verbs, anti-cycle OK.
-Existing stores require explicit `store index-launch --root <absolute-path>`.
-Full discovery still loads history. First-use schema sentinel publication has
-a separate observed race; the contention lab now prepares an existing-store
-sentinel before its cohort without weakening the identity assertions.
-
-## Historical plans (superseded for this branch)
-
-# MCP identity burst deadline tail
 
 Branch: `fix/mcp-identity-burst-tail`, based on `origin/main` at `ab7ff40e`
 (v0.98.1). Scope: the burst and startup-contention laboratory tests, their

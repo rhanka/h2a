@@ -1,0 +1,369 @@
+#!/usr/bin/env node
+
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { homedir } from "node:os";
+import { fileURLToPath } from "node:url";
+
+import {
+  cmdKeepalive,
+  runCli,
+  runCentralMcpConnect,
+  runCentralMcpServe,
+  runDriveServe,
+  runMcpServe,
+  runRemoteSend,
+  runRemoteServe,
+  runMirrorServe,
+  runMirrorPush,
+  runCanevasServeCli,
+  runTrackMcpServe,
+  runDrumbeatRelanceInbox,
+  runDrumbeatWatch,
+  runLoopEngineCli,
+  runSysmlVerify
+} from "./cli.js";
+import {
+  resolveH2aRuntimeDispatch,
+  shouldDispatchRuntime
+} from "./bin-routing.js";
+import { runFocusServeCli } from "./runtime/focus/serve.js";
+import { createMcpTrace, setActiveMcpTrace } from "./runtime/mcp/phase-trace.js";
+
+const argv = process.argv.slice(2);
+
+function readOwnVersion(): string {
+  try {
+    const here = dirname(fileURLToPath(import.meta.url));
+    const pkg = JSON.parse(readFileSync(join(here, "..", "package.json"), "utf8")) as { version?: string };
+    return pkg.version ?? "0.0.0";
+  } catch {
+    return "0.0.0";
+  }
+}
+
+function parseFlagsFrom(start: number): Record<string, string> {
+  const flags: Record<string, string> = {};
+  for (let i = start; i < argv.length; i++) {
+    const token = argv[i];
+    if (token.startsWith("--")) {
+      const key = token.slice(2);
+      const next = argv[i + 1];
+      if (next !== undefined && !next.startsWith("--")) {
+        flags[key] = next;
+        i++;
+      } else {
+        flags[key] = "true";
+      }
+    }
+  }
+  return flags;
+}
+
+function runAsync(label: string, promise: Promise<number>): void {
+  promise.then(
+    (rc) => {
+      process.exitCode = rc;
+    },
+    (err) => {
+      process.stderr.write(`h2a ${label}: fatal: ${(err as Error).message}\n`);
+      process.exitCode = 1;
+    }
+  );
+}
+
+// Parité ② (double-consensus 2026-07-03) : `h2a` = LE driver global. Tout
+// premier-mot NON h2a-natif (cf. bin-routing.ts) est un verbe du runtime lourd
+// et part en LAZY vers @sentropic/h2a-runtime. Le runtime est un peer requis,
+// installé lockstep par npm, mais reste une frontière d'import dynamique afin
+// que le coeur ne charge pas node-pty/AWS pour les verbes purs.
+
+async function dispatchRuntime(): Promise<number> {
+  // Spécifieur via variable typée `string` : tsc ne résout PAS statiquement ce
+  // peer requis (l'import dynamique évite son chargement pour les verbes purs).
+  const H2A_RUNTIME_PKG: string = "@sentropic/h2a-runtime";
+  let rt: unknown;
+  try {
+    rt = await import(H2A_RUNTIME_PKG);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException)?.code === "ERR_MODULE_NOT_FOUND") {
+      process.stderr.write(
+        `h2a ${argv[0]}: ce verbe requiert le runtime h2a (sessions / k8s / tunnel).\n` +
+          "  Répare l'installation lockstep : npm i -g @sentropic/h2a@latest\n"
+      );
+      return 127;
+    }
+    throw err;
+  }
+  let dispatch;
+  try {
+    dispatch = resolveH2aRuntimeDispatch(rt);
+  } catch (err) {
+    process.stderr.write(
+      `h2a ${argv[0]}: runtime incompatible — ${(err as Error).message}.\n` +
+        "  Mets à jour l'installation lockstep : h2a upgrade\n"
+    );
+    return 64;
+  }
+  // dispatchH2a = main(argv) : commander attend process.argv ([node, script, …]).
+  return dispatch(process.argv);
+}
+
+// `mcp-serve` and `h2a remote serve/send` are async (long-running loop or network);
+// the synchronous `runCli` cannot represent them, so we dispatch directly here.
+if (argv[0] === "--version" || argv[0] === "-v" || argv[0] === "version") {
+  process.stdout.write(`${readOwnVersion()}\n`);
+  process.exitCode = 0;
+} else if (argv[0] === "mcp-serve") {
+  // L0 tracing: mint the per-attempt trace at the earliest point of the
+  // process body and install it as the ambient trace so the deep boot path
+  // (cli → identity → store/locks → stdio) can emit correlated spans without
+  // threading a trace object through every signature. This records the process
+  // START only — the static imports above already ran, so bin.ts does NOT
+  // claim to measure them; the external `mcp-phase-probe.mjs` preload supplies
+  // that import envelope.
+  const mcpTrace = createMcpTrace({ role: "server" });
+  setActiveMcpTrace(mcpTrace);
+  // `code` carries the running build version on this milestone (the closed
+  // event shape keeps no dedicated `version` field); it is non-secret.
+  mcpTrace.phase("process_start", { code: readOwnVersion() });
+  // Graceful shutdown: a host kill (or orderly stop) cleans presence
+  // immediately (sessions → `closed`) rather than leaving it to expire as
+  // false-live. We override the default signal terminate, so we MUST guarantee
+  // the process still exits — hence the unref'd fallback timer.
+  const ac = new AbortController();
+  const onSignal = (sig: NodeJS.Signals): void => {
+    process.stderr.write(`h2a mcp-serve: received ${sig}, shutting down gracefully\n`);
+    ac.abort();
+    setTimeout(() => process.exit(process.exitCode ?? 0), 750).unref();
+  };
+  for (const sig of ["SIGTERM", "SIGINT", "SIGHUP"] as NodeJS.Signals[]) {
+    process.once(sig, () => onSignal(sig));
+  }
+  runAsync(
+    "mcp-serve",
+    runMcpServe(parseFlagsFrom(1), {
+      stdin: process.stdin,
+      stdout: process.stdout,
+      stderr: process.stderr,
+      signal: ac.signal
+    })
+  );
+} else if (argv[0] === "mcp-central-serve") {
+  const ac = new AbortController();
+  const onSignal = (sig: NodeJS.Signals): void => {
+    process.stderr.write(`h2a mcp-central-serve: received ${sig}, shutting down gracefully\n`);
+    ac.abort();
+    setTimeout(() => process.exit(process.exitCode ?? 0), 750).unref();
+  };
+  for (const sig of ["SIGTERM", "SIGINT", "SIGHUP"] as NodeJS.Signals[]) {
+    process.once(sig, () => onSignal(sig));
+  }
+  runAsync(
+    "mcp-central-serve",
+    runCentralMcpServe(parseFlagsFrom(1), {
+      stderr: process.stderr,
+      signal: ac.signal
+    })
+  );
+} else if (argv[0] === "mcp-central-connect") {
+  const ac = new AbortController();
+  const onSignal = (sig: NodeJS.Signals): void => {
+    process.stderr.write(`h2a mcp-central-connect: received ${sig}, shutting down gracefully\n`);
+    ac.abort();
+    setTimeout(() => process.exit(process.exitCode ?? 0), 750).unref();
+  };
+  for (const sig of ["SIGTERM", "SIGINT", "SIGHUP"] as NodeJS.Signals[]) {
+    process.once(sig, () => onSignal(sig));
+  }
+  runAsync(
+    "mcp-central-connect",
+    runCentralMcpConnect(parseFlagsFrom(1), {
+      stdin: process.stdin,
+      stdout: process.stdout,
+      stderr: process.stderr,
+      signal: ac.signal
+    })
+  );
+} else if (argv[0] === "central" && ["status", "stop", "residues"].includes(argv[1])) {
+  runAsync(`central ${argv[1]}`, (async () => {
+    const { centralOperator, centralResidueReport } = await import("./runtime/mcp-central-operator.js");
+    const flags = parseFlagsFrom(2);
+    const result = argv[1] === "residues"
+      ? centralResidueReport(flags.workspace ?? process.cwd(), flags["agy-config"])
+      : await centralOperator(argv[1] as "status" | "stop", flags["runtime-base"] ? { runtimeBase: flags["runtime-base"] } : {});
+    process.stdout.write(JSON.stringify(result, null, 2) + "\n");
+    return 0;
+  })());
+} else if (argv[0] === "track-mcp") {
+  // Consolidation ④-S2 — native track MCP server (long-running stdio) served
+  // IN-PROCESS via @sentropic/track. Graceful shutdown like mcp-serve so a host
+  // kill stops it cleanly; the unref'd fallback timer guarantees the exit.
+  const ac = new AbortController();
+  const onSignal = (sig: NodeJS.Signals): void => {
+    process.stderr.write(`h2a track-mcp: received ${sig}, shutting down gracefully\n`);
+    ac.abort();
+    setTimeout(() => process.exit(process.exitCode ?? 0), 500).unref();
+  };
+  for (const sig of ["SIGTERM", "SIGINT", "SIGHUP"] as NodeJS.Signals[]) {
+    process.once(sig, () => onSignal(sig));
+  }
+  runAsync(
+    "track-mcp",
+    runTrackMcpServe(parseFlagsFrom(1), { stderr: process.stderr, signal: ac.signal })
+  );
+} else if (argv[0] === "remote" && argv[1] === "serve") {
+  runAsync("remote serve", runRemoteServe(parseFlagsFrom(2)));
+} else if (argv[0] === "remote" && argv[1] === "send") {
+  runAsync("remote send", runRemoteSend(parseFlagsFrom(2)));
+} else if (argv[0] === "remote" && argv[1] === "mirror-serve") {
+  runAsync("remote mirror-serve", runMirrorServe(parseFlagsFrom(2)));
+} else if (argv[0] === "remote" && argv[1] === "mirror") {
+  // ONE-SHOT unless `--interval-ms` was passed. The daemon form is long-running,
+  // so it gets the same graceful-shutdown wiring as mcp-serve / loop supervise:
+  // SIGTERM stops it between cycles instead of killing a push mid-flight.
+  const ac = new AbortController();
+  if (argv.includes("--interval-ms")) {
+    const onSignal = (sig: NodeJS.Signals): void => {
+      process.stderr.write(`h2a remote mirror: received ${sig}, stopping\n`);
+      ac.abort();
+      setTimeout(() => process.exit(process.exitCode ?? 0), 500).unref();
+    };
+    for (const sig of ["SIGTERM", "SIGINT", "SIGHUP"] as NodeJS.Signals[]) {
+      process.once(sig, () => onSignal(sig));
+    }
+  }
+  runAsync(
+    "remote mirror",
+    runMirrorPush(parseFlagsFrom(2), { stdout: process.stdout, stderr: process.stderr }, ac.signal)
+  );
+} else if (argv[0] === "drive" && argv[1] === "serve") {
+  runAsync("drive serve", runDriveServe(parseFlagsFrom(2)));
+} else if (argv[0] === "drumbeat" && argv[1] === "relance-inbox") {
+  runAsync("drumbeat relance-inbox", runDrumbeatRelanceInbox(parseFlagsFrom(2)));
+} else if (argv[0] === "drumbeat" && argv[1] === "watch") {
+  runAsync("drumbeat watch", runDrumbeatWatch(parseFlagsFrom(2)));
+} else if (argv[0] === "sysml" && argv[1] === "verify") {
+  runAsync("sysml verify", runSysmlVerify(parseFlagsFrom(2)));
+} else if (argv[0] === "keepalive") {
+  runAsync("keepalive", cmdKeepalive(parseFlagsFrom(1), { stdout: process.stdout, stderr: process.stderr }));
+} else if (argv[0] === "focus" && (argv[1] === "serve" || argv[1] === "web")) {
+  // Intercept the production web server before the bare `focus` facade can delegate to `track focus`.
+  // Every other `h2a focus ...` invocation keeps the existing Track behavior unchanged.
+  const ac = new AbortController();
+  const onSignal = (sig: NodeJS.Signals): void => {
+    process.stderr.write(`h2a focus ${argv[1]}: received ${sig}, stopping\n`);
+    ac.abort(sig);
+    const exitCode = sig === "SIGINT" ? 130 : sig === "SIGHUP" ? 129 : 143;
+    setTimeout(() => process.exit(process.exitCode ?? exitCode), 2500).unref();
+  };
+  for (const sig of ["SIGTERM", "SIGINT", "SIGHUP"] as NodeJS.Signals[]) {
+    process.once(sig, () => onSignal(sig));
+  }
+  runAsync(
+    `focus ${argv[1]}`,
+    runFocusServeCli(argv, { stdout: process.stdout, stderr: process.stderr }, ac.signal)
+  );
+} else if (argv[0] === "canevas" && argv[1] === "serve") {
+  // Canevas ③ read-only server (long-running) → graceful shutdown like mcp-serve.
+  const ac = new AbortController();
+  const onSignal = (sig: NodeJS.Signals): void => {
+    process.stderr.write(`h2a canevas serve: received ${sig}, stopping\n`);
+    ac.abort();
+    setTimeout(() => process.exit(process.exitCode ?? 0), 500).unref();
+  };
+  for (const sig of ["SIGTERM", "SIGINT", "SIGHUP"] as NodeJS.Signals[]) {
+    process.once(sig, () => onSignal(sig));
+  }
+  runAsync(
+    "canevas serve",
+    runCanevasServeCli(argv, { stdout: process.stdout, stderr: process.stderr }, ac.signal)
+  );
+} else if (argv[0] === "loop" && (argv[1] === "tick" || argv[1] === "watch" || argv[1] === "run" || argv[1] === "supervise")) {
+  // Objective-loop tick/watch/supervise are async (lazy runtime import + periodic
+  // loop). `watch`/`supervise` are long-running → wire graceful shutdown like
+  // mcp-serve so an abort stops the loop cleanly (no orphaned timer).
+  const ac = new AbortController();
+  if ((argv[1] === "watch" || argv[1] === "run" || argv[1] === "supervise")) {
+    const onSignal = (sig: NodeJS.Signals): void => {
+      process.stderr.write(`h2a loop ${argv[1]}: received ${sig}, stopping\n`);
+      ac.abort();
+      setTimeout(() => process.exit(process.exitCode ?? 0), 500).unref();
+    };
+    for (const sig of ["SIGTERM", "SIGINT", "SIGHUP"] as NodeJS.Signals[]) {
+      process.once(sig, () => onSignal(sig));
+    }
+  }
+  runAsync(
+    `loop ${argv[1]}`,
+    runLoopEngineCli(argv, { stdout: process.stdout, stderr: process.stderr }, ac.signal)
+  );
+} else if (argv[0] === "status" && argv.includes("--write-bars")) {
+  // The single background producer of every tmux status-bar file. The
+  // installed surface only ever reads those files, so this loop is the one
+  // place bar content is computed (see status-bar-writer.ts).
+  const flags = parseFlagsFrom(1);
+  const ac = new AbortController();
+  for (const sig of ["SIGTERM", "SIGINT", "SIGHUP"] as NodeJS.Signals[]) {
+    process.once(sig, () => ac.abort());
+  }
+  const root =
+    flags.root ??
+    process.env.H2A_ROOT ??
+    join(homedir(), "h2a-workspace", ".h2a");
+  runAsync("status --write-bars", (async () => {
+    const { runStatusBarWriter } = await import("./status-bar-writer.js");
+    return runStatusBarWriter(
+      { root, signal: ac.signal },
+      { stdout: process.stdout, stderr: process.stderr }
+    );
+  })());
+} else if (
+  argv[0] === "status" &&
+  argv.some((token) =>
+    token === "--bar" ||
+    token === "--human" ||
+    token === "--watch" ||
+    token === "--tmux-window"
+  )
+) {
+  const flags = parseFlagsFrom(1);
+  const ac = new AbortController();
+  if (flags.watch === "true") {
+    const onSignal = (sig: NodeJS.Signals): void => {
+      process.stderr.write(`h2a status: received ${sig}, stopping\n`);
+      ac.abort();
+    };
+    for (const sig of ["SIGTERM", "SIGINT", "SIGHUP"] as NodeJS.Signals[]) {
+      process.once(sig, () => onSignal(sig));
+    }
+  }
+  const root =
+    flags.root ??
+    process.env.H2A_ROOT ??
+    join(homedir(), "h2a-workspace", ".h2a");
+  runAsync("status", (async () => {
+    const { runStatusSurfaceCli } = await import("./status-surface.js");
+    return runStatusSurfaceCli(
+      flags,
+      { stdout: process.stdout, stderr: process.stderr },
+      {
+        root,
+        signal: ac.signal,
+        openTmuxWindow: async (tmuxSession: string) => {
+          const packageName: string = "@sentropic/h2a-runtime";
+          const runtime = (await import(packageName)) as {
+            openStatusWindowForH2a?: (session: string) => boolean;
+          };
+          return runtime.openStatusWindowForH2a?.(tmuxSession) ?? false;
+        }
+      }
+    );
+  })());
+} else if (shouldDispatchRuntime(argv)) {
+  runAsync(`runtime:${argv[0]}`, dispatchRuntime());
+} else {
+  const result = runCli(argv);
+  if (result instanceof Promise) runAsync(argv[0] ?? "", result);
+  else process.exitCode = result;
+}
