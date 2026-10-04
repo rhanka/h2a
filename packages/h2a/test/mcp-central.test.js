@@ -445,8 +445,8 @@ test("M1: central marker is uid-addressed, user-owned, and private", linux, asyn
     assert.equal(started.markerPath, expectedPath);
     assert.equal(
       centralMcpMarkerPath(),
-      join("/run/user", String(currentUid()), "h2a-mcp-central", "marker.json"),
-      "production rendezvous is derived from the uid alone"
+      join(process.env.XDG_RUNTIME_DIR ?? `/run/user/${currentUid()}`, "h2a-mcp-central", "marker.json"),
+      "production rendezvous uses the private runtime namespace"
     );
     assert.equal(centralMcpMarkerPath({ runtimeBase: f.runtimeBase }), expectedPath);
     assert.equal(statSync(dirname(expectedPath)).uid, currentUid());
@@ -1176,12 +1176,11 @@ test("central client config reconnects after token rotation without rendering a 
       () => centralMcpClientEndpoint({ [H2A_MCP_CENTRAL_ENV]: "true" }),
       new RegExp(H2A_MCP_CENTRAL_ENDPOINT_ENV)
     );
-    await assert.rejects(
-      startCentralMcpServer({ root: f.root, runtimeBase: f.runtimeBase, env: {} }),
-      new RegExp(H2A_MCP_CENTRAL_ENDPOINT_ENV)
-    );
-    assert.equal(existsSync(join(f.runtimeBase, "h2a-mcp-central")), false);
-    assert.equal(existsSync(f.root), false, "missing endpoint writes/binds nothing");
+    const ephemeral = await startCentralMcpServer({ root: f.root, runtimeBase: f.runtimeBase, env: {} });
+    assert.equal(ephemeral.kind, "started");
+    assert.match(ephemeral.endpoint, /^http:\/\/127\.0\.0\.1:\d+\/mcp$/);
+    assert.equal(JSON.parse(readFileSync(ephemeral.markerPath, "utf8")).endpoint, ephemeral.endpoint);
+    await ephemeral.stop();
 
     first = await startCentralMcpServer({
       root: join(f.directory, "first-store"),
