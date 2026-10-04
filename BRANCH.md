@@ -9,8 +9,8 @@ Real processes run only with isolated HOME, runtime directories and stores.
   decouple state root from workspace; neutral daemon cwd and environment whitelist.
 - [x] L-H: explicit host writer preserves all bytes outside the h2a value,
   backs up existing files and requires `--allow-tracked` for tracked files.
-- [ ] L-H: retain live shim stdio on restart, operator status/stop and rollback semantics.
-- [ ] L-H: report-only inventory of old central configs and repo store sentinels.
+- [x] L-H: retain live shim stdio on restart, operator status/stop and rollback semantics.
+- [x] L-H: report-only inventory of old central configs and repo store sentinels.
 - [ ] L-A: lightweight `mcp-serve` switch, Claude only; causal conversation
   identity, independent attachments, shared store, private discovery, idle exit.
 - [ ] Qualification: two workspaces, restart identity continuity, T4 cohorts,

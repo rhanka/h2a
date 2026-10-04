@@ -29,6 +29,8 @@ interface ResolveRequest {
     readonly host: string;
     readonly cwd: string;
     readonly explicitInstance?: string;
+    readonly reclaimOnly?: boolean;
+    readonly expectedInstance?: string;
     readonly name?: string;
     readonly scopes?: readonly string[];
     readonly declaredCapabilities?: readonly string[];
@@ -105,6 +107,8 @@ process.on("message", (raw: unknown) => {
     root: req.request.root,
     host: req.request.host,
     cwd: req.request.cwd,
+    ...(req.request.reclaimOnly ? { reclaimOnly: true } : {}),
+    ...(req.request.expectedInstance ? { expectedInstance: req.request.expectedInstance } : {}),
     ...(req.request.explicitInstance !== undefined
       ? { explicitInstance: req.request.explicitInstance }
       : {}),
