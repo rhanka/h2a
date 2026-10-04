@@ -122,11 +122,11 @@ export function markerDirectory(options: CentralMcpPathsOptions): string {
   return join(runtimeBase(options), CENTRAL_RUNTIME_DIRECTORY);
 }
 
-export function runtimeBase(options: CentralMcpPathsOptions): string {
+export function runtimeBase(options: CentralMcpPathsOptions, env: NodeJS.ProcessEnv = process.env, standardExists: (path: string) => boolean = existsSync): string {
   if (options.runtimeBase) return options.runtimeBase;
-  if (process.env.XDG_RUNTIME_DIR) return process.env.XDG_RUNTIME_DIR;
+  if (env.XDG_RUNTIME_DIR) return env.XDG_RUNTIME_DIR;
   const standard = join("/run/user", String(uid()));
-  return existsSync(standard) ? standard : join("/tmp", `h2a-mcp-runtime-${uid()}`);
+  return standardExists(standard) ? standard : join("/tmp", `h2a-mcp-runtime-${uid()}`);
 }
 
 export function expectedMode(info: Stats, mode: number, label: string): void {
