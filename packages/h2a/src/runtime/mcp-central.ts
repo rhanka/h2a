@@ -15,6 +15,7 @@ import {
   type Stats
 } from "node:fs";
 import { once } from "node:events";
+import { monitorEventLoopDelay } from "node:perf_hooks";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { realpathSync, statSync } from "node:fs";
 
@@ -532,6 +533,8 @@ function createCentralApp(
   options: { requestStop(): void; idleTimeoutMs: number; sessionLeaseMs: number; runExecutor?: H2aRunExecutor }
 ): { app: Hono; close(): Promise<void> } {
   const app = new Hono();
+  const lag = monitorEventLoopDelay({ resolution: 20 });
+  lag.enable();
   app.use(new URL(endpoint).pathname, bodyLimit({ maxSize: 4 * 1024 * 1024 }));
   type Attachment = { transport: StreamableHTTPTransport; handle: CentralAttachmentHandle; touched: number; closing?: Promise<void> };
   const sessions = new Map<string, Attachment>();
@@ -566,7 +569,9 @@ function createCentralApp(
     await next();
   });
   app.get(CENTRAL_PING_PATH, context => context.json({ generation }));
-  app.get("/_h2a-central/status", context => context.json({ generation, root, pid: process.pid, attachments: sessions.size, protocol: 2 }));
+  app.get("/_h2a-central/status", context => context.json({ generation, root, pid: process.pid, attachments: sessions.size, protocol: 2,
+    eventLoopLagMs: { p99: lag.percentile(99) / 1e6, max: lag.max / 1e6 }
+  }));
   app.post("/_h2a-central/stop", context => {
     options.requestStop();
     return context.json({ stopped: true, generation });
@@ -629,6 +634,7 @@ function createCentralApp(
   return { app, async close() {
     closing = true;
     clearInterval(sweep);
+    lag.disable();
     await Promise.all([...sessions.entries()].map(([id, attachment]) => closeAttachment(id, attachment)));
   } };
 }
