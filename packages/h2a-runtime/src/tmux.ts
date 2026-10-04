@@ -1927,13 +1927,13 @@ export type StructuredH2aWindow = {
   pid: number;
 };
 
-type StructuredReadinessChallenge = {
+export type StructuredReadinessChallenge = {
   directory: string;
   file: string;
   nonce: string;
 };
 
-function createStructuredReadinessChallenge(): StructuredReadinessChallenge {
+export function createStructuredReadinessChallenge(): StructuredReadinessChallenge {
   const directory = mkdtempSync(join(tmpdir(), "h2a-mcp-ready-"));
   return {
     directory,
@@ -1942,7 +1942,7 @@ function createStructuredReadinessChallenge(): StructuredReadinessChallenge {
   };
 }
 
-function cleanupStructuredReadinessChallenge(
+export function cleanupStructuredReadinessChallenge(
   challenge: StructuredReadinessChallenge,
 ): void {
   try {
@@ -1957,9 +1957,10 @@ type ReadinessProbe =
   | { state: "invalid" }
   | { state: "ready"; pid: number };
 
-function probeStructuredReadiness(
+export function probeStructuredReadiness(
   challenge: StructuredReadinessChallenge,
   expectedPanePid: number,
+  matchesPid: (pid: number) => boolean = (pid) => pid === expectedPanePid,
 ): ReadinessProbe {
   let raw: string;
   try {
@@ -1980,7 +1981,7 @@ function probeStructuredReadiness(
       ack.version !== 1 ||
       ack.nonce !== challenge.nonce ||
       !Number.isInteger(ack.pid) ||
-      ack.pid !== expectedPanePid ||
+      !matchesPid(ack.pid as number) ||
       typeof ack.sessionId !== "string" ||
       ack.sessionId.length === 0
     ) {
