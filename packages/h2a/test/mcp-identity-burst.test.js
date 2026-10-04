@@ -9,7 +9,8 @@
  *
  * The holder cohort holds the registry lock LIVE, so main blocks before ANY
  * handshake (RED: initialize never returns) while the candidate answers every
- * initialize <2s and every identity resolves after the lock is released (GREEN).
+ * initialize before the identity deadline and every identity resolves after
+ * release, driving the documented on-demand retry if an attempt expired.
  *
  * `H2A_MCP_TEST_N` sets the cohort size (default 36). A start barrier launches all
  * processes on ONE shared private copy of the mandatory seed.
@@ -26,11 +27,13 @@ import {
   callRpc,
   H2A_BIN,
   labRoot,
+  readIdentityStatus,
   spawnMcp,
   startLiveHolder,
   stopChildren,
   waitForIdentity
 } from "./helpers/mcp-fix-lab.js";
+import { resolveCohortAfterRelease } from "./helpers/mcp-cohort-readiness.js";
 
 const SEED = process.env.H2A_MCP_TEST_SEED;
 if (process.env.H2A_MCP_REQUIRE_REAL_SEED === "1" && !SEED) {
@@ -118,6 +121,60 @@ maybe(
   }
 );
 
+maybe(
+  "T4 deadline tail: every connection resolves after release, including an expired attempt",
+  { timeout: 60_000 },
+  async (t) => {
+    const root = labRoot(SEED);
+    const prefix = "t4-deadline-tail-";
+    const handles = [];
+    let holder;
+    const connect = (suffix) => {
+      const h = spawnMcp({
+        root,
+        args: ["--auto-open", "--host", "claude"],
+        env: { CLAUDE_CODE_SESSION_ID: `${prefix}${suffix}`, H2A_IDENTITY_RETRY_MIN_MS: "0" }
+      });
+      handles.push(h);
+      return h;
+    };
+    try {
+      const head = connect("head");
+      await initAll([head], 18_000);
+      assert.equal((await waitForIdentity(head, (s) => s.state !== "identity_pending")).state, "identity_ready");
+      holder = startLiveHolder({ root, lock: "registry" });
+      await holder.ready;
+      const tail = connect("tail");
+      await initAll([tail], 18_000);
+      const pending = await readIdentityStatus(tail);
+      assert.equal(pending.state, "identity_pending");
+      // Release on the observed deadline failure, not on a scheduler-sensitive
+      // sleep. The real binary and its production 20 s budget stay unchanged.
+      const failed = await waitForIdentity(tail, (s) => s.state !== "identity_pending", { timeoutMs: 28_000 });
+      assert.equal(failed.state, "identity_failed");
+      assert.equal(failed.cause, "identity_timeout");
+      assert.equal(failed.retryable, true);
+      assert.equal(failed.attemptId, pending.attemptId);
+      assert.ok(failed.elapsedMs >= IDENTITY_DEADLINE_MS);
+      assert.equal(bindingsWithPrefix(root, prefix).length, 1, "only the head binds while the tail is blocked");
+      await holder.stop();
+      assert.equal((await readIdentityStatus(tail)).attemptId, failed.attemptId, "status reads do not restart an expired attempt");
+      t.diagnostic(`tail expired after ${failed.elapsedMs}ms; bindings after release: ${bindingsWithPrefix(root, prefix).length}/2`);
+      t.diagnostic(tail.stderr.split("\n").filter((line) => line.includes("identity failed")).join("\n"));
+      const finals = await resolveCohortAfterRelease(handles);
+      assert.equal(finals.filter((s) => s.state === "identity_ready").length, 2, "all 2 resolve after release");
+      assert.notEqual(finals[1].attemptId, failed.attemptId, "the tail recovers through a fresh attempt without restart");
+      assert.equal(finals[1].signingAvailable, true, "the recovered identity is activated, not merely bound");
+      assert.equal(bindingsWithPrefix(root, prefix).length, 2, "both conversations bind");
+      assert.equal(new Set(finals.map((s) => s.instance)).size, 2, "distinct identities, no collision");
+      t.diagnostic("after one on-demand retry: 2/2 ready, 2 bindings, 2 distinct identities");
+    } finally {
+      await holder?.stop();
+      await Promise.all(handles.map((h) => stopChildren(h)));
+    }
+  }
+);
+
 // RED on main: its binding-before-keys publish window means a concurrent
 // connector cannot prove possession of the just-created binding and MINTS a
 // duplicate — main produces one binding PER connection (36 for 36). GREEN on the
@@ -162,7 +219,11 @@ maybe(
     const holder = startLiveHolder({ root, lock: "registry" });
     await holder.ready;
     const handles = Array.from({ length: N }, (_, i) =>
-      spawnMcp({ root, args: ["--auto-open", "--host", "claude"], env: { CLAUDE_CODE_SESSION_ID: `${prefix}${i}` } })
+      spawnMcp({
+        root,
+        args: ["--auto-open", "--host", "claude"],
+        env: { CLAUDE_CODE_SESSION_ID: `${prefix}${i}`, H2A_IDENTITY_RETRY_MIN_MS: "0" }
+      })
     );
     try {
       // Every initialize must answer while the lock is HELD. RED on main: it
@@ -180,7 +241,9 @@ maybe(
       assert.equal(bindingsWithPrefix(root, prefix).length, 0, "no binding while contended");
       // Release only AFTER the decoupling proof — no race with the check above.
       await holder.stop();
-      const mine = await waitForBindings(root, prefix, (b) => b.length >= N, { timeoutMs: 40_000 });
+      const finals = await resolveCohortAfterRelease(handles);
+      assert.equal(finals.filter((s) => s.state === "identity_ready").length, N, `all ${N} are activated after release`);
+      const mine = bindingsWithPrefix(root, prefix);
       assert.equal(mine.length, N, `all ${N} resolve after release`);
       assert.equal(new Set(mine.map((b) => b.instance)).size, N, "distinct identities, no collision");
     } finally {
