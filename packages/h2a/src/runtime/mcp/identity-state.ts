@@ -124,6 +124,9 @@ export interface McpIdentityRequest {
   readonly declaredCapabilities?: readonly string[];
   /** Provider env captured from the launching session (never re-derived in child). */
   readonly providerEnv?: Readonly<Record<string, string>>;
+  /** A live shim reconnect must prove its existing binding, never mint another. */
+  readonly reclaimOnly?: boolean;
+  readonly expectedInstance?: string;
 }
 
 /** Result of a caller-supplied activation attempt (session + ACK + signer). */
