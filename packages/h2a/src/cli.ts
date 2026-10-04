@@ -77,6 +77,9 @@ import { runHarnessCli, HARNESS_SKILLS } from "./vendor/harness/index.js";
 import { buildLaunchIndex } from "./runtime/local-files/launch-index.js";
 import { renderCommandMap } from "./cli-command-map.js";
 import { HostConfigConflict, writeHostMcpEntry } from "./hosts/config-writer.js";
+import { executeH2aRunWithAsyncSpawn, type H2aRunExecutor } from "./runtime/mcp/agent-launch.js";
+import { captureCentralAttachment } from "./runtime/mcp-central-context.js";
+import { ensureCentralForShim } from "./runtime/mcp-central-start.js";
 import { resolveHostConfigRoot } from "./runtime/host-config-root.js";
 
 import {
@@ -1950,6 +1953,13 @@ export async function runMcpServe(
     upgradeRuntime?: UpgradeRuntime;
     /** Graceful-shutdown signal; bin.ts wires SIGTERM/SIGINT/SIGHUP to it. */
     signal?: AbortSignal;
+    /** Internal central attachment adapter. */
+    sharedStore?: ReturnType<typeof createLocalStore>;
+    onServer?: RunMcpStdioOptions["onServer"];
+    reclaimOnly?: boolean;
+    expectedInstance?: string;
+    centralAttachment?: boolean;
+    runExecutor?: H2aRunExecutor;
   } = {
     stdin: process.stdin,
     stdout: process.stdout,
@@ -1969,9 +1979,13 @@ export async function runMcpServe(
   // no lock wait, no ~17 MB registry parse on this event loop (the #249
   // "move-don't-shrink" trap is avoided by not resolving synchronously at all).
   // `--auto-open` absent → no identity (the explicit mode, unchanged).
-  const identityRequest =
-    flags["auto-open"] !== undefined ? buildMcpIdentityRequest(flags, cwd) : undefined;
   const readinessEnv = io.env ?? process.env;
+  const identityRequest = flags["auto-open"] !== undefined ? {
+    ...buildMcpIdentityRequest(flags, cwd),
+    providerEnv: Object.fromEntries(Object.entries(readinessEnv).filter((entry): entry is [string, string] => entry[1] !== undefined)),
+    ...(io.reclaimOnly ? { reclaimOnly: true } : {}),
+    ...(io.expectedInstance ? { expectedInstance: io.expectedInstance } : {})
+  } : undefined;
   const readyFile = readinessEnv[H2A_MCP_READY_FILE_ENV];
   const readyNonce = readinessEnv[H2A_MCP_READY_NONCE_ENV];
   let readiness: { file: string; nonce: string } | undefined;
@@ -2000,7 +2014,7 @@ export async function runMcpServe(
   const wantAutoUpgrade = flags["auto-upgrade"] !== undefined;
   const wantCheckOnly = flags["upgrade-check"] !== undefined;
   if (
-    (wantAutoUpgrade || wantCheckOnly) &&
+    (wantAutoUpgrade || wantCheckOnly) && !io.centralAttachment &&
     process.env[H2A_REEXEC_GUARD_ENV] === undefined
   ) {
     try {
@@ -2139,7 +2153,7 @@ export async function runMcpServe(
       const log = (line: string) => io.stderr.write(`${line}\n`);
       const driver =
         wakeKind === "auto"
-          ? chainDriver(nativePtyBackchannelDriver(log), localTmuxDriver({ log }))
+          ? chainDriver(nativePtyBackchannelDriver(log, readinessEnv), localTmuxDriver({ log }))
           : buildDriveDriver(
               nativeSessionId !== undefined && wakeKind === "local-tmux"
                 ? "native"
@@ -2159,8 +2173,8 @@ export async function runMcpServe(
   };
 
   try {
-    const backend = messageBackend(flags.backend ?? process.env.H2A_MESSAGE_BACKEND);
-    const modulePath = process.env.H2A_CLUSTER_MESH_MODULE;
+    const backend = messageBackend(flags.backend ?? readinessEnv.H2A_MESSAGE_BACKEND);
+    const modulePath = readinessEnv.H2A_CLUSTER_MESH_MODULE;
     if (backend === "cluster-mesh") {
       if (!identityRequest) throw new Error("cluster-mesh requires --auto-open and a local signing key");
       if (!modulePath || !isAbsolute(modulePath)) throw new Error("cluster-mesh requires an absolute H2A_CLUSTER_MESH_MODULE");
@@ -2176,7 +2190,13 @@ export async function runMcpServe(
     await runMcpStdio({
       root,
       messageBackend: backend,
-      workspaceRoot: process.cwd(),
+      workspaceRoot: cwd(),
+      sessionEnv: readinessEnv,
+      ...(io.sharedStore ? { store: io.sharedStore } : {}),
+      ...(io.onServer ? { onServer: io.onServer } : {}),
+      ...(io.runExecutor ? { runExecutor: io.runExecutor } : io.centralAttachment ? {
+        runExecutor: request => executeH2aRunWithAsyncSpawn(request, spawn, undefined, readinessEnv)
+      } : {}),
       stdin: io.stdin as never,
       stdout: io.stdout as never,
       stderr: io.stderr as never,
@@ -2213,7 +2233,8 @@ export async function runCentralMcpServe(
   try {
     const started = await startCentralMcpServer({
       root,
-      env: io.env ?? process.env
+      env: io.env ?? process.env,
+      automatic: flags["auto-start"] === "true"
     });
     if (started.kind === "reused") {
       io.stderr.write(
@@ -2224,14 +2245,8 @@ export async function runCentralMcpServe(
     io.stderr.write(
       `h2a mcp-central-serve: listening on ${started.endpoint} (generation ${started.generation})\n`
     );
-    if (!io.signal) {
-      await new Promise<void>(() => {
-        // The bin entry always supplies a signal. Keeping this pending preserves
-        // the server for direct programmatic invocation too.
-      });
-    } else if (!io.signal.aborted) {
-      await once(io.signal, "abort");
-    }
+    if (!io.signal) await started.closed;
+    else if (!io.signal.aborted) await Promise.race([once(io.signal, "abort"), started.closed]);
     await started.stop();
     return 0;
   } catch (error) {
@@ -2251,6 +2266,8 @@ export async function runCentralMcpConnect(
     stdin: NodeJS.ReadableStream;
     stdout: NodeJS.WritableStream;
     stderr: NodeJS.WritableStream;
+    cwd?: () => string;
+    env?: NodeJS.ProcessEnv;
     signal?: AbortSignal;
   } = {
     stdin: process.stdin,
@@ -2271,6 +2288,10 @@ export async function runCentralMcpConnect(
       endpoint: flags.endpoint,
       stdin: io.stdin as never,
       stdout: io.stdout as never,
+      workspaceRoot: io.cwd?.() ?? process.cwd(),
+      ...(flags.host === "claude" ? { attachment: captureCentralAttachment(
+        resolveRoot(flags, io.cwd ?? (() => process.cwd())), io.cwd?.() ?? process.cwd(), flags, io.env ?? process.env
+      ), ensure: async () => { await ensureCentralForShim(); } } : {}),
       ...(flags["runtime-base"] ? { runtimeBase: flags["runtime-base"] } : {}),
       ...(io.signal ? { signal: io.signal } : {})
     });
@@ -3790,7 +3811,7 @@ function nativeTerminalOpPath(): string | undefined {
   return existsSync(operation) ? operation : undefined;
 }
 
-function nativePtyBackchannelDriver(log: (line: string) => void): H2ADriver {
+function nativePtyBackchannelDriver(log: (line: string) => void, env: NodeJS.ProcessEnv = process.env): H2ADriver {
   return nativeBackchannelDriver({
     log,
     send(request) {
@@ -3809,7 +3830,7 @@ function nativePtyBackchannelDriver(log: (line: string) => void): H2ADriver {
           "--b64",
           Buffer.from(request.instructionLine, "utf8").toString("base64"),
         ],
-        { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
+        { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], env },
       );
       let outcome: string | undefined;
       if (result.status === 0) {
