@@ -15,6 +15,8 @@ import {
   NATIVE_TERMINAL_INTERACTIVE_READ_TIMEOUT_MS,
 } from "./protocol.js";
 import { runAttach, type NativeTerminalAttachRuntime } from "./op.js";
+import { TerminalModeTracker } from "./terminal-modes.js";
+import { NATIVE_TERMINAL_RESET_MARKER } from "./reset-relay.js";
 
 class FakeInput extends EventEmitter {
   readonly isTTY = false;
@@ -77,6 +79,30 @@ function replay(seq: number, data: string): NativeTerminalReplay {
 }
 
 describe("native terminal attach recovery", () => {
+  it("should consume wrapper reset requests even when attached to an older verbatim host", async () => {
+    const stdout = new FakeOutput();
+    let now = 0;
+    let seq = 0;
+    const chunks = ["\x1b[?1004h", NATIVE_TERMINAL_RESET_MARKER.slice(0, 5),
+      NATIVE_TERMINAL_RESET_MARKER.slice(5) + "prompt"];
+    const lease = { role: "controller", id: "h2a-alpha", generation: "g", incarnation: "i", controllerId: "test", epoch: 1 } as const;
+    const client: AttachClient = {
+      async acquireController() { return lease; },
+      async releaseController() { return { controlled: false, controllerEpoch: 1 }; },
+      async readOutput() { const data = chunks[seq++] ?? ""; return replay(seq, data); },
+      async state() { return now >= 1000 ? exited() : running(); },
+      async write() {}, async resize() {}, close() {},
+    };
+    await runAttach("h2a-alpha", {
+      connect: async () => client,
+      stdin: new FakeInput() as unknown as NodeJS.ReadStream,
+      stdout: stdout as unknown as NodeJS.WriteStream,
+      now: () => now,
+      delay: async (ms) => { now += ms; },
+      onResize() {}, offResize() {},
+    });
+    expect(stdout.chunks.join("")).toBe("\x1b[?1004h\x1b[?1004lprompt");
+  });
   it("paces sustained output instead of spinning local read-output RPCs", async () => {
     const stdin = new FakeInput();
     const stdout = new FakeOutput();
@@ -184,7 +210,7 @@ describe("native terminal attach recovery", () => {
             reads.push({ connection, afterSeq, timeoutMs });
             if (connection === 1 && readCount === 1) {
               queueMicrotask(() => stdin.emit("data", Buffer.from("uncertain-input")));
-              return replay(1, "first-output");
+              return replay(1, "\x1b[?1004h\x1b[>1ufirst-output");
             }
             if (connection === 1) throw failure();
             if (readCount === 1) {
@@ -263,6 +289,14 @@ describe("native terminal attach recovery", () => {
       expect(stdout.chunks.join("")).toMatch(/reconnecting/i);
       expect(stdout.chunks.join("")).toMatch(/reconnected/i);
       expect(stdout.chunks.join("")).toMatch(/input delivery became uncertain/i);
+      const reset = "\x1b[<1u\x1b[?1004l";
+      const output = stdout.chunks.join("");
+      expect(output.split(reset)).toHaveLength(3); // transport loss + final exit
+      expect(output).toContain("reconnected\r\n\x1b[>1u\x1b[?1004h");
+      expect(output.endsWith(reset)).toBe(true);
+      const terminal = new TerminalModeTracker();
+      terminal.feed(output);
+      expect(terminal.resetSequence()).toBe("");
       // At idle, the adaptive delay keeps this scenario to a handful of RPCs,
       // rather than the old read+state every 40ms (~50 RPC/s).
       expect(reads.filter((read) => read.connection === 2).length).toBeLessThan(8);
