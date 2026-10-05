@@ -29,7 +29,7 @@
  *                                     (detach: Ctrl-\\ ; exits when session exits)
  *   host-stop                         SIGTERM the host process (sessions stop)
  */
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, writeSync } from "node:fs";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -49,6 +49,9 @@ import { defaultNativeTerminalSocketPath, knownNativeTerminalSocketPaths,
   inspectPrivateNativeTerminalSocket, sameNativeTerminalSocket } from "./socket-path.js";
 import { collectNativeInventory, resolveNativeOwner, type NativeInventory } from "./fleet.js";
 import { renderTerminalScreen } from "./screen.js";
+import { TerminalModeTracker } from "./terminal-modes.js";
+import { publishAttachReset } from "./attach-recovery.js";
+import { TerminalResetRelay } from "./reset-relay.js";
 
 const DETACH_BYTE = 0x1c; // Ctrl-\
 
@@ -276,6 +279,9 @@ export type NativeTerminalAttachRuntime = {
   delay(ms: number): Promise<void>;
   onResize(listener: () => void): void;
   offResize(listener: () => void): void;
+  onTerminate?(listener: () => void): void;
+  offTerminate?(listener: () => void): void;
+  saveTerminalReset?(sequence: string): void;
 };
 
 const ATTACH_STATE_POLL_MS = 1_000;
@@ -287,6 +293,8 @@ const ATTACH_RECONNECT_MAX_MS = 2_000;
 const ATTACH_PENDING_INPUT_MAX_BYTES = 64 * 1024;
 
 function defaultAttachRuntime(socketPath: string): NativeTerminalAttachRuntime {
+  const signals = { SIGTERM: 15, SIGHUP: 1, SIGINT: 2, SIGQUIT: 3 } as const;
+  const handlers = new Map<NodeJS.Signals, () => void>();
   return {
     // runAttach owns and closes every reconnecting client. Keeping these
     // long-lived clients in the one-shot op registry would retain each closed
@@ -298,6 +306,23 @@ function defaultAttachRuntime(socketPath: string): NativeTerminalAttachRuntime {
     delay,
     onResize: (listener) => process.on("SIGWINCH", listener),
     offResize: (listener) => process.removeListener("SIGWINCH", listener),
+    saveTerminalReset: publishAttachReset,
+    onTerminate: (listener) => {
+      for (const [signal, number] of Object.entries(signals)) {
+        const handler = () => { listener(); process.exit(128 + number); };
+        handlers.set(signal as NodeJS.Signals, handler);
+        process.on(signal, handler);
+      }
+      process.on("exit", listener);
+      // Observe the fatal path without suppressing Node's error/exit behavior.
+      process.on("uncaughtExceptionMonitor", listener);
+    },
+    offTerminate: (listener) => {
+      for (const [signal, handler] of handlers) process.removeListener(signal, handler);
+      handlers.clear();
+      process.removeListener("exit", listener);
+      process.removeListener("uncaughtExceptionMonitor", listener);
+    },
   };
 }
 
@@ -328,9 +353,42 @@ export async function runAttach(
 ): Promise<number> {
   const stdin = runtime.stdin;
   const stdout = runtime.stdout;
+  let modes = new TerminalModeTracker();
+  let modesSuspended = false;
+  let savedReset = "";
+  const saveReset = (): void => {
+    const reset = modesSuspended ? "" : modes.resetSequence();
+    if (reset === savedReset) return;
+    runtime.saveTerminalReset?.(reset);
+    savedReset = reset;
+  };
+  const relayOutput = (data: string): void => {
+    modes.feed(data);
+    saveReset();
+    stdout.write(data);
+  };
+  // Older protocol-v1 hosts relay the wrapper marker verbatim. New hosts
+  // consume it themselves so detached sessions also return to a clean shell.
+  let resetRelay = new TerminalResetRelay(relayOutput, () => modes.resetSequence());
+  const resetModes = (): void => {
+    if (modesSuspended) return;
+    modesSuspended = true;
+    const reset = modes.resetSequence();
+    if (!reset) { saveReset(); return; }
+    // Signals and fatal exits cannot wait for an asynchronous pipe flush.
+    const fd = (stdout as NodeJS.WriteStream & { fd?: number }).fd;
+    if (typeof fd === "number") writeSync(fd, reset);
+    else stdout.write(reset);
+    saveReset();
+  };
+  const resumeModes = (): void => {
+    if (!modesSuspended) return;
+    modesSuspended = false;
+    saveReset();
+    stdout.write(modes.restoreSequence() + modes.replayPrefix());
+  };
   const isRawCapable = stdin.isTTY === true;
-  if (isRawCapable) stdin.setRawMode(true);
-  stdin.resume();
+  const wasRaw = stdin.isRaw === true;
   let detached = false;
   let terminalEnded = false;
   let exitCode = 0;
@@ -346,6 +404,15 @@ export async function runAttach(
     active = undefined;
     current?.client.close();
   };
+  const terminate = (): void => {
+    detached = true;
+    try { resetRelay.flush(); resetModes(); } finally {
+      if (isRawCapable) stdin.setRawMode(wasRaw);
+      stdin.pause();
+      closeActive();
+    }
+  };
+  runtime.onTerminate?.(terminate);
 
   const markTransportFailure = (
     connection: ActiveAttachConnection,
@@ -416,6 +483,8 @@ export async function runAttach(
     pumpInput();
   };
   stdin.on("data", onInput);
+  const onEnd = (): void => { detached = true; closeActive(); };
+  stdin.on("end", onEnd);
   const resize = (): void => {
     const current = active;
     if (current && stdout.columns && stdout.rows) {
@@ -453,6 +522,8 @@ export async function runAttach(
   // Paint the existing scrollback once, then follow the stream.
   let seq = 0;
   try {
+    if (isRawCapable) stdin.setRawMode(true);
+    stdin.resume();
     const initial = await connectAndAcquire();
     if (initial.status === "exited") return initial.exit?.exitCode ?? 0;
     let idlePollMs = ATTACH_IDLE_POLL_MIN_MS;
@@ -470,6 +541,7 @@ export async function runAttach(
           );
           recoveryAnnounced = true;
         }
+        resetModes();
         let reconnectDelayMs = ATTACH_RECONNECT_MIN_MS;
         for (;;) {
           if (detached) break;
@@ -481,15 +553,13 @@ export async function runAttach(
               break;
             }
             stdout.write("\r\n[h2a] native terminal reconnected\r\n");
+            resumeModes();
             recoveryAnnounced = false;
             idlePollMs = ATTACH_IDLE_POLL_MIN_MS;
             nextStatePollAt = runtime.now() + ATTACH_STATE_POLL_MS;
             break;
           } catch (error) {
             if (isDefinitiveNativeTerminalAbsence(error)) {
-              stdout.write(
-                "\r\n[h2a] native session is no longer available; attach stopped\r\n",
-              );
               exitCode = 1;
               terminalEnded = true;
               break;
@@ -512,10 +582,21 @@ export async function runAttach(
           seq,
           NATIVE_TERMINAL_INTERACTIVE_READ_TIMEOUT_MS,
         );
+        if (detached) break;
+        if (replay.gap) {
+          resetModes();
+          modes = new TerminalModeTracker();
+          resetRelay = new TerminalResetRelay(relayOutput, () => modes.resetSequence());
+          modesSuspended = false;
+          if (replay.terminalModePrefix) {
+            resetRelay.feed(replay.terminalModePrefix);
+          }
+        }
         for (const chunk of replay.chunks) {
-          stdout.write(chunk.data);
+          resetRelay.feed(chunk.data);
           seq = chunk.seq;
         }
+        seq = replay.latestSeq;
         if (replay.chunks.length === 0) {
           await runtime.delay(idlePollMs);
           idlePollMs = Math.min(ATTACH_IDLE_POLL_MAX_MS, idlePollMs * 2);
@@ -547,20 +628,25 @@ export async function runAttach(
       }
     }
   } finally {
-    runtime.offResize(resize);
-    stdin.removeListener("data", onInput);
-    if (isRawCapable) stdin.setRawMode(false);
-    stdin.pause();
-    if (inputPump !== undefined) await inputPump.catch(() => {});
-    const current = active;
-    active = undefined;
-    if (current !== undefined) {
-      await current.client.releaseController(current.lease).catch(() => {});
-      current.client.close();
+    try {
+      resetRelay.flush();
+      if (detached) stdout.write("\r\n[h2a] detached from native session (session keeps running)\r\n");
+      resetModes();
+    } finally {
+      runtime.offTerminate?.(terminate);
+      runtime.offResize(resize);
+      stdin.removeListener("data", onInput);
+      stdin.removeListener("end", onEnd);
+      if (isRawCapable) stdin.setRawMode(wasRaw);
+      stdin.pause();
+      if (inputPump !== undefined) await inputPump.catch(() => {});
+      const current = active;
+      active = undefined;
+      if (current !== undefined) {
+        await current.client.releaseController(current.lease).catch(() => {});
+        current.client.close();
+      }
     }
-  }
-  if (detached) {
-    stdout.write("\r\n[h2a] detached from native session (session keeps running)\r\n");
   }
   return exitCode;
 }

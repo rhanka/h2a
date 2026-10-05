@@ -1,3 +1,5 @@
+import { TerminalModeTracker } from "./terminal-modes.js";
+
 export type TerminalOutputChunk = Readonly<{
   seq: number;
   data: string;
@@ -12,6 +14,8 @@ export type TerminalReplay = Readonly<{
   chunks: ReadonlyArray<TerminalOutputChunk>;
   gap: TerminalReplayGap | null;
   latestSeq: number;
+  /** State and parser prefix immediately before the retained chunks. */
+  terminalModePrefix?: string;
 }>;
 
 type BufferedChunk = Readonly<{
@@ -35,6 +39,8 @@ export class TerminalReplayBuffer {
   #bytes = 0;
   #wireBytes = 0;
   #latestSeq = 0;
+  readonly #evictedModes = new TerminalModeTracker();
+  readonly #currentModes = new TerminalModeTracker();
 
   constructor(
     maxBytes: number,
@@ -68,6 +74,7 @@ export class TerminalReplayBuffer {
       throw new RangeError("terminal output chunks must not be empty");
     }
     const chunk = Object.freeze({ seq: ++this.#latestSeq, data });
+    this.#currentModes.feed(data);
     const entry = Object.freeze({
       chunk,
       bytes: Buffer.byteLength(data, "utf8"),
@@ -86,6 +93,7 @@ export class TerminalReplayBuffer {
     ) {
       const evicted = this.#chunks[this.#head++];
       if (evicted) {
+        this.#evictedModes.feed(evicted.chunk.data);
         this.#bytes -= evicted.bytes;
         this.#wireBytes -= evicted.wireBytes;
       }
@@ -95,6 +103,10 @@ export class TerminalReplayBuffer {
       this.#head = 0;
     }
     return chunk;
+  }
+
+  resetSequence(): string {
+    return this.#currentModes.resetSequence();
   }
 
   readAfter(afterSeq: number): TerminalReplay {
@@ -111,6 +123,8 @@ export class TerminalReplayBuffer {
       afterSeq < oldestAvailable - 1
         ? Object.freeze({ fromSeq: afterSeq + 1, toSeq: oldestAvailable - 1 })
         : null;
+    const terminalModePrefix = gap === null ? "" :
+      this.#evictedModes.restoreSequence() + this.#evictedModes.replayPrefix();
     return Object.freeze({
       chunks: this.#chunks
         .slice(this.#head)
@@ -118,6 +132,7 @@ export class TerminalReplayBuffer {
         .map(({ chunk }) => chunk),
       gap,
       latestSeq: this.#latestSeq,
+      ...(terminalModePrefix ? { terminalModePrefix } : {}),
     });
   }
 }
