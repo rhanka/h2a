@@ -116,7 +116,7 @@ export async function bridgeCentralMcpStdio(options: CentralMcpStdioBridgeOption
       }
     })().catch(() => { if (!signal.aborted) broken = true; }).finally(() => { if (eventSession === currentSession) eventSession = undefined; });
   };
-  const recover = (): Promise<void> => {
+  const recover = (skipHandshake = false): Promise<void> => {
     recovering ??= (async () => {
       await options.ensure?.();
       marker = readCentralClientMarker(centralMcpMarkerPath(options));
@@ -124,7 +124,7 @@ export async function bridgeCentralMcpStdio(options: CentralMcpStdioBridgeOption
       eventSession = undefined;
       sessionId = undefined;
       if (options.attachment && attached) options.attachment.resume = true;
-      if (initialize) {
+      if (initialize && !skipHandshake) {
         await post(initialize, marker);
         await post({ jsonrpc: "2.0", method: "notifications/initialized" }, marker);
       }
@@ -134,18 +134,22 @@ export async function bridgeCentralMcpStdio(options: CentralMcpStdioBridgeOption
     return recovering;
   };
   const forward = async (message: Rpc) => {
+    const isInit = message.method === "initialize";
     try {
-      if (broken) await recover();
-      if (message.method === "initialize") initialize = message;
-      for (const next of await post(message, marker)) write(next);
+      if (broken) await recover(isInit);
+      const replies = await post(message, marker);
+      if (isInit) initialize = message;
+      for (const next of replies) write(next);
       notifications();
     } catch (error) {
       broken = true;
       if (controller.signal.aborted) return;
       if (replayable(message)) {
         try {
-          await recover();
-          for (const next of await post(message, marker)) write(next);
+          await recover(isInit);
+          const replies = await post(message, marker);
+          if (isInit) initialize = message;
+          for (const next of replies) write(next);
           notifications();
           return;
         } catch { /* surface unavailable; the next call can retry */ }
