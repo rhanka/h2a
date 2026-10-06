@@ -12,7 +12,7 @@ import {
   openSync,
 } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { dirname, isAbsolute, join, resolve } from "node:path";
 
 import { getH2aConfig, resolveConfigPath } from "./config.js";
 
@@ -121,8 +121,13 @@ export async function ensureCentralMcp(
   options: Readonly<{ root?: string }> = {},
 ): Promise<Readonly<{ endpoint: string; generation: string }> | undefined> {
   if (!getH2aConfig().central?.enabled || process.env.H2A_MCP_CENTRAL === "0" || process.env.H2A_MCP_CENTRAL === "false") return undefined;
+  const rawRoot = options.root ?? process.env.H2A_ROOT;
+  if (rawRoot && !isAbsolute(rawRoot)) {
+    // Relative roots derive from cwd; deterministically select stdio per invariant
+    return undefined;
+  }
   const endpoint = configuredCentralEndpoint();
-  const root = resolve(options.root ?? process.env.H2A_ROOT ?? join(homedir(), "h2a-workspace", ".h2a"));
+  const root = rawRoot ? resolve(rawRoot) : join(homedir(), "h2a-workspace", ".h2a");
   const core = await loadCoreCentralMcp();
   const marker = core.readCentralMcpMarker();
   if (marker) {
