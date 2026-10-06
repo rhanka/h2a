@@ -15,6 +15,8 @@ import { captureCentralAttachment } from "../dist/runtime/mcp-central-context.js
 import { centralOperator, centralResidueReport } from "../dist/runtime/mcp-central-operator.js";
 import { runtimeBase } from "../dist/runtime/mcp-central-discovery.js";
 import { identityKeyPaths } from "../dist/runtime/identity/live.js";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 
 const bin = resolve("packages/h2a/dist/bin.js");
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -343,6 +345,35 @@ test("mcp-serve defaults Claude to one ephemeral central without project writes;
     channels.forEach(channel => channel.close());
     await Promise.all(children.map(async child => { if (child.exitCode === null && child.signalCode === null) { child.kill("SIGTERM"); await once(child, "exit"); } }));
     await centralOperator("stop", { runtimeBase: f.runtimeBase });
+    f.cleanup();
+  }
+});
+
+test("full MCP handshake through the shim consumes 202 without emitting invalid null frames", async () => {
+  const f = fixture();
+  let server;
+  let client;
+  let transport;
+  try {
+    server = await startCentralMcpServer({ root: f.root, runtimeBase: f.runtimeBase, env: {}, idleTimeoutMs: 60_000, sessionLeaseMs: 60_000 });
+    const transportErrors = [];
+    transport = new StdioClientTransport({
+      command: process.execPath,
+      args: [bin, "mcp-serve", "--host", "claude", "--runtime-base", f.runtimeBase],
+      env: {
+        ...f.env,
+        CLAUDE_CODE_SESSION_ID: "conv-handshake-real-sdk",
+      }
+    });
+    transport.onerror = error => transportErrors.push(error);
+    client = new Client({ name: "real-sdk-client", version: "1.0.0" }, { capabilities: {} });
+    await client.connect(transport);
+    const tools = await client.listTools();
+    assert.ok(tools.tools.length > 0);
+    assert.deepEqual(transportErrors, [], "real SDK transport must experience zero protocol errors");
+  } finally {
+    await client?.close();
+    await server?.stop();
     f.cleanup();
   }
 });
