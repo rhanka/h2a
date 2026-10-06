@@ -5,7 +5,7 @@ import { closeSync, existsSync, mkdirSync, openSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { centralMcpMarkerPath, readCentralClientMarker, readCentralMcpMarker, type CentralMcpMarker } from "./mcp-central-discovery.js";
+import { centralMcpMarkerPath, readCentralClientMarker, readCentralMcpMarker, type CentralMcpMarker, type CentralMcpPathsOptions } from "./mcp-central-discovery.js";
 import { centralPausePath } from "./mcp-central-operator.js";
 import { canonicalCentralRoot, centralRoutingEnabled, centralSettings } from "./mcp-central-policy.js";
 
@@ -14,19 +14,19 @@ export function centralDaemonEnvironment(env: NodeJS.ProcessEnv = process.env): 
   for (const key of ["PATH", "HOME", "XDG_RUNTIME_DIR", "XDG_CONFIG_HOME", "XDG_CACHE_HOME", "REMOTE_CLI_CONFIG_HOME", "TMPDIR", "LANG", "LC_ALL"]) if (env[key] !== undefined) filtered[key] = env[key];
   return filtered;
 }
-export async function ensureCentralForShim(defaultEnabled = false): Promise<CentralMcpMarker> {
+export async function ensureCentralForShim(defaultEnabled = false, paths: CentralMcpPathsOptions = {}): Promise<CentralMcpMarker> {
   if (!centralRoutingEnabled(process.env, defaultEnabled)) throw new Error("central MCP is disabled; the live shim remains open until its host disconnects");
-  if (existsSync(centralPausePath())) throw new Error("central MCP was stopped by the operator; resume explicitly with mcp-central-serve");
+  if (existsSync(centralPausePath(paths))) throw new Error("central MCP was stopped by the operator; resume explicitly with mcp-central-serve");
   const root = canonicalCentralRoot();
   const healthy = async (): Promise<CentralMcpMarker | undefined> => {
-    const marker = readCentralMcpMarker();
+    const marker = readCentralMcpMarker(paths);
     if (!marker) return undefined;
     if (marker.root !== root || marker.protocol !== 2) throw new Error("central MCP root/protocol is incompatible with this attachment");
     try {
       const response = await centralHttpRequest(new URL("/_h2a-central/ping", marker.endpoint), { signal: AbortSignal.timeout(1500) });
       if (!response.ok) { await response.text(); return undefined; }
       if ((await response.json() as { generation?: string }).generation !== marker.generation) return undefined;
-      return readCentralClientMarker(centralMcpMarkerPath());
+      return readCentralClientMarker(centralMcpMarkerPath(paths));
     } catch { return undefined; } // Foreground election remains authoritative about ambiguity.
   };
   const existing = await healthy();
@@ -38,7 +38,15 @@ export async function ensureCentralForShim(defaultEnabled = false): Promise<Cent
   let failure: Error | undefined;
   try {
     const endpoint = process.env.H2A_MCP_CENTRAL_ENDPOINT ?? centralSettings().endpoint;
-    const child = spawn(process.execPath, ["--max-old-space-size=384", fileURLToPath(new URL("../bin.js", import.meta.url)), "mcp-central-serve", "--root", root, "--auto-start"], {
+    const args = [
+      "--max-old-space-size=384",
+      fileURLToPath(new URL("../bin.js", import.meta.url)),
+      "mcp-central-serve",
+      "--root", root,
+      "--auto-start",
+      ...(paths.runtimeBase ? ["--runtime-base", paths.runtimeBase] : [])
+    ];
+    const child = spawn(process.execPath, args, {
       detached: true, cwd: neutral, stdio: ["ignore", fd, fd], env: { ...centralDaemonEnvironment(), H2A_MCP_CENTRAL: "1", ...(endpoint ? { H2A_MCP_CENTRAL_ENDPOINT: endpoint } : {}) }
     });
     child.once("error", error => { failure = error; });
@@ -47,7 +55,7 @@ export async function ensureCentralForShim(defaultEnabled = false): Promise<Cent
   const deadline = Date.now() + 10_000;
   while (Date.now() < deadline) {
     if (failure) throw failure;
-    if (existsSync(centralPausePath())) throw new Error("central MCP was stopped by the operator");
+    if (existsSync(centralPausePath(paths))) throw new Error("central MCP was stopped by the operator");
     const current = await healthy();
     if (current) return current;
     await new Promise(resolve => setTimeout(resolve, 50));
