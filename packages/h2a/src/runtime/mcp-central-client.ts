@@ -17,14 +17,24 @@ export interface CentralMcpStdioBridgeOptions extends CentralMcpPathsOptions {
   ensure?: () => Promise<void>;
 }
 
+function isRpc(value: unknown): value is Rpc {
+  return typeof value === "object" && value !== null && (value as Rpc).jsonrpc === "2.0";
+}
+
 function messages(body: string, type: string | null): Rpc[] {
   if (!body.trim()) return [];
   if (type?.includes("text/event-stream")) return body.split(/\r?\n\r?\n/).flatMap(event => {
     const data = event.split(/\r?\n/).filter(line => line.startsWith("data:")).map(line => line.slice(5).trimStart()).join("\n");
-    return data ? [JSON.parse(data) as Rpc] : [];
+    if (!data) return [];
+    try {
+      const parsed = JSON.parse(data);
+      return (Array.isArray(parsed) ? parsed : [parsed]).filter(isRpc);
+    } catch { return []; }
   });
-  const parsed = JSON.parse(body) as Rpc | Rpc[];
-  return Array.isArray(parsed) ? parsed : [parsed];
+  try {
+    const parsed = JSON.parse(body);
+    return (Array.isArray(parsed) ? parsed : [parsed]).filter(isRpc);
+  } catch { return []; }
 }
 
 // A lost reply to a mutation has an unknown outcome. Never replay it.
@@ -50,6 +60,7 @@ export async function bridgeCentralMcpStdio(options: CentralMcpStdioBridgeOption
   let writer = Promise.resolve();
   const controller = new AbortController();
   const write = (message: Rpc) => {
+    if (!isRpc(message)) return;
     const line = JSON.stringify(message) + "\n";
     queuedBytes += Buffer.byteLength(line);
     if (queuedBytes > 8 * 1024 * 1024) { controller.abort(); return; }
@@ -73,6 +84,10 @@ export async function bridgeCentralMcpStdio(options: CentralMcpStdioBridgeOption
       sessionId = response.headers.get("mcp-session-id") ?? sessionId;
       if (sessionId) attached = true;
       if (options.attachment && response.headers.get("x-h2a-instance")) options.attachment.expectedInstance = response.headers.get("x-h2a-instance")!;
+    }
+    if (response.status === 202 || response.status === 204) {
+      await response.text();
+      return [];
     }
     return messages(await response.text(), response.headers.get("content-type"));
   };
