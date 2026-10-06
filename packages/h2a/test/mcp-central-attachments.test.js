@@ -12,7 +12,7 @@ import { runCli as runTrackCli } from "@sentropic/track";
 import { startCentralMcpServer } from "../dist/runtime/mcp-central.js";
 import { bridgeCentralMcpStdio } from "../dist/runtime/mcp-central-client.js";
 import { captureCentralAttachment } from "../dist/runtime/mcp-central-context.js";
-import { centralOperator, centralResidueReport } from "../dist/runtime/mcp-central-operator.js";
+import { centralOperator, centralResidueReport, centralPausePath } from "../dist/runtime/mcp-central-operator.js";
 import { runtimeBase } from "../dist/runtime/mcp-central-discovery.js";
 import { identityKeyPaths } from "../dist/runtime/identity/live.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -500,6 +500,20 @@ test("relative H2A_ROOT deterministically selects stdio and never derives centra
     assert.equal(shouldUseCentralMcp(flags, relativeEnv, true), false, "repo-b with relative H2A_ROOT must select stdio");
   } finally {
     process.chdir(origCwd);
+    f.cleanup();
+  }
+});
+
+test("central stop when daemon is already absent writes the pause inhibition", async () => {
+  const f = fixture();
+  try {
+    const pausePath = centralPausePath({ runtimeBase: f.runtimeBase });
+    assert.equal(existsSync(pausePath), false, "initially not paused");
+    const stopped = await centralOperator("stop", { runtimeBase: f.runtimeBase });
+    assert.equal(stopped.running, false);
+    assert.equal(stopped.paused, true, "stop must report paused=true even if daemon was absent");
+    assert.equal(existsSync(pausePath), true, "inhibition file must be written even when daemon was absent");
+  } finally {
     f.cleanup();
   }
 });
