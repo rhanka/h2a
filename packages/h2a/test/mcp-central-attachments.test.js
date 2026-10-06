@@ -377,3 +377,64 @@ test("full MCP handshake through the shim consumes 202 without emitting invalid 
     f.cleanup();
   }
 });
+
+test("a network cutoff during initialize recovers cleanly and returns the handshake result without HTTP 400", async () => {
+  const f = fixture();
+  let channel;
+  let initializeAttempts = 0;
+  const initializedSessions = new Set();
+  const server = createHttpServer(async (request, response) => {
+    if (request.method === "GET") {
+      response.writeHead(200, { "content-type": "text/event-stream" });
+      response.write(": connected\n\n");
+      return;
+    }
+    if (request.method === "DELETE") { response.writeHead(204).end(); return; }
+    let body = "";
+    for await (const chunk of request) body += chunk;
+    const rpc = JSON.parse(body);
+    if (rpc.method === "initialize") {
+      initializeAttempts++;
+      if (initializeAttempts === 1) {
+        request.socket.destroy();
+        return;
+      }
+      const existingSession = request.headers["mcp-session-id"];
+      if (existingSession && initializedSessions.has(existingSession)) {
+        response.writeHead(400, { "content-type": "application/json" });
+        response.end(JSON.stringify({ jsonrpc: "2.0", id: rpc.id, error: { code: -32600, message: "Server already initialized" } }));
+        return;
+      }
+      const newSession = `session-${initializeAttempts}`;
+      initializedSessions.add(newSession);
+      response.writeHead(200, { "content-type": "application/json", "mcp-session-id": newSession });
+      response.end(JSON.stringify({ jsonrpc: "2.0", id: rpc.id, result: { protocolVersion: "2024-11-05", capabilities: {}, serverInfo: { name: "test-server", version: "1" } } }));
+      return;
+    }
+    if (rpc.method === "notifications/initialized") {
+      response.writeHead(202, { "content-type": "application/json" });
+      response.end("null");
+      return;
+    }
+    response.writeHead(200, { "content-type": "application/json" });
+    response.end(JSON.stringify({ jsonrpc: "2.0", id: rpc.id, result: { tools: [] } }));
+  }).listen(0, "127.0.0.1");
+
+  try {
+    await once(server, "listening");
+    const url = `http://127.0.0.1:${server.address().port}/mcp`;
+    const directory = join(f.runtimeBase, "h2a-mcp-central");
+    mkdirSync(directory, { mode: 0o700 });
+    writeFileSync(join(directory, "marker.json"), JSON.stringify({ endpoint: url, generation: "fixture", pid: process.pid, startedAt: new Date().toISOString(), token: "fixture-secret", root: f.root, protocol: 2 }), { mode: 0o600 });
+    channel = connect(f, url, join(f.dir, "repo-a"), "cutoff-initialize-test");
+    const initResponse = await channel.call("initialize");
+    assert.equal(initResponse.error, undefined, "initialize must not return error");
+    assert.ok(initResponse.result, "initialize must return valid result");
+    assert.equal(initResponse.result.serverInfo.name, "test-server");
+  } finally {
+    await channel?.close();
+    server.closeAllConnections();
+    await new Promise(resolve => server.close(resolve));
+    f.cleanup();
+  }
+});
