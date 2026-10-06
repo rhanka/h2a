@@ -1,7 +1,7 @@
 /** Minimal read-only routing policy; shared by initial launch and live recovery. */
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { join, resolve } from "node:path";
+import { isAbsolute, join, resolve } from "node:path";
 import { readCentralMcpMarker } from "./mcp-central-discovery.js";
 
 export function centralConfigPath(env: NodeJS.ProcessEnv = process.env): string {
@@ -17,7 +17,9 @@ export function centralSettings(env: NodeJS.ProcessEnv = process.env): { enabled
   } catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return {}; throw new Error(`cannot read central configuration ${path}: ${(error as Error).message}`); }
 }
 export function canonicalCentralRoot(env: NodeJS.ProcessEnv = process.env): string {
-  return resolve(env.H2A_ROOT || join(env.HOME ?? homedir(), "h2a-workspace", ".h2a"));
+  const root = env.H2A_ROOT;
+  if (root && isAbsolute(root)) return resolve(root);
+  return join(env.HOME ?? homedir(), "h2a-workspace", ".h2a");
 }
 export function centralRoutingEnabled(env: NodeJS.ProcessEnv = process.env, defaultEnabled = false): boolean {
   const setting = centralSettings(env).enabled;
@@ -27,6 +29,9 @@ export function centralRoutingEnabled(env: NodeJS.ProcessEnv = process.env, defa
 export function shouldUseCentralMcp(flags: Record<string, string>, env: NodeJS.ProcessEnv = process.env, defaultEnabled = false): boolean {
   if (process.platform !== "linux" || flags.host !== "claude" || flags.instance || flags.backend === "cluster-mesh" || env.H2A_MESSAGE_BACKEND === "cluster-mesh") return false;
   if (!env.CLAUDE_CODE_SESSION_ID?.trim() || !centralRoutingEnabled(env, defaultEnabled)) return false;
+  // Central root must never be derived from cwd; relative roots deterministically select stdio
+  if (env.H2A_ROOT && !isAbsolute(env.H2A_ROOT)) return false;
+  if (flags.root && !isAbsolute(flags.root)) return false;
   const root = canonicalCentralRoot(env);
   if (flags.root && resolve(flags.root) !== root) return false;
   const marker = readCentralMcpMarker();
