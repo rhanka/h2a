@@ -17,17 +17,19 @@ try {
     process.exitCode = await runCentralShim(flags, canonicalCentralRoot());
   } else if (argv[0] === "mcp-central-connect") {
     // Explicit v1 connectors remain readable; new Claude connectors carry the
-    // same causal context as mcp-serve. Unqualified named hosts use stdio.
-    if (flags.host && !shouldUseCentralMcp(flags, process.env, true)) {
+    // same causal context as mcp-serve. Unqualified named hosts and opt-outs use stdio.
+    const isClaude = flags.host === "claude" || (!flags.host && Boolean(process.env.CLAUDE_CODE_SESSION_ID?.trim()));
+    const effectiveFlags = { ...flags, ...(isClaude && !flags.host ? { host: "claude" } : {}) };
+    if (!shouldUseCentralMcp(effectiveFlags, process.env, true)) {
       process.argv[2] = "mcp-serve";
       await import("./bin-heavy.js");
     } else {
-      process.exitCode = await runCentralShim(flags, canonicalCentralRoot());
+      process.exitCode = await runCentralShim(effectiveFlags, canonicalCentralRoot());
     }
   } else if (argv[0] === "central" && ["status", "stop", "residues"].includes(argv[1])) {
     const { centralOperator, centralResidueReport } = await import("./runtime/mcp-central-operator.js");
     const result = argv[1] === "residues"
-      ? centralResidueReport(flags.workspace ?? process.cwd(), flags["agy-config"])
+      ? centralResidueReport(flags.workspace ?? process.cwd(), flags["agy-config"], { repair: flags.repair === "true", allowTracked: flags["allow-tracked"] === "true" })
       : await centralOperator(argv[1] as "status" | "stop", flags["runtime-base"] ? { runtimeBase: flags["runtime-base"] } : {});
     process.stdout.write(JSON.stringify(result, null, 2) + "\n");
   } else {
