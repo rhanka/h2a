@@ -13,7 +13,7 @@ export async function runCentralShim(flags: Record<string, string>, root: string
   for (const signal of signals) process.once(signal, onSignal);
   try {
     const paths = flags["runtime-base"] ? { runtimeBase: flags["runtime-base"] } : {};
-    const marker = flags.endpoint ? readCentralClientMarker(centralMcpMarkerPath(paths)) : await ensureCentralForShim(true);
+    const marker = flags.endpoint ? readCentralClientMarker(centralMcpMarkerPath(paths)) : await ensureCentralForShim(true, paths);
     const qualified = flags.host === "claude" && Boolean(process.env.CLAUDE_CODE_SESSION_ID?.trim());
     await bridgeCentralMcpStdio({
       endpoint: flags.endpoint ?? marker.endpoint,
@@ -21,7 +21,7 @@ export async function runCentralShim(flags: Record<string, string>, root: string
       workspaceRoot: process.cwd(),
       ...(qualified ? {
         attachment: captureCentralAttachment(root, process.cwd(), flags, process.env),
-        ensure: async () => { await ensureCentralForShim(true); }
+        ensure: async () => { await ensureCentralForShim(true, paths); }
       } : {})
     });
     return 0;

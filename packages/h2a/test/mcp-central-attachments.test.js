@@ -18,6 +18,7 @@ import { identityKeyPaths } from "../dist/runtime/identity/live.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { shouldUseCentralMcp, canonicalCentralRoot } from "../dist/runtime/mcp-central-policy.js";
+import { ensureCentralForShim } from "../dist/runtime/mcp-central-start.js";
 
 const bin = resolve("packages/h2a/dist/bin.js");
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -517,3 +518,42 @@ test("central stop when daemon is already absent writes the pause inhibition", a
     f.cleanup();
   }
 });
+
+test("runtime-base namespace is strictly isolated across discovery, auto-start, policy and operator", async () => {
+  const f = fixture();
+  const nsA = join(f.dir, "ns-a");
+  const nsB = join(f.dir, "ns-b");
+  const defaultNs = join(f.dir, "default-ns");
+  mkdirSync(nsA, { recursive: true, mode: 0o700 });
+  mkdirSync(nsB, { recursive: true, mode: 0o700 });
+  mkdirSync(defaultNs, { recursive: true, mode: 0o700 });
+
+  // Ensure default environment points to defaultNs, NOT nsA or nsB
+  const isolatedEnv = { ...f.env, XDG_RUNTIME_DIR: defaultNs, CLAUDE_CODE_SESSION_ID: "session-ns" };
+  try {
+    // 1. Policy checks marker in the specific namespace
+    assert.equal(shouldUseCentralMcp({ host: "claude", "runtime-base": nsA }, isolatedEnv, true), true);
+
+    // 2. ensureCentralForShim with nsA starts central exclusively in nsA
+    const markerA = await ensureCentralForShim(true, { runtimeBase: nsA });
+    assert.ok(markerA.endpoint);
+    assert.equal(existsSync(join(nsA, "h2a-mcp-central", "marker.json")), true, "marker must exist in nsA");
+    assert.equal(existsSync(join(nsB, "h2a-mcp-central", "marker.json")), false, "nsB must remain empty");
+    assert.equal(existsSync(join(defaultNs, "h2a-mcp-central", "marker.json")), false, "default namespace must remain empty");
+
+    // 3. Operator status distinguishes the two namespaces
+    const statusA = await centralOperator("status", { runtimeBase: nsA });
+    const statusB = await centralOperator("status", { runtimeBase: nsB });
+    assert.equal(statusA.running, true, "nsA is running");
+    assert.equal(statusB.running, false, "nsB is not running");
+
+    // 4. Operator stop in nsA only stops nsA
+    await centralOperator("stop", { runtimeBase: nsA });
+    assert.equal(existsSync(join(nsA, "h2a-mcp-central", "operator-stop.json")), true, "pause file written in nsA");
+    assert.equal(existsSync(join(nsB, "h2a-mcp-central", "operator-stop.json")), false, "nsB has no pause file");
+  } finally {
+    try { await centralOperator("stop", { runtimeBase: nsA }); } catch {}
+    f.cleanup();
+  }
+});
+
