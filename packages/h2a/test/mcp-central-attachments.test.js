@@ -438,3 +438,47 @@ test("a network cutoff during initialize recovers cleanly and returns the handsh
     f.cleanup();
   }
 });
+
+test("v1 residual configurations without --host route to stdio on missing marker or opt-outs, and can be explicitly repaired", async () => {
+  const f = fixture();
+  const children = [];
+  const startConnect = (args, extraEnv = {}) => {
+    const env = { ...f.env, ...extraEnv };
+    const child = spawn(process.execPath, [bin, "mcp-central-connect", ...args], { env, cwd: join(f.dir, "repo-a"), stdio: ["pipe", "pipe", "pipe"] });
+    children.push(child);
+    return rpcChannel(child.stdin, child.stdout);
+  };
+  try {
+    // 1. Missing marker and no --host (typical v1 agy/Codex residual shape)
+    const legacyAgy = startConnect(["--endpoint", "http://127.0.0.1:49999/mcp"]);
+    const initAgy = await legacyAgy.call("initialize");
+    assert.ok(initAgy.result, "v1 connector without --host falls back to stdio when marker is missing");
+
+    // 2. Opt-out H2A_MCP_CENTRAL=0 applies to v1 connector
+    const optedOut = startConnect(["--endpoint", "http://127.0.0.1:49999/mcp"], { H2A_MCP_CENTRAL: "0" });
+    const initOptedOut = await optedOut.call("initialize");
+    assert.ok(initOptedOut.result, "H2A_MCP_CENTRAL=0 routes v1 connector to stdio");
+
+    // 3. Explicit repair of v1 residual configuration via central residues --repair
+    const repo = join(f.dir, "repo-b");
+    execFileSync("git", ["init", "-q", repo]);
+    const originalConfig = '{\n  "mcpServers": {\n    "h2a": {\n      "command": "h2a",\n      "args": ["mcp-central-connect", "--endpoint", "http://127.0.0.1:47000/mcp"]\n    }\n  }\n}\n';
+    const configPath = join(repo, ".mcp.json");
+    writeFileSync(configPath, originalConfig);
+    execFileSync("git", ["-C", repo, "add", ".mcp.json"]);
+
+    // Without --allow-tracked, repair refuses git-tracked config
+    const dryReport = centralResidueReport(repo, join(f.env.HOME, "missing-agy.json"), { repair: true });
+    assert.equal(dryReport.repairedCount, 0, "tracked config must not be repaired without --allow-tracked");
+    assert.equal(readFileSync(configPath, "utf8"), originalConfig);
+
+    // With --allow-tracked, repair rewrites to mcp-serve
+    const repairReport = centralResidueReport(repo, join(f.env.HOME, "missing-agy.json"), { repair: true, allowTracked: true });
+    assert.equal(repairReport.repairedCount, 1);
+    const updated = JSON.parse(readFileSync(configPath, "utf8"));
+    assert.deepEqual(updated.mcpServers.h2a.args, ["mcp-serve", "--host", "claude"]);
+  } finally {
+    await Promise.all(children.map(async child => { if (child.exitCode === null && child.signalCode === null) { child.kill("SIGTERM"); await once(child, "exit"); } }));
+    f.cleanup();
+  }
+});
