@@ -1,6 +1,6 @@
 import { centralHttpRequest } from "./mcp-central-http.js";
 /** Operator control uses the authenticated owner, never a marker PID signal. */
-import { existsSync, lstatSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { spawnSync } from "node:child_process";
@@ -9,15 +9,29 @@ import { centralMcpMarkerPath, markerDirectory, readCentralClientMarker, type Ce
 export function centralPausePath(paths: CentralMcpPathsOptions = {}): string { return join(markerDirectory(paths), "operator-stop.json"); }
 
 export async function centralOperator(action: "status" | "stop", paths: CentralMcpPathsOptions = {}): Promise<unknown> {
+  const pausePath = centralPausePath(paths);
+  const writePause = (generation?: string) => {
+    mkdirSync(markerDirectory(paths), { recursive: true, mode: 0o700 });
+    if (existsSync(pausePath) && !lstatSync(pausePath).isFile()) throw new Error("central operator stop marker must be a regular file");
+    writeFileSync(pausePath, JSON.stringify({ ...(generation ? { generation } : {}), at: new Date().toISOString() }) + "\n", { mode: 0o600 });
+  };
   let marker;
-  try { marker = readCentralClientMarker(centralMcpMarkerPath(paths)); }
-  catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return { running: false, paused: existsSync(centralPausePath(paths)) }; throw error; }
+  try {
+    marker = readCentralClientMarker(centralMcpMarkerPath(paths));
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      if (action === "stop") {
+        writePause();
+        return { running: false, paused: true };
+      }
+      return { running: false, paused: existsSync(pausePath) };
+    }
+    throw error;
+  }
   if (action === "stop") {
     // Persist the manual stop before asking the authenticated daemon to exit.
     // An automatic launcher must never undo it.
-    const path = centralPausePath(paths);
-    if (existsSync(path) && !lstatSync(path).isFile()) throw new Error("central operator stop marker must be a regular file");
-    writeFileSync(path, JSON.stringify({ generation: marker.generation, at: new Date().toISOString() }) + "\n", { mode: 0o600 });
+    writePause(marker.generation);
   }
   try {
     const response = await centralHttpRequest(new URL(`/_h2a-central/${action}`, marker.endpoint), {
@@ -25,10 +39,10 @@ export async function centralOperator(action: "status" | "stop", paths: CentralM
       headers: { authorization: `Bearer ${marker.token}` }, signal: AbortSignal.timeout(2000)
     });
     if (!response.ok) { await response.text(); throw new Error(`central ${action}: HTTP ${response.status}`); }
-    return { running: action !== "stop", paused: existsSync(centralPausePath(paths)), ...await response.json() as object };
+    return { running: action !== "stop", paused: existsSync(pausePath), ...await response.json() as object };
   } catch (error) {
     if (action === "stop") return { running: "unverified", paused: true, error: (error as Error).message };
-    return { running: false, paused: existsSync(centralPausePath(paths)), error: (error as Error).message };
+    return { running: false, paused: existsSync(pausePath), error: (error as Error).message };
   }
 }
 
