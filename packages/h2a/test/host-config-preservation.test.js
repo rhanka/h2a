@@ -75,3 +75,48 @@ test("host setup refuses undecodable UTF-8 instead of changing foreign bytes", (
     assert.deepEqual(readdirSync(dir), ["host.json"]);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
+
+test("0.98.0 graphify-ts destruction reproduced and prevented by candidate byte-for-byte writer", () => {
+  const dir = mkdtempSync(join(tmpdir(), "h2a-config-repro-"));
+  try {
+    const path = join(dir, "host.json");
+    // Under 0.98.0, isStandaloneTrackMcpServer stripped any entry whose command or args matched
+    // "track-mcp" or "@sentropic/track/.../mcp/". When graphify-ts was configured with track-mcp,
+    // 0.98.0 destroyed it.
+    const original = JSON.stringify({
+      mcpServers: {
+        "graphify-ts": { command: "track-mcp", args: ["graphify"] },
+        "h2a": { command: "old-h2a" }
+      }
+    }, null, 2);
+
+    // 0.98.0 baseline behavior: strips graphify-ts
+    const simulate0980Strip = (raw) => {
+      const parsed = JSON.parse(raw);
+      const servers = parsed.mcpServers || {};
+      for (const [name, cfg] of Object.entries(servers)) {
+        const values = [cfg.command, ...(Array.isArray(cfg.args) ? cfg.args : [])];
+        const isTrack = values.some(v => typeof v === "string" && (v === "track-mcp" || /[\\/]track-mcp(?:\.cmd|\.exe)?$/i.test(v) || /@sentropic[\\/]track[\\/].*[\\/]mcp[\\/]/i.test(v)));
+        if (isTrack) delete servers[name];
+      }
+      return parsed;
+    };
+    const repro0980 = simulate0980Strip(original);
+    assert.equal(repro0980.mcpServers["graphify-ts"], undefined, "0.98.0 destroyed graphify-ts entry");
+
+    // Candidate behavior: preserves graphify-ts and only modifies h2a
+    writeFileSync(path, original, { mode: 0o600 });
+    assert.equal(setup(path).code, 0);
+    const written = readFileSync(path, "utf8");
+    const parsedCandidate = JSON.parse(written);
+    assert.deepEqual(parsedCandidate.mcpServers["graphify-ts"], { command: "track-mcp", args: ["graphify"] });
+    assert.ok(written.includes('"graphify-ts"'));
+    assert.ok(written.includes('"track-mcp"'));
+    const backups = readdirSync(dir).filter(name => name.startsWith("host.json.backup-"));
+    assert.equal(backups.length, 1);
+    assert.equal(readFileSync(join(dir, backups[0]), "utf8"), original);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
