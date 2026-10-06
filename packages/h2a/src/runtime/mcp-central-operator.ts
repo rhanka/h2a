@@ -32,20 +32,57 @@ export async function centralOperator(action: "status" | "stop", paths: CentralM
   }
 }
 
-/** Shallow inventory only: no recursive repo discovery, host rewrite or deletion. */
-export function centralResidueReport(workspace: string, agyConfig = join(homedir(), ".gemini", "config", "mcp_config.json")): unknown {
-  const findings: Array<{ path: string; kind: string; tracked: boolean | "unknown"; action: "review-only" }> = [];
+import { writeHostMcpEntry } from "../hosts/config-writer.js";
+
+/** Shallow inventory with explicit opt-in repair to stdio mcp-serve. */
+export function centralResidueReport(
+  workspace: string,
+  agyConfig = join(homedir(), ".gemini", "config", "mcp_config.json"),
+  options: { repair?: boolean; allowTracked?: boolean } = {}
+): {
+  reportOnly: boolean;
+  workspace: string;
+  repairedCount: number;
+  findings: Array<{ path: string; kind: string; tracked: boolean | "unknown"; action: string; backupPath?: string; error?: string }>;
+  cleanup: string;
+} {
+  const findings: Array<{ path: string; kind: string; tracked: boolean | "unknown"; action: string; backupPath?: string; error?: string }> = [];
   const tracked = (path: string): boolean | "unknown" => {
     const result = spawnSync("git", ["--literal-pathspecs", "-C", workspace, "ls-files", "--error-unmatch", "--", path], { stdio: "ignore" });
     return result.status === 0 ? true : result.status === 1 || result.status === 128 ? false : "unknown";
   };
+  let repairedCount = 0;
   for (const path of [join(workspace, ".mcp.json"), join(workspace, ".gemini", "settings.json"), agyConfig]) {
     if (existsSync(path) && lstatSync(path).isFile() && /mcp-central-connect/.test(readFileSync(path, "utf8"))) {
-      findings.push({ path, kind: "v1-central-config", tracked: tracked(path), action: "review-only" });
+      const isTrk = tracked(path);
+      if (options.repair) {
+        let host = "claude";
+        if (path === agyConfig) host = "agy";
+        else if (path.includes("settings.json")) host = "gemini";
+        else if (path.includes("codex")) host = "codex";
+        try {
+          const incoming = { command: "h2a", args: ["mcp-serve", "--host", host] };
+          const { backupPath } = writeHostMcpEntry(path, incoming, Boolean(options.allowTracked));
+          findings.push({ path, kind: "v1-central-config", tracked: isTrk, action: "repaired", ...(backupPath ? { backupPath } : {}) });
+          repairedCount++;
+        } catch (error) {
+          findings.push({ path, kind: "v1-central-config", tracked: isTrk, action: isTrk === true ? "refused-tracked" : "error", error: (error as Error).message });
+        }
+      } else {
+        findings.push({ path, kind: "v1-central-config", tracked: isTrk, action: "review-only" });
+      }
     }
   }
   for (const path of [join(workspace, ".h2a-schema.json"), join(workspace, ".h2a", ".h2a-schema.json")]) {
     if (existsSync(path)) findings.push({ path, kind: "repo-store-sentinel", tracked: tracked(path), action: "review-only" });
   }
-  return { reportOnly: true, workspace, findings, cleanup: "Review each path and its backup before any explicit manual cleanup. This command never deletes or rewrites files." };
+  return {
+    reportOnly: !options.repair,
+    workspace,
+    repairedCount,
+    findings,
+    cleanup: options.repair
+      ? "Repaired legacy central connectors to stdio mcp-serve endpoints with backups."
+      : "Review each path and its backup before any explicit manual cleanup. This command never deletes or rewrites files without --repair."
+  };
 }
