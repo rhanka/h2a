@@ -557,3 +557,44 @@ test("runtime-base namespace is strictly isolated across discovery, auto-start, 
   }
 });
 
+test("structured sidecar launches with readiness challenge stay on stdio and acknowledge without initial MCP request", async () => {
+  const f = fixture();
+  const readyFile = join(f.dir, "ready.json");
+  const nonce = "01234567-89ab-4cde-8f01-23456789abcd";
+  const env = {
+    ...f.env,
+    CLAUDE_CODE_SESSION_ID: "session-readiness-test",
+    H2A_MCP_READY_FILE: readyFile,
+    H2A_MCP_READY_NONCE: nonce,
+  };
+  const flags = { host: "claude", "auto-open": "true" };
+
+  // 1. Policy check: must return false (selecting stdio)
+  assert.equal(shouldUseCentralMcp(flags, env, true), false, "readiness challenge must route to stdio");
+
+  // 2. Launching mcp-serve with readiness challenge produces ACK carrying sidecar's own PID and nonce, without any initial MCP frame
+  const child = spawn(process.execPath, [bin, "mcp-serve", "--host", "claude", "--auto-open"], {
+    env,
+    cwd: join(f.dir, "repo-a"),
+    stdio: ["pipe", "pipe", "pipe"],
+  });
+  try {
+    const deadline = Date.now() + 5000;
+    while (!existsSync(readyFile) && Date.now() < deadline) {
+      await delay(50);
+    }
+    assert.equal(existsSync(readyFile), true, "readiness ack file must be created");
+    const ack = JSON.parse(readFileSync(readyFile, "utf8"));
+    assert.equal(ack.kind, "h2a.mcp.ready");
+    assert.equal(ack.nonce, nonce);
+    assert.equal(ack.pid, child.pid, "ACK must carry sidecar process PID, not daemon PID");
+  } finally {
+    if (child.exitCode === null && child.signalCode === null) {
+      child.kill("SIGTERM");
+      await once(child, "exit");
+    }
+    f.cleanup();
+  }
+});
+
+
