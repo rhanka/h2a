@@ -34,7 +34,8 @@ export function shouldUseCentralMcp(flags: Record<string, string>, env: NodeJS.P
   if (flags.root && !isAbsolute(flags.root)) return false;
   const root = canonicalCentralRoot(env);
   if (flags.root && resolve(flags.root) !== root) return false;
-  const marker = readCentralMcpMarker();
+  const paths = flags["runtime-base"] ? { runtimeBase: flags["runtime-base"] } : {};
+  const marker = readCentralMcpMarker(paths);
   // Unsupported legacy protocol/root routes deterministically to stdio before initialize.
   if (marker && (marker.protocol !== 2 || marker.root !== root)) return false;
   return true;

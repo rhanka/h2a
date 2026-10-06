@@ -2237,7 +2237,8 @@ export async function runCentralMcpServe(
     const started = await startCentralMcpServer({
       root,
       env: io.env ?? process.env,
-      automatic: flags["auto-start"] === "true"
+      automatic: flags["auto-start"] === "true",
+      runtimeBase: flags["runtime-base"]
     });
     if (started.kind === "reused") {
       io.stderr.write(
@@ -2294,7 +2295,7 @@ export async function runCentralMcpConnect(
       workspaceRoot: io.cwd?.() ?? process.cwd(),
       ...(flags.host === "claude" ? { attachment: captureCentralAttachment(
         resolveRoot(flags, io.cwd ?? (() => process.cwd())), io.cwd?.() ?? process.cwd(), flags, io.env ?? process.env
-      ), ensure: async () => { await ensureCentralForShim(); } } : {}),
+      ), ensure: async () => { await ensureCentralForShim(false, flags["runtime-base"] ? { runtimeBase: flags["runtime-base"] } : {}); } } : {}),
       ...(flags["runtime-base"] ? { runtimeBase: flags["runtime-base"] } : {}),
       ...(io.signal ? { signal: io.signal } : {})
     });
