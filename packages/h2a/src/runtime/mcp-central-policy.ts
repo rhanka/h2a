@@ -28,6 +28,8 @@ export function centralRoutingEnabled(env: NodeJS.ProcessEnv = process.env, defa
 }
 export function shouldUseCentralMcp(flags: Record<string, string>, env: NodeJS.ProcessEnv = process.env, defaultEnabled = false): boolean {
   if (process.platform !== "linux" || flags.host !== "claude" || flags.instance || flags.backend === "cluster-mesh" || env.H2A_MESSAGE_BACKEND === "cluster-mesh") return false;
+  // Structured sidecar launches with readiness challenges stay on stdio
+  if (env.H2A_MCP_READY_FILE || env.H2A_MCP_READY_NONCE) return false;
   if (!env.CLAUDE_CODE_SESSION_ID?.trim() || !centralRoutingEnabled(env, defaultEnabled)) return false;
   // Central root must never be derived from cwd; relative roots deterministically select stdio
   if (env.H2A_ROOT && !isAbsolute(env.H2A_ROOT)) return false;
