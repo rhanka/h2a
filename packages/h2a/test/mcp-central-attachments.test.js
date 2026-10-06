@@ -17,6 +17,7 @@ import { runtimeBase } from "../dist/runtime/mcp-central-discovery.js";
 import { identityKeyPaths } from "../dist/runtime/identity/live.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { shouldUseCentralMcp, canonicalCentralRoot } from "../dist/runtime/mcp-central-policy.js";
 
 const bin = resolve("packages/h2a/dist/bin.js");
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -479,6 +480,26 @@ test("v1 residual configurations without --host route to stdio on missing marker
     assert.deepEqual(updated.mcpServers.h2a.args, ["mcp-serve", "--host", "claude"]);
   } finally {
     await Promise.all(children.map(async child => { if (child.exitCode === null && child.signalCode === null) { child.kill("SIGTERM"); await once(child, "exit"); } }));
+    f.cleanup();
+  }
+});
+
+test("relative H2A_ROOT deterministically selects stdio and never derives central root from cwd", async () => {
+  const f = fixture();
+  const repoA = join(f.dir, "repo-a");
+  const repoB = join(f.dir, "repo-b");
+  const relativeEnv = { ...f.env, H2A_ROOT: ".h2a", CLAUDE_CODE_SESSION_ID: "conv-relative-root" };
+  const flags = { host: "claude" };
+
+  // Testing two different cwds with the exact same relative variable
+  const origCwd = process.cwd();
+  try {
+    process.chdir(repoA);
+    assert.equal(shouldUseCentralMcp(flags, relativeEnv, true), false, "repo-a with relative H2A_ROOT must select stdio");
+    process.chdir(repoB);
+    assert.equal(shouldUseCentralMcp(flags, relativeEnv, true), false, "repo-b with relative H2A_ROOT must select stdio");
+  } finally {
+    process.chdir(origCwd);
     f.cleanup();
   }
 });
