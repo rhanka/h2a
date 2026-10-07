@@ -22,8 +22,9 @@ export function canonicalCentralRoot(env: NodeJS.ProcessEnv = process.env): stri
   return join(env.HOME ?? homedir(), "h2a-workspace", ".h2a");
 }
 export function centralRoutingEnabled(env: NodeJS.ProcessEnv = process.env, defaultEnabled = false): boolean {
+  if (env.H2A_MCP_CENTRAL === "0" || env.H2A_MCP_CENTRAL === "false") return false;
   const setting = centralSettings(env).enabled;
-  if (env.H2A_MCP_CENTRAL === "0" || env.H2A_MCP_CENTRAL === "false" || setting === false) return false;
+  if (setting === false) return false;
   return setting === true || env.H2A_MCP_CENTRAL === "1" || env.H2A_MCP_CENTRAL === "true" || defaultEnabled;
 }
 export function shouldUseCentralMcp(flags: Record<string, string>, env: NodeJS.ProcessEnv = process.env, defaultEnabled = false): boolean {
