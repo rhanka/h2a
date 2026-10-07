@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { runCli } from "../dist/index.js";
+import { runCli as runCli0980 } from "../../../tmp/mcp-evidence/v0980/package/dist/index.js";
 
 const healthy = () => ({ ok: true, hosts: [{ host: "claude", ok: true, unrepaired: [] }] });
 function setup(path, extra = []) {
@@ -76,45 +77,62 @@ test("host setup refuses undecodable UTF-8 instead of changing foreign bytes", (
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
-test("0.98.0 graphify-ts destruction reproduced and prevented by candidate byte-for-byte writer", () => {
+test("0.98.0 binary destruction reproduced on evidenced fixture and prevented by candidate byte-for-byte writer", () => {
   const dir = mkdtempSync(join(tmpdir(), "h2a-config-repro-"));
   try {
-    const path = join(dir, "host.json");
-    // Under 0.98.0, isStandaloneTrackMcpServer stripped any entry whose command or args matched
-    // "track-mcp" or "@sentropic/track/.../mcp/". When graphify-ts was configured with track-mcp,
-    // 0.98.0 destroyed it.
-    const original = JSON.stringify({
-      mcpServers: {
-        "graphify-ts": { command: "track-mcp", args: ["graphify"] },
-        "h2a": { command: "old-h2a" }
-      }
-    }, null, 2);
+    const path0980 = join(dir, "host-0980.json");
+    const pathCandidate = join(dir, "host-candidate.json");
 
-    // 0.98.0 baseline behavior: strips graphify-ts
-    const simulate0980Strip = (raw) => {
-      const parsed = JSON.parse(raw);
-      const servers = parsed.mcpServers || {};
-      for (const [name, cfg] of Object.entries(servers)) {
-        const values = [cfg.command, ...(Array.isArray(cfg.args) ? cfg.args : [])];
-        const isTrack = values.some(v => typeof v === "string" && (v === "track-mcp" || /[\\/]track-mcp(?:\.cmd|\.exe)?$/i.test(v) || /@sentropic[\\/]track[\\/].*[\\/]mcp[\\/]/i.test(v)));
-        if (isTrack) delete servers[name];
-      }
-      return parsed;
-    };
-    const repro0980 = simulate0980Strip(original);
-    assert.equal(repro0980.mcpServers["graphify-ts"], undefined, "0.98.0 destroyed graphify-ts entry");
+    // Evidenced fixture from repro0980.mjs containing graphify-ts and standalone track-mcp
+    const original = '{\r\n  "mcpServers" : {\r\n    "graphify-ts" : {\r\n      "command": "npx",\r\n      "args": ["graphify-ts"]\r\n    },\r\n    "track-mcp": {\r\n      "command": "track-mcp"\r\n    },\r\n    "h2a": {\r\n      "command": "old-h2a"\r\n    }\r\n  }\r\n}\r\n';
 
-    // Candidate behavior: preserves graphify-ts and only modifies h2a
-    writeFileSync(path, original, { mode: 0o600 });
-    assert.equal(setup(path).code, 0);
-    const written = readFileSync(path, "utf8");
-    const parsedCandidate = JSON.parse(written);
-    assert.deepEqual(parsedCandidate.mcpServers["graphify-ts"], { command: "track-mcp", args: ["graphify"] });
-    assert.ok(written.includes('"graphify-ts"'));
-    assert.ok(written.includes('"track-mcp"'));
-    const backups = readdirSync(dir).filter(name => name.startsWith("host.json.backup-"));
-    assert.equal(backups.length, 1);
-    assert.equal(readFileSync(join(dir, backups[0]), "utf8"), original);
+    // 1. Direct execution of the published 0.98.0 binary
+    writeFileSync(path0980, original, { mode: 0o640 });
+    let out0980 = "", err0980 = "";
+    const code0980 = runCli0980(
+      ["host", "setup", "--host", "claude", "--write", path0980],
+      { stdout: { write(s) { out0980 += s; } }, stderr: { write(s) { err0980 += s; } }, cwd: () => dir },
+      { doctorHostInstallations: () => ({ ok: true, hosts: [{ host: "claude", ok: true, unrepaired: [] }] }) }
+    );
+    assert.equal(code0980, 0);
+    const written0980 = readFileSync(path0980, "utf8");
+    const parsed0980 = JSON.parse(written0980);
+    // 0.98.0 destroys standalone track-mcp entry silently
+    assert.equal(parsed0980.mcpServers["track-mcp"], undefined, "0.98.0 binary deleted standalone track-mcp entry");
+    // 0.98.0 reformats the entire file and destroys CRLF line endings
+    assert.notEqual(written0980, original);
+    assert.equal(written0980.includes("\r\n"), false, "0.98.0 stripped CRLF line endings");
+    // 0.98.0 creates zero backups
+    const backups0980 = readdirSync(dir).filter(name => name.startsWith("host-0980.json.backup-"));
+    assert.equal(backups0980.length, 0, "0.98.0 created no backup");
+
+    // 2. Candidate behavior on the exact same evidenced fixture
+    writeFileSync(pathCandidate, original, { mode: 0o640 });
+    assert.equal(setup(pathCandidate).code, 0);
+    const writtenCandidate = readFileSync(pathCandidate, "utf8");
+    const parsedCandidate = JSON.parse(writtenCandidate);
+    // Candidate preserves both foreign entries: graphify-ts AND track-mcp
+    assert.deepEqual(parsedCandidate.mcpServers["graphify-ts"], { command: "npx", args: ["graphify-ts"] });
+    assert.deepEqual(parsedCandidate.mcpServers["track-mcp"], { command: "track-mcp" });
+    // Candidate preserves CRLF line endings and surrounding bytes
+    assert.ok(writtenCandidate.includes("\r\n"));
+    assert.ok(writtenCandidate.includes('"graphify-ts"'));
+    assert.ok(writtenCandidate.includes('"track-mcp"'));
+    assert.equal(statSync(pathCandidate).mode & 0o777, 0o640, "candidate preserves file mode");
+    // Candidate creates an exact backup
+    const backupsCandidate = readdirSync(dir).filter(name => name.startsWith("host-candidate.json.backup-"));
+    assert.equal(backupsCandidate.length, 1, "candidate created exact backup");
+    assert.equal(readFileSync(join(dir, backupsCandidate[0]), "utf8"), original);
+
+    // 3. Candidate behavior on the actual airbus-genair-d2d production fixture
+    const pathAirbus = join(dir, "host-airbus.json");
+    const airbusOriginal = '{\n  "mcpServers": {\n    "graphify-ts": {\n      "command": "npx.cmd",\n      "args": [\n        "--yes",\n        "@mohammednagy/graphify-ts@0.23.1",\n        "serve",\n        "--stdio",\n        "C:\\\\Users\\\\kwil73px\\\\Documents\\\\GitHub\\\\d2d\\\\graphify-out\\\\graph.json"\n      ],\n      "env": {\n        "GRAPHIFY_TOOL_PROFILE": "core"\n      }\n    }\n  }\n}\n';
+    writeFileSync(pathAirbus, airbusOriginal, { mode: 0o600 });
+    assert.equal(setup(pathAirbus).code, 0);
+    const writtenAirbus = readFileSync(pathAirbus, "utf8");
+    const parsedAirbus = JSON.parse(writtenAirbus);
+    assert.deepEqual(parsedAirbus.mcpServers["graphify-ts"], JSON.parse(airbusOriginal).mcpServers["graphify-ts"]);
+    assert.ok(writtenAirbus.includes("@mohammednagy/graphify-ts@0.23.1"));
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
