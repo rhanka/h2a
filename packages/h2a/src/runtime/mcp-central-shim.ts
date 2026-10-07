@@ -13,10 +13,20 @@ export async function runCentralShim(flags: Record<string, string>, root: string
   for (const signal of signals) process.once(signal, onSignal);
   try {
     const paths = flags["runtime-base"] ? { runtimeBase: flags["runtime-base"] } : {};
-    const marker = flags.endpoint ? readCentralClientMarker(centralMcpMarkerPath(paths)) : await ensureCentralForShim(true, paths);
+    let marker: ReturnType<typeof readCentralClientMarker> | undefined;
+    try {
+      marker = readCentralClientMarker(centralMcpMarkerPath(paths));
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+    }
+    if (!marker && !flags.endpoint) {
+      marker = await ensureCentralForShim(true, paths);
+    }
+    const endpoint = marker?.endpoint ?? flags.endpoint;
+    if (!endpoint) throw new Error("no central MCP endpoint available");
     const qualified = flags.host === "claude" && Boolean(process.env.CLAUDE_CODE_SESSION_ID?.trim());
     await bridgeCentralMcpStdio({
-      endpoint: flags.endpoint ?? marker.endpoint,
+      endpoint,
       ...paths, stdin: process.stdin, stdout: process.stdout, signal: controller.signal,
       workspaceRoot: process.cwd(),
       ...(qualified ? {
