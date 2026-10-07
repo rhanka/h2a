@@ -724,6 +724,10 @@ export type StartedCentralMcpServer =
 export async function startCentralMcpServer(
   options: StartCentralMcpServerOptions
 ): Promise<StartedCentralMcpServer> {
+  if (!options.root || !isAbsolute(options.root)) {
+    throw new Error(`central MCP root must be an absolute path (received "${options.root ?? ""}")`);
+  }
+  const root = options.root;
   const env = options.env ?? process.env;
   const explicitEndpoint = env[H2A_MCP_CENTRAL_ENDPOINT_ENV];
   let endpoint = explicitEndpoint ? parseCentralMcpEndpoint(explicitEndpoint) : "http://127.0.0.1:1/mcp";
@@ -735,7 +739,6 @@ export async function startCentralMcpServer(
   try { if (!options.automatic) unlinkSync(centralPausePath(paths)); } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
   }
-  const root = resolve(options.root);
   let marker: CentralMcpMarker = { ...newMarker(endpoint, randomUUID()), root, protocol: 2 };
   const endpointUrl = new URL(endpoint);
   const hostname = endpointUrl.hostname.startsWith("[")
