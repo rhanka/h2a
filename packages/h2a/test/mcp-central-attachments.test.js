@@ -451,17 +451,54 @@ test("v1 residual configurations without --host route to stdio on missing marker
     return rpcChannel(child.stdin, child.stdout);
   };
   try {
-    // 1. Missing marker and no --host (typical v1 agy/Codex residual shape)
+    // 1. Missing marker:
+    // 1a. No --host and no Claude ID (legacy agy/Codex residual shape) -> falls back to stdio
     const legacyAgy = startConnect(["--endpoint", "http://127.0.0.1:49999/mcp"]);
     const initAgy = await legacyAgy.call("initialize");
     assert.ok(initAgy.result, "v1 connector without --host falls back to stdio when marker is missing");
+
+    // 1b. No --host with CLAUDE_CODE_SESSION_ID present but marker is missing -> must not crash, routes to stdio
+    const legacyClaudeMissingMarker = startConnect(
+      ["--endpoint", "http://127.0.0.1:49999/mcp", "--runtime-base", f.runtimeBase],
+      { CLAUDE_CODE_SESSION_ID: "conv-v1-missing-marker" }
+    );
+    const initClaudeMissing = await legacyClaudeMissingMarker.call("initialize");
+    assert.ok(initClaudeMissing.result, "v1 connector with Claude session falls back to stdio when marker is missing");
+
+    // 1c. Inherited CLAUDE_CODE_SESSION_ID does not qualify legacy connector with explicit non-claude host
+    const legacyInheritedCodex = startConnect(
+      ["--host", "codex", "--endpoint", "http://127.0.0.1:49999/mcp", "--runtime-base", f.runtimeBase],
+      { CLAUDE_CODE_SESSION_ID: "conv-v1-inherited" }
+    );
+    const initInherited = await legacyInheritedCodex.call("initialize");
+    assert.ok(initInherited.result, "inherited Claude session does not route codex connector to central");
 
     // 2. Opt-out H2A_MCP_CENTRAL=0 applies to v1 connector
     const optedOut = startConnect(["--endpoint", "http://127.0.0.1:49999/mcp"], { H2A_MCP_CENTRAL: "0" });
     const initOptedOut = await optedOut.call("initialize");
     assert.ok(initOptedOut.result, "H2A_MCP_CENTRAL=0 routes v1 connector to stdio");
 
-    // 3. Explicit repair of v1 residual configuration via central residues --repair
+    // 3. Renewed endpoint: live central running on real URL, connector has stale 49999 endpoint
+    const livePort = 47000 + (process.getuid() % 1000) + 50;
+    const liveUrl = `http://127.0.0.1:${livePort}/mcp`;
+    const liveServer = await startCentralMcpServer({
+      root: f.root,
+      runtimeBase: f.runtimeBase,
+      env: { ...f.env, H2A_MCP_CENTRAL_ENDPOINT: liveUrl }
+    });
+    try {
+      const renewedConnect = startConnect(
+        ["--endpoint", "http://127.0.0.1:49999/mcp", "--runtime-base", f.runtimeBase],
+        { CLAUDE_CODE_SESSION_ID: "conv-v1-renewed" }
+      );
+      const initRenewed = await renewedConnect.call("initialize");
+      assert.ok(initRenewed.result, "v1 connector adapts to renewed live central endpoint");
+      assert.equal(initRenewed.result.serverInfo.name, "@sentropic/h2a", "connected to central server");
+    } finally {
+      await liveServer.stop();
+    }
+
+    // 4. Explicit repair of v1 residual configuration via central residues --repair
     const repo = join(f.dir, "repo-b");
     execFileSync("git", ["init", "-q", repo]);
     const originalConfig = '{\n  "mcpServers": {\n    "h2a": {\n      "command": "h2a",\n      "args": ["mcp-central-connect", "--endpoint", "http://127.0.0.1:47000/mcp"]\n    }\n  }\n}\n';
@@ -469,16 +506,62 @@ test("v1 residual configurations without --host route to stdio on missing marker
     writeFileSync(configPath, originalConfig);
     execFileSync("git", ["-C", repo, "add", ".mcp.json"]);
 
+    // Real agy fixture
+    const agyConfigDir = join(f.env.HOME, ".gemini", "config");
+    mkdirSync(agyConfigDir, { recursive: true });
+    const agyConfigPath = join(agyConfigDir, "mcp_config.json");
+    writeFileSync(agyConfigPath, originalConfig);
+
+    // Real codex fixture
+    const codexConfigDir = join(f.env.HOME, ".codex");
+    mkdirSync(codexConfigDir, { recursive: true });
+    const codexConfigPath = join(codexConfigDir, "config.json");
+    writeFileSync(codexConfigPath, originalConfig);
+
     // Without --allow-tracked, repair refuses git-tracked config
-    const dryReport = centralResidueReport(repo, join(f.env.HOME, "missing-agy.json"), { repair: true });
-    assert.equal(dryReport.repairedCount, 0, "tracked config must not be repaired without --allow-tracked");
+    const dryReport = centralResidueReport(repo, agyConfigPath, { repair: true, codexConfig: codexConfigPath });
+    assert.equal(dryReport.repairedCount, 2, "untracked agy and codex configs are repaired while tracked config is refused");
     assert.equal(readFileSync(configPath, "utf8"), originalConfig);
 
-    // With --allow-tracked, repair rewrites to mcp-serve
-    const repairReport = centralResidueReport(repo, join(f.env.HOME, "missing-agy.json"), { repair: true, allowTracked: true });
-    assert.equal(repairReport.repairedCount, 1);
-    const updated = JSON.parse(readFileSync(configPath, "utf8"));
-    assert.deepEqual(updated.mcpServers.h2a.args, ["mcp-serve", "--host", "claude"]);
+    // Reset agy and codex fixtures to test all three repaired together under allowTracked
+    writeFileSync(agyConfigPath, originalConfig);
+    writeFileSync(codexConfigPath, originalConfig);
+
+    // With --allow-tracked, repair rewrites Claude, agy and Codex configs to full coordination stdio
+    const repairReport = centralResidueReport(repo, agyConfigPath, { repair: true, allowTracked: true, codexConfig: codexConfigPath });
+    assert.equal(repairReport.repairedCount, 3);
+
+    const updatedClaude = JSON.parse(readFileSync(configPath, "utf8"));
+    const expectedClaudeArgs = ["mcp-serve", "--auto-open", "--host", "claude", "--auto-upgrade", "--wake", "auto"];
+    assert.deepEqual(updatedClaude.mcpServers.h2a.args, expectedClaudeArgs, "Claude repair produces complete coordination arguments");
+
+    const updatedAgy = JSON.parse(readFileSync(agyConfigPath, "utf8"));
+    const expectedAgyArgs = ["mcp-serve", "--auto-open", "--host", "agy", "--auto-upgrade", "--wake", "auto"];
+    assert.deepEqual(updatedAgy.mcpServers.h2a.args, expectedAgyArgs, "agy repair produces complete coordination arguments");
+
+    const updatedCodex = JSON.parse(readFileSync(codexConfigPath, "utf8"));
+    const expectedCodexArgs = ["mcp-serve", "--auto-open", "--host", "codex", "--auto-upgrade", "--wake", "auto"];
+    assert.deepEqual(updatedCodex.mcpServers.h2a.args, expectedCodexArgs, "codex repair produces complete coordination arguments");
+
+    // 5. Launch repaired Claude server and verify identity_ready, signing and wake
+    let stderrText = "";
+    const repairedChild = spawn(
+      process.execPath,
+      [bin, ...updatedClaude.mcpServers.h2a.args],
+      { env: { ...f.env, H2A_MCP_CENTRAL: "0", CLAUDE_CODE_SESSION_ID: "repaired-claude" }, cwd: repo, stdio: ["pipe", "pipe", "pipe"] }
+    );
+    children.push(repairedChild);
+    repairedChild.stderr.on("data", (chunk) => { stderrText += chunk.toString(); });
+    const repairedChannel = rpcChannel(repairedChild.stdin, repairedChild.stdout);
+    const initRepaired = await repairedChannel.call("initialize");
+    assert.ok(initRepaired.result, "repaired server initializes successfully");
+    const idStatus = await ready(repairedChannel);
+    assert.equal(idStatus.state, "identity_ready", "repaired server achieves identity_ready");
+    assert.equal(idStatus.signingAvailable, true, "repaired server enables signing");
+    assert.match(stderrText, /inbox-wake armed for/, "repaired server enables wake");
+
+    const sendRes = await repairedChannel.call("tools/call", { name: "h2a_send", arguments: { to: idStatus.instance, message: "ping" } });
+    assert.ok(!sendRes.error, "h2a_send call succeeds with active signer");
   } finally {
     await Promise.all(children.map(async child => { if (child.exitCode === null && child.signalCode === null) { child.kill("SIGTERM"); await once(child, "exit"); } }));
     f.cleanup();
