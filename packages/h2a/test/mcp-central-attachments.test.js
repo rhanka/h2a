@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { spawn, execFileSync } from "node:child_process";
 import { once } from "node:events";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
 import { createInterface } from "node:readline";
 import { PassThrough } from "node:stream";
 import { createServer } from "node:net";
@@ -489,10 +489,46 @@ test("relative H2A_ROOT deterministically selects stdio and never derives centra
   const f = fixture();
   const repoA = join(f.dir, "repo-a");
   const repoB = join(f.dir, "repo-b");
+  mkdirSync(repoA, { recursive: true });
+  mkdirSync(repoB, { recursive: true });
   const relativeEnv = { ...f.env, H2A_ROOT: ".h2a", CLAUDE_CODE_SESSION_ID: "conv-relative-root" };
   const flags = { host: "claude" };
 
-  // Testing two different cwds with the exact same relative variable
+  // 1. startCentralMcpServer refuses relative root before any mutation (inhibition preserved)
+  const pauseFile = centralPausePath({ runtimeBase: f.runtimeBase });
+  mkdirSync(dirname(pauseFile), { recursive: true, mode: 0o700 });
+  writeFileSync(pauseFile, "{}");
+  await assert.rejects(
+    () => startCentralMcpServer({ root: ".h2a", runtimeBase: f.runtimeBase }),
+    /central MCP root must be an absolute path/
+  );
+  assert.equal(existsSync(pauseFile), true, "pause file must remain untouched when relative root is rejected");
+  unlinkSync(pauseFile);
+
+  // 2. Direct CLI mcp-central-serve from two different cwds refuses relative root without mutation
+  const runServe = (cwd, extraArgs = [], extraEnv = {}) => {
+    try {
+      execFileSync(process.execPath, [bin, "mcp-central-serve", ...extraArgs], {
+        cwd,
+        env: { ...f.env, ...extraEnv },
+        stdio: ["ignore", "pipe", "pipe"]
+      });
+      return { code: 0, stderr: "" };
+    } catch (err) {
+      return { code: err.status, stderr: err.stderr.toString("utf8") };
+    }
+  };
+  const resA = runServe(repoA, ["--root", ".h2a"]);
+  assert.equal(resA.code, 1);
+  assert.match(resA.stderr, /central MCP root must be an absolute path/);
+  assert.equal(existsSync(join(repoA, ".h2a")), false, "repoA must not have .h2a created");
+
+  const resB = runServe(repoB, [], { H2A_ROOT: ".h2a" });
+  assert.equal(resB.code, 1);
+  assert.match(resB.stderr, /central MCP root must be an absolute path/);
+  assert.equal(existsSync(join(repoB, ".h2a")), false, "repoB must not have .h2a created");
+
+  // 3. Testing two different cwds with the exact same relative variable in policy
   const origCwd = process.cwd();
   try {
     process.chdir(repoA);
