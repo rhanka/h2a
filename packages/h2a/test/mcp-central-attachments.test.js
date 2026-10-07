@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { spawn, execFileSync } from "node:child_process";
 import { once } from "node:events";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { createInterface } from "node:readline";
 import { PassThrough } from "node:stream";
@@ -593,6 +593,37 @@ test("structured sidecar launches with readiness challenge stay on stdio and ack
       child.kill("SIGTERM");
       await once(child, "exit");
     }
+    f.cleanup();
+  }
+});
+
+test("H2A_MCP_CENTRAL=0 acts as independent escape hatch before reading configuration, even with invalid JSON or unreadable file", () => {
+  const f = fixture();
+  try {
+    const configDir = join(f.env.REMOTE_CLI_CONFIG_HOME, ".config", "sentropic", "h2a");
+    mkdirSync(configDir, { recursive: true });
+    const configPath = join(configDir, "config.json");
+
+    // Case 1: Invalid JSON in configuration
+    writeFileSync(configPath, "{ broken json content");
+    assert.equal(
+      shouldUseCentralMcp({ host: "claude" }, { ...f.env, H2A_MCP_CENTRAL: "0", CLAUDE_CODE_SESSION_ID: "session-r10" }, true),
+      false,
+      "H2A_MCP_CENTRAL=0 must return false without throwing when config is invalid JSON"
+    );
+
+    // Case 2: Unreadable config file (EACCES)
+    writeFileSync(configPath, '{"h2a":{"central":{"enabled":true}}}', { mode: 0o000 });
+    try {
+      chmodSync(configPath, 0o000);
+    } catch {}
+    assert.equal(
+      shouldUseCentralMcp({ host: "claude" }, { ...f.env, H2A_MCP_CENTRAL: "0", CLAUDE_CODE_SESSION_ID: "session-r10" }, true),
+      false,
+      "H2A_MCP_CENTRAL=0 must return false without throwing when config file is unreadable"
+    );
+  } finally {
+    try { chmodSync(join(f.env.REMOTE_CLI_CONFIG_HOME, ".config", "sentropic", "h2a", "config.json"), 0o600); } catch {}
     f.cleanup();
   }
 });
