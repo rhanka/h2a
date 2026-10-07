@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 /** Route MCP shims before importing the CLI, SDK, store or runtime. */
-import { canonicalCentralRoot, shouldUseCentralMcp } from "./runtime/mcp-central-policy.js";
+import { canonicalCentralRoot, centralRoutingEnabled, shouldUseCentralMcp } from "./runtime/mcp-central-policy.js";
 import { runCentralShim } from "./runtime/mcp-central-shim.js";
+import { readCentralMcpMarker } from "./runtime/mcp-central-discovery.js";
 
 const argv = process.argv.slice(2);
 const flags: Record<string, string> = {};
@@ -17,14 +18,29 @@ try {
     process.exitCode = await runCentralShim(flags, canonicalCentralRoot());
   } else if (argv[0] === "mcp-central-connect") {
     // Explicit v1 connectors remain readable; new Claude connectors carry the
-    // same causal context as mcp-serve. Unqualified named hosts and opt-outs use stdio.
-    const isClaude = flags.host === "claude" || (!flags.host && Boolean(process.env.CLAUDE_CODE_SESSION_ID?.trim()));
-    const effectiveFlags = { ...flags, ...(isClaude && !flags.host ? { host: "claude" } : {}) };
-    if (!shouldUseCentralMcp(effectiveFlags, process.env, true)) {
+    // same causal context as mcp-serve. Unqualified named hosts, missing markers,
+    // missing Claude ID, and opt-outs use stdio.
+    const paths = flags["runtime-base"] ? { runtimeBase: flags["runtime-base"] } : {};
+    const marker = readCentralMcpMarker(paths);
+    const hasClaudeId = Boolean(process.env.CLAUDE_CODE_SESSION_ID?.trim());
+    const optOut = !centralRoutingEnabled(process.env, true);
+
+    if (optOut || (flags.host && flags.host !== "claude") || !hasClaudeId || !marker) {
       process.argv[2] = "mcp-serve";
       await import("./bin-heavy.js");
     } else {
-      process.exitCode = await runCentralShim(effectiveFlags, canonicalCentralRoot());
+      const isClaude = flags.host === "claude" || !flags.host;
+      const effectiveFlags = {
+        ...flags,
+        ...(isClaude && !flags.host ? { host: "claude" } : {}),
+        endpoint: marker.endpoint
+      };
+      if (!shouldUseCentralMcp(effectiveFlags, process.env, true)) {
+        process.argv[2] = "mcp-serve";
+        await import("./bin-heavy.js");
+      } else {
+        process.exitCode = await runCentralShim(effectiveFlags, canonicalCentralRoot());
+      }
     }
   } else if (argv[0] === "central" && ["status", "stop", "residues"].includes(argv[1])) {
     const { centralOperator, centralResidueReport } = await import("./runtime/mcp-central-operator.js");
