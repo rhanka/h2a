@@ -32,13 +32,14 @@ import { occupiesSlot } from "./registry.js";
 import { humanAge } from "./migrate-candidates.js";
 import { AGY_DEFAULT_MODEL } from "./profiles.js";
 
-export type DelegateType = RegistryTool; // claude | codex | agy | muse
+export type DelegateType = RegistryTool; // claude | codex | agy | muse | vibe
 
 const DELEGATE_BIN: Readonly<Record<DelegateType, string>> = {
   claude: "claude",
   codex: "codex",
   agy: "agy",
   muse: "muse",
+  vibe: "vibe",
 };
 
 const CLAUDE_EFFORTS = new Set(["low", "medium", "high", "xhigh", "max"]);
@@ -50,7 +51,7 @@ export function assertDelegateEffort(
   type: DelegateType,
   effort: string | undefined,
 ): void {
-  if (effort === undefined || type === "agy") return;
+  if (effort === undefined || type === "agy" || type === "vibe") return;
   if (type === "claude" && !CLAUDE_EFFORTS.has(effort)) {
     throw new Error("invalid Claude effort (use low|medium|high|xhigh|max)");
   }
@@ -93,6 +94,10 @@ function delegateModelEffortFlags(
         ...(effort ? ["--reasoning-effort", effort] : []),
       ];
     }
+    case "vibe":
+      // Vibe has no model/effort launch argv (model selection is config/env:
+      // VIBE_ACTIVE_MODEL, thinking level); a wrong flag would fail the spawn.
+      return [];
   }
 }
 
@@ -108,7 +113,7 @@ export function assertSafeName(name: string): void {
 }
 
 export function isDelegateType(value: string): value is DelegateType {
-  return value === "claude" || value === "codex" || value === "agy" || value === "muse";
+  return value === "claude" || value === "codex" || value === "agy" || value === "muse" || value === "vibe";
 }
 
 /**
@@ -148,6 +153,11 @@ export function buildDelegateArgs(
       return { command, args: [...modelFlags, "exec", task] };
     case "muse":
       return { command, args: [...modelFlags, "exec", task] };
+    case "vibe":
+      // Verified against `vibe --help`: `-p, --prompt [TEXT]` is the documented
+      // one-shot programmatic mode — the same prompt-as-trailing-argv-token
+      // contract as claude -p / codex exec.
+      return { command, args: [...modelFlags, "-p", task] };
     case "agy":
       throw new Error(
         "agy has no confirmed headless mode — run it interactively (drop --headless)",
@@ -214,6 +224,10 @@ export function buildThrottleResumeArgs(
     case "muse":
       throw new Error(
         "muse has no headless resume mode — `muse exec` takes a positional prompt, resume it interactively",
+      );
+    case "vibe":
+      throw new Error(
+        "vibe has no measured headless resume mode — the `--resume <id>`/`-c` + `-p` combination is unverified; resume it interactively",
       );
   }
 }

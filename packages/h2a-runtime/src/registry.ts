@@ -41,7 +41,7 @@ import type { SessionClass } from "./session-class.js";
 import { nativeSessionLiveness } from "./native-host.js";
 import { readBootId, readMachineId, readPidNamespaceId } from "./proc-identity.js";
 
-export type RegistryTool = "claude" | "codex" | "agy" | "muse";
+export type RegistryTool = "claude" | "codex" | "agy" | "muse" | "vibe";
 export type RegistryKind = "local-tmux" | "local-native" | "local" | "remote";
 
 /** Managed local interactive session hosted by tmux OR the native PTY host. */
@@ -938,7 +938,7 @@ function isRegistryEntry(raw: unknown): raw is RegistryEntry {
   const e = raw as Record<string, unknown>;
   return (
     typeof e.id === "string" &&
-    (e.tool === "claude" || e.tool === "codex" || e.tool === "agy" || e.tool === "muse") &&
+    (e.tool === "claude" || e.tool === "codex" || e.tool === "agy" || e.tool === "muse" || e.tool === "vibe") &&
     (e.kind === "local-tmux" || e.kind === "local-native" || e.kind === "local" || e.kind === "remote") &&
     typeof e.cwd === "string" &&
     typeof e.enrolledAt === "string" &&
@@ -1583,6 +1583,9 @@ export function coerceRegistryTool(profile: string): RegistryTool | undefined {
     case "muse":
     case "muse-code":
       return "muse";
+    case "vibe":
+    case "mistral-vibe":
+      return "vibe";
     default:
       return undefined;
   }

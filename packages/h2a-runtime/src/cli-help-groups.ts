@@ -117,6 +117,7 @@ export const H2A_RUNTIME_HELP_GROUPS: readonly H2aRuntimeHelpGroup[] = [
       "gemini",
       "mistral",
       "muse",
+      "vibe",
       "opencode",
       "shell",
       "attach",

@@ -445,7 +445,7 @@ import {
   strategyRoutingConfig,
 } from "./routing-preferences.js";
 
-const KNOWN_PROFILE_HELP = `${CLI_PROFILES.join(", ")} (aliases: claude-code, antigravity, gemini-cli, mistralcli, muse-code)`;
+const KNOWN_PROFILE_HELP = `${CLI_PROFILES.join(", ")} (aliases: claude-code, antigravity, gemini-cli, mistralcli, muse-code, mistral-vibe)`;
 
 export const packageName = "@sentropic/h2a-runtime";
 export const H2A_RUNTIME_CLI_API_VERSION = 1;
@@ -2101,6 +2101,11 @@ function localResumeArgs(
     case "agy":
     case "antigravity":
       return ["--resume", ...(convId ? [convId] : [])];
+    case "vibe":
+    case "mistral-vibe":
+      // vibe: explicit id → --resume <id>; bare/most-recent → -c (never a
+      // bare --resume: that would open the interactive picker).
+      return convId ? ["--resume", convId] : ["-c"];
     default:
       return [];
   }
@@ -2876,6 +2881,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
     ["gemini", "gemini-cli"],
     ["mistral", "mistralcli"],
     ["muse", "muse-code"],
+    ["vibe", "mistral-vibe"],
     ["opencode", undefined],
     ["shell", undefined],
   ] as const) {
@@ -10570,7 +10576,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
     .command("enroll <provider>")
     .description(
       "Enroll through the sentropic-owned OAuth state machine " +
-        "(cloud-code, codex, muse CLI-store import, or muse-code device flow)",
+        "(cloud-code, codex, muse CLI-store import, muse-code device flow, or mistral-vibe browser sign-in — alias: vibe)",
     )
     .option("--config-ref <ref>", "sentropic configuration reference for OAuth")
     .action(
@@ -10580,16 +10586,24 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           configRef?: string;
         },
       ) => {
-        if (provider !== "cloud-code" && provider !== "codex" && provider !== "muse" && provider !== "muse-code") {
+        // "vibe" is the CLI-friendly alias of the mistral-vibe transport.
+        const normalized = provider === "vibe" ? "mistral-vibe" : provider;
+        if (
+          normalized !== "cloud-code" &&
+          normalized !== "codex" &&
+          normalized !== "muse" &&
+          normalized !== "muse-code" &&
+          normalized !== "mistral-vibe"
+        ) {
           process.stderr.write(
             `[h2a] llm-mesh account: unsupported provider "${provider}". ` +
-              "Supported: cloud-code, codex, muse, muse-code\n",
+              "Supported: cloud-code, codex, muse, muse-code, mistral-vibe (alias: vibe)\n",
           );
           process.exitCode = 1;
           return;
         }
         try {
-          const account = await enrollViaFacade(provider, {
+          const account = await enrollViaFacade(normalized, {
             ...(opts.configRef ? { configRef: opts.configRef } : {}),
           });
           process.stdout.write(

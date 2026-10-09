@@ -1,6 +1,5 @@
 {
-  "note": "Pins EVERY top-level command row of the runtime entrypoint's --help: term, description and the intention group it renders under. Generated from the built runtime; regenerate deliberately, never to make a red test green. The ROOT description is intentionally NOT here - it is top-level prose and it changed by design; it is pinned separately as rootDescriptionContains.",
-  "commandCount": 50,
+  "commandCount": 51,
   "descriptionsWrapped": false,
   "rootDescriptionContains": [
     "The unified sentropic CLI and core",
@@ -36,6 +35,11 @@
       "group": "Start — begin, return to, or end a work session:",
       "term": "muse|muse-code [options] [commandArgs...]",
       "description": "Run muse via h2a"
+    },
+    {
+      "group": "Start — begin, return to, or end a work session:",
+      "term": "vibe|mistral-vibe [options] [commandArgs...]",
+      "description": "Run vibe via h2a"
     },
     {
       "group": "Start — begin, return to, or end a work session:",
