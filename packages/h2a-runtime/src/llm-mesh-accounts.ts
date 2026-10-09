@@ -6,7 +6,7 @@ import type { AccountPublic } from "@sentropic/cluster-mesh/llm-mesh/enrollment"
 
 export interface LlmMeshEnrollmentAccount {
   accountId: string;
-  provider: "cloud-code" | "codex" | "muse" | "muse-code";
+  provider: "cloud-code" | "codex" | "muse" | "muse-code" | "mistral-vibe";
   label: string;
 }
 
@@ -98,7 +98,7 @@ function openEnrollmentBrowser(url: string): void {
  * the facade/keyring and are not copied into h2a config.
  */
 export async function enrollViaFacade(
-  provider: "cloud-code" | "codex" | "muse" | "muse-code",
+  provider: "cloud-code" | "codex" | "muse" | "muse-code" | "mistral-vibe",
   options: FacadeEnrollmentOptions = {},
 ): Promise<LlmMeshEnrollmentAccount> {
   const facade = options.facade ?? createCliLlmMeshFacade();
@@ -153,8 +153,8 @@ export async function enrollViaFacade(
   if (provider === "muse-code") {
     // Native Meta device flow (RFC 8628, MuseCodeEnrollmentProvider
     // mesh-side): print the user code + verification URL, then complete via
-    // the muse-specific device import — NOT the generic pollForCompletion,
-    // which the mesh service hard-wires to the codex provider.
+    // the muse-specific device import — the muse-code key mint is its own
+    // completion contract, not the generic pollForCompletion.
     const deviceSession = session as unknown as {
       kind: string;
       enrollmentId: string;
@@ -181,6 +181,28 @@ export async function enrollViaFacade(
       deviceSession.enrollmentId,
       ownerScope,
     );
+    return { accountId: completed.accountId, provider, label: completed.label };
+  }
+
+  if (provider === "mistral-vibe") {
+    // Mistral Vibe native browser sign-in (MistralVibeEnrollmentProvider
+    // mesh-side): start() returns the console.mistral.ai sign-in URL
+    // (authorization-url); completion is POLL-based — the provider polls the
+    // sign-in process internally, so there is no OAuth callback leg for
+    // waitForCallback to catch. Verified in-vivo end-to-end: PKCE start →
+    // browser approval → poll → exchange mints a long-lived API key billed
+    // against the signed-in plan's Vibe Code quota (refresh fails closed).
+    const vibeSession = session as unknown as {
+      kind: string;
+      enrollmentId: string;
+      url: string;
+    };
+    if (vibeSession.kind !== "authorization-url") {
+      throw new Error("Mistral Vibe enrollment did not return a sign-in URL");
+    }
+    process.stdout.write(`[h2a] llm-mesh: open ${vibeSession.url}\n`);
+    (options.openBrowser ?? openEnrollmentBrowser)(vibeSession.url);
+    const completed = await facade.pollForCompletion(vibeSession.enrollmentId);
     return { accountId: completed.accountId, provider, label: completed.label };
   }
 

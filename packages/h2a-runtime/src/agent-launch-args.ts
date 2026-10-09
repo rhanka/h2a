@@ -1,4 +1,4 @@
-export const AGENT_LAUNCH_PROFILES = ["claude", "codex", "agy", "muse"] as const;
+export const AGENT_LAUNCH_PROFILES = ["claude", "codex", "agy", "muse", "vibe"] as const;
 export type AgentLaunchProfile = (typeof AGENT_LAUNCH_PROFILES)[number];
 
 export const AGENT_LAUNCH_EFFORTS = ["low", "medium", "high", "xhigh"] as const;
@@ -122,6 +122,24 @@ export function buildAgentLaunchArgs(options: AgentLaunchArgsOptions): string[] 
           ]
         : []),
       ...(options.resumeId ? ["--conversation", options.resumeId] : []),
+    ];
+  }
+
+  if (options.profile === "vibe") {
+    if (options.headless) {
+      // Verified against `vibe --help`: `-p, --prompt [TEXT]` takes the prompt
+      // as an ARGV value; whether an omitted TEXT falls back to stdin is NOT
+      // measured. The framework never serializes prompts into argv, so refuse
+      // loudly instead of guessing; interactive/background launches paste via
+      // the PTY/tmux stdin path.
+      throw new Error(
+        "headless vibe launch is not supported: vibe -p takes the prompt as argv, and the stdin fallback is not measured",
+      );
+    }
+    return [
+      // Model/effort are config/env concerns on vibe (VIBE_ACTIVE_MODEL,
+      // thinking level), not launch argv flags.
+      ...(options.resumeId ? ["--resume", options.resumeId] : []),
     ];
   }
 

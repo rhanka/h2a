@@ -6,10 +6,19 @@ import {
   validateEquivalenceCouncil,
   validateRoutePolicy,
   type ModelEquivalenceCouncil,
+  type ModelProfile,
   type RoutePolicy,
   type RoutePolicyProfile,
   type RouteSelector,
 } from "@sentropic/cluster-mesh/llm-mesh";
+
+// llm-mesh 0.23.1's published catalog literal omits maxOutputTokens on the
+// mistral-large-4 entry (optional in the literal, required in
+// ModelCapabilities), so its own `modelProfiles` export does not satisfy its
+// own `readonly ModelProfile[]` under exactOptionalPropertyTypes. Upstream
+// declaration gap (catalog fix owed in llm-mesh 0.23.2), not a runtime defect.
+// Narrow-cast at the single consumption site instead of widening local types.
+const CATALOG_MODEL_PROFILES = modelProfiles as unknown as readonly ModelProfile[];
 
 export interface LlmMeshRoutingConfig {
   /** Host-level public policy override. Canonical routing knowledge remains in llm-mesh. */
@@ -52,7 +61,7 @@ export function validateLlmMeshRoutingConfig(
   }
   if (config.activeProfile) profiles.activate(config.activeProfile);
   if (config.council) {
-    validateEquivalenceCouncil(config.council, modelProfiles);
+    validateEquivalenceCouncil(config.council, CATALOG_MODEL_PROFILES);
   }
   return config;
 }
