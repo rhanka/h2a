@@ -145,6 +145,12 @@ describe("buildDelegateArgs (pure, task is a single argv token)", () => {
   it("headless agy is rejected (no confirmed headless mode)", () => {
     expect(() => buildDelegateArgs("agy", "x", true)).toThrow(/headless/);
   });
+
+  it("headless: vibe -p, task still a single token (documented programmatic mode)", () => {
+    const res = buildDelegateArgs("vibe", "do X; $(touch /tmp/must-not-run)", true);
+    expect(res.command).toBe("vibe");
+    expect(res.args).toEqual(["-p", "do X; $(touch /tmp/must-not-run)"]);
+  });
 });
 
 describe("assertSafeName / isDelegateType (name + type guards)", () => {
@@ -811,6 +817,12 @@ describe("buildThrottleResumeArgs (per-type continue command, safe argv)", () =>
 
   it("agy headless resume is rejected (phase 2)", () => {
     expect(() => buildThrottleResumeArgs("agy", "x")).toThrow(/headless|phase 2/i);
+  });
+
+  it("throttle resume: vibe throws (no measured headless resume combo)", () => {
+    expect(() => buildThrottleResumeArgs("vibe", "do X")).toThrow(
+      /no measured headless resume mode/,
+    );
   });
 });
 

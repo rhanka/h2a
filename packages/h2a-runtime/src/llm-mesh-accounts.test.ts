@@ -115,6 +115,79 @@ describe("facade enrollment", () => {
     expect(facade.waitForCallback).not.toHaveBeenCalled();
   });
 
+  it("opens the Mistral Vibe sign-in URL and polls the facade (mistral-vibe)", async () => {
+    // The Mistral Vibe native browser sign-in: start() returns the console
+    // sign-in URL (authorization-url) but completion is POLL-based — the
+    // provider polls its sign-in process internally, so there is no OAuth
+    // callback leg for waitForCallback to catch.
+    const facade = {
+      enroll: vi.fn().mockResolvedValue({
+        kind: "authorization-url",
+        enrollmentId: "enroll-mistral-vibe",
+        url: "https://console.mistral.ai/codestral/cli/authenticate?process_id=p1",
+        expiresAt: "2026-10-08T01:00:00.000Z",
+      }),
+      waitForCallback: vi.fn(),
+      pollForCompletion: vi.fn().mockResolvedValue({
+        accountId: "account-mistral-vibe",
+        label: "Mistral Vibe (Pro plan)",
+      }),
+    } as unknown as LlmMeshFacade;
+    const openBrowser = vi.fn();
+    vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+
+    await expect(enrollViaFacade("mistral-vibe", {
+      facade,
+      openBrowser,
+      configRef: "config-v1",
+      ownerScope: "cli:test-host",
+      redirectUri: "http://127.0.0.1",
+    })).resolves.toEqual({
+      accountId: "account-mistral-vibe",
+      provider: "mistral-vibe",
+      label: "Mistral Vibe (Pro plan)",
+    });
+
+    expect(facade.enroll).toHaveBeenCalledWith("mistral-vibe", {
+      configRef: "config-v1",
+      mode: "cli",
+      ownerScope: "cli:test-host",
+      redirectUri: "http://127.0.0.1",
+    });
+    expect(openBrowser).toHaveBeenCalledWith(
+      "https://console.mistral.ai/codestral/cli/authenticate?process_id=p1",
+    );
+    expect(facade.pollForCompletion).toHaveBeenCalledWith("enroll-mistral-vibe");
+    expect(facade.waitForCallback).not.toHaveBeenCalled();
+  });
+
+  it("rejects a mistral-vibe session that is not an authorization URL", async () => {
+    const facade = {
+      enroll: vi.fn().mockResolvedValue({
+        kind: "device-code",
+        enrollmentId: "enroll-mistral-vibe-bad",
+        userCode: "ABCD-EFGH",
+        verificationUrl: "https://auth.example/device",
+        expiresAt: "2026-10-08T01:00:00.000Z",
+        intervalSeconds: 5,
+      }),
+      waitForCallback: vi.fn(),
+      pollForCompletion: vi.fn(),
+    } as unknown as LlmMeshFacade;
+    const openBrowser = vi.fn();
+    vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+
+    await expect(enrollViaFacade("mistral-vibe", {
+      facade,
+      openBrowser,
+      configRef: "config-v1",
+      ownerScope: "cli:test-host",
+      redirectUri: "http://127.0.0.1",
+    })).rejects.toThrow(/Mistral Vibe enrollment did not return a sign-in URL/);
+    expect(openBrowser).not.toHaveBeenCalled();
+    expect(facade.pollForCompletion).not.toHaveBeenCalled();
+  });
+
   it("completes Muse device-flow enrollment via completeMuseDeviceImport (muse-code)", async () => {
     const facade = {
       enroll: vi.fn().mockResolvedValue({

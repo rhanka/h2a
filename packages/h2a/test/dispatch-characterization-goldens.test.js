@@ -30,7 +30,12 @@ const BIN = join(REPO_ROOT, "packages", "h2a", "dist", "bin.js");
 // cluster-mesh 0.98 adds ` [--backend local|cluster-mesh]` to the `send` and `mcp-serve` usage lines
 // (+62 bytes). Removing both occurrences recovers main's 13,497-byte stream and its SHA-256.
 // Explicit launch-index maintenance adds 90 bytes to core help.
-const CORE_HELP_SHA256 = "67118bef6efe791be8099034a8b03f6f6a79366fc52ce188098bccbc74d0b427";
+// Updated for the vibe host (feat/0.98.x-vibe-mesh-train): the core (runtime-absent) help gains
+// the `vibe` host. The +32 bytes are entirely in cli.ts: four `|vibe` alternatives on the host
+// setup / host plugin / connect / install-skills usage lines (+20), the poll-only note
+// "agy, muse and vibe are poll-only" (+6), and the `Hosts:` line from CLI_HOSTS (+6).
+// Removing the vibe insertions recovers the launch-index-era 13,649-byte stream and its SHA-256.
+const CORE_HELP_SHA256 = "0baaf8d0e3ed88527936eb1d224366a1743b28f9b17f1118af1993a033269cfb";
 const RUNTIME_MISSING =
   "ce verbe requiert le runtime h2a (sessions / k8s / tunnel).\n" +
   "  Répare l'installation lockstep : npm i -g @sentropic/h2a@latest\n";
@@ -123,8 +128,10 @@ function assertCoreHelp(result) {
   // durable report records this value and its byte length.
   assert.equal(createHash("sha256").update(result.stdout).digest("hex"), CORE_HELP_SHA256);
   // 13,391 + 102 (mcp-serve wording) + 4 (h2a upgrade wording) for DEC-107 (0.97.8),
-  // + 62 for the two 0.98 ` [--backend local|cluster-mesh]` usage flags.
-  assert.equal(Buffer.byteLength(result.stdout), 13649);
+  // + 62 for the two 0.98 ` [--backend local|cluster-mesh]` usage flags,
+  // + 90 for the explicit launch-index maintenance wording,
+  // + 32 for the vibe host (four `|vibe` usage alternatives, poll-only note, Hosts line).
+  assert.equal(Buffer.byteLength(result.stdout), 13681);
 }
 
 function assertMissingRuntime(result, firstToken) {
