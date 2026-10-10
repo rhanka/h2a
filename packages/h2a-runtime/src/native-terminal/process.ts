@@ -5,7 +5,7 @@ import { resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { NativeTerminalHost, readProcessStartTime } from "./host.js";
-import { appendHostJournal, createHostJournalWriter, getRuntimeVersion, type HostJournalEntry } from "./journal.js";
+import { createHostJournalWriter, getRuntimeVersion, type HostJournalEntry } from "./journal.js";
 import { nodePtySpawner } from "../pty.js";
 import {
   NATIVE_TERMINAL_DEFAULT_MAX_SESSIONS,
@@ -118,14 +118,14 @@ export async function runNativeTerminalHostProcess(argv: ReadonlyArray<string>):
   let cause: Extract<HostJournalEntry, { event: "exit" }>["cause"] = "unknown";
   const identity = () => ({ pid: process.pid, startTime, generation: options?.generation ?? "unknown" } as const);
   const journal = createHostJournalWriter();
-  // Terminal observations must be synchronous: Node cannot await in exit.
-  // The monitor preserves Node's fatal exception/rejection behavior.
+  // Exit callbacks only enqueue observations. The independent writer has its
+  // own bounded drain; the monitor preserves Node's fatal behavior.
   process.on("exit", (exitCode) => {
-    appendHostJournal({ event: "exit", ...identity(), exitCode, cause });
+    journal.write({ event: "exit", ...identity(), exitCode, cause });
   });
   process.on("uncaughtExceptionMonitor", (error: Error, origin) => {
     cause = origin === "unhandledRejection" ? "unhandledRejection" : "uncaughtException";
-    appendHostJournal({ event: cause, ...identity(), error: error.message, stack: error.stack, codePath });
+    journal.write({ event: cause, ...identity(), error: error.message, stack: error.stack, codePath });
   });
 
   try {
@@ -185,7 +185,7 @@ export async function runNativeTerminalHostProcess(argv: ReadonlyArray<string>):
         if (gracefulError !== undefined) throw gracefulError;
       })();
       void shutdown.then(
-        () => {
+        async () => {
           cause = "clean-stop";
           journal.write({
             event: "stop",
@@ -193,6 +193,7 @@ export async function runNativeTerminalHostProcess(argv: ReadonlyArray<string>):
             clean: true,
           });
           process.exitCode = 0;
+          await journal.flush();
         },
         (error) => {
           journal.write({
@@ -210,7 +211,7 @@ export async function runNativeTerminalHostProcess(argv: ReadonlyArray<string>):
     process.once("SIGHUP", () => stop("SIGHUP"));
   } catch (error) {
     cause = "startupError";
-    appendHostJournal({ event: "startupError", ...identity(), error: "[REDACTED]",
+    journal.write({ event: "startupError", ...identity(), error: "[REDACTED]",
       stack: error instanceof Error ? error.stack : undefined, codePath });
     throw error;
   }

@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { fork, type ChildProcess } from "node:child_process";
 import { closeSync, constants, existsSync, fchmodSync, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, renameSync, unlinkSync, writeSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
@@ -6,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { isMainThread, parentPort, Worker, workerData } from "node:worker_threads";
 
 export const MAX_HOST_JOURNAL_BYTES = 1024 * 1024;
+export const HOST_JOURNAL_DRAIN_MS = 100;
 type Identity = { pid: number; startTime: number | "unknown"; generation: string };
 export type HostJournalEntry =
   | (Identity & { event: "start"; version: string; codePath: string; socket: string })
@@ -33,7 +35,7 @@ export function getRuntimeVersion(): string {
 
 const runtimeDirectory = resolve(fileURLToPath(new URL("../", import.meta.url)));
 const pathEnvironment = new Set(["HOME", "PATH", "PWD", "OLDPWD", "TMPDIR", "NODE_PATH", "TERM", "LANG",
-  "XDG_RUNTIME_DIR", "XDG_STATE_HOME", "XDG_CONFIG_HOME", "REMOTE_CLI_CONFIG_HOME", "H2A_SESSION_HOST"]);
+  "XDG_RUNTIME_DIR", "XDG_STATE_HOME", "XDG_CONFIG_HOME", "REMOTE_CLI_CONFIG_HOME", "H2A_SESSION_HOST", "H2A_NATIVE_SOCKET"]);
 function safeText(value: string): string {
   let result = value.slice(0, 4096);
   for (const [key, secret] of Object.entries(process.env)) {
@@ -99,7 +101,7 @@ function writeAll(fd: number, text: string): void {
   }
 }
 
-/** Best effort final-event/worker write. One lock attempt, no wait or stale-lock
+/** Best effort writer-side append. One lock attempt, no wait or stale-lock
  * reclamation. An orphan lock conservatively causes counted drops until removed
  * by its owner/operator; it never authorizes concurrent unlocked rotation. */
 export function appendHostJournal(entry: HostJournalEntry, logPath = resolveHostJournalPath()): boolean {
@@ -147,27 +149,74 @@ export function appendHostJournal(entry: HostJournalEntry, logPath = resolveHost
   }
 }
 
-/** Ordinary lifecycle I/O runs off the host thread. The bounded mailbox drops
- * when full/unavailable. Only terminal exit/error observations write inline,
- * because Node cannot await I/O in its exit callback. No PID watcher exists. */
-export function createHostJournalWriter(logPath = resolveHostJournalPath()): { write(entry: HostJournalEntry): void } {
-  let worker: Worker | undefined, pending = 0;
+/** A separate writer process receives terminal observations even after Node's
+ * fatal exit. It never retains the host; both graceful flush and writer drain
+ * have a fixed deadline. All journal filesystem operations run in its thread. */
+export function createHostJournalWriter(logPath = resolveHostJournalPath()): {
+  write(entry: HostJournalEntry): void;
+  flush(): Promise<void>;
+} {
+  let worker: ChildProcess | undefined, pending = 0;
+  const flushes = new Set<() => void>();
+  const settle = () => { if (pending === 0) for (const finish of flushes) finish(); };
   try {
-    worker = new Worker(new URL(import.meta.url), { workerData: { nativeHostJournal: true, logPath } });
+    // Preserve source-test loaders, without replaying a host's eval/CLI flags.
+    const execArgv: string[] = [];
+    for (let index = 0; index < process.execArgv.length; index += 1) {
+      const arg = process.execArgv[index]!;
+      if (["--import", "--loader", "--experimental-loader"].includes(arg)) execArgv.push(arg, process.execArgv[++index]!);
+      else if (/^--(?:import|loader|experimental-loader)=/.test(arg)) execArgv.push(arg);
+    }
+    worker = fork(fileURLToPath(import.meta.url), ["--native-host-journal-writer", logPath],
+      { execArgv, stdio: ["ignore", "ignore", "ignore", "ipc"] });
     worker.on("message", (written: boolean) => {
       if (!written) dropped += 1; // The worker retains its pending drop receipt.
-      pending -= 1;
-      if (pending === 0) worker?.unref();
+      pending = Math.max(0, pending - 1);
+      settle();
     });
-    worker.on("error", () => { drop(logPath, pending); pending = 0; worker = undefined; });
-    worker.on("exit", () => { if (pending > 0) drop(logPath, pending); pending = 0; worker = undefined; });
+    const unavailable = () => { if (pending > 0) drop(logPath, pending); pending = 0; worker = undefined; settle(); };
+    worker.on("error", unavailable);
+    worker.on("exit", unavailable);
     worker.unref();
+    worker.channel?.unref();
   } catch { worker = undefined; }
   return { write(entry) {
     if (!worker || pending >= 64) { drop(logPath); return; }
-    try { worker.ref(); worker.postMessage(entry); pending += 1; }
-    catch { drop(logPath); if (pending === 0) worker.unref(); }
+    try {
+      const bounded = "error" in entry ? { ...entry, error: "[REDACTED]", stack: entry.stack?.slice(0, 32_768) } : entry;
+      worker.send(bounded);
+      pending += 1;
+      worker.channel?.unref();
+    } catch { drop(logPath); }
+  }, flush() {
+    if (pending === 0) return Promise.resolve();
+    return new Promise(resolve => {
+      const finish = () => { clearTimeout(deadline); flushes.delete(finish); resolve(); };
+      const deadline = setTimeout(finish, HOST_JOURNAL_DRAIN_MS);
+      flushes.add(finish);
+    });
   } };
+}
+
+// This coordinator can still enforce a drain deadline when its I/O thread is
+// stuck in the filesystem. Parent EOF is a transport observation, not an
+// invented host signal or lifecycle event.
+if (isMainThread && process.argv[2] === "--native-host-journal-writer" && process.send) {
+  const writer = new Worker(new URL(import.meta.url), { workerData: { nativeHostJournal: true, logPath: process.argv[3] } });
+  let pending = 0, disconnected = false;
+  const finish = () => { if (disconnected && pending === 0) process.exit(0); };
+  process.on("message", (entry: HostJournalEntry) => { pending += 1; writer.postMessage(entry); });
+  writer.on("message", (written: boolean) => {
+    pending -= 1;
+    if (process.connected) process.send?.(written);
+    finish();
+  });
+  writer.on("error", () => process.exit(1));
+  process.once("disconnect", () => {
+    disconnected = true;
+    setTimeout(() => process.exit(0), HOST_JOURNAL_DRAIN_MS);
+    finish();
+  });
 }
 
 if (!isMainThread && workerData?.nativeHostJournal === true) {

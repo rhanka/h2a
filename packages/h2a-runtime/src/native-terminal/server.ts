@@ -686,19 +686,43 @@ function findActiveHostServingSocket(
     }
 
     let hasSocketFd = false;
+    let unixSockets: Map<string, string> | undefined;
     for (const fd of fds) {
+      let link: string;
       try {
-        const link = readlinkSync(join(fdDir, fd));
-        if (link.startsWith("socket:[")) {
-          hasSocketFd = true;
-          break;
-        }
+        link = readlinkSync(join(fdDir, fd));
       } catch (err) {
         if ((err as NodeJS.ErrnoException).code === "ENOENT" || (err as NodeJS.ErrnoException).code === "ESRCH") continue;
         return {
           state: "unknown",
           reason: `cannot readlink /proc/${pid}/fd/${fd}: ${err instanceof Error ? err.message : String(err)}`,
         };
+      }
+      const inode = /^socket:\[(\d+)\]$/.exec(link)?.[1];
+      if (!inode) continue;
+      if (!unixSockets) {
+        try {
+          unixSockets = new Map(readFileSync(join(pidDir, "net", "unix"), "utf8")
+            .split("\n").flatMap(line => {
+              const row = /^\S+\s+\S+\s+\S+\s+\S+\s+\S+\s+\S+\s+(\d+)(?:\s+(.*))?$/.exec(line);
+              return row?.[2] ? [[row[1]!, row[2]] as const] : [];
+            }));
+        } catch (error) {
+          return { state: "unknown", reason: `cannot inspect /proc/${pid}/net/unix: ${String(error)}` };
+        }
+      }
+      const boundPath = unixSockets.get(inode);
+      // Stdio and journal IPC are Unix socket pairs too. Only the native
+      // listener's canonical or PID-attributed staged address proves service,
+      // including a listener whose filesystem pathname has been unlinked.
+      if (!boundPath || (boundPath !== candidateSocket && !(dirname(boundPath) === candDir
+        && basename(boundPath).startsWith(`.${candStem}.${pid}.`) && boundPath.endsWith(".sock")))) continue;
+      const canonicalBound = canonicalizePath(boundPath);
+      if (!canonicalBound) return { state: "unknown", reason: `cannot canonicalize bound socket for host pid ${pid}` };
+      if (canonicalBound === targetCanonical || (dirname(canonicalBound) === dirname(targetCanonical)
+        && basename(canonicalBound).startsWith(`.${candStem}.${pid}.`))) {
+        hasSocketFd = true;
+        break;
       }
     }
     if (!hasSocketFd) continue;
