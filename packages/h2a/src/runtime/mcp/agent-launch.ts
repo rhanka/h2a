@@ -15,6 +15,10 @@ export type H2aRunGateway = (typeof H2A_RUN_GATEWAYS)[number];
 export const H2A_RUN_API_VERSION = "h2a.run/v1";
 const launchRequestTimes = new WeakMap<H2aRunRequest, number>();
 
+function isNativeClaudeLaunch(request: H2aRunRequest): boolean {
+  return request.profile === "claude" && !request.headless && process.env.H2A_SESSION_HOST?.toLowerCase() !== "tmux";
+}
+
 function recoveredAttempt(receipt: Record<string, unknown> | undefined): Record<string, unknown> {
   const owner = (receipt?.ownership as { sessions?: Array<Record<string, unknown>> } | undefined)?.sessions?.[0];
   return { ageMs: typeof receipt?.requestedAt === "number" ? Math.max(0, Date.now() - receipt.requestedAt) : null,
@@ -317,7 +321,7 @@ export function buildH2aRunInvocation(
       "--name",
       request.name,
       "--prompt-stdin",
-      ...(request.profile === "claude" && !request.headless ? ["--launch-contract", "claude-native/2"] : []),
+      ...(isNativeClaudeLaunch(request) ? ["--launch-contract", "claude-native/2"] : []),
       request.h2aSidecar ? "--h2a" : "--no-h2a",
       ...(request.gateway === "required"
         ? ["--gw"]
@@ -417,7 +421,7 @@ export function executeH2aRunWithSpawn(
   launchToken = randomUUID(),
 ): unknown {
   const requestedAt = launchRequestTimes.get(request) ?? Date.now();
-  const nativeClaude = request.profile === "claude" && !request.headless;
+  const nativeClaude = isNativeClaudeLaunch(request);
   const invocation = buildH2aRunInvocation(request);
   const result = spawn(invocation.command, invocation.args, {
     cwd: invocation.cwd,
@@ -432,7 +436,7 @@ export function executeH2aRunWithSpawn(
     maxBuffer: 1_048_576,
   });
   if (result.error) {
-    const recovered = recoveredSubmission(request, launchToken);
+    const recovered = nativeClaude ? recoveredSubmission(request, launchToken) : undefined;
     if (recovered) return recovered;
     const timedOut = (result.error as NodeJS.ErrnoException).code === "ETIMEDOUT";
     if (timedOut) {
@@ -483,7 +487,7 @@ export function executeH2aRunWithSpawn(
     throw result.error;
   }
   if (result.status !== 0) {
-    const recovered = recoveredSubmission(request, launchToken);
+    const recovered = nativeClaude ? recoveredSubmission(request, launchToken) : undefined;
     if (recovered) return recovered;
     try {
       const failure = JSON.parse(result.stdout ?? "") as Record<string, unknown>;
@@ -514,21 +518,21 @@ export function executeH2aRunWithSpawn(
   try {
     parsed = JSON.parse((result.stdout ?? "").trim());
   } catch {
-    const recovered = recoveredSubmission(request, launchToken);
+    const recovered = nativeClaude ? recoveredSubmission(request, launchToken) : undefined;
     if (recovered) return recovered;
     throw new Error("incompatible h2a runtime: h2a run did not return JSON");
   }
   try { return contractResult(parsed, request); }
-  catch (error) { const recovered = recoveredSubmission(request, launchToken); if (recovered) return recovered; throw error; }
+  catch (error) { const recovered = nativeClaude ? recoveredSubmission(request, launchToken) : undefined; if (recovered) return recovered; throw error; }
 }
 
 export async function executeH2aRunWithAsyncSpawn(
   request: H2aRunRequest,
   spawnRuntime: typeof spawn = spawn,
-  runtimeBudgetMs = request.profile === "claude" && !request.headless ? 16000 : request.profile === "codex" || request.profile === "muse" ? 270_000 : 180_000,
+  runtimeBudgetMs = isNativeClaudeLaunch(request) ? 16000 : request.profile === "codex" || request.profile === "muse" ? 270_000 : 180_000,
 ): Promise<Record<string, unknown>> {
   const requestedAt = launchRequestTimes.get(request) ?? Date.now();
-  const nativeClaude = request.profile === "claude" && !request.headless;
+  const nativeClaude = isNativeClaudeLaunch(request);
   if (nativeClaude) runtimeBudgetMs = Math.min(runtimeBudgetMs, Math.max(1, requestedAt + 16000 - Date.now()));
   const invocation = buildH2aRunInvocation(request);
   const launchToken = randomUUID();
@@ -563,7 +567,7 @@ export async function executeH2aRunWithAsyncSpawn(
     });
     child.stdin!.end(invocation.input);
   });
-  const recovered = recoveredSubmission(request, launchToken);
+  const recovered = nativeClaude ? recoveredSubmission(request, launchToken) : undefined;
   if ((result.error || result.overflow || result.timedOut || result.status !== 0) && recovered) return recovered;
   if (result.overflow) throw new Error("h2a_run: runtime output exceeded its buffer budget");
   if (result.error) throw result.error;

@@ -1,4 +1,4 @@
-import { describe, it } from "node:test";
+import { describe, it, mock } from "node:test";
 import assert from "node:assert/strict";
 const { executeH2aRunWithSpawn, executeH2aRunWithAsyncSpawn } = await import(process.env.QUAL_MCP_MODULE ?? "../dist/runtime/mcp/agent-launch.js");
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
@@ -8,6 +8,41 @@ import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 
 describe("MCP adapter alignment: launch-unconfirmed", () => {
+  for (const host of ["tmux", "TMUX"]) {
+    it(`should retain the historical synchronous Claude protocol on ${host}`, () => {
+      const previous = process.env.H2A_SESSION_HOST;
+      process.env.H2A_SESSION_HOST = host;
+      const request = { profile: "claude", name: "tmux-contract", workspace: process.cwd(), prompt: "one brief", background: true, gateway: "off", headless: false, h2aSidecar: false };
+      let argv, options;
+      try {
+        assert.throws(() => executeH2aRunWithSpawn(request, (_command, args, opts) => {
+          argv = args; options = opts; return { status: 1, stdout: "", stderr: "legacy failure" };
+        }), /legacy failure/);
+        assert.equal(options.timeout, 180_000);
+        assert.equal(argv.includes("--launch-contract"), false);
+        assert.equal(options.env.H2A_RUN_REQUESTED_AT, undefined);
+      } finally { if (previous === undefined) delete process.env.H2A_SESSION_HOST; else process.env.H2A_SESSION_HOST = previous; }
+    });
+  }
+  it("should retain the historical asynchronous Claude budget and ignore native receipts on tmux", async () => {
+    const previous = process.env.H2A_SESSION_HOST, workspace = mkdtempSync(join(tmpdir(), "mcp-tmux-"));
+    process.env.H2A_SESSION_HOST = "tmux";
+    const request = { profile: "claude", name: "w", workspace, prompt: "one brief", background: true, gateway: "off", headless: false, h2aSidecar: false };
+    const budgets = [], original = globalThis.setTimeout;
+    const timer = mock.method(globalThis, "setTimeout", (fn, ms, ...args) => { budgets.push(ms); return original(fn, ms, ...args); });
+    try {
+      await assert.rejects(executeH2aRunWithAsyncSpawn(request, (_command, argv, options) => {
+        assert.equal(argv.includes("--launch-contract"), false);
+        assert.equal(options.env.H2A_RUN_REQUESTED_AT, undefined);
+        const directory = join(workspace, ".h2a", "runs", "w"); mkdirSync(directory, { recursive: true });
+        writeFileSync(join(directory, "launch.json"), JSON.stringify({ token: options.env.H2A_RUN_LAUNCH_TOKEN, submitAttempted: true }));
+        const child = Object.assign(new EventEmitter(), { stdin: new PassThrough(), stdout: new PassThrough(), stderr: new PassThrough(), kill() {} });
+        setImmediate(() => { child.stderr.write("legacy tmux failure"); child.emit("close", 1); });
+        return child;
+      }), /legacy tmux failure/);
+      assert.equal(budgets[0], 180_000);
+    } finally { timer.mock.restore(); if (previous === undefined) delete process.env.H2A_SESSION_HOST; else process.env.H2A_SESSION_HOST = previous; rmSync(workspace, { recursive: true, force: true }); }
+  });
   it("should negotiate preservation before launching an interactive Claude runtime", () => {
     const request = { profile: "claude", name: "contract", workspace: process.cwd(), prompt: "one brief", background: true, gateway: "off", headless: false, h2aSidecar: false };
     let argv;
