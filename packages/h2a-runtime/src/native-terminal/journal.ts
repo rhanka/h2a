@@ -222,11 +222,18 @@ if (isMainThread && process.argv[2] === "--native-host-journal-writer" && proces
     finish();
   });
   writer.on("error", () => process.exit(1));
-  process.once("disconnect", () => {
+  const disconnect = () => {
+    if (disconnected) return;
     disconnected = true;
     setTimeout(() => process.exit(0), HOST_JOURNAL_DRAIN_MS);
     finish();
-  });
+  };
+  process.once("disconnect", disconnect);
+  // Node can deliver parent EOF before this module loads. In Node 20,
+  // process.send remains defined after that event; it is not proof of a live
+  // channel. Drain the already-disconnected state too, or the I/O thread
+  // retains an orphan writer forever waiting for a second disconnect event.
+  if (!process.connected) disconnect();
 }
 
 if (!isMainThread && workerData?.nativeHostJournal === true) {
