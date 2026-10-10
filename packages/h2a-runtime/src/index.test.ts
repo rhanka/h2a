@@ -389,7 +389,7 @@ describe("main", () => {
       expect.any(Array),
       undefined,
       "remote",
-      expect.objectContaining({ attachedTerminal: true, sessionClass: "human" }),
+      { attachedTerminal: true, sessionClass: "human", onCreateAttempt: expect.any(Function) },
     );
     expect(attachLocalSession).toHaveBeenCalledWith("h2a-proj");
     expect(stderrWrite.mock.calls.map((c) => String(c[0])).join("")).not.toContain(
