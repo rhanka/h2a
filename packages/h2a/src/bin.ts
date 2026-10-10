@@ -20,11 +20,10 @@ try {
     // Legacy v1 connectors without explicit host qualification remain in stdio
     // until explicitly repaired. Unqualified hosts, missing markers, missing
     // Claude session ID, and opt-outs decide stdio before reading marker.
-    const optOut = !centralRoutingEnabled(process.env, true);
     const hasClaudeId = Boolean(process.env.CLAUDE_CODE_SESSION_ID?.trim());
     const isExplicitClaude = flags.host === "claude";
 
-    if (optOut || !isExplicitClaude || !hasClaudeId) {
+    if (!isExplicitClaude || !hasClaudeId || !centralRoutingEnabled(process.env, true)) {
       process.argv[2] = "mcp-serve";
       await import("./bin-heavy.js");
     } else {
