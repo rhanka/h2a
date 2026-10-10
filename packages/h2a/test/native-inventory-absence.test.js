@@ -1,4 +1,4 @@
-import { assertIsolatedEnvironment, assertIsolatedNativeOperation, assertPrivateQualificationPath, createPrivateTestDirectory, nativeQualificationRoot, spawnIsolatedNative as spawn } from "./helpers/native-isolation.js";
+import { assertIsolatedEnvironment, assertIsolatedNativeOperation, assertPrivateQualificationPath, createPrivateTestDirectory, nativeQualificationRoot, spawnIsolatedNative as spawn, waitForPrivateNativeProcesses } from "./helpers/native-isolation.js";
 import assert from "node:assert/strict";
 
 import { once } from "node:events";
@@ -178,6 +178,7 @@ let text='';process.stdin.on('data',bytes=>{for(const c of bytes.toString().repl
       assert.ok(result.status === 0 || /ENOENT|ECONNREFUSED/.test(result.stderr), result.stderr);
     }
     for (const client of clients) client.close();
+    await waitForPrivateNativeProcesses(env);
     rmSync(root, { recursive: true, force: true });
     rmSync(workspace, { recursive: true, force: true });
   }
