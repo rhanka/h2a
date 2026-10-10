@@ -85,7 +85,7 @@ describe("L0 product driver adversaries", () => {
     expect((await deliverClaudeNativePrompt("w", "exact brief", f.deps, { debugFile: file })).state).toBe("provider-blocked");
     expect(f.submit).toHaveBeenCalledTimes(1);
   }));
-  for (const status of [401, 429]) {
+  for (const status of [400, 401, 429, 500]) {
     it("should reject a known HTTP refusal before publishing a local dispatch " + status, temporary(async file => {
       const f = fixture(file);
       f.submit.mockImplementation(() => { appendFileSync(file, settled + turn + main + `[ERROR] API error (attempt 1/11): ${status} ${status} {}\n`); return true; });

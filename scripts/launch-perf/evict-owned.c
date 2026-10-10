@@ -14,7 +14,7 @@ int main(int argc, char **argv) {
   while ((entry = fts_read(tree))) {
     if (entry->fts_info == FTS_ERR || entry->fts_info == FTS_DNR) { perror(entry->fts_path); fts_close(tree); return 1; }
     if (entry->fts_info != FTS_F) continue;
-    int fd = open(entry->fts_path, O_RDWR | O_NOFOLLOW);
+    int fd = open(entry->fts_path, O_RDONLY | O_NOFOLLOW);
     if (fd < 0 || fsync(fd) || posix_fadvise(fd, 0, 0, POSIX_FADV_DONTNEED)) {
       perror(entry->fts_path); if (fd >= 0) close(fd); fts_close(tree); return 1;
     }
