@@ -24,7 +24,7 @@ import {
   runSysmlVerify
 } from "./cli.js";
 import {
-  resolveH2aRuntimeDispatch,
+  dispatchRuntime,
   shouldDispatchRuntime
 } from "./bin-routing.js";
 import { runFocusServeCli } from "./runtime/focus/serve.js";
@@ -74,40 +74,8 @@ function runAsync(label: string, promise: Promise<number>): void {
 
 // Parité ② (double-consensus 2026-07-03) : `h2a` = LE driver global. Tout
 // premier-mot NON h2a-natif (cf. bin-routing.ts) est un verbe du runtime lourd
-// et part en LAZY vers @sentropic/h2a-runtime. Le runtime est un peer requis,
-// installé lockstep par npm, mais reste une frontière d'import dynamique afin
-// que le coeur ne charge pas node-pty/AWS pour les verbes purs.
-
-async function dispatchRuntime(): Promise<number> {
-  // Spécifieur via variable typée `string` : tsc ne résout PAS statiquement ce
-  // peer requis (l'import dynamique évite son chargement pour les verbes purs).
-  const H2A_RUNTIME_PKG: string = "@sentropic/h2a-runtime";
-  let rt: unknown;
-  try {
-    rt = await import(H2A_RUNTIME_PKG);
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException)?.code === "ERR_MODULE_NOT_FOUND") {
-      process.stderr.write(
-        `h2a ${argv[0]}: ce verbe requiert le runtime h2a (sessions / k8s / tunnel).\n` +
-          "  Répare l'installation lockstep : npm i -g @sentropic/h2a@latest\n"
-      );
-      return 127;
-    }
-    throw err;
-  }
-  let dispatch;
-  try {
-    dispatch = resolveH2aRuntimeDispatch(rt);
-  } catch (err) {
-    process.stderr.write(
-      `h2a ${argv[0]}: runtime incompatible — ${(err as Error).message}.\n` +
-        "  Mets à jour l'installation lockstep : h2a upgrade\n"
-    );
-    return 64;
-  }
-  // dispatchH2a = main(argv) : commander attend process.argv ([node, script, …]).
-  return dispatch(process.argv);
-}
+// et part en LAZY vers @sentropic/h2a-runtime (dispatchRuntime, dans
+// bin-routing.ts : pré-vol de version CLI↔runtime + import dynamique).
 
 // `mcp-serve` and `h2a remote serve/send` are async (long-running loop or network);
 // the synchronous `runCli` cannot represent them, so we dispatch directly here.
