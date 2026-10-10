@@ -10,8 +10,8 @@ import { join } from "node:path";
 
 const SCRATCH_ROOT = join(
   import.meta.dirname ?? process.cwd(),
-  "..",
-  ".test-scratch",
+  "..", "..", "..",
+  ".qual-tmp",
   "index-test",
 );
 mkdirSync(SCRATCH_ROOT, { recursive: true });
@@ -388,7 +388,7 @@ describe("main", () => {
       expect.any(Array),
       undefined,
       "remote",
-      { attachedTerminal: true, sessionClass: "human" },
+      { attachedTerminal: true, sessionClass: "human", onCreateAttempt: expect.any(Function) },
     );
     expect(attachLocalSession).toHaveBeenCalledWith("h2a-proj");
     expect(stderrWrite.mock.calls.map((c) => String(c[0])).join("")).not.toContain(
@@ -432,7 +432,7 @@ describe("main", () => {
     expect(process.exitCode).not.toBe(1);
     expect(startLocalSession).toHaveBeenCalledTimes(1);
     expect(stderrWrite.mock.calls.map((c) => String(c[0])).join("")).toContain(
-      "central MCP unavailable, falling back to per-session sidecar: central liveness is ambiguous",
+      "[h2a] central MCP preparation unavailable; clients retain their configured transport: central liveness is ambiguous",
     );
   });
 
@@ -446,10 +446,10 @@ describe("main", () => {
 
     expect(exitCode).toBe(0);
     expect(process.exitCode).not.toBe(1);
-    expect(prepareCentralMcpForRestore).toHaveBeenCalledWith({ root: process.cwd() });
+    expect(prepareCentralMcpForRestore).toHaveBeenCalledWith();
     expect(restoreLayout).toHaveBeenCalledWith({ dryRun: true });
     expect(stderrWrite.mock.calls.map((c) => String(c[0])).join("")).toContain(
-      "central MCP unavailable, falling back to per-session sidecar: central liveness is ambiguous",
+      "[h2a] central MCP preparation unavailable; clients retain their configured transport: central liveness is ambiguous",
     );
   });
 

@@ -1,58 +1,95 @@
-# Session launch latency
+# Central MCP default for Claude
 
-Branch: `perf/session-launch-latency`, based on `ab7ff40e` (0.98.1).
-Scope: synthetic launch diagnosis, reversible log indexes, native sidecar readiness,
-focused regression tests, and measured latency/RSS reports.
-No owner store contents, native host, or live sessions; no `.track` writes.
-No push, PR, publication, tag, Python, privileged operations, or global cache eviction.
-Experiments use private roots, HOME and runtime directories in an <=8 GiB scope.
-N=17 runtime launches require measured memory headroom; rejected projections are reported.
+Branch: `feat/mcp-central-default-claude`, based on `origin/main` at `5ca5c7bc`.
+Owner decision: 2026-10-04, implement L-H before L-A. No push, PR, publish,
+tag, attribution, Python, owner session/config/native host access, or `.track` writes.
+Real processes run only with isolated HOME, runtime directories and stores.
 
-- [x] Review the interrupted candidate and generate small/large synthetic fixtures.
-- [x] Measure baseline MCP and runtime launch for N=1/4/17 within the memory budget.
-- [x] Preserve append-only sources and implement explicit, idempotent index maintenance.
-- [x] Replace the fixed sidecar crash window with a correlated post-identity ACK.
-- [x] Complete before/after matrices, focused invariant tests and final diff review.
-- [x] Prepare atomic changes and the French report for delivery.
+## PR #316 CI portability follow-up (2026-10-10)
 
-Report: `docs/reviews/session-launch-latency.md`. Central MCP root selection is
-a recorded out-of-scope defect, with a separate specification in progress.
+The owner authorizes fast-forward commits and push to this branch for the CI
+repair. No force push, PR edits, merge, publication, or `.track` writes.
 
-## Verification and residual work
+Run `38037043097` failed 19 Node tests on both Node 20 and 22. The causes are:
 
-Large-root max identity readiness: 4,372 ms before, 1,135 ms after.
-Full runtime max: 11,517 ms before, 10,651 ms after; unchanged prompt checks
-still take about four seconds at N=1. Max final runtime scope: 5,171 MiB,
-below the unchanged 8 GiB cap and 85% shutdown threshold.
-Focused checks only; no full suite or external review consensus claimed.
-The final indexed burst passes at N=17; alias ownership, key revocations,
-proof gating, append-only preservation, corrupt-index fallback and readiness
-ownership are covered. Public gate: 60 MCP tools, 100 CLI verbs, anti-cycle OK.
-Existing stores require explicit `store index-launch --root <absolute-path>`.
-Full discovery still loads history. First-use schema sentinel publication has
-a separate observed race; the contention lab now prepares an existing-store
-sentinel before its cohort without weakening the identity assertions.
+- The qualification rejection test hardcoded a home directory absent on CI.
+  It now checks both the caller's HOME and the account home from the OS.
+- The helper admitted only existing `.qual-tmp` paths. It now also admits
+  private, same-UID temporary roots, resolves absent descendants through their
+  existing ancestors, and rejects shared roots and escaping/dangling symlinks.
+  Real caller/account configuration and runtime directories remain protected;
+  environment leaves are checked before creation as well as afterwards.
+- R19's long local default native socket path failed before target resolution,
+  hiding the missing target log on `unresolved` native delivery. Its short,
+  private `/tmp` fixture now exercises the CI path everywhere. Native delivery
+  logs its attempted target before the unchanged unresolved fallback. Every
+  ownership and refusal assertion remains in place.
+
+Six focused files pass under isolated HOME/config/runtime directories, clean
+PATH and plain `/tmp`, sequentially on Node 20.20.2 and 22.22.1: 58 passed,
+zero failed, one EROFS mount skip on each. Four new guard regressions cover
+private temp acceptance, shared-root rejection, symlink escapes and protection
+of real environment directories, including the account home with HOME changed.
+
+The single full `npm test` ran after a host process check found no active suite,
+with four CPUs and a 768 MiB heap cap: Node 2,441 passed, 73 failed, 34 skipped,
+21 TODO; Track 87 files / 1,193 tests passed. The 73 failures all came from four
+host-configuration files because the isolated launcher set global CODEX_HOME
+and CLAUDE_CONFIG_DIR, overriding fixtures that change only HOME. Removing
+those launcher variables and rerunning just those four files passed: 123 passed,
+zero failed, two native-CLI availability skips. The full command was not repeated
+and is not claimed green. All 19 original CI failures passed in the focused and
+full executions. Fresh CI must verify the complete Node 20/22 gates after push.
+
+Ignored execution receipts: `tmp/ci316-evidence/` (commands, sanitized environment,
+RED/GREEN logs, full-gate failure, scoped environment recovery and exit codes).
+
+- [x] L-H: remove implicit project/host/config writes from run and restore;
+  decouple state root from workspace; neutral daemon cwd and environment whitelist.
+- [x] L-H: explicit host writer preserves all bytes outside the h2a value,
+  backs up existing files and requires `--allow-tracked` for tracked files.
+- [x] L-H: retain live shim stdio on restart, operator status/stop and rollback semantics.
+- [x] L-H: report-only inventory of old central configs and repo store sentinels.
+- [x] L-A transport: lightweight default-on `mcp-serve` switch, Claude only; causal
+  conversation identity, independent attachments and private discovery.
+- [x] L-A default activation: owner closes R6 by the zero-project-write invariant
+  and exact byte preservation; Claude defaults ON, Codex/agy stay stdio,
+  with `H2A_MCP_CENTRAL=0` and `h2a.central.enabled=false` opt-outs.
+- [x] Review 4: discriminating R3 regression, R18 stdio routing and R19 manual
+  daemon attachment isolation, each evidenced independently with RED/GREEN.
+- [x] Review 5: bind every wake driver to the client environment; R20/R21
+  use distinct daemon/client sockets with identical terminal targets. RED:
+  four failures and one native-auto control; GREEN: five passes. R11 now
+  launches repaired Claude/agy/Codex configurations and rereads signed inboxes.
+- [ ] Wider qualification: 18/36-session synthetic-volume budgets, host-version
+  matrix and a fresh fully GREEN root gate in a prepared environment.
+
+Historical R6 evidence: ignored `.qual-tmp/r6/evidence/`, with command, SHA and raw
+stdout/stderr per run. The exact pre-incident Airbus bytes at `3508b24` are
+versioned and hash-checked. Registry-verified published 0.98.0, using a real
+private central and its unchanged launch/restore preparation and writer,
+changes tracked bytes/mode without a backup but preserves Graphify. Restore
+preparation alone writes nothing; restored absent sessions re-enter run. No
+alternate destructive project writer was identified on these paths. R6 is
+closed by the owner's invariant decision; the historical cause is unknown.
+The published writer did not destroy Graphify in reproduction. Claude default
+activation is ON. The candidate's real central preparation makes zero project
+writes and preserves bytes, metadata and git status. Existing launch-index
+readers are already present on main.
+Earlier reconstructed-input, performance and pre-rebase claims are superseded.
+Final qualification is scoped, isolated and tied to the final committed SHA;
+no root/performance gate is claimed. Fresh default-on receipts and the French
+owner report are under `.qual-tmp/default-on/`; each final receipt records the
+final committed SHA and an empty working diff.
+Review 5 supersedes those final receipts with `.qual-tmp/review5/evidence/`:
+final build, runtime, attachments, preservation, central T4, routing and wake
+adapter checks use the final committed SHA and an empty working diff.
+Report: `docs/reviews/mcp-central-default-claude.md`. No peer consensus is claimed:
+the installed-session review route conflicts with the owner isolation constraint.
 
 ## Historical plans (superseded for this branch)
 
-# Attach terminal mode restoration
-
-Branch: `fix/attach-terminal-mode-restore`, based on `origin/main` at
-`db12b3b7`. Scope: selective VT mode tracking in the native attach bridge,
-bounded replay checkpoints, native wrapper prompt cleanup, surviving-parent
-recovery for abrupt attach death, focused regression tests and qualification.
-No push, PR, publication, tag, owner native host/session access, or `.track`
-write. Real hosts and tmux servers use fixture-owned private runtime paths.
-
-Validation: RED-first tracker and real host/outer-PTY reproductions; focused
-checks with one worker; TypeScript build. No full suite while the parallel
-experiment is active. Qualification: `docs/reviews/attach-terminal-mode-restore.md`.
-Completed: 207 focused tests passed, 1 environment skip; `build:h2a` and
-diff checks passed. Runtime fix: `41faf4a`. SIGKILL recovery also verifies the
-outer kernel termios against the pre-attach `stty -g` snapshot.
-Prior branch plans below are historical and grant no delivery authorization.
-
-# MCP identity burst deadline tail
+# Session launch latency
 
 Branch: `fix/mcp-identity-burst-tail`, based on `origin/main` at `ab7ff40e`
 (v0.98.1). Scope: the burst and startup-contention laboratory tests, their

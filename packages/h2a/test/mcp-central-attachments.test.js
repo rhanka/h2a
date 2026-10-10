@@ -1,0 +1,1184 @@
+import assert from "node:assert/strict";
+import { spawn, execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
+import { once } from "node:events";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
+import { homedir, tmpdir, userInfo } from "node:os";
+import { createInterface } from "node:readline";
+import { PassThrough } from "node:stream";
+import { createServer } from "node:net";
+import { createServer as createHttpServer } from "node:http";
+import test from "node:test";
+import { runCli as runTrackCli } from "@sentropic/track";
+import { startCentralMcpServer } from "../dist/runtime/mcp-central.js";
+import { bridgeCentralMcpStdio } from "../dist/runtime/mcp-central-client.js";
+import { captureCentralAttachment } from "../dist/runtime/mcp-central-context.js";
+import { centralOperator, centralResidueReport, centralPausePath } from "../dist/runtime/mcp-central-operator.js";
+import { runtimeBase } from "../dist/runtime/mcp-central-discovery.js";
+import { identityKeyPaths } from "../dist/runtime/identity/live.js";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { shouldUseCentralMcp, canonicalCentralRoot } from "../dist/runtime/mcp-central-policy.js";
+import { ensureCentralForShim } from "../dist/runtime/mcp-central-start.js";
+import { enroll } from "../../h2a-runtime/dist/registry.js";
+import { createLocalStore } from "../dist/runtime/local-files/store.js";
+import { qualifiedEnvironment, qualificationRoot, assertQualifiedPath } from "./helpers/qual-env.js";
+
+const bin = resolve("packages/h2a/dist/bin.js");
+const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
+function fixture({ temporary = false } = {}) {
+  const base = temporary ? tmpdir() : join(qualificationRoot, "mcp-attachment-tests");
+  mkdirSync(base, { recursive: true });
+  const dir = mkdtempSync(join(base, "case-"));
+  for (const name of ["home", "runtime", "config", "repo-a", "repo-b"]) mkdirSync(join(dir, name), { mode: 0o700 });
+  const root = join(dir, "state");
+  const runtimeBase = join(dir, "runtime");
+  const env = { ...qualifiedEnvironment(dir), H2A_ROOT: root, H2A_MCP_CENTRAL: "1" };
+  return { dir, root, runtimeBase, env, cleanup() { rmSync(dir, { recursive: true, force: true }); } };
+}
+async function endpoint() {
+  const server = createServer().listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const port = server.address().port;
+  await new Promise(resolve => server.close(resolve));
+  return `http://127.0.0.1:${port}/mcp`;
+}
+function rpcChannel(input, output) {
+  const pending = new Map();
+  let nextId = 0;
+  const reader = createInterface({ input: output });
+  const notifications = [];
+  reader.on("line", line => {
+    const frame = JSON.parse(line);
+    const handler = pending.get(frame.id);
+    if (handler) { pending.delete(frame.id); handler(frame); }
+    else notifications.push(frame);
+  });
+  return { notifications, call(method, params, timeout = 12_000) {
+    const id = ++nextId;
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => { pending.delete(id); reject(new Error(`RPC ${method} timed out`)); }, timeout);
+      pending.set(id, frame => { clearTimeout(timer); resolve(frame); });
+      input.write(JSON.stringify({ jsonrpc: "2.0", id, method, ...(params ? { params } : {}) }) + "\n");
+    });
+  }, close() { reader.close(); input.end(); } };
+}
+function connect(f, url, repo, conversation) {
+  const input = new PassThrough();
+  const output = new PassThrough();
+  const controller = new AbortController();
+  const flags = { host: "claude", "auto-open": "true" };
+  const channel = rpcChannel(input, output);
+  const running = bridgeCentralMcpStdio({ endpoint: url, runtimeBase: f.runtimeBase, stdin: input, stdout: output, signal: controller.signal,
+    attachment: captureCentralAttachment(f.root, repo, flags, { CLAUDE_CODE_SESSION_ID: conversation }) });
+  return { ...channel, async close() { controller.abort(); channel.close(); await running; output.end(); } };
+}
+async function ready(channel) {
+  const end = Date.now() + 15_000;
+  while (Date.now() < end) {
+    const response = await channel.call("tools/call", { name: "h2a_identity_status", arguments: {} });
+    if (!response.error) {
+      const status = JSON.parse(response.result.content[0].text);
+      if (status.state === "identity_ready") return status;
+      if (status.state === "identity_failed") throw new Error(JSON.stringify(status));
+    }
+    await delay(100);
+  }
+  throw new Error("identity never became ready");
+}
+const bindings = root => readFileSync(join(root, "identity", "bindings.jsonl"), "utf8").trim().split("\n").filter(Boolean);
+
+async function startWakeDaemon(f, env, children, onStderr) {
+  const daemon = spawn(process.execPath, [bin, "mcp-central-serve", "--root", f.root], {
+    env: { ...f.env, ...env }, cwd: f.env.HOME, stdio: ["ignore", "ignore", "pipe"]
+  });
+  children.push(daemon);
+  daemon.stderr.on("data", data => onStderr(data.toString()));
+  const markerPath = join(f.runtimeBase, "h2a-mcp-central", "marker.json");
+  const deadline = Date.now() + 5000;
+  while (!existsSync(markerPath) && Date.now() < deadline && daemon.exitCode === null) await delay(25);
+  assert.ok(existsSync(markerPath), "fixture daemon must publish its marker");
+  assert.equal(JSON.parse(readFileSync(markerPath, "utf8")).pid, daemon.pid);
+}
+
+async function nativeWakeSocket(socketPath, session) {
+  const requests = [];
+  const sockets = new Set();
+  const server = createServer(socket => {
+    sockets.add(socket);
+    socket.on("close", () => sockets.delete(socket));
+    const reader = createInterface({ input: socket });
+    reader.on("line", line => {
+      const request = JSON.parse(line);
+      requests.push(request);
+      let result;
+      switch (request.operation) {
+        case "ping": result = { protocolVersion: 1, generation: "wake-fixture", hostPid: process.pid }; break;
+        case "list": result = [{ id: session, status: "running" }]; break;
+        case "acquire-controller-if-no-recent-human": result = { role: "controller", id: session, generation: "wake-fixture", incarnation: "1", controllerId: request.params.controllerId, epoch: 1 }; break;
+        case "write": result = { ok: true }; break;
+        case "release-controller": result = { controlled: false, controllerEpoch: 1 }; break;
+        default: throw new Error(`unexpected native wake operation: ${request.operation}`);
+      }
+      socket.write(JSON.stringify({ version: 1, id: request.id, ok: true, result }) + "\n");
+    });
+  });
+  await new Promise((resolve, reject) => { server.once("error", reject); server.listen(socketPath, resolve); });
+  chmodSync(socketPath, 0o600);
+  return { requests, async close() { for (const socket of sockets) socket.destroy(); await new Promise(resolve => server.close(resolve)); } };
+}
+
+for (const wake of ["auto", "local-tmux"])
+  test(`R20 ${wake} wake probes and submits only on the client tmux socket with identical pane IDs`, async () => {
+    const f = fixture();
+    const children = [];
+    const tmuxSockets = [];
+    let channel;
+    let stderr = "";
+    const daemonSocket = join(f.dir, "d.sock");
+    const clientSocket = join(f.dir, "c.sock");
+    const callsPath = join(f.dir, "tmux-calls.jsonl");
+    const tools = join(f.dir, "tools");
+    mkdirSync(tools);
+    // Run real tmux, recording the environment used by both probes and writes.
+    writeFileSync(join(tools, "tmux"), `#!${process.execPath}\nimport { appendFileSync } from "node:fs";\nimport { spawnSync } from "node:child_process";\nappendFileSync(${JSON.stringify(callsPath)}, JSON.stringify({ tmux: process.env.TMUX, args: process.argv.slice(2) }) + "\\n");\nconst r = spawnSync("/usr/bin/tmux", process.argv.slice(2), { env: process.env, stdio: "inherit" });\nprocess.exit(r.status ?? 1);\n`, { mode: 0o700 });
+    const tmux = (socket, ...args) => execFileSync("/usr/bin/tmux", ["-S", socket, ...args], { env: f.env, encoding: "utf8" });
+    try {
+      for (const socket of [daemonSocket, clientSocket]) {
+        tmux(socket, "-f", "/dev/null", "new-session", "-d", "-s", "wake", "/bin/sh -c 'while IFS= read -r line; do printf \"received:%s\\n\" \"$line\"; done'");
+        tmuxSockets.push(socket);
+      }
+      const pane = tmux(clientSocket, "display-message", "-p", "-t", "wake", "#{pane_id}").trim();
+      assert.equal(tmux(daemonSocket, "display-message", "-p", "-t", "wake", "#{pane_id}").trim(), pane);
+      await startWakeDaemon(f, { PATH: tools + ":" + f.env.PATH, TMUX: daemonSocket + ",123,0", TMUX_PANE: pane }, children, text => { stderr += text; });
+      const shim = spawn(process.execPath, [bin, "mcp-serve", "--host", "claude", "--auto-open", "--wake", wake], {
+        env: { ...f.env, CLAUDE_CODE_SESSION_ID: `r20-${wake}`, TMUX: clientSocket + ",456,0", TMUX_PANE: pane, H2A_NOTIFY_INTERVAL_MS: "25" },
+        cwd: join(f.dir, "repo-a"), stdio: ["pipe", "pipe", "pipe"]
+      });
+      children.push(shim);
+      channel = rpcChannel(shim.stdin, shim.stdout);
+      assert.ok((await channel.call("initialize")).result);
+      const status = await ready(channel);
+      const sent = await channel.call("tools/call", { name: "h2a_send", arguments: { to: status.instance, message: "r20-socket-probe" } });
+      assert.equal(sent.result.isError, false);
+      const deadline = Date.now() + 5000;
+      while (!stderr.includes("inbox-wake: 1 new envelope(s) → drive ok") && Date.now() < deadline) await delay(25);
+      assert.match(stderr, /inbox-wake: 1 new envelope\(s\) → drive ok/);
+      const calls = readFileSync(callsPath, "utf8").trim().split("\n").map(line => JSON.parse(line))
+        .filter(call => ["display-message", "list-clients", "send-keys"].includes(call.args[0]));
+      assert.ok(calls.some(call => call.args[0] === "display-message"), "activity probe is exercised");
+      assert.ok(calls.some(call => call.args[0] === "list-clients"), "client activity probe is exercised");
+      assert.ok(calls.some(call => call.args[0] === "send-keys" && call.args.includes("-l")), "literal injection is exercised");
+      assert.ok(calls.some(call => call.args[0] === "send-keys" && call.args.at(-1) === "Enter"), "submit is exercised");
+      assert.ok(calls.every(call => call.tmux === clientSocket + ",456,0"), `every probe and injection must use the client socket, never the daemon socket: ${JSON.stringify(calls)}`);
+      assert.match(tmux(clientSocket, "capture-pane", "-p", "-t", pane).replaceAll("\n", ""), /received:.*h2a-wake/);
+      assert.doesNotMatch(tmux(daemonSocket, "capture-pane", "-p", "-t", pane), /h2a-wake/);
+    } finally {
+      channel?.close();
+      for (const child of children.reverse()) if (child.exitCode === null && child.signalCode === null) { child.kill("SIGTERM"); await once(child, "exit"); }
+      for (const socket of tmuxSockets) tmux(socket, "kill-server");
+      f.cleanup();
+    }
+  });
+
+for (const wake of ["auto", "native", "local-tmux"])
+  test(`R21 ${wake} wake inventories and writes only the client native socket with identical session names`, async () => {
+    const f = fixture();
+    const children = [];
+    const hosts = [];
+    let channel;
+    let stderr = "";
+    const daemonSocket = join(f.dir, "d.sock");
+    const clientSocket = join(f.dir, "c.sock");
+    const session = "same-session";
+    try {
+      enroll({ id: session, tool: "claude", kind: "local-native", cwd: f.dir, tmuxSession: session, source: "run", sessionClass: "human" }, join(f.env.REMOTE_CLI_CONFIG_HOME, ".config", "sentropic", "h2a", "registry.json"));
+      const daemonHost = await nativeWakeSocket(daemonSocket, session); hosts.push(daemonHost);
+      const clientHost = await nativeWakeSocket(clientSocket, session); hosts.push(clientHost);
+      await startWakeDaemon(f, { H2A_NATIVE_SOCKET: daemonSocket, H2A_NATIVE_TARGET_SESSION: session, H2A_NATIVE_PTY_SESSION: session }, children, text => { stderr += text; });
+      const shim = spawn(process.execPath, [bin, "mcp-serve", "--host", "claude", "--auto-open", "--wake", wake], {
+        env: { ...f.env, CLAUDE_CODE_SESSION_ID: `r21-${wake}`, H2A_NATIVE_SOCKET: clientSocket, H2A_NATIVE_TARGET_SESSION: session, H2A_NATIVE_PTY_SESSION: session, H2A_NOTIFY_INTERVAL_MS: "25" },
+        cwd: join(f.dir, "repo-a"), stdio: ["pipe", "pipe", "pipe"]
+      });
+      children.push(shim);
+      channel = rpcChannel(shim.stdin, shim.stdout);
+      assert.ok((await channel.call("initialize")).result);
+      const status = await ready(channel);
+      const sent = await channel.call("tools/call", { name: "h2a_send", arguments: { to: status.instance, message: "r21-socket-probe" } });
+      assert.equal(sent.result.isError, false);
+      const deadline = Date.now() + 5000;
+      while (!stderr.includes("inbox-wake: 1 new envelope(s) → drive ok") && Date.now() < deadline) await delay(25);
+      assert.match(stderr, /inbox-wake: 1 new envelope\(s\) → drive ok/);
+      assert.deepEqual(daemonHost.requests, [], "daemon socket must receive neither inventory nor wake writes");
+      assert.deepEqual(clientHost.requests.map(request => request.operation), ["ping", "list", "acquire-controller-if-no-recent-human", "write", "release-controller"]);
+      const write = clientHost.requests.find(request => request.operation === "write");
+      assert.equal(write.params.lease.id, session);
+      assert.match(write.params.data, /h2a-wake.*\r$/);
+    } finally {
+      channel?.close();
+      for (const child of children.reverse()) if (child.exitCode === null && child.signalCode === null) { child.kill("SIGTERM"); await once(child, "exit"); }
+      for (const host of hosts) await host.close();
+      f.cleanup();
+    }
+  });
+
+test("qualification guards reject paths resolving outside .qual-tmp", () => {
+  for (const home of new Set([homedir(), userInfo().homedir])) {
+    assert.throws(() => assertQualifiedPath(home), /escapes .qual-tmp/);
+    assert.throws(() => qualifiedEnvironment(home), /escapes .qual-tmp/);
+  }
+});
+
+test("R6 Claude defaults to central without configuration and preserves the exact incident bytes", async () => {
+  const f = fixture();
+  const env = { ...f.env, CLAUDE_CODE_SESSION_ID: "r6-default-gate" };
+  delete env.H2A_MCP_CENTRAL;
+  const repo = join(f.dir, "repo-a");
+  const path = join(repo, ".mcp.json");
+  const original = readFileSync(resolve("packages/h2a/test/fixtures/d2d-mcp.json.pre-incident"));
+  const hash = "984069aaed26cd2ce888dc692a4400f9c9c1cbb5add9c86fedbed3fc6b3d5470";
+  assert.equal(createHash("sha256").update(original).digest("hex"), hash);
+  writeFileSync(path, original, { mode: 0o640 });
+  execFileSync("git", ["init", "-q", repo]);
+  execFileSync("git", ["-C", repo, "add", ".mcp.json"]);
+  const before = statSync(path, { bigint: true });
+  const gitStatus = () => execFileSync("git", ["-C", repo, "status", "--porcelain"], { encoding: "utf8" });
+  const beforeStatus = gitStatus();
+  const beforeFiles = readdirSync(repo);
+  const client = new Client({ name: "r6-default-gate", version: "1" });
+  const transport = new StdioClientTransport({ command: process.execPath, args: [bin, "mcp-serve", "--host", "claude"], env, cwd: repo, stderr: "pipe" });
+  try {
+    await client.connect(transport);
+    assert.ok((await client.listTools()).tools.length);
+    const status = await centralOperator("status", { runtimeBase: f.runtimeBase });
+    assert.equal(status.running, true, "Claude starts central by default when configuration is absent");
+    assert.equal(status.protocol, 2);
+    assert.equal(status.root, f.root);
+    assert.equal(status.attachments, 1);
+    assert.deepEqual(readFileSync(path), original);
+    const after = statSync(path, { bigint: true });
+    assert.deepEqual([after.mode, after.ino, after.mtimeNs, after.ctimeNs], [before.mode, before.ino, before.mtimeNs, before.ctimeNs]);
+    assert.equal(gitStatus(), beforeStatus);
+    assert.deepEqual(readdirSync(repo), beforeFiles);
+    console.log(`R6 default Claude: protocol=2 attachments=1 bytesEqual=true metadataEqual=true gitStatusEqual=true sha256=${hash}`);
+  } finally {
+    await client.close();
+    if (existsSync(join(f.runtimeBase, "h2a-mcp-central", "marker.json"))) await centralOperator("stop", { runtimeBase: f.runtimeBase });
+    f.cleanup();
+  }
+});
+
+test("R3 unqualified v1 connector leaves live central attachments unchanged with an inherited Claude ID", async () => {
+  const f = fixture();
+  let server;
+  let child;
+  let channel;
+  try {
+    server = await startCentralMcpServer({ root: f.root, runtimeBase: f.runtimeBase, env: { H2A_MCP_CENTRAL_ENDPOINT: await endpoint() } });
+    const before = (await centralOperator("status", { runtimeBase: f.runtimeBase })).attachments;
+    for (const hostArgs of [[], ["--host", "claude"]]) {
+      child = spawn(process.execPath, [bin, "mcp-central-connect", ...hostArgs, "--auto-open", "--endpoint", "http://127.0.0.1:1/mcp", "--runtime-base", f.runtimeBase], {
+        env: { ...f.env, CLAUDE_CODE_SESSION_ID: "r3-inherited-conversation" }, cwd: join(f.dir, "repo-a"), stdio: ["pipe", "pipe", "pipe"]
+      });
+      channel = rpcChannel(child.stdin, child.stdout);
+      assert.ok((await channel.call("initialize")).result);
+      const attached = (await centralOperator("status", { runtimeBase: f.runtimeBase })).attachments;
+      assert.equal(attached, before + (hostArgs.length ? 1 : 0), hostArgs.length ? "explicit Claude host creates one central attachment" : "no host must remain stdio even with a native Claude ID and live marker");
+      channel.close();
+      child.kill("SIGTERM");
+      await once(child, "exit");
+      child = undefined;
+    }
+  } finally {
+    channel?.close();
+    if (child && child.exitCode === null && child.signalCode === null) { child.kill("SIGTERM"); await once(child, "exit"); }
+    await server?.stop();
+    f.cleanup();
+  }
+});
+
+for (const configState of ["invalid JSON", "unreadable"])
+  for (const host of [undefined, "codex", "agy"])
+    test(`R18 v1 ${host ?? "unqualified"} connector selects stdio before reading ${configState} central configuration`, async () => {
+      const f = fixture();
+      const configDir = join(f.env.REMOTE_CLI_CONFIG_HOME, ".config", "sentropic", "h2a");
+      mkdirSync(configDir, { recursive: true });
+      const configPath = join(configDir, "config.json");
+      writeFileSync(configPath, configState === "invalid JSON" ? "{invalid" : '{"h2a":{"central":{"enabled":true}}}');
+      if (configState === "unreadable") chmodSync(configPath, 0o000);
+      const client = new Client({ name: "r18-stdio-regression", version: "1" });
+      const transport = new StdioClientTransport({
+        command: process.execPath,
+        args: [bin, "mcp-central-connect", ...(host ? ["--host", host] : []), "--endpoint", "http://127.0.0.1:1/mcp", "--runtime-base", f.runtimeBase],
+        env: { ...f.env, CLAUDE_CODE_SESSION_ID: "r18-inherited-conversation" },
+        cwd: join(f.dir, "repo-a"), stderr: "pipe"
+      });
+      let stderr = "";
+      try {
+        const connecting = client.connect(transport);
+        transport.stderr?.on("data", data => { stderr += data.toString(); });
+        await assert.doesNotReject(connecting, `stdio must ignore central configuration: ${configState}, host=${host ?? "absent"}`);
+        assert.ok((await client.listTools()).tools.some(tool => tool.name === "h2a_identity_status"));
+        assert.equal(existsSync(join(f.runtimeBase, "h2a-mcp-central")), false, "stdio selection must not discover or start a central daemon");
+        assert.doesNotMatch(stderr, /cannot read central configuration/);
+      } finally {
+        await client.close();
+        chmodSync(configPath, 0o600);
+        f.cleanup();
+      }
+    });
+
+for (const terminal of ["native", "tmux"])
+  test(`R19 manual daemon ${terminal} launcher context never becomes the target of a client without terminal context`, async () => {
+    // A short socket path exercises unresolved native delivery on every host.
+    const f = fixture({ temporary: true });
+    const children = [];
+    let channel;
+    let stderr = "";
+    const readyFile = join(f.dir, "launcher-ready.json");
+    const launcherContext = {
+      TMUX: join(f.dir, "unused-tmux.sock") + ",123,0", TMUX_PANE: "%42",
+      ...(terminal === "native" ? { H2A_NATIVE_TARGET_SESSION: "daemon-launcher", H2A_NATIVE_PTY_SESSION: "daemon-launcher", H2A_NATIVE_SOCKET: join(f.dir, "unused-native.sock") } : {}),
+      H2A_MCP_READY_FILE: readyFile, H2A_MCP_READY_NONCE: "01234567-89ab-4cde-8f01-23456789abcd"
+    };
+    try {
+      const daemon = spawn(process.execPath, [bin, "mcp-central-serve", "--root", f.root], {
+        env: { ...f.env, ...launcherContext }, cwd: f.env.HOME, stdio: ["ignore", "ignore", "pipe"]
+      });
+      children.push(daemon);
+      daemon.stderr.on("data", data => { stderr += data.toString(); });
+      const markerPath = join(f.runtimeBase, "h2a-mcp-central", "marker.json");
+      const deadline = Date.now() + 5000;
+      while (!existsSync(markerPath) && Date.now() < deadline && daemon.exitCode === null) await delay(25);
+      assert.ok(existsSync(markerPath), stderr);
+      const marker = JSON.parse(readFileSync(markerPath, "utf8"));
+      assert.equal(marker.pid, daemon.pid, "only the daemon started by this fixture may be used");
+      const shim = spawn(process.execPath, [bin, "mcp-serve", "--host", "claude", "--auto-open", "--wake", "auto"], {
+        env: { ...f.env, CLAUDE_CODE_SESSION_ID: `r19-client-${terminal}`, H2A_NOTIFY_INTERVAL_MS: "25" }, cwd: join(f.dir, "repo-a"), stdio: ["pipe", "pipe", "pipe"]
+      });
+      children.push(shim);
+      channel = rpcChannel(shim.stdin, shim.stdout);
+      assert.ok((await channel.call("initialize")).result);
+      const status = await ready(channel);
+      const presence = readdirSync(join(f.root, "presence")).filter(name => name.endsWith(".json")).map(name => JSON.parse(readFileSync(join(f.root, "presence", name), "utf8")));
+      assert.equal(presence.length, 1);
+      assert.equal(presence[0].instance, status.instance);
+      assert.equal(presence[0].launchContext, undefined, "client must not publish daemon-launcher native/tmux ownership");
+      assert.equal(existsSync(readyFile), false, "daemon-launcher readiness challenge must not be acknowledged by a client");
+      const sent = await channel.call("tools/call", { name: "h2a_send", arguments: { to: status.instance, message: "r19-isolation-probe" } });
+      assert.equal(sent.result.isError, false);
+      const wakeDeadline = Date.now() + 3000;
+      while (!stderr.includes("inbox-wake: 1 new envelope(s)") && Date.now() < wakeDeadline) await delay(25);
+      assert.match(stderr, /inbox-wake: 1 new envelope\(s\) → drive failed/, "wake must refuse an absent client terminal target");
+      assert.ok(stderr.includes(`drive[native-pty]: ${status.instance} (failed)`), `wake uses only the client's identity when no terminal is supplied: ${stderr}`);
+      assert.doesNotMatch(stderr, /daemon-launcher|%42/);
+
+      const ownedShim = spawn(process.execPath, [bin, "mcp-serve", "--host", "claude", "--auto-open"], {
+        env: { ...f.env, CLAUDE_CODE_SESSION_ID: `r19-owned-${terminal}`, ...(terminal === "native" ? { H2A_NATIVE_PTY_SESSION: "client-owned" } : { TMUX: launcherContext.TMUX, TMUX_PANE: "%84" }) },
+        cwd: join(f.dir, "repo-b"), stdio: ["pipe", "pipe", "pipe"]
+      });
+      children.push(ownedShim);
+      const ownedChannel = rpcChannel(ownedShim.stdin, ownedShim.stdout);
+      try {
+        assert.ok((await ownedChannel.call("initialize")).result);
+        const owned = await ready(ownedChannel);
+        const record = readdirSync(join(f.root, "presence")).map(name => JSON.parse(readFileSync(join(f.root, "presence", name), "utf8"))).find(record => record.instance === owned.instance);
+        assert.deepEqual(terminal === "native" ? record.launchContext.nativePty : record.launchContext.tmux, terminal === "native" ? { session: "client-owned" } : { session: "", pane: "%84" }, "client's own terminal context is preserved");
+        assert.equal(record.launchContext.cwd, join(f.dir, "repo-b"), "terminal context uses the client's workspace");
+      } finally { ownedChannel.close(); }
+    } finally {
+      channel?.close();
+      for (const child of children.reverse()) if (child.exitCode === null && child.signalCode === null) { child.kill("SIGTERM"); await once(child, "exit"); }
+      f.cleanup();
+    }
+  });
+
+test("missing systemd runtime chooses a fixed UID fallback, with private namespaces for isolation", () => {
+  assert.equal(runtimeBase({}, {}, () => false), `/tmp/h2a-mcp-runtime-${process.getuid()}`);
+  assert.equal(runtimeBase({}, { XDG_RUNTIME_DIR: "/private/test/runtime" }, () => false), "/private/test/runtime");
+});
+
+test("an orphaned HTTP attachment is purged and the central exits idle", { timeout: 5000 }, async () => {
+  const f = fixture();
+  let server;
+  try {
+    server = await startCentralMcpServer({ root: f.root, runtimeBase: f.runtimeBase, env: {}, idleTimeoutMs: 100, sessionLeaseMs: 100 });
+    const marker = JSON.parse(readFileSync(server.markerPath, "utf8"));
+    const response = await fetch(server.endpoint, { method: "POST", headers: { authorization: `Bearer ${marker.token}`, "content-type": "application/json", accept: "application/json, text/event-stream" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "orphan-fixture", version: "1" } } }) });
+    assert.equal(response.status, 200);
+    await response.text();
+    assert.equal((await centralOperator("status", { runtimeBase: f.runtimeBase })).attachments, 1);
+    await Promise.race([server.closed, delay(2500).then(() => { throw new Error("idle shutdown did not happen"); })]);
+    assert.equal(existsSync(server.markerPath), false);
+  } finally { await server?.stop(); f.cleanup(); }
+});
+
+test("two attached repos route Track and h2a_run to their own workspace, sharing only state", { timeout: 30_000 }, async () => {
+  const f = fixture();
+  let server;
+  const channels = [];
+  try {
+    const url = await endpoint();
+    server = await startCentralMcpServer({ root: f.root, runtimeBase: f.runtimeBase, env: { H2A_MCP_CENTRAL_ENDPOINT: url }, runExecutor: request => ({ workspace: request.workspace }) });
+    for (const name of ["repo-a", "repo-b"]) {
+      const repo = join(f.dir, name);
+      const io = { cwd: repo, out() {}, err() {} };
+      assert.equal(runTrackCli(["init"], io), 0);
+      writeFileSync(join(repo, "BRANCH.md"), `# Feature: ${name} — ${name}\n\n## Plan / Todo (lot-based)\n- [ ] **Lot 1 — ${name} only**\n`);
+      assert.equal(runTrackCli(["branch", "import", "BRANCH.md", "--commit", "fixture"], io), 0);
+      const channel = connect(f, url, repo, `conversation-${name}`);
+      channels.push(channel);
+      assert.ok((await channel.call("initialize")).result);
+      await ready(channel);
+      const track = await channel.call("tools/call", { name: "track_query", arguments: { baselineCommit: "fixture" } });
+      assert.match(JSON.stringify(track), new RegExp(`${name} only`));
+      assert.doesNotMatch(JSON.stringify(track), new RegExp(`${name === "repo-a" ? "repo-b" : "repo-a"} only`));
+      const run = await channel.call("tools/call", { name: "h2a_run", arguments: { profile: "claude", name: `fixture-${name}`, workspace: repo, prompt: "fixture", background: true } });
+      assert.equal(JSON.parse(run.result.content[0].text).workspace, repo);
+      const wrong = await channel.call("tools/call", { name: "h2a_run", arguments: { profile: "claude", name: "cross-root", workspace: join(f.dir, name === "repo-a" ? "repo-b" : "repo-a"), prompt: "fixture", background: true } });
+      assert.match(JSON.stringify(wrong), /startup workspace/);
+    }
+    assert.equal(bindings(f.root).length, 2);
+    assert.equal(existsSync(join(f.dir, "repo-a", ".mcp.json")), false);
+    assert.equal(existsSync(join(f.dir, "repo-b", ".h2a-schema.json")), false);
+  } finally { await Promise.all(channels.map(channel => channel.close())); await server?.stop(); f.cleanup(); }
+});
+
+test("a live shim survives central token rotation with the same identity and no added binding", { timeout: 30_000 }, async () => {
+  const f = fixture();
+  let first, second, channel;
+  try {
+    const url = await endpoint();
+    first = await startCentralMcpServer({ root: f.root, runtimeBase: f.runtimeBase, env: { H2A_MCP_CENTRAL_ENDPOINT: url } });
+    channel = connect(f, url, join(f.dir, "repo-a"), "stable-conversation");
+    await channel.call("initialize");
+    const before = await ready(channel);
+    const count = bindings(f.root).length;
+    await first.stop();
+    first = undefined;
+    second = await startCentralMcpServer({ root: f.root, runtimeBase: f.runtimeBase, env: { H2A_MCP_CENTRAL_ENDPOINT: url } });
+    const after = await ready(channel);
+    assert.equal(after.instance, before.instance);
+    assert.equal(bindings(f.root).length, count);
+  } finally { await channel?.close(); await second?.stop(); await first?.stop(); f.cleanup(); }
+});
+
+test("resume with a missing signing key fails closed without minting another binding", { timeout: 30_000 }, async () => {
+  const f = fixture();
+  let first, second, channel;
+  try {
+    const url = await endpoint();
+    first = await startCentralMcpServer({ root: f.root, runtimeBase: f.runtimeBase, env: { H2A_MCP_CENTRAL_ENDPOINT: url } });
+    channel = connect(f, url, join(f.dir, "repo-a"), "missing-resume-key");
+    await channel.call("initialize");
+    const before = await ready(channel);
+    await first.stop();
+    first = undefined;
+    const key = identityKeyPaths(f.root, before.instance).privateKeyPath;
+    rmSync(key);
+    second = await startCentralMcpServer({ root: f.root, runtimeBase: f.runtimeBase, env: { H2A_MCP_CENTRAL_ENDPOINT: url } });
+    await assert.rejects(ready(channel), /identity_failed/);
+    assert.equal(bindings(f.root).length, 1);
+    assert.equal(existsSync(key), false, "resume must not recreate the missing key");
+  } finally { await channel?.close(); await second?.stop(); await first?.stop(); f.cleanup(); }
+});
+
+test("a lost mutation reply is outcome_unknown and is never replayed during recovery", { timeout: 10_000 }, async () => {
+  const f = fixture();
+  let channel;
+  let mutationCount = 0;
+  const server = createHttpServer(async (request, response) => {
+    if (request.method === "GET") {
+      response.writeHead(200, { "content-type": "text/event-stream" });
+      response.write(": connected\n\n");
+      return;
+    }
+    if (request.method === "DELETE") { response.writeHead(204).end(); return; }
+    let body = "";
+    for await (const chunk of request) body += chunk;
+    const rpc = JSON.parse(body);
+    if (rpc.params?.name === "fixture_mutation") {
+      mutationCount++;
+      request.socket.destroy(); // The effect happened before its reply was lost.
+      return;
+    }
+    response.writeHead(200, { "content-type": "application/json", "mcp-session-id": "fixture-session" });
+    response.end(JSON.stringify({ jsonrpc: "2.0", id: rpc.id, result: { tools: [] } }));
+  }).listen(0, "127.0.0.1");
+  try {
+    await once(server, "listening");
+    const url = `http://127.0.0.1:${server.address().port}/mcp`;
+    const directory = join(f.runtimeBase, "h2a-mcp-central");
+    mkdirSync(directory, { mode: 0o700 });
+    writeFileSync(join(directory, "marker.json"), JSON.stringify({ endpoint: url, generation: "fixture", pid: process.pid, startedAt: new Date().toISOString(), token: "fixture-secret", root: f.root, protocol: 2 }), { mode: 0o600 });
+    channel = connect(f, url, join(f.dir, "repo-a"), "lost-mutation-reply");
+    await channel.call("initialize");
+    const lost = await channel.call("tools/call", { name: "fixture_mutation", arguments: {} });
+    assert.equal(lost.error.data.code, "outcome_unknown");
+    assert.equal(lost.error.data.retrySafe, false);
+    assert.ok((await channel.call("tools/list")).result);
+    assert.equal(mutationCount, 1);
+  } finally {
+    await channel?.close();
+    server.closeAllConnections();
+    await new Promise(resolve => server.close(resolve));
+    f.cleanup();
+  }
+});
+
+test("SIGTERM of the real central leaves host stdio open and resumes the same binding", { timeout: 30_000 }, async () => {
+  const f = fixture();
+  const children = [];
+  let channel;
+  let stderr = "";
+  try {
+    const url = await endpoint();
+    const start = async () => {
+      const child = spawn(process.execPath, [bin, "mcp-central-serve", "--root", f.root], { env: { ...f.env, H2A_MCP_CENTRAL_ENDPOINT: url }, cwd: f.env.HOME, stdio: ["ignore", "ignore", "pipe"] });
+      children.push(child);
+      child.stderr.on("data", data => { stderr += data; });
+      for (let i = 0; i < 100; i++) {
+        const path = join(f.runtimeBase, "h2a-mcp-central", "marker.json");
+        if (existsSync(path) && JSON.parse(readFileSync(path, "utf8")).pid === child.pid) return child;
+        if (child.exitCode !== null) throw new Error(stderr);
+        await delay(50);
+      }
+      throw new Error(`central did not start: ${stderr}`);
+    };
+    const first = await start();
+    const shim = spawn(process.execPath, [bin, "mcp-central-connect", "--endpoint", url, "--runtime-base", f.runtimeBase, "--root", f.root, "--host", "claude", "--auto-open"], { env: { ...f.env, CLAUDE_CODE_SESSION_ID: "real-stable-conversation" }, cwd: join(f.dir, "repo-a"), stdio: ["pipe", "pipe", "pipe"] });
+    children.push(shim);
+    shim.stderr.on("data", data => { stderr += data; });
+    channel = rpcChannel(shim.stdin, shim.stdout);
+    await channel.call("initialize");
+    const before = await ready(channel);
+    first.kill("SIGTERM");
+    await once(first, "exit");
+    assert.equal(shim.exitCode, null, "host stdio remains live after central SIGTERM");
+    await start();
+    const after = await ready(channel);
+    assert.equal(after.instance, before.instance);
+    assert.equal(bindings(f.root).length, 1);
+    const configDir = join(f.env.REMOTE_CLI_CONFIG_HOME, ".config", "sentropic", "h2a");
+    mkdirSync(configDir, { recursive: true });
+    writeFileSync(join(configDir, "config.json"), '{"h2a":{"central":{"enabled":false}}}\n');
+    assert.equal((await ready(channel)).instance, before.instance, "enabled=false leaves a healthy live attachment intact");
+    await centralOperator("stop", { runtimeBase: f.runtimeBase });
+    await delay(100);
+    const unavailable = await channel.call("tools/list");
+    assert.equal(unavailable.error.data.code, "central_unavailable");
+    assert.equal(shim.exitCode, null, "disabled live shim keeps stdio open without spawning a full runtime");
+    assert.equal(bindings(f.root).length, 1);
+  } finally {
+    channel?.close();
+    await Promise.all(children.map(async child => { if (child.exitCode === null && child.signalCode === null) { child.kill("SIGTERM"); await once(child, "exit"); } }));
+    f.cleanup();
+  }
+});
+
+test("operator stop is authenticated, leaves shims open, and residue detection never changes files", { timeout: 20_000 }, async () => {
+  const f = fixture();
+  let server, channel;
+  try {
+    const url = await endpoint();
+    server = await startCentralMcpServer({ root: f.root, runtimeBase: f.runtimeBase, env: { H2A_MCP_CENTRAL_ENDPOINT: url } });
+    channel = connect(f, url, join(f.dir, "repo-a"), "operator-conversation");
+    await channel.call("initialize");
+    await ready(channel);
+    const status = await centralOperator("status", { runtimeBase: f.runtimeBase });
+    assert.equal(status.attachments, 1);
+    const stopped = await centralOperator("stop", { runtimeBase: f.runtimeBase });
+    assert.equal(stopped.paused, true);
+    await server.closed;
+    const unavailable = await channel.call("tools/list");
+    assert.equal(unavailable.error.data.code, "central_unavailable");
+    const repo = join(f.dir, "repo-a");
+    execFileSync("git", ["init", "-q", repo]);
+    const config = '{"mcpServers":{"h2a":{"args":["mcp-central-connect"]}}}\n';
+    writeFileSync(join(repo, ".mcp.json"), config);
+    writeFileSync(join(repo, ".h2a-schema.json"), "{}\n");
+    execFileSync("git", ["-C", repo, "add", ".mcp.json"]);
+    const before = readdirSync(repo);
+    const report = centralResidueReport(repo, join(f.env.HOME, "missing-agy.json"), { codexConfig: join(f.env.HOME, "missing-codex.json") });
+    assert.equal(report.reportOnly, true);
+    assert.equal(report.findings.length, 2);
+    assert.equal(report.findings.find(row => row.kind === "v1-central-config").tracked, true);
+    assert.deepEqual(readdirSync(repo), before);
+    assert.equal(readFileSync(join(repo, ".mcp.json"), "utf8"), config);
+  } finally { await channel?.close(); await server?.stop(); f.cleanup(); }
+});
+
+test("mcp-serve defaults Claude to one ephemeral central without project writes; other hosts and opt-outs use stdio", { timeout: 30_000 }, async () => {
+  const f = fixture();
+  const children = [];
+  const channels = [];
+  const start = (host, repo, extra = {}) => {
+    const env = { ...f.env, H2A_MCP_CENTRAL: undefined, CLAUDE_CODE_SESSION_ID: `default-${host}-${children.length}`, ...extra };
+    if (env.H2A_MCP_CENTRAL === undefined) delete env.H2A_MCP_CENTRAL;
+    const child = spawn(process.execPath, [bin, "mcp-serve", "--host", host, "--auto-open"], { env, cwd: repo, stdio: ["pipe", "pipe", "pipe"] });
+    children.push(child);
+    child.stderr.on("data", () => {});
+    const channel = rpcChannel(child.stdin, child.stdout);
+    channels.push(channel);
+    return channel;
+  };
+  try {
+    let generation;
+    for (const repo of [join(f.dir, "repo-a"), join(f.dir, "repo-b")]) {
+      const channel = start("claude", repo);
+      await channel.call("initialize");
+      await ready(channel);
+      const marker = JSON.parse(readFileSync(join(f.runtimeBase, "h2a-mcp-central", "marker.json"), "utf8"));
+      assert.equal(marker.protocol, 2);
+      assert.equal(marker.root, f.root);
+      if (generation) assert.equal(marker.generation, generation);
+      generation = marker.generation;
+      assert.deepEqual(readdirSync(repo), [], "initial attachment writes no project files");
+    }
+    const status = await centralOperator("status", { runtimeBase: f.runtimeBase });
+    assert.equal(status.attachments, 2);
+    const stdout = start("claude", join(f.dir, "repo-a"), { H2A_MCP_CENTRAL: "0" });
+    await stdout.call("initialize");
+    await ready(stdout);
+    for (const host of ["codex", "agy"]) {
+      const channel = start(host, join(f.dir, "repo-a"));
+      await channel.call("initialize");
+      await ready(channel);
+    }
+    const configDir = join(f.env.REMOTE_CLI_CONFIG_HOME, ".config", "sentropic", "h2a");
+    mkdirSync(configDir, { recursive: true });
+    writeFileSync(join(configDir, "config.json"), '{"h2a":{"central":{"enabled":false}}}\n');
+    const disabled = start("claude", join(f.dir, "repo-a"));
+    await disabled.call("initialize");
+    await ready(disabled);
+    assert.equal((await centralOperator("status", { runtimeBase: f.runtimeBase })).attachments, 2, "unqualified hosts/opt-outs never attach to the daemon");
+  } finally {
+    channels.forEach(channel => channel.close());
+    await Promise.all(children.map(async child => { if (child.exitCode === null && child.signalCode === null) { child.kill("SIGTERM"); await once(child, "exit"); } }));
+    await centralOperator("stop", { runtimeBase: f.runtimeBase });
+    f.cleanup();
+  }
+});
+
+test("full MCP handshake through the shim consumes 202 without emitting invalid null frames", async () => {
+  const f = fixture();
+  let server;
+  let client;
+  let transport;
+  try {
+    server = await startCentralMcpServer({ root: f.root, runtimeBase: f.runtimeBase, env: {}, idleTimeoutMs: 60_000, sessionLeaseMs: 60_000 });
+    const transportErrors = [];
+    transport = new StdioClientTransport({
+      command: process.execPath,
+      args: [bin, "mcp-serve", "--host", "claude", "--runtime-base", f.runtimeBase],
+      env: {
+        ...f.env,
+        CLAUDE_CODE_SESSION_ID: "conv-handshake-real-sdk",
+      }
+    });
+    transport.onerror = error => transportErrors.push(error);
+    client = new Client({ name: "real-sdk-client", version: "1.0.0" }, { capabilities: {} });
+    await client.connect(transport);
+    const tools = await client.listTools();
+    assert.ok(tools.tools.length > 0);
+    assert.deepEqual(transportErrors, [], "real SDK transport must experience zero protocol errors");
+  } finally {
+    await client?.close();
+    await server?.stop();
+    f.cleanup();
+  }
+});
+
+test("a network cutoff during initialize recovers cleanly and returns the handshake result without HTTP 400", async () => {
+  const f = fixture();
+  let channel;
+  let initializeAttempts = 0;
+  const initializedSessions = new Set();
+  const server = createHttpServer(async (request, response) => {
+    if (request.method === "GET") {
+      response.writeHead(200, { "content-type": "text/event-stream" });
+      response.write(": connected\n\n");
+      return;
+    }
+    if (request.method === "DELETE") { response.writeHead(204).end(); return; }
+    let body = "";
+    for await (const chunk of request) body += chunk;
+    const rpc = JSON.parse(body);
+    if (rpc.method === "initialize") {
+      initializeAttempts++;
+      if (initializeAttempts === 1) {
+        request.socket.destroy();
+        return;
+      }
+      const existingSession = request.headers["mcp-session-id"];
+      if (existingSession && initializedSessions.has(existingSession)) {
+        response.writeHead(400, { "content-type": "application/json" });
+        response.end(JSON.stringify({ jsonrpc: "2.0", id: rpc.id, error: { code: -32600, message: "Server already initialized" } }));
+        return;
+      }
+      const newSession = `session-${initializeAttempts}`;
+      initializedSessions.add(newSession);
+      response.writeHead(200, { "content-type": "application/json", "mcp-session-id": newSession });
+      response.end(JSON.stringify({ jsonrpc: "2.0", id: rpc.id, result: { protocolVersion: "2024-11-05", capabilities: {}, serverInfo: { name: "test-server", version: "1" } } }));
+      return;
+    }
+    if (rpc.method === "notifications/initialized") {
+      response.writeHead(202, { "content-type": "application/json" });
+      response.end("null");
+      return;
+    }
+    response.writeHead(200, { "content-type": "application/json" });
+    response.end(JSON.stringify({ jsonrpc: "2.0", id: rpc.id, result: { tools: [] } }));
+  }).listen(0, "127.0.0.1");
+
+  try {
+    await once(server, "listening");
+    const url = `http://127.0.0.1:${server.address().port}/mcp`;
+    const directory = join(f.runtimeBase, "h2a-mcp-central");
+    mkdirSync(directory, { mode: 0o700 });
+    writeFileSync(join(directory, "marker.json"), JSON.stringify({ endpoint: url, generation: "fixture", pid: process.pid, startedAt: new Date().toISOString(), token: "fixture-secret", root: f.root, protocol: 2 }), { mode: 0o600 });
+    channel = connect(f, url, join(f.dir, "repo-a"), "cutoff-initialize-test");
+    const initResponse = await channel.call("initialize");
+    assert.equal(initResponse.error, undefined, "initialize must not return error");
+    assert.ok(initResponse.result, "initialize must return valid result");
+    assert.equal(initResponse.result.serverInfo.name, "test-server");
+  } finally {
+    await channel?.close();
+    server.closeAllConnections();
+    await new Promise(resolve => server.close(resolve));
+    f.cleanup();
+  }
+});
+
+test("v1 residual configurations without --host route to stdio on missing marker or opt-outs, and can be explicitly repaired", async () => {
+  const f = fixture();
+  const children = [];
+  const startConnect = (args, extraEnv = {}) => {
+    const env = { ...f.env, ...extraEnv };
+    const child = spawn(process.execPath, [bin, "mcp-central-connect", ...args], { env, cwd: join(f.dir, "repo-a"), stdio: ["pipe", "pipe", "pipe"] });
+    children.push(child);
+    const channel = rpcChannel(child.stdin, child.stdout);
+    return { async call(...request) {
+      try { return await channel.call(...request); }
+      finally {
+        channel.close();
+        if (child.exitCode === null && child.signalCode === null) { child.kill("SIGTERM"); await once(child, "exit"); }
+      }
+    } };
+  };
+  try {
+    // 1. Missing marker:
+    // 1a. No --host and no Claude ID (legacy agy/Codex residual shape) -> falls back to stdio
+    const legacyAgy = startConnect(["--endpoint", "http://127.0.0.1:49999/mcp"]);
+    const initAgy = await legacyAgy.call("initialize");
+    assert.ok(initAgy.result, "v1 connector without --host falls back to stdio when marker is missing");
+
+    // 1b. No --host with CLAUDE_CODE_SESSION_ID present but marker is missing -> must not crash, routes to stdio
+    const legacyClaudeMissingMarker = startConnect(
+      ["--endpoint", "http://127.0.0.1:49999/mcp", "--runtime-base", f.runtimeBase],
+      { CLAUDE_CODE_SESSION_ID: "conv-v1-missing-marker" }
+    );
+    const initClaudeMissing = await legacyClaudeMissingMarker.call("initialize");
+    assert.ok(initClaudeMissing.result, "v1 connector with Claude session falls back to stdio when marker is missing");
+
+    // 1c. Inherited CLAUDE_CODE_SESSION_ID does not qualify legacy connector with explicit non-claude host
+    const legacyInheritedCodex = startConnect(
+      ["--host", "codex", "--endpoint", "http://127.0.0.1:49999/mcp", "--runtime-base", f.runtimeBase],
+      { CLAUDE_CODE_SESSION_ID: "conv-v1-inherited" }
+    );
+    const initInherited = await legacyInheritedCodex.call("initialize");
+    assert.ok(initInherited.result, "inherited Claude session does not route codex connector to central");
+
+    // 2. Opt-out H2A_MCP_CENTRAL=0 and non-claude hosts apply before marker discovery (R14)
+    const optedOut = startConnect(["--endpoint", "http://127.0.0.1:49999/mcp"], { H2A_MCP_CENTRAL: "0" });
+    const initOptedOut = await optedOut.call("initialize");
+    assert.ok(initOptedOut.result, "H2A_MCP_CENTRAL=0 routes v1 connector to stdio");
+
+    // 2b. Invalid/non-private marker (0644 mode or malformed) does not break opt-out or codex/agy (R14)
+    const invalidMarkerDir = join(f.runtimeBase, "h2a-mcp-central");
+    mkdirSync(invalidMarkerDir, { recursive: true });
+    const invalidMarkerPath = join(invalidMarkerDir, "marker.json");
+    writeFileSync(invalidMarkerPath, '{"broken":json}', { mode: 0o644 });
+    try {
+      const optOutWithBadMarker = startConnect(
+        ["--endpoint", "http://127.0.0.1:49999/mcp", "--runtime-base", f.runtimeBase],
+        { H2A_MCP_CENTRAL: "0" }
+      );
+      const initBadMarkerOptOut = await optOutWithBadMarker.call("initialize");
+      assert.ok(initBadMarkerOptOut.result, "opt-out succeeds even with invalid/non-private marker");
+
+      const codexWithBadMarker = startConnect(
+        ["--host", "codex", "--endpoint", "http://127.0.0.1:49999/mcp", "--runtime-base", f.runtimeBase],
+        { CLAUDE_CODE_SESSION_ID: "conv-v1-inherited" }
+      );
+      const initBadMarkerCodex = await codexWithBadMarker.call("initialize");
+      assert.ok(initBadMarkerCodex.result, "codex host succeeds even with invalid/non-private marker");
+    } finally {
+      rmSync(invalidMarkerDir, { recursive: true, force: true });
+    }
+
+    // 3. Renewed endpoint: live central running on real URL (R3)
+    const livePort = 47000 + (process.getuid() % 1000) + 50;
+    const liveUrl = `http://127.0.0.1:${livePort}/mcp`;
+    const liveServer = await startCentralMcpServer({
+      root: f.root,
+      runtimeBase: f.runtimeBase,
+      env: { ...f.env, H2A_MCP_CENTRAL_ENDPOINT: liveUrl }
+    });
+    try {
+      // 3a. v1 connector WITHOUT --host with inherited Claude ID and live central must stay in stdio (R3)
+      const v1WithoutHost = startConnect(
+        ["--endpoint", "http://127.0.0.1:49999/mcp", "--runtime-base", f.runtimeBase],
+        { CLAUDE_CODE_SESSION_ID: "conv-v1-inherited-claude" }
+      );
+      const initWithoutHost = await v1WithoutHost.call("initialize");
+      assert.ok(initWithoutHost.result, "unqualified v1 connector without --host falls back to stdio despite live central and Claude ID");
+
+      // 3b. v1 connector WITH explicit --host claude routes to central and adapts to renewed endpoint
+      const renewedConnect = startConnect(
+        ["--host", "claude", "--endpoint", "http://127.0.0.1:49999/mcp", "--runtime-base", f.runtimeBase],
+        { CLAUDE_CODE_SESSION_ID: "conv-v1-renewed" }
+      );
+      const initRenewed = await renewedConnect.call("initialize");
+      assert.ok(initRenewed.result, "qualified Claude v1 connector adapts to renewed live central endpoint");
+      assert.equal(initRenewed.result.serverInfo.name, "@sentropic/h2a", "connected to central server");
+    } finally {
+      await liveServer.stop();
+    }
+
+    // 4. Explicit repair of v1 residual configuration via central residues --repair
+    const repo = join(f.dir, "repo-b");
+    execFileSync("git", ["init", "-q", repo]);
+    const originalConfig = '{\n  "mcpServers": {\n    "h2a": {\n      "command": "h2a",\n      "args": ["mcp-central-connect", "--endpoint", "http://127.0.0.1:47000/mcp"]\n    }\n  }\n}\n';
+    const configPath = join(repo, ".mcp.json");
+    writeFileSync(configPath, originalConfig);
+    execFileSync("git", ["-C", repo, "add", ".mcp.json"]);
+
+    // Repository with "codex" in path: must NOT deduce host as codex (R17)
+    const repoCodexTools = join(f.dir, "repo-codex-tools");
+    execFileSync("git", ["init", "-q", repoCodexTools]);
+    const codexToolsConfigPath = join(repoCodexTools, ".mcp.json");
+    writeFileSync(codexToolsConfigPath, originalConfig);
+    execFileSync("git", ["-C", repoCodexTools, "add", ".mcp.json"]);
+
+    // Real agy fixture
+    const agyConfigDir = join(f.env.HOME, ".gemini", "config");
+    mkdirSync(agyConfigDir, { recursive: true });
+    const agyConfigPath = join(agyConfigDir, "mcp_config.json");
+    writeFileSync(agyConfigPath, originalConfig);
+
+    // Real codex fixture
+    const codexConfigDir = join(f.env.HOME, ".codex");
+    mkdirSync(codexConfigDir, { recursive: true });
+    const codexConfigPath = join(codexConfigDir, "config.json");
+    writeFileSync(codexConfigPath, originalConfig);
+
+    // Without --allow-tracked, repair refuses git-tracked config
+    const dryReport = centralResidueReport(repo, agyConfigPath, { repair: true, codexConfig: codexConfigPath });
+    assert.equal(dryReport.repairedCount, 2, "untracked agy and codex configs are repaired while tracked config is refused");
+    assert.equal(readFileSync(configPath, "utf8"), originalConfig);
+
+    // Reset agy and codex fixtures to test all three repaired together under allowTracked
+    writeFileSync(agyConfigPath, originalConfig);
+    writeFileSync(codexConfigPath, originalConfig);
+
+    // With --allow-tracked, repair rewrites Claude, agy and Codex configs to full coordination stdio
+    const repairReport = centralResidueReport(repo, agyConfigPath, { repair: true, allowTracked: true, codexConfig: codexConfigPath });
+    assert.equal(repairReport.repairedCount, 3);
+
+    const updatedClaude = JSON.parse(readFileSync(configPath, "utf8"));
+    const expectedClaudeArgs = ["mcp-serve", "--auto-open", "--host", "claude", "--auto-upgrade", "--wake", "auto"];
+    assert.deepEqual(updatedClaude.mcpServers.h2a.args, expectedClaudeArgs, "Claude repair produces complete coordination arguments");
+
+    // Verify repository containing "codex" in directory path receives Claude host args, not codex (R17)
+    const repairCodexTools = centralResidueReport(repoCodexTools, agyConfigPath, { repair: true, allowTracked: true, codexConfig: codexConfigPath });
+    assert.equal(repairCodexTools.repairedCount, 1);
+    const updatedCodexTools = JSON.parse(readFileSync(codexToolsConfigPath, "utf8"));
+    assert.deepEqual(updatedCodexTools.mcpServers.h2a.args, expectedClaudeArgs, "repo path containing 'codex' must be repaired as Claude, not Codex");
+
+    const updatedAgy = JSON.parse(readFileSync(agyConfigPath, "utf8"));
+    const expectedAgyArgs = ["mcp-serve", "--auto-open", "--host", "agy", "--auto-upgrade", "--wake", "auto"];
+    assert.deepEqual(updatedAgy.mcpServers.h2a.args, expectedAgyArgs, "agy repair produces complete coordination arguments");
+
+    const updatedCodex = JSON.parse(readFileSync(codexConfigPath, "utf8"));
+    const expectedCodexArgs = ["mcp-serve", "--auto-open", "--host", "codex", "--auto-upgrade", "--wake", "auto"];
+    assert.deepEqual(updatedCodex.mcpServers.h2a.args, expectedCodexArgs, "codex repair produces complete coordination arguments");
+
+    // 5. Exercise each repaired configuration and reread its signed inbox envelope.
+    for (const [host, config] of [["claude", updatedClaude], ["agy", updatedAgy], ["codex", updatedCodex]]) {
+      let stderrText = "";
+      const repairedChild = spawn(
+        process.execPath,
+        [bin, ...config.mcpServers.h2a.args],
+        // Suppress the unrelated upgrade worker so the fixture owns every process.
+        { env: { ...f.env, H2A_MCP_CENTRAL: "0", H2A_UPGRADE_REEXECED: "1", CLAUDE_CODE_SESSION_ID: `repaired-${host}` }, cwd: repo, stdio: ["pipe", "pipe", "pipe"] }
+      );
+      children.push(repairedChild);
+      repairedChild.stderr.on("data", chunk => { stderrText += chunk.toString(); });
+      const repairedChannel = rpcChannel(repairedChild.stdin, repairedChild.stdout);
+      try {
+        assert.ok((await repairedChannel.call("initialize")).result, `${host} repaired server initializes`);
+        const idStatus = await ready(repairedChannel);
+        assert.equal(idStatus.state, "identity_ready", `${host} repaired server achieves identity_ready`);
+        assert.equal(idStatus.signingAvailable, true, `${host} repaired server enables signing`);
+        assert.match(stderrText, /inbox-wake armed for/, `${host} repaired server enables wake`);
+
+        const sendRes = await repairedChannel.call("tools/call", { name: "h2a_send", arguments: { to: idStatus.instance, message: `ping-${host}` } });
+        assert.ok(!sendRes.error, "h2a_send call succeeds with active signer");
+        assert.equal(sendRes.result?.isError, false, "h2a_send business result has isError: false");
+        const sendPayload = JSON.parse(sendRes.result.content[0].text);
+        assert.equal(sendPayload.ok, true, "h2a_send payload indicates success (ok: true)");
+        const persisted = createLocalStore({ root: f.root, initialize: false }).readInbox(idStatus.instance)
+          .find(envelope => envelope.id === sendPayload.envelope.id);
+        assert.deepEqual(persisted, sendPayload.envelope, `${host} inbox persists the exact returned envelope`);
+        assert.ok(persisted.signatures.some(signature => Boolean(signature.value)), `${host} persisted envelope is signed`);
+        assert.equal(persisted.signatures[0].alg, "ed25519");
+        assert.equal(persisted.signatures[0].by, idStatus.instance);
+      } finally {
+        repairedChannel.close();
+        if (repairedChild.exitCode === null && repairedChild.signalCode === null) { repairedChild.kill("SIGTERM"); await once(repairedChild, "exit"); }
+      }
+    }
+  } finally {
+    await Promise.all(children.map(async child => { if (child.exitCode === null && child.signalCode === null) { child.kill("SIGTERM"); await once(child, "exit"); } }));
+    f.cleanup();
+  }
+});
+
+test("relative H2A_ROOT deterministically selects stdio and never derives central root from cwd", async () => {
+  const f = fixture();
+  const repoA = join(f.dir, "repo-a");
+  const repoB = join(f.dir, "repo-b");
+  mkdirSync(repoA, { recursive: true });
+  mkdirSync(repoB, { recursive: true });
+  const relativeEnv = { ...f.env, H2A_ROOT: ".h2a", CLAUDE_CODE_SESSION_ID: "conv-relative-root" };
+  const flags = { host: "claude" };
+
+  // 1. startCentralMcpServer refuses relative root before any mutation (inhibition preserved)
+  const pauseFile = centralPausePath({ runtimeBase: f.runtimeBase });
+  mkdirSync(dirname(pauseFile), { recursive: true, mode: 0o700 });
+  writeFileSync(pauseFile, "{}");
+  await assert.rejects(
+    () => startCentralMcpServer({ root: ".h2a", runtimeBase: f.runtimeBase }),
+    /central MCP root must be an absolute path/
+  );
+  assert.equal(existsSync(pauseFile), true, "pause file must remain untouched when relative root is rejected");
+  unlinkSync(pauseFile);
+
+  // 2. Direct CLI mcp-central-serve from two different cwds refuses relative root without mutation
+  const runServe = (cwd, extraArgs = [], extraEnv = {}) => {
+    try {
+      execFileSync(process.execPath, [bin, "mcp-central-serve", ...extraArgs], {
+        cwd,
+        env: { ...f.env, ...extraEnv },
+        stdio: ["ignore", "pipe", "pipe"]
+      });
+      return { code: 0, stderr: "" };
+    } catch (err) {
+      return { code: err.status, stderr: err.stderr.toString("utf8") };
+    }
+  };
+  const resA = runServe(repoA, ["--root", ".h2a"]);
+  assert.equal(resA.code, 1);
+  assert.match(resA.stderr, /central MCP root must be an absolute path/);
+  assert.equal(existsSync(join(repoA, ".h2a")), false, "repoA must not have .h2a created");
+
+  const resB = runServe(repoB, [], { H2A_ROOT: ".h2a" });
+  assert.equal(resB.code, 1);
+  assert.match(resB.stderr, /central MCP root must be an absolute path/);
+  assert.equal(existsSync(join(repoB, ".h2a")), false, "repoB must not have .h2a created");
+
+  // 3. Testing two different cwds with the exact same relative variable in policy
+  const origCwd = process.cwd();
+  try {
+    process.chdir(repoA);
+    assert.equal(shouldUseCentralMcp(flags, relativeEnv, true), false, "repo-a with relative H2A_ROOT must select stdio");
+    process.chdir(repoB);
+    assert.equal(shouldUseCentralMcp(flags, relativeEnv, true), false, "repo-b with relative H2A_ROOT must select stdio");
+  } finally {
+    process.chdir(origCwd);
+    f.cleanup();
+  }
+});
+
+test("central stop when daemon is already absent writes the pause inhibition", async () => {
+  const f = fixture();
+  try {
+    const pausePath = centralPausePath({ runtimeBase: f.runtimeBase });
+    assert.equal(existsSync(pausePath), false, "initially not paused");
+    const stopped = await centralOperator("stop", { runtimeBase: f.runtimeBase });
+    assert.equal(stopped.running, false);
+    assert.equal(stopped.paused, true, "stop must report paused=true even if daemon was absent");
+    assert.equal(existsSync(pausePath), true, "inhibition file must be written even when daemon was absent");
+  } finally {
+    f.cleanup();
+  }
+});
+
+test("runtime-base namespace is strictly isolated across discovery, auto-start, policy, operator and exercises reconnection in real shim", async () => {
+  const f = fixture();
+  const nsA = join(f.dir, "ns-a");
+  const nsB = join(f.dir, "ns-b");
+  const defaultNs = join(f.dir, "default-ns");
+  mkdirSync(nsA, { recursive: true, mode: 0o700 });
+  mkdirSync(nsB, { recursive: true, mode: 0o700 });
+  mkdirSync(defaultNs, { recursive: true, mode: 0o700 });
+
+  const isolatedEnv = {
+    PATH: process.env.PATH,
+    HOME: join(f.dir, "isolated-home"),
+    XDG_RUNTIME_DIR: defaultNs,
+    XDG_CACHE_HOME: join(f.dir, "cache"),
+    XDG_CONFIG_HOME: join(f.dir, "config"),
+    REMOTE_CLI_CONFIG_HOME: join(f.dir, "remote-config"),
+    H2A_ROOT: f.root,
+    H2A_MCP_CENTRAL: "1",
+    CLAUDE_CODE_SESSION_ID: "session-ns-recovery"
+  };
+  mkdirSync(isolatedEnv.HOME, { recursive: true, mode: 0o700 });
+  mkdirSync(isolatedEnv.XDG_CACHE_HOME, { recursive: true, mode: 0o700 });
+  mkdirSync(isolatedEnv.XDG_CONFIG_HOME, { recursive: true, mode: 0o700 });
+  mkdirSync(isolatedEnv.REMOTE_CLI_CONFIG_HOME, { recursive: true, mode: 0o700 });
+  mkdirSync(f.root, { recursive: true, mode: 0o700 });
+
+  // 1. Policy check: must respect explicit runtime-base
+  assert.equal(shouldUseCentralMcp({ host: "claude", "runtime-base": nsA }, isolatedEnv, true), true);
+
+  // 2. Exercise real shim with --runtime-base=nsA while XDG_RUNTIME_DIR is defaultNs
+  const repo = join(f.dir, "repo-a");
+  const shim = spawn(
+    process.execPath,
+    [bin, "mcp-serve", "--host", "claude", "--auto-open", "--runtime-base", nsA],
+    { env: isolatedEnv, cwd: repo, stdio: ["pipe", "pipe", "pipe"] }
+  );
+  const channel = rpcChannel(shim.stdin, shim.stdout);
+
+  try {
+    const initRes = await channel.call("initialize", {
+      protocolVersion: "2025-06-18",
+      capabilities: {},
+      clientInfo: { name: "test-client", version: "1" }
+    });
+    assert.ok(initRes.result, "shim initialize succeeded");
+
+    const before = await ready(channel);
+    assert.equal(before.state, "identity_ready");
+    assert.ok(before.instance);
+    assert.equal(bindings(f.root).length, 1, "initial binding created in state root");
+
+    // Verify central daemon was created exclusively in nsA and not in defaultNs or nsB
+    assert.equal(existsSync(join(nsA, "h2a-mcp-central", "marker.json")), true, "marker exists in nsA");
+    assert.equal(existsSync(join(nsB, "h2a-mcp-central")), false, "nsB remains completely empty");
+    assert.equal(existsSync(join(defaultNs, "h2a-mcp-central")), false, "default namespace remains completely empty");
+
+    // Operator status distinguishes the namespaces
+    const statusA = await centralOperator("status", { runtimeBase: nsA });
+    const statusB = await centralOperator("status", { runtimeBase: nsB });
+    const statusDef = await centralOperator("status", { runtimeBase: defaultNs });
+    assert.equal(statusA.running, true, "nsA is running");
+    assert.equal(statusB.running, false, "nsB is not running");
+    assert.equal(statusDef.running, false, "defaultNs is not running");
+
+    // 3. Trigger central failure: kill central daemon in nsA
+    const markerA1 = JSON.parse(readFileSync(join(nsA, "h2a-mcp-central", "marker.json"), "utf8"));
+    process.kill(markerA1.pid, "SIGTERM");
+    await delay(300);
+
+    // Verify shim remains alive
+    assert.equal(shim.exitCode, null, "shim process remains alive across central stop");
+
+    // 4. Verify recovery over existing shim channel
+    const after = await ready(channel);
+    assert.equal(after.state, "identity_ready");
+    assert.equal(after.instance, before.instance, "recovered shim retains identical instance identity");
+    assert.equal(bindings(f.root).length, 1, "single binding preserved across restart");
+
+    // Verify recovered daemon is in nsA with new PID and zero artifacts elsewhere
+    const markerA2 = JSON.parse(readFileSync(join(nsA, "h2a-mcp-central", "marker.json"), "utf8"));
+    assert.notEqual(markerA2.pid, markerA1.pid, "recovered central daemon has new PID");
+    assert.equal(existsSync(join(nsB, "h2a-mcp-central")), false, "nsB remains completely empty after recovery");
+    assert.equal(existsSync(join(defaultNs, "h2a-mcp-central")), false, "defaultNs remains completely empty after recovery");
+  } finally {
+    channel.close();
+    if (shim.exitCode === null && shim.signalCode === null) {
+      shim.kill("SIGTERM");
+      await once(shim, "exit");
+    }
+    try { await centralOperator("stop", { runtimeBase: nsA }); } catch {}
+    f.cleanup();
+  }
+});
+
+test("structured sidecar launches with readiness challenge stay on stdio and acknowledge without initial MCP request", async () => {
+  const f = fixture();
+  const readyFile = join(f.dir, "ready.json");
+  const nonce = "01234567-89ab-4cde-8f01-23456789abcd";
+  const env = {
+    ...f.env,
+    CLAUDE_CODE_SESSION_ID: "session-readiness-test",
+    H2A_MCP_READY_FILE: readyFile,
+    H2A_MCP_READY_NONCE: nonce,
+  };
+  const flags = { host: "claude", "auto-open": "true" };
+
+  // 1. Policy check: must return false (selecting stdio)
+  assert.equal(shouldUseCentralMcp(flags, env, true), false, "readiness challenge must route to stdio");
+
+  // 2. Launching mcp-serve with readiness challenge produces ACK carrying sidecar's own PID and nonce, without any initial MCP frame
+  const child = spawn(process.execPath, [bin, "mcp-serve", "--host", "claude", "--auto-open"], {
+    env,
+    cwd: join(f.dir, "repo-a"),
+    stdio: ["pipe", "pipe", "pipe"],
+  });
+  try {
+    const deadline = Date.now() + 5000;
+    while (!existsSync(readyFile) && Date.now() < deadline) {
+      await delay(50);
+    }
+    assert.equal(existsSync(readyFile), true, "readiness ack file must be created");
+    const ack = JSON.parse(readFileSync(readyFile, "utf8"));
+    assert.equal(ack.kind, "h2a.mcp.ready");
+    assert.equal(ack.nonce, nonce);
+    assert.equal(ack.pid, child.pid, "ACK must carry sidecar process PID, not daemon PID");
+  } finally {
+    if (child.exitCode === null && child.signalCode === null) {
+      child.kill("SIGTERM");
+      await once(child, "exit");
+    }
+    f.cleanup();
+  }
+});
+
+test("H2A_MCP_CENTRAL=0 acts as independent escape hatch before reading configuration, even with invalid JSON or unreadable file", () => {
+  const f = fixture();
+  try {
+    const configDir = join(f.env.REMOTE_CLI_CONFIG_HOME, ".config", "sentropic", "h2a");
+    mkdirSync(configDir, { recursive: true });
+    const configPath = join(configDir, "config.json");
+
+    // Case 1: Invalid JSON in configuration
+    writeFileSync(configPath, "{ broken json content");
+    assert.equal(
+      shouldUseCentralMcp({ host: "claude" }, { ...f.env, H2A_MCP_CENTRAL: "0", CLAUDE_CODE_SESSION_ID: "session-r10" }, true),
+      false,
+      "H2A_MCP_CENTRAL=0 must return false without throwing when config is invalid JSON"
+    );
+
+    // Case 2: Unreadable config file (EACCES)
+    writeFileSync(configPath, '{"h2a":{"central":{"enabled":true}}}', { mode: 0o000 });
+    try {
+      chmodSync(configPath, 0o000);
+    } catch {}
+    assert.equal(
+      shouldUseCentralMcp({ host: "claude" }, { ...f.env, H2A_MCP_CENTRAL: "0", CLAUDE_CODE_SESSION_ID: "session-r10" }, true),
+      false,
+      "H2A_MCP_CENTRAL=0 must return false without throwing when config file is unreadable"
+    );
+  } finally {
+    try { chmodSync(join(f.env.REMOTE_CLI_CONFIG_HOME, ".config", "sentropic", "h2a", "config.json"), 0o600); } catch {}
+    f.cleanup();
+  }
+});
+
+
