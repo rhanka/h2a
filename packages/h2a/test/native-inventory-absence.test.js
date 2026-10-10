@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { join, relative, resolve } from "node:path";
 import test from "node:test";
 import { pathToFileURL } from "node:url";
 import { NativeTerminalClient } from "../../h2a-runtime/dist/native-terminal/client.js";
@@ -13,6 +13,37 @@ const terminal = join(repo, "packages/h2a-runtime/dist/native-terminal");
 const native = pathToFileURL(join(repo, "packages/h2a-runtime/dist/native-host.js")).href;
 const legacy = process.env.H2A_TEST_LEGACY_HOST_DIR;
 
+function assertIsolatedEnvironment(env, qualRoot) {
+  const forbiddenExact = [
+    "/run/user/1000/h2a-nt",
+    "/home/antoinefa",
+    "/home/antoinefa/.local/state",
+    "/home/antoinefa/.config",
+  ];
+  const forbiddenPrefixes = [
+    "/run/user/1000/h2a-nt/",
+    "/home/antoinefa/.local/state/",
+    "/home/antoinefa/.config/",
+  ];
+  for (const key of ["HOME", "XDG_RUNTIME_DIR", "XDG_STATE_HOME", "XDG_CONFIG_HOME"]) {
+    const val = env[key];
+    assert.ok(typeof val === "string" && val.length > 0, `Missing required isolation env ${key}`);
+    const resolved = resolve(val);
+    for (const bad of forbiddenExact) {
+      assert.ok(resolved !== bad, `REFUSING unisolated environment: ${key}=${resolved} matches owner directory ${bad}`);
+    }
+    for (const bad of forbiddenPrefixes) {
+      assert.ok(!resolved.startsWith(bad), `REFUSING unisolated environment: ${key}=${resolved} resolves inside owner directory ${bad}`);
+    }
+    assert.ok(!resolved.includes("/.cache-tmp/h2a-"), `REFUSING unisolated environment: ${key}=${resolved} in owner cache-tmp`);
+    const rel = relative(qualRoot, resolved);
+    assert.ok(
+      rel === "" || (!rel.startsWith("..") && !rel.startsWith("/")),
+      `REFUSING environment outside qualification root: ${key}=${resolved} (qualRoot=${qualRoot})`,
+    );
+  }
+}
+
 async function fixture(body) {
   const qualRoot = join(repo, ".qual-tmp");
   mkdirSync(qualRoot, { recursive: true });
@@ -22,10 +53,16 @@ async function fixture(body) {
   mkdirSync(workspaces, { recursive: true });
   const workspace = mkdtempSync(join(workspaces, "w-"));
   mkdirSync(home, { mode: 0o700 });
+  const stateHome = join(home, ".local/state");
+  mkdirSync(stateHome, { recursive: true, mode: 0o700 });
+  const configHome = join(home, ".config");
+  mkdirSync(configHome, { recursive: true, mode: 0o700 });
   const env = { PATH: "/usr/bin:/bin", HOME: home, XDG_RUNTIME_DIR: root,
-    XDG_CONFIG_HOME: join(home, ".config"), REMOTE_CLI_CONFIG_HOME: home,
+    XDG_STATE_HOME: stateHome,
+    XDG_CONFIG_HOME: configHome, REMOTE_CLI_CONFIG_HOME: home,
     H2A_ROOT: join(workspace, ".h2a"), H2A_SESSION_HOST: "native", H2A_NATIVE_SOCKET: "", TERM: "xterm-256color",
     TMUX_TMPDIR: root };
+  assertIsolatedEnvironment(env, qualRoot);
   const paths = [join(root, "h2a-nt/native-terminal.sock"), join(root, "h2a-nt/native-terminal.lf1.sock")];
   const hosts = [], clients = [];
   async function run(args, source = false, entry = join(terminal, "op.js"), input) {
@@ -253,16 +290,45 @@ test("should refuse second writer when a live host without .owner was started vi
   assert.deepEqual(await host.client.ping(), host.ping);
 }));
 
-test("should treat /proc read error or unavailable observation as unknown and refuse launch", linux, () => fixture(async f => {
+test("should treat /proc pid entry stat error as unknown and refuse launch", linux, () => fixture(async f => {
   const host = await f.start();
   if (existsSync(`${f.paths[0]}.owner`)) unlinkSync(`${f.paths[0]}.owner`);
   unlinkSync(f.paths[0]);
   assert.deepEqual(await host.client.ping(), host.ping);
 
-  f.env.H2A_TEST_PROC_UNAVAILABLE = "1";
-  const probe = (await f.run(["probe", "--id", "h2a-proc-err"])).payload;
+  const mockProc = join(f.root, "proc-stat-err");
+  mkdirSync(mockProc, { recursive: true });
+  // Symlink loop creates ELOOP when statSync is called on the pid directory
+  symlinkSync("loop", join(mockProc, "loop"));
+  symlinkSync("loop", join(mockProc, String(host.child.pid)));
+
+  f.env.H2A_TEST_PROC_ROOT = mockProc;
+  const probe = (await f.run(["probe", "--id", "h2a-stat-err"])).payload;
   assert.equal(probe.verdict, "unknown");
-  const launched = await f.launch("proc-err");
+  const launched = await f.launch("stat-err");
+  assert.equal(launched.payload.code, "native-inventory-unknown");
+  assert.equal(launched.payload.creationAttempted, false);
+  assert.deepEqual(await host.client.ping(), host.ping);
+}));
+
+test("should treat /proc fd descriptor readlink error as unknown and refuse launch", linux, () => fixture(async f => {
+  const host = await f.start();
+  if (existsSync(`${f.paths[0]}.owner`)) unlinkSync(`${f.paths[0]}.owner`);
+  unlinkSync(f.paths[0]);
+  assert.deepEqual(await host.client.ping(), host.ping);
+
+  const mockProc = join(f.root, "proc-fd-err");
+  const pidDir = join(mockProc, String(host.child.pid));
+  const fdDir = join(pidDir, "fd");
+  mkdirSync(fdDir, { recursive: true });
+  writeFileSync(join(pidDir, "cmdline"), `${process.execPath}\0--socket\0${f.paths[0]}\0process.js\0`);
+  // A regular file in fd causes readlinkSync to throw EINVAL (non-symlink)
+  writeFileSync(join(fdDir, "3"), "not-a-symlink");
+
+  f.env.H2A_TEST_PROC_ROOT = mockProc;
+  const probe = (await f.run(["probe", "--id", "h2a-fd-err"])).payload;
+  assert.equal(probe.verdict, "unknown");
+  const launched = await f.launch("fd-err");
   assert.equal(launched.payload.code, "native-inventory-unknown");
   assert.equal(launched.payload.creationAttempted, false);
   assert.deepEqual(await host.client.ping(), host.ping);
