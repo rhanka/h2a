@@ -35,6 +35,18 @@ function temporary(test: (file: string) => Promise<void> | void) {
     try { await test(file); } finally { rmSync(dir, { recursive: true, force: true }); } };
 }
 describe("L0 product driver adversaries", () => {
+  it("should bound native observation service cost during delayed MCP startup", temporary(async file => {
+    const f = fixture(file, { mcpAt: 4000 });
+    let nativeServiceMs = 0;
+    const deps = { ...f.deps, capturePane: () => {
+      nativeServiceMs += 200; f.deps.sleep(200); return f.capture();
+    } };
+    const result = await deliverClaudeNativePrompt("w", "exact brief", deps, { debugFile: file,
+      requiredMcps: ["playwright"], requiredMcpProof: () => f.time() >= 4000,
+      qualifiedDiagnostic: true, correlatedPrompt: () => true });
+    expect(result.state).toBe("working"); expect(f.submit).toHaveBeenCalledTimes(1);
+    expect(nativeServiceMs).toBeLessThanOrEqual(1000);
+  }));
   for (const proof of ["dispatch", "response"]) {
     it("should preserve submission when a required MCP dies during Enter with " + proof, temporary(async file => {
       const f = fixture(file);
