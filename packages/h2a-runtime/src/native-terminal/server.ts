@@ -617,7 +617,10 @@ function findActiveHostServingSocket(
       procStat = statSync(pidDir);
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code === "ENOENT" || (err as NodeJS.ErrnoException).code === "ESRCH") continue;
-      continue;
+      return {
+        state: "unknown",
+        reason: `cannot stat /proc/${pid}: ${err instanceof Error ? err.message : String(err)}`,
+      };
     }
     if (process.getuid && procStat.uid !== process.getuid()) {
       continue;
@@ -674,7 +677,11 @@ function findActiveHostServingSocket(
           break;
         }
       } catch (err) {
-        if ((err as NodeJS.ErrnoException).code === "ENOENT") continue;
+        if ((err as NodeJS.ErrnoException).code === "ENOENT" || (err as NodeJS.ErrnoException).code === "ESRCH") continue;
+        return {
+          state: "unknown",
+          reason: `cannot readlink /proc/${pid}/fd/${fd}: ${err instanceof Error ? err.message : String(err)}`,
+        };
       }
     }
     if (!hasSocketFd) continue;
