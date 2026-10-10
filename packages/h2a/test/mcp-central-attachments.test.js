@@ -4,6 +4,7 @@ import { createHash } from "node:crypto";
 import { once } from "node:events";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
+import { homedir, tmpdir, userInfo } from "node:os";
 import { createInterface } from "node:readline";
 import { PassThrough } from "node:stream";
 import { createServer } from "node:net";
@@ -26,8 +27,8 @@ import { qualifiedEnvironment, qualificationRoot, assertQualifiedPath } from "./
 
 const bin = resolve("packages/h2a/dist/bin.js");
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
-function fixture() {
-  const base = join(qualificationRoot, "mcp-attachment-tests");
+function fixture({ temporary = false } = {}) {
+  const base = temporary ? tmpdir() : join(qualificationRoot, "mcp-attachment-tests");
   mkdirSync(base, { recursive: true });
   const dir = mkdtempSync(join(base, "case-"));
   for (const name of ["home", "runtime", "config", "repo-a", "repo-b"]) mkdirSync(join(dir, name), { mode: 0o700 });
@@ -223,8 +224,10 @@ for (const wake of ["auto", "native", "local-tmux"])
   });
 
 test("qualification guards reject paths resolving outside .qual-tmp", () => {
-  assert.throws(() => assertQualifiedPath("/home/antoinefa"), /escapes .qual-tmp/);
-  assert.throws(() => qualifiedEnvironment("/home/antoinefa"), /escapes .qual-tmp/);
+  for (const home of new Set([homedir(), userInfo().homedir])) {
+    assert.throws(() => assertQualifiedPath(home), /escapes .qual-tmp/);
+    assert.throws(() => qualifiedEnvironment(home), /escapes .qual-tmp/);
+  }
 });
 
 test("R6 Claude defaults to central without configuration and preserves the exact incident bytes", async () => {
@@ -328,7 +331,8 @@ for (const configState of ["invalid JSON", "unreadable"])
 
 for (const terminal of ["native", "tmux"])
   test(`R19 manual daemon ${terminal} launcher context never becomes the target of a client without terminal context`, async () => {
-    const f = fixture();
+    // A short socket path exercises unresolved native delivery on every host.
+    const f = fixture({ temporary: true });
     const children = [];
     let channel;
     let stderr = "";
@@ -367,7 +371,7 @@ for (const terminal of ["native", "tmux"])
       const wakeDeadline = Date.now() + 3000;
       while (!stderr.includes("inbox-wake: 1 new envelope(s)") && Date.now() < wakeDeadline) await delay(25);
       assert.match(stderr, /inbox-wake: 1 new envelope\(s\) → drive failed/, "wake must refuse an absent client terminal target");
-      assert.ok(stderr.includes(`drive[native-pty]: ${status.instance} (failed)`), "wake uses only the client's identity when no terminal is supplied");
+      assert.ok(stderr.includes(`drive[native-pty]: ${status.instance} (failed)`), `wake uses only the client's identity when no terminal is supplied: ${stderr}`);
       assert.doesNotMatch(stderr, /daemon-launcher|%42/);
 
       const ownedShim = spawn(process.execPath, [bin, "mcp-serve", "--host", "claude", "--auto-open"], {
