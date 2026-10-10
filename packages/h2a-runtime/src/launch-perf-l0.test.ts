@@ -35,6 +35,31 @@ function temporary(test: (file: string) => Promise<void> | void) {
     try { await test(file); } finally { rmSync(dir, { recursive: true, force: true }); } };
 }
 describe("L0 product driver adversaries", () => {
+  for (const proof of ["dispatch", "response"]) {
+    it("should preserve submission when a required MCP dies during Enter with " + proof, temporary(async file => {
+      const f = fixture(file);
+      let live = true;
+      appendFileSync(file, '[DEBUG] MCP server "playwright": Successfully connected\n[DEBUG] MCP server "playwright": Connection established with capabilities: {"hasTools":true}\n');
+      f.submit.mockImplementation(() => { live = false; appendFileSync(file, settled + turn + main); return true; });
+      const result = await deliverClaudeNativePrompt("w", "exact brief", f.deps, { debugFile: file,
+        requiredMcps: ["playwright"], requiredMcpProof: () => live,
+        qualifiedDiagnostic: proof === "dispatch", correlatedPrompt: () => true,
+        correlatedResponse: () => proof === "response" });
+      expect(result.state).toBe("launch-unconfirmed");
+      expect(result.submitAttempted).toBe(true); expect(f.submit).toHaveBeenCalledTimes(1);
+    }));
+  }
+  it("should revalidate required MCP liveness at final publication", temporary(async file => {
+    const f = fixture(file);
+    let live = true, publish: (() => string | undefined) | undefined;
+    appendFileSync(file, '[DEBUG] MCP server "playwright": Successfully connected\n[DEBUG] MCP server "playwright": Connection established with capabilities: {"hasTools":true}\n');
+    f.submit.mockImplementation(() => { appendFileSync(file, settled + turn + main); return true; });
+    const result = await deliverClaudeNativePrompt("w", "exact brief", f.deps, { debugFile: file,
+      requiredMcps: ["playwright"], requiredMcpProof: () => live,
+      qualifiedDiagnostic: true, correlatedPrompt: () => true, publicationCheck: check => { publish = check; } });
+    expect(result.state).toBe("working"); live = false;
+    expect(publish?.()).toMatch(/required MCP/);
+  }));
   it("should observe a queued refusal beyond the incremental read window before publication", temporary(async file => {
     const f = fixture(file);
     f.submit.mockImplementation(() => { appendFileSync(file, settled + turn + main + "[DEBUG] unrelated record\n".repeat(10000) + "[ERROR] API error (attempt 1/11): 401 401 {}\n"); return true; });
