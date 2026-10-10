@@ -28,7 +28,7 @@ export function parseClaudeDebugEvents(content: string): ClaudeDebugAnalysis {
 
   const lines = content.split("\n");
   for (const line of lines) {
-    if (/\[ERROR\] API error \(attempt \d+\/\d+\): (?:401|403|429)\b/.test(line) ||
+    if (/\[ERROR\] API error \(attempt \d+\/\d+\): [45]\d{2}\b/.test(line) ||
         /\[ERROR\] API error .*?(?:insufficient credits|quota exhausted)/i.test(line)) providerRefusal = true;
     // MCP connection detection
     const mcpMatch = line.match(/MCP server "([^"]+)": Successfully connected/);
