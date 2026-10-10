@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url';
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const lab = repo + '/.qual-tmp/lab';
 const opts = JSON.parse(process.argv[2] || '{}');
-const allowedOptions = new Set(['adapter','admission','cache','concurrentInput','driverPacingMs','evict','expectedState','fixtureRoot','holdMs','httpStatus','label','mcp','mcpDelayMs','mode','n','noDebug','pacingMs','pinned','pressure','qualifyDispatch','relaunch','repeat','reportedVersion','responseDelayMs','resumePrompt','seedRelaunch','sidecar','small','sourceSha','timeoutMs','toolsDelayMs','upgradeSlow','userHookMs','userHookVeto','worktree','wrongConversation']);
+const allowedOptions = new Set(['adapter','admission','cache','concurrentInput','crashPhase','driverPacingMs','evict','expectedState','fixtureRoot','holdMs','httpStatus','label','mcp','mcpDelayMs','mode','n','noDebug','pacingMs','pinned','pressure','qualifyDispatch','relaunch','repeat','reportedVersion','responseDelayMs','resumePrompt','seedRelaunch','sidecar','small','sourceSha','timeoutMs','toolsDelayMs','upgradeSlow','userHookMs','userHookVeto','worktree','wrongConversation']);
 for(const key of Object.keys(opts))if(!allowedOptions.has(key))throw new Error('unsupported laboratory option: '+key);
 if (!opts.worktree || !opts.sourceSha) throw new Error('an explicit measured worktree and source SHA are required');
 const installed = opts.worktree + '/packages/h2a';
@@ -141,7 +141,7 @@ const observe = async (id, begin, receipt) => {
   let seq = 0, text = '', firstPrompt, accepted, answer, ptyPid, trustSent = false;
   const deadline = Date.now() + (opts.timeoutMs || 65000);
   while (Date.now() < deadline && !aborted) {
-    if (receipt?.exitCode !== null && receipt?.exitCode !== undefined && receipt.exitCode !== 0) break;
+    if (receipt?.signalCode || (receipt?.exitCode !== null && receipt?.exitCode !== undefined && receipt.exitCode !== 0)) break;
     try {
       const state = await client.state(id); ptyPid = state.pid;
       const replay = await client.readOutput(id, seq);
@@ -189,6 +189,21 @@ try {
         ? startChild(process.execPath,[repo+'/scripts/launch-perf/adapter-worker.mjs'],'launcher-'+i,JSON.stringify({profile:'claude',name,workspace,prompt:'Return the word READY_WITNESS.',background:true,gateway:'off',headless:false,h2aSidecar:opts.sidecar!==false}))
         : startChild(process.execPath, args, 'launcher-' + i, 'Return the word READY_WITNESS.');
       const observation = observe(id, begin, c);
+      const crash = opts.crashPhase ? (async()=>{
+        const receipt=workspace+'/.h2a/runs/'+name+'/launch.json',until=Date.now()+20000;
+        while(Date.now()<until){
+          try {
+            const durable=JSON.parse(fs.readFileSync(receipt,'utf8'));
+            let ready=opts.crashPhase==='before-mark'?durable.inputEpoch>=2&&!durable.submitAttempted:
+              opts.crashPhase==='after-mark'?durable.submitAttempted:
+              opts.crashPhase==='before-publication'?durable.phase==='lastRequiredProofMs':false;
+            if(opts.crashPhase==='during-enter')ready=fs.readdirSync(output).filter(f=>/^trace-.*jsonl$/.test(f)).some(f=>fs.readFileSync(output+'/'+f,'utf8').split('\n').some(line=>{try{const e=JSON.parse(line);return e.name==='node_preload'&&e.entry==='op.js'&&e.operation==='enter'&&e.session===id;}catch{return false;}}));
+            if(ready){if(!c.kill('SIGKILL'))throw new Error('owned launcher already exited');mark('lab_launcher_crash',{id,pid:c.pid,phase:opts.crashPhase});return;}
+          }catch(error){if(error.message==='owned launcher already exited')throw error;}
+          await delay(5);
+        }
+        throw new Error('launcher crash phase was never reached');
+      })():undefined;
       const concurrent = opts.concurrentInput ? (async () => {
         const until=Date.now()+20000,receipt=workspace+'/.h2a/runs/'+name+'/launch.json';
         while(Date.now()<until){
@@ -203,6 +218,11 @@ try {
       await new Promise((r,j) => { c.once('close', r); c.once('error',j); });
       const receiptMs = mark('launcher_exit', { id, code: c.exitCode }) - begin;
       await concurrent;
+      await crash;
+      if(opts.crashPhase){
+        const file=workspace+'/.h2a/runs/'+name+'/launch.json',until=Date.now()+10000;
+        while(Date.now()<until){try{if(['stopped','launch-unconfirmed'].includes(JSON.parse(fs.readFileSync(file,'utf8')).state))break;}catch{}await delay(20);}
+      }
       results.push({ name, hostMs, receiptMs, exitCode: c.exitCode, ...await observation });
     } else {
       sessions.push(id);
@@ -348,6 +368,7 @@ try {
       mark('long_diagnostic_sample', { elapsedMs: Date.now()-begin, files: diagnosticFiles.filter(f=>fs.existsSync(f)).map(f=>({file:f,bytes:fs.statSync(f).size,mode:fs.statSync(f).mode&0o777})) });
       await delay(Math.min(15000,opts.holdMs-(Date.now()-begin)));
     }
+    mark('long_diagnostic_complete',{elapsedMs:Date.now()-begin,aborted});
   }
 } catch(e) { failure = e.stack; }
 finally {

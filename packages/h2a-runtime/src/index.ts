@@ -6856,7 +6856,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
                       launchTimings[phase] = at;
                       updateLaunchReceipt(join(runDir, "launch.json"), process.env.H2A_RUN_LAUNCH_TOKEN, { phase, timings: launchTimings });
                     },
-                    pacingMs: experimentalPacing ?? 250,
+                    pacingMs: experimentalPacing ?? (dispatchEvidenceEnabled ? 0 : 250),
                     observationTimeoutMs: 15_000,
                   },
                 )
@@ -6878,7 +6878,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
                   }, { profile });
             if (promptDelivery.state !== "working") {
               cleanupHeadlessPromptFile(promptFile);
-              const wasSubmitted = launchGuard?.isSubmitAttempted() ||
+              let wasSubmitted = launchGuard?.isSubmitAttempted() ||
                 (promptDelivery as Record<string, unknown>).submitAttempted === true ||
                 promptDelivery.state === "submitted-idle" ||
                 promptDelivery.state === "launch-unconfirmed";
@@ -6891,6 +6891,10 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
                     ? killNativeSessionTree(name)
                     : killLocalSession(name);
                 if (stopped) releaseLaunchSlot(slug, "stopped");
+                else if (launchGuard?.isSubmitAttempted()) {
+                  wasSubmitted = true;
+                  releaseLaunchSlot(slug, "launch-unconfirmed");
+                }
               } else {
                 if (launchGuard) launchGuard.stop();
                 releaseLaunchSlot(slug, "launch-unconfirmed");

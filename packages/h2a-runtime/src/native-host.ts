@@ -844,9 +844,14 @@ export function nativeClaudeDeliveryDeps(owned: NativeLaunchOwnership, deadline:
     if (remaining <= 0) { reject(new Error("launch observation deadline expired")); return; }
     execFile(process.execPath, [opEntryPath(), op, "--id", owned.name, "--socket", owned.socketPath,
       "--generation", owned.generation, "--incarnation", owned.incarnation, "--epoch", String(epoch), ...extra],
-    { timeout: remaining, maxBuffer: 65536, encoding: "utf8" }, (error, stdout) => {
-      if (error) { reject(error); return; }
-      try { resolve(JSON.parse(stdout.trim())); } catch (failure) { reject(failure); }
+    { timeout: remaining, maxBuffer: 65536, encoding: "utf8" }, (error, stdout, stderr) => {
+      if (error) {
+        // execFile's message contains argv, including a base64-encoded brief.
+        // Receipts retain a bounded reason, never the input payload.
+        const lost = /launch .*input epoch|launch changed during observation/i.test(stderr);
+        reject(new Error(lost ? "launch ownership or input epoch changed" : `native ${op} failed or timed out`)); return;
+      }
+      try { resolve(JSON.parse(stdout.trim())); } catch { reject(new Error(`native ${op} returned an invalid observation`)); }
     });
   });
   const write = async (op: string, extra: string[] = []) => {
