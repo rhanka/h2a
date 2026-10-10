@@ -43,7 +43,7 @@ for(const opts of plan.input.scenarios){
 const output=[...groups.values()].map(group=>({...group,summary:{requests:group.samples.length,
   plannedRequests:group.samples.length+group.refusals.reduce((sum,r)=>sum+r.planned,0),
   refusedBeforeProbe:group.refusals.reduce((sum,r)=>sum+r.planned,0),successes:group.samples.filter(s=>s.ok).length,
-  launchComplete:stat(group.samples.map(s=>s.launchCompleteMs)),returns:stat(group.samples.map(s=>s.returnMs)),
+  launchComplete:stat([...group.samples.map(s=>s.launchCompleteMs), ...group.refusals.flatMap(r=>Array(r.planned).fill(Infinity))]),returns:stat(group.samples.map(s=>s.returnMs)),
   usable:stat(group.samples.flatMap(s=>s.usableMs!==null?[s.usableMs]:[])),
   legacyUsable:stat(group.samples.flatMap(s=>s.legacyUsableMs!==null?[s.legacyUsableMs]:[])),
   lastProof:stat(group.samples.flatMap(s=>s.ok&&s.lastProofToResultMs!==null?[s.lastProofToResultMs]:[])),
