@@ -3,14 +3,14 @@ import test from "node:test";
 
 process.env.NODE_ENV = "test";
 const { createLocalGatewayApp } = await import(
-  "../../h2a-runtime/dist/llm-gateway-runtime/index.js"
+  "../../h2a-runtime/dist/gateway-host/host.js"
 );
 import {
   resetSessionLedger
-} from "../../h2a-runtime/dist/llm-gateway-runtime/session-ledger.js";
+} from "../../h2a-runtime/dist/gateway-host/ledger.js";
 import {
   resetSessions
-} from "../../h2a-runtime/dist/llm-gateway-runtime/sticky.js";
+} from "../../h2a-runtime/dist/gateway-host/sessions.js";
 
 test.afterEach(() => {
   resetSessions();
@@ -18,7 +18,7 @@ test.afterEach(() => {
 });
 
 test("local gateway mints process-local opaque session bearers", async () => {
-  const app = createLocalGatewayApp({ ownerScopeRef: "owner:node-test" });
+  const app = await createLocalGatewayApp({ ownerScopeRef: "owner:node-test" });
   const first = await app.request("/v1/session", {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -48,7 +48,7 @@ test("local gateway mints process-local opaque session bearers", async () => {
 });
 
 test("gateway rejects an unknown bearer before planning or egress", async () => {
-  const app = createLocalGatewayApp({ ownerScopeRef: "owner:node-test" });
+  const app = await createLocalGatewayApp({ ownerScopeRef: "owner:node-test" });
   const response = await app.request("/v1/messages", {
     method: "POST",
     headers: {

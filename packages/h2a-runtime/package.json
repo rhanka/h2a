@@ -15,6 +15,7 @@
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1075.0",
     "@hono/node-server": "^2.0.12",
+    "@sentropic/cluster-mesh": "0.13.0",
     "@sentropic/llm-gateway": "0.19.1",
     "@sentropic/llm-mesh": "0.22.3",
     "@xterm/headless": "^6.0.0",
@@ -50,5 +51,8 @@
   "license": "MIT",
   "description": "h2a heavy runtime (sessions / k8s / tunnel, node-pty + aws-sdk). Lazily imported by @sentropic/h2a; installed separately.",
   "main": "./dist/index.js",
-  "types": "./dist/index.d.ts"
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "node ../../scripts/clean-workspace-dist.mjs && tsc -b --force"
+  }
 }

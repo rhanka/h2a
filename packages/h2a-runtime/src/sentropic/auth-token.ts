@@ -4,7 +4,7 @@
  * Spec §3. The refresh/access tokens live in `~/.sentropic/h2a-auth.json` (0600), namespaced PER
  * SERVER, so a token minted for one sentropic server/issuer is NEVER usable against another (an
  * attacker-supplied `--server` cannot harvest a 39-auth token). Mirrors the atomic-0600 write used
- * by llm-mesh.ts; no network here.
+ * by gateway-host/daemon.ts; no network here.
  */
 
 import { chmodSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
