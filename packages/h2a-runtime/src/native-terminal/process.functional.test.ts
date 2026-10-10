@@ -1761,17 +1761,17 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
     const stubbornPgid = stubbornPids[0]!;
     processGroups.add(stubbornPgid);
 
-    // A COMPETING supervisor publishes a replacement while the owning host is
-    // still alive — the schedule the socket publication lock does not cover,
-    // because nothing here is wrong yet: the competitor's own takeover
-    // reconcile correctly refuses to touch a row whose owner is alive.
+    // A competing supervisor publishes after owner death but before the owner
+    // supervisor observes it. Its separate registry intentionally cannot see
+    // the durable group: adoption must still discharge the owner's proof.
     owner.disconnect();
-    await unlink(socketPath);
+    process.kill(firstPing.hostPid, "SIGKILL");
+    await once(ownerChild!, "exit");
     const competitorLogs: string[] = [];
     let competitorSpawnCount = 0;
     const competitor = new NativeTerminalHostSupervisor({
       socketPath,
-      registryPath,
+      registryPath: join(directory, "competitor-registry.json"),
       replayBytesPerSession: 1024,
       startupTimeoutMs: 30_000,
       spawnTerminationGraceMs: 100,
@@ -1789,13 +1789,10 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
       competitorLogs.some((line) => /PROVEN DEAD/.test(line)),
     ).toBe(false);
 
-    // Only NOW does the owning host die. Its durable group has no live owner
-    // left, and the owner supervisor's next call succeeds on the FIRST
+    // The owner supervisor's next call succeeds on the FIRST
     // connect: it adopts the competitor's host instead of taking over, so the
     // takeover reconcile never runs. The adoption itself must therefore carry
     // the containment.
-    process.kill(firstPing.hostPid, "SIGKILL");
-    await once(ownerChild!, "exit");
     const adopted = await owner.client();
 
     expect((await adopted.ping()).hostPid).toBe(competitorPing.hostPid);

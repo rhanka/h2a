@@ -1,10 +1,12 @@
 import { createHash, randomUUID } from "node:crypto";
-import { chmod, link, lstat, mkdir, readFile, unlink, writeFile } from "node:fs/promises";
+import { chmod, link, lstat, mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import { createConnection, createServer, type Server, type Socket } from "node:net";
 import { basename, dirname, isAbsolute, join } from "node:path";
 
 import {
   NativeTerminalHost,
+  defaultOwnerHostProbe,
+  readProcessStartTime,
   type NativeTerminalControllerActivity,
   type NativeTerminalControllerLease,
   type NativeTerminalCreateOptions,
@@ -32,6 +34,8 @@ import {
   sameNativeTerminalSocket,
   type NativeTerminalSocketIdentity,
 } from "./socket-path.js";
+import { listNativeTerminalPgidEntries, loadRegistry } from "../registry.js";
+import { readBootId, readPidNamespaceId } from "../proc-identity.js";
 
 type ConnectionContext = {
   readonly socket: Socket;
@@ -521,6 +525,106 @@ async function withSocketPublicationLock<T>(
   }
 }
 
+type EndpointOwner = NativeTerminalSocketIdentity & {
+  pid: number;
+  startTime: number;
+  bootId: string;
+  pidNamespace: string;
+};
+
+async function recordEndpointOwner(socketPath: string, socket: NativeTerminalSocketIdentity,
+  processOwner = { pid: process.pid, startTime: readProcessStartTime(process.pid) }): Promise<void> {
+  const { pid, startTime } = processOwner;
+  const bootId = readBootId(), pidNamespace = readPidNamespaceId();
+  if (startTime === undefined || bootId === undefined || pidNamespace === undefined) {
+    throw new Error("cannot certify native host process identity");
+  }
+  const temporary = `${socketPath}.owner.${process.pid}.tmp`;
+  try {
+    await writeFile(temporary, JSON.stringify({ ...socket, pid, startTime, bootId, pidNamespace }),
+      { flag: "wx", mode: 0o600 });
+    await rename(temporary, `${socketPath}.owner`);
+  } finally {
+    await unlink(temporary).catch(error => { if (error.code !== "ENOENT") throw error; });
+  }
+}
+
+/**
+ * ENOENT/ECONNREFUSED are candidates, never proof by themselves. Serialize
+ * with publication and re-read both the socket and its durable process
+ * identity. A live or unreadable owner keeps the endpoint unknown.
+ * No socket is removed by an inventory; publication owns reclamation.
+ */
+export async function proveNativeTerminalEndpointAbsent(socketPath: string, failure: unknown): Promise<boolean> {
+  const code = (failure as NodeJS.ErrnoException | undefined)?.code;
+  if (code !== "ENOENT" && code !== "ECONNREFUSED") return false;
+  await ensurePrivateSocketDirectory(socketPath);
+  return withSocketPublicationLock(socketPath, () => proveEndpointAbsentUnderLock(socketPath));
+}
+
+async function proveEndpointAbsentUnderLock(socketPath: string): Promise<boolean> {
+  let socket: NativeTerminalSocketIdentity | undefined;
+  try { socket = await inspectPrivateNativeTerminalSocket(socketPath); }
+  catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
+  if (socket) {
+    // A listener may have appeared since the failed inventory connection.
+    // Only an explicit refusal qualifies; permissions and all other errors
+    // remain unknown, including a changed socket incarnation.
+    const refusal = await new Promise<boolean>((resolve, reject) => {
+      const connection = createConnection(socketPath);
+      connection.setTimeout(1_000, () => { connection.destroy(); reject(new Error("terminal host connection timed out")); });
+      connection.once("connect", () => { connection.destroy(); resolve(false); });
+      connection.once("error", error => (error as NodeJS.ErrnoException).code === "ECONNREFUSED" ? resolve(true) : reject(error));
+    });
+    if (!refusal || !sameNativeTerminalSocket(socket, await inspectPrivateNativeTerminalSocket(socketPath))) return false;
+  }
+  try {
+    const ownerPath = `${socketPath}.owner`;
+    const info = await lstat(ownerPath);
+    if (!info.isFile() || info.uid !== process.getuid?.() || (info.mode & 0o777) !== 0o600) {
+      throw new Error(`native endpoint owner identity is not a private owned file: ${ownerPath}`);
+    }
+    const owner = JSON.parse(await readFile(ownerPath, "utf8")) as EndpointOwner;
+    if (!Number.isSafeInteger(owner.pid) || owner.pid <= 0 || !Number.isSafeInteger(owner.startTime) ||
+      owner.startTime < 0 || !Number.isSafeInteger(owner.dev) || !Number.isSafeInteger(owner.ino) ||
+      typeof owner.bootId !== "string" || typeof owner.pidNamespace !== "string") {
+      throw new Error(`native endpoint owner identity is malformed: ${ownerPath}`);
+    }
+    if (socket && !sameNativeTerminalSocket(socket, owner)) return false;
+    if (owner.bootId !== readBootId() || owner.pidNamespace !== readPidNamespaceId()) return false;
+    if (defaultOwnerHostProbe(owner) !== "dead") return false;
+    if (socket) return true;
+    // A pre-upgrade publisher may have replaced and then lost the pathname
+    // without updating this sidecar. Its durable PTY owners must also be dead.
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
+  // Pre-upgrade hosts already persist this identity for each PTY. A stale
+  // socket without any attribution is unprovable; never infer death from
+  // a bare PID, a socket's age, or an empty/error-collapsed registry.
+  const snapshot = listNativeTerminalPgidEntries();
+  if (!snapshot.known) {
+    // This decoder deliberately calls an ENOENT registry "unknown" for
+    // orphan reaping. For endpoint discovery, no file means no attribution;
+    // it proves absence only when the socket is also absent under the lock.
+    if (snapshot.reason === "registry is absent") return socket === undefined;
+    throw new Error(`native endpoint owner registry is unknown: ${snapshot.reason}`);
+  }
+  const owners = snapshot.entries.filter(entry => entry.owner?.socketPath === socketPath).map(entry => entry.owner!);
+  const registry = loadRegistry();
+  if (registry.state === "unknown" || registry.unreadable.length > 0) return false;
+  const rows = registry.entries.filter(entry => entry.ownerHostSocketPath === socketPath);
+  if (rows.some(row => row.pgidBootId !== readBootId() || row.pgidPidNamespace !== readPidNamespaceId())) return false;
+  if (owners.some(owner => owner.startTime === undefined || defaultOwnerHostProbe(owner) !== "dead")) return false;
+  if (socket && owners.length > 0) {
+    // Preserve the death proof before the supervisor reaps/prunes the last
+    // pre-upgrade PTY row. Reclamation must still have attribution then.
+    const owner = owners[0]!;
+    await recordEndpointOwner(socketPath, socket, { pid: owner.pid, startTime: owner.startTime });
+  }
+  return socket === undefined || owners.length > 0;
+}
+
 async function removeStaleSocket(socketPath: string): Promise<void> {
   for (;;) {
     let stale: NativeTerminalSocketIdentity;
@@ -534,6 +638,9 @@ async function removeStaleSocket(socketPath: string): Promise<void> {
       throw new Error(
         `terminal host socket is already active: ${socketPath}`,
       );
+    }
+    if (!await proveEndpointAbsentUnderLock(socketPath)) {
+      throw new Error(`terminal host owner death is unproven; refusing stale socket reclamation: ${socketPath}`);
     }
     try {
       const current = await inspectPrivateNativeTerminalSocket(socketPath);
@@ -581,6 +688,13 @@ async function publishSocket(
   socketPath: string,
 ): Promise<NativeTerminalSocketIdentity> {
   const staged = await inspectPrivateNativeTerminalSocket(stagedPath);
+  try { await inspectPrivateNativeTerminalSocket(socketPath); }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    if (!await proveEndpointAbsentUnderLock(socketPath)) {
+      throw new Error(`terminal host owner death is unproven; refusing socket publication: ${socketPath}`);
+    }
+  }
   for (let attempt = 0; attempt < 200; attempt += 1) {
     try {
       await link(stagedPath, socketPath);
@@ -659,7 +773,11 @@ export async function startNativeTerminalHostServer(options: {
     await chmod(stagedPath, 0o600);
     ownedSocket = await withSocketPublicationLock(
       options.socketPath,
-      () => publishSocket(stagedPath, options.socketPath),
+      async () => {
+        const socket = await publishSocket(stagedPath, options.socketPath);
+        await recordEndpointOwner(options.socketPath, socket);
+        return socket;
+      },
     );
   } catch (error) {
     await new Promise<void>((resolve) => server.close(() => resolve()));
@@ -701,6 +819,7 @@ export async function startNativeTerminalHostServer(options: {
             );
             if (sameNativeTerminalSocket(current, ownedSocket)) {
               await unlink(options.socketPath);
+              await unlink(`${options.socketPath}.owner`);
             }
           } catch (error) {
             if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;

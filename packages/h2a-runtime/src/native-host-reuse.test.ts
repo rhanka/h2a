@@ -275,13 +275,13 @@ describe("attach/stop act gating on a dead recorded-native session (CLI level)",
   // fleet, one `tmux list-sessions` alone can take seconds — the default 5s
   // budget flakes under suite contention, so the real-environment latency is
   // budgeted explicitly.
-  it("attach refuses an unreachable native owner instead of re-routing to tmux", { timeout: 20_000 }, async () => {
-    // An unreachable endpoint cannot certify absence across generations.
-    // The recorded host stays native and attaching fails closed.
+  it("attach refuses a proven-absent native session instead of re-routing to tmux", { timeout: 20_000 }, async () => {
+    // The isolated cold fleet proves absence. The recorded host stays native
+    // and attaching still refuses rather than selecting a tmux homonym.
     const code = await main(["node", "h2a", "attach", SLUG]);
     expect(code).toBe(1);
     const all = stderrLines.join("");
-    expect(all).toContain(`native session ${SLUG}: host state is unknown`);
+    expect(all).toContain(`native session ${SLUG} is not running; attach refused`);
   });
 
   it("stop acts on the native host for a dead recorded-native session", { timeout: 20_000 }, async () => {
