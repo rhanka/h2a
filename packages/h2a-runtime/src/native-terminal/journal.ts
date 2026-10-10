@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { fork, type ChildProcess } from "node:child_process";
-import { closeSync, constants, existsSync, fchmodSync, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, renameSync, unlinkSync, writeSync } from "node:fs";
+import { closeSync, constants, fchmodSync, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, realpathSync, renameSync, statSync, unlinkSync, writeSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, isAbsolute, join, resolve } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { isMainThread, parentPort, Worker, workerData } from "node:worker_threads";
 
@@ -51,13 +51,23 @@ function safeText(value: string): string {
 // headers and environment objects are never diagnostic journal fields.
 function safeStack(raw: string | undefined, codePath: string | undefined): string {
   const frames: string[] = [];
+  let runtime: string;
+  try { runtime = realpathSync(runtimeDirectory); } catch { return "[REDACTED]"; }
+  let entry: string | undefined;
+  try {
+    if (codePath) {
+      const canonical = realpathSync(codePath);
+      if (statSync(canonical).isFile()) entry = canonical;
+    }
+  } catch { /* An unverified entry point grants no location permission. */ }
   for (const line of (raw ?? "").slice(0, 32_768).split("\n").slice(1, 33)) {
     const match = /^\s*at (?:.* \()?((?:file:\/\/\/|\/)[^()\r\n]+):(\d+):(\d+)\)?$/.exec(line);
     if (!match) continue;
     try {
-      const path = match[1]!.startsWith("file:") ? fileURLToPath(match[1]!) : match[1]!;
-      const allowed = path === codePath || path.startsWith(`${runtimeDirectory}/`);
-      if (allowed && existsSync(path)) frames.push(`at ${safeText(path)}:${match[2]}:${match[3]}`);
+      const path = realpathSync(match[1]!.startsWith("file:") ? fileURLToPath(match[1]!) : match[1]!);
+      const rel = relative(runtime, path);
+      const allowed = path === entry || (rel !== "" && rel !== ".." && !rel.startsWith("../") && !isAbsolute(rel));
+      if (allowed && statSync(path).isFile()) frames.push(`at ${safeText(path)}:${match[2]}:${match[3]}`);
     } catch { /* An unverified location is redacted. */ }
   }
   return frames.join("\n") || "[REDACTED]";
