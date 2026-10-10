@@ -3,8 +3,8 @@ import { existsSync, statSync } from "node:fs";
 import type { LaunchGuard } from "./launch-guard.js";
 import {
   detectCollapsedPaste, collapsedPasteMatches, countOccurrences, detectHostModal,
-  paneHasBlockingActivity, paneIsReady, promptProbes,
-  type PromptDeliveryDeps, type PromptDeliveryResult,
+  paneHasBlockingActivity,
+  type HostModal, type PromptDeliveryDeps, type PromptDeliveryResult,
 } from "./prompt-delivery.js";
 import { ClaudeDebugReader, parseClaudeDebugEvents } from "./claude-debug-adapter.js";
 
@@ -33,6 +33,34 @@ export type ClaudeNativeDriverOptions = {
   publicationCheck?: ((check: () => string | undefined) => void) | undefined;
 };
 
+/** Compact native choices/composers must not change the historical tmux driver. */
+function detectClaudeNativeModal(screen: string): HostModal | undefined {
+  const hasChoice = /(^|\n)\s*[›>❯]?\s*1\.\s+\S/.test(screen) || /(^|\n)\s*[›>❯]\s+\S/.test(screen);
+  if (hasChoice && /(?:press\s+)?(?:enter|return) to (?:continue|confirm|select)/i.test(screen)) {
+    if (/external imports:[\s\S]*?(?:enter to confirm|disable external imports|allow external imports)/i.test(screen)) {
+      return { reason: "Claude is waiting on its external imports approval prompt",
+        hint: "approve external imports in .claude.json or run claude interactively, then relaunch" };
+    }
+    const historical = detectHostModal(screen);
+    if (historical) return historical;
+    if (/do you trust the contents of this directory/i.test(screen)) {
+      return { reason: "the host is waiting on its directory-trust prompt",
+        hint: "approve this directory once in an interactive session (the host records trust per repository root), then relaunch" };
+    }
+    if (/update available/i.test(screen)) {
+      return { reason: "the host is waiting on its update prompt",
+        hint: "answer the host update prompt once in an interactive session (or update the CLI), then relaunch" };
+    }
+    if (/hooks (?:need review|are new or changed)|hook is new or changed/i.test(screen)) {
+      return { reason: "the host is waiting on its hook-review prompt",
+        hint: "review/trust the changed hooks once in an interactive session in this workspace, then relaunch" };
+    }
+    return { reason: "the host is waiting on a modal choice prompt",
+      hint: "attach to the session, answer the host prompt once, then relaunch the lane" };
+  }
+  return detectHostModal(screen);
+}
+
 export async function deliverClaudeNativePrompt(name: string, prompt: string, deps: ClaudeNativeDeliveryDeps | PromptDeliveryDeps,
   options: ClaudeNativeDriverOptions = {}): Promise<PromptDeliveryResult> {
   const startedAt = options.requestedAt ?? deps.now();
@@ -50,7 +78,7 @@ export async function deliverClaudeNativePrompt(name: string, prompt: string, de
     lastScreen = await deps.capturePane(name) ?? "";
     return lastScreen;
   };
-  const ready = (screen: string) => !detectHostModal(screen) && !paneHasBlockingActivity(screen) && paneIsReady(screen, "claude");
+  const ready = (screen: string) => !detectClaudeNativeModal(screen) && !paneHasBlockingActivity(screen) && /❯/.test(screen);
   const required = options.requiredMcps ?? [];
   const debug = options.debugFile ? new ClaudeDebugReader(options.debugFile) : undefined;
   const connected = new Set<string>(), capabilities = new Set<string>();
@@ -77,7 +105,7 @@ export async function deliverClaudeNativePrompt(name: string, prompt: string, de
         continue;
       }
       const screen = await capture();
-      const modal = detectHostModal(screen);
+      const modal = detectClaudeNativeModal(screen);
       if (modal) return { state: "host-modal", reason: modal.reason, hint: modal.hint, capture: screen };
       if (ready(screen)) options.onPhase?.("composerReadyMs", deps.now() - startedAt);
       if (ready(screen) && mcpsReady()) { options.onPhase?.("requiredMcpsReadyMs", deps.now() - startedAt); break; }
