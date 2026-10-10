@@ -1,3 +1,6 @@
+// @ts-ignore Shared JS test isolation helper.
+import { isolatedNativeTestEnvironment } from "../../../h2a/test/helpers/native-isolation.js";
+isolatedNativeTestEnvironment(process.env); // Guard real sockets, registry state and process fixtures.
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import {
   chmodSync,

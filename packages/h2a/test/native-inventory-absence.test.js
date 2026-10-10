@@ -1,6 +1,6 @@
-import { assertIsolatedEnvironment } from "./helpers/native-isolation.js";
+import { assertIsolatedEnvironment, assertIsolatedNativeOperation, spawnIsolatedNative as spawn } from "./helpers/native-isolation.js";
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
+
 import { once } from "node:events";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
@@ -61,11 +61,11 @@ async function fixture(body) {
     NODE_PATH: join(repo, "node_modules"),
     H2A_ROOT: join(workspace, ".h2a"), H2A_SESSION_HOST: "native", H2A_NATIVE_SOCKET: "", TERM: "xterm-256color",
     TMUX_TMPDIR: root };
-  assertIsolatedEnvironment(env, qualRoot);
+  assertIsolatedNativeOperation(env, qualRoot);
   const paths = [join(root, "h2a-nt/native-terminal.sock"), join(root, "h2a-nt/native-terminal.lf1.sock")];
   const hosts = [], clients = [];
   async function run(args, source = false, entry = join(terminal, "op.js"), input) {
-    assertIsolatedEnvironment(env, qualRoot);
+    assertIsolatedNativeOperation(env, qualRoot);
     const child = spawn(process.execPath, source ? ["--input-type=module", "-e", args] : [entry, ...args],
       { env, cwd: workspace, stdio: [input === undefined ? "ignore" : "pipe", "pipe", "pipe"] });
     if (input !== undefined) child.stdin.end(input);
@@ -76,7 +76,7 @@ async function fixture(body) {
     return { status, stdout, stderr, payload: stdout.trim() ? JSON.parse(stdout.trim()) : undefined };
   }
   async function start(index = 0, entry = join(terminal, "process.js"), customSocketPath) {
-    assertIsolatedEnvironment(env, qualRoot);
+    assertIsolatedNativeOperation(env, qualRoot);
     const socketPath = customSocketPath ?? paths[index];
     const child = spawn(process.execPath, [entry, "--socket", socketPath, "--generation", `fixture-${index}`,
       "--registry-path", join(home, ".config/sentropic/h2a/registry.json")], { env, stdio: ["ignore", "pipe", "pipe"] });
@@ -124,7 +124,7 @@ let text='';process.stdin.on('data',bytes=>{for(const c of bytes.toString().repl
     return delivered;
   }
   async function mcpLaunch(name) {
-    assertIsolatedEnvironment(env, qualRoot);
+    assertIsolatedNativeOperation(env, qualRoot);
     const source = `import {runMcpStdio} from ${JSON.stringify(pathToFileURL(join(repo, "packages/h2a/dist/index.js")).href)};
       await runMcpStdio({root:${JSON.stringify(env.H2A_ROOT)},workspaceRoot:${JSON.stringify(workspace)},stdin:process.stdin,stdout:process.stdout,stderr:process.stderr});`;
     const child = spawn(process.execPath, ["--input-type=module", "-e", source], { env, cwd: workspace, stdio: ["pipe", "pipe", "pipe"] });
