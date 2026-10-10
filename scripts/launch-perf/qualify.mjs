@@ -12,6 +12,7 @@ if (input.sourceSha) common.sourceSha = input.sourceSha;
 const env = { ...process.env, HOME: repo+'/.qual-tmp/home', XDG_RUNTIME_DIR: repo+'/.qual-tmp/runtime', XDG_STATE_HOME: repo+'/.qual-tmp/state', XDG_CONFIG_HOME: repo+'/.qual-tmp/config', TMPDIR: repo+'/.qual-tmp/tmp' };
 const manifest = repo+'/.qual-tmp/evidence/'+input.label+'-commands.jsonl';
 for (const scenario of input.scenarios) {
+  if(input.reclaimOwnedFixtures)execFileSync(process.execPath,[repo+'/scripts/launch-perf/evict-owned.mjs'],{cwd:repo,env,stdio:'inherit'});
   const options = { ...common, ...scenario };
   const args = [repo+'/scripts/launch-perf/probe.mjs', JSON.stringify(options)];
   const raw = repo+'/.qual-tmp/evidence/'+options.label+'.log';
