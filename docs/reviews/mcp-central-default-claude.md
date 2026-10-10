@@ -3,8 +3,9 @@
 Branch: `feat/mcp-central-default-claude`, based on `5ca5c7bc` (`origin/main`).
 Default-ON restoration starts from clean `088242d4`. Historical remediation
 receipts remain under `.qual-tmp/sol4/evidence/` and `.qual-tmp/r6/evidence/`.
-Fresh qualification receipts and the French owner report are under
-`.qual-tmp/default-on/`, tied to the final committed SHA.
+Default-ON qualification receipts remain under `.qual-tmp/default-on/`.
+Review 5 qualification supersedes them under `.qual-tmp/review5/`, tied to
+the final committed SHA.
 
 **Claude central is ON by default on Linux for qualified native conversation
 IDs.** The owner closes R6 by the zero-project-write invariant and exact
@@ -20,6 +21,8 @@ stdio. No delivery, publication or owner-state migration was performed.
 | R3 | `4881775c`: a v1 connector without a host cannot be qualified by an inherited Claude ID. | Reinserting the previous no-host inference gives one central attachment instead of zero. Restoring the strict host check passes; explicit Claude creates one attachment. |
 | R18 | `55af5db7`: exclude unsupported/unqualified hosts before reading central settings. | Six real SDK/binary cases fail before the fix and pass after it: absent host, Codex and agy against malformed JSON and unreadable settings. |
 | R19 | `9c528375`: strip attachment-specific daemon fields before merging the client context; preserve the client's workspace. | Manual daemon startup with native or tmux launcher fields contaminates presence before the fix. Both cases pass after it, including readiness isolation, self-send wake target and preservation of the client's own terminal. A separate RED exposes the daemon cwd in client presence. |
+| R20/R21 | `f0691c9c`: bind wake probes, injections, native operations and fallback drivers to the attachment environment without changing `process.env`. | Two real tmux sockets share `%0`; two private native protocol sockets share a session name. Before the fix, both tmux modes and native explicit/converted modes use the daemon socket (four failures); native-auto remains a passing control. After the fix, all five cases pass. |
+| R11 coverage | Launch the repaired Claude, agy and Codex configurations sequentially; reread each signed envelope from its persisted inbox. | Each configuration reaches identity-ready, signs a successful self-send, arms wake and persists the exact returned envelope with an Ed25519 signature. The unrelated upgrade worker is suppressed in the isolated fixture. |
 | R6 invariant and default | Restore implicit Claude activation under the owner's invariant decision. | The real SDK/binary regression fails with default OFF and passes with default ON. It verifies protocol 2, one attachment and unchanged exact incident bytes, metadata and git status. Runtime tests separately assert zero project writes. |
 | R12 | Require exact launch options, including the creation callback. | Removing the callback fails the strengthened assertion; restoring it passes. |
 | R15 | Verify T4 actually uses the central, and retain fresh final-SHA receipts. | Forcing the helper to stdio fails the live-central witness. Central mode must report protocol 2 and one attachment per connection. |
@@ -132,7 +135,7 @@ are tested. Closure concerns the candidate's project-write risk and does not
 establish the cause of the historical loss.
 
 Fresh commands, final SHA, stdout and stderr are recorded separately under
-`.qual-tmp/default-on/evidence/final-*`; the French owner report is
+`.qual-tmp/default-on/evidence/final-*` (superseded by review 5); the prior French owner report is
 `.qual-tmp/default-on/report.md`. The older `.qual-tmp/r6/report.md` describes
 the superseded reproduction gate. No root or performance gate is claimed.
 
@@ -147,6 +150,14 @@ rtk node .qual-tmp/default-on/run.mjs final-t4-central node --test --test-concur
 rtk node .qual-tmp/default-on/run.mjs final-routing node --test --test-concurrency=1 '--test-name-pattern=R6 Claude defaults|mcp-serve defaults Claude|H2A_MCP_CENTRAL=0 acts' packages/h2a/test/mcp-central-attachments.test.js
 rtk node .qual-tmp/default-on/run.mjs final-candidate-live node .qual-tmp/r6/candidate-live.mjs
 ```
+
+For review 5, run the same final commands through
+`.qual-tmp/review5/run.mjs`. Also run `drive.test.js` and
+`drumbeat-relaunchers.test.js` together under `final-drive-adapters` to check
+the environment-bound process runtime. The retained discriminating pair is
+`red-wake-final-v2` / `green-wake-final-v2`; earlier fixture-development runs
+are diagnostic only. `red-wake-final.patch` retains the exact pre-fix test
+diff. `evidence/manifest.json` records final-SHA receipt and log hashes.
 
 The receipt runner sets `H2A_MCP_TEST_CENTRAL=1` and `H2A_MCP_TEST_N=4` for
 `final-t4-central`; the routing tests remove the fixture's explicit activation
