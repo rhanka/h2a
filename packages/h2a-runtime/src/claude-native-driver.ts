@@ -68,6 +68,14 @@ export async function deliverClaudeNativePrompt(name: string, prompt: string, de
   };
   try {
     for (;;) {
+      // MCP readiness is a file observation. Let providers initialize without
+      // repeatedly spawning native screen probes; the composer is freshly
+      // fenced once the mandatory tools are ready and again before paste.
+      if (!mcpsReady()) {
+        if (deps.now() >= deadline) return failure("composer or required MCP evidence missing within the launch budget");
+        await deps.sleep(Math.min(25, deadline - deps.now()));
+        continue;
+      }
       const screen = await capture();
       const modal = detectHostModal(screen);
       if (modal) return { state: "host-modal", reason: modal.reason, hint: modal.hint, capture: screen };
