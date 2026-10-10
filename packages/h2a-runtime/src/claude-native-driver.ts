@@ -23,6 +23,7 @@ export type ClaudeNativeDriverOptions = {
   requiredMcpProof?: (() => boolean) | undefined;
   correlatedResponse?: (() => boolean) | undefined;
   correlatedPrompt?: (() => boolean) | undefined;
+  diagnosticHealthy?: (() => boolean) | undefined;
   qualifiedDiagnostic?: boolean | undefined;
   requestedAt?: number | undefined;
   pacingMs?: number | undefined;
@@ -54,6 +55,7 @@ export async function deliverClaudeNativePrompt(name: string, prompt: string, de
   const debug = options.debugFile ? new ClaudeDebugReader(options.debugFile) : undefined;
   const connected = new Set<string>(), capabilities = new Set<string>();
   const mcpsReady = () => {
+    if (options.diagnosticHealthy?.() === false) return false;
     if (debug) {
       const chunk = debug.read();
       if (chunk.error) return false;
@@ -102,6 +104,7 @@ export async function deliverClaudeNativePrompt(name: string, prompt: string, de
     if (!await deps.submit(name)) return failure("Enter delivery could not be confirmed");
     let settled = false, turn = false, dispatched = false;
     const refusal = () => {
+      if (options.diagnosticHealthy?.() === false) return "diagnostic collector lost integrity";
       const chunk = dispatch?.read();
       if (chunk?.error) return chunk.error;
       const analysis = parseClaudeDebugEvents(chunk?.content ?? "");
@@ -112,6 +115,7 @@ export async function deliverClaudeNativePrompt(name: string, prompt: string, de
     };
     options.publicationCheck?.(refusal);
     for (;;) {
+      if (options.diagnosticHealthy?.() === false) return failure("diagnostic collector lost integrity");
       const chunk = dispatch?.read();
       if (chunk?.error) return failure(chunk.error);
       if (chunk?.content) {
