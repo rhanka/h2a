@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url';
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const lab = repo + '/.qual-tmp/lab';
 const opts = JSON.parse(process.argv[2] || '{}');
-const allowedOptions = new Set(['adapter','admission','cache','concurrentInput','crashPhase','driverPacingMs','evict','expectedState','fixtureRoot','holdMs','httpStatus','label','mcp','mcpDelayMs','mode','n','noDebug','pacingMs','pinned','pressure','qualifyDispatch','relaunch','repeat','reportedVersion','responseDelayMs','resumePrompt','seedRelaunch','sidecar','small','sourceSha','timeoutMs','toolsDelayMs','upgradeSlow','userHookMs','userHookVeto','worktree','wrongConversation']);
+const allowedOptions = new Set(['adapter','admission','cache','concurrentInput','crashPhase','diagnosticFailure','driverPacingMs','evict','expectedState','fixtureRoot','holdMs','httpStatus','label','mcp','mcpDelayMs','mode','n','noDebug','pacingMs','pinned','pressure','qualifyDispatch','relaunch','repeat','reportedVersion','responseDelayMs','resumePrompt','seedRelaunch','sidecar','small','sourceSha','timeoutMs','toolsDelayMs','upgradeSlow','userHookMs','userHookVeto','worktree','wrongConversation']);
 for(const key of Object.keys(opts))if(!allowedOptions.has(key))throw new Error('unsupported laboratory option: '+key);
 if (!opts.worktree || !opts.sourceSha) throw new Error('an explicit measured worktree and source SHA are required');
 const installed = opts.worktree + '/packages/h2a';
@@ -198,6 +198,7 @@ try {
     const begin = mark('launch_begin', { id });
     if (opts.mode?.startsWith('runtime')) {
       sessions.push(id, id + '.h2a');
+      if(opts.diagnosticFailure){const run=workspace+'/.h2a/runs/'+name;fs.mkdirSync(run,{recursive:true});fs.writeFileSync(run+'/claude-debug.pipe','private conflict fixture');}
       const args = [binJs, 'run', 'claude', workspace, '--name', name, '--no-gw', '--no-attach', '--background', '--json', '--prompt-stdin', ...(opts.sidecar === false ? ['--no-h2a'] : ['--h2a'])];
       const c = opts.adapter
         ? startChild(process.execPath,[repo+'/scripts/launch-perf/adapter-worker.mjs'],'launcher-'+i,JSON.stringify({profile:'claude',name,workspace,prompt:'Return the word READY_WITNESS.',background:true,gateway:'off',headless:false,h2aSidecar:opts.sidecar!==false}))
@@ -282,6 +283,10 @@ try {
     row.nativeOperations = traces.filter(t=>t.name==='node_preload'&&t.entry==='op.js'&&t.session===row.id).map(t=>({operation:t.operation,at:t.at-begin}));
     const receiptPath=workspace+'/.h2a/runs/'+row.name+'/launch.json';
     if(fs.existsSync(receiptPath))row.receipt=JSON.parse(fs.readFileSync(receiptPath,'utf8'));
+    const ledger=home+'/.state/h2a/launch-capacity/reservations.json';
+    if(fs.existsSync(ledger))row.residentReservation=JSON.parse(fs.readFileSync(ledger,'utf8')).slots?.[row.name]??null;
+    if(opts.worktree===repo&&row.cliResult?.state==='not-started'&&row.residentReservation)
+      throw new Error('pre-create refusal retained an unused resident reservation');
     if(opts.worktree===repo&&row.cliResult?.state==='started'&&row.receipt?.result?.state!=='started')
       throw new Error('successful CLI output without its complete durable receipt');
     const conversation=row.receipt?.conversationId;
@@ -313,7 +318,7 @@ try {
     row.lastProofToResultMs=finalTimings?.lastRequiredProofMs!==undefined?row.receiptMs-(row.receipt.requestedAt-begin)-finalTimings.lastRequiredProofMs:null;
     row.dispatchToResultMs=row.dispatchMs!==null?row.receiptMs-row.dispatchMs:null;
     if (opts.expectedState) {
-      const actual = row.receipt?.result?.state ?? row.receipt?.state;
+      const actual = row.receipt?.result?.state ?? row.cliResult?.state ?? row.receipt?.state;
       if (actual !== opts.expectedState || (['provider-blocked','launch-unconfirmed'].includes(actual) && row.afterResultSession.status !== 'running'))
         throw new Error('expected result/preservation witness failed: '+actual);
       if(actual==='stopped'&&!['absent','exited'].includes(row.afterResultSession.status))throw new Error('stopped receipt without a stopped incarnation');
