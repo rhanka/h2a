@@ -1,7 +1,7 @@
 import { EventEmitter } from "node:events";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PassThrough } from "node:stream";
@@ -14,6 +14,28 @@ import { startLaunchGuard } from "./launch-guard.js";
 
 describe("launch guard lifecycle", () => {
   beforeEach(() => vi.clearAllMocks());
+  it("should recover completed observation capacity at EOF while retaining resident memory", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "launch-guard-published-"));
+    const path = join(directory, "launch.json"), state = join(directory, "state");
+    const capacity = join(state, "h2a", "launch-capacity", "reservations.json");
+    mkdirSync(join(state, "h2a", "launch-capacity"), { recursive: true });
+    writeFileSync(capacity, JSON.stringify({ slots: { published: { state: "launching", token: "owned", residentBytes: 1024 } } }));
+    writeFileSync(path, JSON.stringify({ token: "owned", state: "started", submitAttempted: true,
+      result: { kind: "h2a.run.result", state: "started", ok: true },
+      ownership: { host: "native", sessions: [{ name: "h2a-published", socketPath: join(directory, "private.sock"), generation: "g", incarnation: "i" }] } }));
+    const child = spawn(process.execPath, ["--import", "tsx", fileURLToPath(new URL("./launch-guard.ts", import.meta.url)), path],
+      { env: { ...process.env, XDG_STATE_HOME: state, H2A_RUN_LAUNCH_TOKEN: "owned" }, stdio: ["pipe", "ignore", "pipe"] });
+    try {
+      child.stdin.end();
+      const [code] = await once(child, "exit");
+      expect(code).toBe(0);
+      expect(JSON.parse(readFileSync(capacity, "utf8")).slots.published).toMatchObject({ state: "started", residentBytes: 1024 });
+      expect(JSON.parse(readFileSync(path, "utf8")).result.state).toBe("started");
+    } finally {
+      if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
   it("should publish potential submission when pre-submit cleanup cannot establish ownership", () => {
     const directory = mkdtempSync(join(tmpdir(), "launch-guard-unknown-"));
     const child = Object.assign(new EventEmitter(), { stdin: new PassThrough(), unref() {} });
