@@ -13,7 +13,8 @@
  * Sessions reuse the h2a-<slug> naming contract from tmux.ts so slugs,
  * addressing and registry entries stay uniform across hosts.
  */
-import { spawnSync } from "node:child_process";
+import { spawnSync, execFile } from "node:child_process";
+import type { ClaudeNativeDeliveryDeps } from "./claude-native-driver.js";
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -40,6 +41,13 @@ import { SESSION_CLASS_ENV, type SessionClass } from "./session-class.js";
 import { withAttachTerminalRecovery } from "./native-terminal/attach-recovery.js";
 
 const OP_TIMEOUT_MS = 15_000;
+let launchDeadline: number | undefined;
+/** Confined to one CLI run action; guard subprocesses keep their independent cleanup budget. */
+export function setNativeLaunchDeadline(deadline: number): () => void {
+  const previous = launchDeadline;
+  launchDeadline = deadline;
+  return () => { launchDeadline = previous; };
+}
 const H2A_NATIVE_TARGET_SESSION_ENV = "H2A_NATIVE_TARGET_SESSION";
 
 export type SessionHostKind = "native" | "local-tmux";
@@ -118,10 +126,12 @@ function runOp(
   options: { allowFailure?: boolean; onCreateAttempt?: (() => void) | undefined; socketPath?: string | undefined } = {},
 ): { status: number; payload: unknown } {
   options.onCreateAttempt?.();
+  const timeout = launchDeadline === undefined ? OP_TIMEOUT_MS : Math.min(OP_TIMEOUT_MS, Math.floor(launchDeadline - Date.now()));
+  if (timeout <= 0) throw new Error("native launch deadline expired");
   const r = spawnSync(process.execPath, [opEntryPath(), ...args, ...(options.socketPath ? ["--socket", options.socketPath] : [])], {
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
-    timeout: OP_TIMEOUT_MS,
+    timeout,
   });
   if (r.error) {
     throw new Error(
@@ -149,13 +159,13 @@ function runOp(
 }
 
 /** Spawn-or-adopt the per-user host; returns its identity. */
-export function ensureNativeHost(options: { fenced?: boolean } = {}): { hostPid: number; socketPath: string; generation: string; launchFence: boolean } {
-  const { payload } = runOp(["ensure-host", ...(options.fenced ? ["--fenced", "true"] : [])]);
-  const record = payload as { hostPid?: number; socketPath?: string; generation?: string; launchFence?: boolean } | undefined;
+export function ensureNativeHost(options: { fenced?: boolean; inputFenced?: boolean } = {}): { hostPid: number; socketPath: string; generation: string; launchFence: boolean; launchInputFence: boolean } {
+  const { payload } = runOp(["ensure-host", ...(options.fenced ? ["--fenced", "true"] : []), ...(options.inputFenced ? ["--input-fenced", "true"] : [])]);
+  const record = payload as { hostPid?: number; socketPath?: string; generation?: string; launchFence?: boolean; launchInputFence?: boolean } | undefined;
   if (!record || typeof record.hostPid !== "number" || typeof record.socketPath !== "string" || typeof record.generation !== "string") {
     throw new Error("native host did not report a valid identity");
   }
-  return { hostPid: record.hostPid, socketPath: record.socketPath, generation: record.generation, launchFence: record.launchFence === true };
+  return { hostPid: record.hostPid, socketPath: record.socketPath, generation: record.generation, launchFence: record.launchFence === true, launchInputFence: record.launchInputFence === true };
 }
 
 export type NativeLaunchOwnership = { name: string; generation: string; incarnation: string; socketPath: string };
@@ -189,15 +199,15 @@ export type NativeHostCapabilityFailure = {
   phase: "host-selection";
   creationAttempted: false;
   retrySafe: true;
-  missingCapabilities: ["launchFence"];
+  missingCapabilities: ["launchFence" | "launchInputFence"];
   host: { socketPath: string; generation: string; hostPid: number };
   recovery: { action: "select-compatible-generation"; automaticRetry: false };
 };
 
 /** Evidence for this component only; callers must rule out earlier creates. */
 export class NativeHostCapabilityMismatchError extends Error {
-  constructor(readonly host: NativeHostCapabilityFailure["host"]) {
-    super(`Launch refused before creation: host ${host.generation} on ${host.socketPath} does not provide launchFence. ` +
+  constructor(readonly host: NativeHostCapabilityFailure["host"], readonly capability: "launchFence" | "launchInputFence" = "launchFence") {
+    super(`Launch refused before creation: host ${host.generation} on ${host.socketPath} does not provide ${capability}. ` +
       "No session was created by this attempt. Its existing sessions remain active. " +
       "Use automatic generation selection with the corrected runtime; if this socket was explicitly imposed, " +
       "remove that constraint only for the new launch. No restart of the existing host is necessary.");
@@ -208,28 +218,30 @@ export class NativeHostCapabilityMismatchError extends Error {
     return {
       kind: "h2a.run.failure", version: 1, state: "not-started",
       code: "native-host-capability-mismatch", launchId, phase: "host-selection",
-      creationAttempted: false, retrySafe: true, missingCapabilities: ["launchFence"],
+      creationAttempted: false, retrySafe: true, missingCapabilities: [this.capability],
       host: this.host, recovery: { action: "select-compatible-generation", automaticRetry: false },
     };
   }
 }
 
-export function preflightNativeLaunch(name: string, sidecar = nativeSidecarName(name), ownerSocket?: string): ReturnType<typeof ensureNativeHost> {
+export function preflightNativeLaunch(name: string, sidecar = nativeSidecarName(name), ownerSocket?: string, inputFenced = false): ReturnType<typeof ensureNativeHost> {
   const selected = ownerSocket ? runOp(["ensure-host"], { socketPath: ownerSocket }).payload as ReturnType<typeof ensureNativeHost>
-    : ensureNativeHost({ fenced: true });
+    : ensureNativeHost({ fenced: true, inputFenced });
   const { launchFence, hostPid, socketPath, generation } = selected;
   if (!launchFence) throw new NativeHostCapabilityMismatchError({ generation, hostPid, socketPath });
+  if (inputFenced && !selected.launchInputFence) throw new NativeHostCapabilityMismatchError({ generation, hostPid, socketPath }, "launchInputFence");
   admitNativeCreation(name, sidecar, socketPath);
   return selected;
 }
 
-function prepareNativeOwnership(name: string, beforeCreate?: (value: NativeLaunchOwnership) => void, sidecar?: string, ownerSocket?: string): string[] {
+function prepareNativeOwnership(name: string, beforeCreate?: (value: NativeLaunchOwnership) => void, sidecar?: string, ownerSocket?: string, inputFenced = false): string[] {
   if (!beforeCreate) return [];
-  const selected = sidecar !== undefined ? preflightNativeLaunch(name, sidecar, ownerSocket)
+  const selected = sidecar !== undefined ? preflightNativeLaunch(name, sidecar, ownerSocket, inputFenced)
     : ownerSocket ? runOp(["ensure-host"], { socketPath: ownerSocket }).payload as ReturnType<typeof ensureNativeHost>
-    : ensureNativeHost({ fenced: true });
+    : ensureNativeHost({ fenced: true, inputFenced });
   const { generation, launchFence, hostPid, socketPath } = selected;
   if (!launchFence) throw new NativeHostCapabilityMismatchError({ generation, hostPid, socketPath });
+  if (inputFenced && !selected.launchInputFence) throw new NativeHostCapabilityMismatchError({ generation, hostPid, socketPath }, "launchInputFence");
   if (sidecar === undefined) admitNativeCreation(name, undefined, socketPath);
   const incarnation = randomUUID();
   beforeCreate({ name, generation, incarnation, socketPath });
@@ -312,6 +324,7 @@ export function nativeSessionPid(name: string): number | undefined {
 }
 
 export type NativeLaunchMetadata = {
+  readonly requireLaunchInputFence?: boolean;
   beforeCreate?: (value: NativeLaunchOwnership) => void;
   onCreateAttempt?: () => void;
   readonly label?: string;
@@ -319,6 +332,7 @@ export type NativeLaunchMetadata = {
   readonly sessionClass?: SessionClass;
   readonly terminateOnAgentExit?: boolean;
   readonly refuseExisting?: boolean;
+  readonly env?: Readonly<Record<string, string>>;
 };
 
 /**
@@ -374,6 +388,7 @@ export function startNativeSession(
   env["TERM"] = "xterm-256color";
   // The launch runtime may still be connected to an older protocol-v1 host.
   env["H2A_NATIVE_TERMINAL"] = "1";
+  Object.assign(env, metadata.env);
   if (metadata.sessionClass !== undefined) {
     env[SESSION_CLASS_ENV] = metadata.sessionClass;
   }
@@ -383,7 +398,7 @@ export function startNativeSession(
   const envFile = join(envDir, "env.json");
   try {
     writeFileSync(envFile, JSON.stringify(env), { mode: 0o600 });
-    const ownershipArgs = prepareNativeOwnership(name, metadata.beforeCreate, nativeSidecarName(name));
+    const ownershipArgs = prepareNativeOwnership(name, metadata.beforeCreate, nativeSidecarName(name), undefined, metadata.requireLaunchInputFence);
     const { payload } = runOp([
       "create",
       ...ownershipArgs,
@@ -464,6 +479,7 @@ export function killNativeSessionIfIncarnation(
   generation: string,
   incarnation: string,
   socketPath?: string,
+  inputEpoch?: number,
 ): boolean {
   const { status } = runOp(
     [
@@ -474,6 +490,7 @@ export function killNativeSessionIfIncarnation(
       generation,
       "--incarnation",
       incarnation,
+      ...(inputEpoch === undefined ? [] : ["--epoch", String(inputEpoch)]),
     ],
     { allowFailure: true, socketPath },
   );
@@ -818,5 +835,48 @@ export function nativePromptDeliveryDeps(sleep: (ms: number) => void): PromptDel
     },
     sleep,
     now: () => Date.now(),
+  };
+}
+
+/** One bounded async op per observation, pinned to the reserved incarnation. */
+export function nativeClaudeDeliveryDeps(owned: NativeLaunchOwnership, deadline: number, onInputEpoch?: (epoch: number) => void,
+  previousPollCompletedAt?: number): ClaudeNativeDeliveryDeps {
+  let epoch = 0;
+  // The synchronous PID probe belongs to this same observation budget. Seed
+  // from its completion so child startup jitter cannot create an early burst.
+  let nextCapture = previousPollCompletedAt === undefined ? 0 : previousPollCompletedAt + 275;
+  const operation = (op: string, extra: string[] = []): Promise<Record<string, unknown>> => new Promise((resolve, reject) => {
+    const remaining = Math.floor(deadline - Date.now());
+    if (remaining <= 0) { reject(new Error("launch observation deadline expired")); return; }
+    execFile(process.execPath, [opEntryPath(), op, "--id", owned.name, "--socket", owned.socketPath,
+      "--generation", owned.generation, "--incarnation", owned.incarnation, "--epoch", String(epoch), ...extra],
+    { timeout: remaining, maxBuffer: 65536, encoding: "utf8" }, (error, stdout, stderr) => {
+      if (error) {
+        // execFile's message contains argv, including a base64-encoded brief.
+        // Receipts retain a bounded reason, never the input payload.
+        const lost = /launch .*input epoch|launch changed during observation/i.test(stderr);
+        reject(new Error(lost ? "launch ownership or input epoch changed" : `native ${op} failed or timed out`)); return;
+      }
+      try { resolve(JSON.parse(stdout.trim())); } catch { reject(new Error(`native ${op} returned an invalid observation`)); }
+    });
+  });
+  const write = async (op: string, extra: string[] = []) => {
+    const result = await operation(op, extra);
+    if (result.ok !== true) return false;
+    epoch += 2; // The acquired controller is released by this one-shot op.
+    onInputEpoch?.(epoch);
+    return true;
+  };
+  return {
+    capturePane: async () => {
+      if (nextCapture > Date.now()) await new Promise(resolve => setTimeout(resolve,
+        Math.min(nextCapture - Date.now(), Math.max(0, deadline - Date.now()))));
+      nextCapture = Date.now() + 275;
+      return String((await operation("capture")).text);
+    },
+    clearComposer: () => write("write", ["--b64", Buffer.from("\u0015").toString("base64")]),
+    pasteBlock: (_name, text) => write("paste", ["--b64", Buffer.from(text).toString("base64")]),
+    submit: () => write("enter"),
+    now: () => Date.now(), sleep: ms => new Promise(resolve => setTimeout(resolve, ms)),
   };
 }

@@ -315,6 +315,7 @@ export type PromptDeliveryResult =
     }
   | {
       readonly state: "working";
+      readonly proof?: "host-request-dispatched" | "correlated-response";
       readonly waitedMs: number;
       readonly cpuDeltaMs: number;
       readonly evidence: LandedEvidence;
@@ -326,10 +327,18 @@ export type PromptDeliveryResult =
       readonly evidence: LandedEvidence;
     }
   | {
+      readonly state: "launch-unconfirmed";
+      readonly reason: string;
+      readonly waitedMs: number;
+      readonly evidence?: LandedEvidence;
+      readonly submitAttempted: true;
+    }
+  | {
       readonly state: "host-modal";
       readonly reason: string;
       readonly hint: string;
       readonly capture: string;
+      readonly waitedMs?: number;
     }
   | {
       readonly state: "undelivered";

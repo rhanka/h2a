@@ -112,7 +112,7 @@ const RUN_TIMEOUT_MS = Number(process.env.H2A_TEST_TIMEOUT_MS) || 600000;
 // Keep the process-wide OS temp semantics intact: tests rely on tmpdir() being
 // outside the repository for non-git and /tmp rejection coverage. Tests that
 // need a durable launch workspace opt into the dedicated repo-local root.
-const testScratch = join(REPO_ROOT, "tmp", "test-runtime");
+const testScratch = process.env.H2A_TEST_SCRATCH || join(REPO_ROOT, "tmp", "test-runtime");
 mkdirSync(testScratch, { recursive: true });
 const testRoot = mkdtempSync(join(testScratch, "h2a-test-root-"));
 const durableRoot = join(testRoot, "durable");
@@ -147,7 +147,7 @@ function makeCleanTrackTempDir(parent) {
 }
 
 function makeTrackTempDir() {
-  const fallback = tmpdir();
+  const fallback = process.env.H2A_TEST_TRACK_TMP_PARENT || tmpdir();
   const parents = process.platform === "linux" && existsSync("/dev/shm") && fallback !== "/dev/shm"
     ? ["/dev/shm", fallback]
     : [fallback];
@@ -203,15 +203,17 @@ function vitestEntrypoint(cwd) {
 }
 
 let exitCode = 0;
+const concurrency = process.env.H2A_TEST_CONCURRENCY;
+if (concurrency && !/^[1-9]\d*$/.test(concurrency)) throw new Error("H2A_TEST_CONCURRENCY must be a positive integer");
 try {
-  const nodeStatus = runSuite("Node test suite", process.execPath, ["--test", ...nodeTestFiles], REPO_ROOT, trackFixtureEnv);
+  const nodeStatus = runSuite("Node test suite", process.execPath, ["--test", ...(concurrency ? ["--test-concurrency="+concurrency] : []), ...nodeTestFiles], REPO_ROOT, trackFixtureEnv);
   const vitestStatuses = vitestSuites.map((suite) => {
     const cwd = join(REPO_ROOT, suite.dir);
     const configArgs = suite.config === undefined ? [] : ["--config", suite.config];
     return runSuite(
       `${suite.name} Vitest suite`,
       process.execPath,
-      [vitestEntrypoint(cwd), "run", ...configArgs, ...suite.files.map((file) => join(suite.testDir ?? "src", file))],
+      [vitestEntrypoint(cwd), "run", ...(concurrency ? ["--maxWorkers="+concurrency] : []), ...configArgs, ...suite.files.map((file) => join(suite.testDir ?? "src", file))],
       cwd,
       trackTestEnv,
     );

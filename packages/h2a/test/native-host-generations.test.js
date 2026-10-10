@@ -89,7 +89,7 @@ async function eventually(read, predicate) {
 }
 
 async function withLegacy(context, body, historicalEntry = legacyEntry) {
-  assert.equal(unavailable, false, String(unavailable)); // Required evidence must never skip.
+  assert.ok(process.platform === "linux" && historicalEntry && existsSync(historicalEntry), "historical native build required"); // Required evidence must never skip.
   const root = realpathSync(mkdtempSync("/tmp/h2a-qual-"));
   const home = join(root, "home");
   const workspace = join(root, "workspace");
@@ -174,6 +174,38 @@ async function echoSession(client, fixture, id) {
     cwd: fixture.workspace, env: fixture.env, cols: 80, rows: 24 });
 }
 
+const inputFenceEntry = process.env.H2A_TEST_INPUT_FENCE_HOST_DIR && join(process.env.H2A_TEST_INPUT_FENCE_HOST_DIR, "packages/h2a-runtime/dist/native-terminal/process.js");
+test("should select an input-fenced generation over a launch-fenced older host and preserve its session", {
+  skip: !inputFenceEntry && "set H2A_TEST_INPUT_FENCE_HOST_DIR to a launch-fenced build without input fencing",
+}, async context => withLegacy(context, async fixture => {
+  assert.equal(fixture.ping.launchFence, true);
+  assert.notEqual(fixture.ping.launchInputFence, true);
+  const compatible = await compatibleHost(fixture);
+  const regular = await op(fixture, ["ensure-host", "--fenced", "true"]);
+  assert.equal(regular.payload.socketPath, fixture.socketPath);
+  const selected = await op(fixture, ["ensure-host", "--fenced", "true", "--input-fenced", "true"]);
+  assert.equal(selected.status, 0, selected.stderr);
+  assert.equal(selected.payload.socketPath, compatible.socketPath);
+  assert.equal(selected.payload.launchInputFence, true);
+  const source = `import {startNativeSession,preflightNativeLaunch} from ${JSON.stringify(pathToFileURL(runtime).href)};
+    let owner;const selected=preflightNativeLaunch('h2a-input-generation',undefined,undefined,true);
+    const started=startNativeSession('claude','/bin/bash',${JSON.stringify(fixture.workspace)},
+      ['--noprofile','--norc','-c','read -r line'],'input-generation',
+      {requireLaunchInputFence:true,beforeCreate:value=>{owner=value;}});
+    console.log(JSON.stringify({selected,started,owner}));`;
+  const launch = start(process.execPath, ["--input-type=module", "-e", source], { ...fixture.env, H2A_NATIVE_SOCKET: "" });
+  fixture.children.push(launch); launch.child.stdin.end();
+  const result = await launch.closed;
+  assert.equal(result.status, 0, result.stderr);
+  const value = JSON.parse(result.stdout);
+  assert.equal(value.owner.socketPath, compatible.socketPath);
+  assert.equal(value.selected.launchInputFence, true);
+  const explicit = await op(fixture, ["ensure-host", "--fenced", "true", "--input-fenced", "true"], { H2A_NATIVE_SOCKET: fixture.socketPath });
+  assert.equal(explicit.payload.socketPath, fixture.socketPath);
+  assert.notEqual(explicit.payload.launchInputFence, true);
+  await fixture.unchanged();
+}, inputFenceEntry));
+
 test("should retain an already-compatible historical launch host", {
   skip: process.platform !== "linux" ? unavailable : !required && unavailable,
 }, async context => withLegacy(context, async fixture => {
@@ -237,11 +269,13 @@ test("should clean a guard's owned incarnation on its receipt socket only", {
     const old = await echoSession(fixture.client, fixture, id);
     const owned = await echoSession(second, fixture, id);
     const receiptPath = join(fixture.root, "guard-launch.json");
+    const ownership = { host: "native", sessions: [{ name: id, generation: owned.generation,
+      incarnation: owned.incarnation, socketPath: compatible.socketPath }] };
+    writeFileSync(receiptPath, JSON.stringify({ token: "qualification-guard", state: "launching", inputEpoch: 0, ownership }));
     const guard = start(process.execPath, [join(repo, "packages/h2a-runtime/dist/launch-guard.js"), receiptPath],
       { ...fixture.env, H2A_NATIVE_SOCKET: "", H2A_RUN_LAUNCH_TOKEN: "qualification-guard" });
     fixture.children.push(guard);
-    guard.child.stdin.end(JSON.stringify({ ownership: { host: "native", sessions: [{ name: id,
-      generation: owned.generation, incarnation: owned.incarnation, socketPath: compatible.socketPath }] } }) + "\n");
+    guard.child.stdin.end(JSON.stringify({ ownership }) + "\n");
     const result = await guard.closed;
     assert.equal(result.status, 0, result.stderr);
     assert.equal(JSON.parse(readFileSync(receiptPath, "utf8")).state, "stopped");
@@ -297,12 +331,17 @@ let text=''; process.stdin.on('data', bytes=>{
   context.diagnostic(`MCP real launch: ${JSON.stringify(first)}`);
   assert.equal(first.state, "started", JSON.stringify(first));
   assert.equal(first.session.socketPath, compatible.socketPath);
-  mcp.child.stdin.end(JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/call",
+  mcp.child.stdin.write(JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/call",
+    params: { name: "h2a_run", arguments: request } }) + "\n");
+  await eventually(responses, rows => rows.some(response => response.id === 2));
+  mcp.child.stdin.end(JSON.stringify({ jsonrpc: "2.0", id: 3, method: "tools/call",
     params: { name: "h2a_run", arguments: { ...request, prompt: "must never deliver twice" } } }) + "\n");
   const result = await mcp.closed;
   assert.equal(result.status, 0, result.stderr);
   const secondResult = JSON.parse(responses().find(response => response.id === 2).result.content[0].text);
   assert.deepEqual(secondResult, first);
+  const conflicting = JSON.parse(responses().find(response => response.id === 3).result.content[0].text);
+  assert.equal(conflicting.state, "not-started"); assert.match(conflicting.error, /conflicts with different parameters/);
   assert.deepEqual(readFileSync(delivered, "utf8").trim().split("\n").map(line => JSON.parse(line)), [request.prompt]);
   const second = await NativeTerminalClient.connect(compatible.socketPath);
   try {

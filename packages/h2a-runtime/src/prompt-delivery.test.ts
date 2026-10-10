@@ -358,6 +358,35 @@ describe("paneHasBlockingActivity", () => {
 });
 
 describe("deliverInitialPrompt", () => {
+  it("should refuse Claude tmux startup CPU even with a visible composer and swallowed Enter", () => {
+    const { deps, calls } = fakePane({
+      screen: "Claude Code\n❯ \n· ~/project",
+      idleCpuPerSec: 900,
+    });
+
+    const result = deliverInitialPrompt("%1", "exact brief", deps, {
+      profile: "claude", timeoutMs: 6_000, quietMs: 1_000, pollMs: 500,
+    });
+
+    expect(result.state).toBe("undelivered");
+    expect(calls.pastes).toHaveLength(0);
+    expect(calls.submits).toBe(0);
+  });
+
+  it("should keep Claude tmux submitted-idle when only esc to interrupt appears with zero CPU", () => {
+    const { deps, calls } = fakePane({ screen: "Claude Code\n❯ \n· ~/project" });
+    const capture = deps.capturePane;
+    const result = deliverInitialPrompt("%1", "exact brief", {
+      ...deps,
+      capturePane: pane => capture(pane) + (calls.submits > 0 ? "\nesc to interrupt" : ""),
+    }, { profile: "claude", activityMs: 2_000, pollMs: 500 });
+
+    expect(result.state).toBe("submitted-idle");
+    expect(calls.pastes).toEqual(["exact brief"]);
+    expect(calls.submits).toBe(1);
+    if (result.state === "submitted-idle") expect(result.cpuDeltaMs).toBe(0);
+  });
+
   it("never queues the continuation while stale-session summary compaction is running", () => {
     const { deps, calls } = fakePane({ screen: COMPACTING });
 

@@ -88,6 +88,14 @@ function required(parsed: Parsed, name: string): string {
   return value;
 }
 
+function assertLaunchLease(parsed: Parsed, lease: NativeTerminalControllerLease): void {
+  if (parsed.flags.has("generation") &&
+      (lease.generation !== required(parsed, "generation") || lease.incarnation !== required(parsed, "incarnation") ||
+       lease.epoch !== Number(required(parsed, "epoch")) + 1)) {
+    throw new Error("launch incarnation or input epoch changed before write");
+  }
+}
+
 function emit(payload: unknown): void {
   process.stdout.write(`${JSON.stringify(payload)}\n`);
 }
@@ -153,7 +161,7 @@ async function owningClient(parsed: Parsed, id: string): Promise<{ client: Nativ
   return owner;
 }
 
-async function selectLaunchClient(fenced: boolean): Promise<{ client: NativeTerminalClient; socketPath: string }> {
+async function selectLaunchClient(fenced: boolean, inputFenced = false): Promise<{ client: NativeTerminalClient; socketPath: string }> {
   const paths = knownNativeTerminalSocketPaths();
   const imposed = process.env["H2A_NATIVE_SOCKET"];
   if (imposed) {
@@ -168,13 +176,14 @@ async function selectLaunchClient(fenced: boolean): Promise<{ client: NativeTerm
   const cold = !existsSync(dirname(historical));
   const client = cold ? await ensureClient(historical) : await connectExisting(historical);
   const ping = await client.ping();
-  if (!fenced || paths.length === 1) return { client, socketPath: historical };
+  if ((!fenced && !inputFenced) || paths.length === 1) return { client, socketPath: historical };
   const compatible = paths[1]!;
   // Initialize the second known endpoint so admission obtains a complete
   // inventory even when the historical host already provides the fence.
   if (existsSync(compatible)) await connectExisting(compatible); // Never reclaim an unreachable known endpoint.
   const second = await ensureClient(compatible);
-  return ping.launchFence === true ? { client, socketPath: historical } : { client: second, socketPath: compatible };
+  return (!fenced || ping.launchFence === true) && (!inputFenced || ping.launchInputFence === true)
+    ? { client, socketPath: historical } : { client: second, socketPath: compatible };
 }
 
 async function ensureClient(socketPath: string): Promise<NativeTerminalClient> {
@@ -660,7 +669,7 @@ export async function runNativeTerminalOp(argv: ReadonlyArray<string>): Promise<
       let selected: { client: NativeTerminalClient; socketPath: string };
       try {
         selected = parsed.flags.has("socket") ? { client: await connectExisting(socketPath), socketPath }
-          : await selectLaunchClient(parsed.flags.get("fenced") === "true");
+          : await selectLaunchClient(parsed.flags.get("fenced") === "true", parsed.flags.get("input-fenced") === "true");
       } catch (error) {
         emit({ code: "native-inventory-unknown", hosts: [{ socketPath,
           reason: error instanceof Error ? error.message : String(error) }] });
@@ -669,7 +678,7 @@ export async function runNativeTerminalOp(argv: ReadonlyArray<string>): Promise<
       const { client } = selected;
       const ping = await client.ping();
       client.close();
-      emit({ hostPid: ping.hostPid, generation: ping.generation, socketPath: selected.socketPath, launchFence: ping.launchFence === true });
+      emit({ hostPid: ping.hostPid, generation: ping.generation, socketPath: selected.socketPath, launchFence: ping.launchFence === true, launchInputFence: ping.launchInputFence === true });
       return 0;
     }
     case "list": {
@@ -810,6 +819,7 @@ export async function runNativeTerminalOp(argv: ReadonlyArray<string>): Promise<
       const { client } = await owningClient(parsed, id);
       const text = Buffer.from(required(parsed, "b64"), "base64").toString("utf8");
       await withController(client, id, async (lease) => {
+        assertLaunchLease(parsed, lease);
         if (parsed.op === "paste") {
           // Bracketed paste: the TUI receives ONE block (tmux paste-buffer -p twin).
           await client.write(lease, `[200~${text}[201~`);
@@ -824,7 +834,7 @@ export async function runNativeTerminalOp(argv: ReadonlyArray<string>): Promise<
     case "enter": {
       const { client } = await owningClient(parsed, required(parsed, "id"));
       await withController(client, required(parsed, "id"), (lease) =>
-        client.write(lease, "\r"),
+        (assertLaunchLease(parsed, lease), client.write(lease, "\r")),
       );
       client.close();
       emit({ ok: true });
@@ -832,12 +842,24 @@ export async function runNativeTerminalOp(argv: ReadonlyArray<string>): Promise<
     }
     case "capture": {
       const { client } = await owningClient(parsed, required(parsed, "id"));
+      const observer = await client.attachObserver(required(parsed, "id"));
+      if (parsed.flags.has("generation") &&
+          (observer.generation !== required(parsed, "generation") || observer.incarnation !== required(parsed, "incarnation") ||
+           observer.controllerEpoch !== Number(required(parsed, "epoch")))) {
+        client.close();
+        throw new Error("launch ownership or input epoch changed");
+      }
       const raw = await readAll(client, required(parsed, "id"));
+      const after = await client.attachObserver(required(parsed, "id"));
+      if (after.generation !== observer.generation || after.incarnation !== observer.incarnation || after.controllerEpoch !== observer.controllerEpoch) {
+        client.close();
+        throw new Error("launch changed during observation");
+      }
       client.close();
       const budget = Number(parsed.flags.get("bytes") ?? 16384);
       // Cutting/stripping the stream first loses cursor positioning, joins
       // words and retains erased startup/modal text. Inspect the drawn screen.
-      emit({ text: (await renderTerminalScreen(raw)).slice(-budget) });
+      emit({ text: (await renderTerminalScreen(raw)).slice(-budget), ...observer });
       return 0;
     }
     case "pid": {
@@ -892,6 +914,8 @@ export async function runNativeTerminalOp(argv: ReadonlyArray<string>): Promise<
       const { client } = await owningClient(parsed, id);
       const generation = required(parsed, "generation");
       const incarnation = required(parsed, "incarnation");
+      if (parsed.flags.has("epoch") && (await client.ping()).launchInputFence !== true)
+        throw new Error("selected native host does not provide launchInputFence");
       const signal = parsed.flags.get("signal") ?? "SIGTERM";
       if (signal !== "SIGTERM" && signal !== "SIGKILL" && signal !== "SIGINT" && signal !== "SIGHUP") {
         throw new Error(`unsupported signal: ${signal}`);
@@ -903,6 +927,7 @@ export async function runNativeTerminalOp(argv: ReadonlyArray<string>): Promise<
           generation,
           incarnation,
           signal,
+          parsed.flags.has("epoch") ? Number(required(parsed, "epoch")) : undefined,
         );
         const deadline = Date.now() + 4_000;
         for (;;) {
@@ -917,6 +942,7 @@ export async function runNativeTerminalOp(argv: ReadonlyArray<string>): Promise<
               generation,
               incarnation,
               "SIGKILL",
+              parsed.flags.has("epoch") ? Number(required(parsed, "epoch")) : undefined,
             ).catch(() => {});
             await delay(300);
             break;

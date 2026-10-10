@@ -1,3 +1,51 @@
+# Native Claude launch latency — L0 and L1
+
+Branch: perf/launch-latency-l0-l1; base: origin/main 5ca5c7bc.
+Scope: separate conservation delivery with measured laboratory latency; repair R4-01 after R3-01–R3-03, R01–R12 and R2-02–R2-06. No G1 completion claim.
+No push, PR, publishing, tags, owner host/state/config access, Python or Track writes.
+Every test and lab launch uses its own HOME and XDG roots under .qual-tmp.
+At most one full root suite, after focused checks and laboratory cleanup.
+
+- [x] Reproduce the swallowed-Enter, missing-MCP, stale-paste and stale-receipt counterexamples.
+- [x] Fence native observations and input by incarnation and input epoch.
+- [x] Serialize durable receipts and retain potential submissions across CLI/guard/MCP failures.
+- [x] Reserve shared observation capacity and resident memory before creation.
+- [x] Persist the conversation UUID and reject repeated names with conflicting parameters.
+- [ ] Qualify diagnostic storage/version and real hook/MCP/pacing adversaries (L0).
+- [x] Repair R2-02–R2-06 with RED/GREEN witnesses and targeted generation/restore regressions.
+- [x] Measure baseline and candidate with the same private study protocol; retain every refusal and failed phase.
+- [x] Run targeted checks and build; audit recorded PID/birth identities and commit the local French evidence report.
+- [x] Repair R3-01 with two RED/GREEN Claude tmux witnesses; retain native modal handling.
+- [x] Reconcile R3-02 with the automatically enabled, locally measured dispatch path and its limits.
+- [x] R3-03: MCP burst/startup passed 6/6 at N=36 before the documentation amendment; final SHA receipts use bounded N=17, retain exact assertions and record completion under .qual-tmp/r3. No new full root suite.
+- [x] Repair R4-01: require direct Node execution of installed Playwright 0.0.83 before fast dispatch or experimental pacing; npx and unknown configurations retain the conservative path. CLI RED/GREEN witnesses are under .qual-tmp/r4.
+- [ ] Qualify G1 performance and the diagnostic signal before a real response.
+
+Measured candidate: 5a80eeb5285d4b5ba7c47a1f54568cb3572184e6.
+Declared final envelope: 5 GiB scope, 85% boundary, at most 1.5 GiB initially charged.
+Final matrix plus near-threshold extensions: 70/70 executed successes, zero errors or
+unconfirmed results; 108 N=9 refusals retained, so only 70/178 requests meet the budget.
+All nominal N=1/N=4 launch p95 values are below 8 s. N=4 cold/I-O publication p95 is
+297.378 ms over the initial 12 requests, 209.951 ms over the extended 20 requests;
+the 297.378 ms maximum remains. N=1 warm/idle secondary p95 is 5.358 s over five cohorts.
+G1 remains unqualified. Separate conservation delivery criteria are prepared in
+docs/reviews/launch-latency-l0-l1.md; no L0/L1 completion or global test gate is claimed.
+
+Fast debug dispatch is automatically enabled for Linux x64 / Claude 2.1.296,
+with exactly h2a + direct pinned Playwright 0.0.83, no sidecar, bare mode or gateway.
+The Playwright command must equal process.execPath with an absolute local cli.js
+entry point and the expected @playwright/mcp package/version/bin manifest.
+The same profile check gates private experimental pacing; npx and unknown
+installations use the conservative path. This is
+the delivered path used by all 70/70 final executed successes, with 0 ms extra
+pacing after the required readiness/paste barriers. Its qualification covers
+correlated local dispatch and the isolated adversaries; it does not establish
+remote acceptance, owner latency or G1. Unknown versions and other profiles
+use correlated transcript responses with 250 ms extra pacing. See
+docs/reviews/launch-latency-l0-l1.md, "Qualification locale du dispatch livré".
+
+## Previous branch records
+
 # Session launch latency
 
 Branch: `perf/session-launch-latency`, based on `ab7ff40e` (0.98.1).
