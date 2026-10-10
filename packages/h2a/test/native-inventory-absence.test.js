@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import test from "node:test";
 import { pathToFileURL } from "node:url";
@@ -14,11 +14,13 @@ const native = pathToFileURL(join(repo, "packages/h2a-runtime/dist/native-host.j
 const legacy = process.env.H2A_TEST_LEGACY_HOST_DIR;
 
 async function fixture(body) {
-  const root = mkdtempSync("/tmp/h2a-absence-");
+  const qualRoot = join(repo, ".qual-tmp");
+  mkdirSync(qualRoot, { recursive: true });
+  const root = mkdtempSync(join(qualRoot, "a-"));
   const home = join(root, "home");
-  const workspaces = join(repo, "tmp/hotfix-workspaces");
+  const workspaces = join(qualRoot, "ws");
   mkdirSync(workspaces, { recursive: true });
-  const workspace = mkdtempSync(join(workspaces, "absence-"));
+  const workspace = mkdtempSync(join(workspaces, "w-"));
   mkdirSync(home, { mode: 0o700 });
   const env = { PATH: "/usr/bin:/bin", HOME: home, XDG_RUNTIME_DIR: root,
     XDG_CONFIG_HOME: join(home, ".config"), REMOTE_CLI_CONFIG_HOME: home,
@@ -36,8 +38,9 @@ async function fixture(body) {
     const [status] = await once(child, "close");
     return { status, stdout, stderr, payload: stdout.trim() ? JSON.parse(stdout.trim()) : undefined };
   }
-  async function start(index = 0, entry = join(terminal, "process.js")) {
-    const child = spawn(process.execPath, [entry, "--socket", paths[index], "--generation", `fixture-${index}`,
+  async function start(index = 0, entry = join(terminal, "process.js"), customSocketPath) {
+    const socketPath = customSocketPath ?? paths[index];
+    const child = spawn(process.execPath, [entry, "--socket", socketPath, "--generation", `fixture-${index}`,
       "--registry-path", join(home, ".config/sentropic/h2a/registry.json")], { env, stdio: ["ignore", "pipe", "pipe"] });
     hosts.push(child);
     let output = "", errors = "";
@@ -47,9 +50,9 @@ async function fixture(body) {
       child.once("exit", () => reject(new Error(errors)));
       child.once("error", reject);
     });
-    const client = await NativeTerminalClient.connect(paths[index]);
+    const client = await NativeTerminalClient.connect(socketPath);
     clients.push(client);
-    return { child, client, ping: await client.ping() };
+    return { child, client, ping: await client.ping(), socketPath };
   }
   async function launch(name) {
     const result = await run(`import {startNativeSession} from ${JSON.stringify(native)};
@@ -208,6 +211,60 @@ test("should keep a missing endpoint unknown while its certified owner is alive"
   assert.equal(launched.payload.code, "native-inventory-unknown");
   assert.equal(launched.payload.creationAttempted, false);
   assert.equal(existsSync(f.paths[0]), false);
+  assert.deepEqual(await host.client.ping(), host.ping);
+}));
+
+test("should refuse second writer when a live host without .owner lost its pathname but still serves", linux, () => fixture(async f => {
+  const host = await f.start();
+  if (existsSync(`${f.paths[0]}.owner`)) unlinkSync(`${f.paths[0]}.owner`);
+  unlinkSync(f.paths[0]);
+  assert.deepEqual(await host.client.ping(), host.ping);
+  const probe = (await f.run(["probe", "--id", "h2a-unlinked-no-owner"])).payload;
+  assert.equal(probe.verdict, "unknown");
+  const launched = await f.launch("unlinked-no-owner");
+  assert.equal(launched.payload.code, "native-inventory-unknown");
+  assert.equal(launched.payload.creationAttempted, false);
+  assert.deepEqual(await host.client.ping(), host.ping);
+}));
+
+test("should refuse second writer when a live host without .owner was started via path alias and lost its pathname", linux, () => fixture(async f => {
+  const realRoot = join(f.root, "real");
+  const linkRoot = join(f.root, "link");
+  mkdirSync(realRoot, { mode: 0o700 });
+  symlinkSync(realRoot, linkRoot);
+  const realDir = join(realRoot, "h2a-nt");
+  const linkDir = join(linkRoot, "h2a-nt");
+  mkdirSync(realDir, { mode: 0o700 });
+  const aliasSocket = join(linkDir, "native-terminal.sock");
+  const canonicalSocket = join(realDir, "native-terminal.sock");
+
+  const host = await f.start(0, join(terminal, "process.js"), aliasSocket);
+  if (existsSync(`${aliasSocket}.owner`)) unlinkSync(`${aliasSocket}.owner`);
+  if (existsSync(`${canonicalSocket}.owner`)) unlinkSync(`${canonicalSocket}.owner`);
+  unlinkSync(canonicalSocket);
+  assert.deepEqual(await host.client.ping(), host.ping);
+
+  f.env.H2A_NATIVE_SOCKET = canonicalSocket;
+  const probe = (await f.run(["probe", "--id", "h2a-unlinked-alias"])).payload;
+  assert.equal(probe.verdict, "unknown");
+  const launched = await f.launch("unlinked-alias");
+  assert.equal(launched.payload.code, "native-inventory-unknown");
+  assert.equal(launched.payload.creationAttempted, false);
+  assert.deepEqual(await host.client.ping(), host.ping);
+}));
+
+test("should treat /proc read error or unavailable observation as unknown and refuse launch", linux, () => fixture(async f => {
+  const host = await f.start();
+  if (existsSync(`${f.paths[0]}.owner`)) unlinkSync(`${f.paths[0]}.owner`);
+  unlinkSync(f.paths[0]);
+  assert.deepEqual(await host.client.ping(), host.ping);
+
+  f.env.H2A_TEST_PROC_UNAVAILABLE = "1";
+  const probe = (await f.run(["probe", "--id", "h2a-proc-err"])).payload;
+  assert.equal(probe.verdict, "unknown");
+  const launched = await f.launch("proc-err");
+  assert.equal(launched.payload.code, "native-inventory-unknown");
+  assert.equal(launched.payload.creationAttempted, false);
   assert.deepEqual(await host.client.ping(), host.ping);
 }));
 
