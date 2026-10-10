@@ -89,7 +89,7 @@ export class ClaudeDebugReader {
   private pending = Buffer.alloc(0);
   private identity: string | undefined;
   constructor(private readonly path: string, fromOffset = 0) { this.offset = fromOffset; }
-  read(): { content: string; error?: string } {
+  read(): { content: string; error?: string; more?: boolean } {
     let fd: number | undefined;
     try {
       fd = openSync(this.path, "r");
@@ -102,12 +102,18 @@ export class ClaudeDebugReader {
       const read = readSync(fd, buffer, 0, bytes, this.offset);
       this.offset += read;
       this.pending = Buffer.concat([this.pending, buffer.subarray(0, read)]);
-      if (this.pending.length > 65536) return { content: "", error: "Claude diagnostic line exceeds its budget" };
-      const newline = this.pending.lastIndexOf(10);
-      if (newline < 0) return { content: "" };
+      let lineStart = 0, newline = this.pending.indexOf(10);
+      while (newline >= 0) {
+        if (newline - lineStart + 1 > 65536) return { content: "", error: "Claude diagnostic line exceeds its budget" };
+        lineStart = newline + 1;
+        newline = this.pending.indexOf(10, lineStart);
+      }
+      if (this.pending.length - lineStart > 65536) return { content: "", error: "Claude diagnostic line exceeds its budget" };
+      newline = lineStart - 1;
+      if (newline < 0) return { content: "", ...(this.pending.length ? { more: true } : {}) };
       const content = this.pending.subarray(0, newline + 1).toString("utf8");
       this.pending = this.pending.subarray(newline + 1);
-      return { content };
+      return { content, ...(this.offset < stat.size || this.pending.length ? { more: true } : {}) };
     } catch (error) {
       return (error as NodeJS.ErrnoException).code === "ENOENT" && !this.identity ? { content: "" }
         : { content: "", error: "Claude diagnostic unavailable" };
