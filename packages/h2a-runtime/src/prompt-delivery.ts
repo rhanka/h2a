@@ -326,6 +326,7 @@ export type PromptDeliveryResult =
     }
   | {
       readonly state: "working";
+      readonly proof?: "host-request-dispatched" | "correlated-response";
       readonly waitedMs: number;
       readonly cpuDeltaMs: number;
       readonly evidence: LandedEvidence;
@@ -694,9 +695,7 @@ export function deliverInitialPrompt(
       return { state: "provider-blocked", reason: "the provider rejected the submitted prompt: usage/quota limit",
         waitedMs: deps.now() - startedAt, evidence, capture: captureTail(workingCapture) };
     }
-    const acceptedActivity =
-      (/esc to interrupt/i.test(workingCapture) && !/esc to interrupt/i.test(before)) ||
-      (/LAB_READY/.test(workingCapture) && !/LAB_READY/.test(before));
+    const acceptedActivity = /esc to interrupt/i.test(workingCapture) && !/esc to interrupt/i.test(before);
     if (acceptedActivity || cpuDeltaMs - idleBudget >= activityCpuMs) {
       return {
         state: "working",

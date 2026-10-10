@@ -1,5 +1,5 @@
 import { spawn, type SpawnSyncOptionsWithStringEncoding, type SpawnSyncReturns } from "node:child_process";
-import { randomUUID } from "node:crypto";
+import { randomUUID, createHash } from "node:crypto";
 import { appendFileSync, mkdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { isAbsolute, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -13,6 +13,16 @@ export type H2aRunEffort = (typeof H2A_RUN_EFFORTS)[number];
 export const H2A_RUN_GATEWAYS = ["auto", "required", "off"] as const;
 export type H2aRunGateway = (typeof H2A_RUN_GATEWAYS)[number];
 export const H2A_RUN_API_VERSION = "h2a.run/v1";
+
+function recoveredSubmission(request: H2aRunRequest, token: string): Record<string, unknown> | undefined {
+  try {
+    const receipt = JSON.parse(readFileSync(join(request.workspace, ".h2a", "runs", request.name, "launch.json"), "utf8"));
+    if (receipt.token !== token || (receipt.submitAttempted !== true && receipt.state !== "launch-unconfirmed")) return undefined;
+    return { kind: "h2a.run.failure", version: 1, error: "h2a_run: potential submission recovered from the durable receipt; session preserved",
+      state: "launch-unconfirmed", launchId: request.name, retrySafe: false, stopped: false, submitAttempted: true,
+      attach: { command: "h2a", args: ["attach", request.name] }, ownership: receipt.ownership };
+  } catch { return undefined; }
+}
 
 export type H2aRunRequest = {
   profile: H2aRunProfile;
@@ -383,9 +393,9 @@ export function executeH2aRunWithSpawn(
   request: H2aRunRequest,
   spawn: (command: string, args: string[], options: SpawnSyncOptionsWithStringEncoding) =>
     Pick<SpawnSyncReturns<string>, "status" | "stdout" | "stderr" | "error">,
+  launchToken = randomUUID(),
 ): unknown {
   const invocation = buildH2aRunInvocation(request);
-  const launchToken = randomUUID();
   const result = spawn(invocation.command, invocation.args, {
     cwd: invocation.cwd,
     input: invocation.input,
@@ -399,6 +409,8 @@ export function executeH2aRunWithSpawn(
     maxBuffer: 1_048_576,
   });
   if (result.error) {
+    const recovered = recoveredSubmission(request, launchToken);
+    if (recovered) return recovered;
     const timedOut = (result.error as NodeJS.ErrnoException).code === "ETIMEDOUT";
     if (timedOut) {
       if (!retrySafeAfterTimeout(result.stderr ?? "", request.name)) {
@@ -445,9 +457,13 @@ export function executeH2aRunWithSpawn(
     throw result.error;
   }
   if (result.status !== 0) {
+    const recovered = recoveredSubmission(request, launchToken);
+    if (recovered) return recovered;
     try {
       const failure = JSON.parse(result.stdout ?? "") as Record<string, unknown>;
       if (isPreCreateNativeFailure(failure, request.name, result.stderr ?? "")) return failure;
+      if (failure.kind === "h2a.run.failure" && failure.version === 1 && failure.launchId === request.name && failure.retrySafe === false &&
+          ((failure.state === "stopped" && failure.stopped === true) || (failure.state === "cleanup-failed" && failure.stopped === false))) return failure;
       const prompt = failure.prompt as Record<string, unknown> | undefined;
       if (failure.kind === "h2a.run.failure" && failure.version === 1 &&
           failure.state === "provider-blocked" && failure.launchId === request.name &&
@@ -467,9 +483,12 @@ export function executeH2aRunWithSpawn(
   try {
     parsed = JSON.parse((result.stdout ?? "").trim());
   } catch {
+    const recovered = recoveredSubmission(request, launchToken);
+    if (recovered) return recovered;
     throw new Error("incompatible h2a runtime: h2a run did not return JSON");
   }
-  return contractResult(parsed, request);
+  try { return contractResult(parsed, request); }
+  catch (error) { const recovered = recoveredSubmission(request, launchToken); if (recovered) return recovered; throw error; }
 }
 
 export async function executeH2aRunWithAsyncSpawn(
@@ -479,7 +498,7 @@ export async function executeH2aRunWithAsyncSpawn(
 ): Promise<Record<string, unknown>> {
   const invocation = buildH2aRunInvocation(request);
   const launchToken = randomUUID();
-  const result = await new Promise<{ status: number | null; stdout: string; stderr: string; timedOut: boolean }>((resolve, reject) => {
+  const result = await new Promise<{ status: number | null; stdout: string; stderr: string; timedOut: boolean; overflow: boolean; error?: Error }>((resolve) => {
     const child = spawnRuntime(invocation.command, invocation.args, {
       cwd: invocation.cwd, shell: false, stdio: ["pipe", "pipe", "pipe"],
       env: { ...process.env, H2A_RUN_LAUNCH_TOKEN: launchToken },
@@ -502,18 +521,21 @@ export async function executeH2aRunWithAsyncSpawn(
     child.stdout!.setEncoding("utf8").on("data", (data: string) => collect("stdout", data));
     child.stderr!.setEncoding("utf8").on("data", (data: string) => collect("stderr", data));
     child.stdin!.on("error", () => {}); // A refused runtime may close stdin first.
-    child.on("error", error => { clearTimeout(timer); clearTimeout(escalation); reject(error); });
+    child.on("error", error => { clearTimeout(timer); clearTimeout(escalation); resolve({ status: null, stdout, stderr, timedOut, overflow, error }); });
     child.on("close", status => {
       clearTimeout(timer);
       clearTimeout(escalation);
-      if (overflow) reject(new Error("h2a_run: runtime output exceeded its buffer budget"));
-      else resolve({ status, stdout, stderr, timedOut: timedOut || status === null });
+      resolve({ status, stdout, stderr, timedOut: timedOut || status === null, overflow });
     });
     child.stdin!.end(invocation.input);
   });
+  const recovered = recoveredSubmission(request, launchToken);
+  if ((result.error || result.overflow || result.timedOut || result.status !== 0) && recovered) return recovered;
+  if (result.overflow) throw new Error("h2a_run: runtime output exceeded its buffer budget");
+  if (result.error) throw result.error;
   if (!result.timedOut) {
     // Share contract validation with the synchronous compatibility/test seam.
-    return executeH2aRunWithSpawn(request, () => result) as Record<string, unknown>;
+    return executeH2aRunWithSpawn(request, () => result, launchToken) as Record<string, unknown>;
   }
   const retrySafe = retrySafeAfterTimeout(result.stderr, request.name);
   if (!retrySafe) {
@@ -548,9 +570,13 @@ export function createH2aRunLauncher(
   onCompleted?: (request: H2aRunRequest, result: Record<string, unknown>) => void,
 ): H2aRunExecutor {
   const launches = new Map<string, Record<string, unknown>>();
+  const parameters = new Map<string, string>();
   return request => {
+    const fingerprint = createHash("sha256").update(JSON.stringify(Object.fromEntries(Object.entries(request).filter(([key]) => key !== "delegation").sort(([a], [b]) => a.localeCompare(b))))).digest("hex");
     const existing = launches.get(request.name);
-    if (existing) return existing;
+    if (existing) return parameters.get(request.name) === fingerprint ? existing
+      : { error: "h2a_run: launch name conflicts with different parameters", state: "not-started", launchId: request.name, retrySafe: false };
+    parameters.set(request.name, fingerprint);
     const launching = { state: "launching", launchId: request.name, retrySafe: false };
     launches.set(request.name, launching);
     const finish = (result: unknown): Record<string, unknown> => {

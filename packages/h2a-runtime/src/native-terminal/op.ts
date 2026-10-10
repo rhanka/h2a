@@ -88,6 +88,14 @@ function required(parsed: Parsed, name: string): string {
   return value;
 }
 
+function assertLaunchLease(parsed: Parsed, lease: NativeTerminalControllerLease): void {
+  if (parsed.flags.has("generation") &&
+      (lease.generation !== required(parsed, "generation") || lease.incarnation !== required(parsed, "incarnation") ||
+       lease.epoch !== Number(required(parsed, "epoch")) + 1)) {
+    throw new Error("launch incarnation or input epoch changed before write");
+  }
+}
+
 function emit(payload: unknown): void {
   process.stdout.write(`${JSON.stringify(payload)}\n`);
 }
@@ -810,6 +818,7 @@ export async function runNativeTerminalOp(argv: ReadonlyArray<string>): Promise<
       const { client } = await owningClient(parsed, id);
       const text = Buffer.from(required(parsed, "b64"), "base64").toString("utf8");
       await withController(client, id, async (lease) => {
+        assertLaunchLease(parsed, lease);
         if (parsed.op === "paste") {
           // Bracketed paste: the TUI receives ONE block (tmux paste-buffer -p twin).
           await client.write(lease, `[200~${text}[201~`);
@@ -824,7 +833,7 @@ export async function runNativeTerminalOp(argv: ReadonlyArray<string>): Promise<
     case "enter": {
       const { client } = await owningClient(parsed, required(parsed, "id"));
       await withController(client, required(parsed, "id"), (lease) =>
-        client.write(lease, "\r"),
+        (assertLaunchLease(parsed, lease), client.write(lease, "\r")),
       );
       client.close();
       emit({ ok: true });
@@ -832,12 +841,24 @@ export async function runNativeTerminalOp(argv: ReadonlyArray<string>): Promise<
     }
     case "capture": {
       const { client } = await owningClient(parsed, required(parsed, "id"));
+      const observer = await client.attachObserver(required(parsed, "id"));
+      if (parsed.flags.has("generation") &&
+          (observer.generation !== required(parsed, "generation") || observer.incarnation !== required(parsed, "incarnation") ||
+           observer.controllerEpoch !== Number(required(parsed, "epoch")))) {
+        client.close();
+        throw new Error("launch ownership or input epoch changed");
+      }
       const raw = await readAll(client, required(parsed, "id"));
+      const after = await client.attachObserver(required(parsed, "id"));
+      if (after.generation !== observer.generation || after.incarnation !== observer.incarnation || after.controllerEpoch !== observer.controllerEpoch) {
+        client.close();
+        throw new Error("launch changed during observation");
+      }
       client.close();
       const budget = Number(parsed.flags.get("bytes") ?? 16384);
       // Cutting/stripping the stream first loses cursor positioning, joins
       // words and retains erased startup/modal text. Inspect the drawn screen.
-      emit({ text: (await renderTerminalScreen(raw)).slice(-budget) });
+      emit({ text: (await renderTerminalScreen(raw)).slice(-budget), ...observer });
       return 0;
     }
     case "pid": {

@@ -1,3 +1,24 @@
+# Native Claude launch latency — L0 and L1
+
+Branch: perf/launch-latency-l0-l1; base: origin/main 5ca5c7bc.
+Scope: SPEC r2 lots L0/L1 and gate G1; repair review findings R01–R12.
+No push, PR, publishing, tags, owner host/state/config access, Python or Track writes.
+Every test and lab launch uses its own HOME and XDG roots under .qual-tmp.
+At most one full root suite, after focused checks and laboratory cleanup.
+
+- [x] Reproduce the swallowed-Enter, missing-MCP, stale-paste and stale-receipt counterexamples.
+- [x] Fence native observations and input by incarnation and input epoch.
+- [x] Serialize durable receipts and retain potential submissions across CLI/guard/MCP failures.
+- [x] Reserve shared observation capacity and resident memory before creation.
+- [x] Persist the conversation UUID and reject repeated names with conflicting parameters.
+- [ ] Qualify diagnostic storage/version and real hook/MCP/pacing adversaries (L0).
+- [ ] Measure baseline and candidate with the same private study protocol; report G1 without exclusions.
+- [ ] Run the final checks, audit fixture survivors, and publish the local French evidence report.
+
+Fast debug dispatch is disabled pending qualification; correlated transcript responses are the conservative fallback.
+
+## Previous branch records
+
 # Session launch latency
 
 Branch: `perf/session-launch-latency`, based on `ab7ff40e` (0.98.1).

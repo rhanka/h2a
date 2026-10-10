@@ -1,272 +1,130 @@
-/**
- * Fast native driver for Claude interactive launch.
- * Implements the 9-step sequence from SPEC r2:
- * 1. Observation du composer Claude dans l'écran VT rendu (exclusion modals/compaction).
- * 2. Attente de la barrière des MCP obligatoires.
- * 3. Revalidation du composer et de l'incarnation.
- * 4. Un seul collage en bracketed paste.
- * 5. Contrôle de l'arrivée du prompt.
- * 6. Persistance durable monotone de submitAttempted avant Enter.
- * 7. Envoi d'un seul Enter de soumission.
- * 8. Attente d'une preuve corrélée rapide indépendante de la CPU.
- * 9. Publication du résultat.
- */
-
+/** Claude launch: one paste/Enter, a shared deadline, and correlated evidence only. */
 import { existsSync, statSync } from "node:fs";
 import type { LaunchGuard } from "./launch-guard.js";
 import {
-  detectCollapsedPaste,
-  collapsedPasteMatches,
-  countOccurrences,
-  detectHostModal,
-  paneHasBlockingActivity,
-  paneIsReady,
-  promptProbes,
-  type PromptDeliveryDeps,
-  type PromptDeliveryResult,
+  detectCollapsedPaste, collapsedPasteMatches, countOccurrences, detectHostModal,
+  paneHasBlockingActivity, paneIsReady, promptProbes,
+  type PromptDeliveryDeps, type PromptDeliveryResult,
 } from "./prompt-delivery.js";
-import {
-  parseClaudeDebugEvents,
-  readClaudeDebugIncremental,
-} from "./claude-debug-adapter.js";
+import { ClaudeDebugReader, parseClaudeDebugEvents } from "./claude-debug-adapter.js";
 
+export type ClaudeNativeDeliveryDeps = {
+  capturePane: (name: string) => string | undefined | Promise<string | undefined>;
+  clearComposer: (name: string) => boolean | Promise<boolean>;
+  pasteBlock: (name: string, text: string) => boolean | Promise<boolean>;
+  submit: (name: string) => boolean | Promise<boolean>;
+  sleep: (ms: number) => void | Promise<void>;
+  now: () => number;
+};
 export type ClaudeNativeDriverOptions = {
   launchGuard?: LaunchGuard | undefined;
   debugFile?: string | undefined;
   requiredMcps?: string[] | undefined;
+  requiredMcpProof?: (() => boolean) | undefined;
+  correlatedResponse?: (() => boolean) | undefined;
+  qualifiedDiagnostic?: boolean | undefined;
+  requestedAt?: number | undefined;
   pacingMs?: number | undefined;
   readinessTimeoutMs?: number | undefined;
   observationTimeoutMs?: number | undefined;
+  onPhase?: ((phase: string, at: number) => void) | undefined;
 };
 
-export function deliverClaudeNativePrompt(
-  name: string,
-  prompt: string,
-  deps: PromptDeliveryDeps,
-  options: ClaudeNativeDriverOptions = {},
-): PromptDeliveryResult {
-  const startedAt = deps.now();
-  const readinessDeadline = startedAt + (options.readinessTimeoutMs ?? 30_000);
-  const pacingMs = options.pacingMs ?? 150;
-  const observationTimeoutMs = options.observationTimeoutMs ?? 15_000;
-
-  // 1. Observation du composer Claude
-  let composerCapture: string | undefined;
-  for (;;) {
-    const capture = deps.capturePane(name);
-    if (capture !== undefined) {
-      const modal = detectHostModal(capture);
-      if (modal) {
-        return {
-          state: "host-modal",
-          reason: modal.reason,
-          hint: modal.hint,
-          capture,
-        };
-      }
-      if (!paneHasBlockingActivity(capture) && paneIsReady(capture, "claude")) {
-        composerCapture = capture;
-        break;
-      }
+export async function deliverClaudeNativePrompt(name: string, prompt: string, deps: ClaudeNativeDeliveryDeps | PromptDeliveryDeps,
+  options: ClaudeNativeDriverOptions = {}): Promise<PromptDeliveryResult> {
+  const startedAt = options.requestedAt ?? deps.now();
+  const deadline = startedAt + Math.min(15000, options.observationTimeoutMs ?? 15000);
+  let submitted = false, lastScreen = "", nextPoll = 0;
+  const failure = (reason: string): PromptDeliveryResult => submitted
+    ? { state: "launch-unconfirmed", reason, waitedMs: deps.now() - startedAt, submitAttempted: true }
+    : { state: "undelivered", reason, waitedMs: deps.now() - startedAt, capture: lastScreen };
+  const capture = async () => {
+    // The single schedule covers every native observation, with no catch-up burst.
+    const wait = nextPoll - deps.now();
+    if (wait > 0) await deps.sleep(Math.min(wait, Math.max(0, deadline - deps.now())));
+    if (deps.now() >= deadline) throw new Error("launch observation deadline expired");
+    nextPoll = deps.now() + 250;
+    lastScreen = await deps.capturePane(name) ?? "";
+    return lastScreen;
+  };
+  const ready = (screen: string) => !detectHostModal(screen) && !paneHasBlockingActivity(screen) && paneIsReady(screen, "claude");
+  const required = options.requiredMcps ?? [];
+  const debug = options.debugFile ? new ClaudeDebugReader(options.debugFile) : undefined;
+  const connected = new Set<string>(), capabilities = new Set<string>();
+  const mcpsReady = () => {
+    if (debug) {
+      const chunk = debug.read();
+      if (chunk.error) return false;
+      const analysis = parseClaudeDebugEvents(chunk.content);
+      analysis.connectedMcps.forEach(m => connected.add(m));
+      analysis.capableMcps.forEach(m => capabilities.add(m));
     }
-    if (deps.now() >= readinessDeadline) {
-      return {
-        state: "undelivered",
-        reason: "the Claude composer was not ready within the deadline",
-        waitedMs: deps.now() - startedAt,
-        capture: capture ?? "",
-      };
+    return required.every(m => connected.has(m) && capabilities.has(m)) &&
+      (required.length === 0 || options.requiredMcpProof?.() === true);
+  };
+  try {
+    for (;;) {
+      const screen = await capture();
+      const modal = detectHostModal(screen);
+      if (modal) return { state: "host-modal", reason: modal.reason, hint: modal.hint, capture: screen };
+      if (ready(screen)) options.onPhase?.("composerReadyMs", deps.now() - startedAt);
+      if (ready(screen) && mcpsReady()) { options.onPhase?.("requiredMcpsReadyMs", deps.now() - startedAt); break; }
+      if (deps.now() >= deadline) return failure("composer or required MCP evidence missing within the launch budget");
     }
-    deps.sleep(50);
-  }
-
-  // 2. Attente des MCP obligatoires (barrière MCP avant Enter)
-  const requiredMcps = options.requiredMcps ?? [];
-  if (requiredMcps.length > 0 && options.debugFile) {
-    const mcpDeadline = deps.now() + 20_000;
-    let mcpOffset = 0;
-    const connected = new Set<string>();
-    while (deps.now() < mcpDeadline) {
-      if (existsSync(options.debugFile)) {
-        const { content, newOffset } = readClaudeDebugIncremental(
-          options.debugFile,
-          mcpOffset,
-        );
-        mcpOffset = newOffset;
-        if (content) {
-          const analysis = parseClaudeDebugEvents(content);
-          for (const m of analysis.connectedMcps) {
-            connected.add(m);
-          }
+    const pacing = options.pacingMs ?? 250;
+    if (pacing > 0) await deps.sleep(Math.min(pacing, Math.max(0, deadline - deps.now())));
+    const before = await capture();
+    if (!ready(before) || !mcpsReady()) return failure("composer or MCP readiness changed before paste");
+    const oldMarker = detectCollapsedPaste(before);
+    const exact = prompt.replace(/\s+/g, "");
+    const baseline = countOccurrences(before.replace(/\s+/g, ""), exact);
+    if (!await deps.pasteBlock(name, prompt)) return failure("could not paste the brief");
+    let evidence: "composer-text" | "collapsed-paste" = "composer-text";
+    for (;;) {
+      const after = await capture();
+      if (!ready(after)) return failure("composer became blocked after paste");
+      const marker = detectCollapsedPaste(after);
+      if (marker) {
+        const stale = oldMarker && marker.kind === oldMarker.kind && marker.value === oldMarker.value;
+        if (!stale && collapsedPasteMatches(marker, prompt)) { evidence = "collapsed-paste"; break; }
+        // Quantitative truncation/stale markers always take precedence over words.
+      } else if (countOccurrences(after.replace(/\s+/g, ""), exact) > baseline) break;
+    }
+    if (!mcpsReady()) return failure("required MCP evidence lost before Enter");
+    // Cursor starts at a complete-line boundary; pre-Enter events cannot confirm this turn.
+    const dispatch = options.debugFile ? new ClaudeDebugReader(options.debugFile,
+      existsSync(options.debugFile) ? statSync(options.debugFile).size : 0) : undefined;
+    options.launchGuard?.markSubmitAttempted();
+    options.onPhase?.("submitAttemptedMs", deps.now() - startedAt);
+    submitted = true; // A failed write/timeout after this point is still potential submission.
+    if (!await deps.submit(name)) return failure("Enter delivery could not be confirmed");
+    let settled = false, turn = false, dispatched = false;
+    for (;;) {
+      const chunk = dispatch?.read();
+      if (chunk?.error) return failure(chunk.error);
+      if (chunk?.content) {
+        const analysis = parseClaudeDebugEvents(chunk.content);
+        if (analysis.hookVeto) return { state: "provider-blocked", reason: "a blocking hook rejected the prompt",
+          waitedMs: deps.now() - startedAt, evidence, capture: lastScreen };
+        for (const event of analysis.events) {
+          if (event === "hooks-settled") settled = true;
+          else if (event === "turn-start") { if (!settled || turn) return failure("unexpected or concurrent turn"); turn = true; }
+          else if (event === "main-dispatch") { if (!settled || !turn) return failure("dispatch without the qualified hook/turn sequence"); dispatched = true; }
         }
       }
-      const allReady = requiredMcps.every((m) => connected.has(m));
-      if (allReady) break;
-      deps.sleep(50);
-    }
-  }
-
-  // 3. Revalidation du composer et temporisation anti-swallowed Enter
-  const currentCapture = deps.capturePane(name) ?? "";
-  if (detectHostModal(currentCapture)) {
-    const modal = detectHostModal(currentCapture)!;
-    return {
-      state: "host-modal",
-      reason: modal.reason,
-      hint: modal.hint,
-      capture: currentCapture,
-    };
-  }
-  if (pacingMs > 0) {
-    deps.sleep(pacingMs);
-  }
-
-  // 4. Un seul collage en bracketed paste
-  const beforePaste = deps.capturePane(name) ?? "";
-  const probes = promptProbes(prompt);
-  const baselineCounts = probes.map((p) => countOccurrences(beforePaste, p));
-
-  if (!deps.pasteBlock(name, prompt)) {
-    return {
-      state: "undelivered",
-      reason: "could not paste prompt into the Claude pane",
-      waitedMs: deps.now() - startedAt,
-      capture: beforePaste,
-    };
-  }
-
-  // 5. Contrôle de l'arrivée du prompt dans le composer
-  const landedDeadline = deps.now() + 6_000;
-  let landed = false;
-  let collapsed = false;
-  let lastScreen = beforePaste;
-
-  for (;;) {
-    const after = deps.capturePane(name) ?? "";
-    lastScreen = after;
-    const marker = detectCollapsedPaste(after);
-    if (marker && collapsedPasteMatches(marker, prompt)) {
-      landed = true;
-      collapsed = true;
-      break;
-    }
-    const counts = probes.map((p) => countOccurrences(after, p));
-    const landedProbes = counts.filter((c, i) => c > baselineCounts[i]!).length;
-    if (landedProbes > 0) {
-      landed = true;
-      break;
-    }
-    if (deps.now() >= landedDeadline) break;
-    deps.sleep(50);
-  }
-
-  if (!landed) {
-    deps.clearComposer(name);
-    return {
-      state: "undelivered",
-      reason: "the brief never appeared in the composer, so it was not submitted",
-      waitedMs: deps.now() - startedAt,
-      capture: lastScreen,
-    };
-  }
-
-  // 6. Persistance durable monotone de submitAttempted avant Enter
-  if (options.launchGuard) {
-    options.launchGuard.markSubmitAttempted();
-  }
-
-  // Initial debug log offset before Enter
-  let debugOffset = 0;
-  if (options.debugFile && existsSync(options.debugFile)) {
-    try {
-      debugOffset = statSync(options.debugFile).size;
-    } catch {}
-  }
-
-  // 7. Envoi d'un seul Enter de soumission
-  const submittedAt = deps.now();
-  if (!deps.submit(name)) {
-    return {
-      state: "undelivered",
-      reason: "the prompt reached the composer but could not be submitted",
-      waitedMs: deps.now() - startedAt,
-      capture: lastScreen,
-    };
-  }
-
-  // 8. Attente d'une preuve corrélée rapide (< 250ms à chaud, max 15s)
-  const observationDeadline = submittedAt + observationTimeoutMs;
-  const evidence = collapsed ? "collapsed-paste" : "composer-text";
-
-  for (;;) {
-    // 8a. Inspection incrémentale du debug log (host-request-dispatched)
-    if (options.debugFile && existsSync(options.debugFile)) {
-      const { content, newOffset } = readClaudeDebugIncremental(
-        options.debugFile,
-        debugOffset,
-      );
-      debugOffset = newOffset;
-      if (content) {
-        const analysis = parseClaudeDebugEvents(content);
-        if (analysis.hookVeto) {
-          return {
-            state: "provider-blocked",
-            reason: "a pre-submit hook rejected the prompt",
-            waitedMs: deps.now() - startedAt,
-            evidence,
-            capture: deps.capturePane(name) ?? "",
-          };
-        }
-        if (analysis.mainThreadDispatched) {
-          return {
-            state: "working",
-            waitedMs: deps.now() - startedAt,
-            cpuDeltaMs: 0,
-            evidence,
-          };
-        }
+      if (options.correlatedResponse?.() === true || (options.qualifiedDiagnostic === true && dispatched)) {
+        const proof = options.qualifiedDiagnostic === true && dispatched ? "host-request-dispatched" : "correlated-response";
+        options.onPhase?.(proof === "host-request-dispatched" ? "dispatchObservedMs" : "firstResponseMs", deps.now() - startedAt);
+        // Fenced capture checks incarnation/input epoch and visible refusal before publication.
+        const screen = await capture();
+        if (/usage limit reached|quota (?:exceeded|exhausted)|insufficient credits|authentication failed|invalid api key/i.test(screen))
+          return { state: "provider-blocked", reason: "provider rejected the submitted prompt", waitedMs: deps.now() - startedAt, evidence, capture: screen };
+        options.onPhase?.("lastRequiredProofMs", deps.now() - startedAt);
+        return { state: "working", waitedMs: deps.now() - startedAt, cpuDeltaMs: 0, evidence, proof };
       }
+      if (deps.now() >= deadline) return failure("dispatch or correlated response missing within the launch budget");
+      // File observations do not spawn op.js and can be frequent without a native probe storm.
+      await deps.sleep(Math.min(25, deadline - deps.now()));
     }
-
-    // 8b. Inspection VT de l'écran (réponse rapide, activité ou limite)
-    const currentScreen = deps.capturePane(name) ?? "";
-    const providerLimit =
-      /usage limit reached|you(?:'|’)?ve hit[^\n]*(?:limit|quota)|quota (?:exceeded|exhausted)|rate limit (?:reached|exceeded)|insufficient (?:credits|quota)/i;
-    if (providerLimit.test(currentScreen) && !providerLimit.test(beforePaste)) {
-      return {
-        state: "provider-blocked",
-        reason: "the provider rejected the submitted prompt: usage/quota limit",
-        waitedMs: deps.now() - startedAt,
-        evidence,
-        capture: currentScreen,
-      };
-    }
-
-    const tuiActivity =
-      (/esc to interrupt/i.test(currentScreen) && !/esc to interrupt/i.test(beforePaste)) ||
-      (/LAB_READY/.test(currentScreen) && !/LAB_READY/.test(beforePaste));
-
-    if (tuiActivity) {
-      return {
-        state: "working",
-        waitedMs: deps.now() - startedAt,
-        cpuDeltaMs: 0,
-        evidence,
-      };
-    }
-
-    if (deps.now() >= observationDeadline) {
-      // 15s observation budget expired without proof:
-      // Invariant L1: Monotonic submitAttempted -> launch-unconfirmed, DO NOT KILL!
-      return {
-        state: "launch-unconfirmed",
-        reason: "the brief was submitted but dispatch could not be confirmed within the observation budget",
-        waitedMs: deps.now() - startedAt,
-        evidence,
-        submitAttempted: true,
-      };
-    }
-
-    deps.sleep(50);
-  }
+  } catch (error) { return failure(error instanceof Error ? error.message : String(error)); }
 }

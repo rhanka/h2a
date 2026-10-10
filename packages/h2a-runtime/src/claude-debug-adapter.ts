@@ -2,6 +2,8 @@ import { openSync, readSync, fstatSync, closeSync, existsSync } from "node:fs";
 
 export type ClaudeDebugAnalysis = {
   connectedMcps: Set<string>;
+  capableMcps: Set<string>;
+  events: Array<"hooks-settled" | "turn-start" | "main-dispatch">;
   promptSubmitSettled: boolean;
   turnStartObserved: boolean;
   mainThreadDispatched: boolean;
@@ -14,6 +16,8 @@ export const CLAUDE_DEBUG_MAX_BYTES = 16 * 1024 * 1024; // 16 Mio max
 
 export function parseClaudeDebugEvents(content: string): ClaudeDebugAnalysis {
   const connectedMcps = new Set<string>();
+  const capableMcps = new Set<string>();
+  const events: ClaudeDebugAnalysis["events"] = [];
   let promptSubmitSettled = false;
   let turnStartObserved = false;
   let mainThreadDispatched = false;
@@ -27,10 +31,15 @@ export function parseClaudeDebugEvents(content: string): ClaudeDebugAnalysis {
     if (mcpMatch?.[1]) {
       connectedMcps.add(mcpMatch[1]);
     }
+    const capability = line.match(/MCP server "([^"]+)": Connection established with capabilities: (\{.*\})/);
+    if (capability?.[1] && capability[2]) {
+      try { if (JSON.parse(capability[2]).hasTools === true) capableMcps.add(capability[1]); } catch { /* Unknown capabilities never prove readiness. */ }
+    }
 
     // Prompt submit hook settling
     if (/prompt\.submit settled/i.test(line)) {
       promptSubmitSettled = true;
+      events.push("hooks-settled");
     }
 
     // Hook rejection / veto
@@ -41,6 +50,7 @@ export function parseClaudeDebugEvents(content: string): ClaudeDebugAnalysis {
     // Turn start
     if (/\[engine\] turn \d+ start/i.test(line)) {
       turnStartObserved = true;
+      events.push("turn-start");
     }
 
     // API request dispatch
@@ -51,18 +61,53 @@ export function parseClaudeDebugEvents(content: string): ClaudeDebugAnalysis {
         titleDispatched = true;
       } else if (source === "repl_main_thread") {
         mainThreadDispatched = true;
+        events.push("main-dispatch");
       }
     }
   }
 
   return {
     connectedMcps,
+    capableMcps,
+    events,
     promptSubmitSettled,
     turnStartObserved,
     mainThreadDispatched,
     titleDispatched,
     hookVeto,
   };
+}
+
+/** Keeps partial UTF-8 lines and fails closed on rotation, truncation or saturation. */
+export class ClaudeDebugReader {
+  private offset: number;
+  private pending = Buffer.alloc(0);
+  private identity: string | undefined;
+  constructor(private readonly path: string, fromOffset = 0) { this.offset = fromOffset; }
+  read(): { content: string; error?: string } {
+    let fd: number | undefined;
+    try {
+      fd = openSync(this.path, "r");
+      const stat = fstatSync(fd), identity = `${stat.dev}:${stat.ino}`;
+      if ((this.identity && this.identity !== identity) || stat.size < this.offset) return { content: "", error: "Claude diagnostic rotated or truncated" };
+      this.identity = identity;
+      if (stat.size >= CLAUDE_DEBUG_MAX_BYTES) return { content: "", error: "Claude diagnostic saturated" };
+      const bytes = Math.min(stat.size - this.offset, 65536);
+      const buffer = Buffer.alloc(bytes);
+      const read = readSync(fd, buffer, 0, bytes, this.offset);
+      this.offset += read;
+      this.pending = Buffer.concat([this.pending, buffer.subarray(0, read)]);
+      if (this.pending.length > 65536) return { content: "", error: "Claude diagnostic line exceeds its budget" };
+      const newline = this.pending.lastIndexOf(10);
+      if (newline < 0) return { content: "" };
+      const content = this.pending.subarray(0, newline + 1).toString("utf8");
+      this.pending = this.pending.subarray(newline + 1);
+      return { content };
+    } catch (error) {
+      return (error as NodeJS.ErrnoException).code === "ENOENT" && !this.identity ? { content: "" }
+        : { content: "", error: "Claude diagnostic unavailable" };
+    } finally { if (fd !== undefined) closeSync(fd); }
+  }
 }
 
 export function readClaudeDebugBounded(content: string, maxBytes = CLAUDE_DEBUG_MAX_BYTES): string {

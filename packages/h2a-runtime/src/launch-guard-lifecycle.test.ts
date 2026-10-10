@@ -26,8 +26,8 @@ describe("launch guard lifecycle", () => {
         const [code] = await once(child, "exit");
         expect(code).toBe(0);
         const receipt = JSON.parse(readFileSync(path, "utf8"));
-        expect(receipt.state).toBe(otherAttempt ? "stopped" : "started");
-        expect(receipt.ownership.host).toBe(otherAttempt ? "tmux" : "native");
+        expect(receipt.state).toBe("started");
+        expect(receipt.ownership.host).toBe("native");
       } finally {
         if (child.exitCode === null) child.kill("SIGKILL");
         rmSync(directory, { recursive: true, force: true });
