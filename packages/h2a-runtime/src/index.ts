@@ -6615,7 +6615,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             return;
           }
           if (nativeClaudeLaunch) uncreatedNativeReservation = slugCandidate;
-          const reservedConvId = profile === "claude" && !opts.resume ? randomUUID() : undefined;
+          const reservedConvId = profile === "claude" && structuredLaunch && !opts.resume ? randomUUID() : undefined;
           const transcriptFile = nativeClaudeLaunch ? claudeTranscriptPath(cwd, (opts.resume ?? reservedConvId)!) : undefined;
           const transcriptOffset = transcriptFile && existsSync(transcriptFile) ? statSync(transcriptFile).size : 0;
           let diagnostic: ReturnType<typeof startClaudeDiagnostic> | undefined;
