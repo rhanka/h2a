@@ -6523,7 +6523,9 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           const experiment = nativeClaudeLaunch && providerVersion === "2.1.296" && process.env.LAUNCH_PERF_QUALIFY_DISPATCH === "1" &&
             [process.env.HOME, process.env.XDG_RUNTIME_DIR, process.env.XDG_STATE_HOME, process.env.XDG_CONFIG_HOME].every(p => p?.includes("/.qual-tmp/")) &&
             existsSync(join(process.env.H2A_ROOT ?? "", ".launch-perf-synthetic.json"));
-          const dispatchEvidenceEnabled = providerVersion !== undefined && (QUALIFIED_CLAUDE_NATIVE_VERSIONS.includes(providerVersion) || experiment);
+          const qualifiedProfile = declaredMcps.length === 2 && declaredMcps.includes("h2a") && declaredMcps.includes("playwright") &&
+            !h2aSidecar && !useBare && !activeGateway;
+          const dispatchEvidenceEnabled = providerVersion !== undefined && qualifiedProfile && (QUALIFIED_CLAUDE_NATIVE_VERSIONS.includes(providerVersion) || experiment);
           const runDir = join(cwd, ".h2a", "runs", slugCandidate);
           const requiredMcps = declaredMcps;
           if (!Array.isArray(requiredMcps) || requiredMcps.some(m => typeof m !== "string" || !m)) throw new Error("invalid required Claude MCP profile");
@@ -6546,7 +6548,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           if (nativeClaudeLaunch) {
             mkdirSync(runDir, { recursive: true, mode: 0o700 });
             updateLaunchReceipt(join(runDir, "launch.json"), process.env.H2A_RUN_LAUNCH_TOKEN,
-              { state: "reserved", inputHash, parameterHash, providerVersion, diagnosticQualified: QUALIFIED_CLAUDE_NATIVE_VERSIONS.includes(providerVersion ?? ""),
+              { state: "reserved", inputHash, parameterHash, providerVersion, diagnosticQualified: qualifiedProfile && QUALIFIED_CLAUDE_NATIVE_VERSIONS.includes(providerVersion ?? ""),
                 conversationId: opts.resume ?? reservedConvId, requiredMcps, requestedAt: launchRequestedAt });
             diagnostic = startClaudeDiagnostic(runDir);
             diagnosticCleanup = diagnostic.stop;
@@ -6815,6 +6817,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
                   {
                     launchGuard,
                     debugFile: diagnostic?.file,
+                    diagnosticHealthy: () => diagnostic?.healthy() === true,
                     requiredMcps,
                     requiredMcpProof: () => {
                       if (!observedClaudeMcpTools(runDir, requiredMcps, (opts.resume ?? reservedConvId)!, mcpReadyNonce)) return false;
