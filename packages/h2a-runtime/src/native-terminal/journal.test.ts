@@ -37,12 +37,13 @@ async function eventually(predicate: () => boolean) {
     await new Promise(resolve => setTimeout(resolve, 10));
   }
 }
-function child(args: string[], env: Record<string, string>) {
+function child(args: string[], env: Record<string, string>, ipc = false) {
   assertIsolatedEnvironment(env, qualRoot);
-  const handle = spawn(process.execPath, args, { env, cwd: env.HOME, stdio: ["ignore", "pipe", "pipe"] });
+  const handle = spawn(process.execPath, args, { env, cwd: env.HOME,
+    stdio: ipc ? ["ignore", "pipe", "pipe", "ipc"] : ["ignore", "pipe", "pipe"] });
   let stdout = "", stderr = "";
   handle.stdout.on("data", data => { stdout += data; }); handle.stderr.on("data", data => { stderr += data; });
-  const closed = once(handle, "close");
+  const closed = once(handle, ipc ? "exit" : "close");
   cleanups.push(async () => {
     if (handle.exitCode === null && handle.signalCode === null) handle.kill("SIGTERM");
     await closed;
@@ -55,6 +56,30 @@ function startEntry() {
 }
 
 describe("native host life journal", () => {
+  it("should exit when parent IPC disconnected before the writer module loaded", async () => {
+    const f = fixture(), preload = join(f.root, "disconnected.mjs");
+    writeFileSync(preload, `import { once } from 'node:events';
+      import { isMainThread, MessageChannel } from 'node:worker_threads';
+      if (isMainThread && process.argv[2] === '--native-host-journal-writer') {
+        const keepAlive = new MessageChannel();
+        keepAlive.port1.on('message', () => {});
+        const disconnected = once(process, 'disconnect');
+        process.send('ready');
+        await disconnected;
+        await import(${JSON.stringify(journalModule)});
+        keepAlive.port1.close(); keepAlive.port2.close();
+      }`);
+    const writer = child([fileURLToPath(journalModule), "--native-host-journal-writer", f.log],
+      { ...f.env, NODE_OPTIONS: `--import=${preload}` }, true);
+    expect((await once(writer.process, "message"))[0]).toBe("ready");
+    const deadline = new AbortController();
+    const timer = setTimeout(() => deadline.abort(), 1_000);
+    try {
+      const exited = once(writer.process, "exit", { signal: deadline.signal });
+      writer.process.disconnect();
+      expect((await exited)[0]).toBe(0);
+    } finally { clearTimeout(timer); }
+  });
   it("should reject an aliased fixture parent before any journal fixture writes", () => {
     const lab = createPrivateTestDirectory("a");
     const outside = mkdtempSync("/tmp/h2a-r2-journal-canary-");
@@ -105,9 +130,10 @@ describe("native host life journal", () => {
       ? `Promise.reject(new Error(${JSON.stringify(secret)}))` : `(() => { throw new Error(${JSON.stringify(secret)}); })()`;
     writeFileSync(script, `import {runNativeTerminalHostProcess} from ${JSON.stringify(processModule)};
       await runNativeTerminalHostProcess([process.execPath, ${JSON.stringify(entry)}, '--socket', ${JSON.stringify(f.socket)}]);
-      process.on('SIGUSR1', () => { ${action}; });`);
-    const host = child([script], { ...f.env, PRIVATE_VALUE: secret });
-    await eventually(() => host.output().stdout.includes("h2a.native-terminal.ready"));
+      process.on('SIGUSR1', () => { ${action}; });
+      process.send('crash-handler-ready', () => process.disconnect());`);
+    const host = child([script], { ...f.env, PRIVATE_VALUE: secret }, true);
+    expect((await once(host.process, "message"))[0]).toBe("crash-handler-ready");
     await eventually(() => readHostJournal(f.log).some(e => e.event === "start"));
     host.process.kill("SIGUSR1");
     const [code, signal] = await host.closed;
@@ -129,8 +155,10 @@ describe("native host life journal", () => {
     const f = fixture(), script = join(f.root, "exit.mjs");
     writeFileSync(script, `import {runNativeTerminalHostProcess} from ${JSON.stringify(processModule)};
       await runNativeTerminalHostProcess([process.execPath, ${JSON.stringify(entry)}, '--socket', ${JSON.stringify(f.socket)}]);
-      process.on('SIGUSR1', () => process.exit(7));`);
-    const host = child([script], f.env);
+      process.on('SIGUSR1', () => process.exit(7));
+      process.send('exit-handler-ready', () => process.disconnect());`);
+    const host = child([script], f.env, true);
+    expect((await once(host.process, "message"))[0]).toBe("exit-handler-ready");
     await eventually(() => readHostJournal(f.log).some(e => e.event === "start")); host.process.kill("SIGUSR1");
     expect((await host.closed)[0]).toBe(7);
     await eventually(() => readHostJournal(f.log).at(-1)?.event === "exit");
