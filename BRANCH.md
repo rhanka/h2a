@@ -11,29 +11,33 @@ Real processes run only with isolated HOME, runtime directories and stores.
   backs up existing files and requires `--allow-tracked` for tracked files.
 - [x] L-H: retain live shim stdio on restart, operator status/stop and rollback semantics.
 - [x] L-H: report-only inventory of old central configs and repo store sentinels.
-- [x] L-A transport: lightweight opt-in `mcp-serve` switch, Claude only; causal
+- [x] L-A transport: lightweight default-on `mcp-serve` switch, Claude only; causal
   conversation identity, independent attachments and private discovery.
-- [ ] L-A default release: blocked by the exact production Graphify-loss reproduction.
+- [x] L-A default activation: owner closes R6 by the zero-project-write invariant
+  and exact byte preservation; Claude defaults ON, Codex/agy stay stdio,
+  with `H2A_MCP_CENTRAL=0` and `h2a.central.enabled=false` opt-outs.
 - [x] Review 4: discriminating R3 regression, R18 stdio routing and R19 manual
   daemon attachment isolation, each evidenced independently with RED/GREEN.
-- [ ] Wider qualification: exact production graphify loss reproduction,
-  18/36-session synthetic-volume budgets, host-version matrix and a fresh
-  fully GREEN root gate in a prepared environment.
+- [ ] Wider qualification: 18/36-session synthetic-volume budgets, host-version
+  matrix and a fresh fully GREEN root gate in a prepared environment.
 
-Fresh R6 evidence: ignored `.qual-tmp/r6/evidence/`, with command, SHA and raw
-stdout/stderr per run. The exact pre-incident Airbus bytes at `3508b24` are now
+Historical R6 evidence: ignored `.qual-tmp/r6/evidence/`, with command, SHA and raw
+stdout/stderr per run. The exact pre-incident Airbus bytes at `3508b24` are
 versioned and hash-checked. Registry-verified published 0.98.0, using a real
 private central and its unchanged launch/restore preparation and writer,
 changes tracked bytes/mode without a backup but preserves Graphify. Restore
 preparation alone writes nothing; restored absent sessions re-enter run. No
-alternate destructive project writer was identified on these paths. R6 stays
-open because its destruction RED is absent; Claude default activation remains
-disabled under the owner's conditional instruction. The candidate's real
-central preparation makes zero project writes and preserves bytes, metadata
-and git status. Existing launch-index readers are already present on main.
+alternate destructive project writer was identified on these paths. R6 is
+closed by the owner's invariant decision; the historical cause is unknown.
+The published writer did not destroy Graphify in reproduction. Claude default
+activation is ON. The candidate's real central preparation makes zero project
+writes and preserves bytes, metadata and git status. Existing launch-index
+readers are already present on main.
 Earlier reconstructed-input, performance and pre-rebase claims are superseded.
 Final qualification is scoped, isolated and tied to the final committed SHA;
-no root/performance gate is claimed.
+no root/performance gate is claimed. Fresh default-on receipts and the French
+owner report are under `.qual-tmp/default-on/`; each final receipt records the
+final committed SHA and an empty working diff.
 Report: `docs/reviews/mcp-central-default-claude.md`. No peer consensus is claimed:
 the installed-session review route conflicts with the owner isolation constraint.
 
