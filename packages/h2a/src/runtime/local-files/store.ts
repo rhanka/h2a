@@ -5,6 +5,7 @@ import {
   mkdirSync,
   readFileSync,
   readdirSync,
+  renameSync,
   statSync,
   unlinkSync,
   writeFileSync
@@ -340,7 +341,18 @@ function ensureSchemaSentinel(
       createdAt: new Date().toISOString(),
       createdBy: readCliPackageVersion()
     };
-    writeFileSync(sentinelPath, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
+    // Atomic create, not a plain writeFileSync: on a fresh store root several
+    // concurrent processes (e.g. the F2 mixed sync-CLI + async-MCP writer
+    // burst) all pass the existsSync check together, and the first writer's
+    // truncate-then-write is observable mid-write by the others — an empty
+    // or partial JSON read lands here as StoreSchemaMismatchError
+    // "<unparseable>". A pid-suffixed temp file in the SAME directory plus
+    // rename(2) is atomic: a reader either sees no file or the complete
+    // sentinel, never a torn one. Losers of the create race overwrite the
+    // winner with equivalent content, which is idempotent.
+    const tmpPath = `${sentinelPath}.${process.pid}.tmp`;
+    writeFileSync(tmpPath, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
+    renameSync(tmpPath, sentinelPath);
     return;
   }
 
