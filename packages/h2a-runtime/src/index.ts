@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { randomUUID, createHash } from "node:crypto";
-import { spawnSync } from "node:child_process";
+import { spawnSync, execFileSync } from "node:child_process";
 import {
   existsSync,
   mkdirSync,
@@ -14,7 +14,7 @@ import { homedir, tmpdir } from "node:os";
 import { basename, isAbsolute, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
-import { Command, Help } from "commander";
+import { Command, Help, Option } from "commander";
 
 import {
   applyRuntimeHelpGroups,
@@ -132,10 +132,11 @@ import {
 } from "./prompt-delivery.js";
 import { startLaunchGuard, type LaunchGuard, type LaunchOwnership } from "./launch-guard.js";
 import { deliverClaudeNativePrompt } from "./claude-native-driver.js";
-import { acquireLaunchSlot, releaseLaunchSlot } from "./launch-capacity.js";
+import { acquireLaunchSlot, releaseLaunchSlot, accountLaunchProcess, DEFAULT_RESIDENT_BYTES } from "./launch-capacity.js";
 import { updateLaunchReceipt, withLaunchReceipt } from "./launch-receipt.js";
 import { startClaudeDiagnostic } from "./claude-diagnostic.js";
 import { claudeTranscriptPath, correlatedClaudeResponse } from "./claude-transcript.js";
+import { QUALIFIED_CLAUDE_NATIVE_VERSIONS } from "./claude-native-qualification.js";
 import { buildLaunchContext } from "./launch-context.js";
 import {
   attachNativeSession,
@@ -6039,6 +6040,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
       "classify this detached session as a background worker excluded from human restore",
     )
     .option("--json", "emit one machine-readable h2a.run.result object")
+    .addOption(new Option("--launch-contract <version>").hideHelp())
     .option(
       "--llm-gateway",
       "launch the CLI through the local llm-mesh gateway",
@@ -6074,6 +6076,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           headless?: boolean;
           background?: boolean;
           json?: boolean;
+          launchContract?: string;
           llmGateway?: boolean;
           gw?: boolean;
           noLlmGateway?: boolean;
@@ -6091,6 +6094,14 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           opts.headless === true ||
           opts.background === true ||
           opts.json === true;
+        if (profile === "claude" && opts.promptStdin && !opts.headless &&
+            ((opts.launchContract !== undefined && opts.launchContract !== "claude-native/2") ||
+             (process.env.H2A_RUN_LAUNCH_TOKEN && opts.json && opts.launchContract === undefined))) {
+          process.stderr.write("[h2a] incompatible native Claude launch preservation contract; refused before creation\n");
+          if (opts.json) process.stdout.write(`${JSON.stringify({ kind: "h2a.run.failure", version: 1, state: "not-started",
+            code: "launch-contract-mismatch", launchId: opts.name, error: "require claude-native/2", creationAttempted: false, retrySafe: false })}\n`);
+          process.exitCode = 1; return;
+        }
         if (structuredLaunch && !isAgentLaunchProfile(profile)) {
           process.stderr.write(
             `[h2a] structured run supports only claude|codex|agy|muse (got "${profile}")\n`,
@@ -6248,6 +6259,32 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           }
         }
         const cwd = path ? resolve(path) : process.cwd();
+        if (!existsSync(cwd) || !statSync(cwd).isDirectory()) {
+          process.stderr.write('[h2a] workspace is not an existing directory\n'); process.exitCode = 2; return;
+        }
+        const initialPrompt = opts.promptStdin ? readFileSync(0, "utf8") : undefined;
+        const nativeClaudeRequest = profile === "claude" && sessionHost === "native" && !opts.headless && initialPrompt !== undefined;
+        const declaredMcps: string[] = nativeClaudeRequest ? JSON.parse(process.env.H2A_CLAUDE_REQUIRED_MCPS ?? '["h2a","playwright"]') : [];
+        if (!Array.isArray(declaredMcps) || declaredMcps.some(m => typeof m !== 'string' || !m)) throw new Error('invalid required Claude MCP profile');
+        const inputHash = createHash('sha256').update(JSON.stringify({ profile, cwd: realpathSync(cwd), prompt: initialPrompt,
+          resume: opts.resume, model: opts.model, effort: opts.effort, agent: opts.agent, bare: bareChoiceFromOptions(opts), gatewayMode,
+          background: opts.background === true, sidecar: opts.h2a ?? getH2aConfig().enabled, requiredMcps: declaredMcps })).digest('hex');
+        const priorPath = join(cwd, '.h2a', 'runs', slugify(opts.name ?? cwd), 'launch.json');
+        if (nativeClaudeRequest && existsSync(priorPath)) {
+          let prior: Record<string, unknown>;
+          try { prior = JSON.parse(readFileSync(priorPath, 'utf8')); }
+          catch { prior = {}; }
+          const same = prior.inputHash === inputHash;
+          const result = same && prior.result ? prior.result as Record<string, unknown> : {
+            kind: 'h2a.run.failure', version: 1, state: same ? 'launch-unconfirmed' : 'not-started', launchId: slugify(opts.name ?? cwd),
+            error: same ? 'durable attempt already exists; no prompt was resubmitted' : 'launch name conflicts with another durable attempt',
+            stopped: false, retrySafe: false, attach: { command: 'h2a', args: ['attach', slugify(opts.name ?? cwd)] },
+          };
+          if (opts.json) process.stdout.write(JSON.stringify(result)+'\n');
+          else process.stderr.write('[h2a] recovered durable launch result: '+String(result.state)+'\n');
+          if (result.ok !== true) process.exitCode = 1;
+          return;
+        }
         // count==1 keeps the exact prior behaviour (label = opts.name, which may
         // be undefined -> slug derives from cwd). count>1 fans out distinct
         // labels <base>#k from the name or the cwd basename.
@@ -6267,6 +6304,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         // Covers the entire attempt, including an already-created agent when
         // sidecar selection fails. Component-level refusals cannot clear it.
         let creationAttempted = false;
+        let diagnosticCleanup: (() => void) | undefined;
         const onCreateAttempt = (): void => {
           creationAttempted = true;
           if (opts.json && opts.name) {
@@ -6363,10 +6401,6 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           process.stderr.write(`[h2a] workspace is not an existing directory: ${cwd}\n`);
           process.exitCode = 2;
           return;
-        }
-        let initialPrompt: string | undefined;
-        if (opts.promptStdin) {
-          initialPrompt = readFileSync(0, "utf8");
         }
         // Single-writer guard: refuse to resume a conversation another live
         // session (local registry / remote pod) is already writing.
@@ -6477,33 +6511,20 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           let args: string[];
           const slugCandidate = slugify(label ?? cwd);
           const nativeClaudeLaunch = sessionHost === "native" && profile === "claude" && !opts.headless && initialPrompt !== undefined;
+          const providerVersion = nativeClaudeLaunch
+            ? execFileSync(command, ["--version"], { encoding: "utf8", timeout: Math.max(1, Math.min(1000, Math.floor(launchRequestedAt + 15000 - Date.now()))), maxBuffer: 4096 }).trim().match(/^(\d+\.\d+\.\d+)\b/)?.[1]
+            : undefined;
+          const experiment = nativeClaudeLaunch && providerVersion === "2.1.296" && process.env.LAUNCH_PERF_QUALIFY_DISPATCH === "1" &&
+            [process.env.HOME, process.env.XDG_RUNTIME_DIR, process.env.XDG_STATE_HOME, process.env.XDG_CONFIG_HOME].every(p => p?.includes("/.qual-tmp/")) &&
+            existsSync(join(process.env.H2A_ROOT ?? "", ".launch-perf-synthetic.json"));
+          const dispatchEvidenceEnabled = providerVersion !== undefined && (QUALIFIED_CLAUDE_NATIVE_VERSIONS.includes(providerVersion) || experiment);
           const runDir = join(cwd, ".h2a", "runs", slugCandidate);
-          const requiredMcps: string[] = nativeClaudeLaunch
-            ? JSON.parse(process.env.H2A_CLAUDE_REQUIRED_MCPS ?? '["h2a","playwright"]') : [];
+          const requiredMcps = declaredMcps;
           if (!Array.isArray(requiredMcps) || requiredMcps.some(m => typeof m !== "string" || !m)) throw new Error("invalid required Claude MCP profile");
           const parameterHash = createHash("sha256").update(JSON.stringify({ profile, cwd: realpathSync(cwd), prompt: initialPrompt,
             resume: opts.resume, model: opts.model, effort: opts.effort, agent: opts.agent, bare: useBare, gateway: launchGatewayMode, requiredMcps })).digest("hex");
-          if (nativeClaudeLaunch && existsSync(join(runDir, "launch.json"))) {
-            const prior = JSON.parse(readFileSync(join(runDir, "launch.json"), "utf8"));
-            if (prior.parameterHash !== parameterHash) {
-              if (opts.json) process.stdout.write(`${JSON.stringify({ kind: "h2a.run.failure", version: 1, state: "not-started", launchId: slugCandidate,
-                error: "launch name conflicts with a durable attempt using different parameters", stopped: false, retrySafe: false })}\n`);
-              process.exitCode = 1; return;
-            }
-            if (prior.result) {
-              process.stdout.write(`${JSON.stringify(prior.result)}\n`);
-              if (prior.result.ok !== true) process.exitCode = 1;
-            }
-            else {
-              process.stdout.write(`${JSON.stringify({ kind: "h2a.run.failure", version: 1, state: "launch-unconfirmed", launchId: slugCandidate,
-                error: "durable attempt already exists; no prompt was resubmitted", stopped: false, retrySafe: false,
-                attach: { command: "h2a", args: ["attach", slugCandidate] } })}\n`);
-              process.exitCode = 1;
-            }
-            return;
-          }
           if (nativeClaudeLaunch) process.env.H2A_RUN_LAUNCH_TOKEN ??= randomUUID();
-          const launchSlot = nativeClaudeLaunch ? acquireLaunchSlot(slugCandidate) : { acquired: true };
+          const launchSlot = nativeClaudeLaunch ? acquireLaunchSlot(slugCandidate, undefined, DEFAULT_RESIDENT_BYTES + (h2aSidecar ? 256 * 1024 * 1024 : 0)) : { acquired: true };
           if (!launchSlot.acquired) {
             process.stderr.write(`[h2a] ${launchSlot.reason}\n`);
             if (opts.json) process.stdout.write(`${JSON.stringify({ kind: "h2a.run.failure", version: 1, state: "not-started", launchId: slugCandidate,
@@ -6519,8 +6540,10 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           if (nativeClaudeLaunch) {
             mkdirSync(runDir, { recursive: true, mode: 0o700 });
             updateLaunchReceipt(join(runDir, "launch.json"), process.env.H2A_RUN_LAUNCH_TOKEN,
-              { state: "reserved", parameterHash, conversationId: opts.resume ?? reservedConvId, requiredMcps, requestedAt: launchRequestedAt });
+              { state: "reserved", inputHash, parameterHash, providerVersion, diagnosticQualified: QUALIFIED_CLAUDE_NATIVE_VERSIONS.includes(providerVersion ?? ""),
+                conversationId: opts.resume ?? reservedConvId, requiredMcps, requestedAt: launchRequestedAt });
             diagnostic = startClaudeDiagnostic(runDir);
+            diagnosticCleanup = diagnostic.stop;
           }
           const claudeDebugFile = diagnostic?.fifo;
           try {
@@ -6572,6 +6595,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           let launchGuard: LaunchGuard | undefined;
           let launchOwnership: LaunchOwnership | undefined;
           let nativeClaudePid: number | undefined;
+          let claudeDeliveryDeps: ReturnType<typeof nativeClaudeDeliveryDeps> | undefined;
           const launchTimings: Record<string, number> = { queueMs: 0 };
           if (opts.headless) {
             const runDir = join(cwd, ".h2a", "runs", label!);
@@ -6647,7 +6671,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             ));
             if (diagnostic) {
               nativeClaudePid = nativeSessionPid(name);
-              if (nativeClaudePid !== undefined) diagnostic.own(nativeClaudePid);
+              if (nativeClaudePid !== undefined) { diagnostic.own(nativeClaudePid); accountLaunchProcess(slugCandidate, nativeClaudePid); }
             }
           } else {
             ({ name, slug, agentPane } = startLocalSession(
@@ -6775,7 +6799,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
                   name,
                   initialPrompt,
                   launchOwnership?.host === "native" && launchOwnership.sessions[0]
-                    ? nativeClaudeDeliveryDeps(launchOwnership.sessions[0], launchRequestedAt + 15000)
+                    ? (claudeDeliveryDeps = nativeClaudeDeliveryDeps(launchOwnership.sessions[0], launchRequestedAt + 15000))
                     : nativePromptDeliveryDeps(sleepSync),
                   {
                     launchGuard,
@@ -6796,8 +6820,8 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
                       return false;
                     },
                     correlatedResponse: () => correlatedClaudeResponse(transcriptFile!, (opts.resume ?? reservedConvId)!, initialPrompt, transcriptOffset),
-                    // Fast diagnostic dispatch remains disabled until L0 qualifies this provider version.
-                    qualifiedDiagnostic: false,
+                    // The experiment opt-in is limited to synthetic private qualification roots.
+                    qualifiedDiagnostic: dispatchEvidenceEnabled,
                     requestedAt: launchRequestedAt,
                     onPhase: (phase, at) => {
                       if (launchTimings[phase] !== undefined) return;
@@ -6940,6 +6964,14 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             gatewayMode: launchGatewayMode,
             bare: useBare,
           });
+          if (claudeDeliveryDeps) {
+            // Revalidate the same controller epoch and incarnation after registry/PID work.
+            // A concurrent attach/replacement cannot turn earlier proof into publication.
+            const screen = await claudeDeliveryDeps.capturePane(name) ?? "";
+            if (/usage limit reached|quota (?:exceeded|exhausted)|insufficient credits|authentication failed|invalid api key/i.test(screen))
+              throw new Error("provider refusal observed before launch publication");
+            launchTimings.lastRequiredProofMs = Date.now() - launchRequestedAt;
+          }
           const nativeOwnerSocket = launchOwnership?.host === "native"
             ? launchOwnership.sessions.find(owned => owned.name === name)?.socketPath : undefined;
           started.push({
@@ -7045,6 +7077,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             : attachLocalSession(only.name);
         return;
         } catch (error) {
+          if (!creationAttempted) diagnosticCleanup?.();
           if (opts.name && profile === "claude" && sessionHost === "native" && !opts.headless) {
             try {
               const receipt = JSON.parse(readFileSync(join(cwd, ".h2a", "runs", opts.name, "launch.json"), "utf8"));
@@ -7055,7 +7088,20 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
                 process.stderr.write(`[h2a] launch unconfirmed; session preserved: ${(error as Error).message}\n`);
                 process.exitCode = 1; return;
               }
-            } catch { /* EOF guard preserves unreadable durable ownership. */ }
+            } catch {
+              if (creationAttempted) {
+                if (opts.json) process.stdout.write(`${JSON.stringify({ kind: "h2a.run.failure", version: 1,
+                  state: "launch-unconfirmed", launchId: opts.name, error: "launch receipt unreadable after creation; potential submission remains unconfirmed",
+                  stopped: false, retrySafe: false, attach: { command: "h2a", args: ["attach", opts.name] } })}\n`);
+                process.exitCode = 1; return;
+              }
+            }
+          }
+          if (nativeClaudeRequest && opts.json && !creationAttempted &&
+              !(error instanceof NativeHostCapabilityMismatchError || error instanceof NativeLaunchAdmissionError)) {
+            process.stdout.write(`${JSON.stringify({ kind: "h2a.run.failure", version: 1, state: "not-started", launchId: opts.name,
+              error: (error as Error).message, creationAttempted: false, stopped: false, retrySafe: false })}\n`);
+            process.exitCode = 1; return;
           }
           if (!(error instanceof NativeHostCapabilityMismatchError || error instanceof NativeLaunchAdmissionError) || creationAttempted) throw error;
           process.stderr.write(`[h2a] ${error.message}\n`);

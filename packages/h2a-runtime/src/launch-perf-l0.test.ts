@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import { mkdtempSync, appendFileSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { deliverClaudeNativePrompt } from "./claude-native-driver.js";
+const { deliverClaudeNativePrompt } = await import(process.env.QUAL_CLAUDE_DRIVER_MODULE ?? "./claude-native-driver.js");
 import { ClaudeDebugReader } from "./claude-debug-adapter.js";
 import { correlatedClaudeResponse } from "./claude-transcript.js";
 
