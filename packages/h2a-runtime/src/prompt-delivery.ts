@@ -90,6 +90,13 @@ const NAMED_MODALS: ReadonlyArray<{
       hint: "review/trust the changed hooks once in an interactive session in this workspace, then relaunch",
     },
   },
+  {
+    match: /external imports:[\s\S]*?(?:enter to confirm|disable external imports|allow external imports)/i,
+    modal: {
+      reason: "Claude is waiting on its external imports approval prompt",
+      hint: "approve external imports in .claude.json or run claude interactively, then relaunch",
+    },
+  },
 ];
 
 /**
@@ -107,7 +114,8 @@ export function detectHostModal(capture: string): HostModal | undefined {
   // A modal is a choice list AWAITING a key press. Requiring both halves keeps
   // passive banners (an "Update available!" notice above a live composer) from
   // failing a perfectly healthy launch.
-  if (!MODAL_CHOICE.test(capture) || !MODAL_CONFIRM.test(capture)) {
+  const hasChoice = MODAL_CHOICE.test(capture) || /(^|\n)\s*[›>❯]\s+\S/.test(capture);
+  if (!hasChoice || !MODAL_CONFIRM.test(capture)) {
     return undefined;
   }
   for (const entry of NAMED_MODALS) {
@@ -254,6 +262,9 @@ export function paneIsReady(capture: string, profile?: string): boolean {
     // Measured Muse 1.4.2: an empty ❯ composer followed by model · effort · cwd.
     return /❯/.test(capture) && /·\s*(?:~|\/)/.test(capture);
   }
+  if (profile === "claude") {
+    return /❯/.test(capture);
+  }
   return paneHasDrawnUi(capture);
 }
 
@@ -326,10 +337,18 @@ export type PromptDeliveryResult =
       readonly evidence: LandedEvidence;
     }
   | {
+      readonly state: "launch-unconfirmed";
+      readonly reason: string;
+      readonly waitedMs: number;
+      readonly evidence?: LandedEvidence;
+      readonly submitAttempted: true;
+    }
+  | {
       readonly state: "host-modal";
       readonly reason: string;
       readonly hint: string;
       readonly capture: string;
+      readonly waitedMs?: number;
     }
   | {
       readonly state: "undelivered";
@@ -439,7 +458,7 @@ function waitUntilReady(
           // (MCP descendants included). A generic <0.3-core threshold rejects
           // this ready host. A current profile composer, observed on BOTH sides
           // of the sample, is the readiness proof; retain its real idle rate.
-          if ((options.profile === "codex" || options.profile === "muse") &&
+          if ((options.profile === "codex" || options.profile === "muse" || options.profile === "claude") &&
               paneIsReady(deps.capturePane(pane) ?? "", options.profile)) {
             return { ok: true, idleRate: rate };
           }
@@ -669,15 +688,15 @@ export function deliverInitialPrompt(
     const idleBudget = idleRateForWork * (deps.now() - submittedAt);
     // Profile TUIs explicitly announce an accepted running request. This also
     // proves work when the provider is waiting on network rather than CPU.
-    const workingCapture = options.profile === "codex" || options.profile === "muse"
-      ? deps.capturePane(pane) ?? "" : "";
+    const workingCapture = deps.capturePane(pane) ?? "";
     const providerLimit = /usage limit reached|you(?:'|’)?ve hit[^\n]*(?:limit|quota)|quota (?:exceeded|exhausted)|rate limit (?:reached|exceeded)|insufficient (?:credits|quota)/i;
     if (providerLimit.test(workingCapture) && !providerLimit.test(before)) {
       return { state: "provider-blocked", reason: "the provider rejected the submitted prompt: usage/quota limit",
         waitedMs: deps.now() - startedAt, evidence, capture: captureTail(workingCapture) };
     }
-    const acceptedActivity = /esc to interrupt/i.test(workingCapture) &&
-      !/esc to interrupt/i.test(before);
+    const acceptedActivity =
+      (/esc to interrupt/i.test(workingCapture) && !/esc to interrupt/i.test(before)) ||
+      (/LAB_READY/.test(workingCapture) && !/LAB_READY/.test(before));
     if (acceptedActivity || cpuDeltaMs - idleBudget >= activityCpuMs) {
       return {
         state: "working",
