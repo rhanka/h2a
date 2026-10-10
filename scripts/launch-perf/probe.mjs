@@ -214,7 +214,8 @@ try {
   const deadline = Date.now() + 40000;
   let mcpReady;
   while (Date.now() < deadline && !aborted) {
-    if (results.every(r=>r.exitCode !== 0)) break;
+    if (opts.mode?.startsWith('runtime') && results.every(r=>r.exitCode !== 0)) break;
+    if (opts.noDebug) break; // Option-cost control has no diagnostic readiness oracle.
     const traces = fs.readdirSync(output).filter(f=>/^trace-.*jsonl$/.test(f)).flatMap(f=>fs.readFileSync(output+'/'+f,'utf8').trim().split('\n').flatMap(l=>{try{return [JSON.parse(l)]}catch{return []}}));
     const identities = traces.filter(t=>t.phase==='identity_ready');
     const debug = readDiagnostics();
@@ -252,6 +253,7 @@ try {
       const actual = row.receipt?.result?.state ?? row.receipt?.state;
       if (actual !== opts.expectedState || (['provider-blocked','launch-unconfirmed'].includes(actual) && row.afterResultSession.status !== 'running'))
         throw new Error('expected result/preservation witness failed: '+actual);
+      row.expectedStateMatched = true;
       if (actual !== 'started') delete row.error;
     }
     if (opts.repeat && row.exitCode === 0) {
@@ -335,6 +337,7 @@ try {
 } catch(e) { failure = e.stack; }
 finally {
   sample();
+  const pss = [...known.values()].flatMap(s=>{try{const live=snapshot(s.pid);if(live.start!==s.start)return[];const text=fs.readFileSync(`/proc/${s.pid}/smaps_rollup`,'utf8');return[{pid:s.pid,pssKiB:Number(text.match(/^Pss:\s+(\d+)/m)?.[1]||0)}];}catch{return[]}});
   if (client) for (const id of sessions) { try { const s = await client.state(id); await client.stopIfIncarnation(id, s.generation, s.incarnation, 'SIGKILL'); } catch {} }
   client?.close();
   for (const c of children) if (c.exitCode === null) c.kill('SIGTERM');
@@ -345,8 +348,8 @@ finally {
   if(fs.existsSync(workspace+'/.h2a')) fs.cpSync(workspace+'/.h2a',output+'/runtime-receipts',{recursive:true,filter:p=>!p.endsWith('.pipe')});
   if(fs.existsSync(home+'/.claude/projects')) fs.cpSync(home+'/.claude/projects',output+'/transcripts',{recursive:true});
   fs.rmSync(runtime, { recursive: true, force: true });
-  const record = { sourceSha: opts.sourceSha, protocol: 'study-r2-direct-pw-private-state-v1', label, opts, results, failure, aborted, memory: { limit, peakBytes: peak, treePeakKiB: peakTree, processes: [...known.values()] }, survivors, stubRequests, pressureEnd: pressure() };
+  const record = { sourceSha: opts.sourceSha, protocol: 'study-r2-direct-pw-private-state-v1', label, opts, results, failure, aborted, memory: { limit, peakBytes: peak, treePeakKiB: peakTree, pss, processes: [...known.values()] }, survivors, stubRequests, pressureEnd: pressure() };
   fs.writeFileSync(output + '/result.json', JSON.stringify(record, null, 2));
   console.log(JSON.stringify({ label, results, failure, aborted, peakMiB: Math.round(peak/1024**2), survivors: survivors.length }));
-  if (failure || aborted || survivors.length || results.some(r => r.error || r.exitCode)) process.exitCode = 1;
+  if (failure || aborted || survivors.length || results.some(r => r.error || (r.exitCode && !r.expectedStateMatched))) process.exitCode = 1;
 }
