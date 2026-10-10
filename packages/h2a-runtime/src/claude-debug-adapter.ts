@@ -43,7 +43,7 @@ export function parseClaudeDebugEvents(content: string): ClaudeDebugAnalysis {
     }
 
     // Hook rejection / veto
-    if (/(?:hook|hooks)[\s\S]*?(?:veto|rejected|failed|refused|exit [1-9])/i.test(line)) {
+    if (/(?:hook|hooks)[\s\S]*?(?:veto|rejected|failed|refused|exit [1-9]|finished with status [1-9])/i.test(line)) {
       hookVeto = true;
     }
 

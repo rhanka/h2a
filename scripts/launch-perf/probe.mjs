@@ -10,9 +10,10 @@ import { fileURLToPath } from 'node:url';
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const lab = repo + '/.qual-tmp/lab';
 const opts = JSON.parse(process.argv[2] || '{}');
-const installed = opts.worktree ? opts.worktree + '/packages/h2a' : (opts.after ? lab+'/after' : '/home/antoinefa/.npm-global/lib/node_modules/@sentropic/h2a');
-const rt = opts.worktree ? opts.worktree + '/packages/h2a-runtime/dist' : (opts.after ? '/home/antoinefa/src/h2a/tmp/launch-perf/packages/h2a-runtime/dist' : (fs.existsSync(installed + '/node_modules/@sentropic/h2a-runtime/dist/native-terminal/client.js') ? installed + '/node_modules/@sentropic/h2a-runtime/dist' : '/home/antoinefa/.npm-global/lib/node_modules/@sentropic/h2a-runtime/dist'));
-const binJs = opts.worktree ? opts.worktree + '/packages/h2a/dist/bin.js' : (lab + (opts.after ? '/after' : '/installed') + (opts.cpuTrace?'/dist/cpu-bin.js':'/dist/bin.js'));
+if (!opts.worktree || !opts.sourceSha) throw new Error('an explicit measured worktree and source SHA are required');
+const installed = opts.worktree + '/packages/h2a';
+const rt = opts.worktree + '/packages/h2a-runtime/dist';
+const binJs = opts.worktree + '/packages/h2a/dist/bin.js';
 const { NativeTerminalClient } = await import(rt + '/native-terminal/client.js');
 const label = opts.label || 'pilot-' + Date.now();
 const output = lab + '/results/' + label;
@@ -22,7 +23,8 @@ const home = output + '/home', workspace = runtime + '/workspace', bin = output 
 for (const p of [home, home + '/.claude', home + '/.config/sentropic/h2a', workspace, bin]) fs.mkdirSync(p, { recursive: true, mode: 0o700 });
 fs.writeFileSync(workspace + '/CLAUDE.md', '');
 execFileSync('git', ['init', '-q', workspace]);
-const root = lab + (opts.small ? '/small' : '/large');
+const root = opts.fixtureRoot || lab + (opts.small ? '/small' : '/large');
+if (!path.resolve(root).startsWith(repo+'/.qual-tmp/')) throw new Error('fixture root must remain inside qualification storage');
 if (!fs.existsSync(root + '/.launch-perf-synthetic.json')) throw new Error('synthetic marker required');
 const corpus=JSON.parse(fs.readFileSync(root+'/.launch-perf-synthetic.json'));
 // Prior cohorts have been stopped. Refresh this fixed metadata workload; keep
@@ -64,11 +66,17 @@ const timer = setInterval(sample, 100);
 const quote = s => "'" + s.replaceAll("'", "'\\''") + "'";
 const stubRequests = [];
 const stub = http.createServer((req, res) => {
-  let text = ''; req.on('data', c => text += c); req.on('end', () => {
+  let text = ''; req.on('data', c => text += c); req.on('end', async () => {
     stubRequests.push({ at: now(), method: req.method, path: req.url, body: text });
     if (req.url.includes('count_tokens')) { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify({ input_tokens: 1 })); return; }
     if (!req.url.includes('/messages')) { res.writeHead(200, { 'content-type': 'application/json' }); res.end('{}'); return; }
     let d = {}; try { d = JSON.parse(text); } catch {}
+    if (opts.httpStatus) {
+      res.writeHead(Number(opts.httpStatus), { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ type: 'error', error: { type: Number(opts.httpStatus) === 401 ? 'authentication_error' : 'rate_limit_error', message: Number(opts.httpStatus) === 401 ? 'Invalid API key' : 'Quota exhausted' } }));
+      return;
+    }
+    if (opts.responseDelayMs) await delay(Number(opts.responseDelayMs));
     const message = { id: 'msg_lab', type: 'message', role: 'assistant', model: d.model || 'claude-sonnet-4-6', content: [{ type: 'text', text: 'LAB_READY' }], stop_reason: 'end_turn', stop_sequence: null, usage: { input_tokens: 1, output_tokens: 1 } };
     if (!d.stream) { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify(message)); return; }
     res.writeHead(200, { 'content-type': 'text/event-stream' });
@@ -93,15 +101,22 @@ const cache = lab + '/cache-' + (opts.cache || 'warm');
 fs.mkdirSync(cache, { recursive: true, mode: 0o700 });
 const env = { HOME: home, CLAUDE_CONFIG_DIR: home + '/.claude', XDG_STATE_HOME: home + '/.state', XDG_CONFIG_HOME: home + '/.config', TMPDIR: runtime + '/tmp', REMOTE_CLI_CONFIG_HOME: home, XDG_RUNTIME_DIR: runtime, H2A_NATIVE_SOCKET: runtime + '/host.sock', H2A_ROOT: root, H2A_SESSION_HOST: 'native', PATH: bin + ':/home/antoinefa/.npm-global/bin:/usr/bin:/bin', TERM: 'xterm-256color', LANG: 'C.UTF-8', ANTHROPIC_API_KEY: 'lab-placeholder', ANTHROPIC_BASE_URL: `http://127.0.0.1:${apiPort}`, CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1', DISABLE_AUTOUPDATER: '1', DISABLE_TELEMETRY: '1', DISABLE_ERROR_REPORTING: '1', CLAUDE_CODE_DISABLE_FEEDBACK_SURVEY: '1', npm_config_cache: cache, npm_config_prefix: lab + '/prefix', npm_config_userconfig: home + '/empty.npmrc', npm_config_registry: 'https://registry.npmjs.org', npm_config_audit: 'false', npm_config_fund: 'false', npm_config_update_notifier: 'false', npm_config_fetch_retries: '0', npm_config_fetch_timeout: '20000', LAUNCH_PERF_OUTPUT: output, NODE_OPTIONS: '--require=' + lab + '/scripts/preload.cjs', H2A_MCP_TRACE: '1', H2A_UPGRADE_REEXECED: '1' };
 fs.mkdirSync(env.XDG_STATE_HOME,{recursive:true});fs.mkdirSync(env.TMPDIR,{recursive:true});fs.writeFileSync(home + '/empty.npmrc', '');
+if (opts.qualifyDispatch) env.LAUNCH_PERF_QUALIFY_DISPATCH = '1';
 env.TMUX_TMPDIR=runtime+'/tmux';fs.mkdirSync(env.TMUX_TMPDIR,{mode:0o700});
 if(opts.upgradeSlow)delete env.H2A_UPGRADE_REEXECED;
 const mcpServers = {};
 if (['h2a', 'both'].includes(opts.mcp)) mcpServers.h2a = { command: process.execPath, args: [installed + '/dist/bin.js', 'mcp-serve', '--root', root, '--auto-open', '--host', 'claude', '--backend', 'local',...(opts.upgradeSlow?['--upgrade-check']:[])],...(opts.upgradeSlow?{env:{npm_config_registry:'http://127.0.0.1:'+slowRegistry.address().port,npm_config_fetch_timeout:'15000'}}:{}) };
 if (['playwright', 'both'].includes(opts.mcp)) mcpServers.playwright = { command: opts.pinned ? process.execPath : '/home/antoinefa/.npm-global/bin/npx', args: opts.pinned ? [opts.pinned] : ['--yes', '@playwright/mcp@latest'] };
+if (opts.mcpDelayMs !== undefined || opts.toolsDelayMs !== undefined) {
+  if (!opts.pinned) throw new Error('the slow MCP witness requires pinned Playwright');
+  const shim = output + '/slow-mcp.cjs';
+  fs.writeFileSync(shim, `const {spawn}=require('node:child_process');const {createInterface}=require('node:readline');const child=spawn(process.execPath,[${JSON.stringify(opts.pinned)}],{stdio:['pipe','pipe','inherit']});const methods=new Map();createInterface({input:process.stdin}).on('line',line=>{try{const m=JSON.parse(line);methods.set(m.id,m.method);}catch{}child.stdin.write(line+'\\n');}).on('close',()=>child.stdin.end());createInterface({input:child.stdout}).on('line',line=>{let delay=0;try{const r=JSON.parse(line);const method=methods.get(r.id);delay=method==='initialize'?${Number(opts.mcpDelayMs||0)}:method==='tools/list'?${Number(opts.toolsDelayMs||0)}:0;}catch{}setTimeout(()=>process.stdout.write(line+'\\n'),delay);});`);
+  mcpServers.playwright = { command: process.execPath, args: [shim] };
+}
 const mcpFile = output + '/mcp.json'; fs.writeFileSync(mcpFile, JSON.stringify({ mcpServers }));
 const cfg = { hasCompletedOnboarding: true, theme: 'dark', numStartups: 5, customApiKeyResponses: { approved: ['lab-placeholder'], rejected: [] }, projects: { [workspace]: { hasTrustDialogAccepted: true, hasCompletedProjectOnboarding: true, hasClaudeMdExternalIncludesApproved: true, hasClaudeMdExternalIncludesWarningShown: true }, '/home/antoinefa': { hasTrustDialogAccepted: true, hasCompletedProjectOnboarding: true, hasClaudeMdExternalIncludesApproved: true, hasClaudeMdExternalIncludesWarningShown: true } } };
 for (const p of [home + '/.claude.json', home + '/.claude/.claude.json']) fs.writeFileSync(p, JSON.stringify(cfg));
-const hooks = false ? { SessionStart:[{hooks:[{type:'command',command:`${quote(process.execPath)} ${quote(installed+'/dist/bin.js')} enroll --hook claude-start`}]},{matcher:'startup|resume|compact',hooks:[{type:'command',command:`${quote(process.execPath)} ${quote(installed+'/dist/bin.js')} presence-reap --root ${quote(root)}`}]},{hooks:[{type:'command',command:`${quote(process.execPath)} /home/antoinefa/.claude/plugins/cache/openai-codex/codex/1.0.2/scripts/session-lifecycle-hook.mjs SessionStart`}]}] } : {};
+const hooks = {};
 if (opts.userHookMs !== undefined || opts.userHookVeto) {
   const hook = output + '/user-hook.cjs';
   fs.writeFileSync(hook, `const fs=require('node:fs');const file=${JSON.stringify(output+'/hook-events.jsonl')};fs.appendFileSync(file,JSON.stringify({at:Date.now(),event:'begin'})+'\\n');setTimeout(()=>{fs.appendFileSync(file,JSON.stringify({at:Date.now(),event:'end',veto:${Boolean(opts.userHookVeto)}})+'\\n');${opts.userHookVeto ? "process.stderr.write('fixture veto\\n');process.exit(2);" : "process.stdout.write('{}');"}},${Number(opts.userHookMs || 0)});`);
@@ -110,31 +125,38 @@ if (opts.userHookMs !== undefined || opts.userHookVeto) {
 fs.writeFileSync(home + '/.claude/settings.json', JSON.stringify({ enabledPlugins: {}, permissions: { defaultMode: 'default' },hooks }));
 fs.writeFileSync(home + '/.config/sentropic/h2a/config.json', JSON.stringify({ h2a: { enabled: true, command: `${quote(process.execPath)} ${quote(installed + '/dist/bin.js')} mcp-serve --root ${quote(root)} --auto-open --host claude --backend local`, central: { enabled: false } } }));
 const claudeArgs = ['--strict-mcp-config', '--mcp-config', mcpFile, '--settings', home + '/.claude/settings.json'];
-fs.writeFileSync(bin + '/claude', '#!/bin/sh\ncase " $* " in *" --debug-file "*) exec /home/antoinefa/.local/bin/claude ' + claudeArgs.map(quote).join(' ') + ' "$@";; esac\nexec /home/antoinefa/.local/bin/claude ' + claudeArgs.map(quote).join(' ') + ' --debug-file ' + quote(output) + '/claude-debug-$.log "$@"\n', { mode: 0o700 });
+fs.writeFileSync(bin + '/claude', opts.noDebug ? '#!/bin/sh\nexec /home/antoinefa/.local/bin/claude ' + claudeArgs.map(quote).join(' ') + ' "$@"\n' : '#!/bin/sh\ncase " $* " in *" --debug-file "*) exec /home/antoinefa/.local/bin/claude ' + claudeArgs.map(quote).join(' ') + ' "$@";; esac\nexec /home/antoinefa/.local/bin/claude ' + claudeArgs.map(quote).join(' ') + ' --debug-file ' + quote(output) + '/claude-debug-$.log "$@"\n', { mode: 0o700 });
 fs.writeFileSync(bin + '/h2a', '#!/bin/sh\nexec ' + quote(process.execPath) + ' ' + quote(binJs) + ' "$@"\n', { mode: 0o700 });
 const bashenv = output + '/bash-env.sh'; fs.writeFileSync(bashenv, Object.entries(env).map(([k,v]) => 'export ' + k + '=' + quote(v)).join('\n') + '\n'); env.BASH_ENV = bashenv;
 const startChild = (command, args, role, stdin) => { const c = spawn(command, args, { cwd: workspace, env: { ...env, LAUNCH_PERF_ROLE: role }, stdio: ['pipe','pipe','pipe'] }); children.push(c); const out = fs.createWriteStream(output + '/' + role + '-' + c.pid + '.stdout'); const err = fs.createWriteStream(output + '/' + role + '-' + c.pid + '.stderr'); c.stdout.pipe(out); c.stderr.pipe(err); if (stdin !== undefined) c.stdin.end(stdin); return c; };
+const readDiagnostics = () => fs.readdirSync(output).filter(f=>/^claude-debug.*\.log$/.test(f)).map(f=>fs.readFileSync(output+'/'+f,'utf8')).join('\n') + (fs.existsSync(workspace+'/.h2a/runs') ? fs.readdirSync(workspace+'/.h2a/runs').map(name=>{const f=workspace+'/.h2a/runs/'+name+'/claude-debug.log';return fs.existsSync(f)?fs.readFileSync(f,'utf8'):''}).join('\n') : '');
 const cleanText = s => s.replace(/\x1b\][^\x07]*(?:\x07|\x1b\\)/g, '').replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, '').replace(/\x1b[>=]/g,'');
 const observe = async (id, begin, receipt) => {
-  let seq = 0, text = '', firstPrompt, accepted, answer, trustSent = false;
+  let seq = 0, text = '', firstPrompt, accepted, answer, ptyPid, trustSent = false;
   const deadline = Date.now() + (opts.timeoutMs || 65000);
   while (Date.now() < deadline && !aborted) {
     try {
-      const state = await client.state(id);
+      const state = await client.state(id); ptyPid = state.pid;
       const replay = await client.readOutput(id, seq);
       for (const chunk of replay.chunks || []) { text += chunk.data; seq = Math.max(seq, chunk.seq); }
       if (!replay.chunks && replay.events) for (const chunk of replay.events) { text += chunk.data; seq = Math.max(seq, chunk.seq); }
       const plain = cleanText(text);
       if (!firstPrompt && /❯/.test(plain) && /ClaudeCode|Claude Code/.test(plain) && /shortcuts|Sonnet|Opus|sonnet|opus/.test(plain)) { firstPrompt = mark('first_prompt', { id }) - begin; }
       if (!trustSent && /trust this|trust the files|Use this API key/i.test(plain)) { const lease = await client.acquireController(id, 'lab-onboarding'); await client.write(lease, '\r'); await client.releaseController(lease); trustSent = true; mark('lab_confirm', { id }); }
-      if (firstPrompt && !opts.mode?.startsWith('runtime') && !accepted) { const lease = await client.acquireController(id, 'lab-prompt'); await client.write(lease, 'Return the word READY_WITNESS.\r'); await client.releaseController(lease); accepted = mark('prompt_submitted', { id }) - begin; }
+      if (firstPrompt && !opts.mode?.startsWith('runtime') && !accepted) {
+        await delay(Number(opts.pacingMs || 0));
+        const lease = await client.acquireController(id, 'lab-prompt');
+        await client.write(lease, '\u001b[200~Return the word READY_WITNESS.\u001b[201~');
+        await delay(25); await client.write(lease, '\r'); await client.releaseController(lease);
+        accepted = mark('prompt_submitted', { id }) - begin;
+      }
       if (plain.includes('LAB_READY') && stubRequests.some(r => r.path.includes('/messages') && !r.path.includes('count_tokens'))) { answer = mark('answer_visible', { id }) - begin; fs.writeFileSync(output + '/' + id + '.terminal', text); return { id, firstPromptMs: firstPrompt, promptSubmittedMs: accepted, answerMs: answer, ptyPid: state.pid }; }
       if (state.status === 'exited') break;
     } catch {}
     await delay(50);
   }
   fs.writeFileSync(output + '/' + id + '.terminal', text);
-  return { id, firstPromptMs: firstPrompt, promptSubmittedMs: accepted, error: 'no local answer before deadline' };
+  return { id, ptyPid, firstPromptMs: firstPrompt, promptSubmittedMs: accepted, error: 'no local answer before deadline' };
 };
 let failure;
 mark('experiment_begin', { opts, fixturePresence:corpus.counts.presence, pressure: pressure(), memoryCurrent: Number(fs.readFileSync(cg + '/memory.current')) });
@@ -177,9 +199,10 @@ try {
   const deadline = Date.now() + 40000;
   let mcpReady;
   while (Date.now() < deadline && !aborted) {
+    if (results.every(r=>r.exitCode !== 0)) break;
     const traces = fs.readdirSync(output).filter(f=>/^trace-.*jsonl$/.test(f)).flatMap(f=>fs.readFileSync(output+'/'+f,'utf8').trim().split('\n').flatMap(l=>{try{return [JSON.parse(l)]}catch{return []}}));
     const identities = traces.filter(t=>t.phase==='identity_ready');
-    const debug = fs.readdirSync(output).filter(f=>/^claude-debug.*\.log$/.test(f)).map(f=>fs.readFileSync(output+'/'+f,'utf8')).join('\n') + fs.readdirSync(workspace+'/.h2a/runs',{withFileTypes:true}).filter(d=>d.isDirectory()).map(d=>{const f=workspace+'/.h2a/runs/'+d.name+'/claude-debug.log';return fs.existsSync(f)?fs.readFileSync(f,'utf8'):''}).join('\n');
+    const debug = readDiagnostics();
     const pw = [...debug.matchAll(/^(\S+) .*MCP server "playwright": Successfully connected.* in (\d+)ms/gm)];
     if (identities.length >= expectedH2a && pw.length >= expectedPw) { mcpReady = Math.max(...identities.map(t=>t.at), ...pw.map(m=>Date.parse(m[1])), 0); break; }
     await delay(50);
@@ -190,6 +213,34 @@ try {
     const begin = events.find(e=>e.name==='launch_begin' && e.id===row.id)?.at;
     row.mcpReadyMs = mcpReady ? Math.max(0,mcpReady-begin) : (expectedH2a || expectedPw ? null : 0);
     row.usableMs = row.mcpReadyMs !== null ? Math.max(row.receiptMs || 0,row.answerMs || 0,row.mcpReadyMs) : null;
+  }
+  const traces = fs.readdirSync(output).filter(f=>/^trace-.*jsonl$/.test(f)).flatMap(f=>fs.readFileSync(output+'/'+f,'utf8').trim().split('\n').flatMap(line=>{try{return[JSON.parse(line)]}catch{return[]}}));
+  for (const row of results) {
+    const begin = events.find(e=>e.name==='launch_begin'&&e.id===row.id)?.at;
+    const descendant = pid => { const seen=new Set();for(let i=0;i<32&&pid&&!seen.has(pid);i++){if(pid===row.ptyPid)return true;seen.add(pid);pid=known.get(pid)?.ppid;}return false; };
+    const identities = traces.filter(t=>t.phase==='identity_ready'&&descendant(t.pid));
+    const debugPath = workspace+'/.h2a/runs/'+row.name+'/claude-debug.log';
+    const baselineDebug = output+'/claude-debug-'+row.ptyPid+'.log';
+    const debug = fs.existsSync(debugPath)?fs.readFileSync(debugPath,'utf8'):fs.existsSync(baselineDebug)?fs.readFileSync(baselineDebug,'utf8'):'';
+    const pw=[...debug.matchAll(/^(\S+) .*MCP server "playwright": Successfully connected.* in (\d+)ms/gm)].map(m=>Date.parse(m[1]));
+    row.individualMcpReadyMs = identities.length && pw.length ? Math.max(...identities.map(t=>t.at),...pw)-begin : null;
+    row.nativeOperations = traces.filter(t=>t.name==='node_preload'&&t.entry==='op.js'&&t.session===row.id).map(t=>({operation:t.operation,at:t.at-begin}));
+    const receiptPath=workspace+'/.h2a/runs/'+row.name+'/launch.json';
+    if(fs.existsSync(receiptPath))row.receipt=JSON.parse(fs.readFileSync(receiptPath,'utf8'));
+    const mainDispatch=[...debug.matchAll(/^(\S+) .*\[API REQUEST\] \/v1\/messages source=repl_main_thread/gm)].map(m=>Date.parse(m[1]));
+    row.dispatchMs=mainDispatch.length?Math.min(...mainDispatch)-begin:null;
+    row.lastProofToResultMs=row.receipt?.timings?.lastRequiredProofMs!==undefined?row.receiptMs-(row.receipt.requestedAt-begin)-row.receipt.timings.lastRequiredProofMs:null;
+    row.dispatchToResultMs=row.dispatchMs!==null?row.receiptMs-row.dispatchMs:null;
+    if (opts.repeat && row.exitCode === 0) {
+      const args=[binJs,'run','claude',workspace,'--name',row.name,'--no-gw','--no-attach','--background','--json','--prompt-stdin','--no-h2a'];
+      const count=stubRequests.length;
+      const repeated=startChild(process.execPath,args,'repeat-'+row.name,'Return the word READY_WITNESS.');
+      await new Promise(resolve=>repeated.once('close',resolve));
+      const conflicting=startChild(process.execPath,args,'conflict-'+row.name,'A different brief must never be submitted.');
+      await new Promise(resolve=>conflicting.once('close',resolve));
+      row.repeat={exitCode:repeated.exitCode,conflictCode:conflicting.exitCode,additionalRequests:stubRequests.length-count};
+      if(repeated.exitCode!==0||conflicting.exitCode===0||stubRequests.length!==count)throw new Error('durable repeat/conflict witness failed');
+    }
   }
   if (opts.relaunch) {
     if(opts.seedRelaunch){
