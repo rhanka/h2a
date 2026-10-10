@@ -22,12 +22,14 @@ export type ClaudeNativeDriverOptions = {
   requiredMcps?: string[] | undefined;
   requiredMcpProof?: (() => boolean) | undefined;
   correlatedResponse?: (() => boolean) | undefined;
+  correlatedPrompt?: (() => boolean) | undefined;
   qualifiedDiagnostic?: boolean | undefined;
   requestedAt?: number | undefined;
   pacingMs?: number | undefined;
   readinessTimeoutMs?: number | undefined;
   observationTimeoutMs?: number | undefined;
   onPhase?: ((phase: string, at: number) => void) | undefined;
+  publicationCheck?: ((check: () => string | undefined) => void) | undefined;
 };
 
 export async function deliverClaudeNativePrompt(name: string, prompt: string, deps: ClaudeNativeDeliveryDeps | PromptDeliveryDeps,
@@ -43,7 +45,7 @@ export async function deliverClaudeNativePrompt(name: string, prompt: string, de
     const wait = nextPoll - deps.now();
     if (wait > 0) await deps.sleep(Math.min(wait, Math.max(0, deadline - deps.now())));
     if (deps.now() >= deadline) throw new Error("launch observation deadline expired");
-    nextPoll = deps.now() + 250;
+    nextPoll = deps.now() + 275;
     lastScreen = await deps.capturePane(name) ?? "";
     return lastScreen;
   };
@@ -99,11 +101,23 @@ export async function deliverClaudeNativePrompt(name: string, prompt: string, de
     submitted = true; // A failed write/timeout after this point is still potential submission.
     if (!await deps.submit(name)) return failure("Enter delivery could not be confirmed");
     let settled = false, turn = false, dispatched = false;
+    const refusal = () => {
+      const chunk = dispatch?.read();
+      if (chunk?.error) return chunk.error;
+      const analysis = parseClaudeDebugEvents(chunk?.content ?? "");
+      if (analysis.providerRefusal || analysis.hookVeto) return "provider refusal observed before launch publication";
+      if (options.qualifiedDiagnostic === true && dispatched && options.correlatedPrompt?.() !== true)
+        return "conversation or prompt correlation lost before launch publication";
+      return undefined;
+    };
+    options.publicationCheck?.(refusal);
     for (;;) {
       const chunk = dispatch?.read();
       if (chunk?.error) return failure(chunk.error);
       if (chunk?.content) {
         const analysis = parseClaudeDebugEvents(chunk.content);
+        if (analysis.providerRefusal) return { state: "provider-blocked", reason: "provider refused the submitted request",
+          waitedMs: deps.now() - startedAt, evidence, capture: lastScreen };
         if (analysis.hookVeto) return { state: "provider-blocked", reason: "a blocking hook rejected the prompt",
           waitedMs: deps.now() - startedAt, evidence, capture: lastScreen };
         for (const event of analysis.events) {
@@ -112,11 +126,16 @@ export async function deliverClaudeNativePrompt(name: string, prompt: string, de
           else if (event === "main-dispatch") { if (!settled || !turn) return failure("dispatch without the qualified hook/turn sequence"); dispatched = true; }
         }
       }
-      if (options.correlatedResponse?.() === true || (options.qualifiedDiagnostic === true && dispatched)) {
-        const proof = options.qualifiedDiagnostic === true && dispatched ? "host-request-dispatched" : "correlated-response";
+      const quick = options.qualifiedDiagnostic === true && dispatched && options.correlatedPrompt?.() === true;
+      if (options.correlatedResponse?.() === true || quick) {
+        const proof = quick ? "host-request-dispatched" : "correlated-response";
         options.onPhase?.(proof === "host-request-dispatched" ? "dispatchObservedMs" : "firstResponseMs", deps.now() - startedAt);
         // Fenced capture checks incarnation/input epoch and visible refusal before publication.
         const screen = await capture();
+        const lost = refusal();
+        if (lost) return lost === "provider refusal observed before launch publication"
+          ? { state: "provider-blocked", reason: lost, waitedMs: deps.now() - startedAt, evidence, capture: screen }
+          : failure(lost);
         if (/usage limit reached|quota (?:exceeded|exhausted)|insufficient credits|authentication failed|invalid api key/i.test(screen))
           return { state: "provider-blocked", reason: "provider rejected the submitted prompt", waitedMs: deps.now() - startedAt, evidence, capture: screen };
         options.onPhase?.("lastRequiredProofMs", deps.now() - startedAt);

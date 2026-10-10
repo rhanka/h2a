@@ -9,6 +9,7 @@ export type ClaudeDebugAnalysis = {
   mainThreadDispatched: boolean;
   titleDispatched: boolean;
   hookVeto: boolean;
+  providerRefusal: boolean;
   error?: string;
 };
 
@@ -23,9 +24,12 @@ export function parseClaudeDebugEvents(content: string): ClaudeDebugAnalysis {
   let mainThreadDispatched = false;
   let titleDispatched = false;
   let hookVeto = false;
+  let providerRefusal = false;
 
   const lines = content.split("\n");
   for (const line of lines) {
+    if (/\[ERROR\] API error \(attempt \d+\/\d+\): (?:401|403|429)\b/.test(line) ||
+        /\[ERROR\] API error .*?(?:insufficient credits|quota exhausted)/i.test(line)) providerRefusal = true;
     // MCP connection detection
     const mcpMatch = line.match(/MCP server "([^"]+)": Successfully connected/);
     if (mcpMatch?.[1]) {
@@ -75,6 +79,7 @@ export function parseClaudeDebugEvents(content: string): ClaudeDebugAnalysis {
     mainThreadDispatched,
     titleDispatched,
     hookVeto,
+    providerRefusal,
   };
 }
 

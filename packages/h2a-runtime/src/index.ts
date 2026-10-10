@@ -135,9 +135,9 @@ import { deliverClaudeNativePrompt } from "./claude-native-driver.js";
 import { acquireLaunchSlot, releaseLaunchSlot, accountLaunchProcess, DEFAULT_RESIDENT_BYTES } from "./launch-capacity.js";
 import { updateLaunchReceipt, withLaunchReceipt } from "./launch-receipt.js";
 import { startClaudeDiagnostic } from "./claude-diagnostic.js";
-import { claudeTranscriptPath, correlatedClaudeResponse } from "./claude-transcript.js";
+import { claudeTranscriptPath, correlatedClaudeResponse, correlatedClaudePrompt } from "./claude-transcript.js";
 import { QUALIFIED_CLAUDE_NATIVE_VERSIONS } from "./claude-native-qualification.js";
-import { prepareClaudeMcpObservers, observedClaudeMcpTools } from "./claude-mcp-observer.js";
+import { claudeMcpConfiguration, prepareClaudeMcpObservers, observedClaudeMcpTools } from "./claude-mcp-observer.js";
 import { buildLaunchContext } from "./launch-context.js";
 import {
   attachNativeSession,
@@ -6086,7 +6086,10 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           noBare?: boolean;
         },
       ) => {
-        const launchRequestedAt = Date.now() - process.uptime() * 1000;
+        const processStartedAt = Date.now() - process.uptime() * 1000;
+        const inheritedRequestedAt = Number(process.env.H2A_RUN_REQUESTED_AT);
+        const launchRequestedAt = Number.isFinite(inheritedRequestedAt) && inheritedRequestedAt > 0
+          ? Math.min(processStartedAt, inheritedRequestedAt) : processStartedAt;
         const structuredLaunch =
           opts.promptStdin === true ||
           opts.agent !== undefined ||
@@ -6267,10 +6270,11 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         const nativeClaudeRequest = profile === "claude" && sessionHost === "native" && !opts.headless && initialPrompt !== undefined;
         const declaredMcps: string[] = nativeClaudeRequest ? JSON.parse(process.env.H2A_CLAUDE_REQUIRED_MCPS ?? '["h2a","playwright"]') : [];
         if (!Array.isArray(declaredMcps) || declaredMcps.some(m => typeof m !== 'string' || !/^[A-Za-z0-9_-]+$/.test(m)) || new Set(declaredMcps).size !== declaredMcps.length) throw new Error('invalid required Claude MCP profile');
+        const claudeMcpServers = nativeClaudeRequest ? claudeMcpConfiguration(cwd) : {};
         const inputHash = createHash('sha256').update(JSON.stringify({ profile, cwd: realpathSync(cwd), prompt: initialPrompt,
           resume: opts.resume, model: opts.model, effort: opts.effort, agent: opts.agent, bare: bareChoiceFromOptions(opts), gatewayMode,
           background: opts.background === true, sidecar: opts.h2a ?? getH2aConfig().enabled, requiredMcps: declaredMcps,
-          mcpConfig: process.env.H2A_CLAUDE_MCP_CONFIG ? createHash('sha256').update(readFileSync(process.env.H2A_CLAUDE_MCP_CONFIG)).digest('hex') : undefined })).digest('hex');
+          mcpConfig: createHash('sha256').update(JSON.stringify(claudeMcpServers)).digest('hex') })).digest('hex');
         const priorPath = join(cwd, '.h2a', 'runs', slugify(opts.name ?? cwd), 'launch.json');
         if (nativeClaudeRequest && existsSync(priorPath)) {
           let prior: Record<string, unknown>;
@@ -6574,7 +6578,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
                   ? localResumeArgs(profile, opts.resume, { bare: useBare })
                   : localStartArgs(profile, { bare: useBare });
             if (nativeClaudeLaunch && requiredMcps.length)
-              args.push("--mcp-config", prepareClaudeMcpObservers(runDir, cwd, requiredMcps, (opts.resume ?? reservedConvId)!, mcpReadyNonce));
+              args.push("--mcp-config", prepareClaudeMcpObservers(runDir, cwd, requiredMcps, (opts.resume ?? reservedConvId)!, mcpReadyNonce, claudeMcpServers));
           } catch (error) {
             diagnostic?.stop();
             releaseLaunchSlot(slugCandidate, "stopped");
@@ -6602,6 +6606,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           let launchOwnership: LaunchOwnership | undefined;
           let nativeClaudePid: number | undefined;
           let claudeDeliveryDeps: ReturnType<typeof nativeClaudeDeliveryDeps> | undefined;
+          let claudePublicationCheck: (() => string | undefined) | undefined;
           const launchTimings: Record<string, number> = { queueMs: 0 };
           if (opts.headless) {
             const runDir = join(cwd, ".h2a", "runs", label!);
@@ -6827,8 +6832,10 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
                       return false;
                     },
                     correlatedResponse: () => correlatedClaudeResponse(transcriptFile!, (opts.resume ?? reservedConvId)!, initialPrompt, transcriptOffset),
+                    correlatedPrompt: () => correlatedClaudePrompt(transcriptFile!, (opts.resume ?? reservedConvId)!, initialPrompt, transcriptOffset),
                     // The experiment opt-in is limited to synthetic private qualification roots.
                     qualifiedDiagnostic: dispatchEvidenceEnabled,
+                    publicationCheck: check => { claudePublicationCheck = check; },
                     requestedAt: launchRequestedAt,
                     onPhase: (phase, at) => {
                       if (launchTimings[phase] !== undefined) return;
@@ -6904,10 +6911,12 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
               if (opts.json) {
                 const deliveryWaitedMs = (promptDelivery as { waitedMs?: number }).waitedMs ?? 0;
                 if (promptDelivery.state === "provider-blocked") {
-                  process.stdout.write(`${JSON.stringify({ kind: "h2a.run.failure", version: 1,
+                  const failure = { kind: "h2a.run.failure", version: 1,
                     state: "provider-blocked", launchId: slug, error: promptDelivery.reason,
                     stopped, retrySafe: false, prompt: { delivered: true, waitedMs: deliveryWaitedMs },
-                  })}\n`);
+                    attach: { command: "h2a", args: ["attach", slug] } };
+                  if (nativeClaudeLaunch) updateLaunchReceipt(join(runDir, "launch.json"), process.env.H2A_RUN_LAUNCH_TOKEN, { state: failure.state, result: failure });
+                  process.stdout.write(`${JSON.stringify(failure)}\n`);
                 } else if (wasSubmitted) {
                   process.stdout.write(`${JSON.stringify({ kind: "h2a.run.failure", version: 1,
                     state: "launch-unconfirmed", launchId: slug, error: detail,
@@ -6927,13 +6936,13 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           }
           const pid =
             sessionHost === "native"
-              ? nativeSessionPid(name)
+              ? (nativeClaudeLaunch ? nativeClaudePid : nativeSessionPid(name))
               : agentPane
                 ? localSessionPanePid(agentPane)
                 : undefined;
           const workerPid =
             sessionHost === "native"
-              ? nativeWorkerPid(name)
+              ? (nativeClaudeLaunch ? undefined : nativeWorkerPid(name))
               : agentPane !== undefined
                 ? paneWorkerPid(agentPane)
                 : undefined;
@@ -6977,6 +6986,8 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             const screen = await claudeDeliveryDeps.capturePane(name) ?? "";
             if (/usage limit reached|quota (?:exceeded|exhausted)|insufficient credits|authentication failed|invalid api key/i.test(screen))
               throw new Error("provider refusal observed before launch publication");
+            const lost = claudePublicationCheck?.();
+            if (lost) throw new Error(lost);
             launchTimings.lastRequiredProofMs = Date.now() - launchRequestedAt;
           }
           const nativeOwnerSocket = launchOwnership?.host === "native"

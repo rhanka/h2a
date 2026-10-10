@@ -13,11 +13,14 @@ export type H2aRunEffort = (typeof H2A_RUN_EFFORTS)[number];
 export const H2A_RUN_GATEWAYS = ["auto", "required", "off"] as const;
 export type H2aRunGateway = (typeof H2A_RUN_GATEWAYS)[number];
 export const H2A_RUN_API_VERSION = "h2a.run/v1";
+const launchRequestTimes = new WeakMap<H2aRunRequest, number>();
 
 function recoveredSubmission(request: H2aRunRequest, token: string): Record<string, unknown> | undefined {
   try {
     const receipt = JSON.parse(readFileSync(join(request.workspace, ".h2a", "runs", request.name, "launch.json"), "utf8"));
     if (receipt.token !== token || (receipt.submitAttempted !== true && receipt.state !== "launch-unconfirmed")) return undefined;
+    if (receipt.result?.kind === "h2a.run.failure" && receipt.result.version === 1 && receipt.result.state === "provider-blocked" &&
+        receipt.result.launchId === request.name && receipt.result.retrySafe === false && receipt.result.stopped === false) return receipt.result;
     return { kind: "h2a.run.failure", version: 1, error: "h2a_run: potential submission recovered from the durable receipt; session preserved",
       state: "launch-unconfirmed", launchId: request.name, retrySafe: false, stopped: false, submitAttempted: true,
       attach: { command: "h2a", args: ["attach", request.name] }, ownership: receipt.ownership };
@@ -152,6 +155,7 @@ export function validateH2aRunRequest(
   args: Record<string, unknown> | undefined,
   workspaceRoot: string,
 ): H2aRunRequest {
+  const requestedAt = Date.now();
   if (!args) throw new Error("h2a_run: missing arguments");
   const unknown = Object.keys(args).filter((key) => !ALLOWED_KEYS.has(key));
   if (unknown.length > 0) {
@@ -262,7 +266,7 @@ export function validateH2aRunRequest(
     throw new Error("h2a_run: AGY effort must be low|medium|high");
   }
 
-  return {
+  const request: H2aRunRequest = {
     profile: profile as H2aRunProfile,
     name,
     workspace,
@@ -276,6 +280,8 @@ export function validateH2aRunRequest(
     ...(model !== undefined ? { model } : {}),
     ...(effort !== undefined ? { effort: effort as H2aRunEffort } : {}),
   };
+  launchRequestTimes.set(request, requestedAt);
+  return request;
 }
 
 export type H2aRunInvocation = {
@@ -401,6 +407,8 @@ export function executeH2aRunWithSpawn(
     Pick<SpawnSyncReturns<string>, "status" | "stdout" | "stderr" | "error">,
   launchToken = randomUUID(),
 ): unknown {
+  const requestedAt = launchRequestTimes.get(request) ?? Date.now();
+  const nativeClaude = request.profile === "claude" && !request.headless;
   const invocation = buildH2aRunInvocation(request);
   const result = spawn(invocation.command, invocation.args, {
     cwd: invocation.cwd,
@@ -408,10 +416,10 @@ export function executeH2aRunWithSpawn(
     encoding: "utf8",
     stdio: ["pipe", "pipe", "pipe"],
     shell: false,
-    env: { ...process.env, H2A_RUN_LAUNCH_TOKEN: launchToken },
+    env: { ...process.env, H2A_RUN_LAUNCH_TOKEN: launchToken, ...(nativeClaude ? { H2A_RUN_REQUESTED_AT: String(requestedAt) } : {}) },
     // Readiness + paste + activity + native RPCs + cleanup. The previous 30s
     // deadline killed the owner inside the runtime's 90s readiness budget.
-    timeout: request.profile === "codex" || request.profile === "muse" ? 270_000 : 180_000,
+    timeout: nativeClaude ? Math.max(1, requestedAt + 16000 - Date.now()) : request.profile === "codex" || request.profile === "muse" ? 270_000 : 180_000,
     maxBuffer: 1_048_576,
   });
   if (result.error) {
@@ -419,6 +427,9 @@ export function executeH2aRunWithSpawn(
     if (recovered) return recovered;
     const timedOut = (result.error as NodeJS.ErrnoException).code === "ETIMEDOUT";
     if (timedOut) {
+      if (nativeClaude) return { kind: "h2a.run.failure", version: 1, state: "launch-unconfirmed", launchId: request.name,
+        error: "h2a_run: shared launch deadline expired; cleanup or submission remains unconfirmed", stopped: false, retrySafe: false,
+        attach: { command: "h2a", args: ["attach", request.name] } };
       if (!retrySafeAfterTimeout(result.stderr ?? "", request.name)) {
         // The independent runtime guard sees EOF when spawnSync kills the
         // launcher. Wait for its fenced cleanup receipt, without re-launching
@@ -469,6 +480,9 @@ export function executeH2aRunWithSpawn(
       const failure = JSON.parse(result.stdout ?? "") as Record<string, unknown>;
       if (isPreCreateNativeFailure(failure, request.name, result.stderr ?? "")) return failure;
       if (failure.kind === "h2a.run.failure" && failure.version === 1 && failure.state === "not-started" &&
+          failure.code === undefined && typeof failure.error === "string" && failure.launchId === request.name &&
+          (failure.creationAttempted === false || (nativeClaude && failure.stopped === false)) && failure.retrySafe === false) return failure;
+      if (failure.kind === "h2a.run.failure" && failure.version === 1 && failure.state === "not-started" &&
           failure.code === "launch-contract-mismatch" && failure.launchId === request.name && failure.creationAttempted === false && failure.retrySafe === false) return failure;
       if (failure.kind === "h2a.run.failure" && failure.version === 1 && failure.launchId === request.name && failure.retrySafe === false &&
           ((failure.state === "stopped" && failure.stopped === true) || (failure.state === "cleanup-failed" && failure.stopped === false))) return failure;
@@ -502,14 +516,17 @@ export function executeH2aRunWithSpawn(
 export async function executeH2aRunWithAsyncSpawn(
   request: H2aRunRequest,
   spawnRuntime: typeof spawn = spawn,
-  runtimeBudgetMs = request.profile === "codex" || request.profile === "muse" ? 270_000 : 180_000,
+  runtimeBudgetMs = request.profile === "claude" && !request.headless ? 16000 : request.profile === "codex" || request.profile === "muse" ? 270_000 : 180_000,
 ): Promise<Record<string, unknown>> {
+  const requestedAt = launchRequestTimes.get(request) ?? Date.now();
+  const nativeClaude = request.profile === "claude" && !request.headless;
+  if (nativeClaude) runtimeBudgetMs = Math.min(runtimeBudgetMs, Math.max(1, requestedAt + 16000 - Date.now()));
   const invocation = buildH2aRunInvocation(request);
   const launchToken = randomUUID();
   const result = await new Promise<{ status: number | null; stdout: string; stderr: string; timedOut: boolean; overflow: boolean; error?: Error }>((resolve) => {
     const child = spawnRuntime(invocation.command, invocation.args, {
       cwd: invocation.cwd, shell: false, stdio: ["pipe", "pipe", "pipe"],
-      env: { ...process.env, H2A_RUN_LAUNCH_TOKEN: launchToken },
+      env: { ...process.env, H2A_RUN_LAUNCH_TOKEN: launchToken, ...(nativeClaude ? { H2A_RUN_REQUESTED_AT: String(requestedAt) } : {}) },
     });
     let stdout = "", stderr = "", timedOut = false, overflow = false;
     let escalation: ReturnType<typeof setTimeout> | undefined;
@@ -546,6 +563,9 @@ export async function executeH2aRunWithAsyncSpawn(
     return executeH2aRunWithSpawn(request, () => result, launchToken) as Record<string, unknown>;
   }
   const retrySafe = retrySafeAfterTimeout(result.stderr, request.name);
+  if (nativeClaude) return { kind: "h2a.run.failure", version: 1, state: "launch-unconfirmed", launchId: request.name,
+    error: "h2a_run: shared launch deadline expired; cleanup or submission remains unconfirmed", stopped: false, retrySafe: false,
+    attach: { command: "h2a", args: ["attach", request.name] } };
   if (!retrySafe) {
     const deadline = Date.now() + 30_000;
     const path = join(request.workspace, ".h2a", "runs", request.name, "launch.json");
@@ -661,6 +681,7 @@ export function handleH2aRun(
     const request: H2aRunRequest = delegation
       ? { ...base, delegation }
       : base;
+    launchRequestTimes.set(request, launchRequestTimes.get(base) ?? Date.now());
     const result = execute(request);
     if (result instanceof Promise) return result.then(value => value as Record<string, unknown>, error =>
       ({ error: error instanceof Error ? error.message : String(error) }));

@@ -856,7 +856,7 @@ export function nativeClaudeDeliveryDeps(owned: NativeLaunchOwnership, deadline:
   return {
     capturePane: async () => {
       if (nextCapture > Date.now()) await new Promise(resolve => setTimeout(resolve, nextCapture - Date.now()));
-      nextCapture = Date.now() + 250;
+      nextCapture = Date.now() + 275;
       return String((await operation("capture")).text);
     },
     clearComposer: () => write("write", ["--b64", Buffer.from("\u0015").toString("base64")]),
