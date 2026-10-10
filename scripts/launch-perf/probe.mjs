@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url';
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const lab = repo + '/.qual-tmp/lab';
 const opts = JSON.parse(process.argv[2] || '{}');
-const allowedOptions = new Set(['adapter','admission','cache','concurrentInput','crashPhase','diagnosticFailure','driverPacingMs','evict','expectedState','fixtureRoot','holdMs','httpStatus','label','mcp','mcpDelayMs','mode','n','noDebug','pacingMs','pinned','pressure','qualifyDispatch','relaunch','repeat','reportedVersion','responseDelayMs','resumePrompt','seedRelaunch','sidecar','small','sourceSha','timeoutMs','toolsDelayMs','upgradeSlow','userHookMs','userHookVeto','worktree','wrongConversation']);
+const allowedOptions = new Set(['adapter','admission','cache','concurrentInput','crashPhase','diagnosticFailure','driverPacingMs','evict','expectedState','fixtureRoot','holdMs','httpErrorMessage','httpStatus','label','mcp','mcpDelayMs','mode','n','noDebug','pacingMs','pinned','pressure','qualifyDispatch','relaunch','repeat','reportedVersion','responseDelayMs','resumePrompt','seedRelaunch','sidecar','small','sourceSha','timeoutMs','toolsDelayMs','upgradeSlow','userHookMs','userHookVeto','worktree','wrongConversation']);
 for(const key of Object.keys(opts))if(!allowedOptions.has(key))throw new Error('unsupported laboratory option: '+key);
 if (!opts.worktree || !opts.sourceSha) throw new Error('an explicit measured worktree and source SHA are required');
 const installed = opts.worktree + '/packages/h2a';
@@ -75,7 +75,7 @@ const stub = http.createServer((req, res) => {
     let d = {}; try { d = JSON.parse(text); } catch {}
     if (opts.httpStatus) {
       res.writeHead(Number(opts.httpStatus), { 'content-type': 'application/json' });
-      res.end(JSON.stringify({ type: 'error', error: { type: Number(opts.httpStatus) === 401 ? 'authentication_error' : 'rate_limit_error', message: Number(opts.httpStatus) === 401 ? 'Invalid API key' : 'Quota exhausted' } }));
+      res.end(JSON.stringify({ type: 'error', error: { type: opts.httpErrorMessage ? (Number(opts.httpStatus) >= 500 ? 'api_error' : 'invalid_request_error') : Number(opts.httpStatus) === 401 ? 'authentication_error' : 'rate_limit_error', message: opts.httpErrorMessage || (Number(opts.httpStatus) === 401 ? 'Invalid API key' : 'Quota exhausted') } }));
       return;
     }
     if (opts.responseDelayMs) await delay(Number(opts.responseDelayMs));
