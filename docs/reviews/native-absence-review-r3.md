@@ -68,7 +68,40 @@ These paths cannot spawn an owner native operation with inherited state.
 
 ## R3-F02
 
-Pending fixture-only process view and external-metadata canary qualification.
+RED: `r3-f02-red.log` observes two canonicalization attempts on an unrelated
+host's canary socket/directory. The global `/proc` is replaced with a synthetic
+foreign row for this reproduction; interception stops both attempts before
+external metadata is actually read. GREEN: `r3-f02-green.log` passes seven tests,
+including the no-external-metadata canary, optional-environment preservation,
+an external-process-root refusal and the R3-F01 guard regressions.
+
+The existing `H2A_TEST_PROC_ROOT` injection now receives a private process view
+from the test helper. Only fixture-started processes are registered. Proc
+directories are pinned by descriptors, avoiding child-PID reuse; a detached
+host installs its own pin before its launching parent exits. Child exit removes
+its entry and closes the descriptor. Error-injection process trees remain
+unchanged. Threads do not replace their coordinator's process pin. Views are
+fresh for each campaign, shared across test module contexts, and the native
+inventory/generation fixtures await their registered writer processes before
+removing the private tree. In-process tests and Node/PTY children receive the same view.
+As an additional test-only boundary, scanner canonicalization refuses a path
+outside the qualification root before consulting its metadata. Production
+`server.ts` and its fail-closed global process scan are unchanged.
+
+`r3-f02-native-green.log`: 47 passing tests, zero failures/skips/TODOs, including
+historical and current generations, lost socket names, surviving hosts without
+owner sidecars, deleted aliases, unreadable process fixtures, and the newly
+isolated restore dry-runs. `r3-f02-runtime-green.json`: all 34 server/process
+tests pass, including publication contention and real PTY cleanup. The first
+runtime check exposed optional undefined values being assigned to `process.env`;
+the helper now installs only the two process-view variables and the regression
+case preserves an absent `H2A_ROOT`. Final-SHA campaigns run sequentially.
+The first complete qualification also exposed an `ENOTEMPTY` teardown race with
+the independent journal writer. `r3-f02-teardown-green.log` verifies the dead-host
+restore and pre-upgrade cases after adding a bounded wait for fixture processes.
+An initially relative preload argument broke MCP workers after their cwd changed;
+the qualification launcher now uses the absolute preload path, and
+`r3-preload-absolute-green.log` passes all five PTY messaging cases.
 
 ## R3-F03
 
