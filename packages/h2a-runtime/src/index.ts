@@ -136,7 +136,7 @@ import { acquireLaunchSlot, releaseLaunchSlot, accountLaunchProcess, markLaunchC
 import { updateLaunchReceipt, withLaunchReceipt, launchAttemptDetails, launchAttemptDetailsFromFile } from "./launch-receipt.js";
 import { startClaudeDiagnostic } from "./claude-diagnostic.js";
 import { claudeTranscriptPath, correlatedClaudeResponse, correlatedClaudePrompt } from "./claude-transcript.js";
-import { QUALIFIED_CLAUDE_NATIVE_VERSIONS } from "./claude-native-qualification.js";
+import { QUALIFIED_CLAUDE_NATIVE_VERSIONS, isQualifiedPlaywrightCommand } from "./claude-native-qualification.js";
 import { claudeMcpConfiguration, prepareClaudeMcpObservers, observedClaudeMcpTools } from "./claude-mcp-observer.js";
 import { buildLaunchContext } from "./launch-context.js";
 import {
@@ -6597,9 +6597,9 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             [process.env.HOME, process.env.XDG_RUNTIME_DIR, process.env.XDG_STATE_HOME, process.env.XDG_CONFIG_HOME].every(p => p?.includes("/.qual-tmp/")) &&
             existsSync(join(process.env.H2A_ROOT ?? "", ".launch-perf-synthetic.json"));
           const qualifiedProfile = declaredMcps.length === 2 && declaredMcps.includes("h2a") && declaredMcps.includes("playwright") &&
-            !h2aSidecar && !useBare && !activeGateway;
+            !h2aSidecar && !useBare && !activeGateway && isQualifiedPlaywrightCommand(claudeMcpServers.playwright);
           const dispatchEvidenceEnabled = qualifiedPlatform && providerVersion !== undefined && qualifiedProfile && (QUALIFIED_CLAUDE_NATIVE_VERSIONS.includes(providerVersion) || experiment);
-          const experimentalPacing = experiment && process.env.LAUNCH_PERF_PACING_MS !== undefined
+          const experimentalPacing = experiment && qualifiedProfile && process.env.LAUNCH_PERF_PACING_MS !== undefined
             ? Number(process.env.LAUNCH_PERF_PACING_MS) : undefined;
           if (experimentalPacing !== undefined && ![0,100,250,500].includes(experimentalPacing))
             throw new Error("unsupported isolated Claude pacing experiment");
