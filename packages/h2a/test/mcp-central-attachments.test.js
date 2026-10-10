@@ -21,6 +21,7 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 import { shouldUseCentralMcp, canonicalCentralRoot } from "../dist/runtime/mcp-central-policy.js";
 import { ensureCentralForShim } from "../dist/runtime/mcp-central-start.js";
 import { enroll } from "../../h2a-runtime/dist/registry.js";
+import { createLocalStore } from "../dist/runtime/local-files/store.js";
 import { qualifiedEnvironment, qualificationRoot, assertQualifiedPath } from "./helpers/qual-env.js";
 
 const bin = resolve("packages/h2a/dist/bin.js");
@@ -900,31 +901,41 @@ test("v1 residual configurations without --host route to stdio on missing marker
     const expectedCodexArgs = ["mcp-serve", "--auto-open", "--host", "codex", "--auto-upgrade", "--wake", "auto"];
     assert.deepEqual(updatedCodex.mcpServers.h2a.args, expectedCodexArgs, "codex repair produces complete coordination arguments");
 
-    // 5. Launch repaired Claude server and verify identity_ready, signing and wake
-    let stderrText = "";
-    const repairedChild = spawn(
-      process.execPath,
-      [bin, ...updatedClaude.mcpServers.h2a.args],
-      { env: { ...f.env, H2A_MCP_CENTRAL: "0", CLAUDE_CODE_SESSION_ID: "repaired-claude" }, cwd: repo, stdio: ["pipe", "pipe", "pipe"] }
-    );
-    children.push(repairedChild);
-    repairedChild.stderr.on("data", (chunk) => { stderrText += chunk.toString(); });
-    const repairedChannel = rpcChannel(repairedChild.stdin, repairedChild.stdout);
-    const initRepaired = await repairedChannel.call("initialize");
-    assert.ok(initRepaired.result, "repaired server initializes successfully");
-    const idStatus = await ready(repairedChannel);
-    assert.equal(idStatus.state, "identity_ready", "repaired server achieves identity_ready");
-    assert.equal(idStatus.signingAvailable, true, "repaired server enables signing");
-    assert.match(stderrText, /inbox-wake armed for/, "repaired server enables wake");
+    // 5. Exercise each repaired configuration and reread its signed inbox envelope.
+    for (const [host, config] of [["claude", updatedClaude], ["agy", updatedAgy], ["codex", updatedCodex]]) {
+      let stderrText = "";
+      const repairedChild = spawn(
+        process.execPath,
+        [bin, ...config.mcpServers.h2a.args],
+        // Suppress the unrelated upgrade worker so the fixture owns every process.
+        { env: { ...f.env, H2A_MCP_CENTRAL: "0", H2A_UPGRADE_REEXECED: "1", CLAUDE_CODE_SESSION_ID: `repaired-${host}` }, cwd: repo, stdio: ["pipe", "pipe", "pipe"] }
+      );
+      children.push(repairedChild);
+      repairedChild.stderr.on("data", chunk => { stderrText += chunk.toString(); });
+      const repairedChannel = rpcChannel(repairedChild.stdin, repairedChild.stdout);
+      try {
+        assert.ok((await repairedChannel.call("initialize")).result, `${host} repaired server initializes`);
+        const idStatus = await ready(repairedChannel);
+        assert.equal(idStatus.state, "identity_ready", `${host} repaired server achieves identity_ready`);
+        assert.equal(idStatus.signingAvailable, true, `${host} repaired server enables signing`);
+        assert.match(stderrText, /inbox-wake armed for/, `${host} repaired server enables wake`);
 
-    const sendRes = await repairedChannel.call("tools/call", { name: "h2a_send", arguments: { to: idStatus.instance, message: "ping" } });
-    assert.ok(!sendRes.error, "h2a_send call succeeds with active signer");
-    assert.equal(sendRes.result?.isError, false, "h2a_send business result has isError: false");
-    const sendPayload = JSON.parse(sendRes.result.content[0].text);
-    assert.equal(sendPayload.ok, true, "h2a_send payload indicates success (ok: true)");
-    assert.ok(sendPayload.envelope?.signatures?.some(s => Boolean(s.value)), "h2a_send persisted signed envelope");
-    assert.equal(sendPayload.envelope.signatures[0].alg, "ed25519");
-    assert.equal(sendPayload.envelope.signatures[0].by, idStatus.instance);
+        const sendRes = await repairedChannel.call("tools/call", { name: "h2a_send", arguments: { to: idStatus.instance, message: `ping-${host}` } });
+        assert.ok(!sendRes.error, "h2a_send call succeeds with active signer");
+        assert.equal(sendRes.result?.isError, false, "h2a_send business result has isError: false");
+        const sendPayload = JSON.parse(sendRes.result.content[0].text);
+        assert.equal(sendPayload.ok, true, "h2a_send payload indicates success (ok: true)");
+        const persisted = createLocalStore({ root: f.root, initialize: false }).readInbox(idStatus.instance)
+          .find(envelope => envelope.id === sendPayload.envelope.id);
+        assert.deepEqual(persisted, sendPayload.envelope, `${host} inbox persists the exact returned envelope`);
+        assert.ok(persisted.signatures.some(signature => Boolean(signature.value)), `${host} persisted envelope is signed`);
+        assert.equal(persisted.signatures[0].alg, "ed25519");
+        assert.equal(persisted.signatures[0].by, idStatus.instance);
+      } finally {
+        repairedChannel.close();
+        if (repairedChild.exitCode === null && repairedChild.signalCode === null) { repairedChild.kill("SIGTERM"); await once(repairedChild, "exit"); }
+      }
+    }
   } finally {
     await Promise.all(children.map(async child => { if (child.exitCode === null && child.signalCode === null) { child.kill("SIGTERM"); await once(child, "exit"); } }));
     f.cleanup();
