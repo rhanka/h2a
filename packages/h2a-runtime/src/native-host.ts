@@ -836,9 +836,12 @@ export function nativePromptDeliveryDeps(sleep: (ms: number) => void): PromptDel
 }
 
 /** One bounded async op per observation, pinned to the reserved incarnation. */
-export function nativeClaudeDeliveryDeps(owned: NativeLaunchOwnership, deadline: number, onInputEpoch?: (epoch: number) => void): ClaudeNativeDeliveryDeps {
+export function nativeClaudeDeliveryDeps(owned: NativeLaunchOwnership, deadline: number, onInputEpoch?: (epoch: number) => void,
+  previousPollCompletedAt?: number): ClaudeNativeDeliveryDeps {
   let epoch = 0;
-  let nextCapture = 0;
+  // The synchronous PID probe belongs to this same observation budget. Seed
+  // from its completion so child startup jitter cannot create an early burst.
+  let nextCapture = previousPollCompletedAt === undefined ? 0 : previousPollCompletedAt + 275;
   const operation = (op: string, extra: string[] = []): Promise<Record<string, unknown>> => new Promise((resolve, reject) => {
     const remaining = Math.floor(deadline - Date.now());
     if (remaining <= 0) { reject(new Error("launch observation deadline expired")); return; }
@@ -863,7 +866,8 @@ export function nativeClaudeDeliveryDeps(owned: NativeLaunchOwnership, deadline:
   };
   return {
     capturePane: async () => {
-      if (nextCapture > Date.now()) await new Promise(resolve => setTimeout(resolve, nextCapture - Date.now()));
+      if (nextCapture > Date.now()) await new Promise(resolve => setTimeout(resolve,
+        Math.min(nextCapture - Date.now(), Math.max(0, deadline - Date.now()))));
       nextCapture = Date.now() + 275;
       return String((await operation("capture")).text);
     },

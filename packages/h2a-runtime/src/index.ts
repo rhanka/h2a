@@ -6686,6 +6686,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           let launchGuard: LaunchGuard | undefined;
           let launchOwnership: LaunchOwnership | undefined;
           let nativeClaudePid: number | undefined;
+          let nativeClaudePollCompletedAt: number | undefined;
           let claudeDeliveryDeps: ReturnType<typeof nativeClaudeDeliveryDeps> | undefined;
           let claudePublicationCheck: (() => string | undefined) | undefined;
           const launchTimings: Record<string, number> = { queueMs: 0 };
@@ -6763,6 +6764,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             ));
             if (diagnostic) {
               nativeClaudePid = nativeSessionPid(name);
+              nativeClaudePollCompletedAt = Date.now();
               if (nativeClaudePid !== undefined) { diagnostic.own(nativeClaudePid); accountLaunchProcess(slugCandidate, nativeClaudePid); }
             }
           } else {
@@ -6892,7 +6894,8 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
                   initialPrompt,
                   launchOwnership?.host === "native" && launchOwnership.sessions[0]
                     ? (claudeDeliveryDeps = nativeClaudeDeliveryDeps(launchOwnership.sessions[0], launchRequestedAt + 15000,
-                        epoch => updateLaunchReceipt(join(runDir, "launch.json"), process.env.H2A_RUN_LAUNCH_TOKEN, { inputEpoch: epoch })))
+                        epoch => updateLaunchReceipt(join(runDir, "launch.json"), process.env.H2A_RUN_LAUNCH_TOKEN, { inputEpoch: epoch }),
+                        nativeClaudePollCompletedAt))
                     : nativePromptDeliveryDeps(sleepSync),
                   {
                     launchGuard,
