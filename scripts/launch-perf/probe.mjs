@@ -127,6 +127,8 @@ fs.writeFileSync(home + '/.claude/settings.json', JSON.stringify({ enabledPlugin
 fs.writeFileSync(home + '/.config/sentropic/h2a/config.json', JSON.stringify({ h2a: { enabled: true, command: `${quote(process.execPath)} ${quote(installed + '/dist/bin.js')} mcp-serve --root ${quote(root)} --auto-open --host claude --backend local`, central: { enabled: false } } }));
 const claudeArgs = ['--strict-mcp-config', '--mcp-config', mcpFile, '--settings', home + '/.claude/settings.json'];
 fs.writeFileSync(bin + '/claude', opts.noDebug ? '#!/bin/sh\nexec /home/antoinefa/.local/bin/claude ' + claudeArgs.map(quote).join(' ') + ' "$@"\n' : '#!/bin/sh\ncase " $* " in *" --debug-file "*) exec /home/antoinefa/.local/bin/claude ' + claudeArgs.map(quote).join(' ') + ' "$@";; esac\nexec /home/antoinefa/.local/bin/claude ' + claudeArgs.map(quote).join(' ') + ' --debug-file ' + quote(output) + '/claude-debug-$$.log "$@"\n', { mode: 0o700 });
+if (opts.wrongConversation) fs.writeFileSync(bin+'/claude',fs.readFileSync(bin+'/claude','utf8').replaceAll('"$@"','"$@" --session-id '+quote(randomUUID())),{mode:0o700});
+if (opts.reportedVersion) fs.writeFileSync(bin+'/claude',fs.readFileSync(bin+'/claude','utf8').replace('#!/bin/sh\n','#!/bin/sh\ncase "$1" in --version) printf "%s\\n" '+quote(opts.reportedVersion)+'; exit 0;; esac\n'),{mode:0o700});
 fs.writeFileSync(bin + '/h2a', '#!/bin/sh\nexec ' + quote(process.execPath) + ' ' + quote(binJs) + ' "$@"\n', { mode: 0o700 });
 const bashenv = output + '/bash-env.sh'; fs.writeFileSync(bashenv, Object.entries(env).map(([k,v]) => 'export ' + k + '=' + quote(v)).join('\n') + '\n'); env.BASH_ENV = bashenv;
 const startChild = (command, args, role, stdin) => { const c = spawn(command, args, { cwd: workspace, env: { ...env, LAUNCH_PERF_ROLE: role }, stdio: ['pipe','pipe','pipe'] }); children.push(c); const out = fs.createWriteStream(output + '/' + role + '-' + c.pid + '.stdout'); const err = fs.createWriteStream(output + '/' + role + '-' + c.pid + '.stderr'); c.stdout.pipe(out); c.stderr.pipe(err); if (stdin !== undefined) c.stdin.end(stdin); return c; };
@@ -180,11 +182,23 @@ try {
       sessions.push(id, id + '.h2a');
       const args = [binJs, 'run', 'claude', workspace, '--name', name, '--no-gw', '--no-attach', '--background', '--json', '--prompt-stdin', ...(opts.sidecar === false ? ['--no-h2a'] : ['--h2a'])];
       const c = opts.adapter
-        ? startChild(process.execPath,[lab+'/scripts/adapter-worker.mjs'],'launcher-'+i,JSON.stringify({profile:'claude',name,workspace,prompt:'Return the word READY_WITNESS.',background:true,gateway:'off',headless:false,h2aSidecar:opts.sidecar!==false}))
+        ? startChild(process.execPath,[repo+'/scripts/launch-perf/adapter-worker.mjs'],'launcher-'+i,JSON.stringify({profile:'claude',name,workspace,prompt:'Return the word READY_WITNESS.',background:true,gateway:'off',headless:false,h2aSidecar:opts.sidecar!==false}))
         : startChild(process.execPath, args, 'launcher-' + i, 'Return the word READY_WITNESS.');
       const observation = observe(id, begin);
+      const concurrent = opts.concurrentInput ? (async () => {
+        const until=Date.now()+20000,receipt=workspace+'/.h2a/runs/'+name+'/launch.json';
+        while(Date.now()<until){
+          try { if(JSON.parse(fs.readFileSync(receipt,'utf8')).submitAttempted){
+            const lease=await client.acquireController(id,'lab-concurrent-input');
+            await client.write(lease,'Injected fixture input.\r');await client.releaseController(lease);
+            mark('lab_concurrent_input',{id});return;
+          }}catch{}await delay(20);
+        }
+        throw new Error('concurrent input witness never injected input');
+      })() : undefined;
       await new Promise((r,j) => { c.once('close', r); c.once('error',j); });
       const receiptMs = mark('launcher_exit', { id, code: c.exitCode }) - begin;
+      await concurrent;
       results.push({ name, hostMs, receiptMs, exitCode: c.exitCode, ...await observation });
     } else {
       sessions.push(id);
@@ -228,10 +242,18 @@ try {
     row.nativeOperations = traces.filter(t=>t.name==='node_preload'&&t.entry==='op.js'&&t.session===row.id).map(t=>({operation:t.operation,at:t.at-begin}));
     const receiptPath=workspace+'/.h2a/runs/'+row.name+'/launch.json';
     if(fs.existsSync(receiptPath))row.receipt=JSON.parse(fs.readFileSync(receiptPath,'utf8'));
+    try { const state=await client.state(row.id); row.afterResultSession={status:state.status,generation:state.generation,incarnation:state.incarnation}; } catch { row.afterResultSession={status:'absent'}; }
     const mainDispatch=[...debug.matchAll(/^(\S+) .*\[API REQUEST\] \/v1\/messages source=repl_main_thread/gm)].map(m=>Date.parse(m[1]));
     row.dispatchMs=mainDispatch.length?Math.min(...mainDispatch)-begin:null;
-    row.lastProofToResultMs=row.receipt?.timings?.lastRequiredProofMs!==undefined?row.receiptMs-(row.receipt.requestedAt-begin)-row.receipt.timings.lastRequiredProofMs:null;
+    const finalTimings=row.receipt?.result?.timings;
+    row.lastProofToResultMs=finalTimings?.lastRequiredProofMs!==undefined?row.receiptMs-(row.receipt.requestedAt-begin)-finalTimings.lastRequiredProofMs:null;
     row.dispatchToResultMs=row.dispatchMs!==null?row.receiptMs-row.dispatchMs:null;
+    if (opts.expectedState) {
+      const actual = row.receipt?.result?.state ?? row.receipt?.state;
+      if (actual !== opts.expectedState || (['provider-blocked','launch-unconfirmed'].includes(actual) && row.afterResultSession.status !== 'running'))
+        throw new Error('expected result/preservation witness failed: '+actual);
+      if (actual !== 'started') delete row.error;
+    }
     if (opts.repeat && row.exitCode === 0) {
       const args=[binJs,'run','claude',workspace,'--name',row.name,'--no-gw','--no-attach','--background','--json','--prompt-stdin','--no-h2a'];
       const count=stubRequests.length;

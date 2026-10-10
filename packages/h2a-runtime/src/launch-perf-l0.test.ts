@@ -37,7 +37,7 @@ function temporary(test: (file: string) => Promise<void> | void) {
 describe("L0 product driver adversaries", () => {
   it("should wait for required MCP capabilities before submitting the first turn", temporary(async file => {
     const f = fixture(file, { mcpAt: 1000 });
-    const result = await deliverClaudeNativePrompt("w", "exact brief", f.deps, { debugFile: file, requiredMcps: ["playwright"], requiredMcpProof: () => f.time() >= 1000, qualifiedDiagnostic: true });
+    const result = await deliverClaudeNativePrompt("w", "exact brief", f.deps, { debugFile: file, requiredMcps: ["playwright"], requiredMcpProof: () => f.time() >= 1000, qualifiedDiagnostic: true, correlatedPrompt: () => true });
     expect(result.state).toBe("working"); expect(f.submit).toHaveBeenCalledTimes(1);
     expect(f.paste).toHaveBeenCalledTimes(1); expect(f.capture.mock.calls.length).toBeLessThanOrEqual(Math.ceil(f.time() / 250) + 1);
   }));
@@ -62,6 +62,20 @@ describe("L0 product driver adversaries", () => {
     const f = fixture(file); f.submit.mockImplementation(() => { appendFileSync(file, "[ERROR] hook pre-submit rejected: veto\n"); return true; });
     expect((await deliverClaudeNativePrompt("w", "exact brief", f.deps, { debugFile: file })).state).toBe("provider-blocked");
     expect(f.submit).toHaveBeenCalledTimes(1);
+  }));
+  for (const status of [401, 429]) {
+    it("should reject a known HTTP refusal before publishing a local dispatch " + status, temporary(async file => {
+      const f = fixture(file);
+      f.submit.mockImplementation(() => { appendFileSync(file, settled + turn + main + `[ERROR] API error (attempt 1/11): ${status} ${status} {}\n`); return true; });
+      const result = await deliverClaudeNativePrompt("w", "exact brief", f.deps, { debugFile: file, qualifiedDiagnostic: true });
+      expect(result.state).toBe("provider-blocked"); expect(f.submit).toHaveBeenCalledTimes(1);
+    }));
+  }
+  it("should preserve uncertainty when dispatch belongs to an unverified conversation or prompt", temporary(async file => {
+    const f = fixture(file);
+    f.submit.mockImplementation(() => { appendFileSync(file, settled + turn + main); return true; });
+    const result = await deliverClaudeNativePrompt("w", "exact brief", f.deps, { debugFile: file, qualifiedDiagnostic: true, correlatedPrompt: () => false, observationTimeoutMs: 1000 });
+    expect(result.state).toBe("launch-unconfirmed");
   }));
   it("should retain a fragmented dispatch line and detect truncation", temporary(file => {
     const reader = new ClaudeDebugReader(file);
