@@ -37,14 +37,17 @@ describe("L1 durable launch ownership", () => {
     const machine = Number(readFileSync("/proc/meminfo", "utf8").match(/^MemTotal:\s+(\d+)/m)?.[1]) * 1024;
     const limit = Number(readFileSync(join("/sys/fs/cgroup", scope ?? "", "memory.max"), "utf8"));
     const budget = Math.floor(Math.min(machine, Number.isFinite(limit) ? limit : machine, 8 * 1024 ** 3) * 0.85);
-    const call = (id: string, finish = false, bytes = 256 * 1024 ** 2) => JSON.parse(execFileSync(process.execPath,
+    // Reservation semantics do not require allocating a reference-profile
+    // budget in this unit witness while neighboring tests consume headroom.
+    const charge = 8 * 1024 ** 2;
+    const call = (id: string, finish = false, bytes = charge) => JSON.parse(execFileSync(process.execPath,
       ["--import", "tsx", "--input-type=module", "-e", 'import {acquireLaunchSlot,releaseLaunchSlot} from '+JSON.stringify(module)+'; const result=acquireLaunchSlot('+JSON.stringify(id)+',1,'+bytes+'); '+(finish ? 'releaseLaunchSlot('+JSON.stringify(id)+',"started");' : '')+'console.log(JSON.stringify(result));'],
       { env: { ...process.env, XDG_STATE_HOME: dir }, encoding: "utf8" }));
     try {
       expect(call("one", true).acquired).toBe(true);
       expect(call("one").acquired).toBe(false);
       // Started releases observation capacity, but still consumes resident budget.
-      expect(call("two", false, budget - 128 * 1024 ** 2).reason).toBe("resident launch memory budget exceeded");
+      expect(call("two", false, budget - charge / 2).reason).toBe("resident launch memory budget exceeded");
       expect(call("three").acquired).toBe(true);
     } finally { rmSync(dir, { recursive: true, force: true }); }
   });
