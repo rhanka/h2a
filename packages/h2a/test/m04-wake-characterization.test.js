@@ -1,5 +1,5 @@
-import { isolatedNativeTestEnvironment, spawnIsolatedNative as spawn, spawnSyncIsolatedNative as spawnSync } from "./helpers/native-isolation.js";
-isolatedNativeTestEnvironment(process.env); // Refuse owner resources before any fixture or operation.
+import { isolatedNativeTestEnvironment, spawnIsolatedNative as spawn, spawnSyncIsolatedNative as spawnSync, setupNativeTestEnvironment } from "./helpers/native-isolation.js";
+setupNativeTestEnvironment(test.after);
 import assert from "node:assert/strict";
 
 import { generateKeyPairSync, randomBytes } from "node:crypto";

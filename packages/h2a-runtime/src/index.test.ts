@@ -1,6 +1,6 @@
 // @ts-ignore Shared JS test isolation helper.
-import { createPrivateTestDirectory, installNativeTestEnvironment, isolatedNativeTestEnvironment, nativeTestEnvironment } from "../../h2a/test/helpers/native-isolation.js";
-isolatedNativeTestEnvironment(process.env); // Partial mocks can still contact the native adapter.
+import { createPrivateTestDirectory, installNativeTestEnvironment, nativeTestEnvironment, setupNativeTestEnvironment } from "../../h2a/test/helpers/native-isolation.js";
+setupNativeTestEnvironment(afterAll);
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   mkdirSync,
