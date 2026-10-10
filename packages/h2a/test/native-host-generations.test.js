@@ -1,6 +1,5 @@
 import { createPrivateTestDirectory, assertPrivateQualificationPath, nativeQualificationRoot, assertIsolatedEnvironment, assertIsolatedNativeOperation, spawnIsolatedNative as spawn, waitForPrivateNativeProcesses } from "./helpers/native-isolation.js";
 import assert from "node:assert/strict";
-import { randomBytes } from "node:crypto";
 
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
@@ -17,6 +16,7 @@ const legacyEntry = legacyDir && join(legacyDir, "packages/h2a-runtime/dist/nati
 const unavailable = process.platform !== "linux" ? "historical native PTY qualification requires Linux"
   : !legacyEntry || !existsSync(legacyEntry) ? "legacy build unavailable: set H2A_TEST_LEGACY_HOST_DIR to a build of 89bbd9af^ (spec §8/L0)" : false;
 const required = process.env.H2A_TEST_REQUIRE_LEGACY_HOST === "1";
+let legacyFixtureNumber = 0;
 
 // Resolve existing ancestors too, so a symlink cannot smuggle an owner path
 // through an apparently private socket/config/registry/workspace directory.
@@ -101,8 +101,10 @@ async function withLegacy(context, body, historicalEntry = legacyEntry) {
   assertPrivateQualificationPath(qualRoot, nativeQualificationRoot);
   mkdirSync(qualRoot, { recursive: true, mode: 0o700 });
   let root;
-  for (let attempt = 0; attempt < 256 && root === undefined; attempt++) {
-    const candidate = join(qualRoot, `g${randomBytes(1).toString("hex")}`);
+  // Never reuse a path in this test process: its spawn guard retains the
+  // fixture's process-view identity even after the directory is removed.
+  while (legacyFixtureNumber < 256 && root === undefined) {
+    const candidate = join(qualRoot, `g${(legacyFixtureNumber++).toString(16).padStart(2, "0")}`);
     assertPrivateQualificationPath(candidate, nativeQualificationRoot);
     try { mkdirSync(candidate, { mode: 0o700 }); root = realpathSync(candidate); }
     catch (error) { if (error.code !== "EEXIST") throw error; }
