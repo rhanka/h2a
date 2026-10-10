@@ -35,6 +35,21 @@ function temporary(test: (file: string) => Promise<void> | void) {
     try { await test(file); } finally { rmSync(dir, { recursive: true, force: true }); } };
 }
 describe("L0 product driver adversaries", () => {
+  for (const [screen, reason] of [
+    ["External imports:\n❯ Allow external imports\nEnter to confirm", "external imports approval"],
+    ["Do you trust the contents of this directory?\n❯ Yes, continue\nEnter to confirm", "directory-trust"],
+    ["An unknown native choice\n❯ Accept\nEnter to confirm", "modal choice"],
+  ]) {
+    it("should retain the Claude native modal refusal for " + reason, temporary(async file => {
+      const f = fixture(file);
+      f.capture.mockReturnValue(screen);
+      const result = await deliverClaudeNativePrompt("w", "exact brief", f.deps, { debugFile: file });
+      expect(result.state).toBe("host-modal");
+      if (result.state === "host-modal") expect(result.reason).toContain(reason);
+      expect(f.paste).not.toHaveBeenCalled(); expect(f.submit).not.toHaveBeenCalled();
+    }));
+  }
+
   it("should bound native observation service cost during delayed MCP startup", temporary(async file => {
     const f = fixture(file, { mcpAt: 4000 });
     let nativeServiceMs = 0;
