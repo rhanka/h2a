@@ -18,6 +18,8 @@ migration was performed.
 | R18 | `55af5db7`: exclude unsupported/unqualified hosts before reading central settings. | Six real SDK/binary cases fail before the fix and pass after it: absent host, Codex and agy against malformed JSON and unreadable settings. |
 | R19 | `9c528375`: strip attachment-specific daemon fields before merging the client context; preserve the client's workspace. | Manual daemon startup with native or tmux launcher fields contaminates presence before the fix. Both cases pass after it, including readiness isolation, self-send wake target and preservation of the client's own terminal. A separate RED exposes the daemon cwd in client presence. |
 | R6 default gate | Keep implicit activation disabled until the mandatory reproduction exists. | The new gate test fails on implicit daemon startup before the change and passes afterward. **This RED/GREEN is the release gate, not a reproduction of Graphify loss.** |
+| R12 | Require exact launch options, including the creation callback. | Removing the callback fails the strengthened assertion; restoring it passes. |
+| R15 | Verify T4 actually uses the central, and retain fresh final-SHA receipts. | Forcing the helper to stdio fails the live-central witness. Central mode must report protocol 2 and one attachment per connection. |
 
 ## R6: observation and unresolved requirement
 
@@ -57,6 +59,9 @@ hash and exit status, with raw stdout/stderr beside it. Final qualification
 must use the final committed SHA with a clean worktree. It covers scoped
 runtime preparation/dispatch, central/core, attachment, host preservation
 and true T4 central (`H2A_MCP_TEST_CENTRAL=1`, `H2A_MCP_TEST_N=4`).
+T4 explicitly verifies a live daemon, its state root, protocol and attachment
+count. Fixture environments provide HOME and all XDG paths under `.qual-tmp`;
+the v1 compatibility cases stop each child after its handshake to bound RSS.
 
 HOME and every XDG directory are under `.qual-tmp`. Path guards reject owner
 state paths, including realpath escapes. A guard stopped Vitest's initial
