@@ -21,5 +21,6 @@ for (const scenario of input.scenarios) {
   const child = spawn(process.execPath, args, { cwd: repo, env, stdio: ['ignore', fd, fd] });
   const code = await new Promise((resolve, reject) => { child.once('close', resolve); child.once('error', reject); });
   fs.closeSync(fd);
+  if(code!==0)process.exitCode=1;
   console.log(JSON.stringify({ label: options.label, code, raw, sourceSha: options.sourceSha }));
 }
