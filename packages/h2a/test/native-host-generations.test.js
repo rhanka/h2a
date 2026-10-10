@@ -464,7 +464,7 @@ test("should refuse agent and sidecar collisions before any containment registry
   await fixture.unchanged();
 }));
 
-test("should report an incomplete inventory and unknown absence when the historical endpoint is unreachable", {
+test("should report an incomplete inventory and unknown absence when the historical host is suspended", {
   skip: process.platform !== "linux" ? unavailable : !required && unavailable,
 }, async context => withLegacy(context, async fixture => {
   const compatible = await compatibleHost(fixture);
@@ -472,8 +472,7 @@ test("should report an incomplete inventory and unknown absence when the histori
   try {
     await echoSession(second, fixture, "h2a-survivor");
     const historical = fixture.children[0];
-    historical.child.kill("SIGTERM"); // Only a host started by this fixture.
-    await historical.closed;
+    historical.child.kill("SIGSTOP"); // A live but unprovable host must never be reclaimed.
     const inventory = (await op(fixture, ["list"])).payload;
     assert.equal(inventory.complete, false);
     assert.equal((await op(fixture, ["probe", "--id", "h2a-missing"])).payload.verdict, "unknown");
@@ -489,7 +488,7 @@ test("should report an incomplete inventory and unknown absence when the histori
     assert.equal(JSON.parse(result.stdout).code, "native-inventory-unknown");
     assert.equal(JSON.parse(result.stdout).creationAttempted, false);
     assert.equal((await second.list()).filter(session => session.id === "h2a-missing").length, 0);
-  } finally { second.close(); }
+  } finally { fixture.children[0].child.kill("SIGCONT"); second.close(); }
 }));
 
 test("should select a second compatible host and preserve the historical sentinel (spec §8/L0; phase A)", {
