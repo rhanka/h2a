@@ -13,7 +13,8 @@
  * Sessions reuse the h2a-<slug> naming contract from tmux.ts so slugs,
  * addressing and registry entries stay uniform across hosts.
  */
-import { spawnSync } from "node:child_process";
+import { spawnSync, execFile } from "node:child_process";
+import type { ClaudeNativeDeliveryDeps } from "./claude-native-driver.js";
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -40,6 +41,13 @@ import { SESSION_CLASS_ENV, type SessionClass } from "./session-class.js";
 import { withAttachTerminalRecovery } from "./native-terminal/attach-recovery.js";
 
 const OP_TIMEOUT_MS = 15_000;
+let launchDeadline: number | undefined;
+/** Confined to one CLI run action; guard subprocesses keep their independent cleanup budget. */
+export function setNativeLaunchDeadline(deadline: number): () => void {
+  const previous = launchDeadline;
+  launchDeadline = deadline;
+  return () => { launchDeadline = previous; };
+}
 const H2A_NATIVE_TARGET_SESSION_ENV = "H2A_NATIVE_TARGET_SESSION";
 
 export type SessionHostKind = "native" | "local-tmux";
@@ -118,10 +126,12 @@ function runOp(
   options: { allowFailure?: boolean; onCreateAttempt?: (() => void) | undefined; socketPath?: string | undefined } = {},
 ): { status: number; payload: unknown } {
   options.onCreateAttempt?.();
+  const timeout = launchDeadline === undefined ? OP_TIMEOUT_MS : Math.min(OP_TIMEOUT_MS, Math.floor(launchDeadline - Date.now()));
+  if (timeout <= 0) throw new Error("native launch deadline expired");
   const r = spawnSync(process.execPath, [opEntryPath(), ...args, ...(options.socketPath ? ["--socket", options.socketPath] : [])], {
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
-    timeout: OP_TIMEOUT_MS,
+    timeout,
   });
   if (r.error) {
     throw new Error(
@@ -319,6 +329,7 @@ export type NativeLaunchMetadata = {
   readonly sessionClass?: SessionClass;
   readonly terminateOnAgentExit?: boolean;
   readonly refuseExisting?: boolean;
+  readonly env?: Readonly<Record<string, string>>;
 };
 
 /**
@@ -374,6 +385,7 @@ export function startNativeSession(
   env["TERM"] = "xterm-256color";
   // The launch runtime may still be connected to an older protocol-v1 host.
   env["H2A_NATIVE_TERMINAL"] = "1";
+  Object.assign(env, metadata.env);
   if (metadata.sessionClass !== undefined) {
     env[SESSION_CLASS_ENV] = metadata.sessionClass;
   }
@@ -818,5 +830,33 @@ export function nativePromptDeliveryDeps(sleep: (ms: number) => void): PromptDel
     },
     sleep,
     now: () => Date.now(),
+  };
+}
+
+/** One bounded async op per observation, pinned to the reserved incarnation. */
+export function nativeClaudeDeliveryDeps(owned: NativeLaunchOwnership, deadline: number): ClaudeNativeDeliveryDeps {
+  let epoch = 0;
+  const operation = (op: string, extra: string[] = []): Promise<Record<string, unknown>> => new Promise((resolve, reject) => {
+    const remaining = Math.floor(deadline - Date.now());
+    if (remaining <= 0) { reject(new Error("launch observation deadline expired")); return; }
+    execFile(process.execPath, [opEntryPath(), op, "--id", owned.name, "--socket", owned.socketPath,
+      "--generation", owned.generation, "--incarnation", owned.incarnation, "--epoch", String(epoch), ...extra],
+    { timeout: remaining, maxBuffer: 65536, encoding: "utf8" }, (error, stdout) => {
+      if (error) { reject(error); return; }
+      try { resolve(JSON.parse(stdout.trim())); } catch (failure) { reject(failure); }
+    });
+  });
+  const write = async (op: string, extra: string[] = []) => {
+    const result = await operation(op, extra);
+    if (result.ok !== true) return false;
+    epoch += 2; // The acquired controller is released by this one-shot op.
+    return true;
+  };
+  return {
+    capturePane: async () => String((await operation("capture")).text),
+    clearComposer: () => write("write", ["--b64", Buffer.from("\u0015").toString("base64")]),
+    pasteBlock: (_name, text) => write("paste", ["--b64", Buffer.from(text).toString("base64")]),
+    submit: () => write("enter"),
+    now: () => Date.now(), sleep: ms => new Promise(resolve => setTimeout(resolve, ms)),
   };
 }

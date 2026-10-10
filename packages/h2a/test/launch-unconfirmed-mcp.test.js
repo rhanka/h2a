@@ -1,8 +1,36 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { executeH2aRunWithSpawn } from "../dist/index.js";
+import { executeH2aRunWithSpawn, executeH2aRunWithAsyncSpawn } from "../dist/runtime/mcp/agent-launch.js";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { EventEmitter } from "node:events";
+import { PassThrough } from "node:stream";
 
 describe("MCP adapter alignment: launch-unconfirmed", () => {
+  for (const failure of ["buffer", "invalid-json", "invalid-contract", "spawn-error"]) {
+    it(`should recover durable submission after ${failure} without changing the launch token`, async () => {
+      const workspace = mkdtempSync(join(tmpdir(), "mcp-receipt-"));
+      const request = { profile: "claude", name: "w", workspace, prompt: "one brief", background: true, gateway: "off", headless: false, h2aSidecar: false };
+      try {
+        const result = await executeH2aRunWithAsyncSpawn(request, (_command, _args, options) => {
+          const directory = join(workspace, ".h2a", "runs", "w"); mkdirSync(directory, { recursive: true });
+          writeFileSync(join(directory, "launch.json"), JSON.stringify({ token: options.env.H2A_RUN_LAUNCH_TOKEN, submitAttempted: true, state: "launching" }));
+          const child = Object.assign(new EventEmitter(), { stdin: new PassThrough(), stdout: new PassThrough(), stderr: new PassThrough(), kill() {} });
+          setImmediate(() => {
+            if (failure === "spawn-error") child.emit("error", new Error("transport lost"));
+            else {
+              child.stdout.write(failure === "buffer" ? "x".repeat(1_100_000) : failure === "invalid-json" ? "not JSON" : "{}");
+              child.emit("close", 0);
+            }
+          });
+          return child;
+        });
+        assert.equal(result.state, "launch-unconfirmed"); assert.equal(result.retrySafe, false); assert.equal(result.stopped, false);
+        assert.deepEqual(result.attach.args, ["attach", "w"]);
+      } finally { rmSync(workspace, { recursive: true, force: true }); }
+    });
+  }
   it("should return typed launch-unconfirmed failure without throwing generic runtime error", () => {
     const request = {
       profile: "claude",

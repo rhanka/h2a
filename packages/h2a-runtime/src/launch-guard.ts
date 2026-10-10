@@ -1,6 +1,6 @@
 /** Independent launch owner: launcher death closes stdin, even during sync waits. */
 import { spawn, type ChildProcess } from "node:child_process";
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createInterface } from "node:readline";
@@ -8,7 +8,9 @@ import { createInterface } from "node:readline";
 import { killNativeSessionIfIncarnation, nativeSessionState } from "./native-host.js";
 import type { NativeLaunchOwnership } from "./native-host.js";
 import { sleepSync } from "./prompt-delivery.js";
+import { withLaunchReceipt, updateLaunchReceipt } from "./launch-receipt.js";
 import { killLocalSession, localSessionPanePid } from "./tmux.js";
+import { ownLaunchSlot, releaseLaunchSlot } from "./launch-capacity.js";
 
 export type LaunchOwnership =
   | { host: "native"; sessions: Array<NativeLaunchOwnership> }
@@ -20,9 +22,7 @@ type CleanupDeps = {
 };
 
 function writeStatus(path: string, value: unknown): void {
-  const temporary = `${path}.${process.pid}.tmp`;
-  writeFileSync(temporary, JSON.stringify(value), { mode: 0o600 });
-  renameSync(temporary, path); // The MCP reader must never observe partial JSON.
+  updateLaunchReceipt(path, process.env.H2A_RUN_LAUNCH_TOKEN, value as Record<string, unknown>);
 }
 
 export function cleanupLaunch(ownership: LaunchOwnership, deps: CleanupDeps): boolean {
@@ -85,20 +85,19 @@ export function startLaunchGuard(runDir: string, ownership: LaunchOwnership, spa
   (child.stdin as NodeJS.WritableStream & { unref?: () => void }).unref?.();
   child.on("error", () => {
     if (completed) return;
-    if (submitAttempted) {
-      writeStatus(statusPath, {
-        state: "launch-unconfirmed",
-        submitAttempted: true,
-        retrySafe: false,
-        stopped: false,
-        token: process.env.H2A_RUN_LAUNCH_TOKEN,
-        ownership,
+    try {
+      withLaunchReceipt(statusPath, process.env.H2A_RUN_LAUNCH_TOKEN, (receipt, save) => {
+        submitAttempted ||= receipt?.submitAttempted === true;
+        if (submitAttempted) {
+          save({ state: "launch-unconfirmed", submitAttempted: true, retrySafe: false, stopped: false, ownership });
+        } else {
+          const stopped = cleanupLaunch(ownership, cleanupDeps);
+          save({ state: stopped ? "stopped" : "cleanup-failed", ownership });
+        }
       });
-      return;
-    }
-    const stopped = cleanupLaunch(ownership, cleanupDeps);
-    writeStatus(statusPath, { state: stopped ? "stopped" : "cleanup-failed",
-      token: process.env.H2A_RUN_LAUNCH_TOKEN, ownership });
+    } catch { /* An unreadable or foreign receipt never authorizes cleanup. */ }
+    return;
+
   });
   // The guard may exit immediately after completing. An EPIPE must never
   // crash a successfully launched worker; its file remains the cleanup proof.
@@ -110,6 +109,7 @@ export function startLaunchGuard(runDir: string, ownership: LaunchOwnership, spa
       submitAttempted: submitAttempted || undefined,
       ownership: value });
     child.stdin!.write(`${JSON.stringify({ ownership: value, submitAttempted: submitAttempted || undefined })}\n`);
+    if (value.host === "native" && value.sessions[0]) ownLaunchSlot(value.sessions[0].name.replace(/^h2a-/, ""), value.sessions);
   };
   own(ownership);
   const markSubmitAttempted = () => {
@@ -142,15 +142,26 @@ export function startLaunchGuard(runDir: string, ownership: LaunchOwnership, spa
   return {
     own,
     markSubmitAttempted,
-    isSubmitAttempted: () => submitAttempted,
+    isSubmitAttempted: () => withLaunchReceipt(statusPath, process.env.H2A_RUN_LAUNCH_TOKEN, receipt => {
+      submitAttempted ||= receipt?.submitAttempted === true;
+      return submitAttempted;
+    }),
     complete: () => finish("started"),
     stop: () => {
-      if (submitAttempted) {
-        finish("launch-unconfirmed");
-        return false; // Submission attempted: session preserved, stop refused!
-      }
-      const stopped = cleanupLaunch(ownership, cleanupDeps);
-      finish(stopped ? "stopped" : "cleanup-failed");
+      let stopped = false;
+      let state = "launch-unconfirmed";
+      try {
+        withLaunchReceipt(statusPath, process.env.H2A_RUN_LAUNCH_TOKEN, (receipt, save) => {
+          submitAttempted ||= receipt?.submitAttempted === true;
+          if (!submitAttempted) {
+            stopped = cleanupLaunch(ownership, cleanupDeps);
+            state = stopped ? "stopped" : "cleanup-failed";
+          }
+          save({ state, submitAttempted, ownership, ...(submitAttempted ? { retrySafe: false, stopped: false } : {}) });
+        });
+      } catch { return false; }
+      completed = true;
+      child.stdin!.end(`${JSON.stringify({ completed: true, state, submitAttempted })}\n`);
       return stopped;
     },
   };
@@ -175,50 +186,24 @@ async function guard(statusPath: string): Promise<void> {
       finalState = message.state ?? "started";
     }
   }
-  // The atomic receipt also covers death before the pipe write was flushed.
+  // EOF, pipe errors and parent cleanup all fence on the same durable receipt.
   try {
-    const receipt = JSON.parse(readFileSync(statusPath, "utf8"));
-    if (receipt.token === process.env.H2A_RUN_LAUNCH_TOKEN) {
-      if (receipt.ownership) ownership = receipt.ownership;
-      if (receipt.submitAttempted) submitAttempted = true;
-      if (["started", "stopped", "cleanup-failed", "launch-unconfirmed"].includes(receipt.state)) {
-        completed = true;
-        finalState = receipt.state;
+    withLaunchReceipt(statusPath, process.env.H2A_RUN_LAUNCH_TOKEN, (receipt, save) => {
+      if (!receipt) return; // Missing durability never proves non-submission.
+      if (receipt.ownership) ownership = receipt.ownership as LaunchOwnership;
+      submitAttempted ||= receipt.submitAttempted === true;
+      if (!ownership) return;
+      if (["started", "stopped", "cleanup-failed", "launch-unconfirmed"].includes(String(receipt.state))) return;
+      if (submitAttempted) {
+        save({ state: "launch-unconfirmed", submitAttempted: true, retrySafe: false, stopped: false, ownership });
+        return;
       }
-    }
-  } catch { /* Pipe ownership remains usable. */ }
-  if (!ownership) return;
-
-  if (completed) {
-    writeStatus(statusPath, {
-      state: finalState,
-      token: process.env.H2A_RUN_LAUNCH_TOKEN,
-      submitAttempted: submitAttempted || undefined,
-      ...(finalState === "launch-unconfirmed" ? { retrySafe: false, stopped: false } : {}),
-      ownership,
+      const stopped = cleanupLaunch(ownership, cleanupDeps);
+      save({ state: stopped ? "stopped" : "cleanup-failed", ownership });
+      if (stopped && ownership.host === "native" && ownership.sessions[0]) releaseLaunchSlot(ownership.sessions[0].name.replace(/^h2a-/, ""), "stopped");
     });
-    return;
-  }
+  } catch { /* Foreign, corrupt or locked receipt: preserve every incarnation. */ }
 
-  if (submitAttempted) {
-    // Monotonic submitAttempted: session MUST NOT be stopped or destroyed!
-    writeStatus(statusPath, {
-      state: "launch-unconfirmed",
-      token: process.env.H2A_RUN_LAUNCH_TOKEN,
-      submitAttempted: true,
-      retrySafe: false,
-      stopped: false,
-      ownership,
-    });
-    return;
-  }
-
-  const stopped = cleanupLaunch(ownership, cleanupDeps);
-  writeStatus(statusPath, {
-    state: stopped ? "stopped" : "cleanup-failed",
-    token: process.env.H2A_RUN_LAUNCH_TOKEN,
-    ownership,
-  });
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
