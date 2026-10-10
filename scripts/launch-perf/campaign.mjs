@@ -7,6 +7,7 @@ if(!/^[a-z0-9-]+$/.test(prefix))throw new Error('invalid campaign prefix');
 if(!fs.existsSync(repo+'/.qual-tmp/baseline/packages/track/dist/index.js'))throw new Error('baseline Track bundle must be built before qualification');
 const baseline=execFileSync('git',['rev-parse','origin/main'],{cwd:repo,encoding:'utf8'}).trim();
 const candidate=execFileSync('git',['rev-parse','HEAD'],{cwd:repo,encoding:'utf8'}).trim();
+const envelope = process.argv[3] ? JSON.parse(fs.readFileSync(process.argv[3], 'utf8')) : undefined;
 const scenarios=[];
 for(const n of [1,4,9])for(const cold of [false,true])for(const pressure of [false,true])for(let sample=1;sample<=3;sample++) {
   const scenario=`n${n}-${cold?'cold':'warm'}-${pressure?'io':'idle'}`;
@@ -17,7 +18,8 @@ for(const n of [1,4,9])for(const cold of [false,true])for(const pressure of [fal
       worktree:version==='baseline'?repo+'/.qual-tmp/baseline':repo,sourceSha:version==='baseline'?baseline:candidate});
   }
 }
-const input={label:prefix,reclaimOwnedFixtures:true,scenarios};
-fs.writeFileSync(repo+'/.qual-tmp/evidence/'+prefix+'-plan.json',JSON.stringify({baseline,candidate,prefix,input},null,2));
+const input={label:prefix,reclaimOwnedFixtures:true,scenarios,
+  ...(envelope?.initialMemoryMaxBytes !== undefined ? { initialMemoryMaxBytes: envelope.initialMemoryMaxBytes } : {})};
+fs.writeFileSync(repo+'/.qual-tmp/evidence/'+prefix+'-plan.json',JSON.stringify({baseline,candidate,prefix,envelope,input},null,2));
 const child=spawn(process.execPath,[repo+'/scripts/launch-perf/qualify.mjs',JSON.stringify(input)],{cwd:repo,env:process.env,stdio:'inherit'});
 process.exitCode=await new Promise((resolve,reject)=>{child.once('close',resolve);child.once('error',reject)});
