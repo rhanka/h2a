@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 
 import { isOsTemporaryPath } from "../path-safety.js";
 
-export const H2A_RUN_PROFILES = ["claude", "codex", "agy", "muse"] as const;
+export const H2A_RUN_PROFILES = ["claude", "codex", "agy", "muse", "vibe"] as const;
 export type H2aRunProfile = (typeof H2A_RUN_PROFILES)[number];
 export const H2A_RUN_EFFORTS = ["low", "medium", "high", "xhigh"] as const;
 export type H2aRunEffort = (typeof H2A_RUN_EFFORTS)[number];
@@ -145,7 +145,7 @@ export function validateH2aRunRequest(
 
   const profile = requiredString(args, "profile");
   if (!(H2A_RUN_PROFILES as readonly string[]).includes(profile)) {
-    throw new Error("h2a_run: 'profile' must be claude|codex|agy|muse");
+    throw new Error("h2a_run: 'profile' must be claude|codex|agy|muse|vibe");
   }
   const name = requiredString(args, "name");
   if (!SAFE_NAME.test(name)) {
@@ -206,6 +206,14 @@ export function validateH2aRunRequest(
   if (profile === "muse" && gateway === "required") {
     throw new Error(
       "h2a_run: gateway 'required' is unsupported for muse (muse talks to the Meta provider, not the Anthropic-compatible llm-mesh)",
+    );
+  }
+  if (profile === "vibe" && gateway === "required") {
+    // Vibe talks to the Mistral provider directly with its own plan-billed
+    // credential (the mistral-vibe account transport mirrors it in the mesh),
+    // not to the Anthropic-compatible llm-mesh gateway.
+    throw new Error(
+      "h2a_run: gateway 'required' is unsupported for vibe (vibe talks to the Mistral provider directly, not the Anthropic-compatible llm-mesh)",
     );
   }
   const headless = args.headless ?? false;
@@ -321,7 +329,7 @@ function contractResult(value: unknown, request: H2aRunRequest): unknown {
   // always direct. The runtime is held to that posture, so every accepted mode has a
   // determined expected gateway (no undefined pass-through).
   const expectedGateway =
-    request.profile === "agy" || request.profile === "muse"
+    request.profile === "agy" || request.profile === "muse" || request.profile === "vibe"
       ? "direct"
       : request.gateway === "required"
         ? "gateway"

@@ -470,7 +470,7 @@ export function renderCliHelp(): string {
     "  h2a drumbeat watch [--interval-ms <n>] [--max-relances <n>] [--relauncher logging|local-tmux|remote|headless|auto] [--instance <signer> --private-key <pem>] [--decider logging|<command>] [--decider-after <k>] [--decider-enforce] [--root <path>]",
     "  h2a host setup --host <codex|claude|gemini|agy|hermes|opencode|muse|vibe> [--endpoint local|remote] [--url <https://…/mcp>] [--root <path>] [--print | --write <file>] [--force] [--no-wake]   (selects exactly one h2a endpoint; local renders mcp-serve --auto-open --auto-upgrade --wake auto by default)",
     "  h2a host status [--host <name>]",
-    "  h2a host plugin --host <codex|claude|gemini|agy|hermes|opencode|muse|vibe> --instance <id> [--status <work-status>] [--root <path>] [--write <settings.json> [--force]] [--scaffold <dir>]   (--write installs the Stop hook for claude|gemini|codex|hermes|opencode; --scaffold writes codex's full local marketplace + trust step; agy, muse and vibe are poll-only)",
+    "  h2a host plugin --host <codex|claude|gemini|agy|hermes|opencode|muse|vibe> --instance <id> [--status <work-status>] [--root <path>] [--write <settings.json> [--force]] [--scaffold <dir>]   (--write installs the Stop hook for claude|gemini|codex|hermes|opencode; --scaffold writes codex's full local marketplace + trust step; vibe records via a post_agent hook in ~/.vibe/hooks.toml; agy and muse are poll-only)",
     "  h2a store migrate [--from <v>] [--to <v>] [--sanitize-paths] [--dry-run] [--root <path>]",
     "  h2a store index-launch --root <absolute-path> (derived indexes; original logs retained)",
     "",
@@ -4775,7 +4775,18 @@ function cmdHostPlugin(flags: Record<string, string>, streams: H2ACliStreams): n
   // verified against `~/.codex/.../hooks/hooks.json`). agy is poll-only (no
   // daemon), so --write is refused for it and the rendered hook + hint surface.
   if (flags.write) {
-    if (flags.host === "agy" || flags.host === "muse" || flags.host === "vibe") {
+    // Vibe's hook file is `~/.vibe/hooks.toml` — TOML, and the JSON hook merger
+    // is deliberately format-strict (same refusal as `host setup --write` for
+    // TOML targets): --print carries the rendered record + the TOML placement
+    // hint. agy/muse are poll-only (no verified stop-hook surface at all).
+    if (flags.host === "vibe") {
+      streams.stderr.write(
+        `h2a host plugin: --write is not available for vibe (~/.vibe/hooks.toml is TOML and the hook merger is format-strict). ` +
+          `Register the rendered record command as a post_agent hook; --print carries the TOML translation.\n`
+      );
+      return 1;
+    }
+    if (flags.host === "agy" || flags.host === "muse") {
       streams.stderr.write(
         `h2a host plugin: --write is not available for ${flags.host} (poll-only, no verified stop-hook surface). ` +
           `Use the poll path: ${render.poll}\n`
