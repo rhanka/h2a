@@ -161,7 +161,7 @@ async function owningClient(parsed: Parsed, id: string): Promise<{ client: Nativ
   return owner;
 }
 
-async function selectLaunchClient(fenced: boolean): Promise<{ client: NativeTerminalClient; socketPath: string }> {
+async function selectLaunchClient(fenced: boolean, inputFenced = false): Promise<{ client: NativeTerminalClient; socketPath: string }> {
   const paths = knownNativeTerminalSocketPaths();
   const imposed = process.env["H2A_NATIVE_SOCKET"];
   if (imposed) {
@@ -176,13 +176,14 @@ async function selectLaunchClient(fenced: boolean): Promise<{ client: NativeTerm
   const cold = !existsSync(dirname(historical));
   const client = cold ? await ensureClient(historical) : await connectExisting(historical);
   const ping = await client.ping();
-  if (!fenced || paths.length === 1) return { client, socketPath: historical };
+  if ((!fenced && !inputFenced) || paths.length === 1) return { client, socketPath: historical };
   const compatible = paths[1]!;
   // Initialize the second known endpoint so admission obtains a complete
   // inventory even when the historical host already provides the fence.
   if (existsSync(compatible)) await connectExisting(compatible); // Never reclaim an unreachable known endpoint.
   const second = await ensureClient(compatible);
-  return ping.launchFence === true ? { client, socketPath: historical } : { client: second, socketPath: compatible };
+  return (!fenced || ping.launchFence === true) && (!inputFenced || ping.launchInputFence === true)
+    ? { client, socketPath: historical } : { client: second, socketPath: compatible };
 }
 
 async function ensureClient(socketPath: string): Promise<NativeTerminalClient> {
@@ -668,7 +669,7 @@ export async function runNativeTerminalOp(argv: ReadonlyArray<string>): Promise<
       let selected: { client: NativeTerminalClient; socketPath: string };
       try {
         selected = parsed.flags.has("socket") ? { client: await connectExisting(socketPath), socketPath }
-          : await selectLaunchClient(parsed.flags.get("fenced") === "true");
+          : await selectLaunchClient(parsed.flags.get("fenced") === "true", parsed.flags.get("input-fenced") === "true");
       } catch (error) {
         emit({ code: "native-inventory-unknown", hosts: [{ socketPath,
           reason: error instanceof Error ? error.message : String(error) }] });
