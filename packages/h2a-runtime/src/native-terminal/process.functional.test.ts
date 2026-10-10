@@ -1,6 +1,6 @@
 import type { ChildProcess } from "node:child_process";
 import { once } from "node:events";
-import { chmod, mkdtemp, readFile, readdir, readlink, rm, stat, unlink } from "node:fs/promises";
+import { chmod, mkdtemp, readFile, readdir, readlink, rm, stat, unlink, writeFile } from "node:fs/promises";
 import { createConnection } from "node:net";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
@@ -997,6 +997,58 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
     HOST_SHUTDOWN_BUDGET_MS +
     3 * EVENTUALLY_BUDGET_MS +
     1_000;
+
+  it("should handle termination while its published socket awaits the owner record", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "n-"));
+    directories.add(directory);
+    const socketPath = join(directory, "host.sock");
+    const entry = fileURLToPath(new URL("./process.ts", import.meta.url));
+    const wrapper = join(directory, "publishing.mjs");
+    await writeFile(wrapper, `
+      import fs from 'node:fs/promises';
+      import { once } from 'node:events';
+      import { syncBuiltinESMExports } from 'node:module';
+      const rename = fs.rename;
+      fs.rename = async (...args) => {
+        if (args[1] === ${JSON.stringify(`${socketPath}.owner`)}) {
+          const released = once(process, 'message');
+          process.send('owner-record-pending');
+          await released;
+        }
+        return rename(...args);
+      };
+      syncBuiltinESMExports();
+      const emit = process.emit;
+      process.emit = function(event, ...args) {
+        const handled = emit.call(this, event, ...args);
+        if (event === 'SIGTERM' && handled) process.send('termination-handled');
+        return handled;
+      };
+      const { runNativeTerminalHostProcess } = await import(${JSON.stringify(entry)});
+      await runNativeTerminalHostProcess([process.execPath, ${JSON.stringify(entry)},
+        '--socket', ${JSON.stringify(socketPath)}, '--registry-path',
+        ${JSON.stringify(join(directory, "registry.json"))}]);
+      process.disconnect();
+    `);
+    const child = spawn(process.execPath, ["--import", "tsx", wrapper], {
+      cwd: dirname(entry), env: process.env, stdio: ["ignore", "pipe", "pipe", "ipc"],
+    });
+    children.add(child);
+    expect((await once(child, "message"))[0]).toBe("owner-record-pending");
+    const client = await NativeTerminalClient.connect(socketPath);
+    try {
+      const exited = exitWithin(child, HOST_SHUTDOWN_BUDGET_MS);
+      const observed = Promise.race([
+        once(child, "message").then(([message]) => message),
+        exited.then(([code, signal]) => ({ code, signal })),
+      ]);
+      child.kill("SIGTERM");
+      expect(await observed).toBe("termination-handled");
+      child.send("release-owner-record");
+      expect(await exited).toEqual([0, null]);
+      await expect(stat(socketPath)).rejects.toMatchObject({ code: "ENOENT" });
+    } finally { client.close(); }
+  }, HOST_STARTUP_BUDGET_MS + HOST_SHUTDOWN_BUDGET_MS + CLIENT_OVERRUN_BUDGET_MS);
 
   it("should stop its PTYs and remove its socket on graceful host shutdown", async () => {
     const directory = await mkdtemp(join(tmpdir(), "n-"));
