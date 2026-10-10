@@ -93,7 +93,9 @@ export function startLaunchGuard(runDir: string, ownership: LaunchOwnership, spa
           save({ state: "launch-unconfirmed", submitAttempted: true, retrySafe: false, stopped: false, ownership });
         } else {
           const stopped = cleanupLaunch(ownership, cleanupDeps, receipt?.inputEpoch as number | undefined);
-          save({ state: stopped ? "stopped" : "cleanup-failed", ownership });
+          submitAttempted ||= !stopped;
+          save({ state: stopped ? "stopped" : "launch-unconfirmed", ownership, submitAttempted,
+            ...(!stopped ? { retrySafe: false, stopped: false } : {}) });
         }
       });
     } catch { /* An unreadable or foreign receipt never authorizes cleanup. */ }
@@ -156,7 +158,8 @@ export function startLaunchGuard(runDir: string, ownership: LaunchOwnership, spa
           submitAttempted ||= receipt?.submitAttempted === true;
           if (!submitAttempted) {
             stopped = cleanupLaunch(ownership, cleanupDeps, receipt?.inputEpoch as number | undefined);
-            state = stopped ? "stopped" : "cleanup-failed";
+            submitAttempted ||= !stopped;
+            state = stopped ? "stopped" : "launch-unconfirmed";
           }
           save({ state, submitAttempted, ownership, ...(submitAttempted ? { retrySafe: false, stopped: false } : {}) });
         });
@@ -200,7 +203,8 @@ async function guard(statusPath: string): Promise<void> {
         return;
       }
       const stopped = cleanupLaunch(ownership, cleanupDeps, receipt.inputEpoch as number | undefined);
-      save({ state: stopped ? "stopped" : "cleanup-failed", ownership });
+      save({ state: stopped ? "stopped" : "launch-unconfirmed", ownership, submitAttempted: !stopped,
+        ...(!stopped ? { retrySafe: false, stopped: false } : {}) });
       if (stopped && ownership.host === "native" && ownership.sessions[0]) releaseLaunchSlot(ownership.sessions[0].name.replace(/^h2a-/, ""), "stopped");
     });
   } catch { /* Foreign, corrupt or locked receipt: preserve every incarnation. */ }

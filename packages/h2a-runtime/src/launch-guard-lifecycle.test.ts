@@ -6,13 +6,28 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PassThrough } from "node:stream";
 import { fileURLToPath } from "node:url";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi, beforeEach } from "vitest";
 
 const { stop, probe } = vi.hoisted(() => ({ stop: vi.fn(() => true), probe: vi.fn() }));
 vi.mock("./native-host.js", () => ({ killNativeSessionIfIncarnation: stop, nativeSessionState: probe }));
 import { startLaunchGuard } from "./launch-guard.js";
 
 describe("launch guard lifecycle", () => {
+  beforeEach(() => vi.clearAllMocks());
+  it("should publish potential submission when pre-submit cleanup cannot establish ownership", () => {
+    const directory = mkdtempSync(join(tmpdir(), "launch-guard-unknown-"));
+    const child = Object.assign(new EventEmitter(), { stdin: new PassThrough(), unref() {} });
+    probe.mockReturnValue({ state: "unknown", reason: "input ownership unavailable" });
+    try {
+      const guard = startLaunchGuard(directory, { host: "native", sessions: [
+        { name: "worker", socketPath: "/private/owned.sock", generation: "g", incarnation: "i" },
+      ] }, (() => child) as never);
+      expect(guard.stop()).toBe(false);
+      expect(JSON.parse(readFileSync(join(directory, "launch.json"), "utf8"))).toMatchObject({
+        state: "launch-unconfirmed", submitAttempted: true, stopped: false, retrySafe: false,
+      });
+    } finally { rmSync(directory, { recursive: true, force: true }); }
+  });
   for (const otherAttempt of [false, true]) {
     it(`should ${otherAttempt ? "ignore another attempt's receipt" : "preserve a completed receipt"} at EOF`, async () => {
       const directory = mkdtempSync(join(tmpdir(), "launch-guard-receipt-"));
