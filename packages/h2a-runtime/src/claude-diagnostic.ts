@@ -1,6 +1,6 @@
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
-import { constants, openSync, closeSync, readSync, readFileSync, writeSync, writeFileSync, rmSync, existsSync, statSync } from "node:fs";
-import { join } from "node:path";
+import { constants, openSync, closeSync, readSync, readFileSync, writeSync, writeFileSync, rmSync, existsSync, statSync, readdirSync } from "node:fs";
+import { join, dirname } from "node:path";
 import { homedir } from "node:os";
 import { mkdirSync } from "node:fs";
 import { withLaunchReceipt } from "./launch-receipt.js";
@@ -11,7 +11,10 @@ import { CLAUDE_DEBUG_MAX_BYTES } from "./claude-debug-adapter.js";
 type Retained = { file: string; expires: number; ino: number; dev: number };
 function processStart(pid: number): string | undefined {
   try { const stat = readFileSync(`/proc/${pid}/stat`, "utf8"); return stat.slice(stat.lastIndexOf(")") + 2).split(" ")[19]; }
-  catch { return undefined; }
+  catch (error) {
+    if (["ENOENT", "ESRCH"].includes((error as NodeJS.ErrnoException).code ?? "")) return undefined;
+    throw error; // An unreadable process is uncertain, never proof of death.
+  }
 }
 function retainDiagnostic(file: string): void {
   const directory = join(process.env.XDG_STATE_HOME ?? join(homedir(), ".local", "state"), "h2a", "diagnostic-retention");
@@ -35,11 +38,15 @@ async function expireDiagnostics(path: string): Promise<void> {
     const count = withLaunchReceipt(path, undefined, (receipt, save) => {
       if (receipt?.pid !== process.pid) return 0;
       const files = (receipt.files as Retained[]).filter(entry => {
-        if (!existsSync(entry.file)) return false;
-        const stat = statSync(entry.file);
-        if (stat.ino !== entry.ino || stat.dev !== entry.dev) return false; // Never unlink a replacement.
-        if (Date.now() >= entry.expires) { rmSync(entry.file); return false; }
-        return true;
+        try {
+          const matches = (file: string) => { try { const stat = statSync(file); return stat.ino === entry.ino && stat.dev === entry.dev; } catch { return false; } };
+          // Follow a rename only inside the private run directory; exported files are outside this policy.
+          const file = matches(entry.file) ? entry.file : readdirSync(dirname(entry.file)).map(name => join(dirname(entry.file), name)).find(matches);
+          if (!file) return false; // An unrelated replacement must survive.
+          entry.file = file;
+          if (Date.now() >= entry.expires) { rmSync(file); return false; }
+          return true;
+        } catch { return true; } // Retry an uncertain filesystem failure.
       });
       save({ files, ...(files.length ? {} : { pid: null }) });
       return files.length;
@@ -49,19 +56,23 @@ async function expireDiagnostics(path: string): Promise<void> {
   }
 }
 
-export function startClaudeDiagnostic(directory: string): { fifo: string; file: string; own: (pid: number) => void; stop: () => void } {
+export function startClaudeDiagnostic(directory: string): { fifo: string; file: string; healthy: () => boolean; own: (pid: number) => void; stop: () => void } {
   const fifo = join(directory, "claude-debug.pipe"), file = join(directory, "claude-debug.log");
   const made = spawnSync("mkfifo", ["-m", "600", fifo], { encoding: "utf8" });
   if (made.status !== 0) throw new Error(`cannot create private Claude diagnostic pipe: ${made.stderr}`);
   writeFileSync(file, "", { mode: 0o600, flag: "wx" });
   retainDiagnostic(file);
   const worker: ChildProcess = spawn(process.execPath, [fileURLToPath(new URL("./claude-diagnostic.js", import.meta.url)), fifo, file],
-    { stdio: ["pipe", "ignore", "ignore"] });
+    { stdio: ["pipe", "pipe", "ignore"] });
+  let healthy = false;
+  createInterface({ input: worker.stdout! }).on("line", line => { healthy = line === "ready"; });
+  worker.stdout!.on("error", () => { healthy = false; });
+  (worker.stdout as NodeJS.ReadableStream & { unref?: () => void }).unref?.();
   worker.on("error", () => {});
   worker.stdin!.on("error", () => {});
   worker.unref();
   (worker.stdin as NodeJS.WritableStream & { unref?: () => void }).unref?.();
-  return { fifo, file,
+  return { fifo, file, healthy: () => healthy && worker.exitCode === null && worker.signalCode === null,
     own: pid => { worker.stdin!.end(`${pid}\n`); },
     stop: () => { if (worker.exitCode === null) worker.kill("SIGTERM"); },
   };
@@ -76,6 +87,8 @@ async function collect(fifo: string, file: string): Promise<void> {
   let bytes = 0, pid: number | undefined, birth: string | undefined, lastData = Date.now();
   let nextPidPoll = 0, dead = false;
   const started = Date.now(), retainUntil = started + 24 * 60 * 60 * 1000;
+  process.stdout.on("error", () => {}); // The completed CLI no longer consumes health messages.
+  process.stdout.write("ready\n");
   createInterface({ input: process.stdin }).on("line", line => {
     const parsed = Number(line);
     if (Number.isSafeInteger(parsed) && parsed > 0) {
@@ -91,10 +104,17 @@ async function collect(fifo: string, file: string): Promise<void> {
         lastData = Date.now();
         if (retained !== undefined && Date.now() < retainUntil && bytes < CLAUDE_DEBUG_MAX_BYTES) {
           const kept = Math.min(read, CLAUDE_DEBUG_MAX_BYTES - bytes);
-          writeSync(retained, buffer.subarray(0, kept)); bytes += kept;
+          try { writeSync(retained, buffer.subarray(0, kept)); bytes += kept; }
+          catch {
+            process.stdout.write("invalid\n");
+            closeSync(retained); retained = undefined;
+            // Keep draining the provider's FIFO even when retained storage fails.
+          }
+          if (bytes >= CLAUDE_DEBUG_MAX_BYTES) process.stdout.write("invalid\n");
         }
       }
       if (Date.now() >= retainUntil && retained !== undefined) {
+        process.stdout.write("invalid\n");
         closeSync(retained); retained = undefined;
         if (existsSync(file)) {
           const current = statSync(file);
@@ -102,8 +122,8 @@ async function collect(fifo: string, file: string): Promise<void> {
         }
       }
       if (pid && Date.now() >= nextPidPoll) {
-        const actual = processStart(pid);
-        dead = actual === undefined || (birth !== undefined && actual !== birth);
+        try { const actual = processStart(pid); dead = actual === undefined || (birth !== undefined && actual !== birth); }
+        catch { dead = false; }
         nextPidPoll = Date.now() + 1000;
       }
       if (dead && Date.now() - lastData > 1000) break;
