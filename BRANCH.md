@@ -20,14 +20,20 @@ Real processes run only with isolated HOME, runtime directories and stores.
   18/36-session synthetic-volume budgets, host-version matrix and a fresh
   fully GREEN root gate in a prepared environment.
 
-Fresh evidence: ignored `.qual-tmp/sol4/evidence/`, with command, SHA and raw
-output per run. Published 0.98.0 preparation plus writer preserves Graphify in
-the reconstructed Airbus fixture while changing tracked bytes/mode without a
-backup. This is not the exact production-loss reproduction; R6 stays open and
-implicit default activation is disabled. Existing launch-index readers are
-already present on main. The earlier performance and pre-rebase gate claims
-are superseded, not reused as evidence. Final qualification is scoped, isolated
-and tied to the final committed SHA; no root/performance gate is claimed.
+Fresh R6 evidence: ignored `.qual-tmp/r6/evidence/`, with command, SHA and raw
+stdout/stderr per run. The exact pre-incident Airbus bytes at `3508b24` are now
+versioned and hash-checked. Registry-verified published 0.98.0, using a real
+private central and its unchanged launch/restore preparation and writer,
+changes tracked bytes/mode without a backup but preserves Graphify. Restore
+preparation alone writes nothing; restored absent sessions re-enter run. No
+alternate destructive project writer was identified on these paths. R6 stays
+open because its destruction RED is absent; Claude default activation remains
+disabled under the owner's conditional instruction. The candidate's real
+central preparation makes zero project writes and preserves bytes, metadata
+and git status. Existing launch-index readers are already present on main.
+Earlier reconstructed-input, performance and pre-rebase claims are superseded.
+Final qualification is scoped, isolated and tied to the final committed SHA;
+no root/performance gate is claimed.
 Report: `docs/reviews/mcp-central-default-claude.md`. No peer consensus is claimed:
 the installed-session review route conflicts with the owner isolation constraint.
 
