@@ -91,6 +91,7 @@ describe("native host life journal", () => {
     expect(start).toMatchObject({ event: "start", pid: host.process.pid, startTime: readProcessStartTime(host.process.pid!),
       version: getRuntimeVersion(), codePath: entry, socket: f.socket, generation: "life-test" });
     host.process.kill(signal); expect((await host.closed)[0]).toBe(0);
+    await eventually(() => readHostJournal(f.log).at(-1)?.event === "exit");
     const entries = readHostJournal(f.log);
     expect(entries.map(e => e.event)).toEqual(["start", "signal", "stop", "exit"]);
     expect(entries[1]).toMatchObject({ signal }); expect(entries[2]).toMatchObject({ clean: true });
@@ -109,7 +110,9 @@ describe("native host life journal", () => {
     await eventually(() => host.output().stdout.includes("h2a.native-terminal.ready"));
     await eventually(() => readHostJournal(f.log).some(e => e.event === "start"));
     host.process.kill("SIGUSR1");
-    const [code, signal] = await host.closed, events = readHostJournal(f.log);
+    const [code, signal] = await host.closed;
+    if (failure !== "abort") await eventually(() => readHostJournal(f.log).at(-1)?.event === "exit");
+    const events = readHostJournal(f.log);
     expect(readFileSync(f.log, "utf8")).not.toContain(secret);
     if (failure === "abort") {
       expect(signal).toBe("SIGABRT"); expect(events.map(e => e.event)).toEqual(["start"]);
@@ -130,6 +133,7 @@ describe("native host life journal", () => {
     const host = child([script], f.env);
     await eventually(() => readHostJournal(f.log).some(e => e.event === "start")); host.process.kill("SIGUSR1");
     expect((await host.closed)[0]).toBe(7);
+    await eventually(() => readHostJournal(f.log).at(-1)?.event === "exit");
     expect(readHostJournal(f.log).at(-1)).toMatchObject({ event: "exit", exitCode: 7, cause: "unknown" });
     expect(readFileSync(f.log, "utf8")).not.toContain("SIGKILL");
   });
@@ -140,6 +144,36 @@ describe("native host life journal", () => {
     const client = await NativeTerminalClient.connect(f.socket);
     try { expect((await client.ping()).hostPid).toBe(host.process.pid); } finally { client.close(); }
     host.process.kill("SIGTERM"); expect((await host.closed)[0]).toBe(0);
+  });
+  it("should bound shutdown and keep host callbacks off disk when the journal writer is blocked", async () => {
+    const f = fixture(), preload = join(f.root, "block.mjs"), marker = join(f.root, "blocked.jsonl");
+    writeFileSync(preload, `import fs from 'node:fs';
+      import {syncBuiltinESMExports} from 'node:module';
+      import {isMainThread} from 'node:worker_threads';
+      const open = fs.openSync;
+      fs.openSync = (path, ...args) => {
+        if (String(path) === ${JSON.stringify(`${f.log}.lock`)}) {
+          fs.appendFileSync(${JSON.stringify(marker)}, JSON.stringify({pid:process.pid,isMainThread})+'\\n');
+          Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0);
+        }
+        return open(path, ...args);
+      }; syncBuiltinESMExports();`);
+    const host = child([entry, "--socket", f.socket], { ...f.env, NODE_OPTIONS: `--import=${preload}` });
+    await eventually(() => host.output().stdout.includes("h2a.native-terminal.ready") && existsSync(marker));
+    const client = await NativeTerminalClient.connect(f.socket);
+    try { expect((await client.ping()).hostPid).toBe(host.process.pid); } finally { client.close(); }
+    host.process.kill("SIGTERM");
+    const closedInTime = await Promise.race([host.closed.then(() => true), new Promise<boolean>(resolve => setTimeout(() => resolve(false), 1500))]);
+    if (!closedInTime) { host.process.kill("SIGKILL"); await host.closed; }
+    expect(closedInTime, "a blocked journal must not retain the host after SIGTERM").toBe(true);
+    const attempts = readFileSync(marker, "utf8").trim().split("\n").map(line => JSON.parse(line));
+    expect(attempts)
+      .not.toContainEqual({ pid: host.process.pid, isMainThread: true });
+    // Only PIDs emitted by this fixture's blocked writer are inspected.
+    await eventually(() => attempts.every(({ pid }) => {
+      try { return readFileSync(`/proc/${pid}/stat`, "utf8").split(") ").at(-1)!.startsWith("Z "); }
+      catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return true; throw error; }
+    }));
   });
   it("should preserve a live writer lock while a real host serves and stops", async () => {
     const f = fixture(), lock = `${f.log}.lock`, token = `${process.pid}:holder`;
@@ -155,6 +189,7 @@ describe("native host life journal", () => {
   it("should record a real startup failure without calling it an uncaught exception", async () => {
     const f = fixture(), host = child([entry, "--unknown-option"], f.env);
     expect((await host.closed)[0]).toBe(1);
+    await eventually(() => readHostJournal(f.log).at(-1)?.event === "exit");
     const events = readHostJournal(f.log);
     expect(events.map(row => row.event)).toEqual(["startupError", "exit"]);
     expect(events[0]).toMatchObject({ error: "[REDACTED]" });

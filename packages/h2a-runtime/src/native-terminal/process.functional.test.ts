@@ -383,8 +383,18 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
     await eventually(() => first.readOutput("alpha", 0), (output) => output.chunks.some((chunk) => chunk.data.includes("alpha:hello-alpha")));
 
     const nodeChildrenBefore = await directChildren(ping.hostPid);
-    expect(nodeChildrenBefore.sort((left, right) => left - right)).toEqual([alpha.pid, beta.pid].sort((left, right) => left - right));
+    const writerChildren = [];
     for (const pid of nodeChildrenBefore) {
+      const argv = (await readFile(`/proc/${pid}/cmdline`, "utf8")).split("\0");
+      if (argv.includes("--native-host-journal-writer")) {
+        expect(argv).toContain(fileURLToPath(new URL("./journal.ts", import.meta.url)));
+        writerChildren.push(pid);
+      }
+    }
+    expect(writerChildren, "one independent journal writer per host").toHaveLength(1);
+    const terminalChildren = nodeChildrenBefore.filter(pid => !writerChildren.includes(pid));
+    expect(terminalChildren.sort((left, right) => left - right)).toEqual([alpha.pid, beta.pid].sort((left, right) => left - right));
+    for (const pid of terminalChildren) {
       const executable = basename(await readlink(`/proc/${pid}/exe`));
       expect(executable.startsWith("node")).toBe(false);
     }
@@ -392,6 +402,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
     supervisor.disconnect();
     const reconnected = await supervisor.client();
     expect(spawnCount).toBe(1);
+
     expect((await reconnected.ping()).hostPid).toBe(ping.hostPid);
     expect(await reconnected.list()).toEqual([
       expect.objectContaining({ id: "alpha", pid: alpha.pid, status: "running" }),
@@ -414,11 +425,17 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
     await eventually(() => reconnected.readOutput("beta", 0), (output) => output.chunks.some((chunk) => chunk.data.includes("beta:still-alive")));
     expect(spawnCount).toBe(1);
 
+    // Reconnect/read/write/stop do not spawn another journal or operation Node.
+    await eventually(() => directChildren(ping.hostPid), pids =>
+      pids.length === 2 && pids.includes(beta.pid) && pids.includes(writerChildren[0]!));
+
     const hostProcess = [...children][0]!;
     hostProcess.kill("SIGKILL");
     await once(hostProcess, "exit");
     await expect(reconnected.list()).rejects.toThrow(/closed|client/i);
     await eventually(() => running(beta.pid), (alive) => !alive);
+    await eventually(() => processObservation(writerChildren[0]!),
+      (observation) => observation.missing === true || observation.state === "Z");
     expect(running(ping.hostPid)).toBe(false);
   });
 

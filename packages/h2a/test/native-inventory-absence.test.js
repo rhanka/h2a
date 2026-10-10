@@ -360,6 +360,37 @@ test("should cleanly rollback published socket if .owner write fails and allow s
   assert.ok(existsSync(ownerPath));
 }));
 
+test("should ignore stdio and journal IPC sockets on an unbound host contender", linux, () => fixture(async f => {
+  mkdirSync(dirname(f.paths[0]), { mode: 0o700 });
+  const contender = spawn(process.execPath, ["-e", "process.send('unbound'); setInterval(() => {}, 1000)",
+    join(terminal, "process.js"), "--socket", f.paths[0]],
+  { env: f.env, stdio: ["ignore", "pipe", "pipe", "ipc"] });
+  f.hosts.push(contender);
+  await once(contender, "message");
+  const probe = (await f.run(["probe", "--id", "h2a-unbound-contender"])).payload;
+  assert.equal(probe.verdict, "dead", "transport socket pairs are not a native listener");
+  const launched = await f.launch("unbound-contender");
+  assert.equal(launched.status, 0, JSON.stringify(launched));
+}));
+
+test("should keep socket identity unknown when the candidate Unix table is unreadable", linux, () => fixture(async f => {
+  const host = await f.start();
+  unlinkSync(`${f.paths[0]}.owner`);
+  unlinkSync(f.paths[0]);
+  const mockProc = join(f.root, "proc-unix-err");
+  const pidDir = join(mockProc, String(host.child.pid));
+  mkdirSync(join(pidDir, "fd"), { recursive: true });
+  writeFileSync(join(pidDir, "cmdline"), `${process.execPath}\0process.js\0--socket\0${f.paths[0]}\0`);
+  symlinkSync("socket:[42]", join(pidDir, "fd", "3"));
+  f.env.H2A_TEST_PROC_ROOT = mockProc;
+  const probe = await f.run(["probe", "--id", "h2a-unix-table-err"]);
+  assert.equal(probe.payload.verdict, "unknown");
+  assert.match(JSON.stringify(probe.payload), /cannot inspect .*net\/unix/);
+  const launched = await f.launch("unix-table-err");
+  assert.equal(launched.payload.creationAttempted, false);
+  assert.deepEqual(await host.client.ping(), host.ping);
+}));
+
 test("should treat /proc pid entry stat error as unknown and refuse launch", linux, () => fixture(async f => {
   const host = await f.start();
   if (existsSync(`${f.paths[0]}.owner`)) unlinkSync(`${f.paths[0]}.owner`);
