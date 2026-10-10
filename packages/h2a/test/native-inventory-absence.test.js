@@ -1,3 +1,4 @@
+import { assertIsolatedEnvironment } from "./helpers/native-isolation.js";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
@@ -17,36 +18,6 @@ const legacyUnavailable = process.platform !== "linux" ? "historical native PTY 
   : !legacyEntry || !existsSync(legacyEntry) ? "legacy build unavailable: set H2A_TEST_LEGACY_HOST_DIR to a build of 89bbd9af^" : false;
 const legacyRequired = process.env.H2A_TEST_REQUIRE_LEGACY_HOST === "1";
 
-function assertIsolatedEnvironment(env, qualRoot) {
-  const forbiddenExact = [
-    "/run/user/1000/h2a-nt",
-    "/home/antoinefa",
-    "/home/antoinefa/.local/state",
-    "/home/antoinefa/.config",
-  ];
-  const forbiddenPrefixes = [
-    "/run/user/1000/h2a-nt/",
-    "/home/antoinefa/.local/state/",
-    "/home/antoinefa/.config/",
-  ];
-  for (const key of ["HOME", "XDG_RUNTIME_DIR", "XDG_STATE_HOME", "XDG_CONFIG_HOME"]) {
-    const val = env[key];
-    assert.ok(typeof val === "string" && val.length > 0, `Missing required isolation env ${key}`);
-    const resolved = resolve(val);
-    for (const bad of forbiddenExact) {
-      assert.ok(resolved !== bad, `REFUSING unisolated environment: ${key}=${resolved} matches owner directory ${bad}`);
-    }
-    for (const bad of forbiddenPrefixes) {
-      assert.ok(!resolved.startsWith(bad), `REFUSING unisolated environment: ${key}=${resolved} resolves inside owner directory ${bad}`);
-    }
-    assert.ok(!resolved.includes("/.cache-tmp/h2a-"), `REFUSING unisolated environment: ${key}=${resolved} in owner cache-tmp`);
-    const rel = relative(qualRoot, resolved);
-    assert.ok(
-      rel === "" || (!rel.startsWith("..") && !rel.startsWith("/")),
-      `REFUSING environment outside qualification root: ${key}=${resolved} (qualRoot=${qualRoot})`,
-    );
-  }
-}
 
 test("should prove isolation guard fails if any environment variable resolves to owner directories", () => {
   const qualRoot = join(repo, ".qual-tmp");
@@ -94,6 +65,7 @@ async function fixture(body) {
   const paths = [join(root, "h2a-nt/native-terminal.sock"), join(root, "h2a-nt/native-terminal.lf1.sock")];
   const hosts = [], clients = [];
   async function run(args, source = false, entry = join(terminal, "op.js"), input) {
+    assertIsolatedEnvironment(env, qualRoot);
     const child = spawn(process.execPath, source ? ["--input-type=module", "-e", args] : [entry, ...args],
       { env, cwd: workspace, stdio: [input === undefined ? "ignore" : "pipe", "pipe", "pipe"] });
     if (input !== undefined) child.stdin.end(input);
@@ -104,6 +76,7 @@ async function fixture(body) {
     return { status, stdout, stderr, payload: stdout.trim() ? JSON.parse(stdout.trim()) : undefined };
   }
   async function start(index = 0, entry = join(terminal, "process.js"), customSocketPath) {
+    assertIsolatedEnvironment(env, qualRoot);
     const socketPath = customSocketPath ?? paths[index];
     const child = spawn(process.execPath, [entry, "--socket", socketPath, "--generation", `fixture-${index}`,
       "--registry-path", join(home, ".config/sentropic/h2a/registry.json")], { env, stdio: ["ignore", "pipe", "pipe"] });
@@ -151,6 +124,7 @@ let text='';process.stdin.on('data',bytes=>{for(const c of bytes.toString().repl
     return delivered;
   }
   async function mcpLaunch(name) {
+    assertIsolatedEnvironment(env, qualRoot);
     const source = `import {runMcpStdio} from ${JSON.stringify(pathToFileURL(join(repo, "packages/h2a/dist/index.js")).href)};
       await runMcpStdio({root:${JSON.stringify(env.H2A_ROOT)},workspaceRoot:${JSON.stringify(workspace)},stdin:process.stdin,stdout:process.stdout,stderr:process.stderr});`;
     const child = spawn(process.execPath, ["--input-type=module", "-e", source], { env, cwd: workspace, stdio: ["pipe", "pipe", "pipe"] });

@@ -6,6 +6,10 @@ import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
+// @ts-ignore Shared JS qualification helper; tests are outside the production build.
+import { isolatedNativeTestEnvironment } from "../../../h2a/test/helpers/native-isolation.js";
+
+isolatedNativeTestEnvironment(process.env); // Fail before any real process starts.
 
 import { persistNativeTerminalPgid, readNativeTerminalPgid } from "../registry.js";
 import { NativeTerminalClient } from "./client.js";
@@ -238,7 +242,7 @@ async function createStubbornWorkload(
       `trap '' HUP TERM INT; /bin/sh -c "trap '' HUP TERM INT; while :; do sleep 1; done" & h2a_descendant=$!; printf '${id}-ready:%s\\r\\n' "$h2a_descendant"; while :; do sleep 1; done`,
     ],
     cwd: directory,
-    env: { PATH: process.env.PATH ?? "/usr/bin:/bin", TERM: "xterm-256color" },
+    env: isolatedNativeTestEnvironment({ PATH: process.env.PATH ?? "/usr/bin:/bin", TERM: "xterm-256color" }),
     cols: 80,
     rows: 24,
   });
@@ -317,7 +321,7 @@ const SPAWN_TERMINATION_GRACE_MS = 100;
 
 describe.skipIf(process.platform !== "linux")("native terminal host process", () => {
   it("should keep two real PTYs alive through client reconnect without per-operation Node spawns", async () => {
-    const directory = await mkdtemp(join(tmpdir(), "h2a-native-terminal-functional-"));
+    const directory = await mkdtemp(join(tmpdir(), "n-"));
     directories.add(directory);
     const socketPath = join(directory, "host.sock");
     const entry = fileURLToPath(new URL("./process.ts", import.meta.url));
@@ -362,7 +366,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
       command: "/bin/sh",
       args: ["-c", `printf '${id}-ready\\r\\n'; while IFS= read -r line; do printf '${id}:%s\\r\\n' \"$line\"; done`],
       cwd: directory,
-      env: { PATH: process.env.PATH ?? "/usr/bin:/bin", TERM: "xterm-256color" },
+      env: isolatedNativeTestEnvironment({ PATH: process.env.PATH ?? "/usr/bin:/bin", TERM: "xterm-256color" }),
       cols: 80,
       rows: 24,
     });
@@ -454,7 +458,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
     1_000;
 
   it("should kill a signal-resistant PTY tree after hard host death and forced host reaping", async () => {
-    const directory = await mkdtemp(join(tmpdir(), "h2a-native-terminal-parent-death-"));
+    const directory = await mkdtemp(join(tmpdir(), "n-"));
     directories.add(directory);
     const socketPath = join(directory, "host.sock");
     const entry = fileURLToPath(new URL("./process.ts", import.meta.url));
@@ -607,7 +611,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
   }, HARD_DEATH_BUDGET_MS);
 
   it("should refuse reconciliation when the fresh PGID lookup differs from its immutable snapshot", async () => {
-    const directory = await mkdtemp(join(tmpdir(), "h2a-native-terminal-immutable-pgid-"));
+    const directory = await mkdtemp(join(tmpdir(), "n-"));
     directories.add(directory);
     const socketPath = join(directory, "host.sock");
     const registryPath = join(directory, "registry.json");
@@ -644,7 +648,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
       command: "/bin/sh",
       args: ["-c", "trap '' HUP TERM INT; while :; do sleep 1; done"],
       cwd: directory,
-      env: { PATH: process.env.PATH ?? "/usr/bin:/bin", TERM: "xterm-256color" },
+      env: isolatedNativeTestEnvironment({ PATH: process.env.PATH ?? "/usr/bin:/bin", TERM: "xterm-256color" }),
       cols: 80,
       rows: 24,
     });
@@ -709,7 +713,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
     // The re-read decides only whether anything is still owed. It never becomes
     // the pgid to act on: see "should refuse reconciliation when the fresh PGID
     // lookup differs from its immutable snapshot" above, which holds that line.
-    const directory = await mkdtemp(join(tmpdir(), "h2a-native-terminal-rewritten-row-"));
+    const directory = await mkdtemp(join(tmpdir(), "n-"));
     directories.add(directory);
     const registryPath = join(directory, "registry.json");
     const deadOwnerPid = await persistProvenDeadOwnerRow(
@@ -772,7 +776,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
   });
 
   it("should let a FRESH host — one that never knew the session — reap it from its durably persisted pgid after brutal host death", async () => {
-    const directory = await mkdtemp(join(tmpdir(), "h2a-native-terminal-fresh-reap-"));
+    const directory = await mkdtemp(join(tmpdir(), "n-"));
     directories.add(directory);
     const socketPath = join(directory, "host.sock");
     const registryPath = join(directory, "registry.json");
@@ -856,7 +860,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
     // (cause=leader-absent) and defeated the whole mechanism. This test
     // constructs that exact shape and requires the group-carried session
     // token to close it: PROCEED and KILL, not refuse.
-    const directory = await mkdtemp(join(tmpdir(), "h2a-native-terminal-leader-dead-"));
+    const directory = await mkdtemp(join(tmpdir(), "n-"));
     directories.add(directory);
     const socketPath = join(directory, "host.sock");
     const registryPath = join(directory, "registry.json");
@@ -978,7 +982,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
     1_000;
 
   it("should stop its PTYs and remove its socket on graceful host shutdown", async () => {
-    const directory = await mkdtemp(join(tmpdir(), "h2a-native-terminal-shutdown-"));
+    const directory = await mkdtemp(join(tmpdir(), "n-"));
     directories.add(directory);
     const socketPath = join(directory, "host.sock");
     const registryPath = join(directory, "registry.json");
@@ -1018,7 +1022,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
       command: "/bin/sh",
       args: ["-c", "trap '' HUP TERM INT; printf stubborn-ready; while :; do :; done"],
       cwd: directory,
-      env: { PATH: process.env.PATH ?? "/usr/bin:/bin", TERM: "xterm-256color" },
+      env: isolatedNativeTestEnvironment({ PATH: process.env.PATH ?? "/usr/bin:/bin", TERM: "xterm-256color" }),
       cols: 80,
       rows: 24,
     });
@@ -1051,7 +1055,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
   }, GRACEFUL_SHUTDOWN_BUDGET_MS);
 
   it("should let the owning controller escalate a real stubborn PTY from TERM to KILL", async () => {
-    const directory = await mkdtemp(join(tmpdir(), "h2a-native-terminal-escalate-"));
+    const directory = await mkdtemp(join(tmpdir(), "n-"));
     directories.add(directory);
     const socketPath = join(directory, "host.sock");
     const entry = fileURLToPath(new URL("./process.ts", import.meta.url));
@@ -1087,7 +1091,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
       command: "/bin/sh",
       args: ["-c", "trap '' HUP TERM INT; printf stubborn-ready; while :; do :; done"],
       cwd: directory,
-      env: { PATH: process.env.PATH ?? "/usr/bin:/bin", TERM: "xterm-256color" },
+      env: isolatedNativeTestEnvironment({ PATH: process.env.PATH ?? "/usr/bin:/bin", TERM: "xterm-256color" }),
       cols: 80,
       rows: 24,
     });
@@ -1117,7 +1121,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
   });
 
   it("should keep the shared host and an existing real PTY alive after an exact-limit invalid request", async () => {
-    const directory = await mkdtemp(join(tmpdir(), "h2a-native-terminal-frame-limit-"));
+    const directory = await mkdtemp(join(tmpdir(), "n-"));
     directories.add(directory);
     const socketPath = join(directory, "host.sock");
     const entry = fileURLToPath(new URL("./process.ts", import.meta.url));
@@ -1155,7 +1159,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
       command: "/bin/sh",
       args: ["-c", "printf survivor-ready\\r\\n; while IFS= read -r line; do printf 'survivor:%s\\r\\n' \"$line\"; done"],
       cwd: directory,
-      env: { PATH: process.env.PATH ?? "/usr/bin:/bin", TERM: "xterm-256color" },
+      env: isolatedNativeTestEnvironment({ PATH: process.env.PATH ?? "/usr/bin:/bin", TERM: "xterm-256color" }),
       cols: 80,
       rows: 24,
     });
@@ -1224,7 +1228,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
   }, 45_000);
 
   it("should fence an old connection when a real PTY session id is reincarnated", async () => {
-    const directory = await mkdtemp(join(tmpdir(), "h2a-native-terminal-reincarnation-"));
+    const directory = await mkdtemp(join(tmpdir(), "n-"));
     directories.add(directory);
     const socketPath = join(directory, "host.sock");
     const entry = fileURLToPath(new URL("./process.ts", import.meta.url));
@@ -1264,7 +1268,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
         `printf '${marker}-ready\\r\\n'; while IFS= read -r line; do printf '${marker}:%s\\r\\n' "$line"; done`,
       ],
       cwd: directory,
-      env: { PATH: process.env.PATH ?? "/usr/bin:/bin", TERM: "xterm-256color" },
+      env: isolatedNativeTestEnvironment({ PATH: process.env.PATH ?? "/usr/bin:/bin", TERM: "xterm-256color" }),
       cols: 80,
       rows: 24,
     });
@@ -1323,7 +1327,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
   });
 
   it("should drop a slow pipelined client without affecting another real PTY", async () => {
-    const directory = await mkdtemp(join(tmpdir(), "h2a-native-terminal-backpressure-"));
+    const directory = await mkdtemp(join(tmpdir(), "n-"));
     directories.add(directory);
     const socketPath = join(directory, "host.sock");
     const entry = fileURLToPath(new URL("./process.ts", import.meta.url));
@@ -1360,7 +1364,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
       command: "/bin/sh",
       args: ["-c", "printf survivor-ready\\r\\n; while IFS= read -r line; do printf 'survivor:%s\\r\\n' \"$line\"; done"],
       cwd: directory,
-      env: { PATH: process.env.PATH ?? "/usr/bin:/bin", TERM: "xterm-256color" },
+      env: isolatedNativeTestEnvironment({ PATH: process.env.PATH ?? "/usr/bin:/bin", TERM: "xterm-256color" }),
       cols: 80,
       rows: 24,
     });
@@ -1406,7 +1410,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
   });
 
   it("should back off repeated host startup failures and preserve the diagnostic", async () => {
-    const directory = await mkdtemp(join(tmpdir(), "h2a-native-terminal-backoff-"));
+    const directory = await mkdtemp(join(tmpdir(), "n-"));
     directories.add(directory);
     await chmod(directory, 0o755);
     const socketPath = join(directory, "host.sock");
@@ -1471,7 +1475,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
     1_000;
 
   it("should reap an owned host that misses readiness before a backoff-governed replacement", async () => {
-    const directory = await mkdtemp(join(tmpdir(), "h2a-native-terminal-hung-start-"));
+    const directory = await mkdtemp(join(tmpdir(), "n-"));
     directories.add(directory);
     const socketPath = join(directory, "host.sock");
     const entry = fileURLToPath(new URL("./process.ts", import.meta.url));
@@ -1549,7 +1553,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
     1_000;
 
   it("should reap its losing owned child before adopting and later replacing a winning host", async () => {
-    const directory = await mkdtemp(join(tmpdir(), "h2a-native-terminal-adopt-reap-"));
+    const directory = await mkdtemp(join(tmpdir(), "n-"));
     directories.add(directory);
     const socketPath = join(directory, "host.sock");
     const entry = fileURLToPath(new URL("./process.ts", import.meta.url));
@@ -1645,7 +1649,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
   }, LOSING_CHILD_BUDGET_MS);
 
   it("should converge competing supervisors on one socket without repeated host spawns", async () => {
-    const directory = await mkdtemp(join(tmpdir(), "h2a-native-terminal-race-"));
+    const directory = await mkdtemp(join(tmpdir(), "n-"));
     directories.add(directory);
     const socketPath = join(directory, "host.sock");
     const entry = fileURLToPath(new URL("./process.ts", import.meta.url));
@@ -1706,7 +1710,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
   });
 
   it("should reap its dead host's durable group before adopting a replacement a competing supervisor published", async () => {
-    const directory = await mkdtemp(join(tmpdir(), "h2a-native-terminal-concurrent-adopt-"));
+    const directory = await mkdtemp(join(tmpdir(), "n-"));
     directories.add(directory);
     const socketPath = join(directory, "host.sock");
     const registryPath = join(directory, "registry.json");
@@ -1813,7 +1817,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
   });
 
   it("should refuse to publish or adopt any host while a refused reap leaves this socket's proven-dead owner unconfirmed", async () => {
-    const directory = await mkdtemp(join(tmpdir(), "h2a-native-terminal-refused-reap-"));
+    const directory = await mkdtemp(join(tmpdir(), "n-"));
     directories.add(directory);
     const socketPath = join(directory, "host.sock");
     const registryPath = join(directory, "registry.json");
@@ -1975,7 +1979,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
   const CONTAINED_HANDOUT_TEST_BUDGET_MS = 3 * CONTAINED_HANDOUT_STARTUP_BUDGET_MS;
 
   it("should surface a containment refusal from the readiness loop instead of retrying it and killing its own healthy host", async () => {
-    const directory = await mkdtemp(join(tmpdir(), "h2a-native-terminal-contained-readiness-"));
+    const directory = await mkdtemp(join(tmpdir(), "n-"));
     directories.add(directory);
     const socketPath = join(directory, "host.sock");
     const registryPath = join(directory, "registry.json");
@@ -2064,7 +2068,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
   }, CONTAINED_HANDOUT_TEST_BUDGET_MS);
 
   it("should refuse a healthy host published outside it rather than spawn a replacement beside it", async () => {
-    const directory = await mkdtemp(join(tmpdir(), "h2a-native-terminal-contained-adopt-"));
+    const directory = await mkdtemp(join(tmpdir(), "n-"));
     directories.add(directory);
     const socketPath = join(directory, "host.sock");
     const registryPath = join(directory, "registry.json");
