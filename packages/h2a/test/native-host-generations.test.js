@@ -89,7 +89,7 @@ async function eventually(read, predicate) {
 }
 
 async function withLegacy(context, body, historicalEntry = legacyEntry) {
-  assert.equal(unavailable, false, String(unavailable)); // Required evidence must never skip.
+  assert.ok(process.platform === "linux" && historicalEntry && existsSync(historicalEntry), "historical native build required"); // Required evidence must never skip.
   const root = realpathSync(mkdtempSync("/tmp/h2a-qual-"));
   const home = join(root, "home");
   const workspace = join(root, "workspace");
@@ -173,6 +173,38 @@ async function echoSession(client, fixture, id) {
     "printf 'ready\\n'; while IFS= read -r line; do printf 'echo:%s\\n' \"$line\"; done"],
     cwd: fixture.workspace, env: fixture.env, cols: 80, rows: 24 });
 }
+
+const inputFenceEntry = process.env.H2A_TEST_INPUT_FENCE_HOST_DIR && join(process.env.H2A_TEST_INPUT_FENCE_HOST_DIR, "packages/h2a-runtime/dist/native-terminal/process.js");
+test("should select an input-fenced generation over a launch-fenced older host and preserve its session", {
+  skip: !inputFenceEntry && "set H2A_TEST_INPUT_FENCE_HOST_DIR to a launch-fenced build without input fencing",
+}, async context => withLegacy(context, async fixture => {
+  assert.equal(fixture.ping.launchFence, true);
+  assert.notEqual(fixture.ping.launchInputFence, true);
+  const compatible = await compatibleHost(fixture);
+  const regular = await op(fixture, ["ensure-host", "--fenced", "true"]);
+  assert.equal(regular.payload.socketPath, fixture.socketPath);
+  const selected = await op(fixture, ["ensure-host", "--fenced", "true", "--input-fenced", "true"]);
+  assert.equal(selected.status, 0, selected.stderr);
+  assert.equal(selected.payload.socketPath, compatible.socketPath);
+  assert.equal(selected.payload.launchInputFence, true);
+  const source = `import {startNativeSession,preflightNativeLaunch} from ${JSON.stringify(pathToFileURL(runtime).href)};
+    let owner;const selected=preflightNativeLaunch('h2a-input-generation',undefined,undefined,true);
+    const started=startNativeSession('claude','/bin/bash',${JSON.stringify(fixture.workspace)},
+      ['--noprofile','--norc','-c','read -r line'],'input-generation',
+      {requireLaunchInputFence:true,beforeCreate:value=>{owner=value;}});
+    console.log(JSON.stringify({selected,started,owner}));`;
+  const launch = start(process.execPath, ["--input-type=module", "-e", source], { ...fixture.env, H2A_NATIVE_SOCKET: "" });
+  fixture.children.push(launch); launch.child.stdin.end();
+  const result = await launch.closed;
+  assert.equal(result.status, 0, result.stderr);
+  const value = JSON.parse(result.stdout);
+  assert.equal(value.owner.socketPath, compatible.socketPath);
+  assert.equal(value.selected.launchInputFence, true);
+  const explicit = await op(fixture, ["ensure-host", "--fenced", "true", "--input-fenced", "true"], { H2A_NATIVE_SOCKET: fixture.socketPath });
+  assert.equal(explicit.payload.socketPath, fixture.socketPath);
+  assert.notEqual(explicit.payload.launchInputFence, true);
+  await fixture.unchanged();
+}, inputFenceEntry));
 
 test("should retain an already-compatible historical launch host", {
   skip: process.platform !== "linux" ? unavailable : !required && unavailable,
