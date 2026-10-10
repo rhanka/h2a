@@ -35,6 +35,7 @@ export const PROFILE_AUTH_FILES: Readonly<
   // Verified: `~/.config/muse/auth.json` holds the stored provider credentials
   // (see `muse auth`); the login entrypoint is `muse login`.
   muse: [".config/muse/auth.json"],
+  vibe: [".vibe/config.toml", ".vibe/.env"],
 };
 
 export type AuthBundle = Readonly<Record<string, string>>;

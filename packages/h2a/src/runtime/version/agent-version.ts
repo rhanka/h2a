@@ -24,7 +24,8 @@ const HOST_SKILL_FILE: Record<string, (home: string) => string> = {
   agy: (home) => join(home, ".gemini", "commands", "h2a.toml"),
   hermes: (home) => join(home, ".hermes", "skills", "h2a", "SKILL.md"),
   opencode: (home) => join(home, ".config", "opencode", "skills", "h2a", "SKILL.md"),
-  muse: (home) => join(home, ".config", "muse", "skills", "h2a", "SKILL.md")
+  muse: (home) => join(home, ".config", "muse", "skills", "h2a", "SKILL.md"),
+  vibe: (home) => join(home, ".vibe", "skills", "h2a", "SKILL.md"),
 };
 
 /**

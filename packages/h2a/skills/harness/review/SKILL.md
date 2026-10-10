@@ -14,7 +14,7 @@ WorkEvent).
 Before selecting a reviewer, create a repo-local Markdown review dossier tied to the target's exact
 commit/path and, for a working-tree target, the SHA-256 of the bytes from
 `git diff HEAD --no-ext-diff`. It MUST record the author's `host`, exact `model`, and `effort`. Host means
-`claude` or `codex`, the profiles the launch operation actually accepts. **Unknown author means no
+`claude`, `codex` or `vibe`, the reviewer-capable profiles the launch operation actually accepts. **Unknown author means no
 acceptable review:** write `status: selection-failed` and `observed-failure` to that dossier, then stop;
 never infer missing metadata from the current CLI.
 
@@ -46,10 +46,14 @@ Keep legs blind and give each the same target plus a distinct adversarial lens. 
 installed h2a MCP server's `h2a_run` tool — that is how a skill user reaches the `h2a run` operation.
 The packaged Claude Code hook also refuses direct `h2a` CLI calls from Bash.
 
-The MCP call requires `profile: "claude"|"codex"`, a unique `name`, `prompt`, `background: true`, and an
+The MCP call requires `profile: "claude"|"codex"|"vibe"`, a unique `name`, `prompt`, `background: true`, and an
 absolute existing directory `workspace` that realpaths inside the MCP startup root and outside the OS temp
 directory. It optionally accepts `model`, `effort: low|medium|high|xhigh`, `gateway: auto|required|off`,
-`headless`, and `h2aSidecar`; `required` is Claude-only, so Codex uses `auto|off`.
+`headless`, and `h2aSidecar`; `required` is Claude-only, so Codex and Vibe use `auto|off`.
+A vibe leg is always direct (its own plan-billed Mistral credential), is interactive/background only
+(`headless` is rejected — `vibe -p` takes the prompt as argv), and does not carry `model`/`effort` on the
+launch argv (they are vibe config concerns: `VIBE_ACTIVE_MODEL`, `/thinking`), so a vibe candidate records
+the model id resolved through the live mesh catalog and never attests an enforced effort.
 Use no other profile or field. Never embed an endpoint or credential: h2a and the llm-mesh own accounts,
 reachability, routing, and fallback.
 
@@ -64,7 +68,7 @@ prompt. Use a machine-readable header:
 
 ```yaml
 status: dispatched|completed|failed
-reviewer-host: claude|codex
+reviewer-host: claude|codex|vibe
 reviewer-model: <declared/requested-model-id>
 reviewer-effort: <low|medium|high|xhigh>
 target-ref: <commit/path>

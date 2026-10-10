@@ -4,7 +4,7 @@ import {
   parseLlmMeshRoutingConfig,
   preferredRoutingConfig,
   strategyRoutingConfig,
-} from "./llm-routing-config.js";
+} from "./routing-preferences.js";
 
 describe("llm-mesh public routing configuration", () => {
   it("switches Codex ahead of Cloud Code without a consumer model table", () => {

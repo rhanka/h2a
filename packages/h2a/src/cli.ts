@@ -126,6 +126,7 @@ import { H2A_AGY_HOST } from "./hosts/agy.js";
 import { H2A_HERMES_HOST } from "./hosts/hermes.js";
 import { H2A_OPENCODE_HOST } from "./hosts/opencode.js";
 import { H2A_MUSE_HOST } from "./hosts/muse.js";
+import { H2A_VIBE_HOST } from "./hosts/vibe.js";
 import {
   doctorHostInstallations,
   findLiveSessionsPredatingHostConfig,
@@ -386,7 +387,8 @@ const CLI_HOSTS = [
   H2A_AGY_HOST,
   H2A_HERMES_HOST,
   H2A_OPENCODE_HOST,
-  H2A_MUSE_HOST
+  H2A_MUSE_HOST,
+  H2A_VIBE_HOST
 ] as const;
 
 export function renderCliHelp(): string {
@@ -466,14 +468,14 @@ export function renderCliHelp(): string {
     "  h2a drumbeat escalations [--root <path>]",
     "  h2a drumbeat relance-inbox [--instance <id>] [--relauncher logging|local-tmux|headless|auto] [--root <path>]",
     "  h2a drumbeat watch [--interval-ms <n>] [--max-relances <n>] [--relauncher logging|local-tmux|remote|headless|auto] [--instance <signer> --private-key <pem>] [--decider logging|<command>] [--decider-after <k>] [--decider-enforce] [--root <path>]",
-    "  h2a host setup --host <codex|claude|gemini|agy|hermes|opencode|muse> [--endpoint local|remote] [--url <https://…/mcp>] [--root <path>] [--print | --write <file>] [--force] [--no-wake]   (selects exactly one h2a endpoint; local renders mcp-serve --auto-open --auto-upgrade --wake auto by default)",
+    "  h2a host setup --host <codex|claude|gemini|agy|hermes|opencode|muse|vibe> [--endpoint local|remote] [--url <https://…/mcp>] [--root <path>] [--print | --write <file>] [--force] [--no-wake]   (selects exactly one h2a endpoint; local renders mcp-serve --auto-open --auto-upgrade --wake auto by default)",
     "  h2a host status [--host <name>]",
-    "  h2a host plugin --host <codex|claude|gemini|agy|hermes|opencode|muse> --instance <id> [--status <work-status>] [--root <path>] [--write <settings.json> [--force]] [--scaffold <dir>]   (--write installs the Stop hook for claude|gemini|codex|hermes|opencode; --scaffold writes codex's full local marketplace + trust step; agy and muse are poll-only)",
+    "  h2a host plugin --host <codex|claude|gemini|agy|hermes|opencode|muse|vibe> --instance <id> [--status <work-status>] [--root <path>] [--write <settings.json> [--force]] [--scaffold <dir>]   (--write installs the Stop hook for claude|gemini|codex|hermes|opencode; --scaffold writes codex's full local marketplace + trust step; vibe records via a post_agent hook in ~/.vibe/hooks.toml; agy and muse are poll-only)",
     "  h2a store migrate [--from <v>] [--to <v>] [--sanitize-paths] [--dry-run] [--root <path>]",
     "  h2a store index-launch --root <absolute-path> (derived indexes; original logs retained)",
     "",
     "High-level coordination (DEC-054):",
-    "  h2a connect --host <codex|claude|gemini|agy|hermes|opencode|muse|remote> [--root <path>] [--instance <id>] [--name <display>]",
+    "  h2a connect --host <codex|claude|gemini|agy|hermes|opencode|muse|vibe|remote> [--root <path>] [--instance <id>] [--name <display>]",
     "  h2a conductor [--workspace <id|path>] [--root <path>]   (who is the live conductor/owner of a workspace — derived from presence; conductor=role CONDUCTOR if set, else null; candidates=in-workspace live agents)",
     "  h2a conductor-launch-check [--workspace <id|path>] [--root <path>] [--idle-ms <ms>]   (DRY-RUN: polls track workspace-activity; recommends launching a conductor if work is stalled and none is live — h2a does NOT spawn; launch parked pending spawn policy + remote)",
     "  h2a conductor-launch --workspace <id|path> [--root <path>] [--idle-ms <ms>] [--confirm] [--remote <instance>] [--instance <self>]   (D3 EMIT: if stalled+no conductor, emits a launch-REQUEST envelope to a live remote agent — gated by --confirm + 1/30min/workspace cap; h2a NEVER spawns; remote does the actual spawn)",
@@ -497,7 +499,7 @@ export function renderCliHelp(): string {
     "  h2a blockage list [--scope <s>] [--active] [--root <path>]",
     "  h2a blockage resolve --instance <id> [--by <id>] [--root <path>]",
     "  h2a sysml verify --json <envelope> --public-key <pem-file> [--by <id>] [--content-integrity --api-base <url> [--auth <token>]]",
-    "  h2a install-skills --host <claude|codex|gemini|agy|muse> [--scope user|project] [--force]",
+    "  h2a install-skills --host <claude|codex|gemini|agy|muse|vibe> [--scope user|project] [--force]",
     "  h2a deploy k8s-sidecar [--instance <id>] [--host <h>] [--root <path>] [--image <ref>] [--cli-version <ver>] [--write <file>]",
     "  h2a deploy k8s-tenant [--namespace <ns>] [--root <path>] [--replicas <n>] [--storage <size>] [--storage-class <sc>] [--lease-ms <ms>] [--image <ref>] [--cli-version <ver>] [--write <file>]",
     "  h2a loop create --name <n> --goal <text> [--auto-tick] [--repo <path[:role]>] [--track <json>] [--agent <host:role:placement> [--launch-stdin]] [--root <path>]",
@@ -4307,6 +4309,7 @@ function isUnsupportedHostWritePath(host: string, path: string): boolean {
   // configuration is stronger than a convenient write path.
   return (
     (host === "codex" && normalized.endsWith(".toml")) ||
+    (host === "vibe" && normalized.endsWith(".toml")) ||
     (host === "hermes" && (normalized.endsWith(".yaml") || normalized.endsWith(".yml"))) ||
     (host === "opencode" && normalized.endsWith(".jsonc"))
   );
@@ -4443,6 +4446,8 @@ function cmdHostSetup(
     snippet = H2A_OPENCODE_HOST.renderMcpConfig(renderOpts);
   } else if (host === "muse") {
     snippet = H2A_MUSE_HOST.renderMcpConfig(renderOpts);
+  } else if (host === "vibe") {
+    snippet = H2A_VIBE_HOST.renderMcpConfig(renderOpts);
   } else {
     streams.stderr.write(
       `h2a host setup: unknown --host "${host}". Supported: ${CLI_HOSTS.map((h) => h.host).join(", ")}.\n`
@@ -4770,6 +4775,17 @@ function cmdHostPlugin(flags: Record<string, string>, streams: H2ACliStreams): n
   // verified against `~/.codex/.../hooks/hooks.json`). agy is poll-only (no
   // daemon), so --write is refused for it and the rendered hook + hint surface.
   if (flags.write) {
+    // Vibe's hook file is `~/.vibe/hooks.toml` — TOML, and the JSON hook merger
+    // is deliberately format-strict (same refusal as `host setup --write` for
+    // TOML targets): --print carries the rendered record + the TOML placement
+    // hint. agy/muse are poll-only (no verified stop-hook surface at all).
+    if (flags.host === "vibe") {
+      streams.stderr.write(
+        `h2a host plugin: --write is not available for vibe (~/.vibe/hooks.toml is TOML and the hook merger is format-strict). ` +
+          `Register the rendered record command as a post_agent hook; --print carries the TOML translation.\n`
+      );
+      return 1;
+    }
     if (flags.host === "agy" || flags.host === "muse") {
       streams.stderr.write(
         `h2a host plugin: --write is not available for ${flags.host} (poll-only, no verified stop-hook surface). ` +
@@ -5840,6 +5856,7 @@ function cmdDoctor(
         "hermes",
         "opencode",
         "muse",
+        "vibe",
         "remote"
       ]);
 
@@ -6376,17 +6393,17 @@ function cmdConnect(
 ): number {
   if (!flags.host) {
     streams.stderr.write(
-      "h2a connect: --host <codex|claude|gemini|agy|hermes|opencode|muse|remote> is required\n"
+      "h2a connect: --host <codex|claude|gemini|agy|hermes|opencode|muse|vibe|remote> is required\n"
     );
     return 1;
   }
   if (
-    !["codex", "claude", "gemini", "agy", "hermes", "opencode", "muse", "remote"].includes(
+    !["codex", "claude", "gemini", "agy", "hermes", "opencode", "muse", "vibe", "remote"].includes(
       flags.host
     )
   ) {
     streams.stderr.write(
-      `h2a connect: unknown --host "${flags.host}". Supported: codex, claude, gemini, agy, hermes, opencode, muse, remote.\n`
+      `h2a connect: unknown --host "${flags.host}". Supported: codex, claude, gemini, agy, hermes, opencode, muse, vibe, remote.\n`
     );
     return 1;
   }
@@ -6589,6 +6606,25 @@ function targetSpecFor(
         ? join(resolveHostConfigRoot("codex"), "skills")
         : join(homedir(), homeDir, "skills"),
       projectBase: join(cwd, projectDir, "skills"),
+      extension: "SKILL.md",
+      write: (base, skillName, _parsed, raw) => {
+        const dir = join(base, skillName);
+        mkdirSync(dir, { recursive: true });
+        const target = join(dir, "SKILL.md");
+        writeFileSync(target, raw, "utf8");
+        return target;
+      }
+    };
+  }
+  if (host === "vibe") {
+    // Vibe (Mistral Vibe CLI) uses the standard SKILL.md format, discovered
+    // from ~/.vibe/skills/ (user scope) or <project>/.vibe/skills/ (project
+    // scope requires a trusted folder). Verified against the unified harness:
+    // installed skills are listed at session open.
+    return {
+      host: "vibe",
+      userBase: join(homedir(), ".vibe", "skills"),
+      projectBase: join(cwd, ".vibe", "skills"),
       extension: "SKILL.md",
       write: (base, skillName, _parsed, raw) => {
         const dir = join(base, skillName);
@@ -6888,7 +6924,7 @@ function cmdInstallSkills(
   const host = flags.host;
   if (!host) {
     streams.stderr.write(
-      "h2a install-skills: --host <claude|codex|gemini|agy|hermes|opencode|muse> is required\n"
+      "h2a install-skills: --host <claude|codex|gemini|agy|hermes|opencode|muse|vibe> is required\n"
     );
     return 1;
   }
@@ -6896,7 +6932,7 @@ function cmdInstallSkills(
   const spec = targetSpecFor(host, cwd());
   if (!spec) {
     streams.stderr.write(
-      `h2a install-skills: unknown --host "${host}". Supported: claude, codex, gemini, agy, hermes, opencode, muse.\n`
+      `h2a install-skills: unknown --host "${host}". Supported: claude, codex, gemini, agy, hermes, opencode, muse, vibe.\n`
     );
     return 1;
   }
@@ -6980,6 +7016,11 @@ function cmdInstallSkills(
         // step — verify pickup with `muse skills list`.
         ...(host === "muse"
           ? { verifyHint: "muse skills list   # project scope (.muse/skills) needs workspace trust" }
+          : {}),
+        // vibe ships the standard SKILL.md layout under ~/.vibe/skills
+        // (verified: the unified harness lists installed skills at open).
+        ...(host === "vibe"
+          ? { verifyHint: "vibe   # skills load at session open; project scope (.vibe/skills) needs workspace trust" }
           : {})
       },
       null,
