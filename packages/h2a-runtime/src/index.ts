@@ -133,7 +133,7 @@ import {
 import { startLaunchGuard, type LaunchGuard, type LaunchOwnership } from "./launch-guard.js";
 import { deliverClaudeNativePrompt } from "./claude-native-driver.js";
 import { acquireLaunchSlot, releaseLaunchSlot, accountLaunchProcess, DEFAULT_RESIDENT_BYTES } from "./launch-capacity.js";
-import { updateLaunchReceipt, withLaunchReceipt } from "./launch-receipt.js";
+import { updateLaunchReceipt, withLaunchReceipt, launchAttemptDetails, launchAttemptDetailsFromFile } from "./launch-receipt.js";
 import { startClaudeDiagnostic } from "./claude-diagnostic.js";
 import { claudeTranscriptPath, correlatedClaudeResponse, correlatedClaudePrompt } from "./claude-transcript.js";
 import { QUALIFIED_CLAUDE_NATIVE_VERSIONS } from "./claude-native-qualification.js";
@@ -6284,6 +6284,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           const result = same && prior.result ? prior.result as Record<string, unknown> : {
             kind: 'h2a.run.failure', version: 1, state: same ? 'launch-unconfirmed' : 'not-started', launchId: slugify(opts.name ?? cwd),
             error: same ? 'durable attempt already exists; no prompt was resubmitted' : 'launch name conflicts with another durable attempt',
+            attempt: launchAttemptDetails(prior, same ? 'dispatch or correlated response' : 'matching launch parameters'),
             stopped: false, retrySafe: false, attach: { command: 'h2a', args: ['attach', slugify(opts.name ?? cwd)] },
           };
           if (opts.json) process.stdout.write(JSON.stringify(result)+'\n');
@@ -6323,7 +6324,11 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           ? setNativeLaunchDeadline(launchRequestedAt + 15000) : undefined;
         try {
         if (structuredLaunch && sessionHost === "native") {
-          for (const label of labels) preflightNativeLaunch(localSessionName(slugify(label ?? cwd)));
+          for (const label of labels) {
+            const selected = preflightNativeLaunch(localSessionName(slugify(label ?? cwd)));
+            if (nativeClaudeRequest && !selected.launchInputFence)
+              throw new NativeHostCapabilityMismatchError(selected, "launchInputFence");
+          }
         }
         const reservedTmuxSlugs = tmuxAvailable()
           ? existingLocalSessionSlugs(labels, cwd)
@@ -6549,7 +6554,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             mkdirSync(runDir, { recursive: true, mode: 0o700 });
             updateLaunchReceipt(join(runDir, "launch.json"), process.env.H2A_RUN_LAUNCH_TOKEN,
               { state: "reserved", inputHash, parameterHash, providerVersion, diagnosticQualified: qualifiedProfile && QUALIFIED_CLAUDE_NATIVE_VERSIONS.includes(providerVersion ?? ""),
-                conversationId: opts.resume ?? reservedConvId, requiredMcps, requestedAt: launchRequestedAt });
+                conversationId: opts.resume ?? reservedConvId, requiredMcps, requestedAt: launchRequestedAt, inputEpoch: 0 });
             diagnostic = startClaudeDiagnostic(runDir);
             diagnosticCleanup = diagnostic.stop;
           }
@@ -6812,7 +6817,8 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
                   name,
                   initialPrompt,
                   launchOwnership?.host === "native" && launchOwnership.sessions[0]
-                    ? (claudeDeliveryDeps = nativeClaudeDeliveryDeps(launchOwnership.sessions[0], launchRequestedAt + 15000))
+                    ? (claudeDeliveryDeps = nativeClaudeDeliveryDeps(launchOwnership.sessions[0], launchRequestedAt + 15000,
+                        epoch => updateLaunchReceipt(join(runDir, "launch.json"), process.env.H2A_RUN_LAUNCH_TOKEN, { inputEpoch: epoch })))
                     : nativePromptDeliveryDeps(sleepSync),
                   {
                     launchGuard,
@@ -6916,17 +6922,21 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
                 if (promptDelivery.state === "provider-blocked") {
                   const failure = { kind: "h2a.run.failure", version: 1,
                     state: "provider-blocked", launchId: slug, error: promptDelivery.reason,
+                    attempt: launchAttemptDetailsFromFile(join(runDir, "launch.json"), promptDelivery.reason),
                     stopped, retrySafe: false, prompt: { delivered: true, waitedMs: deliveryWaitedMs },
                     attach: { command: "h2a", args: ["attach", slug] } };
                   if (nativeClaudeLaunch) updateLaunchReceipt(join(runDir, "launch.json"), process.env.H2A_RUN_LAUNCH_TOKEN, { state: failure.state, result: failure });
                   process.stdout.write(`${JSON.stringify(failure)}\n`);
                 } else if (wasSubmitted) {
-                  process.stdout.write(`${JSON.stringify({ kind: "h2a.run.failure", version: 1,
+                  const failure = { kind: "h2a.run.failure", version: 1,
                     state: "launch-unconfirmed", launchId: slug, error: detail,
+                    attempt: launchAttemptDetailsFromFile(join(runDir, "launch.json"), detail),
                     stopped: false, retrySafe: false,
                     prompt: { delivered: true, submitAttempted: true, waitedMs: deliveryWaitedMs },
                     attach: { command: "h2a", args: ["attach", slug] },
-                  })}\n`);
+                  };
+                  if (nativeClaudeLaunch) updateLaunchReceipt(join(runDir, "launch.json"), process.env.H2A_RUN_LAUNCH_TOKEN, { state: failure.state, result: failure });
+                  process.stdout.write(`${JSON.stringify(failure)}\n`);
                 } else {
                   const failure = { kind: "h2a.run.failure", version: 1, state: stopped ? "stopped" : "cleanup-failed", launchId: slug,
                     error: detail, stopped, retrySafe: false };
@@ -6962,6 +6972,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             );
             if (opts.json && launchGuard?.isSubmitAttempted()) process.stdout.write(`${JSON.stringify({ kind: "h2a.run.failure", version: 1,
               state: "launch-unconfirmed", launchId: slug, error: "agent PID verification failed after potential submission", stopped: false, retrySafe: false,
+              attempt: launchAttemptDetailsFromFile(join(runDir, "launch.json"), "agent PID verification"),
               attach: { command: "h2a", args: ["attach", slug] } })}\n`);
             process.exitCode = 1;
             return;
@@ -7106,6 +7117,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
                 const failure = { kind: "h2a.run.failure", version: 1,
                   state: (error as Error).message === "provider refusal observed before launch publication" ? "provider-blocked" : "launch-unconfirmed",
                   launchId: opts.name, error: (error as Error).message, stopped: false, retrySafe: false,
+                  attempt: launchAttemptDetails(receipt, (error as Error).message),
                   attach: { command: "h2a", args: ["attach", opts.name] } };
                 updateLaunchReceipt(join(cwd, ".h2a", "runs", opts.name, "launch.json"), process.env.H2A_RUN_LAUNCH_TOKEN, { state: failure.state, result: failure });
                 if (opts.json) process.stdout.write(`${JSON.stringify(failure)}\n`);
@@ -7116,6 +7128,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
               if (creationAttempted) {
                 if (opts.json) process.stdout.write(`${JSON.stringify({ kind: "h2a.run.failure", version: 1,
                   state: "launch-unconfirmed", launchId: opts.name, error: "launch receipt unreadable after creation; potential submission remains unconfirmed",
+                  attempt: launchAttemptDetails(undefined, "readable durable launch receipt"),
                   stopped: false, retrySafe: false, attach: { command: "h2a", args: ["attach", opts.name] } })}\n`);
                 process.exitCode = 1; return;
               }

@@ -1229,6 +1229,7 @@ export class NativeTerminalHost {
     expectedGeneration: string,
     expectedIncarnation: string,
     signal: NativeTerminalStopSignal = "SIGTERM",
+    expectedInputEpoch?: number,
   ): NativeTerminalSessionState {
     if (expectedGeneration !== this.#generation) {
       throw new Error("stale terminal host generation");
@@ -1237,6 +1238,8 @@ export class NativeTerminalHost {
     if (record.incarnation !== expectedIncarnation) {
       throw new Error("stale terminal session incarnation");
     }
+    if (expectedInputEpoch !== undefined && record.controllerEpoch !== expectedInputEpoch)
+      throw new Error("launch input epoch changed; cleanup refused");
     const previousStatus = record.status;
     const previousSignal = record.stopSignal;
     record.status = "stopping";

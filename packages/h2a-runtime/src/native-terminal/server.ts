@@ -172,6 +172,7 @@ function dispatch(host: NativeTerminalHost, context: ConnectionContext, request:
     case "ping":
       return {
         launchFence: true,
+        launchInputFence: true,
         generation: host.generation,
         hostPid: process.pid,
         protocolVersion: NATIVE_TERMINAL_PROTOCOL_VERSION,
@@ -265,6 +266,7 @@ function dispatch(host: NativeTerminalHost, context: ConnectionContext, request:
         requiredIdentifier(record.generation, "host generation"),
         requiredIdentifier(record.incarnation, "session incarnation"),
         record.signal,
+        record.inputEpoch === undefined ? undefined : requiredNonNegativeInteger(record.inputEpoch, "input epoch"),
       );
     }
   }
