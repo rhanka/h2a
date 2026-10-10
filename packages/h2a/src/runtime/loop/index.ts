@@ -119,7 +119,8 @@ export interface H2ALoopAgent {
     | "hermes"
     | "opencode"
     | "shell"
-    | "muse";
+    | "muse"
+    | "vibe";
   readonly driver?: string;
   readonly role: string;
   readonly placement:

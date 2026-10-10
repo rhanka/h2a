@@ -20,6 +20,7 @@ export type H2AHostPluginMechanism =
   | "agy-plugin-poll"
   | "hermes-hooks"
   | "muse-poll"
+  | "vibe-hooks"
   | "opencode-plugin";
 
 export interface H2AHostPluginTarget {
@@ -33,7 +34,7 @@ export interface H2AHostPluginTarget {
   readonly push: boolean;
 }
 
-/** The supported hosts, at parity (codex/claude/gemini/agy/hermes/muse/opencode). */
+/** The supported hosts, at parity (codex/claude/gemini/agy/hermes/muse/vibe/opencode). */
 export const H2A_HOST_PLUGIN_TARGETS: Readonly<Record<string, H2AHostPluginTarget>> = {
   claude: {
     host: "claude",
@@ -83,6 +84,21 @@ export const H2A_HOST_PLUGIN_TARGETS: Readonly<Record<string, H2AHostPluginTarge
     mechanism: "muse-poll",
     push: false,
     hint: "muse exposes no verified stop-hook surface: poll `h2a drumbeat scan` / `h2a blockage list`, and run the record command on clean quit where a hook exists. Skills install to $CONFIG_DIR/skills (verified) via `h2a install-skills --host muse`."
+  },
+  // Vibe ships lifecycle hooks (verified against the shipped CLI v2.26.0):
+  // `~/.vibe/hooks.toml` `[[hooks]]` with type `post_agent` runs a shell command
+  // once per turn after the agent finishes responding — the same stop cadence as
+  // Claude's Stop hook, so the record command is push-delivered there. Vibe has
+  // NO prompt-level hook (only post_agent / pre_tool / post_tool), so the drive
+  // receive gate has no wiring and polling stays the fallback. The hook file is
+  // TOML, so `host plugin --write` (JSON, format-strict) refuses it and --print
+  // carries the TOML translation.
+  vibe: {
+    host: "vibe",
+    resumeCommand: "vibe -c",
+    mechanism: "vibe-hooks",
+    push: true,
+    hint: "Register the record command as a `post_agent` hook in `~/.vibe/hooks.toml` ([[hooks]] name = \"h2a-drumbeat-record\", type = \"post_agent\", command = <record>). Vibe has no prompt-level hook, so the drive receive gate is not wired; poll `h2a drumbeat scan` / `h2a blockage list` as the fallback. Skills install to `~/.vibe/skills/h2a` via `h2a install-skills --host vibe`."
   }
 };
 

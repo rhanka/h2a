@@ -442,7 +442,7 @@ test("install-skills rejects unknown host", () => {
       streams
     );
     assert.equal(rc, 1);
-    assert.match(streams.stderrText, /Supported: claude, codex, gemini, agy, hermes, opencode, muse\./);
+    assert.match(streams.stderrText, /Supported: claude, codex, gemini, agy, hermes, opencode, muse, vibe\./);
   } finally {
     rmSync(cwd, { recursive: true, force: true });
   }
