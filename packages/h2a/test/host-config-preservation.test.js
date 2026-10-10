@@ -1,11 +1,32 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { runCli } from "../dist/index.js";
-import { runCli as runCli0980 } from "../../../tmp/mcp-evidence/v0980/package/dist/index.js";
+
+const FIXTURE_TGZ = fileURLToPath(new URL("./fixtures/sentropic-h2a-0.98.0.tgz", import.meta.url));
+const EXPECTED_SHA256 = "3de15d2ebce30ef5b27748ad06696844980c3c3d2ac5dfd4c6f5f7ff8c66d9a3";
+
+async function load0980Cli() {
+  const content = readFileSync(FIXTURE_TGZ);
+  const actualHash = createHash("sha256").update(content).digest("hex");
+  assert.equal(actualHash, EXPECTED_SHA256, "0.98.0 fixture SHA256 integrity check");
+  const targetDir = fileURLToPath(new URL("../../../.qual-tmp/h2a-v0980", import.meta.url));
+  mkdirSync(targetDir, { recursive: true });
+  execFileSync("tar", ["-xzf", FIXTURE_TGZ, "-C", targetDir]);
+  const entryPath = join(targetDir, "package", "dist", "index.js");
+  const mod = await import(pathToFileURL(entryPath).href);
+  process.on("exit", () => {
+    try { rmSync(targetDir, { recursive: true, force: true }); } catch {}
+  });
+  return { runCli0980: mod.runCli, targetDir };
+}
+
+const { runCli0980, targetDir: targetDir0980 } = await load0980Cli();
 
 const healthy = () => ({ ok: true, hosts: [{ host: "claude", ok: true, unrepaired: [] }] });
 function setup(path, extra = []) {
@@ -106,7 +127,24 @@ test("0.98.0 binary destruction reproduced on evidenced fixture and prevented by
     const backups0980 = readdirSync(dir).filter(name => name.startsWith("host-0980.json.backup-"));
     assert.equal(backups0980.length, 0, "0.98.0 created no backup");
 
-    // 2. Candidate behavior on the exact same evidenced fixture
+    // 2. Direct execution of the published 0.98.0 binary on airbus-genair-d2d production fixture
+    const pathAirbus0980 = join(dir, "host-airbus-0980.json");
+    const airbusOriginal = '{\n  "mcpServers": {\n    "graphify-ts": {\n      "command": "npx.cmd",\n      "args": [\n        "--yes",\n        "@mohammednagy/graphify-ts@0.23.1",\n        "serve",\n        "--stdio",\n        "C:\\\\Users\\\\kwil73px\\\\Documents\\\\GitHub\\\\d2d\\\\graphify-out\\\\graph.json"\n      ],\n      "env": {\n        "GRAPHIFY_TOOL_PROFILE": "core"\n      }\n    }\n  }\n}\n';
+    writeFileSync(pathAirbus0980, airbusOriginal, { mode: 0o600 });
+    const codeAirbus0980 = runCli0980(
+      ["host", "setup", "--host", "claude", "--write", pathAirbus0980],
+      { stdout: { write() {} }, stderr: { write() {} }, cwd: () => dir },
+      { doctorHostInstallations: () => ({ ok: true, hosts: [{ host: "claude", ok: true, unrepaired: [] }] }) }
+    );
+    assert.equal(codeAirbus0980, 0);
+    const writtenAirbus0980 = readFileSync(pathAirbus0980, "utf8");
+    const parsedAirbus0980 = JSON.parse(writtenAirbus0980);
+    // Under 0.98.0 host setup, graphify-ts is NOT deleted (graphifyPreserved: true), but file is reformatted without backup
+    assert.deepEqual(parsedAirbus0980.mcpServers["graphify-ts"], JSON.parse(airbusOriginal).mcpServers["graphify-ts"]);
+    const backupsAirbus0980 = readdirSync(dir).filter(name => name.startsWith("host-airbus-0980.json.backup-"));
+    assert.equal(backupsAirbus0980.length, 0, "0.98.0 created no backup on airbus fixture");
+
+    // 3. Candidate behavior on the exact same evidenced fixture
     writeFileSync(pathCandidate, original, { mode: 0o640 });
     assert.equal(setup(pathCandidate).code, 0);
     const writtenCandidate = readFileSync(pathCandidate, "utf8");
@@ -124,17 +162,22 @@ test("0.98.0 binary destruction reproduced on evidenced fixture and prevented by
     assert.equal(backupsCandidate.length, 1, "candidate created exact backup");
     assert.equal(readFileSync(join(dir, backupsCandidate[0]), "utf8"), original);
 
-    // 3. Candidate behavior on the actual airbus-genair-d2d production fixture
-    const pathAirbus = join(dir, "host-airbus.json");
-    const airbusOriginal = '{\n  "mcpServers": {\n    "graphify-ts": {\n      "command": "npx.cmd",\n      "args": [\n        "--yes",\n        "@mohammednagy/graphify-ts@0.23.1",\n        "serve",\n        "--stdio",\n        "C:\\\\Users\\\\kwil73px\\\\Documents\\\\GitHub\\\\d2d\\\\graphify-out\\\\graph.json"\n      ],\n      "env": {\n        "GRAPHIFY_TOOL_PROFILE": "core"\n      }\n    }\n  }\n}\n';
-    writeFileSync(pathAirbus, airbusOriginal, { mode: 0o600 });
-    assert.equal(setup(pathAirbus).code, 0);
-    const writtenAirbus = readFileSync(pathAirbus, "utf8");
-    const parsedAirbus = JSON.parse(writtenAirbus);
-    assert.deepEqual(parsedAirbus.mcpServers["graphify-ts"], JSON.parse(airbusOriginal).mcpServers["graphify-ts"]);
-    assert.ok(writtenAirbus.includes("@mohammednagy/graphify-ts@0.23.1"));
+    // 4. Candidate behavior on the actual airbus-genair-d2d production fixture
+    const pathAirbusCandidate = join(dir, "host-airbus-candidate.json");
+    writeFileSync(pathAirbusCandidate, airbusOriginal, { mode: 0o600 });
+    assert.equal(setup(pathAirbusCandidate).code, 0);
+    const writtenAirbusCandidate = readFileSync(pathAirbusCandidate, "utf8");
+    const parsedAirbusCandidate = JSON.parse(writtenAirbusCandidate);
+    assert.deepEqual(parsedAirbusCandidate.mcpServers["graphify-ts"], JSON.parse(airbusOriginal).mcpServers["graphify-ts"]);
+    assert.ok(writtenAirbusCandidate.includes("@mohammednagy/graphify-ts@0.23.1"));
+    const backupsAirbusCandidate = readdirSync(dir).filter(name => name.startsWith("host-airbus-candidate.json.backup-"));
+    assert.equal(backupsAirbusCandidate.length, 1, "candidate created exact backup for airbus fixture");
+    assert.equal(readFileSync(join(dir, backupsAirbusCandidate[0]), "utf8"), airbusOriginal);
   } finally {
     rmSync(dir, { recursive: true, force: true });
+    if (targetDir0980 && existsSync(targetDir0980)) {
+      rmSync(targetDir0980, { recursive: true, force: true });
+    }
   }
 });
 
