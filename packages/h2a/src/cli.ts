@@ -3850,9 +3850,9 @@ function nativePtyBackchannelDriver(log: (line: string) => void, env: NodeJS.Pro
           outcome = undefined;
         }
       }
-      if (outcome === "unresolved") return undefined;
       const ok = outcome === "driven";
       log(`drive[native-pty]: ${request.to} (${ok ? "ok" : "failed"})`);
+      if (outcome === "unresolved") return undefined;
       return ok;
     },
   });
