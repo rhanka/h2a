@@ -42,7 +42,9 @@ function resolvedPath(path, depth = 0) {
 test("should refuse owner runtime paths, escaping symlinks and uncontained paths before starting any process", {
   skip: process.platform !== "linux" && "Linux qualification path guard",
 }, () => {
-  const root = realpathSync(mkdtempSync("/tmp/h2a-qual-"));
+  const qualRoot = join(repo, ".qual-tmp");
+  mkdirSync(qualRoot, { recursive: true });
+  const root = realpathSync(mkdtempSync(join(qualRoot, "p")));
   try {
     for (const path of ["/run/user/1000/h2a-nt/socket", "/run/user/1000/h2a-nt/../h2a-nt/socket", "/tmp/outside-qualification/socket"]) {
       assert.throws(() => assertPrivatePaths(root, [path]), /REFUSING/);
@@ -88,19 +90,57 @@ async function eventually(read, predicate) {
   }
 }
 
+function assertIsolatedEnvironment(env, qualRoot) {
+  const forbiddenExact = [
+    "/run/user/1000/h2a-nt",
+    "/home/antoinefa",
+    "/home/antoinefa/.local/state",
+    "/home/antoinefa/.config",
+  ];
+  const forbiddenPrefixes = [
+    "/run/user/1000/h2a-nt/",
+    "/home/antoinefa/.local/state/",
+    "/home/antoinefa/.config/",
+  ];
+  for (const key of ["HOME", "XDG_RUNTIME_DIR", "XDG_STATE_HOME", "XDG_CONFIG_HOME"]) {
+    const val = env[key];
+    assert.ok(typeof val === "string" && val.length > 0, `Missing required isolation env ${key}`);
+    const resolved = resolve(val);
+    for (const bad of forbiddenExact) {
+      assert.ok(resolved !== bad, `REFUSING unisolated environment: ${key}=${resolved} matches owner directory ${bad}`);
+    }
+    for (const bad of forbiddenPrefixes) {
+      assert.ok(!resolved.startsWith(bad), `REFUSING unisolated environment: ${key}=${resolved} resolves inside owner directory ${bad}`);
+    }
+    assert.ok(!resolved.includes("/.cache-tmp/h2a-"), `REFUSING unisolated environment: ${key}=${resolved} in owner cache-tmp`);
+    const rel = relative(qualRoot, resolved);
+    assert.ok(
+      rel === "" || (!rel.startsWith("..") && !rel.startsWith("/")),
+      `REFUSING environment outside qualification root: ${key}=${resolved} (qualRoot=${qualRoot})`,
+    );
+  }
+}
+
 async function withLegacy(context, body, historicalEntry = legacyEntry) {
   assert.equal(unavailable, false, String(unavailable)); // Required evidence must never skip.
-  const root = realpathSync(mkdtempSync("/tmp/h2a-qual-"));
+  const qualRoot = join(repo, ".qual-tmp");
+  mkdirSync(qualRoot, { recursive: true });
+  const root = realpathSync(mkdtempSync(join(qualRoot, "g")));
   const home = join(root, "home");
+  const stateHome = join(home, ".local/state");
+  const configHome = join(home, ".config");
   const workspace = join(root, "workspace");
   const socketPath = join(root, "h2a-nt", "native-terminal.sock");
   const registryPath = join(home, ".config/sentropic/h2a/registry.json");
   const env = { PATH: "/usr/bin:/bin", HOME: home, XDG_RUNTIME_DIR: root,
-    XDG_CONFIG_HOME: join(home, ".config"), REMOTE_CLI_CONFIG_HOME: home,
+    XDG_STATE_HOME: stateHome,
+    XDG_CONFIG_HOME: configHome, REMOTE_CLI_CONFIG_HOME: home,
+    NODE_PATH: join(repo, "node_modules"),
     H2A_ROOT: join(workspace, ".h2a"), H2A_SESSION_HOST: "native",
     H2A_NATIVE_SOCKET: socketPath, TMPDIR: join(root, "tmp"), TMUX_TMPDIR: join(root, "tmp"), TERM: "xterm-256color" };
-  for (const path of [home, workspace, env.TMPDIR]) mkdirSync(path, { mode: 0o700 });
-  assertPrivatePaths(root, [home, workspace, socketPath, registryPath, env.XDG_CONFIG_HOME, env.H2A_ROOT, env.TMPDIR,
+  for (const path of [home, workspace, stateHome, configHome, env.TMPDIR]) mkdirSync(path, { recursive: true, mode: 0o700 });
+  assertIsolatedEnvironment(env, qualRoot);
+  assertPrivatePaths(root, [home, workspace, stateHome, configHome, socketPath, registryPath, env.XDG_CONFIG_HOME, env.H2A_ROOT, env.TMPDIR,
     defaultNativeTerminalSocketPath(env)]);
   assert.equal(defaultNativeTerminalSocketPath(env), socketPath);
   context.diagnostic(`isolation: ${JSON.stringify({ root, socketPath, home, registryPath, workspace })}`);

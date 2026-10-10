@@ -11,7 +11,11 @@ import { readProcessStartTime } from "../../h2a-runtime/dist/native-terminal/hos
 const repo = resolve(import.meta.dirname, "../../..");
 const terminal = join(repo, "packages/h2a-runtime/dist/native-terminal");
 const native = pathToFileURL(join(repo, "packages/h2a-runtime/dist/native-host.js")).href;
-const legacy = process.env.H2A_TEST_LEGACY_HOST_DIR;
+const legacyDir = process.env.H2A_TEST_LEGACY_HOST_DIR;
+const legacyEntry = legacyDir && join(legacyDir, "packages/h2a-runtime/dist/native-terminal/process.js");
+const legacyUnavailable = process.platform !== "linux" ? "historical native PTY qualification requires Linux"
+  : !legacyEntry || !existsSync(legacyEntry) ? "legacy build unavailable: set H2A_TEST_LEGACY_HOST_DIR to a build of 89bbd9af^" : false;
+const legacyRequired = process.env.H2A_TEST_REQUIRE_LEGACY_HOST === "1";
 
 function assertIsolatedEnvironment(env, qualRoot) {
   const forbiddenExact = [
@@ -44,10 +48,33 @@ function assertIsolatedEnvironment(env, qualRoot) {
   }
 }
 
+test("should prove isolation guard fails if any environment variable resolves to owner directories", () => {
+  const qualRoot = join(repo, ".qual-tmp");
+  const badHomes = [
+    "/run/user/1000/h2a-nt",
+    "/home/antoinefa",
+    "/home/antoinefa/.local/state",
+    "/home/antoinefa/.config",
+    "/home/antoinefa/.cache-tmp/h2a-test",
+    "/tmp/outside-qualification",
+  ];
+  for (const bad of badHomes) {
+    assert.throws(
+      () => assertIsolatedEnvironment({
+        HOME: bad,
+        XDG_RUNTIME_DIR: join(qualRoot, "rt"),
+        XDG_STATE_HOME: join(qualRoot, "st"),
+        XDG_CONFIG_HOME: join(qualRoot, "cfg"),
+      }, qualRoot),
+      /REFUSING/,
+    );
+  }
+});
+
 async function fixture(body) {
   const qualRoot = join(repo, ".qual-tmp");
   mkdirSync(qualRoot, { recursive: true });
-  const root = mkdtempSync(join(qualRoot, "a-"));
+  const root = mkdtempSync(join(qualRoot, "q"));
   const home = join(root, "home");
   const workspaces = join(qualRoot, "ws");
   mkdirSync(workspaces, { recursive: true });
@@ -60,6 +87,7 @@ async function fixture(body) {
   const env = { PATH: "/usr/bin:/bin", HOME: home, XDG_RUNTIME_DIR: root,
     XDG_STATE_HOME: stateHome,
     XDG_CONFIG_HOME: configHome, REMOTE_CLI_CONFIG_HOME: home,
+    NODE_PATH: join(repo, "node_modules"),
     H2A_ROOT: join(workspace, ".h2a"), H2A_SESSION_HOST: "native", H2A_NATIVE_SOCKET: "", TERM: "xterm-256color",
     TMUX_TMPDIR: root };
   assertIsolatedEnvironment(env, qualRoot);
@@ -444,9 +472,11 @@ test("should resolve a session whose historical host died as dead for restore", 
 }));
 
 test("should prove a pre-upgrade historical host dead using its durable PID and start time", {
-  skip: !legacy && "set H2A_TEST_LEGACY_HOST_DIR for pre-upgrade identity proof",
+  skip: process.platform !== "linux" ? "Linux native host qualification"
+    : !legacyRequired && legacyUnavailable,
 }, () => fixture(async f => {
-  const host = await f.start(0, join(legacy, "packages/h2a-runtime/dist/native-terminal/process.js"));
+  assert.equal(legacyUnavailable, false, String(legacyUnavailable));
+  const host = await f.start(0, legacyEntry);
   await host.client.create({ id: "h2a-legacy-dead", command: "/bin/bash", args: ["--noprofile", "--norc", "-c", "read -r line"],
     cwd: f.workspace, env: f.env, cols: 80, rows: 24 });
   const exited = once(host.child, "exit"); host.child.kill("SIGKILL"); await exited;
