@@ -101,3 +101,18 @@ Final receipts are `r4-final-npm-collection.log`, `r4-final-node.log`,
 `r4-final-ci.log`, `r4-final-runtime.log` and `r4-final-head.txt`. The completion
 report records their exact exit codes, counts and target SHA. The same plain
 environment then executes all affected suites and the guard regressions.
+
+## R4-F02: explicit owner scope decision
+
+On 2026-10-10 the owner requested: "j'espère que la version 0.98.2 aura un log".
+The h-cond relay made the requirement explicit: 0.98.2 must include the native
+host life journal. This decision supersedes the earlier brief's deferral to
+0.98.3 cited by R4-F02. The journal, including its independent writer process
+and storage files, remains in the authorized 0.98.2 scope.
+
+The scope section of [BRANCH.md](../../BRANCH.md), the historical journal
+qualification and the R2/R3 correction reports now record this decision.
+The original external R4 review also carries this scope clarification while
+preserving its historical review. This finding changes documentation only;
+the journal implementation is retained. Previous qualification receipts stay
+bound to their recorded historical SHAs; R4 final receipts have their own SHA.

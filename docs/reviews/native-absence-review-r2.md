@@ -5,6 +5,12 @@ finding, then rebase onto `origin/main` at `5ca5c7bc` and qualify without skips.
 No push, PR, release, tag, owner host/session/state access or `.track` writes.
 Receipts are retained under `.qual-tmp/builder/evidence/r2-*`.
 
+Scope clarification (R4-F02): the explicit owner decision of 2026-10-10,
+"j'espère que la version 0.98.2 aura un log", relayed by h-cond as requiring
+the native host life journal in 0.98.2, supersedes the earlier 0.98.3 deferral.
+The journal corrections below are in the authorized release scope. See
+[BRANCH.md](../../BRANCH.md) and [R4](native-absence-review-r4.md).
+
 ## R2-F01: isolation at the real-operation boundary
 
 RED: `r2-f01-red.log` fails because the previous shared guard accepts a

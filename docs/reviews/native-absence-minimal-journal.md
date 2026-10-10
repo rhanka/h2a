@@ -10,6 +10,14 @@ upgrade deferral, additional second-host protection, or `.track` writes.
 The package version recorded by the host is the version actually loaded
 (`0.98.1` in this checkout), rather than a fabricated release version.
 
+Scope clarification (R4-F02): on 2026-10-10 the owner explicitly requested
+"j'espère que la version 0.98.2 aura un log". As relayed by h-cond, 0.98.2
+must include the native host life journal. This decision supersedes the
+earlier brief's 0.98.3 deferral. The journal remains in scope; current scope
+and runner corrections are recorded in [BRANCH.md](../../BRANCH.md) and
+[the R4 correction report](native-absence-review-r4.md). The test results
+below retain their original historical qualification target.
+
 ## Findings and independently rerun evidence
 
 | Finding | Commit | RED | GREEN |

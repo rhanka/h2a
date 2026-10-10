@@ -1,5 +1,7 @@
 # Native absence minimal hotfix
 
+## Scope
+
 Branch: `fix/0.98.2-native-absence-minimal`, rebase target `origin/main` at `5ca5c7bc`
 (containing #309 phase A, #312, #313, #314). Owner decision 2026-10-10: 0.98.2 scope
 includes native endpoint absence, cold-start fixes and the native host life journal
@@ -11,10 +13,20 @@ findings F01/F02. Absence concluded only with independent proof of owner host de
 Live host that lost its socket pathname is never considered absent; no second writer.
 No push, PR, publish, or tag.
 
-Current correction protocol: `docs/reviews/native-absence-review-r3.md`.
+Explicit owner decision, 2026-10-10: "j'espère que la version 0.98.2 aura un log".
+As relayed by h-cond, 0.98.2 must include the native host life journal. This
+decision supersedes the earlier brief's deferral of the journal to 0.98.3,
+which R4-F02 cited. The journal implementation remains within this release's
+authorized scope; R4-F02 aligns the scope documentation with that decision.
+
+Current correction protocol: `docs/reviews/native-absence-review-r4.md`.
+R4 makes the guarded fixtures self-provisioning for ordinary npm/Vitest/CI
+runners and records the explicit owner scope decision. Its final qualification
+receipts are `r4-final-*`; previous R2/R3 receipts retain their historical SHAs.
+Prior correction protocol: `docs/reviews/native-absence-review-r3.md`.
 R3 adds the mandatory native spawn boundary and a fixture-only process view;
 `scripts/qualify-native-mcp.mjs` records and verifies the two #312 MCP suites
-on the final SHA with the nonempty mandatory private seed and cohorts of 12,
+on the R3 qualification SHA with the nonempty mandatory private seed and cohorts of 12,
 bounded by the measured memory of the full-size corpus.
 Prior qualification: `docs/reviews/native-absence-minimal-journal.md` (historical).
 All tests, real hosts and PTY workloads require HOME, XDG_RUNTIME_DIR,
