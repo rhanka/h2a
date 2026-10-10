@@ -1,3 +1,4 @@
+import { assertIsolatedEnvironment } from "./helpers/native-isolation.js";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
@@ -69,6 +70,7 @@ function assertPrivatePaths(root, paths) {
 }
 
 function start(command, args, env) {
+  assertIsolatedEnvironment(env, join(repo, ".qual-tmp"));
   const child = spawn(command, args, { env, cwd: env.HOME, stdio: ["pipe", "pipe", "pipe"] });
   let stdout = "", stderr = "";
   child.stdout.setEncoding("utf8").on("data", chunk => { stdout += chunk; });
@@ -90,36 +92,6 @@ async function eventually(read, predicate) {
   }
 }
 
-function assertIsolatedEnvironment(env, qualRoot) {
-  const forbiddenExact = [
-    "/run/user/1000/h2a-nt",
-    "/home/antoinefa",
-    "/home/antoinefa/.local/state",
-    "/home/antoinefa/.config",
-  ];
-  const forbiddenPrefixes = [
-    "/run/user/1000/h2a-nt/",
-    "/home/antoinefa/.local/state/",
-    "/home/antoinefa/.config/",
-  ];
-  for (const key of ["HOME", "XDG_RUNTIME_DIR", "XDG_STATE_HOME", "XDG_CONFIG_HOME"]) {
-    const val = env[key];
-    assert.ok(typeof val === "string" && val.length > 0, `Missing required isolation env ${key}`);
-    const resolved = resolve(val);
-    for (const bad of forbiddenExact) {
-      assert.ok(resolved !== bad, `REFUSING unisolated environment: ${key}=${resolved} matches owner directory ${bad}`);
-    }
-    for (const bad of forbiddenPrefixes) {
-      assert.ok(!resolved.startsWith(bad), `REFUSING unisolated environment: ${key}=${resolved} resolves inside owner directory ${bad}`);
-    }
-    assert.ok(!resolved.includes("/.cache-tmp/h2a-"), `REFUSING unisolated environment: ${key}=${resolved} in owner cache-tmp`);
-    const rel = relative(qualRoot, resolved);
-    assert.ok(
-      rel === "" || (!rel.startsWith("..") && !rel.startsWith("/")),
-      `REFUSING environment outside qualification root: ${key}=${resolved} (qualRoot=${qualRoot})`,
-    );
-  }
-}
 
 async function withLegacy(context, body, historicalEntry = legacyEntry) {
   assert.equal(unavailable, false, String(unavailable)); // Required evidence must never skip.
