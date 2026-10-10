@@ -15,7 +15,7 @@
  */
 import { spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -30,8 +30,11 @@ import {
   localSessionName,
   procReaderDeps,
   slugify,
+  createStructuredReadinessChallenge,
+  cleanupStructuredReadinessChallenge,
+  probeStructuredReadiness,
 } from "./tmux.js";
-import { readProcessTreeCpuMs, readWorkerPid } from "./proc-cpu.js";
+import { readProcessTreeCpuMs, readWorkerPid, parseProcStat } from "./proc-cpu.js";
 import { sleepSync, type PromptDeliveryDeps } from "./prompt-delivery.js";
 import { SESSION_CLASS_ENV, type SessionClass } from "./session-class.js";
 import { withAttachTerminalRecovery } from "./native-terminal/attach-recovery.js";
@@ -661,6 +664,11 @@ export function startNativeH2aSidecar(
   env["H2A_NATIVE_PTY_SESSION"] = name;
   const envDir = mkdtempSync(join(tmpdir(), "h2a-native-env-"));
   const envFile = join(envDir, "env.json");
+  const challenge = options.verified ? createStructuredReadinessChallenge() : undefined;
+  if (challenge) {
+    env["H2A_MCP_READY_FILE"] = challenge.file;
+    env["H2A_MCP_READY_NONCE"] = challenge.nonce;
+  }
   try {
     writeFileSync(envFile, JSON.stringify(env), { mode: 0o600 });
     runOp([
@@ -680,31 +688,77 @@ export function startNativeH2aSidecar(
       "--",
       "/bin/bash",
       "-lc",
-      h2aCommand,
+      // Match the structured tmux wrapper: the MCP process must replace the
+      // shell so its readiness ACK names the PID owned by this incarnation.
+      challenge ? `exec ${h2aCommand}` : h2aCommand,
     ], { onCreateAttempt: options.onCreateAttempt });
+    if (challenge) {
+      // Readiness is the correlated post-identity ACK, not an arbitrary crash
+      // observation window. Pin the component owner throughout the wait.
+      const deadline = Date.now() + 20_000;
+      const initial = nativeSessionState(sidecar, ownerSocket);
+      if (initial.state !== "found" || initial.session.status !== "running") return false;
+      const owned = initial.session;
+      let nextOwnerCheck = Date.now() + 1_000;
+      while (Date.now() < deadline) {
+        // Linux's crash-containment guardian is the PTY leader; the MCP
+        // process runs below it. Prove that the ACK's PID is a live descendant
+        // in that same process group, without walking the global /proc inventory.
+        const ready = probeStructuredReadiness(challenge, owned.pid,
+          (pid) => nativeReadinessPidMatches(pid, owned.pid));
+        if (ready.state === "invalid") return false;
+        if (ready.state === "ready") {
+          const currentParent = nativeSessionState(name, ownerSocket);
+          const currentSidecar = nativeSessionState(sidecar, ownerSocket);
+          return parent.state === "found" && currentParent.state === "found" &&
+            currentParent.session.status === "running" &&
+            currentParent.session.generation === parent.session.generation &&
+            currentParent.session.incarnation === parent.session.incarnation &&
+            currentSidecar.state === "found" && currentSidecar.session.status === "running" &&
+            currentSidecar.session.generation === owned.generation &&
+            currentSidecar.session.incarnation === owned.incarnation &&
+            currentSidecar.session.pid === owned.pid;
+        }
+        // Poll the correlated file cheaply; spawning a fresh op.js process on
+        // every 50 ms tick amplified CPU/I/O contention during a launch burst.
+        // The pinned owner is checked periodically and again on the ACK path.
+        if (Date.now() >= nextOwnerCheck) {
+          const state = nativeSessionState(sidecar, ownerSocket);
+          if (state.state !== "found" || state.session.status !== "running" ||
+            state.session.generation !== owned.generation || state.session.incarnation !== owned.incarnation ||
+            state.session.pid !== owned.pid) return false;
+          nextOwnerCheck = Date.now() + 1_000;
+        }
+        sleepSync(50);
+      }
+      return false;
+    }
+    const state = nativeSessionState(sidecar, ownerSocket);
+    return state.state === "found" && state.session.status === "running";
   } catch {
     return false;
   } finally {
     rmSync(envDir, { recursive: true, force: true });
+    if (challenge) cleanupStructuredReadinessChallenge(challenge);
   }
-  if (options.verified) {
-    // The sidecar must still be alive once it had time to crash on startup.
-    // An "unknown" probe mid-loop is transient: keep waiting; the FINAL
-    // check below only reports success on a POSITIVE running verdict.
-    const deadline = Date.now() + 2_000;
-    while (Date.now() < deadline) {
-      const state = nativeSessionState(sidecar);
-      if (
-        state.state === "absent" ||
-        (state.state === "found" && state.session.status === "exited")
-      ) {
-        return false;
-      }
-      sleepSync(200);
+}
+
+function nativeReadinessPidMatches(pid: number, ownerPid: number): boolean {
+  if (pid === ownerPid) return true;
+  if (process.platform !== "linux") return false;
+  const seen = new Set<number>();
+  try {
+    while (pid > 1 && seen.size < 64 && !seen.has(pid)) {
+      seen.add(pid);
+      const raw = readFileSync(`/proc/${pid}/stat`, "utf8");
+      const fields = raw.slice(raw.lastIndexOf(")") + 1).trim().split(/\s+/);
+      const parsed = parseProcStat(raw);
+      if (!parsed || fields[0] === "Z" || fields[0] === "X" || Number(fields[2]) !== ownerPid) return false;
+      if (parsed.ppid === ownerPid) return true;
+      pid = parsed.ppid;
     }
-  }
-  const state = nativeSessionState(sidecar);
-  return state.state === "found" && state.session.status === "running";
+  } catch { /* absent/unreadable process is not a readiness proof */ }
+  return false;
 }
 
 /**
