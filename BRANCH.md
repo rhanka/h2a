@@ -5,9 +5,9 @@ Scope: the vibe vertical end to end — host, profile, enrollment, gateway
 route, MCP launch, plugin surface, skills, docs and contract — mirroring the
 muse pattern at every step (one alias rule, direct provider, honest refusals).
 
-Upstream: the Mistral runtime client lives in `@sentropic/llm-mesh` 0.24.1
+Upstream: the Mistral runtime client lives in `@sentropic/llm-mesh` 0.25.0
 (sentropic PR #655, merged and published by the release train with
-llm-gateway 0.19.4 and cluster-mesh 0.13.2). This branch lifts the ranges
+llm-gateway 0.19.5 and cluster-mesh 0.13.3). This branch lifts the ranges
 and wires `new MistralAdapter({ client: new MistralRuntimeClient() })` into
 the gateway registry (gateway-host/host.ts:76).
 
@@ -29,7 +29,7 @@ mistral-small-2603, zai-glm-5-3.
 | START verb `h2a vibe` | covered | fixtures/runtime-help-commands.json:41-42 (golden pinned by cli-command-map.test.js) → cli-command-map.ts:268 |
 | Resume spellings (`--resume <id>` / `-c`) | covered | profiles.test.ts:40-44 → profiles.ts:50; agent-launch-args.test.ts:186 → agent-launch-args.ts (vibe branch) |
 | Enrollment `mistral-vibe` (PKCE browser sign-in via facade) | covered | llm-mesh-accounts.test.ts:118 → llm-mesh-accounts.ts:9,101,187 |
-| Gateway route (MistralAdapter + MistralRuntimeClient) + range lift | covered, live-proven | llm-mesh-resolution.test.ts:40 (0.24.1) → host.ts:7,8,76; package.json 0.13.2/0.24.1/0.19.4; live `candidate-ok` above |
+| Gateway route (MistralAdapter + MistralRuntimeClient) + range lift | covered, live-proven | llm-mesh-resolution.test.ts:40 (0.25.0) → host.ts:7,8,76; package.json 0.13.3/0.25.0/0.19.5; live `candidate-ok` above |
 | MCP `h2a_run` profile `vibe` (direct, `required` rejected, headless rejected, agent rejected) | covered | mcp-run.test.js:118,129,320,326 → tools.ts enum, agent-launch.ts:9,148,211 |
 | Delegate (headless vibe -p documented programmatic mode; throttle signatures `vibe: []`) | covered | delegate.test.ts:149,822 → delegate.ts, throttle-signatures.ts |
 | Plugin surface (vibe-hooks: post_agent record, push) | covered | host-plugin.test.js:228 → plugin.ts:96 (mechanism `vibe-hooks`) |
