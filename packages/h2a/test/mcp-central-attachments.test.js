@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { spawn, execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { once } from "node:events";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { createInterface } from "node:readline";
 import { PassThrough } from "node:stream";
@@ -90,16 +91,38 @@ test("qualification guards reject paths resolving outside .qual-tmp", () => {
   assert.throws(() => qualifiedEnvironment("/home/antoinefa"), /escapes .qual-tmp/);
 });
 
-test("R6 unresolved Graphify reproduction keeps Claude central opt-in when configuration is absent", async () => {
+test("R6 Claude defaults to central without configuration and preserves the exact incident bytes", async () => {
   const f = fixture();
   const env = { ...f.env, CLAUDE_CODE_SESSION_ID: "r6-default-gate" };
   delete env.H2A_MCP_CENTRAL;
+  const repo = join(f.dir, "repo-a");
+  const path = join(repo, ".mcp.json");
+  const original = readFileSync(resolve("packages/h2a/test/fixtures/d2d-mcp.json.pre-incident"));
+  const hash = "984069aaed26cd2ce888dc692a4400f9c9c1cbb5add9c86fedbed3fc6b3d5470";
+  assert.equal(createHash("sha256").update(original).digest("hex"), hash);
+  writeFileSync(path, original, { mode: 0o640 });
+  execFileSync("git", ["init", "-q", repo]);
+  execFileSync("git", ["-C", repo, "add", ".mcp.json"]);
+  const before = statSync(path, { bigint: true });
+  const gitStatus = () => execFileSync("git", ["-C", repo, "status", "--porcelain"], { encoding: "utf8" });
+  const beforeStatus = gitStatus();
+  const beforeFiles = readdirSync(repo);
   const client = new Client({ name: "r6-default-gate", version: "1" });
-  const transport = new StdioClientTransport({ command: process.execPath, args: [bin, "mcp-serve", "--host", "claude"], env, cwd: join(f.dir, "repo-a"), stderr: "pipe" });
+  const transport = new StdioClientTransport({ command: process.execPath, args: [bin, "mcp-serve", "--host", "claude"], env, cwd: repo, stderr: "pipe" });
   try {
     await client.connect(transport);
     assert.ok((await client.listTools()).tools.length);
-    assert.equal(existsSync(join(f.runtimeBase, "h2a-mcp-central", "marker.json")), false, "P0 #5 blocks an implicit central activation until the production Graphify loss is reproduced");
+    const status = await centralOperator("status", { runtimeBase: f.runtimeBase });
+    assert.equal(status.running, true, "Claude starts central by default when configuration is absent");
+    assert.equal(status.protocol, 2);
+    assert.equal(status.root, f.root);
+    assert.equal(status.attachments, 1);
+    assert.deepEqual(readFileSync(path), original);
+    const after = statSync(path, { bigint: true });
+    assert.deepEqual([after.mode, after.ino, after.mtimeNs, after.ctimeNs], [before.mode, before.ino, before.mtimeNs, before.ctimeNs]);
+    assert.equal(gitStatus(), beforeStatus);
+    assert.deepEqual(readdirSync(repo), beforeFiles);
+    console.log(`R6 default Claude: protocol=2 attachments=1 bytesEqual=true metadataEqual=true gitStatusEqual=true sha256=${hash}`);
   } finally {
     await client.close();
     if (existsSync(join(f.runtimeBase, "h2a-mcp-central", "marker.json"))) await centralOperator("stop", { runtimeBase: f.runtimeBase });
@@ -446,12 +469,12 @@ test("operator stop is authenticated, leaves shims open, and residue detection n
   } finally { await channel?.close(); await server?.stop(); f.cleanup(); }
 });
 
-test("mcp-serve opts Claude into one ephemeral central without project writes; other hosts and opt-outs use stdio", { timeout: 30_000 }, async () => {
+test("mcp-serve defaults Claude to one ephemeral central without project writes; other hosts and opt-outs use stdio", { timeout: 30_000 }, async () => {
   const f = fixture();
   const children = [];
   const channels = [];
   const start = (host, repo, extra = {}) => {
-    const env = { ...f.env, CLAUDE_CODE_SESSION_ID: `default-${host}-${children.length}`, ...extra };
+    const env = { ...f.env, H2A_MCP_CENTRAL: undefined, CLAUDE_CODE_SESSION_ID: `default-${host}-${children.length}`, ...extra };
     if (env.H2A_MCP_CENTRAL === undefined) delete env.H2A_MCP_CENTRAL;
     const child = spawn(process.execPath, [bin, "mcp-serve", "--host", host, "--auto-open"], { env, cwd: repo, stdio: ["pipe", "pipe", "pipe"] });
     children.push(child);
