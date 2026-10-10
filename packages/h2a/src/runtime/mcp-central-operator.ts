@@ -66,23 +66,19 @@ export function centralResidueReport(
     return result.status === 0 ? true : result.status === 1 || result.status === 128 ? false : "unknown";
   };
   let repairedCount = 0;
-  const candidatePaths = [
-    join(workspace, ".mcp.json"),
-    join(workspace, ".gemini", "settings.json"),
-    agyConfig,
-    ...(options.codexConfig ? [options.codexConfig] : [
-      join(homedir(), ".codex", "config.json"),
-      join(homedir(), ".config", "codex", "mcp.json")
+  const candidateEntries: Array<{ path: string; host: string }> = [
+    { path: join(workspace, ".mcp.json"), host: "claude" },
+    { path: join(workspace, ".gemini", "settings.json"), host: "gemini" },
+    { path: agyConfig, host: "agy" },
+    ...(options.codexConfig ? [{ path: options.codexConfig, host: "codex" }] : [
+      { path: join(homedir(), ".codex", "config.json"), host: "codex" },
+      { path: join(homedir(), ".config", "codex", "mcp.json"), host: "codex" }
     ])
   ];
-  for (const path of candidatePaths) {
+  for (const { path, host } of candidateEntries) {
     if (existsSync(path) && lstatSync(path).isFile() && /mcp-central-connect/.test(readFileSync(path, "utf8"))) {
       const isTrk = tracked(path);
       if (options.repair) {
-        let host = "claude";
-        if (path === agyConfig || path.includes("mcp_config.json")) host = "agy";
-        else if (path.includes("settings.json")) host = "gemini";
-        else if (path.includes("codex")) host = "codex";
         try {
           const incoming = { command: "h2a", args: ["mcp-serve", "--auto-open", "--host", host, "--auto-upgrade", "--wake", "auto"] };
           const { backupPath } = writeHostMcpEntry(path, incoming, Boolean(options.allowTracked));
