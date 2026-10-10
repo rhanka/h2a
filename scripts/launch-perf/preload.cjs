@@ -10,6 +10,19 @@ const event = (name, fields = {}) => {
   try { append(join(output, `trace-${process.pid}.jsonl`), JSON.stringify({ pid: process.pid, at: performance.timeOrigin + performance.now(), name, ...fields }) + '\n'); } catch {}
 };
 globalThis.__launchPerfEvent = event;
+const rename = fs.renameSync;
+fs.renameSync = function(source, target, ...args) {
+  const value = rename.call(this, source, target, ...args);
+  if (String(target).endsWith('/launch.json')) {
+    try {
+      const receipt = JSON.parse(fs.readFileSync(target, 'utf8'));
+      event('receipt_publication', { session: basename(require('node:path').dirname(target)),
+        state: receipt.state, resultState: receipt.result?.state,
+        completeResult: receipt.result?.kind === 'h2a.run.result', submitAttempted: receipt.submitAttempted });
+    } catch {}
+  }
+  return value;
+};
 event('node_preload', { entry: basename(process.argv[1] || ''), role: process.env.LAUNCH_PERF_ROLE,
   ...(process.argv[1]?.endsWith('/native-terminal/op.js') ? { operation: process.argv[2], session: process.argv[process.argv.indexOf('--id')+1] } : {}) });
 for (const method of ['spawn', 'spawnSync', 'execFileSync', 'execFile']) {
