@@ -44,8 +44,10 @@ export function cleanupLaunch(ownership: LaunchOwnership, deps: CleanupDeps): bo
 
 export type LaunchGuard = {
   own: (ownership: LaunchOwnership) => void;
+  markSubmitAttempted: () => void;
   complete: () => void;
   stop: () => boolean;
+  isSubmitAttempted: () => boolean;
 };
 
 function stopOwnedNative(name: string, generation: string, incarnation: string, socketPath: string): boolean {
@@ -75,6 +77,7 @@ export function startLaunchGuard(runDir: string, ownership: LaunchOwnership, spa
   mkdirSync(runDir, { recursive: true, mode: 0o700 });
   const statusPath = join(runDir, "launch.json");
   let completed = false;
+  let submitAttempted = false;
   const child: ChildProcess = spawnGuard(process.execPath,
     [fileURLToPath(new URL("./launch-guard.js", import.meta.url)), statusPath],
     { stdio: ["pipe", "ignore", "ignore"] });
@@ -82,6 +85,17 @@ export function startLaunchGuard(runDir: string, ownership: LaunchOwnership, spa
   (child.stdin as NodeJS.WritableStream & { unref?: () => void }).unref?.();
   child.on("error", () => {
     if (completed) return;
+    if (submitAttempted) {
+      writeStatus(statusPath, {
+        state: "launch-unconfirmed",
+        submitAttempted: true,
+        retrySafe: false,
+        stopped: false,
+        token: process.env.H2A_RUN_LAUNCH_TOKEN,
+        ownership,
+      });
+      return;
+    }
     const stopped = cleanupLaunch(ownership, cleanupDeps);
     writeStatus(statusPath, { state: stopped ? "stopped" : "cleanup-failed",
       token: process.env.H2A_RUN_LAUNCH_TOKEN, ownership });
@@ -92,19 +106,49 @@ export function startLaunchGuard(runDir: string, ownership: LaunchOwnership, spa
   const own = (value: LaunchOwnership) => {
     ownership = value;
     writeStatus(statusPath, { state: "launching",
-      token: process.env.H2A_RUN_LAUNCH_TOKEN, ownership: value });
-    child.stdin!.write(`${JSON.stringify({ ownership: value })}\n`);
+      token: process.env.H2A_RUN_LAUNCH_TOKEN,
+      submitAttempted: submitAttempted || undefined,
+      ownership: value });
+    child.stdin!.write(`${JSON.stringify({ ownership: value, submitAttempted: submitAttempted || undefined })}\n`);
   };
   own(ownership);
+  const markSubmitAttempted = () => {
+    submitAttempted = true;
+    writeStatus(statusPath, {
+      state: "launching",
+      token: process.env.H2A_RUN_LAUNCH_TOKEN,
+      submitAttempted: true,
+      ownership,
+    });
+    child.stdin!.write(`${JSON.stringify({ submitAttempted: true })}\n`);
+  };
   const finish = (state: string) => {
     completed = true;
-    writeStatus(statusPath, { state, token: process.env.H2A_RUN_LAUNCH_TOKEN, ownership });
-    child.stdin!.end(`${JSON.stringify({ completed: true, state })}\n`);
+    const payload: Record<string, unknown> = {
+      state,
+      token: process.env.H2A_RUN_LAUNCH_TOKEN,
+      ownership,
+    };
+    if (submitAttempted) {
+      payload.submitAttempted = true;
+      if (state === "launch-unconfirmed") {
+        payload.retrySafe = false;
+        payload.stopped = false;
+      }
+    }
+    writeStatus(statusPath, payload);
+    child.stdin!.end(`${JSON.stringify({ completed: true, state, submitAttempted: submitAttempted || undefined })}\n`);
   };
   return {
     own,
+    markSubmitAttempted,
+    isSubmitAttempted: () => submitAttempted,
     complete: () => finish("started"),
     stop: () => {
+      if (submitAttempted) {
+        finish("launch-unconfirmed");
+        return false; // Submission attempted: session preserved, stop refused!
+      }
       const stopped = cleanupLaunch(ownership, cleanupDeps);
       finish(stopped ? "stopped" : "cleanup-failed");
       return stopped;
@@ -115,29 +159,63 @@ export function startLaunchGuard(runDir: string, ownership: LaunchOwnership, spa
 async function guard(statusPath: string): Promise<void> {
   let ownership: LaunchOwnership | undefined;
   let completed = false;
+  let submitAttempted = false;
   let finalState = "started";
   for await (const line of createInterface({ input: process.stdin })) {
-    const message = JSON.parse(line) as { ownership?: LaunchOwnership; completed?: boolean; state?: string };
+    const message = JSON.parse(line) as {
+      ownership?: LaunchOwnership;
+      completed?: boolean;
+      state?: string;
+      submitAttempted?: boolean;
+    };
     if (message.ownership) ownership = message.ownership;
-    if (message.completed) { completed = true; finalState = message.state ?? "started"; }
+    if (message.submitAttempted) submitAttempted = true;
+    if (message.completed) {
+      completed = true;
+      finalState = message.state ?? "started";
+    }
   }
   // The atomic receipt also covers death before the pipe write was flushed.
-  if (!completed) {
-    try {
-      const receipt = JSON.parse(readFileSync(statusPath, "utf8"));
-      if (receipt.token === process.env.H2A_RUN_LAUNCH_TOKEN) {
-        ownership = receipt.ownership;
-        if (["started", "stopped", "cleanup-failed"].includes(receipt.state)) {
-          completed = true;
-          finalState = receipt.state;
-        }
+  try {
+    const receipt = JSON.parse(readFileSync(statusPath, "utf8"));
+    if (receipt.token === process.env.H2A_RUN_LAUNCH_TOKEN) {
+      if (receipt.ownership) ownership = receipt.ownership;
+      if (receipt.submitAttempted) submitAttempted = true;
+      if (["started", "stopped", "cleanup-failed", "launch-unconfirmed"].includes(receipt.state)) {
+        completed = true;
+        finalState = receipt.state;
       }
-    } catch { /* Pipe ownership remains usable. */ }
-  }
+    }
+  } catch { /* Pipe ownership remains usable. */ }
   if (!ownership) return;
-  const stopped = completed ? false : cleanupLaunch(ownership, cleanupDeps);
+
+  if (completed) {
+    writeStatus(statusPath, {
+      state: finalState,
+      token: process.env.H2A_RUN_LAUNCH_TOKEN,
+      submitAttempted: submitAttempted || undefined,
+      ...(finalState === "launch-unconfirmed" ? { retrySafe: false, stopped: false } : {}),
+      ownership,
+    });
+    return;
+  }
+
+  if (submitAttempted) {
+    // Monotonic submitAttempted: session MUST NOT be stopped or destroyed!
+    writeStatus(statusPath, {
+      state: "launch-unconfirmed",
+      token: process.env.H2A_RUN_LAUNCH_TOKEN,
+      submitAttempted: true,
+      retrySafe: false,
+      stopped: false,
+      ownership,
+    });
+    return;
+  }
+
+  const stopped = cleanupLaunch(ownership, cleanupDeps);
   writeStatus(statusPath, {
-    state: completed ? finalState : stopped ? "stopped" : "cleanup-failed",
+    state: stopped ? "stopped" : "cleanup-failed",
     token: process.env.H2A_RUN_LAUNCH_TOKEN,
     ownership,
   });
