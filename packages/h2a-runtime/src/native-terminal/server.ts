@@ -535,6 +535,9 @@ type EndpointOwner = NativeTerminalSocketIdentity & {
 
 async function recordEndpointOwner(socketPath: string, socket: NativeTerminalSocketIdentity,
   processOwner = { pid: process.pid, startTime: readProcessStartTime(process.pid) }): Promise<void> {
+  if (process.env.H2A_TEST_FAIL_OWNER_WRITE) {
+    throw new Error("simulated failure recording endpoint owner");
+  }
   const { pid, startTime } = processOwner;
   const bootId = readBootId(), pidNamespace = readPidNamespaceId();
   if (startTime === undefined || bootId === undefined || pidNamespace === undefined) {
@@ -943,12 +946,37 @@ export async function startNativeTerminalHostServer(options: {
     ownedSocket = await withSocketPublicationLock(
       options.socketPath,
       async () => {
-        const socket = await publishSocket(stagedPath, options.socketPath);
-        await recordEndpointOwner(options.socketPath, socket);
-        return socket;
+        let published: NativeTerminalSocketIdentity | undefined;
+        try {
+          published = await publishSocket(stagedPath, options.socketPath);
+          await recordEndpointOwner(options.socketPath, published);
+          return published;
+        } catch (pubError) {
+          if (published !== undefined) {
+            try {
+              const current = await inspectPrivateNativeTerminalSocket(options.socketPath);
+              if (sameNativeTerminalSocket(current, published)) {
+                await unlink(options.socketPath);
+              }
+            } catch (cleanupErr) {
+              if ((cleanupErr as NodeJS.ErrnoException).code !== "ENOENT") {
+                // ignore
+              }
+            }
+            try {
+              await unlink(`${options.socketPath}.owner`);
+            } catch (cleanupErr) {
+              if ((cleanupErr as NodeJS.ErrnoException).code !== "ENOENT") {
+                // ignore
+              }
+            }
+          }
+          throw pubError;
+        }
       },
     );
   } catch (error) {
+    for (const socket of sockets) socket.destroy();
     await new Promise<void>((resolve) => server.close(() => resolve()));
     try {
       await unlink(stagedPath);
