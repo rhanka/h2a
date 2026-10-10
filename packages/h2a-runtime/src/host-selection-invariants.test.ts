@@ -12,10 +12,11 @@
  * Every external process surface is mocked: no tmux session, native session
  * or terminal is ever created or killed by this file.
  */
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+// @ts-ignore Shared test-only boundary; excluded from the production build.
+import { createPrivateTestDirectory, nativeTestEnvironment, installNativeTestEnvironment } from "../../h2a/test/helpers/native-isolation.js";
 
 const tmuxAvailable = vi.hoisted(() => vi.fn());
 const startLocalSession = vi.hoisted(() => vi.fn());
@@ -28,6 +29,8 @@ const resolveLocalSession = vi.hoisted(() => vi.fn());
 const currentTmuxSessionIs = vi.hoisted(() => vi.fn());
 
 const nativeSessionLiveness = vi.hoisted(() => vi.fn());
+const nativeSessionState = vi.hoisted(() => vi.fn());
+const unexpectedNativeSpawns = vi.hoisted(() => vi.fn());
 const nativeHostAvailable = vi.hoisted(() => vi.fn());
 const startNativeSession = vi.hoisted(() => vi.fn());
 const attachNativeSession = vi.hoisted(() => vi.fn());
@@ -55,6 +58,7 @@ vi.mock("./native-host.js", async (importOriginal) => {
   return {
     ...actual,
     nativeSessionLiveness,
+    nativeSessionState,
     nativeHostAvailable,
     startNativeSession,
     attachNativeSession,
@@ -65,18 +69,23 @@ vi.mock("./native-host.js", async (importOriginal) => {
 
 // registry-internal probeTmuxSession shells out to `tmux has-session`; stub
 // exactly that call so the probe is DETERMINISTIC (no session) on machines
-// with or without tmux, while every other spawnSync stays real.
+// with or without tmux, while unexpected native operations are blocked and counted.
 vi.mock("node:child_process", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:child_process")>();
   return {
     ...actual,
-    spawnSync: ((command: string, ...rest: unknown[]) =>
-      command === "tmux"
+    spawnSync: ((command: string, ...rest: unknown[]) => {
+      if (Array.isArray(rest[0]) && rest[0].some(arg => /native-terminal\/(op|process)\.[jt]s/.test(String(arg)))) {
+        unexpectedNativeSpawns(command, ...rest);
+        return { status: 1, stdout: "", stderr: "unexpected native operation blocked by test", error: undefined };
+      }
+      return command === "tmux"
         ? { status: 1, stdout: "", stderr: "", error: undefined }
         : (actual.spawnSync as (...a: unknown[]) => unknown)(
             command,
             ...rest,
-          )) as typeof actual.spawnSync,
+          );
+    }) as typeof actual.spawnSync,
   };
 });
 
@@ -92,13 +101,6 @@ function loadEntries(): import("./registry.js").RegistryEntry[] {
   return read.state === "ok" ? read.entries : [];
 }
 
-
-const SCRATCH_ROOT = join(
-  dirname(fileURLToPath(import.meta.url)),
-  "..",
-  ".test-scratch",
-  "host-selection-invariants",
-);
 
 const CONV_ID = "3f2504e0-4f89-41d3-9a0c-0305e82c3302";
 const iso = new Date().toISOString();
@@ -136,7 +138,7 @@ const tmuxRow = (slug: string, over: Row = {}): Row => ({
 });
 
 let scratch: string;
-let prevConfigHome: string | undefined;
+let restoreEnvironment: () => void;
 let stderrLines: string[];
 let stderrSpy: ReturnType<typeof vi.spyOn>;
 
@@ -151,10 +153,9 @@ function writeRegistry(rows: Row[]): void {
 }
 
 beforeEach(() => {
-  mkdirSync(SCRATCH_ROOT, { recursive: true });
-  scratch = mkdtempSync(join(SCRATCH_ROOT, "cli-"));
-  prevConfigHome = process.env.REMOTE_CLI_CONFIG_HOME;
-  process.env.REMOTE_CLI_CONFIG_HOME = scratch;
+  unexpectedNativeSpawns.mockClear();
+  scratch = createPrivateTestDirectory("hos-");
+  restoreEnvironment = installNativeTestEnvironment(nativeTestEnvironment(scratch, { REMOTE_CLI_CONFIG_HOME: scratch }));
   process.exitCode = undefined;
 
   tmuxAvailable.mockReset().mockReturnValue(true);
@@ -176,6 +177,15 @@ beforeEach(() => {
   currentTmuxSessionIs.mockReset().mockReturnValue(false);
 
   nativeSessionLiveness.mockReset().mockReturnValue(false);
+  nativeSessionState.mockReset().mockImplementation(() => {
+    try {
+      const live = nativeSessionLiveness();
+      if (live === "unknown") return { state: "unknown", reason: "test: unprovable native host" };
+      return live ? { state: "found", session: { status: "running" } } : { state: "absent" };
+    } catch (error) {
+      return { state: "unknown", reason: String(error) };
+    }
+  });
   nativeHostAvailable.mockReset().mockReturnValue({ ok: true });
   startNativeSession
     .mockReset()
@@ -199,10 +209,10 @@ beforeEach(() => {
 
 afterEach(() => {
   stderrSpy.mockRestore();
-  if (prevConfigHome === undefined) delete process.env.REMOTE_CLI_CONFIG_HOME;
-  else process.env.REMOTE_CLI_CONFIG_HOME = prevConfigHome;
+  restoreEnvironment();
   process.exitCode = undefined;
   rmSync(scratch, { recursive: true, force: true });
+  expect(unexpectedNativeSpawns).not.toHaveBeenCalled();
 });
 
 describe("F1 — resume host precedence", () => {
@@ -356,14 +366,10 @@ describe("dead legacy tmux row relaunch policy — NAMED DEBT, not covered", () 
   // relaunches on the NATIVE host, migrating the row) is exactly the
   // dead-tmux-relaunch host policy the owner's tmux-permanent ratification
   // reopened. Skipping it WITH ITS NAME leaves an address for the debt; a
-  // silent deletion would not. When the policy lands, replace this skip with
+  // silent deletion would not. When the policy lands, replace this TODO with
   // the ratified behavior (native migration, tmux resurrection, or fail
   // closed) and assert the registry row's post-relaunch `kind` explicitly.
-  it.skip("DEAD_LEGACY_TMUX_ROW_RELAUNCHES_NATIVE_NOT_TMUX — pending dead-tmux-relaunch host policy decision (reopened by owner tmux-permanent ratification 2026-08-08)", () => {
-    throw new Error(
-      "unreachable while skipped: the dead-tmux-relaunch host policy is undecided",
-    );
-  });
+  it.todo("DEAD_LEGACY_TMUX_ROW_RELAUNCHES_NATIVE_NOT_TMUX — pending dead-tmux-relaunch host policy decision (reopened by owner tmux-permanent ratification 2026-08-08)");
 });
 
 describe("registry write boundary", () => {
