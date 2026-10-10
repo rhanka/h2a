@@ -211,6 +211,7 @@ import {
   type H2ARelauncherKind,
   type ReflexiveDecider
 } from "./runtime/drumbeat/index.js";
+import { createRelauncherRuntime } from "./runtime/drumbeat/relaunchers.js";
 import { gatherNhiSnapshot } from "./runtime/nhi.js";
 import {
   raiseBlockage,
@@ -2156,12 +2157,13 @@ export async function runMcpServe(
       const log = (line: string) => io.stderr.write(`${line}\n`);
       const driver =
         wakeKind === "auto"
-          ? chainDriver(nativePtyBackchannelDriver(log, readinessEnv), localTmuxDriver({ log }))
+          ? chainDriver(nativePtyBackchannelDriver(log, readinessEnv), localTmuxDriver({ log, runtime: createRelauncherRuntime(readinessEnv) }))
           : buildDriveDriver(
               nativeSessionId !== undefined && wakeKind === "local-tmux"
                 ? "native"
                 : (wakeKind as H2ADriverKind),
-              log
+              log,
+              readinessEnv
             );
       void host;
       return {
@@ -3759,23 +3761,24 @@ function latestLaunchContext(root: string, instance: string): H2ALaunchContext |
     .sort((a, b) => Date.parse(b.heartbeatAt) - Date.parse(a.heartbeatAt))[0]?.launchContext;
 }
 
-function buildDriveDriver(kind: H2ADriverKind, log: (line: string) => void): H2ADriver {
+function buildDriveDriver(kind: H2ADriverKind, log: (line: string) => void, env: NodeJS.ProcessEnv = process.env): H2ADriver {
+  const runtime = createRelauncherRuntime(env);
   switch (kind) {
     case "logging":
       return loggingDriver(log);
     case "native":
-      return nativePtyBackchannelDriver(log);
+      return nativePtyBackchannelDriver(log, env);
     case "local-tmux":
-      return localTmuxDriver({ log });
+      return localTmuxDriver({ log, runtime });
     case "headless":
-      return headlessDriver({ log });
+      return headlessDriver({ log, runtime });
     case "auto":
       return {
         drive(request) {
           for (const driver of [
-            nativePtyBackchannelDriver(log),
-            localTmuxDriver({ log }),
-            headlessDriver({ log })
+            nativePtyBackchannelDriver(log, env),
+            localTmuxDriver({ log, runtime }),
+            headlessDriver({ log, runtime })
           ]) {
             const result = driver.drive(request);
             if (result === true) return true;
@@ -3818,6 +3821,7 @@ function nativeTerminalOpPath(): string | undefined {
 function nativePtyBackchannelDriver(log: (line: string) => void, env: NodeJS.ProcessEnv = process.env): H2ADriver {
   return nativeBackchannelDriver({
     log,
+    runtime: createRelauncherRuntime(env),
     send(request) {
       const operation = nativeTerminalOpPath();
       if (operation === undefined) {
