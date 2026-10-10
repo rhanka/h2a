@@ -1,8 +1,22 @@
-# Réparation de la revue R2 — L0/L1 et porte G1
+# Livraison de conservation — revues R2/R3 et latence mesurée
 
 **R2-02 à R2-06 corrigés ; G1 non qualifiée dans son ensemble.**
 
 Ce dossier répond à la revue `review-sol-l01-r2.md`. Les résultats R2 ci-dessous remplacent les conclusions et chiffres de la recette antérieure, conservée ensuite comme historique. Les changements sont locaux ; aucun push, PR ou déploiement n'a été effectué.
+
+## Réparations R3 et preuve ciblée de #312
+
+R3-01 est corrigée par `f0ad07b12be778c452d3223e8bc073d6d741537b` : les fonctions exécutées par `deliverInitialPrompt()` retrouvent le comportement d'`origin/main`, tandis que les écrans Claude compacts et les nouveaux modaux restent traités par le driver natif. Seules les extensions de types nécessaires au résultat natif demeurent dans le fichier commun. Les deux témoins Claude tmux donnent [RED : deux faux `working`](../../.qual-tmp/r3/r3-01-red.log), puis [GREEN : 80 tests](../../.qual-tmp/r3/r3-01-green-final.log), dont les refus modaux natifs conservés. Le [build](../../.qual-tmp/r3/r3-01-build.json) passe. Chaque reçu voisin du log conserve commande exacte, racines, SHA source, hash du diff non commité et hash de sortie.
+
+R3-02 est corrigée par `adf2f67c706e36e5311e89e2ab5c596b9c1f3d50` : la whitelist reste active et son périmètre local est décrit dans « Qualification locale du dispatch livré ». Le [RED de déclaration contradictoire](../../.qual-tmp/r3/r3-02-red.log) devient [GREEN](../../.qual-tmp/r3/r3-02-green.log), avec recomptage de 70 preuves de dispatch et de leurs hashes. Aucun comportement d'activation ou de pacing ne change dans ce commit ; les chiffres de latence gardent leur SHA mesuré `5a80eeb5`.
+
+R3-03 comble une lacune de preuve, sans correction des délais ou du produit MCP. Le [RED](../../.qual-tmp/r3/r3-03-red.log) exige le reçu terminal des deux parcours au SHA final et constate son absence ; il ne prétend pas reproduire un défaut MCP. La preuve de livraison est le [reçu final borné](../../.qual-tmp/r3/r3-final-bounded-mcp.json), sa [sortie TAP](../../.qual-tmp/r3/r3-final-bounded-mcp.log), le [contrôle](../../.qual-tmp/r3/check-mcp-evidence.mjs) et son [GREEN](../../.qual-tmp/r3/r3-03-green.log). Le reçu enregistre le SHA final exact, un diff vide, les racines privées, la commande, les hashes du wrapper/de la sortie, le pic RSS échantillonné et l'audit des seuls descendants suivis par PID/naissance.
+
+Commande MCP ciblée : `H2A_MCP_TEST_N=17 node --test --test-concurrency=1 packages/h2a/test/mcp-identity-burst.test.js packages/h2a/test/mcp-startup-contention.test.js`. Node installé 22.22.1, corpus synthétique neuf, **N=17** par cohorte burst (paramètre existant), contention de **6 conversations partagées + 6 distinctes** ; aucun seed, credential ou état de l'owner. Les HOME/XDG/H2A_ROOT/TMPDIR/config sont privés sous `.qual-tmp/r3`. Les helpers utilisent le vrai binaire construit et des environnements enfants sans credentials. Un seul fichier de tests s'exécute à la fois ; les cohortes conservent leur parallélisme interne. Les cinq tests burst couvrent notamment expiration à 20 s puis une seule reprise sur appel d'outil, transport disponible sous verrou, cardinalités exactes et writers CLI/MCP mêlés. Le test startup conserve ses preuves d'identité en attente sous verrou puis d'identité activée après libération.
+
+Le premier passage, sur `7e46aa5253f574f1a7721600a3b10b55c41b0e5d`, conserve **N=36**, **6/6 succès**, aucun skip et aucun descendant suivi restant : [reçu](../../.qual-tmp/r3/r3-final-mcp.json), [TAP](../../.qual-tmp/r3/r3-final-mcp.log). Son cumul RSS échantillonné atteint 7 457 980 Kio ; ce cumul peut compter plusieurs fois des pages partagées, mais il dépasse la borne conservatrice de 5 Gio de cette vérification. Le [contrôle d'enveloppe RED](../../.qual-tmp/r3/r3-03-envelope-red.log) conserve ce dépassement. La reprise finale à N=17 réduit le nombre de connexions du burst sans changer les assertions, délais, chemins MCP ni le scénario startup ; elle ne transforme pas le premier passage en mesure mémoire acceptable. Les sources produit et tests sont identiques entre les deux SHA ; seul ce dossier de preuves et le suivi de branche changent.
+
+La validation finale exige **6 succès, 0 échec, 0 skip, 0 annulation**, les deux suites sur ce même SHA final, un cumul RSS échantillonné inférieur à 5 Gio, et aucun descendant suivi vivant, inconnu ou zombie après leur nettoyage. Cette preuve établit la non-régression #312 dans ces parcours ; elle ne remplace pas la suite racine sans résultat terminal et n'étend aucune garantie aux parcours non exercés. Les preuves runtime et de déclaration sont également reprises au SHA final dans [runtime](../../.qual-tmp/r3/r3-final-bounded-runtime.json) et [dispatch](../../.qual-tmp/r3/r3-final-bounded-dispatch.json).
 
 ## Findings → commits → témoins RED/GREEN
 
@@ -127,11 +141,12 @@ La SPEC r2 §12.2 autorise une livraison de conservation avec un périmètre et 
 | La réservation précède la création ; sa récupération exige décès du lanceur et frontière durable de non-création. Aucun TTL destructif. | Témoins R2-05, identité inconnue et créateur vivant : validés. |
 | Le collecteur pré-création se termine lorsque son absence de writer est prouvée ; un writer possible reste drainé et le stockage retenu reste borné. | Processus réels et tests de diagnostic : validés. |
 | Claude historique sans prompt, tmux, headless et restauration gardent leurs contrats ; les sessions des anciennes générations restent vivantes. | Témoins R2-03/R2-04/R2-06 et régressions ciblées : validés sur les parcours exercés. |
+| #312 conserve identité/readiness, transport sous verrou et reprise bornée, sans binding dupliqué. | Suites burst/startup ciblées au SHA final et contrôle de leurs résultats terminaux, référencés dans la section R3. |
 | Les refus et états incertains sont visibles, sans faux succès ni disparition de capacité d'une session potentielle. | Témoins adverses et oracles de la campagne ; limites chiffrées ci-dessus. |
 | Le dispatch rapide livré est explicitement limité à l'observation locale corrélée ; les mesures correspondent au chemin activé. | Whitelist, profil et 70/70 preuves `host-request-dispatched` réconciliés ci-dessus ; aucune garantie d'acceptation distante ou G1. |
 | La recette emploie des racines privées et se termine sans processus suivi vivant. | Audit PID/naissance de la campagne, référencé ci-dessus. |
 
-Une livraison de ce type doit porter ces critères propres et les commits nécessaires, sans revendiquer les SLO 8/9 s ou la cible 5 s. La recette réelle de l'owner, une garantie du signal avant réponse distante et les garanties intégrées non exercées de #309/#312/#313/#314 restent à qualifier. Le dispatch local livré possède la qualification bornée ci-dessus. Aucun transport persistant, central, nouvelle file ou lot L2–L7 n'est ajouté pour contourner cette porte.
+Une livraison de ce type doit porter ces critères propres et les commits nécessaires, sans revendiquer les SLO 8/9 s ou la cible 5 s. La recette réelle de l'owner, une garantie du signal avant réponse distante et les garanties intégrées non exercées de #309/#312/#313/#314 restent à qualifier. #312 dispose de la non-régression ciblée burst/startup décrite dans la section R3 ; le dispatch local livré possède la qualification bornée ci-dessus. Aucun transport persistant, central, nouvelle file ou lot L2–L7 n'est ajouté pour contourner cette porte.
 
 ## Ce qui reste
 
