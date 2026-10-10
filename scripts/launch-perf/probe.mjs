@@ -189,7 +189,7 @@ try {
       const concurrent = opts.concurrentInput ? (async () => {
         const until=Date.now()+20000,receipt=workspace+'/.h2a/runs/'+name+'/launch.json';
         while(Date.now()<until){
-          try { if(JSON.parse(fs.readFileSync(receipt,'utf8')).submitAttempted){
+          try { const durable=JSON.parse(fs.readFileSync(receipt,'utf8')); if(opts.concurrentInput === 'before-enter' ? durable.timings?.composerReadyMs !== undefined : durable.submitAttempted){
             const lease=await client.acquireController(id,'lab-concurrent-input');
             await client.write(lease,'Injected fixture input.\r');await client.releaseController(lease);
             mark('lab_concurrent_input',{id});return;

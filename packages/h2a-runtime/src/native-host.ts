@@ -159,13 +159,13 @@ function runOp(
 }
 
 /** Spawn-or-adopt the per-user host; returns its identity. */
-export function ensureNativeHost(options: { fenced?: boolean } = {}): { hostPid: number; socketPath: string; generation: string; launchFence: boolean } {
+export function ensureNativeHost(options: { fenced?: boolean } = {}): { hostPid: number; socketPath: string; generation: string; launchFence: boolean; launchInputFence: boolean } {
   const { payload } = runOp(["ensure-host", ...(options.fenced ? ["--fenced", "true"] : [])]);
-  const record = payload as { hostPid?: number; socketPath?: string; generation?: string; launchFence?: boolean } | undefined;
+  const record = payload as { hostPid?: number; socketPath?: string; generation?: string; launchFence?: boolean; launchInputFence?: boolean } | undefined;
   if (!record || typeof record.hostPid !== "number" || typeof record.socketPath !== "string" || typeof record.generation !== "string") {
     throw new Error("native host did not report a valid identity");
   }
-  return { hostPid: record.hostPid, socketPath: record.socketPath, generation: record.generation, launchFence: record.launchFence === true };
+  return { hostPid: record.hostPid, socketPath: record.socketPath, generation: record.generation, launchFence: record.launchFence === true, launchInputFence: record.launchInputFence === true };
 }
 
 export type NativeLaunchOwnership = { name: string; generation: string; incarnation: string; socketPath: string };
@@ -199,15 +199,15 @@ export type NativeHostCapabilityFailure = {
   phase: "host-selection";
   creationAttempted: false;
   retrySafe: true;
-  missingCapabilities: ["launchFence"];
+  missingCapabilities: ["launchFence" | "launchInputFence"];
   host: { socketPath: string; generation: string; hostPid: number };
   recovery: { action: "select-compatible-generation"; automaticRetry: false };
 };
 
 /** Evidence for this component only; callers must rule out earlier creates. */
 export class NativeHostCapabilityMismatchError extends Error {
-  constructor(readonly host: NativeHostCapabilityFailure["host"]) {
-    super(`Launch refused before creation: host ${host.generation} on ${host.socketPath} does not provide launchFence. ` +
+  constructor(readonly host: NativeHostCapabilityFailure["host"], readonly capability: "launchFence" | "launchInputFence" = "launchFence") {
+    super(`Launch refused before creation: host ${host.generation} on ${host.socketPath} does not provide ${capability}. ` +
       "No session was created by this attempt. Its existing sessions remain active. " +
       "Use automatic generation selection with the corrected runtime; if this socket was explicitly imposed, " +
       "remove that constraint only for the new launch. No restart of the existing host is necessary.");
@@ -218,7 +218,7 @@ export class NativeHostCapabilityMismatchError extends Error {
     return {
       kind: "h2a.run.failure", version: 1, state: "not-started",
       code: "native-host-capability-mismatch", launchId, phase: "host-selection",
-      creationAttempted: false, retrySafe: true, missingCapabilities: ["launchFence"],
+      creationAttempted: false, retrySafe: true, missingCapabilities: [this.capability],
       host: this.host, recovery: { action: "select-compatible-generation", automaticRetry: false },
     };
   }
@@ -476,6 +476,7 @@ export function killNativeSessionIfIncarnation(
   generation: string,
   incarnation: string,
   socketPath?: string,
+  inputEpoch?: number,
 ): boolean {
   const { status } = runOp(
     [
@@ -486,6 +487,7 @@ export function killNativeSessionIfIncarnation(
       generation,
       "--incarnation",
       incarnation,
+      ...(inputEpoch === undefined ? [] : ["--epoch", String(inputEpoch)]),
     ],
     { allowFailure: true, socketPath },
   );
@@ -834,7 +836,7 @@ export function nativePromptDeliveryDeps(sleep: (ms: number) => void): PromptDel
 }
 
 /** One bounded async op per observation, pinned to the reserved incarnation. */
-export function nativeClaudeDeliveryDeps(owned: NativeLaunchOwnership, deadline: number): ClaudeNativeDeliveryDeps {
+export function nativeClaudeDeliveryDeps(owned: NativeLaunchOwnership, deadline: number, onInputEpoch?: (epoch: number) => void): ClaudeNativeDeliveryDeps {
   let epoch = 0;
   let nextCapture = 0;
   const operation = (op: string, extra: string[] = []): Promise<Record<string, unknown>> => new Promise((resolve, reject) => {
@@ -851,6 +853,7 @@ export function nativeClaudeDeliveryDeps(owned: NativeLaunchOwnership, deadline:
     const result = await operation(op, extra);
     if (result.ok !== true) return false;
     epoch += 2; // The acquired controller is released by this one-shot op.
+    onInputEpoch?.(epoch);
     return true;
   };
   return {

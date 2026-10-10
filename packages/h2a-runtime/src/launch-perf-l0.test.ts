@@ -35,6 +35,14 @@ function temporary(test: (file: string) => Promise<void> | void) {
     try { await test(file); } finally { rmSync(dir, { recursive: true, force: true }); } };
 }
 describe("L0 product driver adversaries", () => {
+  it("should preserve potential foreign submission before our own Enter", temporary(async file => {
+    const f = fixture(file), mark = vi.fn();
+    f.paste.mockImplementation(() => { throw new Error("launch input epoch changed"); });
+    const result = await deliverClaudeNativePrompt("w", "exact brief", f.deps, { debugFile: file,
+      launchGuard: { markSubmitAttempted: mark } as never });
+    expect(result.state).toBe("launch-unconfirmed"); expect(mark).toHaveBeenCalledTimes(1);
+    expect(f.submit).not.toHaveBeenCalled();
+  }));
   it("should wait for required MCP capabilities before submitting the first turn", temporary(async file => {
     const f = fixture(file, { mcpAt: 1000 });
     const result = await deliverClaudeNativePrompt("w", "exact brief", f.deps, { debugFile: file, requiredMcps: ["playwright"], requiredMcpProof: () => f.time() >= 1000, qualifiedDiagnostic: true, correlatedPrompt: () => true });

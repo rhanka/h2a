@@ -15,6 +15,14 @@ export type H2aRunGateway = (typeof H2A_RUN_GATEWAYS)[number];
 export const H2A_RUN_API_VERSION = "h2a.run/v1";
 const launchRequestTimes = new WeakMap<H2aRunRequest, number>();
 
+function recoveredAttempt(receipt: Record<string, unknown> | undefined): Record<string, unknown> {
+  const owner = (receipt?.ownership as { sessions?: Array<Record<string, unknown>> } | undefined)?.sessions?.[0];
+  return { ageMs: typeof receipt?.requestedAt === "number" ? Math.max(0, Date.now() - receipt.requestedAt) : null,
+    phase: receipt?.phase ?? "unknown", missingProof: "valid launch result or correlated dispatch",
+    conversationId: receipt?.conversationId ?? null, incarnation: owner?.incarnation ?? null,
+    generation: owner?.generation ?? null, socketPath: owner?.socketPath ?? null, actions: ["attach", "inspect", "explicit-stop"] };
+}
+
 function recoveredSubmission(request: H2aRunRequest, token: string): Record<string, unknown> | undefined {
   try {
     const receipt = JSON.parse(readFileSync(join(request.workspace, ".h2a", "runs", request.name, "launch.json"), "utf8"));
@@ -23,11 +31,12 @@ function recoveredSubmission(request: H2aRunRequest, token: string): Record<stri
         receipt.result.launchId === request.name && receipt.result.retrySafe === false && receipt.result.stopped === false) return receipt.result;
     return { kind: "h2a.run.failure", version: 1, error: "h2a_run: potential submission recovered from the durable receipt; session preserved",
       state: "launch-unconfirmed", launchId: request.name, retrySafe: false, stopped: false, submitAttempted: true,
-      attach: { command: "h2a", args: ["attach", request.name] }, ownership: receipt.ownership };
+      attach: { command: "h2a", args: ["attach", request.name] }, ownership: receipt.ownership, attempt: recoveredAttempt(receipt) };
   } catch {
     if (!existsSync(join(request.workspace, ".h2a", "runs", request.name, "launch.json"))) return undefined;
     return { kind: "h2a.run.failure", version: 1, error: "h2a_run: launch receipt unreadable; potential submission remains unconfirmed",
       state: "launch-unconfirmed", launchId: request.name, stopped: false, retrySafe: false,
+      attempt: recoveredAttempt(undefined),
       attach: { command: "h2a", args: ["attach", request.name] } };
   }
 }
@@ -106,7 +115,7 @@ function isPreCreateNativeFailure(
   const prompt = failure.prompt as Record<string, unknown> | undefined;
   const capability = failure.code === "native-host-capability-mismatch" && failure.phase === "host-selection" &&
     Array.isArray(failure.missingCapabilities) && failure.missingCapabilities.length === 1 &&
-    failure.missingCapabilities[0] === "launchFence" &&
+    ["launchFence", "launchInputFence"].includes(failure.missingCapabilities[0]) &&
     typeof host?.socketPath === "string" && isAbsolute(host.socketPath) &&
     typeof host.generation === "string" && host.generation.length > 0 &&
     typeof host.hostPid === "number" && Number.isSafeInteger(host.hostPid) && host.hostPid > 0 &&
