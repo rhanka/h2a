@@ -551,7 +551,7 @@ export function runMcpStdio(options: RunMcpStdioOptions): Promise<void> {
       ...((() => {
         const lc = detectLocalLaunchContext(
           sessionEnv,
-          undefined,
+          options.workspaceRoot ?? process.cwd(),
           `h2a mcp-serve --host ${cfg.host ?? ""}`.trim()
         );
         return lc ? { launchContext: lc } : {};
@@ -607,7 +607,7 @@ export function runMcpStdio(options: RunMcpStdioOptions): Promise<void> {
       resolveLaunchContext: () =>
         detectTmuxLaunchContext(
           sessionEnv,
-          undefined,
+          options.workspaceRoot ?? process.cwd(),
           `h2a mcp-serve --host ${cfg.host ?? ""}`.trim()
         ),
       ...(wakeCfg.nativeSessionId !== undefined
