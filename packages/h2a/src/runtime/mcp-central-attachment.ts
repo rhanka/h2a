@@ -5,7 +5,7 @@ import { runMcpServe } from "../cli.js";
 import type { createLocalStore } from "./local-files/index.js";
 import { createMcpServer, type McpServer } from "./mcp/server.js";
 import type { H2aRunExecutor } from "./mcp/agent-launch.js";
-import type { CentralMcpAttachment } from "./mcp-central-context.js";
+import { CENTRAL_ATTACHMENT_ENV, type CentralMcpAttachment } from "./mcp-central-context.js";
 
 export type CentralAttachmentHandle = { mcp: McpServer; close(): Promise<void> };
 
@@ -33,10 +33,14 @@ export function openCentralAttachment(
       done();
     } catch (error) { done(error as Error); }
   } });
+  const daemonEnvironment = Object.fromEntries(Object.entries(process.env).filter(([key]) =>
+    !(CENTRAL_ATTACHMENT_ENV as readonly string[]).includes(key) &&
+    !key.startsWith("H2A_NATIVE_") && !key.startsWith("H2A_MCP_READY_")
+  ));
   const serving = runMcpServe({ ...context.flags, root, host: "claude" }, {
     stdin: input, stdout: output, stderr: process.stderr,
     cwd: () => workspace,
-    env: { ...process.env, ...context.env, H2A_ROOT: root },
+    env: { ...daemonEnvironment, ...context.env, H2A_ROOT: root },
     sharedStore: store,
     centralAttachment: true,
     reclaimOnly: context.resume,
