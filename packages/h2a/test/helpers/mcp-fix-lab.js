@@ -25,6 +25,8 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { buildLaunchIndex } from "../../dist/runtime/local-files/launch-index.js";
+import { H2A_STORE_SCHEMA_FILE, H2A_STORE_SCHEMA_VERSION, readCliPackageVersion } from "../../dist/runtime/local-files/schema.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
@@ -83,6 +85,21 @@ export function labRoot(seedDir, opts = {}) {
   // MCP server / identity worker read an empty registry (then mint into it).
   writeFileSync(join(dest, "registry", "instances.jsonl"), "", { encoding: "utf8" });
   writeFileSync(join(dest, "registry", "keys.jsonl"), "", { encoding: "utf8" });
+  // Model an existing seeded store, including its sentinel. First-use schema
+  // publication is a different concern: concurrent create/read of that file
+  // can observe a partial write before identity contention even begins.
+  writeFileSync(join(dest, H2A_STORE_SCHEMA_FILE), JSON.stringify({
+    version: H2A_STORE_SCHEMA_VERSION, createdAt: new Date().toISOString(), createdBy: readCliPackageVersion()
+  }) + "\n", { mode: 0o600 });
+  if (process.env.H2A_MCP_TEST_INDEXED === "1") {
+    for (const [file, kind] of [
+      ["registry/instances.jsonl", "instances"], ["registry/keys.jsonl", "keys"],
+      ["identity/bindings.jsonl", "bindings"], ["identity/aliases.jsonl", "aliases"]
+    ]) {
+      writeFileSync(join(dest, file), "");
+      buildLaunchIndex(join(dest, file), kind);
+    }
+  }
   return dest;
 }
 
@@ -122,6 +139,7 @@ function labEnv(extra = {}) {
   const env = {
     PATH: process.env.PATH ?? "",
     HOME: home,
+    XDG_RUNTIME_DIR: join(home, "runtime"),
     LANG: process.env.LANG ?? "C.UTF-8",
     // Deterministic, offline, never a real credential.
     NO_COLOR: "1"
@@ -131,6 +149,7 @@ function labEnv(extra = {}) {
     if (v !== undefined) env[k] = v;
   }
   env.HOME = home;
+  mkdirSync(env.XDG_RUNTIME_DIR, { recursive: true, mode: 0o700 });
   return env;
 }
 
@@ -139,13 +158,13 @@ function labEnv(extra = {}) {
  * secret-free env. Returns a handle whose stdout is parsed into frames and
  * whose stderr is buffered (and split into trace events).
  */
-export function spawnMcp({ root, args = [], env = {}, trace = false, seed } = {}) {
+export function spawnMcp({ root, args = [], env = {}, trace = false, seed, nodeArgs = [], bin = H2A_BIN } = {}) {
   if (!root) throw new Error("spawnMcp: an explicit --root is required");
   const childEnv = labEnv({ ...env, ...(trace ? { H2A_MCP_TRACE: "1" } : {}) });
   if (seed) childEnv.H2A_MCP_TEST_SEED = seed;
   const child = spawn(
     process.execPath,
-    [H2A_BIN, "mcp-serve", "--root", root, ...args],
+    [...nodeArgs, bin, "mcp-serve", "--root", root, ...args],
     { stdio: ["pipe", "pipe", "pipe"], env: childEnv }
   );
   children.add(child);
