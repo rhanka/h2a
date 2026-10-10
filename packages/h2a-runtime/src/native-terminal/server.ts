@@ -1,7 +1,8 @@
 import { createHash, randomUUID } from "node:crypto";
+import { readdirSync, readFileSync, readlinkSync, realpathSync, statSync } from "node:fs";
 import { chmod, link, lstat, mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import { createConnection, createServer, type Server, type Socket } from "node:net";
-import { basename, dirname, isAbsolute, join } from "node:path";
+import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 
 import {
   NativeTerminalHost,
@@ -562,6 +563,137 @@ export async function proveNativeTerminalEndpointAbsent(socketPath: string, fail
   return withSocketPublicationLock(socketPath, () => proveEndpointAbsentUnderLock(socketPath));
 }
 
+function canonicalizePath(targetPath: string): string {
+  const resolved = resolve(targetPath);
+  try {
+    return realpathSync(resolved);
+  } catch {
+    const dir = dirname(resolved);
+    const base = basename(resolved);
+    try {
+      const realDir = realpathSync(dir);
+      return join(realDir, base);
+    } catch {
+      return resolved;
+    }
+  }
+}
+
+type ActiveHostScan =
+  | { state: "absent" }
+  | { state: "live"; pid: number; startTime: number }
+  | { state: "unknown"; reason: string };
+
+function findActiveHostServingSocket(
+  socketPath: string,
+  procRoot = process.env.H2A_TEST_PROC_ROOT ?? "/proc",
+): ActiveHostScan {
+  if (process.env.H2A_TEST_PROC_UNAVAILABLE) {
+    return { state: "unknown", reason: "simulated /proc observation unavailable" };
+  }
+  if (process.platform !== "linux") {
+    return { state: "unknown", reason: "platform does not support /proc host observation" };
+  }
+  let entries: string[];
+  try {
+    entries = readdirSync(procRoot);
+  } catch (error) {
+    return {
+      state: "unknown",
+      reason: `cannot read ${procRoot}: ${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
+
+  const targetCanonical = canonicalizePath(socketPath);
+
+  for (const entry of entries) {
+    if (!/^\d+$/.test(entry)) continue;
+    const pid = Number(entry);
+    if (pid === process.pid) continue;
+
+    const pidDir = join(procRoot, entry);
+    let procStat;
+    try {
+      procStat = statSync(pidDir);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === "ENOENT" || (err as NodeJS.ErrnoException).code === "ESRCH") continue;
+      continue;
+    }
+    if (process.getuid && procStat.uid !== process.getuid()) {
+      continue;
+    }
+
+    let cmdline: string;
+    try {
+      cmdline = readFileSync(join(pidDir, "cmdline"), "utf8");
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === "ENOENT" || (err as NodeJS.ErrnoException).code === "ESRCH") continue;
+      return {
+        state: "unknown",
+        reason: `cannot read /proc/${pid}/cmdline: ${err instanceof Error ? err.message : String(err)}`,
+      };
+    }
+
+    const args = cmdline.split("\0");
+    const idx = args.indexOf("--socket");
+    if (idx === -1 || idx + 1 >= args.length) continue;
+
+    const candidateSocket = args[idx + 1]!;
+    if (canonicalizePath(candidateSocket) !== targetCanonical) continue;
+
+    const isHost = args.some(arg => arg.includes("process.js") || (arg.includes("native-terminal") && !arg.includes("op.js")));
+    if (!isHost) continue;
+
+    const candDir = dirname(candidateSocket);
+    const candStem = basename(candidateSocket).slice(0, 8).replace(/[^A-Za-z0-9_.-]/g, "_");
+    let isStagingCandidate = false;
+    try {
+      const dirEntries = readdirSync(candDir);
+      isStagingCandidate = dirEntries.some(name => name.startsWith(`.${candStem}.${pid}.`));
+    } catch {}
+    if (isStagingCandidate) continue;
+
+    const fdDir = join(pidDir, "fd");
+    let fds: string[];
+    try {
+      fds = readdirSync(fdDir);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === "ENOENT" || (err as NodeJS.ErrnoException).code === "ESRCH") continue;
+      return {
+        state: "unknown",
+        reason: `cannot inspect /proc/${pid}/fd: ${err instanceof Error ? err.message : String(err)}`,
+      };
+    }
+
+    let hasSocketFd = false;
+    for (const fd of fds) {
+      try {
+        const link = readlinkSync(join(fdDir, fd));
+        if (link.startsWith("socket:[")) {
+          hasSocketFd = true;
+          break;
+        }
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code === "ENOENT") continue;
+      }
+    }
+    if (!hasSocketFd) continue;
+
+    const startTime = readProcessStartTime(pid);
+    if (startTime === undefined) {
+      return { state: "unknown", reason: `cannot read start time for host pid ${pid}` };
+    }
+    const probe = defaultOwnerHostProbe({ pid, startTime });
+    if (probe === "alive") {
+      return { state: "live", pid, startTime };
+    }
+    if (probe === "unresolvable") {
+      return { state: "unknown", reason: `host pid ${pid} liveness probe is unresolvable` };
+    }
+  }
+  return { state: "absent" };
+}
+
 async function proveEndpointAbsentUnderLock(socketPath: string): Promise<boolean> {
   let socket: NativeTerminalSocketIdentity | undefined;
   try { socket = await inspectPrivateNativeTerminalSocket(socketPath); }
@@ -577,6 +709,16 @@ async function proveEndpointAbsentUnderLock(socketPath: string): Promise<boolean
       connection.once("error", error => (error as NodeJS.ErrnoException).code === "ECONNREFUSED" ? resolve(true) : reject(error));
     });
     if (!refusal || !sameNativeTerminalSocket(socket, await inspectPrivateNativeTerminalSocket(socketPath))) return false;
+  }
+  // Independent proof of host vivacity: a live host that lost its pathname
+  // but still serves must never allow a second writer.
+  // /proc read errors => unknown, never absent.
+  const activeScan = findActiveHostServingSocket(socketPath);
+  if (activeScan.state === "live") {
+    return false;
+  }
+  if (activeScan.state === "unknown") {
+    throw new Error(`terminal host state is unprovable (${activeScan.reason}): ${socketPath}`);
   }
   try {
     const ownerPath = `${socketPath}.owner`;
@@ -610,10 +752,13 @@ async function proveEndpointAbsentUnderLock(socketPath: string): Promise<boolean
     if (snapshot.reason === "registry is absent") return socket === undefined;
     throw new Error(`native endpoint owner registry is unknown: ${snapshot.reason}`);
   }
-  const owners = snapshot.entries.filter(entry => entry.owner?.socketPath === socketPath).map(entry => entry.owner!);
+  const canonicalTarget = canonicalizePath(socketPath);
+  const owners = snapshot.entries
+    .filter(entry => entry.owner?.socketPath && canonicalizePath(entry.owner.socketPath) === canonicalTarget)
+    .map(entry => entry.owner!);
   const registry = loadRegistry();
   if (registry.state === "unknown" || registry.unreadable.length > 0) return false;
-  const rows = registry.entries.filter(entry => entry.ownerHostSocketPath === socketPath);
+  const rows = registry.entries.filter(entry => entry.ownerHostSocketPath && canonicalizePath(entry.ownerHostSocketPath) === canonicalTarget);
   if (rows.some(row => row.pgidBootId !== readBootId() || row.pgidPidNamespace !== readPidNamespaceId())) return false;
   if (owners.some(owner => owner.startTime === undefined || defaultOwnerHostProbe(owner) !== "dead")) return false;
   if (socket && owners.length > 0) {
@@ -669,7 +814,7 @@ async function ensurePrivateSocketDirectory(socketPath: string): Promise<void> {
 
 function stagingSocketPath(socketPath: string): string {
   const directory = dirname(socketPath);
-  const stem = basename(socketPath).slice(0, 24).replace(/[^A-Za-z0-9_.-]/g, "_");
+  const stem = basename(socketPath).slice(0, 8).replace(/[^A-Za-z0-9_.-]/g, "_");
   const stagedPath = join(
     directory,
     `.${stem}.${process.pid}.${randomUUID().slice(0, 8)}.sock`,
