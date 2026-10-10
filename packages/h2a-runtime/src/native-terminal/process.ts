@@ -213,6 +213,7 @@ export async function runNativeTerminalHostProcess(argv: ReadonlyArray<string>):
     cause = "startupError";
     journal.write({ event: "startupError", ...identity(), error: "[REDACTED]",
       stack: error instanceof Error ? error.stack : undefined, codePath });
+    await journal.flush();
     throw error;
   }
 }
