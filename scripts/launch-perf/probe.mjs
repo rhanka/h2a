@@ -18,7 +18,7 @@ const { NativeTerminalClient } = await import(rt + '/native-terminal/client.js')
 const label = opts.label || 'pilot-' + Date.now();
 const output = lab + '/results/' + label;
 fs.mkdirSync(output, { recursive: false, mode: 0o700 });
-const runtime = fs.mkdtempSync((repo + '/.qual-tmp/runtime') + '/h2a-launch-study-');
+const runtime = fs.mkdtempSync((repo + '/.qual-tmp/runtime') + '/q-');
 const home = output + '/home', workspace = runtime + '/workspace', bin = output + '/bin';
 for (const p of [home, home + '/.claude', home + '/.config/sentropic/h2a', workspace, bin]) fs.mkdirSync(p, { recursive: true, mode: 0o700 });
 fs.writeFileSync(workspace + '/CLAUDE.md', '');
@@ -114,6 +114,7 @@ if (opts.mcpDelayMs !== undefined || opts.toolsDelayMs !== undefined) {
   mcpServers.playwright = { command: process.execPath, args: [shim] };
 }
 const mcpFile = output + '/mcp.json'; fs.writeFileSync(mcpFile, JSON.stringify({ mcpServers }));
+env.H2A_CLAUDE_MCP_CONFIG = mcpFile;
 const cfg = { hasCompletedOnboarding: true, theme: 'dark', numStartups: 5, customApiKeyResponses: { approved: ['lab-placeholder'], rejected: [] }, projects: { [workspace]: { hasTrustDialogAccepted: true, hasCompletedProjectOnboarding: true, hasClaudeMdExternalIncludesApproved: true, hasClaudeMdExternalIncludesWarningShown: true }, '/home/antoinefa': { hasTrustDialogAccepted: true, hasCompletedProjectOnboarding: true, hasClaudeMdExternalIncludesApproved: true, hasClaudeMdExternalIncludesWarningShown: true } } };
 for (const p of [home + '/.claude.json', home + '/.claude/.claude.json']) fs.writeFileSync(p, JSON.stringify(cfg));
 const hooks = {};
@@ -125,7 +126,7 @@ if (opts.userHookMs !== undefined || opts.userHookVeto) {
 fs.writeFileSync(home + '/.claude/settings.json', JSON.stringify({ enabledPlugins: {}, permissions: { defaultMode: 'default' },hooks }));
 fs.writeFileSync(home + '/.config/sentropic/h2a/config.json', JSON.stringify({ h2a: { enabled: true, command: `${quote(process.execPath)} ${quote(installed + '/dist/bin.js')} mcp-serve --root ${quote(root)} --auto-open --host claude --backend local`, central: { enabled: false } } }));
 const claudeArgs = ['--strict-mcp-config', '--mcp-config', mcpFile, '--settings', home + '/.claude/settings.json'];
-fs.writeFileSync(bin + '/claude', opts.noDebug ? '#!/bin/sh\nexec /home/antoinefa/.local/bin/claude ' + claudeArgs.map(quote).join(' ') + ' "$@"\n' : '#!/bin/sh\ncase " $* " in *" --debug-file "*) exec /home/antoinefa/.local/bin/claude ' + claudeArgs.map(quote).join(' ') + ' "$@";; esac\nexec /home/antoinefa/.local/bin/claude ' + claudeArgs.map(quote).join(' ') + ' --debug-file ' + quote(output) + '/claude-debug-$.log "$@"\n', { mode: 0o700 });
+fs.writeFileSync(bin + '/claude', opts.noDebug ? '#!/bin/sh\nexec /home/antoinefa/.local/bin/claude ' + claudeArgs.map(quote).join(' ') + ' "$@"\n' : '#!/bin/sh\ncase " $* " in *" --debug-file "*) exec /home/antoinefa/.local/bin/claude ' + claudeArgs.map(quote).join(' ') + ' "$@";; esac\nexec /home/antoinefa/.local/bin/claude ' + claudeArgs.map(quote).join(' ') + ' --debug-file ' + quote(output) + '/claude-debug-$$.log "$@"\n', { mode: 0o700 });
 fs.writeFileSync(bin + '/h2a', '#!/bin/sh\nexec ' + quote(process.execPath) + ' ' + quote(binJs) + ' "$@"\n', { mode: 0o700 });
 const bashenv = output + '/bash-env.sh'; fs.writeFileSync(bashenv, Object.entries(env).map(([k,v]) => 'export ' + k + '=' + quote(v)).join('\n') + '\n'); env.BASH_ENV = bashenv;
 const startChild = (command, args, role, stdin) => { const c = spawn(command, args, { cwd: workspace, env: { ...env, LAUNCH_PERF_ROLE: role }, stdio: ['pipe','pipe','pipe'] }); children.push(c); const out = fs.createWriteStream(output + '/' + role + '-' + c.pid + '.stdout'); const err = fs.createWriteStream(output + '/' + role + '-' + c.pid + '.stderr'); c.stdout.pipe(out); c.stderr.pipe(err); if (stdin !== undefined) c.stdin.end(stdin); return c; };
@@ -240,6 +241,17 @@ try {
       await new Promise(resolve=>conflicting.once('close',resolve));
       row.repeat={exitCode:repeated.exitCode,conflictCode:conflicting.exitCode,additionalRequests:stubRequests.length-count};
       if(repeated.exitCode!==0||conflicting.exitCode===0||stubRequests.length!==count)throw new Error('durable repeat/conflict witness failed');
+    }
+    if (opts.resumePrompt && row.exitCode === 0) {
+      const state=await client.state(row.id);
+      await client.stopIfIncarnation(row.id,state.generation,state.incarnation,'SIGTERM');
+      const name=row.name+'-resume'; sessions.push('h2a-'+name);
+      const conversation=row.receipt.conversationId;
+      const c=startChild(process.execPath,[binJs,'run','claude',workspace,'--name',name,'--resume',conversation,'--no-gw','--no-attach','--background','--json','--prompt-stdin','--no-h2a'],'resume-'+row.name,'Continue with exactly READY_CONTINUATION.');
+      await new Promise(resolve=>c.once('close',resolve));
+      const result=JSON.parse(fs.readFileSync(output+'/resume-'+row.name+'-'+c.pid+'.stdout','utf8'));
+      row.resume={exitCode:c.exitCode,result};
+      if(c.exitCode!==0||result.session?.conversationId!==conversation)throw new Error('exact conversation continuation witness failed');
     }
   }
   if (opts.relaunch) {
