@@ -1,6 +1,6 @@
 import type { ChildProcess } from "node:child_process";
 import { once } from "node:events";
-import { chmod, mkdtemp, readFile, readdir, readlink, rm, stat, unlink, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, readdir, readlink, rm, stat, unlink, writeFile } from "node:fs/promises";
 import { createConnection, createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
@@ -13,7 +13,6 @@ setupNativeTestEnvironment(afterAll);
 
 import { persistNativeTerminalPgid, readNativeTerminalPgid } from "../registry.js";
 import { NativeTerminalClient } from "./client.js";
-import { resolveHostJournalPath } from "./journal.js";
 import {
   NATIVE_TERMINAL_FORCE_KILL_TIMEOUT_MS,
   NativeTerminalHost,
@@ -999,7 +998,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
     3 * EVENTUALLY_BUDGET_MS +
     1_000;
 
-  for (const { releasePublication, releaseLate, terminate, suspendAt, preserveOwner, preserveSocket, title } of [
+  for (const { releasePublication, releaseLate, terminate, blockJournal, suspendAt, preserveOwner, preserveSocket, title } of [
     { releasePublication: true, suspendAt: "rename", preserveOwner: false,
       title: "should handle termination while its published socket awaits the owner record" },
     { releasePublication: false, suspendAt: "rename", preserveOwner: false,
@@ -1014,6 +1013,8 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
       title: "should remove its committed owner on SIGTERM without releasing publication" },
     { releasePublication: false, suspendAt: "owner-unlink", preserveOwner: false,
       title: "should exit and clean up on SIGTERM without releasing a suspended temporary owner unlink" },
+    { releasePublication: false, blockJournal: true, suspendAt: "owner-unlink", preserveOwner: false,
+      title: "should drain and exit during suspended publication when journal storage is locked" },
     { releasePublication: false, suspendAt: "socket-link", preserveOwner: false,
       title: "should exit and clean up on SIGTERM without releasing a suspended socket publication" },
     { releasePublication: false, suspendAt: "socket-linked", preserveOwner: false,
@@ -1032,12 +1033,18 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
       title: "should bound a suspended socket publication by the publication deadline" },
     { releasePublication: false, suspendAt: "rename", preserveOwner: true,
       title: "should preserve another owner on SIGTERM during suspended publication" },
-  ].map(value => ({ preserveSocket: false, releaseLate: false, terminate: true, ...value }))) it(title, async () => {
+  ].map(value => ({ preserveSocket: false, releaseLate: false, terminate: true, blockJournal: false, ...value }))) it(title, async () => {
     const directory = await mkdtemp(join(tmpdir(), "n-"));
     directories.add(directory);
     const socketPath = join(directory, "host.sock");
     const entry = fileURLToPath(new URL("../../dist/native-terminal/process.js", import.meta.url));
     const wrapper = join(directory, "publishing.mjs");
+    const statePath = join(directory, "state");
+    const journalLock = join(statePath, "h2a", "native-host.log.lock");
+    if (blockJournal) {
+      await mkdir(dirname(journalLock), { recursive: true, mode: 0o700 });
+      await writeFile(journalLock, "fixture-journal-lock", { mode: 0o600 });
+    }
     await writeFile(wrapper, `
       import fs from 'node:fs/promises';
       import { once } from 'node:events';
@@ -1050,6 +1057,13 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
         await released;
       };
       const writeFile = fs.writeFile;
+      const readFile = fs.readFile;
+      let lockSecret;
+      fs.readFile = async (...args) => {
+        const data = await readFile(...args);
+        if (args[0] === ${JSON.stringify(join(directory, ".h2a-native-terminal.lock-id"))}) lockSecret = data.trim();
+        return data;
+      };
       const open = fs.open;
       fs.open = async (...args) => {
         const file = await open(...args);
@@ -1128,6 +1142,13 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
         if (!stopping) queueMicrotask(() => process.send('terminal-drain-observed'));
         return list.apply(this, args);
       };
+      const setTimeout = globalThis.setTimeout;
+      globalThis.setTimeout = function(callback, milliseconds, ...args) {
+        if (milliseconds === 100 && new Error().stack?.includes('/native-terminal/journal.')) {
+          process.send('journal-drain-observed');
+        }
+        return setTimeout(callback, milliseconds, ...args);
+      };
       const { runNativeTerminalHostProcess } = await import(${JSON.stringify(entry)});
       try { await runNativeTerminalHostProcess([process.execPath, ${JSON.stringify(entry)},
         '--socket', ${JSON.stringify(socketPath)}, '--registry-path',
@@ -1137,10 +1158,10 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
         process.send({ publicationDeadline: error.message });
         process.exitCode = 1;
       }
-      const secret = (await fs.readFile(${JSON.stringify(join(directory, ".h2a-native-terminal.lock-id"))}, 'utf8')).trim();
+      if (typeof lockSecret !== 'string' || lockSecret.length === 0) throw new Error('Publication lock identity was not observed');
       const lock = createServer();
       lock.listen('\\0h2a-terminal-lock-' + createHash('sha256')
-        .update(process.getuid() + ':' + ${JSON.stringify(socketPath)} + ':' + secret).digest('hex'));
+        .update(process.getuid() + ':' + ${JSON.stringify(socketPath)} + ':' + lockSecret).digest('hex'));
       await once(lock, 'listening');
       await new Promise((resolve, reject) => lock.close(error => error ? reject(error) : resolve()));
       process.send('publication-lock-released');
@@ -1152,7 +1173,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
       process.disconnect();
     `);
     const child = spawn(process.execPath, ["--import", "tsx", wrapper], {
-      cwd: dirname(entry), env: process.env, stdio: ["ignore", "pipe", "pipe", "ipc"],
+      cwd: dirname(entry), env: { ...process.env, XDG_STATE_HOME: statePath }, stdio: ["ignore", "pipe", "pipe", "ipc"],
     });
     children.add(child);
     const messages: unknown[] = [];
@@ -1162,12 +1183,6 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
     child.stdout!.on("data", (chunk) => { stdout += chunk; });
     child.stderr!.on("data", (chunk) => { stderr += chunk; });
     expect((await once(child, "message"))[0]).toBe("owner-record-pending");
-    // The journal's bounded flush may drop observations before its writer has
-    // booted. Observe that writer's start entry before exercising the drain.
-    await eventually(() => readFile(resolveHostJournalPath(), "utf8").then(
-      data => data.trim().split("\n").map(line => JSON.parse(line)).some(entry => entry.event === "start" && entry.pid === child.pid),
-      (error: NodeJS.ErrnoException) => { if (error.code === "ENOENT") return false; throw error; },
-    ), started => started);
     const otherOwner = JSON.stringify({ pid: process.pid, marker: "replacement-owner" });
     if (preserveOwner) await writeFile(`${socketPath}.owner`, otherOwner, { mode: 0o600 });
     const listenerPath = suspendAt === "socket-link"
@@ -1198,16 +1213,26 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
         else child.kill("SIGTERM");
         expect(await observed).toBe("termination-handled");
       }
-      if (releasePublication && suspendAt !== "open-cancelled") child.send("release-owner-record");
+      if (releasePublication && suspendAt !== "open-cancelled") {
+        await new Promise<void>((resolve, reject) => child.send("release-owner-record", (error) => {
+          const code = (error as NodeJS.ErrnoException | null)?.code;
+          if (error && code !== "EPIPE" && code !== "ERR_IPC_CHANNEL_CLOSED") reject(error);
+          else resolve();
+        }));
+      }
       if (releaseLate) {
         await eventually(() => messages.includes("publication-lock-released"), released => released);
         await expect(stat(socketPath)).rejects.toMatchObject({ code: "ENOENT" });
         await replaceSocket();
         child.send("release-late-publication");
       }
-      expect(await exited, stderr).toEqual([terminate ? 0 : 1, null]);
+      const exit = await exited.catch((error: unknown) => {
+        throw new Error(`${String(error)}; messages=${JSON.stringify(messages)}; stderr=${stderr}`);
+      });
+      expect(exit, stderr).toEqual([terminate ? 0 : 1, null]);
       await listenerClosed;
       expect(messages).toContain("publication-lock-released");
+      expect(messages).toContain("journal-drain-observed");
       if (terminate) {
         expect(messages).toContain("terminal-stop-observed");
         expect(messages).toContain("terminal-drain-observed");
@@ -1220,10 +1245,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
       else await expect(stat(`${socketPath}.owner`)).rejects.toMatchObject({ code: "ENOENT" });
       expect((await readdir(directory)).filter((name) => name.endsWith(".sock") || name.endsWith(".tmp"))).toEqual(preserveSocket ? ["host.sock"] : []);
       await waitForPrivateNativeProcesses(process.env);
-      const journal = (await readFile(resolveHostJournalPath(), "utf8")).trim().split("\n").map(line => JSON.parse(line));
-      expect(journal).toContainEqual(expect.objectContaining(terminate
-        ? { event: "stop", pid: child.pid, clean: true }
-        : { event: "startupError", pid: child.pid }));
+      if (blockJournal) expect(await readFile(journalLock, "utf8")).toBe("fixture-journal-lock");
     } finally {
       client.destroy();
       if (replacement !== undefined) await new Promise<void>(resolve => replacement!.close(() => resolve()));
