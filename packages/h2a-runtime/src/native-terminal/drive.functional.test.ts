@@ -1,6 +1,6 @@
 // @ts-ignore Shared JS test isolation helper.
-import { isolatedNativeTestEnvironment, spawnIsolatedNative as spawn, spawnSyncIsolatedNative as spawnSync } from "../../../h2a/test/helpers/native-isolation.js";
-isolatedNativeTestEnvironment(process.env); // Refuse owner resources before any fixture or operation.
+import { isolatedNativeTestEnvironment, spawnIsolatedNative as spawn, spawnSyncIsolatedNative as spawnSync, setupNativeTestEnvironment } from "../../../h2a/test/helpers/native-isolation.js";
+setupNativeTestEnvironment(afterAll);
 import assert from "node:assert/strict";
 import type { ChildProcess } from "node:child_process";
 import { generateKeyPairSync } from "node:crypto";
@@ -9,7 +9,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, describe, expect, it } from "vitest";
 
 import { createLocalStore, runCli } from "@sentropic/h2a";
 
