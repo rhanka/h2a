@@ -1,7 +1,11 @@
 #!/usr/bin/env node
 import { randomUUID } from "node:crypto";
 
-import { NativeTerminalHost } from "./host.js";
+import { resolve } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
+
+import { NativeTerminalHost, readProcessStartTime } from "./host.js";
+import { appendHostJournal, createHostJournalWriter, getRuntimeVersion, type HostJournalEntry } from "./journal.js";
 import { nodePtySpawner } from "../pty.js";
 import {
   NATIVE_TERMINAL_DEFAULT_MAX_SESSIONS,
@@ -108,62 +112,118 @@ export function parseNativeTerminalHostArgs(argv: ReadonlyArray<string>): Proces
 }
 
 export async function runNativeTerminalHostProcess(argv: ReadonlyArray<string>): Promise<void> {
-  const options = parseNativeTerminalHostArgs(argv);
-  const host = new NativeTerminalHost({
-    generation: options.generation,
-    replayBytesPerSession: options.replayBytesPerSession,
-    maxSessions: options.maxSessions,
-    spawner: nodePtySpawner,
-    socketPath: options.socketPath,
-    ...(options.registryPath !== undefined ? { registryPath: options.registryPath } : {}),
+  const startTime = readProcessStartTime(process.pid) ?? "unknown";
+  const codePath = process.argv[1] ?? fileURLToPath(import.meta.url);
+  let options: ProcessOptions | undefined;
+  let cause: Extract<HostJournalEntry, { event: "exit" }>["cause"] = "unknown";
+  const identity = () => ({ pid: process.pid, startTime, generation: options?.generation ?? "unknown" } as const);
+  const journal = createHostJournalWriter();
+  // Terminal observations must be synchronous: Node cannot await in exit.
+  // The monitor preserves Node's fatal exception/rejection behavior.
+  process.on("exit", (exitCode) => {
+    appendHostJournal({ event: "exit", ...identity(), exitCode, cause });
   });
-  const server = await startNativeTerminalHostServer({ socketPath: options.socketPath, host });
-  process.stdout.write(`${JSON.stringify({
-    kind: "h2a.native-terminal.ready",
-    version: 1,
-    generation: host.generation,
-    pid: process.pid,
-    socketPath: server.socketPath,
-  })}\n`);
+  process.on("uncaughtExceptionMonitor", (error: Error, origin) => {
+    cause = origin === "unhandledRejection" ? "unhandledRejection" : "uncaughtException";
+    appendHostJournal({ event: cause, ...identity(), error: error.message, stack: error.stack, codePath });
+  });
 
-  let shutdown: Promise<void> | undefined;
-  const stop = (signal: string): void => {
-    shutdown ??= (async () => {
-      let gracefulError: unknown;
-      try {
-        await server.close({ stopSessions: true, signal: "SIGTERM" });
-      } catch (error) {
-        gracefulError = error;
-      }
-      if (!await waitForTerminalDrain(host, GRACEFUL_DRAIN_MS)) {
+  try {
+    options = parseNativeTerminalHostArgs(argv);
+    journal.write({
+      event: "start",
+      ...identity(),
+      version: getRuntimeVersion(),
+      codePath,
+      socket: options.socketPath,
+    });
+
+    const host = new NativeTerminalHost({
+      generation: options.generation,
+      replayBytesPerSession: options.replayBytesPerSession,
+      maxSessions: options.maxSessions,
+      spawner: nodePtySpawner,
+      socketPath: options.socketPath,
+      ...(options.registryPath !== undefined ? { registryPath: options.registryPath } : {}),
+    });
+    const server = await startNativeTerminalHostServer({ socketPath: options.socketPath, host });
+    process.stdout.write(`${JSON.stringify({
+      kind: "h2a.native-terminal.ready",
+      version: 1,
+      generation: host.generation,
+      pid: process.pid,
+      socketPath: server.socketPath,
+    })}\n`);
+
+    let shutdown: Promise<void> | undefined;
+    const stop = (signal: string): void => {
+      journal.write({
+        event: "signal",
+        ...identity(),
+        signal,
+      });
+      if (shutdown !== undefined) return;
+      cause = "signal";
+      shutdown = (async () => {
+        let gracefulError: unknown;
         try {
-          await host.forceStopAll("SIGKILL");
-        } catch {
-          // The post-kill drain check below is authoritative: a raced exit may
-          // make node-pty report an error even though no terminal remains.
+          await server.close({ stopSessions: true, signal: "SIGTERM" });
+        } catch (error) {
+          gracefulError = error;
         }
-        if (!await waitForTerminalDrain(host, FORCED_DRAIN_MS)) {
-          throw new Error("terminal sessions did not exit after forced shutdown");
+        if (!await waitForTerminalDrain(host, GRACEFUL_DRAIN_MS)) {
+          try {
+            await host.forceStopAll("SIGKILL");
+          } catch {
+            // The post-kill drain check below is authoritative: a raced exit may
+            // make node-pty report an error even though no terminal remains.
+          }
+          if (!await waitForTerminalDrain(host, FORCED_DRAIN_MS)) {
+            throw new Error("terminal sessions did not exit after forced shutdown");
+          }
         }
-      }
-      if (gracefulError !== undefined) throw gracefulError;
-    })();
-    void shutdown.then(
-      () => { process.exitCode = 0; },
-      (error) => {
-        process.stderr.write(`[h2a-pty-host] shutdown failed after ${signal}: ${String(error)}\n`);
-        process.exitCode = 1;
-      },
-    );
-  };
-  process.once("SIGINT", () => stop("SIGINT"));
-  process.once("SIGTERM", () => stop("SIGTERM"));
-  process.once("SIGHUP", () => stop("SIGHUP"));
+        if (gracefulError !== undefined) throw gracefulError;
+      })();
+      void shutdown.then(
+        () => {
+          cause = "clean-stop";
+          journal.write({
+            event: "stop",
+            ...identity(),
+            clean: true,
+          });
+          process.exitCode = 0;
+        },
+        (error) => {
+          journal.write({
+            event: "stop",
+            ...identity(),
+            clean: false,
+          });
+          process.stderr.write(`[h2a-pty-host] shutdown failed after ${signal}: ${String(error)}\n`);
+          process.exitCode = 1;
+        },
+      );
+    };
+    process.once("SIGINT", () => stop("SIGINT"));
+    process.once("SIGTERM", () => stop("SIGTERM"));
+    process.once("SIGHUP", () => stop("SIGHUP"));
+  } catch (error) {
+    cause = "startupError";
+    appendHostJournal({ event: "startupError", ...identity(), error: "[REDACTED]",
+      stack: error instanceof Error ? error.stack : undefined, codePath });
+    throw error;
+  }
 }
 
 function isEntryPoint(): boolean {
   const argv1 = process.argv[1];
-  return argv1 !== undefined && import.meta.url === new URL(`file://${argv1}`).href;
+  if (argv1 === undefined) return false;
+  try {
+    return import.meta.url === pathToFileURL(resolve(argv1)).href;
+  } catch {
+    return false;
+  }
 }
 
 if (isEntryPoint()) {
