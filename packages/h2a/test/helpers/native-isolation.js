@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { spawn, spawnSync } from "node:child_process";
+import childProcess, { spawn, spawnSync } from "node:child_process";
+import { syncBuiltinESMExports } from "node:module";
 import { lstatSync, mkdirSync, mkdtempSync, readlinkSync } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 
@@ -117,6 +118,91 @@ function guardSpawn(args, options = {}) {
     if (index !== -1) assertPrivateQualificationPath(args[index + 1], nativeQualificationRoot);
   }
 }
+
+// Mandatory test boundary: partial mocks and indirect adapter calls must not
+// bypass the same guard as explicit fixture launchers. This module is also the
+// Node preload and Vitest setup file; it never ships in the native runtime.
+const guardInstalled = Symbol.for("h2a.test.nativeSpawnGuard");
+const preload = `--import=${import.meta.url}`;
+const nativeEntry = /(?:^|[/\\\s"'])(?:op|process)\.[jt]s(?:$|[\s"'])/;
+
+function isNode(command) {
+  return command === process.execPath || /(?:^|[/\\])node(?:js|\.exe)?$/.test(command);
+}
+
+function guardedEnvironment(command, args, env, cwd = process.cwd()) {
+  if ([command, ...args].some(arg => nativeEntry.test(String(arg))
+    || nativeEntry.test(resolve(cwd, String(arg))))) {
+    try { guardSpawn(args, { env }); }
+    catch (error) {
+      const state = childProcess.ChildProcess.prototype[guardInstalled];
+      if (!state.expectedRefusals) state.violations.push(String(error));
+      throw error;
+    }
+  }
+  if (!isNode(command)) return env;
+  // Carry the boundary through CLI/worker children even with a minimal env.
+  const options = env.NODE_OPTIONS ?? "";
+  return { ...env, NODE_OPTIONS: options.includes(preload) ? options : `${options} ${preload}`.trim() };
+}
+
+export function installNativeTestSpawnGuard() {
+  const prototype = childProcess.ChildProcess.prototype;
+  if (prototype[guardInstalled]) return;
+  const actualSpawn = prototype.spawn, actualSpawnSync = childProcess.spawnSync;
+  const actualExecFileSync = childProcess.execFileSync, actualExecSync = childProcess.execSync;
+  prototype.spawn = function (options) {
+    const env = Object.fromEntries(options.envPairs.map(pair => {
+      const index = pair.indexOf("=");
+      return [pair.slice(0, index), pair.slice(index + 1)];
+    }));
+    const guarded = guardedEnvironment(options.file, options.args, env, options.cwd ?? process.cwd());
+    return actualSpawn.call(this, { ...options,
+      envPairs: Object.entries(guarded).map(([key, value]) => `${key}=${value}`) });
+  };
+  childProcess.spawnSync = function (command, args, options) {
+    if (!Array.isArray(args)) { options = args; args = []; }
+    const env = guardedEnvironment(command, args, options?.env ?? process.env, options?.cwd);
+    return actualSpawnSync(command, args, { ...options, env });
+  };
+  // Node's sync exec helpers retain an internal spawnSync reference.
+  childProcess.execFileSync = function (command, args, options) {
+    if (!Array.isArray(args)) { options = args; args = []; }
+    const env = guardedEnvironment(command, args, options?.env ?? process.env, options?.cwd);
+    return actualExecFileSync(command, args, { ...options, env });
+  };
+  childProcess.execSync = function (command, options) {
+    const env = guardedEnvironment(command, [], options?.env ?? process.env, options?.cwd);
+    return actualExecSync(command, { ...options, env });
+  };
+  const state = { violations: [], expectedRefusals: 0 };
+  Object.defineProperty(prototype, guardInstalled, { value: state });
+  const failUnexpected = () => {
+    if (state.violations.length) {
+      process.exitCode = 1;
+      process.stderr.write(`Unexpected unsafe native test launches: ${JSON.stringify(state.violations)}\n`);
+    }
+  };
+  process.once("beforeExit", failUnexpected);
+  process.once("exit", failUnexpected);
+  syncBuiltinESMExports();
+}
+
+export function assertNativeTestSpawnRefused(operation) {
+  const state = childProcess.ChildProcess.prototype[guardInstalled];
+  state.expectedRefusals += 1;
+  try { assert.throws(operation, /REFUSING/); }
+  finally { state.expectedRefusals -= 1; }
+}
+
+export function assertNoNativeTestSpawnViolations() {
+  assert.deepEqual(childProcess.ChildProcess.prototype[guardInstalled].violations, [],
+    "no caught unsafe native launch may pass qualification");
+}
+
+installNativeTestSpawnGuard();
+// Also protect native entry points reached via shell/PTY wrappers.
+if (nativeEntry.test(process.argv[1] ?? "")) guardSpawn(process.argv.slice(1), { env: process.env });
 
 export function spawnIsolatedNative(command, args = [], options = {}) {
   guardSpawn(args, options);

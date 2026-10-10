@@ -9,6 +9,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import { createPrivateTestDirectory, installNativeTestEnvironment, nativeTestEnvironment } from "./helpers/native-isolation.js";
 
 import { enroll, listLive, loadRegistry } from "../../h2a-runtime/dist/registry.js";
 import { handleClaudeHook } from "../../h2a-runtime/dist/enroll.js";
@@ -61,7 +62,7 @@ function writeClaudeTranscript(home, cwd, id, mtimeMs) {
 }
 
 function makeFixture({ oneRegistrySessionLive }) {
-  const root = mkdtempSync(join(tmpdir(), "h2a-restore-recovery-"));
+  const root = createPrivateTestDirectory("restore-recovery-");
   const home = join(root, "home");
   const configHome = join(root, "config");
   const configDir = join(configHome, ".config", "sentropic", "remote-cli");
@@ -139,12 +140,11 @@ function makeFixture({ oneRegistrySessionLive }) {
 }
 
 function restoreDryRun(fixture) {
-  const oldHome = process.env.HOME;
-  const oldConfigHome = process.env.REMOTE_CLI_CONFIG_HOME;
+  const restoreEnvironment = installNativeTestEnvironment(nativeTestEnvironment(fixture.root, {
+    HOME: fixture.home, REMOTE_CLI_CONFIG_HOME: fixture.configHome,
+  }));
   let output = "";
   try {
-    process.env.HOME = fixture.home;
-    process.env.REMOTE_CLI_CONFIG_HOME = fixture.configHome;
     const result = restore({
       dryRun: true,
       stderr: { write: (chunk) => void (output += String(chunk)) },
@@ -152,10 +152,7 @@ function restoreDryRun(fixture) {
     assert.equal(result.total, 8, output);
     return output;
   } finally {
-    if (oldHome === undefined) delete process.env.HOME;
-    else process.env.HOME = oldHome;
-    if (oldConfigHome === undefined) delete process.env.REMOTE_CLI_CONFIG_HOME;
-    else process.env.REMOTE_CLI_CONFIG_HOME = oldConfigHome;
+    restoreEnvironment();
   }
 }
 
