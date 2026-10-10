@@ -1,5 +1,8 @@
+// @ts-ignore Shared JS test isolation helper.
+import { isolatedNativeTestEnvironment, spawnIsolatedNative as spawn, spawnSyncIsolatedNative as spawnSync } from "../../../h2a/test/helpers/native-isolation.js";
+isolatedNativeTestEnvironment(process.env); // Refuse owner resources before any fixture or operation.
 import assert from "node:assert/strict";
-import { spawn, type ChildProcess } from "node:child_process";
+import type { ChildProcess } from "node:child_process";
 import { generateKeyPairSync } from "node:crypto";
 import { once } from "node:events";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
@@ -88,7 +91,7 @@ describe.skipIf(process.platform !== "linux")("h2a drive native PTY backchannel"
   // CPU workers sharing two cores. Bound the whole scenario separately from
   // readiness polling and the human-activity window, which keep their bounds.
   it("should submit a signed line to a real native PTY and defer after human activity", async () => {
-    const directory = await mkdtemp(join(tmpdir(), "h2a-native-drive-functional-"));
+    const directory = await mkdtemp(join(tmpdir(), "d-"));
     directories.add(directory);
     const socketPath = join(directory, "host.sock");
     const configHome = join(directory, "config");
@@ -148,7 +151,7 @@ describe.skipIf(process.platform !== "linux")("h2a drive native PTY backchannel"
           "printf 'native-drive-ready\\r\\n'; while IFS= read -r line; do printf 'native-drive-received:%s\\r\\n' \"$line\"; done",
         ],
         cwd: directory,
-        env: { PATH: process.env.PATH ?? "/usr/bin:/bin", TERM: "xterm-256color" },
+        env: isolatedNativeTestEnvironment({ PATH: process.env.PATH ?? "/usr/bin:/bin", TERM: "xterm-256color" }),
         cols: 80,
         rows: 24,
       });
