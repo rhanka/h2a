@@ -1,6 +1,6 @@
-import { spawn } from "node:child_process";
+
 // @ts-ignore Shared JS qualification helper; tests are outside the production build.
-import { isolatedNativeTestEnvironment } from "../../../h2a/test/helpers/native-isolation.js";
+import { isolatedNativeTestEnvironment, spawnIsolatedNative as spawn, spawnSyncIsolatedNative as spawnSync } from "../../../h2a/test/helpers/native-isolation.js";
 
 isolatedNativeTestEnvironment(process.env); // Includes the real stale-host fixture.
 import { once } from "node:events";

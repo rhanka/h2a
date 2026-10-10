@@ -1,6 +1,6 @@
-import { assertIsolatedEnvironment } from "./helpers/native-isolation.js";
+import { assertIsolatedEnvironment, assertIsolatedNativeOperation, spawnIsolatedNative as spawn } from "./helpers/native-isolation.js";
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
+
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import test from "node:test";
@@ -70,7 +70,7 @@ function assertPrivatePaths(root, paths) {
 }
 
 function start(command, args, env) {
-  assertIsolatedEnvironment(env, join(repo, ".qual-tmp"));
+  assertIsolatedNativeOperation(env, join(repo, ".qual-tmp"));
   const child = spawn(command, args, { env, cwd: env.HOME, stdio: ["pipe", "pipe", "pipe"] });
   let stdout = "", stderr = "";
   child.stdout.setEncoding("utf8").on("data", chunk => { stdout += chunk; });
@@ -111,7 +111,7 @@ async function withLegacy(context, body, historicalEntry = legacyEntry) {
     H2A_ROOT: join(workspace, ".h2a"), H2A_SESSION_HOST: "native",
     H2A_NATIVE_SOCKET: socketPath, TMPDIR: join(root, "tmp"), TMUX_TMPDIR: join(root, "tmp"), TERM: "xterm-256color" };
   for (const path of [home, workspace, stateHome, configHome, env.TMPDIR]) mkdirSync(path, { recursive: true, mode: 0o700 });
-  assertIsolatedEnvironment(env, qualRoot);
+  assertIsolatedNativeOperation(env, qualRoot);
   assertPrivatePaths(root, [home, workspace, stateHome, configHome, socketPath, registryPath, env.XDG_CONFIG_HOME, env.H2A_ROOT, env.TMPDIR,
     defaultNativeTerminalSocketPath(env)]);
   assert.equal(defaultNativeTerminalSocketPath(env), socketPath);

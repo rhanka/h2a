@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
 import { join, resolve } from "node:path";
 import test from "node:test";
-import { assertIsolatedEnvironment } from "./helpers/native-isolation.js";
+import { assertIsolatedEnvironment, nativeTestEnvironment, spawnIsolatedNative } from "./helpers/native-isolation.js";
 
 const qualRoot = resolve(import.meta.dirname, "../../../.qual-tmp");
-const keys = ["HOME", "XDG_RUNTIME_DIR", "XDG_STATE_HOME", "XDG_CONFIG_HOME"];
+const keys = ["HOME", "XDG_RUNTIME_DIR", "XDG_STATE_HOME", "XDG_CONFIG_HOME", "H2A_NATIVE_SOCKET"];
 
 test("should reject every unsafe isolation variable and symlink before process startup", () => {
   mkdirSync(qualRoot, { recursive: true, mode: 0o700 });
@@ -14,14 +14,27 @@ test("should reject every unsafe isolation variable and symlink before process s
   try {
     assertIsolatedEnvironment(safe, qualRoot);
     for (const key of keys) {
-      for (const bad of [undefined, "/home/antoinefa", "/home/antoinefa/.local/state",
+      for (const bad of [undefined, "", "relative.sock", "/home/antoinefa", "/home/antoinefa/.local/state",
         "/home/antoinefa/.config", "/home/antoinefa/.cache-tmp/h2a-test",
         "/run/user/1000/h2a-nt", "/tmp/outside-qualification"]) {
-        assert.throws(() => assertIsolatedEnvironment({ ...safe, [key]: bad }, qualRoot), /REFUSING/);
+        assert.throws(() => assertIsolatedEnvironment({ ...safe, [key]: bad }, qualRoot), /REFUSING/, `${key}: ${bad}`);
       }
       const alias = join(root, `alias-${key}`);
       symlinkSync("/home/antoinefa/.local/state", alias);
       assert.throws(() => assertIsolatedEnvironment({ ...safe, [key]: join(alias, "h2a") }, qualRoot), /REFUSING/);
     }
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("should refuse unsafe child environments before executing the operation", () => {
+  const root = mkdtempSync(join(qualRoot, "i"));
+  try {
+    const env = nativeTestEnvironment(root), marker = join(root, "executed");
+    for (const key of keys) {
+      assert.throws(() => spawnIsolatedNative(process.execPath,
+        ["-e", `require('node:fs').writeFileSync(${JSON.stringify(marker)}, 'unsafe')`],
+        { env: { ...env, [key]: "/run/user/1000/h2a-nt" } }), /REFUSING/);
+    }
+    assert.equal(existsSync(marker), false);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });

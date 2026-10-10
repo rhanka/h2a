@@ -23,8 +23,8 @@ function fixture() {
   const root = mkdtempSync(join(qualRoot, "j"));
   const env: Record<string, string> = { PATH: "/usr/bin:/bin", HOME: join(root, "h"),
     XDG_RUNTIME_DIR: root, XDG_STATE_HOME: join(root, "s"), XDG_CONFIG_HOME: join(root, "c"),
-    TMPDIR: join(root, "t"), REMOTE_CLI_CONFIG_HOME: join(root, "c"), TERM: "xterm-256color" };
-  for (const path of Object.values(env).filter(path => path.startsWith(root))) mkdirSync(path, { recursive: true, mode: 0o700 });
+    H2A_NATIVE_SOCKET: join(root, "nt.sock"), TMPDIR: join(root, "t"), REMOTE_CLI_CONFIG_HOME: join(root, "c"), TERM: "xterm-256color" };
+  for (const path of Object.values(env).filter(path => path.startsWith(root) && path !== env.H2A_NATIVE_SOCKET)) mkdirSync(path, { recursive: true, mode: 0o700 });
   assertIsolatedEnvironment(env, qualRoot);
   const log = resolveHostJournalPath(env), socket = join(root, "nt.sock");
   mkdirSync(dirname(log), { recursive: true, mode: 0o700 });

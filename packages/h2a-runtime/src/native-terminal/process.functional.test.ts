@@ -1,4 +1,4 @@
-import { spawn, type ChildProcess } from "node:child_process";
+import type { ChildProcess } from "node:child_process";
 import { once } from "node:events";
 import { chmod, mkdtemp, readFile, readdir, readlink, rm, stat, unlink } from "node:fs/promises";
 import { createConnection } from "node:net";
@@ -7,7 +7,7 @@ import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 // @ts-ignore Shared JS qualification helper; tests are outside the production build.
-import { isolatedNativeTestEnvironment } from "../../../h2a/test/helpers/native-isolation.js";
+import { isolatedNativeTestEnvironment, spawnIsolatedNative as spawn, spawnSyncIsolatedNative as spawnSync } from "../../../h2a/test/helpers/native-isolation.js";
 
 isolatedNativeTestEnvironment(process.env); // Fail before any real process starts.
 
