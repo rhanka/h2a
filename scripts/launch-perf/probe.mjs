@@ -416,6 +416,28 @@ finally {
   for (const s of known.values()) { try { const live = snapshot(s.pid); if (live.start === s.start && !['Z','X'].includes(live.state)) process.kill(s.pid, 'SIGKILL'); } catch {} }
   await delay(200); clearInterval(timer); await new Promise(r => stub.close(r));if(slowRegistry)await new Promise(r=>slowRegistry.close(r));
   const survivors = [...known.values()].filter(s => {try {const x = snapshot(s.pid); return x.start === s.start && !['Z','X'].includes(x.state);} catch{return false;}});
+  // An aborted legacy baseline can die inside the synthetic identity fence.
+  // Its product lock intentionally forbids stale reclamation. Recover only a
+  // lock written during THIS cohort by a tracked writer whose death we proved;
+  // never carry a fixture-only unfinished lock into the next comparison.
+  const identityLock = root + '/identity/.lock';
+  if (!survivors.length && fs.existsSync(identityLock)) {
+    const stat = fs.lstatSync(identityLock), raw = fs.readFileSync(identityLock, 'utf8');
+    const lock = JSON.parse(raw), writer = known.get(lock.pid);
+    const began = events.find(e => e.name === 'experiment_begin').at;
+    const written = Date.parse(lock.startedAt);
+    if (!stat.isFile() || !writer || !Number.isFinite(written) || written < began || written > now())
+      throw new Error('synthetic identity lock is not owned by this completed cohort');
+    let dead = false;
+    try { const live = snapshot(writer.pid); dead = live.start !== writer.start || ['Z','X'].includes(live.state); }
+    catch (error) { if (error.code === 'ENOENT' || error.code === 'ESRCH') dead = true; }
+    if (!dead) throw new Error('synthetic identity writer death is unproven');
+    const current = fs.lstatSync(identityLock);
+    if (current.dev !== stat.dev || current.ino !== stat.ino || fs.readFileSync(identityLock, 'utf8') !== raw)
+      throw new Error('synthetic identity lock changed during fixture recovery');
+    fs.unlinkSync(identityLock);
+    mark('owned_fixture_identity_lock_recovered', { pid: writer.pid, start: writer.start, fenceEpoch: lock.fenceEpoch });
+  }
   if(fs.existsSync(workspace+'/.h2a')) fs.cpSync(workspace+'/.h2a',output+'/runtime-receipts',{recursive:true,filter:p=>!p.endsWith('.pipe')});
   if(fs.existsSync(home+'/.claude/projects')) fs.cpSync(home+'/.claude/projects',output+'/transcripts',{recursive:true});
   fs.rmSync(runtime, { recursive: true, force: true });
