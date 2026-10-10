@@ -18,6 +18,10 @@ Real processes run only with isolated HOME, runtime directories and stores.
   with `H2A_MCP_CENTRAL=0` and `h2a.central.enabled=false` opt-outs.
 - [x] Review 4: discriminating R3 regression, R18 stdio routing and R19 manual
   daemon attachment isolation, each evidenced independently with RED/GREEN.
+- [x] Review 5: bind every wake driver to the client environment; R20/R21
+  use distinct daemon/client sockets with identical terminal targets. RED:
+  four failures and one native-auto control; GREEN: five passes. R11 now
+  launches repaired Claude/agy/Codex configurations and rereads signed inboxes.
 - [ ] Wider qualification: 18/36-session synthetic-volume budgets, host-version
   matrix and a fresh fully GREEN root gate in a prepared environment.
 
@@ -38,6 +42,9 @@ Final qualification is scoped, isolated and tied to the final committed SHA;
 no root/performance gate is claimed. Fresh default-on receipts and the French
 owner report are under `.qual-tmp/default-on/`; each final receipt records the
 final committed SHA and an empty working diff.
+Review 5 supersedes those final receipts with `.qual-tmp/review5/evidence/`:
+final build, runtime, attachments, preservation, central T4, routing and wake
+adapter checks use the final committed SHA and an empty working diff.
 Report: `docs/reviews/mcp-central-default-claude.md`. No peer consensus is claimed:
 the installed-session review route conflicts with the owner isolation constraint.
 
