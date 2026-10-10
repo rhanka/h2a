@@ -20,6 +20,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { shouldUseCentralMcp, canonicalCentralRoot } from "../dist/runtime/mcp-central-policy.js";
 import { ensureCentralForShim } from "../dist/runtime/mcp-central-start.js";
+import { enroll } from "../../h2a-runtime/dist/registry.js";
 import { qualifiedEnvironment, qualificationRoot, assertQualifiedPath } from "./helpers/qual-env.js";
 
 const bin = resolve("packages/h2a/dist/bin.js");
@@ -85,6 +86,140 @@ async function ready(channel) {
   throw new Error("identity never became ready");
 }
 const bindings = root => readFileSync(join(root, "identity", "bindings.jsonl"), "utf8").trim().split("\n").filter(Boolean);
+
+async function startWakeDaemon(f, env, children, onStderr) {
+  const daemon = spawn(process.execPath, [bin, "mcp-central-serve", "--root", f.root], {
+    env: { ...f.env, ...env }, cwd: f.env.HOME, stdio: ["ignore", "ignore", "pipe"]
+  });
+  children.push(daemon);
+  daemon.stderr.on("data", data => onStderr(data.toString()));
+  const markerPath = join(f.runtimeBase, "h2a-mcp-central", "marker.json");
+  const deadline = Date.now() + 5000;
+  while (!existsSync(markerPath) && Date.now() < deadline && daemon.exitCode === null) await delay(25);
+  assert.ok(existsSync(markerPath), "fixture daemon must publish its marker");
+  assert.equal(JSON.parse(readFileSync(markerPath, "utf8")).pid, daemon.pid);
+}
+
+async function nativeWakeSocket(socketPath, session) {
+  const requests = [];
+  const sockets = new Set();
+  const server = createServer(socket => {
+    sockets.add(socket);
+    socket.on("close", () => sockets.delete(socket));
+    const reader = createInterface({ input: socket });
+    reader.on("line", line => {
+      const request = JSON.parse(line);
+      requests.push(request);
+      let result;
+      switch (request.operation) {
+        case "ping": result = { protocolVersion: 1, generation: "wake-fixture", hostPid: process.pid }; break;
+        case "list": result = [{ id: session, status: "running" }]; break;
+        case "acquire-controller-if-no-recent-human": result = { role: "controller", id: session, generation: "wake-fixture", incarnation: "1", controllerId: request.params.controllerId, epoch: 1 }; break;
+        case "write": result = { ok: true }; break;
+        case "release-controller": result = { controlled: false, controllerEpoch: 1 }; break;
+        default: throw new Error(`unexpected native wake operation: ${request.operation}`);
+      }
+      socket.write(JSON.stringify({ version: 1, id: request.id, ok: true, result }) + "\n");
+    });
+  });
+  await new Promise((resolve, reject) => { server.once("error", reject); server.listen(socketPath, resolve); });
+  chmodSync(socketPath, 0o600);
+  return { requests, async close() { for (const socket of sockets) socket.destroy(); await new Promise(resolve => server.close(resolve)); } };
+}
+
+for (const wake of ["auto", "local-tmux"])
+  test(`R20 ${wake} wake probes and submits only on the client tmux socket with identical pane IDs`, async () => {
+    const f = fixture();
+    const children = [];
+    const tmuxSockets = [];
+    let channel;
+    let stderr = "";
+    const daemonSocket = join(f.dir, "d.sock");
+    const clientSocket = join(f.dir, "c.sock");
+    const callsPath = join(f.dir, "tmux-calls.jsonl");
+    const tools = join(f.dir, "tools");
+    mkdirSync(tools);
+    // Run real tmux, recording the environment used by both probes and writes.
+    writeFileSync(join(tools, "tmux"), `#!${process.execPath}\nimport { appendFileSync } from "node:fs";\nimport { spawnSync } from "node:child_process";\nappendFileSync(${JSON.stringify(callsPath)}, JSON.stringify({ tmux: process.env.TMUX, args: process.argv.slice(2) }) + "\\n");\nconst r = spawnSync("/usr/bin/tmux", process.argv.slice(2), { env: process.env, stdio: "inherit" });\nprocess.exit(r.status ?? 1);\n`, { mode: 0o700 });
+    const tmux = (socket, ...args) => execFileSync("/usr/bin/tmux", ["-S", socket, ...args], { env: f.env, encoding: "utf8" });
+    try {
+      for (const socket of [daemonSocket, clientSocket]) {
+        tmux(socket, "-f", "/dev/null", "new-session", "-d", "-s", "wake", "/bin/sh -c 'while IFS= read -r line; do printf \"received:%s\\n\" \"$line\"; done'");
+        tmuxSockets.push(socket);
+      }
+      const pane = tmux(clientSocket, "display-message", "-p", "-t", "wake", "#{pane_id}").trim();
+      assert.equal(tmux(daemonSocket, "display-message", "-p", "-t", "wake", "#{pane_id}").trim(), pane);
+      await startWakeDaemon(f, { PATH: tools + ":" + f.env.PATH, TMUX: daemonSocket + ",123,0", TMUX_PANE: pane }, children, text => { stderr += text; });
+      const shim = spawn(process.execPath, [bin, "mcp-serve", "--host", "claude", "--auto-open", "--wake", wake], {
+        env: { ...f.env, CLAUDE_CODE_SESSION_ID: `r20-${wake}`, TMUX: clientSocket + ",456,0", TMUX_PANE: pane, H2A_NOTIFY_INTERVAL_MS: "25" },
+        cwd: join(f.dir, "repo-a"), stdio: ["pipe", "pipe", "pipe"]
+      });
+      children.push(shim);
+      channel = rpcChannel(shim.stdin, shim.stdout);
+      assert.ok((await channel.call("initialize")).result);
+      const status = await ready(channel);
+      const sent = await channel.call("tools/call", { name: "h2a_send", arguments: { to: status.instance, message: "r20-socket-probe" } });
+      assert.equal(sent.result.isError, false);
+      const deadline = Date.now() + 5000;
+      while (!stderr.includes("inbox-wake: 1 new envelope(s) → drive ok") && Date.now() < deadline) await delay(25);
+      assert.match(stderr, /inbox-wake: 1 new envelope\(s\) → drive ok/);
+      const calls = readFileSync(callsPath, "utf8").trim().split("\n").map(line => JSON.parse(line))
+        .filter(call => ["display-message", "list-clients", "send-keys"].includes(call.args[0]));
+      assert.ok(calls.some(call => call.args[0] === "display-message"), "activity probe is exercised");
+      assert.ok(calls.some(call => call.args[0] === "list-clients"), "client activity probe is exercised");
+      assert.ok(calls.some(call => call.args[0] === "send-keys" && call.args.includes("-l")), "literal injection is exercised");
+      assert.ok(calls.some(call => call.args[0] === "send-keys" && call.args.at(-1) === "Enter"), "submit is exercised");
+      assert.ok(calls.every(call => call.tmux === clientSocket + ",456,0"), `every probe and injection must use the client socket, never the daemon socket: ${JSON.stringify(calls)}`);
+      assert.match(tmux(clientSocket, "capture-pane", "-p", "-t", pane).replaceAll("\n", ""), /received:.*h2a-wake/);
+      assert.doesNotMatch(tmux(daemonSocket, "capture-pane", "-p", "-t", pane), /h2a-wake/);
+    } finally {
+      channel?.close();
+      for (const child of children.reverse()) if (child.exitCode === null && child.signalCode === null) { child.kill("SIGTERM"); await once(child, "exit"); }
+      for (const socket of tmuxSockets) tmux(socket, "kill-server");
+      f.cleanup();
+    }
+  });
+
+for (const wake of ["auto", "native", "local-tmux"])
+  test(`R21 ${wake} wake inventories and writes only the client native socket with identical session names`, async () => {
+    const f = fixture();
+    const children = [];
+    const hosts = [];
+    let channel;
+    let stderr = "";
+    const daemonSocket = join(f.dir, "d.sock");
+    const clientSocket = join(f.dir, "c.sock");
+    const session = "same-session";
+    try {
+      enroll({ id: session, tool: "claude", kind: "local-native", cwd: f.dir, tmuxSession: session, source: "run", sessionClass: "human" }, join(f.env.REMOTE_CLI_CONFIG_HOME, ".config", "sentropic", "h2a", "registry.json"));
+      const daemonHost = await nativeWakeSocket(daemonSocket, session); hosts.push(daemonHost);
+      const clientHost = await nativeWakeSocket(clientSocket, session); hosts.push(clientHost);
+      await startWakeDaemon(f, { H2A_NATIVE_SOCKET: daemonSocket, H2A_NATIVE_TARGET_SESSION: session, H2A_NATIVE_PTY_SESSION: session }, children, text => { stderr += text; });
+      const shim = spawn(process.execPath, [bin, "mcp-serve", "--host", "claude", "--auto-open", "--wake", wake], {
+        env: { ...f.env, CLAUDE_CODE_SESSION_ID: `r21-${wake}`, H2A_NATIVE_SOCKET: clientSocket, H2A_NATIVE_TARGET_SESSION: session, H2A_NATIVE_PTY_SESSION: session, H2A_NOTIFY_INTERVAL_MS: "25" },
+        cwd: join(f.dir, "repo-a"), stdio: ["pipe", "pipe", "pipe"]
+      });
+      children.push(shim);
+      channel = rpcChannel(shim.stdin, shim.stdout);
+      assert.ok((await channel.call("initialize")).result);
+      const status = await ready(channel);
+      const sent = await channel.call("tools/call", { name: "h2a_send", arguments: { to: status.instance, message: "r21-socket-probe" } });
+      assert.equal(sent.result.isError, false);
+      const deadline = Date.now() + 5000;
+      while (!stderr.includes("inbox-wake: 1 new envelope(s) → drive ok") && Date.now() < deadline) await delay(25);
+      assert.match(stderr, /inbox-wake: 1 new envelope\(s\) → drive ok/);
+      assert.deepEqual(daemonHost.requests, [], "daemon socket must receive neither inventory nor wake writes");
+      assert.deepEqual(clientHost.requests.map(request => request.operation), ["ping", "list", "acquire-controller-if-no-recent-human", "write", "release-controller"]);
+      const write = clientHost.requests.find(request => request.operation === "write");
+      assert.equal(write.params.lease.id, session);
+      assert.match(write.params.data, /h2a-wake.*\r$/);
+    } finally {
+      channel?.close();
+      for (const child of children.reverse()) if (child.exitCode === null && child.signalCode === null) { child.kill("SIGTERM"); await once(child, "exit"); }
+      for (const host of hosts) await host.close();
+      f.cleanup();
+    }
+  });
 
 test("qualification guards reject paths resolving outside .qual-tmp", () => {
   assert.throws(() => assertQualifiedPath("/home/antoinefa"), /escapes .qual-tmp/);
