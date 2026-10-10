@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
-import { join, relative, resolve } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 import test from "node:test";
 import { pathToFileURL } from "node:url";
 import { NativeTerminalClient } from "../../h2a-runtime/dist/native-terminal/client.js";
@@ -318,6 +318,29 @@ test("should refuse second writer when alias used at startup is deleted after so
   assert.equal(launched.payload.code, "native-inventory-unknown");
   assert.equal(launched.payload.creationAttempted, false);
   assert.deepEqual(await host.client.ping(), host.ping);
+}));
+
+test("should cleanly rollback published socket if .owner write fails and allow subsequent start to succeed", linux, () => fixture(async f => {
+  const socketPath = f.paths[0];
+  const ownerPath = `${socketPath}.owner`;
+
+  // First start fails due to simulated failure during owner recording
+  f.env.H2A_TEST_FAIL_OWNER_WRITE = "1";
+  await assert.rejects(
+    async () => {
+      await f.start(0);
+    },
+    /simulated failure recording endpoint owner/i,
+  );
+
+  // The published socket must NOT have been left behind without an owner
+  assert.equal(existsSync(socketPath), false, "socket must be rolled back on owner write failure");
+
+  // Subsequent start without error must succeed cleanly
+  delete f.env.H2A_TEST_FAIL_OWNER_WRITE;
+  const host = await f.start(0);
+  assert.deepEqual(await host.client.ping(), host.ping);
+  assert.ok(existsSync(ownerPath));
 }));
 
 test("should treat /proc pid entry stat error as unknown and refuse launch", linux, () => fixture(async f => {
