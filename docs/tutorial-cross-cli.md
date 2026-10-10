@@ -51,8 +51,10 @@ Same merge step into the Codex CLI config (`~/.config/codex/mcp.json` or `~/.cod
 
 ### Shared central MCP for Claude
 
-On Linux, the existing `mcp-serve --host claude` command selects a machine-local
-central when Claude supplies its native conversation id. Codex and agy retain
+On Linux, the existing `mcp-serve --host claude` command can select a machine-local
+central when Claude supplies its native conversation id and central is explicitly
+enabled with `H2A_MCP_CENTRAL=1` or `h2a.central.enabled=true`. Default activation
+remains blocked until the production Graphify entry loss is reproduced. Codex and agy retain
 stdio until their conversation signals are qualified. Run and restore never
 rewrite a project or host configuration. Each attachment captures its own
 workspace while sharing the canonical state root.
