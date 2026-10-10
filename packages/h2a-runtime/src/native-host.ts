@@ -163,7 +163,7 @@ export type NativeLaunchOwnership = { name: string; generation: string; incarnat
 /** Certified pre-create refusal. It cannot erase an earlier component create. */
 export class NativeLaunchAdmissionError extends Error {
   constructor(readonly diagnostic: { code: "native-name-collision" | "native-inventory-unknown"; id?: string; socketPath?: string; hosts?: unknown }) {
-    super(`Launch refused before creation: ${diagnostic.code}${diagnostic.id ? ` (${diagnostic.id})` : ""}. No session was created by this attempt.`);
+    super(`Launch refused before creation: ${diagnostic.code}${diagnostic.id ? ` (${diagnostic.id})` : ""}. No session was created by this attempt.${diagnostic.code === "native-inventory-unknown" ? ` Endpoints: ${JSON.stringify(diagnostic.hosts)}. Inspect endpoint permissions and the owning process identity, restore probe access, then retry; do not remove sockets or locks while ownership is unproven.` : ""}`);
   }
   toRunFailure(launchId: string) {
     return { kind: "h2a.run.failure", version: 1, state: "not-started", launchId,
@@ -252,7 +252,7 @@ export function listNativeSessions(): ReadonlyArray<NativeSessionState> & { read
  *  - "absent": POSITIVE proof of absence — a reachable host does not know
  *    the session across every known reachable endpoint;
  *  - "unknown": the op failed (spawn error, timeout, protocol failure) —
- *    NEVER proof of death, including ENOENT/ECONNREFUSED on a known endpoint;
+ *    NEVER proof of death without the endpoint's independent identity proof;
  *    destructive callers must fail closed on it.
  * The classification happens IN-BAND in the `probe` op (op.ts), where the
  * error codes live — never by parsing a generic failure on this side.

@@ -1,7 +1,10 @@
-import { chmod, link, mkdtemp, rm, stat, unlink } from "node:fs/promises";
+import { spawn } from "node:child_process";
+import { once } from "node:events";
+import { chmod, mkdtemp, rm, stat, unlink } from "node:fs/promises";
 import { createConnection, createServer, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { PtyHandle, PtySpawner } from "../pty.js";
@@ -418,7 +421,11 @@ describe("native terminal local transport", () => {
         registryPath: join(directory, "registry.json"),
       }),
     });
+    cleanup.push(() => first.close());
     await unlink(socketPath);
+    // Force a transport-only replacement in this fixture, including its
+    // attribution. Production never discards a live owner's identity.
+    await unlink(`${socketPath}.owner`);
     const second = await startNativeTerminalHostServer({
       socketPath,
       host: new NativeTerminalHost({
@@ -442,16 +449,16 @@ describe("native terminal local transport", () => {
   it("should serialize competing publishers across a stale canonical socket", async () => {
     const directory = await mkdtemp(join(tmpdir(), "h2a-native-terminal-publish-race-"));
     const socketPath = join(directory, "host.sock");
-    const stalePath = join(directory, "stale.sock");
     await chmod(directory, 0o700);
-    const staleServer = createServer();
-    await new Promise<void>((resolve, reject) => {
-      staleServer.once("error", reject);
-      staleServer.listen(stalePath, resolve);
-    });
-    await chmod(stalePath, 0o600);
-    await link(stalePath, socketPath);
-    await new Promise<void>((resolve) => staleServer.close(() => resolve()));
+    const staleHost = spawn(process.execPath, [fileURLToPath(new URL("../../dist/native-terminal/process.js", import.meta.url)),
+      "--socket", socketPath, "--registry-path", join(directory, "registry.json")], { stdio: ["ignore", "pipe", "pipe"] });
+    try {
+      await Promise.race([once(staleHost.stdout!, "data"), once(staleHost, "exit").then(() => { throw new Error("stale fixture host exited before readiness"); })]);
+    } finally {
+      if (staleHost.exitCode === null && staleHost.signalCode === null) {
+        const exited = once(staleHost, "exit"); staleHost.kill("SIGKILL"); await exited;
+      }
+    }
 
     const servers = new Set<NativeTerminalHostServer>();
     const clients = new Set<NativeTerminalClient>();
