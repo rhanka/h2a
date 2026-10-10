@@ -290,6 +290,36 @@ test("should refuse second writer when a live host without .owner was started vi
   assert.deepEqual(await host.client.ping(), host.ping);
 }));
 
+test("should refuse second writer when alias used at startup is deleted after socket unlink while initial client still responds", linux, () => fixture(async f => {
+  const realRoot = join(f.root, "real");
+  const linkRoot = join(f.root, "link");
+  mkdirSync(realRoot, { mode: 0o700 });
+  symlinkSync(realRoot, linkRoot);
+  const realDir = join(realRoot, "h2a-nt");
+  const linkDir = join(linkRoot, "h2a-nt");
+  mkdirSync(realDir, { mode: 0o700 });
+  const aliasSocket = join(linkDir, "native-terminal.sock");
+  const canonicalSocket = join(realDir, "native-terminal.sock");
+
+  const host = await f.start(0, join(terminal, "process.js"), aliasSocket);
+  if (existsSync(`${aliasSocket}.owner`)) unlinkSync(`${aliasSocket}.owner`);
+  if (existsSync(`${canonicalSocket}.owner`)) unlinkSync(`${canonicalSocket}.owner`);
+  unlinkSync(canonicalSocket);
+  // Delete the alias symlink root
+  unlinkSync(linkRoot);
+
+  // The initial connection continues to respond
+  assert.deepEqual(await host.client.ping(), host.ping);
+
+  f.env.H2A_NATIVE_SOCKET = canonicalSocket;
+  const probe = (await f.run(["probe", "--id", "h2a-deleted-alias"])).payload;
+  assert.equal(probe.verdict, "unknown");
+  const launched = await f.launch("deleted-alias");
+  assert.equal(launched.payload.code, "native-inventory-unknown");
+  assert.equal(launched.payload.creationAttempted, false);
+  assert.deepEqual(await host.client.ping(), host.ping);
+}));
+
 test("should treat /proc pid entry stat error as unknown and refuse launch", linux, () => fixture(async f => {
   const host = await f.start();
   if (existsSync(`${f.paths[0]}.owner`)) unlinkSync(`${f.paths[0]}.owner`);
