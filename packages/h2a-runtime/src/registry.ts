@@ -1136,6 +1136,29 @@ export function enroll(
 }
 
 /**
+ * Remove registry rows BY ID under the registry lock (same atomic-write
+ * contract as every other mutation: unreadable rows are preserved verbatim).
+ * Used by the `run --resume` self-heal to prune PROVABLY-DEAD rows that pin
+ * conflicting launch options — never call it for a row whose session was not
+ * positively proven dead ("unknown" is not death). Returns the number of
+ * removed rows.
+ */
+export function removeRegistryRowsById(
+  ids: readonly string[],
+  path: string = resolveRegistryPath(),
+): number {
+  if (ids.length === 0) return 0;
+  const wanted = new Set(ids);
+  return withRegistryLock(path, (entries) => {
+    const kept = entries.filter((entry) => !wanted.has(entry.id));
+    if (kept.length === entries.length) {
+      return { entries, result: 0, save: false };
+    }
+    return { entries: kept, result: entries.length - kept.length };
+  });
+}
+
+/**
  * Persist the REAL conversation id back onto run entries whose `convId` had been
  * a stale label (the run↔hook reconciliation resolved it). `updates` maps an
  * entry id → the resolved conversation id. Only entries that still differ are
@@ -1940,6 +1963,41 @@ export function probeTmuxSession(name: string): ManagedHostProbeResult {
   } catch {
     return "unknown";
   }
+}
+
+/**
+ * Liveness of a MANAGED local row (kind "local-tmux" | "local-native"), for the
+ * `run --resume` self-heal of conflicting pinned-launch rows: same 3-state
+ * vocabulary and same name-derivation rule as `isLive` (tmuxSession when
+ * recorded, else the managed candidates of the id). "unknown" is a PROBE
+ * FAILURE, never proof of death — a row whose session cannot be proven dead
+ * must never be pruned (fail closed). A positively-ENDED row (endedAt) is
+ * provably dead without a probe. Probes are injectable so tests stay
+ * deterministic (no tmux/native host needed).
+ */
+export function probeManagedRowLiveness(
+  entry: RegistryEntry,
+  probes: {
+    readonly native?: (name: string) => ManagedHostProbeResult;
+    readonly tmux?: (name: string) => ManagedHostProbeResult;
+  } = {},
+): ManagedHostProbeResult {
+  if (!isManagedLocalKind(entry.kind)) return "unknown";
+  if (entry.endedAt !== undefined) return "dead";
+  const names = entry.tmuxSession !== undefined
+    ? [entry.tmuxSession]
+    : managedSessionCandidates(entry.id);
+  if (names.length === 0) return "unknown";
+  const probe = entry.kind === "local-native"
+    ? (probes.native ?? probeNativeSession)
+    : (probes.tmux ?? probeTmuxSession);
+  let sawUnknown = false;
+  for (const name of names) {
+    const result = probe(name);
+    if (result === "live") return "live";
+    if (result === "unknown") sawUnknown = true;
+  }
+  return sawUnknown ? "unknown" : "dead";
 }
 
 /**
