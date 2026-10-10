@@ -15,6 +15,9 @@ At most one full root suite, after focused checks and laboratory cleanup.
 - [x] Repair R2-02–R2-06 with RED/GREEN witnesses and targeted generation/restore regressions.
 - [x] Measure baseline and candidate with the same private study protocol; retain every refusal and failed phase.
 - [x] Run targeted checks and build; audit recorded PID/birth identities and commit the local French evidence report.
+- [x] Repair R3-01 with two RED/GREEN Claude tmux witnesses; retain native modal handling.
+- [x] Reconcile R3-02 with the automatically enabled, locally measured dispatch path and its limits.
+- [x] R3-03: MCP burst/startup passed 6/6 at N=36 before the documentation amendment; final SHA receipts use bounded N=17, retain exact assertions and record completion under .qual-tmp/r3. No new full root suite.
 - [ ] Qualify G1 performance and the diagnostic signal before a real response.
 
 Measured candidate: 5a80eeb5285d4b5ba7c47a1f54568cb3572184e6.
