@@ -134,7 +134,21 @@ if (opts.wrongConversation) fs.writeFileSync(bin+'/claude',fs.readFileSync(bin+'
 if (opts.reportedVersion) fs.writeFileSync(bin+'/claude',fs.readFileSync(bin+'/claude','utf8').replace('#!/bin/sh\n','#!/bin/sh\ncase "$1" in --version) printf "%s\\n" '+quote(opts.reportedVersion)+'; exit 0;; esac\n'),{mode:0o700});
 fs.writeFileSync(bin + '/h2a', '#!/bin/sh\nexec ' + quote(process.execPath) + ' ' + quote(binJs) + ' "$@"\n', { mode: 0o700 });
 const bashenv = output + '/bash-env.sh'; fs.writeFileSync(bashenv, Object.entries(env).map(([k,v]) => 'export ' + k + '=' + quote(v)).join('\n') + '\n'); env.BASH_ENV = bashenv;
-const startChild = (command, args, role, stdin) => { const c = spawn(command, args, { cwd: workspace, env: { ...env, LAUNCH_PERF_ROLE: role }, stdio: ['pipe','pipe','pipe'] }); children.push(c); const out = fs.createWriteStream(output + '/' + role + '-' + c.pid + '.stdout'); const err = fs.createWriteStream(output + '/' + role + '-' + c.pid + '.stderr'); c.stdout.pipe(out); c.stderr.pipe(err); if (stdin !== undefined) c.stdin.end(stdin); return c; };
+const startChild = (command, args, role, stdin) => { const c = spawn(command, args, { cwd: workspace, env: { ...env, LAUNCH_PERF_ROLE: role }, stdio: ['pipe','pipe','pipe'] }); children.push(c); c.perfStdout='';c.stdout.on('data',chunk=>{if(c.perfStdout.length<65536)c.perfStdout+=chunk.toString();}); const out = fs.createWriteStream(output + '/' + role + '-' + c.pid + '.stdout'); const err = fs.createWriteStream(output + '/' + role + '-' + c.pid + '.stderr'); c.stdout.pipe(out); c.stderr.pipe(err); if (stdin !== undefined) c.stdin.end(stdin); return c; };
+const correlatedReplyAt = (file, conversation, prompt) => {
+  try {
+    if(fs.statSync(file).size>16*1024**2)return null;
+    const lines=fs.readFileSync(file,'utf8').split('\n');lines.pop();
+    const rows=lines.map(line=>JSON.parse(line)).filter(row=>row.sessionId===conversation&&!row.isSidechain&&!row.isMeta);
+    const parents=new Map(rows.filter(row=>row.uuid).map(row=>[row.uuid,row]));
+    const users=new Set(rows.filter(row=>row.type==='user'&&(typeof row.message?.content==='string'?row.message.content:row.message?.content?.filter(p=>p.type==='text').map(p=>p.text).join(''))===prompt).map(row=>row.uuid));
+    const replies=rows.filter(row=>row.type==='assistant'&&row.message?.role==='assistant'&&row.message.content?.some(part=>part.type==='text'&&part.text==='LAB_READY')).filter(row=>{
+      const seen=new Set();let parent=row.parentUuid;
+      while(parent&&!seen.has(parent)){if(users.has(parent))return true;seen.add(parent);const node=parents.get(parent);if(!node||node.type==='user')return false;parent=node.parentUuid;}return false;
+    }).map(row=>Date.parse(row.timestamp)).filter(Number.isFinite);
+    return replies.length?Math.min(...replies):null;
+  }catch{return null;}
+};
 const readDiagnostics = () => fs.readdirSync(output).filter(f=>/^claude-debug.*\.log$/.test(f)).map(f=>fs.readFileSync(output+'/'+f,'utf8')).join('\n') + (fs.existsSync(workspace+'/.h2a/runs') ? fs.readdirSync(workspace+'/.h2a/runs').map(name=>{const f=workspace+'/.h2a/runs/'+name+'/claude-debug.log';return fs.existsSync(f)?fs.readFileSync(f,'utf8'):''}).join('\n') : '');
 const cleanText = s => s.replace(/\x1b\][^\x07]*(?:\x07|\x1b\\)/g, '').replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, '').replace(/\x1b[>=]/g,'');
 const observe = async (id, begin, receipt) => {
@@ -223,7 +237,8 @@ try {
         const file=workspace+'/.h2a/runs/'+name+'/launch.json',until=Date.now()+10000;
         while(Date.now()<until){try{if(['stopped','launch-unconfirmed'].includes(JSON.parse(fs.readFileSync(file,'utf8')).state))break;}catch{}await delay(20);}
       }
-      results.push({ name, hostMs, receiptMs, exitCode: c.exitCode, ...await observation });
+      let cliResult;try{cliResult=JSON.parse(c.perfStdout);}catch{}
+      results.push({ name, hostMs, receiptMs, exitCode: c.exitCode,cliResult, ...await observation });
     } else {
       sessions.push(id);
       const convId=opts.seedRelaunch ? randomUUID() : undefined;
@@ -267,6 +282,14 @@ try {
     row.nativeOperations = traces.filter(t=>t.name==='node_preload'&&t.entry==='op.js'&&t.session===row.id).map(t=>({operation:t.operation,at:t.at-begin}));
     const receiptPath=workspace+'/.h2a/runs/'+row.name+'/launch.json';
     if(fs.existsSync(receiptPath))row.receipt=JSON.parse(fs.readFileSync(receiptPath,'utf8'));
+    if(opts.worktree===repo&&row.cliResult?.state==='started'&&row.receipt?.result?.state!=='started')
+      throw new Error('successful CLI output without its complete durable receipt');
+    const conversation=row.receipt?.conversationId;
+    const transcript=conversation?home+'/.claude/projects/'+workspace.replace(/[^a-zA-Z0-9]/g,'-')+'/'+conversation+'.jsonl':null;
+    const replyAt=transcript?correlatedReplyAt(transcript,conversation,'Return the word READY_WITNESS.'):null;
+    row.correlatedResponseMs=replyAt!==null?replyAt-begin:null;
+    row.requiredToolsReadyMs=row.receipt?.result?.timings?.requiredMcpsReadyMs!==undefined?
+      row.receipt.requestedAt-begin+row.receipt.result.timings.requiredMcpsReadyMs:null;
     row.publications=traces.filter(t=>t.name==='receipt_publication'&&t.session===row.name)
       .map(t=>({at:t.at-begin,state:t.state,resultState:t.resultState,completeResult:t.completeResult,submitAttempted:t.submitAttempted}));
     if(row.receipt?.result?.state==='started'&&row.receipt?.requiredMcps?.includes('h2a')&&row.receipt?.requiredMcps?.includes('playwright')&&
