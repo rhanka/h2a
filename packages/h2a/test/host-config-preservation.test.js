@@ -10,6 +10,8 @@ import { runCli } from "../dist/index.js";
 
 const FIXTURE_TGZ = fileURLToPath(new URL("./fixtures/sentropic-h2a-0.98.0.tgz", import.meta.url));
 const EXPECTED_SHA256 = "3de15d2ebce30ef5b27748ad06696844980c3c3d2ac5dfd4c6f5f7ff8c66d9a3";
+const INCIDENT_BYTES = readFileSync(fileURLToPath(new URL("./fixtures/d2d-mcp.json.pre-incident", import.meta.url)));
+assert.equal(createHash("sha256").update(INCIDENT_BYTES).digest("hex"), "984069aaed26cd2ce888dc692a4400f9c9c1cbb5add9c86fedbed3fc6b3d5470");
 
 async function load0980Cli() {
   const content = readFileSync(FIXTURE_TGZ);
@@ -63,13 +65,21 @@ test("host setup refuses a git-tracked config unless --allow-tracked is explicit
   try {
     execFileSync("git", ["init", "-q", dir]);
     const path = join(dir, ".mcp.json");
-    const original = '{"mcpServers":{"graphify-ts":{"command":"npx"}}}\n';
-    writeFileSync(path, original);
+    const original = INCIDENT_BYTES;
+    writeFileSync(path, original, { mode: 0o640 });
     execFileSync("git", ["-C", dir, "add", ".mcp.json"]);
     assert.equal(setup(path).code, 2);
-    assert.equal(readFileSync(path, "utf8"), original);
+    assert.deepEqual(readFileSync(path), original);
     assert.equal(setup(path, ["--allow-tracked"]).code, 0);
-    assert.equal(JSON.parse(readFileSync(path, "utf8")).mcpServers["graphify-ts"].command, "npx");
+    const written = readFileSync(path, "utf8");
+    assert.deepEqual(JSON.parse(written).mcpServers["graphify-ts"], JSON.parse(original.toString("utf8")).mcpServers["graphify-ts"]);
+    const foreignEnd = original.toString("utf8").lastIndexOf("\n  }");
+    assert.ok(written.startsWith(original.toString("utf8").slice(0, foreignEnd)), "all original Graphify bytes are preserved");
+    assert.equal(statSync(path).mode & 0o777, 0o640);
+    const backups = readdirSync(dir).filter(name => name.startsWith(".mcp.json.backup-"));
+    assert.equal(backups.length, 1);
+    assert.deepEqual(readFileSync(join(dir, backups[0])), original);
+    console.log(`R6 explicit write: trackedRefusal=2 allowTracked=0 graphifyBytesEqual=true mode=640 backupBytesEqual=true`);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
@@ -127,9 +137,9 @@ test("published 0.98.0 writer removes Track and reformats JSON while preserving 
     const backups0980 = readdirSync(dir).filter(name => name.startsWith("host-0980.json.backup-"));
     assert.equal(backups0980.length, 0, "0.98.0 created no backup");
 
-    // 2. Airbus-shaped fixture; the exact pre-incident bytes are unavailable.
+    // 2. Exact pre-incident bytes supplied from airbus-genair-d2d at 3508b24.
     const pathAirbus0980 = join(dir, "host-airbus-0980.json");
-    const airbusOriginal = '{\n  "mcpServers": {\n    "graphify-ts": {\n      "command": "npx.cmd",\n      "args": [\n        "--yes",\n        "@mohammednagy/graphify-ts@0.23.1",\n        "serve",\n        "--stdio",\n        "C:\\\\Users\\\\kwil73px\\\\Documents\\\\GitHub\\\\d2d\\\\graphify-out\\\\graph.json"\n      ],\n      "env": {\n        "GRAPHIFY_TOOL_PROFILE": "core"\n      }\n    }\n  }\n}\n';
+    const airbusOriginal = INCIDENT_BYTES.toString("utf8");
     writeFileSync(pathAirbus0980, airbusOriginal, { mode: 0o600 });
     const codeAirbus0980 = runCli0980(
       ["host", "setup", "--host", "claude", "--write", pathAirbus0980],
@@ -143,6 +153,7 @@ test("published 0.98.0 writer removes Track and reformats JSON while preserving 
     assert.deepEqual(parsedAirbus0980.mcpServers["graphify-ts"], JSON.parse(airbusOriginal).mcpServers["graphify-ts"]);
     const backupsAirbus0980 = readdirSync(dir).filter(name => name.startsWith("host-airbus-0980.json.backup-"));
     assert.equal(backupsAirbus0980.length, 0, "0.98.0 created no backup on airbus fixture");
+    console.log("R6 0.98.0 direct writer: exactInput=true graphifyDestroyed=false backupCount=0");
 
     // 3. Candidate behavior on the exact same evidenced fixture
     writeFileSync(pathCandidate, original, { mode: 0o640 });
@@ -162,7 +173,7 @@ test("published 0.98.0 writer removes Track and reformats JSON while preserving 
     assert.equal(backupsCandidate.length, 1, "candidate created exact backup");
     assert.equal(readFileSync(join(dir, backupsCandidate[0]), "utf8"), original);
 
-    // 4. Candidate behavior on the same Airbus-shaped fixture.
+    // 4. Candidate behavior on the same exact incident fixture.
     const pathAirbusCandidate = join(dir, "host-airbus-candidate.json");
     writeFileSync(pathAirbusCandidate, airbusOriginal, { mode: 0o600 });
     assert.equal(setup(pathAirbusCandidate).code, 0);

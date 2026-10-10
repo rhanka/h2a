@@ -1,0 +1,17 @@
+{
+  "mcpServers": {
+    "graphify-ts": {
+      "command": "npx.cmd",
+      "args": [
+        "--yes",
+        "@mohammednagy/graphify-ts@0.23.1",
+        "serve",
+        "--stdio",
+        "C:\\Users\\kwil73px\\Documents\\GitHub\\d2d\\graphify-out\\graph.json"
+      ],
+      "env": {
+        "GRAPHIFY_TOOL_PROFILE": "core"
+      }
+    }
+  }
+}
