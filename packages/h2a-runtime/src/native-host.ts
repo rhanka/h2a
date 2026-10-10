@@ -159,8 +159,8 @@ function runOp(
 }
 
 /** Spawn-or-adopt the per-user host; returns its identity. */
-export function ensureNativeHost(options: { fenced?: boolean } = {}): { hostPid: number; socketPath: string; generation: string; launchFence: boolean; launchInputFence: boolean } {
-  const { payload } = runOp(["ensure-host", ...(options.fenced ? ["--fenced", "true"] : [])]);
+export function ensureNativeHost(options: { fenced?: boolean; inputFenced?: boolean } = {}): { hostPid: number; socketPath: string; generation: string; launchFence: boolean; launchInputFence: boolean } {
+  const { payload } = runOp(["ensure-host", ...(options.fenced ? ["--fenced", "true"] : []), ...(options.inputFenced ? ["--input-fenced", "true"] : [])]);
   const record = payload as { hostPid?: number; socketPath?: string; generation?: string; launchFence?: boolean; launchInputFence?: boolean } | undefined;
   if (!record || typeof record.hostPid !== "number" || typeof record.socketPath !== "string" || typeof record.generation !== "string") {
     throw new Error("native host did not report a valid identity");
@@ -224,22 +224,24 @@ export class NativeHostCapabilityMismatchError extends Error {
   }
 }
 
-export function preflightNativeLaunch(name: string, sidecar = nativeSidecarName(name), ownerSocket?: string): ReturnType<typeof ensureNativeHost> {
+export function preflightNativeLaunch(name: string, sidecar = nativeSidecarName(name), ownerSocket?: string, inputFenced = false): ReturnType<typeof ensureNativeHost> {
   const selected = ownerSocket ? runOp(["ensure-host"], { socketPath: ownerSocket }).payload as ReturnType<typeof ensureNativeHost>
-    : ensureNativeHost({ fenced: true });
+    : ensureNativeHost({ fenced: true, inputFenced });
   const { launchFence, hostPid, socketPath, generation } = selected;
   if (!launchFence) throw new NativeHostCapabilityMismatchError({ generation, hostPid, socketPath });
+  if (inputFenced && !selected.launchInputFence) throw new NativeHostCapabilityMismatchError({ generation, hostPid, socketPath }, "launchInputFence");
   admitNativeCreation(name, sidecar, socketPath);
   return selected;
 }
 
-function prepareNativeOwnership(name: string, beforeCreate?: (value: NativeLaunchOwnership) => void, sidecar?: string, ownerSocket?: string): string[] {
+function prepareNativeOwnership(name: string, beforeCreate?: (value: NativeLaunchOwnership) => void, sidecar?: string, ownerSocket?: string, inputFenced = false): string[] {
   if (!beforeCreate) return [];
-  const selected = sidecar !== undefined ? preflightNativeLaunch(name, sidecar, ownerSocket)
+  const selected = sidecar !== undefined ? preflightNativeLaunch(name, sidecar, ownerSocket, inputFenced)
     : ownerSocket ? runOp(["ensure-host"], { socketPath: ownerSocket }).payload as ReturnType<typeof ensureNativeHost>
-    : ensureNativeHost({ fenced: true });
+    : ensureNativeHost({ fenced: true, inputFenced });
   const { generation, launchFence, hostPid, socketPath } = selected;
   if (!launchFence) throw new NativeHostCapabilityMismatchError({ generation, hostPid, socketPath });
+  if (inputFenced && !selected.launchInputFence) throw new NativeHostCapabilityMismatchError({ generation, hostPid, socketPath }, "launchInputFence");
   if (sidecar === undefined) admitNativeCreation(name, undefined, socketPath);
   const incarnation = randomUUID();
   beforeCreate({ name, generation, incarnation, socketPath });
@@ -322,6 +324,7 @@ export function nativeSessionPid(name: string): number | undefined {
 }
 
 export type NativeLaunchMetadata = {
+  readonly requireLaunchInputFence?: boolean;
   beforeCreate?: (value: NativeLaunchOwnership) => void;
   onCreateAttempt?: () => void;
   readonly label?: string;
@@ -395,7 +398,7 @@ export function startNativeSession(
   const envFile = join(envDir, "env.json");
   try {
     writeFileSync(envFile, JSON.stringify(env), { mode: 0o600 });
-    const ownershipArgs = prepareNativeOwnership(name, metadata.beforeCreate, nativeSidecarName(name));
+    const ownershipArgs = prepareNativeOwnership(name, metadata.beforeCreate, nativeSidecarName(name), undefined, metadata.requireLaunchInputFence);
     const { payload } = runOp([
       "create",
       ...ownershipArgs,

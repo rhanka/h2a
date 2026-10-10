@@ -6336,9 +6336,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         try {
         if (structuredLaunch && sessionHost === "native") {
           for (const label of labels) {
-            const selected = preflightNativeLaunch(localSessionName(slugify(label ?? cwd)));
-            if (nativeClaudeRequest && !selected.launchInputFence)
-              throw new NativeHostCapabilityMismatchError(selected, "launchInputFence");
+            preflightNativeLaunch(localSessionName(slugify(label ?? cwd)), undefined, undefined, nativeClaudeRequest);
           }
         }
         const reservedTmuxSlugs = tmuxAvailable()
@@ -6748,6 +6746,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
               label,
               {
                 onCreateAttempt,
+                ...(nativeClaudeLaunch ? { requireLaunchInputFence: true } : {}),
                 ...(opts.resume !== undefined ? { resumeId: opts.resume } : {}),
                 ...(initialPrompt !== undefined
                   ? { terminateOnAgentExit: true }
