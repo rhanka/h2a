@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { once } from "node:events";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 // @ts-ignore Shared JS qualification helper; tests are outside the production build.
@@ -211,6 +211,28 @@ describe("native host life journal", () => {
       expect(row).not.toHaveProperty("env"); expect(row).not.toHaveProperty("headers"); expect(row).not.toHaveProperty("token");
     }
   });
+  for (const kind of ["traversal", "external-symlink", "directory", "internal-symlink"] as const) {
+    it(`should canonicalize verified stack files and redact an existing ${kind} sentinel`, () => {
+      const f = fixture(), sentinel = "pQ7r4V9n2M6x8Z5s", source = fileURLToPath(new URL("../", import.meta.url));
+      expect(Object.values(process.env).some(value => value?.includes(sentinel))).toBe(false);
+      const target = join(f.root, `${sentinel}.mjs`), alias = join(source, `r2-${kind}-${sentinel}.mjs`);
+      writeFileSync(target, "export {};\n");
+      let path: string;
+      if (kind === "traversal") path = `${source}../../../${relative(repo, target)}`;
+      else {
+        if (kind === "directory") mkdirSync(alias, { mode: 0o700 });
+        else symlinkSync(kind === "external-symlink" ? target : fileURLToPath(new URL("./journal.ts", import.meta.url)), alias);
+        path = alias;
+      }
+      try {
+        appendHostJournal({ event: "uncaughtException", pid: process.pid, startTime: 1,
+          generation: "stack-test", error: "untrusted diagnostic", stack: `Error\n    at forged (${path}:4:2)`, codePath: entry }, f.log);
+        const row = readHostJournal(f.log)[0] as any;
+        expect(readFileSync(f.log, "utf8")).not.toContain(sentinel);
+        expect(row.stack).toBe(kind === "internal-symlink" ? `at ${fileURLToPath(new URL("./journal.ts", import.meta.url))}:4:2` : "[REDACTED]");
+      } finally { if (kind !== "traversal") rmSync(alias, { recursive: true, force: true }); }
+    });
+  }
   it("should never wait for or reclaim a live writer lock including an old lock", () => {
     const f = fixture(), lock = `${f.log}.lock`, token = `${process.pid}:live`;
     writeFileSync(lock, token); utimesSync(lock, new Date(0), new Date(0));
