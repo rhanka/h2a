@@ -269,11 +269,13 @@ test("should clean a guard's owned incarnation on its receipt socket only", {
     const old = await echoSession(fixture.client, fixture, id);
     const owned = await echoSession(second, fixture, id);
     const receiptPath = join(fixture.root, "guard-launch.json");
+    const ownership = { host: "native", sessions: [{ name: id, generation: owned.generation,
+      incarnation: owned.incarnation, socketPath: compatible.socketPath }] };
+    writeFileSync(receiptPath, JSON.stringify({ token: "qualification-guard", state: "launching", inputEpoch: 0, ownership }));
     const guard = start(process.execPath, [join(repo, "packages/h2a-runtime/dist/launch-guard.js"), receiptPath],
       { ...fixture.env, H2A_NATIVE_SOCKET: "", H2A_RUN_LAUNCH_TOKEN: "qualification-guard" });
     fixture.children.push(guard);
-    guard.child.stdin.end(JSON.stringify({ ownership: { host: "native", sessions: [{ name: id,
-      generation: owned.generation, incarnation: owned.incarnation, socketPath: compatible.socketPath }] } }) + "\n");
+    guard.child.stdin.end(JSON.stringify({ ownership }) + "\n");
     const result = await guard.closed;
     assert.equal(result.status, 0, result.stderr);
     assert.equal(JSON.parse(readFileSync(receiptPath, "utf8")).state, "stopped");
@@ -329,12 +331,17 @@ let text=''; process.stdin.on('data', bytes=>{
   context.diagnostic(`MCP real launch: ${JSON.stringify(first)}`);
   assert.equal(first.state, "started", JSON.stringify(first));
   assert.equal(first.session.socketPath, compatible.socketPath);
-  mcp.child.stdin.end(JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/call",
+  mcp.child.stdin.write(JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/call",
+    params: { name: "h2a_run", arguments: request } }) + "\n");
+  await eventually(responses, rows => rows.some(response => response.id === 2));
+  mcp.child.stdin.end(JSON.stringify({ jsonrpc: "2.0", id: 3, method: "tools/call",
     params: { name: "h2a_run", arguments: { ...request, prompt: "must never deliver twice" } } }) + "\n");
   const result = await mcp.closed;
   assert.equal(result.status, 0, result.stderr);
   const secondResult = JSON.parse(responses().find(response => response.id === 2).result.content[0].text);
   assert.deepEqual(secondResult, first);
+  const conflicting = JSON.parse(responses().find(response => response.id === 3).result.content[0].text);
+  assert.equal(conflicting.state, "not-started"); assert.match(conflicting.error, /conflicts with different parameters/);
   assert.deepEqual(readFileSync(delivered, "utf8").trim().split("\n").map(line => JSON.parse(line)), [request.prompt]);
   const second = await NativeTerminalClient.connect(compatible.socketPath);
   try {
