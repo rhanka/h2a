@@ -23,26 +23,28 @@ for(const opts of plan.input.scenarios){
     const ok=row.exitCode===0&&!row.error&&!data.aborted&&!data.failure&&data.survivors.length===0;
     const operations=row.nativeOperations||[];
     const timings=row.receipt?.result?.timings;
-    const requests=data.stubRequests.flatMap(q=>{try{const d=JSON.parse(q.body);return[{...q,body:d,conversation:JSON.parse(d.metadata?.user_id||'{}').session_id}]}catch{return[]}}).filter(q=>q.conversation===row.receipt?.conversationId&&q.body.tools?.some(t=>t.name.startsWith('mcp__h2a__')));
-    const first=requests[0];
-    const tools=first?['h2a','playwright'].every(server=>first.body.tools.some(t=>t.name.startsWith('mcp__'+server+'__'))):null;
-    const phase=timings?.composerReadyMs;
-    const polls=operations.filter(o=>['capture','probe'].includes(o.operation)&&phase!==undefined&&o.at>=phase);
+    // The probe selects the FIRST exact user turn, even if its tools are empty.
+    // Selecting a request by tool presence would hide the very failure tested.
+    const tools=row.toolsAtFirstMainRequest??null;
+    const polls=operations.filter(o=>['capture','probe'].includes(o.operation));
     const maxPolls=polls.reduce((max,o)=>Math.max(max,polls.filter(p=>p.at>=o.at&&p.at<o.at+1000).length),0);
     group.samples.push({label:opts.label,id:row.id,ok,returnMs:row.receiptMs,launchCompleteMs:ok?row.receiptMs:Infinity,
       usableMs:ok?Math.max(row.receiptMs,row.answerMs||0,row.mcpReadyMs||0):Infinity,
       lastProofToResultMs:row.lastProofToResultMs,dispatchToResultMs:row.dispatchToResultMs,firstResponseMs:row.answerMs,
-      toolsAtFirstMainRequest:tools,enters:operations.filter(o=>o.operation==='enter').length,operations:operations.length,maxPolls,
+      toolsAtFirstMainRequest:tools,completePublications:row.publications?.filter(p=>p.state==='started').every(p=>p.completeResult)??null,
+      enters:operations.filter(o=>o.operation==='enter').length,operations:operations.length,maxPolls,
       state:row.receipt?.result?.state??(ok?'started':'failed'),timings});
   }
 }
-const output=[...groups.values()].map(group=>({...group,summary:{requests:group.samples.length,successes:group.samples.filter(s=>s.ok).length,
+const output=[...groups.values()].map(group=>({...group,summary:{requests:group.samples.length,
+  plannedRequests:group.samples.length+group.refusals.reduce((sum,r)=>sum+r.planned,0),
+  refusedBeforeProbe:group.refusals.reduce((sum,r)=>sum+r.planned,0),successes:group.samples.filter(s=>s.ok).length,
   launchComplete:stat(group.samples.map(s=>s.launchCompleteMs)),returns:stat(group.samples.map(s=>s.returnMs)),usable:stat(group.samples.map(s=>s.usableMs)),
   lastProof:stat(group.samples.flatMap(s=>s.ok&&s.lastProofToResultMs!==null?[s.lastProofToResultMs]:[])),
   firstResponse:stat(group.samples.flatMap(s=>s.firstResponseMs!==undefined?[s.firstResponseMs]:[])),
   underBudget:group.samples.filter(s=>s.ok&&s.launchCompleteMs<=(group.key.includes('n9')?9000:8000)).length,
   errors:group.samples.filter(s=>!s.ok).length,unconfirmed:group.samples.filter(s=>s.state==='launch-unconfirmed').length,
-  falseSuccesses:group.samples.filter(s=>s.ok&&(s.toolsAtFirstMainRequest===false||s.enters>1)).length,
+  falseSuccesses:group.samples.filter(s=>s.ok&&(s.toolsAtFirstMainRequest===false||s.completePublications===false||s.enters>1)).length,
   maxPolls:Math.max(0,...group.samples.map(s=>s.maxPolls))}}));
 fs.writeFileSync(repo+'/.qual-tmp/evidence/'+prefix+'-analysis.json',JSON.stringify({plan:repo+'/.qual-tmp/evidence/'+prefix+'-plan.json',groups:output},(_key,value)=>value===Infinity?'EXCEEDANCE':value,2));
 for(const row of output)console.log(JSON.stringify({key:row.key,sha:row.sourceSha,summary:row.summary,refusedCohorts:row.refusals.length}));
