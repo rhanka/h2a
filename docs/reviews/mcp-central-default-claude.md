@@ -1,14 +1,17 @@
-# Central MCP — review 4 remediation
+# Central MCP — Claude default ON and R6 invariant closure
 
-Reviewed branch: `feat/mcp-central-default-claude`, 22 commits from
-`5ca5c7bc` (`origin/main`) through `1c9f1bfb`. The starting worktree was clean.
-Earlier execution claims and pre-rebase SHA references are superseded by the
-new receipts under `.qual-tmp/sol4/evidence/`.
+Branch: `feat/mcp-central-default-claude`, based on `5ca5c7bc` (`origin/main`).
+Default-ON restoration starts from clean `088242d4`. Historical remediation
+receipts remain under `.qual-tmp/sol4/evidence/` and `.qual-tmp/r6/evidence/`.
+Fresh qualification receipts and the French owner report are under
+`.qual-tmp/default-on/`, tied to the final committed SHA.
 
-**The Claude default release remains blocked by R6 / P0 #5.** The binary now
-keeps central opt-in (`H2A_MCP_CENTRAL=1` or `h2a.central.enabled=true`).
-Absent configuration selects stdio. No delivery, publication or owner-state
-migration was performed.
+**Claude central is ON by default on Linux for qualified native conversation
+IDs.** The owner closes R6 by the zero-project-write invariant and exact
+byte-preservation tests. The historical cause remains **unknown**: the 0.98.0
+writer did not destroy Graphify in reproduction. `H2A_MCP_CENTRAL=0` and
+`h2a.central.enabled=false` select stdio for new connections. Codex/agy stay
+stdio. No delivery, publication or owner-state migration was performed.
 
 ## Proven corrections
 
@@ -17,19 +20,19 @@ migration was performed.
 | R3 | `4881775c`: a v1 connector without a host cannot be qualified by an inherited Claude ID. | Reinserting the previous no-host inference gives one central attachment instead of zero. Restoring the strict host check passes; explicit Claude creates one attachment. |
 | R18 | `55af5db7`: exclude unsupported/unqualified hosts before reading central settings. | Six real SDK/binary cases fail before the fix and pass after it: absent host, Codex and agy against malformed JSON and unreadable settings. |
 | R19 | `9c528375`: strip attachment-specific daemon fields before merging the client context; preserve the client's workspace. | Manual daemon startup with native or tmux launcher fields contaminates presence before the fix. Both cases pass after it, including readiness isolation, self-send wake target and preservation of the client's own terminal. A separate RED exposes the daemon cwd in client presence. |
-| R6 default gate | Keep implicit activation disabled until the mandatory reproduction exists. | The new gate test fails on implicit daemon startup before the change and passes afterward. **This RED/GREEN is the release gate, not a reproduction of Graphify loss.** |
+| R6 invariant and default | Restore implicit Claude activation under the owner's invariant decision. | The real SDK/binary regression fails with default OFF and passes with default ON. It verifies protocol 2, one attachment and unchanged exact incident bytes, metadata and git status. Runtime tests separately assert zero project writes. |
 | R12 | Require exact launch options, including the creation callback. | Removing the callback fails the strengthened assertion; restoring it passes. |
 | R15 | Verify T4 actually uses the central, and retain fresh final-SHA receipts. | Forcing the helper to stdio fails the live-central witness. Central mode must report protocol 2 and one attachment per connection. |
 
-## R6: exact incident input and unresolved destruction
+## R6: exact incident input, invariant closure and unknown historical cause
 
 The published core fixture is SHA-256
 `3de15d2ebce30ef5b27748ad06696844980c3c3d2ac5dfd4c6f5f7ff8c66d9a3`.
 The published runtime fixture is SHA-256
 `8d7be8ac52a0d17466c4635c2c1374249a1661276f8c70d668c9a89b84ebffd6`.
 Both archives are versioned; tests extract them into private `.qual-tmp`
-directories and verify hashes before importing their unchanged modules. Fresh
-qualification also matches their SHA-512 bytes against npm's published 0.98.0
+directories and verify hashes before importing their unchanged modules. Historical
+qualification also matched their SHA-512 bytes against npm's published 0.98.0
 `dist.integrity` (receipts: `.qual-tmp/r6/evidence/published-integrity.*`).
 
 The owner-supplied pre-incident `HEAD:.mcp.json` from tracked
@@ -64,9 +67,11 @@ mode was not supplied.
 
 The published git diff adds h2a after Graphify; it does not replace Graphify.
 Repeated published launches are byte-idempotent and retain Graphify. This
-reproduces the unsafe implicit tracked-file modification, **not the required
-destruction RED**. Both real-server probes and the focused automated tests
-observe `graphifyDestroyed=false`; R6 remains open.
+reproduces the unsafe implicit tracked-file modification. Both real-server
+probes and the focused automated tests observe `graphifyDestroyed=false`.
+The historical cause remains unknown. R6 is closed by the owner's decision:
+the candidate makes zero project writes and preserves the exact input bytes,
+metadata and git status. No historical destruction reproduction is claimed.
 
 The published path audit identifies `index.js:4276` →
 `prepareCentralMcpForLaunch` → `profileMcpConfig` → `host setup --write`.
@@ -81,7 +86,7 @@ doctor reference reads a conventional plugin config. The runtime bypasses the
 doctor through its coherence callback. The audit establishes the reachable
 writer, but does not identify another code path that caused the reported loss.
 
-Real published probe:
+Historical real published probe at `088242d4`:
 
 ```sh
 rtk node .qual-tmp/r6/run.mjs final-published-live node .qual-tmp/r6/published-live.mjs
@@ -97,7 +102,7 @@ R6 real published restore-reentered-run: projectWrites=2 bytesEqual=false mode=6
 R6 destruction RED: NOT REPRODUCED; no parser, merge, writer or lifecycle mock
 ```
 
-Real candidate probe:
+Historical real candidate probe at `088242d4` (rerun in fresh final-SHA receipts):
 
 ```sh
 rtk node .qual-tmp/r6/run.mjs final-candidate-live node .qual-tmp/r6/candidate-live.mjs
@@ -119,23 +124,42 @@ Full host/session launch, the nine-repository fleet and unrelated third-party
 host actions were not replayed. Exact launch flags, process write traces and
 post-incident file bytes were not supplied. A forced malformed-JSON overwrite,
 synthetic alias or injected competing edit would not establish this cause.
-The supplied bytes are sufficient to test this writer, but the causal
-discrepancy remains unresolved. Under the owner's conditional instruction,
-Claude's implicit default remains OFF; explicit central activation, the
-`H2A_MCP_CENTRAL=0` escape and Codex/agy stdio routing are tested. The owner's
-target remains default ON once a destruction reproduction closes R6.
+The supplied bytes are sufficient to test this writer. The historical cause
+remains unknown. The owner's invariant decision supersedes the earlier
+reproduction gate: Claude's implicit default is ON; explicit activation,
+configuration opt-out, the `H2A_MCP_CENTRAL=0` escape and Codex/agy stdio routing
+are tested. Closure concerns the candidate's project-write risk and does not
+establish the cause of the historical loss.
 
 Fresh commands, final SHA, stdout and stderr are recorded separately under
-`.qual-tmp/r6/evidence/final-*`; the French owner report is
-`.qual-tmp/r6/report.md`. No root or performance gate is claimed by this pass.
+`.qual-tmp/default-on/evidence/final-*`; the French owner report is
+`.qual-tmp/default-on/report.md`. The older `.qual-tmp/r6/report.md` describes
+the superseded reproduction gate. No root or performance gate is claimed.
+
+Fresh final qualification commands, run sequentially from the worktree root:
+
+```sh
+rtk node .qual-tmp/default-on/run.mjs final-build node node_modules/typescript/bin/tsc -b packages/h2a/tsconfig.json packages/h2a-runtime/tsconfig.json --force --pretty false
+rtk node .qual-tmp/default-on/run.mjs final-runtime node node_modules/vitest/vitest.mjs run --root packages/h2a-runtime --config vitest.config.mjs src/central-mcp.test.ts src/central-mcp-0980.test.ts src/index.test.ts --maxWorkers=1 --no-file-parallelism
+rtk node .qual-tmp/default-on/run.mjs final-attachments node --test --test-concurrency=1 packages/h2a/test/mcp-central-attachments.test.js
+rtk node .qual-tmp/default-on/run.mjs final-preservation node --test --test-concurrency=1 packages/h2a/test/host-config-preservation.test.js
+rtk node .qual-tmp/default-on/run.mjs final-t4-central node --test --test-concurrency=1 packages/h2a/test/mcp-identity-burst.test.js
+rtk node .qual-tmp/default-on/run.mjs final-routing node --test --test-concurrency=1 '--test-name-pattern=R6 Claude defaults|mcp-serve defaults Claude|H2A_MCP_CENTRAL=0 acts' packages/h2a/test/mcp-central-attachments.test.js
+rtk node .qual-tmp/default-on/run.mjs final-candidate-live node .qual-tmp/r6/candidate-live.mjs
+```
+
+The receipt runner sets `H2A_MCP_TEST_CENTRAL=1` and `H2A_MCP_TEST_N=4` for
+`final-t4-central`; the routing tests remove the fixture's explicit activation
+to exercise default ON. Test counts and receipt hashes are recorded in the
+French report after final qualification.
 
 ## Qualification boundary
 
 Each receipt records the command, environment, timestamp, SHA, working diff
 hash and exit status, with raw stdout/stderr beside it. Final qualification
 must use the final committed SHA with a clean worktree. It covers scoped
-runtime preparation/dispatch, central/core, attachment, host preservation
-and true T4 central (`H2A_MCP_TEST_CENTRAL=1`, `H2A_MCP_TEST_N=4`).
+runtime preparation/dispatch, attachment, host preservation and true T4
+central (`H2A_MCP_TEST_CENTRAL=1`, `H2A_MCP_TEST_N=4`).
 T4 explicitly verifies a live daemon, its state root, protocol and attachment
 count. Fixture environments provide HOME and all XDG paths under `.qual-tmp`;
 the v1 compatibility cases stop each child after its handshake to bound RSS.

@@ -28,3 +28,9 @@ The R6 qualification also verified both archives against the npm registry's
 0.98.0 `dist.integrity`. Full launch flags, process traces and post-incident
 file bytes were not supplied; no live owner sessions or repositories are
 used by these tests.
+
+The historical cause remains unknown: the published writer retained Graphify
+in reproduction. The owner closed R6 by the candidate's zero-project-write
+invariant and exact byte-preservation regression, and restored Claude default
+ON with explicit opt-out and environment escape. This decision does not claim
+a reproduction of the historical destruction.
