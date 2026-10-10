@@ -136,7 +136,10 @@ After rebasing onto `5ca5c7bc` (#313), run the full absence/generation/isolation
 selection with the required historical host, all journal/process/server/client/
 op/fleet/native-host/reuse tests, drive and terminal-mode qualification (#314),
 and all concrete PTY messaging/M02/M04 tests. Process-functional qualification
-includes the real publication-contention cases (#312). Re-run the rollback
+includes the real native socket publication-contention cases. These cases
+do not qualify #312, which concerns MCP identity recovery. Qualify
+`mcp-identity-burst.test.js` and `mcp-startup-contention.test.js` separately
+with their required private seed on the final SHA (R3-F03). Re-run the rollback
 mutation on the rebased build. Use one worker and private HOME/XDG/socket/tmp/
 tmux paths throughout. Final results, commit mapping and final SHA are recorded
 in the owner's French completion report; machine receipts are `r2-final-*`.

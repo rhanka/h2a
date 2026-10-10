@@ -105,4 +105,33 @@ the qualification launcher now uses the absolute preload path, and
 
 ## R3-F03
 
-Pending mandatory private-seed MCP qualification and corrected attribution.
+RED: `r3-f03-red.log` fails because no final-SHA MCP receipt exists. The old
+R2 report incorrectly attributed native socket publication contention to #312;
+that attribution is corrected. #312 is qualified by the MCP identity burst
+and startup-contention suites, not by native host publication tests.
+
+`scripts/qualify-native-mcp.mjs --seed <private-seed>` runs both complete suites
+sequentially with `H2A_MCP_REQUIRE_REAL_SEED=1` and a burst cohort of
+12. The seed must be nonempty, contained under `.qual-tmp`, and free of symlinks
+or non-regular files. Its content hash must remain unchanged. The receipt binds
+the exact six passing tests, zero failures/cancellations/skips/TODOs, both suite
+paths, the required seed, Node version and raw log hash to the SHA before and
+after qualification. `--verify-receipts` rejects missing, stale or incomplete
+receipts. Its final GREEN receipt is written after this commit, outside Git;
+the owner's French completion report gives the final SHA and all campaign counts.
+
+The available historical MCP lab trees contain no seed files. Qualification
+therefore prepares the full-size private corpus with the repository's
+`scripts/launch-perf-corpus.mjs`: 29,497 instances, 28,855 bindings, 29,560 aliases,
+29,564 fixture keypairs and 307 presence rows. It is synthetic, never copied
+from owner state. The private schema sentinel and launch indexes are prepared
+before the cohort, following #313's existing-store contract. The nonempty seed
+is passed explicitly; the empty-corpus fallback is never used. `r3-seed.json`
+records the generator hash and sizes; the MCP receipt includes the corpus
+metadata and complete seed hash. No historical private-seed provenance is claimed.
+The full-size indexed preflight measures 115,572 KiB server RSS and 218,704 KiB
+worker RSS. A simultaneous cohort of 36 projects to 11,752 MiB. Qualification
+uses the existing `H2A_MCP_TEST_N=12` control to keep the projection at 3,917 MiB;
+startup contention retains its fixed six same/six distinct connections. All six
+test bodies and their identity/binding assertions run, without timeouts being
+increased. The default 36-connection cohort is not qualified by this receipt.
