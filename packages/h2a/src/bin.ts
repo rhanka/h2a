@@ -5,9 +5,8 @@ import { runCentralShim } from "./runtime/mcp-central-shim.js";
 import { readCentralMcpMarker } from "./runtime/mcp-central-discovery.js";
 
 const argv = process.argv.slice(2);
-// P0 #5: keep Claude opt-in until the production Graphify loss has an
-// evidenced 0.98.0 reproduction.
-const centralByDefault = false;
+// Qualified Claude attachments default to central; explicit opt-outs remain authoritative.
+const centralByDefault = true;
 const flags: Record<string, string> = {};
 for (let i = 1; i < argv.length; i++) {
   if (!argv[i].startsWith("--")) continue;
