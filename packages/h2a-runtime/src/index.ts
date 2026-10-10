@@ -6274,6 +6274,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         const inputHash = createHash('sha256').update(JSON.stringify({ profile, cwd: realpathSync(cwd), prompt: initialPrompt,
           resume: opts.resume, model: opts.model, effort: opts.effort, agent: opts.agent, bare: bareChoiceFromOptions(opts), gatewayMode,
           background: opts.background === true, sidecar: opts.h2a ?? getH2aConfig().enabled, requiredMcps: declaredMcps,
+          qualificationPacing: process.env.LAUNCH_PERF_PACING_MS,
           mcpConfig: createHash('sha256').update(JSON.stringify(claudeMcpServers)).digest('hex') })).digest('hex');
         const priorPath = join(cwd, '.h2a', 'runs', slugify(opts.name ?? cwd), 'launch.json');
         if (nativeClaudeRequest && existsSync(priorPath)) {
