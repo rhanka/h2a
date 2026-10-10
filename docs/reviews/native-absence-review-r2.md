@@ -49,6 +49,10 @@ previous `/tmp` workspaces under the checkout makes both same-host terminals
 share the enclosing repository's durable workspace id and fallback identity.
 Its first post-rebase qualification fails the second terminal's workspace
 assertion; the corrected fixture retains separate identities and round trips.
+The CLI wiring suite also owns a complete private environment and registry;
+it no longer shares `/tmp/registry.json`. Its full post-rebase run checks the
+launch wiring introduced by #313 without requiring an exact options-object
+shape that excludes the new creation-attempt callback.
 
 Client, host and supervisor unit fixtures use explicit private sockets/registries
 or fake hosts; they now also require the common environment guard. The remaining
@@ -88,6 +92,16 @@ deadline. Fatal Node semantics are unchanged. Final delivery is best effort
 and may complete just after host exit; tests await the observed final entry.
 The mailbox remains bounded to 64 entries and diagnostic stacks to 32 KiB.
 No PID watcher synthesizes a lifecycle event.
+Real contention exposed a second interaction: stdio and journal IPC are Unix
+socket pairs, so the old scan treated an unbound contender as an active host.
+The scan now verifies the FD inode against its Unix table and the canonical or
+PID-attributed staged native address. Unreadable Unix tables remain unknown;
+unlinked real native listeners still block a second writer. The two regression
+REDs in `r2-f03-transport-red.log` distinguish transport-only sockets and an
+unreadable Unix table; the complete absence and contention suites qualify both.
+Process-functional checks identify the fixed journal coordinator separately
+from the two real PTYs, verify reconnect/operations create no additional Node
+processes, and observe the coordinator terminating after host death.
 
 ## R2-F04: canonical diagnostic file allowlist
 

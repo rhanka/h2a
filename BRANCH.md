@@ -1,7 +1,7 @@
 # Native absence minimal hotfix
 
-Branch: `fix/0.98.2-native-absence-minimal`, based on `origin/main` at `686fd129`
-(containing #309 phase A, #312, #314). Owner decision 2026-10-10: 0.98.2 scope
+Branch: `fix/0.98.2-native-absence-minimal`, rebase target `origin/main` at `5ca5c7bc`
+(containing #309 phase A, #312, #313, #314). Owner decision 2026-10-10: 0.98.2 scope
 includes native endpoint absence, cold-start fixes and the native host life journal
 ported from `9f15c763`, with observed lifecycle facts, safe diagnostics and
 nonblocking exclusive journal writes. Upgrade deferral and additional second-host
@@ -11,12 +11,13 @@ findings F01/F02. Absence concluded only with independent proof of owner host de
 Live host that lost its socket pathname is never considered absent; no second writer.
 No push, PR, publish, or tag.
 
-Current qualification: `docs/reviews/native-absence-minimal-journal.md`.
+Current correction protocol: `docs/reviews/native-absence-review-r2.md`.
+Prior qualification: `docs/reviews/native-absence-minimal-journal.md` (historical).
 All tests, real hosts and PTY workloads require HOME, XDG_RUNTIME_DIR,
-XDG_STATE_HOME and XDG_CONFIG_HOME under this checkout's `.qual-tmp`.
+XDG_STATE_HOME, XDG_CONFIG_HOME and effective native sockets under this checkout's `.qual-tmp`.
 Shared guards resolve symlink ancestors and reject owner state before spawn.
 Historical host sources are archived from `dd52059c` and compiled in the lab;
-the required-legacy flag is enabled. Targeted qualification: 36 Node tests
+the required-legacy flag is enabled. Historical qualification: 36 Node tests
 and 83 runtime tests (18 journal), zero failures, skips or TODOs. No `.track`
 writes or owner host/session access. Prior receipts below are historical.
 

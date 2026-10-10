@@ -350,12 +350,17 @@ test("should cleanly rollback published socket if .owner write fails and allow s
     /simulated failure recording endpoint owner/i,
   );
 
-  // The published socket must NOT have been left behind without an owner
-  assert.equal(existsSync(socketPath), false, "socket must be rolled back on owner write failure");
+  const socketLeftBehind = existsSync(socketPath);
+  assert.equal(existsSync(ownerPath), false, "injection must fail before owner recording");
 
-  // Subsequent start without error must succeed cleanly
+  // Observe both effects before asserting, so a rollback-only mutation proves
+  // the leftover endpoint AND the blocked retry with the same injection.
   delete f.env.H2A_TEST_FAIL_OWNER_WRITE;
-  const host = await f.start(0);
+  let host, retryError;
+  try { host = await f.start(0); } catch (error) { retryError = String(error); }
+  assert.deepEqual({ socketLeftBehind, restarted: host !== undefined },
+    { socketLeftBehind: false, restarted: true },
+    `owner-write rollback must remove the socket and permit retry: ${retryError ?? "no retry error"}`);
   assert.deepEqual(await host.client.ping(), host.ping);
   assert.ok(existsSync(ownerPath));
 }));
