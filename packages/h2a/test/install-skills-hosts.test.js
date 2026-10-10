@@ -291,6 +291,31 @@ test("install-skills --host muse renders SKILL.md dirs + emits a verifyHint", ()
   }
 });
 
+test("install-skills --host vibe renders SKILL.md dirs + emits a verifyHint", () => {
+  const cwd = freshCwd();
+  try {
+    const streams = captureStreams(cwd);
+    const rc = runCli(
+      ["install-skills", "--host", "vibe", "--scope", "project"],
+      streams
+    );
+    assert.equal(rc, 0, streams.stderrText);
+    const parsed = JSON.parse(streams.stdoutText);
+    assert.equal(parsed.ok, true);
+    assert.equal(parsed.host, "vibe");
+    // vibe discovers skills from .vibe/skills (project scope) or ~/.vibe/skills.
+    assert.equal(parsed.targetBase, join(cwd, ".vibe", "skills"));
+    assert.ok(
+      parsed.installed.some((f) => f.endsWith(`${sep}h2a${sep}SKILL.md`)),
+      "expected h2a/SKILL.md"
+    );
+    // No import step — the summary tells the user how to verify pickup.
+    assert.match(parsed.verifyHint, /session open/);
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
 test("install-skills renders harness-* from h2a-owned vendored harness skills (SOURCE UNIQUE, no external package)", () => {
   const cwd = freshCwd();
   try {
