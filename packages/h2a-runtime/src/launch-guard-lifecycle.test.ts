@@ -1,7 +1,7 @@
 import { EventEmitter } from "node:events";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PassThrough } from "node:stream";
@@ -11,9 +11,44 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 const { stop, probe } = vi.hoisted(() => ({ stop: vi.fn(() => true), probe: vi.fn() }));
 vi.mock("./native-host.js", () => ({ killNativeSessionIfIncarnation: stop, nativeSessionState: probe }));
 import { startLaunchGuard } from "./launch-guard.js";
+import { updateLaunchReceipt } from "./launch-receipt.js";
 
 describe("launch guard lifecycle", () => {
   beforeEach(() => vi.clearAllMocks());
+  it("should acknowledge an already durable result without replacing its published proof", () => {
+    const directory = mkdtempSync(join(tmpdir(), "launch-guard-durable-"));
+    const child = Object.assign(new EventEmitter(), { stdin: new PassThrough(), unref() {} });
+    const ownership = { host: "native" as const, sessions: [] };
+    try {
+      const guard = startLaunchGuard(directory, ownership, (() => child) as never);
+      guard.markSubmitAttempted();
+      const path = join(directory, "launch.json");
+      updateLaunchReceipt(path, process.env.H2A_RUN_LAUNCH_TOKEN, { state: "started", ownership,
+        result: { kind: "h2a.run.result", version: 1, state: "started", ok: true } });
+      const before = { bytes: readFileSync(path, "utf8"), inode: statSync(path).ino };
+      guard.complete();
+      expect(readFileSync(path, "utf8")).toBe(before.bytes);
+      expect(statSync(path).ino).toBe(before.inode);
+      child.emit("error", new Error("late spawn error"));
+      expect(stop).not.toHaveBeenCalled();
+      expect(JSON.parse(readFileSync(path, "utf8")).submitAttempted).toBe(true);
+    } finally { rmSync(directory, { recursive: true, force: true }); }
+  });
+  it("should reject an already published result owned by another incarnation", () => {
+    const directory = mkdtempSync(join(tmpdir(), "launch-guard-foreign-result-"));
+    const child = Object.assign(new EventEmitter(), { stdin: new PassThrough(), unref() {} });
+    const ownership = { host: "native" as const, sessions: [{ name: "worker", socketPath: "/private/owned.sock", generation: "g", incarnation: "i" }] };
+    try {
+      const guard = startLaunchGuard(directory, ownership, (() => child) as never);
+      const path = join(directory, "launch.json");
+      writeFileSync(path, JSON.stringify({ state: "started", token: process.env.H2A_RUN_LAUNCH_TOKEN,
+        ownership: { ...ownership, sessions: [{ ...ownership.sessions[0], incarnation: "replacement" }] },
+        result: { kind: "h2a.run.result", version: 1, state: "started", ok: true } }));
+      const before = readFileSync(path, "utf8");
+      expect(() => guard.complete()).toThrow("incarnation changed");
+      expect(readFileSync(path, "utf8")).toBe(before);
+    } finally { rmSync(directory, { recursive: true, force: true }); }
+  });
   it("should recover completed observation capacity at EOF while retaining resident memory", async () => {
     const directory = mkdtempSync(join(tmpdir(), "launch-guard-published-"));
     const path = join(directory, "launch.json"), state = join(directory, "state");

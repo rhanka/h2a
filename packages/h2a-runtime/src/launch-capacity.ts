@@ -110,7 +110,7 @@ export function ownLaunchSlot(id: string, ownership: NativeLaunchOwnership[]): v
 export function releaseLaunchSlot(id: string, state: string): void {
   withLaunchReceipt(path(), undefined, (receipt, save) => {
     const slots = receipt?.slots as Record<string, Slot> | undefined ?? {}, slot = slots[id];
-    if (!slot || slot.token !== process.env.H2A_RUN_LAUNCH_TOKEN) return;
+    if (!slot || slot.token !== process.env.H2A_RUN_LAUNCH_TOKEN || (state !== "stopped" && slot.state === state)) return;
     if (state === "stopped") delete slots[id]; else slot.state = state;
     save({ slots });
   });

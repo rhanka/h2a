@@ -1,17 +1,31 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 const probe = vi.hoisted(() => vi.fn(() => ({ state: "unknown" })));
 vi.mock("./native-host.js", () => ({ nativeSessionState: probe }));
-const { acquireLaunchSlot, markLaunchCreation, ownLaunchSlot } = await import("./launch-capacity.js");
+const { acquireLaunchSlot, markLaunchCreation, ownLaunchSlot, releaseLaunchSlot } = await import("./launch-capacity.js");
 let root: string, previous: string | undefined;
 beforeEach(() => { root = mkdtempSync(join(tmpdir(), "capacity-recovery-")); previous = process.env.XDG_STATE_HOME; process.env.XDG_STATE_HOME = root; probe.mockClear(); });
 afterEach(() => { if (previous === undefined) delete process.env.XDG_STATE_HOME; else process.env.XDG_STATE_HOME = previous; rmSync(root, { recursive: true, force: true }); });
 const ledger = () => join(root, "h2a", "launch-capacity", "reservations.json");
 const put = (slot: Record<string, unknown>) => { mkdirSync(join(root, "h2a", "launch-capacity"), { recursive: true }); writeFileSync(ledger(), JSON.stringify({ slots: { old: { at: 0, state: "launching", residentBytes: 1024, ...slot } } })); };
+it("should preserve an already completed resident charge on duplicate completion", () => {
+  put({ token: process.env.H2A_RUN_LAUNCH_TOKEN });
+  releaseLaunchSlot("old", "started");
+  const before = { bytes: readFileSync(ledger(), "utf8"), inode: statSync(ledger()).ino };
+  releaseLaunchSlot("old", "started");
+  expect(readFileSync(ledger(), "utf8")).toBe(before.bytes);
+  expect(statSync(ledger()).ino).toBe(before.inode);
+  expect(JSON.parse(before.bytes).slots.old.residentBytes).toBe(1024);
+});
+it("should remove a positively stopped charge even when its stored state is already stopped", () => {
+  put({ token: process.env.H2A_RUN_LAUNCH_TOKEN, state: "stopped" });
+  releaseLaunchSlot("old", "stopped");
+  expect(JSON.parse(readFileSync(ledger(), "utf8")).slots.old).toBeUndefined();
+});
 it("should recover a reservation after its real launcher exits before ownership or creation", () => {
   execFileSync(process.execPath, ["--import", "tsx", "--input-type=module", "-e",
     `import {acquireLaunchSlot} from ${JSON.stringify(fileURLToPath(new URL("./launch-capacity.ts", import.meta.url)))}; if(!acquireLaunchSlot('old',1,1024).acquired)process.exitCode=2;`], { env: process.env });
