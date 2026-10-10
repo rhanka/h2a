@@ -595,7 +595,14 @@ test("v1 residual configurations without --host route to stdio on missing marker
     const env = { ...f.env, ...extraEnv };
     const child = spawn(process.execPath, [bin, "mcp-central-connect", ...args], { env, cwd: join(f.dir, "repo-a"), stdio: ["pipe", "pipe", "pipe"] });
     children.push(child);
-    return rpcChannel(child.stdin, child.stdout);
+    const channel = rpcChannel(child.stdin, child.stdout);
+    return { async call(...request) {
+      try { return await channel.call(...request); }
+      finally {
+        channel.close();
+        if (child.exitCode === null && child.signalCode === null) { child.kill("SIGTERM"); await once(child, "exit"); }
+      }
+    } };
   };
   try {
     // 1. Missing marker:

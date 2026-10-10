@@ -22,11 +22,11 @@ import {
   statSync,
   writeFileSync
 } from "node:fs";
-import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { buildLaunchIndex } from "../../dist/runtime/local-files/launch-index.js";
 import { H2A_STORE_SCHEMA_FILE, H2A_STORE_SCHEMA_VERSION, readCliPackageVersion } from "../../dist/runtime/local-files/schema.js";
+import { qualificationRoot, qualifiedEnvironment, assertQualifiedPath } from "./qual-env.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
@@ -42,6 +42,13 @@ export const TRACE_LINE_PREFIX = "h2a.mcp.phase ";
 const children = new Set();
 const centralLabs = new Map();
 
+function labTemp(prefix) {
+  const base = join(qualificationRoot, "mcp-lab");
+  mkdirSync(base, { recursive: true, mode: 0o700 });
+  assertQualifiedPath(base);
+  return mkdtempSync(join(base, prefix));
+}
+
 /**
  * Copy the seed to a fresh private 0700 directory by CONTENT (never a link).
  * The returned path is a store root (`registry/`, `keys/`, `identity/` live
@@ -52,11 +59,13 @@ export function copySeed(seedDir, opts = {}) {
   if (!seedDir) {
     throw new Error("copySeed: a seed directory is required (H2A_MCP_TEST_SEED)");
   }
+  assertQualifiedPath(seedDir);
   const st = statSync(seedDir); // throws ENOENT if the mandatory seed is absent
   if (!st.isDirectory()) {
     throw new Error(`copySeed: seed is not a directory: ${seedDir}`);
   }
-  const dest = opts.dest ?? mkdtempSync(join(tmpdir(), "h2a-mcp-lab-"));
+  const dest = opts.dest ?? labTemp("seed-");
+  assertQualifiedPath(dest);
   chmodSync(dest, 0o700);
   // Content copy of the whole tree. `dereference` resolves any source link into
   // a plain file so the lab copy shares no inode with the real seed.
@@ -77,7 +86,8 @@ export function copySeed(seedDir, opts = {}) {
  */
 export function labRoot(seedDir, opts = {}) {
   if (seedDir) return copySeed(seedDir, opts);
-  const dest = opts.dest ?? mkdtempSync(join(tmpdir(), "h2a-mcp-synth-"));
+  const dest = opts.dest ?? labTemp("synth-");
+  assertQualifiedPath(dest);
   chmodSync(dest, 0o700);
   for (const sub of ["registry", "identity", "keys"]) {
     mkdirSync(join(dest, sub), { recursive: true });
@@ -136,11 +146,12 @@ export function seedRegistryCount(root) {
  * (the root is always passed explicitly as `--root`), no inherited API tokens.
  */
 function labEnv(extra = {}) {
-  const home = extra.HOME ?? mkdtempSync(join(tmpdir(), "h2a-mcp-home-"));
+  const home = extra.HOME ?? labTemp("home-");
+  assertQualifiedPath(home);
   const runtime = extra.XDG_RUNTIME_DIR ?? join(home, "runtime");
   mkdirSync(runtime, { recursive: true, mode: 0o700 });
   const env = {
-    PATH: process.env.PATH ?? "",
+    ...qualifiedEnvironment(home),
     HOME: home,
     XDG_RUNTIME_DIR: runtime,
     H2A_MCP_CENTRAL: "0",
@@ -154,6 +165,7 @@ function labEnv(extra = {}) {
   }
   env.HOME = home;
   mkdirSync(env.XDG_RUNTIME_DIR, { recursive: true, mode: 0o700 });
+  for (const key of ["HOME", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME", "XDG_RUNTIME_DIR"]) assertQualifiedPath(env[key]);
   return env;
 }
 
@@ -164,11 +176,12 @@ function labEnv(extra = {}) {
  */
 export function spawnMcp({ root, args = [], env = {}, trace = false, seed, nodeArgs = [], bin = H2A_BIN } = {}) {
   if (!root) throw new Error("spawnMcp: an explicit --root is required");
+  assertQualifiedPath(root);
   let central;
   if (process.env.H2A_MCP_TEST_CENTRAL === "1") {
     central = centralLabs.get(root);
     if (!central) {
-      const home = mkdtempSync(join(tmpdir(), "h2a-mcp-central-lab-"));
+      const home = labTemp("central-");
       const runtime = join(home, "runtime");
       mkdirSync(runtime, { mode: 0o700 });
       central = { home, runtime, active: new Set(), stopped: false };
@@ -191,6 +204,9 @@ export function spawnMcp({ root, args = [], env = {}, trace = false, seed, nodeA
   const handle = {
     child,
     pid: child.pid,
+    root,
+    centralRuntimeBase: central?.runtime,
+    centralExpectedAttachments: () => central?.active.size,
     stderr: "",
     _pending: new Map(),
     _notifications: [],
