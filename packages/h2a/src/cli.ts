@@ -49,6 +49,7 @@ import {
   realpathSync,
   readFileSync,
   rmSync,
+  statSync,
   unlinkSync,
   writeFileSync
 } from "node:fs";
@@ -73,6 +74,7 @@ import { runCli as runTrackCli, type CliIO } from "@sentropic/track";
 // `install-skills` renders `harness-<name>` from it (no hard-coded list, no
 // skill copies committed here; SOURCE UNIQUE = the installed npm package).
 import { runHarnessCli, HARNESS_SKILLS } from "./vendor/harness/index.js";
+import { buildLaunchIndex } from "./runtime/local-files/launch-index.js";
 import { renderCommandMap } from "./cli-command-map.js";
 import { resolveHostConfigRoot } from "./runtime/host-config-root.js";
 
@@ -468,6 +470,7 @@ export function renderCliHelp(): string {
     "  h2a host status [--host <name>]",
     "  h2a host plugin --host <codex|claude|gemini|agy|hermes|opencode|muse> --instance <id> [--status <work-status>] [--root <path>] [--write <settings.json> [--force]] [--scaffold <dir>]   (--write installs the Stop hook for claude|gemini|codex|hermes|opencode; --scaffold writes codex's full local marketplace + trust step; agy and muse are poll-only)",
     "  h2a store migrate [--from <v>] [--to <v>] [--sanitize-paths] [--dry-run] [--root <path>]",
+    "  h2a store index-launch --root <absolute-path> (derived indexes; original logs retained)",
     "",
     "High-level coordination (DEC-054):",
     "  h2a connect --host <codex|claude|gemini|agy|hermes|opencode|muse|remote> [--root <path>] [--instance <id>] [--name <display>]",
@@ -4968,8 +4971,32 @@ function cmdStoreMigrate(
 function cmdStore(argv: readonly string[], streams: H2ACliStreams): number {
   const { command: sub, flags } = parseFlags(argv);
   if (sub === "migrate") return cmdStoreMigrate(flags, streams);
+  if (sub === "index-launch") {
+    if (!flags.root || !isAbsolute(flags.root)) {
+      streams.stderr.write("h2a store index-launch: explicit absolute --root required\n");
+      return 1;
+    }
+    if (!existsSync(flags.root) || !statSync(flags.root).isDirectory()) {
+      streams.stderr.write("h2a store index-launch: --root must be an existing directory\n");
+      return 1;
+    }
+    // Explicit maintenance only. Keep the original append-only logs and all
+    // previous index generations; no registry/identity lock is held for a scan.
+    const indexed: string[] = [];
+    for (const [relative, kind] of [
+      ["registry/instances.jsonl", "instances"], ["registry/keys.jsonl", "keys"],
+      ["identity/bindings.jsonl", "bindings"], ["identity/aliases.jsonl", "aliases"]
+    ] as const) {
+      const file = join(flags.root, relative);
+      if (!existsSync(file)) continue;
+      buildLaunchIndex(file, kind);
+      indexed.push(kind);
+    }
+    streams.stdout.write(`${JSON.stringify({ ok: true, originalsRetained: true, indexed })}\n`);
+    return 0;
+  }
   streams.stderr.write(`Unknown store subcommand: ${sub ?? "<none>"}\n`);
-  streams.stderr.write("Use: h2a store migrate [--from <v>] [--to <v>] [--dry-run] [--root <path>]\n");
+  streams.stderr.write("Use: h2a store index-launch --root <absolute-path> | store migrate [--from <v>] [--to <v>] [--dry-run] [--root <path>]\n");
   return 1;
 }
 
