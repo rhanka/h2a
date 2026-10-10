@@ -138,6 +138,7 @@ const observe = async (id, begin, receipt) => {
   let seq = 0, text = '', firstPrompt, accepted, answer, ptyPid, trustSent = false;
   const deadline = Date.now() + (opts.timeoutMs || 65000);
   while (Date.now() < deadline && !aborted) {
+    if (receipt?.exitCode !== null && receipt?.exitCode !== undefined && receipt.exitCode !== 0) break;
     try {
       const state = await client.state(id); ptyPid = state.pid;
       const replay = await client.readOutput(id, seq);
@@ -184,7 +185,7 @@ try {
       const c = opts.adapter
         ? startChild(process.execPath,[repo+'/scripts/launch-perf/adapter-worker.mjs'],'launcher-'+i,JSON.stringify({profile:'claude',name,workspace,prompt:'Return the word READY_WITNESS.',background:true,gateway:'off',headless:false,h2aSidecar:opts.sidecar!==false}))
         : startChild(process.execPath, args, 'launcher-' + i, 'Return the word READY_WITNESS.');
-      const observation = observe(id, begin);
+      const observation = observe(id, begin, c);
       const concurrent = opts.concurrentInput ? (async () => {
         const until=Date.now()+20000,receipt=workspace+'/.h2a/runs/'+name+'/launch.json';
         while(Date.now()<until){
