@@ -12,10 +12,11 @@
  * are not affected.
  */
 import { defineConfig } from "vitest/config";
+import { fileURLToPath } from "node:url";
 import { llmMeshPinPlugin } from "./packages/h2a-runtime/vitest.llm-mesh-pin.mjs";
 
 export default defineConfig({
   plugins: [llmMeshPinPlugin()],
-  test: { setupFiles: ["./packages/h2a-runtime/vitest.native-isolation.mjs"],
+  test: { setupFiles: [fileURLToPath(new URL("./packages/h2a-runtime/vitest.native-isolation.mjs", import.meta.url))],
     exclude: ["**/node_modules/**", "**/dist/**", "**/.qual-tmp/**"] },
 });
