@@ -33,14 +33,19 @@ describe("L1 durable launch ownership", () => {
   it("should share reservation capacity across fresh CLI processes and retain resident memory after started", () => {
     const dir = mkdtempSync(join(tmpdir(), "l1-shared-"));
     const module = fileURLToPath(new URL("./launch-capacity.ts", import.meta.url));
-    const call = (id: string, finish = false) => JSON.parse(execFileSync(process.execPath,
-      ["--import", "tsx", "--input-type=module", "-e", 'import {acquireLaunchSlot,releaseLaunchSlot} from '+JSON.stringify(module)+'; const result=acquireLaunchSlot('+JSON.stringify(id)+',1,3*1024**3); '+(finish ? 'releaseLaunchSlot('+JSON.stringify(id)+',"started");' : '')+'console.log(JSON.stringify(result));'],
+    const scope = readFileSync("/proc/self/cgroup", "utf8").trim().split("::")[1];
+    const machine = Number(readFileSync("/proc/meminfo", "utf8").match(/^MemTotal:\s+(\d+)/m)?.[1]) * 1024;
+    const limit = Number(readFileSync(join("/sys/fs/cgroup", scope ?? "", "memory.max"), "utf8"));
+    const budget = Math.floor(Math.min(machine, Number.isFinite(limit) ? limit : machine, 8 * 1024 ** 3) * 0.85);
+    const call = (id: string, finish = false, bytes = 256 * 1024 ** 2) => JSON.parse(execFileSync(process.execPath,
+      ["--import", "tsx", "--input-type=module", "-e", 'import {acquireLaunchSlot,releaseLaunchSlot} from '+JSON.stringify(module)+'; const result=acquireLaunchSlot('+JSON.stringify(id)+',1,'+bytes+'); '+(finish ? 'releaseLaunchSlot('+JSON.stringify(id)+',"started");' : '')+'console.log(JSON.stringify(result));'],
       { env: { ...process.env, XDG_STATE_HOME: dir }, encoding: "utf8" }));
     try {
       expect(call("one", true).acquired).toBe(true);
       expect(call("one").acquired).toBe(false);
-      // Started releases observation capacity, while its 3 GiB resident charge remains.
-      expect(call("two").acquired).toBe(false);
+      // Started releases observation capacity, but still consumes resident budget.
+      expect(call("two", false, budget - 128 * 1024 ** 2).reason).toBe("resident launch memory budget exceeded");
+      expect(call("three").acquired).toBe(true);
     } finally { rmSync(dir, { recursive: true, force: true }); }
   });
 });

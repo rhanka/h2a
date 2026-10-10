@@ -1,6 +1,6 @@
 import { spawn, type SpawnSyncOptionsWithStringEncoding, type SpawnSyncReturns } from "node:child_process";
 import { randomUUID, createHash } from "node:crypto";
-import { appendFileSync, mkdirSync, readFileSync, realpathSync, statSync } from "node:fs";
+import { appendFileSync, mkdirSync, readFileSync, realpathSync, statSync, existsSync } from "node:fs";
 import { isAbsolute, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -21,7 +21,12 @@ function recoveredSubmission(request: H2aRunRequest, token: string): Record<stri
     return { kind: "h2a.run.failure", version: 1, error: "h2a_run: potential submission recovered from the durable receipt; session preserved",
       state: "launch-unconfirmed", launchId: request.name, retrySafe: false, stopped: false, submitAttempted: true,
       attach: { command: "h2a", args: ["attach", request.name] }, ownership: receipt.ownership };
-  } catch { return undefined; }
+  } catch {
+    if (!existsSync(join(request.workspace, ".h2a", "runs", request.name, "launch.json"))) return undefined;
+    return { kind: "h2a.run.failure", version: 1, error: "h2a_run: launch receipt unreadable; potential submission remains unconfirmed",
+      state: "launch-unconfirmed", launchId: request.name, stopped: false, retrySafe: false,
+      attach: { command: "h2a", args: ["attach", request.name] } };
+  }
 }
 
 export type H2aRunRequest = {
@@ -297,6 +302,7 @@ export function buildH2aRunInvocation(
       "--name",
       request.name,
       "--prompt-stdin",
+      ...(request.profile === "claude" && !request.headless ? ["--launch-contract", "claude-native/2"] : []),
       request.h2aSidecar ? "--h2a" : "--no-h2a",
       ...(request.gateway === "required"
         ? ["--gw"]
@@ -462,6 +468,8 @@ export function executeH2aRunWithSpawn(
     try {
       const failure = JSON.parse(result.stdout ?? "") as Record<string, unknown>;
       if (isPreCreateNativeFailure(failure, request.name, result.stderr ?? "")) return failure;
+      if (failure.kind === "h2a.run.failure" && failure.version === 1 && failure.state === "not-started" &&
+          failure.code === "launch-contract-mismatch" && failure.launchId === request.name && failure.creationAttempted === false && failure.retrySafe === false) return failure;
       if (failure.kind === "h2a.run.failure" && failure.version === 1 && failure.launchId === request.name && failure.retrySafe === false &&
           ((failure.state === "stopped" && failure.stopped === true) || (failure.state === "cleanup-failed" && failure.stopped === false))) return failure;
       const prompt = failure.prompt as Record<string, unknown> | undefined;

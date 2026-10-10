@@ -836,6 +836,7 @@ export function nativePromptDeliveryDeps(sleep: (ms: number) => void): PromptDel
 /** One bounded async op per observation, pinned to the reserved incarnation. */
 export function nativeClaudeDeliveryDeps(owned: NativeLaunchOwnership, deadline: number): ClaudeNativeDeliveryDeps {
   let epoch = 0;
+  let nextCapture = 0;
   const operation = (op: string, extra: string[] = []): Promise<Record<string, unknown>> => new Promise((resolve, reject) => {
     const remaining = Math.floor(deadline - Date.now());
     if (remaining <= 0) { reject(new Error("launch observation deadline expired")); return; }
@@ -853,7 +854,11 @@ export function nativeClaudeDeliveryDeps(owned: NativeLaunchOwnership, deadline:
     return true;
   };
   return {
-    capturePane: async () => String((await operation("capture")).text),
+    capturePane: async () => {
+      if (nextCapture > Date.now()) await new Promise(resolve => setTimeout(resolve, nextCapture - Date.now()));
+      nextCapture = Date.now() + 250;
+      return String((await operation("capture")).text);
+    },
     clearComposer: () => write("write", ["--b64", Buffer.from("\u0015").toString("base64")]),
     pasteBlock: (_name, text) => write("paste", ["--b64", Buffer.from(text).toString("base64")]),
     submit: () => write("enter"),

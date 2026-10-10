@@ -10,8 +10,9 @@ const event = (name, fields = {}) => {
   try { append(join(output, `trace-${process.pid}.jsonl`), JSON.stringify({ pid: process.pid, at: performance.timeOrigin + performance.now(), name, ...fields }) + '\n'); } catch {}
 };
 globalThis.__launchPerfEvent = event;
-event('node_preload', { entry: basename(process.argv[1] || ''), role: process.env.LAUNCH_PERF_ROLE });
-for (const method of ['spawn', 'spawnSync', 'execFileSync']) {
+event('node_preload', { entry: basename(process.argv[1] || ''), role: process.env.LAUNCH_PERF_ROLE,
+  ...(process.argv[1]?.endsWith('/native-terminal/op.js') ? { operation: process.argv[2], session: process.argv[process.argv.indexOf('--id')+1] } : {}) });
+for (const method of ['spawn', 'spawnSync', 'execFileSync', 'execFile']) {
   const original = cp[method];
   cp[method] = function(command, args, ...rest) {
     const operation = Array.isArray(args) && args[0]?.endsWith('/native-terminal/op.js') ? args[1] : basename(String(command));
