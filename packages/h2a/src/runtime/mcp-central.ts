@@ -809,8 +809,8 @@ export async function startCentralMcpServer(
         markerPath
       };
     }
-    // TODO(L-C): integrate PR #313's launch-index when it is on main; do not
-    // create another identity index alongside it.
+    // The existing launch-index readers are shared with stdio; qualify their
+    // large-volume behavior before expanding central session budgets.
     sharedStore = createLocalStore({ root, initialize: false, alwaysEmitConsentBudget: true });
     await options.afterMarkerClaim?.();
   } catch (error) {

@@ -98,16 +98,16 @@ test("host setup refuses undecodable UTF-8 instead of changing foreign bytes", (
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
-test("0.98.0 binary destruction reproduced on evidenced fixture and prevented by candidate byte-for-byte writer", () => {
+test("published 0.98.0 writer removes Track and reformats JSON while preserving Graphify; candidate preserves foreign bytes", () => {
   const dir = mkdtempSync(join(tmpdir(), "h2a-config-repro-"));
   try {
     const path0980 = join(dir, "host-0980.json");
     const pathCandidate = join(dir, "host-candidate.json");
 
-    // Evidenced fixture from repro0980.mjs containing graphify-ts and standalone track-mcp
+    // Synthetic fixture containing graphify-ts and standalone track-mcp.
     const original = '{\r\n  "mcpServers" : {\r\n    "graphify-ts" : {\r\n      "command": "npx",\r\n      "args": ["graphify-ts"]\r\n    },\r\n    "track-mcp": {\r\n      "command": "track-mcp"\r\n    },\r\n    "h2a": {\r\n      "command": "old-h2a"\r\n    }\r\n  }\r\n}\r\n';
 
-    // 1. Direct execution of the published 0.98.0 binary
+    // 1. Execute the published 0.98.0 runCli module with a healthy doctor seam.
     writeFileSync(path0980, original, { mode: 0o640 });
     let out0980 = "", err0980 = "";
     const code0980 = runCli0980(
@@ -127,7 +127,7 @@ test("0.98.0 binary destruction reproduced on evidenced fixture and prevented by
     const backups0980 = readdirSync(dir).filter(name => name.startsWith("host-0980.json.backup-"));
     assert.equal(backups0980.length, 0, "0.98.0 created no backup");
 
-    // 2. Direct execution of the published 0.98.0 binary on airbus-genair-d2d production fixture
+    // 2. Airbus-shaped fixture; the exact pre-incident bytes are unavailable.
     const pathAirbus0980 = join(dir, "host-airbus-0980.json");
     const airbusOriginal = '{\n  "mcpServers": {\n    "graphify-ts": {\n      "command": "npx.cmd",\n      "args": [\n        "--yes",\n        "@mohammednagy/graphify-ts@0.23.1",\n        "serve",\n        "--stdio",\n        "C:\\\\Users\\\\kwil73px\\\\Documents\\\\GitHub\\\\d2d\\\\graphify-out\\\\graph.json"\n      ],\n      "env": {\n        "GRAPHIFY_TOOL_PROFILE": "core"\n      }\n    }\n  }\n}\n';
     writeFileSync(pathAirbus0980, airbusOriginal, { mode: 0o600 });
@@ -162,7 +162,7 @@ test("0.98.0 binary destruction reproduced on evidenced fixture and prevented by
     assert.equal(backupsCandidate.length, 1, "candidate created exact backup");
     assert.equal(readFileSync(join(dir, backupsCandidate[0]), "utf8"), original);
 
-    // 4. Candidate behavior on the actual airbus-genair-d2d production fixture
+    // 4. Candidate behavior on the same Airbus-shaped fixture.
     const pathAirbusCandidate = join(dir, "host-airbus-candidate.json");
     writeFileSync(pathAirbusCandidate, airbusOriginal, { mode: 0o600 });
     assert.equal(setup(pathAirbusCandidate).code, 0);
