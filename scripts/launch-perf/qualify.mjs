@@ -6,6 +6,7 @@ const repo = path.resolve(import.meta.dirname, '../..');
 const input = JSON.parse(process.argv[2]);
 const sourceSha = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: input.worktree || repo, encoding: 'utf8' }).trim();
 const common = { worktree: input.worktree || repo, sourceSha, fixtureRoot: repo+'/.qual-tmp/lab/large-campaign', mode: 'runtime', mcp: 'both', sidecar: false, n: 1,
+  ...(input.initialMemoryMaxBytes !== undefined ? { initialMemoryMaxBytes: input.initialMemoryMaxBytes } : {}),
   pinned: repo+'/.qual-tmp/playwright/node_modules/@playwright/mcp/cli.js', timeoutMs: 20000 };
 // An archive checkout has no .git: baseline SHA is explicitly supplied and checked by its archive manifest.
 if (input.sourceSha) common.sourceSha = input.sourceSha;

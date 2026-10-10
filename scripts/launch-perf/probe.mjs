@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url';
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const lab = repo + '/.qual-tmp/lab';
 const opts = JSON.parse(process.argv[2] || '{}');
-const allowedOptions = new Set(['adapter','admission','cache','concurrentInput','crashPhase','diagnosticFailure','driverPacingMs','evict','expectedState','fixtureRoot','holdMs','httpErrorMessage','httpStatus','label','mcp','mcpDelayMs','mode','n','noDebug','pacingMs','pinned','pressure','qualifyDispatch','relaunch','repeat','reportedVersion','responseDelayMs','resumePrompt','seedRelaunch','sidecar','small','sourceSha','timeoutMs','toolsDelayMs','upgradeSlow','userHookMs','userHookVeto','worktree','wrongConversation']);
+const allowedOptions = new Set(['adapter','admission','cache','concurrentInput','crashPhase','diagnosticFailure','driverPacingMs','evict','expectedState','fixtureRoot','holdMs','httpErrorMessage','httpStatus','initialMemoryMaxBytes','label','mcp','mcpDelayMs','mode','n','noDebug','pacingMs','pinned','pressure','qualifyDispatch','relaunch','repeat','reportedVersion','responseDelayMs','resumePrompt','seedRelaunch','sidecar','small','sourceSha','timeoutMs','toolsDelayMs','upgradeSlow','userHookMs','userHookVeto','worktree','wrongConversation']);
 for(const key of Object.keys(opts))if(!allowedOptions.has(key))throw new Error('unsupported laboratory option: '+key);
 if (!opts.worktree || !opts.sourceSha) throw new Error('an explicit measured worktree and source SHA are required');
 const installed = opts.worktree + '/packages/h2a';
@@ -38,6 +38,15 @@ for(let i=0;i<corpus.counts.presence;i++){
   fs.writeFileSync(root+'/presence/'+sessionId+'.json',JSON.stringify({sessionId,instance:`claude:s-${i}:${uuid.replaceAll('-','').slice(0,12)}`,host:'claude',state:'live',interests:{scopes:['scope:default'],negotiations:[]},subscribedTopics:[],startedAt:'2026-01-01T00:00:00.000Z',heartbeatAt:new Date().toISOString()}),{mode:0o600});
 }
 if (opts.evict) execFileSync(lab + '/scripts/evict', ['registry/instances.jsonl','identity/bindings.jsonl','identity/aliases.jsonl','registry/keys.jsonl'].map(f=>root+'/'+f));
+if (opts.initialMemoryMaxBytes !== undefined) {
+  if (!Number.isSafeInteger(opts.initialMemoryMaxBytes) || opts.initialMemoryMaxBytes <= 0) throw new Error('positive declared initial memory bound required');
+  const scope = fs.readFileSync('/proc/self/cgroup', 'utf8').trim().split('::')[1];
+  const current = Number(fs.readFileSync('/sys/fs/cgroup' + scope + '/memory.current'));
+  if (current > opts.initialMemoryMaxBytes) {
+    fs.writeFileSync(output + '/admission.json', JSON.stringify({ code: 'declared-initial-memory-envelope-exceeded', current, max: opts.initialMemoryMaxBytes, requested: opts.n || 1 }));
+    throw new Error('declared initial memory envelope exceeded before launch: ' + current);
+  }
+}
 if ((opts.n || 1) > 4) {
   const reference = JSON.parse(fs.readFileSync(lab + '/results/' + opts.admission + '/result.json'));
   const begin = JSON.parse(fs.readFileSync(lab + '/results/' + opts.admission + '/events.jsonl','utf8').split('\n')[0]);
