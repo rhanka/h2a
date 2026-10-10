@@ -677,7 +677,7 @@ export async function runNativeTerminalOp(argv: ReadonlyArray<string>): Promise<
       const { client } = selected;
       const ping = await client.ping();
       client.close();
-      emit({ hostPid: ping.hostPid, generation: ping.generation, socketPath: selected.socketPath, launchFence: ping.launchFence === true });
+      emit({ hostPid: ping.hostPid, generation: ping.generation, socketPath: selected.socketPath, launchFence: ping.launchFence === true, launchInputFence: ping.launchInputFence === true });
       return 0;
     }
     case "list": {
@@ -913,6 +913,8 @@ export async function runNativeTerminalOp(argv: ReadonlyArray<string>): Promise<
       const { client } = await owningClient(parsed, id);
       const generation = required(parsed, "generation");
       const incarnation = required(parsed, "incarnation");
+      if (parsed.flags.has("epoch") && (await client.ping()).launchInputFence !== true)
+        throw new Error("selected native host does not provide launchInputFence");
       const signal = parsed.flags.get("signal") ?? "SIGTERM";
       if (signal !== "SIGTERM" && signal !== "SIGKILL" && signal !== "SIGINT" && signal !== "SIGHUP") {
         throw new Error(`unsupported signal: ${signal}`);
@@ -924,6 +926,7 @@ export async function runNativeTerminalOp(argv: ReadonlyArray<string>): Promise<
           generation,
           incarnation,
           signal,
+          parsed.flags.has("epoch") ? Number(required(parsed, "epoch")) : undefined,
         );
         const deadline = Date.now() + 4_000;
         for (;;) {
@@ -938,6 +941,7 @@ export async function runNativeTerminalOp(argv: ReadonlyArray<string>): Promise<
               generation,
               incarnation,
               "SIGKILL",
+              parsed.flags.has("epoch") ? Number(required(parsed, "epoch")) : undefined,
             ).catch(() => {});
             await delay(300);
             break;

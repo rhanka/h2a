@@ -17,7 +17,7 @@ export type LaunchOwnership =
   | { host: "tmux"; sessions: Array<{ name: string; pane: string; pid: number }> };
 
 type CleanupDeps = {
-  stopNative: (name: string, generation: string, incarnation: string, socketPath: string) => boolean;
+  stopNative: (name: string, generation: string, incarnation: string, socketPath: string, inputEpoch?: number) => boolean;
   stopTmux: (name: string, pane: string, pid: number) => boolean;
 };
 
@@ -25,13 +25,14 @@ function writeStatus(path: string, value: unknown): void {
   updateLaunchReceipt(path, process.env.H2A_RUN_LAUNCH_TOKEN, value as Record<string, unknown>);
 }
 
-export function cleanupLaunch(ownership: LaunchOwnership, deps: CleanupDeps): boolean {
+export function cleanupLaunch(ownership: LaunchOwnership, deps: CleanupDeps, inputEpoch?: number): boolean {
   let stopped = true;
   for (const session of [...ownership.sessions].reverse()) {
     try {
       const ok = ownership.host === "native"
         ? deps.stopNative(session.name, (session as { generation: string }).generation,
-            (session as { incarnation: string }).incarnation, (session as NativeLaunchOwnership).socketPath)
+            (session as { incarnation: string }).incarnation, (session as NativeLaunchOwnership).socketPath,
+            ...(inputEpoch !== undefined && session === ownership.sessions[0] ? [inputEpoch] : []))
         : deps.stopTmux(session.name, (session as { pane: string }).pane,
             (session as { pid: number }).pid);
       if (!ok) stopped = false;
@@ -50,7 +51,7 @@ export type LaunchGuard = {
   isSubmitAttempted: () => boolean;
 };
 
-function stopOwnedNative(name: string, generation: string, incarnation: string, socketPath: string): boolean {
+function stopOwnedNative(name: string, generation: string, incarnation: string, socketPath: string, inputEpoch?: number): boolean {
   if (!socketPath) return false; // No owner reference means cleanup is unproven.
   // A create op already in flight may outlive its launcher. Its deadline is
   // 15s; allow it to settle before certifying that a reserved session is absent.
@@ -59,7 +60,7 @@ function stopOwnedNative(name: string, generation: string, incarnation: string, 
     const probe = nativeSessionState(name, socketPath);
     if (probe.state === "found") {
       if (probe.session.generation !== generation || probe.session.incarnation !== incarnation) return false;
-      return probe.session.status === "exited" || killNativeSessionIfIncarnation(name, generation, incarnation, socketPath);
+      return probe.session.status === "exited" || killNativeSessionIfIncarnation(name, generation, incarnation, socketPath, inputEpoch);
     }
     if (probe.state === "unknown") return false;
     if (Date.now() >= deadline) return true;
@@ -91,7 +92,7 @@ export function startLaunchGuard(runDir: string, ownership: LaunchOwnership, spa
         if (submitAttempted) {
           save({ state: "launch-unconfirmed", submitAttempted: true, retrySafe: false, stopped: false, ownership });
         } else {
-          const stopped = cleanupLaunch(ownership, cleanupDeps);
+          const stopped = cleanupLaunch(ownership, cleanupDeps, receipt?.inputEpoch as number | undefined);
           save({ state: stopped ? "stopped" : "cleanup-failed", ownership });
         }
       });
@@ -154,7 +155,7 @@ export function startLaunchGuard(runDir: string, ownership: LaunchOwnership, spa
         withLaunchReceipt(statusPath, process.env.H2A_RUN_LAUNCH_TOKEN, (receipt, save) => {
           submitAttempted ||= receipt?.submitAttempted === true;
           if (!submitAttempted) {
-            stopped = cleanupLaunch(ownership, cleanupDeps);
+            stopped = cleanupLaunch(ownership, cleanupDeps, receipt?.inputEpoch as number | undefined);
             state = stopped ? "stopped" : "cleanup-failed";
           }
           save({ state, submitAttempted, ownership, ...(submitAttempted ? { retrySafe: false, stopped: false } : {}) });
@@ -198,7 +199,7 @@ async function guard(statusPath: string): Promise<void> {
         save({ state: "launch-unconfirmed", submitAttempted: true, retrySafe: false, stopped: false, ownership });
         return;
       }
-      const stopped = cleanupLaunch(ownership, cleanupDeps);
+      const stopped = cleanupLaunch(ownership, cleanupDeps, receipt.inputEpoch as number | undefined);
       save({ state: stopped ? "stopped" : "cleanup-failed", ownership });
       if (stopped && ownership.host === "native" && ownership.sessions[0]) releaseLaunchSlot(ownership.sessions[0].name.replace(/^h2a-/, ""), "stopped");
     });

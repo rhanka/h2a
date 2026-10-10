@@ -211,12 +211,11 @@ export class NativeTerminalClient {
     generation: string,
     incarnation: string,
     signal?: NativeTerminalStopSignal,
+    inputEpoch?: number,
   ): Promise<NativeTerminalSessionState> {
     return this.#request(
       "stop-if-incarnation",
-      signal === undefined
-        ? { id, generation, incarnation }
-        : { id, generation, incarnation, signal },
+      { id, generation, incarnation, ...(signal === undefined ? {} : { signal }), ...(inputEpoch === undefined ? {} : { inputEpoch }) },
     ) as Promise<NativeTerminalSessionState>;
   }
 

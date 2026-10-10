@@ -25,11 +25,12 @@ for (const phase of ["before-mark", "after-mark", "during-enter", "before-public
       const code = `import {startLaunchGuard} from ${JSON.stringify(url("launch-guard"))};
         import {deliverClaudeNativePrompt} from ${JSON.stringify(url("claude-native-driver"))};
         import {nativeClaudeDeliveryDeps} from ${JSON.stringify(url("native-host"))};
+        import {updateLaunchReceipt} from ${JSON.stringify(url("launch-receipt"))};
         const owner=${JSON.stringify(owner)}, phase=${JSON.stringify(phase)};
         const die=()=>process.kill(process.pid,'SIGKILL');
         const guard=startLaunchGuard(${JSON.stringify(join(root, "run"))},{host:'native',sessions:[owner]});
         const mark=guard.markSubmitAttempted;guard.markSubmitAttempted=()=>{if(phase==='before-mark')die();mark();if(phase==='after-mark')die();};
-        const deps=nativeClaudeDeliveryDeps(owner,Date.now()+5000), submit=deps.submit;
+        const deps=nativeClaudeDeliveryDeps(owner,Date.now()+5000,epoch=>updateLaunchReceipt(${JSON.stringify(join(root, "run", "launch.json"))},'crash-token',{inputEpoch:epoch})), submit=deps.submit;
         deps.submit=async name=>{if(phase==='during-enter')die();return submit(name);};
         const result=await deliverClaudeNativePrompt('w','exact crash brief',deps,{launchGuard:guard,observationTimeoutMs:5000,correlatedResponse:()=>{if(phase==='before-publication')die();return false;}});
         console.error(JSON.stringify(result));process.exitCode=2;`;

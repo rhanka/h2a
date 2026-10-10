@@ -149,5 +149,14 @@ export async function deliverClaudeNativePrompt(name: string, prompt: string, de
       // File observations do not spawn op.js and can be frequent without a native probe storm.
       await deps.sleep(Math.min(25, deadline - deps.now()));
     }
-  } catch (error) { return failure(error instanceof Error ? error.message : String(error)); }
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    // Another controller may already have submitted a task. Losing ownership
+    // cannot establish non-submission, even before our own Enter was attempted.
+    if (/input epoch|launch ownership|launch changed during observation/i.test(reason)) {
+      submitted = true;
+      try { options.launchGuard?.markSubmitAttempted(); } catch { /* Atomic epoch-fenced cleanup also preserves the session. */ }
+    }
+    return failure(reason);
+  }
 }
