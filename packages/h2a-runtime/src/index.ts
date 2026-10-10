@@ -137,6 +137,7 @@ import { updateLaunchReceipt, withLaunchReceipt } from "./launch-receipt.js";
 import { startClaudeDiagnostic } from "./claude-diagnostic.js";
 import { claudeTranscriptPath, correlatedClaudeResponse } from "./claude-transcript.js";
 import { QUALIFIED_CLAUDE_NATIVE_VERSIONS } from "./claude-native-qualification.js";
+import { prepareClaudeMcpObservers, observedClaudeMcpTools } from "./claude-mcp-observer.js";
 import { buildLaunchContext } from "./launch-context.js";
 import {
   attachNativeSession,
@@ -6265,10 +6266,11 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         const initialPrompt = opts.promptStdin ? readFileSync(0, "utf8") : undefined;
         const nativeClaudeRequest = profile === "claude" && sessionHost === "native" && !opts.headless && initialPrompt !== undefined;
         const declaredMcps: string[] = nativeClaudeRequest ? JSON.parse(process.env.H2A_CLAUDE_REQUIRED_MCPS ?? '["h2a","playwright"]') : [];
-        if (!Array.isArray(declaredMcps) || declaredMcps.some(m => typeof m !== 'string' || !m)) throw new Error('invalid required Claude MCP profile');
+        if (!Array.isArray(declaredMcps) || declaredMcps.some(m => typeof m !== 'string' || !/^[A-Za-z0-9_-]+$/.test(m)) || new Set(declaredMcps).size !== declaredMcps.length) throw new Error('invalid required Claude MCP profile');
         const inputHash = createHash('sha256').update(JSON.stringify({ profile, cwd: realpathSync(cwd), prompt: initialPrompt,
           resume: opts.resume, model: opts.model, effort: opts.effort, agent: opts.agent, bare: bareChoiceFromOptions(opts), gatewayMode,
-          background: opts.background === true, sidecar: opts.h2a ?? getH2aConfig().enabled, requiredMcps: declaredMcps })).digest('hex');
+          background: opts.background === true, sidecar: opts.h2a ?? getH2aConfig().enabled, requiredMcps: declaredMcps,
+          mcpConfig: process.env.H2A_CLAUDE_MCP_CONFIG ? createHash('sha256').update(readFileSync(process.env.H2A_CLAUDE_MCP_CONFIG)).digest('hex') : undefined })).digest('hex');
         const priorPath = join(cwd, '.h2a', 'runs', slugify(opts.name ?? cwd), 'launch.json');
         if (nativeClaudeRequest && existsSync(priorPath)) {
           let prior: Record<string, unknown>;
@@ -6571,10 +6573,14 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
                 : opts.resume
                   ? localResumeArgs(profile, opts.resume, { bare: useBare })
                   : localStartArgs(profile, { bare: useBare });
+            if (nativeClaudeLaunch && requiredMcps.length)
+              args.push("--mcp-config", prepareClaudeMcpObservers(runDir, cwd, requiredMcps, (opts.resume ?? reservedConvId)!, mcpReadyNonce));
           } catch (error) {
             diagnostic?.stop();
             releaseLaunchSlot(slugCandidate, "stopped");
             process.stderr.write(`[h2a] ${(error as Error).message}\n`);
+            if (nativeClaudeLaunch && opts.json) process.stdout.write(`${JSON.stringify({ kind: "h2a.run.failure", version: 1,
+              state: "not-started", launchId: slugCandidate, error: (error as Error).message, stopped: false, retrySafe: false })}\n`);
             process.exitCode = 2;
             return;
           }
@@ -6806,6 +6812,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
                     debugFile: diagnostic?.file,
                     requiredMcps,
                     requiredMcpProof: () => {
+                      if (!observedClaudeMcpTools(runDir, requiredMcps, (opts.resume ?? reservedConvId)!, mcpReadyNonce)) return false;
                       if (!requiredMcps.includes("h2a")) return true;
                       try {
                         const ack = JSON.parse(readFileSync(mcpReadyFile, "utf8"));
@@ -7082,9 +7089,12 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             try {
               const receipt = JSON.parse(readFileSync(join(cwd, ".h2a", "runs", opts.name, "launch.json"), "utf8"));
               if (receipt.token === process.env.H2A_RUN_LAUNCH_TOKEN && receipt.submitAttempted === true) {
-                if (opts.json) process.stdout.write(`${JSON.stringify({ kind: "h2a.run.failure", version: 1,
-                  state: "launch-unconfirmed", launchId: opts.name, error: (error as Error).message,
-                  stopped: false, retrySafe: false, attach: { command: "h2a", args: ["attach", opts.name] } })}\n`);
+                const failure = { kind: "h2a.run.failure", version: 1,
+                  state: (error as Error).message === "provider refusal observed before launch publication" ? "provider-blocked" : "launch-unconfirmed",
+                  launchId: opts.name, error: (error as Error).message, stopped: false, retrySafe: false,
+                  attach: { command: "h2a", args: ["attach", opts.name] } };
+                updateLaunchReceipt(join(cwd, ".h2a", "runs", opts.name, "launch.json"), process.env.H2A_RUN_LAUNCH_TOKEN, { state: failure.state, result: failure });
+                if (opts.json) process.stdout.write(`${JSON.stringify(failure)}\n`);
                 process.stderr.write(`[h2a] launch unconfirmed; session preserved: ${(error as Error).message}\n`);
                 process.exitCode = 1; return;
               }
