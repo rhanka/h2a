@@ -6,6 +6,27 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
+for (const created of [false, true]) it(`should ${created ? "preserve" : "terminate"} an unassigned collector after proven launcher death with creation ${created}`, async () => {
+  const root = mkdtempSync(join(tmpdir(), "diag-precreate-")), fifo = join(root, "input.pipe"), file = join(root, "debug.log"), receipt = join(root, "launch.json");
+  execFileSync("mkfifo", ["-m", "600", fifo]); writeFileSync(file, "");
+  const launcher = spawn(process.execPath, ["-e", "setInterval(()=>{},1000)"], { stdio: "ignore" });
+  const stat = readFileSync(`/proc/${launcher.pid}/stat`, "utf8"), birth = stat.slice(stat.lastIndexOf(")") + 2).split(" ")[19]!;
+  writeFileSync(receipt, JSON.stringify({ token: "precreate", creationAttempted: created }));
+  const worker = spawn(process.execPath, ["--import", "tsx", fileURLToPath(new URL("./claude-diagnostic.ts", import.meta.url)), fifo, file,
+    receipt, String(launcher.pid), birth, "precreate"], { stdio: ["pipe", "pipe", "pipe"] });
+  let ready = ""; worker.stdout.on("data", data => { ready += data; });
+  try {
+    for (let i = 0; i < 100 && !ready.includes("ready\n"); i++) await new Promise(r => setTimeout(r, 20));
+    expect(ready).toContain("ready\n");
+    const exited = once(launcher, "exit"); launcher.kill("SIGKILL"); await exited;
+    for (let i = 0; i < 100 && worker.exitCode === null; i++) await new Promise(r => setTimeout(r, 20));
+    expect(worker.exitCode).toBe(created ? null : 0); expect(existsSync(fifo)).toBe(created);
+  } finally {
+    for (const child of [launcher, worker]) if (child.exitCode === null && child.signalCode === null) { const exited = once(child, "exit"); child.kill("SIGKILL"); await exited; }
+    rmSync(root, { recursive: true, force: true });
+  }
+}, 10000);
+
 it("should cap retained diagnostic storage while draining the live provider FIFO", async () => {
   const root = mkdtempSync(join(tmpdir(), "diag-")), fifo = join(root, "input.pipe"), file = join(root, "debug.log");
   execFileSync("mkfifo", ["-m", "600", fifo]); writeFileSync(file, "", { mode: 0o600 });

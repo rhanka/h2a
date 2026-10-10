@@ -7,6 +7,7 @@ import { withLaunchReceipt } from "./launch-receipt.js";
 import { fileURLToPath } from "node:url";
 import { createInterface } from "node:readline";
 import { CLAUDE_DEBUG_MAX_BYTES } from "./claude-debug-adapter.js";
+import { nativeSessionState } from "./native-host.js";
 
 type Retained = { file: string; expires: number; ino: number; dev: number };
 function processStart(pid: number): string | undefined {
@@ -62,7 +63,8 @@ export function startClaudeDiagnostic(directory: string): { fifo: string; file: 
   if (made.status !== 0) throw new Error(`cannot create private Claude diagnostic pipe: ${made.stderr}`);
   writeFileSync(file, "", { mode: 0o600, flag: "wx" });
   retainDiagnostic(file);
-  const worker: ChildProcess = spawn(process.execPath, [fileURLToPath(new URL("./claude-diagnostic.js", import.meta.url)), fifo, file],
+  const worker: ChildProcess = spawn(process.execPath, [fileURLToPath(new URL("./claude-diagnostic.js", import.meta.url)), fifo, file,
+    join(directory, "launch.json"), String(process.pid), processStart(process.pid) ?? "", process.env.H2A_RUN_LAUNCH_TOKEN ?? ""],
     { stdio: ["pipe", "pipe", "ignore"] });
   let healthy = false;
   createInterface({ input: worker.stdout! }).on("line", line => { healthy = line === "ready"; });
@@ -79,7 +81,7 @@ export function startClaudeDiagnostic(directory: string): { fifo: string; file: 
 }
 
 /** The provider writes a FIFO: retained storage is bounded without unlinking its open writer. */
-async function collect(fifo: string, file: string): Promise<void> {
+async function collect(fifo: string, file: string, receiptPath?: string, launcherPid?: number, launcherStart?: string, token?: string): Promise<void> {
   const fd = openSync(fifo, constants.O_RDWR | constants.O_NONBLOCK);
   let retained: number | undefined = openSync(file, constants.O_WRONLY | constants.O_APPEND);
   const identity = statSync(file);
@@ -89,7 +91,7 @@ async function collect(fifo: string, file: string): Promise<void> {
   const started = Date.now(), retainUntil = started + 24 * 60 * 60 * 1000;
   process.stdout.on("error", () => {}); // The completed CLI no longer consumes health messages.
   process.stdout.write("ready\n");
-  createInterface({ input: process.stdin }).on("line", line => {
+  const input = createInterface({ input: process.stdin }).on("line", line => {
     const parsed = Number(line);
     if (Number.isSafeInteger(parsed) && parsed > 0) {
       pid = parsed;
@@ -126,16 +128,36 @@ async function collect(fifo: string, file: string): Promise<void> {
         catch { dead = false; }
         nextPidPoll = Date.now() + 1000;
       }
+      if (!pid && receiptPath && launcherPid && launcherStart && Date.now() >= nextPidPoll) {
+        try {
+          const launcher = processStart(launcherPid);
+          if (launcher !== launcherStart) {
+            const receipt = JSON.parse(readFileSync(receiptPath, "utf8"));
+            if (receipt.token === token) {
+              if (receipt.creationAttempted === false || receipt.state === "stopped") break;
+              const owner = receipt.ownership?.host === "native" ? receipt.ownership.sessions?.[0] : undefined;
+              if (owner?.socketPath) {
+                const probe = nativeSessionState(owner.name, owner.socketPath);
+                if (probe.state === "found" && probe.session.generation === owner.generation && probe.session.incarnation === owner.incarnation) {
+                  pid = probe.session.pid; birth = processStart(pid);
+                  dead = probe.session.status === "exited" || birth === undefined;
+                }
+              }
+            }
+          }
+        } catch { /* Unreadable identity/receipt or host uncertainty preserves a possible writer. */ }
+        nextPidPoll = Date.now() + 1000;
+      }
       if (dead && Date.now() - lastData > 1000) break;
       // Before ownership is delivered, parent death is uncertain: drain rather than block a possible Claude writer.
       await new Promise(resolve => setTimeout(resolve, read > 0 ? 1 : 10));
     }
-  } finally { closeSync(fd); if (retained !== undefined) closeSync(retained); rmSync(fifo, { force: true }); }
+  } finally { input.close(); closeSync(fd); if (retained !== undefined) closeSync(retained); rmSync(fifo, { force: true }); }
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  const [fifo, file] = process.argv.slice(2);
+  const [fifo, file, receipt, launcherPid, launcherStart, token] = process.argv.slice(2);
   if (!fifo || !file) throw new Error("diagnostic collector requires its private FIFO and retained file");
   if (fifo === "--retention") await expireDiagnostics(file);
-  else await collect(fifo, file);
+  else await collect(fifo, file, receipt, Number(launcherPid), launcherStart, token);
 }
