@@ -288,6 +288,8 @@ try {
       const actual = row.receipt?.result?.state ?? row.receipt?.state;
       if (actual !== opts.expectedState || (['provider-blocked','launch-unconfirmed'].includes(actual) && row.afterResultSession.status !== 'running'))
         throw new Error('expected result/preservation witness failed: '+actual);
+      if(actual==='stopped'&&!['absent','exited'].includes(row.afterResultSession.status))throw new Error('stopped receipt without a stopped incarnation');
+      if(opts.crashPhase==='before-mark'&&row.nativeOperations.some(operation=>operation.operation==='enter'))throw new Error('pre-submit crash occurred after Enter');
       row.expectedStateMatched = true;
       if (actual !== 'started') delete row.error;
     }
