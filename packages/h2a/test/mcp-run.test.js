@@ -114,7 +114,8 @@ test("h2a_run descriptor is exact, background-only, and shared by the local MCP"
       "claude",
       "codex",
       "agy",
-      "muse"
+      "muse",
+      "vibe"
     ]);
     assert.equal(
       descriptor.inputSchema.properties.agent.pattern,
@@ -125,7 +126,7 @@ test("h2a_run descriptor is exact, background-only, and shared by the local MCP"
 
 test("h2a_run validates every structured profile and returns the real launcher result", () => {
   withWorkspace(({ workspaceRoot, workspace, storeRoot }) => {
-    for (const profile of ["claude", "codex", "agy", "muse"]) {
+    for (const profile of ["claude", "codex", "agy", "muse", "vibe"]) {
       let captured;
       const server = createMcpServer({
         root: storeRoot,
@@ -316,6 +317,18 @@ test("h2a_run rejects unknown fields, unsafe workspaces and invalid combinations
       () =>
         validateH2aRunRequest(
           request(workspace, {
+            profile: "vibe",
+            headless: false,
+            gateway: "required"
+          }),
+          workspaceRoot
+        ),
+      /required.*unsupported for vibe/i
+    );
+    assert.throws(
+      () =>
+        validateH2aRunRequest(
+          request(workspace, {
             profile: "agy",
             headless: false,
             gateway: "off",
@@ -325,7 +338,7 @@ test("h2a_run rejects unknown fields, unsafe workspaces and invalid combinations
         ),
       /agy.*effort.*low.*medium.*high/i
     );
-    for (const profile of ["claude", "codex", "muse"]) {
+    for (const profile of ["claude", "codex", "muse", "vibe"]) {
       assert.throws(
         () =>
           validateH2aRunRequest(

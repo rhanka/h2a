@@ -225,6 +225,34 @@ test("host plugin --scaffold is refused for non-codex hosts (manifest is codex-s
   }
 });
 
+test("host plugin marks vibe as push via a post_agent hook (vibe-hooks, ~/.vibe/hooks.toml)", () => {
+  const { rc, stdout } = plugin("vibe");
+  assert.equal(rc, 0);
+  const r = JSON.parse(stdout);
+  assert.equal(r.host, "vibe");
+  assert.equal(r.push, true);
+  assert.equal(r.mechanism, "vibe-hooks");
+  assert.match(r.record, /vibe -c/);
+  assert.match(r.hint, /post_agent/);
+  assert.match(r.hint, /hooks\.toml/);
+});
+
+test("host plugin --write is refused for vibe (~/.vibe/hooks.toml is TOML; the JSON hook merger is format-strict)", () => {
+  const dir = mkdtempSync(join(tmpdir(), "h2a-hook-"));
+  try {
+    let stderr = "";
+    const rc = runCli(["host", "plugin", "--host", "vibe", "--instance", "vibe:p1", "--write", join(dir, "x.json")], {
+      stdout: { write: () => {} }, stderr: { write: (c) => void (stderr += c) }
+    });
+    assert.equal(rc, 1);
+    assert.match(stderr, /not available for vibe/);
+    assert.match(stderr, /TOML/);
+    assert.match(stderr, /post_agent/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("host plugin --write is refused for agy and muse (poll-only, no verified stop-hook)", () => {
   const dir = mkdtempSync(join(tmpdir(), "h2a-hook-"));
   try {

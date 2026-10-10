@@ -742,11 +742,11 @@ const H2A_COORDINATION_TOOL_DESCRIPTORS: McpToolDescriptor[] = [
   {
     name: "h2a_run",
     description:
-      "Launch one background Claude, Codex, AGY or Muse agent in an existing workspace through the canonical h2a run runtime. AGY and Muse are direct (no llm-mesh gateway); AGY supports run-once mode through --print. Muse is interactive/background only (muse exec has no stdin prompt contract, so headless is rejected). Responds within 50 seconds: returns verified session metadata when finished, otherwise {state:\"launching\",launchId,retrySafe:false} while the server continues launching. Repeat h2a_run with the same name to read its current state; that name is idempotent for this MCP server lifetime, including after completion or caller cancellation, and never launches or delivers the brief again. Never creates a branch or worktree.",
+      "Launch one background Claude, Codex, AGY, Muse or Vibe agent in an existing workspace through the canonical h2a run runtime. AGY, Muse and Vibe are direct (no llm-mesh gateway); AGY supports run-once mode through --print. Muse is interactive/background only (muse exec has no stdin prompt contract, so headless is rejected); Vibe is interactive/background only (vibe -p takes the prompt as argv, and prompts are never serialized into argv, so headless is rejected). Responds within 50 seconds: returns verified session metadata when finished, otherwise {state:\"launching\",launchId,retrySafe:false} while the server continues launching. Repeat h2a_run with the same name to read its current state; that name is idempotent for this MCP server lifetime, including after completion or caller cancellation, and never launches or delivers the brief again. Never creates a branch or worktree.",
     inputSchema: {
       type: "object",
       properties: {
-        profile: { type: "string", enum: ["claude", "codex", "agy", "muse"] },
+        profile: { type: "string", enum: ["claude", "codex", "agy", "muse", "vibe"] },
         name: {
           type: "string",
           pattern: "^[A-Za-z0-9_-]{1,64}$"
@@ -767,17 +767,17 @@ const H2A_COORDINATION_TOOL_DESCRIPTORS: McpToolDescriptor[] = [
         gateway: {
           type: "string",
           enum: ["auto", "required", "off"],
-          description: "Direct by default: auto (the default) and off both launch direct; only required opts a Claude session into the local llm-mesh gateway. AGY and Muse are always direct, so required is rejected for them."
+          description: "Direct by default: auto (the default) and off both launch direct; only required opts a Claude session into the local llm-mesh gateway. AGY, Muse and Vibe are always direct, so required is rejected for them."
         },
         headless: {
           type: "boolean",
-          description: "Run once; AGY maps this to stream-json input/output and keeps the prompt on stdin. Muse rejects headless (muse exec has no stdin prompt contract)."
+          description: "Run once; AGY maps this to stream-json input/output and keeps the prompt on stdin. Muse rejects headless (muse exec has no stdin prompt contract). Vibe rejects headless (vibe -p takes the prompt as argv; prompts are never serialized into argv)."
         },
         h2aSidecar: { type: "boolean" },
         agent: {
           type: "string",
           pattern: "^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$",
-          description: "AGY agent override; rejected for Claude, Codex and Muse."
+          description: "AGY agent override; rejected for Claude, Codex, Muse and Vibe."
         },
         model: {
           type: "string",
