@@ -1,7 +1,7 @@
 # Native Claude launch latency — L0 and L1
 
 Branch: perf/launch-latency-l0-l1; base: origin/main 5ca5c7bc.
-Scope: separate conservation delivery with measured laboratory latency; repair R3-01–R3-03 after R01–R12 and R2-02–R2-06. No G1 completion claim.
+Scope: separate conservation delivery with measured laboratory latency; repair R4-01 after R3-01–R3-03, R01–R12 and R2-02–R2-06. No G1 completion claim.
 No push, PR, publishing, tags, owner host/state/config access, Python or Track writes.
 Every test and lab launch uses its own HOME and XDG roots under .qual-tmp.
 At most one full root suite, after focused checks and laboratory cleanup.
@@ -18,6 +18,7 @@ At most one full root suite, after focused checks and laboratory cleanup.
 - [x] Repair R3-01 with two RED/GREEN Claude tmux witnesses; retain native modal handling.
 - [x] Reconcile R3-02 with the automatically enabled, locally measured dispatch path and its limits.
 - [x] R3-03: MCP burst/startup passed 6/6 at N=36 before the documentation amendment; final SHA receipts use bounded N=17, retain exact assertions and record completion under .qual-tmp/r3. No new full root suite.
+- [x] Repair R4-01: require direct Node execution of installed Playwright 0.0.83 before fast dispatch or experimental pacing; npx and unknown configurations retain the conservative path. CLI RED/GREEN witnesses are under .qual-tmp/r4.
 - [ ] Qualify G1 performance and the diagnostic signal before a real response.
 
 Measured candidate: 5a80eeb5285d4b5ba7c47a1f54568cb3572184e6.
@@ -31,7 +32,11 @@ G1 remains unqualified. Separate conservation delivery criteria are prepared in
 docs/reviews/launch-latency-l0-l1.md; no L0/L1 completion or global test gate is claimed.
 
 Fast debug dispatch is automatically enabled for Linux x64 / Claude 2.1.296,
-with exactly h2a + Playwright direct, no sidecar, bare mode or gateway. This is
+with exactly h2a + direct pinned Playwright 0.0.83, no sidecar, bare mode or gateway.
+The Playwright command must equal process.execPath with an absolute local cli.js
+entry point and the expected @playwright/mcp package/version/bin manifest.
+The same profile check gates private experimental pacing; npx and unknown
+installations use the conservative path. This is
 the delivered path used by all 70/70 final executed successes, with 0 ms extra
 pacing after the required readiness/paste barriers. Its qualification covers
 correlated local dispatch and the isolated adversaries; it does not establish
