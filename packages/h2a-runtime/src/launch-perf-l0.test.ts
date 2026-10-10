@@ -35,6 +35,20 @@ function temporary(test: (file: string) => Promise<void> | void) {
     try { await test(file); } finally { rmSync(dir, { recursive: true, force: true }); } };
 }
 describe("L0 product driver adversaries", () => {
+  it("should observe a queued refusal beyond the incremental read window before publication", temporary(async file => {
+    const f = fixture(file);
+    f.submit.mockImplementation(() => { appendFileSync(file, settled + turn + main + "[DEBUG] unrelated record\n".repeat(10000) + "[ERROR] API error (attempt 1/11): 401 401 {}\n"); return true; });
+    const result = await deliverClaudeNativePrompt("w", "exact brief", f.deps, { debugFile: file,
+      qualifiedDiagnostic: true, correlatedPrompt: () => true });
+    expect(result.state).toBe("provider-blocked"); expect(f.submit).toHaveBeenCalledTimes(1);
+  }));
+  it("should preserve uncertainty when publication has an incomplete diagnostic record", temporary(async file => {
+    const f = fixture(file);
+    f.submit.mockImplementation(() => { appendFileSync(file, settled + turn + main + "[ERROR] API error (attempt 1/11): 401"); return true; });
+    const result = await deliverClaudeNativePrompt("w", "exact brief", f.deps, { debugFile: file,
+      qualifiedDiagnostic: true, correlatedPrompt: () => true });
+    expect(result.state).toBe("launch-unconfirmed"); expect(f.submit).toHaveBeenCalledTimes(1);
+  }));
   it("should preserve potential foreign submission before our own Enter", temporary(async file => {
     const f = fixture(file), mark = vi.fn();
     f.paste.mockImplementation(() => { throw new Error("launch input epoch changed"); });

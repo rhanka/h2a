@@ -105,10 +105,18 @@ export async function deliverClaudeNativePrompt(name: string, prompt: string, de
     let settled = false, turn = false, dispatched = false;
     const refusal = () => {
       if (options.diagnosticHealthy?.() === false) return "diagnostic collector lost integrity";
-      const chunk = dispatch?.read();
-      if (chunk?.error) return chunk.error;
-      const analysis = parseClaudeDebugEvents(chunk?.content ?? "");
-      if (analysis.providerRefusal || analysis.hookVeto) return "provider refusal observed before launch publication";
+      // A dispatch in an early block must not hide a refusal queued later.
+      // Drain bounded retained records before publishing; incomplete records
+      // remain uncertainty rather than proof of a clean diagnostic boundary.
+      for (;;) {
+        if (deps.now() >= deadline) return "launch observation deadline expired";
+        const chunk = dispatch?.read();
+        if (chunk?.error) return chunk.error;
+        const analysis = parseClaudeDebugEvents(chunk?.content ?? "");
+        if (analysis.providerRefusal || analysis.hookVeto) return "provider refusal observed before launch publication";
+        if (!chunk?.more) break;
+        if (!chunk.content) return "Claude diagnostic ends with an incomplete record";
+      }
       if (options.qualifiedDiagnostic === true && dispatched && options.correlatedPrompt?.() !== true)
         return "conversation or prompt correlation lost before launch publication";
       return undefined;
