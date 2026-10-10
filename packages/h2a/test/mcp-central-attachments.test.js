@@ -119,6 +119,37 @@ test("R3 unqualified v1 connector leaves live central attachments unchanged with
   }
 });
 
+for (const configState of ["invalid JSON", "unreadable"])
+  for (const host of [undefined, "codex", "agy"])
+    test(`R18 v1 ${host ?? "unqualified"} connector selects stdio before reading ${configState} central configuration`, async () => {
+      const f = fixture();
+      const configDir = join(f.env.REMOTE_CLI_CONFIG_HOME, ".config", "sentropic", "h2a");
+      mkdirSync(configDir, { recursive: true });
+      const configPath = join(configDir, "config.json");
+      writeFileSync(configPath, configState === "invalid JSON" ? "{invalid" : '{"h2a":{"central":{"enabled":true}}}');
+      if (configState === "unreadable") chmodSync(configPath, 0o000);
+      const client = new Client({ name: "r18-stdio-regression", version: "1" });
+      const transport = new StdioClientTransport({
+        command: process.execPath,
+        args: [bin, "mcp-central-connect", ...(host ? ["--host", host] : []), "--endpoint", "http://127.0.0.1:1/mcp", "--runtime-base", f.runtimeBase],
+        env: { ...f.env, CLAUDE_CODE_SESSION_ID: "r18-inherited-conversation" },
+        cwd: join(f.dir, "repo-a"), stderr: "pipe"
+      });
+      let stderr = "";
+      try {
+        const connecting = client.connect(transport);
+        transport.stderr?.on("data", data => { stderr += data.toString(); });
+        await assert.doesNotReject(connecting, `stdio must ignore central configuration: ${configState}, host=${host ?? "absent"}`);
+        assert.ok((await client.listTools()).tools.some(tool => tool.name === "h2a_identity_status"));
+        assert.equal(existsSync(join(f.runtimeBase, "h2a-mcp-central")), false, "stdio selection must not discover or start a central daemon");
+        assert.doesNotMatch(stderr, /cannot read central configuration/);
+      } finally {
+        await client.close();
+        chmodSync(configPath, 0o600);
+        f.cleanup();
+      }
+    });
+
 test("missing systemd runtime chooses a fixed UID fallback, with private namespaces for isolation", () => {
   assert.equal(runtimeBase({}, {}, () => false), `/tmp/h2a-mcp-runtime-${process.getuid()}`);
   assert.equal(runtimeBase({}, { XDG_RUNTIME_DIR: "/private/test/runtime" }, () => false), "/private/test/runtime");
