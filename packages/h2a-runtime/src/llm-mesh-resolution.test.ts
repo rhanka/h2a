@@ -17,7 +17,7 @@ describe("runtime resolves the public cluster-mesh integration without aliases",
     const esmPath = realpathSync(fileURLToPath(import.meta.resolve(specifier)));
     const clusterRoot = dirname(dirname(fileURLToPath(import.meta.resolve("@sentropic/cluster-mesh"))));
     expect(esmPath.startsWith(join(realpathSync(clusterRoot), "dist") + "/")).toBe(true);
-    expect(JSON.parse(readFileSync(join(clusterRoot, "package.json"), "utf8")).version).toBe("0.13.1");
+    expect(JSON.parse(readFileSync(join(clusterRoot, "package.json"), "utf8")).version).toBe("0.13.2");
   });
 
   it("should load the same facade and keyring through the public leaves and root registry", async () => {
@@ -37,8 +37,8 @@ describe("runtime resolves the public cluster-mesh integration without aliases",
     await import("@sentropic/cluster-mesh/gateway");
     const topology = verifyClusterMeshTopology({ require: ["gateway", "llm-mesh"] });
     expect(topology.instances).toHaveLength(1);
-    expect(topology.llmMesh?.version).toBe("0.23.1");
-    expect(topology.gateway?.version).toBe("0.19.3");
+    expect(topology.llmMesh?.version).toBe("0.24.1");
+    expect(topology.gateway?.version).toBe("0.19.4");
     expect(topology.gateway?.llmMesh?.path).toBe(topology.llmMesh?.path);
   });
 });
