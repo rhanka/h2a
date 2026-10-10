@@ -1,13 +1,17 @@
 # Machine-local MCP central
 
-On Linux, `mcp-serve --host claude` uses the central by default when the host
-provides `CLAUDE_CODE_SESSION_ID`. Routing happens before heavy imports. Codex,
+On Linux, `mcp-serve --host claude` can opt into the central when the host
+provides `CLAUDE_CODE_SESSION_ID` and `H2A_MCP_CENTRAL=1` or
+`h2a.central.enabled=true`. Default activation remains blocked by P0 #5:
+the production Graphify entry loss has not been reproduced. Routing happens before heavy imports. Codex,
 agy, ambiguous Claude identities, explicit instance overrides, cluster-mesh,
 and unsupported state roots retain full stdio. The shipped manifests are unchanged.
 
 State root and workspace are different: the state root is `H2A_ROOT` or
-`~/h2a-workspace/.h2a`; the workspace is captured from each shim's cwd. A daemon
-never inherits a conversation id, tmux pane, or repo cwd from its launcher.
+`~/h2a-workspace/.h2a`; the workspace is captured from each shim's cwd. An
+automatic daemon uses a neutral environment and cwd. Attachments also strip
+launcher conversation, terminal and readiness fields after a manual daemon
+start, before applying each client's captured environment.
 Each attachment owns its MCP server, identity, presence, signer and wake target;
 the file store is shared. The urgent implementation supports one state root.
 
@@ -52,7 +56,7 @@ config, and repo store sentinels. It reports tracked status and never writes,
 reformats or deletes anything. Review backups before any manual cleanup.
 
 L-B remains the qualification of causal Codex/agy conversation signals. L-C
-remains launch-index integration from PR #313, multiple state roots, coordinated
+remains large-volume qualification of the existing launch-index, multiple state roots, coordinated
 upgrade/succession, full notification qualification and cluster-mesh per
 principal. The central reuses stdio activation and its existing identity worker;
 it skips per-attachment auto-upgrade. Use an explicit upgrade and allow old
