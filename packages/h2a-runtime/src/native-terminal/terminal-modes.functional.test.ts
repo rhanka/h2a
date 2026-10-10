@@ -1,11 +1,14 @@
-import { spawn, spawnSync, type ChildProcess } from "node:child_process";
+// @ts-ignore Shared JS test isolation helper.
+import { isolatedNativeTestEnvironment, spawnIsolatedNative as spawn, spawnSyncIsolatedNative as spawnSync, setupNativeTestEnvironment } from "../../../h2a/test/helpers/native-isolation.js";
+setupNativeTestEnvironment(afterAll);
+import type { ChildProcess } from "node:child_process";
 import { once } from "node:events";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, describe, expect, it } from "vitest";
 import type * as NodePty from "node-pty";
 import { NativeTerminalHostSupervisor } from "./supervisor.js";
 import { TerminalModeTracker } from "./terminal-modes.js";
@@ -50,7 +53,7 @@ async function until(accept: () => boolean): Promise<void> {
 }
 
 async function fixture(replayBytes = 4096, command?: { command: string; args: string[] }) {
-  const directory = await mkdtemp(join(tmpdir(), "h2a-terminal-modes-"));
+  const directory = await mkdtemp(join(tmpdir(), "m-"));
   directories.add(directory);
   const socketPath = join(directory, "host.sock");
   const env = { ...process.env, REMOTE_CLI_CONFIG_HOME: join(directory, "config"), H2A_NATIVE_SOCKET: socketPath };
@@ -115,6 +118,7 @@ async function fixture(replayBytes = 4096, command?: { command: string; args: st
        if (ttyState() !== before) throw new Error('outer termios was not restored');
        process.exitCode = result.status ?? 1;`,
     ] : attachArgs;
+    isolatedNativeTestEnvironment(env);
     const terminal = pty.spawn(process.execPath, args,
       { cwd: directory, env: env as Record<string, string>, name: "xterm-256color", cols: 80, rows: 24 });
     terminals.add(terminal);
@@ -226,7 +230,7 @@ describe.skipIf(process.platform !== "linux")("native attach terminal modes on r
 
   it.skipIf(spawnSync("tmux", ["-V"]).status !== 0)(
     "should leave the outer terminal clean when a private tmux client detaches", async () => {
-      const directory = await mkdtemp(join(tmpdir(), "h2a-terminal-modes-tmux-"));
+      const directory = await mkdtemp(join(tmpdir(), "mt-"));
       directories.add(directory);
       const socket = join(directory, "tmux.sock");
       tmuxSockets.add(socket);
@@ -240,6 +244,7 @@ describe.skipIf(process.platform !== "linux")("native attach terminal modes on r
       for (const option of ["mouse", "focus-events"]) {
         expect(spawnSync("tmux", ["-S", socket, "set-option", "-g", option, "on"], { env }).status).toBe(0);
       }
+      isolatedNativeTestEnvironment(env);
       const terminal = pty.spawn("tmux", ["-S", socket, "attach-session", "-t", "modes"],
         { cwd: directory, env: env as Record<string, string>, name: "xterm-256color", cols: 80, rows: 24 });
       terminals.add(terminal);

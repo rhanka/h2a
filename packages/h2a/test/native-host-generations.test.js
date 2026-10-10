@@ -1,5 +1,6 @@
+import { createPrivateTestDirectory, assertPrivateQualificationPath, nativeQualificationRoot, assertIsolatedEnvironment, assertIsolatedNativeOperation, spawnIsolatedNative as spawn, waitForPrivateNativeProcesses } from "./helpers/native-isolation.js";
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
+
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import test from "node:test";
@@ -15,6 +16,7 @@ const legacyEntry = legacyDir && join(legacyDir, "packages/h2a-runtime/dist/nati
 const unavailable = process.platform !== "linux" ? "historical native PTY qualification requires Linux"
   : !legacyEntry || !existsSync(legacyEntry) ? "legacy build unavailable: set H2A_TEST_LEGACY_HOST_DIR to a build of 89bbd9af^ (spec §8/L0)" : false;
 const required = process.env.H2A_TEST_REQUIRE_LEGACY_HOST === "1";
+let legacyFixtureNumber = 0;
 
 // Resolve existing ancestors too, so a symlink cannot smuggle an owner path
 // through an apparently private socket/config/registry/workspace directory.
@@ -42,7 +44,8 @@ function resolvedPath(path, depth = 0) {
 test("should refuse owner runtime paths, escaping symlinks and uncontained paths before starting any process", {
   skip: process.platform !== "linux" && "Linux qualification path guard",
 }, () => {
-  const root = realpathSync(mkdtempSync("/tmp/h2a-qual-"));
+  const qualRoot = join(repo, ".qual-tmp");
+  const root = realpathSync(createPrivateTestDirectory("p"));
   try {
     for (const path of ["/run/user/1000/h2a-nt/socket", "/run/user/1000/h2a-nt/../h2a-nt/socket", "/tmp/outside-qualification/socket"]) {
       assert.throws(() => assertPrivatePaths(root, [path]), /REFUSING/);
@@ -67,6 +70,7 @@ function assertPrivatePaths(root, paths) {
 }
 
 function start(command, args, env) {
+  assertIsolatedNativeOperation(env, join(repo, ".qual-tmp"));
   const child = spawn(command, args, { env, cwd: env.HOME, stdio: ["pipe", "pipe", "pipe"] });
   let stdout = "", stderr = "";
   child.stdout.setEncoding("utf8").on("data", chunk => { stdout += chunk; });
@@ -88,19 +92,39 @@ async function eventually(read, predicate) {
   }
 }
 
+
 async function withLegacy(context, body, historicalEntry = legacyEntry) {
   assert.equal(unavailable, false, String(unavailable)); // Required evidence must never skip.
-  const root = realpathSync(mkdtempSync("/tmp/h2a-qual-"));
+  const qualRoot = join(repo, ".qual-tmp");
+  // The historical host's staging name includes the full socket basename and
+  // PID. Leave room for seven-digit PIDs even in this deeply nested worktree.
+  assertPrivateQualificationPath(qualRoot, nativeQualificationRoot);
+  mkdirSync(qualRoot, { recursive: true, mode: 0o700 });
+  let root;
+  // Never reuse a path in this test process: its spawn guard retains the
+  // fixture's process-view identity even after the directory is removed.
+  while (legacyFixtureNumber < 256 && root === undefined) {
+    const candidate = join(qualRoot, `g${(legacyFixtureNumber++).toString(16).padStart(2, "0")}`);
+    assertPrivateQualificationPath(candidate, nativeQualificationRoot);
+    try { mkdirSync(candidate, { mode: 0o700 }); root = realpathSync(candidate); }
+    catch (error) { if (error.code !== "EEXIST") throw error; }
+  }
+  assert.ok(root, "no short private directory available for historical socket qualification");
   const home = join(root, "home");
+  const stateHome = join(home, ".local/state");
+  const configHome = join(home, ".config");
   const workspace = join(root, "workspace");
   const socketPath = join(root, "h2a-nt", "native-terminal.sock");
   const registryPath = join(home, ".config/sentropic/h2a/registry.json");
   const env = { PATH: "/usr/bin:/bin", HOME: home, XDG_RUNTIME_DIR: root,
-    XDG_CONFIG_HOME: join(home, ".config"), REMOTE_CLI_CONFIG_HOME: home,
+    XDG_STATE_HOME: stateHome,
+    XDG_CONFIG_HOME: configHome, REMOTE_CLI_CONFIG_HOME: home,
+    NODE_PATH: join(repo, "node_modules"),
     H2A_ROOT: join(workspace, ".h2a"), H2A_SESSION_HOST: "native",
     H2A_NATIVE_SOCKET: socketPath, TMPDIR: join(root, "tmp"), TMUX_TMPDIR: join(root, "tmp"), TERM: "xterm-256color" };
-  for (const path of [home, workspace, env.TMPDIR]) mkdirSync(path, { mode: 0o700 });
-  assertPrivatePaths(root, [home, workspace, socketPath, registryPath, env.XDG_CONFIG_HOME, env.H2A_ROOT, env.TMPDIR,
+  for (const path of [home, workspace, stateHome, configHome, env.TMPDIR]) mkdirSync(path, { recursive: true, mode: 0o700 });
+  assertIsolatedNativeOperation(env, qualRoot);
+  assertPrivatePaths(root, [home, workspace, stateHome, configHome, socketPath, registryPath, env.XDG_CONFIG_HOME, env.H2A_ROOT, env.TMPDIR,
     defaultNativeTerminalSocketPath(env)]);
   assert.equal(defaultNativeTerminalSocketPath(env), socketPath);
   context.diagnostic(`isolation: ${JSON.stringify({ root, socketPath, home, registryPath, workspace })}`);
@@ -141,6 +165,7 @@ async function withLegacy(context, body, historicalEntry = legacyEntry) {
       if (handle.child.exitCode === null && handle.child.signalCode === null) handle.child.kill("SIGTERM");
       await handle.closed;
     }
+    await waitForPrivateNativeProcesses(env);
     rmSync(root, { recursive: true, force: true });
   }
 }
@@ -464,7 +489,7 @@ test("should refuse agent and sidecar collisions before any containment registry
   await fixture.unchanged();
 }));
 
-test("should report an incomplete inventory and unknown absence when the historical endpoint is unreachable", {
+test("should report an incomplete inventory and unknown absence when the historical host is suspended", {
   skip: process.platform !== "linux" ? unavailable : !required && unavailable,
 }, async context => withLegacy(context, async fixture => {
   const compatible = await compatibleHost(fixture);
@@ -472,8 +497,7 @@ test("should report an incomplete inventory and unknown absence when the histori
   try {
     await echoSession(second, fixture, "h2a-survivor");
     const historical = fixture.children[0];
-    historical.child.kill("SIGTERM"); // Only a host started by this fixture.
-    await historical.closed;
+    historical.child.kill("SIGSTOP"); // A live but unprovable host must never be reclaimed.
     const inventory = (await op(fixture, ["list"])).payload;
     assert.equal(inventory.complete, false);
     assert.equal((await op(fixture, ["probe", "--id", "h2a-missing"])).payload.verdict, "unknown");
@@ -489,7 +513,7 @@ test("should report an incomplete inventory and unknown absence when the histori
     assert.equal(JSON.parse(result.stdout).code, "native-inventory-unknown");
     assert.equal(JSON.parse(result.stdout).creationAttempted, false);
     assert.equal((await second.list()).filter(session => session.id === "h2a-missing").length, 0);
-  } finally { second.close(); }
+  } finally { fixture.children[0].child.kill("SIGCONT"); second.close(); }
 }));
 
 test("should select a second compatible host and preserve the historical sentinel (spec §8/L0; phase A)", {

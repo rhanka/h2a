@@ -1,10 +1,13 @@
+// @ts-ignore Shared JS test isolation helper.
+import { setupNativeTestEnvironment } from "../../../h2a/test/helpers/native-isolation.js";
+setupNativeTestEnvironment(afterAll);
 import { spawn, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { EventEmitter, once } from "node:events";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { persistNativeTerminalPgid, readNativeTerminalPgid } from "../registry.js";
 import { readProcessStartTime, type NativeTerminalReapOutcome } from "./host.js";

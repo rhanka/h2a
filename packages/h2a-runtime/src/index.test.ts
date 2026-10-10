@@ -1,3 +1,6 @@
+// @ts-ignore Shared JS test isolation helper.
+import { createPrivateTestDirectory, installNativeTestEnvironment, nativeTestEnvironment, setupNativeTestEnvironment } from "../../h2a/test/helpers/native-isolation.js";
+setupNativeTestEnvironment(afterAll);
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   mkdirSync,
@@ -8,13 +11,9 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 
-const SCRATCH_ROOT = join(
-  import.meta.dirname ?? process.cwd(),
-  "..",
-  ".test-scratch",
-  "index-test",
-);
-mkdirSync(SCRATCH_ROOT, { recursive: true });
+const SCRATCH_ROOT = createPrivateTestDirectory("i-");
+const restoreEnvironment = installNativeTestEnvironment(nativeTestEnvironment(SCRATCH_ROOT));
+const REGISTRY_PATH = join(SCRATCH_ROOT, "config", "registry.json");
 const LOCAL_PROJECT_DIR = join(SCRATCH_ROOT, "proj");
 mkdirSync(LOCAL_PROJECT_DIR, { recursive: true });
 
@@ -103,7 +102,7 @@ vi.mock("./config.js", () => ({
   setTmuxProfileConfig: () => {},
   DEFAULT_SESSION_TARGET: "scaleway-kapsule",
   authHeaders: () => ({}),
-  resolveConfigPath: () => "/tmp/remote-cli-test-config.json",
+  resolveConfigPath: () => join(SCRATCH_ROOT, "config", "remote-cli-test-config.json"),
 }));
 
 vi.mock("./central-mcp.js", () => ({
@@ -141,7 +140,7 @@ vi.mock("./soft-refresh.js", () => ({
 const bridgeSession = vi.fn();
 vi.mock("./h2a-bridge.js", () => ({
   bridgeSession,
-  defaultLocalH2aRoot: () => "/tmp/remote-test-h2a",
+  defaultLocalH2aRoot: () => join(SCRATCH_ROOT, "store"),
   instanceInboxDir: (instance: string) => instance.replace(/:/g, "__"),
 }));
 
@@ -202,6 +201,8 @@ beforeAll(() => {
 });
 afterAll(() => {
   vi.unstubAllEnvs();
+  restoreEnvironment();
+  rmSync(SCRATCH_ROOT, { recursive: true, force: true });
 });
 
 const {
@@ -380,7 +381,7 @@ describe("main", () => {
       LOCAL_PROJECT_DIR,
     ]);
 
-    expect(exitCode).toBe(0);
+    expect(exitCode, stderrWrite.mock.calls.map((call) => String(call[0])).join("")).toBe(0);
     expect(startLocalSession).toHaveBeenCalledWith(
       "claude",
       expect.any(String),
@@ -388,7 +389,7 @@ describe("main", () => {
       expect.any(Array),
       undefined,
       "remote",
-      { attachedTerminal: true, sessionClass: "human" },
+      expect.objectContaining({ attachedTerminal: true, sessionClass: "human" }),
     );
     expect(attachLocalSession).toHaveBeenCalledWith("h2a-proj");
     expect(stderrWrite.mock.calls.map((c) => String(c[0])).join("")).not.toContain(
@@ -406,7 +407,7 @@ describe("main", () => {
       "--no-attach",
     ]);
 
-    expect(exitCode).toBe(0);
+    expect(exitCode, stderrWrite.mock.calls.map((call) => String(call[0])).join("")).toBe(0);
     expect(startLocalSession).toHaveBeenCalledTimes(1);
     expect(attachLocalSession).not.toHaveBeenCalled();
     expect(stderrWrite.mock.calls.map((c) => String(c[0])).join("")).toContain(
@@ -428,7 +429,7 @@ describe("main", () => {
       LOCAL_PROJECT_DIR,
     ]);
 
-    expect(exitCode).toBe(0);
+    expect(exitCode, stderrWrite.mock.calls.map((call) => String(call[0])).join("")).toBe(0);
     expect(process.exitCode).not.toBe(1);
     expect(startLocalSession).toHaveBeenCalledTimes(1);
     expect(stderrWrite.mock.calls.map((c) => String(c[0])).join("")).toContain(
@@ -818,7 +819,7 @@ describe("main", () => {
     // session-h2a (NotFound). The registry record must keep attach LOCAL.
     getDefaultRemote.mockReturnValue("http://localhost:8080");
     findLocalSession.mockReturnValue(undefined); // tmux transiently doesn't list it
-    const regPath = "/tmp/registry.json"; // dirname(resolveConfigPath()) + registry.json
+    const regPath = REGISTRY_PATH; // dirname(resolveConfigPath()) + registry.json
     writeFileSync(
       regPath,
       JSON.stringify({
@@ -949,7 +950,7 @@ describe("main", () => {
 
   it("stops a registry-only local tmux session without falling through remotely", async () => {
     getDefaultRemote.mockReturnValue("http://localhost:8080");
-    const regPath = "/tmp/registry.json";
+    const regPath = REGISTRY_PATH;
     writeFileSync(
       regPath,
       JSON.stringify({
@@ -999,7 +1000,7 @@ describe("main", () => {
   });
 
   it("jobs attach honors the registry's exact legacy tmux session name", async () => {
-    const regPath = "/tmp/registry.json";
+    const regPath = REGISTRY_PATH;
     writeFileSync(
       regPath,
       JSON.stringify({

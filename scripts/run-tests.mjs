@@ -204,7 +204,9 @@ function vitestEntrypoint(cwd) {
 
 let exitCode = 0;
 try {
-  const nodeStatus = runSuite("Node test suite", process.execPath, ["--test", ...nodeTestFiles], REPO_ROOT, trackFixtureEnv);
+  const nodeStatus = runSuite("Node test suite", process.execPath,
+    ["--import", join(REPO_ROOT, "packages/h2a/test/helpers/native-isolation.js"), "--test", ...nodeTestFiles],
+    REPO_ROOT, trackFixtureEnv);
   const vitestStatuses = vitestSuites.map((suite) => {
     const cwd = join(REPO_ROOT, suite.dir);
     const configArgs = suite.config === undefined ? [] : ["--config", suite.config];
