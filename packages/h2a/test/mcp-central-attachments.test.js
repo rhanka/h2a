@@ -19,17 +19,18 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { shouldUseCentralMcp, canonicalCentralRoot } from "../dist/runtime/mcp-central-policy.js";
 import { ensureCentralForShim } from "../dist/runtime/mcp-central-start.js";
+import { qualifiedEnvironment, qualificationRoot, assertQualifiedPath } from "./helpers/qual-env.js";
 
 const bin = resolve("packages/h2a/dist/bin.js");
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 function fixture() {
-  const base = resolve("tmp/mcp-attachment-tests");
+  const base = join(qualificationRoot, "mcp-attachment-tests");
   mkdirSync(base, { recursive: true });
   const dir = mkdtempSync(join(base, "case-"));
   for (const name of ["home", "runtime", "config", "repo-a", "repo-b"]) mkdirSync(join(dir, name), { mode: 0o700 });
   const root = join(dir, "state");
   const runtimeBase = join(dir, "runtime");
-  const env = { PATH: process.env.PATH, HOME: join(dir, "home"), XDG_RUNTIME_DIR: runtimeBase, REMOTE_CLI_CONFIG_HOME: join(dir, "config"), H2A_ROOT: root, H2A_MCP_CENTRAL: "1", NODE_OPTIONS: "--max-old-space-size=256" };
+  const env = { ...qualifiedEnvironment(dir), H2A_ROOT: root, H2A_MCP_CENTRAL: "1" };
   return { dir, root, runtimeBase, env, cleanup() { rmSync(dir, { recursive: true, force: true }); } };
 }
 async function endpoint() {
@@ -83,6 +84,40 @@ async function ready(channel) {
   throw new Error("identity never became ready");
 }
 const bindings = root => readFileSync(join(root, "identity", "bindings.jsonl"), "utf8").trim().split("\n").filter(Boolean);
+
+test("qualification guards reject paths resolving outside .qual-tmp", () => {
+  assert.throws(() => assertQualifiedPath("/home/antoinefa"), /escapes .qual-tmp/);
+  assert.throws(() => qualifiedEnvironment("/home/antoinefa"), /escapes .qual-tmp/);
+});
+
+test("R3 unqualified v1 connector leaves live central attachments unchanged with an inherited Claude ID", async () => {
+  const f = fixture();
+  let server;
+  let child;
+  let channel;
+  try {
+    server = await startCentralMcpServer({ root: f.root, runtimeBase: f.runtimeBase, env: { H2A_MCP_CENTRAL_ENDPOINT: await endpoint() } });
+    const before = (await centralOperator("status", { runtimeBase: f.runtimeBase })).attachments;
+    for (const hostArgs of [[], ["--host", "claude"]]) {
+      child = spawn(process.execPath, [bin, "mcp-central-connect", ...hostArgs, "--auto-open", "--endpoint", "http://127.0.0.1:1/mcp", "--runtime-base", f.runtimeBase], {
+        env: { ...f.env, CLAUDE_CODE_SESSION_ID: "r3-inherited-conversation" }, cwd: join(f.dir, "repo-a"), stdio: ["pipe", "pipe", "pipe"]
+      });
+      channel = rpcChannel(child.stdin, child.stdout);
+      assert.ok((await channel.call("initialize")).result);
+      const attached = (await centralOperator("status", { runtimeBase: f.runtimeBase })).attachments;
+      assert.equal(attached, before + (hostArgs.length ? 1 : 0), hostArgs.length ? "explicit Claude host creates one central attachment" : "no host must remain stdio even with a native Claude ID and live marker");
+      channel.close();
+      child.kill("SIGTERM");
+      await once(child, "exit");
+      child = undefined;
+    }
+  } finally {
+    channel?.close();
+    if (child && child.exitCode === null && child.signalCode === null) { child.kill("SIGTERM"); await once(child, "exit"); }
+    await server?.stop();
+    f.cleanup();
+  }
+});
 
 test("missing systemd runtime chooses a fixed UID fallback, with private namespaces for isolation", () => {
   assert.equal(runtimeBase({}, {}, () => false), `/tmp/h2a-mcp-runtime-${process.getuid()}`);
