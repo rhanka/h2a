@@ -409,8 +409,22 @@ export function executeH2aRunWithSpawn(
         const path = join(request.workspace, ".h2a", "runs", request.name, "launch.json");
         for (;;) {
           try {
-            const receipt = JSON.parse(readFileSync(path, "utf8")) as { state?: string; token?: string };
+            const receipt = JSON.parse(readFileSync(path, "utf8")) as {
+              state?: string;
+              token?: string;
+              submitAttempted?: boolean;
+            };
             if (receipt.token !== launchToken) break;
+            if (receipt.state === "launch-unconfirmed" || receipt.submitAttempted === true) {
+              return {
+                error: "h2a_run: launch unconfirmed after runtime timeout; session was preserved",
+                state: "launch-unconfirmed",
+                launchId: request.name,
+                retrySafe: false,
+                stopped: false,
+                submitAttempted: true,
+              };
+            }
             if (receipt.state === "stopped") {
               return { error: "h2a_run: runtime timed out; the owned launch was stopped",
                 state: "stopped", launchId: request.name, retrySafe: false };
@@ -439,6 +453,10 @@ export function executeH2aRunWithSpawn(
           failure.state === "provider-blocked" && failure.launchId === request.name &&
           typeof failure.error === "string" && typeof failure.stopped === "boolean" &&
           failure.retrySafe === false && prompt?.delivered === true) return failure;
+      if (failure.kind === "h2a.run.failure" && failure.version === 1 &&
+          failure.state === "launch-unconfirmed" && failure.launchId === request.name &&
+          typeof failure.error === "string" && failure.stopped === false &&
+          failure.retrySafe === false) return failure;
     } catch { /* A non-JSON failure still surfaces the runtime diagnostic. */ }
     const detail = (result.stderr ?? "").trim().slice(-2_000);
     throw new Error(
@@ -504,6 +522,10 @@ export async function executeH2aRunWithAsyncSpawn(
     do {
       try {
         const receipt = JSON.parse(readFileSync(path, "utf8"));
+        if (receipt.token === launchToken && (receipt.state === "launch-unconfirmed" || receipt.submitAttempted === true)) {
+          return { error: "h2a_run: launch unconfirmed after runtime timeout; session was preserved",
+            state: "launch-unconfirmed", launchId: request.name, retrySafe: false, stopped: false, submitAttempted: true };
+        }
         if (receipt.token === launchToken && receipt.state === "stopped") {
           return { error: "h2a_run: runtime timed out; the owned launch was stopped",
             state: "stopped", launchId: request.name, retrySafe: false };

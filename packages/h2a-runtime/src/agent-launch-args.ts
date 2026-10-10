@@ -19,6 +19,8 @@ export type AgentLaunchArgsOptions = {
   model?: string;
   effort?: AgentLaunchEffort;
   resumeId?: string;
+  sessionId?: string;
+  debugFile?: string;
   headless?: boolean;
   bare?: boolean;
 };
@@ -104,7 +106,8 @@ export function buildAgentLaunchArgs(options: AgentLaunchArgsOptions): string[] 
       ...(options.model ? ["--model", options.model] : []),
       ...(options.effort ? ["--effort", options.effort] : []),
       ...(options.headless ? ["-p", "--input-format", "text"] : []),
-      ...(options.resumeId ? ["--resume", options.resumeId] : []),
+      ...(options.resumeId ? ["--resume", options.resumeId] : options.sessionId ? ["--session-id", options.sessionId] : []),
+      ...(options.debugFile ? ["--debug-file", options.debugFile] : []),
     ];
   }
 

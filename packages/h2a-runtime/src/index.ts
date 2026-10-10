@@ -131,6 +131,8 @@ import {
   type PromptDeliveryResult,
 } from "./prompt-delivery.js";
 import { startLaunchGuard, type LaunchGuard, type LaunchOwnership } from "./launch-guard.js";
+import { deliverClaudeNativePrompt } from "./claude-native-driver.js";
+import { acquireLaunchSlot, releaseLaunchSlot } from "./launch-capacity.js";
 import { buildLaunchContext } from "./launch-context.js";
 import {
   attachNativeSession,
@@ -6463,6 +6465,17 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           }
           const useBare = resolveClaudeBare(profile, bareChoiceFromOptions(opts) ?? pinnedLaunch?.bare);
           let args: string[];
+          const slugCandidate = slugify(label ?? cwd);
+          const launchSlot = acquireLaunchSlot(slugCandidate);
+          if (!launchSlot.acquired) {
+            process.stderr.write(`[h2a] ${launchSlot.reason}\n`);
+            process.exitCode = 1;
+            return;
+          }
+          const reservedConvId = profile === "claude" && !opts.resume ? randomUUID() : undefined;
+          const claudeDebugFile = profile === "claude" && !process.env.LAUNCH_PERF_OUTPUT
+            ? (process.env.H2A_CLAUDE_DEBUG_FILE || join(cwd, ".h2a", "runs", slugCandidate, "claude-debug.log"))
+            : undefined;
           try {
             args =
               structuredLaunch && isAgentLaunchProfile(profile)
@@ -6478,7 +6491,10 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
                       : {}),
                     ...(opts.resume !== undefined
                       ? { resumeId: opts.resume }
-                      : {}),
+                      : reservedConvId !== undefined
+                        ? { sessionId: reservedConvId }
+                        : {}),
+                    ...(claudeDebugFile ? { debugFile: claudeDebugFile } : {}),
                     ...(opts.headless ? { headless: true } : {}),
                     ...(useBare ? { bare: true } : {}),
                   })
@@ -6486,6 +6502,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
                   ? localResumeArgs(profile, opts.resume, { bare: useBare })
                   : localStartArgs(profile, { bare: useBare });
           } catch (error) {
+            releaseLaunchSlot(slugCandidate, "stopped");
             process.stderr.write(`[h2a] ${(error as Error).message}\n`);
             process.exitCode = 2;
             return;
@@ -6697,61 +6714,97 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             // OBSERVED — brief seen in a real composer, then real work — because
             // reporting "started" over a lost brief is what left a lane inert
             // for 33 minutes on 2026-07-28.
-            promptDelivery = sessionHost === "native"
-              ? deliverInitialPrompt(
+            promptDelivery = (sessionHost === "native" && profile === "claude")
+              ? deliverClaudeNativePrompt(
                   name,
                   initialPrompt,
                   nativePromptDeliveryDeps(sleepSync),
-                  { profile },
+                  {
+                    launchGuard,
+                    debugFile: process.env.H2A_CLAUDE_DEBUG_FILE ||
+                      (process.env.LAUNCH_PERF_OUTPUT ? join(process.env.LAUNCH_PERF_OUTPUT, "claude-debug.log") : join(cwd, ".h2a", "runs", slug, "claude-debug.log")),
+                    requiredMcps: h2aSidecar ? ["h2a"] : [],
+                    pacingMs: 150,
+                    observationTimeoutMs: 15_000,
+                  },
                 )
-              : deliverInitialPrompt(agentPane!, initialPrompt, {
-                  capturePane: capturePaneVisible,
-                  clearComposer: clearPaneComposer,
-                  pasteBlock: pasteLiteralBlock,
-                  submit: submitPane,
-                  cpuMs: paneTreeCpuMs,
-                  sleep: sleepSync,
-                  now: () => Date.now(),
-                }, { profile });
+              : sessionHost === "native"
+                ? deliverInitialPrompt(
+                    name,
+                    initialPrompt,
+                    nativePromptDeliveryDeps(sleepSync),
+                    { profile },
+                  )
+                : deliverInitialPrompt(agentPane!, initialPrompt, {
+                    capturePane: capturePaneVisible,
+                    clearComposer: clearPaneComposer,
+                    pasteBlock: pasteLiteralBlock,
+                    submit: submitPane,
+                    cpuMs: paneTreeCpuMs,
+                    sleep: sleepSync,
+                    now: () => Date.now(),
+                  }, { profile });
             if (promptDelivery.state !== "working") {
               cleanupHeadlessPromptFile(promptFile);
-              // Only claim the session is gone when the kill actually reported
-              // success. "nothing is left running" over an unchecked call is the
-              // same wider-than-its-evidence claim this change exists to remove,
-              // and a surviving partial session is precisely the idle lane the
-              // operator was just told could not happen.
-              // OWN-CLEANUP, deliberately NOT resolver-derived (F1 sorting):
-              // `name`/`sessionHost` are the session and host THIS command
-              // just created; re-resolving could refuse and leak the partial.
-              const stopped =
-                launchGuard ? launchGuard.stop() : sessionHost === "native"
-                  ? killNativeSessionTree(name)
-                  : killLocalSession(name);
+              const wasSubmitted = launchGuard?.isSubmitAttempted() ||
+                (promptDelivery as Record<string, unknown>).submitAttempted === true ||
+                promptDelivery.state === "submitted-idle" ||
+                promptDelivery.state === "launch-unconfirmed";
+
+              let stopped = false;
+              if (!wasSubmitted) {
+                stopped = launchGuard
+                  ? launchGuard.stop()
+                  : sessionHost === "native"
+                    ? killNativeSessionTree(name)
+                    : killLocalSession(name);
+                releaseLaunchSlot(slug, "stopped");
+              } else {
+                if (launchGuard) launchGuard.stop();
+                releaseLaunchSlot(slug, "launch-unconfirmed");
+              }
+
               const detail =
-                promptDelivery.state === "submitted-idle"
-                  ? `the brief was submitted but the agent never started working ` +
-                    `(${Math.round(promptDelivery.cpuDeltaMs)}ms of CPU): it is not "started"`
-                  : promptDelivery.reason;
+                promptDelivery.state === "launch-unconfirmed"
+                  ? `the brief was submitted but dispatch could not be confirmed within the observation budget; the session was preserved`
+                  : promptDelivery.state === "submitted-idle"
+                    ? `the brief was submitted but the agent never started working ` +
+                      `(${Math.round(promptDelivery.cpuDeltaMs)}ms of CPU): the session was preserved`
+                    : promptDelivery.reason;
+
               process.stderr.write(
                 `[h2a] the initial prompt did not reach ${slug}: ${detail}\n` +
                   (promptDelivery.state === "host-modal"
                     ? `[h2a] fix: ${promptDelivery.hint}\n`
                     : "") +
-                  (stopped
-                    ? `[h2a] the partial session was stopped, so nothing is left running idle\n`
-                    : `[h2a] WARNING: stopping the partial session FAILED — ${name} may still be alive; ` +
-                      `list it with h2a ls and stop it with h2a stop ${slug} --reason failed-launch\n`) +
+                  (!wasSubmitted
+                    ? (stopped
+                        ? `[h2a] the partial session was stopped, so nothing is left running idle\n`
+                        : `[h2a] WARNING: stopping the partial session FAILED — ${name} may still be alive; ` +
+                          `list it with h2a ls and stop it with h2a stop ${slug} --reason failed-launch\n`)
+                    : `[h2a] session preserved and attachable with: h2a attach ${slug}\n`) +
                   (promptDelivery.state !== "submitted-idle" &&
-                  promptDelivery.capture
-                    ? `[h2a] last screen:\n${promptDelivery.capture}\n`
+                  promptDelivery.state !== "launch-unconfirmed" &&
+                  (promptDelivery as { capture?: string }).capture
+                    ? `[h2a] last screen:\n${(promptDelivery as { capture?: string }).capture}\n`
                     : ""),
               );
               process.exitCode = 1;
-              if (opts.json && promptDelivery.state === "provider-blocked") {
-                process.stdout.write(`${JSON.stringify({ kind: "h2a.run.failure", version: 1,
-                  state: "provider-blocked", launchId: slug, error: promptDelivery.reason,
-                  stopped, retrySafe: false, prompt: { delivered: true, waitedMs: promptDelivery.waitedMs },
-                })}\n`);
+              if (opts.json) {
+                const deliveryWaitedMs = (promptDelivery as { waitedMs?: number }).waitedMs ?? 0;
+                if (promptDelivery.state === "provider-blocked") {
+                  process.stdout.write(`${JSON.stringify({ kind: "h2a.run.failure", version: 1,
+                    state: "provider-blocked", launchId: slug, error: promptDelivery.reason,
+                    stopped, retrySafe: false, prompt: { delivered: true, waitedMs: deliveryWaitedMs },
+                  })}\n`);
+                } else if (wasSubmitted) {
+                  process.stdout.write(`${JSON.stringify({ kind: "h2a.run.failure", version: 1,
+                    state: "launch-unconfirmed", launchId: slug, error: detail,
+                    stopped: false, retrySafe: false,
+                    prompt: { delivered: true, submitAttempted: true, waitedMs: deliveryWaitedMs },
+                    attach: { command: "h2a", args: ["attach", slug] },
+                  })}\n`);
+                }
               }
               return;
             }
@@ -6813,6 +6866,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             ...(promptDelivery !== undefined ? { promptDelivery } : {}),
           });
           launchGuard?.complete();
+          releaseLaunchSlot(slug, "started");
           // The writer is now durable in the registry. End the short critical
           // section before a foreground attach can keep this command alive.
           resumeClaim?.release();
