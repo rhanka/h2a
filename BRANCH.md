@@ -1,39 +1,62 @@
-# Session launch latency
+# PR #317 CI journal writer shutdown correction
 
-Branch: `perf/session-launch-latency`, based on `ab7ff40e` (0.98.1).
-Scope: synthetic launch diagnosis, reversible log indexes, native sidecar readiness,
-focused regression tests, and measured latency/RSS reports.
-No owner store contents, native host, or live sessions; no `.track` writes.
-No push, PR, publication, tag, Python, privileged operations, or global cache eviction.
-Experiments use private roots, HOME and runtime directories in an <=8 GiB scope.
-N=17 runtime launches require measured memory headroom; rejected projections are reported.
+Owner request, 2026-10-10: reproduce the native absence failures from CI run
+`38043175425` at `fd04f7c7`, identify the surviving processes, fix the cause,
+qualify with plain HOME / one or two CPUs / Node 20 and 22, then push only
+fast-forward commits to `origin/fix/0.98.2-native-absence-minimal`.
+This delivery authorization supersedes the historical no-push statements below.
+No merge, publication, release, owner host/session access, or `.track` write.
 
-- [x] Review the interrupted candidate and generate small/large synthetic fixtures.
-- [x] Measure baseline MCP and runtime launch for N=1/4/17 within the memory budget.
-- [x] Preserve append-only sources and implement explicit, idempotent index maintenance.
-- [x] Replace the fixed sidecar crash window with a correlated post-identity ACK.
-- [x] Complete before/after matrices, focused invariant tests and final diff review.
-- [x] Prepare atomic changes and the French report for delivery.
+Scope: native journal writer EOF handling, startup-error journal drain,
+termination-handler installation before socket publication, their regression
+and signal-fixture readiness, and the native isolation setup path
+that independently blocks the Node 22 CI job. Historical test fixtures also
+use short, unique private directories to fit their unchanged staging socket.
+Native absence teardown observes detached hosts' actual exit events before
+checking that no fixture process survives; signal acknowledgement is insufficient.
+The host process-census fixtures also await each owned ChildProcess exit after
+termination before the private process-view assertion runs.
+Evidence and repeat results:
+`docs/reviews/native-journal-shutdown-ci.md`.
 
-Report: `docs/reviews/session-launch-latency.md`. Central MCP root selection is
-a recorded out-of-scope defect, with a separate specification in progress.
+# Native absence minimal hotfix
 
-## Verification and residual work
+## Scope
 
-Large-root max identity readiness: 4,372 ms before, 1,135 ms after.
-Full runtime max: 11,517 ms before, 10,651 ms after; unchanged prompt checks
-still take about four seconds at N=1. Max final runtime scope: 5,171 MiB,
-below the unchanged 8 GiB cap and 85% shutdown threshold.
-Focused checks only; no full suite or external review consensus claimed.
-The final indexed burst passes at N=17; alias ownership, key revocations,
-proof gating, append-only preservation, corrupt-index fallback and readiness
-ownership are covered. Public gate: 60 MCP tools, 100 CLI verbs, anti-cycle OK.
-Existing stores require explicit `store index-launch --root <absolute-path>`.
-Full discovery still loads history. First-use schema sentinel publication has
-a separate observed race; the contention lab now prepares an existing-store
-sentinel before its cohort without weakening the identity assertions.
+Branch: `fix/0.98.2-native-absence-minimal`, rebase target `origin/main` at `5ca5c7bc`
+(containing #309 phase A, #312, #313, #314). Owner decision 2026-10-10: 0.98.2 scope
+includes native endpoint absence, cold-start fixes and the native host life journal
+ported from `9f15c763`, with observed lifecycle facts, safe diagnostics and
+nonblocking exclusive journal writes. Upgrade deferral and additional second-host
+protection remain excluded. Absence was ported from 5adde6ad and hardened against Sol review
+findings F01/F02. Absence concluded only with independent proof of owner host death
+(PID + start time, canonical realpath comparison, /proc read errors treated as unknown).
+Live host that lost its socket pathname is never considered absent; no second writer.
+No push, PR, publish, or tag.
 
-## Historical plans (superseded for this branch)
+Explicit owner decision, 2026-10-10: "j'espère que la version 0.98.2 aura un log".
+As relayed by h-cond, 0.98.2 must include the native host life journal. This
+decision supersedes the earlier brief's deferral of the journal to 0.98.3,
+which R4-F02 cited. The journal implementation remains within this release's
+authorized scope; R4-F02 aligns the scope documentation with that decision.
+
+Current correction protocol: `docs/reviews/native-absence-review-r4.md`.
+R4 makes the guarded fixtures self-provisioning for ordinary npm/Vitest/CI
+runners and records the explicit owner scope decision. Its final qualification
+receipts are `r4-final-*`; previous R2/R3 receipts retain their historical SHAs.
+Prior correction protocol: `docs/reviews/native-absence-review-r3.md`.
+R3 adds the mandatory native spawn boundary and a fixture-only process view;
+`scripts/qualify-native-mcp.mjs` records and verifies the two #312 MCP suites
+on the R3 qualification SHA with the nonempty mandatory private seed and cohorts of 12,
+bounded by the measured memory of the full-size corpus.
+Prior qualification: `docs/reviews/native-absence-minimal-journal.md` (historical).
+All tests, real hosts and PTY workloads require HOME, XDG_RUNTIME_DIR,
+XDG_STATE_HOME, XDG_CONFIG_HOME and effective native sockets under this checkout's `.qual-tmp`.
+Shared guards resolve symlink ancestors and reject owner state before spawn.
+Historical host sources are archived from `dd52059c` and compiled in the lab;
+the required-legacy flag is enabled. Historical qualification: 36 Node tests
+and 83 runtime tests (18 journal), zero failures, skips or TODOs. No `.track`
+writes or owner host/session access. Prior receipts below are historical.
 
 # Attach terminal mode restoration
 
@@ -51,6 +74,7 @@ Completed: 207 focused tests passed, 1 environment skip; `build:h2a` and
 diff checks passed. Runtime fix: `41faf4a`. SIGKILL recovery also verifies the
 outer kernel termios against the pre-attach `stty -g` snapshot.
 Prior branch plans below are historical and grant no delivery authorization.
+
 
 # MCP identity burst deadline tail
 
@@ -216,3 +240,43 @@ Attendre la fin du build release/v0.97.12 et vérifier avec `ps` qu’aucun
 suite complète. La suite externe bpmn-canvas (groupe 933523) est exclue de
 cette contrainte et reste intacte. Exécuter les deux branches en séquence.
 La synchronisation finale intègre `origin/main` à `8c1912d7` par avance rapide.
+
+
+## Upstream plan retained from #313
+
+# Session launch latency
+
+Branch: `perf/session-launch-latency`, based on `ab7ff40e` (0.98.1).
+Scope: synthetic launch diagnosis, reversible log indexes, native sidecar readiness,
+focused regression tests, and measured latency/RSS reports.
+No owner store contents, native host, or live sessions; no `.track` writes.
+No push, PR, publication, tag, Python, privileged operations, or global cache eviction.
+Experiments use private roots, HOME and runtime directories in an <=8 GiB scope.
+N=17 runtime launches require measured memory headroom; rejected projections are reported.
+
+- [x] Review the interrupted candidate and generate small/large synthetic fixtures.
+- [x] Measure baseline MCP and runtime launch for N=1/4/17 within the memory budget.
+- [x] Preserve append-only sources and implement explicit, idempotent index maintenance.
+- [x] Replace the fixed sidecar crash window with a correlated post-identity ACK.
+- [x] Complete before/after matrices, focused invariant tests and final diff review.
+- [x] Prepare atomic changes and the French report for delivery.
+
+Report: `docs/reviews/session-launch-latency.md`. Central MCP root selection is
+a recorded out-of-scope defect, with a separate specification in progress.
+
+## Verification and residual work
+
+Large-root max identity readiness: 4,372 ms before, 1,135 ms after.
+Full runtime max: 11,517 ms before, 10,651 ms after; unchanged prompt checks
+still take about four seconds at N=1. Max final runtime scope: 5,171 MiB,
+below the unchanged 8 GiB cap and 85% shutdown threshold.
+Focused checks only; no full suite or external review consensus claimed.
+The final indexed burst passes at N=17; alias ownership, key revocations,
+proof gating, append-only preservation, corrupt-index fallback and readiness
+ownership are covered. Public gate: 60 MCP tools, 100 CLI verbs, anti-cycle OK.
+Existing stores require explicit `store index-launch --root <absolute-path>`.
+Full discovery still loads history. First-use schema sentinel publication has
+a separate observed race; the contention lab now prepares an existing-store
+sentinel before its cohort without weakening the identity assertions.
+
+## Historical plans (superseded for this branch)

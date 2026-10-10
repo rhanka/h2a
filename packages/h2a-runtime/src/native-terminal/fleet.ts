@@ -4,13 +4,14 @@ import type { NativeTerminalSessionState } from "./host.js";
 export type NativeInventory = {
   complete: boolean;
   sessions: Array<NativeTerminalSessionState & { socketPath: string }>;
-  hosts: Array<{ socketPath: string; client?: NativeTerminalClient; reason?: string }>;
+  hosts: Array<{ socketPath: string; client?: NativeTerminalClient; absent?: true; reason?: string }>;
 };
 
 /** Every endpoint contributes separately; duplicate names are evidence. */
 export async function collectNativeInventory(
   endpoints: readonly string[],
   connect: (socketPath: string) => Promise<NativeTerminalClient>,
+  proveAbsent?: (socketPath: string, failure: unknown) => Promise<boolean>,
 ): Promise<NativeInventory> {
   const inventory: NativeInventory = { complete: true, sessions: [], hosts: [] };
   for (const socketPath of endpoints) {
@@ -20,6 +21,14 @@ export async function collectNativeInventory(
       inventory.hosts.push({ socketPath, client });
       inventory.sessions.push(...sessions.map(session => ({ ...session, socketPath })));
     } catch (error) {
+      try {
+        if (await proveAbsent?.(socketPath, error)) {
+          inventory.hosts.push({ socketPath, absent: true });
+          continue;
+        }
+      } catch (proofError) {
+        error = new Error(`${error instanceof Error ? error.message : String(error)}; absence proof failed: ${proofError instanceof Error ? proofError.message : String(proofError)}`);
+      }
       inventory.complete = false;
       inventory.hosts.push({ socketPath, reason: error instanceof Error ? error.message : String(error) });
     }

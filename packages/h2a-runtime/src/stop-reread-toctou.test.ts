@@ -21,10 +21,11 @@
  * between the two reads). Every OTHER `readFileSync` call in the process
  * (config.json, /proc/pid/cmdline, transcripts, …) passes through untouched.
  */
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+// @ts-ignore Shared test-only boundary; excluded from the production build.
+import { createPrivateTestDirectory, nativeTestEnvironment, installNativeTestEnvironment } from "../../h2a/test/helpers/native-isolation.js";
 
 const tmuxAvailable = vi.hoisted(() => vi.fn());
 const startLocalSession = vi.hoisted(() => vi.fn());
@@ -38,6 +39,8 @@ const existingLocalSessionSlugs = vi.hoisted(() => vi.fn());
 const currentTmuxSessionIs = vi.hoisted(() => vi.fn());
 
 const nativeSessionLiveness = vi.hoisted(() => vi.fn());
+const nativeSessionState = vi.hoisted(() => vi.fn());
+const unexpectedNativeSpawns = vi.hoisted(() => vi.fn());
 const nativeHostAvailable = vi.hoisted(() => vi.fn());
 const startNativeSession = vi.hoisted(() => vi.fn());
 const attachNativeSession = vi.hoisted(() => vi.fn());
@@ -98,6 +101,7 @@ vi.mock("./native-host.js", async (importOriginal) => {
   return {
     ...actual,
     nativeSessionLiveness,
+    nativeSessionState,
     nativeHostAvailable,
     startNativeSession,
     attachNativeSession,
@@ -113,33 +117,31 @@ vi.mock("./attach.js", async (importOriginal) => {
 
 // registry-internal probeTmuxSession shells out to `tmux has-session`; stub
 // exactly that call so the probe is DETERMINISTIC (no session) on machines
-// with or without tmux, while every other spawnSync stays real.
+// with or without tmux, while unexpected native operations are blocked and counted.
 vi.mock("node:child_process", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:child_process")>();
   return {
     ...actual,
-    spawnSync: ((command: string, ...rest: unknown[]) =>
-      command === "tmux"
+    spawnSync: ((command: string, ...rest: unknown[]) => {
+      if (Array.isArray(rest[0]) && rest[0].some(arg => /native-terminal\/(op|process)\.[jt]s/.test(String(arg)))) {
+        unexpectedNativeSpawns(command, ...rest);
+        return { status: 1, stdout: "", stderr: "unexpected native operation blocked by test", error: undefined };
+      }
+      return command === "tmux"
         ? { status: 1, stdout: "", stderr: "", error: undefined }
         : (actual.spawnSync as (...a: unknown[]) => unknown)(
             command,
             ...rest,
-          )) as typeof actual.spawnSync,
+          );
+    }) as typeof actual.spawnSync,
   };
 });
 
 const { main } = await import("./index.js");
 const { setDefaultRemote } = await import("./config.js");
 
-const SCRATCH_ROOT = join(
-  dirname(fileURLToPath(import.meta.url)),
-  "..",
-  ".test-scratch",
-  "stop-reread-toctou",
-);
-
 let scratch: string;
-let prevConfigHome: string | undefined;
+let restoreEnvironment: () => void;
 let stderrLines: string[];
 let stderrSpy: ReturnType<typeof vi.spyOn>;
 
@@ -157,10 +159,9 @@ function writeRegistry(entries: unknown[]): void {
 }
 
 beforeEach(() => {
-  mkdirSync(SCRATCH_ROOT, { recursive: true });
-  scratch = mkdtempSync(join(SCRATCH_ROOT, "cli-"));
-  prevConfigHome = process.env.REMOTE_CLI_CONFIG_HOME;
-  process.env.REMOTE_CLI_CONFIG_HOME = scratch;
+  unexpectedNativeSpawns.mockClear();
+  scratch = createPrivateTestDirectory("sto-");
+  restoreEnvironment = installNativeTestEnvironment(nativeTestEnvironment(scratch, { REMOTE_CLI_CONFIG_HOME: scratch }));
   process.exitCode = undefined;
 
   toctou.registryPath = registryPath();
@@ -181,6 +182,15 @@ beforeEach(() => {
   currentTmuxSessionIs.mockReset().mockReturnValue(false);
 
   nativeSessionLiveness.mockReset().mockReturnValue(false);
+  nativeSessionState.mockReset().mockImplementation(() => {
+    try {
+      const live = nativeSessionLiveness();
+      if (live === "unknown") return { state: "unknown", reason: "test: unprovable native host" };
+      return live ? { state: "found", session: { status: "running" } } : { state: "absent" };
+    } catch (error) {
+      return { state: "unknown", reason: String(error) };
+    }
+  });
   nativeHostAvailable.mockReset().mockReturnValue({ ok: true });
   startNativeSession.mockReset();
   attachNativeSession.mockReset().mockReturnValue(0);
@@ -201,10 +211,10 @@ beforeEach(() => {
 
 afterEach(() => {
   stderrSpy.mockRestore();
-  if (prevConfigHome === undefined) delete process.env.REMOTE_CLI_CONFIG_HOME;
-  else process.env.REMOTE_CLI_CONFIG_HOME = prevConfigHome;
+  restoreEnvironment();
   process.exitCode = undefined;
   rmSync(scratch, { recursive: true, force: true });
+  expect(unexpectedNativeSpawns).not.toHaveBeenCalled();
 });
 
 describe("B3 — the STOP path's 2nd (TOCTOU re-)read inherits the 3-state contract", () => {

@@ -1,8 +1,11 @@
+// @ts-ignore Shared JS test isolation helper.
+import { setupNativeTestEnvironment } from "../../../h2a/test/helpers/native-isolation.js";
+setupNativeTestEnvironment(afterAll);
 import { chmod, mkdtemp, rm } from "node:fs/promises";
 import { createServer, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
 
 import { NativeTerminalClient } from "./client.js";
 
@@ -30,7 +33,7 @@ afterEach(async () => {
 
 /** A private socket whose server side the test controls, and a client on it. */
 async function connectedPair(): Promise<{ client: NativeTerminalClient; clientSocket: Socket; hostSide: Socket }> {
-  const directory = await mkdtemp(join(tmpdir(), "h2a-native-terminal-client-"));
+  const directory = await mkdtemp(join(tmpdir(), "c-"));
   const socketPath = join(directory, "host.sock");
   const hostSides: Socket[] = [];
   const server = createServer((socket) => {

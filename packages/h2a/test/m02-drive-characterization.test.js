@@ -1,5 +1,7 @@
+import { isolatedNativeTestEnvironment, spawnIsolatedNative as spawn, spawnSyncIsolatedNative as spawnSync, setupNativeTestEnvironment } from "./helpers/native-isolation.js";
+setupNativeTestEnvironment(test.after);
 import assert from "node:assert/strict";
-import { spawn, spawnSync } from "node:child_process";
+
 import { createHash, generateKeyPairSync, randomBytes } from "node:crypto";
 import { once } from "node:events";
 import {
@@ -92,7 +94,7 @@ setInterval(() => {}, 1000);
 `;
 
 function freshDirectory(label) {
-  return mkdtempSync(join(tmpdir(), `h2a-m02-${label}-`));
+  return mkdtempSync(join(tmpdir(), "m2-"));
 }
 
 function captureStreams(cwd) {
@@ -488,7 +490,7 @@ async function startNativeTarget() {
     command: process.execPath,
     args: [observerPath, capturePath, eventsPath],
     cwd: directory,
-    env: { PATH: process.env.PATH ?? "/usr/bin:/bin", TERM: "xterm-256color" },
+    env: isolatedNativeTestEnvironment({ PATH: process.env.PATH ?? "/usr/bin:/bin", TERM: "xterm-256color" }),
     cols: 80,
     rows: 24,
   });

@@ -1,5 +1,7 @@
+import { isolatedNativeTestEnvironment, spawnIsolatedNative as spawn, spawnSyncIsolatedNative as spawnSync, setupNativeTestEnvironment } from "./helpers/native-isolation.js";
+setupNativeTestEnvironment(test.after);
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
+
 import { randomBytes } from "node:crypto";
 import { once } from "node:events";
 import {
@@ -94,7 +96,7 @@ async function startNativePair(profiles) {
   assert.equal(process.platform, "linux", "native PTY messaging proof requires Linux");
   assert.ok(existsSync(NATIVE_HOST_PROCESS), "native terminal host must be built");
 
-  const directory = mkdtempSync(join(tmpdir(), "h2a-pty-messaging-"));
+  const directory = mkdtempSync(join(tmpdir(), "p-"));
   const socketPath = join(directory, "native.sock");
   const configHome = join(directory, "config-home");
   const runtimeRegistryPath = join(
@@ -158,7 +160,7 @@ async function startNativePair(profiles) {
       command: process.execPath,
       args: [receiverPath, capturePath, readyPath],
       cwd,
-      env: { PATH: process.env.PATH ?? "/usr/bin:/bin", TERM: "xterm-256color" },
+      env: isolatedNativeTestEnvironment({ PATH: process.env.PATH ?? "/usr/bin:/bin", TERM: "xterm-256color" }),
       cols: 80,
       rows: 24,
     });
@@ -359,9 +361,13 @@ async function proveRoundTrip(leftProfile, rightProfile) {
   const previousSocket = process.env.H2A_NATIVE_SOCKET;
   const previousConfigHome = process.env.REMOTE_CLI_CONFIG_HOME;
   const previousNotify = process.env.H2A_NOTIFY_INTERVAL_MS;
+  const previousCeiling = process.env.GIT_CEILING_DIRECTORIES;
   process.env.H2A_NATIVE_SOCKET = fixture.env.H2A_NATIVE_SOCKET;
   process.env.REMOTE_CLI_CONFIG_HOME = fixture.env.REMOTE_CLI_CONFIG_HOME;
   process.env.H2A_NOTIFY_INTERVAL_MS = "20";
+  // These private terminal workspaces must not inherit the enclosing repo's
+  // durable workspace id and reclaim the same fallback provider identity.
+  process.env.GIT_CEILING_DIRECTORIES = fixture.directory;
   const receivers = [];
   try {
     const left = await startReceiver(fixture, fixture.targets[0]);
@@ -382,6 +388,8 @@ async function proveRoundTrip(leftProfile, rightProfile) {
     else process.env.REMOTE_CLI_CONFIG_HOME = previousConfigHome;
     if (previousNotify === undefined) delete process.env.H2A_NOTIFY_INTERVAL_MS;
     else process.env.H2A_NOTIFY_INTERVAL_MS = previousNotify;
+    if (previousCeiling === undefined) delete process.env.GIT_CEILING_DIRECTORIES;
+    else process.env.GIT_CEILING_DIRECTORIES = previousCeiling;
     await fixture.close();
   }
 }
