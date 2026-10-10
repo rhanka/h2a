@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import { syncBuiltinESMExports } from "node:module";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
@@ -8,6 +9,34 @@ import { createPrivateTestDirectory, assertIsolatedEnvironment, nativeTestEnviro
 
 const qualRoot = resolve(import.meta.dirname, "../../../.qual-tmp");
 const keys = ["HOME", "XDG_RUNTIME_DIR", "XDG_STATE_HOME", "XDG_CONFIG_HOME", "H2A_NATIVE_SOCKET"];
+
+test("should provision and dispose a private suite without using inherited owner paths", () => {
+  const child = spawnSync(process.execPath, ["--input-type=module", "-e", `
+    import assert from 'node:assert/strict';
+    import { existsSync } from 'node:fs';
+    import { dirname } from 'node:path';
+    import { assertIsolatedEnvironment, setupNativeTestEnvironment } from ${JSON.stringify(new URL("./helpers/native-isolation.js", import.meta.url).href)};
+    const inherited = { ...process.env };
+    let cleanup;
+    setupNativeTestEnvironment(hook => { cleanup = hook; });
+    assertIsolatedEnvironment(process.env);
+    const root = dirname(process.env.HOME);
+    assert.ok(existsSync(process.env.HOME));
+    assert.ok(existsSync(process.env.TMPDIR));
+    assert.equal(process.env.TMUX, '');
+    await cleanup();
+    assert.equal(existsSync(root), false);
+    assert.deepEqual({ ...process.env }, inherited);
+  `], { encoding: "utf8", timeout: 10_000, env: {
+    PATH: "/usr/bin:/bin", HOME: "/home/antoinefa", XDG_RUNTIME_DIR: "/run/user/1000",
+    XDG_STATE_HOME: "/home/antoinefa/.local/state", XDG_CONFIG_HOME: "/home/antoinefa/.config",
+    H2A_NATIVE_SOCKET: "/run/user/1000/h2a-nt/owner.sock", H2A_ROOT: "/home/antoinefa/.h2a",
+    TMPDIR: "/home/antoinefa/.cache-tmp/h2a-owner", TMUX_TMPDIR: "/run/user/1000",
+    REMOTE_CLI_CONFIG_HOME: "/home/antoinefa/.config", TMUX: "/run/user/1000/tmux/default,1,0",
+    H2A_NATIVE_HOST_LOG: "/home/antoinefa/.local/state/h2a/native-host.log",
+  } });
+  assert.equal(child.status, 0, child.stderr);
+});
 
 test("should reject every unsafe isolation variable and symlink before process startup", () => {
   const root = createPrivateTestDirectory("i");

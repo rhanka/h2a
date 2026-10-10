@@ -1,15 +1,15 @@
 
 // @ts-ignore Shared JS qualification helper; tests are outside the production build.
-import { isolatedNativeTestEnvironment, spawnIsolatedNative as spawn, spawnSyncIsolatedNative as spawnSync } from "../../../h2a/test/helpers/native-isolation.js";
+import { spawnIsolatedNative as spawn, spawnSyncIsolatedNative as spawnSync, setupNativeTestEnvironment } from "../../../h2a/test/helpers/native-isolation.js";
 
-isolatedNativeTestEnvironment(process.env); // Includes the real stale-host fixture.
+setupNativeTestEnvironment(afterAll);
 import { once } from "node:events";
 import { chmod, mkdtemp, rm, stat, unlink } from "node:fs/promises";
 import { createConnection, createServer, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
 
 import type { PtyHandle, PtySpawner } from "../pty.js";
 import { NativeTerminalClient } from "./client.js";

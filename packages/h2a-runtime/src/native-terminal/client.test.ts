@@ -1,11 +1,11 @@
 // @ts-ignore Shared JS test isolation helper.
-import { isolatedNativeTestEnvironment } from "../../../h2a/test/helpers/native-isolation.js";
-isolatedNativeTestEnvironment(process.env); // Guard real sockets, registry state and process fixtures.
+import { setupNativeTestEnvironment } from "../../../h2a/test/helpers/native-isolation.js";
+setupNativeTestEnvironment(afterAll);
 import { chmod, mkdtemp, rm } from "node:fs/promises";
 import { createServer, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
 
 import { NativeTerminalClient } from "./client.js";
 

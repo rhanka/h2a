@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import childProcess, { spawn, spawnSync } from "node:child_process";
 import { syncBuiltinESMExports } from "node:module";
 import { isMainThread } from "node:worker_threads";
-import fs, { closeSync, constants, lstatSync, mkdirSync, mkdtempSync, openSync, readlinkSync, symlinkSync, unlinkSync } from "node:fs";
+import fs, { closeSync, constants, lstatSync, mkdirSync, mkdtempSync, openSync, readlinkSync, rmSync, symlinkSync, unlinkSync } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 
 export const nativeQualificationRoot = resolve(import.meta.dirname, "../../../../.qual-tmp");
@@ -113,6 +113,23 @@ export function installNativeTestEnvironment(env) {
       if (value === undefined) delete process.env[key]; else process.env[key] = value;
     }
   };
+}
+
+// Ordinary Node/Vitest runners need no private launcher. Each suite owns its
+// complete environment; inherited owner overrides never become fixture paths.
+export function setupNativeTestEnvironment(registerCleanup) {
+  const root = createPrivateTestDirectory("s");
+  const env = nativeTestEnvironment(root, {
+    TMUX: "", H2A_NATIVE_HOST_LOG: join(root, "state", "native-host.log"),
+  });
+  const restoreEnvironment = installNativeTestEnvironment(env);
+  registerCleanup(async () => {
+    try {
+      await waitForPrivateNativeProcesses(env);
+      rmSync(root, { recursive: true, force: true });
+      privateProcessRoots.delete(root);
+    } finally { restoreEnvironment(); }
+  });
 }
 
 function guardSpawn(args, options = {}) {
