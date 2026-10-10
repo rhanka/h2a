@@ -563,7 +563,7 @@ export async function proveNativeTerminalEndpointAbsent(socketPath: string, fail
   return withSocketPublicationLock(socketPath, () => proveEndpointAbsentUnderLock(socketPath));
 }
 
-function canonicalizePath(targetPath: string): string {
+function canonicalizePath(targetPath: string): string | undefined {
   const resolved = resolve(targetPath);
   try {
     return realpathSync(resolved);
@@ -574,7 +574,7 @@ function canonicalizePath(targetPath: string): string {
       const realDir = realpathSync(dir);
       return join(realDir, base);
     } catch {
-      return resolved;
+      return undefined;
     }
   }
 }
@@ -605,6 +605,12 @@ function findActiveHostServingSocket(
   }
 
   const targetCanonical = canonicalizePath(socketPath);
+  if (!targetCanonical) {
+    return {
+      state: "unknown",
+      reason: `cannot canonicalize target socket path: ${socketPath}`,
+    };
+  }
 
   for (const entry of entries) {
     if (!/^\d+$/.test(entry)) continue;
@@ -642,10 +648,18 @@ function findActiveHostServingSocket(
     if (idx === -1 || idx + 1 >= args.length) continue;
 
     const candidateSocket = args[idx + 1]!;
-    if (canonicalizePath(candidateSocket) !== targetCanonical) continue;
-
     const isHost = args.some(arg => arg.includes("process.js") || (arg.includes("native-terminal") && !arg.includes("op.js")));
     if (!isHost) continue;
+
+    const candidateCanonical = canonicalizePath(candidateSocket);
+    if (!candidateCanonical) {
+      // The alias used at host startup was deleted; canonicalization cannot prove absence
+      return {
+        state: "unknown",
+        reason: `cannot canonicalize host socket path ${candidateSocket} for host pid ${pid}`,
+      };
+    }
+    if (candidateCanonical !== targetCanonical) continue;
 
     const candDir = dirname(candidateSocket);
     const candStem = basename(candidateSocket).slice(0, 8).replace(/[^A-Za-z0-9_.-]/g, "_");
@@ -760,6 +774,9 @@ async function proveEndpointAbsentUnderLock(socketPath: string): Promise<boolean
     throw new Error(`native endpoint owner registry is unknown: ${snapshot.reason}`);
   }
   const canonicalTarget = canonicalizePath(socketPath);
+  if (!canonicalTarget) {
+    throw new Error(`cannot canonicalize socket path: ${socketPath}`);
+  }
   const owners = snapshot.entries
     .filter(entry => entry.owner?.socketPath && canonicalizePath(entry.owner.socketPath) === canonicalTarget)
     .map(entry => entry.owner!);
