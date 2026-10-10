@@ -197,6 +197,13 @@ async function guard(statusPath: string): Promise<void> {
       if (receipt.ownership) ownership = receipt.ownership as LaunchOwnership;
       submitAttempted ||= receipt.submitAttempted === true;
       if (!ownership) return;
+      if (receipt.state === "started" && (receipt.result as { kind?: string } | undefined)?.kind === "h2a.run.result" &&
+          ownership.host === "native" && ownership.sessions[0]) {
+        // The launcher may die between the durable result and its final pipe
+        // acknowledgement. Completion frees observations, never residency.
+        releaseLaunchSlot(ownership.sessions[0].name.replace(/^h2a-/, ""), "started");
+        return;
+      }
       if (["started", "stopped", "cleanup-failed", "launch-unconfirmed"].includes(String(receipt.state))) return;
       if (submitAttempted) {
         save({ state: "launch-unconfirmed", submitAttempted: true, retrySafe: false, stopped: false, ownership });

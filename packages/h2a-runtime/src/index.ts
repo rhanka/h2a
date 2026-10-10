@@ -6312,9 +6312,19 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         // Covers the entire attempt, including an already-created agent when
         // sidecar selection fails. Component-level refusals cannot clear it.
         let creationAttempted = false;
+        let uncreatedNativeReservation: string | undefined;
         let diagnosticCleanup: (() => void) | undefined;
+        const persistPreCreateFailure = (failure: Record<string, unknown>): void => {
+          if (!uncreatedNativeReservation) return;
+          const file = join(cwd, ".h2a", "runs", uncreatedNativeReservation, "launch.json");
+          try {
+            if (existsSync(file)) updateLaunchReceipt(file, process.env.H2A_RUN_LAUNCH_TOKEN,
+              { state: "not-started", result: failure, creationAttempted: false });
+          } catch { /* Never overwrite an unreadable or foreign attempt. */ }
+        };
         const onCreateAttempt = (): void => {
           creationAttempted = true;
+          uncreatedNativeReservation = undefined;
           if (opts.json && opts.name) {
             process.stderr.write(`${STRUCTURED_LAUNCH_PHASE_PREFIX}${JSON.stringify({
               launchId: opts.name, phase: "creation-attempted",
@@ -6494,6 +6504,59 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           timings?: Record<string, number>;
           conversationId?: string;
         }> = [];
+        const makeLaunchResult = (only: (typeof started)[number]) => ({
+          kind: "h2a.run.result",
+          version: 1,
+          apiVersion: H2A_RUN_API_VERSION,
+          runtimeVersion: H2A_RUNTIME_VERSION,
+          ok: true,
+          state: "started",
+          ...(only.timings ? { timings: { ...only.timings, launchCompleteMs: Date.now() - launchRequestedAt,
+            serviceMs: Date.now() - launchRequestedAt }, proof: only.promptDelivery?.state === "working" ? only.promptDelivery.proof : undefined } : {}),
+          session: {
+            ...(only.socketPath ? { socketPath: only.socketPath } : {}),
+            id: only.slug,
+            ...(only.conversationId ? { conversationId: only.conversationId } : {}),
+            tmuxSession: only.name,
+            host: sessionHost === "native" ? "native" : "tmux",
+            profile,
+            workspace: cwd,
+            mode: opts.headless ? "headless" : "interactive",
+            background: opts.background === true,
+            gateway: activeGateway ? "gateway" : "direct",
+            h2aSidecar: only.h2aSidecar,
+            ...(only.pane !== undefined ? { pane: only.pane } : {}),
+            ...(only.pid !== undefined ? { pid: only.pid } : {}),
+            // `pid` is the launch WRAPPER. Measured 2026-07-29: it showed 0s
+            // of CPU after 37s while its codex child had burned 13s, so a
+            // liveness check on `pid` alone reports a working agent as dead.
+            // Name the process that actually works, and say it is distinct.
+            ...(only.workerPid !== undefined
+              ? { workerPid: only.workerPid }
+              : {}),
+          },
+          attach: opts.headless
+            ? null
+            : { command: "h2a", args: ["attach", only.slug] },
+          // The driver supplies the observed delivery proof. CPU remains
+          // the evidence source only for the unchanged legacy paths.
+          ...(only.promptDelivery?.state === "working"
+            ? {
+                prompt: {
+                  delivered: true,
+                  waitedMs: only.promptDelivery.waitedMs,
+                  cpuDeltaMs: Math.round(only.promptDelivery.cpuDeltaMs),
+                },
+              }
+            : {}),
+          ...(only.outputLog !== undefined
+            ? {
+                logs: { path: only.outputLog },
+                result: { path: only.resultJson },
+              }
+            : {}),
+        });
+        let durableSingleLaunchResult: ReturnType<typeof makeLaunchResult> | undefined;
         for (const label of labels) {
           const clientSessionId = localSessionName(slugify(label ?? cwd));
           try {
@@ -6526,12 +6589,13 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           const providerVersion = nativeClaudeLaunch
             ? execFileSync(command, ["--version"], { encoding: "utf8", timeout: Math.max(1, Math.min(1000, Math.floor(launchRequestedAt + 15000 - Date.now()))), maxBuffer: 4096 }).trim().match(/^(\d+\.\d+\.\d+)\b/)?.[1]
             : undefined;
-          const experiment = nativeClaudeLaunch && providerVersion === "2.1.296" && process.env.LAUNCH_PERF_QUALIFY_DISPATCH === "1" &&
+          const qualifiedPlatform = process.platform === "linux" && process.arch === "x64";
+          const experiment = qualifiedPlatform && nativeClaudeLaunch && providerVersion === "2.1.296" && process.env.LAUNCH_PERF_QUALIFY_DISPATCH === "1" &&
             [process.env.HOME, process.env.XDG_RUNTIME_DIR, process.env.XDG_STATE_HOME, process.env.XDG_CONFIG_HOME].every(p => p?.includes("/.qual-tmp/")) &&
             existsSync(join(process.env.H2A_ROOT ?? "", ".launch-perf-synthetic.json"));
           const qualifiedProfile = declaredMcps.length === 2 && declaredMcps.includes("h2a") && declaredMcps.includes("playwright") &&
             !h2aSidecar && !useBare && !activeGateway;
-          const dispatchEvidenceEnabled = providerVersion !== undefined && qualifiedProfile && (QUALIFIED_CLAUDE_NATIVE_VERSIONS.includes(providerVersion) || experiment);
+          const dispatchEvidenceEnabled = qualifiedPlatform && providerVersion !== undefined && qualifiedProfile && (QUALIFIED_CLAUDE_NATIVE_VERSIONS.includes(providerVersion) || experiment);
           const experimentalPacing = experiment && process.env.LAUNCH_PERF_PACING_MS !== undefined
             ? Number(process.env.LAUNCH_PERF_PACING_MS) : undefined;
           if (experimentalPacing !== undefined && ![0,100,250,500].includes(experimentalPacing))
@@ -6550,6 +6614,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             process.exitCode = 1;
             return;
           }
+          if (nativeClaudeLaunch) uncreatedNativeReservation = slugCandidate;
           const reservedConvId = profile === "claude" && !opts.resume ? randomUUID() : undefined;
           const transcriptFile = nativeClaudeLaunch ? claudeTranscriptPath(cwd, (opts.resume ?? reservedConvId)!) : undefined;
           const transcriptOffset = transcriptFile && existsSync(transcriptFile) ? statSync(transcriptFile).size : 0;
@@ -6558,7 +6623,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           if (nativeClaudeLaunch) {
             mkdirSync(runDir, { recursive: true, mode: 0o700 });
             updateLaunchReceipt(join(runDir, "launch.json"), process.env.H2A_RUN_LAUNCH_TOKEN,
-              { state: "reserved", inputHash, parameterHash, providerVersion, diagnosticQualified: qualifiedProfile && QUALIFIED_CLAUDE_NATIVE_VERSIONS.includes(providerVersion ?? ""),
+              { state: "reserved", inputHash, parameterHash, providerVersion, diagnosticQualified: qualifiedPlatform && qualifiedProfile && QUALIFIED_CLAUDE_NATIVE_VERSIONS.includes(providerVersion ?? ""),
                 conversationId: opts.resume ?? reservedConvId, requiredMcps, requestedAt: launchRequestedAt, inputEpoch: 0 });
             diagnostic = startClaudeDiagnostic(runDir);
             diagnosticCleanup = diagnostic.stop;
@@ -6595,8 +6660,12 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             diagnostic?.stop();
             releaseLaunchSlot(slugCandidate, "stopped");
             process.stderr.write(`[h2a] ${(error as Error).message}\n`);
-            if (nativeClaudeLaunch && opts.json) process.stdout.write(`${JSON.stringify({ kind: "h2a.run.failure", version: 1,
-              state: "not-started", launchId: slugCandidate, error: (error as Error).message, stopped: false, retrySafe: false })}\n`);
+            if (nativeClaudeLaunch) {
+              const failure = { kind: "h2a.run.failure", version: 1, state: "not-started", launchId: slugCandidate,
+                error: (error as Error).message, creationAttempted: false, stopped: false, retrySafe: false };
+              persistPreCreateFailure(failure);
+              if (opts.json) process.stdout.write(JSON.stringify(failure) + "\n");
+            }
             process.exitCode = 2;
             return;
           }
@@ -7027,6 +7096,14 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             ...(promptDelivery !== undefined ? { promptDelivery } : {}),
             ...(nativeClaudeLaunch ? { timings: launchTimings, conversationId: (opts.resume ?? reservedConvId)! } : {}),
           });
+          if (nativeClaudeLaunch) {
+            const result = makeLaunchResult(started[started.length - 1]!);
+            // Publish the complete result and final proof in one durable write,
+            // including non-JSON and fleet launches, before completing the guard.
+            updateLaunchReceipt(join(cwd, ".h2a", "runs", slug, "launch.json"), process.env.H2A_RUN_LAUNCH_TOKEN,
+              { state: "started", result, timings: { ...launchTimings } });
+            if (count === 1) durableSingleLaunchResult = result;
+          }
           launchGuard?.complete();
           releaseLaunchSlot(slug, "started");
           // The writer is now durable in the registry. End the short critical
@@ -7042,60 +7119,9 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         }
         const only = started[0]!;
         if (opts.json) {
-          const launchResult = {
-              kind: "h2a.run.result",
-              version: 1,
-              apiVersion: H2A_RUN_API_VERSION,
-              runtimeVersion: H2A_RUNTIME_VERSION,
-              ok: true,
-              state: "started",
-              ...(only.timings ? { timings: { ...only.timings, launchCompleteMs: Date.now() - launchRequestedAt,
-                serviceMs: Date.now() - launchRequestedAt }, proof: only.promptDelivery?.state === "working" ? only.promptDelivery.proof : undefined } : {}),
-              session: {
-                ...(only.socketPath ? { socketPath: only.socketPath } : {}),
-                id: only.slug,
-                ...(only.conversationId ? { conversationId: only.conversationId } : {}),
-                tmuxSession: only.name,
-                host: sessionHost === "native" ? "native" : "tmux",
-                profile,
-                workspace: cwd,
-                mode: opts.headless ? "headless" : "interactive",
-                background: opts.background === true,
-                gateway: activeGateway ? "gateway" : "direct",
-                h2aSidecar: only.h2aSidecar,
-                ...(only.pane !== undefined ? { pane: only.pane } : {}),
-                ...(only.pid !== undefined ? { pid: only.pid } : {}),
-                // `pid` is the launch WRAPPER. Measured 2026-07-29: it showed 0s
-                // of CPU after 37s while its codex child had burned 13s, so a
-                // liveness check on `pid` alone reports a working agent as dead.
-                // Name the process that actually works, and say it is distinct.
-                ...(only.workerPid !== undefined
-                  ? { workerPid: only.workerPid }
-                  : {}),
-              },
-              attach: opts.headless
-                ? null
-                : { command: "h2a", args: ["attach", only.slug] },
-              // What was OBSERVED, not what was attempted: the brief was seen in
-              // a real composer, submitted, and the agent's CPU then moved.
-              ...(only.promptDelivery?.state === "working"
-                ? {
-                    prompt: {
-                      delivered: true,
-                      waitedMs: only.promptDelivery.waitedMs,
-                      cpuDeltaMs: Math.round(only.promptDelivery.cpuDeltaMs),
-                    },
-                  }
-                : {}),
-              ...(only.outputLog !== undefined
-                ? {
-                    logs: { path: only.outputLog },
-                    result: { path: only.resultJson },
-                  }
-                : {}),
-            };
+          const launchResult = durableSingleLaunchResult ?? makeLaunchResult(only);
           const receiptPath = join(cwd, ".h2a", "runs", only.slug, "launch.json");
-          if (sessionHost === "native" && profile === "claude" && !opts.headless && existsSync(receiptPath))
+          if (!durableSingleLaunchResult && sessionHost === "native" && profile === "claude" && !opts.headless && existsSync(receiptPath))
             updateLaunchReceipt(receiptPath, process.env.H2A_RUN_LAUNCH_TOKEN, { result: launchResult });
           process.stdout.write(JSON.stringify(launchResult) + "\n");
           return;
@@ -7145,8 +7171,10 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           }
           if (nativeClaudeRequest && opts.json && !creationAttempted &&
               !(error instanceof NativeHostCapabilityMismatchError || error instanceof NativeLaunchAdmissionError)) {
-            process.stdout.write(`${JSON.stringify({ kind: "h2a.run.failure", version: 1, state: "not-started", launchId: opts.name,
-              error: (error as Error).message, creationAttempted: false, stopped: false, retrySafe: false })}\n`);
+            const failure = { kind: "h2a.run.failure", version: 1, state: "not-started", launchId: opts.name,
+              error: (error as Error).message, creationAttempted: false, stopped: false, retrySafe: false };
+            persistPreCreateFailure(failure);
+            process.stdout.write(JSON.stringify(failure) + "\n");
             process.exitCode = 1; return;
           }
           if (!(error instanceof NativeHostCapabilityMismatchError || error instanceof NativeLaunchAdmissionError) || creationAttempted) throw error;
@@ -7154,6 +7182,13 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           if (opts.json && opts.name) process.stdout.write(`${JSON.stringify(error.toRunFailure(opts.name))}\n`);
           process.exitCode = 1;
         } finally {
+          if (uncreatedNativeReservation) {
+            // onCreateAttempt clears this marker before any create RPC can run.
+            // A live refusal before that boundary owns no resident process.
+            diagnosticCleanup?.();
+            try { releaseLaunchSlot(uncreatedNativeReservation, "stopped"); }
+            catch { process.stderr.write("[h2a] unused launch reservation could not be released\n"); process.exitCode = 1; }
+          }
           restoreNativeDeadline?.();
           resumeClaim?.release();
         }
