@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { randomUUID } from "node:crypto";
+import { randomUUID, createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import {
   existsSync,
@@ -133,6 +133,9 @@ import {
 import { startLaunchGuard, type LaunchGuard, type LaunchOwnership } from "./launch-guard.js";
 import { deliverClaudeNativePrompt } from "./claude-native-driver.js";
 import { acquireLaunchSlot, releaseLaunchSlot } from "./launch-capacity.js";
+import { updateLaunchReceipt, withLaunchReceipt } from "./launch-receipt.js";
+import { startClaudeDiagnostic } from "./claude-diagnostic.js";
+import { claudeTranscriptPath, correlatedClaudeResponse } from "./claude-transcript.js";
 import { buildLaunchContext } from "./launch-context.js";
 import {
   attachNativeSession,
@@ -141,6 +144,8 @@ import {
   killNativeSessionTree,
   nativeHostAvailable,
   nativePromptDeliveryDeps,
+  nativeClaudeDeliveryDeps,
+  setNativeLaunchDeadline,
   nativeSessionLiveness,
   nativeSessionPid,
   nativeSessionState,
@@ -6077,6 +6082,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           noBare?: boolean;
         },
       ) => {
+        const launchRequestedAt = Date.now() - process.uptime() * 1000;
         const structuredLaunch =
           opts.promptStdin === true ||
           opts.agent !== undefined ||
@@ -6269,6 +6275,8 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             })}\n`);
           }
         };
+        const restoreNativeDeadline = profile === "claude" && sessionHost === "native" && opts.promptStdin && !opts.headless
+          ? setNativeLaunchDeadline(launchRequestedAt + 15000) : undefined;
         try {
         if (structuredLaunch && sessionHost === "native") {
           for (const label of labels) preflightNativeLaunch(localSessionName(slugify(label ?? cwd)));
@@ -6437,6 +6445,8 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           outputLog?: string;
           resultJson?: string;
           promptDelivery?: PromptDeliveryResult;
+          timings?: Record<string, number>;
+          conversationId?: string;
         }> = [];
         for (const label of labels) {
           const clientSessionId = localSessionName(slugify(label ?? cwd));
@@ -6466,16 +6476,53 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           const useBare = resolveClaudeBare(profile, bareChoiceFromOptions(opts) ?? pinnedLaunch?.bare);
           let args: string[];
           const slugCandidate = slugify(label ?? cwd);
-          const launchSlot = acquireLaunchSlot(slugCandidate);
+          const nativeClaudeLaunch = sessionHost === "native" && profile === "claude" && !opts.headless && initialPrompt !== undefined;
+          const runDir = join(cwd, ".h2a", "runs", slugCandidate);
+          const requiredMcps: string[] = nativeClaudeLaunch
+            ? JSON.parse(process.env.H2A_CLAUDE_REQUIRED_MCPS ?? '["h2a","playwright"]') : [];
+          if (!Array.isArray(requiredMcps) || requiredMcps.some(m => typeof m !== "string" || !m)) throw new Error("invalid required Claude MCP profile");
+          const parameterHash = createHash("sha256").update(JSON.stringify({ profile, cwd: realpathSync(cwd), prompt: initialPrompt,
+            resume: opts.resume, model: opts.model, effort: opts.effort, agent: opts.agent, bare: useBare, gateway: launchGatewayMode, requiredMcps })).digest("hex");
+          if (nativeClaudeLaunch && existsSync(join(runDir, "launch.json"))) {
+            const prior = JSON.parse(readFileSync(join(runDir, "launch.json"), "utf8"));
+            if (prior.parameterHash !== parameterHash) {
+              if (opts.json) process.stdout.write(`${JSON.stringify({ kind: "h2a.run.failure", version: 1, state: "not-started", launchId: slugCandidate,
+                error: "launch name conflicts with a durable attempt using different parameters", stopped: false, retrySafe: false })}\n`);
+              process.exitCode = 1; return;
+            }
+            if (prior.result) {
+              process.stdout.write(`${JSON.stringify(prior.result)}\n`);
+              if (prior.result.ok !== true) process.exitCode = 1;
+            }
+            else {
+              process.stdout.write(`${JSON.stringify({ kind: "h2a.run.failure", version: 1, state: "launch-unconfirmed", launchId: slugCandidate,
+                error: "durable attempt already exists; no prompt was resubmitted", stopped: false, retrySafe: false,
+                attach: { command: "h2a", args: ["attach", slugCandidate] } })}\n`);
+              process.exitCode = 1;
+            }
+            return;
+          }
+          if (nativeClaudeLaunch) process.env.H2A_RUN_LAUNCH_TOKEN ??= randomUUID();
+          const launchSlot = nativeClaudeLaunch ? acquireLaunchSlot(slugCandidate) : { acquired: true };
           if (!launchSlot.acquired) {
             process.stderr.write(`[h2a] ${launchSlot.reason}\n`);
+            if (opts.json) process.stdout.write(`${JSON.stringify({ kind: "h2a.run.failure", version: 1, state: "not-started", launchId: slugCandidate,
+              error: launchSlot.reason, stopped: false, retrySafe: false })}\n`);
             process.exitCode = 1;
             return;
           }
           const reservedConvId = profile === "claude" && !opts.resume ? randomUUID() : undefined;
-          const claudeDebugFile = profile === "claude" && !process.env.LAUNCH_PERF_OUTPUT
-            ? (process.env.H2A_CLAUDE_DEBUG_FILE || join(cwd, ".h2a", "runs", slugCandidate, "claude-debug.log"))
-            : undefined;
+          const transcriptFile = nativeClaudeLaunch ? claudeTranscriptPath(cwd, (opts.resume ?? reservedConvId)!) : undefined;
+          const transcriptOffset = transcriptFile && existsSync(transcriptFile) ? statSync(transcriptFile).size : 0;
+          let diagnostic: ReturnType<typeof startClaudeDiagnostic> | undefined;
+          const mcpReadyNonce = randomUUID(), mcpReadyFile = join(runDir, "claude-mcp-ready.json");
+          if (nativeClaudeLaunch) {
+            mkdirSync(runDir, { recursive: true, mode: 0o700 });
+            updateLaunchReceipt(join(runDir, "launch.json"), process.env.H2A_RUN_LAUNCH_TOKEN,
+              { state: "reserved", parameterHash, conversationId: opts.resume ?? reservedConvId, requiredMcps, requestedAt: launchRequestedAt });
+            diagnostic = startClaudeDiagnostic(runDir);
+          }
+          const claudeDebugFile = diagnostic?.fifo;
           try {
             args =
               structuredLaunch && isAgentLaunchProfile(profile)
@@ -6502,6 +6549,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
                   ? localResumeArgs(profile, opts.resume, { bare: useBare })
                   : localStartArgs(profile, { bare: useBare });
           } catch (error) {
+            diagnostic?.stop();
             releaseLaunchSlot(slugCandidate, "stopped");
             process.stderr.write(`[h2a] ${(error as Error).message}\n`);
             process.exitCode = 2;
@@ -6523,6 +6571,8 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           let promptDelivery: PromptDeliveryResult | undefined;
           let launchGuard: LaunchGuard | undefined;
           let launchOwnership: LaunchOwnership | undefined;
+          let nativeClaudePid: number | undefined;
+          const launchTimings: Record<string, number> = { queueMs: 0 };
           if (opts.headless) {
             const runDir = join(cwd, ".h2a", "runs", label!);
             mkdirSync(runDir, { recursive: true });
@@ -6591,8 +6641,14 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
                   launchGuard = startLaunchGuard(join(cwd, ".h2a", "runs", slugify(label ?? cwd)), launchOwnership);
                 } } : {}),
                 sessionClass,
+                ...(nativeClaudeLaunch ? { env: { H2A_MCP_READY_FILE: mcpReadyFile, H2A_MCP_READY_NONCE: mcpReadyNonce,
+                  H2A_NATIVE_PTY_SESSION: localSessionName(slugCandidate), H2A_NATIVE_TARGET_SESSION: localSessionName(slugCandidate) } } : {}),
               },
             ));
+            if (diagnostic) {
+              nativeClaudePid = nativeSessionPid(name);
+              if (nativeClaudePid !== undefined) diagnostic.own(nativeClaudePid);
+            }
           } else {
             ({ name, slug, agentPane } = startLocalSession(
               profile,
@@ -6715,16 +6771,40 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             // reporting "started" over a lost brief is what left a lane inert
             // for 33 minutes on 2026-07-28.
             promptDelivery = (sessionHost === "native" && profile === "claude")
-              ? deliverClaudeNativePrompt(
+              ? await deliverClaudeNativePrompt(
                   name,
                   initialPrompt,
-                  nativePromptDeliveryDeps(sleepSync),
+                  launchOwnership?.host === "native" && launchOwnership.sessions[0]
+                    ? nativeClaudeDeliveryDeps(launchOwnership.sessions[0], launchRequestedAt + 15000)
+                    : nativePromptDeliveryDeps(sleepSync),
                   {
                     launchGuard,
-                    debugFile: process.env.H2A_CLAUDE_DEBUG_FILE ||
-                      (process.env.LAUNCH_PERF_OUTPUT ? join(process.env.LAUNCH_PERF_OUTPUT, "claude-debug.log") : join(cwd, ".h2a", "runs", slug, "claude-debug.log")),
-                    requiredMcps: h2aSidecar ? ["h2a"] : [],
-                    pacingMs: 150,
+                    debugFile: diagnostic?.file,
+                    requiredMcps,
+                    requiredMcpProof: () => {
+                      if (!requiredMcps.includes("h2a")) return true;
+                      try {
+                        const ack = JSON.parse(readFileSync(mcpReadyFile, "utf8"));
+                        if (ack.kind !== "h2a.mcp.ready" || ack.version !== 1 || ack.nonce !== mcpReadyNonce || typeof ack.sessionId !== "string") return false;
+                        let pid = ack.pid as number;
+                        for (let depth = 0; depth < 32 && Number.isSafeInteger(pid) && pid > 1; depth++) {
+                          if (pid === nativeClaudePid) return true;
+                          const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
+                          pid = Number(stat.slice(stat.lastIndexOf(")") + 2).split(" ")[1]);
+                        }
+                      } catch { /* Missing ACK or lost ancestry is not readiness. */ }
+                      return false;
+                    },
+                    correlatedResponse: () => correlatedClaudeResponse(transcriptFile!, (opts.resume ?? reservedConvId)!, initialPrompt, transcriptOffset),
+                    // Fast diagnostic dispatch remains disabled until L0 qualifies this provider version.
+                    qualifiedDiagnostic: false,
+                    requestedAt: launchRequestedAt,
+                    onPhase: (phase, at) => {
+                      if (launchTimings[phase] !== undefined) return;
+                      launchTimings[phase] = at;
+                      updateLaunchReceipt(join(runDir, "launch.json"), process.env.H2A_RUN_LAUNCH_TOKEN, { phase, timings: launchTimings });
+                    },
+                    pacingMs: 250,
                     observationTimeoutMs: 15_000,
                   },
                 )
@@ -6758,7 +6838,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
                   : sessionHost === "native"
                     ? killNativeSessionTree(name)
                     : killLocalSession(name);
-                releaseLaunchSlot(slug, "stopped");
+                if (stopped) releaseLaunchSlot(slug, "stopped");
               } else {
                 if (launchGuard) launchGuard.stop();
                 releaseLaunchSlot(slug, "launch-unconfirmed");
@@ -6804,6 +6884,11 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
                     prompt: { delivered: true, submitAttempted: true, waitedMs: deliveryWaitedMs },
                     attach: { command: "h2a", args: ["attach", slug] },
                   })}\n`);
+                } else {
+                  const failure = { kind: "h2a.run.failure", version: 1, state: stopped ? "stopped" : "cleanup-failed", launchId: slug,
+                    error: detail, stopped, retrySafe: false };
+                  if (nativeClaudeLaunch) updateLaunchReceipt(join(runDir, "launch.json"), process.env.H2A_RUN_LAUNCH_TOKEN, { result: failure });
+                  process.stdout.write(`${JSON.stringify(failure)}\n`);
                 }
               }
               return;
@@ -6830,8 +6915,11 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             else if (sessionHost === "native") killNativeSessionTree(name);
             else killLocalSession(name);
             process.stderr.write(
-              `[h2a] could not verify the agent pane pid for ${slug}; the partial session was stopped\n`,
+              `[h2a] could not verify the agent pane pid for ${slug}; cleanup or preservation is recorded in the launch receipt\n`,
             );
+            if (opts.json && launchGuard?.isSubmitAttempted()) process.stdout.write(`${JSON.stringify({ kind: "h2a.run.failure", version: 1,
+              state: "launch-unconfirmed", launchId: slug, error: "agent PID verification failed after potential submission", stopped: false, retrySafe: false,
+              attach: { command: "h2a", args: ["attach", slug] } })}\n`);
             process.exitCode = 1;
             return;
           }
@@ -6848,7 +6936,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             ...(workerPid !== undefined ? { workerPid } : {}),
             cwd,
             sessionClass,
-            ...(opts.resume !== undefined ? { convId: opts.resume } : {}),
+            ...((opts.resume ?? reservedConvId) !== undefined ? { convId: (opts.resume ?? reservedConvId)! } : {}),
             gatewayMode: launchGatewayMode,
             bare: useBare,
           });
@@ -6864,6 +6952,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             ...(outputLog !== undefined ? { outputLog } : {}),
             ...(resultJson !== undefined ? { resultJson } : {}),
             ...(promptDelivery !== undefined ? { promptDelivery } : {}),
+            ...(nativeClaudeLaunch ? { timings: launchTimings, conversationId: (opts.resume ?? reservedConvId)! } : {}),
           });
           launchGuard?.complete();
           releaseLaunchSlot(slug, "started");
@@ -6880,17 +6969,19 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         }
         const only = started[0]!;
         if (opts.json) {
-          process.stdout.write(
-            `${JSON.stringify({
+          const launchResult = {
               kind: "h2a.run.result",
               version: 1,
               apiVersion: H2A_RUN_API_VERSION,
               runtimeVersion: H2A_RUNTIME_VERSION,
               ok: true,
               state: "started",
+              ...(only.timings ? { timings: { ...only.timings, launchCompleteMs: Date.now() - launchRequestedAt,
+                serviceMs: Date.now() - launchRequestedAt }, proof: only.promptDelivery?.state === "working" ? only.promptDelivery.proof : undefined } : {}),
               session: {
                 ...(only.socketPath ? { socketPath: only.socketPath } : {}),
                 id: only.slug,
+                ...(only.conversationId ? { conversationId: only.conversationId } : {}),
                 tmuxSession: only.name,
                 host: sessionHost === "native" ? "native" : "tmux",
                 profile,
@@ -6929,8 +7020,11 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
                     result: { path: only.resultJson },
                   }
                 : {}),
-            })}\n`,
-          );
+            };
+          const receiptPath = join(cwd, ".h2a", "runs", only.slug, "launch.json");
+          if (sessionHost === "native" && profile === "claude" && !opts.headless && existsSync(receiptPath))
+            updateLaunchReceipt(receiptPath, process.env.H2A_RUN_LAUNCH_TOKEN, { result: launchResult });
+          process.stdout.write(JSON.stringify(launchResult) + "\n");
           return;
         }
         process.stderr.write(
@@ -6951,11 +7045,24 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             : attachLocalSession(only.name);
         return;
         } catch (error) {
+          if (opts.name && profile === "claude" && sessionHost === "native" && !opts.headless) {
+            try {
+              const receipt = JSON.parse(readFileSync(join(cwd, ".h2a", "runs", opts.name, "launch.json"), "utf8"));
+              if (receipt.token === process.env.H2A_RUN_LAUNCH_TOKEN && receipt.submitAttempted === true) {
+                if (opts.json) process.stdout.write(`${JSON.stringify({ kind: "h2a.run.failure", version: 1,
+                  state: "launch-unconfirmed", launchId: opts.name, error: (error as Error).message,
+                  stopped: false, retrySafe: false, attach: { command: "h2a", args: ["attach", opts.name] } })}\n`);
+                process.stderr.write(`[h2a] launch unconfirmed; session preserved: ${(error as Error).message}\n`);
+                process.exitCode = 1; return;
+              }
+            } catch { /* EOF guard preserves unreadable durable ownership. */ }
+          }
           if (!(error instanceof NativeHostCapabilityMismatchError || error instanceof NativeLaunchAdmissionError) || creationAttempted) throw error;
           process.stderr.write(`[h2a] ${error.message}\n`);
           if (opts.json && opts.name) process.stdout.write(`${JSON.stringify(error.toRunFailure(opts.name))}\n`);
           process.exitCode = 1;
         } finally {
+          restoreNativeDeadline?.();
           resumeClaim?.release();
         }
       },

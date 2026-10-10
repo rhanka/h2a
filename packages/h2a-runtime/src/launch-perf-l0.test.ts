@@ -1,146 +1,80 @@
 import { describe, it, expect, vi } from "vitest";
-import { detectHostModal, deliverInitialPrompt, type PromptDeliveryDeps } from "./prompt-delivery.js";
-import {
-  parseClaudeDebugEvents,
-  readClaudeDebugBounded,
-} from "./claude-debug-adapter.js";
+import { mkdtempSync, appendFileSync, writeFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { deliverClaudeNativePrompt } from "./claude-native-driver.js";
+import { ClaudeDebugReader } from "./claude-debug-adapter.js";
+import { correlatedClaudeResponse } from "./claude-transcript.js";
 
-describe("L0 - Qualification et témoins comportementaux", () => {
-  describe("Témoin 1: Reproduction du défaut CPU (faux échec 30s après réponse)", () => {
-    it("devrait détecter l'activité ou la réponse visible même avec un delta CPU nul", () => {
-      // Simulation d'une session Claude où le modèle répond immédiatement
-      // mais où le delta CPU mesuré est nul (0 ms).
-      let currentScreen = "❯ \n· ~/project";
-      let submitted = false;
-      let sleepCalls = 0;
-
-      const deps: PromptDeliveryDeps = {
-        capturePane: () => currentScreen,
-        clearComposer: () => true,
-        pasteBlock: () => {
-          currentScreen = "❯ Return the word READY_WITNESS.\n· ~/project";
-          return true;
-        },
-        submit: () => {
-          submitted = true;
-          // Dès l'envoi d'Enter, la réponse apparaît sur l'écran
-          currentScreen = "❯ Return the word READY_WITNESS.\nLAB_READY\n· ~/project";
-          return true;
-        },
-        cpuMs: () => 100, // CPU constant -> delta = 0
-        sleep: () => {
-          sleepCalls++;
-          if (sleepCalls > 50) {
-            throw new Error("Boucle d'activité bloquée dans l'attente CPU de 30s");
-          }
-        },
-        now: (() => {
-          let time = 1000;
-          return () => {
-            time += 50;
-            return time;
-          };
-        })(),
-      };
-
-      const result = deliverInitialPrompt("session-1", "Return the word READY_WITNESS.", deps, {
-        profile: "claude",
-        activityMs: 30_000,
-        activityCpuMs: 300,
-      });
-
-      // Le code non corrigé échoue avec "submitted-idle" après 30s (ou timeout)
-      // Le code corrigé doit détecter "working" grâce à la réponse/TUI Claude
-      expect(result.state).toBe("working");
-    });
+const settled = "[DEBUG] hooks module test prompt.submit settled in 1ms\n";
+const turn = "[DEBUG] [engine] turn 1 start\n";
+const main = "[DEBUG] [API REQUEST] /v1/messages source=repl_main_thread\n";
+const title = "[DEBUG] [API REQUEST] /v1/messages source=generate_session_title\n";
+function fixture(log: string, options: { mcpAt?: number; blockedAfterPaste?: boolean; truncated?: boolean } = {}) {
+  let time = 0, screen = "❯ \n· ~/project", submitted = false;
+  const submit = vi.fn(() => { submitted = true; appendFileSync(log, title); return true; });
+  const capture = vi.fn(() => screen);
+  const paste = vi.fn((_name: string, prompt: string) => {
+    screen = options.blockedAfterPaste ? "Compacting conversation…" : options.truncated ? "❯ [Pasted Content 12 chars] exact brief\n· ~/project" : "❯ " + prompt + "\n· ~/project";
+    return true;
   });
-
-  describe("Témoin 2: Barrière MCP obligatoire avant Enter", () => {
-    it("ne doit pas envoyer Enter tant que tous les MCP obligatoires ne sont pas prêts", () => {
-      // Le composer apparaît à t=0, mais les MCP obligatoires (h2a, playwright)
-      // ne sont prêts qu'à l'étape 3.
-      let mcpReady = false;
-      let enterSentBeforeMcpReady = false;
-      let enterSent = false;
-
-      const deps = {
-        composerVisible: true,
-        checkMcpsReady: () => mcpReady,
-        pasteBlock: vi.fn(() => true),
-        submit: vi.fn(() => {
-          enterSent = true;
-          if (!mcpReady) {
-            enterSentBeforeMcpReady = true;
-          }
-          return true;
-        }),
-      };
-
-      // Simule la séquence du driver
-      expect(enterSentBeforeMcpReady).toBe(false);
-      expect(enterSent).toBe(false);
-    });
-  });
-
-  describe("Témoin 3: Hook veto", () => {
-    it("doit refuser started si un hook utilisateur rejette la soumission", () => {
-      const debugLog = [
-        "2026-10-04T14:09:24.871Z [DEBUG] hooks module cc-plugin-diff@builtin loaded",
-        "2026-10-04T14:09:25.017Z [DEBUG] MCP server \"h2a\": Successfully connected",
-        "2026-10-04T14:09:38.254Z [ERROR] hook pre-submit rejected the prompt: veto by security policy",
-      ].join("\n");
-
-      const analysis = parseClaudeDebugEvents(debugLog);
-      expect(analysis.hookVeto).toBe(true);
-      expect(analysis.mainThreadDispatched).toBe(false);
-    });
-  });
-
-  describe("Témoin 4: Adaptateur de diagnostic --debug-file et bornage", () => {
-    it("doit extraire repl_main_thread et ignorer generate_session_title", () => {
-      const debugLog = [
-        "2026-10-04T14:09:25.299Z [DEBUG] MCP server \"h2a\": Successfully connected (transport: stdio) in 283ms",
-        "2026-10-04T14:09:25.299Z [DEBUG] MCP server \"h2a\": Connection established with capabilities: {\"hasTools\":true}",
-        "2026-10-04T14:09:25.745Z [DEBUG] MCP server \"playwright\": Successfully connected (transport: stdio) in 727ms",
-        "2026-10-04T14:09:38.254Z [DEBUG] hooks module cc-plugin-diff@builtin prompt.submit settled in 7.4ms",
-        "2026-10-04T14:09:38.256Z [DEBUG] [engine] turn 1 start",
-        "2026-10-04T14:09:38.281Z [DEBUG] [API REQUEST] /v1/messages source=generate_session_title",
-        "2026-10-04T14:09:38.282Z [DEBUG] [API REQUEST] /v1/messages source=repl_main_thread",
-        "2026-10-04T14:09:38.306Z [DEBUG] [engine] turn 1 end",
-      ].join("\n");
-
-      const analysis = parseClaudeDebugEvents(debugLog);
-      expect(analysis.connectedMcps.has("h2a")).toBe(true);
-      expect(analysis.connectedMcps.has("playwright")).toBe(true);
-      expect(analysis.promptSubmitSettled).toBe(true);
-      expect(analysis.turnStartObserved).toBe(true);
-      expect(analysis.titleDispatched).toBe(true);
-      expect(analysis.mainThreadDispatched).toBe(true);
-      expect(analysis.hookVeto).toBe(false);
-    });
-
-    it("doit borner la lecture du fichier de diagnostic à 16 Mio max", () => {
-      const largeContent = "x".repeat(17 * 1024 * 1024);
-      const bounded = readClaudeDebugBounded(largeContent, 16 * 1024 * 1024);
-      expect(bounded.length).toBeLessThanOrEqual(16 * 1024 * 1024);
-    });
-  });
-
-  describe("Témoin 5: Modal Claude Code External imports", () => {
-    it("doit détecter le modal d'external imports / approvals sans choix numéroté", () => {
-      const modalCapture = [
-        "External imports: /home/antoinefa/.claude/RTK.md",
-        "These files will be included in the context.",
-        "",
-        "❯ No, disable external imports (recommended)",
-        "  Yes, enable external imports",
-        "",
-        "Enter to confirm",
-      ].join("\n");
-
-      const modal = detectHostModal(modalCapture);
-      expect(modal).toBeDefined();
-      expect(modal?.reason).toContain("external imports");
-    });
-  });
+  let connected = false, completed = false;
+  const deps = { capturePane: capture, clearComposer: () => true, pasteBlock: paste, submit, cpuMs: () => 0,
+    now: () => time, sleep: (ms: number) => {
+      time += ms;
+      if (!connected && options.mcpAt !== undefined && time >= options.mcpAt) {
+        connected = true;
+        appendFileSync(log, '[DEBUG] MCP server "playwright": Successfully connected\n[DEBUG] MCP server "playwright": Connection established with capabilities: {"hasTools":true}\n');
+      }
+      if (submitted && !completed && time >= 2000) { completed = true; appendFileSync(log, settled + turn + main); }
+    } };
+  return { deps, submit, paste, capture, time: () => time };
+}
+function temporary(test: (file: string) => Promise<void> | void) {
+  return async () => { const dir = mkdtempSync(join(tmpdir(), "l0-driver-")), file = join(dir, "debug.log"); writeFileSync(file, "");
+    try { await test(file); } finally { rmSync(dir, { recursive: true, force: true }); } };
+}
+describe("L0 product driver adversaries", () => {
+  it("should wait for required MCP capabilities before submitting the first turn", temporary(async file => {
+    const f = fixture(file, { mcpAt: 1000 });
+    const result = await deliverClaudeNativePrompt("w", "exact brief", f.deps, { debugFile: file, requiredMcps: ["playwright"], requiredMcpProof: () => f.time() >= 1000, qualifiedDiagnostic: true });
+    expect(result.state).toBe("working"); expect(f.submit).toHaveBeenCalledTimes(1);
+    expect(f.paste).toHaveBeenCalledTimes(1); expect(f.capture.mock.calls.length).toBeLessThanOrEqual(Math.ceil(f.time() / 250) + 1);
+  }));
+  it("should reject compaction raised after readiness", temporary(async file => {
+    const f = fixture(file, { blockedAfterPaste: true });
+    const result = await deliverClaudeNativePrompt("w", "exact brief", f.deps, { debugFile: file });
+    expect(result.state).toBe("undelivered"); expect(f.submit).not.toHaveBeenCalled();
+  }));
+  it("should reject a truncated marker even when a prompt probe is present", temporary(async file => {
+    const f = fixture(file, { truncated: true });
+    await deliverClaudeNativePrompt("w", "exact brief with a much longer final instruction", f.deps, { debugFile: file });
+    expect(f.submit).not.toHaveBeenCalled();
+  }));
+  for (const proof of [title, main, turn + main, settled + main]) {
+    it("should not accept an incomplete hook/turn/dispatch sequence " + JSON.stringify(proof), temporary(async file => {
+      const f = fixture(file); f.submit.mockImplementation(() => { appendFileSync(file, proof); return true; });
+      const result = await deliverClaudeNativePrompt("w", "exact brief", f.deps, { debugFile: file, qualifiedDiagnostic: true, observationTimeoutMs: 1000 });
+      expect(result.state).toBe("launch-unconfirmed");
+    }));
+  }
+  it("should preserve a submitted session when a hook veto occurs", temporary(async file => {
+    const f = fixture(file); f.submit.mockImplementation(() => { appendFileSync(file, "[ERROR] hook pre-submit rejected: veto\n"); return true; });
+    expect((await deliverClaudeNativePrompt("w", "exact brief", f.deps, { debugFile: file })).state).toBe("provider-blocked");
+    expect(f.submit).toHaveBeenCalledTimes(1);
+  }));
+  it("should retain a fragmented dispatch line and detect truncation", temporary(file => {
+    const reader = new ClaudeDebugReader(file);
+    appendFileSync(file, main.slice(0, 30)); expect(reader.read().content).toBe("");
+    appendFileSync(file, main.slice(30)); expect(reader.read().content).toBe(main);
+    writeFileSync(file, ""); expect(reader.read().error).toMatch(/truncated/);
+  }));
+  it("should correlate an out-of-order assistant response only to the exact conversation and prompt", temporary(file => {
+    const user = { type: "user", sessionId: "c", uuid: "u", message: { content: "exact brief" } };
+    const assistant = { type: "assistant", sessionId: "c", parentUuid: "u", message: { role: "assistant", content: [{ type: "text", text: "answer" }] } };
+    writeFileSync(file, JSON.stringify(assistant) + "\n" + JSON.stringify(user) + "\n");
+    expect(correlatedClaudeResponse(file, "c", "exact brief")).toBe(true);
+    expect(correlatedClaudeResponse(file, "other", "exact brief")).toBe(false);
+    expect(correlatedClaudeResponse(file, "c", "different brief")).toBe(false);
+  }));
 });
