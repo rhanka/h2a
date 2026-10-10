@@ -163,23 +163,25 @@ export async function runNativeTerminalHostProcess(argv: ReadonlyArray<string>):
       shutdown = (async () => {
         initialization.abort();
         let gracefulError: unknown;
-        try {
-          const server = await serverReady;
-          await server.close({ stopSessions: true, signal: "SIGTERM" });
-        } catch (error) {
+        // Begin terminal shutdown independently of publication/rollback.
+        try { host.stopAll("SIGTERM"); }
+        catch (error) { gracefulError = error; }
+        const closeServer = serverReady.then(server => server.close()).catch((error: unknown) => {
           if (error !== initialization.signal.reason) gracefulError = error;
-        }
-        if (!await waitForTerminalDrain(host, GRACEFUL_DRAIN_MS)) {
-          try {
-            await host.forceStopAll("SIGKILL");
-          } catch {
-            // The post-kill drain check below is authoritative: a raced exit may
-            // make node-pty report an error even though no terminal remains.
+        });
+        try {
+          if (!await waitForTerminalDrain(host, GRACEFUL_DRAIN_MS)) {
+            try {
+              await host.forceStopAll("SIGKILL");
+            } catch {
+              // The post-kill drain check below is authoritative: a raced exit may
+              // make node-pty report an error even though no terminal remains.
+            }
+            if (!await waitForTerminalDrain(host, FORCED_DRAIN_MS)) {
+              throw new Error("terminal sessions did not exit after forced shutdown");
+            }
           }
-          if (!await waitForTerminalDrain(host, FORCED_DRAIN_MS)) {
-            throw new Error("terminal sessions did not exit after forced shutdown");
-          }
-        }
+        } finally { await closeServer; }
         if (gracefulError !== undefined) throw gracefulError;
       })();
       void shutdown.then(
