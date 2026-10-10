@@ -247,6 +247,17 @@ try {
     row.nativeOperations = traces.filter(t=>t.name==='node_preload'&&t.entry==='op.js'&&t.session===row.id).map(t=>({operation:t.operation,at:t.at-begin}));
     const receiptPath=workspace+'/.h2a/runs/'+row.name+'/launch.json';
     if(fs.existsSync(receiptPath))row.receipt=JSON.parse(fs.readFileSync(receiptPath,'utf8'));
+    const firstMain = stubRequests.flatMap(request=>{
+      try {
+        const body=JSON.parse(request.body), conversation=JSON.parse(body.metadata?.user_id||'{}').session_id;
+        const exact=body.messages?.some(message=>message.role==='user'&&(typeof message.content==='string'
+          ? message.content==='Return the word READY_WITNESS.' : message.content?.some(block=>block.text==='Return the word READY_WITNESS.')));
+        return conversation===row.receipt?.conversationId&&exact?[{request,body}]:[];
+      }catch{return[];}
+    })[0];
+    row.toolsAtFirstMainRequest=firstMain?['h2a','playwright'].every(server=>firstMain.body.tools?.some(tool=>tool.name.startsWith('mcp__'+server+'__'))):null;
+    if(row.receipt?.result?.state==='started'&&row.receipt?.requiredMcps?.includes('h2a')&&row.receipt?.requiredMcps?.includes('playwright')&&row.toolsAtFirstMainRequest!==true)
+      throw new Error('started without exact prompt and both required tools on the first main request');
     try { const state=await client.state(row.id); row.afterResultSession={status:state.status,generation:state.generation,incarnation:state.incarnation}; } catch { row.afterResultSession={status:'absent'}; }
     const mainDispatch=[...debug.matchAll(/^(\S+) .*\[API REQUEST\] \/v1\/messages source=repl_main_thread/gm)].map(m=>Date.parse(m[1]));
     row.dispatchMs=mainDispatch.length?Math.min(...mainDispatch)-begin:null;
