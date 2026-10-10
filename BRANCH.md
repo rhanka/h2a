@@ -11,31 +11,24 @@ Real processes run only with isolated HOME, runtime directories and stores.
   backs up existing files and requires `--allow-tracked` for tracked files.
 - [x] L-H: retain live shim stdio on restart, operator status/stop and rollback semantics.
 - [x] L-H: report-only inventory of old central configs and repo store sentinels.
-- [x] L-A: lightweight `mcp-serve` switch, Claude only; causal conversation
-  identity, independent attachments, shared store, private discovery, idle exit.
-- [x] Focused laboratory: two workspaces, restart identity continuity, T4 cohorts,
-  latency/RSS comparison, focused regressions and at most one final root suite.
+- [x] L-A transport: lightweight opt-in `mcp-serve` switch, Claude only; causal
+  conversation identity, independent attachments and private discovery.
+- [ ] L-A default release: blocked by the exact production Graphify-loss reproduction.
+- [x] Review 4: discriminating R3 regression, R18 stdio routing and R19 manual
+  daemon attachment isolation, each evidenced independently with RED/GREEN.
 - [ ] Wider qualification: exact production graphify loss reproduction,
   18/36-session synthetic-volume budgets, host-version matrix and a fresh
   fully GREEN root gate in a prepared environment.
 
-Evidence: ignored `tmp/mcp-evidence/`. Published 0.98.0 retains an ordinary
-graphify-ts entry in the supplied-shaped fixture, removes standalone Track and
-reformats surrounding bytes. Exact production graphify loss is not reproduced;
-do not claim otherwise. No launch-index exists on this main revision: reuse the
-existing identity storage and leave index integration to L-C, without a parallel index.
-
-Focused qualification passes: central/core 27; attachment/identity/stdio/wake/CLI
-130 passed and 16 intentional skips; T4 central 5/5 with four sessions; host
-writer 6/6. The initial performance sample has four distinct synthetic sessions:
-stdio 435.4 MiB RSS, central + shims 420.2 MiB; shim 73.7–73.9 MiB, central
-125.1 MiB. Warm initialize 109–122 ms versus stdio 227–235 ms; cold 443 ms.
-The proposed 50 MiB shim and 18-session aggregate budgets are not qualified.
-One final root gate: Node 2,451 passes / 4 environment failures / 32 skips /
-21 TODO; Track 1,193 passes. Failed files pass a focused rerun after local C++
-PTY compilation and increasing the single-file heap cap to 768 MiB (19 passes,
-6 existing TODO). The full suite was not repeated or declared GREEN. Report:
-`docs/reviews/mcp-central-default-claude.md`. No peer consensus is claimed:
+Fresh evidence: ignored `.qual-tmp/sol4/evidence/`, with command, SHA and raw
+output per run. Published 0.98.0 preparation plus writer preserves Graphify in
+the reconstructed Airbus fixture while changing tracked bytes/mode without a
+backup. This is not the exact production-loss reproduction; R6 stays open and
+implicit default activation is disabled. Existing launch-index readers are
+already present on main. The earlier performance and pre-rebase gate claims
+are superseded, not reused as evidence. Final qualification is scoped, isolated
+and tied to the final committed SHA; no root/performance gate is claimed.
+Report: `docs/reviews/mcp-central-default-claude.md`. No peer consensus is claimed:
 the installed-session review route conflicts with the owner isolation constraint.
 
 ## Historical plans (superseded for this branch)
