@@ -90,6 +90,23 @@ test("qualification guards reject paths resolving outside .qual-tmp", () => {
   assert.throws(() => qualifiedEnvironment("/home/antoinefa"), /escapes .qual-tmp/);
 });
 
+test("R6 unresolved Graphify reproduction keeps Claude central opt-in when configuration is absent", async () => {
+  const f = fixture();
+  const env = { ...f.env, CLAUDE_CODE_SESSION_ID: "r6-default-gate" };
+  delete env.H2A_MCP_CENTRAL;
+  const client = new Client({ name: "r6-default-gate", version: "1" });
+  const transport = new StdioClientTransport({ command: process.execPath, args: [bin, "mcp-serve", "--host", "claude"], env, cwd: join(f.dir, "repo-a"), stderr: "pipe" });
+  try {
+    await client.connect(transport);
+    assert.ok((await client.listTools()).tools.length);
+    assert.equal(existsSync(join(f.runtimeBase, "h2a-mcp-central", "marker.json")), false, "P0 #5 blocks an implicit central activation until the production Graphify loss is reproduced");
+  } finally {
+    await client.close();
+    if (existsSync(join(f.runtimeBase, "h2a-mcp-central", "marker.json"))) await centralOperator("stop", { runtimeBase: f.runtimeBase });
+    f.cleanup();
+  }
+});
+
 test("R3 unqualified v1 connector leaves live central attachments unchanged with an inherited Claude ID", async () => {
   const f = fixture();
   let server;
@@ -429,7 +446,7 @@ test("operator stop is authenticated, leaves shims open, and residue detection n
   } finally { await channel?.close(); await server?.stop(); f.cleanup(); }
 });
 
-test("mcp-serve defaults Claude to one ephemeral central without project writes; other hosts and opt-outs use stdio", { timeout: 30_000 }, async () => {
+test("mcp-serve opts Claude into one ephemeral central without project writes; other hosts and opt-outs use stdio", { timeout: 30_000 }, async () => {
   const f = fixture();
   const children = [];
   const channels = [];
@@ -446,7 +463,7 @@ test("mcp-serve defaults Claude to one ephemeral central without project writes;
   try {
     let generation;
     for (const repo of [join(f.dir, "repo-a"), join(f.dir, "repo-b")]) {
-      const channel = start("claude", repo, { H2A_MCP_CENTRAL: undefined });
+      const channel = start("claude", repo);
       await channel.call("initialize");
       await ready(channel);
       const marker = JSON.parse(readFileSync(join(f.runtimeBase, "h2a-mcp-central", "marker.json"), "utf8"));

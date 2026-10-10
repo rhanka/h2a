@@ -5,6 +5,9 @@ import { runCentralShim } from "./runtime/mcp-central-shim.js";
 import { readCentralMcpMarker } from "./runtime/mcp-central-discovery.js";
 
 const argv = process.argv.slice(2);
+// P0 #5: keep Claude opt-in until the production Graphify loss has an
+// evidenced 0.98.0 reproduction.
+const centralByDefault = false;
 const flags: Record<string, string> = {};
 for (let i = 1; i < argv.length; i++) {
   if (!argv[i].startsWith("--")) continue;
@@ -14,7 +17,7 @@ for (let i = 1; i < argv.length; i++) {
 }
 
 try {
-  if (argv[0] === "mcp-serve" && shouldUseCentralMcp(flags, process.env, true)) {
+  if (argv[0] === "mcp-serve" && shouldUseCentralMcp(flags, process.env, centralByDefault)) {
     process.exitCode = await runCentralShim(flags, canonicalCentralRoot());
   } else if (argv[0] === "mcp-central-connect") {
     // Legacy v1 connectors without explicit host qualification remain in stdio
@@ -23,7 +26,7 @@ try {
     const hasClaudeId = Boolean(process.env.CLAUDE_CODE_SESSION_ID?.trim());
     const isExplicitClaude = flags.host === "claude";
 
-    if (!isExplicitClaude || !hasClaudeId || !centralRoutingEnabled(process.env, true)) {
+    if (!isExplicitClaude || !hasClaudeId || !centralRoutingEnabled(process.env, centralByDefault)) {
       process.argv[2] = "mcp-serve";
       await import("./bin-heavy.js");
     } else {
@@ -42,7 +45,7 @@ try {
           ...flags,
           endpoint: marker.endpoint
         };
-        if (!shouldUseCentralMcp(effectiveFlags, process.env, true)) {
+        if (!shouldUseCentralMcp(effectiveFlags, process.env, centralByDefault)) {
           process.argv[2] = "mcp-serve";
           await import("./bin-heavy.js");
         } else {
