@@ -33,7 +33,7 @@ import {
 import { main, registryEntryForResumeTarget } from "./index.js";
 import * as tmux from "./tmux.js";
 // @ts-ignore Shared JS test isolation helper.
-import { assertIsolatedEnvironment, assertPrivateQualificationPath, installNativeTestEnvironment, nativeTestEnvironment, nativeQualificationRoot } from "../../h2a/test/helpers/native-isolation.js";
+import { assertIsolatedEnvironment, assertPrivateQualificationPath, createPrivateTestDirectory, installNativeTestEnvironment, nativeTestEnvironment, nativeQualificationRoot } from "../../h2a/test/helpers/native-isolation.js";
 
 const SCRATCH_ROOT = nativeQualificationRoot;
 
@@ -236,9 +236,7 @@ describe("attach/stop act gating on a dead recorded-native session (CLI level)",
   let tmuxViewSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
-    assertPrivateQualificationPath(SCRATCH_ROOT, SCRATCH_ROOT);
-    mkdirSync(SCRATCH_ROOT, { recursive: true, mode: 0o700 });
-    scratch = mkdtempSync(join(SCRATCH_ROOT, "u"));
+    scratch = createPrivateTestDirectory("u");
     const configDir = join(scratch, ".config", "sentropic", "h2a");
     mkdirSync(configDir, { recursive: true });
     writeFileSync(

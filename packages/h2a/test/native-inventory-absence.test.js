@@ -1,8 +1,8 @@
-import { assertIsolatedEnvironment, assertIsolatedNativeOperation, spawnIsolatedNative as spawn } from "./helpers/native-isolation.js";
+import { assertIsolatedEnvironment, assertIsolatedNativeOperation, assertPrivateQualificationPath, createPrivateTestDirectory, nativeQualificationRoot, spawnIsolatedNative as spawn } from "./helpers/native-isolation.js";
 import assert from "node:assert/strict";
 
 import { once } from "node:events";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import test from "node:test";
 import { pathToFileURL } from "node:url";
@@ -42,14 +42,29 @@ test("should prove isolation guard fails if any environment variable resolves to
   }
 });
 
-async function fixture(body) {
-  const qualRoot = join(repo, ".qual-tmp");
-  mkdirSync(qualRoot, { recursive: true });
-  const root = mkdtempSync(join(qualRoot, "q"));
+test("should reject aliased qualification root and ws before any inventory fixture writes", async () => {
+  const lab = createPrivateTestDirectory("a");
+  const outside = mkdtempSync("/tmp/h2a-r2-inventory-canary-");
+  try {
+    for (const child of ["alias", "ws"]) {
+      const alias = join(lab, child);
+      symlinkSync(outside, alias);
+      let refused = false;
+      try { await fixture(async () => {}, child === "alias" ? alias : lab); }
+      catch (error) { assert.match(String(error), /REFUSING/); refused = true; }
+      assert.deepEqual(readdirSync(outside), [], "refusal must precede the first mkdir/mkdtemp");
+      assert.equal(refused, true, "aliased fixture must be refused");
+      unlinkSync(alias);
+    }
+  } finally { rmSync(lab, { recursive: true, force: true }); rmSync(outside, { recursive: true, force: true }); }
+});
+
+async function fixture(body, qualRoot = join(repo, ".qual-tmp")) {
+  assertPrivateQualificationPath(join(qualRoot, "ws"), nativeQualificationRoot);
+  const root = createPrivateTestDirectory("q", qualRoot);
   const home = join(root, "home");
   const workspaces = join(qualRoot, "ws");
-  mkdirSync(workspaces, { recursive: true });
-  const workspace = mkdtempSync(join(workspaces, "w-"));
+  const workspace = createPrivateTestDirectory("w-", workspaces);
   mkdirSync(home, { mode: 0o700 });
   const stateHome = join(home, ".local/state");
   mkdirSync(stateHome, { recursive: true, mode: 0o700 });

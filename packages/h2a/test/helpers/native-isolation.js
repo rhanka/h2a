@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
-import { lstatSync, mkdirSync, readlinkSync } from "node:fs";
+import { lstatSync, mkdirSync, mkdtempSync, readlinkSync } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 
 export const nativeQualificationRoot = resolve(import.meta.dirname, "../../../../.qual-tmp");
@@ -14,9 +14,14 @@ function rejectOwnerPath(path) {
 }
 
 // Resolve existing ancestors without following a symlink into owner state.
-function resolvedPath(path, depth = 0) {
+function resolvedPath(path, depth = 0, boundary) {
   const absolute = resolve(path);
   rejectOwnerPath(absolute);
+  if (boundary) {
+    const rel = relative(boundary, absolute);
+    assert.ok(rel === "" || (!rel.startsWith("..") && !rel.startsWith("/")),
+      `REFUSING path outside qualification root before filesystem access: ${absolute}`);
+  }
   assert.ok(depth < 32, "REFUSING cyclic qualification symlink");
   const parts = absolute.split("/").filter(Boolean);
   let current = "/";
@@ -30,17 +35,25 @@ function resolvedPath(path, depth = 0) {
     }
     if (info.isSymbolicLink()) {
       return resolvedPath(join(resolve(dirname(current), readlinkSync(current)),
-        ...parts.slice(index + 1)), depth + 1);
+        ...parts.slice(index + 1)), depth + 1, boundary);
     }
   }
   return current;
 }
 
 export function assertPrivateQualificationPath(path, root) {
-  const actual = resolvedPath(path);
-  const rel = relative(resolvedPath(root), actual);
+  const actualRoot = resolvedPath(root, 0, resolve(root));
+  assert.equal(actualRoot, resolve(root), "REFUSING aliased qualification root before mutation");
+  const actual = resolvedPath(path, 0, actualRoot);
+  const rel = relative(actualRoot, actual);
   assert.ok(rel === "" || (!rel.startsWith("..") && !rel.startsWith("/")),
     `REFUSING path outside qualification root: ${actual}`);
+}
+
+export function createPrivateTestDirectory(prefix, parent = nativeQualificationRoot) {
+  assertPrivateQualificationPath(parent, nativeQualificationRoot);
+  mkdirSync(parent, { recursive: true, mode: 0o700 });
+  return mkdtempSync(join(parent, prefix));
 }
 
 export function assertIsolatedEnvironment(env, root = nativeQualificationRoot) {

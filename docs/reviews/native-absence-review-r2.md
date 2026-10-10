@@ -57,3 +57,72 @@ or pure selector/registry data. They cannot reach the default host. Launch-guard
 child fixtures contain empty session ownership and execute no native stop.
 No owner path was probed to establish this audit: unsafe paths are lexical
 negative cases, and alias fixtures are private.
+
+## R2-F02: validate ancestors before fixture mutation
+
+RED: `r2-f02-inventory-red.log` observes a new `q*` directory and `ws` in
+the external private canary; `r2-f02-journal-red.log` observes a new `j*`
+directory despite refusal. GREEN: both canaries remain empty. Inventory checks
+both its root and `ws` ancestor before creating any fixture directory; journal
+checks its parent before `mkdir`/`mkdtemp` and validates its full environment
+before creating HOME/XDG directories. The shared directory constructor also
+protects generation, isolation and reuse fixtures. An aliased qualification
+root is refused even if its target is outside the owner's known paths.
+The additional `r2-f02-metadata-red.log` observes metadata reads at an external
+canary before refusal. `r2-f02-metadata-green.log` proves that direct outside
+paths and escaping aliases are refused before inspecting their target metadata.
+
+## R2-F03: independent, bounded journal delivery
+
+RED: `r2-f03-red.log` fails the 1,500 ms SIGTERM exit bound with an actual
+writer blocked indefinitely in `openSync` by `Atomics.wait`. GREEN:
+`r2-f03-green.log` passes all 20 journal tests without skips. The blocked
+writer is observed, the host still answers ping, host callbacks perform no
+journal disk operation, and both host and its writer terminate.
+
+Every observation, including terminal exceptions and actual exit, is queued to
+an independent writer process. Its coordinator delegates all journal I/O to a
+thread, so it can enforce a 100 ms drain deadline even on blocked storage.
+The host never refs that writer; its optional graceful flush also has a 100 ms
+deadline. Fatal Node semantics are unchanged. Final delivery is best effort
+and may complete just after host exit; tests await the observed final entry.
+The mailbox remains bounded to 64 entries and diagnostic stacks to 32 KiB.
+No PID watcher synthesizes a lifecycle event.
+
+## R2-F04: canonical diagnostic file allowlist
+
+RED: `r2-f04-red.log` has four sentinel leaks: existing traversal target,
+symlink to an external regular file, directory disguised as a code file and
+an internal symlink alias. The sentinel is explicitly absent from environment
+values. GREEN: `r2-f04-green.log` passes all 24 journal tests without skips.
+Stack locations and the trusted entry point are canonicalized, containment is
+checked on canonical paths, and only regular files are retained. Serialization
+uses the verified canonical location, so even an allowed internal alias cannot
+retain arbitrary path text. These filesystem checks run on the writer side.
+
+## R2-F05: relevant rollback-only mutation evidence
+
+The former A F03 RED against `656c1f89` is withdrawn: that version did not
+implement the injection and failed with `Missing expected rejection`.
+`scripts/qualify-native-owner-rollback.mjs` now mutates the current compiled
+server by removing only its published-inode rollback block, preserving the
+owner-write injection byte for byte. The same test observes initial injection,
+endpoint retention and retry outcome before asserting either final effect.
+
+RED: `r2-f05-red.log` reports `socketLeftBehind: true`, `restarted: false`
+and the unattributable stale-socket retry refusal. GREEN: `r2-f05-green.log`
+passes with `socketLeftBehind: false`, `restarted: true`. The runner checks
+the exact failure reason, rejects `Missing expected rejection`, stores the
+removed block and SHA-256 hashes in `r2-f05-mutation.json`, and restores the
+original build in `finally`. Both runs contain one test and zero skips/TODOs.
+
+## Final qualification protocol
+
+After rebasing onto `5ca5c7bc` (#313), run the full absence/generation/isolation
+selection with the required historical host, all journal/process/server/client/
+op/fleet/native-host/reuse tests, drive and terminal-mode qualification (#314),
+and all concrete PTY messaging/M02/M04 tests. Process-functional qualification
+includes the real publication-contention cases (#312). Re-run the rollback
+mutation on the rebased build. Use one worker and private HOME/XDG/socket/tmp/
+tmux paths throughout. Final results, commit mapping and final SHA are recorded
+in the owner's French completion report; machine receipts are `r2-final-*`.
