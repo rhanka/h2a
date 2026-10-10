@@ -6098,7 +6098,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           opts.headless === true ||
           opts.background === true ||
           opts.json === true;
-        if (profile === "claude" && opts.promptStdin && !opts.headless &&
+        if (profile === "claude" && resolveSessionHostKind(opts) === "native" && opts.promptStdin && !opts.headless &&
             ((opts.launchContract !== undefined && opts.launchContract !== "claude-native/2") ||
              (process.env.H2A_RUN_LAUNCH_TOKEN && opts.json && opts.launchContract === undefined))) {
           process.stderr.write("[h2a] incompatible native Claude launch preservation contract; refused before creation\n");
