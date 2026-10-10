@@ -1,4 +1,4 @@
-import { createPrivateTestDirectory, assertIsolatedEnvironment, assertIsolatedNativeOperation, spawnIsolatedNative as spawn } from "./helpers/native-isolation.js";
+import { createPrivateTestDirectory, assertIsolatedEnvironment, assertIsolatedNativeOperation, spawnIsolatedNative as spawn, waitForPrivateNativeProcesses } from "./helpers/native-isolation.js";
 import assert from "node:assert/strict";
 
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
@@ -151,6 +151,7 @@ async function withLegacy(context, body, historicalEntry = legacyEntry) {
       if (handle.child.exitCode === null && handle.child.signalCode === null) handle.child.kill("SIGTERM");
       await handle.closed;
     }
+    await waitForPrivateNativeProcesses(env);
     rmSync(root, { recursive: true, force: true });
   }
 }

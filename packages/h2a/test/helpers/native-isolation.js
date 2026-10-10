@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import childProcess, { spawn, spawnSync } from "node:child_process";
 import { syncBuiltinESMExports } from "node:module";
-import { lstatSync, mkdirSync, mkdtempSync, readlinkSync } from "node:fs";
+import { isMainThread } from "node:worker_threads";
+import fs, { closeSync, constants, lstatSync, mkdirSync, mkdtempSync, openSync, readlinkSync, symlinkSync, unlinkSync } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 
 export const nativeQualificationRoot = resolve(import.meta.dirname, "../../../../.qual-tmp");
@@ -63,7 +64,7 @@ export function assertIsolatedEnvironment(env, root = nativeQualificationRoot) {
     assertPrivateQualificationPath(env[key], root);
   }
   for (const key of ["TMPDIR", "TMUX_TMPDIR", "REMOTE_CLI_CONFIG_HOME", "H2A_ROOT",
-    "H2A_NATIVE_HOST_LOG"]) {
+    "H2A_NATIVE_HOST_LOG", "H2A_TEST_PROC_ROOT", "H2A_TEST_OWNED_PROC_ROOT"]) {
     if (env[key]) assertPrivateQualificationPath(env[key], root);
   }
   if (env.TMUX) assertPrivateQualificationPath(env.TMUX.split(",")[0], root);
@@ -71,11 +72,14 @@ export function assertIsolatedEnvironment(env, root = nativeQualificationRoot) {
 
 export function isolatedNativeTestEnvironment(overrides = {}) {
   const env = Object.fromEntries(["HOME", "XDG_RUNTIME_DIR", "XDG_STATE_HOME", "XDG_CONFIG_HOME",
-    "H2A_NATIVE_SOCKET", "TMPDIR", "TMUX_TMPDIR", "REMOTE_CLI_CONFIG_HOME", "H2A_ROOT"]
+    "H2A_NATIVE_SOCKET", "TMPDIR", "TMUX_TMPDIR", "REMOTE_CLI_CONFIG_HOME", "H2A_ROOT",
+    "H2A_TEST_PROC_ROOT", "H2A_TEST_OWNED_PROC_ROOT", "NODE_OPTIONS"]
     .map(key => [key, process.env[key]]));
   Object.assign(env, overrides);
   assertIsolatedEnvironment(env);
-  return env;
+  const prepared = privateProcessEnvironment(env);
+  if (overrides === process.env) installProcessViewVariables(prepared);
+  return prepared;
 }
 
 // Fleet qualification deliberately selects the two default generations with
@@ -97,7 +101,7 @@ export function nativeTestEnvironment(root, overrides = {}) {
   assertIsolatedEnvironment(env);
   for (const key of ["HOME", "XDG_STATE_HOME", "XDG_CONFIG_HOME", "REMOTE_CLI_CONFIG_HOME", "TMPDIR"])
     mkdirSync(env[key], { recursive: true, mode: 0o700 });
-  return env;
+  return privateProcessEnvironment(env);
 }
 
 export function installNativeTestEnvironment(env) {
@@ -125,6 +129,7 @@ function guardSpawn(args, options = {}) {
 const guardInstalled = Symbol.for("h2a.test.nativeSpawnGuard");
 const preload = `--import=${import.meta.url}`;
 const nativeEntry = /(?:^|[/\\\s"'])(?:op|process)\.[jt]s(?:$|[\s"'])/;
+const privateProcessRoots = childProcess.ChildProcess.prototype[guardInstalled]?.processRoots ?? new Map();
 
 function isNode(command) {
   return command === process.execPath || /(?:^|[/\\])node(?:js|\.exe)?$/.test(command);
@@ -143,7 +148,54 @@ function guardedEnvironment(command, args, env, cwd = process.cwd()) {
   if (!isNode(command)) return env;
   // Carry the boundary through CLI/worker children even with a minimal env.
   const options = env.NODE_OPTIONS ?? "";
-  return { ...env, NODE_OPTIONS: options.includes(preload) ? options : `${options} ${preload}`.trim() };
+  return privateProcessEnvironment({ ...env,
+    NODE_OPTIONS: options.includes(preload) ? options : `${options} ${preload}`.trim() });
+}
+
+function privateProcessEnvironment(env) {
+  // Non-native tests may intentionally use incomplete or non-lab environments.
+  // A real native launch has already been required to pass the complete guard.
+  if (!["HOME", "XDG_RUNTIME_DIR", "XDG_STATE_HOME", "XDG_CONFIG_HOME"].every(key =>
+    env[key]?.startsWith(`${nativeQualificationRoot}/`)) || env.H2A_NATIVE_SOCKET === undefined) return env;
+  assertIsolatedNativeOperation(env);
+  if (env.H2A_TEST_PROC_ROOT) return env; // Preserve deliberately injected error fixtures.
+  // One view per fixture in this running test process. A later campaign must
+  // never inherit dangling descriptor links left by a killed earlier child.
+  let root = privateProcessRoots.get(env.XDG_RUNTIME_DIR);
+  if (!root) {
+    root = createPrivateTestDirectory("proc-owned-", env.XDG_RUNTIME_DIR);
+    privateProcessRoots.set(env.XDG_RUNTIME_DIR, root);
+  }
+  return { ...env, H2A_TEST_PROC_ROOT: root, H2A_TEST_OWNED_PROC_ROOT: root };
+}
+
+function installProcessViewVariables(env) {
+  for (const key of ["H2A_TEST_PROC_ROOT", "H2A_TEST_OWNED_PROC_ROOT"])
+    if (env[key] !== undefined) process.env[key] = env[key];
+}
+
+function registerPrivateProcess(pid, env, replace = false) {
+  if (process.platform !== "linux" || !pid || !env.H2A_TEST_PROC_ROOT
+    || env.H2A_TEST_PROC_ROOT !== env.H2A_TEST_OWNED_PROC_ROOT) return () => {};
+  const root = env.H2A_TEST_PROC_ROOT;
+  assertPrivateQualificationPath(root, nativeQualificationRoot);
+  const entry = join(root, String(pid));
+  // Pin this process's proc directory, not a recyclable PID pathname. A host
+  // preload replaces its parent's pin with its own before the parent exits.
+  const fd = openSync(`/proc/${pid}`, constants.O_RDONLY | constants.O_DIRECTORY);
+  const target = `/proc/${process.pid}/fd/${fd}`;
+  try {
+    if (replace) { try { unlinkSync(entry); } catch (error) { if (error.code !== "ENOENT") throw error; } }
+    symlinkSync(target, entry);
+  } catch (error) {
+    closeSync(fd);
+    if (error.code === "EEXIST") return () => {};
+    throw error;
+  }
+  return () => {
+    try { unlinkSync(entry); } catch (error) { if (error.code !== "ENOENT") throw error; }
+    closeSync(fd);
+  };
 }
 
 export function installNativeTestSpawnGuard() {
@@ -157,8 +209,10 @@ export function installNativeTestSpawnGuard() {
       return [pair.slice(0, index), pair.slice(index + 1)];
     }));
     const guarded = guardedEnvironment(options.file, options.args, env, options.cwd ?? process.cwd());
-    return actualSpawn.call(this, { ...options,
+    const result = actualSpawn.call(this, { ...options,
       envPairs: Object.entries(guarded).map(([key, value]) => `${key}=${value}`) });
+    if (this.pid) this.once("exit", registerPrivateProcess(this.pid, guarded));
+    return result;
   };
   childProcess.spawnSync = function (command, args, options) {
     if (!Array.isArray(args)) { options = args; args = []; }
@@ -176,6 +230,7 @@ export function installNativeTestSpawnGuard() {
     return actualExecSync(command, { ...options, env });
   };
   const state = { violations: [], expectedRefusals: 0 };
+  state.processRoots = privateProcessRoots;
   Object.defineProperty(prototype, guardInstalled, { value: state });
   const failUnexpected = () => {
     if (state.violations.length) {
@@ -185,6 +240,15 @@ export function installNativeTestSpawnGuard() {
   };
   process.once("beforeExit", failUnexpected);
   process.once("exit", failUnexpected);
+  const actualRealpath = fs.realpathSync;
+  fs.realpathSync = function (path, ...args) {
+    // Defense in depth for malformed process fixtures: never canonicalize an
+    // external candidate, even if a fixture accidentally names one. The
+    // production scanner receives its normal fs implementation outside tests.
+    if (new Error().stack?.match(/native-terminal[/\\]server\.[jt]s/))
+      assertPrivateQualificationPath(String(path), nativeQualificationRoot);
+    return actualRealpath(path, ...args);
+  };
   syncBuiltinESMExports();
 }
 
@@ -200,9 +264,32 @@ export function assertNoNativeTestSpawnViolations() {
     "no caught unsafe native launch may pass qualification");
 }
 
+export async function waitForPrivateNativeProcesses(env) {
+  const root = env.H2A_TEST_OWNED_PROC_ROOT ?? privateProcessRoots.get(env.XDG_RUNTIME_DIR);
+  if (!root) return;
+  assertPrivateQualificationPath(root, nativeQualificationRoot);
+  const deadline = Date.now() + 1_000;
+  for (;;) {
+    let entries;
+    try { entries = fs.readdirSync(root); }
+    catch (error) { if (error.code === "ENOENT") return; throw error; }
+    const alive = entries.filter(entry => /^\d+$/.test(entry) && Number(entry) !== process.pid).filter(entry => {
+      try { return !/\) [ZX] /.test(fs.readFileSync(join(root, entry, "stat"), "utf8")); }
+      catch (error) { if (error.code === "ENOENT" || error.code === "ESRCH") return false; throw error; }
+    });
+    if (alive.length === 0) return;
+    assert.ok(Date.now() < deadline, `fixture processes still writing after host shutdown: ${alive.join(", ")}`);
+    await new Promise(resolve => setTimeout(resolve, 10));
+  }
+}
+
 installNativeTestSpawnGuard();
 // Also protect native entry points reached via shell/PTY wrappers.
 if (nativeEntry.test(process.argv[1] ?? "")) guardSpawn(process.argv.slice(1), { env: process.env });
+const processEnvironment = privateProcessEnvironment(process.env);
+installProcessViewVariables(processEnvironment);
+if (isMainThread && process.env.H2A_TEST_PROC_ROOT === process.env.H2A_TEST_OWNED_PROC_ROOT)
+  process.once("exit", registerPrivateProcess(process.pid, process.env, true));
 
 export function spawnIsolatedNative(command, args = [], options = {}) {
   guardSpawn(args, options);
