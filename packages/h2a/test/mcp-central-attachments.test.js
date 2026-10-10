@@ -689,7 +689,7 @@ test("central stop when daemon is already absent writes the pause inhibition", a
   }
 });
 
-test("runtime-base namespace is strictly isolated across discovery, auto-start, policy, operator and exercises reconnection in isolated child", async () => {
+test("runtime-base namespace is strictly isolated across discovery, auto-start, policy, operator and exercises reconnection in real shim", async () => {
   const f = fixture();
   const nsA = join(f.dir, "ns-a");
   const nsB = join(f.dir, "ns-b");
@@ -707,7 +707,7 @@ test("runtime-base namespace is strictly isolated across discovery, auto-start, 
     REMOTE_CLI_CONFIG_HOME: join(f.dir, "remote-config"),
     H2A_ROOT: f.root,
     H2A_MCP_CENTRAL: "1",
-    CLAUDE_CODE_SESSION_ID: "session-ns"
+    CLAUDE_CODE_SESSION_ID: "session-ns-recovery"
   };
   mkdirSync(isolatedEnv.HOME, { recursive: true, mode: 0o700 });
   mkdirSync(isolatedEnv.XDG_CACHE_HOME, { recursive: true, mode: 0o700 });
@@ -715,72 +715,69 @@ test("runtime-base namespace is strictly isolated across discovery, auto-start, 
   mkdirSync(isolatedEnv.REMOTE_CLI_CONFIG_HOME, { recursive: true, mode: 0o700 });
   mkdirSync(f.root, { recursive: true, mode: 0o700 });
 
-  const childScript = `
-import assert from "node:assert/strict";
-import { existsSync, unlinkSync } from "node:fs";
-import { join } from "node:path";
-import { ensureCentralForShim } from "${resolve("packages/h2a/dist/runtime/mcp-central-start.js")}";
-import { centralOperator, centralPausePath } from "${resolve("packages/h2a/dist/runtime/mcp-central-operator.js")}";
-import { shouldUseCentralMcp } from "${resolve("packages/h2a/dist/runtime/mcp-central-policy.js")}";
+  // 1. Policy check: must respect explicit runtime-base
+  assert.equal(shouldUseCentralMcp({ host: "claude", "runtime-base": nsA }, isolatedEnv, true), true);
 
-const nsA = ${JSON.stringify(nsA)};
-const nsB = ${JSON.stringify(nsB)};
-const defaultNs = ${JSON.stringify(defaultNs)};
-
-// 1. Policy checks marker in the specific namespace with isolated env
-assert.equal(shouldUseCentralMcp({ host: "claude", "runtime-base": nsA }, process.env, true), true);
-
-// 2. ensureCentralForShim with nsA starts central exclusively in nsA
-const markerA1 = await ensureCentralForShim(true, { runtimeBase: nsA });
-assert.ok(markerA1.endpoint, "nsA endpoint must exist");
-assert.equal(existsSync(join(nsA, "h2a-mcp-central", "marker.json")), true, "marker must exist in nsA");
-assert.equal(existsSync(join(nsB, "h2a-mcp-central")), false, "nsB must remain empty");
-assert.equal(existsSync(join(defaultNs, "h2a-mcp-central")), false, "default namespace must remain empty");
-
-// 3. Reconnection in nsA: re-running ensureCentralForShim reuses the running daemon without spawning a new one
-const markerA2 = await ensureCentralForShim(true, { runtimeBase: nsA });
-assert.equal(markerA2.generation, markerA1.generation, "reconnected marker must match existing daemon generation");
-assert.equal(markerA2.endpoint, markerA1.endpoint, "reconnected endpoint must match existing daemon");
-
-// 4. Operator status distinguishes the namespaces
-const statusA = await centralOperator("status", { runtimeBase: nsA });
-const statusB = await centralOperator("status", { runtimeBase: nsB });
-const statusDef = await centralOperator("status", { runtimeBase: defaultNs });
-assert.equal(statusA.running, true, "nsA is running");
-assert.equal(statusB.running, false, "nsB is not running");
-assert.equal(statusDef.running, false, "defaultNs is not running");
-
-// 5. Operator stop in nsA only stops nsA and creates pause file exclusively in nsA
-const stopped = await centralOperator("stop", { runtimeBase: nsA });
-assert.equal(stopped.running, false, "nsA is stopped");
-assert.equal(existsSync(join(nsA, "h2a-mcp-central", "operator-stop.json")), true, "pause file written in nsA");
-assert.equal(existsSync(join(nsB, "h2a-mcp-central")), false, "nsB has no pause file or artifacts");
-assert.equal(existsSync(join(defaultNs, "h2a-mcp-central")), false, "defaultNs has no pause file or artifacts");
-
-// 6. Recovery: resume after operator stop by removing pause file and re-ensuring central
-unlinkSync(centralPausePath({ runtimeBase: nsA }));
-const recoveredMarker = await ensureCentralForShim(true, { runtimeBase: nsA });
-assert.ok(recoveredMarker.endpoint, "recovered marker must have endpoint");
-assert.notEqual(recoveredMarker.generation, markerA1.generation, "recovered daemon must have a new generation");
-
-// Verify other namespaces still have no artifacts after recovery
-assert.equal(existsSync(join(nsB, "h2a-mcp-central")), false, "nsB still has no artifacts after recovery");
-assert.equal(existsSync(join(defaultNs, "h2a-mcp-central")), false, "defaultNs still has no artifacts after recovery");
-
-// Clean shutdown
-await centralOperator("stop", { runtimeBase: nsA });
-`;
+  // 2. Exercise real shim with --runtime-base=nsA while XDG_RUNTIME_DIR is defaultNs
+  const repo = join(f.dir, "repo-a");
+  const shim = spawn(
+    process.execPath,
+    [bin, "mcp-serve", "--host", "claude", "--auto-open", "--runtime-base", nsA],
+    { env: isolatedEnv, cwd: repo, stdio: ["pipe", "pipe", "pipe"] }
+  );
+  const channel = rpcChannel(shim.stdin, shim.stdout);
 
   try {
-    execFileSync(process.execPath, ["--input-type=module", "-e", childScript], {
-      env: isolatedEnv,
-      stdio: ["ignore", "pipe", "pipe"]
+    const initRes = await channel.call("initialize", {
+      protocolVersion: "2025-06-18",
+      capabilities: {},
+      clientInfo: { name: "test-client", version: "1" }
     });
+    assert.ok(initRes.result, "shim initialize succeeded");
 
-    // Parent assertions: verify namespaces outside nsA remained completely clean
-    assert.equal(existsSync(join(nsB, "h2a-mcp-central")), false, "parent: nsB must remain completely empty");
-    assert.equal(existsSync(join(defaultNs, "h2a-mcp-central")), false, "parent: default namespace must remain completely empty");
+    const before = await ready(channel);
+    assert.equal(before.state, "identity_ready");
+    assert.ok(before.instance);
+    assert.equal(bindings(f.root).length, 1, "initial binding created in state root");
+
+    // Verify central daemon was created exclusively in nsA and not in defaultNs or nsB
+    assert.equal(existsSync(join(nsA, "h2a-mcp-central", "marker.json")), true, "marker exists in nsA");
+    assert.equal(existsSync(join(nsB, "h2a-mcp-central")), false, "nsB remains completely empty");
+    assert.equal(existsSync(join(defaultNs, "h2a-mcp-central")), false, "default namespace remains completely empty");
+
+    // Operator status distinguishes the namespaces
+    const statusA = await centralOperator("status", { runtimeBase: nsA });
+    const statusB = await centralOperator("status", { runtimeBase: nsB });
+    const statusDef = await centralOperator("status", { runtimeBase: defaultNs });
+    assert.equal(statusA.running, true, "nsA is running");
+    assert.equal(statusB.running, false, "nsB is not running");
+    assert.equal(statusDef.running, false, "defaultNs is not running");
+
+    // 3. Trigger central failure: kill central daemon in nsA
+    const markerA1 = JSON.parse(readFileSync(join(nsA, "h2a-mcp-central", "marker.json"), "utf8"));
+    process.kill(markerA1.pid, "SIGTERM");
+    await delay(300);
+
+    // Verify shim remains alive
+    assert.equal(shim.exitCode, null, "shim process remains alive across central stop");
+
+    // 4. Verify recovery over existing shim channel
+    const after = await ready(channel);
+    assert.equal(after.state, "identity_ready");
+    assert.equal(after.instance, before.instance, "recovered shim retains identical instance identity");
+    assert.equal(bindings(f.root).length, 1, "single binding preserved across restart");
+
+    // Verify recovered daemon is in nsA with new PID and zero artifacts elsewhere
+    const markerA2 = JSON.parse(readFileSync(join(nsA, "h2a-mcp-central", "marker.json"), "utf8"));
+    assert.notEqual(markerA2.pid, markerA1.pid, "recovered central daemon has new PID");
+    assert.equal(existsSync(join(nsB, "h2a-mcp-central")), false, "nsB remains completely empty after recovery");
+    assert.equal(existsSync(join(defaultNs, "h2a-mcp-central")), false, "defaultNs remains completely empty after recovery");
   } finally {
+    channel.close();
+    if (shim.exitCode === null && shim.signalCode === null) {
+      shim.kill("SIGTERM");
+      await once(shim, "exit");
+    }
     try { await centralOperator("stop", { runtimeBase: nsA }); } catch {}
     f.cleanup();
   }
