@@ -1,3 +1,24 @@
+# PR #317 CI journal writer shutdown correction
+
+Owner request, 2026-10-10: reproduce the native absence failures from CI run
+`38043175425` at `fd04f7c7`, identify the surviving processes, fix the cause,
+qualify with plain HOME / one or two CPUs / Node 20 and 22, then push only
+fast-forward commits to `origin/fix/0.98.2-native-absence-minimal`.
+This delivery authorization supersedes the historical no-push statements below.
+No merge, publication, release, owner host/session access, or `.track` write.
+
+Scope: native journal writer EOF handling, startup-error journal drain,
+termination-handler installation before socket publication, their regression
+and signal-fixture readiness, and the native isolation setup path
+that independently blocks the Node 22 CI job. Historical test fixtures also
+use short, unique private directories to fit their unchanged staging socket.
+Native absence teardown observes detached hosts' actual exit events before
+checking that no fixture process survives; signal acknowledgement is insufficient.
+The host process-census fixtures also await each owned ChildProcess exit after
+termination before the private process-view assertion runs.
+Evidence and repeat results:
+`docs/reviews/native-journal-shutdown-ci.md`.
+
 # Native absence minimal hotfix
 
 ## Scope
