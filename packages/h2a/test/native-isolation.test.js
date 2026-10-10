@@ -1,15 +1,16 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import { syncBuiltinESMExports } from "node:module";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
 import { join, resolve } from "node:path";
 import test from "node:test";
-import { assertIsolatedEnvironment, nativeTestEnvironment, spawnIsolatedNative } from "./helpers/native-isolation.js";
+import { createPrivateTestDirectory, assertIsolatedEnvironment, nativeTestEnvironment, spawnIsolatedNative } from "./helpers/native-isolation.js";
 
 const qualRoot = resolve(import.meta.dirname, "../../../.qual-tmp");
 const keys = ["HOME", "XDG_RUNTIME_DIR", "XDG_STATE_HOME", "XDG_CONFIG_HOME", "H2A_NATIVE_SOCKET"];
 
 test("should reject every unsafe isolation variable and symlink before process startup", () => {
-  mkdirSync(qualRoot, { recursive: true, mode: 0o700 });
-  const root = mkdtempSync(join(qualRoot, "i"));
+  const root = createPrivateTestDirectory("i");
   const safe = Object.fromEntries(keys.map(key => [key, join(root, key)]));
   try {
     assertIsolatedEnvironment(safe, qualRoot);
@@ -27,7 +28,7 @@ test("should reject every unsafe isolation variable and symlink before process s
 });
 
 test("should refuse unsafe child environments before executing the operation", () => {
-  const root = mkdtempSync(join(qualRoot, "i"));
+  const root = createPrivateTestDirectory("i");
   try {
     const env = nativeTestEnvironment(root), marker = join(root, "executed");
     for (const key of keys) {
@@ -37,4 +38,24 @@ test("should refuse unsafe child environments before executing the operation", (
     }
     assert.equal(existsSync(marker), false);
   } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("should refuse direct paths and aliases before inspecting metadata outside the private root", () => {
+  const root = createPrivateTestDirectory("i"), outside = mkdtempSync("/tmp/h2a-r2-metadata-canary-");
+  const env = nativeTestEnvironment(root), alias = join(root, "alias");
+  symlinkSync(outside, alias);
+  const original = fs.lstatSync, inspected = [];
+  fs.lstatSync = (path, ...args) => {
+    if (String(path).startsWith(outside)) inspected.push(String(path));
+    return original(path, ...args);
+  };
+  syncBuiltinESMExports();
+  try {
+    for (const HOME of [outside, join(alias, "home")])
+      assert.throws(() => assertIsolatedEnvironment({ ...env, HOME }), /REFUSING/);
+    assert.deepEqual(inspected, [], "guard must not inspect the refused target's metadata");
+  } finally {
+    fs.lstatSync = original; syncBuiltinESMExports();
+    rmSync(root, { recursive: true, force: true }); rmSync(outside, { recursive: true, force: true });
+  }
 });

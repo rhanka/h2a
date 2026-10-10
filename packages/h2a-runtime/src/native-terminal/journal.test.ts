@@ -1,11 +1,11 @@
 import { spawn } from "node:child_process";
 import { once } from "node:events";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 // @ts-ignore Shared JS qualification helper; tests are outside the production build.
-import { assertIsolatedEnvironment } from "../../../h2a/test/helpers/native-isolation.js";
+import { assertIsolatedEnvironment, createPrivateTestDirectory } from "../../../h2a/test/helpers/native-isolation.js";
 import { NativeTerminalClient } from "./client.js";
 import { readProcessStartTime } from "./host.js";
 import { appendHostJournal, getDroppedJournalEntriesCount, getRuntimeVersion, MAX_HOST_JOURNAL_BYTES, readHostJournal, resolveHostJournalPath } from "./journal.js";
@@ -18,14 +18,13 @@ const processModule = pathToFileURL(entry).href;
 const cleanups: Array<() => Promise<void>> = [];
 afterEach(async () => { while (cleanups.length) await cleanups.pop()!(); });
 
-function fixture() {
-  mkdirSync(qualRoot, { recursive: true, mode: 0o700 });
-  const root = mkdtempSync(join(qualRoot, "j"));
+function fixture(parent = qualRoot) {
+  const root = createPrivateTestDirectory("j", parent);
   const env: Record<string, string> = { PATH: "/usr/bin:/bin", HOME: join(root, "h"),
     XDG_RUNTIME_DIR: root, XDG_STATE_HOME: join(root, "s"), XDG_CONFIG_HOME: join(root, "c"),
     H2A_NATIVE_SOCKET: join(root, "nt.sock"), TMPDIR: join(root, "t"), REMOTE_CLI_CONFIG_HOME: join(root, "c"), TERM: "xterm-256color" };
-  for (const path of Object.values(env).filter(path => path.startsWith(root) && path !== env.H2A_NATIVE_SOCKET)) mkdirSync(path, { recursive: true, mode: 0o700 });
   assertIsolatedEnvironment(env, qualRoot);
+  for (const path of Object.values(env).filter(path => path.startsWith(root) && path !== env.H2A_NATIVE_SOCKET)) mkdirSync(path, { recursive: true, mode: 0o700 });
   const log = resolveHostJournalPath(env), socket = join(root, "nt.sock");
   mkdirSync(dirname(log), { recursive: true, mode: 0o700 });
   cleanups.push(async () => { rmSync(root, { recursive: true, force: true }); });
@@ -56,6 +55,16 @@ function startEntry() {
 }
 
 describe("native host life journal", () => {
+  it("should reject an aliased fixture parent before any journal fixture writes", () => {
+    const lab = createPrivateTestDirectory("a");
+    const outside = mkdtempSync("/tmp/h2a-r2-journal-canary-");
+    const alias = join(lab, "journal-alias");
+    symlinkSync(outside, alias);
+    try {
+      expect(() => fixture(alias)).toThrow(/REFUSING/);
+      expect(readdirSync(outside), "refusal must precede the first mkdir/mkdtemp").toEqual([]);
+    } finally { rmSync(lab, { recursive: true, force: true }); rmSync(outside, { recursive: true, force: true }); }
+  });
   it("should reject all unsafe isolation variables including symlinks", () => {
     const f = fixture();
     for (const key of ["HOME", "XDG_RUNTIME_DIR", "XDG_STATE_HOME", "XDG_CONFIG_HOME"]) {

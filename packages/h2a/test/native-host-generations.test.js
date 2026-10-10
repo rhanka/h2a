@@ -1,4 +1,4 @@
-import { assertIsolatedEnvironment, assertIsolatedNativeOperation, spawnIsolatedNative as spawn } from "./helpers/native-isolation.js";
+import { createPrivateTestDirectory, assertIsolatedEnvironment, assertIsolatedNativeOperation, spawnIsolatedNative as spawn } from "./helpers/native-isolation.js";
 import assert from "node:assert/strict";
 
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
@@ -44,8 +44,7 @@ test("should refuse owner runtime paths, escaping symlinks and uncontained paths
   skip: process.platform !== "linux" && "Linux qualification path guard",
 }, () => {
   const qualRoot = join(repo, ".qual-tmp");
-  mkdirSync(qualRoot, { recursive: true });
-  const root = realpathSync(mkdtempSync(join(qualRoot, "p")));
+  const root = realpathSync(createPrivateTestDirectory("p"));
   try {
     for (const path of ["/run/user/1000/h2a-nt/socket", "/run/user/1000/h2a-nt/../h2a-nt/socket", "/tmp/outside-qualification/socket"]) {
       assert.throws(() => assertPrivatePaths(root, [path]), /REFUSING/);
@@ -96,8 +95,7 @@ async function eventually(read, predicate) {
 async function withLegacy(context, body, historicalEntry = legacyEntry) {
   assert.equal(unavailable, false, String(unavailable)); // Required evidence must never skip.
   const qualRoot = join(repo, ".qual-tmp");
-  mkdirSync(qualRoot, { recursive: true });
-  const root = realpathSync(mkdtempSync(join(qualRoot, "g")));
+  const root = realpathSync(createPrivateTestDirectory("g"));
   const home = join(root, "home");
   const stateHome = join(home, ".local/state");
   const configHome = join(home, ".config");
