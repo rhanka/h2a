@@ -1,9 +1,9 @@
 # Machine-local MCP central
 
-On Linux, `mcp-serve --host claude` can opt into the central when the host
-provides `CLAUDE_CODE_SESSION_ID` and `H2A_MCP_CENTRAL=1` or
-`h2a.central.enabled=true`. Default activation remains blocked by P0 #5:
-the production Graphify entry loss has not been reproduced. Routing happens before heavy imports. Codex,
+On Linux, `mcp-serve --host claude` selects the central by default when the host
+provides `CLAUDE_CODE_SESSION_ID`. `H2A_MCP_CENTRAL=0` or
+`h2a.central.enabled=false` selects stdio for new connections.
+Routing happens before heavy imports. Codex,
 agy, ambiguous Claude identities, explicit instance overrides, cluster-mesh,
 and unsupported state roots retain full stdio. The shipped manifests are unchanged.
 
@@ -20,6 +20,12 @@ manifests still invoke `mcp-serve`. An explicit `host setup --write <file>` edit
 only `mcpServers.h2a`, preserves all surrounding bytes and entries, and backs up
 an existing file. Tracked files require `--allow-tracked`. Invalid/ambiguous JSON
 is refused, including with `--force`; use the host's editor to repair it.
+
+R6 is closed by the zero-project-write invariant and byte-preservation tests
+on the exact pre-incident Graphify file (SHA-256
+`984069aaed26cd2ce888dc692a4400f9c9c1cbb5add9c86fedbed3fc6b3d5470`).
+The historical cause remains unknown: the published 0.98.0 writer retained
+Graphify in reproduction. See the [qualification report](reviews/mcp-central-default-claude.md).
 
 The protected rendezvous is `h2a-mcp-central/marker.json` beneath the current
 private `XDG_RUNTIME_DIR`, otherwise `/run/user/<uid>`. Without a systemd runtime,
