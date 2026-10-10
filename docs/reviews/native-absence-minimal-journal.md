@@ -1,5 +1,8 @@
 # Native absence and host life journal qualification
 
+Historical receipt, superseded by [independent review R2 corrections](native-absence-review-r2.md).
+The A F03 RED below has been corrected; the old `f03-red.log` is withdrawn.
+
 Branch: `fix/0.98.2-native-absence-minimal`; base `686fd129`.
 Code target: `9f9e937c2dd91f270be594e627764e81998f8215`.
 Owner decision: 2026-10-10. No release version bump, push, PR, publish, tag,
@@ -13,13 +16,13 @@ The package version recorded by the host is the version actually loaded
 | --- | --- | --- | --- |
 | A F01: failed `/proc` stat/readlink observation is unknown | `4b281855` | 2 failures using the compiled `f34b1fff` server | 2 passes |
 | A F02: deleted startup alias must not prove absence | `656c1f89` | 1 failure using the compiled `4b281855` server | 1 pass; original client still answers |
-| A F03: failed owner recording rolls back only the proven socket inode | `9b54c662` | 1 failure using the compiled `656c1f89` server | 1 pass; retry succeeds |
+| A F03: failed owner recording rolls back only the proven socket inode | `9b54c662`; corrected proof in R2-F05 | Previous `656c1f89` RED withdrawn: injection absent. Current-build rollback-only mutation retains the socket and blocks retry | 1 pass; identical injection, rollback restored, retry succeeds |
 | A F04: required historical/generation qualification and isolation | `25663f4a`, `4f5a9f0f` | Shared textual guard allowed a symlink escape: 1 failure | 36 Node passes, 0 skips; all four environment variables and symlink escapes checked |
 | B F04: observed lifecycle, PID plus start time, real fatal behavior | `9f9e937c` | Lifecycle metadata/cause assertions failed; previous rejection listener suppressed fatal termination | Start, SIGTERM/SIGINT/SIGHUP, clean stop, exit code, real uncaught exception/rejection and `process.abort()` pass |
 | B F10: diagnostic field allowlist | `9f9e937c` | Arbitrary secret and raw env/header fields persisted | 8 arbitrary/header/cookie/key/token/env diagnostic cases pass; only verified code locations retained |
 | B F11: exclusive lock without reclamation/waiting | `9f9e937c` | Five live-lock attempts consumed 250 ms; orphan lock was removed; storage drops uncounted | No retry or unlocked write; live/orphan locks preserved; 80 concurrent attempts = writes + counted drops; rotation JSON intact |
 
-A RED checks ran in the isolated lab against the actual pre-fix server sources,
+A F01/F02 RED checks ran in the isolated lab against the actual pre-fix server sources,
 transpiled into the local ignored dist directory, which was restored in a
 `finally` block. These runs were not claims inherited from the stopped builder.
 B RED against its four pending files: **10 failed / 6 passed**, followed by
@@ -58,8 +61,9 @@ Location: `${XDG_STATE_HOME:-$HOME/.local/state}/h2a/native-host.log`.
 Files and rotation are 0600; the containing directory is private. Rotation
 is checked at 1 MiB while holding the exclusive writer lock. Lifecycle writes
 run in a worker with a bounded mailbox; journal errors do not crash the host.
-Final exception/exit callbacks perform one best-effort synchronous write,
-because Node cannot await an exit callback. Lock acquisition never waits.
+R2-F03 moves final exception/exit observations to an independent writer process,
+with no journal filesystem operation on the host thread. Host flush and writer
+drain are bounded to 100 ms, including blocked storage. Lock acquisition never waits.
 
 Locks are never reclaimed based on age or bare PID. Each writer records a
 unique token and releases only its own inode/token. Contention or storage
