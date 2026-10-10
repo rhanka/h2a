@@ -1,5 +1,6 @@
-import { createPrivateTestDirectory, assertIsolatedEnvironment, assertIsolatedNativeOperation, spawnIsolatedNative as spawn, waitForPrivateNativeProcesses } from "./helpers/native-isolation.js";
+import { createPrivateTestDirectory, assertPrivateQualificationPath, nativeQualificationRoot, assertIsolatedEnvironment, assertIsolatedNativeOperation, spawnIsolatedNative as spawn, waitForPrivateNativeProcesses } from "./helpers/native-isolation.js";
 import assert from "node:assert/strict";
+import { randomBytes } from "node:crypto";
 
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
@@ -95,7 +96,18 @@ async function eventually(read, predicate) {
 async function withLegacy(context, body, historicalEntry = legacyEntry) {
   assert.equal(unavailable, false, String(unavailable)); // Required evidence must never skip.
   const qualRoot = join(repo, ".qual-tmp");
-  const root = realpathSync(createPrivateTestDirectory("g"));
+  // The historical host's staging name includes the full socket basename and
+  // PID. Leave room for seven-digit PIDs even in this deeply nested worktree.
+  assertPrivateQualificationPath(qualRoot, nativeQualificationRoot);
+  mkdirSync(qualRoot, { recursive: true, mode: 0o700 });
+  let root;
+  for (let attempt = 0; attempt < 256 && root === undefined; attempt++) {
+    const candidate = join(qualRoot, `g${randomBytes(1).toString("hex")}`);
+    assertPrivateQualificationPath(candidate, nativeQualificationRoot);
+    try { mkdirSync(candidate, { mode: 0o700 }); root = realpathSync(candidate); }
+    catch (error) { if (error.code !== "EEXIST") throw error; }
+  }
+  assert.ok(root, "no short private directory available for historical socket qualification");
   const home = join(root, "home");
   const stateHome = join(home, ".local/state");
   const configHome = join(home, ".config");
