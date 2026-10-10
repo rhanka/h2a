@@ -5,6 +5,8 @@
 > **agy = Antigravity (Google)** — a Gemini-ecosystem agent CLI (`com.google.geminicoder.agentexecutor`), config under `~/.gemini/antigravity-cli/`, default model "Gemini 3.5 Flash (High)". It **embeds MCP** (Go `mcp.ServerSession`/`McpServerToolConfig`/jsonrpc2) and **Playwright natively** (Go bindings — it does not use a playwright-MCP server).
 >
 > **Hermes and OpenCode** are newer host adapters (added 2026-07-08). h2a ships their MCP-setup snippet, host scenario, native skill install, and Claude-format stop-hook (all rendered + automated-tested — see [`host-integration-matrix.md`](./host-integration-matrix.md)). This capability grid is **not yet updated for them**: it is a live probe of specific CLI versions, and their binaries were not audited on this machine. Do not infer a Hermes/OpenCode capability cell from silence here — the tracked, current status is in `host-integration-matrix.md`.
+>
+> **Vibe (Mistral Vibe CLI, shipped v2.26.0)** was audited live against the shipped CLI: lifecycle hooks exist (`~/.vibe/hooks.toml`, types `post_agent`/`pre_tool`/`post_tool` — `post_agent` is the stop-cadence record surface h2a uses), MCP servers are `[[mcp_servers]]` TOML entries in `~/.vibe/config.toml`, plugins follow the Agent Plugins 1.0 format under `~/.vibe/plugins/`, skills live in `~/.vibe/skills/`, resume is `-c`/`--resume <id>`, and headless `-p` takes the prompt as an argv value (so prompts-on-stdin launches are refused). This grid is not re-shaped for it — the tracked current status and wiring are in [`host-integration-matrix.md`](./host-integration-matrix.md) and `packages/h2a/src/hosts/vibe.ts`.
 
 ## Matrix
 

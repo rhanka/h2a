@@ -17,6 +17,7 @@ const DEFAULT_PROFILES: Readonly<Record<CliProfile, ProfileConfig>> = {
   gemini: { profile: "gemini", command: "gemini", args: [] },
   mistral: { profile: "mistral", command: "mistral", args: [] },
   muse: { profile: "muse", command: "muse", args: [] },
+  vibe: { profile: "vibe", command: "vibe", args: [] },
 };
 
 /**
@@ -26,6 +27,8 @@ const DEFAULT_PROFILES: Readonly<Record<CliProfile, ProfileConfig>> = {
  * - claude's bare `--resume` opens an interactive picker (useless headless in
  *   a pod) — the most-recent form is `--continue`, explicit is `--resume <id>`;
  * - agy follows claude's shape (`--resume <id>` / `--continue`).
+ * - vibe mirrors it with its own spellings (`--resume <id>` / `-c` for the
+ *   most recent session).
  * - muse resumes via a SUBCOMMAND like codex (`muse resume <id>`,
  *   `muse resume --last` for the most recent — verified against `muse resume
  *   --help`) which must LEAD the argv.
@@ -44,6 +47,8 @@ export function resumeArgsFor(
     case "claude":
     case "agy":
       return sessionId === true ? ["--continue"] : ["--resume", sessionId];
+    case "vibe":
+      return sessionId === true ? ["-c"] : ["--resume", sessionId];
     default:
       return [];
   }
@@ -55,6 +60,7 @@ const PROFILE_ALIASES: Readonly<Record<string, CliProfile>> = {
   "gemini-cli": "gemini",
   mistralcli: "mistral",
   "muse-code": "muse",
+  "mistral-vibe": "vibe",
 };
 
 export function isCliProfile(value: string): value is CliProfile {

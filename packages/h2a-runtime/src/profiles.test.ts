@@ -14,6 +14,7 @@ describe("profiles", () => {
     expect(resolveProfile("claude").command).toBe("claude");
     expect(resolveProfile("agy").command).toBe("agy");
     expect(resolveProfile("muse").command).toBe("muse");
+    expect(resolveProfile("vibe").command).toBe("vibe");
     expect(resolveProfile("gemini").command).toBe("gemini");
     expect(resolveProfile("mistral").command).toBe("mistral");
     expect(resolveProfile("shell").command).toBe("/bin/bash");
@@ -35,6 +36,11 @@ describe("profiles", () => {
     expect(withResume(muse, "abc").args).toEqual(["resume", "abc"]);
     expect(withResume(muse, true).args).toEqual(["resume", "--last"]);
     expect(withResume(muse, undefined).args).toEqual([]);
+
+    // vibe: explicit id → --resume <id>; most recent → -c (its --continue).
+    const vibe = resolveProfile("vibe");
+    expect(withResume(vibe, "abc").args).toEqual(["--resume", "abc"]);
+    expect(withResume(vibe, true).args).toEqual(["-c"]);
 
     // claude: explicit id → --resume <id>; most recent → --continue (bare
     // --resume would open the interactive picker).
@@ -72,6 +78,7 @@ describe("profiles", () => {
     expect(coerceCliProfileName("codex")).toBe("codex");
     expect(coerceCliProfileName("muse")).toBe("muse");
     expect(coerceCliProfileName("muse-code")).toBe("muse");
+    expect(coerceCliProfileName("mistral-vibe")).toBe("vibe");
     expect(coerceCliProfileName("not-real")).toBeUndefined();
   });
 });

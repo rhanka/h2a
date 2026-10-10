@@ -9,15 +9,15 @@ import {
   type RoutePlanner,
   type StreamEvent,
   type StreamRequest,
-} from "@sentropic/llm-mesh";
+} from "@sentropic/cluster-mesh/llm-mesh";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const plannerState = vi.hoisted(() => ({
   current: undefined as RoutePlanner | undefined,
 }));
 
-vi.mock("../llm-mesh.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../llm-mesh.js")>();
+vi.mock("../llm-mesh-accounts.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../llm-mesh-accounts.js")>();
   const activePlanner = (): RoutePlanner => {
     if (!plannerState.current) throw new Error("native-tools test planner is not configured");
     return plannerState.current;
@@ -38,9 +38,9 @@ vi.mock("../llm-mesh.js", async (importOriginal) => {
   };
 });
 
-import { createLocalGatewayApp } from "./index.js";
-import { resetSessionLedger } from "./session-ledger.js";
-import { resetSessions } from "./sticky.js";
+import { createLocalGatewayApp, LEGACY_PORTS_INERT } from "./host.js";
+import { resetSessionLedger } from "./ledger.js";
+import { resetSessions } from "./sessions.js";
 
 const MODEL = "claude-sonnet-5";
 
@@ -162,7 +162,7 @@ const observingPlanner = (
 
 const createGatewaySession = async (planner: RoutePlanner) => {
   plannerState.current = planner;
-  const app = createLocalGatewayApp({ ownerScopeRef: "cli:test-owner" });
+  const app = await createLocalGatewayApp({ ownerScopeRef: "cli:test-owner" });
   const created = await app.request("/v1/session", {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -178,7 +178,7 @@ const createGatewaySession = async (planner: RoutePlanner) => {
 };
 
 const sendMessages = (
-  app: ReturnType<typeof createLocalGatewayApp>,
+  app: Awaited<ReturnType<typeof createLocalGatewayApp>>,
   gatewayToken: string,
   body: Record<string, unknown>,
 ) => app.request("/v1/messages", {
@@ -202,10 +202,27 @@ beforeEach(() => {
   vi.stubEnv("H2A_LLM_MESH_OWNER_SCOPE", "cli:test-owner");
   resetSessions();
   resetSessionLedger();
+  // Successful planner-dispatched tool calls must never enter legacy ports (U3).
+  for (const [port, method] of [
+    [LEGACY_PORTS_INERT.pool, "listEligibleAccounts"],
+    [LEGACY_PORTS_INERT.pool, "select"],
+    [LEGACY_PORTS_INERT.pool, "snapshotModels"],
+    [LEGACY_PORTS_INERT.authResolver, "resolve"],
+    [LEGACY_PORTS_INERT.dispatch, "dispatch"],
+    [LEGACY_PORTS_INERT.dispatch, "dispatchStream"],
+  ] as const) {
+    vi.spyOn(port as Record<string, () => never>, method).mockImplementation(() => {
+      throw new Error("Legacy port reached on the routed tool path (pending upstream U3)");
+    });
+  }
 });
 
 afterEach(() => {
   plannerState.current = undefined;
+  for (const port of [LEGACY_PORTS_INERT.pool, LEGACY_PORTS_INERT.authResolver, LEGACY_PORTS_INERT.dispatch]) {
+    for (const spy of Object.values(port)) expect(spy).not.toHaveBeenCalled();
+  }
+  vi.restoreAllMocks();
   vi.unstubAllEnvs();
 });
 
