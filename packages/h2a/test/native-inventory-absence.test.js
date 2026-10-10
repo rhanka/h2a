@@ -2,7 +2,7 @@ import { assertIsolatedEnvironment, assertIsolatedNativeOperation, assertPrivate
 import assert from "node:assert/strict";
 
 import { once } from "node:events";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, unlinkSync, watch, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import test from "node:test";
 import { pathToFileURL } from "node:url";
@@ -76,6 +76,46 @@ async function fixture(body, qualRoot = join(repo, ".qual-tmp")) {
     NODE_PATH: join(repo, "node_modules"),
     H2A_ROOT: join(workspace, ".h2a"), H2A_SESSION_HOST: "native", H2A_NATIVE_SOCKET: "", TERM: "xterm-256color",
     TMUX_TMPDIR: root };
+  // The ordinary launcher detaches its host, so the test has no ChildProcess
+  // handle for it. Record that fixture host's real Node exit event and observe
+  // it through filesystem events; a host-stop response only acknowledges TERM.
+  const exitEvents = join(root, "host-exits"), exitObserver = join(root, "host-exit.mjs");
+  mkdirSync(exitEvents, { mode: 0o700 });
+  writeFileSync(exitObserver, `import { writeFileSync, renameSync } from 'node:fs';
+    import { basename, join } from 'node:path';
+    if (basename(process.argv[1] ?? '') === 'process.js') {
+      process.once('exit', code => {
+        const file = join(${JSON.stringify(exitEvents)}, process.pid + '.json');
+        writeFileSync(file + '.tmp', JSON.stringify({pid: process.pid, code, timestamp: Date.now()}));
+        renameSync(file + '.tmp', file);
+      });
+    }`);
+  env.NODE_OPTIONS = `--import=${pathToFileURL(exitObserver).href}`;
+  function waitForHostExit(pid) {
+    const file = join(exitEvents, `${pid}.json`);
+    return new Promise((resolve, reject) => {
+      let finished = false;
+      const finish = (error, receipt) => {
+        if (finished) return;
+        finished = true;
+        clearTimeout(deadline);
+        observer.close();
+        if (error) reject(error); else resolve(receipt);
+      };
+      const check = () => {
+        if (!existsSync(file)) return;
+        try {
+          const receipt = JSON.parse(readFileSync(file, "utf8"));
+          assert.equal(receipt.pid, pid);
+          finish(undefined, receipt);
+        } catch (error) { finish(error); }
+      };
+      const observer = watch(exitEvents, check);
+      observer.once("error", finish);
+      const deadline = setTimeout(() => finish(new Error(`fixture host pid=${pid} did not emit exit within 3000ms`)), 3_000);
+      check();
+    });
+  }
   assertIsolatedNativeOperation(env, qualRoot);
   const paths = [join(root, "h2a-nt/native-terminal.sock"), join(root, "h2a-nt/native-terminal.lf1.sock")];
   const hosts = [], clients = [];
@@ -176,6 +216,13 @@ let text='';process.stdin.on('data',bytes=>{for(const c of bytes.toString().repl
     for (const path of paths) {
       const result = await run(["host-stop", "--socket", path]);
       assert.ok(result.status === 0 || /ENOENT|ECONNREFUSED/.test(result.stderr), result.stderr);
+      if (result.payload?.hostPid !== undefined) {
+        const started = Date.now();
+        const receipt = await waitForHostExit(result.payload.hostPid);
+        if (Date.now() - started >= 1_000) console.error("fixture host exit receipt", JSON.stringify({
+          ...receipt, afterStopResponseMs: Date.now() - started,
+        }));
+      }
     }
     for (const client of clients) client.close();
     await waitForPrivateNativeProcesses(env);
