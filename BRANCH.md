@@ -1,7 +1,7 @@
 # Native Claude launch latency — L0 and L1
 
 Branch: perf/launch-latency-l0-l1; base: origin/main 5ca5c7bc.
-Scope: SPEC r2 lots L0/L1 and gate G1; repair review findings R01–R12 and R2-02–R2-06, then remeasure R2-01.
+Scope: separate conservation delivery with measured laboratory latency; repair R3-01–R3-03 after R01–R12 and R2-02–R2-06. No G1 completion claim.
 No push, PR, publishing, tags, owner host/state/config access, Python or Track writes.
 Every test and lab launch uses its own HOME and XDG roots under .qual-tmp.
 At most one full root suite, after focused checks and laboratory cleanup.
@@ -27,7 +27,14 @@ the 297.378 ms maximum remains. N=1 warm/idle secondary p95 is 5.358 s over five
 G1 remains unqualified. Separate conservation delivery criteria are prepared in
 docs/reviews/launch-latency-l0-l1.md; no L0/L1 completion or global test gate is claimed.
 
-Fast debug dispatch is disabled pending qualification; correlated transcript responses are the conservative fallback.
+Fast debug dispatch is automatically enabled for Linux x64 / Claude 2.1.296,
+with exactly h2a + Playwright direct, no sidecar, bare mode or gateway. This is
+the delivered path used by all 70/70 final executed successes, with 0 ms extra
+pacing after the required readiness/paste barriers. Its qualification covers
+correlated local dispatch and the isolated adversaries; it does not establish
+remote acceptance, owner latency or G1. Unknown versions and other profiles
+use correlated transcript responses with 250 ms extra pacing. See
+docs/reviews/launch-latency-l0-l1.md, "Qualification locale du dispatch livré".
 
 ## Previous branch records
 
