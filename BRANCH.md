@@ -5,6 +5,45 @@ Owner decision: 2026-10-04, implement L-H before L-A. No push, PR, publish,
 tag, attribution, Python, owner session/config/native host access, or `.track` writes.
 Real processes run only with isolated HOME, runtime directories and stores.
 
+## PR #316 CI portability follow-up (2026-10-10)
+
+The owner authorizes fast-forward commits and push to this branch for the CI
+repair. No force push, PR edits, merge, publication, or `.track` writes.
+
+Run `38037043097` failed 19 Node tests on both Node 20 and 22. The causes are:
+
+- The qualification rejection test hardcoded a home directory absent on CI.
+  It now checks both the caller's HOME and the account home from the OS.
+- The helper admitted only existing `.qual-tmp` paths. It now also admits
+  private, same-UID temporary roots, resolves absent descendants through their
+  existing ancestors, and rejects shared roots and escaping/dangling symlinks.
+  Real caller/account configuration and runtime directories remain protected;
+  environment leaves are checked before creation as well as afterwards.
+- R19's long local default native socket path failed before target resolution,
+  hiding the missing target log on `unresolved` native delivery. Its short,
+  private `/tmp` fixture now exercises the CI path everywhere. Native delivery
+  logs its attempted target before the unchanged unresolved fallback. Every
+  ownership and refusal assertion remains in place.
+
+Six focused files pass under isolated HOME/config/runtime directories, clean
+PATH and plain `/tmp`, sequentially on Node 20.20.2 and 22.22.1: 58 passed,
+zero failed, one EROFS mount skip on each. Four new guard regressions cover
+private temp acceptance, shared-root rejection, symlink escapes and protection
+of real environment directories, including the account home with HOME changed.
+
+The single full `npm test` ran after a host process check found no active suite,
+with four CPUs and a 768 MiB heap cap: Node 2,441 passed, 73 failed, 34 skipped,
+21 TODO; Track 87 files / 1,193 tests passed. The 73 failures all came from four
+host-configuration files because the isolated launcher set global CODEX_HOME
+and CLAUDE_CONFIG_DIR, overriding fixtures that change only HOME. Removing
+those launcher variables and rerunning just those four files passed: 123 passed,
+zero failed, two native-CLI availability skips. The full command was not repeated
+and is not claimed green. All 19 original CI failures passed in the focused and
+full executions. Fresh CI must verify the complete Node 20/22 gates after push.
+
+Ignored execution receipts: `tmp/ci316-evidence/` (commands, sanitized environment,
+RED/GREEN logs, full-gate failure, scoped environment recovery and exit codes).
+
 - [x] L-H: remove implicit project/host/config writes from run and restore;
   decouple state root from workspace; neutral daemon cwd and environment whitelist.
 - [x] L-H: explicit host writer preserves all bytes outside the h2a value,
