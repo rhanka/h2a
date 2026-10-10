@@ -126,7 +126,6 @@ export function startLaunchGuard(runDir: string, ownership: LaunchOwnership, spa
     child.stdin!.write(`${JSON.stringify({ submitAttempted: true })}\n`);
   };
   const finish = (state: string) => {
-    completed = true;
     const payload: Record<string, unknown> = {
       state,
       token: process.env.H2A_RUN_LAUNCH_TOKEN,
@@ -139,7 +138,18 @@ export function startLaunchGuard(runDir: string, ownership: LaunchOwnership, spa
         payload.stopped = false;
       }
     }
-    writeStatus(statusPath, payload);
+    withLaunchReceipt(statusPath, process.env.H2A_RUN_LAUNCH_TOKEN, (receipt, save) => {
+      const result = receipt?.result as { kind?: string; state?: string } | undefined;
+      // The native launcher already fsynced its complete result. Verify the
+      // same receipt/ownership under the lock, then acknowledge it unchanged.
+      // Historical completion still persists its status when no result exists.
+      if (state === "started" && ownership.host === "native" && receipt?.state === "started" &&
+          result?.kind === "h2a.run.result" && result.state === "started" &&
+          JSON.stringify(receipt.ownership) === JSON.stringify(ownership) &&
+          (!submitAttempted || receipt.submitAttempted === true)) return;
+      save(payload);
+    });
+    completed = true;
     child.stdin!.end(`${JSON.stringify({ completed: true, state, submitAttempted: submitAttempted || undefined })}\n`);
   };
   return {
