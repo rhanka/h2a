@@ -5,7 +5,8 @@ import { withLaunchReceipt } from "./launch-receipt.js";
 import { nativeSessionState, type NativeLaunchOwnership } from "./native-host.js";
 export const DEFAULT_LAUNCH_CAPACITY = 16;
 export const DEFAULT_RESIDENT_BYTES = 600 * 1024 * 1024;
-type Slot = { at: number; state: string; residentBytes: number; token?: string; ownership?: NativeLaunchOwnership[]; pid?: number; start?: string };
+type Slot = { at: number; state: string; residentBytes: number; token?: string; ownership?: NativeLaunchOwnership[]; pid?: number; start?: string;
+  launcher?: { pid: number; start: string }; creationAttempted?: boolean };
 function path(): string {
   const directory = join(process.env.XDG_STATE_HOME ?? join(homedir(), ".local", "state"), "h2a", "launch-capacity");
   mkdirSync(directory, { recursive: true, mode: 0o700 });
@@ -20,6 +21,13 @@ function memoryBudget(): number {
 }
 function start(pid: number): string | undefined {
   try { const stat = readFileSync(`/proc/${pid}/stat`, "utf8"); return stat.slice(stat.lastIndexOf(")") + 2).split(" ")[19]; } catch { return undefined; }
+}
+function launcherDead(launcher: Slot["launcher"]): boolean {
+  if (!launcher?.pid || !launcher.start) return false;
+  try {
+    const stat = readFileSync(`/proc/${launcher.pid}/stat`, "utf8");
+    return stat.slice(stat.lastIndexOf(")") + 2).split(" ")[19] !== launcher.start;
+  } catch (error) { return ["ENOENT", "ESRCH"].includes((error as NodeJS.ErrnoException).code ?? ""); }
 }
 function resident(slot: Slot): number {
   if (!slot.pid || !slot.start || start(slot.pid) !== slot.start) return 0;
@@ -49,6 +57,9 @@ export function acquireLaunchSlot(id: string, capacity = DEFAULT_LAUNCH_CAPACITY
   return withLaunchReceipt(path(), undefined, (receipt, save) => {
     const slots = receipt?.slots as Record<string, Slot> | undefined ?? {};
     for (const [key, slot] of Object.entries(slots)) {
+      if (slot.state === "launching" && slot.creationAttempted === false && launcherDead(slot.launcher)) {
+        delete slots[key]; continue; // The durable boundary proves no create RPC was issued.
+      }
       if (!slot.ownership?.length) continue; // Launcher death without ownership is not proof of session death.
       if (slot.pid && slot.start && start(slot.pid) === slot.start) continue;
       const dead = slot.ownership.every(owner => {
@@ -63,8 +74,20 @@ export function acquireLaunchSlot(id: string, capacity = DEFAULT_LAUNCH_CAPACITY
     if (Object.values(slots).reduce((sum, s) => sum + s.residentBytes, residentBytes) > memoryBudget()) return { acquired: false, reason: "resident launch memory budget exceeded" };
     const promised = Object.values(slots).reduce((sum, s) => sum + Math.max(0, s.residentBytes - resident(s)), residentBytes);
     if (promised > headroom()) return { acquired: false, reason: "insufficient memory headroom for reserved resident profiles" };
-    slots[id] = { at: Date.now(), state: "launching", residentBytes, ...(process.env.H2A_RUN_LAUNCH_TOKEN ? { token: process.env.H2A_RUN_LAUNCH_TOKEN } : {}) };
+    const birth = start(process.pid);
+    if (!birth) return { acquired: false, reason: "cannot persist launcher process identity" };
+    slots[id] = { at: Date.now(), state: "launching", residentBytes, launcher: { pid: process.pid, start: birth }, creationAttempted: false,
+      ...(process.env.H2A_RUN_LAUNCH_TOKEN ? { token: process.env.H2A_RUN_LAUNCH_TOKEN } : {}) };
     save({ slots }); return { acquired: true };
+  });
+}
+/** Persist before issuing any create RPC; missing ownership cannot authorize creation. */
+export function markLaunchCreation(id: string): void {
+  withLaunchReceipt(path(), undefined, (receipt, save) => {
+    const slots = receipt?.slots as Record<string, Slot> | undefined ?? {}, slot = slots[id];
+    if (!slot || slot.token !== process.env.H2A_RUN_LAUNCH_TOKEN || !slot.ownership?.length ||
+        slot.launcher?.pid !== process.pid || slot.launcher.start !== start(process.pid)) throw new Error("launch creation reservation lost ownership");
+    slot.creationAttempted = true; save({ slots });
   });
 }
 export function accountLaunchProcess(id: string, pid: number): void {
