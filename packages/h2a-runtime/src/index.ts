@@ -132,7 +132,7 @@ import {
 } from "./prompt-delivery.js";
 import { startLaunchGuard, type LaunchGuard, type LaunchOwnership } from "./launch-guard.js";
 import { deliverClaudeNativePrompt } from "./claude-native-driver.js";
-import { acquireLaunchSlot, releaseLaunchSlot, accountLaunchProcess, DEFAULT_RESIDENT_BYTES } from "./launch-capacity.js";
+import { acquireLaunchSlot, releaseLaunchSlot, accountLaunchProcess, markLaunchCreation, DEFAULT_RESIDENT_BYTES } from "./launch-capacity.js";
 import { updateLaunchReceipt, withLaunchReceipt, launchAttemptDetails, launchAttemptDetailsFromFile } from "./launch-receipt.js";
 import { startClaudeDiagnostic } from "./claude-diagnostic.js";
 import { claudeTranscriptPath, correlatedClaudeResponse, correlatedClaudePrompt } from "./claude-transcript.js";
@@ -6323,6 +6323,11 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           } catch { /* Never overwrite an unreadable or foreign attempt. */ }
         };
         const onCreateAttempt = (): void => {
+          if (uncreatedNativeReservation) {
+            markLaunchCreation(uncreatedNativeReservation);
+            updateLaunchReceipt(join(cwd, ".h2a", "runs", uncreatedNativeReservation, "launch.json"), process.env.H2A_RUN_LAUNCH_TOKEN,
+              { creationAttempted: true });
+          }
           creationAttempted = true;
           uncreatedNativeReservation = undefined;
           if (opts.json && opts.name) {
@@ -6622,7 +6627,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             mkdirSync(runDir, { recursive: true, mode: 0o700 });
             updateLaunchReceipt(join(runDir, "launch.json"), process.env.H2A_RUN_LAUNCH_TOKEN,
               { state: "reserved", inputHash, parameterHash, providerVersion, diagnosticQualified: qualifiedPlatform && qualifiedProfile && QUALIFIED_CLAUDE_NATIVE_VERSIONS.includes(providerVersion ?? ""),
-                conversationId: opts.resume ?? reservedConvId, requiredMcps, requestedAt: launchRequestedAt, inputEpoch: 0 });
+                conversationId: opts.resume ?? reservedConvId, requiredMcps, requestedAt: launchRequestedAt, inputEpoch: 0, creationAttempted: false });
             diagnostic = startClaudeDiagnostic(runDir);
             diagnosticCleanup = diagnostic.stop;
           }
