@@ -146,14 +146,7 @@ export async function runNativeTerminalHostProcess(argv: ReadonlyArray<string>):
       socketPath: options.socketPath,
       ...(options.registryPath !== undefined ? { registryPath: options.registryPath } : {}),
     });
-    const server = await startNativeTerminalHostServer({ socketPath: options.socketPath, host });
-    process.stdout.write(`${JSON.stringify({
-      kind: "h2a.native-terminal.ready",
-      version: 1,
-      generation: host.generation,
-      pid: process.pid,
-      socketPath: server.socketPath,
-    })}\n`);
+    const serverReady = startNativeTerminalHostServer({ socketPath: options.socketPath, host });
 
     let shutdown: Promise<void> | undefined;
     const stop = (signal: string): void => {
@@ -167,6 +160,7 @@ export async function runNativeTerminalHostProcess(argv: ReadonlyArray<string>):
       shutdown = (async () => {
         let gracefulError: unknown;
         try {
+          const server = await serverReady;
           await server.close({ stopSessions: true, signal: "SIGTERM" });
         } catch (error) {
           gracefulError = error;
@@ -209,6 +203,20 @@ export async function runNativeTerminalHostProcess(argv: ReadonlyArray<string>):
     process.once("SIGINT", () => stop("SIGINT"));
     process.once("SIGTERM", () => stop("SIGTERM"));
     process.once("SIGHUP", () => stop("SIGHUP"));
+    // The socket can be visible before its owner record has finished. Install
+    // termination handlers before that asynchronous publication window.
+    const server = await serverReady;
+    if (shutdown !== undefined) {
+      await shutdown;
+      return;
+    }
+    process.stdout.write(`${JSON.stringify({
+      kind: "h2a.native-terminal.ready",
+      version: 1,
+      generation: host.generation,
+      pid: process.pid,
+      socketPath: server.socketPath,
+    })}\n`);
   } catch (error) {
     cause = "startupError";
     journal.write({ event: "startupError", ...identity(), error: "[REDACTED]",

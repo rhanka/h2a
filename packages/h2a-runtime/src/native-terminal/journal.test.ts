@@ -159,8 +159,13 @@ describe("native host life journal", () => {
       process.send('exit-handler-ready', () => process.disconnect());`);
     const host = child([script], f.env, true);
     expect((await once(host.process, "message"))[0]).toBe("exit-handler-ready");
-    await eventually(() => readHostJournal(f.log).some(e => e.event === "start")); host.process.kill("SIGUSR1");
-    expect((await host.closed)[0]).toBe(7);
+    await eventually(() => readHostJournal(f.log).some(e => e.event === "start"));
+    const exited = once(host.process, "exit", { signal: AbortSignal.timeout(1_000) });
+    host.process.kill("SIGUSR1");
+    try { expect((await exited)[0]).toBe(7); }
+    catch (error) {
+      throw new Error(`explicit exit fixture did not exit: ${JSON.stringify(host.output())}`, { cause: error });
+    }
     await eventually(() => readHostJournal(f.log).at(-1)?.event === "exit");
     expect(readHostJournal(f.log).at(-1)).toMatchObject({ event: "exit", exitCode: 7, cause: "unknown" });
     expect(readFileSync(f.log, "utf8")).not.toContain("SIGKILL");

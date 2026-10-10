@@ -924,11 +924,15 @@ export async function startNativeTerminalHostServer(options: {
 
   const sockets = new Set<Socket>();
   const responseBudget: ResponseQueueBudget = { pendingBytes: 0 };
+  let readyForRequests = false;
   const server: Server = createServer((socket) => {
     if (sockets.size >= NATIVE_TERMINAL_MAX_CONNECTIONS) {
       socket.destroy();
       return;
     }
+    // A visible socket is not yet a completed publication: its durable owner
+    // record and publication lock must finish before health/PTY admission.
+    if (!readyForRequests) socket.pause();
     const context: ConnectionContext = {
       socket,
       leases: new Map(),
@@ -1011,6 +1015,8 @@ export async function startNativeTerminalHostServer(options: {
     }
     throw error;
   }
+  readyForRequests = true;
+  for (const socket of sockets) socket.resume();
   let closing: Promise<void> | undefined;
 
   return Object.freeze({
