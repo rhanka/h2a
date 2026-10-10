@@ -21,13 +21,13 @@ import {
   profileUsesLlmMeshGateway
 } from "../../h2a-runtime/dist/protocol-local.js";
 import {
-  replaceAnthropicGatewayEnvironment
-} from "../../h2a-runtime/dist/llm-mesh.js";
+  replaceAnthropicGatewayEnvironment,
+} from "../../h2a-runtime/dist/gateway-host/daemon.js";
 import {
   describeLlmMeshRoutingConfig,
   preferredRoutingConfig,
   strategyRoutingConfig
-} from "../../h2a-runtime/dist/llm-routing-config.js";
+} from "../../h2a-runtime/dist/routing-preferences.js";
 
 const session = (name, tmuxId = "$1", identity = {}) => ({
   tmuxId,

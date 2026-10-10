@@ -1,0 +1,52 @@
+[
+  {
+    "file": "packages/h2a-runtime/src/gateway-host/ledger.ts",
+    "specifier": "gateway-host/ledger.ts",
+    "classification": "retained-h2a-adapter",
+    "reason": "Retained local session adapter until workspace/session convergence.",
+    "decision": "Owner decision 2026-10-03: h2a retains its local session registry and ledger."
+  },
+  {
+    "file": "packages/h2a-runtime/src/gateway-host/sessions.ts",
+    "specifier": "gateway-host/sessions.ts",
+    "classification": "retained-h2a-adapter",
+    "reason": "Retained local session adapter until workspace/session convergence.",
+    "decision": "Owner decision 2026-10-03: h2a retains its local session registry and ledger."
+  },
+  {
+    "file": "packages/h2a/test/gateway-eradication.test.js",
+    "specifier": "@sentropic/llm-mesh",
+    "classification": "negative-assertion",
+    "reason": "Scanner negative control; never loaded as a dependency."
+  },
+  {
+    "file": "packages/h2a/test/gateway-eradication.test.js",
+    "specifier": "@sentropic/llm-mesh/facade",
+    "classification": "negative-assertion",
+    "reason": "Scanner negative control; never loaded as a dependency."
+  },
+  {
+    "file": "packages/h2a/test/gateway-eradication.test.js",
+    "specifier": "llm-gateway-runtime/",
+    "classification": "negative-assertion",
+    "reason": "Scanner negative control; never loaded as a dependency."
+  },
+  {
+    "file": "packages/h2a/test/gateway-eradication.test.js",
+    "specifier": "llm-mesh.ts",
+    "classification": "negative-assertion",
+    "reason": "Scanner negative control; never loaded as a dependency."
+  },
+  {
+    "file": "packages/h2a/test/gateway-eradication.test.js",
+    "specifier": "llm-routing-config.ts",
+    "classification": "negative-assertion",
+    "reason": "Scanner negative control; never loaded as a dependency."
+  },
+  {
+    "file": "packages/h2a/test/gateway-eradication.test.js",
+    "specifier": "vitest.llm-mesh-pin.mjs",
+    "classification": "negative-assertion",
+    "reason": "Scanner negative control; never loaded as a dependency."
+  }
+]

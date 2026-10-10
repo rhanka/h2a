@@ -6,10 +6,19 @@ import {
   validateEquivalenceCouncil,
   validateRoutePolicy,
   type ModelEquivalenceCouncil,
+  type ModelProfile,
   type RoutePolicy,
   type RoutePolicyProfile,
   type RouteSelector,
-} from "@sentropic/llm-mesh";
+} from "@sentropic/cluster-mesh/llm-mesh";
+
+// llm-mesh 0.23.1's published catalog literal omits maxOutputTokens on the
+// mistral-large-4 entry (optional in the literal, required in
+// ModelCapabilities), so its own `modelProfiles` export does not satisfy its
+// own `readonly ModelProfile[]` under exactOptionalPropertyTypes. Upstream
+// declaration gap (catalog fix owed in llm-mesh 0.23.2), not a runtime defect.
+// Narrow-cast at the single consumption site instead of widening local types.
+const CATALOG_MODEL_PROFILES = modelProfiles as unknown as readonly ModelProfile[];
 
 export interface LlmMeshRoutingConfig {
   /** Host-level public policy override. Canonical routing knowledge remains in llm-mesh. */
@@ -45,19 +54,14 @@ export function validateLlmMeshRoutingConfig(
   config: LlmMeshRoutingConfig,
 ): LlmMeshRoutingConfig {
   if (config.policy) validateRoutePolicy(config.policy);
-  const names = new Set<string>();
-  for (const profile of config.profiles ?? []) {
-    if (names.has(profile.name)) {
-      throw new Error(`duplicate llm-mesh route profile: ${profile.name}`);
-    }
-    names.add(profile.name);
-    validateRoutePolicy(profile.policy);
+  const profiles = new InMemoryRoutePolicyProfiles(config.profiles);
+  if (profiles.list().length !== (config.profiles?.length ?? 0)) {
+    // Duplicate CLI names would otherwise be silently overwritten by the public registry.
+    throw new Error("duplicate llm-mesh route profile");
   }
-  if (config.activeProfile && !names.has(config.activeProfile)) {
-    throw new Error(`unknown llm-mesh route profile: ${config.activeProfile}`);
-  }
+  if (config.activeProfile) profiles.activate(config.activeProfile);
   if (config.council) {
-    validateEquivalenceCouncil(config.council, modelProfiles);
+    validateEquivalenceCouncil(config.council, CATALOG_MODEL_PROFILES);
   }
   return config;
 }

@@ -312,6 +312,10 @@ Consequences to respect:
   it, or ask the human — do not infer "free" from "not-live". Liveness gates
   *delivery*, not *work in progress*.
 
+## Local LLM backend
+
+The optional local gateway is composed through `@sentropic/cluster-mesh`. Its llm-mesh facade owns enrollment, credentials, provider transports, routing and affinity. H2A retains its local bearer registry and session ledger until convergence with Sentropic workspace/session notions (owner decision 2026-10-03), plus public configuration and daemon lifecycle. New launches default to direct authentication; Claude `--gw` / MCP `gateway: "required"` explicitly require the composed gateway. The CLI groups, MCP schema and session/status URLs remain compatible.
+
 ## Defaults and conventions
 
 - **Auto-connect (recommended)**: register the MCP server with `mcp-serve --auto-open --host <h>` so a session opens at host startup (EVO-6/DEC-105); `/h2a disconnect` leaves early. `/h2a connect` stays available for manual/explicit connect.

@@ -113,6 +113,9 @@ const SIGNATURES: Readonly<Record<DelegateType, ReadonlyArray<Signature>>> = {
   // unverified patterns — so the table stays empty (a missed throttle fails
   // the job normally instead of misfiring a resume) until a real tail is seen.
   muse: [],
+  // No measured vibe transient-error shape yet either: same rule as muse —
+  // an empty table is honest, an invented regex is not.
+  vibe: [],
 };
 
 /**

@@ -19,6 +19,7 @@ Status vocabulary:
 | agy | shipped/rendered (`h2a host setup --host agy`) | shipped if agy loads MCP config | shipped/rendered via Gemini import (`install-skills --host agy` emits `agy plugin import gemini`); plugin is poll-only | automated render/import-hint tests; live `agy plugin import` E2E pending |
 | Hermes | shipped/rendered (`h2a host setup --host hermes`) | shipped if Hermes loads MCP config | shipped/rendered (`install-skills --host hermes`, `host plugin --host hermes`) | automated render tests; live Hermes hook/plugin E2E pending |
 | OpenCode | shipped/rendered (`h2a host setup --host opencode`) | shipped if OpenCode loads MCP config | shipped/rendered (`install-skills --host opencode`, `host plugin --host opencode`) | automated render tests; live OpenCode binary/plugin E2E pending |
+| Vibe | shipped/rendered (`h2a host setup --host vibe` — `[[mcp_servers]]` TOML translation hint, `--write` refuses TOML) | shipped if Vibe loads MCP config | shipped (`install-skills --host vibe` → `~/.vibe/skills/h2a/SKILL.md`; `host plugin --host vibe` renders the drumbeat record for a `post_agent` hook in `~/.vibe/hooks.toml`; plugin `--write` refused — TOML, format-strict merger) | automated render/plugin tests (host-plugin.test.js vibe cases); live Vibe hook E2E pending |
 
 ## Security/policy capability disclosure
 

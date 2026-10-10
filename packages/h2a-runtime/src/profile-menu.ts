@@ -7,6 +7,7 @@ export const MENU_PROFILES: ReadonlyArray<CliProfile> = [
   "gemini",
   "mistral",
   "muse",
+  "vibe",
   "opencode",
   "shell",
 ];
@@ -17,6 +18,7 @@ const MENU_ALIASES: Readonly<Record<string, CliProfile>> = {
   "gemini-cli": "gemini",
   mistralcli: "mistral",
   "muse-code": "muse",
+  "mistral-vibe": "vibe",
 };
 
 export function shouldShowProfileMenu(

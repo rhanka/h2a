@@ -5,11 +5,10 @@
   "type": "module",
   "workspaces": [
     "packages/*",
-    "apps/*",
-    "!apps/focus"
+    "apps/control-plane"
   ],
   "scripts": {
-    "build": "npm run build -w @sentropic/track && tsc -b",
+    "build": "npm run build -w @sentropic/track && npm exec -w @sentropic/h2a-runtime --call \"node ../../scripts/clean-workspace-dist.mjs\" && tsc -b --force",
     "build:h2a": "tsc -b",
     "clean": "tsc -b --clean",
     "pack:h2a": "npm pack --dry-run --workspace @sentropic/h2a",
