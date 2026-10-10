@@ -105,6 +105,7 @@ export async function deliverClaudeNativePrompt(name: string, prompt: string, de
     let settled = false, turn = false, dispatched = false;
     const refusal = () => {
       if (options.diagnosticHealthy?.() === false) return "diagnostic collector lost integrity";
+      if (!mcpsReady()) return "required MCP evidence lost after Enter";
       // A dispatch in an early block must not hide a refusal queued later.
       // Drain bounded retained records before publishing; incomplete records
       // remain uncertainty rather than proof of a clean diagnostic boundary.
