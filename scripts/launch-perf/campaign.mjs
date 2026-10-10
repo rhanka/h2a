@@ -17,7 +17,7 @@ for(const n of [1,4,9])for(const cold of [false,true])for(const pressure of [fal
       worktree:version==='baseline'?repo+'/.qual-tmp/baseline':repo,sourceSha:version==='baseline'?baseline:candidate});
   }
 }
-const input={label:prefix,scenarios};
+const input={label:prefix,reclaimOwnedFixtures:true,scenarios};
 fs.writeFileSync(repo+'/.qual-tmp/evidence/'+prefix+'-plan.json',JSON.stringify({baseline,candidate,prefix,input},null,2));
 const child=spawn(process.execPath,[repo+'/scripts/launch-perf/qualify.mjs',JSON.stringify(input)],{cwd:repo,env:process.env,stdio:'inherit'});
 process.exitCode=await new Promise((resolve,reject)=>{child.once('close',resolve);child.once('error',reject)});
