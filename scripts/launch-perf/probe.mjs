@@ -267,6 +267,11 @@ try {
     row.nativeOperations = traces.filter(t=>t.name==='node_preload'&&t.entry==='op.js'&&t.session===row.id).map(t=>({operation:t.operation,at:t.at-begin}));
     const receiptPath=workspace+'/.h2a/runs/'+row.name+'/launch.json';
     if(fs.existsSync(receiptPath))row.receipt=JSON.parse(fs.readFileSync(receiptPath,'utf8'));
+    row.publications=traces.filter(t=>t.name==='receipt_publication'&&t.session===row.name)
+      .map(t=>({at:t.at-begin,state:t.state,resultState:t.resultState,completeResult:t.completeResult,submitAttempted:t.submitAttempted}));
+    if(row.receipt?.result?.state==='started'&&row.receipt?.requiredMcps?.includes('h2a')&&row.receipt?.requiredMcps?.includes('playwright')&&
+      (!row.publications.some(t=>t.state==='started')||row.publications.some(t=>t.state==='started'&&!t.completeResult)))
+      throw new Error('started was published before its complete durable result');
     const firstMain = stubRequests.flatMap(request=>{
       try {
         const body=JSON.parse(request.body), conversation=JSON.parse(body.metadata?.user_id||'{}').session_id;

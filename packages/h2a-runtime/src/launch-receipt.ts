@@ -23,7 +23,8 @@ function processStart(pid: number): string {
   const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
   return stat.slice(stat.lastIndexOf(")") + 2).split(" ")[19]!;
 }
-function deadLockOwner(lock: string, namespace: string): boolean {
+function deadLockOwner(lock: string, namespace: string | undefined): boolean {
+  if (namespace === undefined) return false;
   try {
     const owner = JSON.parse(readFileSync(`${lock}/owner`, "utf8"));
     if (owner.namespace !== namespace || !Number.isSafeInteger(owner.pid) || owner.pid <= 0 || typeof owner.start !== "string") return false;
@@ -35,8 +36,12 @@ function deadLockOwner(lock: string, namespace: string): boolean {
 /** All receipt writers and cleanup decisions use this same inter-process lock. */
 export function withLaunchReceipt<T>(path: string, token: string | undefined, action: (receipt: LaunchReceipt | undefined, save: (next: LaunchReceipt) => void) => T): T {
   const lock = `${path}.lock`;
-  const namespace = readlinkSync("/proc/self/ns/pid");
-  const owner = JSON.stringify({ pid: process.pid, start: processStart(process.pid), namespace, nonce: randomUUID() });
+  let namespace: string | undefined, start: string | undefined;
+  try { namespace = readlinkSync("/proc/self/ns/pid"); start = processStart(process.pid); }
+  catch { namespace = undefined; start = undefined; }
+  // Fresh locks work without procfs. Recovery still requires a provable birth
+  // in the same PID namespace; an unavailable identity never permits stealing.
+  const owner = JSON.stringify({ pid: process.pid, start, namespace, nonce: randomUUID() });
   const deadline = Date.now() + 2000;
   for (;;) {
     try {
