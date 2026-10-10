@@ -325,7 +325,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
     const directory = await mkdtemp(join(tmpdir(), "n-"));
     directories.add(directory);
     const socketPath = join(directory, "host.sock");
-    const entry = fileURLToPath(new URL("./process.ts", import.meta.url));
+    const entry = fileURLToPath(new URL("../../dist/native-terminal/process.js", import.meta.url));
     let spawnCount = 0;
     const spawnHost: NativeTerminalHostSpawn = (options) => {
       spawnCount += 1;
@@ -388,7 +388,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
     for (const pid of nodeChildrenBefore) {
       const argv = (await readFile(`/proc/${pid}/cmdline`, "utf8")).split("\0");
       if (argv.includes("--native-host-journal-writer")) {
-        expect(argv).toContain(fileURLToPath(new URL("./journal.ts", import.meta.url)));
+        expect(argv).toContain(fileURLToPath(new URL("../../dist/native-terminal/journal.js", import.meta.url)));
         writerChildren.push(pid);
       }
     }
