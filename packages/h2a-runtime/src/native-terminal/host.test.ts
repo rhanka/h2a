@@ -1,4 +1,8 @@
+// @ts-ignore Shared JS test isolation helper.
+import { setupNativeTestEnvironment } from "../../../h2a/test/helpers/native-isolation.js";
+setupNativeTestEnvironment(afterAll);
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
+import { once } from "node:events";
 import {
   chmodSync,
   mkdirSync,
@@ -10,7 +14,7 @@ import {
 } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { PtyHandle, PtySpawner } from "../pty.js";
 import {
@@ -105,6 +109,7 @@ let registryPath: string;
 // Real processes a test starts to observe real /proc states. They outlive the
 // assertions, so this suite owns their cleanup even when one aborts the test.
 const strayProcesses = new Set<ChildProcess>();
+const strayProcessGroups = new Set<ChildProcess>();
 
 beforeEach(() => {
   mkdirSync(SCRATCH_ROOT, { recursive: true });
@@ -112,9 +117,11 @@ beforeEach(() => {
   registryPath = join(scratch, "registry.json");
 });
 
-afterEach(() => {
+afterEach(async () => {
   for (const child of strayProcesses) {
-    if (child.pid !== undefined) {
+    if (child.exitCode !== null || child.signalCode !== null) continue;
+    const exited = once(child, "exit", { signal: AbortSignal.timeout(3_000) });
+    if (strayProcessGroups.has(child) && child.pid !== undefined) {
       try {
         process.kill(-child.pid, "SIGKILL");
       } catch {
@@ -122,8 +129,10 @@ afterEach(() => {
       }
     }
     child.kill("SIGKILL");
+    await exited;
   }
   strayProcesses.clear();
+  strayProcessGroups.clear();
   rmSync(scratch, { recursive: true, force: true });
 });
 
@@ -1844,6 +1853,7 @@ describe("NativeTerminalHost", () => {
       stdio: "ignore",
     });
     strayProcesses.add(mixed);
+    strayProcessGroups.add(mixed);
     try {
       let zombieOnlyOut = "";
       zombieOnly.stdout!.setEncoding("utf8");
@@ -2039,6 +2049,7 @@ describe("NativeTerminalHost", () => {
       // `detached` puts it in its own session, so pgid == pid == tgid.
       const zl = spawn(binary, [], { detached: true, stdio: "ignore" });
       strayProcesses.add(zl);
+      strayProcessGroups.add(zl);
       try {
         const pgid = zl.pid!;
         // The leader task now reads `Z` while the worker thread keeps running.

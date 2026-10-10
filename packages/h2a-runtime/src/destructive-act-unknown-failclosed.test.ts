@@ -17,10 +17,11 @@
  * Every external process surface is mocked: no tmux session, native session
  * or terminal is ever created or killed by this file.
  */
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+// @ts-ignore Shared test-only boundary; excluded from the production build.
+import { createPrivateTestDirectory, nativeTestEnvironment, installNativeTestEnvironment } from "../../h2a/test/helpers/native-isolation.js";
 
 const tmuxAvailable = vi.hoisted(() => vi.fn());
 const startLocalSession = vi.hoisted(() => vi.fn());
@@ -34,6 +35,7 @@ const existingLocalSessionSlugs = vi.hoisted(() => vi.fn());
 const currentTmuxSessionIs = vi.hoisted(() => vi.fn());
 
 const nativeSessionLiveness = vi.hoisted(() => vi.fn());
+const nativeSessionState = vi.hoisted(() => vi.fn());
 const nativeHostAvailable = vi.hoisted(() => vi.fn());
 const startNativeSession = vi.hoisted(() => vi.fn());
 const attachNativeSession = vi.hoisted(() => vi.fn());
@@ -42,6 +44,7 @@ const listNativeSessions = vi.hoisted(() => vi.fn());
 
 const stopRemoteSession = vi.hoisted(() => vi.fn());
 const listRemoteSessions = vi.hoisted(() => vi.fn());
+const unexpectedNativeSpawns = vi.hoisted(() => vi.fn());
 
 vi.mock("./tmux.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./tmux.js")>();
@@ -65,6 +68,7 @@ vi.mock("./native-host.js", async (importOriginal) => {
   return {
     ...actual,
     nativeSessionLiveness,
+    nativeSessionState,
     nativeHostAvailable,
     startNativeSession,
     attachNativeSession,
@@ -80,30 +84,28 @@ vi.mock("./attach.js", async (importOriginal) => {
 
 // registry-internal probeTmuxSession shells out to `tmux has-session`; stub
 // exactly that call so the probe is DETERMINISTIC (no session) on machines
-// with or without tmux, while every other spawnSync stays real.
+// with or without tmux, while unexpected native operations are blocked and counted.
 vi.mock("node:child_process", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:child_process")>();
   return {
     ...actual,
-    spawnSync: ((command: string, ...rest: unknown[]) =>
-      command === "tmux"
+    spawnSync: ((command: string, ...rest: unknown[]) => {
+      if (Array.isArray(rest[0]) && rest[0].some(arg => /native-terminal\/(op|process)\.[jt]s/.test(String(arg)))) {
+        unexpectedNativeSpawns(command, ...rest);
+        return { status: 1, stdout: "", stderr: "unexpected native operation blocked by test", error: undefined };
+      }
+      return command === "tmux"
         ? { status: 1, stdout: "", stderr: "", error: undefined }
         : (actual.spawnSync as (...a: unknown[]) => unknown)(
             command,
             ...rest,
-          )) as typeof actual.spawnSync,
+          );
+    }) as typeof actual.spawnSync,
   };
 });
 
 const { main } = await import("./index.js");
 const { enrollFromRun } = await import("./registry.js");
-
-const SCRATCH_ROOT = join(
-  dirname(fileURLToPath(import.meta.url)),
-  "..",
-  ".test-scratch",
-  "destructive-act-unknown",
-);
 
 const CONV_ID = "3f2504e0-4f89-41d3-9a0c-0305e82c3304";
 const iso = new Date().toISOString();
@@ -126,7 +128,7 @@ const nativeRow = (slug: string, over: Row = {}): Row => ({
 });
 
 let scratch: string;
-let prevConfigHome: string | undefined;
+let restoreEnvironment: () => void;
 let stderrLines: string[];
 let stderrSpy: ReturnType<typeof vi.spyOn>;
 
@@ -144,10 +146,9 @@ function writeRegistry(rows: Row[]): void {
 }
 
 beforeEach(() => {
-  mkdirSync(SCRATCH_ROOT, { recursive: true });
-  scratch = mkdtempSync(join(SCRATCH_ROOT, "cli-"));
-  prevConfigHome = process.env.REMOTE_CLI_CONFIG_HOME;
-  process.env.REMOTE_CLI_CONFIG_HOME = scratch;
+  unexpectedNativeSpawns.mockClear();
+  scratch = createPrivateTestDirectory("des-");
+  restoreEnvironment = installNativeTestEnvironment(nativeTestEnvironment(scratch, { REMOTE_CLI_CONFIG_HOME: scratch }));
   process.exitCode = undefined;
 
   tmuxAvailable.mockReset().mockReturnValue(true);
@@ -170,6 +171,15 @@ beforeEach(() => {
   currentTmuxSessionIs.mockReset().mockReturnValue(false);
 
   nativeSessionLiveness.mockReset().mockReturnValue(false);
+  nativeSessionState.mockReset().mockImplementation(() => {
+    try {
+      const live = nativeSessionLiveness();
+      if (live === "unknown") return { state: "unknown", reason: "test: unprovable native host" };
+      return live ? { state: "found", session: { status: "running" } } : { state: "absent" };
+    } catch (error) {
+      return { state: "unknown", reason: String(error) };
+    }
+  });
   nativeHostAvailable.mockReset().mockReturnValue({ ok: true });
   startNativeSession
     .mockReset()
@@ -196,10 +206,10 @@ beforeEach(() => {
 
 afterEach(() => {
   stderrSpy.mockRestore();
-  if (prevConfigHome === undefined) delete process.env.REMOTE_CLI_CONFIG_HOME;
-  else process.env.REMOTE_CLI_CONFIG_HOME = prevConfigHome;
+  restoreEnvironment();
   process.exitCode = undefined;
   rmSync(scratch, { recursive: true, force: true });
+  expect(unexpectedNativeSpawns).not.toHaveBeenCalled();
 });
 
 describe("sol-F3 — a native probe failure is never proof of absence", () => {
@@ -235,7 +245,7 @@ describe("sol-F3 — a native probe failure is never proof of absence", () => {
     expect(killNativeSessionTree).not.toHaveBeenCalled();
     const output = stderrLines.join("");
     expect(output).toContain("native host state is unknown");
-    expect(output).toContain("refusing to risk a second writer");
+    expect(output).toMatch(/refusing to risk a second writer/i);
   });
 });
 
@@ -482,14 +492,10 @@ describe("attach missing->remote fallthrough — NAMED DEBT, not covered", () =>
   // an identity whose only registry row is unreadable), attach falls through
   // to a REMOTE session of the same name. attach is non-destructive (it does
   // not kill), so unlike stop it was not gated in #199 — but it is a known
-  // asymmetry vs stop's fail-closed guard. Skipping it WITH ITS NAME leaves
+  // asymmetry vs stop's fail-closed guard. Keeping it as a named TODO leaves
   // an address for the debt (the dead-tmux convention); a silent absence
-  // would not. When attach fail-closed symmetry lands, replace this skip
+  // would not. When attach fail-closed symmetry lands, replace this TODO
   // with the guard's assertions (refusal on an unreadable-row identity, no
   // remote attach issued).
-  it.skip("ATTACH_MISSING_IDENTITY_MUST_NOT_FALL_THROUGH_TO_REMOTE_HOMONYM — pending attach fail-closed symmetry (tracked debt 2026-08-08)", () => {
-    throw new Error(
-      "unreachable while skipped: attach fail-closed symmetry is not implemented",
-    );
-  });
+  it.todo("ATTACH_MISSING_IDENTITY_MUST_NOT_FALL_THROUGH_TO_REMOTE_HOMONYM — pending attach fail-closed symmetry (tracked debt 2026-08-08)");
 });

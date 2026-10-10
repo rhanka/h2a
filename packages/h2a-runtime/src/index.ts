@@ -6314,18 +6314,24 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         // to launch on an unprovable host state.
         const nativeExistence = labels
           .map((label) => slugify(label ?? cwd))
-          .map((slug) => ({
-            slug,
-            probe: probeNativeSession(localSessionName(slug)),
-          }));
+          .map((slug) => {
+            const detail = nativeSessionState(localSessionName(slug));
+            const probe: ManagedHostProbeResult = detail.state === "unknown" ? "unknown"
+              : detail.state === "found" && detail.session.status === "running" ? "live" : "dead";
+            return { slug, probe, reason: detail.state === "unknown" ? detail.reason : undefined };
+          });
         const unknownNativeSlugs = nativeExistence
-          .filter((probed) => probed.probe === "unknown")
-          .map((probed) => probed.slug);
+          .filter((probed) => probed.probe === "unknown");
         if (unknownNativeSlugs.length > 0) {
-          for (const slug of unknownNativeSlugs) {
+          for (const { slug, reason } of unknownNativeSlugs) {
             process.stderr.write(
-              `[h2a] cannot start ${slug}: native host state is unknown (the probe failed) — a probe failure is never proof of absence; refusing to risk a second writer (fail closed).\n`,
+              `[h2a] cannot start ${slug}: native host state is unknown: ${reason}. Refusing to risk a second writer (fail closed). Inspect the named endpoint permissions and owning process identity, restore probe access, then retry; do not remove sockets or locks while ownership is unproven.\n`,
             );
+          }
+          if (opts.json && opts.name) {
+            const failure = new NativeLaunchAdmissionError({ code: "native-inventory-unknown",
+              hosts: unknownNativeSlugs.map(({ slug, reason }) => ({ id: localSessionName(slug), reason })) });
+            process.stdout.write(`${JSON.stringify(failure.toRunFailure(opts.name))}\n`);
           }
           process.exitCode = 1;
           return;

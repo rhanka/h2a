@@ -45,6 +45,7 @@ import type {
   NativeTerminalSessionState,
 } from "./host.js";
 import { NativeTerminalHostSupervisor } from "./supervisor.js";
+import { proveNativeTerminalEndpointAbsent } from "./server.js";
 import { defaultNativeTerminalSocketPath, knownNativeTerminalSocketPaths,
   inspectPrivateNativeTerminalSocket, sameNativeTerminalSocket } from "./socket-path.js";
 import { collectNativeInventory, resolveNativeOwner, type NativeInventory } from "./fleet.js";
@@ -142,7 +143,7 @@ class NativeOwnerError extends Error {
 
 async function inventoryFor(parsed: Parsed): Promise<NativeInventory> {
   const pinned = parsed.flags.get("socket");
-  return collectNativeInventory(pinned ? [pinned] : knownNativeTerminalSocketPaths(), connectExisting);
+  return collectNativeInventory(pinned ? [pinned] : knownNativeTerminalSocketPaths(), connectExisting, proveNativeTerminalEndpointAbsent);
 }
 
 async function owningClient(parsed: Parsed, id: string): Promise<{ client: NativeTerminalClient; socketPath: string }> {
@@ -157,24 +158,33 @@ async function selectLaunchClient(fenced: boolean): Promise<{ client: NativeTerm
   const paths = knownNativeTerminalSocketPaths();
   const imposed = process.env["H2A_NATIVE_SOCKET"];
   if (imposed) {
-    const client = existsSync(imposed) ? await connectExisting(imposed) : await ensureClient(imposed);
+    const client = await launchClient(imposed);
     // An imposed endpoint can never silently redirect, even when its mate is
     // available. Capability certification is performed by the caller.
     return { client, socketPath: imposed };
   }
   const historical = paths[0]!;
-  // A cold fleet can be initialized. Once either endpoint exists, failure to
-  // observe the historical host is unknown, never permission to replace it.
-  const cold = !existsSync(dirname(historical));
-  const client = cold ? await ensureClient(historical) : await connectExisting(historical);
+  const client = await launchClient(historical);
   const ping = await client.ping();
   if (!fenced || paths.length === 1) return { client, socketPath: historical };
   const compatible = paths[1]!;
   // Initialize the second known endpoint so admission obtains a complete
   // inventory even when the historical host already provides the fence.
-  if (existsSync(compatible)) await connectExisting(compatible); // Never reclaim an unreachable known endpoint.
-  const second = await ensureClient(compatible);
+  const second = await launchClient(compatible);
   return ping.launchFence === true ? { client, socketPath: historical } : { client: second, socketPath: compatible };
+}
+
+async function launchClient(socketPath: string): Promise<NativeTerminalClient> {
+  try { return await connectExisting(socketPath); }
+  catch (error) {
+    let absent = false;
+    try { absent = await proveNativeTerminalEndpointAbsent(socketPath, error); }
+    catch (proofError) {
+      error = new Error(`${error instanceof Error ? error.message : String(error)}; absence proof failed: ${proofError instanceof Error ? proofError.message : String(proofError)}`);
+    }
+    if (absent) return ensureClient(socketPath);
+    throw Object.assign(new Error(`${socketPath}: ${error instanceof Error ? error.message : String(error)}; owner death is unproven. Inspect endpoint permissions and the owning process identity, restore probe access, then retry; do not remove a socket or lock while ownership is unproven.`), { socketPath });
+  }
 }
 
 async function ensureClient(socketPath: string): Promise<NativeTerminalClient> {
@@ -662,7 +672,7 @@ export async function runNativeTerminalOp(argv: ReadonlyArray<string>): Promise<
         selected = parsed.flags.has("socket") ? { client: await connectExisting(socketPath), socketPath }
           : await selectLaunchClient(parsed.flags.get("fenced") === "true");
       } catch (error) {
-        emit({ code: "native-inventory-unknown", hosts: [{ socketPath,
+        emit({ code: "native-inventory-unknown", hosts: [{ socketPath: (error as { socketPath?: string })?.socketPath ?? socketPath,
           reason: error instanceof Error ? error.message : String(error) }] });
         return 1;
       }
@@ -675,7 +685,7 @@ export async function runNativeTerminalOp(argv: ReadonlyArray<string>): Promise<
     case "list": {
       const inventory = await inventoryFor(parsed);
       emit({ sessions: inventory.sessions, complete: inventory.complete,
-        hosts: inventory.hosts.map(({ socketPath, reason }) => ({ socketPath, reachable: reason === undefined, ...(reason ? { reason } : {}) })) });
+        hosts: inventory.hosts.map(({ socketPath, reason, absent }) => ({ socketPath, reachable: !absent && reason === undefined, ...(absent ? { absent } : {}), ...(reason ? { reason } : {}) })) });
       return 0;
     }
     case "state": {
@@ -694,7 +704,7 @@ export async function runNativeTerminalOp(argv: ReadonlyArray<string>): Promise<
       //  - dead:    every known reachable endpoint proves absence, or the
       //             owning endpoint reports an exited session
       //  - unknown: an incomplete inventory without a found owner; even
-      //             ENOENT/ECONNREFUSED never certify absence across hosts.
+      //             transport errors without an independent owner-death proof.
       const id = required(parsed, "id");
       const owner = resolveNativeOwner(id, await inventoryFor(parsed));
       if (owner.state === "found") emit({ verdict: owner.session.status === "running" ? "live" : "dead",

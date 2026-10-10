@@ -1,3 +1,6 @@
+// @ts-ignore Shared JS test isolation helper.
+import { setupNativeTestEnvironment } from "../../h2a/test/helpers/native-isolation.js";
+setupNativeTestEnvironment(afterAll);
 /**
  * Wiring tests for the single-writer conversation guard in `remote run -r`
  * and `remote migrate forward -r` (same mock pattern as index.test.ts).

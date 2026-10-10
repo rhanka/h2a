@@ -1,11 +1,15 @@
-import { spawn, type ChildProcess } from "node:child_process";
+import type { ChildProcess } from "node:child_process";
 import { once } from "node:events";
-import { chmod, mkdtemp, readFile, readdir, readlink, rm, stat, unlink } from "node:fs/promises";
-import { createConnection } from "node:net";
+import { chmod, mkdir, mkdtemp, readFile, readdir, readlink, rm, stat, unlink, writeFile } from "node:fs/promises";
+import { createConnection, createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, describe, expect, it } from "vitest";
+// @ts-ignore Shared JS qualification helper; tests are outside the production build.
+import { isolatedNativeTestEnvironment, spawnIsolatedNative as spawn, spawnSyncIsolatedNative as spawnSync, setupNativeTestEnvironment, waitForPrivateNativeProcesses } from "../../../h2a/test/helpers/native-isolation.js";
+
+setupNativeTestEnvironment(afterAll);
 
 import { persistNativeTerminalPgid, readNativeTerminalPgid } from "../registry.js";
 import { NativeTerminalClient } from "./client.js";
@@ -238,7 +242,7 @@ async function createStubbornWorkload(
       `trap '' HUP TERM INT; /bin/sh -c "trap '' HUP TERM INT; while :; do sleep 1; done" & h2a_descendant=$!; printf '${id}-ready:%s\\r\\n' "$h2a_descendant"; while :; do sleep 1; done`,
     ],
     cwd: directory,
-    env: { PATH: process.env.PATH ?? "/usr/bin:/bin", TERM: "xterm-256color" },
+    env: isolatedNativeTestEnvironment({ PATH: process.env.PATH ?? "/usr/bin:/bin", TERM: "xterm-256color" }),
     cols: 80,
     rows: 24,
   });
@@ -317,10 +321,10 @@ const SPAWN_TERMINATION_GRACE_MS = 100;
 
 describe.skipIf(process.platform !== "linux")("native terminal host process", () => {
   it("should keep two real PTYs alive through client reconnect without per-operation Node spawns", async () => {
-    const directory = await mkdtemp(join(tmpdir(), "h2a-native-terminal-functional-"));
+    const directory = await mkdtemp(join(tmpdir(), "n-"));
     directories.add(directory);
     const socketPath = join(directory, "host.sock");
-    const entry = fileURLToPath(new URL("./process.ts", import.meta.url));
+    const entry = fileURLToPath(new URL("../../dist/native-terminal/process.js", import.meta.url));
     let spawnCount = 0;
     const spawnHost: NativeTerminalHostSpawn = (options) => {
       spawnCount += 1;
@@ -362,7 +366,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
       command: "/bin/sh",
       args: ["-c", `printf '${id}-ready\\r\\n'; while IFS= read -r line; do printf '${id}:%s\\r\\n' \"$line\"; done`],
       cwd: directory,
-      env: { PATH: process.env.PATH ?? "/usr/bin:/bin", TERM: "xterm-256color" },
+      env: isolatedNativeTestEnvironment({ PATH: process.env.PATH ?? "/usr/bin:/bin", TERM: "xterm-256color" }),
       cols: 80,
       rows: 24,
     });
@@ -379,8 +383,18 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
     await eventually(() => first.readOutput("alpha", 0), (output) => output.chunks.some((chunk) => chunk.data.includes("alpha:hello-alpha")));
 
     const nodeChildrenBefore = await directChildren(ping.hostPid);
-    expect(nodeChildrenBefore.sort((left, right) => left - right)).toEqual([alpha.pid, beta.pid].sort((left, right) => left - right));
+    const writerChildren = [];
     for (const pid of nodeChildrenBefore) {
+      const argv = (await readFile(`/proc/${pid}/cmdline`, "utf8")).split("\0");
+      if (argv.includes("--native-host-journal-writer")) {
+        expect(argv).toContain(fileURLToPath(new URL("../../dist/native-terminal/journal.js", import.meta.url)));
+        writerChildren.push(pid);
+      }
+    }
+    expect(writerChildren, "one independent journal writer per host").toHaveLength(1);
+    const terminalChildren = nodeChildrenBefore.filter(pid => !writerChildren.includes(pid));
+    expect(terminalChildren.sort((left, right) => left - right)).toEqual([alpha.pid, beta.pid].sort((left, right) => left - right));
+    for (const pid of terminalChildren) {
       const executable = basename(await readlink(`/proc/${pid}/exe`));
       expect(executable.startsWith("node")).toBe(false);
     }
@@ -388,6 +402,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
     supervisor.disconnect();
     const reconnected = await supervisor.client();
     expect(spawnCount).toBe(1);
+
     expect((await reconnected.ping()).hostPid).toBe(ping.hostPid);
     expect(await reconnected.list()).toEqual([
       expect.objectContaining({ id: "alpha", pid: alpha.pid, status: "running" }),
@@ -410,11 +425,17 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
     await eventually(() => reconnected.readOutput("beta", 0), (output) => output.chunks.some((chunk) => chunk.data.includes("beta:still-alive")));
     expect(spawnCount).toBe(1);
 
+    // Reconnect/read/write/stop do not spawn another journal or operation Node.
+    await eventually(() => directChildren(ping.hostPid), pids =>
+      pids.length === 2 && pids.includes(beta.pid) && pids.includes(writerChildren[0]!));
+
     const hostProcess = [...children][0]!;
     hostProcess.kill("SIGKILL");
     await once(hostProcess, "exit");
     await expect(reconnected.list()).rejects.toThrow(/closed|client/i);
     await eventually(() => running(beta.pid), (alive) => !alive);
+    await eventually(() => processObservation(writerChildren[0]!),
+      (observation) => observation.missing === true || observation.state === "Z");
     expect(running(ping.hostPid)).toBe(false);
   });
 
@@ -454,7 +475,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
     1_000;
 
   it("should kill a signal-resistant PTY tree after hard host death and forced host reaping", async () => {
-    const directory = await mkdtemp(join(tmpdir(), "h2a-native-terminal-parent-death-"));
+    const directory = await mkdtemp(join(tmpdir(), "n-"));
     directories.add(directory);
     const socketPath = join(directory, "host.sock");
     const entry = fileURLToPath(new URL("./process.ts", import.meta.url));
@@ -607,7 +628,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
   }, HARD_DEATH_BUDGET_MS);
 
   it("should refuse reconciliation when the fresh PGID lookup differs from its immutable snapshot", async () => {
-    const directory = await mkdtemp(join(tmpdir(), "h2a-native-terminal-immutable-pgid-"));
+    const directory = await mkdtemp(join(tmpdir(), "n-"));
     directories.add(directory);
     const socketPath = join(directory, "host.sock");
     const registryPath = join(directory, "registry.json");
@@ -644,7 +665,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
       command: "/bin/sh",
       args: ["-c", "trap '' HUP TERM INT; while :; do sleep 1; done"],
       cwd: directory,
-      env: { PATH: process.env.PATH ?? "/usr/bin:/bin", TERM: "xterm-256color" },
+      env: isolatedNativeTestEnvironment({ PATH: process.env.PATH ?? "/usr/bin:/bin", TERM: "xterm-256color" }),
       cols: 80,
       rows: 24,
     });
@@ -709,7 +730,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
     // The re-read decides only whether anything is still owed. It never becomes
     // the pgid to act on: see "should refuse reconciliation when the fresh PGID
     // lookup differs from its immutable snapshot" above, which holds that line.
-    const directory = await mkdtemp(join(tmpdir(), "h2a-native-terminal-rewritten-row-"));
+    const directory = await mkdtemp(join(tmpdir(), "n-"));
     directories.add(directory);
     const registryPath = join(directory, "registry.json");
     const deadOwnerPid = await persistProvenDeadOwnerRow(
@@ -772,7 +793,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
   });
 
   it("should let a FRESH host — one that never knew the session — reap it from its durably persisted pgid after brutal host death", async () => {
-    const directory = await mkdtemp(join(tmpdir(), "h2a-native-terminal-fresh-reap-"));
+    const directory = await mkdtemp(join(tmpdir(), "n-"));
     directories.add(directory);
     const socketPath = join(directory, "host.sock");
     const registryPath = join(directory, "registry.json");
@@ -856,7 +877,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
     // (cause=leader-absent) and defeated the whole mechanism. This test
     // constructs that exact shape and requires the group-carried session
     // token to close it: PROCEED and KILL, not refuse.
-    const directory = await mkdtemp(join(tmpdir(), "h2a-native-terminal-leader-dead-"));
+    const directory = await mkdtemp(join(tmpdir(), "n-"));
     directories.add(directory);
     const socketPath = join(directory, "host.sock");
     const registryPath = join(directory, "registry.json");
@@ -977,8 +998,262 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
     3 * EVENTUALLY_BUDGET_MS +
     1_000;
 
+  for (const { releasePublication, releaseLate, terminate, blockJournal, suspendAt, preserveOwner, preserveSocket, title } of [
+    { releasePublication: true, suspendAt: "rename", preserveOwner: false,
+      title: "should handle termination while its published socket awaits the owner record" },
+    { releasePublication: false, suspendAt: "rename", preserveOwner: false,
+      title: "should exit and clean up on SIGTERM without releasing a suspended owner publication" },
+    { releasePublication: false, suspendAt: "write", preserveOwner: false,
+      title: "should exit and clean up on SIGTERM without releasing a suspended owner write" },
+    { releasePublication: false, suspendAt: "open", preserveOwner: false,
+      title: "should exit and clean up on SIGTERM without releasing a suspended owner open" },
+    { releasePublication: true, suspendAt: "open-cancelled", preserveOwner: false,
+      title: "should clean up an owner open that completes concurrently with SIGTERM" },
+    { releasePublication: false, suspendAt: "committed", preserveOwner: false,
+      title: "should remove its committed owner on SIGTERM without releasing publication" },
+    { releasePublication: false, suspendAt: "owner-unlink", preserveOwner: false,
+      title: "should exit and clean up on SIGTERM without releasing a suspended temporary owner unlink" },
+    { releasePublication: false, blockJournal: true, suspendAt: "owner-unlink", preserveOwner: false,
+      title: "should drain and exit during suspended publication when journal storage is locked" },
+    { releasePublication: false, suspendAt: "socket-link", preserveOwner: false,
+      title: "should exit and clean up on SIGTERM without releasing a suspended socket publication" },
+    { releasePublication: false, suspendAt: "socket-linked", preserveOwner: false,
+      title: "should roll back a linked socket on SIGTERM without releasing socket publication" },
+    { releasePublication: false, suspendAt: "staged-unlink", preserveOwner: false,
+      title: "should exit and clean up on SIGTERM without releasing a suspended staging socket unlink" },
+    { releasePublication: false, suspendAt: "socket-linked", preserveOwner: true, preserveSocket: true,
+      title: "should preserve a replacement socket and owner during suspended socket publication" },
+    { releasePublication: false, releaseLate: true, suspendAt: "socket-link", preserveOwner: true, preserveSocket: true,
+      title: "should neutralize a late socket link before releasing the publication lock" },
+    { releasePublication: false, releaseLate: true, suspendAt: "rename", preserveOwner: true, preserveSocket: true,
+      title: "should neutralize a late owner rename before releasing the publication lock" },
+    { releasePublication: false, terminate: false, suspendAt: "owner-unlink", preserveOwner: false,
+      title: "should bound a suspended temporary owner unlink by the publication deadline" },
+    { releasePublication: false, terminate: false, suspendAt: "socket-link", preserveOwner: false,
+      title: "should bound a suspended socket publication by the publication deadline" },
+    { releasePublication: false, suspendAt: "rename", preserveOwner: true,
+      title: "should preserve another owner on SIGTERM during suspended publication" },
+  ].map(value => ({ preserveSocket: false, releaseLate: false, terminate: true, blockJournal: false, ...value }))) it(title, async () => {
+    const directory = await mkdtemp(join(tmpdir(), "n-"));
+    directories.add(directory);
+    const socketPath = join(directory, "host.sock");
+    const entry = fileURLToPath(new URL("../../dist/native-terminal/process.js", import.meta.url));
+    const wrapper = join(directory, "publishing.mjs");
+    const statePath = join(directory, "state");
+    const journalLock = join(statePath, "h2a", "native-host.log.lock");
+    if (blockJournal) {
+      await mkdir(dirname(journalLock), { recursive: true, mode: 0o700 });
+      await writeFile(journalLock, "fixture-journal-lock", { mode: 0o600 });
+    }
+    await writeFile(wrapper, `
+      import fs from 'node:fs/promises';
+      import { once } from 'node:events';
+      import { syncBuiltinESMExports } from 'node:module';
+      import { createHash } from 'node:crypto';
+      import { createServer } from 'node:net';
+      const suspend = async () => {
+        const released = once(process, 'message');
+        process.send('owner-record-pending');
+        await released;
+      };
+      const writeFile = fs.writeFile;
+      const readFile = fs.readFile;
+      let lockSecret;
+      fs.readFile = async (...args) => {
+        const data = await readFile(...args);
+        if (args[0] === ${JSON.stringify(join(directory, ".h2a-native-terminal.lock-id"))}) lockSecret = data.trim();
+        return data;
+      };
+      const open = fs.open;
+      fs.open = async (...args) => {
+        const file = await open(...args);
+        if (['open', 'open-cancelled'].includes(${JSON.stringify(suspendAt)}) && String(args[0]).includes('.owner.')) {
+          await suspend();
+          if (${JSON.stringify(suspendAt)} === 'open-cancelled') process.emit('SIGTERM');
+        }
+        return file;
+      };
+      fs.writeFile = async (...args) => {
+        if (${JSON.stringify(suspendAt)} === 'write' && typeof args[0] === 'object') await suspend();
+        return writeFile(...args);
+      };
+      const rename = fs.rename;
+      let pendingPublication;
+      fs.rename = (...args) => {
+        const operation = (async () => {
+          if (args[1] === ${JSON.stringify(`${socketPath}.owner`)}) {
+            if (${JSON.stringify(suspendAt)} === 'committed') {
+              await rename(...args);
+              await suspend();
+              return;
+            }
+            if (${JSON.stringify(suspendAt)} === 'rename') await suspend();
+          }
+          return rename(...args);
+        })();
+        if (args[1] === ${JSON.stringify(`${socketPath}.owner`)}) pendingPublication = operation;
+        return operation;
+      };
+      const link = fs.link;
+      fs.link = (...args) => {
+        const operation = (async () => {
+          if (args[1] === ${JSON.stringify(socketPath)}) {
+            if (${JSON.stringify(suspendAt)} === 'socket-link') await suspend();
+            if (${JSON.stringify(suspendAt)} === 'socket-linked') {
+              await link(...args);
+              await suspend();
+              return;
+            }
+          }
+          return link(...args);
+        })();
+        if (args[1] === ${JSON.stringify(socketPath)}) pendingPublication = operation;
+        return operation;
+      };
+      const unlink = fs.unlink;
+      fs.unlink = async (...args) => {
+        const path = String(args[0]);
+        if ((${JSON.stringify(suspendAt)} === 'owner-unlink' && path.includes('.owner.') && path.endsWith('.tmp'))
+          || (${JSON.stringify(suspendAt)} === 'staged-unlink' && path.endsWith('.sock') && path !== ${JSON.stringify(socketPath)})) {
+          await suspend();
+        }
+        return unlink(...args);
+      };
+      syncBuiltinESMExports();
+      const emit = process.emit;
+      process.emit = function(event, ...args) {
+        const handled = emit.call(this, event, ...args);
+        if (event === 'SIGTERM' && handled) process.send('termination-handled');
+        return handled;
+      };
+      const { NativeTerminalHost } = await import(${JSON.stringify(fileURLToPath(new URL("../../dist/native-terminal/host.js", import.meta.url)))});
+      const list = NativeTerminalHost.prototype.list;
+      const stopAll = NativeTerminalHost.prototype.stopAll;
+      let stopping = false;
+      NativeTerminalHost.prototype.stopAll = function(...args) {
+        stopping = true;
+        try { return stopAll.apply(this, args); }
+        finally {
+          stopping = false;
+          queueMicrotask(() => process.send('terminal-stop-observed'));
+        }
+      };
+      NativeTerminalHost.prototype.list = function(...args) {
+        if (!stopping) queueMicrotask(() => process.send('terminal-drain-observed'));
+        return list.apply(this, args);
+      };
+      const setTimeout = globalThis.setTimeout;
+      globalThis.setTimeout = function(callback, milliseconds, ...args) {
+        if (milliseconds === 100 && new Error().stack?.includes('/native-terminal/journal.')) {
+          process.send('journal-drain-observed');
+        }
+        return setTimeout(callback, milliseconds, ...args);
+      };
+      const { runNativeTerminalHostProcess } = await import(${JSON.stringify(entry)});
+      try { await runNativeTerminalHostProcess([process.execPath, ${JSON.stringify(entry)},
+        '--socket', ${JSON.stringify(socketPath)}, '--registry-path',
+        ${JSON.stringify(join(directory, "registry.json"))}]); }
+      catch (error) {
+        if (${JSON.stringify(terminate)}) throw error;
+        process.send({ publicationDeadline: error.message });
+        process.exitCode = 1;
+      }
+      if (typeof lockSecret !== 'string' || lockSecret.length === 0) throw new Error('Publication lock identity was not observed');
+      const lock = createServer();
+      lock.listen('\\0h2a-terminal-lock-' + createHash('sha256')
+        .update(process.getuid() + ':' + ${JSON.stringify(socketPath)} + ':' + lockSecret).digest('hex'));
+      await once(lock, 'listening');
+      await new Promise((resolve, reject) => lock.close(error => error ? reject(error) : resolve()));
+      process.send('publication-lock-released');
+      if (${JSON.stringify(releaseLate)}) {
+        await once(process, 'message');
+        const [result] = await Promise.allSettled([pendingPublication]);
+        process.send({ lateOperation: result.status, code: result.reason?.code });
+      }
+      process.disconnect();
+    `);
+    const child = spawn(process.execPath, ["--import", "tsx", wrapper], {
+      cwd: dirname(entry), env: { ...process.env, XDG_STATE_HOME: statePath }, stdio: ["ignore", "pipe", "pipe", "ipc"],
+    });
+    children.add(child);
+    const messages: unknown[] = [];
+    child.on("message", (message) => messages.push(message));
+    let stdout = "";
+    let stderr = "";
+    child.stdout!.on("data", (chunk) => { stdout += chunk; });
+    child.stderr!.on("data", (chunk) => { stderr += chunk; });
+    expect((await once(child, "message"))[0]).toBe("owner-record-pending");
+    const otherOwner = JSON.stringify({ pid: process.pid, marker: "replacement-owner" });
+    if (preserveOwner) await writeFile(`${socketPath}.owner`, otherOwner, { mode: 0o600 });
+    const listenerPath = suspendAt === "socket-link"
+      ? join(directory, (await readdir(directory)).find(name => name.endsWith(".sock"))!)
+      : socketPath;
+    const client = createConnection(listenerPath);
+    await once(client, "connect");
+    const listenerClosed = once(client, "close");
+    let replacement: ReturnType<typeof createServer> | undefined;
+    let replacementIdentity: Awaited<ReturnType<typeof stat>> | undefined;
+    const replaceSocket = async () => {
+      await unlink(socketPath).catch((error: NodeJS.ErrnoException) => { if (error.code !== "ENOENT") throw error; });
+      replacement = createServer(socket => socket.destroy());
+      replacement.listen(socketPath);
+      await once(replacement, "listening");
+      await chmod(socketPath, 0o600);
+      replacementIdentity = await stat(socketPath);
+    };
+    try {
+      if (preserveSocket && !releaseLate) await replaceSocket();
+      const exited = exitWithin(child, terminate ? HOST_SHUTDOWN_BUDGET_MS : HOST_STARTUP_BUDGET_MS + 1_000);
+      if (terminate) {
+        const observed = Promise.race([
+          once(child, "message").then(([message]) => message),
+          exited.then(([code, signal]) => ({ code, signal })),
+        ]);
+        if (suspendAt === "open-cancelled") child.send("release-owner-record");
+        else child.kill("SIGTERM");
+        expect(await observed).toBe("termination-handled");
+      }
+      if (releasePublication && suspendAt !== "open-cancelled") {
+        await new Promise<void>((resolve, reject) => child.send("release-owner-record", (error) => {
+          const code = (error as NodeJS.ErrnoException | null)?.code;
+          if (error && code !== "EPIPE" && code !== "ERR_IPC_CHANNEL_CLOSED") reject(error);
+          else resolve();
+        }));
+      }
+      if (releaseLate) {
+        await eventually(() => messages.includes("publication-lock-released"), released => released);
+        await expect(stat(socketPath)).rejects.toMatchObject({ code: "ENOENT" });
+        await replaceSocket();
+        child.send("release-late-publication");
+      }
+      const exit = await exited.catch((error: unknown) => {
+        throw new Error(`${String(error)}; messages=${JSON.stringify(messages)}; stderr=${stderr}`);
+      });
+      expect(exit, stderr).toEqual([terminate ? 0 : 1, null]);
+      await listenerClosed;
+      expect(messages).toContain("publication-lock-released");
+      expect(messages).toContain("journal-drain-observed");
+      if (terminate) {
+        expect(messages).toContain("terminal-stop-observed");
+        expect(messages).toContain("terminal-drain-observed");
+      } else expect(messages).toContainEqual({ publicationDeadline: "terminal host socket publication timed out" });
+      if (releaseLate) expect(messages).toContainEqual({ lateOperation: "rejected", code: "ENOENT" });
+      expect(stdout).not.toContain("h2a.native-terminal.ready");
+      if (preserveSocket) expect(await stat(socketPath)).toMatchObject({ dev: replacementIdentity!.dev, ino: replacementIdentity!.ino });
+      else await expect(stat(socketPath)).rejects.toMatchObject({ code: "ENOENT" });
+      if (preserveOwner) expect(await readFile(`${socketPath}.owner`, "utf8")).toBe(otherOwner);
+      else await expect(stat(`${socketPath}.owner`)).rejects.toMatchObject({ code: "ENOENT" });
+      expect((await readdir(directory)).filter((name) => name.endsWith(".sock") || name.endsWith(".tmp"))).toEqual(preserveSocket ? ["host.sock"] : []);
+      await waitForPrivateNativeProcesses(process.env);
+      if (blockJournal) expect(await readFile(journalLock, "utf8")).toBe("fixture-journal-lock");
+    } finally {
+      client.destroy();
+      if (replacement !== undefined) await new Promise<void>(resolve => replacement!.close(() => resolve()));
+    }
+  }, HOST_STARTUP_BUDGET_MS + (terminate ? HOST_SHUTDOWN_BUDGET_MS : HOST_STARTUP_BUDGET_MS + 1_000) + CLIENT_OVERRUN_BUDGET_MS);
+
   it("should stop its PTYs and remove its socket on graceful host shutdown", async () => {
-    const directory = await mkdtemp(join(tmpdir(), "h2a-native-terminal-shutdown-"));
+    const directory = await mkdtemp(join(tmpdir(), "n-"));
     directories.add(directory);
     const socketPath = join(directory, "host.sock");
     const registryPath = join(directory, "registry.json");
@@ -1018,7 +1293,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
       command: "/bin/sh",
       args: ["-c", "trap '' HUP TERM INT; printf stubborn-ready; while :; do :; done"],
       cwd: directory,
-      env: { PATH: process.env.PATH ?? "/usr/bin:/bin", TERM: "xterm-256color" },
+      env: isolatedNativeTestEnvironment({ PATH: process.env.PATH ?? "/usr/bin:/bin", TERM: "xterm-256color" }),
       cols: 80,
       rows: 24,
     });
@@ -1051,7 +1326,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
   }, GRACEFUL_SHUTDOWN_BUDGET_MS);
 
   it("should let the owning controller escalate a real stubborn PTY from TERM to KILL", async () => {
-    const directory = await mkdtemp(join(tmpdir(), "h2a-native-terminal-escalate-"));
+    const directory = await mkdtemp(join(tmpdir(), "n-"));
     directories.add(directory);
     const socketPath = join(directory, "host.sock");
     const entry = fileURLToPath(new URL("./process.ts", import.meta.url));
@@ -1087,7 +1362,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
       command: "/bin/sh",
       args: ["-c", "trap '' HUP TERM INT; printf stubborn-ready; while :; do :; done"],
       cwd: directory,
-      env: { PATH: process.env.PATH ?? "/usr/bin:/bin", TERM: "xterm-256color" },
+      env: isolatedNativeTestEnvironment({ PATH: process.env.PATH ?? "/usr/bin:/bin", TERM: "xterm-256color" }),
       cols: 80,
       rows: 24,
     });
@@ -1117,7 +1392,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
   });
 
   it("should keep the shared host and an existing real PTY alive after an exact-limit invalid request", async () => {
-    const directory = await mkdtemp(join(tmpdir(), "h2a-native-terminal-frame-limit-"));
+    const directory = await mkdtemp(join(tmpdir(), "n-"));
     directories.add(directory);
     const socketPath = join(directory, "host.sock");
     const entry = fileURLToPath(new URL("./process.ts", import.meta.url));
@@ -1155,7 +1430,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
       command: "/bin/sh",
       args: ["-c", "printf survivor-ready\\r\\n; while IFS= read -r line; do printf 'survivor:%s\\r\\n' \"$line\"; done"],
       cwd: directory,
-      env: { PATH: process.env.PATH ?? "/usr/bin:/bin", TERM: "xterm-256color" },
+      env: isolatedNativeTestEnvironment({ PATH: process.env.PATH ?? "/usr/bin:/bin", TERM: "xterm-256color" }),
       cols: 80,
       rows: 24,
     });
@@ -1224,7 +1499,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
   }, 45_000);
 
   it("should fence an old connection when a real PTY session id is reincarnated", async () => {
-    const directory = await mkdtemp(join(tmpdir(), "h2a-native-terminal-reincarnation-"));
+    const directory = await mkdtemp(join(tmpdir(), "n-"));
     directories.add(directory);
     const socketPath = join(directory, "host.sock");
     const entry = fileURLToPath(new URL("./process.ts", import.meta.url));
@@ -1264,7 +1539,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
         `printf '${marker}-ready\\r\\n'; while IFS= read -r line; do printf '${marker}:%s\\r\\n' "$line"; done`,
       ],
       cwd: directory,
-      env: { PATH: process.env.PATH ?? "/usr/bin:/bin", TERM: "xterm-256color" },
+      env: isolatedNativeTestEnvironment({ PATH: process.env.PATH ?? "/usr/bin:/bin", TERM: "xterm-256color" }),
       cols: 80,
       rows: 24,
     });
@@ -1323,7 +1598,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
   });
 
   it("should drop a slow pipelined client without affecting another real PTY", async () => {
-    const directory = await mkdtemp(join(tmpdir(), "h2a-native-terminal-backpressure-"));
+    const directory = await mkdtemp(join(tmpdir(), "n-"));
     directories.add(directory);
     const socketPath = join(directory, "host.sock");
     const entry = fileURLToPath(new URL("./process.ts", import.meta.url));
@@ -1360,7 +1635,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
       command: "/bin/sh",
       args: ["-c", "printf survivor-ready\\r\\n; while IFS= read -r line; do printf 'survivor:%s\\r\\n' \"$line\"; done"],
       cwd: directory,
-      env: { PATH: process.env.PATH ?? "/usr/bin:/bin", TERM: "xterm-256color" },
+      env: isolatedNativeTestEnvironment({ PATH: process.env.PATH ?? "/usr/bin:/bin", TERM: "xterm-256color" }),
       cols: 80,
       rows: 24,
     });
@@ -1406,7 +1681,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
   });
 
   it("should back off repeated host startup failures and preserve the diagnostic", async () => {
-    const directory = await mkdtemp(join(tmpdir(), "h2a-native-terminal-backoff-"));
+    const directory = await mkdtemp(join(tmpdir(), "n-"));
     directories.add(directory);
     await chmod(directory, 0o755);
     const socketPath = join(directory, "host.sock");
@@ -1471,7 +1746,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
     1_000;
 
   it("should reap an owned host that misses readiness before a backoff-governed replacement", async () => {
-    const directory = await mkdtemp(join(tmpdir(), "h2a-native-terminal-hung-start-"));
+    const directory = await mkdtemp(join(tmpdir(), "n-"));
     directories.add(directory);
     const socketPath = join(directory, "host.sock");
     const entry = fileURLToPath(new URL("./process.ts", import.meta.url));
@@ -1549,7 +1824,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
     1_000;
 
   it("should reap its losing owned child before adopting and later replacing a winning host", async () => {
-    const directory = await mkdtemp(join(tmpdir(), "h2a-native-terminal-adopt-reap-"));
+    const directory = await mkdtemp(join(tmpdir(), "n-"));
     directories.add(directory);
     const socketPath = join(directory, "host.sock");
     const entry = fileURLToPath(new URL("./process.ts", import.meta.url));
@@ -1645,7 +1920,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
   }, LOSING_CHILD_BUDGET_MS);
 
   it("should converge competing supervisors on one socket without repeated host spawns", async () => {
-    const directory = await mkdtemp(join(tmpdir(), "h2a-native-terminal-race-"));
+    const directory = await mkdtemp(join(tmpdir(), "n-"));
     directories.add(directory);
     const socketPath = join(directory, "host.sock");
     const entry = fileURLToPath(new URL("./process.ts", import.meta.url));
@@ -1706,7 +1981,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
   });
 
   it("should reap its dead host's durable group before adopting a replacement a competing supervisor published", async () => {
-    const directory = await mkdtemp(join(tmpdir(), "h2a-native-terminal-concurrent-adopt-"));
+    const directory = await mkdtemp(join(tmpdir(), "n-"));
     directories.add(directory);
     const socketPath = join(directory, "host.sock");
     const registryPath = join(directory, "registry.json");
@@ -1761,17 +2036,17 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
     const stubbornPgid = stubbornPids[0]!;
     processGroups.add(stubbornPgid);
 
-    // A COMPETING supervisor publishes a replacement while the owning host is
-    // still alive — the schedule the socket publication lock does not cover,
-    // because nothing here is wrong yet: the competitor's own takeover
-    // reconcile correctly refuses to touch a row whose owner is alive.
+    // A competing supervisor publishes after owner death but before the owner
+    // supervisor observes it. Its separate registry intentionally cannot see
+    // the durable group: adoption must still discharge the owner's proof.
     owner.disconnect();
-    await unlink(socketPath);
+    process.kill(firstPing.hostPid, "SIGKILL");
+    await once(ownerChild!, "exit");
     const competitorLogs: string[] = [];
     let competitorSpawnCount = 0;
     const competitor = new NativeTerminalHostSupervisor({
       socketPath,
-      registryPath,
+      registryPath: join(directory, "competitor-registry.json"),
       replayBytesPerSession: 1024,
       startupTimeoutMs: 30_000,
       spawnTerminationGraceMs: 100,
@@ -1789,13 +2064,10 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
       competitorLogs.some((line) => /PROVEN DEAD/.test(line)),
     ).toBe(false);
 
-    // Only NOW does the owning host die. Its durable group has no live owner
-    // left, and the owner supervisor's next call succeeds on the FIRST
+    // The owner supervisor's next call succeeds on the FIRST
     // connect: it adopts the competitor's host instead of taking over, so the
     // takeover reconcile never runs. The adoption itself must therefore carry
     // the containment.
-    process.kill(firstPing.hostPid, "SIGKILL");
-    await once(ownerChild!, "exit");
     const adopted = await owner.client();
 
     expect((await adopted.ping()).hostPid).toBe(competitorPing.hostPid);
@@ -1816,7 +2088,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
   });
 
   it("should refuse to publish or adopt any host while a refused reap leaves this socket's proven-dead owner unconfirmed", async () => {
-    const directory = await mkdtemp(join(tmpdir(), "h2a-native-terminal-refused-reap-"));
+    const directory = await mkdtemp(join(tmpdir(), "n-"));
     directories.add(directory);
     const socketPath = join(directory, "host.sock");
     const registryPath = join(directory, "registry.json");
@@ -1978,7 +2250,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
   const CONTAINED_HANDOUT_TEST_BUDGET_MS = 3 * CONTAINED_HANDOUT_STARTUP_BUDGET_MS;
 
   it("should surface a containment refusal from the readiness loop instead of retrying it and killing its own healthy host", async () => {
-    const directory = await mkdtemp(join(tmpdir(), "h2a-native-terminal-contained-readiness-"));
+    const directory = await mkdtemp(join(tmpdir(), "n-"));
     directories.add(directory);
     const socketPath = join(directory, "host.sock");
     const registryPath = join(directory, "registry.json");
@@ -2067,7 +2339,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
   }, CONTAINED_HANDOUT_TEST_BUDGET_MS);
 
   it("should refuse a healthy host published outside it rather than spawn a replacement beside it", async () => {
-    const directory = await mkdtemp(join(tmpdir(), "h2a-native-terminal-contained-adopt-"));
+    const directory = await mkdtemp(join(tmpdir(), "n-"));
     directories.add(directory);
     const socketPath = join(directory, "host.sock");
     const registryPath = join(directory, "registry.json");
