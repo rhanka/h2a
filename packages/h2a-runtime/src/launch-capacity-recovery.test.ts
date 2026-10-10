@@ -24,6 +24,12 @@ it("should retain a live launcher reservation even when it has no ownership", ()
   expect(acquireLaunchSlot("old", 1, 1024).acquired).toBe(true);
   expect(acquireLaunchSlot("next", 1, 1024).acquired).toBe(false); expect(probe).not.toHaveBeenCalled();
 });
+it("should retain a live reservation between ownership installation and create", () => {
+  expect(acquireLaunchSlot("old", 1, 1024).acquired).toBe(true);
+  ownLaunchSlot("old", [{ name: "h2a-old", generation: "g", incarnation: "i", socketPath: "/private/not-created.sock" }]);
+  expect(acquireLaunchSlot("next", 1, 1024).acquired).toBe(false);
+  expect(probe).not.toHaveBeenCalled();
+});
 it("should persist creation only after the exact reservation has ownership", () => {
   expect(acquireLaunchSlot("old", 1, 1024).acquired).toBe(true);
   expect(() => markLaunchCreation("old")).toThrow(/lost ownership/);

@@ -26,7 +26,8 @@ function launcherDead(launcher: Slot["launcher"]): boolean {
   if (!launcher?.pid || !launcher.start) return false;
   try {
     const stat = readFileSync(`/proc/${launcher.pid}/stat`, "utf8");
-    return stat.slice(stat.lastIndexOf(")") + 2).split(" ")[19] !== launcher.start;
+    const birth = stat.slice(stat.lastIndexOf(")") + 2).split(" ")[19];
+    return birth !== undefined && birth !== launcher.start;
   } catch (error) { return ["ENOENT", "ESRCH"].includes((error as NodeJS.ErrnoException).code ?? ""); }
 }
 function resident(slot: Slot): number {
@@ -60,6 +61,7 @@ export function acquireLaunchSlot(id: string, capacity = DEFAULT_LAUNCH_CAPACITY
       if (slot.state === "launching" && slot.creationAttempted === false && launcherDead(slot.launcher)) {
         delete slots[key]; continue; // The durable boundary proves no create RPC was issued.
       }
+      if (slot.launcher && !launcherDead(slot.launcher)) continue; // A live/unknown creator can still issue its reserved create.
       if (!slot.ownership?.length) continue; // Launcher death without ownership is not proof of session death.
       if (slot.pid && slot.start && start(slot.pid) === slot.start) continue;
       const dead = slot.ownership.every(owner => {
