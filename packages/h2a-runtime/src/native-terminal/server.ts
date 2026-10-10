@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { readdirSync, readFileSync, readlinkSync, realpathSync, statSync } from "node:fs";
-import { chmod, link, lstat, mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
+import { chmod, link, lstat, mkdir, open, readFile, rename, unlink, writeFile, type FileHandle } from "node:fs/promises";
 import { createConnection, createServer, type Server, type Socket } from "node:net";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 
@@ -54,6 +54,23 @@ type ResponseQueueBudget = {
 const SOCKET_PUBLICATION_LOCK_TIMEOUT_MS = 5_000;
 const SOCKET_PUBLICATION_LOCK_RETRY_MS = 25;
 const SOCKET_PUBLICATION_LOCK_ID_FILE = ".h2a-native-terminal.lock-id";
+
+async function abortable<T>(operation: Promise<T>, signal?: AbortSignal): Promise<T> {
+  if (signal === undefined) return operation;
+  let aborted: (() => void) | undefined;
+  try {
+    return await Promise.race([
+      operation,
+      new Promise<never>((_, reject) => {
+        aborted = () => reject(signal.reason);
+        if (signal.aborted) aborted();
+        else signal.addEventListener("abort", aborted, { once: true });
+      }),
+    ]);
+  } finally {
+    if (aborted !== undefined) signal.removeEventListener("abort", aborted);
+  }
+}
 
 function requiredRecord(value: unknown, label: string): Record<string, unknown> {
   if (!isRecord(value)) throw new TypeError(`${label} must be an object`);
@@ -481,13 +498,14 @@ async function socketPublicationLockSecret(socketPath: string): Promise<string> 
   return secret;
 }
 
-async function acquireSocketPublicationLock(socketPath: string): Promise<Server> {
+async function acquireSocketPublicationLock(socketPath: string, signal?: AbortSignal): Promise<Server> {
   const secret = await socketPublicationLockSecret(socketPath);
   const address = `\0h2a-terminal-lock-${createHash("sha256")
     .update(`${process.getuid?.() ?? "unknown"}:${socketPath}:${secret}`)
     .digest("hex")}`;
   const deadline = Date.now() + SOCKET_PUBLICATION_LOCK_TIMEOUT_MS;
   for (;;) {
+    signal?.throwIfAborted();
     const lock = createServer();
     try {
       await new Promise<void>((resolve, reject) => {
@@ -505,9 +523,9 @@ async function acquireSocketPublicationLock(socketPath: string): Promise<Server>
       ) {
         throw error;
       }
-      await new Promise((resolve) =>
+      await abortable(new Promise((resolve) =>
         setTimeout(resolve, SOCKET_PUBLICATION_LOCK_RETRY_MS)
-      );
+      ), signal);
     }
   }
 }
@@ -515,9 +533,11 @@ async function acquireSocketPublicationLock(socketPath: string): Promise<Server>
 async function withSocketPublicationLock<T>(
   socketPath: string,
   operation: () => Promise<T>,
+  signal?: AbortSignal,
 ): Promise<T> {
-  const lock = await acquireSocketPublicationLock(socketPath);
+  const lock = await acquireSocketPublicationLock(socketPath, signal);
   try {
+    signal?.throwIfAborted();
     return await operation();
   } finally {
     await new Promise<void>((resolve, reject) => {
@@ -534,7 +554,9 @@ type EndpointOwner = NativeTerminalSocketIdentity & {
 };
 
 async function recordEndpointOwner(socketPath: string, socket: NativeTerminalSocketIdentity,
-  processOwner = { pid: process.pid, startTime: readProcessStartTime(process.pid) }): Promise<void> {
+  processOwner = { pid: process.pid, startTime: readProcessStartTime(process.pid) },
+  signal?: AbortSignal): Promise<void> {
+  signal?.throwIfAborted();
   if (process.env.H2A_TEST_FAIL_OWNER_WRITE) {
     throw new Error("simulated failure recording endpoint owner");
   }
@@ -543,13 +565,39 @@ async function recordEndpointOwner(socketPath: string, socket: NativeTerminalSoc
   if (startTime === undefined || bootId === undefined || pidNamespace === undefined) {
     throw new Error("cannot certify native host process identity");
   }
-  const temporary = `${socketPath}.owner.${process.pid}.tmp`;
+  const temporary = `${socketPath}.owner.${process.pid}.${randomUUID()}.tmp`;
+  let file: FileHandle | undefined;
   try {
-    await writeFile(temporary, JSON.stringify({ ...socket, pid, startTime, bootId, pidNamespace }),
-      { flag: "wx", mode: 0o600 });
-    await rename(temporary, `${socketPath}.owner`);
+    const openedFile = await abortable(open(temporary, "wx", 0o600).then(async (opened) => {
+      if (signal?.aborted) {
+        // A cancelled open may finish after rollback. Its unique pathname and
+        // descriptor still belong to this publication, never to a successor.
+        try {
+          await unlink(temporary).catch(error => { if (error.code !== "ENOENT") throw error; });
+        } finally { void opened.close().catch(() => {}); }
+        signal.throwIfAborted();
+      }
+      return opened;
+    }), signal);
+    file = openedFile;
+    signal?.throwIfAborted();
+    // Write through the already-open inode: cancellation can unlink it without
+    // a delayed write recreating the temporary pathname.
+    await abortable(writeFile(openedFile, JSON.stringify({ ...socket, pid, startTime, bootId, pidNamespace }),
+      signal === undefined ? {} : { signal }), signal);
+    signal?.throwIfAborted();
+    await abortable(rename(temporary, `${socketPath}.owner`), signal);
   } finally {
-    await unlink(temporary).catch(error => { if (error.code !== "ENOENT") throw error; });
+    // Invalidate the rename source before releasing the publication lock. A
+    // delayed rename either already committed (and is rolled back by its
+    // publisher) or can no longer install an owner after cancellation.
+    try {
+      await unlink(temporary).catch(error => { if (error.code !== "ENOENT") throw error; });
+    } finally {
+      // An aborted write may still be unwinding. Its descriptor owns only the
+      // unlinked inode and must not hold up listener/lock cleanup.
+      void file?.close().catch(() => {});
+    }
   }
 }
 
@@ -918,7 +966,9 @@ export type NativeTerminalHostServer = Readonly<{
 export async function startNativeTerminalHostServer(options: {
   socketPath: string;
   host: NativeTerminalHost;
+  signal?: AbortSignal;
 }): Promise<NativeTerminalHostServer> {
+  options.signal?.throwIfAborted();
   if (!isAbsolute(options.socketPath)) throw new Error("terminal host socket path must be absolute");
   await ensurePrivateSocketDirectory(options.socketPath);
 
@@ -976,8 +1026,9 @@ export async function startNativeTerminalHostServer(options: {
       async () => {
         let published: NativeTerminalSocketIdentity | undefined;
         try {
+          options.signal?.throwIfAborted();
           published = await publishSocket(stagedPath, options.socketPath);
-          await recordEndpointOwner(options.socketPath, published);
+          await recordEndpointOwner(options.socketPath, published, undefined, options.signal);
           return published;
         } catch (pubError) {
           if (published !== undefined) {
@@ -992,7 +1043,11 @@ export async function startNativeTerminalHostServer(options: {
               }
             }
             try {
-              await unlink(`${options.socketPath}.owner`);
+              const owner = JSON.parse(await readFile(`${options.socketPath}.owner`, "utf8")) as EndpointOwner;
+              if (owner.pid === process.pid && owner.startTime === readProcessStartTime(process.pid)
+                && sameNativeTerminalSocket(owner, published)) {
+                await unlink(`${options.socketPath}.owner`);
+              }
             } catch (cleanupErr) {
               if ((cleanupErr as NodeJS.ErrnoException).code !== "ENOENT") {
                 // ignore
@@ -1002,6 +1057,7 @@ export async function startNativeTerminalHostServer(options: {
           throw pubError;
         }
       },
+      options.signal,
     );
   } catch (error) {
     for (const socket of sockets) socket.destroy();

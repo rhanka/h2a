@@ -146,7 +146,10 @@ export async function runNativeTerminalHostProcess(argv: ReadonlyArray<string>):
       socketPath: options.socketPath,
       ...(options.registryPath !== undefined ? { registryPath: options.registryPath } : {}),
     });
-    const serverReady = startNativeTerminalHostServer({ socketPath: options.socketPath, host });
+    const initialization = new AbortController();
+    const serverReady = startNativeTerminalHostServer({
+      socketPath: options.socketPath, host, signal: initialization.signal,
+    });
 
     let shutdown: Promise<void> | undefined;
     const stop = (signal: string): void => {
@@ -158,12 +161,13 @@ export async function runNativeTerminalHostProcess(argv: ReadonlyArray<string>):
       if (shutdown !== undefined) return;
       cause = "signal";
       shutdown = (async () => {
+        initialization.abort();
         let gracefulError: unknown;
         try {
           const server = await serverReady;
           await server.close({ stopSessions: true, signal: "SIGTERM" });
         } catch (error) {
-          gracefulError = error;
+          if (error !== initialization.signal.reason) gracefulError = error;
         }
         if (!await waitForTerminalDrain(host, GRACEFUL_DRAIN_MS)) {
           try {
@@ -205,7 +209,10 @@ export async function runNativeTerminalHostProcess(argv: ReadonlyArray<string>):
     process.once("SIGHUP", () => stop("SIGHUP"));
     // The socket can be visible before its owner record has finished. Install
     // termination handlers before that asynchronous publication window.
-    const server = await serverReady;
+    const server = await serverReady.catch((error: unknown) => {
+      if (shutdown !== undefined && error === initialization.signal.reason) return undefined;
+      throw error;
+    });
     if (shutdown !== undefined) {
       await shutdown;
       return;
@@ -215,7 +222,7 @@ export async function runNativeTerminalHostProcess(argv: ReadonlyArray<string>):
       version: 1,
       generation: host.generation,
       pid: process.pid,
-      socketPath: server.socketPath,
+      socketPath: server!.socketPath,
     })}\n`);
   } catch (error) {
     cause = "startupError";
