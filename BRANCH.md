@@ -11,7 +11,11 @@ findings F01/F02. Absence concluded only with independent proof of owner host de
 Live host that lost its socket pathname is never considered absent; no second writer.
 No push, PR, publish, or tag.
 
-Current correction protocol: `docs/reviews/native-absence-review-r2.md`.
+Current correction protocol: `docs/reviews/native-absence-review-r3.md`.
+R3 adds the mandatory native spawn boundary and a fixture-only process view;
+`scripts/qualify-native-mcp.mjs` records and verifies the two #312 MCP suites
+on the final SHA with the nonempty mandatory private seed and cohorts of 12,
+bounded by the measured memory of the full-size corpus.
 Prior qualification: `docs/reviews/native-absence-minimal-journal.md` (historical).
 All tests, real hosts and PTY workloads require HOME, XDG_RUNTIME_DIR,
 XDG_STATE_HOME, XDG_CONFIG_HOME and effective native sockets under this checkout's `.qual-tmp`.
