@@ -1,4 +1,8 @@
 import { spawn } from "node:child_process";
+// @ts-ignore Shared JS qualification helper; tests are outside the production build.
+import { isolatedNativeTestEnvironment } from "../../../h2a/test/helpers/native-isolation.js";
+
+isolatedNativeTestEnvironment(process.env); // Includes the real stale-host fixture.
 import { once } from "node:events";
 import { chmod, mkdtemp, rm, stat, unlink } from "node:fs/promises";
 import { createConnection, createServer, type Socket } from "node:net";
@@ -54,7 +58,7 @@ async function service(options: { replayBytesPerSession?: number } = {}): Promis
   client: NativeTerminalClient;
   ptys: Map<string, StubPty>;
 }> {
-  const directory = await mkdtemp(join(tmpdir(), "h2a-native-terminal-unit-"));
+  const directory = await mkdtemp(join(tmpdir(), "n-"));
   const socketPath = join(directory, "host.sock");
   const ptys = new Map<string, StubPty>();
   const spawner: PtySpawner = (options) => {
@@ -102,7 +106,7 @@ async function eventually<T>(read: () => Promise<T>, accept: (value: T) => boole
 async function expectMalformedPeerResponseRejected(
   response: (id: string) => Readonly<Record<string, unknown>>,
 ): Promise<void> {
-  const directory = await mkdtemp(join(tmpdir(), "h2a-native-terminal-malformed-"));
+  const directory = await mkdtemp(join(tmpdir(), "n-"));
   const socketPath = join(directory, "host.sock");
   const peerSockets = new Set<Socket>();
   const peer = createServer((socket) => {
@@ -169,7 +173,7 @@ async function acquireControllerWithoutProvenance(
 
 describe("native terminal local transport", () => {
   it("should reject a shared socket directory without changing its permissions", async () => {
-    const directory = await mkdtemp(join(tmpdir(), "h2a-native-terminal-shared-"));
+    const directory = await mkdtemp(join(tmpdir(), "n-"));
     cleanup.push(() => rm(directory, { recursive: true, force: true }));
     await chmod(directory, 0o755);
     const host = new NativeTerminalHost({
@@ -334,7 +338,7 @@ describe("native terminal local transport", () => {
   });
 
   it("should time out a request when a connected peer stops responding", async () => {
-    const directory = await mkdtemp(join(tmpdir(), "h2a-native-terminal-timeout-"));
+    const directory = await mkdtemp(join(tmpdir(), "n-"));
     cleanup.push(() => rm(directory, { recursive: true, force: true }));
     const socketPath = join(directory, "host.sock");
     const stalledSockets = new Set<Socket>();
@@ -408,7 +412,7 @@ describe("native terminal local transport", () => {
   });
 
   it("should not unlink a replacement host socket when the old server closes", async () => {
-    const directory = await mkdtemp(join(tmpdir(), "h2a-native-terminal-replace-"));
+    const directory = await mkdtemp(join(tmpdir(), "n-"));
     cleanup.push(() => rm(directory, { recursive: true, force: true }));
     const socketPath = join(directory, "host.sock");
     const spawner: PtySpawner = () => new StubPty();
@@ -447,7 +451,7 @@ describe("native terminal local transport", () => {
   });
 
   it("should serialize competing publishers across a stale canonical socket", async () => {
-    const directory = await mkdtemp(join(tmpdir(), "h2a-native-terminal-publish-race-"));
+    const directory = await mkdtemp(join(tmpdir(), "n-"));
     const socketPath = join(directory, "host.sock");
     await chmod(directory, 0o700);
     const staleHost = spawn(process.execPath, [fileURLToPath(new URL("../../dist/native-terminal/process.js", import.meta.url)),
@@ -537,7 +541,7 @@ describe("native terminal socket path limits", () => {
   }
 
   it("should reject a socket path over the kernel sun_path budget with a clear error", async () => {
-    const directory = await mkdtemp(join(tmpdir(), "h2a-native-terminal-long-"));
+    const directory = await mkdtemp(join(tmpdir(), "n-"));
     cleanup.push(() => rm(directory, { recursive: true, force: true }));
     const socketPath = join(directory, "d".repeat(limit), "host.sock");
     expect(Buffer.byteLength(socketPath)).toBeGreaterThan(limit);
@@ -549,7 +553,7 @@ describe("native terminal socket path limits", () => {
   });
 
   it("should reject a publishable path whose longer staged sibling would overflow at bind", async () => {
-    const directory = await mkdtemp(join(tmpdir(), "h2a-native-terminal-edge-"));
+    const directory = await mkdtemp(join(tmpdir(), "n-"));
     cleanup.push(() => rm(directory, { recursive: true, force: true }));
     // Final path lands just under the budget; the staged name appends
     // ".<pid>.<8 hex>.sock" and crosses it.
