@@ -6,6 +6,13 @@ Receipts: `.qual-tmp/builder/evidence/r3-*`. Tests run sequentially with private
 HOME/XDG/socket/tmp/tmux paths. Final-SHA receipts are retained outside Git so
 qualification does not change the SHA it qualifies.
 
+Scope clarification (R4-F02): the explicit owner decision of 2026-10-10,
+"j'espère que la version 0.98.2 aura un log", relayed by h-cond as requiring
+the native host life journal in 0.98.2, supersedes the earlier 0.98.3 deferral.
+The journal remains in the authorized release scope. See
+[BRANCH.md](../../BRANCH.md) and [R4](native-absence-review-r4.md).
+R3 receipt hashes and counts below remain historical; R4 has separate receipts.
+
 ## R3-F01: guard every real native test launch
 
 RED: `r3-f01-probe-red.log` intercepts the new real `op.js probe` before
