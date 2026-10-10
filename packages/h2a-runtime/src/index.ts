@@ -6531,6 +6531,10 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           const qualifiedProfile = declaredMcps.length === 2 && declaredMcps.includes("h2a") && declaredMcps.includes("playwright") &&
             !h2aSidecar && !useBare && !activeGateway;
           const dispatchEvidenceEnabled = providerVersion !== undefined && qualifiedProfile && (QUALIFIED_CLAUDE_NATIVE_VERSIONS.includes(providerVersion) || experiment);
+          const experimentalPacing = experiment && process.env.LAUNCH_PERF_PACING_MS !== undefined
+            ? Number(process.env.LAUNCH_PERF_PACING_MS) : undefined;
+          if (experimentalPacing !== undefined && ![0,100,250,500].includes(experimentalPacing))
+            throw new Error("unsupported isolated Claude pacing experiment");
           const runDir = join(cwd, ".h2a", "runs", slugCandidate);
           const requiredMcps = declaredMcps;
           if (!Array.isArray(requiredMcps) || requiredMcps.some(m => typeof m !== "string" || !m)) throw new Error("invalid required Claude MCP profile");
@@ -6851,7 +6855,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
                       launchTimings[phase] = at;
                       updateLaunchReceipt(join(runDir, "launch.json"), process.env.H2A_RUN_LAUNCH_TOKEN, { phase, timings: launchTimings });
                     },
-                    pacingMs: 250,
+                    pacingMs: experimentalPacing ?? 250,
                     observationTimeoutMs: 15_000,
                   },
                 )
@@ -6893,7 +6897,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
 
               const detail =
                 promptDelivery.state === "launch-unconfirmed"
-                  ? `the brief was submitted but dispatch could not be confirmed within the observation budget; the session was preserved`
+                  ? `potential submission could not be confirmed for the expected brief; the session was preserved`
                   : promptDelivery.state === "submitted-idle"
                     ? `the brief was submitted but the agent never started working ` +
                       `(${Math.round(promptDelivery.cpuDeltaMs)}ms of CPU): the session was preserved`
@@ -6932,7 +6936,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
                     state: "launch-unconfirmed", launchId: slug, error: detail,
                     attempt: launchAttemptDetailsFromFile(join(runDir, "launch.json"), detail),
                     stopped: false, retrySafe: false,
-                    prompt: { delivered: true, submitAttempted: true, waitedMs: deliveryWaitedMs },
+                    prompt: { deliveryConfirmed: false, submitAttempted: true, waitedMs: deliveryWaitedMs },
                     attach: { command: "h2a", args: ["attach", slug] },
                   };
                   if (nativeClaudeLaunch) updateLaunchReceipt(join(runDir, "launch.json"), process.env.H2A_RUN_LAUNCH_TOKEN, { state: failure.state, result: failure });
