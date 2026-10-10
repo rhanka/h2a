@@ -150,6 +150,70 @@ for (const configState of ["invalid JSON", "unreadable"])
       }
     });
 
+for (const terminal of ["native", "tmux"])
+  test(`R19 manual daemon ${terminal} launcher context never becomes the target of a client without terminal context`, async () => {
+    const f = fixture();
+    const children = [];
+    let channel;
+    let stderr = "";
+    const readyFile = join(f.dir, "launcher-ready.json");
+    const launcherContext = {
+      TMUX: join(f.dir, "unused-tmux.sock") + ",123,0", TMUX_PANE: "%42",
+      ...(terminal === "native" ? { H2A_NATIVE_TARGET_SESSION: "daemon-launcher", H2A_NATIVE_PTY_SESSION: "daemon-launcher", H2A_NATIVE_SOCKET: join(f.dir, "unused-native.sock") } : {}),
+      H2A_MCP_READY_FILE: readyFile, H2A_MCP_READY_NONCE: "01234567-89ab-4cde-8f01-23456789abcd"
+    };
+    try {
+      const daemon = spawn(process.execPath, [bin, "mcp-central-serve", "--root", f.root], {
+        env: { ...f.env, ...launcherContext }, cwd: f.env.HOME, stdio: ["ignore", "ignore", "pipe"]
+      });
+      children.push(daemon);
+      daemon.stderr.on("data", data => { stderr += data.toString(); });
+      const markerPath = join(f.runtimeBase, "h2a-mcp-central", "marker.json");
+      const deadline = Date.now() + 5000;
+      while (!existsSync(markerPath) && Date.now() < deadline && daemon.exitCode === null) await delay(25);
+      assert.ok(existsSync(markerPath), stderr);
+      const marker = JSON.parse(readFileSync(markerPath, "utf8"));
+      assert.equal(marker.pid, daemon.pid, "only the daemon started by this fixture may be used");
+      const shim = spawn(process.execPath, [bin, "mcp-serve", "--host", "claude", "--auto-open", "--wake", "auto"], {
+        env: { ...f.env, CLAUDE_CODE_SESSION_ID: `r19-client-${terminal}`, H2A_NOTIFY_INTERVAL_MS: "25" }, cwd: join(f.dir, "repo-a"), stdio: ["pipe", "pipe", "pipe"]
+      });
+      children.push(shim);
+      channel = rpcChannel(shim.stdin, shim.stdout);
+      assert.ok((await channel.call("initialize")).result);
+      const status = await ready(channel);
+      const presence = readdirSync(join(f.root, "presence")).filter(name => name.endsWith(".json")).map(name => JSON.parse(readFileSync(join(f.root, "presence", name), "utf8")));
+      assert.equal(presence.length, 1);
+      assert.equal(presence[0].instance, status.instance);
+      assert.equal(presence[0].launchContext, undefined, "client must not publish daemon-launcher native/tmux ownership");
+      assert.equal(existsSync(readyFile), false, "daemon-launcher readiness challenge must not be acknowledged by a client");
+      const sent = await channel.call("tools/call", { name: "h2a_send", arguments: { to: status.instance, message: "r19-isolation-probe" } });
+      assert.equal(sent.result.isError, false);
+      const wakeDeadline = Date.now() + 3000;
+      while (!stderr.includes("inbox-wake: 1 new envelope(s)") && Date.now() < wakeDeadline) await delay(25);
+      assert.match(stderr, /inbox-wake: 1 new envelope\(s\) → drive failed/, "wake must refuse an absent client terminal target");
+      assert.ok(stderr.includes(`drive[native-pty]: ${status.instance} (failed)`), "wake uses only the client's identity when no terminal is supplied");
+      assert.doesNotMatch(stderr, /daemon-launcher|%42/);
+
+      const ownedShim = spawn(process.execPath, [bin, "mcp-serve", "--host", "claude", "--auto-open"], {
+        env: { ...f.env, CLAUDE_CODE_SESSION_ID: `r19-owned-${terminal}`, ...(terminal === "native" ? { H2A_NATIVE_PTY_SESSION: "client-owned" } : { TMUX: launcherContext.TMUX, TMUX_PANE: "%84" }) },
+        cwd: join(f.dir, "repo-b"), stdio: ["pipe", "pipe", "pipe"]
+      });
+      children.push(ownedShim);
+      const ownedChannel = rpcChannel(ownedShim.stdin, ownedShim.stdout);
+      try {
+        assert.ok((await ownedChannel.call("initialize")).result);
+        const owned = await ready(ownedChannel);
+        const record = readdirSync(join(f.root, "presence")).map(name => JSON.parse(readFileSync(join(f.root, "presence", name), "utf8"))).find(record => record.instance === owned.instance);
+        assert.deepEqual(terminal === "native" ? record.launchContext.nativePty : record.launchContext.tmux, terminal === "native" ? { session: "client-owned" } : { session: "", pane: "%84" }, "client's own terminal context is preserved");
+        assert.equal(record.launchContext.cwd, join(f.dir, "repo-b"), "terminal context uses the client's workspace");
+      } finally { ownedChannel.close(); }
+    } finally {
+      channel?.close();
+      for (const child of children.reverse()) if (child.exitCode === null && child.signalCode === null) { child.kill("SIGTERM"); await once(child, "exit"); }
+      f.cleanup();
+    }
+  });
+
 test("missing systemd runtime chooses a fixed UID fallback, with private namespaces for isolation", () => {
   assert.equal(runtimeBase({}, {}, () => false), `/tmp/h2a-mcp-runtime-${process.getuid()}`);
   assert.equal(runtimeBase({}, { XDG_RUNTIME_DIR: "/private/test/runtime" }, () => false), "/private/test/runtime");
