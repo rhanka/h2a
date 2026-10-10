@@ -1,7 +1,7 @@
 import type { ChildProcess } from "node:child_process";
 import { once } from "node:events";
 import { chmod, mkdtemp, readFile, readdir, readlink, rm, stat, unlink, writeFile } from "node:fs/promises";
-import { createConnection } from "node:net";
+import { createConnection, createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -13,6 +13,7 @@ setupNativeTestEnvironment(afterAll);
 
 import { persistNativeTerminalPgid, readNativeTerminalPgid } from "../registry.js";
 import { NativeTerminalClient } from "./client.js";
+import { resolveHostJournalPath } from "./journal.js";
 import {
   NATIVE_TERMINAL_FORCE_KILL_TIMEOUT_MS,
   NativeTerminalHost,
@@ -998,7 +999,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
     3 * EVENTUALLY_BUDGET_MS +
     1_000;
 
-  for (const { releasePublication, suspendAt, preserveOwner, title } of [
+  for (const { releasePublication, releaseLate, terminate, suspendAt, preserveOwner, preserveSocket, title } of [
     { releasePublication: true, suspendAt: "rename", preserveOwner: false,
       title: "should handle termination while its published socket awaits the owner record" },
     { releasePublication: false, suspendAt: "rename", preserveOwner: false,
@@ -1007,15 +1008,35 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
       title: "should exit and clean up on SIGTERM without releasing a suspended owner write" },
     { releasePublication: false, suspendAt: "open", preserveOwner: false,
       title: "should exit and clean up on SIGTERM without releasing a suspended owner open" },
+    { releasePublication: true, suspendAt: "open-cancelled", preserveOwner: false,
+      title: "should clean up an owner open that completes concurrently with SIGTERM" },
     { releasePublication: false, suspendAt: "committed", preserveOwner: false,
       title: "should remove its committed owner on SIGTERM without releasing publication" },
+    { releasePublication: false, suspendAt: "owner-unlink", preserveOwner: false,
+      title: "should exit and clean up on SIGTERM without releasing a suspended temporary owner unlink" },
+    { releasePublication: false, suspendAt: "socket-link", preserveOwner: false,
+      title: "should exit and clean up on SIGTERM without releasing a suspended socket publication" },
+    { releasePublication: false, suspendAt: "socket-linked", preserveOwner: false,
+      title: "should roll back a linked socket on SIGTERM without releasing socket publication" },
+    { releasePublication: false, suspendAt: "staged-unlink", preserveOwner: false,
+      title: "should exit and clean up on SIGTERM without releasing a suspended staging socket unlink" },
+    { releasePublication: false, suspendAt: "socket-linked", preserveOwner: true, preserveSocket: true,
+      title: "should preserve a replacement socket and owner during suspended socket publication" },
+    { releasePublication: false, releaseLate: true, suspendAt: "socket-link", preserveOwner: true, preserveSocket: true,
+      title: "should neutralize a late socket link before releasing the publication lock" },
+    { releasePublication: false, releaseLate: true, suspendAt: "rename", preserveOwner: true, preserveSocket: true,
+      title: "should neutralize a late owner rename before releasing the publication lock" },
+    { releasePublication: false, terminate: false, suspendAt: "owner-unlink", preserveOwner: false,
+      title: "should bound a suspended temporary owner unlink by the publication deadline" },
+    { releasePublication: false, terminate: false, suspendAt: "socket-link", preserveOwner: false,
+      title: "should bound a suspended socket publication by the publication deadline" },
     { releasePublication: false, suspendAt: "rename", preserveOwner: true,
       title: "should preserve another owner on SIGTERM during suspended publication" },
-  ]) it(title, async () => {
+  ].map(value => ({ preserveSocket: false, releaseLate: false, terminate: true, ...value }))) it(title, async () => {
     const directory = await mkdtemp(join(tmpdir(), "n-"));
     directories.add(directory);
     const socketPath = join(directory, "host.sock");
-    const entry = fileURLToPath(new URL("./process.ts", import.meta.url));
+    const entry = fileURLToPath(new URL("../../dist/native-terminal/process.js", import.meta.url));
     const wrapper = join(directory, "publishing.mjs");
     await writeFile(wrapper, `
       import fs from 'node:fs/promises';
@@ -1032,7 +1053,10 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
       const open = fs.open;
       fs.open = async (...args) => {
         const file = await open(...args);
-        if (${JSON.stringify(suspendAt)} === 'open' && String(args[0]).includes('.owner.')) await suspend();
+        if (['open', 'open-cancelled'].includes(${JSON.stringify(suspendAt)}) && String(args[0]).includes('.owner.')) {
+          await suspend();
+          if (${JSON.stringify(suspendAt)} === 'open-cancelled') process.emit('SIGTERM');
+        }
         return file;
       };
       fs.writeFile = async (...args) => {
@@ -1040,16 +1064,46 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
         return writeFile(...args);
       };
       const rename = fs.rename;
-      fs.rename = async (...args) => {
-        if (args[1] === ${JSON.stringify(`${socketPath}.owner`)}) {
-          if (${JSON.stringify(suspendAt)} === 'committed') {
-            await rename(...args);
-            await suspend();
-            return;
+      let pendingPublication;
+      fs.rename = (...args) => {
+        const operation = (async () => {
+          if (args[1] === ${JSON.stringify(`${socketPath}.owner`)}) {
+            if (${JSON.stringify(suspendAt)} === 'committed') {
+              await rename(...args);
+              await suspend();
+              return;
+            }
+            if (${JSON.stringify(suspendAt)} === 'rename') await suspend();
           }
+          return rename(...args);
+        })();
+        if (args[1] === ${JSON.stringify(`${socketPath}.owner`)}) pendingPublication = operation;
+        return operation;
+      };
+      const link = fs.link;
+      fs.link = (...args) => {
+        const operation = (async () => {
+          if (args[1] === ${JSON.stringify(socketPath)}) {
+            if (${JSON.stringify(suspendAt)} === 'socket-link') await suspend();
+            if (${JSON.stringify(suspendAt)} === 'socket-linked') {
+              await link(...args);
+              await suspend();
+              return;
+            }
+          }
+          return link(...args);
+        })();
+        if (args[1] === ${JSON.stringify(socketPath)}) pendingPublication = operation;
+        return operation;
+      };
+      const unlink = fs.unlink;
+      fs.unlink = async (...args) => {
+        const path = String(args[0]);
+        if ((${JSON.stringify(suspendAt)} === 'owner-unlink' && path.includes('.owner.') && path.endsWith('.tmp'))
+          || (${JSON.stringify(suspendAt)} === 'staged-unlink' && path.endsWith('.sock') && path !== ${JSON.stringify(socketPath)})) {
           await suspend();
         }
-        return rename(...args);
+        return unlink(...args);
       };
       syncBuiltinESMExports();
       const emit = process.emit;
@@ -1058,10 +1112,31 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
         if (event === 'SIGTERM' && handled) process.send('termination-handled');
         return handled;
       };
+      const { NativeTerminalHost } = await import(${JSON.stringify(fileURLToPath(new URL("../../dist/native-terminal/host.js", import.meta.url)))});
+      const list = NativeTerminalHost.prototype.list;
+      const stopAll = NativeTerminalHost.prototype.stopAll;
+      let stopping = false;
+      NativeTerminalHost.prototype.stopAll = function(...args) {
+        stopping = true;
+        try { return stopAll.apply(this, args); }
+        finally {
+          stopping = false;
+          queueMicrotask(() => process.send('terminal-stop-observed'));
+        }
+      };
+      NativeTerminalHost.prototype.list = function(...args) {
+        if (!stopping) queueMicrotask(() => process.send('terminal-drain-observed'));
+        return list.apply(this, args);
+      };
       const { runNativeTerminalHostProcess } = await import(${JSON.stringify(entry)});
-      await runNativeTerminalHostProcess([process.execPath, ${JSON.stringify(entry)},
+      try { await runNativeTerminalHostProcess([process.execPath, ${JSON.stringify(entry)},
         '--socket', ${JSON.stringify(socketPath)}, '--registry-path',
-        ${JSON.stringify(join(directory, "registry.json"))}]);
+        ${JSON.stringify(join(directory, "registry.json"))}]); }
+      catch (error) {
+        if (${JSON.stringify(terminate)}) throw error;
+        process.send({ publicationDeadline: error.message });
+        process.exitCode = 1;
+      }
       const secret = (await fs.readFile(${JSON.stringify(join(directory, ".h2a-native-terminal.lock-id"))}, 'utf8')).trim();
       const lock = createServer();
       lock.listen('\\0h2a-terminal-lock-' + createHash('sha256')
@@ -1069,6 +1144,11 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
       await once(lock, 'listening');
       await new Promise((resolve, reject) => lock.close(error => error ? reject(error) : resolve()));
       process.send('publication-lock-released');
+      if (${JSON.stringify(releaseLate)}) {
+        await once(process, 'message');
+        const [result] = await Promise.allSettled([pendingPublication]);
+        process.send({ lateOperation: result.status, code: result.reason?.code });
+      }
       process.disconnect();
     `);
     const child = spawn(process.execPath, ["--import", "tsx", wrapper], {
@@ -1078,33 +1158,77 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
     const messages: unknown[] = [];
     child.on("message", (message) => messages.push(message));
     let stdout = "";
+    let stderr = "";
     child.stdout!.on("data", (chunk) => { stdout += chunk; });
+    child.stderr!.on("data", (chunk) => { stderr += chunk; });
     expect((await once(child, "message"))[0]).toBe("owner-record-pending");
+    // The journal's bounded flush may drop observations before its writer has
+    // booted. Observe that writer's start entry before exercising the drain.
+    await eventually(() => readFile(resolveHostJournalPath(), "utf8").then(
+      data => data.trim().split("\n").map(line => JSON.parse(line)).some(entry => entry.event === "start" && entry.pid === child.pid),
+      (error: NodeJS.ErrnoException) => { if (error.code === "ENOENT") return false; throw error; },
+    ), started => started);
     const otherOwner = JSON.stringify({ pid: process.pid, marker: "replacement-owner" });
     if (preserveOwner) await writeFile(`${socketPath}.owner`, otherOwner, { mode: 0o600 });
-    const client = createConnection(socketPath);
+    const listenerPath = suspendAt === "socket-link"
+      ? join(directory, (await readdir(directory)).find(name => name.endsWith(".sock"))!)
+      : socketPath;
+    const client = createConnection(listenerPath);
     await once(client, "connect");
     const listenerClosed = once(client, "close");
+    let replacement: ReturnType<typeof createServer> | undefined;
+    let replacementIdentity: Awaited<ReturnType<typeof stat>> | undefined;
+    const replaceSocket = async () => {
+      await unlink(socketPath).catch((error: NodeJS.ErrnoException) => { if (error.code !== "ENOENT") throw error; });
+      replacement = createServer(socket => socket.destroy());
+      replacement.listen(socketPath);
+      await once(replacement, "listening");
+      await chmod(socketPath, 0o600);
+      replacementIdentity = await stat(socketPath);
+    };
     try {
-      const exited = exitWithin(child, HOST_SHUTDOWN_BUDGET_MS);
-      const observed = Promise.race([
-        once(child, "message").then(([message]) => message),
-        exited.then(([code, signal]) => ({ code, signal })),
-      ]);
-      child.kill("SIGTERM");
-      expect(await observed).toBe("termination-handled");
-      if (releasePublication) child.send("release-owner-record");
-      expect(await exited).toEqual([0, null]);
+      if (preserveSocket && !releaseLate) await replaceSocket();
+      const exited = exitWithin(child, terminate ? HOST_SHUTDOWN_BUDGET_MS : HOST_STARTUP_BUDGET_MS + 1_000);
+      if (terminate) {
+        const observed = Promise.race([
+          once(child, "message").then(([message]) => message),
+          exited.then(([code, signal]) => ({ code, signal })),
+        ]);
+        if (suspendAt === "open-cancelled") child.send("release-owner-record");
+        else child.kill("SIGTERM");
+        expect(await observed).toBe("termination-handled");
+      }
+      if (releasePublication && suspendAt !== "open-cancelled") child.send("release-owner-record");
+      if (releaseLate) {
+        await eventually(() => messages.includes("publication-lock-released"), released => released);
+        await expect(stat(socketPath)).rejects.toMatchObject({ code: "ENOENT" });
+        await replaceSocket();
+        child.send("release-late-publication");
+      }
+      expect(await exited, stderr).toEqual([terminate ? 0 : 1, null]);
       await listenerClosed;
       expect(messages).toContain("publication-lock-released");
+      if (terminate) {
+        expect(messages).toContain("terminal-stop-observed");
+        expect(messages).toContain("terminal-drain-observed");
+      } else expect(messages).toContainEqual({ publicationDeadline: "terminal host socket publication timed out" });
+      if (releaseLate) expect(messages).toContainEqual({ lateOperation: "rejected", code: "ENOENT" });
       expect(stdout).not.toContain("h2a.native-terminal.ready");
-      await expect(stat(socketPath)).rejects.toMatchObject({ code: "ENOENT" });
+      if (preserveSocket) expect(await stat(socketPath)).toMatchObject({ dev: replacementIdentity!.dev, ino: replacementIdentity!.ino });
+      else await expect(stat(socketPath)).rejects.toMatchObject({ code: "ENOENT" });
       if (preserveOwner) expect(await readFile(`${socketPath}.owner`, "utf8")).toBe(otherOwner);
       else await expect(stat(`${socketPath}.owner`)).rejects.toMatchObject({ code: "ENOENT" });
-      expect((await readdir(directory)).filter((name) => name.endsWith(".sock") || name.endsWith(".tmp"))).toEqual([]);
+      expect((await readdir(directory)).filter((name) => name.endsWith(".sock") || name.endsWith(".tmp"))).toEqual(preserveSocket ? ["host.sock"] : []);
       await waitForPrivateNativeProcesses(process.env);
-    } finally { client.destroy(); }
-  }, HOST_STARTUP_BUDGET_MS + HOST_SHUTDOWN_BUDGET_MS + CLIENT_OVERRUN_BUDGET_MS);
+      const journal = (await readFile(resolveHostJournalPath(), "utf8")).trim().split("\n").map(line => JSON.parse(line));
+      expect(journal).toContainEqual(expect.objectContaining(terminate
+        ? { event: "stop", pid: child.pid, clean: true }
+        : { event: "startupError", pid: child.pid }));
+    } finally {
+      client.destroy();
+      if (replacement !== undefined) await new Promise<void>(resolve => replacement!.close(() => resolve()));
+    }
+  }, HOST_STARTUP_BUDGET_MS + (terminate ? HOST_SHUTDOWN_BUDGET_MS : HOST_STARTUP_BUDGET_MS + 1_000) + CLIENT_OVERRUN_BUDGET_MS);
 
   it("should stop its PTYs and remove its socket on graceful host shutdown", async () => {
     const directory = await mkdtemp(join(tmpdir(), "n-"));
