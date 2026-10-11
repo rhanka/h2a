@@ -21,6 +21,8 @@
  * CONTRACT.
  *   - Every step runs, even if an earlier step failed.
  *   - Every step is REPORTED, even if running it threw.
+ *   - Every step handed to the runner must RECEIVE a verdict: a step dropped
+ *     from the results (the round-3 loop-bypass shape) fails the run by name.
  *   - Each step's own stdout/stderr is inherited verbatim, in order, unmodified.
  *   - A final summary names every step with its exit code and status.
  *   - Exit 0 only if ALL steps passed.
@@ -336,6 +338,24 @@ export function runGates(steps, options = {}) {
     const status = verdictFor(code, step)
     if (status !== PASSED && step.id === 'build') buildFailed = true
     results.push({ id: step.id, status, code, ms, timeoutMs })
+  }
+
+  // Round-3 review finding N02: a `continue` targeting one step id dropped it
+  // from the results entirely — a broken runtime suite was never executed and
+  // the run still exited 0. A step handed to this runner must RECEIVE a
+  // verdict: absence from the results is not evidence about the step, it is a
+  // hole shaped exactly like the step it erased. Checked against the ids of
+  // the steps ACTUALLY handed in, so the real ids stay in the execution proof.
+  const dropped = steps
+    .map((step, index) => ({ id: step?.id, observed: results[index]?.id }))
+    .filter((entry) => entry.observed !== entry.id)
+  if (dropped.length > 0) {
+    writeErr(
+      `run-test-gates: REFUSING to report success: ${dropped.map((d) => d.id).join(', ')} ` +
+        'were handed to the runner but received no verdict. A step dropped without a verdict is the ' +
+        'bypass shape of the round-3 review: its suite never ran, and its absence is not evidence.\n',
+    )
+    return 1
   }
 
   const width = Math.max(...results.map((r) => r.id.length))

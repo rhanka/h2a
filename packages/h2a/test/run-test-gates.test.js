@@ -561,7 +561,7 @@ test('R8.1 negative control: a rigged runner returning 0 without running the sui
  * run here). The entry tail — the `invokedDirectly` gate and
  * `process.exit(runGates(STEPS))` — is the production source, verbatim.
  */
-function sentinelRunnerSource({ broken }) {
+function sentinelRunnerSource({ broken, dropStepId }) {
   let source = RUNNER_SOURCE
   const beforeImport = source
   source = source.replace(
@@ -572,6 +572,17 @@ function sentinelRunnerSource({ broken }) {
   const beforeRoot = source
   source = source.replace("const REPO_ROOT = resolve(HERE, '..')", 'const REPO_ROOT = HERE')
   assert.notEqual(source, beforeRoot, 'the REPO_ROOT splice must apply to the real runner source')
+  if (dropStepId) {
+    const beforeDrop = source
+    // The round-3 review's exact mutation shape: a loop-level `continue`
+    // targeting one step id. The dropped step executes NO suite and leaves NO
+    // result entry — the runner must refuse to report success over it.
+    source = source.replace(
+      'for (const step of steps) {',
+      `for (const step of steps) {\n    if (step.id === '${dropStepId}') continue`,
+    )
+    assert.notEqual(source, beforeDrop, 'the loop-bypass splice must apply to the real runner source')
+  }
   const sentinelSteps = `export const STEPS = [
   {
     id: 'sentinel-observed',
@@ -638,6 +649,50 @@ test('R8.1 execution: direct invocation of the runner entry is OBSERVED — an i
     assert.match(broken.result.stdout, /sentinel-broken\s+failed\s+exit 1/)
     assert.match(broken.result.stderr, /FAILED steps \(1\): sentinel-broken/)
     assert.doesNotMatch(broken.result.stdout, /All 2 steps passed\./)
+  } finally {
+    rmSync(lab, { recursive: true, force: true })
+  }
+})
+
+/**
+ * R8.1 — round-3 review finding N02: a `continue` targeting `h2a-runtime`
+ * inside the step loop dropped the step from the results entirely. A broken
+ * runtime suite was NEVER executed, the summary said nothing about it, and
+ * the runner still exited 0 — the trust root stayed 28/28 green.
+ *
+ * The property this pins: EVERY step handed to the runner must RECEIVE a
+ * verdict. A step absent from the results is not evidence about that step,
+ * and the runner must refuse exit 0 while naming the real step IDs that were
+ * dropped — the IDs stay in the execution proof.
+ */
+test('R8.1 execution: a step dropped by the loop cannot launder the run — the round-3 bypass', () => {
+  const lab = mkdtempSync(join(tmpdir(), 'h2a-trust-root-bypass-'))
+  try {
+    const sentinelFile = join(lab, 'sentinel.txt')
+    // The reviewer's exact mutation: bypass one step id inside the loop. The
+    // bypassed step carries a BROKEN suite, so if it were executed the run
+    // would fail on its own account; if it is silently dropped, only the
+    // refusal to grade a step it never saw can make the run fail.
+    writeFileSync(join(lab, 'runner-bypass.mjs'), sentinelRunnerSource({ broken: true, dropStepId: 'sentinel-broken' }))
+    rmSync(sentinelFile, { force: true })
+    const result = spawnSync(process.execPath, [join(lab, 'runner-bypass.mjs')], {
+      cwd: lab,
+      encoding: 'utf8',
+      env: { ...process.env, TRUST_ROOT_SENTINEL_FILE: sentinelFile },
+      timeout: 60_000,
+    })
+    assert.equal(
+      result.status,
+      1,
+      `a step dropped by the loop must not yield exit 0 — the bypassed runtime suite would never run and the run would still read green\n${result.stdout}${result.stderr}`,
+    )
+    assert.match(
+      result.stderr,
+      /sentinel-broken[\s\S]*no verdict|no verdict[\s\S]*sentinel-broken/,
+      'the refusal must NAME the dropped step: the real IDs belong in the execution proof',
+    )
+    assert.doesNotMatch(result.stdout, /All 2 steps passed\./)
+    assert.doesNotMatch(result.stdout, /All 1 steps passed\./)
   } finally {
     rmSync(lab, { recursive: true, force: true })
   }
