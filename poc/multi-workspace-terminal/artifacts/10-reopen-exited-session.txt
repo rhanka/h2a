@@ -1,0 +1,3 @@
+repo-alpha[running] | *repo-beta[running]
+idle[idle] | new-idle[idle] | raced-idle[idle] | *short[running]
+Idle session ready
