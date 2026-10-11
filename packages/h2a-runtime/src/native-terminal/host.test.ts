@@ -1,5 +1,5 @@
 // @ts-ignore Shared JS test isolation helper.
-import { setupNativeTestEnvironment } from "../../../h2a/test/helpers/native-isolation.js";
+import { createPrivateTestDirectory, setupNativeTestEnvironment } from "../../../h2a/test/helpers/native-isolation.js";
 setupNativeTestEnvironment(afterAll);
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { once } from "node:events";
@@ -12,8 +12,7 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { PtyHandle, PtySpawner } from "../pty.js";
@@ -32,6 +31,7 @@ import {
 } from "./host.js";
 import type { NativeTerminalStopSignal } from "./protocol.js";
 import { HOST_FAULT_COUNTERS, hostFaultCounters } from "./fault-counters.js";
+import { hostLogSinkDiagnostics } from "./crash-safe-log.js";
 
 function isErrnoException(error: unknown): error is NodeJS.ErrnoException {
   return error instanceof Error && "code" in error;
@@ -96,15 +96,6 @@ function findEpermProbeCandidatePgid(): number | null {
   return null;
 }
 
-// Scratch dir inside the package (never /tmp), like the other test suites.
-const SCRATCH_ROOT = join(
-  dirname(fileURLToPath(import.meta.url)),
-  "..",
-  "..",
-  ".test-scratch",
-  "native-terminal-host",
-);
-
 let scratch: string;
 let registryPath: string;
 // Real processes a test starts to observe real /proc states. They outlive the
@@ -113,8 +104,7 @@ const strayProcesses = new Set<ChildProcess>();
 const strayProcessGroups = new Set<ChildProcess>();
 
 beforeEach(() => {
-  mkdirSync(SCRATCH_ROOT, { recursive: true });
-  scratch = mkdtempSync(join(SCRATCH_ROOT, "h-"));
+  scratch = createPrivateTestDirectory("h-");
   registryPath = join(scratch, "registry.json");
 });
 
@@ -480,6 +470,7 @@ describe("NativeTerminalHost", () => {
   });
 
   it("should contain a faulty pty data callback without losing the host or other sessions", () => {
+    const before = hostFaultCounters();
     const { spawner, ptys } = stubSpawner();
     const lines: string[] = [];
     const host = new NativeTerminalHost({
@@ -504,8 +495,8 @@ describe("NativeTerminalHost", () => {
     expect(lines.some((line) => line.includes("contained a faulty pty data callback")
       && line.includes("hostile-data"))).toBe(true);
     // The guard owns its DISTINCT named counter; no other site moved.
-    expect(hostFaultCounters()[HOST_FAULT_COUNTERS.ptyDataCallbackContained]).toBe(1);
-    expect(hostFaultCounters()[HOST_FAULT_COUNTERS.ptyExitCallbackContained]).toBeUndefined();
+    expect(hostFaultCounters()[HOST_FAULT_COUNTERS.ptyDataCallbackContained]).toBe((before[HOST_FAULT_COUNTERS.ptyDataCallbackContained] ?? 0) + 1);
+    expect(hostLogSinkDiagnostics().faultCounters.h2a_host_pty_callback_failures).toBe((before[HOST_FAULT_COUNTERS.hostPtyCallbackFailures] ?? 0) + 1);
 
     // The host and the OTHER session keep serving output.
     ptys.get("healthy-data")!.emitData("healthy-output");
@@ -513,6 +504,7 @@ describe("NativeTerminalHost", () => {
   });
 
   it("should settle a session from a faulty pty exit callback and keep the host alive", () => {
+    const before = hostFaultCounters();
     const { spawner, ptys } = stubSpawner();
     const lines: string[] = [];
     const host = new NativeTerminalHost({
@@ -538,12 +530,73 @@ describe("NativeTerminalHost", () => {
     expect(lines.some((line) => line.includes("contained a faulty pty exit callback")
       && line.includes("hostile-exit"))).toBe(true);
     // The guard owns its DISTINCT named counter.
-    expect(hostFaultCounters()[HOST_FAULT_COUNTERS.ptyExitCallbackContained]).toBe(1);
+    expect(hostFaultCounters()[HOST_FAULT_COUNTERS.ptyExitCallbackContained]).toBe((before[HOST_FAULT_COUNTERS.ptyExitCallbackContained] ?? 0) + 1);
+    expect(hostLogSinkDiagnostics().faultCounters.h2a_host_pty_callback_failures).toBe((before[HOST_FAULT_COUNTERS.hostPtyCallbackFailures] ?? 0) + 1);
 
     // The host still serves other sessions.
     createSession(host, "healthy-exit");
     ptys.get("healthy-exit")!.emitExit({ exitCode: 0 });
     expect(host.state("healthy-exit").status).toBe("exited");
+  });
+
+  it("should settle an unreadable pty exit code as minus one and keep the host alive", () => {
+    const { spawner, ptys } = stubSpawner();
+    const before = hostFaultCounters();
+    const host = new NativeTerminalHost({ generation: "unreadable-exit", replayBytesPerSession: 4096,
+      spawner, registryPath });
+    createSession(host, "unreadable");
+    const event = { get exitCode() { throw new Error("unreadable exit code"); } };
+    expect(() => ptys.get("unreadable")!.emitExit(event)).not.toThrow();
+    expect(host.state("unreadable").exit).toEqual({ exitCode: -1 });
+    expect(hostLogSinkDiagnostics().faultCounters.h2a_host_pty_callback_failures).toBe((before[HOST_FAULT_COUNTERS.hostPtyCallbackFailures] ?? 0) + 1);
+    createSession(host, "still-serving");
+    ptys.get("still-serving")!.emitData("alive");
+    expect(host.readOutput("still-serving", 0).chunks[0]?.data).toBe("alive");
+  });
+
+  it("should expose the named pty write-break counter and keep serving after a DSR write throws", () => {
+    const { spawner, ptys } = stubSpawner();
+    const before = hostFaultCounters();
+    const host = new NativeTerminalHost({ generation: "write-break", replayBytesPerSession: 4096,
+      spawner, registryPath });
+    createSession(host, "broken-write");
+    createSession(host, "healthy-write");
+    const pty = ptys.get("broken-write")!;
+    pty.write.mockImplementation(() => { throw new Error("EPIPE"); });
+    expect(() => pty.emitData("\x1b[6n\x1b[6n")).not.toThrow();
+    expect(pty.write).toHaveBeenCalledTimes(1);
+    expect(hostLogSinkDiagnostics().faultCounters.h2a_host_pty_write_breaks).toBe((before[HOST_FAULT_COUNTERS.hostPtyWriteBreaks] ?? 0) + 1);
+    ptys.get("healthy-write")!.emitData("still-alive");
+    expect(host.readOutput("healthy-write", 0).chunks[0]?.data).toBe("still-alive");
+  });
+
+  it("should keep a durable row when its data callback throws while the group is alive", async () => {
+    const { spawner, ptys } = stubSpawner();
+    const { reaper, alive, killGroup } = fakeReaper();
+    const host = new NativeTerminalHost({ generation: "durable-callback", replayBytesPerSession: 4096,
+      spawner, registryPath, reaper, readLeaderStartTime: () => 1000 });
+    createSession(host, "durable");
+    const pty = ptys.get("durable")!;
+    alive.add(pty.pgid);
+    const before = hostFaultCounters();
+    const hostile = { get length() { throw new Error("bad data"); } } as unknown as string;
+    expect(() => pty.emitData(hostile)).not.toThrow();
+    expect(hostLogSinkDiagnostics().faultCounters.h2a_host_pty_callback_failures).toBe((before[HOST_FAULT_COUNTERS.hostPtyCallbackFailures] ?? 0) + 1);
+    expect(readNativeTerminalPgid("durable", registryPath)).toMatchObject({ status: "resolved", pgid: pty.pgid });
+    vi.useFakeTimers();
+    try {
+      pty.emitExit({ exitCode: 0 });
+      await vi.runOnlyPendingTimersAsync();
+      expect(readNativeTerminalPgid("durable", registryPath).status).toBe("resolved");
+      // Only a later positive group-empty proof permits removing this row.
+      alive.delete(pty.pgid);
+      // The reconcile path owns the compare-and-delete after a positive reap.
+      const summary = await reconcileDeadHostOrphans({ registryPath, ownerProbe: () => "dead",
+        reap: (id, pgid, signal, expected) => host.reapOrphan(id, signal, pgid, expected), log: vi.fn() });
+      expect(summary.outcomes).toContainEqual(expect.objectContaining({ sessionId: "durable", status: "reaped" }));
+      expect(readNativeTerminalPgid("durable", registryPath).status).toBe("unresolved");
+      expect(killGroup).not.toHaveBeenCalled();
+    } finally { vi.useRealTimers(); }
   });
 
   it("should let the controller escalate one stopping session without affecting another", () => {
