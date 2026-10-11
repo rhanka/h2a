@@ -744,12 +744,18 @@ for (const [label, frameFactory] of [
   assert.equal(existsSync(f.paths[0]), false);
 }));
 
-test("should reclaim a persistent stale socket through its unattributed pre-0.98.5 sidecar plus previous-boot rows", linux, () => fixture(async f => {
-  // Migration (spec v3, option A): a sidecar written before 0.98.5 carries no
-  // machine anchor. Across a boot boundary it is UNATTRIBUTED — no death
-  // proof, and no longer a refusal either. The reclamation passes through the
-  // ALTERNATIVE proof — durable rows of the PREVIOUS boot of THIS machine —
-  // and the publication re-stamps the sidecar with the machine anchor.
+test("should refuse to reclaim a current-boot socket over an unattributed pre-0.98.5 sidecar and previous-boot rows", linux, () => fixture(async f => {
+  // Spec v5 T9b bounds the v3 "option A" migration by the socket inode age.
+  // A CI fixture cannot forge an inode that predates the current boot —
+  // birthtime is kernel-owned and the frame readers expose no falsifiable
+  // environment seam — so this real-process test presents the adversarial
+  // shape of the independent review: a socket created DURING the current
+  // boot, a sidecar whose machine anchor is gone (pre-0.98.5) and rows of a
+  // previous boot. Stale rows prove their AUTHORS dead, never that the
+  // pathname is unheld (R4): reclamation is REFUSED, the socket file and the
+  // sidecar survive untouched. The pre-boot-inode variant of the migration
+  // (T9c) is covered through the injected ReadProcessFrame seam in
+  // server.test.ts; the socket-absent cold path below stays allowed.
   const host = await f.start();
   const exited = once(host.child, "exit"); host.child.kill("SIGKILL"); await exited;
   assert.ok(existsSync(f.paths[0]));
@@ -761,12 +767,15 @@ test("should reclaim a persistent stale socket through its unattributed pre-0.98
   writePgidRows(f, [
     { id: "migrate-old-1", owner: { pid: 424242, startTime: 111 }, frame: previousBootRowFrame() },
   ]);
-  assert.equal((await f.run(["probe", "--id", "h2a-migrate"])).payload.verdict, "dead");
+  const probe = (await f.run(["probe", "--id", "h2a-migrate"])).payload;
+  assert.equal(probe.verdict, "unknown");
   const launched = await f.launch("migrate");
-  assert.equal(launched.status, 0, JSON.stringify(launched));
-  await assertServingThroughPublishedSocket(f, "h2a-migrate");
+  assert.equal(launched.payload.code, "native-inventory-unknown");
+  assert.equal(launched.payload.creationAttempted, false);
+  assert.ok(existsSync(f.paths[0]), "a current-boot socket is never unlinked over stale rows alone");
   const restamped = JSON.parse(readFileSync(ownerPath, "utf8"));
-  assert.equal(typeof restamped.machineId, "string", "publication must re-stamp the machine anchor");
+  assert.equal(restamped.machineId, undefined, "a refused publication must not re-stamp the sidecar");
+  assert.equal(restamped.bootId, FABRICATED_PREVIOUS_BOOT_ID);
 }));
 
 test("should not block the cold path on an unattributed pre-0.98.5 sidecar", linux, () => fixture(async f => {
