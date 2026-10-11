@@ -25,9 +25,11 @@
  * gate. No silent skip: an absent or unreadable runbook is a FAILURE.
  */
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { spawnSync } from "node:child_process";
 import { test } from "node:test";
-import { dirname, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -195,6 +197,130 @@ test("R9: the registry rows are qualified PER ROW against the local machine-id, 
   assert.ok(
     qualifier,
     "the per-row qualification must be an executable one-liner, not prose",
+  );
+});
+
+/**
+ * Execute the runbook's Commande 2.2 for REAL, in a temp HOME, with the
+ * machine-id mocked through a preload (test-only shim: it intercepts exactly
+ * one hardcoded path). Round-3 review finding: the command's own
+ * classification was unobserved — a corrupt JSON read `registre-absent-ou-illisible`
+ * (routed to the cold path) and a same-machine row with a malformed boot
+ * anchor still counted `rows-attribuables:1`, promising an automatic takeover
+ * that R1 order 0 refuses.
+ */
+function runCommande22({ registry, machineId }) {
+  const scratch = mkdtempSync(join(tmpdir(), "h2a-runbook-c22-"));
+  try {
+    const home = join(scratch, "home");
+    mkdirSync(join(home, ".config", "sentropic", "h2a"), { recursive: true });
+    if (registry !== undefined) {
+      writeFileSync(join(home, ".config", "sentropic", "h2a", "registry.json"), registry);
+    }
+    const preload = join(scratch, "mock-machine.cjs");
+    writeFileSync(
+      preload,
+      'const fs=require("node:fs");const old=fs.readFileSync;fs.readFileSync=function(p,...args){if(p==="/etc/machine-id")return ' +
+        JSON.stringify(machineId) +
+        ';return old.call(this,p,...args)}',
+    );
+    const qualifier = COMMAND_BLOCKS.find((block) => block.command.includes("rows-attribuables"));
+    assert.ok(qualifier, "Commande 2.2 must remain an executable one-liner");
+    const env = { ...process.env, HOME: home, NODE_OPTIONS: "--require=" + preload };
+    delete env.NODE_TEST_CONTEXT;
+    const result = spawnSync("bash", ["-c", qualifier.command], {
+      cwd: scratch,
+      env,
+      encoding: "utf8",
+      timeout: 20_000,
+    });
+    assert.equal(result.status, 0, `Commande 2.2 crashed:\n${result.stdout}\n${result.stderr}`);
+    return result.stdout.trim();
+  } finally {
+    rmSync(scratch, { recursive: true, force: true });
+  }
+}
+
+const MOCK_MACHINE_ID = "a".repeat(32);
+const VALID_BOOT_ID = "1f0e3d99-c948-4a67-8b11-2c5b7a9d0001";
+const validRow = (overrides = {}) =>
+  JSON.stringify({
+    entries: [
+      {
+        id: "native-terminal-pty:fixture",
+        pgidMachineId: MOCK_MACHINE_ID,
+        pgidBootId: VALID_BOOT_ID,
+        pgidPidNamespace: "4026531836",
+        ...overrides,
+      },
+    ],
+  });
+
+test("R9: Commande 2.2 distinguishes an ABSENT registry (cold path) from an UNREADABLE one (never the cold path)", () => {
+  // ENOENT alone is the cold path: "no rows" is an observed absence.
+  assert.equal(runCommande22({ machineId: MOCK_MACHINE_ID }), "registre-absent");
+  // A corrupt JSON registry EXISTS: it is unreadable, not absent — an
+  // unreadable registry can qualify nothing, and unreadability must never be
+  // laundered into the cold path (round-3 review finding).
+  assert.equal(
+    runCommande22({ registry: "{broken", machineId: MOCK_MACHINE_ID }),
+    "registre-illisible",
+  );
+  // Valid JSON of an unexpected shape is unreadable for the same reason.
+  assert.equal(
+    runCommande22({ registry: '{"nope":true}', machineId: MOCK_MACHINE_ID }),
+    "registre-illisible",
+  );
+  // The merged literal of the defect must be gone from the runbook entirely.
+  assert.ok(
+    !SOURCE.includes("registre-absent-ou-illisible"),
+    "the merged 'registre-absent-ou-illisible' outcome routed a corrupt registry to the cold path: absence and unreadability must stay distinct literals",
+  );
+  assert.ok(
+    SOURCE.includes("registre-absent") && SOURCE.includes("registre-illisible"),
+    "both distinct outcomes must be named in the runbook",
+  );
+});
+
+test("R9: a row is attributable only with ALL R1 anchors valid — malformed anchors are foreign-frame, never attributable", () => {
+  assert.equal(
+    runCommande22({ registry: validRow(), machineId: MOCK_MACHINE_ID }),
+    "rows-attribuables:1",
+  );
+  // R1 order 0: a malformed stored bootId is foreign-frame BEFORE any
+  // comparison; it must not count as attributable even on the same machine.
+  assert.equal(
+    runCommande22({ registry: validRow({ pgidBootId: "garbage" }), machineId: MOCK_MACHINE_ID }),
+    "rows-non-attribuables:1/1",
+    "a same-machine row with a malformed boot anchor promised an automatic takeover the classifier must refuse",
+  );
+  assert.equal(
+    runCommande22({ registry: validRow({ pgidPidNamespace: "pid:[4026531836]" }), machineId: MOCK_MACHINE_ID }),
+    "rows-non-attribuables:1/1",
+    "the raw magic symlink is a malformed store value (R1 pins ^\\d+$): foreign-frame",
+  );
+  assert.equal(
+    runCommande22({ registry: validRow({ pgidMachineId: "b".repeat(32) }), machineId: MOCK_MACHINE_ID }),
+    "rows-non-attribuables:1/1",
+    "a row of a different machine is never attributable",
+  );
+  assert.equal(
+    runCommande22({
+      registry: JSON.stringify({
+        entries: [
+          { id: "ok", pgidMachineId: MOCK_MACHINE_ID, pgidBootId: VALID_BOOT_ID, pgidPidNamespace: "4026531836" },
+          { id: "pre-0982", pgidBootId: VALID_BOOT_ID, pgidPidNamespace: "4026531836" },
+        ],
+      }),
+      machineId: MOCK_MACHINE_ID,
+    }),
+    "rows-non-attribuables:1/2",
+    "one anchored row must not mask an unanchored one (per-row qualification)",
+  );
+  // A non-conforming local machine-id qualifies nothing at all.
+  assert.equal(
+    runCommande22({ registry: validRow(), machineId: "00000000000000000000000000000000" }),
+    "machine-id-non-conforme",
   );
 });
 

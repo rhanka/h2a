@@ -240,6 +240,35 @@ test("R8.2/R8.4: no step anywhere may swallow its own failure (continue-on-error
   }
 });
 
+test("R8.1/R8.3/R8.4: the mandatory verify steps are UNCONDITIONAL — a disabled gate still reads green", () => {
+  // Round-3 review finding N01: adding `if: false` to the trust-root, npm-test
+  // and smoke steps left all 11 assertions of this file green. The gates would
+  // simply never run while `verify` reported success and publish proceeded.
+  // An `if:` on a verification step is one edit away from disabling the gate,
+  // so NO step of verify may set one — not even `if: true`, which only looks
+  // harmless until someone edits the condition.
+  // The matrix-scoped `if` on the pack step is legitimate (one leg packs;
+  // upload-artifact forbids duplicate names), so the pin targets exactly the
+  // steps whose skipping would silence a verification: trust root, npm test,
+  // packaged-artifact smoke. Everything verify claims to prove flows through
+  // those three.
+  const verify = job("verify");
+  const mandatory = new Map([
+    ["node --test packages/h2a/test/run-test-gates.test.js", "the trust root"],
+    ["npm test", "the full gate suite (h2a + runtime TS suites)"],
+    ["npm run smoke:artifact", "the packaged-artifact smoke"],
+  ]);
+  for (const [run, what] of mandatory) {
+    const step = verify.steps.find((s) => s.run === run);
+    assert.ok(step, `verify must keep a step running exactly \`${run}\` (${what})`);
+    assert.equal(
+      step.if,
+      undefined,
+      `the step running \`${run}\` (${what}) sets if: — one edit to \`if: false\` disables the gate while every structural assertion stays green`,
+    );
+  }
+});
+
 test("no publication path bypasses verify: publish needs verify and nothing else publishes", () => {
   for (const [id, job_] of Object.entries(WORKFLOW.jobs)) {
     if (id === "verify" || id === "resolve-release-sha") continue;

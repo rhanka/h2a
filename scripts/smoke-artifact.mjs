@@ -283,23 +283,39 @@ try {
    * Wait until the durable row of a session has been pruned from the registry.
    * The deferred prune is the exact site of the crash-loop incident (host.js
    * timer -> log line), so scenario 7 must OBSERVE that it ran, not just wait
-   * a fixed delay: the row disappearing proves the prune fired, and therefore
-   * that its log line went to the destroyed stream.
+   * a fixed delay. The observation is TWO-PHASE: the row must first be seen
+   * PRESENT, then seen GONE. Round-3 review finding N03: polling only for
+   * absence let an ALREADY-EMPTY registry "prove" a prune the instant it was
+   * read — a prune of a row that never existed is not evidence that the
+   * deferred prune (and its write into the destroyed stream) ever ran.
    */
   async function waitForPrune(lab, sessionId) {
     const rowId = `native-terminal-pty:${sessionId}`
     const deadline = Date.now() + 30_000
+    let observedPresent = false
     while (Date.now() < deadline) {
+      let rows = null
       try {
         const registry = JSON.parse(readFileSync(lab.registryPath, 'utf8'))
-        const rows = Array.isArray(registry.entries) ? registry.entries : []
-        if (!rows.some((row) => row.id === rowId)) return
+        rows = Array.isArray(registry.entries) ? registry.entries : []
       } catch {
         // The registry is rewritten atomically; a torn read is transient.
       }
+      if (rows !== null) {
+        const present = rows.some((row) => row.id === rowId)
+        if (!observedPresent) {
+          if (present) observedPresent = true
+        } else if (!present) {
+          return
+        }
+      }
       await new Promise((r) => setTimeout(r, 200))
     }
-    fail(`the durable row ${rowId} was never pruned: the deferred prune did not run, so scenario 7 exercised no write-after-close`)
+    fail(
+      observedPresent
+        ? `the durable row ${rowId} was never pruned: the deferred prune did not run, so scenario 7 exercised no write-after-close`
+        : `the durable row ${rowId} was never observed PRESENT: no prune was proved — an already-empty registry is not evidence that the deferred prune ran`,
+    )
   }
 
   // --- cold-boot: start over previous-boot rows with an empty runtime dir ---

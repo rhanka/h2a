@@ -121,6 +121,75 @@ test("R8.3: scenario 7 closes the stderr reader BEFORE the deferred prune, and e
   );
 });
 
+test("R8.3: the prune proof observes the row PRESENT before its disappearance — an already-empty registry proves nothing", async () => {
+  // Round-3 review finding N03: waitForPrune only polled for the row's
+  // ABSENCE, so a registry that never contained the row "proved" a prune the
+  // instant it was read. The proof must be two-phase: observe the row
+  // present, then observe its disappearance. A row never seen present is no
+  // evidence that the deferred prune ran.
+  const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
+  function extractFunction(source, name) {
+    const begin = source.indexOf("  async function " + name + "(");
+    assert.notEqual(begin, -1, `the smoke must define ${name}`);
+    const end = source.indexOf("\n  }", begin);
+    assert.notEqual(end, -1);
+    return source.slice(begin, end + 4);
+  }
+  const fn = extractFunction(SMOKE_SOURCE, "waitForPrune")
+    .replace("30_000", "60")
+    .replace("setTimeout(r, 200)", "setTimeout(r, 2)");
+  const throwingFail = (message) => { throw new Error(message); };
+  const lab = mkdtempSync(join(tmpdir(), "h2a-smoke-prune-proof-"));
+  try {
+    const registryPath = join(lab, "registry.json");
+
+    // Case 1 — the row is NEVER present: the wait must reject, not resolve.
+    writeFileSync(registryPath, JSON.stringify({ entries: [] }));
+    const neverPresent = new AsyncFunction(
+      "readFileSync",
+      "fail",
+      fn + "\nreturn waitForPrune({registryPath:" + JSON.stringify(registryPath) + '}, "never-persisted");',
+    );
+    await assert.rejects(
+      () => neverPresent(readFileSync, throwingFail),
+      /never observed PRESENT|never observed present/,
+      "a prune proof that never saw the row present is a false observation: the round-3 defect",
+    );
+
+    // Case 2 — present, then gone: the prune is observed, the wait resolves.
+    let reads = 0;
+    const registryWithRow = JSON.stringify({ entries: [{ id: "native-terminal-pty:observed" }] });
+    const registryWithoutRow = JSON.stringify({ entries: [] });
+    const shimReads = () => {
+      reads += 1;
+      return reads <= 1 ? registryWithRow : registryWithoutRow;
+    };
+    const observed = new AsyncFunction(
+      "readFileSync",
+      "fail",
+      fn + "\nreturn waitForPrune({registryPath:" + JSON.stringify(registryPath) + '}, "observed");',
+    );
+    await observed(shimReads, throwingFail); // must resolve: presence, then disappearance
+    assert.ok(reads >= 2, "the disappearance must be a second observation, not the absence of a first one");
+
+    // Case 3 — present but never pruned: the wait must reject naming the prune.
+    const neverPrunedRow = JSON.stringify({ entries: [{ id: "native-terminal-pty:never-pruned" }] });
+    const alwaysPresent = () => neverPrunedRow;
+    const neverPruned = new AsyncFunction(
+      "readFileSync",
+      "fail",
+      fn + "\nreturn waitForPrune({registryPath:" + JSON.stringify(registryPath) + '}, "never-pruned");',
+    );
+    await assert.rejects(
+      () => neverPruned(alwaysPresent, throwingFail),
+      /never pruned/,
+      "a row that never disappears proves the deferred prune did not run",
+    );
+  } finally {
+    rmSync(lab, { recursive: true, force: true });
+  }
+});
+
 test("R8.3: the smoke stays isolated — temp parents only, no real host state", () => {
   assert.ok(SMOKE_SOURCE.includes("mkdtempSync"), "the smoke must build its labs under mkdtemp'd parents");
   for (const forbidden of ["/run/user/1000", '".config/sentropic"', '".local/state"']) {
