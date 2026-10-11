@@ -871,6 +871,24 @@ export function listNativeTerminalPgidEntries(
 }
 
 /**
+ * Whether `entry` is a native-terminal PTY row `listNativeTerminalPgidEntries`
+ * decodes an OWNER from (namespaced id + numeric pgid + owner pid). Exported
+ * so a reader that must classify EVERY attributed row by frame and then probe
+ * only the CURRENT-boot owner rows (native-terminal/server.ts's endpoint
+ * absence proof) scopes its probe exactly like the snapshot decoder does,
+ * from the SAME registry read.
+ */
+export function isNativeTerminalPgidOwnerRow(
+  entry: RegistryEntry,
+): entry is RegistryEntry & { pgid: number; ownerHostPid: number } {
+  return (
+    entry.id.startsWith(NATIVE_TERMINAL_PGID_ENTRY_ID_PREFIX) &&
+    typeof entry.pgid === "number" &&
+    typeof entry.ownerHostPid === "number"
+  );
+}
+
+/**
  * Outcome of pruning one native-terminal-pty row. Three states, never collapsed:
  *
  *  - `"pruned"` — the row matched `expected` and was deleted;
