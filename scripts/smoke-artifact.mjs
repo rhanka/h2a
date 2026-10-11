@@ -139,6 +139,13 @@ try {
     if (!existsSync(required)) fail(`packaged runtime is missing ${required}`)
   }
   const { NativeTerminalClient } = await import(pathToFileURL(clientEntry).href)
+  // The prune observation reads the registry through the PACKAGED reader —
+  // the exact 3-state contract (valid entries / per-row unreadable /
+  // whole-file unknown) the shipped CLI uses, from the very bytes under
+  // test. Round-4 review finding F07: a hand-rolled read flattened that
+  // contract into "entries array or nothing" and proved prunes the
+  // production reader says are NOT proven.
+  const registryReader = await import(pathToFileURL(join(runtimeDist, 'registry.js')).href)
 
   const frame = {
     bootId: readFileSync('/proc/sys/kernel/random/boot_id', 'utf8').trim(),
@@ -288,30 +295,44 @@ try {
    * absence let an ALREADY-EMPTY registry "prove" a prune the instant it was
    * read — a prune of a row that never existed is not evidence that the
    * deferred prune (and its write into the destroyed stream) ever ran.
+   *
+   * The observation goes THROUGH THE PACKAGED REGISTRY READER (`readers`, the
+   * packaged registry module wired above) — never a hand-rolled JSON.parse of
+   * the file. Round-4 review finding F07 (G03/G04): a hand-rolled read
+   * flattened the reader's 3-state contract into "entries array or nothing",
+   * so a row whose id became invalid while its label still identified the
+   * session (an UNREADABLE row to the production reader, registry.ts
+   * `unreadableRowsForTarget`) and a registry REBUILT from corrupt bytes
+   * (state `unknown` to the production reader, `rebuiltFromCorruptAt`) both
+   * resolved the wait — announcing a prune the readers say is NOT proven. The
+   * control inherits the reader's validation and unknown states before
+   * claiming a disappearance: only state `ok` whose VALID rows lack the
+   * session id AND whose UNREADABLE rows cannot still be this session under
+   * the reader's own identity rules proves the prune.
    */
-  async function waitForPrune(lab, sessionId) {
+  async function waitForPrune(lab, sessionId, readers) {
     const rowId = `native-terminal-pty:${sessionId}`
     const deadline = Date.now() + 30_000
     let observedPresent = false
     while (Date.now() < deadline) {
-      let rows = null
+      let present = null
       try {
-        const registry = JSON.parse(readFileSync(lab.registryPath, 'utf8'))
-        // Round-4 review finding F02: valid JSON of an UNEXPECTED SHAPE is not
-        // an observation of the rows. `{unexpected:"shape"}` used to be coerced
-        // to an empty row list and "proved" the prune on a snapshot that showed
-        // nothing. A malformed snapshot is UNKNOWN: it can neither observe the
-        // row present nor prove it gone — only a well-shaped snapshot counts
-        // as evidence, in either phase.
-        if (registry !== null && typeof registry === 'object' && Array.isArray(registry.entries)) {
-          rows = registry.entries
+        const read = await readers.loadRegistry(lab.registryPath)
+        if (read !== null && typeof read === 'object' && read.state === 'ok') {
+          // PRESENT if a valid row carries the session id, OR an unreadable
+          // row could still BE this session under the reader's identity rules
+          // (id / label / tmux candidates) — an unreadable row that matches
+          // the target is never evidence of absence.
+          present =
+            read.entries.some((row) => row.id === rowId) ||
+            readers.unreadableRowsForTarget(rowId, read.unreadable).length > 0
         }
+        // state "unknown" (unparsable, invalid shape, rebuilt from corrupt
+        // bytes, ...) observes NOTHING: unknown is not empty, in either phase.
       } catch {
-        // The registry is rewritten atomically; a torn read is transient. An
-        // unreadable snapshot observes nothing: it stays unknown, never empty.
+        // A reader failure observes nothing either: unknown, never empty.
       }
-      if (rows !== null) {
-        const present = rows.some((row) => row.id === rowId)
+      if (present !== null) {
         if (!observedPresent) {
           if (present) observedPresent = true
         } else if (!present) {
@@ -399,7 +420,7 @@ try {
   // Give the host a moment to register the session, then close its log reader.
   await new Promise((r) => setTimeout(r, 500))
   stderrHost.stderr.destroy()
-  await waitForPrune(stderrLab, 'smoke-exit')
+  await waitForPrune(stderrLab, 'smoke-exit', registryReader)
   if (stderrHost.exitCode !== null || stderrHost.signalCode !== null) {
     fail('the packaged host died when its stderr reader disappeared (scenario 7)')
   }
