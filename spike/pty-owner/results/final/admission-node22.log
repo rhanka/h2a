@@ -1,0 +1,17 @@
+TAP version 13
+# Subtest: should refuse lease mutations after the checkpoint is frozen
+ok 1 - should refuse lease mutations after the checkpoint is frozen
+  ---
+  duration_ms: 373.671609
+  type: 'test'
+  ...
+# {"node":"v22.22.1","result":{"error":"upgrade-in-progress","retrySafe":true}}
+1..1
+# tests 1
+# suites 0
+# pass 1
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 473.954109
