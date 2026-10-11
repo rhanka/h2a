@@ -1,23 +1,27 @@
 
 // @ts-ignore Shared JS qualification helper; tests are outside the production build.
-import { spawnIsolatedNative as spawn, spawnSyncIsolatedNative as spawnSync, setupNativeTestEnvironment } from "../../../h2a/test/helpers/native-isolation.js";
+import { createPrivateTestDirectory, spawnIsolatedNative as spawn, spawnSyncIsolatedNative as spawnSync, setupNativeTestEnvironment } from "../../../h2a/test/helpers/native-isolation.js";
 
 setupNativeTestEnvironment(afterAll);
 import { once } from "node:events";
-import { chmod, mkdtemp, rm, stat, unlink } from "node:fs/promises";
-import { createConnection, createServer, type Socket } from "node:net";
+import { chmod, mkdir, mkdtemp, rm, stat, unlink } from "node:fs/promises";
+import { createConnection, createServer, Server, type Socket } from "node:net";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
 
 import type { PtyHandle, PtySpawner } from "../pty.js";
 import { NativeTerminalClient } from "./client.js";
 import { NativeTerminalHost } from "./host.js";
+import { HOST_FAULT_COUNTERS, hostFaultCounters } from "./fault-counters.js";
+import { hostLogSinkDiagnostics } from "./crash-safe-log.js";
 import type { NativeTerminalStopSignal } from "./protocol.js";
 import { NATIVE_TERMINAL_MAX_REPLAY_CHUNKS_PER_SESSION } from "./replay-buffer.js";
-import { startNativeTerminalHostServer, type NativeTerminalHostServer } from "./server.js";
+import { isStagedSocketName, startNativeTerminalHostServer, type NativeTerminalHostServer } from "./server.js";
 import { defaultNativeTerminalSocketPath } from "./socket-path.js";
+import { NATIVE_TERMINAL_MAX_FRAME_BYTES } from "./protocol.js";
+import { assertListenerFaultExit } from "../../test/helpers/listener-fault.js";
 
 class StubPty implements PtyHandle {
   static #nextPid = 51000;
@@ -304,6 +308,139 @@ describe("native terminal local transport", () => {
     );
   });
 
+  it("should contain a net.Server error surfacing after listen", async () => {
+    const before = hostFaultCounters();
+    const { socketPath, server, client } = await service();
+    // The listener that guards listen() is removed once listening succeeds;
+    // recoverable accept/connection-side transport errors (R7) must be
+    // absorbed by the durable handler: the service stays up.
+    for (const code of ["ECONNRESET", "EPIPE", "ECONNABORTED"]) {
+      const error = new Error(`late ${code} on the accept path`);
+      (error as NodeJS.ErrnoException).code = code;
+      expect(() => server.server.emit("error", error)).not.toThrow();
+    }
+    expect((await client.ping()).generation).toBe("unit-generation");
+    const second = await NativeTerminalClient.connect(socketPath);
+    expect((await second.ping()).generation).toBe("unit-generation");
+    second.close();
+    expect(hostFaultCounters()[HOST_FAULT_COUNTERS.serverListenerErrorRecoverable]).toBe((before[HOST_FAULT_COUNTERS.serverListenerErrorRecoverable] ?? 0) + 3);
+    // The recoverable class never escalates.
+    expect(hostFaultCounters()[HOST_FAULT_COUNTERS.serverListenerErrorUnknown]).toBe(before[HOST_FAULT_COUNTERS.serverListenerErrorUnknown]);
+    expect(hostFaultCounters()[HOST_FAULT_COUNTERS.serverListenerErrorUnusable]).toBe(before[HOST_FAULT_COUNTERS.serverListenerErrorUnusable]);
+  });
+
+  it.each([null, "EUNCLASSIFIED"])("should exit non-zero on an unknown net.Server error (%s)", async code => {
+    await assertListenerFaultExit([code], 3, "server.listener-error-unknown");
+  });
+
+  it.each([
+    ["ERR_SERVER_CLOSED"], ["EADDRINUSE"], ["EMFILE", "EMFILE", "EMFILE"],
+    ["ENFILE", "ENFILE", "ENFILE"], ["EMFILE", "ENFILE", "EMFILE"],
+  ])("should exit when the listener becomes unusable (%s)", async (...codes) => {
+    await assertListenerFaultExit(codes, 0, "server.listener-error-unusable");
+  });
+
+  it("should refuse initialization on an unknown listener error during publication", async () => {
+    const directory = createPrivateTestDirectory("e");
+    cleanup.push(() => rm(directory, { recursive: true, force: true }));
+    const socketPath = join(directory, "host.sock");
+    const host = new NativeTerminalHost({ generation: "publication-fault", replayBytesPerSession: 1024,
+      spawner: () => new StubPty(), registryPath: join(directory, "registry.json") });
+    const before = hostFaultCounters()[HOST_FAULT_COUNTERS.serverListenerErrorUnknown] ?? 0;
+    const on = Server.prototype.on;
+    const spy = vi.spyOn(Server.prototype, "on").mockImplementation(function (event, listener) {
+      const result = on.call(this, event, listener);
+      const address = this.address();
+      if (event === "error" && this.listening && typeof address === "string"
+        && isStagedSocketName(basename(address), socketPath, process.pid)) {
+        queueMicrotask(() => this.emit("error", new Error("injected publication fault")));
+      }
+      return result;
+    });
+    try {
+      const started = startNativeTerminalHostServer({ socketPath, host }).then(server => {
+        cleanup.push(() => server.close());
+        return server;
+      });
+      await expect(started).rejects.toThrow("unknown listener error");
+      expect(hostFaultCounters()[HOST_FAULT_COUNTERS.serverListenerErrorUnknown]).toBe(before + 1);
+      await expect(NativeTerminalClient.connect(socketPath)).rejects.toThrow();
+    } finally { spy.mockRestore(); }
+  });
+
+  it("should expose the named counters of the exempted silent-catch sites", async () => {
+    const { socketPath, server, client, ptys } = await service();
+    await client.create(createOptions("healthy-faults"));
+    const before = hostFaultCounters();
+    async function peer(): Promise<{ wire: Socket; accepted: Socket }> {
+      const connection = once(server.server, "connection");
+      const wire = createConnection(socketPath);
+      wire.on("error", () => {}); // This test deliberately destroys its own peer.
+      await once(wire, "connect");
+      const [accepted] = await connection;
+      cleanup.push(async () => { wire.destroy(); });
+      return { wire, accepted: accepted as Socket };
+    }
+    const failed = await peer();
+    const closed = new Promise<void>(resolve => failed.wire.once("close", resolve));
+    failed.accepted.destroy(Object.assign(new Error("injected transport failure"), { code: "EPIPE" }));
+    await closed;
+    expect(hostLogSinkDiagnostics().faultCounters.h2a_host_socket_conn_errors).toBe((before[HOST_FAULT_COUNTERS.hostSocketConnectionErrors] ?? 0) + 1);
+    // Exercise both frame-size destroy branches and the outer dispatch catch.
+    for (const chunk of ["x".repeat(NATIVE_TERMINAL_MAX_FRAME_BYTES + 1) + "\n",
+      "x".repeat(NATIVE_TERMINAL_MAX_FRAME_BYTES + 1),
+      { [Symbol.toPrimitive]() { throw new Error("bad chunk"); } }]) {
+      const faulty = await peer();
+      expect(() => faulty.accepted.emit("data", chunk)).not.toThrow();
+      expect(faulty.accepted.destroyed).toBe(true);
+    }
+    expect(hostLogSinkDiagnostics().faultCounters.h2a_host_client_frame_destroys).toBe((before[HOST_FAULT_COUNTERS.hostClientFrameDestroys] ?? 0) + 3);
+    expect((await client.ping()).generation).toBe("unit-generation");
+    const lease = await client.acquireController("healthy-faults", "healthy");
+    await client.write(lease, "still-serving");
+    expect(ptys.get("healthy-faults")!.write).toHaveBeenCalledWith("still-serving");
+  });
+
+  it.each(["EMFILE", "ENFILE"])("should keep serving through transient %s accept exhaustion", async (code) => {
+    const { server, client } = await service();
+    const before = hostFaultCounters()[HOST_FAULT_COUNTERS.serverListenerErrorExhausted] ?? 0;
+    for (let n = 0; n < 2; n++) server.server.emit("error", Object.assign(new Error(code), { code }));
+    expect((await client.ping()).generation).toBe("unit-generation");
+    expect(hostFaultCounters()[HOST_FAULT_COUNTERS.serverListenerErrorExhausted]).toBe(before + 2);
+  });
+
+  it("should count only consecutive accept exhaustion within sixty seconds", async () => {
+    const { socketPath, server, client } = await service();
+    const before = hostFaultCounters()[HOST_FAULT_COUNTERS.serverListenerErrorUnusable];
+    const fault = () => server.server.emit("error", Object.assign(new Error("EMFILE"), { code: "EMFILE" }));
+    fault(); fault();
+    const accepted = await NativeTerminalClient.connect(socketPath);
+    expect((await accepted.ping()).generation).toBe("unit-generation");
+    accepted.close();
+    fault(); fault();
+    expect((await client.ping()).generation).toBe("unit-generation");
+    // A gap beyond the window also resets the consecutive exhaustion series.
+    const clock = vi.spyOn(Date, "now").mockReturnValue(Date.now() + 60_001);
+    try { fault(); fault(); } finally { clock.mockRestore(); }
+    expect((await client.ping()).generation).toBe("unit-generation");
+    expect(hostFaultCounters()[HOST_FAULT_COUNTERS.serverListenerErrorUnusable]).toBe(before);
+  });
+
+  it("should stop serving when a listener error cannot be classified", async () => {
+    const before = hostFaultCounters()[HOST_FAULT_COUNTERS.serverListenerErrorUnknown] ?? 0;
+    const { socketPath, server, client } = await service();
+    // R7: an error with no recognized errno is UNKNOWN — the server must NOT
+    // keep pretending to serve on a listener whose failure it cannot name.
+    expect(() => server.server.emit("error", new Error("late mystery listener failure"))).not.toThrow();
+    await expect(client.ping()).rejects.toThrow();
+    const refused = await eventually(
+      () => NativeTerminalClient.connect(socketPath).then(() => false, () => true),
+      (failed) => failed,
+    );
+    expect(refused).toBe(true);
+    expect(hostFaultCounters()[HOST_FAULT_COUNTERS.serverListenerErrorUnknown]).toBe(before + 1);
+  });
+
   it("should bind controller authority to its connection and release it on disconnect", async () => {
     const { socketPath, client, ptys } = await service();
     const observer = await NativeTerminalClient.connect(socketPath);
@@ -454,7 +591,7 @@ describe("native terminal local transport", () => {
     const directory = await mkdtemp(join(tmpdir(), "n-"));
     const socketPath = join(directory, "host.sock");
     await chmod(directory, 0o700);
-    const staleHost = spawn(process.execPath, [fileURLToPath(new URL("../../dist/native-terminal/process.js", import.meta.url)),
+    const staleHost = spawn(process.execPath, ["--import", "tsx", fileURLToPath(new URL("./process.ts", import.meta.url)),
       "--socket", socketPath, "--registry-path", join(directory, "registry.json")], { stdio: ["ignore", "pipe", "pipe"] });
     try {
       await Promise.race([once(staleHost.stdout!, "data"), once(staleHost, "exit").then(() => { throw new Error("stale fixture host exited before readiness"); })]);
@@ -531,6 +668,43 @@ describe("native terminal socket path limits", () => {
   // appears under a *different* name and the host used to die at startup
   // with an unexplained chmod ENOENT. These paths must be rejected loudly.
   const limit = process.platform === "darwin" ? 103 : 107;
+
+  it("should recognize the exact legacy and short staged-socket grammars", () => {
+    const published = "/temporary/native-terminal.sock";
+    expect(isStagedSocketName(".native-t.42.0123abcd.sock", published, 42)).toBe(true);
+    expect(isStagedSocketName(".nat.42.0123abcd", published, 42)).toBe(true);
+    for (const name of [".native-t.42.0123abcd", ".nat.42.0123abcd.sock", ".nat.42.0123abc",
+      ".nat.42.0123abcdx", ".nat.42.0123ABCd", ".nat.43.0123abcd", ".other.42.0123abcd.sock"]) {
+      expect(isStagedSocketName(name, published, 42), name).toBe(false);
+    }
+  });
+
+  it.each([0, 1])("should prefer legacy staging at the sun_path boundary and fall back only on overflow (+%s byte)", async (overflow) => {
+    const root = createPrivateTestDirectory("g");
+    cleanup.push(() => rm(root, { recursive: true, force: true }));
+    const legacyNameLength = Buffer.byteLength(`.native-t.${process.pid}.0123abcd.sock`);
+    const directory = join(root, "d".repeat(limit - legacyNameLength - Buffer.byteLength(root) - 2 + overflow));
+    await mkdir(directory, { mode: 0o700 });
+    const socketPath = join(directory, "native-terminal.sock");
+    const host = new NativeTerminalHost({ generation: "grammar", replayBytesPerSession: 1024,
+      spawner: () => new StubPty(), registryPath: join(root, "registry.json") });
+    const server = await startNativeTerminalHostServer({ socketPath, host });
+    cleanup.push(() => server.close());
+    const address = server.server.address();
+    expect(typeof address).toBe("string");
+    const staged = address as string;
+    expect(Buffer.byteLength(staged)).toBeLessThanOrEqual(limit);
+    expect(basename(staged)).toMatch(overflow === 0
+      ? new RegExp(`^\\.native-t\\.${process.pid}\\.[0-9a-f]{8}\\.sock$`)
+      : new RegExp(`^\\.nat\\.${process.pid}\\.[0-9a-f]{8}$`));
+    expect(isStagedSocketName(basename(staged), socketPath, process.pid)).toBe(true);
+    const client = await NativeTerminalClient.connect(socketPath);
+    cleanup.push(async () => client.close());
+    expect((await client.ping()).generation).toBe("grammar");
+    await unlink(socketPath);
+    await expect(startNativeTerminalHostServer({ socketPath, host })).rejects.toThrow(/owner death is unproven/);
+    expect((await client.ping()).generation).toBe("grammar");
+  });
 
   function hostStub(): NativeTerminalHost {
     return new NativeTerminalHost({
