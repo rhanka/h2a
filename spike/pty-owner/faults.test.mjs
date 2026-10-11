@@ -39,6 +39,7 @@ test('should return to the previous image after a controlled adoption fault with
   for (const born of births) {
     assert.equal(identity(born.cli.pid).start, born.cli.start); assert.notEqual(identity(born.cli.pid).state, 'Z');
   }
+  assert.equal(status.rollbackError, 'injected adoption exception');
   t.diagnostic(JSON.stringify({ node: process.version, rollback: true, status, log: l.log() }));
 });
 test('should reject invalid preflights and restore a partially written command once', async t => {

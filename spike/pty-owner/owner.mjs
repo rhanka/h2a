@@ -16,10 +16,13 @@ export async function owner(build) {
     schema: 1, generation: 0, sessions: [], birth: identity(process.pid), transitions: [],
   };
   if (state.schema !== 1) throw new Error('invalid schema');
-  if (state.fault === 'adoption') throw new Error('injected adoption exception');
-  if (state.fault === 'rollback') {
-    state.fault = null; state.rollback = true; json(checkpoint, state);
-    process.execve(process.execPath, [process.execPath, path.join(here, `image-${(state.generation - 1) % 2}.mjs`)], process.env);
+  if (state.fault === 'adoption' || state.fault === 'rollback') {
+    try { throw new Error('injected adoption exception'); }
+    catch (error) {
+      if (state.fault !== 'rollback') throw error;
+      state.fault = null; state.rollback = true; state.rollbackError = error.message; json(checkpoint, state);
+      process.execve(process.execPath, [process.execPath, path.join(here, `image-${(state.generation - 1) % 2}.mjs`)], process.env);
+    }
   }
   if (state.birth.start !== identity(process.pid).start) throw new Error('owner birth changed');
   if (!process.env.SPIKE_RESUME) fs.writeFileSync(path.join(root, 'owner.lock'), JSON.stringify(state.birth), { flag: 'wx', mode: 0o600 });
@@ -47,7 +50,7 @@ export async function owner(build) {
       return { error: 'upgrade-in-progress', retrySafe: true };
     if (request.op === 'front-start' || request.op === 'front-kill') return front(request);
     if (request.op === 'status') return { build, node: process.version, pty: version,
-      owner: identity(process.pid), generation: state.generation, rollback: state.rollback,
+      owner: identity(process.pid), generation: state.generation, rollback: state.rollback, rollbackError: state.rollbackError,
       transitions: state.transitions, fd: fds(), rss: process.memoryUsage().rss,
       sessions: state.sessions.map(s => ({ ...s, ring: undefined, queued: undefined })),
       listenerFD: listener, listenerFlags: fds().find(f => f.fd === listener)?.flags };
