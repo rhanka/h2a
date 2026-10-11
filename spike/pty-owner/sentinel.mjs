@@ -22,6 +22,12 @@ for (const signal of ['SIGHUP', 'SIGUSR2', 'SIGTERM', 'SIGWINCH']) {
   });
 }
 function emit(text) { process.stdout.write(text); }
+function geometry() {
+  const dims = [0, 0];
+  const error = process.stdout._handle.getWindowSize(dims);
+  if (error) throw new Error(`getWindowSize ${error}`);
+  emit(`GEOMETRY:${dims[0]}:${dims[1]}:cached:${process.stdout.columns}:${process.stdout.rows}\n`);
+}
 if (mode === 'grandchild') {
   const child = spawn(process.execPath, [path.join(import.meta.dirname ?? path.dirname(new URL(import.meta.url).pathname), 'sentinel.mjs'),
     `${+id + 100000}`, 'resistant'], { env: process.env, stdio: 'inherit' });
@@ -53,7 +59,10 @@ process.stdin.on('data', chunk => {
     else if (command.startsWith('SIGNAL:')) {
       const signal = command.slice(7); process.removeAllListeners(signal); process.kill(process.pid, signal);
     } else if (command.startsWith('ACK:')) emit(`${command}\n`);
-    else if (command.startsWith('SIZE')) emit(`SIZE:${process.stdout.columns}:${process.stdout.rows}\n`);
+    else if (command.startsWith('SIZE')) {
+      geometry(); process.stdout._refreshSize();
+      emit(`SIZE:${process.stdout.columns}:${process.stdout.rows}\n`);
+    }
     else if (command.startsWith('FINAL')) { clearInterval(timer); emit(`FINAL:${id}:${counter}\n`); }
   }
 });
