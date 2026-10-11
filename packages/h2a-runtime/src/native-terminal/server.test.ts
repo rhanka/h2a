@@ -13,6 +13,7 @@ import { fileURLToPath } from "node:url";
 import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
 
 import type { PtyHandle, PtySpawner } from "../pty.js";
+import type { DurableProcFrame } from "../proc-identity.js";
 import { resolveRegistryPath } from "../registry.js";
 import { NativeTerminalClient } from "./client.js";
 import {
@@ -746,11 +747,12 @@ describe("native terminal local transport", () => {
       socketPath: string,
       ownerProbe: NativeTerminalOwnerHostProbe,
       code: "ENOENT" | "ECONNREFUSED" = "ENOENT",
+      readFrame: () => DurableProcFrame = () => currentFrame,
     ): Promise<boolean> {
       return proveNativeTerminalEndpointAbsent(
         socketPath,
         Object.assign(new Error(`connect ${code}`), { code }),
-        () => currentFrame,
+        readFrame,
         ownerProbe,
       );
     }
@@ -922,7 +924,12 @@ describe("native terminal local transport", () => {
         // machine anchor. Across a boot boundary it is unattributed — no
         // death proof, and no longer a refusal either. With previous-boot
         // rows of THIS machine as the alternative proof, reclamation is
-        // granted and nothing is probed.
+        // granted and nothing is probed. The park shape: the persistent
+        // socket's inode PREDATES the current boot (the file survived the
+        // reboot), so the injected boot instant sits after the fixture's
+        // creation — a socket created DURING the current boot is the refused
+        // case (publication-proof: "never unlink a current-boot bound
+        // socket over stale rows and an unattributed sidecar").
         const calls: Array<{ pid: number; startTime?: number }> = [];
         await abandonedSocket(socketPath);
         writeEndpointSidecar(socketPath, {
@@ -932,7 +939,8 @@ describe("native terminal local transport", () => {
         const registryPath = writeAttributedRow(socketPath,
           { pid: process.pid, startTime: 1 }, previousBootRowFrame);
         cleanRegistry(registryPath);
-        expect(await proveAbsent(socketPath, recordingProbe("alive", calls), "ECONNREFUSED")).toBe(true);
+        expect(await proveAbsent(socketPath, recordingProbe("alive", calls), "ECONNREFUSED",
+          () => ({ ...currentFrame, bootTimeMs: Date.now() + 60_000 }))).toBe(true);
         expect(calls).toEqual([]);
       },
     );

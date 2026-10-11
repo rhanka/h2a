@@ -8,6 +8,7 @@ import { chmod, mkdtemp, rm } from "node:fs/promises";
 import { createConnection, Socket } from "node:net";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
+import { fileURLToPath } from "node:url";
 import * as registry from "../registry.js";
 import { readProcessFrame } from "../proc-identity.js";
 import { NativeTerminalHost, defaultOwnerHostProbe, readProcessStartTime, posixProcessGroupReaper } from "./host.js";
@@ -245,6 +246,17 @@ describe("publication proof v5", () => {
     writeFileSync(`${path}.owner`, "{not json", { mode: 0o600 });
     await expect(start(path, () => current)).rejects.toMatchObject({ code: "H2A_ENDPOINT_OWNER_MALFORMED", exitCode: 3 });
     await rm(`${path}.owner`, { force: true });
+    // Valid JSON that is not an object (null, a bare string, a number, an
+    // array) is the same coded refusal: the shape is validated BEFORE any
+    // property access — never an undifferentiated TypeError (exit 1).
+    for (const payload of ["null", "\"owner\"", "42", "[]"]) {
+      writeFileSync(`${path}.owner`, payload, { mode: 0o600 });
+      await expect(start(path, () => current)).rejects.toMatchObject({
+        code: "H2A_ENDPOINT_OWNER_MALFORMED", exitCode: 3,
+        message: "native endpoint owner identity is malformed or not a private owned file; refusing socket publication",
+      });
+      await rm(`${path}.owner`, { force: true });
+    }
     // A sidecar that is not a private owned file is the same coded refusal.
     writeFileSync(`${path}.owner`, JSON.stringify({ dev: 1, ino: 1, pid: 424242, startTime: 1,
       bootId: current.bootId, pidNamespace: current.pidNamespace, machineId: current.machineId }), { mode: 0o644 });
@@ -292,6 +304,45 @@ describe("publication proof v5", () => {
     }
     await start(path, () => current);
   });
+  // R4-probe (review D, P1): stale rows prove the death of their AUTHORS,
+  // never the absence of a NEW holder of the pathname. A bound-but-not-
+  // listening socket created during the current boot — even with an
+  // unattributed pre-0.98.5 sidecar and previous-boot rows of this machine —
+  // must NOT authorize an unlink: stale evidence never bypasses the R4
+  // age/liveness proof.
+  it("should never unlink a current-boot bound socket over stale rows and an unattributed sidecar", async () => {
+    const path = await endpoint();
+    const child = await boundSocket(path);
+    rows(path);
+    sidecar(path, stale, false);
+    const original = statSync(path);
+    await expect(start(path, () => ({ ...current, bootTimeMs: Date.now() - 60_000 })))
+      .rejects.toMatchObject({ code: "H2A_STALE_SOCKET_UNPROVEN", exitCode: 3 });
+    expect(statSync(path).ino).toBe(original.ino);
+    expect(child.exitCode).toBeNull();
+    expect(vi.mocked(createConnection)).toHaveBeenCalledTimes(5);
+  });
+  // T4 (review D, P2): a sidecar that is valid JSON but not an object is a
+  // CODED refusal at the process level too — exit 3 with the frozen literal,
+  // never an undifferentiated TypeError crash (exit 1).
+  it("should exit 3 on a null sidecar instead of crashing with a TypeError", async () => {
+    const path = await endpoint();
+    writeFileSync(`${path}.owner`, "null", { mode: 0o600 });
+    const entry = fileURLToPath(new URL("./process.ts", import.meta.url));
+    const child = spawn(process.execPath, [
+      "--import", "tsx", entry,
+      "--socket", path,
+      "--registry-path", join(dirname(path), "registry.json"),
+    ], { cwd: dirname(entry), env: process.env, stdio: ["ignore", "pipe", "pipe"] });
+    const exited = once(child, "exit");
+    let stderr = "";
+    child.stderr?.setEncoding("utf8");
+    child.stderr?.on("data", (chunk: string) => { stderr += chunk; });
+    const [code, signal] = await exited;
+    expect({ code, signal }).toEqual({ code: 3, signal: null });
+    expect(stderr).toContain("H2A_ENDPOINT_OWNER_MALFORMED");
+    expect(stderr).toContain("native endpoint owner identity is malformed or not a private owned file; refusing socket publication");
+  }, 30_000);
 
 });
 
