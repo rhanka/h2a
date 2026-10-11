@@ -17,9 +17,11 @@
  * (packages/h2a/test discovery), so a red here blocks every gate.
  */
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join, resolve } from "node:path";
 import { test } from "node:test";
-import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import YAML from "yaml";
 
@@ -46,10 +48,27 @@ test("R8.4 gel total: verify has no event filter — every publication path is g
   assert.equal(verify.if, undefined, "verify must run for tag pushes AND backfill dispatches; an `if` here reopens the ungated backfill hole");
 });
 
-test("R8.1: verify keeps the Node 20+22 matrix", () => {
+test("R8.1: verify keeps the Node 20+22 matrix — both legs EFFECTIVE", () => {
   const verify = job("verify");
-  assert.deepEqual(verify.strategy?.matrix?.node, ["20", "22"], "the matrix is pinned by the spec; dropping a leg narrows what a green proves");
-  assert.deepEqual(verify.strategy?.matrix?.os, ["ubuntu-latest"]);
+  const matrix = verify.strategy?.matrix;
+  assert.deepEqual(matrix?.node, ["20", "22"], "the matrix is pinned by the spec; dropping a leg narrows what a green proves");
+  assert.deepEqual(matrix?.os, ["ubuntu-latest"]);
+  // Round-5 review finding H02: adding `exclude: [{node: "20"}]` kept this
+  // test green — matrix.node still listed both legs — while GitHub Actions
+  // ran Node 22 ONLY. A pinned list is not a pinned matrix: what the runner
+  // executes is the list AFTER include/exclude are applied, so no exclude
+  // entry may exist and the matrix may carry no key beyond the pinned
+  // os/node arrays (an exclude on os alone would remove EVERY leg).
+  assert.equal(
+    matrix?.exclude,
+    undefined,
+    "matrix.exclude removes legs the listed matrix still claims (round-5 finding H02: excluding Node 20 left the qualification green while only Node 22 ran)",
+  );
+  assert.deepEqual(
+    Object.keys(matrix ?? {}).sort(),
+    ["node", "os"],
+    "the EFFECTIVE leg set is pinned: any other matrix key (exclude, include, ...) changes which legs actually run without touching matrix.node",
+  );
 });
 
 /** `needs: verify` parses as the bare string "verify"; `needs: [verify]` as an array. */
@@ -262,6 +281,124 @@ test("R8.2: verify packs the three lockstep packages, records sha256, uploads th
   assert.ok(upload, "verify must upload the tarballs as run artifacts");
   assert.equal(upload.with?.name, "release-tarballs");
   assert.equal(upload.with?.["if-no-files-found"], "error", "a missing artifact must fail verify, not publish");
+});
+
+test("R8.2: the pack step is pinned COMMAND BY COMMAND — a manifest that stops covering a tarball is a changed line", () => {
+  // Round-5 review finding H01: the qualification only required the pack
+  // step to MENTION `sha256sum`. Mutating the manifest generation from
+  // `sha256sum *.tgz` to `sha256sum sentropic-h2a-cli-*.tgz` kept every
+  // assertion green: the manifest then covered the CLI tarball only, and
+  // the pinned publish-side `sha256sum --check` verified exactly that one —
+  // a corrupted runtime passed with exit 0. The pack step is the manifest's
+  // only generator, so its EFFECTIVE script (comments stripped) is pinned
+  // line by line, exactly like the publish integrity control: any edit that
+  // changes WHAT the manifest covers changes a line and fails here.
+  const pack = job("verify").steps.find((step) => String(step.run ?? "").includes("npm pack --workspace"));
+  assert.ok(pack, "verify must pack the lockstep packages");
+  assert.equal(pack.shell, "bash", "the manifest generation must run under the bash wrapper — a weaker shell changes what the pinned lines mean");
+  assert.equal(pack["working-directory"], undefined, "a working-directory on the pack step silently relocates the paths the pinned commands address");
+  assert.deepEqual(effectiveScript(pack.run), [
+    "set -euo pipefail",
+    "mkdir -p dist-tarballs",
+    "for pkg in @sentropic/h2a @sentropic/h2a-runtime @sentropic/h2a-cli; do",
+    'npm pack --workspace "$pkg" --pack-destination dist-tarballs',
+    "done",
+    "(cd dist-tarballs && sha256sum *.tgz > sha256sums.txt && cat sha256sums.txt)",
+    'echo "${{ needs.resolve-release-sha.outputs.release-sha }}" > dist-tarballs/release-sha.txt',
+  ], "the manifest generation is pinned: narrowing the sha256sum glob (round-5 H01: CLI-only manifest), dropping a package from the pack loop, or removing `set -euo pipefail` all change this script");
+});
+
+test("R8.2: the sha256 manifest covers the THREE lockstep tarballs — generation AND consumption are EXECUTED", () => {
+  // The round-5 H01 proof closed on execution, not text: a textual pin
+  // proves the script did not change, not that it MEANS coverage. So this
+  // qualification executes the workflow's own pack step and publish
+  // integrity control in a mkdtemp lab with a fake npm (no install, no
+  // registry, no publication — only local files): the manifest the pack
+  // step actually GENERATES must cover h2a, h2a-runtime and h2a-cli, and
+  // the publish control must refuse EACH of the three tarballs once its
+  // bytes are corrupted. Under the round-5 mutation (a manifest covering
+  // the CLI only) the corrupted runtime passes with exit 0 — exactly the
+  // property this test forces to stay red.
+  const pack = job("verify").steps.find((step) => String(step.run ?? "").includes("npm pack --workspace"));
+  const integrity = job("publish").steps.find((step) => String(step.run ?? "").includes("sha256sum --check"));
+  assert.ok(pack, "verify must pack the lockstep packages");
+  assert.ok(integrity, "publish must check the tarball sha256");
+  const sha = "a".repeat(40);
+  const lab = mkdtempSync(join(tmpdir(), "release-manifest-coverage-"));
+  const labEnv = () => {
+    const env = { ...process.env };
+    delete env.NODE_TEST_CONTEXT;
+    env.HOME = lab;
+    env.TMPDIR = lab;
+    env.XDG_RUNTIME_DIR = join(lab, "run");
+    return env;
+  };
+  mkdirSync(join(lab, "run"));
+  try {
+    // A fake npm producing the three tarballs `npm pack` would: purely local
+    // file writes inside the lab, no network and no real npm involved.
+    const bin = join(lab, "bin");
+    mkdirSync(bin);
+    writeFileSync(join(bin, "npm"), [
+      "#!/usr/bin/env bash",
+      "set -eu",
+      'pkg="" dest="."',
+      'while [ "$#" -gt 0 ]; do',
+      '  case "$1" in',
+      '    --workspace) pkg="$2"; shift 2 ;;',
+      '    --pack-destination) dest="$2"; shift 2 ;;',
+      '    *) shift ;;',
+      "  esac",
+      "done",
+      'name="${pkg#@sentropic/}"',
+      'printf "candidate original bytes: %s\\n" "$name" > "${dest}/sentropic-${name}-0.98.5.tgz"',
+      "",
+    ].join("\n"), { mode: 0o700 });
+    const runWorkflowScript = (script, name) => {
+      const file = join(lab, name);
+      // The only ${{ }} expressions in these two scripts resolve to the one
+      // gated SHA; substitute it so the scripts run exactly as GitHub would.
+      writeFileSync(file, String(script).replace(/\$\{\{[^}]+\}\}/g, sha));
+      return spawnSync("bash", [file], {
+        cwd: lab,
+        encoding: "utf8",
+        timeout: 30_000,
+        env: { ...labEnv(), PATH: `${bin}:${process.env.PATH}` },
+      });
+    };
+    const build = runWorkflowScript(pack.run, "pack.sh");
+    assert.equal(build.status, 0, `the pack step must succeed in the lab:\n${build.stdout}\n${build.stderr}`);
+    const manifest = readFileSync(join(lab, "dist-tarballs", "sha256sums.txt"), "utf8");
+    const covered = manifest
+      .split("\n")
+      .filter((line) => line.trim().length > 0)
+      .map((line) => line.trim().split(/\s+/)[1]);
+    assert.deepEqual(
+      [...covered].sort(),
+      ["sentropic-h2a-0.98.5.tgz", "sentropic-h2a-cli-0.98.5.tgz", "sentropic-h2a-runtime-0.98.5.tgz"],
+      "the manifest the pack step GENERATES must cover all THREE lockstep tarballs — a CLI-only manifest is the round-5 false green",
+    );
+    assert.equal(
+      readFileSync(join(lab, "dist-tarballs", "release-sha.txt"), "utf8").trim(),
+      sha,
+      "the manifest must travel with the resolved SHA it is tied to",
+    );
+    // Positive control: on the exact packed bytes, the publish control passes.
+    const intact = runWorkflowScript(integrity.run, "integrity.sh");
+    assert.equal(intact.status, 0, `positive control failed:\n${intact.stdout}\n${intact.stderr}`);
+    // The guarded property, per tarball: corrupt the bytes, the publish
+    // control must refuse EACH of the three (exit non-zero), then restore.
+    for (const tarball of covered) {
+      const path = join(lab, "dist-tarballs", tarball);
+      const original = readFileSync(path);
+      writeFileSync(path, `corrupted bytes: ${tarball}`);
+      const check = runWorkflowScript(integrity.run, "integrity.sh");
+      assert.notEqual(check.status, 0, `the publish control ACCEPTED corrupted ${tarball} — the manifest does not effectively cover it`);
+      writeFileSync(path, original);
+    }
+  } finally {
+    rmSync(lab, { recursive: true, force: true });
+  }
 });
 
 test("R8.2 (4): publish downloads the verify-built tarballs and verifies every sha256 before publishing", () => {
