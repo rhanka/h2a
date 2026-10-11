@@ -2,13 +2,14 @@
 
 - **Date** : 2026-10-11
 - **Référence** : SPEC 0.98.5, R9 (et R3.6 pour le refus codé machine-id illisible).
-- **Périmètre** : postes où le host natif d'une version 0.98.2 à 0.98.4 refuse de démarrer après un hard reboot, ou reste bloqué sur un refus codé. Ce runbook est le filet des cas que la migration automatique (R3) ne couvre PAS en routine : machine-id durablement illisible, rows sans ancre machine (pré-0.98.2).
+- **Périmètre** : postes où le host natif d'une version 0.98.2 à 0.98.4 refuse de démarrer après un hard reboot, ou reste bloqué sur un refus codé. Ce runbook est le filet des cas que la migration automatique (R3) ne couvre PAS en routine : machine-id durablement illisible, rows sans ancre machine (pré-0.98.2), rows d'une autre machine.
 
 ## Règles du runbook
 
 1. **Aucune commande ci-dessous n'exige de host fonctionnel.** Toutes les commandes agissent sur des fichiers uniquement ; elles sont exécutables sur un poste où le host refuse de démarrer.
-2. **On archive par renommage horodaté, on ne supprime jamais.** Aucune commande de ce runbook ne détruit un fichier : chaque fichier écarté est déplacé vers une archive horodatée, vérifiable et restaurable.
+2. **On archive par renommage horodaté SUR LE SYSTÈME DE FICHIERS de chaque ressource, on ne supprime jamais.** Un `mv` inter-systèmes de fichiers (p. ex. de `$XDG_RUNTIME_DIR` — tmpfs — vers `$HOME`) n'est PAS un renommage : il copie puis efface la source, les `dev`/`ino` changent et le fichier archivé n'est plus le fichier d'origine. Chaque ressource est donc renommée DANS son propre répertoire, sous un nom horodaté ; l'archive est restaurable par le renommage inverse.
 3. **Phase 0 avant tout.** Si le machine-id est durablement illisible, l'archivage ne rétablit PAS sa lisibilité : tant que l'identité machine n'est pas rétablie, le refus codé (R3.6) demeure et la récupération reste BLOQUÉE (voir Phase 0).
+4. **La reprise automatique n'est promise que sur preuve, jamais sur absence de preuve.** Machine-id rétabli ET rows du registre attribuables à cette même machine (qualification PAR ROW, Commande 2.2) ; toute row non attribuable reste `foreign-frame` BLOQUANTE (R1) et sort par l'exception de la Phase 3.
 
 ## Fichiers exacts (chemins complets)
 
@@ -47,10 +48,13 @@ sudo systemd-machine-id-setup && sudo reboot
 
 Effet attendu : `/etc/machine-id` est réécrit avec un identifiant conforme `/^[0-9a-f]{32}$/` non nul, puis la machine redémarre. Après redémarrage, relire la Commande 0.2 : `machine-id-conforme`.
 
-### Les deux issues de la Phase 0 (distinctes, sans ambiguïté)
+### Les issues de la Phase 0 (distinctes, sans ambiguïté)
 
-- **Machine-id rétabli (conforme ET lisible)** → **reprise automatique par R3** au prochain démarrage du host : la migration automatique re-estampille le sidecar et reprend sur les rows du boot précédent de la même machine ; AUCUNE intervention manuelle sur les fichiers n'est requise ; l'archivage des Phases 1-3 devient inutile.
-- **Machine-id NON rétabli (illisible durablement)** → **la récupération reste BLOQUÉE**, même après archivage : le refus codé (R3.6) s'applique à chaque décision de publication, et le message de refus le dit explicitement. Il n'existe AUCUNE commande de contournement dans ce runbook ; la seule issue est le rétablissement de l'identité machine (Commande 0.3), le cas échéant avec l'aide de l'owner.
+La reprise automatique n'est PAS la conséquence du seul rétablissement du machine-id : elle exige AUSSI que les rows du registre soient attribuables à cette même machine (qualification PAR ROW, Commande 2.2 — un comptage global ne qualifie rien : une seule row ancrée masquerait N rows sans ancre).
+
+- **Issue 1 — machine-id rétabli (conforme ET lisible) et rows attribuables à cette même machine (Commande 2.2 : `rows-attribuables:N`)** → **reprise automatique par R3** au prochain démarrage du host : la migration automatique re-estampille le sidecar et reprend sur les rows du boot précédent de la même machine ; AUCUNE intervention manuelle sur les fichiers n'est requise ; l'archivage des Phases 1-3 devient inutile.
+- **Issue 2 — machine-id rétabli mais rows non attribuables (Commande 2.2 : `rows-non-attribuables:K/N`)** → ces K rows (sans ancre machine — pré-0.98.2, ou écrites sous machine-id illisible — ou d'une AUTRE machine, registre `$HOME` partagé) restent `foreign-frame` BLOQUANTES (R1, asymétrie sidecar/row) : la reprise automatique est REFUSÉE. Exception : archivage du registre (Phase 3, Commande 3.3), puis démarrage à froid.
+- **Issue 3 — machine-id NON rétabli (illisible durablement)** → **la récupération reste BLOQUÉE**, même après archivage : le refus codé (R3.6) s'applique à chaque décision de publication, et le message de refus le dit explicitement. Il n'existe AUCUNE commande de contournement dans ce runbook ; la seule issue est le rétablissement de l'identité machine (Commande 0.3), le cas échéant avec l'aide de l'owner.
 
 ## Phase 1 — Préconditions de sûreté
 
@@ -80,57 +84,57 @@ ls -la "$XDG_RUNTIME_DIR/h2a-nt/" 2>/dev/null || echo runtime-dir-absent
 
 Effet attendu : l'inventaire liste, selon le cas : `native-terminal.sock`, `native-terminal.sock.owner`, `.h2a-native-terminal.lock-id` ; ou `runtime-dir-absent` (répertoire déjà vide après reboot — tmpfs).
 
-**Commande 2.2** — rows d'ancre du registre :
+**Commande 2.2** — qualification PAR ROW des rows du registre contre le machine-id local :
 
 ```bash
-grep -c 'pgidMachineId' "$HOME/.config/sentropic/h2a/registry.json" 2>/dev/null || echo registre-sans-ancre-machine
+node -e 'const fs=require("node:fs");try{const m=fs.readFileSync("/etc/machine-id","utf8").trim();const r=JSON.parse(fs.readFileSync(process.env.HOME+"/.config/sentropic/h2a/registry.json","utf8"));const rows=Array.isArray(r.entries)?r.entries:[];const bad=rows.filter((e)=>e.pgidMachineId!==m);console.log(bad.length===0?"rows-attribuables:"+rows.length:"rows-non-attribuables:"+bad.length+"/"+rows.length)}catch{console.log("registre-absent-ou-illisible")}'
 ```
 
-Effet attendu : un compte > 0 (rows attribuables, écrites depuis 0.98.2 avec machine-id lisible) ; `registre-sans-ancre-machine` signale le parc minoritaire pré-0.98.2 : ces rows sont `foreign-frame` bloquantes (R1), elles sortent par la Phase 3 ci-dessous, jamais par un affaiblissement de la preuve.
+Effet attendu : `rows-attribuables:N` → toutes les rows portent `pgidMachineId` ÉGAL au machine-id local (qualification row par row, pas un comptage global) : si le machine-id est rétabli, la reprise automatique (Issue 1) est possible. `rows-non-attribuables:K/N` → K rows sans ancre ou d'une autre machine : `foreign-frame` bloquantes (R1) — Issue 2, exception Phase 3. `registre-absent-ou-illisible` → pas de rows (cold path, R3.2) ; un registre absent ne bloque pas.
 
-## Phase 3 — Archivage horodaté (renommage, jamais suppression)
+## Phase 3 — Archivage horodaté (renommage même système de fichiers, jamais suppression)
 
-**Commande 3.1** — répertoire d'archive horodaté :
+**Commande 3.1** — suffixe d'archive horodaté :
 
 ```bash
-stamp="$(date +%Y%m%dT%H%M%S)" && mkdir -p "$HOME/h2a-recovery-$stamp" && echo "archive: $HOME/h2a-recovery-$stamp"
+stamp="$(date +%Y%m%dT%H%M%S)" && echo "suffixe d'archive: .h2a-recovery-$stamp"
 ```
 
-Effet attendu : un répertoire d'archive vide, horodaté, sous `$HOME`. Aucun fichier n'y est détruit ni écrasé ; l'archive est restaurable par un simple renommage inverse.
+Effet attendu : un suffixe horodaté imprimé, réutilisé par les commandes suivantes ; deux exécutions ne s'écrasent jamais. Aucun fichier n'est détruit ni écrasé ; chaque archive est restaurable par renommage inverse.
 
-**Commande 3.2** — archivage du répertoire de runtime (socket + sidecar + lock-id) :
+**Commande 3.2** — archivage du répertoire de runtime (socket + sidecar + lock-id), par renommage DANS son propre système de fichiers :
 
 ```bash
-mv "$XDG_RUNTIME_DIR/h2a-nt" "$HOME/h2a-recovery-$stamp/h2a-nt" && echo "archivé: socket + .owner + lock-id"
+mv "$XDG_RUNTIME_DIR/h2a-nt" "$XDG_RUNTIME_DIR/h2a-nt.h2a-recovery-$stamp" && echo "archivé (renommage même système de fichiers): socket + .owner + lock-id"
 ```
 
-Effet attendu : le répertoire `h2a-nt` (socket `native-terminal.sock`, sidecar `native-terminal.sock.owner`, lock-id `.h2a-native-terminal.lock-id`) est déplacé INTÉGRALEMENT vers l'archive ; plus aucun fichier de runtime n'existe sous `$XDG_RUNTIME_DIR`. Renommage uniquement : rien n'est supprimé.
+Effet attendu : le répertoire `h2a-nt` (socket `native-terminal.sock`, sidecar `native-terminal.sock.owner`, lock-id `.h2a-native-terminal.lock-id`) est renommé EN PLACE sous `$XDG_RUNTIME_DIR` — même système de fichiers, `dev`/`ino` préservés ; plus aucun fichier de runtime n'existe sous le nom d'origine. Ne JAMAIS viser `$HOME` ici : le `mv` inter-systèmes copie puis efface la source.
 
-**Commande 3.3** — archivage du registre (uniquement si Commande 2.2 a répondu `registre-sans-ancre-machine`) :
+**Commande 3.3** — archivage du registre (uniquement si la Commande 2.2 a répondu `rows-non-attribuables:K/N`), par renommage dans son propre répertoire :
 
 ```bash
-mv "$HOME/.config/sentropic/h2a/registry.json" "$HOME/h2a-recovery-$stamp/registry.json" && echo "archivé: registre sans ancre machine"
+mv "$HOME/.config/sentropic/h2a/registry.json" "$HOME/.config/sentropic/h2a/registry.json.h2a-recovery-$stamp" && echo "archivé: registre non attribuable"
 ```
 
-Effet attendu : le registre est déplacé vers l'archive (renommage, pas de suppression). Le prochain démarrage recrée un registre vide. Ne PAS archiver un registre dont les rows portent `pgidMachineId` : la migration automatique (R3) en fait la preuve alternative de reprise, l'archiver détruirait des sessions réactivables.
+Effet attendu : le registre est renommé dans son propre répertoire (même système de fichiers, `dev`/`ino` préservés) ; le prochain démarrage recrée un registre vide. Ne PAS archiver un registre dont TOUTES les rows sont attribuables (`rows-attribuables:N`) : la migration automatique (R3) en fait la preuve alternative de reprise, l'archiver détruirait des sessions réactivables.
 
 ## Phase 4 — Vérification post-récupération des versions chargées
 
-**Commande 4.1** — chemin du runtime chargé (exemple pour l'installation globale npm) :
+**Commande 4.1** — chemin du runtime chargé, ancré au préfixe d'installation EFFECTIVEMENT utilisé (celui du binaire `h2a` résolu par le PATH) :
 
 ```bash
-node -p "require.resolve('@sentropic/h2a-runtime/package.json')"
+cd "$(dirname "$(command -v h2a)")/../lib/node_modules/@sentropic/h2a" && node -p "require.resolve('@sentropic/h2a-runtime/package.json')"
 ```
 
-Effet attendu : un chemin dans le préfixe d'installation effectivement utilisé (ex. `/home/<user>/.npm-global/lib/node_modules/@sentropic/h2a/node_modules/@sentropic/h2a-runtime/package.json`). Sans host : simple résolution de module.
+Effet attendu : un chemin SOUS le préfixe du `h2a` réellement installé (ex. `…/.npm-global/lib/node_modules/@sentropic/h2a/node_modules/@sentropic/h2a-runtime/package.json`) — le préfixe effectivement utilisé, pas un chemin d'exemple. `command -v h2a` localise le binaire sans l'exécuter ; aucun host requis.
 
-**Commande 4.2** — version chargée :
+**Commande 4.2** — version chargée (même préfixe effectif) :
 
 ```bash
-node -p "require(require.resolve('@sentropic/h2a-runtime/package.json')).version"
+cd "$(dirname "$(command -v h2a)")/../lib/node_modules/@sentropic/h2a" && node -p "require(require.resolve('@sentropic/h2a-runtime/package.json')).version"
 ```
 
-Effet attendu : `0.98.5` (toute version 0.98.1 à 0.98.4 est une version briquée ou bannie : NE PAS relancer le host avec, voir la spec R9 — deprecation en cours).
+Effet attendu : `0.98.5` (toute version 0.98.1 à 0.98.4 est une version briquée ou bannie : NE PAS relancer le host avec, voir la section Déprecation ci-dessous).
 
 **Commande 4.3** — répertoire de runtime propre :
 
@@ -138,4 +142,36 @@ Effet attendu : `0.98.5` (toute version 0.98.1 à 0.98.4 est une version briqué
 ls "$XDG_RUNTIME_DIR/h2a-nt" 2>/dev/null || echo "runtime-dir-absent: prêt pour un démarrage propre"
 ```
 
-Effet attendu : `runtime-dir-absent: prêt pour un démarrage propre` après la Phase 3 ; au démarrage suivant, le host 0.98.5 recrée le répertoire et publie son socket. Si la Phase 0 a conclu « machine-id rétabli », la reprise est automatique (R3) et aucune de ces commandes n'était nécessaire.
+Effet attendu : `runtime-dir-absent: prêt pour un démarrage propre` après la Phase 3 ; au démarrage suivant, le host 0.98.5 recrée le répertoire et publie son socket. Si la Phase 0 a conclu « Issue 1 » (machine-id rétabli ET rows attribuables), la reprise est automatique (R3) et aucune de ces commandes n'était nécessaire.
+
+## Déprecation des versions publiées (R9) — commandes PRÉPARÉES, exécution APRÈS validation de 0.98.5
+
+Ces trois commandes sont préparées ici et ne sont exécutées qu'APRÈS la validation complète de 0.98.5 (jamais avant : déprécier sans remplaçant validé laisserait le parc sans issue). Plage pinnée par la spec : `>=0.98.1 <=0.98.4` sur les TROIS paquets lockstep. `@sentropic/track` n'est PAS déprécié.
+
+**Commande D.1** — déprecation de `@sentropic/h2a` :
+
+```bash
+npm deprecate '@sentropic/h2a@>=0.98.1 <=0.98.4' 'native host refuses to start after a reboot (0.98.2-0.98.4); 0.98.1 is banned for a separate defect; upgrade to 0.98.5 — see docs/runbooks/2026-10-11-recuperation-parc-0.98.2-0.98.4.md'
+```
+
+Effet attendu : toute installation/résolution dans la plage `>=0.98.1 <=0.98.4` affiche l'avertissement de déprecation sur le registre npm. À exécuter uniquement après validation de 0.98.5 ; réversible par `npm deprecate` avec un message vide.
+
+**Commande D.2** — déprecation de `@sentropic/h2a-runtime` :
+
+```bash
+npm deprecate '@sentropic/h2a-runtime@>=0.98.1 <=0.98.4' 'native host refuses to start after a reboot (0.98.2-0.98.4); 0.98.1 is banned for a separate defect; upgrade to 0.98.5 — see docs/runbooks/2026-10-11-recuperation-parc-0.98.2-0.98.4.md'
+```
+
+Effet attendu : idem pour le paquet runtime ; aucune écriture locale, aucun host requis.
+
+**Commande D.3** — déprecation de `@sentropic/h2a-cli` :
+
+```bash
+npm deprecate '@sentropic/h2a-cli@>=0.98.1 <=0.98.4' 'native host refuses to start after a reboot (0.98.2-0.98.4); 0.98.1 is banned for a separate defect; upgrade to 0.98.5 — see docs/runbooks/2026-10-11-recuperation-parc-0.98.2-0.98.4.md'
+```
+
+Effet attendu : idem pour le paquet CLI ; aucune écriture locale, aucun host requis.
+
+### Le défaut distinct de la version 0.98.1
+
+0.98.1 figure dans la même plage de déprecation, mais PAS pour la brique post-reboot : celle-ci couvre 0.98.2 → 0.98.4 (inversion `proveEndpointAbsentUnderLock`, SPEC 0.98.5 §1.1). 0.98.1 est bannie pour un défaut DISTINCT : la fuite du journal-writer IPC du host natif — quand la déconnexion IPC précède l'initialisation du module du writer, celui-ci installe son écoute pour une déconnexion déjà consommée et son thread d'E/S retient le processus indéfiniment (constat sur pièces : `docs/reviews/native-journal-shutdown-ci.md`, corrigé en 0.98.2 par la PR #317 — qui n'adressait NI l'inversion post-reboot NI le crash-loop, SPEC 0.98.5 §1.3). Aucune version 0.98.1 à 0.98.4 ne doit resservir ; `@sentropic/track` reste hors de cause et non déprécié.
