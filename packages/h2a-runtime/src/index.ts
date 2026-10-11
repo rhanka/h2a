@@ -10581,28 +10581,44 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
     .command("enroll <provider>")
     .description(
       "Enroll through the sentropic-owned OAuth state machine " +
-        "(cloud-code, codex, muse CLI-store import, muse-code device flow, or mistral-vibe browser sign-in — alias: vibe)",
+        "(cloud-code, codex, muse OAuth device flow, or mistral-vibe browser sign-in — alias: vibe). " +
+        "--cli imports credentials from the provider's local CLI store instead (muse only)",
     )
     .option("--config-ref <ref>", "sentropic configuration reference for OAuth")
+    .option(
+      "--cli",
+      "import credentials from the provider's local CLI store (muse only) instead of the OAuth flow",
+    )
     .action(
       async (
         provider: string,
         opts: {
           configRef?: string;
+          cli?: boolean;
         },
       ) => {
         // "vibe" is the CLI-friendly alias of the mistral-vibe transport.
         const normalized = provider === "vibe" ? "mistral-vibe" : provider;
+        if (normalized === "muse-code") {
+          // Owner decision 2026-10-10: muse-code is no longer a user entry —
+          // muse enrolls via the OAuth device flow by default, --cli selects
+          // the CLI-store import. Fail loudly instead of silently aliasing.
+          process.stderr.write(
+            "[h2a] llm-mesh account: muse-code was removed; use " +
+              "'h2a llm-mesh account enroll muse' (OAuth) or add --cli (CLI-store import)\n",
+          );
+          process.exitCode = 1;
+          return;
+        }
         if (
           normalized !== "cloud-code" &&
           normalized !== "codex" &&
           normalized !== "muse" &&
-          normalized !== "muse-code" &&
           normalized !== "mistral-vibe"
         ) {
           process.stderr.write(
             `[h2a] llm-mesh account: unsupported provider "${provider}". ` +
-              "Supported: cloud-code, codex, muse, muse-code, mistral-vibe (alias: vibe)\n",
+              "Supported: cloud-code, codex, muse (OAuth; --cli imports the CLI store), mistral-vibe (alias: vibe)\n",
           );
           process.exitCode = 1;
           return;
@@ -10610,11 +10626,21 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         try {
           const account = await enrollViaFacade(normalized, {
             ...(opts.configRef ? { configRef: opts.configRef } : {}),
+            ...(opts.cli ? { cliImport: true } : {}),
           });
           process.stdout.write(
             `[h2a] llm-mesh account: enrolled ${account.provider}; ` +
               "account inventory remains in Sentropic\n",
           );
+          // The gateway loads the account inventory at boot only: an account
+          // enrolled while it runs stays invisible and every route then fails
+          // with no eligible candidate. Always say the next step (incident
+          // 2026-10-10: post-boot enrollment invisible => 'No route available').
+          if (readGatewayPid()) {
+            process.stdout.write(
+              "[h2a] llm-mesh: the running gateway loads accounts at boot only — restart it to serve the new account (h2a llm-mesh restart)\n",
+            );
+          }
         } catch (error) {
           process.stderr.write(
             `[h2a] llm-mesh account: ${error instanceof Error ? error.message : String(error)}\n`,
