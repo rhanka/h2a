@@ -680,9 +680,10 @@ test("should start over previous-boot rows whose pid numbers are now recycled, t
     // The live occupant of the recycled pid number was never the owner and
     // must still be alive: nothing was signalled at it.
     process.kill(survivor.pid, 0);
-    const client = await NativeTerminalClient.connect(f.paths[0]);
-    f.clients.push(client);
-    assert.ok(Number.isSafeInteger((await client.ping()).hostPid));
+    // The same real startup + handshake + PTY operation as every positive
+    // scenario: publication succeeded over the recycled-pid rows.
+    await assertServingThroughPublishedSocket(f, "h2a-reboot-recycled");
+    process.kill(survivor.pid, 0);
   } finally {
     const exited = once(survivor, "exit");
     survivor.kill("SIGKILL");
@@ -741,10 +742,12 @@ for (const [label, frameFactory] of [
   assert.equal(existsSync(f.paths[0]), false);
 }));
 
-test("should refuse reclamation of a persistent stale socket whose old sidecar proves no machine", linux, () => fixture(async f => {
-  // A sidecar written before 0.98.5 carries no machine id: after a reboot it
-  // cannot attribute its boot difference to THIS machine (it could be another
-  // machine sharing the directory), so it must keep the fail-closed refusal.
+test("should reclaim a persistent stale socket through its unattributed pre-0.98.5 sidecar plus previous-boot rows", linux, () => fixture(async f => {
+  // Migration (spec v3, option A): a sidecar written before 0.98.5 carries no
+  // machine anchor. Across a boot boundary it is UNATTRIBUTED — no death
+  // proof, and no longer a refusal either. The reclamation passes through the
+  // ALTERNATIVE proof — durable rows of the PREVIOUS boot of THIS machine —
+  // and the publication re-stamps the sidecar with the machine anchor.
   const host = await f.start();
   const exited = once(host.child, "exit"); host.child.kill("SIGKILL"); await exited;
   assert.ok(existsSync(f.paths[0]));
@@ -753,12 +756,64 @@ test("should refuse reclamation of a persistent stale socket whose old sidecar p
   delete owner.machineId;
   owner.bootId = FABRICATED_PREVIOUS_BOOT_ID;
   writeFileSync(ownerPath, JSON.stringify(owner));
-  const probe = (await f.run(["probe", "--id", "h2a-old-sidecar"])).payload;
-  assert.equal(probe.verdict, "unknown");
-  const launched = await f.launch("old-sidecar");
-  assert.equal(launched.payload.code, "native-inventory-unknown");
-  assert.equal(launched.payload.creationAttempted, false);
-  assert.ok(existsSync(f.paths[0]), "an unattributable sidecar must not be reclaimed");
+  writePgidRows(f, [
+    { id: "migrate-old-1", owner: { pid: 424242, startTime: 111 }, frame: previousBootRowFrame() },
+  ]);
+  assert.equal((await f.run(["probe", "--id", "h2a-migrate"])).payload.verdict, "dead");
+  const launched = await f.launch("migrate");
+  assert.equal(launched.status, 0, JSON.stringify(launched));
+  await assertServingThroughPublishedSocket(f, "h2a-migrate");
+  const restamped = JSON.parse(readFileSync(ownerPath, "utf8"));
+  assert.equal(typeof restamped.machineId, "string", "publication must re-stamp the machine anchor");
+}));
+
+test("should not block the cold path on an unattributed pre-0.98.5 sidecar", linux, () => fixture(async f => {
+  // The controlled cold path: the socket pathname is gone, only a leftover
+  // pre-0.98.5 sidecar remains. It is no evidence in either direction, so it
+  // may not block the cold start — and publication re-stamps it.
+  const ownerPath = `${f.paths[0]}.owner`;
+  mkdirSync(dirname(f.paths[0]), { recursive: true, mode: 0o700 });
+  writeFileSync(ownerPath, JSON.stringify({ dev: 1, ino: 1, pid: 424242, startTime: 1,
+    bootId: FABRICATED_PREVIOUS_BOOT_ID, pidNamespace: currentBootRowFrame().pgidPidNamespace }), { mode: 0o600 });
+  const launched = await f.launch("cold-sidecar");
+  assert.equal(launched.status, 0, JSON.stringify(launched));
+  await assertServingThroughPublishedSocket(f, "h2a-cold-sidecar");
+  const restamped = JSON.parse(readFileSync(ownerPath, "utf8"));
+  assert.equal(typeof restamped.machineId, "string", "publication must re-stamp the machine anchor");
+}));
+
+test("should refuse a machine-attributed previous-boot sidecar when a CURRENT-boot row is alive", linux, () => fixture(async f => {
+  // Spec v3, gap c: the sidecar proves ITS publisher dead across the boot
+  // boundary, but the registry still carries a row of THIS boot whose owner
+  // is alive. The sidecar never decides alone: sidecar and registry must
+  // agree, so the reclamation is refused and the stale socket stays.
+  const survivor = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { env: f.env, stdio: "ignore" });
+  try {
+    const startTime = readProcessStartTime(survivor.pid);
+    assert.ok(startTime !== undefined);
+    const host = await f.start();
+    const exited = once(host.child, "exit"); host.child.kill("SIGKILL"); await exited;
+    assert.ok(existsSync(f.paths[0]));
+    const ownerPath = `${f.paths[0]}.owner`;
+    const owner = JSON.parse(readFileSync(ownerPath, "utf8"));
+    assert.equal(typeof owner.machineId, "string");
+    owner.bootId = FABRICATED_PREVIOUS_BOOT_ID;
+    writeFileSync(ownerPath, JSON.stringify(owner));
+    writePgidRows(f, [
+      { id: "sidecar-dead-row-live", owner: { pid: survivor.pid, startTime }, frame: currentBootRowFrame() },
+    ]);
+    const probe = (await f.run(["probe", "--id", "h2a-sidecar-row"])).payload;
+    assert.equal(probe.verdict, "unknown");
+    const launched = await f.launch("sidecar-row");
+    assert.equal(launched.payload.code, "native-inventory-unknown");
+    assert.equal(launched.payload.creationAttempted, false);
+    assert.ok(existsSync(f.paths[0]), "the stale socket must not be reclaimed over a live current-boot owner");
+    process.kill(survivor.pid, 0);
+  } finally {
+    const exited = once(survivor, "exit");
+    survivor.kill("SIGKILL");
+    await exited;
+  }
 }));
 
 test("should reclaim a persistent stale socket through its machine-attributed previous-boot sidecar", linux, () => fixture(async f => {
