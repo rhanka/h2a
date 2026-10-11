@@ -1,0 +1,17 @@
+TAP version 13
+# Subtest: should preserve the activated listener using Node execve stdio guarantees
+ok 1 - should preserve the activated listener using Node execve stdio guarantees
+  ---
+  duration_ms: 418.238978
+  type: 'test'
+  ...
+# {"node":"v22.22.1","listenerFlags":526338,"fd":[{"fd":0,"target":"socket:[1593088]","flags":526338},{"fd":1,"target":"socket:[1593084]","flags":524290},{"fd":10,"target":"anon_inode:[eventpoll]","flags":524290},{"fd":11,"target":"anon_inode:[io_uring]","flags":524290},{"fd":12,"target":"pipe:[1576421]","flags":526336},{"fd":13,"target":"pipe:[1576421]","flags":526337},{"fd":14,"target":"anon_inode:[eventfd]","flags":526338},{"fd":15,"target":"anon_inode:[eventpoll]","flags":524290},{"fd":16,"target":"anon_inode:[io_uring]","flags":524290},{"fd":17,"target":"pipe:[1593095]","flags":526336},{"fd":18,"target":"pipe:[1593095]","flags":526337},{"fd":19,"target":"anon_inode:[eventfd]","flags":526338},{"fd":2,"target":"socket:[1593086]","flags":524290},{"fd":20,"target":"/dev/null","flags":557056},{"fd":21,"target":"socket:[1593098]","flags":526338},{"fd":3,"target":"anon_inode:[eventpoll]","flags":524290},{"fd":4,"target":"anon_inode:[io_uring]","flags":524290},{"fd":5,"target":"pipe:[1593092]","flags":524288},{"fd":6,"target":"pipe:[1593092]","flags":524289},{"fd":7,"target":"pipe:[1593093]","flags":526336},{"fd":8,"target":"pipe:[1593093]","flags":526337},{"fd":9,"target":"anon_inode:[eventfd]","flags":526338}]}
+1..1
+# tests 1
+# suites 0
+# pass 1
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 544.270612
