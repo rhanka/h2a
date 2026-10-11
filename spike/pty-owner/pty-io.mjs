@@ -15,9 +15,10 @@ export function spawnSession(id, mode, safe, root) {
     offset: 0, epoch: 0, controller: null, exit: null, cols: 80, rows: 24,
     byteCount: 0, capacity: +(process.env.SPIKE_CAPACITY ?? 1048576) };
   const script = safe ? hygienic : original;
-  const args = ['--pdeathsig', 'SIGUSR2', '--', '/usr/bin/bash', '-c', script,
-    'h2a-pty-guardian', String(process.pid), process.execPath,
+  const cli = mode === 'cat' ? ['/bin/cat'] : [process.execPath,
     path.join(here, 'sentinel.mjs'), String(id), mode];
+  const args = ['--pdeathsig', 'SIGUSR2', '--', '/usr/bin/bash', '-c', script,
+    'h2a-pty-guardian', String(process.pid), ...cli];
   const result = native.fork('/usr/bin/setpriv', args,
     Object.entries(process.env).map(([k, v]) => `${k}=${v}`), root, 80, 24, -1, -1,
     false, '/unused-linux-helper', (exitCode, signal) => {
@@ -55,9 +56,9 @@ export function collect(session) {
         exitCode: child.exit >> 8, signal: child.exit & 127, source: 'proc-zombie',
       };
     } catch (error) {
-      if (error.code === 'ENOENT') session.exit = {
+      if (error.code === 'ENOENT' && session.adopted) session.exit = {
         unknown: true, source: 'waitpid-callback-lost-before-exec',
-      }; else throw error;
+      }; else if (error.code !== 'ENOENT') throw error;
     }
   }
   if (session.exit && !session.closed) {

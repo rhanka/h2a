@@ -8,7 +8,9 @@ if (!root || process.env.HOME !== root || process.env.XDG_RUNTIME_DIR !== root)
   throw new Error('private environment required');
 const [id, mode = 'tui'] = process.argv.slice(2);
 const signals = [];
-const info = { cli: identity(process.pid), guardian: identity(process.ppid),
+const parent = identity(process.ppid);
+const info = { role: +id >= 100000 ? 'grandchild' : 'cli', parent,
+  cli: identity(process.pid), guardian: identity(+id >= 100000 ? parent.ppid : process.ppid),
   fds: fds(), signals, nonce: `${id}-${process.pid}` };
 const file = path.join(root, `identity-${id}.json`);
 json(file, info);
@@ -55,7 +57,9 @@ process.stdin.on('data', chunk => {
   for (;;) {
     const end = buffer.indexOf('\n'); if (end < 0) break;
     const command = buffer.slice(0, end); buffer = buffer.slice(end + 1);
-    if (command.startsWith('EXIT:')) process.exit(+command.slice(5));
+    if (command.startsWith('AFTER:')) {
+      const [, ms, code] = command.split(':'); setTimeout(() => process.exit(+code), +ms);
+    } else if (command.startsWith('EXIT:')) process.exit(+command.slice(5));
     else if (command.startsWith('SIGNAL:')) {
       const signal = command.slice(7); process.removeAllListeners(signal); process.kill(process.pid, signal);
     } else if (command.startsWith('ACK:')) emit(`${command}\n`);
