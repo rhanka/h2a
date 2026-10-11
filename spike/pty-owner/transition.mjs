@@ -8,6 +8,9 @@ export function transition(state, request) {
   const eligible = preflight(state.sessions);
   if (!eligible.ok) return eligible;
   const next = path.join(here, `image-${(state.generation + 1) % 2}.mjs`);
+  const target = request.targetNode ?? process.execPath;
+  try { fs.accessSync(target, fs.constants.X_OK); }
+  catch { return { ok: false, reason: 'candidate-invalid', attempted: false }; }
   if (request.fault === 'candidate') {
     try { fs.accessSync(path.join(process.env.SPIKE_ROOT, 'missing-candidate'), fs.constants.X_OK); }
     catch { return { ok: false, reason: 'candidate-invalid', attempted: false }; }
@@ -20,7 +23,7 @@ export function transition(state, request) {
   }
   if (request.fault === 'fd') return preflight([{ ...state.sessions[0], fd: 999999 }]);
   // The native-addon preflight is a child we start, with the same private env.
-  const probe = spawnSync(process.execPath, ['--input-type=module', '-e',
+  const probe = spawnSync(target, ['--input-type=module', '-e',
     `import {version} from ${JSON.stringify(new URL('./pty-io.mjs', import.meta.url).href)}; if(version!=='1.1.0')process.exit(1);`],
   { cwd: process.env.SPIKE_ROOT, env: process.env });
   if (probe.status !== 0) return { ok: false, reason: 'addon-preflight-failed', attempted: false };
@@ -35,8 +38,8 @@ export function transition(state, request) {
   json(path.join(process.env.SPIKE_ROOT, 'checkpoint.json'), state);
   state.quiescing = true;
   setTimeout(() => {
-    process.execve(request.fault === 'abort' ? '/no-such-spike-node' : process.execPath,
-      [process.execPath, next], { ...process.env, SPIKE_RESUME: '1' });
+    process.execve(request.fault === 'abort' ? '/no-such-spike-node' : target,
+      [target, next], { ...process.env, SPIKE_RESUME: '1' });
   }, request.delay ?? 30);
   return { ok: true, accepted: true, generation: state.generation };
 }

@@ -43,6 +43,8 @@ export async function owner(build) {
   const listener = process.env.SPIKE_DIRECT_LISTENER === '1' ? 3 : 0;
   const server = serve(listener, async request => {
     const session = state.sessions.find(s => s.id === request.id);
+    if (state.quiescing && ['acquire', 'release', 'exec', 'front-start', 'front-kill'].includes(request.op))
+      return { error: 'upgrade-in-progress', retrySafe: true };
     if (request.op === 'front-start' || request.op === 'front-kill') return front(request);
     if (request.op === 'status') return { build, node: process.version, pty: version,
       owner: identity(process.pid), generation: state.generation, rollback: state.rollback,
