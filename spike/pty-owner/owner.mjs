@@ -4,7 +4,7 @@ import { spawnSession, collect, flush, native, replay, preflight, version } from
 import { identity, fds, serve, json, read, here } from './lab.mjs';
 import { transition } from './transition.mjs';
 
-export function owner(build) {
+export async function owner(build) {
   const root = process.env.SPIKE_ROOT;
   if (!root || process.env.HOME !== root || process.env.XDG_RUNTIME_DIR !== root)
     throw new Error('private environment required');
@@ -29,15 +29,16 @@ export function owner(build) {
   state.quiescing = false;
   setInterval(() => {
     if (state.quiescing) return;
-    for (const session of state.sessions) { collect(session); flush(session); }
+    for (const session of state.sessions) { collect(session); if (!session.holdWrites) flush(session); }
   }, 2);
-  const server = serve(3, async request => {
+  const listener = process.env.SPIKE_DIRECT_LISTENER === '1' ? 3 : 0;
+  const server = serve(listener, async request => {
     const session = state.sessions.find(s => s.id === request.id);
     if (request.op === 'status') return { build, node: process.version, pty: version,
       owner: identity(process.pid), generation: state.generation, rollback: state.rollback,
       transitions: state.transitions, fd: fds(), rss: process.memoryUsage().rss,
       sessions: state.sessions.map(s => ({ ...s, ring: undefined, queued: undefined })),
-      listenerFlags: fds().find(f => f.fd === 3)?.flags };
+      listenerFD: listener, listenerFlags: fds().find(f => f.fd === listener)?.flags };
     if (request.op === 'create' || request.op === 'ensure') {
       if (state.quiescing) return { error: 'upgrade-in-progress', creationAttempted: false, retrySafe: true };
       if (request.op === 'ensure') return { owner: state.birth, publicationCount: 1 };
@@ -46,7 +47,7 @@ export function owner(build) {
       state.sessions.push(created); return { id, pid: created.pid, fd: created.fd };
     }
     if (request.op === 'exec') return transition(state, request);
-    if (request.op === 'read') { collect(session); return replay(session, request.after); }
+    if (request.op === 'read') { if (!state.quiescing) collect(session); return replay(session, request.after); }
     if (request.op === 'acquire') {
       if (session.controller !== null) return { error: 'controller-busy' };
       session.controller = request.client; return { epoch: ++session.epoch };
