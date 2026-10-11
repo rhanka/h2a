@@ -1,0 +1,17 @@
+TAP version 13
+# Subtest: should preserve a real cat CLI birth and exchange across 10 execs
+ok 1 - should preserve a real cat CLI birth and exchange across 10 execs
+  ---
+  duration_ms: 895.479982
+  type: 'test'
+  ...
+# {"node":"v24.18.0","transitions":10,"cli":{"pid":526355,"state":"S","ppid":526353,"pgid":526353,"sid":526353,"tty":34834,"start":"493556","exit":0},"guardian":{"pid":526353,"state":"S","ppid":526346,"pgid":526353,"sid":526353,"tty":34834,"start":"493556","exit":0},"echoesPerCommand":2}
+1..1
+# tests 1
+# suites 0
+# pass 1
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 931.993026
