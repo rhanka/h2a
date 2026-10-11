@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { resolve } from "node:path";
 
 import { writeHostLogLine } from "./crash-safe-log.js";
+import { HOST_FAULT_COUNTERS, recordHostFault } from "./fault-counters.js";
 import type { PtyHandle, PtySpawner } from "../pty.js";
 // Durable session identity (incl. pgid) lives in the single registry store by
 // design — one local store per the owner's durable-state direction (see the
@@ -1039,6 +1040,7 @@ export class NativeTerminalHost {
         // other session; a faulty one must cost at most this session's output
         // relay, never the host. Dispose the subscription so the faulty
         // callback stops firing on every chunk.
+        recordHostFault(HOST_FAULT_COUNTERS.ptyDataCallbackContained);
         record.dataSubscription?.dispose();
         this.#reportSessionCallbackFailure("data", record, error);
       }
@@ -1084,6 +1086,7 @@ export class NativeTerminalHost {
         }
         record.dataSubscription?.dispose();
         record.exitSubscription?.dispose();
+        recordHostFault(HOST_FAULT_COUNTERS.ptyExitCallbackContained);
         this.#reportSessionCallbackFailure("exit", record, error);
       }
     });

@@ -22,10 +22,11 @@
  * - lines emitted while stderr is unusable are kept in a bounded most-recent
  *   buffer (diagnostic for an attached debugger), never unbounded memory.
  */
+import { HOST_FAULT_COUNTERS, recordHostFault } from "./fault-counters.js";
+
 const HOST_LOG_PREFIX = "[h2a-pty-host]";
 const MAX_BUFFERED_HOST_LOG_LINES = 256;
 
-let stderrErrorListenerInstalled = false;
 let stderrUsable = true;
 const bufferedLines: string[] = [];
 
@@ -33,31 +34,44 @@ function markStderrUnusable(): void {
   stderrUsable = false;
 }
 
-function ensureStderrErrorListener(): void {
-  if (stderrErrorListenerInstalled) return;
-  stderrErrorListenerInstalled = true;
-  // The listener is installed for the lifetime of the process: an `error`
-  // arriving between two log lines must never find the stream unhandled.
-  process.stderr.on("error", () => {
-    markStderrUnusable();
-  });
-}
+// Attached at module load, for the process lifetime: from the moment this
+// sink is imported, an `error` arriving on process.stderr — including
+// between two log lines — never finds the stream unhandled. Each observed
+// death of the stream counts ONCE, on the transition.
+process.stderr.on("error", () => {
+  if (!stderrUsable) return;
+  recordHostFault(HOST_FAULT_COUNTERS.hostLogStderrStreamError);
+  markStderrUnusable();
+});
 
-/** Append one host log line, tolerating a stderr that throws or has died. */
-export function writeHostLogLine(line: string): void {
+/**
+ * Append one host log line, tolerating a stderr that throws or has died.
+ * Returns whether the line was delivered to a live stderr stream: a false
+ * return means the line only reached the bounded post-mortem buffer, and the
+ * CALLER (each contained site owns its named counter) reports that for
+ * supervision.
+ */
+export function writeHostLogLine(line: string): boolean {
   const text = `${HOST_LOG_PREFIX} ${line}\n`;
   if (stderrUsable) {
-    ensureStderrErrorListener();
     try {
       process.stderr.write(text);
-      return;
+      return true;
     } catch {
       // Synchronous write failure: stop touching the stream.
+      recordHostFault(HOST_FAULT_COUNTERS.hostLogStderrSyncWriteFailed);
       markStderrUnusable();
     }
   }
   if (bufferedLines.length >= MAX_BUFFERED_HOST_LOG_LINES) bufferedLines.shift();
   bufferedLines.push(text);
+  return false;
+}
+
+/** Test-only: restore the sink to its initial, healthy state. */
+export function resetHostLogSinkForTests(): void {
+  stderrUsable = true;
+  bufferedLines.length = 0;
 }
 
 /** Test and debugger view of the sink: stderr status and buffered lines. */
