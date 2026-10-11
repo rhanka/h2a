@@ -107,20 +107,89 @@ export function readMachineId(): string | undefined {
 
 /**
  * The complete frame a durable pid/start-time record was taken in: the three
- * anchors above as ONE value, so a reader classifies a record against a frame
- * it read once, coherently, instead of mixing reads taken at different times.
- * Absent fields mean "unknown", never "empty" or "default" (see the module
- * header): a record without an anchor can never be granted a frame-dependent
- * proof from it.
+ * IDENTITY anchors above as ONE value, so a reader classifies a record against
+ * a frame it read once, coherently, instead of mixing reads taken at different
+ * times. Absent fields mean "unknown", never "empty" or "default" (see the
+ * module header): a record without an anchor can never be granted a
+ * frame-dependent proof from it.
+ *
+ * The last three fields are PROVENANCE, not identity: they enrich the frame
+ * the seam reports (who is reading, in which kernel namespaces, since when)
+ * but take no part in any classification — a durable record never carries
+ * them.
  */
 export type DurableProcFrame = Readonly<{
   pidNamespace?: string | undefined;
   bootId?: string | undefined;
   machineId?: string | undefined;
+  /** Inode of this process's NETWORK namespace (`/proc/self/ns/net`). */
+  nsNet?: string | undefined;
+  /** This process's own start time (`/proc/self/stat` field 22, ticks since boot). */
+  startTime?: number | undefined;
+  /** The boot instant of this machine, epoch milliseconds (`/proc/stat` `btime`). */
+  bootTimeMs?: number | undefined;
 }>;
 
 /**
- * The injectable frame reader: the three SYSTEM readers above, as one typed
+ * This process's network-namespace inode, read the same way as the pid
+ * namespace above (`net:[<inode>]`). Same contract: undefined — never throws
+ * — on any read failure or a non-Linux platform.
+ */
+export function readNetNamespaceId(): string | undefined {
+  if (process.platform !== "linux") return undefined;
+  try {
+    const link = readlinkSync("/proc/self/ns/net");
+    const inode = /\[(\d+)\]/.exec(link);
+    return inode?.[1];
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * This process's own start time, `/proc/self/stat` field 22. Anchors on the
+ * LAST `") "` for the same reason `readProcessStartTime` in
+ * native-terminal/host.ts documents at length (a `comm` can contain spaces
+ * and parentheses). Provenance only (see `DurableProcFrame`), so it skips
+ * host.ts's uptime sanity check: no proof ever compares this number.
+ */
+export function readSelfProcessStartTime(): number | undefined {
+  if (process.platform !== "linux") return undefined;
+  try {
+    const raw = readFileSync("/proc/self/stat", "utf8");
+    const splitAt = raw.lastIndexOf(") ");
+    if (splitAt < 0) return undefined;
+    const starttime = Number(raw.slice(splitAt + 2).split(" ")[19]);
+    if (!Number.isFinite(starttime) || starttime < 0) return undefined;
+    return starttime;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * The boot instant of this machine, in epoch MILLISECONDS, from `/proc/stat`'s
+ * `btime` (seconds since the epoch — kernel precision, hence the trailing
+ * `* 1000`). Same contract as every reader here: undefined on any failure or
+ * a non-Linux platform.
+ */
+export function readBootTimeMs(): number | undefined {
+  if (process.platform !== "linux") return undefined;
+  try {
+    const raw = readFileSync("/proc/stat", "utf8");
+    for (const line of raw.split("\n")) {
+      if (!line.startsWith("btime ")) continue;
+      const seconds = Number(line.slice("btime ".length).trim());
+      if (Number.isFinite(seconds) && seconds > 0) return seconds * 1000;
+    }
+    return undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * The injectable frame reader: the SYSTEM readers above, as one typed
  * dependency. Production callers pass nothing and get the real readers; tests
  * that must observe a record from a DIFFERENT frame (a previous boot, another
  * machine) inject a typed fake through this seam — never a public,
@@ -134,12 +203,23 @@ export const readProcessFrame: ReadProcessFrame = () => {
   const pidNamespace = readPidNamespaceId();
   const bootId = readBootId();
   const machineId = readMachineId();
+  const nsNet = readNetNamespaceId();
+  const startTime = readSelfProcessStartTime();
+  const bootTimeMs = readBootTimeMs();
   return {
     ...(pidNamespace !== undefined ? { pidNamespace } : {}),
     ...(bootId !== undefined ? { bootId } : {}),
     ...(machineId !== undefined ? { machineId } : {}),
+    ...(nsNet !== undefined ? { nsNet } : {}),
+    ...(startTime !== undefined ? { startTime } : {}),
+    ...(bootTimeMs !== undefined ? { bootTimeMs } : {}),
   };
 };
+
+/** The kernel writes boot ids (and every writer here copies them verbatim)
+ * as 8-4-4-4-12 lowercase hex digits. Anything else in a DURABLE record is a
+ * corrupted or fabricated store value, and no proof may be derived from it. */
+const WELL_FORMED_BOOT_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 /**
  * Verdict on a durable record's frame, as seen by a later reader. Mirrors the
@@ -148,32 +228,51 @@ export const readProcessFrame: ReadProcessFrame = () => {
  * the same definitions this module exists to guarantee.
  *
  *  - "current": known pid namespace AND known boot id, both equal to the
- *    reader's. Pid- and start-time-based proofs (liveness probes) are
- *    admissible on such a record — and only on such a record. Machine id is
- *    not required: a boot id is random per boot, so an equal known boot inside
- *    an equal known namespace already pins the epoch the numbers were taken
- *    against.
+ *    reader's, and no KNOWN machine id contradicting them (a different known
+ *    machine is a contradiction in the record itself: same boot and pid
+ *    namespace cannot belong to two machines, so the record is corrupted or
+ *    fabricated — never evidence). Pid- and start-time-based proofs (liveness
+ *    probes) are admissible on such a record — and only on such a record.
+ *    Machine id is not otherwise required: a boot id is random per boot, so
+ *    an equal known boot inside an equal known namespace already pins the
+ *    epoch the numbers were taken against.
  *  - "stale-boot": same KNOWN pid namespace, same KNOWN machine, DIFFERENT
- *    known boot id. This is not an absence of proof, it is the strongest death
- *    proof available: a reboot ends every process of the boot before it, so
- *    every pid and start-time the record carries is PROVEN dead. A reboot also
- *    resets the pid space, so the recorded numbers may belong to UNRELATED
- *    live processes by now: callers must neither probe the recorded pids (a
- *    probe would read a stranger as the owner) nor signal them, ever.
- *    The machine anchor is what makes the proof admissible: the init pid
- *    namespace has the same inode on every kernel, so "same namespace,
- *    different boot" is also what a record written by ANOTHER machine sharing
- *    the durable store looks like — a machine whose processes may be alive
- *    right now.
- *  - "foreign-frame": everything else — another or unknown pid namespace
- *    (including a namespace change with the same boot id: a pid resolved in
- *    another namespace is a different process, and the change alone proves
- *    nothing in either direction), another or unknown machine, an unknown
- *    boot id, or a record with no anchors at all (a legacy row). Nothing about
- *    the record's processes can be decided from this reader: not that they
- *    survived, not that they are gone. Callers must fail closed.
+ *    known boot id — all three well-formed on the recorded side. This is not
+ *    an absence of proof, it is the strongest death proof available: a reboot
+ *    ends every process of the boot before it, so every pid and start-time
+ *    the record carries is PROVEN dead. A reboot also resets the pid space,
+ *    so the recorded numbers may belong to UNRELATED live processes by now:
+ *    callers must neither probe the recorded pids (a probe would read a
+ *    stranger as the owner) nor signal them, ever. The machine anchor is what
+ *    makes the proof admissible: the init pid namespace has the same inode on
+ *    every kernel, so "same namespace, different boot" is also what a record
+ *    written by ANOTHER machine sharing the durable store looks like — a
+ *    machine whose processes may be alive right now.
+ *  - "unattributed": same known pid namespace, DIFFERENT known boot id, and
+ *    the recorded side carries NO machine id while the reader's is known.
+ *    A record that predates the machine anchor: the boot change cannot be
+ *    pinned to this machine, so no death proof — but within this reader's
+ *    own pid namespace and boot geometry the record also cannot name a live
+ *    process HERE, so it is no evidence in EITHER direction. Consumers
+ *    decide what that licenses: an endpoint sidecar (a machine-local file
+ *    next to the socket) treats it as absence of evidence and decides from
+ *    the alternative proofs; a REGISTRY row keeps the fail-closed refusal,
+ *    because a networked shared store could carry another machine's row.
+ *  - "foreign-frame": everything else — a malformed recorded boot id (a
+ *    corrupted or fabricated store value: no proof may rest on it), a KNOWN
+ *    machine id that differs, another or unknown pid namespace (including a
+ *    namespace change with the same boot id: a pid resolved in another
+ *    namespace is a different process, and the change alone proves nothing in
+ *    either direction), another or unknown machine, an unknown boot id, or a
+ *    record with no anchors at all (a legacy row). Nothing about the record's
+ *    processes can be decided from this reader: not that they survived, not
+ *    that they are gone. Callers must fail closed.
  */
-export type DurableProcFrameVerdict = "current" | "stale-boot" | "foreign-frame";
+export type DurableProcFrameVerdict =
+  | "current"
+  | "stale-boot"
+  | "unattributed"
+  | "foreign-frame";
 
 /**
  * Classify a durable record's frame against the reader's current frame. PURE:
@@ -187,9 +286,27 @@ export function classifyDurableProcFrame(
   recorded: DurableProcFrame,
   current: DurableProcFrame,
 ): DurableProcFrameVerdict {
-  if (
+  // A malformed recorded boot id is a corrupted or fabricated STORE value:
+  // "different from the current boot" on such a string would grant the
+  // stale-boot death proof from garbage. Refuse before anything else.
+  if (recorded.bootId !== undefined && !WELL_FORMED_BOOT_ID_RE.test(recorded.bootId)) {
+    return "foreign-frame";
+  }
+  // A KNOWN machine id that differs contradicts an otherwise-matching frame:
+  // same boot and pid namespace cannot belong to two machines, so the record
+  // is evidence of nothing. (Equality is checked per-verdict below.)
+  const differentKnownMachine =
+    recorded.machineId !== undefined &&
+    current.machineId !== undefined &&
+    recorded.machineId !== current.machineId;
+  if (differentKnownMachine) {
+    return "foreign-frame";
+  }
+  const sameKnownPidNamespace =
     recorded.pidNamespace !== undefined &&
-    recorded.pidNamespace === current.pidNamespace &&
+    recorded.pidNamespace === current.pidNamespace;
+  if (
+    sameKnownPidNamespace &&
     recorded.bootId !== undefined &&
     recorded.bootId === current.bootId
   ) {
@@ -199,14 +316,13 @@ export function classifyDurableProcFrame(
     recorded.bootId !== undefined &&
     current.bootId !== undefined &&
     recorded.bootId !== current.bootId;
-  if (
-    differentKnownBoot &&
-    recorded.pidNamespace !== undefined &&
-    recorded.pidNamespace === current.pidNamespace &&
-    recorded.machineId !== undefined &&
-    recorded.machineId === current.machineId
-  ) {
-    return "stale-boot";
+  if (differentKnownBoot && sameKnownPidNamespace) {
+    if (recorded.machineId !== undefined && recorded.machineId === current.machineId) {
+      return "stale-boot";
+    }
+    if (recorded.machineId === undefined && current.machineId !== undefined) {
+      return "unattributed";
+    }
   }
   return "foreign-frame";
 }
