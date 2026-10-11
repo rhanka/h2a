@@ -5,6 +5,7 @@ import { resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { NativeTerminalHost, readProcessStartTime } from "./host.js";
+import { writeHostLogLine } from "./crash-safe-log.js";
 import { createHostJournalWriter, getRuntimeVersion, type HostJournalEntry } from "./journal.js";
 import { nodePtySpawner } from "../pty.js";
 import {
@@ -201,7 +202,7 @@ export async function runNativeTerminalHostProcess(argv: ReadonlyArray<string>):
             ...identity(),
             clean: false,
           });
-          process.stderr.write(`[h2a-pty-host] shutdown failed after ${signal}: ${String(error)}\n`);
+          writeHostLogLine(`shutdown failed after ${signal}: ${String(error)}`);
           process.exitCode = 1;
         },
       );
@@ -247,7 +248,7 @@ function isEntryPoint(): boolean {
 
 if (isEntryPoint()) {
   runNativeTerminalHostProcess(process.argv).catch((error: unknown) => {
-    process.stderr.write(`[h2a-pty-host] fatal: ${error instanceof Error ? error.stack ?? error.message : String(error)}\n`);
+    writeHostLogLine(`fatal: ${error instanceof Error ? error.stack ?? error.message : String(error)}`);
     process.exitCode = 1;
   });
 }

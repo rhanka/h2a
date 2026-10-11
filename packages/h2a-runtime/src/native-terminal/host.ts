@@ -2,6 +2,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { resolve } from "node:path";
 
+import { writeHostLogLine } from "./crash-safe-log.js";
 import type { PtyHandle, PtySpawner } from "../pty.js";
 // Durable session identity (incl. pgid) lives in the single registry store by
 // design — one local store per the owner's durable-state direction (see the
@@ -842,7 +843,10 @@ export class NativeTerminalHost {
     this.#log =
       options.log ??
       ((line) => {
-        process.stderr.write(`[h2a-pty-host] ${line}\n`);
+        // The default sink must be crash-safe: a plain `process.stderr.write`
+        // here is the origin of the 2026-10-10/11 crash-loop (async EPIPE on
+        // the host's stderr, unhandled `error` event, uncaughtException).
+        writeHostLogLine(line);
       });
     this.#forceKillTimeoutMs =
       options.forceKillTimeoutMs ?? NATIVE_TERMINAL_FORCE_KILL_TIMEOUT_MS;
@@ -1013,43 +1017,75 @@ export class NativeTerminalHost {
       () => record.replay.resetSequence(),
     );
     record.dataSubscription = record.pty.onData((data) => {
-      if (record.exit !== null || data.length === 0) return;
-      resetRelay.feed(data);
-      // Answer Device Status Report cursor queries (ESC[6n) like a real
-      // terminal/tmux: TUIs that require a cursor-position report (muse
-      // aborts with "cursor position could not be read" without it).
-      const window = dsrTail + data;
-      dsrTail = window.slice(-3);
-      const queries = window.split("\x1b[6n").length - 1;
-      for (let i = 0; i < queries; i++) {
-        try {
-          record.pty.write("\x1b[1;1R");
-        } catch {
-          // Child already gone; nothing left to answer.
-          break;
+      try {
+        if (record.exit !== null || data.length === 0) return;
+        resetRelay.feed(data);
+        // Answer Device Status Report cursor queries (ESC[6n) like a real
+        // terminal/tmux: TUIs that require a cursor-position report (muse
+        // aborts with "cursor position could not be read" without it).
+        const window = dsrTail + data;
+        dsrTail = window.slice(-3);
+        const queries = window.split("\x1b[6n").length - 1;
+        for (let i = 0; i < queries; i++) {
+          try {
+            record.pty.write("\x1b[1;1R");
+          } catch {
+            // Child already gone; nothing left to answer.
+            break;
+          }
         }
+      } catch (error) {
+        // node-pty delivers this callback on the event loop shared with every
+        // other session; a faulty one must cost at most this session's output
+        // relay, never the host. Dispose the subscription so the faulty
+        // callback stops firing on every chunk.
+        record.dataSubscription?.dispose();
+        this.#reportSessionCallbackFailure("data", record, error);
       }
     });
     record.exitSubscription = record.pty.onExit((event) => {
-      if (record.exit !== null) return;
-      resetRelay.flush();
-      // A durable row exists to make this session reapable after THIS host
-      // dies. Once the group is confirmed empty the row can no longer make
-      // anything reapable — it is a stale record that a later host death would
-      // re-examine against whatever holds that pgid NUMBER by then. Drop it
-      // on POSITIVE proof only (see `#pruneDurableRowIfGroupEmpty`), and OFF
-      // this callback: this is node-pty's own synchronous exit callback on the
-      // host's event loop (see `#schedulePruneOfExitedSession`).
-      this.#schedulePruneOfExitedSession(record, "its pty exited");
-      const exit: { exitCode: number; signal?: number } = {
-        exitCode: event.exitCode,
-      };
-      if (event.signal !== undefined) exit.signal = event.signal;
-      record.exit = Object.freeze(exit);
-      record.status = "exited";
-      this.#invalidateController(record);
-      record.dataSubscription?.dispose();
-      record.exitSubscription?.dispose();
+      try {
+        if (record.exit !== null) return;
+        resetRelay.flush();
+        // A durable row exists to make this session reapable after THIS host
+        // dies. Once the group is confirmed empty the row can no longer make
+        // anything reapable — it is a stale record that a later host death would
+        // re-examine against whatever holds that pgid NUMBER by then. Drop it
+        // on POSITIVE proof only (see `#pruneDurableRowIfGroupEmpty`), and OFF
+        // this callback: this is node-pty's own synchronous exit callback on the
+        // host's event loop (see `#schedulePruneOfExitedSession`).
+        this.#schedulePruneOfExitedSession(record, "its pty exited");
+        const exit: { exitCode: number; signal?: number } = {
+          exitCode: event.exitCode,
+        };
+        if (event.signal !== undefined) exit.signal = event.signal;
+        record.exit = Object.freeze(exit);
+        record.status = "exited";
+        this.#invalidateController(record);
+        record.dataSubscription?.dispose();
+        record.exitSubscription?.dispose();
+      } catch (error) {
+        // Same shared event loop as the data callback; a faulty exit callback
+        // must not take the host down. Settle the record from the parts of
+        // the event that remain readable so the session cannot linger as
+        // "running" with a dead pty, then dispose both subscriptions.
+        const exit: { exitCode: number; signal?: number } = { exitCode: -1 };
+        try {
+          exit.exitCode = event.exitCode;
+          if (event.signal !== undefined) exit.signal = event.signal;
+        } catch {
+          // The event's own fields are unreadable; -1 records that the exit
+          // was observed but its code was not.
+        }
+        if (record.exit === null) {
+          record.exit = Object.freeze(exit);
+          record.status = "exited";
+          this.#invalidateController(record);
+        }
+        record.dataSubscription?.dispose();
+        record.exitSubscription?.dispose();
+        this.#reportSessionCallbackFailure("exit", record, error);
+      }
     });
 
     return this.#snapshot(record);
@@ -1979,6 +2015,27 @@ export class NativeTerminalHost {
     record.controllerId = null;
     record.controllerActivity = null;
     record.controllerEpoch += 1;
+  }
+
+  /**
+   * Report a contained pty-callback failure WITHOUT being able to throw: the
+   * caller is the catch block that keeps the host alive, and a failing log
+   * sink must not re-arm the very crash the guard just contained. The default
+   * sink is itself crash-safe (`crash-safe-log.ts`); an injected sink that
+   * throws is swallowed here for the same reason.
+   */
+  #reportSessionCallbackFailure(
+    kind: "data" | "exit",
+    record: SessionRecord,
+    error: unknown,
+  ): void {
+    try {
+      this.#log(
+        `contained a faulty pty ${kind} callback for terminal session ${record.id} (pgid=${record.pty.pgid}): ${String(error)}`,
+      );
+    } catch {
+      // The log sink itself is failing; containment is the priority.
+    }
   }
 
   #snapshot(record: SessionRecord): NativeTerminalSessionState {
