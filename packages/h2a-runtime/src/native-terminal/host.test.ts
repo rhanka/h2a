@@ -33,69 +33,6 @@ import type { NativeTerminalStopSignal } from "./protocol.js";
 import { HOST_FAULT_COUNTERS, hostFaultCounters } from "./fault-counters.js";
 import { hostLogSinkDiagnostics } from "./crash-safe-log.js";
 
-function isErrnoException(error: unknown): error is NodeJS.ErrnoException {
-  return error instanceof Error && "code" in error;
-}
-
-/**
- * Find a REAL, currently-alive process group this test process does not own
- * (a root-owned daemon on a typical Linux host) so that
- * `process.kill(-pgid, 0)` genuinely raises EPERM ("the group exists, I may
- * not signal it") — the exact non-ESRCH condition
- * posixProcessGroupReaper.isGroupAlive's catch branch must treat as ALIVE,
- * never dead. Scans /proc directly (mirrors the parsing
- * posixProcessGroupReaper.describeGroup already does). Returns null if no
- * such candidate exists in this environment (e.g. running as root, where
- * every kill(-pgid,0) succeeds instead of EPERM-ing, or no /proc at all).
- */
-function findEpermProbeCandidatePgid(): number | null {
-  if (process.platform !== "linux") return null;
-  let entries: string[];
-  try {
-    entries = readdirSync("/proc");
-  } catch {
-    return null;
-  }
-  for (const name of entries) {
-    if (!/^\d+$/.test(name)) continue;
-    let ruid: string | undefined;
-    try {
-      const status = readFileSync(`/proc/${name}/status`, "utf8");
-      const uidLine = status
-        .split("\n")
-        .find((line) => line.startsWith("Uid:"));
-      ruid = uidLine?.split(/\s+/)[1];
-    } catch {
-      continue;
-    }
-    if (ruid !== "0") continue; // only interested in groups we do NOT own
-    let pgrp: number;
-    try {
-      const stat = readFileSync(`/proc/${name}/stat`, "utf8");
-      const commandEnd = stat.lastIndexOf(")");
-      const fields = stat.slice(commandEnd + 2).split(" ");
-      pgrp = Number(fields[2]);
-    } catch {
-      continue;
-    }
-    // pgrp 0: unmappable across this process's pid-namespace view. pgrp 1:
-    // kill(-1, sig) has special broadcast semantics in POSIX, not a group
-    // target — never usable as a probe candidate.
-    if (!Number.isInteger(pgrp) || pgrp <= 1) continue;
-    try {
-      process.kill(-pgrp, 0);
-      // No throw: we DO have permission (e.g. running as root) — not usable
-      // to exercise the EPERM branch; keep looking.
-      continue;
-    } catch (error) {
-      if (isErrnoException(error) && error.code === "EPERM") return pgrp;
-      // ESRCH (group gone mid-scan) or anything else: try the next one.
-      continue;
-    }
-  }
-  return null;
-}
-
 let scratch: string;
 let registryPath: string;
 // Real processes a test starts to observe real /proc states. They outlive the
@@ -932,40 +869,19 @@ describe("NativeTerminalHost", () => {
     ).toBe(false);
   });
 
-  it("POSIX_GROUP_LIVENESS_PROBE_TREATS_EPERM_AS_ALIVE_NEVER_DEAD", (ctx) => {
-    // PROBE guard (real implementation): the wiring test above injects a
-    // fake reaper and is therefore blind to a regression INSIDE
-    // posixProcessGroupReaper.isGroupAlive's own non-ESRCH handling (an
-    // injected fake never calls it — mutating it would not move that test).
-    // This test exercises the REAL exported posixProcessGroupReaper against
-    // a REAL non-ESRCH failure: a root-owned process group's pgid, probed
-    // from this unprivileged test process, genuinely raises EPERM ("the
-    // group exists, you may not signal it"). isGroupAlive must treat that
-    // as ALIVE (return true), never as dead.
-    const pgid = findEpermProbeCandidatePgid();
-    if (pgid === null) {
-      ctx.skip(
-        "no root-owned process group produced EPERM on process.kill(-pgid,0) in this " +
-          "environment (running as root, no /proc, or no qualifying process found) — " +
-          "cannot exercise the real non-ESRCH branch here",
-      );
-    }
-    // Re-confirm immediately before asserting: closes the race window
-    // between discovery above and use here (the candidate must still be
-    // alive-but-unsignallable right now, not just at discovery time).
-    let stillEperm = false;
+  it("POSIX_GROUP_LIVENESS_PROBE_TREATS_EPERM_AS_ALIVE_NEVER_DEAD", () => {
+    // Exercise the real reaper's non-ESRCH branch without discovering or
+    // probing a process outside this test. EPERM must never prove death.
+    const pgid = 51000;
+    const kill = vi.spyOn(process, "kill").mockImplementation(() => {
+      throw Object.assign(new Error("permission denied"), { code: "EPERM" });
+    });
     try {
-      process.kill(-pgid, 0);
-    } catch (error) {
-      stillEperm = isErrnoException(error) && error.code === "EPERM";
+      expect(posixProcessGroupReaper.isGroupAlive(pgid)).toBe(true);
+      expect(kill).toHaveBeenCalledExactlyOnceWith(-pgid, 0);
+    } finally {
+      kill.mockRestore();
     }
-    if (!stillEperm) {
-      ctx.skip(
-        `candidate pgid=${pgid} no longer raises EPERM (process likely exited between discovery and use)`,
-      );
-    }
-
-    expect(posixProcessGroupReaper.isGroupAlive(pgid)).toBe(true);
   });
 
   it("should refuse to reap and warn loudly when a session's pgid cannot be resolved from the registry, killing nothing", async () => {
