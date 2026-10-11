@@ -390,6 +390,14 @@ test('the real STEPS list invokes the exact production commands', () => {
         requiresBuild: true,
         inconclusiveExitCode: null,
       },
+      {
+        id: 'h2a-runtime',
+        command: 'node_modules/.bin/vitest',
+        args: ['run', '--config', 'packages/h2a-runtime/vitest.config.ts'],
+        shell: false,
+        requiresBuild: true,
+        inconclusiveExitCode: null,
+      },
     ],
     'IDs alone are not evidence: replacing a production command with an inert command must fail',
   )
@@ -419,4 +427,120 @@ test('CI exposes an independent, stable npm-test-trust-root job', () => {
 
 test('the runner test is not discovered through the runner it verifies', () => {
   assert.ok(!discoverTestFiles().includes(RUNNER_TEST_FILE))
+})
+
+// ---------------------------------------------------------------------------
+// SPEC 0.98.5 R8.1 — `npm test` must DISCOVER the TypeScript suites of
+// packages/h2a-runtime. Until the `h2a-runtime` step existed, those suites
+// (native-terminal, session-lease, proc-cpu, ...) ran in NO gate at all, and
+// four broken versions reached npm behind a green `npm test`.
+// ---------------------------------------------------------------------------
+
+const H2A_RUNTIME_COMMAND =
+  'node_modules/.bin/vitest run --config packages/h2a-runtime/vitest.config.ts'
+const RUNNER_SOURCE = readFileSync(
+  resolve(REPO_ROOT, 'scripts', 'run-test-gates.mjs'),
+  'utf8',
+)
+
+function stepCommandLine(step) {
+  return [step.command, ...(step.args ?? [])].join(' ')
+}
+
+test('R8.1: a dedicated h2a-runtime step exists and runs the exact pinned command', () => {
+  const step = STEPS.find((s) => s.id === 'h2a-runtime')
+  assert.ok(step, 'npm test must contain a step named h2a-runtime')
+  assert.equal(
+    stepCommandLine(step),
+    H2A_RUNTIME_COMMAND,
+    'the h2a-runtime command is pinned exactly by the spec: any replacement — inert wrapper, lighter config, dropped --config — must fail here',
+  )
+  assert.equal(step.requiresBuild, true, 'a broken build must yield NO verdict for the runtime suites, not a misleading one')
+  // The step must sit in the production list itself, not beside it.
+  assert.ok(
+    STEPS.some((s) => s.id === 'h2a-runtime'),
+    'the exact-command step above must be the one wired into STEPS',
+  )
+})
+
+test('R8.1: the pinned vitest config exists and covers src/**/*.test.ts', () => {
+  const configPath = resolve(REPO_ROOT, 'packages', 'h2a-runtime', 'vitest.config.ts')
+  let config
+  try {
+    config = readFileSync(configPath, 'utf8')
+  } catch {
+    assert.fail(`the pinned config must exist at exactly ${configPath}`)
+  }
+  assert.match(
+    config,
+    /include:\s*\[\s*['"]src\/\*\*\/\*\.test\.ts['"]\s*\]/,
+    'the config must cover src/**/*.test.ts so new runtime suites are discovered, not enumerated',
+  )
+})
+
+/**
+ * The trust root's essential checks as a PURE function, so the negative
+ * control can run them against a RIGGED runner and observe them go red.
+ * These mirror the assertions above; keeping them in one place is what makes
+ * the control meaningful (it exercises the checks, not a copy of them).
+ */
+function trustRootFailures({ runnerSource, steps, packageTestScript }) {
+  const failures = []
+  const step = steps.find((s) => s.id === 'h2a-runtime')
+  if (!step) {
+    failures.push('no h2a-runtime step: the runtime suites would run in no gate')
+  } else if (stepCommandLine(step) !== H2A_RUNTIME_COMMAND) {
+    failures.push('the h2a-runtime command is not the exact pinned string')
+  }
+  if (!/if \(invokedDirectly\) \{\s*process\.exit\(runGates\(STEPS\)\)\s*\}/.test(runnerSource)) {
+    failures.push('direct invocation does not route through runGates(STEPS): the runner could exit 0 without running the suites')
+  }
+  if (packageTestScript !== 'node scripts/run-test-gates.mjs') {
+    failures.push('npm test is not wired to the production gate entrypoint')
+  }
+  return failures
+}
+
+test('R8.1: the trust root is green on the real runner', () => {
+  assert.deepEqual(trustRootFailures({
+    runnerSource: RUNNER_SOURCE,
+    steps: STEPS,
+    packageTestScript: PACKAGE_JSON.scripts?.test,
+  }), [])
+})
+
+test('R8.1 negative control: a rigged runner returning 0 without running the suites fails the trust root', () => {
+  // Rigging 1: the runner's direct-invocation tail exits 0 immediately —
+  // exactly the "wrapper returns 0 without launching the suites" publication
+  // hole of the 0.98.2-0.98.4 incidents.
+  const inertTail = RUNNER_SOURCE.replace(
+    'process.exit(runGates(STEPS))',
+    'process.exit(0)',
+  )
+  assert.notEqual(inertTail, RUNNER_SOURCE, 'the rigging must actually apply to the real tail')
+  assert.ok(trustRootFailures({
+    runnerSource: inertTail,
+    steps: STEPS,
+    packageTestScript: PACKAGE_JSON.scripts?.test,
+  }).length > 0, 'a rigged tail returning 0 must fail the trust root')
+
+  // Rigging 2: the h2a-runtime ID survives but its command is inert — the
+  // verdict column would read "passed" while no suite ever ran.
+  const riggedSteps = STEPS.map((s) =>
+    s.id === 'h2a-runtime'
+      ? { ...s, command: process.execPath, args: ['-e', 'process.exit(0)'] }
+      : s,
+  )
+  assert.ok(trustRootFailures({
+    runnerSource: RUNNER_SOURCE,
+    steps: riggedSteps,
+    packageTestScript: PACKAGE_JSON.scripts?.test,
+  }).length > 0, 'an inert command behind the preserved h2a-runtime id must fail the trust root')
+
+  // Rigging 3: the whole gate list is dropped — "all 0 steps passed".
+  assert.ok(trustRootFailures({
+    runnerSource: RUNNER_SOURCE,
+    steps: [],
+    packageTestScript: PACKAGE_JSON.scripts?.test,
+  }).length > 0, 'an empty gate list must fail the trust root')
 })
