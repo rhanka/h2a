@@ -71,6 +71,36 @@ test("R8.1: verify keeps the Node 20+22 matrix — both legs EFFECTIVE", () => {
   );
 });
 
+test("R8.1: the matrix legs are EFFECTIVE — verify's setup-node must run exactly ${{ matrix.node }}", () => {
+  // Round-6 review finding P2: pinning verify's setup-node to a fixed
+  // `node-version: "22"` kept every assertion above green — matrix.node still
+  // listed ["20", "22"], no exclude existed, the matrix keys were exactly
+  // os/node — while GitHub Actions ran BOTH legs on Node 22 and nothing
+  // verified Node 20 anymore. A listed matrix leg is not a tested Node
+  // version: the leg's steps decide which node actually runs, so the link
+  // between matrix.node and the installed node is pinned here, in execution
+  // shape: exactly ONE setup-node in verify, its inputs pinned (a
+  // node-version-file or a second setup-node re-resolves the node behind the
+  // matrix's back), and node-version equal to the matrix link itself.
+  const verify = job("verify");
+  const setups = verify.steps.filter((step) => String(step.uses ?? "").startsWith("actions/setup-node"));
+  assert.equal(
+    setups.length,
+    1,
+    "verify must carry exactly one setup-node: a second one re-pins every leg to a fixed version while the first still names matrix.node textually",
+  );
+  assert.deepEqual(
+    Object.keys(setups[0].with ?? {}).sort(),
+    ["cache", "node-version"],
+    "the setup-node inputs are pinned: any other input (node-version-file, architecture, a stray second with-block key) changes which node the legs actually run",
+  );
+  assert.equal(
+    setups[0].with?.["node-version"],
+    "${{ matrix.node }}",
+    "verify's node-version must BE the matrix link: a fixed value (round-6: node-version: \"22\") runs every leg on that one version while matrix.node still claims both legs are tested",
+  );
+});
+
 /** `needs: verify` parses as the bare string "verify"; `needs: [verify]` as an array. */
 function needsVerify(job_) {
   if (job_.needs === "verify") return true;
