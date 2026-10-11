@@ -17,7 +17,7 @@ test('should preserve the activated listener using Node execve stdio guarantees'
     const result = await rpc(path.join(l.root, 'owner.sock'), { op: 'exec' });
     assert.equal(result.ok, true);
     await until(async () => {
-      try { return (await rpc(path.join(l.root, 'owner.sock'), { op: 'status' })).generation === 1; }
+      try { return (await rpc(path.join(l.root, 'owner.sock'), { op: 'status' })).build.startsWith('N1:'); }
       catch { return false; }
     });
   }
