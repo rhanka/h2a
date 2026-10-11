@@ -3,12 +3,14 @@ import path from 'node:path';
 import { spawnSession, collect, flush, native, replay, preflight, version } from './pty-io.mjs';
 import { identity, fds, serve, json, read, here } from './lab.mjs';
 import { transition } from './transition.mjs';
+import { frontManager } from './front-manager.mjs';
 
 export async function owner(build) {
   const root = process.env.SPIKE_ROOT;
   if (!root || process.env.HOME !== root || process.env.XDG_RUNTIME_DIR !== root)
     throw new Error('private environment required');
   const checkpoint = path.join(root, 'checkpoint.json');
+  const front = frontManager(root);
   let state = process.env.SPIKE_RESUME ? read(checkpoint) : {
     schema: 1, generation: 0, sessions: [], birth: identity(process.pid), transitions: [],
   };
@@ -34,6 +36,7 @@ export async function owner(build) {
   const listener = process.env.SPIKE_DIRECT_LISTENER === '1' ? 3 : 0;
   const server = serve(listener, async request => {
     const session = state.sessions.find(s => s.id === request.id);
+    if (request.op === 'front-start' || request.op === 'front-kill') return front(request);
     if (request.op === 'status') return { build, node: process.version, pty: version,
       owner: identity(process.pid), generation: state.generation, rollback: state.rollback,
       transitions: state.transitions, fd: fds(), rss: process.memoryUsage().rss,
