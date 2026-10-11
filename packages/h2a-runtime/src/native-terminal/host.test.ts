@@ -478,6 +478,68 @@ describe("NativeTerminalHost", () => {
     expect(pty.write).toHaveBeenCalledTimes(2);
   });
 
+  it("should contain a faulty pty data callback without losing the host or other sessions", () => {
+    const { spawner, ptys } = stubSpawner();
+    const lines: string[] = [];
+    const host = new NativeTerminalHost({
+      generation: "host-generation-guard",
+      replayBytesPerSession: 4096,
+      spawner,
+      registryPath,
+      log: (line) => lines.push(line),
+    });
+
+    createSession(host, "hostile-data");
+    createSession(host, "healthy-data");
+    // A data chunk whose mere length read throws runs on the host's shared
+    // event loop: without a guard this is an uncaughtException, the exact
+    // class of failure that crash-looped the night of 2026-10-10/11.
+    const hostile = { get length() { throw new Error("hostile data chunk"); } } as unknown as string;
+    expect(() => ptys.get("hostile-data")!.emitData(hostile)).not.toThrow();
+    // The faulty session's subscription is disposed: later chunks are not
+    // delivered to the faulty callback at all.
+    expect(() => ptys.get("hostile-data")!.emitData("later-chunk")).not.toThrow();
+    expect(ptys.get("hostile-data")!.write).not.toHaveBeenCalled();
+    expect(lines.some((line) => line.includes("contained a faulty pty data callback")
+      && line.includes("hostile-data"))).toBe(true);
+
+    // The host and the OTHER session keep serving output.
+    ptys.get("healthy-data")!.emitData("healthy-output");
+    expect(host.readOutput("healthy-data", 0).chunks).toEqual([{ seq: 1, data: "healthy-output" }]);
+  });
+
+  it("should settle a session from a faulty pty exit callback and keep the host alive", () => {
+    const { spawner, ptys } = stubSpawner();
+    const lines: string[] = [];
+    const host = new NativeTerminalHost({
+      generation: "host-generation-guard",
+      replayBytesPerSession: 4096,
+      spawner,
+      registryPath,
+      log: (line) => lines.push(line),
+    });
+
+    createSession(host, "hostile-exit");
+    // An exit event whose signal field throws runs synchronously on the
+    // host's shared event loop; the guard must finalize the record from the
+    // readable fields instead of letting the throw escape.
+    const hostileEvent = {
+      exitCode: 3,
+      get signal() { throw new Error("hostile exit signal"); },
+    } as { exitCode: number; signal?: number };
+    expect(() => ptys.get("hostile-exit")!.emitExit(hostileEvent)).not.toThrow();
+    const state = host.state("hostile-exit");
+    expect(state.status).toBe("exited");
+    expect(state.exit).toEqual({ exitCode: 3 });
+    expect(lines.some((line) => line.includes("contained a faulty pty exit callback")
+      && line.includes("hostile-exit"))).toBe(true);
+
+    // The host still serves other sessions.
+    createSession(host, "healthy-exit");
+    ptys.get("healthy-exit")!.emitExit({ exitCode: 0 });
+    expect(host.state("healthy-exit").status).toBe("exited");
+  });
+
   it("should let the controller escalate one stopping session without affecting another", () => {
     const { spawner, ptys } = stubSpawner();
     const host = new NativeTerminalHost({
