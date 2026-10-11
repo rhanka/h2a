@@ -5,6 +5,8 @@ import { resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { NativeTerminalHost, readProcessStartTime } from "./host.js";
+import { writeHostLogLine } from "./crash-safe-log.js";
+import { HOST_FAULT_COUNTERS, recordHostFault } from "./fault-counters.js";
 import { createHostJournalWriter, getRuntimeVersion, type HostJournalEntry } from "./journal.js";
 import { nodePtySpawner } from "../pty.js";
 import {
@@ -12,7 +14,7 @@ import {
   NATIVE_TERMINAL_MAX_REPLAY_BYTES_PER_SESSION,
   NATIVE_TERMINAL_MAX_SESSIONS,
 } from "./protocol.js";
-import { startNativeTerminalHostServer } from "./server.js";
+import { startNativeTerminalHostServer, type NativeTerminalListenerFailure } from "./server.js";
 
 type ProcessOptions = {
   socketPath: string;
@@ -147,19 +149,38 @@ export async function runNativeTerminalHostProcess(argv: ReadonlyArray<string>):
       ...(options.registryPath !== undefined ? { registryPath: options.registryPath } : {}),
     });
     const initialization = new AbortController();
+    let shutdown: Promise<void> | undefined;
     const serverReady = startNativeTerminalHostServer({
       socketPath: options.socketPath, host, signal: initialization.signal,
+      // R7: the server classifies post-listen listener failures; this host
+      // process owns the exit decision (unknown => exit 3, unusable => clean).
+      onListenerFailure: (failure) => stop(undefined, failure),
     });
 
-    let shutdown: Promise<void> | undefined;
-    const stop = (signal: string): void => {
-      journal.write({
-        event: "signal",
-        ...identity(),
-        signal,
-      });
+    const stop = (signal: string | undefined, listenerFailure?: NativeTerminalListenerFailure): void => {
+      if (signal !== undefined) {
+        journal.write({
+          event: "signal",
+          ...identity(),
+          signal,
+        });
+      }
       if (shutdown !== undefined) return;
-      cause = "signal";
+      if (listenerFailure !== undefined) {
+        cause = "listenerFailure";
+        journal.write({
+          event: "listenerFailure",
+          ...identity(),
+          kind: listenerFailure.kind,
+          errno: listenerFailure.errno,
+        });
+      } else {
+        cause = "signal";
+      }
+      // R7: an unclassifiable listener error must exit NON-ZERO (exit 3);
+      // a known-unusable listener exits cleanly. Both run the graceful stop
+      // (sessions drained, socket publication rolled back) — never a crash.
+      const cleanExitCode = listenerFailure !== undefined && listenerFailure.kind === "unknown" ? 3 : 0;
       shutdown = (async () => {
         initialization.abort();
         let gracefulError: unknown;
@@ -192,7 +213,7 @@ export async function runNativeTerminalHostProcess(argv: ReadonlyArray<string>):
             ...identity(),
             clean: true,
           });
-          process.exitCode = 0;
+          process.exitCode = cleanExitCode;
           await journal.flush();
         },
         (error) => {
@@ -201,7 +222,10 @@ export async function runNativeTerminalHostProcess(argv: ReadonlyArray<string>):
             ...identity(),
             clean: false,
           });
-          process.stderr.write(`[h2a-pty-host] shutdown failed after ${signal}: ${String(error)}\n`);
+          const origin = signal ?? `listener failure (${listenerFailure?.kind ?? "unknown"})`;
+          if (!writeHostLogLine(`shutdown failed after ${origin}: ${String(error)}`)) {
+            recordHostFault(HOST_FAULT_COUNTERS.processShutdownWriteFailed);
+          }
           process.exitCode = 1;
         },
       );
@@ -247,7 +271,9 @@ function isEntryPoint(): boolean {
 
 if (isEntryPoint()) {
   runNativeTerminalHostProcess(process.argv).catch((error: unknown) => {
-    process.stderr.write(`[h2a-pty-host] fatal: ${error instanceof Error ? error.stack ?? error.message : String(error)}\n`);
+    if (!writeHostLogLine(`fatal: ${error instanceof Error ? error.stack ?? error.message : String(error)}`)) {
+      recordHostFault(HOST_FAULT_COUNTERS.processFatalWriteFailed);
+    }
     process.exitCode = 1;
   });
 }
