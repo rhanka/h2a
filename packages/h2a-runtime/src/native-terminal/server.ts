@@ -4,6 +4,8 @@ import { chmod, link, lstat, mkdir, open, readFile, rename, unlink, writeFile, t
 import { createConnection, createServer, type Server, type Socket } from "node:net";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 
+import { writeHostLogLine } from "./crash-safe-log.js";
+import { HOST_FAULT_COUNTERS, recordHostFault } from "./fault-counters.js";
 import {
   NativeTerminalHost,
   defaultOwnerHostProbe,
@@ -30,6 +32,7 @@ import {
   type NativeTerminalResponse,
 } from "./protocol.js";
 import {
+  NATIVE_TERMINAL_SOCKET_MAX_PATH_BYTES,
   assertNativeTerminalSocketPathWithinLimit,
   assertPrivateNativeTerminalSocketDirectory,
   inspectPrivateNativeTerminalSocket,
@@ -411,6 +414,7 @@ function consumeFrames(host: NativeTerminalHost, context: ConnectionContext, chu
     if (line.length === 0) continue;
     if (Buffer.byteLength(line) > NATIVE_TERMINAL_MAX_FRAME_BYTES) {
       writeError(context, "invalid", "invalid-request", new Error("terminal request exceeds the frame limit"));
+      recordHostFault(HOST_FAULT_COUNTERS.hostClientFrameDestroys);
       context.socket.destroy();
       return;
     }
@@ -443,6 +447,7 @@ function consumeFrames(host: NativeTerminalHost, context: ConnectionContext, chu
   }
   if (Buffer.byteLength(context.buffer) > NATIVE_TERMINAL_MAX_FRAME_BYTES) {
     writeError(context, "invalid", "invalid-request", new Error("terminal request exceeds the frame limit"));
+    recordHostFault(HOST_FAULT_COUNTERS.hostClientFrameDestroys);
     context.socket.destroy();
   }
 }
@@ -792,12 +797,14 @@ function findActiveHostServingSocket(
     if (candidateCanonical !== targetCanonical) continue;
 
     const candDir = dirname(candidateSocket);
-    const candStem = basename(candidateSocket).slice(0, 8).replace(/[^A-Za-z0-9_.-]/g, "_");
     let isStagingCandidate = false;
     try {
       const dirEntries = readdirSync(candDir);
-      isStagingCandidate = dirEntries.some(name => name.startsWith(`.${candStem}.${pid}.`));
-    } catch {}
+      isStagingCandidate = dirEntries.some(name => isStagedSocketName(name, candidateSocket, pid));
+    } catch {
+      // Staging-directory inspection is optional; the descriptor/inode
+      // attribution below still decides live, absent, or unknown.
+    }
     if (isStagingCandidate) continue;
 
     const fdDir = join(pidDir, "fd");
@@ -843,11 +850,11 @@ function findActiveHostServingSocket(
       // listener's canonical or PID-attributed staged address proves service,
       // including a listener whose filesystem pathname has been unlinked.
       if (!boundPath || (boundPath !== candidateSocket && !(dirname(boundPath) === candDir
-        && basename(boundPath).startsWith(`.${candStem}.${pid}.`) && boundPath.endsWith(".sock")))) continue;
+        && isStagedSocketName(basename(boundPath), candidateSocket, pid)))) continue;
       const canonicalBound = canonicalizePath(boundPath);
       if (!canonicalBound) return { state: "unknown", reason: `cannot canonicalize bound socket for host pid ${pid}` };
       if (canonicalBound === targetCanonical || (dirname(canonicalBound) === dirname(targetCanonical)
-        && basename(canonicalBound).startsWith(`.${candStem}.${pid}.`))) {
+        && isStagedSocketName(basename(canonicalBound), candidateSocket, pid))) {
         hasSocketFd = true;
         break;
       }
@@ -1055,15 +1062,72 @@ async function ensurePrivateSocketDirectory(socketPath: string): Promise<void> {
   }
 }
 
+/**
+ * Staged-socket naming grammar, shared by the generator (`stagingSocketPath`)
+ * and the recognizers in `findActiveHostServingSocket`. The staged name MUST
+ * remain recognizable: a live host that lost its published pathname is only
+ * attributable through its staged name, and refusing to attribute it would
+ * admit a second writer. Never edit the generator without the recognizers.
+ *
+ * Two grammars, with an explicit compatibility order (R5 v5):
+ *
+ * 1. LEGACY (≤ 0.98.4): `.<8 stem bytes>.<pid>.<8 hex>.sock` — the ONLY
+ *    grammar the PUBLISHED 0.98.4 reader recognizes when it attributes, via
+ *    /proc, a live host whose published pathname is gone. Chosen WHENEVER the
+ *    kernel sun_path budget allows it, so a mixed 0.98.4/0.98.5 fleet never
+ *    loses the anti-second-writer attribution in either direction.
+ * 2. SHORT: `.<3 stem bytes>.<pid>.<8 hex>` — the fallback when the legacy
+ *    name would overflow the sun_path budget. RESTRICTION (explicit, R5 v5):
+ *    in such deep paths a 0.98.4 reader can no longer attribute a
+ *    pathname-less 0.98.5 host through /proc — but a 0.98.4 host could not
+ *    even bind there (its own staged name would overflow first), so the
+ *    exposure is confined to deep development/deployment directories, and
+ *    0.98.5 readers still refuse the double publication on both grammars.
+ */
+const STAGED_SOCKET_UUID_HEX_LENGTH = 8;
+
+function stagedSocketStem(publishedPath: string, stemLength: number): string {
+  return basename(publishedPath).slice(0, stemLength).replace(/[^A-Za-z0-9_.-]/g, "_");
+}
+
+/**
+ * Grammar-exact recognizer: `.<stem>.<pid>.<exactly 8 lowercase hex>` for the
+ * short grammar, plus `.sock` for the legacy grammar. A bare `startsWith`
+ * would accept forged or truncated names as attribution evidence.
+ */
+export function isStagedSocketName(name: string, publishedPath: string, pid: number): boolean {
+  for (const [stemLength, legacy] of [[8, true], [3, false]] as const) {
+    const prefix = `.${stagedSocketStem(publishedPath, stemLength)}.${pid}.`;
+    if (!name.startsWith(prefix)) continue;
+    const tail = name.slice(prefix.length);
+    const expectedTailLength = STAGED_SOCKET_UUID_HEX_LENGTH + (legacy ? ".sock".length : 0);
+    if (tail.length !== expectedTailLength) continue;
+    if (!/^[0-9a-f]+$/.test(tail.slice(0, STAGED_SOCKET_UUID_HEX_LENGTH))) continue;
+    if (legacy && !tail.endsWith(".sock")) continue;
+    return true;
+  }
+  return false;
+}
+
 function stagingSocketPath(socketPath: string): string {
   const directory = dirname(socketPath);
-  const stem = basename(socketPath).slice(0, 8).replace(/[^A-Za-z0-9_.-]/g, "_");
+  const uuid = randomUUID().slice(0, STAGED_SOCKET_UUID_HEX_LENGTH);
+  // Legacy first: it is the grammar the published 0.98.4 reader can still
+  // attribute (see the restriction note above). Only a sun_path overflow may
+  // demote the staged name to the short grammar.
+  const legacy = join(
+    directory,
+    `.${stagedSocketStem(socketPath, 8)}.${process.pid}.${uuid}.sock`,
+  );
+  if (Buffer.byteLength(legacy, "utf8") <= NATIVE_TERMINAL_SOCKET_MAX_PATH_BYTES) {
+    return legacy;
+  }
   const stagedPath = join(
     directory,
-    `.${stem}.${process.pid}.${randomUUID().slice(0, 8)}.sock`,
+    `.${stagedSocketStem(socketPath, 3)}.${process.pid}.${uuid}`,
   );
-  // The staged name is longer than the published one; a publishable path can
-  // still overflow the kernel sun_path budget at the bind step.
+  // Even the short name must fit: a publishable path can still overflow the
+  // kernel sun_path budget at the bind step.
   assertNativeTerminalSocketPathWithinLimit(
     stagedPath,
     "terminal host staging socket path",
@@ -1109,8 +1173,43 @@ async function publishSocket(
 
 export type NativeTerminalHostServer = Readonly<{
   socketPath: string;
+  /**
+   * The listening net.Server, exposed for supervision and fault-injection
+   * tests. Callers must not close it directly: use `close()` so publication
+   * rollback and socket cleanup run.
+   */
+  server: Server;
   close(options?: { stopSessions?: boolean; signal?: string }): Promise<void>;
 }>;
+
+/**
+ * Listener failure classification (R7). A listener error that is neither
+ * recoverable nor provably-unusable is UNKNOWN: the host must not pretend to
+ * serve on a listener whose failure it cannot name.
+ */
+export type NativeTerminalListenerFailure = Readonly<{
+  kind: "unusable" | "unknown";
+  errno: string | undefined;
+  error: unknown;
+}>;
+
+/**
+ * Accept/connection-side transport errors: the listener itself keeps serving.
+ */
+const RECOVERABLE_LISTENER_ERRNOS: ReadonlySet<string> =
+  new Set(["ECONNRESET", "EPIPE", "ECONNABORTED"]);
+
+/** Accept-path fd exhaustion: transient while it clears, unusable when it
+ * persists (v5 R7 predicate: >= 3 consecutive accept errors within 60 s). */
+const EXHAUSTED_LISTENER_ERRNOS: ReadonlySet<string> = new Set(["EMFILE", "ENFILE"]);
+const LISTENER_EXHAUSTION_PERSISTENCE_THRESHOLD = 3;
+const LISTENER_EXHAUSTION_WINDOW_MS = 60_000;
+
+/** The listening socket can no longer serve: late EADDRINUSE, an invalid fd,
+ * an unusable address. Known-dead — exit cleanly and let the supervisor own
+ * the respawn. */
+const UNUSABLE_LISTENER_ERRNOS: ReadonlySet<string> =
+  new Set(["ERR_SERVER_CLOSED", "EADDRINUSE", "EADDRNOTAVAIL", "EBADF", "EINVAL", "ENOTSOCK", "EACCES"]);
 
 export async function startNativeTerminalHostServer(options: {
   socketPath: string;
@@ -1122,6 +1221,14 @@ export async function startNativeTerminalHostServer(options: {
    * `NativeTerminalOwnerHostProbe`): tests record its calls so the absence of
    * a probe is OBSERVED, not inferred from a verdict. */
   ownerProbe?: NativeTerminalOwnerHostProbe;
+  /**
+   * Invoked when a post-listen net.Server error leaves the listener unable
+   * (or unproven) to serve; the server itself has already stopped accepting.
+   * The standalone host process wires this to its graceful stop (exit 3 for
+   * an unclassifiable failure, a clean exit for a known-unusable listener).
+   * Recoverable transport errors never reach this callback.
+   */
+  onListenerFailure?: (failure: NativeTerminalListenerFailure) => void;
 }): Promise<NativeTerminalHostServer> {
   const deadline = new AbortController();
   const timer = setTimeout(() => deadline.abort(new NativeTerminalPublicationRefusal("H2A_SOCKET_PUBLICATION_TIMEOUT")),
@@ -1138,6 +1245,7 @@ async function initializeNativeTerminalHostServer(options: {
   signal: AbortSignal;
   readFrame?: ReadProcessFrame;
   ownerProbe?: NativeTerminalOwnerHostProbe;
+  onListenerFailure?: (failure: NativeTerminalListenerFailure) => void;
 }): Promise<NativeTerminalHostServer> {
   options.signal?.throwIfAborted();
   if (!isAbsolute(options.socketPath)) throw new Error("terminal host socket path must be absolute");
@@ -1146,7 +1254,10 @@ async function initializeNativeTerminalHostServer(options: {
   const sockets = new Set<Socket>();
   const responseBudget: ResponseQueueBudget = { pendingBytes: 0 };
   let readyForRequests = false;
+  let listenerExhaustionEvents: number[] = [];
   const server: Server = createServer((socket) => {
+    // A successful accept breaks the consecutive failure series (R7 v5).
+    listenerExhaustionEvents = [];
     if (sockets.size >= NATIVE_TERMINAL_MAX_CONNECTIONS) {
       socket.destroy();
       return;
@@ -1166,12 +1277,17 @@ async function initializeNativeTerminalHostServer(options: {
     socket.setEncoding("utf8");
     socket.setNoDelay(true);
     socket.on("error", () => {
-      // Per-connection transport failures are contained to this client.
+      // R7.5 named exemption: expected, potentially high-volume transport
+      // errors. Count per connection instead of producing a log per event.
+      recordHostFault(HOST_FAULT_COUNTERS.hostSocketConnectionErrors);
     });
     socket.on("data", (chunk: string) => {
       try {
         consumeFrames(options.host, context, chunk);
       } catch {
+        // R7.5 named exemption: a bad client costs only this connection;
+        // count frame destroys instead of logging every malformed stream.
+        recordHostFault(HOST_FAULT_COUNTERS.hostClientFrameDestroys);
         socket.destroy();
       }
     });
@@ -1183,6 +1299,10 @@ async function initializeNativeTerminalHostServer(options: {
   });
   const stagedPath = stagingSocketPath(options.socketPath);
   let ownedSocket: NativeTerminalSocketIdentity | undefined;
+  // Assigned once the published close is built; the listener-failure handler
+  // (installed before that object exists) tears the server down through it.
+  let closePublished: ((closeOptions?: { stopSessions?: boolean; signal?: string }) => Promise<void>) | undefined;
+  let initializationFailure: NativeTerminalListenerFailure | undefined;
   try {
     await abortable(new Promise<void>((resolve, reject) => {
       server.once("error", reject);
@@ -1191,6 +1311,68 @@ async function initializeNativeTerminalHostServer(options: {
         resolve();
       });
     }), options.signal);
+    // The listener that turned listen()-path errors into a rejected startup
+    // is gone by design; without a replacement, any error surfacing on the
+    // net.Server AFTER listen would be an unhandled `error` event — an
+    // uncaughtException that kills the host (the 2026-10-10/11 crash-loop's
+    // class of failure). This durable handler CLASSIFIES instead of
+    // absorbing everything (R7):
+    // - recoverable transport errors (accept/connection side): log + survive;
+    // - a known-unusable listener: log + stop serving + clean exit path;
+    // - anything unclassifiable: log + stop serving + let the wired owner
+    //   exit non-zero (exit 3) — the supervisor's bounded respawn owns it.
+    // Per-connection transport errors stay on each socket's own handler.
+    server.on("error", (error) => {
+      const errno = (error as NodeJS.ErrnoException).code;
+      if (errno !== undefined && RECOVERABLE_LISTENER_ERRNOS.has(errno)) {
+        listenerExhaustionEvents = [];
+        recordHostFault(HOST_FAULT_COUNTERS.serverListenerErrorRecoverable);
+        writeHostLogLine(`terminal host listener recovered from a transport error (${errno}, contained): ${String(error)}`);
+        return;
+      }
+      // fd exhaustion on the accept path is survivable while it clears; the
+      // v5 R7 persistence predicate promotes it to a known-unusable listener.
+      if (errno !== undefined && EXHAUSTED_LISTENER_ERRNOS.has(errno)) {
+        const now = Date.now();
+        listenerExhaustionEvents.push(now);
+        listenerExhaustionEvents = listenerExhaustionEvents.filter(
+          (at) => now - at < LISTENER_EXHAUSTION_WINDOW_MS,
+        );
+        if (listenerExhaustionEvents.length >= LISTENER_EXHAUSTION_PERSISTENCE_THRESHOLD) {
+          writeHostLogLine(`terminal host listener accept path is persistently exhausted (${listenerExhaustionEvents.length} ${errno} within ${LISTENER_EXHAUSTION_WINDOW_MS}ms); stopping`);
+          listenerExhaustionEvents = [];
+          escalateListenerFailure({ kind: "unusable", errno, error });
+          return;
+        }
+        recordHostFault(HOST_FAULT_COUNTERS.serverListenerErrorExhausted);
+        writeHostLogLine(`terminal host listener accept path exhausted (${errno}, contained while it clears; ${listenerExhaustionEvents.length}/${LISTENER_EXHAUSTION_PERSISTENCE_THRESHOLD} in the window): ${String(error)}`);
+        return;
+      }
+      const kind: "unusable" | "unknown" =
+        errno !== undefined && UNUSABLE_LISTENER_ERRNOS.has(errno) ? "unusable" : "unknown";
+      escalateListenerFailure({ kind, errno, error });
+    });
+    const escalateListenerFailure = (failure: NativeTerminalListenerFailure): void => {
+      recordHostFault(failure.kind === "unusable"
+        ? HOST_FAULT_COUNTERS.serverListenerErrorUnusable
+        : HOST_FAULT_COUNTERS.serverListenerErrorUnknown);
+      const label = failure.kind === "unknown" ? "unknown listener error" : "unusable listener error";
+      writeHostLogLine(`${label} (${failure.errno ?? "no errno"}): ${String(failure.error)}; stopping`);
+      if (options.onListenerFailure !== undefined) {
+        options.onListenerFailure(failure);
+        return;
+      }
+      if (closePublished === undefined) {
+        initializationFailure = failure;
+        return;
+      }
+      // Library default: no owner owns the process exit — stop serving
+      // (sessions, sockets, publication rollback) without crashing the caller.
+      closePublished?.({ stopSessions: true }).catch(() => {
+        // The failure is already logged and counted; teardown errors must not
+        // turn a contained listener failure into an unhandled rejection.
+      });
+    };
     // Capture the listener's inode before any publication await can suspend.
     ownedSocket = lstatSync(stagedPath);
     await abortable(chmod(stagedPath, 0o600), options.signal);
@@ -1215,6 +1397,9 @@ async function initializeNativeTerminalHostServer(options: {
       },
       options.signal,
     );
+    if (initializationFailure !== undefined) {
+      throw new Error(initializationFailure.kind === "unknown" ? "unknown listener error" : "unusable listener error");
+    }
   } catch (error) {
     for (const socket of sockets) socket.destroy();
     const closed = new Promise<void>((resolve) => server.close(() => resolve()));
@@ -1229,36 +1414,40 @@ async function initializeNativeTerminalHostServer(options: {
   for (const socket of sockets) socket.resume();
   let closing: Promise<void> | undefined;
 
+  const doClose = (closeOptions: { stopSessions?: boolean; signal?: string } = {}): Promise<void> => {
+    closing ??= (async () => {
+      let stopError: unknown;
+      if (closeOptions.stopSessions) {
+        try {
+          const signal = closeOptions.signal ?? "SIGTERM";
+          if (!isNativeTerminalStopSignal(signal)) {
+            throw new TypeError("invalid terminal host shutdown signal");
+          }
+          options.host.stopAll(signal);
+        } catch (error) {
+          stopError = error;
+        }
+      }
+      for (const socket of sockets) socket.destroy();
+      await abortable(new Promise<void>((resolve, reject) => {
+        server.close((error) => error ? reject(error) : resolve());
+      }), AbortSignal.timeout(SOCKET_PUBLICATION_CLEANUP_TIMEOUT_MS));
+      await withSocketPublicationLock(options.socketPath, async () => {
+        try {
+          rollbackEndpoint(options.socketPath, ownedSocket!);
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+        }
+      });
+      if (stopError !== undefined) throw stopError;
+    })();
+    return closing;
+  };
+  closePublished = doClose;
+
   return Object.freeze({
     socketPath: options.socketPath,
-    close(closeOptions = {}) {
-      closing ??= (async () => {
-        let stopError: unknown;
-        if (closeOptions.stopSessions) {
-          try {
-            const signal = closeOptions.signal ?? "SIGTERM";
-            if (!isNativeTerminalStopSignal(signal)) {
-              throw new TypeError("invalid terminal host shutdown signal");
-            }
-            options.host.stopAll(signal);
-          } catch (error) {
-            stopError = error;
-          }
-        }
-        for (const socket of sockets) socket.destroy();
-        await abortable(new Promise<void>((resolve, reject) => {
-          server.close((error) => error ? reject(error) : resolve());
-        }), AbortSignal.timeout(SOCKET_PUBLICATION_CLEANUP_TIMEOUT_MS));
-        await withSocketPublicationLock(options.socketPath, async () => {
-          try {
-            rollbackEndpoint(options.socketPath, ownedSocket!);
-          } catch (error) {
-            if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-          }
-        });
-        if (stopError !== undefined) throw stopError;
-      })();
-      return closing;
-    },
+    server,
+    close: doClose,
   });
 }

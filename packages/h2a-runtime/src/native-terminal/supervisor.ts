@@ -5,6 +5,7 @@ import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { NativeTerminalClient } from "./client.js";
+import { HOST_FAULT_COUNTERS, recordHostFault } from "./fault-counters.js";
 import {
   defaultOwnerHostProbe,
   reconcileDeadHostOrphans,
@@ -190,6 +191,10 @@ const NATIVE_TERMINAL_SPAWN_BACKOFF_MAX_MS = 5_000;
 const NATIVE_TERMINAL_STARTUP_TIMEOUT_MS = 5_000;
 const NATIVE_TERMINAL_SPAWN_TERMINATION_GRACE_MS = 1_000;
 const NATIVE_TERMINAL_MAX_STARTUP_DIAGNOSTIC_BYTES = 4_096;
+const NATIVE_TERMINAL_RESTART_WINDOW_MS = 60_000;
+const NATIVE_TERMINAL_MAX_RESTARTS = 10;
+const NATIVE_TERMINAL_RESTART_LIMIT_MESSAGE =
+  "native terminal host restart limit exceeded (10 restarts in 60000ms); abandoning respawn";
 
 export type NativeTerminalHostSpawn = (options: {
   socketPath: string;
@@ -325,6 +330,12 @@ export class NativeTerminalHostSupervisor {
   #nextSpawnAllowedAt = 0;
   #lastSpawnFailure: Error | undefined;
   #lastSpawnGeneration: string | undefined;
+  #restartTimes: number[] = [];
+  #hasSpawned = false;
+  #respawnAbandoned = false;
+  #healthySince: number | undefined;
+  #healthyIdentity: string | undefined;
+  #spawnedFailureRecorded = false;
   // A health-checked host that has disappeared may have left a PTY guardian
   // (or, after that guardian's own parent-death race, its reparented
   // descendants) behind. Keep its identity until #containDeadOwnedHost has
@@ -435,10 +446,13 @@ export class NativeTerminalHostSupervisor {
     if (this.#client) {
       try {
         await this.#client.ping(NATIVE_TERMINAL_HEALTH_TIMEOUT_MS);
+        this.#resetAfterHealthyMinute();
         return this.#client;
       } catch {
         this.#client.close();
         this.#client = undefined;
+        this.#healthySince = undefined;
+        this.#healthyIdentity = undefined;
       }
     }
     this.#connecting ??= this.#connectOrStart().finally(() => {
@@ -461,6 +475,8 @@ export class NativeTerminalHostSupervisor {
       );
       return await this.#adoptHealthyConnection(connected);
     } catch (error) {
+      this.#healthySince = undefined;
+      this.#healthyIdentity = undefined;
       // A containment verdict is NOT a connection failure. The adoption above
       // can reach one, and treating it as "nothing answered" would start
       // takeover — which, on a pass that no longer carries blocking evidence,
@@ -477,6 +493,9 @@ export class NativeTerminalHostSupervisor {
       await this.#containDeadOwnedHost();
       if (!this.#spawned || this.#spawned.exitCode !== null || this.#spawned.signalCode !== null) {
         const now = this.#now();
+        this.#healthySince = undefined;
+        this.#healthyIdentity = undefined;
+        if (this.#respawnAbandoned) throw new Error(NATIVE_TERMINAL_RESTART_LIMIT_MESSAGE);
         if (now < this.#nextSpawnAllowedAt) {
           const remaining = this.#nextSpawnAllowedAt - now;
           throw new Error(
@@ -490,6 +509,15 @@ export class NativeTerminalHostSupervisor {
         if (generation === this.#lastSpawnGeneration) {
           throw new Error("native terminal host generation must change after a restart");
         }
+        this.#restartTimes = this.#restartTimes.filter(at => now - at < NATIVE_TERMINAL_RESTART_WINDOW_MS);
+        if (this.#hasSpawned && this.#restartTimes.length >= NATIVE_TERMINAL_MAX_RESTARTS) {
+          this.#respawnAbandoned = true;
+          recordHostFault(HOST_FAULT_COUNTERS.supervisorRespawnAbandoned);
+          this.#log(NATIVE_TERMINAL_RESTART_LIMIT_MESSAGE);
+          throw new Error(NATIVE_TERMINAL_RESTART_LIMIT_MESSAGE);
+        }
+        if (this.#hasSpawned) this.#restartTimes.push(now);
+        this.#hasSpawned = true;
         this.#lastSpawnGeneration = generation;
         // We are about to spawn a REPLACEMENT host. The containment pass
         // above has already run — and, had it found an unconfirmed
@@ -506,7 +534,11 @@ export class NativeTerminalHostSupervisor {
           ...(this.#registryPath !== undefined ? { registryPath: this.#registryPath } : {}),
         });
         this.#spawnedReachedHealth = false;
+        this.#spawnedFailureRecorded = false;
         const spawned = this.#spawned;
+        spawned.once("exit", () => {
+          if (this.#spawned === spawned && this.#spawnedReachedHealth) this.#recordHealthyHostExit(spawned);
+        });
         spawned.stderr?.setEncoding("utf8");
         spawned.stderr?.on("data", (chunk: string | Buffer) => {
           const text = typeof chunk === "string" ? chunk : chunk.toString("utf8");
@@ -530,6 +562,8 @@ export class NativeTerminalHostSupervisor {
         );
         return await this.#adoptHealthyConnection(connected);
       } catch (error) {
+        this.#healthySince = undefined;
+        this.#healthyIdentity = undefined;
         // Same discrimination as the takeover preflight above, and the reason
         // this loop must make it: retrying a containment verdict runs one
         // reconcile pass per iteration (a pass that reaps a live group can take
@@ -643,7 +677,12 @@ export class NativeTerminalHostSupervisor {
       connected.client.close();
       throw error;
     }
-    this.#resetSpawnBackoff();
+    const identity = `${connected.ping.hostPid}:${connected.ping.generation}`;
+    if (this.#healthyIdentity !== identity) {
+      this.#healthyIdentity = identity;
+      this.#healthySince = this.#now();
+    }
+    this.#resetAfterHealthyMinute();
     return connected.client;
   }
 
@@ -769,6 +808,7 @@ export class NativeTerminalHostSupervisor {
 
   #clearGoneSpawn(): void {
     if (this.#spawned && childGone(this.#spawned)) {
+      if (this.#spawnedReachedHealth) this.#recordHealthyHostExit(this.#spawned);
       if (this.#spawnedReachedHealth && this.#spawned.pid !== undefined) {
         this.#pendingDeadOwnedHostPid ??= this.#spawned.pid;
       }
@@ -948,6 +988,9 @@ export class NativeTerminalHostSupervisor {
   }
 
   #recordSpawnFailure(error: Error): void {
+    this.#healthySince = undefined;
+    this.#healthyIdentity = undefined;
+    this.#spawnedFailureRecorded = true;
     this.#consecutiveSpawnFailures += 1;
     const delayMs = Math.min(
       NATIVE_TERMINAL_SPAWN_BACKOFF_BASE_MS *
@@ -962,5 +1005,20 @@ export class NativeTerminalHostSupervisor {
     this.#consecutiveSpawnFailures = 0;
     this.#nextSpawnAllowedAt = 0;
     this.#lastSpawnFailure = undefined;
+  }
+
+  #recordHealthyHostExit(spawned: ChildProcess): void {
+    if (this.#spawnedFailureRecorded) return;
+    this.#resetAfterHealthyMinute();
+    this.#recordSpawnFailure(new Error(
+      `native terminal host exited after accepting connections (${spawned.exitCode ?? spawned.signalCode ?? "unknown"})`,
+    ));
+  }
+
+  #resetAfterHealthyMinute(): void {
+    if (this.#healthySince === undefined || this.#now() - this.#healthySince < NATIVE_TERMINAL_RESTART_WINDOW_MS) return;
+    this.#resetSpawnBackoff();
+    this.#restartTimes = [];
+    this.#respawnAbandoned = false;
   }
 }
