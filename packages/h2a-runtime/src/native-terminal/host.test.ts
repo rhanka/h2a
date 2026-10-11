@@ -31,6 +31,7 @@ import {
   type NativeTerminalProcessGroupReaper,
 } from "./host.js";
 import type { NativeTerminalStopSignal } from "./protocol.js";
+import { HOST_FAULT_COUNTERS, hostFaultCounters } from "./fault-counters.js";
 
 function isErrnoException(error: unknown): error is NodeJS.ErrnoException {
   return error instanceof Error && "code" in error;
@@ -502,6 +503,9 @@ describe("NativeTerminalHost", () => {
     expect(ptys.get("hostile-data")!.write).not.toHaveBeenCalled();
     expect(lines.some((line) => line.includes("contained a faulty pty data callback")
       && line.includes("hostile-data"))).toBe(true);
+    // The guard owns its DISTINCT named counter; no other site moved.
+    expect(hostFaultCounters()[HOST_FAULT_COUNTERS.ptyDataCallbackContained]).toBe(1);
+    expect(hostFaultCounters()[HOST_FAULT_COUNTERS.ptyExitCallbackContained]).toBeUndefined();
 
     // The host and the OTHER session keep serving output.
     ptys.get("healthy-data")!.emitData("healthy-output");
@@ -533,6 +537,8 @@ describe("NativeTerminalHost", () => {
     expect(state.exit).toEqual({ exitCode: 3 });
     expect(lines.some((line) => line.includes("contained a faulty pty exit callback")
       && line.includes("hostile-exit"))).toBe(true);
+    // The guard owns its DISTINCT named counter.
+    expect(hostFaultCounters()[HOST_FAULT_COUNTERS.ptyExitCallbackContained]).toBe(1);
 
     // The host still serves other sessions.
     createSession(host, "healthy-exit");

@@ -5,6 +5,7 @@ import { createConnection, createServer, type Server, type Socket } from "node:n
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 
 import { writeHostLogLine } from "./crash-safe-log.js";
+import { HOST_FAULT_COUNTERS, recordHostFault } from "./fault-counters.js";
 import {
   NativeTerminalHost,
   defaultOwnerHostProbe,
@@ -1054,10 +1055,39 @@ export type NativeTerminalHostServer = Readonly<{
   close(options?: { stopSessions?: boolean; signal?: string }): Promise<void>;
 }>;
 
+/**
+ * Listener failure classification (R7). A listener error that is neither
+ * recoverable nor provably-unusable is UNKNOWN: the host must not pretend to
+ * serve on a listener whose failure it cannot name.
+ */
+export type NativeTerminalListenerFailure = Readonly<{
+  kind: "unusable" | "unknown";
+  errno: string | undefined;
+  error: unknown;
+}>;
+
+/** Accept/connection-side transport errors: the listener itself keeps serving. */
+const RECOVERABLE_LISTENER_ERRNOS: ReadonlySet<string> =
+  new Set(["ECONNRESET", "EPIPE", "ECONNABORTED"]);
+
+/** The listening socket can no longer serve: late EADDRINUSE, an invalid fd,
+ * an unusable address. Known-dead — exit cleanly and let the supervisor own
+ * the respawn. */
+const UNUSABLE_LISTENER_ERRNOS: ReadonlySet<string> =
+  new Set(["EADDRINUSE", "EADDRNOTAVAIL", "EBADF", "EINVAL", "ENOTSOCK", "EACCES"]);
+
 export async function startNativeTerminalHostServer(options: {
   socketPath: string;
   host: NativeTerminalHost;
   signal?: AbortSignal;
+  /**
+   * Invoked when a post-listen net.Server error leaves the listener unable
+   * (or unproven) to serve; the server itself has already stopped accepting.
+   * The standalone host process wires this to its graceful stop (exit 3 for
+   * an unclassifiable failure, a clean exit for a known-unusable listener).
+   * Recoverable transport errors never reach this callback.
+   */
+  onListenerFailure?: (failure: NativeTerminalListenerFailure) => void;
 }): Promise<NativeTerminalHostServer> {
   const deadline = new AbortController();
   const timer = setTimeout(() => deadline.abort(new Error("terminal host socket publication timed out")),
@@ -1072,6 +1102,7 @@ async function initializeNativeTerminalHostServer(options: {
   socketPath: string;
   host: NativeTerminalHost;
   signal: AbortSignal;
+  onListenerFailure?: (failure: NativeTerminalListenerFailure) => void;
 }): Promise<NativeTerminalHostServer> {
   options.signal?.throwIfAborted();
   if (!isAbsolute(options.socketPath)) throw new Error("terminal host socket path must be absolute");
@@ -1117,6 +1148,9 @@ async function initializeNativeTerminalHostServer(options: {
   });
   const stagedPath = stagingSocketPath(options.socketPath);
   let ownedSocket: NativeTerminalSocketIdentity | undefined;
+  // Assigned once the published close is built; the listener-failure handler
+  // (installed before that object exists) tears the server down through it.
+  let closePublished: ((closeOptions?: { stopSessions?: boolean; signal?: string }) => Promise<void>) | undefined;
   try {
     await abortable(new Promise<void>((resolve, reject) => {
       server.once("error", reject);
@@ -1129,10 +1163,37 @@ async function initializeNativeTerminalHostServer(options: {
     // is gone by design; without a replacement, any error surfacing on the
     // net.Server AFTER listen would be an unhandled `error` event — an
     // uncaughtException that kills the host (the 2026-10-10/11 crash-loop's
-    // class of failure). This durable handler observes and survives:
-    // per-connection transport errors stay on each socket's own handler.
+    // class of failure). This durable handler CLASSIFIES instead of
+    // absorbing everything (R7):
+    // - recoverable transport errors (accept/connection side): log + survive;
+    // - a known-unusable listener: log + stop serving + clean exit path;
+    // - anything unclassifiable: log + stop serving + let the wired owner
+    //   exit non-zero (exit 3) — the supervisor's bounded respawn owns it.
+    // Per-connection transport errors stay on each socket's own handler.
     server.on("error", (error) => {
-      writeHostLogLine(`terminal host server error (contained): ${String(error)}`);
+      const errno = (error as NodeJS.ErrnoException).code;
+      if (errno !== undefined && RECOVERABLE_LISTENER_ERRNOS.has(errno)) {
+        recordHostFault(HOST_FAULT_COUNTERS.serverListenerErrorRecoverable);
+        writeHostLogLine(`terminal host listener recovered from a transport error (${errno}, contained): ${String(error)}`);
+        return;
+      }
+      const kind: "unusable" | "unknown" =
+        errno !== undefined && UNUSABLE_LISTENER_ERRNOS.has(errno) ? "unusable" : "unknown";
+      recordHostFault(kind === "unusable"
+        ? HOST_FAULT_COUNTERS.serverListenerErrorUnusable
+        : HOST_FAULT_COUNTERS.serverListenerErrorUnknown);
+      writeHostLogLine(`terminal host listener is ${kind} after ${errno ?? "an unclassified error"}: ${String(error)}; stopping`);
+      const failure: NativeTerminalListenerFailure = { kind, errno, error };
+      if (options.onListenerFailure !== undefined) {
+        options.onListenerFailure(failure);
+        return;
+      }
+      // Library default: no owner owns the process exit — stop serving
+      // (sessions, sockets, publication rollback) without crashing the caller.
+      closePublished?.({ stopSessions: true }).catch(() => {
+        // The failure is already logged and counted; teardown errors must not
+        // turn a contained listener failure into an unhandled rejection.
+      });
     });
     // Capture the listener's inode before any publication await can suspend.
     ownedSocket = lstatSync(stagedPath);
@@ -1169,37 +1230,40 @@ async function initializeNativeTerminalHostServer(options: {
   for (const socket of sockets) socket.resume();
   let closing: Promise<void> | undefined;
 
+  const doClose = (closeOptions: { stopSessions?: boolean; signal?: string } = {}): Promise<void> => {
+    closing ??= (async () => {
+      let stopError: unknown;
+      if (closeOptions.stopSessions) {
+        try {
+          const signal = closeOptions.signal ?? "SIGTERM";
+          if (!isNativeTerminalStopSignal(signal)) {
+            throw new TypeError("invalid terminal host shutdown signal");
+          }
+          options.host.stopAll(signal);
+        } catch (error) {
+          stopError = error;
+        }
+      }
+      for (const socket of sockets) socket.destroy();
+      await abortable(new Promise<void>((resolve, reject) => {
+        server.close((error) => error ? reject(error) : resolve());
+      }), AbortSignal.timeout(SOCKET_PUBLICATION_CLEANUP_TIMEOUT_MS));
+      await withSocketPublicationLock(options.socketPath, async () => {
+        try {
+          rollbackEndpoint(options.socketPath, ownedSocket!);
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+        }
+      });
+      if (stopError !== undefined) throw stopError;
+    })();
+    return closing;
+  };
+  closePublished = doClose;
+
   return Object.freeze({
     socketPath: options.socketPath,
     server,
-    close(closeOptions = {}) {
-      closing ??= (async () => {
-        let stopError: unknown;
-        if (closeOptions.stopSessions) {
-          try {
-            const signal = closeOptions.signal ?? "SIGTERM";
-            if (!isNativeTerminalStopSignal(signal)) {
-              throw new TypeError("invalid terminal host shutdown signal");
-            }
-            options.host.stopAll(signal);
-          } catch (error) {
-            stopError = error;
-          }
-        }
-        for (const socket of sockets) socket.destroy();
-        await abortable(new Promise<void>((resolve, reject) => {
-          server.close((error) => error ? reject(error) : resolve());
-        }), AbortSignal.timeout(SOCKET_PUBLICATION_CLEANUP_TIMEOUT_MS));
-        await withSocketPublicationLock(options.socketPath, async () => {
-          try {
-            rollbackEndpoint(options.socketPath, ownedSocket!);
-          } catch (error) {
-            if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-          }
-        });
-        if (stopError !== undefined) throw stopError;
-      })();
-      return closing;
-    },
+    close: doClose,
   });
 }
