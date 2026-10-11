@@ -14,6 +14,7 @@ import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
 import type { PtyHandle, PtySpawner } from "../pty.js";
 import { NativeTerminalClient } from "./client.js";
 import { NativeTerminalHost } from "./host.js";
+import { HOST_FAULT_COUNTERS, hostFaultCounters } from "./fault-counters.js";
 import type { NativeTerminalStopSignal } from "./protocol.js";
 import { NATIVE_TERMINAL_MAX_REPLAY_CHUNKS_PER_SESSION } from "./replay-buffer.js";
 import { startNativeTerminalHostServer, type NativeTerminalHostServer } from "./server.js";
@@ -304,17 +305,38 @@ describe("native terminal local transport", () => {
     );
   });
 
-  it("should contain a net.Server error surfacing after listen", async () => {
+  it("should keep serving through recoverable listener transport errors", async () => {
     const { socketPath, server, client } = await service();
     // The listener that guards listen() is removed once listening succeeds;
-    // without a durable replacement, any late server-level error would be an
-    // unhandled `error` event — an uncaughtException that kills the host.
-    expect(() => server.server.emit("error", new Error("late accept failure"))).not.toThrow();
-    // The contained server keeps serving existing and new clients.
+    // recoverable accept/connection-side transport errors (R7) must be
+    // absorbed by the durable handler: the service stays up.
+    for (const code of ["ECONNRESET", "EPIPE", "ECONNABORTED"]) {
+      const error = new Error(`late ${code} on the accept path`);
+      (error as NodeJS.ErrnoException).code = code;
+      expect(() => server.server.emit("error", error)).not.toThrow();
+    }
     expect((await client.ping()).generation).toBe("unit-generation");
     const second = await NativeTerminalClient.connect(socketPath);
     expect((await second.ping()).generation).toBe("unit-generation");
     second.close();
+    expect(hostFaultCounters()[HOST_FAULT_COUNTERS.serverListenerErrorRecoverable]).toBe(3);
+    // The recoverable class never escalates.
+    expect(hostFaultCounters()[HOST_FAULT_COUNTERS.serverListenerErrorUnknown]).toBeUndefined();
+    expect(hostFaultCounters()[HOST_FAULT_COUNTERS.serverListenerErrorUnusable]).toBeUndefined();
+  });
+
+  it("should stop serving when a listener error cannot be classified", async () => {
+    const { socketPath, server, client } = await service();
+    // R7: an error with no recognized errno is UNKNOWN — the server must NOT
+    // keep pretending to serve on a listener whose failure it cannot name.
+    expect(() => server.server.emit("error", new Error("late mystery listener failure"))).not.toThrow();
+    await expect(client.ping()).rejects.toThrow();
+    const refused = await eventually(
+      () => NativeTerminalClient.connect(socketPath).then(() => false, () => true),
+      (failed) => failed,
+    );
+    expect(refused).toBe(true);
+    expect(hostFaultCounters()[HOST_FAULT_COUNTERS.serverListenerErrorUnknown]).toBe(1);
   });
 
   it("should bind controller authority to its connection and release it on disconnect", async () => {
