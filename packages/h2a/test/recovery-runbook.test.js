@@ -202,14 +202,19 @@ test("R9: the registry rows are qualified PER ROW against the local machine-id, 
 
 /**
  * Execute the runbook's Commande 2.2 for REAL, in a temp HOME, with the
- * machine-id mocked through a preload (test-only shim: it intercepts exactly
- * one hardcoded path). Round-3 review finding: the command's own
- * classification was unobserved — a corrupt JSON read `registre-absent-ou-illisible`
- * (routed to the cold path) and a same-machine row with a malformed boot
- * anchor still counted `rows-attribuables:1`, promising an automatic takeover
- * that R1 order 0 refuses.
+ * CURRENT FRAME mocked through a preload (test-only shim: it intercepts
+ * exactly three hardcoded paths — /etc/machine-id,
+ * /proc/sys/kernel/random/boot_id and the /proc/self/ns/pid readlink).
+ * Round-3 review finding: the command's own classification was unobserved —
+ * a corrupt JSON read `registre-absent-ou-illisible` (routed to the cold
+ * path) and a same-machine row with a malformed boot anchor still counted
+ * `rows-attribuables:1`, promising an automatic takeover that R1 order 0
+ * refuses. Round-4 review finding F05: the qualifier validated the anchor
+ * FORMATS but never compared them to the current frame, so a valid-format
+ * FOREIGN pid namespace still counted attributable — the mock now covers
+ * the whole frame so the R1 comparisons are exercised deterministically.
  */
-function runCommande22({ registry, machineId }) {
+function runCommande22({ registry, machineId, currentBootId = MOCK_CURRENT_BOOT_ID, pidNamespace = "4026531836" }) {
   const scratch = mkdtempSync(join(tmpdir(), "h2a-runbook-c22-"));
   try {
     const home = join(scratch, "home");
@@ -222,7 +227,14 @@ function runCommande22({ registry, machineId }) {
       preload,
       'const fs=require("node:fs");const old=fs.readFileSync;fs.readFileSync=function(p,...args){if(p==="/etc/machine-id")return ' +
         JSON.stringify(machineId) +
-        ';return old.call(this,p,...args)}',
+        ';if(p==="/proc/sys/kernel/random/boot_id")return ' +
+        JSON.stringify(currentBootId) +
+        ';return old.call(this,p,...args)};' +
+        "const oldLink=fs.readlinkSync;fs.readlinkSync=function(p,...args){if(p===\"/proc/self/ns/pid\")" +
+        (pidNamespace === null
+          ? "{throw new Error(\"mocked unreadable pid namespace\")}"
+          : "{return " + JSON.stringify("pid:[" + pidNamespace + "]") + "}") +
+        ";return oldLink.call(this,p,...args)};",
     );
     const qualifier = COMMAND_BLOCKS.find((block) => block.command.includes("rows-attribuables"));
     assert.ok(qualifier, "Commande 2.2 must remain an executable one-liner");
@@ -243,6 +255,10 @@ function runCommande22({ registry, machineId }) {
 
 const MOCK_MACHINE_ID = "a".repeat(32);
 const VALID_BOOT_ID = "1f0e3d99-c948-4a67-8b11-2c5b7a9d0001";
+// A valid store-format boot UUID that is NOT the stored fixture boot: the
+// mocked CURRENT boot. Any row stamped with the stored VALID_BOOT_ID is a
+// DIFFERENT boot — the stale-boot shape R3 takes over on.
+const MOCK_CURRENT_BOOT_ID = "2f0e3d99-c948-4a67-8b11-2c5b7a9d0002";
 const validRow = (overrides = {}) =>
   JSON.stringify({
     entries: [
@@ -321,6 +337,57 @@ test("R9: a row is attributable only with ALL R1 anchors valid — malformed anc
   assert.equal(
     runCommande22({ registry: validRow(), machineId: "00000000000000000000000000000000" }),
     "machine-id-non-conforme",
+  );
+});
+
+test("R9/R1: a row is attributable only against the CURRENT FRAME — R1 orders 3-5 applied before any takeover promise", () => {
+  // Round-4 review finding F05: the qualifier validated the anchor FORMATS
+  // but never compared them to the current frame, so a valid-format FOREIGN
+  // pid namespace counted `rows-attribuables:1` and Issue 1 promised an
+  // automatic takeover that R1 order 3 refuses (namespace absent/inégal ⇒
+  // foreign-frame). The stored namespace below matches /^\d+$/ — it is the
+  // EQUALITY with the current frame that must fail it.
+  assert.equal(
+    runCommande22({ registry: validRow({ pgidPidNamespace: "999999999999" }), machineId: MOCK_MACHINE_ID }),
+    "rows-non-attribuables:1/1",
+    "R1 order 3: a foreign namespace is foreign-frame even with a valid format, the same machine and a valid boot",
+  );
+  // The row of the CURRENT boot is `current`, not `stale-boot`: the runbook
+  // cannot promise a takeover on it — the host must prove the group dead.
+  assert.equal(
+    runCommande22({ registry: validRow({ pgidBootId: MOCK_CURRENT_BOOT_ID }), machineId: MOCK_MACHINE_ID }),
+    "rows-boot-courant:1/1",
+    "a current-boot row needs a death proof, not an automatic-takeover promise",
+  );
+  // Mixed: one stale-boot row + one current-boot row — the current-boot rows
+  // are IDENTIFIED, and the pure takeover promise is withheld while they
+  // remain unproven.
+  assert.equal(
+    runCommande22({
+      registry: JSON.stringify({
+        entries: [
+          { id: "ok", pgidMachineId: MOCK_MACHINE_ID, pgidBootId: VALID_BOOT_ID, pgidPidNamespace: "4026531836" },
+          { id: "courant", pgidMachineId: MOCK_MACHINE_ID, pgidBootId: MOCK_CURRENT_BOOT_ID, pgidPidNamespace: "4026531836" },
+        ],
+      }),
+      machineId: MOCK_MACHINE_ID,
+    }),
+    "rows-boot-courant:1/2",
+    "current-boot rows must be identified distinctly: they neither promise the takeover nor block like foreign-frame rows",
+  );
+  // An unreadable CURRENT frame (pid namespace unreadable) qualifies nothing:
+  // R1 order 1 — any comparison involving an unknown current value is
+  // foreign-frame, fail-closed, never attributable.
+  assert.equal(
+    runCommande22({ registry: validRow(), machineId: MOCK_MACHINE_ID, pidNamespace: null }),
+    "rows-non-attribuables:1/1",
+    "an unknown current namespace makes every comparison unknown: fail-closed, never attributable",
+  );
+  // And the same fail-closed rule for an unreadable current boot.
+  assert.equal(
+    runCommande22({ registry: validRow(), machineId: MOCK_MACHINE_ID, currentBootId: "not-a-uuid" }),
+    "rows-non-attribuables:1/1",
+    "an unreadable current boot makes the stale-boot proof unavailable: fail-closed, never attributable",
   );
 });
 

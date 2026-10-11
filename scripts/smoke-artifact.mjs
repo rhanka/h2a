@@ -297,9 +297,18 @@ try {
       let rows = null
       try {
         const registry = JSON.parse(readFileSync(lab.registryPath, 'utf8'))
-        rows = Array.isArray(registry.entries) ? registry.entries : []
+        // Round-4 review finding F02: valid JSON of an UNEXPECTED SHAPE is not
+        // an observation of the rows. `{unexpected:"shape"}` used to be coerced
+        // to an empty row list and "proved" the prune on a snapshot that showed
+        // nothing. A malformed snapshot is UNKNOWN: it can neither observe the
+        // row present nor prove it gone — only a well-shaped snapshot counts
+        // as evidence, in either phase.
+        if (registry !== null && typeof registry === 'object' && Array.isArray(registry.entries)) {
+          rows = registry.entries
+        }
       } catch {
-        // The registry is rewritten atomically; a torn read is transient.
+        // The registry is rewritten atomically; a torn read is transient. An
+        // unreadable snapshot observes nothing: it stays unknown, never empty.
       }
       if (rows !== null) {
         const present = rows.some((row) => row.id === rowId)

@@ -185,6 +185,52 @@ test("R8.3: the prune proof observes the row PRESENT before its disappearance �
       /never pruned/,
       "a row that never disappears proves the deferred prune did not run",
     );
+
+    // Case 4 — round-4 review finding F02: the row is observed PRESENT, then
+    // the registry becomes valid JSON of an INVALID SHAPE. The defect coerced
+    // that snapshot to an empty row list and resolved — "proving" a prune on a
+    // snapshot that showed nothing. An invalid shape is UNKNOWN, not empty:
+    // the wait must reject, never resolve, and must not stop polling on it.
+    let shapeReads = 0;
+    const presentThenInvalid = () => {
+      shapeReads += 1;
+      return shapeReads === 1
+        ? JSON.stringify({ entries: [{ id: "native-terminal-pty:shape-lost" }] })
+        : JSON.stringify({ unexpected: "shape" });
+    };
+    const shapeLost = new AsyncFunction(
+      "readFileSync",
+      "fail",
+      fn + "\nreturn waitForPrune({registryPath:" + JSON.stringify(registryPath) + '}, "shape-lost");',
+    );
+    await assert.rejects(
+      () => shapeLost(presentThenInvalid, throwingFail),
+      /never pruned/,
+      "a registry of an invalid shape cannot prove the prune: only a well-shaped snapshot showing the disappearance may",
+    );
+    assert.ok(shapeReads >= 2, "the invalid-shape snapshot must be re-polled, never accepted as a disappearance");
+
+    // Case 5 — the same property through the other unreadable path: after the
+    // row is observed present, the registry stops parsing. A parse error is
+    // not an empty registry either.
+    let brokenReads = 0;
+    const presentThenBroken = () => {
+      brokenReads += 1;
+      return brokenReads === 1
+        ? JSON.stringify({ entries: [{ id: "native-terminal-pty:parse-lost" }] })
+        : "{broken";
+    };
+    const parseLost = new AsyncFunction(
+      "readFileSync",
+      "fail",
+      fn + "\nreturn waitForPrune({registryPath:" + JSON.stringify(registryPath) + '}, "parse-lost");',
+    );
+    await assert.rejects(
+      () => parseLost(presentThenBroken, throwingFail),
+      /never pruned/,
+      "a registry that stops parsing cannot prove the prune: an unreadable snapshot is unknown, never empty",
+    );
+    assert.ok(brokenReads >= 2, "the unparsable snapshot must be re-polled, never accepted as a disappearance");
   } finally {
     rmSync(lab, { recursive: true, force: true });
   }
