@@ -457,6 +457,104 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
     expect(running(ping.hostPid)).toBe(false);
   });
 
+  it("should not leak foreign PTY master file descriptors to a session CLI or its grandchildren", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "n-"));
+    directories.add(directory);
+    const socketPath = join(directory, "host.sock");
+    const entry = fileURLToPath(new URL("../../dist/native-terminal/process.js", import.meta.url));
+    const spawnHost: NativeTerminalHostSpawn = (options) => {
+      const child = spawn(process.execPath, [
+        "--import",
+        "tsx",
+        entry,
+        "--socket",
+        options.socketPath,
+        "--generation",
+        options.generation,
+        "--replay-bytes",
+        String(options.replayBytesPerSession),
+        ...(options.registryPath !== undefined ? ["--registry-path", options.registryPath] : []),
+      ], {
+        cwd: dirname(entry),
+        env: process.env,
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+      children.add(child);
+      return child;
+    };
+    const supervisor = new NativeTerminalHostSupervisor({
+      socketPath,
+      registryPath: join(directory, "registry.json"),
+      replayBytesPerSession: 1024 * 1024,
+      spawnHost,
+      generationFactory: () => "hygiene-generation",
+    });
+
+    const client = await supervisor.client();
+    const ping = await client.ping();
+    expect(ping).toMatchObject({ generation: "hygiene-generation", protocolVersion: 1 });
+
+    // Spawn first session with a descendant
+    const [alphaGuardianPid, , ] = await createStubbornWorkload(client, "alpha", directory);
+    processGroups.add(alphaGuardianPid);
+
+    // Spawn second session with a descendant
+    const [betaGuardianPid, betaCliPid, betaGrandchildPid] = await createStubbornWorkload(client, "beta", directory);
+    processGroups.add(betaGuardianPid);
+
+    async function ptmxFds(pid: number): Promise<number[]> {
+      const fdDir = `/proc/${pid}/fd`;
+      const entries = await readdir(fdDir);
+      const fds: number[] = [];
+      for (const entry of entries) {
+        try {
+          const target = await readlink(join(fdDir, entry));
+          if (target === "/dev/ptmx") {
+            fds.push(Number(entry));
+          }
+        } catch {
+          // fd closed during scan
+        }
+      }
+      return fds.sort((a, b) => a - b);
+    }
+
+    async function hostPtmxFdsWithFlags(hostPid: number): Promise<Array<{ fd: number; flags: number }>> {
+      const fdDir = `/proc/${hostPid}/fd`;
+      const entries = await readdir(fdDir);
+      const results: Array<{ fd: number; flags: number }> = [];
+      for (const entry of entries) {
+        try {
+          const target = await readlink(join(fdDir, entry));
+          if (target === "/dev/ptmx") {
+            const fdinfo = await readFile(`/proc/${hostPid}/fdinfo/${entry}`, "utf8");
+            const match = fdinfo.match(/^flags:\s+([0-7]+)/m);
+            const flags = match ? parseInt(match[1]!, 8) : 0;
+            results.push({ fd: Number(entry), flags });
+          }
+        } catch {
+          // ignore
+        }
+      }
+      return results.sort((a, b) => a.fd - b.fd);
+    }
+
+    // 1. Owner host must hold its masters non-CLOEXEC
+    const hostMasters = await hostPtmxFdsWithFlags(ping.hostPid);
+    expect(hostMasters.length).toBeGreaterThanOrEqual(2);
+    for (const master of hostMasters) {
+      // 0o2000000 = O_CLOEXEC in Linux
+      expect(master.flags & 0o2000000).toBe(0);
+    }
+
+    // 2. Second session CLI and grandchild must NOT hold any foreign /dev/ptmx
+    const betaCliPtmx = await ptmxFds(betaCliPid);
+    const betaGrandchildPtmx = await ptmxFds(betaGrandchildPid);
+
+    expect(betaCliPtmx).toEqual([]);
+    expect(betaGrandchildPtmx).toEqual([]);
+  });
+
   // How long the reaper below waits for a host it SIGSTOPped: that host can
   // never answer, so this window only has to expire.
   const STOPPED_HOST_STARTUP_MS = 500;
