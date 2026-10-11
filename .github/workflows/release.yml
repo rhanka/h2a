@@ -4,6 +4,11 @@ on:
   push:
     tags:
       - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      backfill-version:
+        description: "Existing tag version (X.Y.Z) to backfill on npm: publishes the lockstep packages still missing from the registry, with --tag backfill when the version is below latest. The tag must already exist on origin/main."
+        required: true
 
 concurrency:
   group: release-${{ github.ref }}
@@ -16,6 +21,9 @@ permissions:
 
 jobs:
   verify:
+    # The verify gate only runs for real tag pushes: a backfill dispatch
+    # targets a version that the original tag run already gated.
+    if: github.event_name == 'push'
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     strategy:
@@ -56,9 +64,14 @@ jobs:
 
   publish:
     needs: verify
+    # On a backfill dispatch the verify job is skipped (the tag run already
+    # gated that version); publish then proceeds on the skipped result.
+    if: ${{ !cancelled() && !failure() && (needs.verify.result == 'success' || needs.verify.result == 'skipped') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && format('v{0}', inputs.backfill-version) || github.ref }}
 
       - uses: actions/setup-node@v4
         with:
@@ -73,22 +86,34 @@ jobs:
         run: npm ci
 
       - name: Typecheck
+        if: github.event_name == 'push'
         run: npm run typecheck
 
       - name: Run tests
+        if: github.event_name == 'push'
         run: npm test
 
       - name: Version sanity gate (tag vs package.json)
         shell: bash
         env:
           GITHUB_REF: ${{ github.ref }}
+          BACKFILL_VERSION: ${{ inputs.backfill-version }}
         run: |
           set -euo pipefail
-          tag="${GITHUB_REF#refs/tags/}"
+          if [ -n "${BACKFILL_VERSION:-}" ]; then
+            tag="v${BACKFILL_VERSION}"
+          else
+            tag="${GITHUB_REF#refs/tags/}"
+          fi
           # Strip leading "v"
           tag_version="${tag#v}"
           if [[ ! "$tag_version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
             echo "::error::Release tag '$tag' does not match vX.Y.Z (got version='$tag_version')." >&2
+            exit 1
+          fi
+          git fetch origin main
+          if ! git merge-base --is-ancestor "$(git rev-parse "$tag")" origin/main; then
+            echo "::error::Refusing publish: $tag is not on origin/main." >&2
             exit 1
           fi
           h2a_version="$(node -p "require('./packages/h2a/package.json').version")"
@@ -141,7 +166,16 @@ jobs:
           if npm view "@sentropic/track@$v" version >/dev/null 2>&1; then
             echo "@sentropic/track@$v already on registry; skipping."
           else
-            if ! npm publish --workspace @sentropic/track --access public; then
+            tagArgs=""
+            latest="$(npm view "@sentropic/track" dist-tags.latest 2>/dev/null || true)"
+            if [ -n "$latest" ] && [ "$v" != "$latest" ]; then
+              lowest="$(printf '%s\n%s\n' "$v" "$latest" | sort -V | head -n1)"
+              if [ "$lowest" = "$v" ]; then
+                tagArgs="--tag backfill"
+                echo "@sentropic/track@$v is below latest ($latest); publishing with $tagArgs so the latest dist-tag stays untouched."
+              fi
+            fi
+            if ! npm publish --workspace @sentropic/track --access public $tagArgs; then
               echo "::error::@sentropic/track@$v: npm publish failed (not published)." >&2
               exit 1
             fi
@@ -164,7 +198,16 @@ jobs:
           if npm view "@sentropic/h2a-runtime@$v" version >/dev/null 2>&1; then
             echo "@sentropic/h2a-runtime@$v already on registry; skipping."
           else
-            if ! npm publish --workspace @sentropic/h2a-runtime --access public; then
+            tagArgs=""
+            latest="$(npm view "@sentropic/h2a-runtime" dist-tags.latest 2>/dev/null || true)"
+            if [ -n "$latest" ] && [ "$v" != "$latest" ]; then
+              lowest="$(printf '%s\n%s\n' "$v" "$latest" | sort -V | head -n1)"
+              if [ "$lowest" = "$v" ]; then
+                tagArgs="--tag backfill"
+                echo "@sentropic/h2a-runtime@$v is below latest ($latest); publishing with $tagArgs so the latest dist-tag stays untouched."
+              fi
+            fi
+            if ! npm publish --workspace @sentropic/h2a-runtime --access public $tagArgs; then
               echo "::error::@sentropic/h2a-runtime@$v: npm publish failed (not published)." >&2
               exit 1
             fi
@@ -187,7 +230,16 @@ jobs:
           if npm view "@sentropic/h2a@$v" version >/dev/null 2>&1; then
             echo "@sentropic/h2a@$v already on registry; skipping."
           else
-            if ! npm publish --workspace @sentropic/h2a --access public; then
+            tagArgs=""
+            latest="$(npm view "@sentropic/h2a" dist-tags.latest 2>/dev/null || true)"
+            if [ -n "$latest" ] && [ "$v" != "$latest" ]; then
+              lowest="$(printf '%s\n%s\n' "$v" "$latest" | sort -V | head -n1)"
+              if [ "$lowest" = "$v" ]; then
+                tagArgs="--tag backfill"
+                echo "@sentropic/h2a@$v is below latest ($latest); publishing with $tagArgs so the latest dist-tag stays untouched."
+              fi
+            fi
+            if ! npm publish --workspace @sentropic/h2a --access public $tagArgs; then
               echo "::error::@sentropic/h2a@$v: npm publish failed (not published)." >&2
               exit 1
             fi
@@ -210,7 +262,16 @@ jobs:
           if npm view "@sentropic/h2a-cli@$v" version >/dev/null 2>&1; then
             echo "@sentropic/h2a-cli@$v already on registry; skipping."
           else
-            if ! npm publish --workspace @sentropic/h2a-cli --access public; then
+            tagArgs=""
+            latest="$(npm view "@sentropic/h2a-cli" dist-tags.latest 2>/dev/null || true)"
+            if [ -n "$latest" ] && [ "$v" != "$latest" ]; then
+              lowest="$(printf '%s\n%s\n' "$v" "$latest" | sort -V | head -n1)"
+              if [ "$lowest" = "$v" ]; then
+                tagArgs="--tag backfill"
+                echo "@sentropic/h2a-cli@$v is below latest ($latest); publishing with $tagArgs so the latest dist-tag stays untouched."
+              fi
+            fi
+            if ! npm publish --workspace @sentropic/h2a-cli --access public $tagArgs; then
               echo "::error::@sentropic/h2a-cli@$v: npm publish failed (not published)." >&2
               exit 1
             fi
