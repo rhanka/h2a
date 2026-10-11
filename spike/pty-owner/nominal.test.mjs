@@ -31,6 +31,7 @@ for (const [count, cycles] of process.env.SPIKE_PROBE ? [[4, 2]] : [[32, 20], [4
     t.after(() => { clearInterval(hammer); for (const client of pending) client.destroy(); });
     const snapshots = [], typedRefusals = [], ensureErrors = [];
     for (let cycle = 1; cycle <= cycles; cycle++) {
+      const requestAt = performance.now();
       const result = await rpc(socket, { op: 'exec', delay: 30 });
       assert.equal(result.ok, true, JSON.stringify(result));
       const ensure = await rpc(socket, { op: 'ensure' }); typedRefusals.push(ensure);
@@ -50,7 +51,8 @@ for (const [count, cycles] of process.env.SPIKE_PROBE ? [[4, 2]] : [[32, 20], [4
         }
       }
       snapshots.push({ generation: cycle, fd: after.fd.length, rss: after.rss,
-        pauseMs: after.transitions.at(-1).pauseMs, build: after.build,
+        pauseMs: after.transitions.at(-1).pauseMs,
+        requestToReadyMs: performance.now() - requestAt, build: after.build,
         flags: after.sessions.map(s => after.fd.find(f => f.fd === s.fd)?.flags) });
       if (cycle === 1) assert.equal((await rpc(socket, { op: 'write', id: 0,
         client: 'old', epoch: lease.epoch, data: 'ACK:forbidden\n' })).error, 'stale-lease');
@@ -78,17 +80,19 @@ for (const [count, cycles] of process.env.SPIKE_PROBE ? [[4, 2]] : [[32, 20], [4
       outputs.push({ id, counters: total, bytes: Buffer.byteLength(text), signals });
     }
     const pauses = snapshots.map(s => s.pauseMs).sort((a, b) => a - b);
+    const endToEnd = snapshots.map(s => s.requestToReadyMs).sort((a, b) => a - b);
     const metrics = { node: process.version, count, cycles, ownerBirth: start.owner,
       competingEnsure: read(path.join(l.root, 'ensure-probe.json')),
       births, snapshots, outputs, attempts, connects, errors, ensureErrors,
       hammerHz: attempts * 1000 / hammerMs, typedRefusals: typedRefusals.length,
       p99Ms: pauses[Math.ceil(pauses.length * .99) - 1],
+      requestToReadyP99Ms: endToEnd[Math.ceil(endToEnd.length * .99) - 1],
       fdDelta: final.fd.length - start.fd.length, rssRatio: final.rss / start.rss };
     t.diagnostic(JSON.stringify(metrics));
     assert.equal(metrics.fdDelta, 0); assert.ok(metrics.rssRatio <= 1.25, `RSS ratio ${metrics.rssRatio}`);
     assert.equal(metrics.competingEnsure.secondPublications, 0);
     assert.equal(metrics.competingEnsure.attempts, metrics.competingEnsure.refusals);
-    assert.ok(metrics.p99Ms < 1000); assert.deepEqual(errors, {});
+    assert.ok(metrics.p99Ms < 1000); assert.ok(metrics.requestToReadyP99Ms < 1000); assert.deepEqual(errors, {});
     assert.ok(connects > 0); assert.equal(ensureErrors.filter(e => ['ECONNREFUSED', 'ENOENT'].includes(e)).length, 0);
   });
 }
