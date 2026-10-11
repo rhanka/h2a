@@ -81,6 +81,11 @@ export function lab(node = process.execPath) {
   }
   async function cleanup() {
     await rememberGuardians();
+    const ownerFile = path.join(root, 'owner-birth.json');
+    if (fs.existsSync(ownerFile)) {
+      const owner = read(ownerFile);
+      if (sameBirth(owner)) { try { process.kill(owner.pid, 'SIGKILL'); } catch {} }
+    }
     // Only direct children started above, then guardian births recorded by our stubs.
     for (const child of children) if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
     for (const guardian of guardians) {
@@ -94,9 +99,12 @@ export function lab(node = process.execPath) {
   return { root, env, launch, cleanup, rememberGuardians, log: () => out };
 }
 export function serve(fdOrPath, handler) {
-  const server = net.createServer({ allowHalfOpen: true }, client => {
+  const server = fdOrPath instanceof net.Server ? fdOrPath : net.createServer({ allowHalfOpen: true });
+  server.allowHalfOpen = true;
+  server.on('connection', client => {
     let buffer = '';
     client.on('error', () => {});
+    client.on('end', () => { if (!buffer.includes('\n')) client.end(); });
     client.on('data', async chunk => {
       buffer += chunk;
       if (!buffer.includes('\n')) return;
@@ -104,6 +112,6 @@ export function serve(fdOrPath, handler) {
       catch (error) { client.end(`${JSON.stringify({ error: error.message })}\n`); }
     });
   });
-  server.listen(typeof fdOrPath === 'number' ? { fd: fdOrPath } : fdOrPath);
+  if (!(fdOrPath instanceof net.Server)) server.listen(typeof fdOrPath === 'number' ? { fd: fdOrPath } : fdOrPath);
   return server;
 }
