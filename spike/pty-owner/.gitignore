@@ -1,0 +1,9 @@
+results/before-lease-fence/
+results/*.log
+!results/final-campaign.log
+!results/supplement-campaign.log
+!results/admission-red.log
+!results/nominal-probe-node22.log
+!results/nominal-probe-green-node22.log
+!results/resize-diagnosis-node22.log
+!results/listener-duplication-failed-node22.log
