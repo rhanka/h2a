@@ -1,0 +1,12 @@
+{
+  "22.15.0": {
+    "path": "/home/antoinefa/.cache-tmp/pty-node-matrix-uM1Ptm/22.15.0/bin/node",
+    "sha256": "dafe2e8f82cb97de1bd10db9e2ec4c07bbf53389b0799b1e095a918951e78fd4",
+    "source": "https://nodejs.org/dist/v22.15.0/node-v22.15.0-linux-x64.tar.xz"
+  },
+  "22.14.0": {
+    "path": "/home/antoinefa/.cache-tmp/pty-node-matrix-uM1Ptm/22.14.0/bin/node",
+    "sha256": "69b09dba5c8dcb05c4e4273a4340db1005abeafe3927efda2bc5b249e80437ec",
+    "source": "https://nodejs.org/dist/v22.14.0/node-v22.14.0-linux-x64.tar.xz"
+  }
+}

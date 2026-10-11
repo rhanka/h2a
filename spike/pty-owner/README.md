@@ -13,6 +13,8 @@ SHA-256 et extrait sous mkdtemp. Les archives ne sont pas commitées.
 ```
 rtk node spike/pty-owner/runtimes.mjs spike/pty-owner/results/downloaded-runtimes.json
 rtk bash -c 'ulimit -c 0; node spike/pty-owner/campaign.mjs'
+rtk bash -c 'ulimit -c 0; node spike/pty-owner/supplement.mjs'
+rtk node spike/pty-owner/summarize.mjs
 ```
 
 La campagne énumère les fichiers ciblés et construit un environnement privé
