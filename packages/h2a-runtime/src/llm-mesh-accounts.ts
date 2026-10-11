@@ -6,7 +6,7 @@ import type { AccountPublic } from "@sentropic/cluster-mesh/llm-mesh/enrollment"
 
 export interface LlmMeshEnrollmentAccount {
   accountId: string;
-  provider: "cloud-code" | "codex" | "muse" | "muse-code" | "mistral-vibe";
+  provider: "cloud-code" | "codex" | "muse" | "mistral-vibe";
   label: string;
 }
 
@@ -34,6 +34,14 @@ export interface FacadeEnrollmentOptions {
   configRef?: string;
   ownerScope?: string;
   redirectUri?: string;
+  /**
+   * Select the provider's local CLI-store import instead of the OAuth flow.
+   * Owner decision 2026-10-10: OAuth is the default enrollment for every
+   * provider; importing credentials from an already-logged-in CLI is an
+   * explicit opt-in (`h2a llm-mesh account enroll <provider> --cli`) and only
+   * exists for providers that actually keep a local CLI store (muse today).
+   */
+  cliImport?: boolean;
   /** Injection seam for CLI tests; production uses the opaque facade. */
   facade?: LlmMeshFacade;
   /** Injection seam that keeps enrollment tests from opening a real browser. */
@@ -96,25 +104,37 @@ function openEnrollmentBrowser(url: string): void {
  * Enroll through the sentropic-owned OAuth state machine. H2A never receives
  * an authorization code or a provider token. Account records remain owned by
  * the facade/keyring and are not copied into h2a config.
+ *
+ * Provider semantics (owner decision 2026-10-10): "muse" enrolls via the
+ * native Meta OAuth device flow by default; passing cliImport selects the
+ * Muse CLI-store import instead. "muse-code" is no longer a user entry — it
+ * survives only as the mesh-side provider id for the device flow.
  */
 export async function enrollViaFacade(
-  provider: "cloud-code" | "codex" | "muse" | "muse-code" | "mistral-vibe",
+  provider: "cloud-code" | "codex" | "muse" | "mistral-vibe",
   options: FacadeEnrollmentOptions = {},
 ): Promise<LlmMeshEnrollmentAccount> {
   const facade = options.facade ?? createCliLlmMeshFacade();
   const ownerScope = options.ownerScope ?? llmMeshOwnerScopeRef();
+  if (options.cliImport && provider !== "muse") {
+    throw new Error(
+      `provider "${provider}" has no CLI-store import; --cli is only valid for providers with a local CLI import (muse)`,
+    );
+  }
+  // The facade knows the device flow under its historical mesh-side id.
+  const facadeProvider = provider === "muse" && !options.cliImport ? "muse-code" : provider;
   // The installed @sentropic/cluster-mesh/llm-mesh types predate the muse provider, but
   // enroll passes the id through opaquely — a muse-capable facade resolves
   // it, an older one fails with its own unknown-provider error. Cast is
   // load-bearing until the dep bump, not a lie about the contract.
-  const session = await facade.enroll(provider as "codex", {
+  const session = await facade.enroll(facadeProvider as "codex", {
     configRef: options.configRef ?? process.env.H2A_LLM_MESH_CONFIG_REF ?? "default",
     mode: "cli",
     redirectUri: options.redirectUri ?? "http://127.0.0.1",
     ownerScope,
   });
 
-  if (provider === "muse") {
+  if (provider === "muse" && options.cliImport) {
     // Muse CLI-store import (BR75): no browser or device round-trip — the
     // owner act was the muse login itself. The ownerScope binds the enrolling
     // owner explicitly (never inferred); it doubles as the completion code
@@ -150,7 +170,7 @@ export async function enrollViaFacade(
     return { accountId: completed.accountId, provider, label: completed.label };
   }
 
-  if (provider === "muse-code") {
+  if (provider === "muse") {
     // Native Meta device flow (RFC 8628, MuseCodeEnrollmentProvider
     // mesh-side): print the user code + verification URL, then complete via
     // the muse-specific device import — the muse-code key mint is its own
