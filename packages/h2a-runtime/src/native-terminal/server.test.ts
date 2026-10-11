@@ -591,7 +591,7 @@ describe("native terminal local transport", () => {
     const directory = await mkdtemp(join(tmpdir(), "n-"));
     const socketPath = join(directory, "host.sock");
     await chmod(directory, 0o700);
-    const staleHost = spawn(process.execPath, [fileURLToPath(new URL("../../dist/native-terminal/process.js", import.meta.url)),
+    const staleHost = spawn(process.execPath, ["--import", "tsx", fileURLToPath(new URL("./process.ts", import.meta.url)),
       "--socket", socketPath, "--registry-path", join(directory, "registry.json")], { stdio: ["ignore", "pipe", "pipe"] });
     try {
       await Promise.race([once(staleHost.stdout!, "data"), once(staleHost, "exit").then(() => { throw new Error("stale fixture host exited before readiness"); })]);

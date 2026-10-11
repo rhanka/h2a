@@ -126,7 +126,7 @@ describe.skipIf(process.platform !== "linux")("native terminal listener failure 
     // UNKNOWN listener error: non-zero (exit 3), no signal, no crash — the
     // supervisor's bounded respawn owns what comes next.
     expect([exitCode, signal]).toEqual([3, null]);
-    expect(readStderr()).toContain("terminal host listener is unknown");
+    expect(readStderr()).toContain("unknown listener error");
     // The exit was graceful: the published socket and its owner record were
     // rolled back, not left behind by a crash.
     await expect(stat(join(directory, "host.sock"))).rejects.toMatchObject({ code: "ENOENT" });
@@ -148,7 +148,7 @@ describe.skipIf(process.platform !== "linux")("native terminal listener failure 
     // KNOWN-unusable listener: a clean exit (exit 0) through the graceful stop
     // path — sessions drained, publication rolled back — never a crash.
     expect([exitCode, signal]).toEqual([0, null]);
-    expect(readStderr()).toContain("terminal host listener is unusable");
+    expect(readStderr()).toContain("unusable listener error");
     await expect(stat(join(directory, "host.sock"))).rejects.toMatchObject({ code: "ENOENT" });
     await expect(stat(join(directory, "host.sock.owner"))).rejects.toMatchObject({ code: "ENOENT" });
   });
