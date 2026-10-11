@@ -965,7 +965,14 @@ async function proveEndpointAbsentUnderLock(
       throw new NativeTerminalPublicationRefusal("H2A_ENDPOINT_OWNER_MALFORMED");
     }
     try {
-      sidecar = JSON.parse(await abortable(readFile(ownerPath, "utf8"), signal)) as EndpointOwner;
+      const parsed = JSON.parse(await abortable(readFile(ownerPath, "utf8"), signal)) as unknown;
+      // Valid JSON that is not an object (null, a bare string, a number) is
+      // the same coded refusal (T4): the shape is validated BEFORE any
+      // property access, never an undifferentiated TypeError crash (exit 1).
+      if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+        throw new NativeTerminalPublicationRefusal("H2A_ENDPOINT_OWNER_MALFORMED");
+      }
+      sidecar = parsed as EndpointOwner;
     } catch (error) {
       if (signal?.aborted || error instanceof NativeTerminalPublicationRefusal) throw error;
       // Unparseable sidecar content is a coded refusal (T4), never an
@@ -1024,9 +1031,13 @@ async function proveEndpointAbsentUnderLock(
   if (!ownersDead) return false;
   const staleProof = classifiedRows.find(item => item.verdict === "stale-boot" && item.row.ownerHostPid !== undefined && item.row.ownerHostStartTime !== undefined)?.row;
   const currentDead = uniqueOwners[0];
-  // R3's attributed registry rows are an alternative proof for legacy owners.
-  // With zero attributable owners, only an inode created before boot suffices.
-  if (socket && !sidecarProvesDeath && currentDead === undefined && staleProof === undefined && !preBootInode) return false;
+  // Stale rows prove the death of their AUTHORS, never the absence of a NEW
+  // holder of the pathname (R4-probe): they cannot bypass the age/liveness
+  // proof. Without a sidecar death proof or a CURRENT-boot owner positively
+  // probed dead, an existing socket yields publication only to the pre-boot
+  // inode proof (R3 combo 4): an inode created during this boot may have a
+  // live, unattributed holder that refused every connect probe.
+  if (socket && !sidecarProvesDeath && currentDead === undefined && !preBootInode) return false;
   if (socket && currentDead !== undefined) {
     await recordEndpointOwner(socketPath, socket, { pid: currentDead.pid, startTime: currentDead.startTime }, signal, currentFrame);
   } else if (socket && !sidecarProvesDeath && staleProof !== undefined) {
