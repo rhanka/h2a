@@ -19,7 +19,7 @@
  * classification, verdict, aggregation, exit code — without invoking the real gates.
  */
 import assert from 'node:assert/strict'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { spawnSync } from 'node:child_process'
 import { test } from 'node:test'
@@ -478,6 +478,76 @@ test('R8.1: the pinned vitest config exists and covers src/**/*.test.ts', () => 
     /include:\s*\[\s*['"]src\/\*\*\/\*\.test\.ts['"]\s*\]/,
     'the config must cover src/**/*.test.ts so new runtime suites are discovered, not enumerated',
   )
+})
+
+/**
+ * R8.1 — round-6 review finding P1: the config test above pinned the include
+ * pattern TEXTUALLY, so adding `exclude: ["src/native-terminal/**"]` to the
+ * pinned config kept this whole trust root green (30/30, exit 0) while the
+ * native-terminal suites vanished from the gate's EFFECTIVE discovery — a red
+ * native suite stopped counting against a release the moment it stopped
+ * matching the glob, and the runner reported the step green over a run that no
+ * longer contained it.
+ *
+ * The qualification below closes the hole by EXECUTION, not text: it drives
+ * vitest's own file discovery (`vitest list --filesOnly` — glob resolution
+ * only: no test file is imported, nothing executes, no build is required)
+ * through the pinned config and requires the discovered set to equal EVERY
+ * `*.test.ts` that exists on disk under packages/h2a-runtime/src. The suites
+ * are enumerated by the FILESYSTEM, not by this test, so the guard keeps
+ * holding when new suites land (crash-safe-log, crash-safety.functional, ...)
+ * and any include/exclude edit that silently drops one file — or all of
+ * them — surfaces as a set difference, file by file.
+ */
+test('R8.1: EFFECTIVE discovery — the pinned config must actually discover every runtime *.test.ts', () => {
+  const lab = mkdtempSync(join(tmpdir(), 'h2a-runtime-discovery-'))
+  try {
+    const result = spawnSync(process.execPath, [
+      resolve(REPO_ROOT, 'node_modules', 'vitest', 'vitest.mjs'),
+      'list',
+      '--filesOnly',
+      '--config',
+      'packages/h2a-runtime/vitest.config.ts',
+    ], {
+      cwd: REPO_ROOT,
+      encoding: 'utf8',
+      timeout: 120_000,
+      // Confinement: the discovery probe runs against a temp runtime dir, never real state.
+      env: { ...process.env, XDG_RUNTIME_DIR: lab, TMPDIR: lab },
+    })
+    assert.equal(
+      result.status,
+      0,
+      `vitest discovery through the pinned config must itself succeed:\n${result.stdout}\n${result.stderr}`,
+    )
+    const onDisk = []
+    const walk = (dir) => {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        if (entry.isDirectory()) {
+          if (entry.name === 'node_modules' || entry.name === 'dist') continue
+          walk(join(dir, entry.name))
+        } else if (entry.name.endsWith('.test.ts')) {
+          onDisk.push(join(dir, entry.name))
+        }
+      }
+    }
+    walk(resolve(REPO_ROOT, 'packages', 'h2a-runtime', 'src'))
+    onDisk.sort()
+    assert.ok(onDisk.length > 0, 'the runtime package must keep TypeScript suites for the gate to discover')
+    const discovered = result.stdout
+      .split('\n')
+      .map((line) => line.trim())
+      .filter((line) => line.endsWith('.test.ts'))
+      .map((line) => resolve(REPO_ROOT, line))
+      .sort()
+    assert.deepEqual(
+      discovered,
+      onDisk,
+      'the gate only grades the files vitest EFFECTIVELY discovers: an exclude (round-6: exclude: ["src/native-terminal/**"] left every textual pin green while 14 native suites left the run) or an include edit that silently drops a suite shows up here as a missing file',
+    )
+  } finally {
+    rmSync(lab, { recursive: true, force: true })
+  }
 })
 
 /**
