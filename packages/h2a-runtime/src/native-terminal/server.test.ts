@@ -4,7 +4,7 @@ import { spawnIsolatedNative as spawn, spawnSyncIsolatedNative as spawnSync, set
 
 setupNativeTestEnvironment(afterAll);
 import { once } from "node:events";
-import { mkdirSync, unlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { chmod, mkdtemp, rm, stat, unlink } from "node:fs/promises";
 import { createConnection, createServer, type Socket } from "node:net";
 import { tmpdir } from "node:os";
@@ -15,7 +15,12 @@ import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
 import type { PtyHandle, PtySpawner } from "../pty.js";
 import { resolveRegistryPath } from "../registry.js";
 import { NativeTerminalClient } from "./client.js";
-import { NativeTerminalHost, readProcessStartTime } from "./host.js";
+import {
+  NativeTerminalHost,
+  readProcessStartTime,
+  type NativeTerminalOwnerHostProbe,
+  type NativeTerminalOwnerHostStatus,
+} from "./host.js";
 import type { NativeTerminalStopSignal } from "./protocol.js";
 import { NATIVE_TERMINAL_MAX_REPLAY_CHUNKS_PER_SESSION } from "./replay-buffer.js";
 import { proveNativeTerminalEndpointAbsent, startNativeTerminalHostServer, type NativeTerminalHostServer } from "./server.js";
@@ -533,15 +538,29 @@ describe("native terminal local transport", () => {
   // matrix in packages/h2a/test/native-inventory-absence.test.js proves the
   // same classification against the real system readers end to end.
   describe("endpoint absence frame classification", () => {
+    // The current frame is INJECTED through the typed `ReadProcessFrame` seam
+    // (deterministic, no /proc dependence) — never a public environment
+    // variable — and now carries the full seam surface: identity anchors
+    // plus the provenance fields nsNet/startTime/bootTimeMs, which take no
+    // part in any classification. The liveness probe is injected the same way
+    // and its calls are RECORDED: the absence of a probe is an observed fact,
+    // never inferred from a verdict (a probe of a recycled-looking pid could
+    // have concluded "dead" without failing the test). The integration matrix
+    // in packages/h2a/test/native-inventory-absence.test.js proves the same
+    // classification against the real system readers end to end.
     const currentFrame = {
       pidNamespace: "4026531836",
       bootId: "11111111-1111-4111-8111-111111111111",
       machineId: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      nsNet: "4026531840",
+      startTime: 12345,
+      bootTimeMs: 1760000000000,
     };
+    const previousBootId = "00000000-0000-4000-8000-000000000000";
     const previousBootRowFrame = {
       pgidPidNamespace: currentFrame.pidNamespace,
       pgidMachineId: currentFrame.machineId,
-      pgidBootId: "00000000-0000-4000-8000-000000000000",
+      pgidBootId: previousBootId,
     };
     const currentBootRowFrame = {
       pgidPidNamespace: currentFrame.pidNamespace,
@@ -552,7 +571,7 @@ describe("native terminal local transport", () => {
     function writeAttributedRow(
       socketPath: string,
       owner: { pid: number; startTime?: number },
-      frame: Record<string, string>,
+      frame: Record<string, string | undefined>,
     ): string {
       const registryPath = resolveRegistryPath();
       mkdirSync(dirname(registryPath), { recursive: true, mode: 0o700 });
@@ -573,82 +592,228 @@ describe("native terminal local transport", () => {
       return registryPath;
     }
 
-    async function proveAbsent(socketPath: string): Promise<boolean> {
+    function recordingProbe(
+      verdict: NativeTerminalOwnerHostStatus,
+      calls: Array<{ pid: number; startTime?: number }>,
+    ): NativeTerminalOwnerHostProbe {
+      return (owner) => {
+        calls.push({ pid: owner.pid, ...(owner.startTime !== undefined ? { startTime: owner.startTime } : {}) });
+        return verdict;
+      };
+    }
+
+    async function proveAbsent(
+      socketPath: string,
+      ownerProbe: NativeTerminalOwnerHostProbe,
+      code: "ENOENT" | "ECONNREFUSED" = "ENOENT",
+    ): Promise<boolean> {
       return proveNativeTerminalEndpointAbsent(
         socketPath,
-        Object.assign(new Error("connect ENOENT"), { code: "ENOENT" }),
+        Object.assign(new Error(`connect ${code}`), { code }),
         () => currentFrame,
+        ownerProbe,
       );
+    }
+
+    /** Bind a listener in a child, SIGKILL it: the socket FILE stays behind
+     * with no one answering it — the exact stale shape publication reclaims
+     * (a graceful close would UNLINK the pathname; only a kill leaves it). */
+    async function abandonedSocket(socketPath: string): Promise<void> {
+      const holder = spawn(process.execPath, ["--input-type=module", "-e",
+        `import { createServer } from "node:net";
+         createServer().listen(${JSON.stringify(socketPath)}, () => console.log("bound"));`],
+      { stdio: ["ignore", "pipe", "pipe"] });
+      const gone = new Promise<void>(resolve => holder.once("exit", () => resolve()));
+      await Promise.race([once(holder.stdout!, "data"), gone]);
+      holder.kill("SIGKILL");
+      await gone;
+      await chmod(socketPath, 0o600);
+    }
+
+    function writeEndpointSidecar(
+      socketPath: string,
+      frame: { bootId: string; pidNamespace: string; machineId?: string },
+    ): void {
+      const identity = statSync(socketPath);
+      writeFileSync(`${socketPath}.owner`, JSON.stringify({
+        dev: identity.dev,
+        ino: identity.ino,
+        pid: 424242,
+        startTime: 1,
+        bootId: frame.bootId,
+        pidNamespace: frame.pidNamespace,
+        ...(frame.machineId !== undefined ? { machineId: frame.machineId } : {}),
+      }), { mode: 0o600 });
+    }
+
+    async function frameDirectory(): Promise<string> {
+      const directory = await mkdtemp(join(tmpdir(), "frame-"));
+      cleanup.push(() => rm(directory, { recursive: true, force: true }));
+      return directory;
+    }
+
+    function cleanRegistry(registryPath?: string): void {
+      cleanup.push(() => { try { unlinkSync(registryPath ?? resolveRegistryPath()); } catch { /* already gone */ } });
     }
 
     it.skipIf(process.platform !== "linux")(
       "ENDPOINT_ABSENCE_GRANTS_THE_PREVIOUS_BOOT_OF_THIS_MACHINE_WITHOUT_PROBING_ITS_PIDS",
       async () => {
-        const directory = await mkdtemp(join(tmpdir(), "frame-"));
-        cleanup.push(() => rm(directory, { recursive: true, force: true }));
+        const directory = await frameDirectory();
         const socketPath = join(directory, "host.sock");
-        // The row names THIS live test process as its previous-boot owner: a
-        // reboot reset the pid space, so the number may be held by a stranger
-        // now. Granting absence proves no liveness probe ran on that pid.
+        // The row names THIS live test process as its previous-boot owner
+        // with a foreign-looking start-time. The probe would answer "alive",
+        // so only the boot-boundary proof can grant — and the recorder
+        // OBSERVES that no probe call was made at all.
+        const calls: Array<{ pid: number; startTime?: number }> = [];
         const registryPath = writeAttributedRow(socketPath,
           { pid: process.pid, startTime: 1 }, previousBootRowFrame);
-        cleanup.push(() => unlinkSync(registryPath));
-        expect(await proveAbsent(socketPath)).toBe(true);
+        cleanRegistry(registryPath);
+        expect(await proveAbsent(socketPath, recordingProbe("alive", calls))).toBe(true);
+        expect(calls).toEqual([]);
       },
     );
 
     it.skipIf(process.platform !== "linux")(
       "ENDPOINT_ABSENCE_REFUSES_A_LIVE_OWNER_OF_THE_CURRENT_BOOT",
       async () => {
-        const directory = await mkdtemp(join(tmpdir(), "frame-"));
-        cleanup.push(() => rm(directory, { recursive: true, force: true }));
+        const directory = await frameDirectory();
         const socketPath = join(directory, "host.sock");
+        const calls: Array<{ pid: number; startTime?: number }> = [];
+        const startTime = readProcessStartTime(process.pid);
+        expect(startTime).toBeDefined();
         const registryPath = writeAttributedRow(socketPath,
-          { pid: process.pid, startTime: readProcessStartTime(process.pid) },
-          currentBootRowFrame);
-        cleanup.push(() => unlinkSync(registryPath));
-        expect(await proveAbsent(socketPath)).toBe(false);
+          { pid: process.pid, startTime }, currentBootRowFrame);
+        cleanRegistry(registryPath);
+        expect(await proveAbsent(socketPath, recordingProbe("alive", calls))).toBe(false);
+        expect(calls).toEqual([{ pid: process.pid, startTime }]);
       },
     );
 
     it.skipIf(process.platform !== "linux")(
       "ENDPOINT_ABSENCE_PROVES_A_RECYCLED_OWNER_OF_THE_CURRENT_BOOT_DEAD",
       async () => {
-        const directory = await mkdtemp(join(tmpdir(), "frame-"));
-        cleanup.push(() => rm(directory, { recursive: true, force: true }));
+        const directory = await frameDirectory();
         const socketPath = join(directory, "host.sock");
         // Same live pid, but a start-time from another life: the pid was
         // recycled, which PROVES the recorded owner dead — a positive death
-        // proof, never trust in the bare number.
+        // proof reached BY the probe, with the call on record.
+        const calls: Array<{ pid: number; startTime?: number }> = [];
         const registryPath = writeAttributedRow(socketPath,
           { pid: process.pid, startTime: 1 }, currentBootRowFrame);
-        cleanup.push(() => unlinkSync(registryPath));
-        expect(await proveAbsent(socketPath)).toBe(true);
+        cleanRegistry(registryPath);
+        expect(await proveAbsent(socketPath, recordingProbe("dead", calls))).toBe(true);
+        expect(calls).toEqual([{ pid: process.pid, startTime: 1 }]);
       },
     );
 
     it.skipIf(process.platform !== "linux")(
       "ENDPOINT_ABSENCE_REFUSES_ANY_FRAME_IT_CANNOT_PIN_TO_THIS_MACHINE",
       async () => {
-        const directory = await mkdtemp(join(tmpdir(), "frame-"));
-        cleanup.push(() => rm(directory, { recursive: true, force: true }));
+        const directory = await frameDirectory();
         const socketPath = join(directory, "host.sock");
-        // A different boot with no machine anchor: could be another machine
-        // sharing the registry — never proof of a local reboot.
+        const calls: Array<{ pid: number; startTime?: number }> = [];
+        const probe = recordingProbe("dead", calls);
+        // Every case below must refuse BEFORE any probe: the recorder stays
+        // empty, so no refusal can be attributed to a probe verdict.
+        // A KNOWN machine id that differs, same boot and namespace: the
+        // record contradicts itself — corrupted or fabricated, never evidence.
         const registryPath = writeAttributedRow(socketPath,
-          { pid: 424242, startTime: 1 }, { ...previousBootRowFrame, pgidMachineId: undefined });
-        cleanup.push(() => unlinkSync(registryPath));
-        expect(await proveAbsent(socketPath)).toBe(false);
-
+          { pid: 424242, startTime: 1 },
+          { ...currentBootRowFrame, pgidMachineId: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" });
+        cleanRegistry(registryPath);
+        expect(await proveAbsent(socketPath, probe)).toBe(false);
+        // A malformed recorded boot id: "different from the current boot"
+        // on garbage must never grant the stale-boot death proof.
+        writeAttributedRow(socketPath, { pid: 424242, startTime: 1 },
+          { ...previousBootRowFrame, pgidBootId: "garbage" });
+        expect(await proveAbsent(socketPath, probe)).toBe(false);
+        // A different boot with no machine anchor on a REGISTRY row: could be
+        // another machine sharing the store — never proof of a local reboot.
+        writeAttributedRow(socketPath, { pid: 424242, startTime: 1 },
+          { ...previousBootRowFrame, pgidMachineId: undefined });
+        expect(await proveAbsent(socketPath, probe)).toBe(false);
         // A namespace change alone, same boot: the pid number names a
         // different process; nothing can be concluded either way.
         writeAttributedRow(socketPath, { pid: 424242, startTime: 1 },
           { ...currentBootRowFrame, pgidPidNamespace: "4026599999" });
-        expect(await proveAbsent(socketPath)).toBe(false);
-
+        expect(await proveAbsent(socketPath, probe)).toBe(false);
         // A row with no anchors at all (legacy): no verdict may be derived.
         writeAttributedRow(socketPath, { pid: 424242, startTime: 1 }, {});
-        expect(await proveAbsent(socketPath)).toBe(false);
+        expect(await proveAbsent(socketPath, probe)).toBe(false);
+        expect(calls).toEqual([]);
+      },
+    );
+
+    it.skipIf(process.platform !== "linux")(
+      "ENDPOINT_ABSENCE_REFUSES_WHEN_A_STALE_BOOT_SIDECAR_MEETS_A_LIVE_CURRENT_BOOT_ROW",
+      async () => {
+        const directory = await frameDirectory();
+        const socketPath = join(directory, "host.sock");
+        // Spec v3 gap c: the sidecar proves ITS publisher dead across the
+        // boot boundary, but the registry still carries a row of THIS boot
+        // whose owner is alive. The sidecar never decides alone: the row is
+        // probed (and observed), the reclamation is refused.
+        const calls: Array<{ pid: number; startTime?: number }> = [];
+        const startTime = readProcessStartTime(process.pid);
+        expect(startTime).toBeDefined();
+        await abandonedSocket(socketPath);
+        writeEndpointSidecar(socketPath, {
+          bootId: previousBootId,
+          pidNamespace: currentFrame.pidNamespace,
+          machineId: currentFrame.machineId,
+        });
+        const registryPath = writeAttributedRow(socketPath,
+          { pid: process.pid, startTime }, currentBootRowFrame);
+        cleanRegistry(registryPath);
+        expect(await proveAbsent(socketPath, recordingProbe("alive", calls), "ECONNREFUSED")).toBe(false);
+        // The row's owner was probed; the sidecar's recorded pid never was.
+        expect(calls).toEqual([{ pid: process.pid, startTime }]);
+        expect(calls.every(call => call.pid !== 424242)).toBe(true);
+      },
+    );
+
+    it.skipIf(process.platform !== "linux")(
+      "ENDPOINT_ABSENCE_MIGRATES_AN_UNATTRIBUTED_SIDECAR_THROUGH_THE_ALTERNATIVE_PROOF",
+      async () => {
+        const directory = await frameDirectory();
+        const socketPath = join(directory, "host.sock");
+        // Spec v3 migration (option A): a pre-0.98.5 sidecar carries no
+        // machine anchor. Across a boot boundary it is unattributed — no
+        // death proof, and no longer a refusal either. With previous-boot
+        // rows of THIS machine as the alternative proof, reclamation is
+        // granted and nothing is probed.
+        const calls: Array<{ pid: number; startTime?: number }> = [];
+        await abandonedSocket(socketPath);
+        writeEndpointSidecar(socketPath, {
+          bootId: previousBootId,
+          pidNamespace: currentFrame.pidNamespace,
+        });
+        const registryPath = writeAttributedRow(socketPath,
+          { pid: process.pid, startTime: 1 }, previousBootRowFrame);
+        cleanRegistry(registryPath);
+        expect(await proveAbsent(socketPath, recordingProbe("alive", calls), "ECONNREFUSED")).toBe(true);
+        expect(calls).toEqual([]);
+      },
+    );
+
+    it.skipIf(process.platform !== "linux")(
+      "ENDPOINT_ABSENCE_REFUSES_AN_UNATTRIBUTED_SIDECAR_WITH_NO_ALTERNATIVE_PROOF",
+      async () => {
+        const directory = await frameDirectory();
+        const socketPath = join(directory, "host.sock");
+        const calls: Array<{ pid: number; startTime?: number }> = [];
+        // The same unattributed sidecar with NO durable rows: no proof of
+        // any kind is available, so the reclamation stays refused.
+        await abandonedSocket(socketPath);
+        writeEndpointSidecar(socketPath, {
+          bootId: previousBootId,
+          pidNamespace: currentFrame.pidNamespace,
+        });
+        try { unlinkSync(resolveRegistryPath()); } catch { /* already absent */ }
+        cleanRegistry();
+        expect(await proveAbsent(socketPath, recordingProbe("alive", calls), "ECONNREFUSED")).toBe(false);
+        expect(calls).toEqual([]);
       },
     );
   });
