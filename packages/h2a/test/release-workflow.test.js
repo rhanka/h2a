@@ -118,6 +118,50 @@ test("R8.2/R8.4: no publish step may disable itself, and the integrity checks ru
   );
 });
 
+/**
+ * The EFFECTIVE script of a step: comment lines stripped, whitespace trimmed.
+ * This is the execution contract — comments document it, these lines ARE it.
+ */
+function effectiveScript(run) {
+  return String(run)
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0 && !line.startsWith("#"));
+}
+
+test("R8.2: the publish integrity control is pinned COMMAND BY COMMAND — a check that cannot fail is not a check", () => {
+  // Round-4 review finding F06 (G01/G02): the qualification only asserted the
+  // PRESENCE of `sha256sum --check` and `release-sha.txt` and their position.
+  // Appending `|| true` to the checksum line (the mutated control then
+  // accepted corrupted bytes with exit 0) or inverting `!=` into `=` in the
+  // manifest comparison (an ungated SHA then passed with exit 0) left every
+  // assertion green — a textual mention was graded as a failure condition.
+  // A mention is not a mechanism: the EFFECTIVE script (comments stripped) is
+  // pinned line by line, so any edit that changes HOW the step can fail — an
+  // `||` escape on the check, an inverted or self-satisfied comparison, a
+  // dropped `exit 1`, a missing `set -euo pipefail` — changes a line and fails
+  // here.
+  const publish = job("publish");
+  const integrity = publish.steps.find((step) => String(step.run ?? "").includes("sha256sum --check"));
+  assert.ok(integrity, "publish must verify the tarball sha256 before publishing");
+  // The step runs under GitHub's bash wrapper (its own -eo pipefail) and its
+  // own `set -euo pipefail`; no working-directory or env may silently relocate
+  // the files the pinned lines address.
+  assert.equal(integrity.shell, "bash", "the integrity control must run under the bash wrapper — a weaker shell changes what the pinned lines mean");
+  assert.equal(integrity["working-directory"], undefined, "a working-directory on the integrity step silently relocates the paths the pinned commands address");
+  assert.equal(integrity.env, undefined, "an env block on the integrity step can shadow the variables the pinned comparison uses");
+  assert.deepEqual(effectiveScript(integrity.run), [
+    "set -euo pipefail",
+    "(cd dist-tarballs && sha256sum --check --strict sha256sums.txt)",
+    'manifest_sha="$(cat dist-tarballs/release-sha.txt)"',
+    'gated_sha="${{ needs.verify.outputs.release-sha }}"',
+    'if [ "$manifest_sha" != "$gated_sha" ]; then',
+    'echo "::error::Artifact manifest SHA ${manifest_sha} != verify-gated SHA ${gated_sha}; refusing to publish bytes of an ungated commit." >&2',
+    "exit 1",
+    "fi",
+  ], "the integrity control's failure conditions are pinned: `|| true` on the checksum (round-4 G01), an inverted comparison (round-4 G02), a self-satisfied or dropped refusal, or a removed `set -euo pipefail` all change this script");
+});
+
 test("R8.2 TOCTOU + race: the SHA is resolved ONCE in a prior job; verify consumes it and never resolves", () => {
   // The review reproduced the race with a fake git: when EACH verify matrix
   // leg resolved the mutable tag itself, two legs could gate two different

@@ -121,12 +121,57 @@ test("R8.3: scenario 7 closes the stderr reader BEFORE the deferred prune, and e
   );
 });
 
+test("R8.3: the prune observation reads through the packaged registry reader — never a hand-rolled JSON.parse", () => {
+  // Round-4 review finding F07: the observation must INHERIT the production
+  // reader's 3-state contract (valid entries / per-row unreadable /
+  // whole-file unknown). A hand-rolled `JSON.parse(readFileSync(...))` of the
+  // registry re-implements a WEAKER reader inside the smoke and re-opens the
+  // false green: an unreadable row that still identifies the session, and a
+  // registry rebuilt from corrupt bytes, both used to "prove" the prune.
+  assert.ok(
+    SMOKE_SOURCE.includes("join(runtimeDist, 'registry.js')"),
+    "the smoke must read the registry through the PACKAGED registry module (the bytes under test), not a workspace or hand-rolled reader",
+  );
+  assert.ok(
+    SMOKE_SOURCE.includes("readers.loadRegistry(lab.registryPath)"),
+    "the prune observation must call the production loadRegistry — the 3-state read whose verdicts the observation must inherit",
+  );
+  assert.ok(
+    SMOKE_SOURCE.includes("readers.unreadableRowsForTarget("),
+    "an unreadable row that still identifies the session must be matched by the reader's own identity rules — a local subset matcher re-opens G03",
+  );
+  assert.ok(
+    SMOKE_SOURCE.includes("read.state === 'ok'"),
+    "only the reader's 'ok' state observes rows: 'unknown' observes nothing, in either phase",
+  );
+  assert.ok(
+    !SMOKE_SOURCE.includes("JSON.parse(readFileSync(lab.registryPath"),
+    "a hand-rolled registry read flattens the reader's contract and lets indeterminate states prove prunes (round-4 finding F07)",
+  );
+});
+
 test("R8.3: the prune proof observes the row PRESENT before its disappearance — an already-empty registry proves nothing", async () => {
   // Round-3 review finding N03: waitForPrune only polled for the row's
   // ABSENCE, so a registry that never contained the row "proved" a prune the
   // instant it was read. The proof must be two-phase: observe the row
   // present, then observe its disappearance. A row never seen present is no
   // evidence that the deferred prune ran.
+  //
+  // Round-4 review finding F02: valid JSON of an invalid shape observes
+  // nothing. Round-4 review finding F07 (G03/G04): the observation goes
+  // through the production reader's 3-state contract, so the reader's
+  // UNREADABLE-row and UNKNOWN-file verdicts must block the disappearance
+  // exactly as they do for every production consumer:
+  //   - G03: a row whose id became invalid while its label still identifies
+  //     the session is UNREADABLE to loadRegistry and MATCHES the target
+  //     under unreadableRowsForTarget — it is the session's row, not its
+  //     absence;
+  //   - G04: a registry REBUILT from corrupt bytes (rebuiltFromCorruptAt) is
+  //     state "unknown" to loadRegistry — rows from before the rebuild are
+  //     not provably absent, so no prune is proved.
+  // The injected reader pair mirrors the production contract the smoke wires
+  // at runtime (pinned by the test above); each case is a sequence of
+  // RegistryReadResult snapshots the reader returns on successive polls.
   const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
   function extractFunction(source, name) {
     const begin = source.indexOf("  async function " + name + "(");
@@ -139,100 +184,159 @@ test("R8.3: the prune proof observes the row PRESENT before its disappearance �
     .replace("30_000", "60")
     .replace("setTimeout(r, 200)", "setTimeout(r, 2)");
   const throwingFail = (message) => { throw new Error(message); };
-  const lab = mkdtempSync(join(tmpdir(), "h2a-smoke-prune-proof-"));
-  try {
-    const registryPath = join(lab, "registry.json");
 
-    // Case 1 — the row is NEVER present: the wait must reject, not resolve.
-    writeFileSync(registryPath, JSON.stringify({ entries: [] }));
-    const neverPresent = new AsyncFunction(
-      "readFileSync",
+  const ok = (entries, unreadable = []) => ({ state: "ok", entries, unreadable });
+  const unknown = (reason) => ({ state: "unknown", reason });
+  const row = (id) => ({ id });
+
+  /** A reader pair over a fixed snapshot sequence; counts loadRegistry polls. */
+  function readerSequence(results) {
+    let polls = 0;
+    return {
+      readers: {
+        loadRegistry: async () => results[Math.min(polls++, results.length - 1)],
+        // The production identity rules for a row that failed validation:
+        // id or label still addresses the target (registry.ts
+        // rawRowMatchesTarget — for these targets the managed-name branches
+        // are vacuous).
+        unreadableRowsForTarget: (target, unreadable) =>
+          unreadable.filter((raw) => raw && typeof raw === "object" && (raw.id === target || raw.label === target)),
+      },
+      polls: () => polls,
+    };
+  }
+
+  async function runWait(sessionId, results) {
+    const harness = readerSequence(results);
+    const run = new AsyncFunction(
+      "readers",
       "fail",
-      fn + "\nreturn waitForPrune({registryPath:" + JSON.stringify(registryPath) + '}, "never-persisted");',
+      fn + "\nreturn waitForPrune({registryPath:'fixture'}, " + JSON.stringify(sessionId) + ", readers);",
     );
+    return { outcome: run(harness.readers, throwingFail), polls: harness.polls };
+  }
+
+  // Case 1 — the row is NEVER present: the wait must reject, not resolve.
+  {
+    const wait = await runWait("never-persisted", [ok([])]);
     await assert.rejects(
-      () => neverPresent(readFileSync, throwingFail),
+      () => wait.outcome,
       /never observed PRESENT|never observed present/,
       "a prune proof that never saw the row present is a false observation: the round-3 defect",
     );
+  }
 
-    // Case 2 — present, then gone: the prune is observed, the wait resolves.
-    let reads = 0;
-    const registryWithRow = JSON.stringify({ entries: [{ id: "native-terminal-pty:observed" }] });
-    const registryWithoutRow = JSON.stringify({ entries: [] });
-    const shimReads = () => {
-      reads += 1;
-      return reads <= 1 ? registryWithRow : registryWithoutRow;
-    };
-    const observed = new AsyncFunction(
-      "readFileSync",
-      "fail",
-      fn + "\nreturn waitForPrune({registryPath:" + JSON.stringify(registryPath) + '}, "observed");',
-    );
-    await observed(shimReads, throwingFail); // must resolve: presence, then disappearance
-    assert.ok(reads >= 2, "the disappearance must be a second observation, not the absence of a first one");
+  // Case 2 — present, then gone: the prune is observed, the wait resolves.
+  {
+    const wait = await runWait("observed", [ok([row("native-terminal-pty:observed")]), ok([])]);
+    await wait.outcome; // must resolve: presence, then disappearance
+    assert.ok(wait.polls() >= 2, "the disappearance must be a second observation, not the absence of a first one");
+  }
 
-    // Case 3 — present but never pruned: the wait must reject naming the prune.
-    const neverPrunedRow = JSON.stringify({ entries: [{ id: "native-terminal-pty:never-pruned" }] });
-    const alwaysPresent = () => neverPrunedRow;
-    const neverPruned = new AsyncFunction(
-      "readFileSync",
-      "fail",
-      fn + "\nreturn waitForPrune({registryPath:" + JSON.stringify(registryPath) + '}, "never-pruned");',
-    );
+  // Case 3 — present but never pruned: the wait must reject naming the prune.
+  {
+    const wait = await runWait("never-pruned", [ok([row("native-terminal-pty:never-pruned")])]);
     await assert.rejects(
-      () => neverPruned(alwaysPresent, throwingFail),
+      () => wait.outcome,
       /never pruned/,
       "a row that never disappears proves the deferred prune did not run",
     );
+  }
 
-    // Case 4 — round-4 review finding F02: the row is observed PRESENT, then
-    // the registry becomes valid JSON of an INVALID SHAPE. The defect coerced
-    // that snapshot to an empty row list and resolved — "proving" a prune on a
-    // snapshot that showed nothing. An invalid shape is UNKNOWN, not empty:
-    // the wait must reject, never resolve, and must not stop polling on it.
-    let shapeReads = 0;
-    const presentThenInvalid = () => {
-      shapeReads += 1;
-      return shapeReads === 1
-        ? JSON.stringify({ entries: [{ id: "native-terminal-pty:shape-lost" }] })
-        : JSON.stringify({ unexpected: "shape" });
-    };
-    const shapeLost = new AsyncFunction(
-      "readFileSync",
-      "fail",
-      fn + "\nreturn waitForPrune({registryPath:" + JSON.stringify(registryPath) + '}, "shape-lost");',
-    );
+  // Case 4 — round-4 finding F02: the row is observed PRESENT, then the
+  // registry becomes valid JSON of an INVALID SHAPE (the reader's "unknown").
+  // An invalid shape is UNKNOWN, not empty: the wait must reject, and must
+  // not stop polling on it.
+  {
+    const wait = await runWait("shape-lost", [ok([row("native-terminal-pty:shape-lost")]), unknown("registry has no entries array")]);
     await assert.rejects(
-      () => shapeLost(presentThenInvalid, throwingFail),
+      () => wait.outcome,
       /never pruned/,
       "a registry of an invalid shape cannot prove the prune: only a well-shaped snapshot showing the disappearance may",
     );
-    assert.ok(shapeReads >= 2, "the invalid-shape snapshot must be re-polled, never accepted as a disappearance");
+    assert.ok(wait.polls() >= 2, "the invalid-shape snapshot must be re-polled, never accepted as a disappearance");
+  }
 
-    // Case 5 — the same property through the other unreadable path: after the
-    // row is observed present, the registry stops parsing. A parse error is
-    // not an empty registry either.
-    let brokenReads = 0;
-    const presentThenBroken = () => {
-      brokenReads += 1;
-      return brokenReads === 1
-        ? JSON.stringify({ entries: [{ id: "native-terminal-pty:parse-lost" }] })
-        : "{broken";
-    };
-    const parseLost = new AsyncFunction(
-      "readFileSync",
-      "fail",
-      fn + "\nreturn waitForPrune({registryPath:" + JSON.stringify(registryPath) + '}, "parse-lost");',
-    );
+  // Case 5 — the same property through the unparsable path: a parse error is
+  // not an empty registry either.
+  {
+    const wait = await runWait("parse-lost", [ok([row("native-terminal-pty:parse-lost")]), unknown("registry is unreadable or malformed")]);
     await assert.rejects(
-      () => parseLost(presentThenBroken, throwingFail),
+      () => wait.outcome,
       /never pruned/,
       "a registry that stops parsing cannot prove the prune: an unreadable snapshot is unknown, never empty",
     );
-    assert.ok(brokenReads >= 2, "the unparsable snapshot must be re-polled, never accepted as a disappearance");
-  } finally {
-    rmSync(lab, { recursive: true, force: true });
+  }
+
+  // Case 6 — round-4 finding F07/G03: after the row is observed present, a
+  // row whose id became INVALID while its label still identifies the session
+  // is UNREADABLE to the reader and MATCHES the target — the session's row in
+  // degraded form is not its absence. The wait must reject.
+  {
+    const wait = await runWait("unreadable-identity", [
+      ok([row("native-terminal-pty:unreadable-identity")]),
+      ok([], [{
+        id: null,
+        label: "native-terminal-pty:unreadable-identity",
+        tool: "claude",
+        kind: "local",
+        cwd: "",
+        source: "scan",
+        enrolledAt: "2026-10-11T12:00:00.000Z",
+        lastSeenAt: "2026-10-11T12:00:00.000Z",
+      }]),
+    ]);
+    await assert.rejects(
+      () => wait.outcome,
+      /never pruned/,
+      "an unreadable row whose label still identifies the session cannot prove a prune: the production reader keeps it as the session's row, not its absence (round-4 G03)",
+    );
+  }
+
+  // Case 7 — round-4 finding F07/G04: a registry REBUILT from corrupt bytes
+  // (rebuiltFromCorruptAt) is state "unknown" — rows from before the rebuild
+  // are not provably absent. The wait must reject.
+  {
+    const wait = await runWait("rebuilt", [
+      ok([row("native-terminal-pty:rebuilt")]),
+      unknown("registry was rebuilt from an unreadable file at 2026-10-11T12:00:00.000Z — rows from before the rebuild are not provably absent"),
+    ]);
+    await assert.rejects(
+      () => wait.outcome,
+      /never pruned/,
+      "a registry rebuilt from corrupt bytes cannot prove a prune: the production reader returns unknown for rebuiltFromCorruptAt (round-4 G04)",
+    );
+  }
+
+  // Case 8 — a reader that THROWS observes nothing: the failure is unknown,
+  // never empty, and the wait keeps polling.
+  {
+    const throwing = {
+      loadRegistry: async () => { throw new Error("EIO"); },
+      unreadableRowsForTarget: (target, unreadable) => unreadable.filter((raw) => raw?.label === target || raw?.id === target),
+    };
+    const run = new AsyncFunction(
+      "readers",
+      "fail",
+      fn + "\nreturn waitForPrune({registryPath:'fixture'}, \"reader-error\", readers);",
+    );
+    await assert.rejects(
+      () => run(throwing, throwingFail),
+      /never observed PRESENT|never observed present/,
+      "a reader that always fails observes nothing: the wait must reject, never treat the failure as an empty registry",
+    );
+  }
+
+  // Case 9 — an UNREADABLE row that identifies the session counts as PRESENT
+  // in the presence phase too: the two-phase proof may observe the row in
+  // degraded form, then its disappearance.
+  {
+    const wait = await runWait("degraded-then-gone", [
+      ok([], [{ id: null, label: "native-terminal-pty:degraded-then-gone" }]),
+      ok([]),
+    ]);
+    await wait.outcome; // must resolve: degraded presence, then disappearance
+    assert.ok(wait.polls() >= 2, "the disappearance must be a second observation");
   }
 });
 
