@@ -1,0 +1,6 @@
+RUN /usr/bin/node --test --test-reporter=tap /home/antoinefa/src/h2a/tmp/worktrees/spike-pty/spike/pty-owner/faults.test.mjs
+RESULT faults-node22-same-error-rollback: exit=0 pass=6 fail=0 skipped=0
+RUN /home/antoinefa/.cache-tmp/pty-node-matrix-uM1Ptm/22.15.0/bin/node --test --test-reporter=tap /home/antoinefa/src/h2a/tmp/worktrees/spike-pty/spike/pty-owner/faults.test.mjs
+RESULT faults-node2215-same-error-rollback: exit=0 pass=6 fail=0 skipped=0
+RUN /home/antoinefa/.nvm/versions/node/v24.18.0/bin/node --test --test-reporter=tap /home/antoinefa/src/h2a/tmp/worktrees/spike-pty/spike/pty-owner/faults.test.mjs
+RESULT faults-node24-same-error-rollback: exit=0 pass=6 fail=0 skipped=0
