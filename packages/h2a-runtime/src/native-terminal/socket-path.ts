@@ -13,17 +13,17 @@ export type NativeTerminalSocketIdentity = Readonly<{
 // NOT fail loudly — libuv silently truncates the path, so the socket appears
 // at a *different* name and every follow-up (chmod, lstat, connect) reports a
 // baffling ENOENT. Fail closed with a clear message instead.
-const UNIX_SOCKET_MAX_PATH_BYTES = process.platform === "darwin" ? 103 : 107;
+export const NATIVE_TERMINAL_SOCKET_MAX_PATH_BYTES = process.platform === "darwin" ? 103 : 107;
 
 export function assertNativeTerminalSocketPathWithinLimit(
   socketPath: string,
   label = "terminal host socket path",
 ): void {
   const bytes = Buffer.byteLength(socketPath, "utf8");
-  if (bytes > UNIX_SOCKET_MAX_PATH_BYTES) {
+  if (bytes > NATIVE_TERMINAL_SOCKET_MAX_PATH_BYTES) {
     throw new Error(
       `${label} exceeds the unix socket path limit ` +
-        `(${bytes} > ${UNIX_SOCKET_MAX_PATH_BYTES} bytes): ${socketPath}`,
+        `(${bytes} > ${NATIVE_TERMINAL_SOCKET_MAX_PATH_BYTES} bytes): ${socketPath}`,
     );
   }
 }

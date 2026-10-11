@@ -11,7 +11,9 @@
  * inside a try/catch and returns, then EPIPE surfaces on the host's event
  * loop where no listener exists, and the unhandled `error` event throws
  * `uncaughtException` (exit 1, supervisor restart: the 2026-10-10/11
- * crash-loop, host.js:590:36 via 1425:26 and 1454:62).
+ * crash-loop, host.js:590:36 via 1425:26 and 1454:62). The mechanism is
+ * reproduced; attribution to that incident remains probable because its
+ * journal redacts the error code.
  *
  * Rules this sink enforces:
  * - a durable `error` listener on `process.stderr` turns asynchronous stream
@@ -22,7 +24,7 @@
  * - lines emitted while stderr is unusable are kept in a bounded most-recent
  *   buffer (diagnostic for an attached debugger), never unbounded memory.
  */
-import { HOST_FAULT_COUNTERS, recordHostFault } from "./fault-counters.js";
+import { HOST_FAULT_COUNTERS, hostFaultCounters, recordHostFault } from "./fault-counters.js";
 
 const HOST_LOG_PREFIX = "[h2a-pty-host]";
 const MAX_BUFFERED_HOST_LOG_LINES = 256;
@@ -78,6 +80,7 @@ export function resetHostLogSinkForTests(): void {
 export function hostLogSinkDiagnostics(): Readonly<{
   stderrUsable: boolean;
   bufferedLines: ReadonlyArray<string>;
+  faultCounters: Readonly<Record<string, number>>;
 }> {
-  return { stderrUsable, bufferedLines: [...bufferedLines] };
+  return { stderrUsable, bufferedLines: [...bufferedLines], faultCounters: hostFaultCounters() };
 }

@@ -845,8 +845,8 @@ export class NativeTerminalHost {
       options.log ??
       ((line) => {
         // The default sink must be crash-safe: a plain `process.stderr.write`
-        // here is the origin of the 2026-10-10/11 crash-loop (async EPIPE on
-        // the host's stderr, unhandled `error` event, uncaughtException).
+        // here reproduces the suspected mechanism of the 2026-10-10/11
+        // crash-loop (async EPIPE, unhandled `error`, uncaughtException).
         writeHostLogLine(line);
       });
     this.#forceKillTimeoutMs =
@@ -1031,7 +1031,9 @@ export class NativeTerminalHost {
           try {
             record.pty.write("\x1b[1;1R");
           } catch {
-            // Child already gone; nothing left to answer.
+            // R7.5 named exemption: expected transport failure, potentially
+            // high volume. Count it instead of logging every failed reply.
+            recordHostFault(HOST_FAULT_COUNTERS.hostPtyWriteBreaks);
             break;
           }
         }
@@ -2032,6 +2034,7 @@ export class NativeTerminalHost {
     record: SessionRecord,
     error: unknown,
   ): void {
+    recordHostFault(HOST_FAULT_COUNTERS.hostPtyCallbackFailures);
     try {
       this.#log(
         `contained a faulty pty ${kind} callback for terminal session ${record.id} (pgid=${record.pty.pgid}): ${String(error)}`,

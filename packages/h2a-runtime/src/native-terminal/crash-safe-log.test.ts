@@ -63,6 +63,7 @@ describe("crash-safe host log sink", () => {
     write.mockRestore();
     for (let index = 0; index < 300; index += 1) expect(writeHostLogLine(`line-${index}`)).toBe(false);
     const buffered = hostLogSinkDiagnostics().bufferedLines;
+    expect(buffered.length).toBeLessThanOrEqual(256);
     expect(buffered.length).toBe(256);
     expect(buffered[0]).toBe("[h2a-pty-host] line-44\n");
     expect(buffered.at(-1)).toBe("[h2a-pty-host] line-299\n");
