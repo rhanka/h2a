@@ -1,0 +1,17 @@
+TAP version 13
+# Subtest: should reconnect the actual 0.98.5 runAttach source and a new observer across exec
+ok 1 - should reconnect the actual 0.98.5 runAttach source and a new observer across exec
+  ---
+  duration_ms: 2746.814563
+  type: 'test'
+  ...
+# {"node":"v22.22.1","code":0,"transitions":6,"counts":{"connects":7,"lastSeq":153},"historicalCounters":290,"newObserverCounters":266,"sourceSha256":"b17c0bcc5ef6a891450e488026c02a54c5938ad038b922905baedc36996536de","limitation":"real runAttach source, adapted IPC protocol; installed/historical dist not used"}
+1..1
+# tests 1
+# suites 0
+# pass 1
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 2865.27407
