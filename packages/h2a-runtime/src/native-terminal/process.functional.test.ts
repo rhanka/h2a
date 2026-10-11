@@ -66,6 +66,24 @@ async function eventually<T>(read: () => Promise<T> | T, accept: (value: T) => b
   throw new Error(`condition did not become true; last value: ${JSON.stringify(last)}`);
 }
 
+async function clientAfterFirstRestartBackoff(
+  supervisor: NativeTerminalHostSupervisor,
+): Promise<NativeTerminalClient> {
+  try {
+    return await supervisor.client();
+  } catch (error) {
+    // R7 preserves the first 250 ms backoff even after a healthy handshake.
+    // Retry only that refusal, once; containment and startup errors stay fatal.
+    const backoff = error instanceof Error
+      ? /^native terminal host restart backoff active for (\d+)ms after:/.exec(error.message)
+      : null;
+    if (backoff === null) throw error;
+    expect(Number(backoff[1])).toBeLessThanOrEqual(250);
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    return supervisor.client();
+  }
+}
+
 /**
  * Wait for a host child to exit, with an explicit deadline. `once(child,
  * "exit")` alone is the one open-ended wait in a shutdown scenario: a host
@@ -536,7 +554,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
     // takeover of this health-checked, known-dead host as containment work:
     // client() returns only after the durable pgid has been reaped (or it
     // fails rather than starting a replacement over live descendants).
-    const replacement = await supervisor.client();
+    const replacement = await clientAfterFirstRestartBackoff(supervisor);
     expect(await processGroupMemberPids(hardCrashPgid)).toEqual([]);
     const hardCrashStates = await Promise.all(hardCrashPids.map(processObservation));
     expect(hardCrashStates.every((state) => state.missing === true)).toBe(true);
@@ -1326,7 +1344,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
       status: "unresolved",
       reason: expect.stringMatching(/no pgid recorded/i),
     });
-    const restarted = await supervisor.client();
+    const restarted = await clientAfterFirstRestartBackoff(supervisor);
     expect(supervisor.spawnedPid).not.toBe(stoppedHostPid);
     expect(await restarted.ping()).toMatchObject({ generation: "restart-generation" });
   }, GRACEFUL_SHUTDOWN_BUDGET_MS);
