@@ -13,11 +13,14 @@
  *       from the candidate tarball, never from the registry;
  *   (4) prove the loaded path/version: `node -p
  *       "require.resolve('@sentropic/h2a-runtime/package.json')"` points
- *       INSIDE the prefix and the version is the candidate's;
+ *       INSIDE the prefix and the version is exactly the pinned 0.98.5
+ *       (R8.3(4) pins the literal — never "whatever the candidate is");
  *   (5) drive the PACKAGED host binary through a cold-boot (registry seeded
  *       with previous-boot rows + an empty runtime directory), the handshake
  *       (ping), a real PTY operation, and the crash-net injections
- *       (scenarios 7-8: stderr reader disappearing; faulty client connection).
+ *       (scenarios 7-8: stderr reader destroyed BEFORE the deferred prune,
+ *       with the prune observed through the registry row disappearing and a
+ *       PTY operation proved after EACH fault).
  *
  * The smoke fails closed: any step red => verify red => publish blocked.
  *
@@ -69,12 +72,24 @@ function runSync(command, args, options = {}) {
 // ---------------------------------------------------------------------------
 // (1) pack the three lockstep packages of the candidate
 // ---------------------------------------------------------------------------
+// SPEC 0.98.5 R8.3(4) pins the LITERAL: the proof is "version === 0.98.5", not
+// "version === whatever this tree happens to be". Comparing to the candidate
+// version would pass even when the clean prefix silently fell back to a
+// previously published version in the same range — the exact hole this step
+// exists to close.
+const PINNED_RUNTIME_VERSION = '0.98.5'
 const staging = mkdtempSync(join(tmpdir(), 'h2a-smoke-staging-'))
 const prefix = mkdtempSync(join(tmpdir(), 'h2a-smoke-prefix-'))
 const sandbox = mkdtempSync(join(tmpdir(), 'h2a-smoke-sandbox-'))
 const runtimeVersion = JSON.parse(
   readFileSync(join(REPO_ROOT, 'packages', 'h2a-runtime', 'package.json'), 'utf8'),
 ).version
+if (runtimeVersion !== PINNED_RUNTIME_VERSION) {
+  fail(
+    `the candidate tree is @sentropic/h2a-runtime@${runtimeVersion}, but the smoke proves the 0.98.5 train: ` +
+      `bump the lockstep version (npm run release -- --version ${PINNED_RUNTIME_VERSION}) before tagging`,
+  )
+}
 const tarballName = (name) =>
   `${name.replace(/^@/, '').replace(/\//, '-')}-${runtimeVersion}.tgz`
 
@@ -106,10 +121,10 @@ try {
     fail(`@sentropic/h2a-runtime resolved OUTSIDE the candidate prefix: ${resolved}`)
   }
   const loadedVersion = JSON.parse(readFileSync(resolved, 'utf8')).version
-  if (loadedVersion !== runtimeVersion) {
+  if (loadedVersion !== PINNED_RUNTIME_VERSION) {
     fail(
-      `packaged runtime version is ${loadedVersion}, expected the candidate ${runtimeVersion} ` +
-        '(a registry fallback would load the previously published version — this is exactly the hole the proof closes)',
+      `packaged runtime version is ${loadedVersion}, expected the pinned ${PINNED_RUNTIME_VERSION} ` +
+        '(a registry fallback would load a previously published version — this is exactly the hole the proof closes)',
     )
   }
   console.log(`smoke-artifact: runtime resolved from the candidate prefix at version ${loadedVersion}`)
@@ -133,7 +148,14 @@ try {
     pidNamespace: undefined,
   }
   try {
-    frame.pidNamespace = await (await import('node:fs/promises')).readlink('/proc/self/ns/pid')
+    const link = await (await import('node:fs/promises')).readlink('/proc/self/ns/pid')
+    // The store-side representation is the NUMERIC INODE, not the raw magic
+    // symlink: readPidNamespaceId() returns `4026531836` for
+    // `pid:[4026531836]`, and R1 pins the stored pidNamespace as /^\d+$/.
+    // Persisting the raw link would be malformed store data -> foreign-frame
+    // -> the cold boot would be refused by the very candidate it smokes.
+    const inode = /\[(\d+)\]/.exec(link)
+    frame.pidNamespace = inode?.[1]
   } catch {
     frame.pidNamespace = undefined
   }
@@ -236,6 +258,50 @@ try {
     await once(child, 'exit').catch(() => {})
   }
 
+  /** Drive a real PTY operation through a client and wait for its marker file. */
+  async function provePtyOperation(lab, client, sessionId) {
+    const marker = join(lab.root, `${sessionId}-marker.txt`)
+    await client.create({
+      id: sessionId,
+      command: process.execPath,
+      args: ['-e', `require('fs').writeFileSync(${JSON.stringify(marker)}, 'ok')`],
+      cwd: lab.root,
+      env: { PATH: '/usr/bin:/bin', HOME: lab.home },
+      cols: 80,
+      rows: 24,
+    })
+    const deadline = Date.now() + 20_000
+    while (!existsSync(marker) && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 200))
+    }
+    if (!existsSync(marker)) {
+      fail(`the PTY operation ${sessionId} never ran (marker file absent)`)
+    }
+  }
+
+  /**
+   * Wait until the durable row of a session has been pruned from the registry.
+   * The deferred prune is the exact site of the crash-loop incident (host.js
+   * timer -> log line), so scenario 7 must OBSERVE that it ran, not just wait
+   * a fixed delay: the row disappearing proves the prune fired, and therefore
+   * that its log line went to the destroyed stream.
+   */
+  async function waitForPrune(lab, sessionId) {
+    const rowId = `native-terminal-pty:${sessionId}`
+    const deadline = Date.now() + 30_000
+    while (Date.now() < deadline) {
+      try {
+        const registry = JSON.parse(readFileSync(lab.registryPath, 'utf8'))
+        const rows = Array.isArray(registry.entries) ? registry.entries : []
+        if (!rows.some((row) => row.id === rowId)) return
+      } catch {
+        // The registry is rewritten atomically; a torn read is transient.
+      }
+      await new Promise((r) => setTimeout(r, 200))
+    }
+    fail(`the durable row ${rowId} was never pruned: the deferred prune did not run, so scenario 7 exercised no write-after-close`)
+  }
+
   // --- cold-boot: start over previous-boot rows with an empty runtime dir ---
   const cold = isolatedHostLab('cold')
   seedPreviousBootRows(cold, 'smoke-cold-boot')
@@ -277,37 +343,47 @@ try {
   })
   await new Promise((r) => setTimeout(r, 500))
   await goodClient.ping()
-  console.log('smoke-artifact: faulty client isolated; other connections keep working')
+  // PTY operation AFTER the fault: a ping proves the connection; only a real
+  // PTY proves the sessions. The review's gap: ping-only after the fault.
+  await provePtyOperation(cold, goodClient, 'smoke-pty-after-fault')
+  console.log('smoke-artifact: faulty client isolated; connection and PTYs keep working')
 
   await stopPackagedHost(cold, coldHost)
   goodClient.close()
 
   // --- crash-net injection, scenario 7: the host must survive its stderr
-  // --- reader disappearing. A host that logs to a closed pipe without the
-  // --- crash-safe sink dies of EPIPE; the packaged candidate must survive.
+  // --- reader disappearing, and the deferred prune must OBSERVEDLY happen
+  // --- AFTER the close. The review's defect: the reader died 2s after a
+  // --- prune that ran at delay zero, so no write-after-close was exercised.
+  // --- Order here: session alive -> reader destroyed -> session exits ->
+  // --- deferred prune logs into the dead stream.
   const stderrLab = isolatedHostLab('stderr')
   const stderrHost = await startPackagedHost(stderrLab, 'smoke-stderr')
   const stderrClient = await NativeTerminalClient.connect(stderrLab.socketPath)
   await stderrClient.create({
     id: 'smoke-exit',
     command: process.execPath,
-    args: ['-e', 'process.exit(0)'],
+    // Deliberately still alive while the reader dies, so the prune (and its
+    // log line) cannot have happened before the close.
+    args: ['-e', 'setTimeout(() => process.exit(0), 4000)'],
     cwd: stderrLab.root,
     env: { PATH: '/usr/bin:/bin', HOME: stderrLab.home },
     cols: 80,
     rows: 24,
   })
-  // Give the session time to exit and schedule its deferred durable-row prune,
-  // then kill the stderr reader: the prune's log line must not kill the host.
-  await new Promise((r) => setTimeout(r, 2_000))
+  // Give the host a moment to register the session, then close its log reader.
+  await new Promise((r) => setTimeout(r, 500))
   stderrHost.stderr.destroy()
-  await new Promise((r) => setTimeout(r, 3_000))
-  const survivalClient = await NativeTerminalClient.connect(stderrLab.socketPath)
-  await survivalClient.ping()
+  await waitForPrune(stderrLab, 'smoke-exit')
   if (stderrHost.exitCode !== null || stderrHost.signalCode !== null) {
     fail('the packaged host died when its stderr reader disappeared (scenario 7)')
   }
-  console.log('smoke-artifact: host survived its stderr reader disappearing (scenario 7)')
+  const survivalClient = await NativeTerminalClient.connect(stderrLab.socketPath)
+  await survivalClient.ping()
+  // PTY operation AFTER the fault: a ping proves the connection; only a real
+  // PTY proves the sessions still serve through the dead-log host.
+  await provePtyOperation(stderrLab, survivalClient, 'smoke-pty-after-stderr-fault')
+  console.log('smoke-artifact: host survived its stderr reader disappearing, prune observed after the close (scenario 7)')
   survivalClient.close()
   stderrClient.close()
   await stopPackagedHost(stderrLab, stderrHost)
