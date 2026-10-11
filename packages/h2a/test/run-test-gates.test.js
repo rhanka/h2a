@@ -19,10 +19,12 @@
  * classification, verdict, aggregation, exit code — without invoking the real gates.
  */
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { spawnSync } from 'node:child_process'
 import { test } from 'node:test'
+import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import { dirname, resolve } from 'node:path'
 import { discoverTestFiles, RUNNER_TEST_FILE } from '../../../scripts/run-tests.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
@@ -543,4 +545,100 @@ test('R8.1 negative control: a rigged runner returning 0 without running the sui
     steps: [],
     packageTestScript: PACKAGE_JSON.scripts?.test,
   }).length > 0, 'an empty gate list must fail the trust root')
+})
+
+/**
+ * R8.1 — the trust root must also EXECUTE the runner's real entry, not only
+ * read its source. Round-2 review finding: mutating the runner to
+ * `const invokedDirectly = false` produced an inert `node scripts/run-test-gates.mjs`
+ * — exit 0, ZERO suites executed — while every source-level assertion above
+ * stayed green (the `if (invokedDirectly)` tail text survived verbatim).
+ *
+ * The check below runs a self-contained copy of the REAL runner source in a
+ * temp dir: the only splices are the `./run-tests.mjs` import (stubbed — the
+ * copy lives alone), REPO_ROOT (pinned to the lab, so the scope walk cannot
+ * leave it) and the STEPS array (sentinel steps — the real gates must not
+ * run here). The entry tail — the `invokedDirectly` gate and
+ * `process.exit(runGates(STEPS))` — is the production source, verbatim.
+ */
+function sentinelRunnerSource({ broken }) {
+  let source = RUNNER_SOURCE
+  const beforeImport = source
+  source = source.replace(
+    "import { TEST_DIRS, discoverTestFiles } from './run-tests.mjs'",
+    "const TEST_DIRS = ['(trust-root sentinel stub)']\nconst discoverTestFiles = () => []",
+  )
+  assert.notEqual(source, beforeImport, 'the import splice must apply to the real runner source')
+  const beforeRoot = source
+  source = source.replace("const REPO_ROOT = resolve(HERE, '..')", 'const REPO_ROOT = HERE')
+  assert.notEqual(source, beforeRoot, 'the REPO_ROOT splice must apply to the real runner source')
+  const sentinelSteps = `export const STEPS = [
+  {
+    id: 'sentinel-observed',
+    description: 'writes a sentinel file proving the entry really ran steps',
+    command: process.execPath,
+    args: ['-e', "require('node:fs').writeFileSync(process.env.TRUST_ROOT_SENTINEL_FILE, 'executed')"],
+    timeoutMs: 30000,
+  },${broken ? `
+  {
+    id: 'sentinel-broken',
+    description: 'a failing suite the entry must not launder into a pass',
+    command: process.execPath,
+    args: ['-e', 'process.exit(1)'],
+    timeoutMs: 30000,
+  },` : ''}
+]
+`
+  const beforeSteps = source
+  source = source.replace(/export const STEPS = \[[\s\S]*?\n\]\n/, sentinelSteps)
+  assert.ok(
+    source.includes("id: 'sentinel-observed'"),
+    'the STEPS splice must apply: the copy must carry the sentinel steps, not the real gates',
+  )
+  assert.ok(source !== beforeSteps, 'the copy must differ from the runner it verifies beyond the stubs')
+  return source
+}
+
+test('R8.1 execution: direct invocation of the runner entry is OBSERVED — an inert entry cannot pass', () => {
+  const lab = mkdtempSync(join(tmpdir(), 'h2a-trust-root-entry-'))
+  try {
+    const sentinelFile = join(lab, 'sentinel.txt')
+    const runCopy = (name, broken) => {
+      writeFileSync(join(lab, name), sentinelRunnerSource({ broken }))
+      rmSync(sentinelFile, { force: true })
+      const result = spawnSync(process.execPath, [join(lab, name)], {
+        cwd: lab,
+        encoding: 'utf8',
+        env: { ...process.env, TRUST_ROOT_SENTINEL_FILE: sentinelFile },
+        timeout: 60_000,
+      })
+      return {
+        result,
+        executed: existsSync(sentinelFile) ? readFileSync(sentinelFile, 'utf8') : null,
+      }
+    }
+
+    const clean = runCopy('runner-clean.mjs', false)
+    assert.equal(clean.result.status, 0, `the clean entry must exit 0\n${clean.result.stdout}${clean.result.stderr}`)
+    assert.equal(
+      clean.executed,
+      'executed',
+      'OBSERVED EXECUTION: an exit 0 from an entry that ran NO step is exactly the inert wrapper of the review, and it must not pass',
+    )
+    assert.match(clean.result.stdout, /All 1 steps passed\./)
+
+    const broken = runCopy('runner-broken.mjs', true)
+    assert.equal(
+      broken.result.status,
+      1,
+      `a broken suite must make the direct entry exit non-zero — an entry that swallows its verdict is a second inert wrapper\n${broken.result.stdout}${broken.result.stderr}`,
+    )
+    assert.equal(broken.executed, 'executed', 'the steps must actually run even when one fails')
+    assert.match(broken.result.stdout, /sentinel-observed\s+passed\s+exit 0/)
+    assert.match(broken.result.stdout, /sentinel-broken\s+failed\s+exit 1/)
+    assert.match(broken.result.stderr, /FAILED steps \(1\): sentinel-broken/)
+    assert.doesNotMatch(broken.result.stdout, /All 2 steps passed\./)
+  } finally {
+    rmSync(lab, { recursive: true, force: true })
+  }
 })
