@@ -190,6 +190,7 @@ import {
   type RestoreOptions,
 } from "./restore.js";
 import { getLayoutConfig } from "./config.js";
+import { resolvePinnedLaunchEntries } from "./resume-launch-options.js";
 import {
   isManagedLocalKind,
   advanceJob,
@@ -6393,20 +6394,24 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         }
         // By default launches are direct. --llm-gateway/--gw opts into the
         // local gateway for any profile that consumes Anthropic-compatible env.
-        const resumeRegistry = opts.resume ? loadRegistry() : undefined;
-        if (resumeRegistry?.state === "unknown") {
+        // Self-heal (2026-10 outage): conflicting pinned rows are probed and
+        // provably-dead ones pruned before the resume continues; a surviving
+        // conflict is a fatal naming the ids in cause (resume-launch-options.ts).
+        const resumeResolution = opts.resume
+          ? resolvePinnedLaunchEntries({ convId: opts.resume, cwd, tool: profile })
+          : { state: "ok" as const, entries: [] as RegistryEntry[], prunedIds: [] as string[] };
+        if (resumeResolution.state === "unreadable") {
           throw new Error("cannot recover pinned launch options: registry unreadable");
         }
-        const resumeEntries = resumeRegistry?.entries.filter((entry) =>
-          isManagedLocalKind(entry.kind) && entry.convId === opts.resume &&
-          entry.cwd === cwd && entry.tool === profile,
-        ) ?? [];
-        if (resumeEntries.some((entry) =>
-          entry.bare !== resumeEntries[0]?.bare || entry.gatewayMode !== resumeEntries[0]?.gatewayMode,
-        )) {
-          throw new Error("cannot recover pinned launch options: conflicting registry rows");
+        if (resumeResolution.state === "conflict") {
+          throw new Error(resumeResolution.reason);
         }
-        const pinnedLaunch = resumeEntries[0];
+        for (const prunedId of resumeResolution.prunedIds) {
+          process.stderr.write(
+            `[h2a] pruned dead registry row ${prunedId} that pinned conflicting launch options for this resume\n`,
+          );
+        }
+        const pinnedLaunch = resumeResolution.entries[0];
         const launchGatewayMode = gatewayModeForProfile(
           profile, gatewayMode === "auto" ? pinnedLaunch?.gatewayMode ?? "auto" : gatewayMode,
         );
