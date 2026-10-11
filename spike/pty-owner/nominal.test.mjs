@@ -15,6 +15,7 @@ for (const [count, cycles] of process.env.SPIKE_PROBE ? [[4, 2]] : [[32, 20], [4
     await l.rememberGuardians(); await sleep(100);
     const births = Array.from({ length: count }, (_, id) => read(path.join(l.root, `identity-${id}.json`)));
     const start = await rpc(socket, { op: 'status' });
+    l.launch('ensure-probe.mjs');
     const lease = await rpc(socket, { op: 'acquire', id: 0, client: 'old' });
     let attempts = 0, connects = 0; const errors = {}, pending = new Set();
     const started = performance.now();
@@ -78,12 +79,15 @@ for (const [count, cycles] of process.env.SPIKE_PROBE ? [[4, 2]] : [[32, 20], [4
     }
     const pauses = snapshots.map(s => s.pauseMs).sort((a, b) => a - b);
     const metrics = { node: process.version, count, cycles, ownerBirth: start.owner,
+      competingEnsure: read(path.join(l.root, 'ensure-probe.json')),
       births, snapshots, outputs, attempts, connects, errors, ensureErrors,
       hammerHz: attempts * 1000 / hammerMs, typedRefusals: typedRefusals.length,
       p99Ms: pauses[Math.ceil(pauses.length * .99) - 1],
       fdDelta: final.fd.length - start.fd.length, rssRatio: final.rss / start.rss };
     t.diagnostic(JSON.stringify(metrics));
     assert.equal(metrics.fdDelta, 0); assert.ok(metrics.rssRatio <= 1.25, `RSS ratio ${metrics.rssRatio}`);
+    assert.equal(metrics.competingEnsure.secondPublications, 0);
+    assert.equal(metrics.competingEnsure.attempts, metrics.competingEnsure.refusals);
     assert.ok(metrics.p99Ms < 1000); assert.deepEqual(errors, {});
     assert.ok(connects > 0); assert.equal(ensureErrors.filter(e => ['ECONNREFUSED', 'ENOENT'].includes(e)).length, 0);
   });
