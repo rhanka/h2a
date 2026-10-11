@@ -36,13 +36,15 @@ import {
   sameNativeTerminalSocket,
   type NativeTerminalSocketIdentity,
 } from "./socket-path.js";
-import { isNativeTerminalPgidOwnerRow, listNativeTerminalPgidEntries, loadRegistry } from "../registry.js";
+import { listNativeTerminalPgidEntries, loadRegistry } from "../registry.js";
 import {
   classifyDurableProcFrame,
   readProcessFrame,
   type DurableProcFrame,
   type ReadProcessFrame,
 } from "../proc-identity.js";
+
+import { NativeTerminalPublicationRefusal } from "./publication-refusal.js";
 
 type ConnectionContext = {
   readonly socket: Socket;
@@ -445,19 +447,6 @@ function consumeFrames(host: NativeTerminalHost, context: ConnectionContext, chu
   }
 }
 
-async function socketAcceptsConnections(socketPath: string, signal?: AbortSignal): Promise<boolean> {
-  return abortable(new Promise((resolve) => {
-    const socket = createConnection(socketPath);
-    const cancel = () => socket.destroy();
-    signal?.addEventListener("abort", cancel, { once: true });
-    socket.once("close", () => signal?.removeEventListener("abort", cancel));
-    socket.once("connect", () => {
-      socket.destroy();
-      resolve(true);
-    });
-    socket.once("error", () => resolve(false));
-  }), signal);
-}
 
 async function socketPublicationLockSecret(socketPath: string, signal?: AbortSignal): Promise<string> {
   if (process.platform !== "linux" || process.getuid === undefined) {
@@ -551,7 +540,7 @@ async function withSocketPublicationLock<T>(
   signal?: AbortSignal,
 ): Promise<T> {
   const deadline = new AbortController();
-  const timer = setTimeout(() => deadline.abort(new Error("terminal socket publication lock timed out")),
+  const timer = setTimeout(() => deadline.abort(new NativeTerminalPublicationRefusal("H2A_PUBLICATION_LOCK_TIMEOUT")),
     SOCKET_PUBLICATION_LOCK_TIMEOUT_MS);
   const boundedSignal = signal === undefined ? deadline.signal : AbortSignal.any([signal, deadline.signal]);
   try {
@@ -612,12 +601,14 @@ type EndpointOwner = NativeTerminalSocketIdentity & {
    * publication re-stamps this anchor.
    */
   machineId?: string;
+  nsNet?: string;
+  bootTimeMs?: number;
 };
 
 async function recordEndpointOwner(socketPath: string, socket: NativeTerminalSocketIdentity,
   processOwner = { pid: process.pid, startTime: readProcessStartTime(process.pid) },
-  signal?: AbortSignal,
-  readFrame: ReadProcessFrame = readProcessFrame,
+  signal: AbortSignal | undefined,
+  frame: DurableProcFrame,
   /**
    * Stamp a frame OTHER than the reader's current one: used only by the
    * proof-preservation pass, which re-records an identity that a durable row
@@ -633,7 +624,7 @@ async function recordEndpointOwner(socketPath: string, socket: NativeTerminalSoc
     throw new Error("simulated failure recording endpoint owner");
   }
   const { pid, startTime } = processOwner;
-  const frame = stampFrame ?? readFrame();
+  frame = stampFrame ?? frame;
   if (startTime === undefined || frame.bootId === undefined || frame.pidNamespace === undefined) {
     throw new Error("cannot certify native host process identity");
   }
@@ -656,7 +647,9 @@ async function recordEndpointOwner(socketPath: string, socket: NativeTerminalSoc
     // Write through the already-open inode: cancellation can unlink it without
     // a delayed write recreating the temporary pathname.
     await abortable(writeFile(openedFile, JSON.stringify({ ...socket, pid, startTime, bootId: frame.bootId,
-      pidNamespace: frame.pidNamespace, ...(frame.machineId !== undefined ? { machineId: frame.machineId } : {}) }),
+      pidNamespace: frame.pidNamespace, ...(frame.machineId !== undefined ? { machineId: frame.machineId } : {}),
+      ...(frame.nsNet !== undefined ? { nsNet: frame.nsNet } : {}),
+      ...(frame.bootTimeMs !== undefined ? { bootTimeMs: frame.bootTimeMs } : {}) }),
       signal === undefined ? {} : { signal }), signal);
     signal?.throwIfAborted();
     await abortable(rename(temporary, `${socketPath}.owner`), signal);
@@ -697,7 +690,7 @@ export async function proveNativeTerminalEndpointAbsent(
   if (code !== "ENOENT" && code !== "ECONNREFUSED") return false;
   await ensurePrivateSocketDirectory(socketPath);
   return withSocketPublicationLock(socketPath,
-    signal => proveEndpointAbsentUnderLock(socketPath, signal, readFrame, ownerProbe));
+    signal => proveEndpointAbsentUnderLock(socketPath, signal, readPublicationFrame(readFrame), ownerProbe));
 }
 
 function canonicalizePath(targetPath: string): string | undefined {
@@ -876,193 +869,152 @@ function findActiveHostServingSocket(
   return { state: "absent" };
 }
 
+function readPublicationFrame(readFrame: ReadProcessFrame): DurableProcFrame {
+  const frame = readFrame();
+  if (frame.machineId === undefined || !/^[0-9a-f]{32}$/.test(frame.machineId) || /^0+$/.test(frame.machineId)) {
+    throw new NativeTerminalPublicationRefusal("H2A_MACHINE_ID_UNREADABLE");
+  }
+  if (classifyDurableProcFrame(frame, frame) !== "current") {
+    throw new NativeTerminalPublicationRefusal("H2A_PROC_FRAME_UNKNOWN");
+  }
+  return frame;
+}
+
+/** A refused connect says only that nobody accepts now. All five refusals
+ * must complete within the global budget; every attempt has its own timer.
+ * Abort destroys the socket and cancels the interval before the lock releases. */
+async function repeatedlyRefusesConnection(socketPath: string, socketPresent: boolean, signal?: AbortSignal): Promise<boolean> {
+  const deadline = new AbortController();
+  const timer = setTimeout(() => deadline.abort(new NativeTerminalPublicationRefusal("H2A_ENDPOINT_PROBE_TIMEOUT")), 2_000);
+  const bounded = signal ? AbortSignal.any([signal, deadline.signal]) : deadline.signal;
+  try {
+    for (let attempt = 0; attempt < 5; attempt++) {
+      bounded.throwIfAborted();
+      const refusal = await new Promise<boolean>((resolve, reject) => {
+        const connection = createConnection(socketPath);
+        const finish = (error?: unknown, refused = false) => {
+          clearTimeout(unitTimer);
+          bounded.removeEventListener("abort", cancel);
+          connection.destroy();
+          if (error !== undefined) reject(error); else resolve(refused);
+        };
+        const cancel = () => finish(bounded.reason);
+        const unitTimer = setTimeout(() => finish(new NativeTerminalPublicationRefusal("H2A_ENDPOINT_PROBE_TIMEOUT")), 500);
+        bounded.addEventListener("abort", cancel, { once: true });
+        connection.once("connect", () => finish());
+        connection.once("error", error => {
+          const code = (error as NodeJS.ErrnoException).code;
+          if (code === "ECONNREFUSED" || (!socketPresent && code === "ENOENT")) finish(undefined, true);
+          else finish(error);
+        });
+      });
+      if (!refusal) return false;
+      if (attempt < 4) {
+        await new Promise<void>((resolve, reject) => {
+          const cancel = () => { clearTimeout(interval); reject(bounded.reason); };
+          const interval = setTimeout(() => { bounded.removeEventListener("abort", cancel); resolve(); }, 250);
+          bounded.addEventListener("abort", cancel, { once: true });
+          if (bounded.aborted) cancel();
+        });
+      }
+    }
+    bounded.throwIfAborted();
+    return true;
+  } finally { clearTimeout(timer); }
+}
+
+/** Caller holds withSocketPublicationLock through classification, probes,
+ * inode recheck, reclamation, link and owner stamping (R2). */
 async function proveEndpointAbsentUnderLock(
   socketPath: string,
-  signal?: AbortSignal,
-  readFrame: ReadProcessFrame = readProcessFrame,
+  signal: AbortSignal | undefined,
+  currentFrame: DurableProcFrame,
   ownerProbe: NativeTerminalOwnerHostProbe = defaultOwnerHostProbe,
 ): Promise<boolean> {
   signal?.throwIfAborted();
-  // The frame every durable identity below is judged against, read ONCE for
-  // the whole proof (see `classifyDurableProcFrame`): the sidecar and every
-  // attributed registry row must be classified against the same instant.
-  const currentFrame = readFrame();
   let socket: NativeTerminalSocketIdentity | undefined;
   try { socket = await abortable(inspectPrivateNativeTerminalSocket(socketPath), signal); }
   catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
-  if (socket) {
-    // A listener may have appeared since the failed inventory connection.
-    // Only an explicit refusal qualifies; permissions and all other errors
-    // remain unknown, including a changed socket incarnation.
-    const refusal = await abortable(new Promise<boolean>((resolve, reject) => {
-      const connection = createConnection(socketPath);
-      const cancel = () => connection.destroy();
-      signal?.addEventListener("abort", cancel, { once: true });
-      connection.once("close", () => signal?.removeEventListener("abort", cancel));
-      connection.setTimeout(1_000, () => { connection.destroy(); reject(new Error("terminal host connection timed out")); });
-      connection.once("connect", () => { connection.destroy(); resolve(false); });
-      connection.once("error", error => (error as NodeJS.ErrnoException).code === "ECONNREFUSED" ? resolve(true) : reject(error));
-    }), signal);
-    if (!refusal || !sameNativeTerminalSocket(socket, await abortable(inspectPrivateNativeTerminalSocket(socketPath), signal))) return false;
-  }
-  // Independent proof of host vivacity: a live host that lost its pathname
-  // but still serves must never allow a second writer.
-  // /proc read errors => unknown, never absent.
+  // Normative order: active scan, all three sources, classification, probes.
   const activeScan = findActiveHostServingSocket(socketPath);
-  if (activeScan.state === "live") {
-    return false;
-  }
-  if (activeScan.state === "unknown") {
-    throw new Error(`terminal host state is unprovable (${activeScan.reason}): ${socketPath}`);
-  }
-  let sidecarProvesDeath = false;
+  if (activeScan.state === "live") return false;
+  if (activeScan.state === "unknown") throw new Error(`terminal host state is unprovable (${activeScan.reason}): ${socketPath}`);
+  let sidecar: EndpointOwner | undefined;
+  const ownerPath = `${socketPath}.owner`;
   try {
-    const ownerPath = `${socketPath}.owner`;
     const info = await abortable(lstat(ownerPath), signal);
     if (!info.isFile() || info.uid !== process.getuid?.() || (info.mode & 0o777) !== 0o600) {
       throw new Error(`native endpoint owner identity is not a private owned file: ${ownerPath}`);
     }
-    const owner = JSON.parse(await abortable(readFile(ownerPath, "utf8"), signal)) as EndpointOwner;
-    if (!Number.isSafeInteger(owner.pid) || owner.pid <= 0 || !Number.isSafeInteger(owner.startTime) ||
-      owner.startTime < 0 || !Number.isSafeInteger(owner.dev) || !Number.isSafeInteger(owner.ino) ||
-      typeof owner.bootId !== "string" || typeof owner.pidNamespace !== "string" ||
-      (owner.machineId !== undefined && typeof owner.machineId !== "string")) {
+    sidecar = JSON.parse(await abortable(readFile(ownerPath, "utf8"), signal)) as EndpointOwner;
+    if (!Number.isSafeInteger(sidecar.pid) || sidecar.pid <= 0 || !Number.isSafeInteger(sidecar.startTime) ||
+      sidecar.startTime < 0 || !Number.isSafeInteger(sidecar.dev) || !Number.isSafeInteger(sidecar.ino) ||
+      typeof sidecar.bootId !== "string" || typeof sidecar.pidNamespace !== "string" ||
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(sidecar.bootId) || !/^\d+$/.test(sidecar.pidNamespace) ||
+      (sidecar.machineId !== undefined && typeof sidecar.machineId !== "string")) {
       throw new Error(`native endpoint owner identity is malformed: ${ownerPath}`);
     }
-    if (socket && !sameNativeTerminalSocket(socket, owner)) return false;
-    const ownerVerdict = classifyDurableProcFrame(owner, currentFrame);
-    if (ownerVerdict === "foreign-frame") return false;
-    if (ownerVerdict === "unattributed") {
-      // Migration (spec v3, option A): a pre-0.98.5 sidecar carries no
-      // machine anchor. Across a boot boundary it can neither prove its
-      // publisher dead (the boot change cannot be pinned to THIS machine)
-      // nor implicate a live process of this one — within this reader's
-      // pid namespace and boot geometry the recorded identity names nothing
-      // here. It is NO EVIDENCE in either direction: recovery rests on the
-      // durable rows of the previous boot of this machine, or on the
-      // controlled cold path, and this publication re-stamps the sidecar
-      // with the machine anchor. The classifier grants "unattributed" only
-      // when the reader's own machine id is KNOWN, so a machine id that is
-      // unreadable keeps the fail-closed refusal, never this skip.
-    } else {
-      // "stale-boot": the publisher of this sidecar ran on a PREVIOUS boot of
-      // THIS machine (same known pid namespace and machine id, different
-      // known boot id), so it is PROVEN dead by the boot boundary itself —
-      // the persistent-runtime-directory shape of the 2026-10-11 incident.
-      // No liveness probe: a reboot resets the pid space, and probing the
-      // recorded pid would read a recycled stranger as the owner.
-      // "current": the publisher of THIS boot must be PROVEN dead by the probe.
-      if (ownerVerdict === "current" && ownerProbe(owner) !== "dead") return false;
-      sidecarProvesDeath = true;
-    }
-    // The sidecar never decides alone (spec v3, gap c): a durable row of the
-    // CURRENT boot may still name a LIVE owner attributed to this socket, so
-    // the rows below are ALWAYS consulted before any positive verdict —
-    // sidecar and registry must agree.
+  } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
+  const snapshot = listNativeTerminalPgidEntries();
+  const registry = loadRegistry();
+  if (!snapshot.known && snapshot.reason !== "registry is absent") throw new Error(`native endpoint owner registry is unknown: ${snapshot.reason}`);
+  if (registry.state === "unknown" || registry.unreadable.length > 0) return false;
+  const canonicalTarget = canonicalizePath(socketPath);
+  if (!canonicalTarget) throw new Error(`cannot canonicalize socket path: ${socketPath}`);
+  const matches = (path?: string) => path !== undefined && canonicalizePath(path) === canonicalTarget;
+  const attributedRows = registry.entries.filter(row => matches(row.ownerHostSocketPath));
+  const attributedPgid = snapshot.known ? snapshot.entries.filter(entry => matches(entry.owner?.socketPath)) : [];
+  // Legacy sidecars are local, unattributed evidence (R3); registry and pgid
+  // records without a machine anchor remain blocking foreign frames (R1).
+  const sidecarVerdict = sidecar?.machineId === undefined ? undefined : classifyDurableProcFrame(sidecar, currentFrame);
+  const classifiedPgid = attributedPgid.map(entry => ({ entry, verdict: classifyDurableProcFrame(entry.frame, currentFrame) }));
+  const classifiedRows = attributedRows.map(row => ({ row, verdict: classifyDurableProcFrame({
+    pidNamespace: row.pgidPidNamespace, bootId: row.pgidBootId, machineId: row.pgidMachineId,
+  }, currentFrame) }));
+  if ((socket && sidecar && !sameNativeTerminalSocket(socket, sidecar)) || sidecarVerdict === "foreign-frame" ||
+    classifiedPgid.some(item => item.verdict === "foreign-frame") || classifiedRows.some(item => item.verdict === "foreign-frame")) return false;
+  // Owners are derived only AFTER every source has been classified.
+  const currentOwners: Array<{ pid: number; startTime?: number }> = [];
+  if (sidecarVerdict === "current" && sidecar) currentOwners.push(sidecar);
+  for (const { entry, verdict } of classifiedPgid) if (verdict === "current" && entry.owner) currentOwners.push(entry.owner);
+  for (const { row, verdict } of classifiedRows) if (verdict === "current") {
+    if (row.ownerHostPid === undefined) return false;
+    currentOwners.push({ pid: row.ownerHostPid, ...(row.ownerHostStartTime !== undefined ? { startTime: row.ownerHostStartTime } : {}) });
+  }
+  const uniqueOwners = [...new Map(currentOwners.map(owner => [`${owner.pid}:${owner.startTime}`, owner])).values()];
+  const ownersDead = uniqueOwners.every(owner => owner.startTime !== undefined && ownerProbe(owner) === "dead");
+  const sidecarProvesDeath = sidecarVerdict === "stale-boot" || (sidecarVerdict === "current" && ownersDead);
+  // Even a run of refusals cannot prove a new, unattributed holder dead.
+  if (!await repeatedlyRefusesConnection(socketPath, socket !== undefined, signal)) return false;
+  let preBootInode = false;
+  try {
+    const final = await abortable(lstat(socketPath), signal);
+    if (!socket || !sameNativeTerminalSocket(socket, final)) return false;
+    preBootInode = currentFrame.bootTimeMs !== undefined && Number.isFinite(currentFrame.bootTimeMs) && currentFrame.bootTimeMs > 0 &&
+      final.birthtimeMs > 0 && final.birthtimeMs < currentFrame.bootTimeMs;
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    if (socket) return false;
   }
-  // Pre-upgrade hosts already persist this identity for each PTY. A stale
-  // socket without any attribution is unprovable; never infer death from
-  // a bare PID, a socket's age, or an empty/error-collapsed registry.
-  const snapshot = listNativeTerminalPgidEntries();
-  if (!snapshot.known) {
-    // This decoder deliberately calls an ENOENT registry "unknown" for
-    // orphan reaping. For endpoint discovery, no file means no attribution;
-    // it proves absence only when the socket is also absent under the lock,
-    // or when the sidecar above already carried a positive death proof.
-    if (snapshot.reason === "registry is absent") return socket === undefined || sidecarProvesDeath;
-    throw new Error(`native endpoint owner registry is unknown: ${snapshot.reason}`);
+  if (!ownersDead) return false;
+  const staleProof = classifiedRows.find(item => item.verdict === "stale-boot" && item.row.ownerHostPid !== undefined && item.row.ownerHostStartTime !== undefined)?.row;
+  const currentDead = uniqueOwners[0];
+  // R3's attributed registry rows are an alternative proof for legacy owners.
+  // With zero attributable owners, only an inode created before boot suffices.
+  if (socket && !sidecarProvesDeath && currentDead === undefined && staleProof === undefined && !preBootInode) return false;
+  if (socket && currentDead !== undefined) {
+    await recordEndpointOwner(socketPath, socket, { pid: currentDead.pid, startTime: currentDead.startTime }, signal, currentFrame);
+  } else if (socket && !sidecarProvesDeath && staleProof !== undefined) {
+    await recordEndpointOwner(socketPath, socket, { pid: staleProof.ownerHostPid!, startTime: staleProof.ownerHostStartTime }, signal, currentFrame,
+      { bootId: staleProof.pgidBootId, pidNamespace: staleProof.pgidPidNamespace, machineId: staleProof.pgidMachineId });
   }
-  const canonicalTarget = canonicalizePath(socketPath);
-  if (!canonicalTarget) {
-    throw new Error(`cannot canonicalize socket path: ${socketPath}`);
-  }
-  const registry = loadRegistry();
-  if (registry.state === "unknown" || registry.unreadable.length > 0) return false;
-  // CLASSIFY EVERY ATTRIBUTED ROW FIRST, then derive the owners to probe from
-  // those same classified rows — ONE coherent read. The 0.98.2-0.98.4 defect
-  // (incident 2026-10-11) built the frame check and the owner list from two
-  // separate decoders and read the boot BOUNDARY itself as "unprovable": a row
-  // written by a previous boot of this machine triggered a blanket refusal
-  // instead of being recognized as the strongest death proof there is, so
-  // after every hard reboot the host could never publish again.
-  const attributed = registry.entries.filter(entry => entry.ownerHostSocketPath
-    && canonicalizePath(entry.ownerHostSocketPath) === canonicalTarget);
-  const currentBootDeadOwners: Array<{ pid: number; startTime: number }> = [];
-  let staleBootOwners = 0;
-  let staleBootProof: { pid: number; startTime: number; frame: DurableProcFrame } | undefined;
-  for (const row of attributed) {
-    const verdict = classifyDurableProcFrame({
-      pidNamespace: row.pgidPidNamespace,
-      bootId: row.pgidBootId,
-      machineId: row.pgidMachineId,
-    }, currentFrame);
-    // A REGISTRY row never gets the sidecar's unattributed migration: the
-    // store can live on a networked home shared by other machines, so a row
-    // that cannot pin its boot change to this machine stays a refusal.
-    if (verdict === "foreign-frame" || verdict === "unattributed") return false;
-    if (verdict === "stale-boot") {
-      // PROOF, not an absence of one: a reboot of THIS machine (same known
-      // pid namespace, same known machine id, different known boot id) ended
-      // every process that boot ran, so this row's owner is PROVEN dead. No
-      // liveness probe and no signal, ever: the reboot reset the pid space,
-      // and the recorded pid/pgid numbers may be RECYCLED to unrelated live
-      // processes of THIS boot — probing or signalling them would act on a
-      // stranger.
-      if (isNativeTerminalPgidOwnerRow(row)) {
-        staleBootOwners += 1;
-        if (staleBootProof === undefined && typeof row.ownerHostStartTime === "number"
-          && row.pgidBootId !== undefined && row.pgidPidNamespace !== undefined
-          && row.pgidMachineId !== undefined) {
-          staleBootProof = {
-            pid: row.ownerHostPid,
-            startTime: row.ownerHostStartTime,
-            frame: { bootId: row.pgidBootId, pidNamespace: row.pgidPidNamespace, machineId: row.pgidMachineId },
-          };
-        }
-      }
-      continue;
-    }
-    // "current": a row of THIS boot. Its owner must be PROVEN dead by the
-    // probe; a live, unresolvable or baseline-less owner blocks publication —
-    // even when mixed with any number of proven-dead rows.
-    if (!isNativeTerminalPgidOwnerRow(row)) continue;
-    const startTime = row.ownerHostStartTime;
-    if (startTime === undefined) return false;
-    if (ownerProbe({ pid: row.ownerHostPid, startTime }) !== "dead") return false;
-    currentBootDeadOwners.push({ pid: row.ownerHostPid, startTime });
-  }
-  if (socket && currentBootDeadOwners.length > 0) {
-    // Preserve the death proof before the supervisor reaps/prunes the last
-    // pre-upgrade PTY row. Reclamation must still have attribution then.
-    // Only a CURRENT-boot owner is re-recorded with the current frame:
-    // lending those stamps a previous boot's (possibly recycled) pid would
-    // make the next reader disprove a stranger.
-    const owner = currentBootDeadOwners[0]!;
-    await recordEndpointOwner(socketPath, socket, { pid: owner.pid, startTime: owner.startTime }, signal, readFrame);
-  } else if (socket && !sidecarProvesDeath && staleBootProof !== undefined) {
-    // Migration (spec v3, option A): the sidecar above is unattributed (or
-    // absent) while the durable rows of the PREVIOUS boot of THIS machine
-    // just carried the proof. The supervisor's next reconcile pass PRUNES
-    // those rows — rightly, they are proven dead — BEFORE publication
-    // re-proves this endpoint, so the rows alone cannot survive to the
-    // reclamation. Preserve the boundary proof ON the endpoint: re-stamp the
-    // sidecar with the ROW's own frame and owner identity, every value from
-    // that one proven-dead epoch. The stamped pid is never probed (the next
-    // reader classifies the frame stale-boot before any probe), and the next
-    // publication overwrites this sidecar with its own current identity.
-    await recordEndpointOwner(socketPath, socket,
-      { pid: staleBootProof.pid, startTime: staleBootProof.startTime }, signal, readFrame, staleBootProof.frame);
-  }
-  return socket === undefined || sidecarProvesDeath
-    || currentBootDeadOwners.length + staleBootOwners > 0;
+  return true;
 }
 
 async function removeStaleSocket(
   socketPath: string,
-  signal?: AbortSignal,
-  readFrame: ReadProcessFrame = readProcessFrame,
+  signal: AbortSignal | undefined,
+  frame: DurableProcFrame,
   ownerProbe: NativeTerminalOwnerHostProbe = defaultOwnerHostProbe,
 ): Promise<void> {
   for (;;) {
@@ -1074,13 +1026,8 @@ async function removeStaleSocket(
       if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
       throw error;
     }
-    if (await socketAcceptsConnections(socketPath, signal)) {
-      throw new Error(
-        `terminal host socket is already active: ${socketPath}`,
-      );
-    }
-    if (!await proveEndpointAbsentUnderLock(socketPath, signal, readFrame, ownerProbe)) {
-      throw new Error(`terminal host owner death is unproven; refusing stale socket reclamation: ${socketPath}`);
+    if (!await proveEndpointAbsentUnderLock(socketPath, signal, frame, ownerProbe)) {
+      throw new NativeTerminalPublicationRefusal("H2A_STALE_SOCKET_UNPROVEN");
     }
     try {
       const current = await abortable(inspectPrivateNativeTerminalSocket(socketPath), signal);
@@ -1128,7 +1075,7 @@ async function publishSocket(
   stagedPath: string,
   socketPath: string,
   signal: AbortSignal,
-  readFrame: ReadProcessFrame = readProcessFrame,
+  frame: DurableProcFrame,
   ownerProbe: NativeTerminalOwnerHostProbe = defaultOwnerHostProbe,
 ): Promise<NativeTerminalSocketIdentity> {
   signal.throwIfAborted();
@@ -1136,8 +1083,8 @@ async function publishSocket(
   try { await abortable(inspectPrivateNativeTerminalSocket(socketPath), signal); }
   catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-    if (!await proveEndpointAbsentUnderLock(socketPath, signal, readFrame, ownerProbe)) {
-      throw new Error(`terminal host owner death is unproven; refusing socket publication: ${socketPath}`);
+    if (!await proveEndpointAbsentUnderLock(socketPath, signal, frame, ownerProbe)) {
+      throw new NativeTerminalPublicationRefusal("H2A_ENDPOINT_OWNER_UNPROVEN");
     }
   }
   for (let attempt = 0; attempt < 200; attempt += 1) {
@@ -1154,7 +1101,7 @@ async function publishSocket(
       return published;
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-      await removeStaleSocket(socketPath, signal, readFrame, ownerProbe);
+      await removeStaleSocket(socketPath, signal, frame, ownerProbe);
     }
   }
   throw new Error("terminal host socket publication retry limit exceeded");
@@ -1177,7 +1124,7 @@ export async function startNativeTerminalHostServer(options: {
   ownerProbe?: NativeTerminalOwnerHostProbe;
 }): Promise<NativeTerminalHostServer> {
   const deadline = new AbortController();
-  const timer = setTimeout(() => deadline.abort(new Error("terminal host socket publication timed out")),
+  const timer = setTimeout(() => deadline.abort(new NativeTerminalPublicationRefusal("H2A_SOCKET_PUBLICATION_TIMEOUT")),
     SOCKET_PUBLICATION_LOCK_TIMEOUT_MS);
   const signal = options.signal === undefined ? deadline.signal : AbortSignal.any([options.signal, deadline.signal]);
   try {
@@ -1252,10 +1199,11 @@ async function initializeNativeTerminalHostServer(options: {
       async (signal) => {
         try {
           signal.throwIfAborted();
+          const frame = readPublicationFrame(options.readFrame ?? readProcessFrame);
           const published = await publishSocket(stagedPath, options.socketPath, signal,
-            options.readFrame ?? readProcessFrame, options.ownerProbe ?? defaultOwnerHostProbe);
+            frame, options.ownerProbe ?? defaultOwnerHostProbe);
           await recordEndpointOwner(options.socketPath, published, undefined, signal,
-            options.readFrame ?? readProcessFrame);
+            frame);
           return published;
         } catch (pubError) {
           // A link may have committed without resolving its promise. Invalidate
