@@ -493,15 +493,13 @@ async function socketPublicationLockSecret(socketPath: string, signal?: AbortSig
     || identity.uid !== process.getuid()
     || (identity.mode & 0o777) !== 0o600
   ) {
-    throw new Error(
-      `terminal socket publication lock identity is not a private owned file: ${identityPath}`,
-    );
+    // T4: a lock-id that is not a private owned file is a coded refusal,
+    // never an undifferentiated startup crash.
+    throw new NativeTerminalPublicationRefusal("H2A_PUBLICATION_LOCK_ID_MALFORMED");
   }
   const secret = (await abortable(readFile(identityPath, "utf8"), signal)).trim();
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(secret)) {
-    throw new Error(
-      `terminal socket publication lock identity is malformed: ${identityPath}`,
-    );
+    throw new NativeTerminalPublicationRefusal("H2A_PUBLICATION_LOCK_ID_MALFORMED");
   }
   return secret;
 }
@@ -722,6 +720,7 @@ type ActiveHostScan =
 function findActiveHostServingSocket(
   socketPath: string,
   procRoot = process.env.H2A_TEST_PROC_ROOT ?? "/proc",
+  ownerProbe: NativeTerminalOwnerHostProbe = defaultOwnerHostProbe,
 ): ActiveHostScan {
   if (process.env.H2A_TEST_PROC_UNAVAILABLE) {
     return { state: "unknown", reason: "simulated /proc observation unavailable" };
@@ -865,7 +864,7 @@ function findActiveHostServingSocket(
     if (startTime === undefined) {
       return { state: "unknown", reason: `cannot read start time for host pid ${pid}` };
     }
-    const probe = defaultOwnerHostProbe({ pid, startTime });
+    const probe = ownerProbe({ pid, startTime });
     if (probe === "alive") {
       return { state: "live", pid, startTime };
     }
@@ -943,29 +942,48 @@ async function proveEndpointAbsentUnderLock(
   try { socket = await abortable(inspectPrivateNativeTerminalSocket(socketPath), signal); }
   catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
   // Normative order: active scan, all three sources, classification, probes.
-  const activeScan = findActiveHostServingSocket(socketPath);
-  if (activeScan.state === "live") return false;
-  if (activeScan.state === "unknown") throw new Error(`terminal host state is unprovable (${activeScan.reason}): ${socketPath}`);
+  // A live host serving this endpoint — including an OLDER published host
+  // during an upgrade (scenario 9) — is the strongest refusal there is: the
+  // candidate must never unlink or republish over it.
+  // Seam symmetry (F4): the scan liveness probe is the INJECTED ownerProbe so
+  // the "zero probes for stale-boot sources" assertions observe this path too.
+  const activeScan = findActiveHostServingSocket(socketPath, undefined, ownerProbe);
+  if (activeScan.state === "live") throw new NativeTerminalPublicationRefusal("H2A_ENDPOINT_LIVE_OWNER");
+  if (activeScan.state === "unknown") {
+    // The frozen literal carries the sense (T8); the scan's own reason (e.g.
+    // which /proc view was unreadable) rides as `cause` so operators keep the
+    // diagnostic the old generic throw used to inline.
+    throw Object.assign(new NativeTerminalPublicationRefusal("H2A_ENDPOINT_SCAN_UNKNOWN"), {
+      cause: new Error(activeScan.reason),
+    });
+  }
   let sidecar: EndpointOwner | undefined;
   const ownerPath = `${socketPath}.owner`;
   try {
     const info = await abortable(lstat(ownerPath), signal);
     if (!info.isFile() || info.uid !== process.getuid?.() || (info.mode & 0o777) !== 0o600) {
-      throw new Error(`native endpoint owner identity is not a private owned file: ${ownerPath}`);
+      throw new NativeTerminalPublicationRefusal("H2A_ENDPOINT_OWNER_MALFORMED");
     }
-    sidecar = JSON.parse(await abortable(readFile(ownerPath, "utf8"), signal)) as EndpointOwner;
+    try {
+      sidecar = JSON.parse(await abortable(readFile(ownerPath, "utf8"), signal)) as EndpointOwner;
+    } catch (error) {
+      if (signal?.aborted || error instanceof NativeTerminalPublicationRefusal) throw error;
+      // Unparseable sidecar content is a coded refusal (T4), never an
+      // undifferentiated crash: the file is local fail-closed evidence.
+      throw new NativeTerminalPublicationRefusal("H2A_ENDPOINT_OWNER_MALFORMED");
+    }
     if (!Number.isSafeInteger(sidecar.pid) || sidecar.pid <= 0 || !Number.isSafeInteger(sidecar.startTime) ||
       sidecar.startTime < 0 || !Number.isSafeInteger(sidecar.dev) || !Number.isSafeInteger(sidecar.ino) ||
       typeof sidecar.bootId !== "string" || typeof sidecar.pidNamespace !== "string" ||
       !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(sidecar.bootId) || !/^\d+$/.test(sidecar.pidNamespace) ||
       (sidecar.machineId !== undefined && typeof sidecar.machineId !== "string")) {
-      throw new Error(`native endpoint owner identity is malformed: ${ownerPath}`);
+      throw new NativeTerminalPublicationRefusal("H2A_ENDPOINT_OWNER_MALFORMED");
     }
   } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
   const snapshot = listNativeTerminalPgidEntries();
   const registry = loadRegistry();
-  if (!snapshot.known && snapshot.reason !== "registry is absent") throw new Error(`native endpoint owner registry is unknown: ${snapshot.reason}`);
-  if (registry.state === "unknown" || registry.unreadable.length > 0) return false;
+  if (!snapshot.known && snapshot.reason !== "registry is absent") throw new NativeTerminalPublicationRefusal("H2A_ENDPOINT_REGISTRY_UNKNOWN");
+  if (registry.state === "unknown" || registry.unreadable.length > 0) throw new NativeTerminalPublicationRefusal("H2A_ENDPOINT_REGISTRY_UNKNOWN");
   const canonicalTarget = canonicalizePath(socketPath);
   if (!canonicalTarget) throw new Error(`cannot canonicalize socket path: ${socketPath}`);
   const matches = (path?: string) => path !== undefined && canonicalizePath(path) === canonicalTarget;
