@@ -20,7 +20,7 @@ import {
   renameSync,
   writeFileSync,
 } from "node:fs";
-import { uptime } from "node:os";
+
 import { dirname, join } from "node:path";
 
 import { getLayoutConfig, resolveConfigPath } from "./config.js";
@@ -39,7 +39,7 @@ import {
 } from "./tmux.js";
 import type { SessionClass } from "./session-class.js";
 import { nativeSessionLiveness } from "./native-host.js";
-import { readBootId, readMachineId, readPidNamespaceId } from "./proc-identity.js";
+import { readBootTimeMs, type DurableProcFrame, readBootId, readMachineId, readPidNamespaceId } from "./proc-identity.js";
 
 export type RegistryTool = "claude" | "codex" | "agy" | "muse" | "vibe";
 export type RegistryKind = "local-tmux" | "local-native" | "local" | "remote";
@@ -324,8 +324,8 @@ export type LivenessOpts = {
 };
 
 /** System boot time in ms epoch (now minus uptime). */
-function defaultBootTimeMs(): number {
-  return Date.now() - uptime() * 1000;
+function defaultBootTimeMs(): number | undefined {
+  return readBootTimeMs();
 }
 
 type RegistryOpts = LivenessOpts & { path?: string };
@@ -813,6 +813,8 @@ export function readNativeTerminalPgid(
 export type NativeTerminalPgidEntry = Readonly<{
   sessionId: string;
   pgid: number;
+  /** Identity anchors retained for classification before deriving owners. */
+  frame: DurableProcFrame;
   owner?: NativeTerminalPgidOwner;
   /**
    * The row's `pgidGroupToken`, carried so a reconcile pass can COMPARE-AND-
@@ -852,11 +854,13 @@ export function listNativeTerminalPgidEntries(
     const entry: {
       sessionId: string;
       pgid: number;
+      frame: DurableProcFrame;
       owner?: NativeTerminalPgidOwner;
       groupToken?: string;
     } = {
       sessionId,
       pgid: e.pgid,
+      frame: { pidNamespace: e.pgidPidNamespace, bootId: e.pgidBootId, machineId: e.pgidMachineId },
     };
     if (typeof e.pgidGroupToken === "string") entry.groupToken = e.pgidGroupToken;
     if (typeof e.ownerHostPid === "number") {
@@ -1537,7 +1541,7 @@ export function isLive(e: RegistryEntry, opts: LivenessOpts = {}): boolean {
     // A process cannot survive a reboot: an entry last seen BEFORE the machine
     // booted is dead, whether or not it carries a pid.
     const bootMs = opts.bootTimeMs ?? defaultBootTimeMs();
-    if (Date.parse(e.lastSeenAt) < bootMs) return false;
+    if (bootMs !== undefined && bootMs > 0 && Date.parse(e.lastSeenAt) < bootMs) return false;
     // No pid (the claude SessionStart hook can't reliably capture claude's pid):
     // unverifiable. Treat as live here, but convOwners demotes a no-pid local
     // entry to a SUSPECT (warn), not a hard block — so a stale hook entry left

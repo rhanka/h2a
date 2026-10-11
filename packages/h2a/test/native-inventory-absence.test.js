@@ -60,7 +60,7 @@ test("should reject aliased qualification root and ws before any inventory fixtu
   } finally { rmSync(lab, { recursive: true, force: true }); rmSync(outside, { recursive: true, force: true }); }
 });
 
-async function fixture(body, qualRoot = join(repo, ".qual-tmp")) {
+async function fixture(body, qualRoot = nativeQualificationRoot) {
   assertPrivateQualificationPath(join(qualRoot, "ws"), nativeQualificationRoot);
   const root = createPrivateTestDirectory("q", qualRoot);
   const home = join(root, "home");
