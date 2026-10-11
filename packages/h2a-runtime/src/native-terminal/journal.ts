@@ -13,8 +13,9 @@ export type HostJournalEntry =
   | (Identity & { event: "start"; version: string; codePath: string; socket: string })
   | (Identity & { event: "signal"; signal: string })
   | (Identity & { event: "stop"; clean: boolean })
+  | (Identity & { event: "listenerFailure"; kind: "unusable" | "unknown"; errno: string | undefined })
   | (Identity & { event: "uncaughtException" | "unhandledRejection" | "startupError"; error: string; stack?: string | undefined; codePath?: string })
-  | (Identity & { event: "exit"; exitCode: number; cause: "unknown" | "clean-stop" | "signal" | "uncaughtException" | "unhandledRejection" | "startupError" })
+  | (Identity & { event: "exit"; exitCode: number; cause: "unknown" | "clean-stop" | "signal" | "listenerFailure" | "uncaughtException" | "unhandledRejection" | "startupError" })
   | { event: "dropped"; count: number };
 
 export function resolveHostJournalPath(env: Readonly<Record<string, string | undefined>> = process.env): string {
@@ -35,7 +36,8 @@ export function getRuntimeVersion(): string {
 
 const runtimeDirectory = resolve(fileURLToPath(new URL("../", import.meta.url)));
 const pathEnvironment = new Set(["HOME", "PATH", "PWD", "OLDPWD", "TMPDIR", "NODE_PATH", "TERM", "LANG",
-  "XDG_RUNTIME_DIR", "XDG_STATE_HOME", "XDG_CONFIG_HOME", "REMOTE_CLI_CONFIG_HOME", "H2A_SESSION_HOST", "H2A_NATIVE_SOCKET"]);
+  "XDG_RUNTIME_DIR", "XDG_STATE_HOME", "XDG_CONFIG_HOME", "REMOTE_CLI_CONFIG_HOME", "H2A_SESSION_HOST", "H2A_NATIVE_SOCKET",
+  "H2A_TEST_QUALIFICATION_ROOT"]);
 function safeText(value: string): string {
   let result = value.slice(0, 4096);
   for (const [key, secret] of Object.entries(process.env)) {
@@ -82,8 +84,11 @@ function payload(entry: HostJournalEntry): Record<string, unknown> {
     case "start": return { ...common, version: safeText(entry.version), codePath: safeText(entry.codePath), socket: safeText(entry.socket) };
     case "signal": return { ...common, signal: ["SIGTERM", "SIGINT", "SIGHUP"].includes(entry.signal) ? entry.signal : "unknown" };
     case "stop": return { ...common, clean: entry.clean === true };
+    case "listenerFailure": return { ...common,
+      kind: entry.kind === "unusable" || entry.kind === "unknown" ? entry.kind : "unknown",
+      errno: typeof entry.errno === "string" ? entry.errno : undefined };
     case "exit": return { ...common, exitCode: Number.isSafeInteger(entry.exitCode) ? entry.exitCode : "unknown",
-      cause: ["unknown", "clean-stop", "signal", "uncaughtException", "unhandledRejection", "startupError"].includes(entry.cause) ? entry.cause : "unknown" };
+      cause: ["unknown", "clean-stop", "signal", "listenerFailure", "uncaughtException", "unhandledRejection", "startupError"].includes(entry.cause) ? entry.cause : "unknown" };
     case "uncaughtException": case "unhandledRejection": case "startupError":
       return { ...common, error: "[REDACTED]", stack: safeStack(entry.stack, entry.codePath) };
   }
