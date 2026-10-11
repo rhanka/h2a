@@ -18,7 +18,10 @@
  *
  * So rows record both, and a reader that cannot match both refuses to derive a
  * pid-based proof from them (fail closed) rather than compare numbers from
- * incomparable frames.
+ * incomparable frames. ONE mismatch is different, and is separated out by
+ * `classifyDurableProcFrame` below: same KNOWN namespace and machine with a
+ * DIFFERENT known boot is not an incomparable frame, it is proof that every
+ * process the row describes has ended (see `DurableProcFrameVerdict`).
  *
  * Neither of those two identifies a MACHINE. The init pid namespace carries
  * the same fixed inode (`PROC_PID_INIT_INO`, 4026531836) on every Linux
@@ -100,4 +103,110 @@ export function readMachineId(): string | undefined {
     }
   }
   return undefined;
+}
+
+/**
+ * The complete frame a durable pid/start-time record was taken in: the three
+ * anchors above as ONE value, so a reader classifies a record against a frame
+ * it read once, coherently, instead of mixing reads taken at different times.
+ * Absent fields mean "unknown", never "empty" or "default" (see the module
+ * header): a record without an anchor can never be granted a frame-dependent
+ * proof from it.
+ */
+export type DurableProcFrame = Readonly<{
+  pidNamespace?: string | undefined;
+  bootId?: string | undefined;
+  machineId?: string | undefined;
+}>;
+
+/**
+ * The injectable frame reader: the three SYSTEM readers above, as one typed
+ * dependency. Production callers pass nothing and get the real readers; tests
+ * that must observe a record from a DIFFERENT frame (a previous boot, another
+ * machine) inject a typed fake through this seam — never a public,
+ * falsifiable environment variable (an env override would be honored by any
+ * stray process, not just by a test).
+ */
+export type ReadProcessFrame = () => DurableProcFrame;
+
+/** The production `ReadProcessFrame`: the system readers, read together. */
+export const readProcessFrame: ReadProcessFrame = () => {
+  const pidNamespace = readPidNamespaceId();
+  const bootId = readBootId();
+  const machineId = readMachineId();
+  return {
+    ...(pidNamespace !== undefined ? { pidNamespace } : {}),
+    ...(bootId !== undefined ? { bootId } : {}),
+    ...(machineId !== undefined ? { machineId } : {}),
+  };
+};
+
+/**
+ * Verdict on a durable record's frame, as seen by a later reader. Mirrors the
+ * frame logic of `#verifyGroupLeaderIdentity` in native-terminal/host.ts (its
+ * `stale-boot` and `foreign-frame` outcomes); the two must stay in lockstep —
+ * the same definitions this module exists to guarantee.
+ *
+ *  - "current": known pid namespace AND known boot id, both equal to the
+ *    reader's. Pid- and start-time-based proofs (liveness probes) are
+ *    admissible on such a record — and only on such a record. Machine id is
+ *    not required: a boot id is random per boot, so an equal known boot inside
+ *    an equal known namespace already pins the epoch the numbers were taken
+ *    against.
+ *  - "stale-boot": same KNOWN pid namespace, same KNOWN machine, DIFFERENT
+ *    known boot id. This is not an absence of proof, it is the strongest death
+ *    proof available: a reboot ends every process of the boot before it, so
+ *    every pid and start-time the record carries is PROVEN dead. A reboot also
+ *    resets the pid space, so the recorded numbers may belong to UNRELATED
+ *    live processes by now: callers must neither probe the recorded pids (a
+ *    probe would read a stranger as the owner) nor signal them, ever.
+ *    The machine anchor is what makes the proof admissible: the init pid
+ *    namespace has the same inode on every kernel, so "same namespace,
+ *    different boot" is also what a record written by ANOTHER machine sharing
+ *    the durable store looks like — a machine whose processes may be alive
+ *    right now.
+ *  - "foreign-frame": everything else — another or unknown pid namespace
+ *    (including a namespace change with the same boot id: a pid resolved in
+ *    another namespace is a different process, and the change alone proves
+ *    nothing in either direction), another or unknown machine, an unknown
+ *    boot id, or a record with no anchors at all (a legacy row). Nothing about
+ *    the record's processes can be decided from this reader: not that they
+ *    survived, not that they are gone. Callers must fail closed.
+ */
+export type DurableProcFrameVerdict = "current" | "stale-boot" | "foreign-frame";
+
+/**
+ * Classify a durable record's frame against the reader's current frame. PURE:
+ * both frames are passed in (the caller reads its own frame once, via the
+ * `ReadProcessFrame` seam, and reuses it for every record of one decision), so
+ * the classification of a set of records can never mix frames read at
+ * different times. See `DurableProcFrameVerdict` for what each verdict does
+ * and does not license.
+ */
+export function classifyDurableProcFrame(
+  recorded: DurableProcFrame,
+  current: DurableProcFrame,
+): DurableProcFrameVerdict {
+  if (
+    recorded.pidNamespace !== undefined &&
+    recorded.pidNamespace === current.pidNamespace &&
+    recorded.bootId !== undefined &&
+    recorded.bootId === current.bootId
+  ) {
+    return "current";
+  }
+  const differentKnownBoot =
+    recorded.bootId !== undefined &&
+    current.bootId !== undefined &&
+    recorded.bootId !== current.bootId;
+  if (
+    differentKnownBoot &&
+    recorded.pidNamespace !== undefined &&
+    recorded.pidNamespace === current.pidNamespace &&
+    recorded.machineId !== undefined &&
+    recorded.machineId === current.machineId
+  ) {
+    return "stale-boot";
+  }
+  return "foreign-frame";
 }
