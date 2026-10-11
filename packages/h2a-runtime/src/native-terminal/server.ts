@@ -40,6 +40,7 @@ import { isNativeTerminalPgidOwnerRow, listNativeTerminalPgidEntries, loadRegist
 import {
   classifyDurableProcFrame,
   readProcessFrame,
+  type DurableProcFrame,
   type ReadProcessFrame,
 } from "../proc-identity.js";
 
@@ -617,13 +618,22 @@ async function recordEndpointOwner(socketPath: string, socket: NativeTerminalSoc
   processOwner = { pid: process.pid, startTime: readProcessStartTime(process.pid) },
   signal?: AbortSignal,
   readFrame: ReadProcessFrame = readProcessFrame,
+  /**
+   * Stamp a frame OTHER than the reader's current one: used only by the
+   * proof-preservation pass, which re-records an identity that a durable row
+   * already PROVED dead at a PREVIOUS boot of this machine. Every stamped
+   * value (pid, start-time, boot, namespace, machine) then comes from that
+   * one row — a coherent epoch — never a mix of a dead boot's numbers with
+   * the current boot's frame.
+   */
+  stampFrame?: DurableProcFrame,
 ): Promise<void> {
   signal?.throwIfAborted();
   if (process.env.H2A_TEST_FAIL_OWNER_WRITE) {
     throw new Error("simulated failure recording endpoint owner");
   }
   const { pid, startTime } = processOwner;
-  const frame = readFrame();
+  const frame = stampFrame ?? readFrame();
   if (startTime === undefined || frame.bootId === undefined || frame.pidNamespace === undefined) {
     throw new Error("cannot certify native host process identity");
   }
@@ -981,6 +991,7 @@ async function proveEndpointAbsentUnderLock(
     && canonicalizePath(entry.ownerHostSocketPath) === canonicalTarget);
   const currentBootDeadOwners: Array<{ pid: number; startTime: number }> = [];
   let staleBootOwners = 0;
+  let staleBootProof: { pid: number; startTime: number; frame: DurableProcFrame } | undefined;
   for (const row of attributed) {
     const verdict = classifyDurableProcFrame({
       pidNamespace: row.pgidPidNamespace,
@@ -999,7 +1010,18 @@ async function proveEndpointAbsentUnderLock(
       // and the recorded pid/pgid numbers may be RECYCLED to unrelated live
       // processes of THIS boot — probing or signalling them would act on a
       // stranger.
-      if (isNativeTerminalPgidOwnerRow(row)) staleBootOwners += 1;
+      if (isNativeTerminalPgidOwnerRow(row)) {
+        staleBootOwners += 1;
+        if (staleBootProof === undefined && typeof row.ownerHostStartTime === "number"
+          && row.pgidBootId !== undefined && row.pgidPidNamespace !== undefined
+          && row.pgidMachineId !== undefined) {
+          staleBootProof = {
+            pid: row.ownerHostPid,
+            startTime: row.ownerHostStartTime,
+            frame: { bootId: row.pgidBootId, pidNamespace: row.pgidPidNamespace, machineId: row.pgidMachineId },
+          };
+        }
+      }
       continue;
     }
     // "current": a row of THIS boot. Its owner must be PROVEN dead by the
@@ -1014,11 +1036,24 @@ async function proveEndpointAbsentUnderLock(
   if (socket && currentBootDeadOwners.length > 0) {
     // Preserve the death proof before the supervisor reaps/prunes the last
     // pre-upgrade PTY row. Reclamation must still have attribution then.
-    // Only a CURRENT-boot owner is re-recorded: `recordEndpointOwner` stamps
-    // the current boot, and lending those stamps a previous boot's (possibly
-    // recycled) pid would make the next reader disprove a stranger.
+    // Only a CURRENT-boot owner is re-recorded with the current frame:
+    // lending those stamps a previous boot's (possibly recycled) pid would
+    // make the next reader disprove a stranger.
     const owner = currentBootDeadOwners[0]!;
     await recordEndpointOwner(socketPath, socket, { pid: owner.pid, startTime: owner.startTime }, signal, readFrame);
+  } else if (socket && !sidecarProvesDeath && staleBootProof !== undefined) {
+    // Migration (spec v3, option A): the sidecar above is unattributed (or
+    // absent) while the durable rows of the PREVIOUS boot of THIS machine
+    // just carried the proof. The supervisor's next reconcile pass PRUNES
+    // those rows — rightly, they are proven dead — BEFORE publication
+    // re-proves this endpoint, so the rows alone cannot survive to the
+    // reclamation. Preserve the boundary proof ON the endpoint: re-stamp the
+    // sidecar with the ROW's own frame and owner identity, every value from
+    // that one proven-dead epoch. The stamped pid is never probed (the next
+    // reader classifies the frame stale-boot before any probe), and the next
+    // publication overwrites this sidecar with its own current identity.
+    await recordEndpointOwner(socketPath, socket,
+      { pid: staleBootProof.pid, startTime: staleBootProof.startTime }, signal, readFrame, staleBootProof.frame);
   }
   return socket === undefined || sidecarProvesDeath
     || currentBootDeadOwners.length + staleBootOwners > 0;
