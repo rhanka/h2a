@@ -35,7 +35,11 @@
  *     absence, which is the very defect this runner exists to remove.
  *
  * Nothing is weakened relative to the old chain: the same five commands run, and
- * `npm test` still exits non-zero whenever any one of them fails.
+ * `npm test` still exits non-zero whenever any one of them fails. The sixth
+ * step, `h2a-runtime`, CLOSES a discovery hole instead: until it existed, the
+ * TypeScript suites of packages/h2a-runtime (native-terminal, session-lease,
+ * proc-cpu, ...) were executed by NO gate at all — a green `npm test` said
+ * nothing about them while four broken versions shipped to npm.
  *
  * THIS FILE IS TESTED OUTSIDE ITSELF. CI's independently requireable
  * `npm-test-trust-root` job invokes `packages/h2a/test/run-test-gates.test.js`
@@ -150,6 +154,21 @@ export const STEPS = [
     requiresBuild: true,
     timeoutMs: 4 * MINUTE_MS,
   },
+  {
+    id: 'h2a-runtime',
+    description: 'TypeScript suites of packages/h2a-runtime (src/**/*.test.ts) via vitest',
+    // SPEC 0.98.5 R8.1 pins this command EXACTLY; the trust-root test
+    // (packages/h2a/test/run-test-gates.test.js) asserts the exact string, so
+    // any silent replacement — an inert wrapper, a redirect to a lighter
+    // config, a dropped `--config` — makes the independent gate go red.
+    // Relative path + no PATH lookup: run from REPO_ROOT, node_modules/.bin is
+    // where `npm ci` puts vitest, and a missing binary is a reported
+    // spawn-error (a FAILED verdict), never a silent skip.
+    command: 'node_modules/.bin/vitest',
+    args: ['run', '--config', 'packages/h2a-runtime/vitest.config.ts'],
+    requiresBuild: true,
+    timeoutMs: 10 * MINUTE_MS,
+  },
 ]
 
 /** Turn a spawnSync result into a reportable exit code. */
@@ -205,6 +224,7 @@ const DIR_PRUNE = new Set([
 function countTestTsFiles(root) {
   let total = 0
   let underRuntimeSrc = 0
+  let underTrackSrc = 0
   const walk = (dir, rel) => {
     let entries
     try {
@@ -219,11 +239,12 @@ function countTestTsFiles(root) {
       } else if (entry.name.endsWith('.test.ts')) {
         total += 1
         if (rel.startsWith('packages/h2a-runtime/src/')) underRuntimeSrc += 1
+        if (rel.startsWith('packages/track/src/')) underTrackSrc += 1
       }
     }
   }
   walk(root, '')
-  return { total, underRuntimeSrc }
+  return { total, underRuntimeSrc, underTrackSrc }
 }
 
 /**
@@ -231,10 +252,9 @@ function countTestTsFiles(root) {
  *
  * An unquantified hedge next to a confident green reads as boilerplate: "not every
  * test file" is equally true of 99% coverage. So state the actual numbers, name the
- * directories discovery looks in, and say plainly that the excluded files are not
- * even type-checked — otherwise a reader may reasonably assume `tsc` at least sees
- * them. It does not: `packages/h2a-runtime/tsconfig.json` excludes every `*.test.ts`,
- * and that package has no `scripts` block wiring vitest into anything.
+ * directories discovery looks in, and say plainly what remains outside every gate:
+ * *.test.ts files outside h2a-runtime and track are not even type-checked —
+ * otherwise a reader may reasonably assume `tsc` at least sees them.
  */
 export function describeScope() {
   let ran
@@ -243,14 +263,17 @@ export function describeScope() {
   } catch {
     ran = 0
   }
-  const { total, underRuntimeSrc } = countTestTsFiles(REPO_ROOT)
+  const { total, underRuntimeSrc, underTrackSrc } = countTestTsFiles(REPO_ROOT)
+  const notRun = Math.max(total - underRuntimeSrc - underTrackSrc, 0)
   return (
     '\n  scope of this run (counted now, not hard-coded):\n' +
     `    ran         ${ran} *.test.js files, discovered in ${TEST_DIRS.join(' and ')}\n` +
-    `    NOT run     ${total} *.test.ts files, ${underRuntimeSrc} of them under packages/h2a-runtime/src\n` +
-    '    Those *.test.ts files are neither executed NOR type-checked: h2a-runtime\n' +
-    "    tsconfig excludes every *.test.ts, and no npm script runs vitest.\n" +
-    '    A green below means these steps passed. It says nothing about that code.\n'
+    '    ran         ' +
+    `${underRuntimeSrc} *.test.ts files under packages/h2a-runtime/src, via the h2a-runtime step\n` +
+    `    ran         ${underTrackSrc} *.test.ts files under packages/track/src, via the Track vitest suite\n` +
+    `    NOT run     ${notRun} *.test.ts files elsewhere in the tree\n` +
+    '    h2a-runtime tsconfig still excludes every *.test.ts from type-checking;\n' +
+    '    the h2a-runtime step EXECUTES them but proves no type-level property.\n'
   )
 }
 
