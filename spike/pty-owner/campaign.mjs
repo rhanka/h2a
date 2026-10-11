@@ -23,10 +23,13 @@ add('node22', 'fd-hygiene.test.mjs');
 add('node22', 'listener.test.mjs', { SPIKE_DIRECT_LISTENER: '1' }, 1, '-red');
 add('node22', 'listener.test.mjs');
 add('node22', 'split.test.mjs', { SPIKE_B_ACTIVATION: '0' }, 1, '-red');
+add('node22', 'admission.test.mjs');
+add('node22', 'binary-transition.test.mjs');
 for (const runtime of ['node22', 'node2215', 'node24']) {
   for (const file of ['nominal.test.mjs', 'split.test.mjs', 'faults.test.mjs', 'flow.test.mjs', 'attach.test.mjs', 'cat.test.mjs']) add(runtime, file);
   add(runtime, 'exits.test.mjs', { SPIKE_REQUIRE_EXITS: '1' }, 1, '-contract-red');
   add(runtime, 'exits.test.mjs', {}, 0, '-negative-control');
+  add(runtime, 'exact-guardian.test.mjs');
 }
 for (const runtime of ['node20', 'node2214']) {
   add(runtime, 'capability.test.mjs'); add(runtime, 'split.test.mjs');
