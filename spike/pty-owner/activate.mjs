@@ -13,7 +13,9 @@ server.listen(seed, () => {
   fs.linkSync(seed, socket);
   fs.chmodSync(socket, 0o600);
   const child = spawn(process.execPath, [path.join(here, 'image-0.mjs')], {
-    cwd: root, env: process.env, stdio: ['ignore', 'inherit', 'inherit', server._handle.fd],
+    cwd: root, env: process.env, stdio: process.env.SPIKE_DIRECT_LISTENER === '1'
+      ? ['ignore', 'inherit', 'inherit', server._handle.fd]
+      : [server._handle.fd, 'inherit', 'inherit'],
   });
   child.on('spawn', () => {
     json(path.join(root, 'owner-birth.json'), identity(child.pid));

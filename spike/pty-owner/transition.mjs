@@ -16,7 +16,10 @@ export function transition(state, request) {
     `import {version} from ${JSON.stringify(new URL('./pty-io.mjs', import.meta.url).href)}; if(version!=='1.1.0')process.exit(1);`],
   { cwd: process.env.SPIKE_ROOT, env: process.env });
   if (probe.status !== 0) return { ok: false, reason: 'addon-preflight-failed', attempted: false };
-  if (fdFlags(3) & 0o2000000) return { ok: false, reason: 'listener-CLOEXEC', attempted: false };
+  if (process.env.SPIKE_DIRECT_LISTENER === '1' && (fdFlags(3) & 0o2000000))
+    return { ok: false, reason: 'listener-CLOEXEC', attempted: false };
+  // Detached owner uses stdin exclusively for socket activation. process.execve
+  // explicitly clears CLOEXEC on 0/1/2, unlike arbitrary listener descriptors.
   for (const session of state.sessions) { collect(session); session.epoch++; session.controller = null; }
   state.generation++;
   state.transitionAt = performance.timeOrigin + performance.now();
