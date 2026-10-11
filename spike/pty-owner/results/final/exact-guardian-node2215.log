@@ -1,0 +1,17 @@
+TAP version 13
+# Subtest: should reexec with the unmodified source guardian and still confine real owner death
+ok 1 - should reexec with the unmodified source guardian and still confine real owner death
+  ---
+  duration_ms: 506.178997
+  type: 'test'
+  ...
+# {"node":"v22.15.0","exactGuardian":true,"transitions":5,"birth":{"role":"cli","parent":{"pid":522863,"state":"S","ppid":522852,"pgid":522863,"sid":522863,"tty":34834,"start":"491951","exit":0},"cli":{"pid":522865,"state":"R","ppid":522863,"pgid":522863,"sid":522863,"tty":34834,"start":"491952","exit":0},"guardian":{"pid":522863,"state":"S","ppid":522852,"pgid":522863,"sid":522863,"tty":34834,"start":"491951","exit":0},"fds":[{"fd":0,"target":"/dev/tty","flags":557056},{"fd":1,"target":"/dev/pts/18","flags":524290},{"fd":10,"target":"anon_inode:[eventpoll]","flags":524290},{"fd":11,"target":"anon_inode:[io_uring]","flags":524290},{"fd":12,"target":"pipe:[1730748]","flags":526336},{"fd":13,"target":"pipe:[1730748]","flags":526337},{"fd":14,"target":"anon_inode:[eventfd]","flags":526338},{"fd":15,"target":"anon_inode:[eventpoll]","flags":524290},{"fd":16,"target":"anon_inode:[io_uring]","flags":524290},{"fd":17,"target":"pipe:[1734094]","flags":526336},{"fd":18,"target":"pipe:[1734094]","flags":526337},{"fd":19,"target":"anon_inode:[eventfd]","flags":526338},{"fd":2,"target":"/dev/pts/18","flags":524290},{"fd":3,"target":"anon_inode:[eventpoll]","flags":524290},{"fd":4,"target":"anon_inode:[io_uring]","flags":524290},{"fd":5,"target":"pipe:[1734091]","flags":524288},{"fd":6,"target":"pipe:[1734091]","flags":524289},{"fd":7,"target":"pipe:[1734092]","flags":526336},{"fd":8,"target":"pipe:[1734092]","flags":526337},{"fd":9,"target":"anon_inode:[eventfd]","flags":526338}],"signals":[],"nonce":"0-522865"},"survivedExec":true,"confinedAfterOwnerDeath":true}
+1..1
+# tests 1
+# suites 0
+# pass 1
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 538.139086
