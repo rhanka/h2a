@@ -8,9 +8,17 @@ export function transition(state, request) {
   const eligible = preflight(state.sessions);
   if (!eligible.ok) return eligible;
   const next = path.join(here, `image-${(state.generation + 1) % 2}.mjs`);
-  if (request.fault === 'candidate') return { ok: false, reason: 'candidate-invalid', attempted: false };
-  if (request.fault === 'checkpoint') return { ok: false, reason: 'schema-invalid', attempted: false };
-  if (request.fault === 'fd') return { ok: false, reason: 'bad-fd', attempted: false };
+  if (request.fault === 'candidate') {
+    try { fs.accessSync(path.join(process.env.SPIKE_ROOT, 'missing-candidate'), fs.constants.X_OK); }
+    catch { return { ok: false, reason: 'candidate-invalid', attempted: false }; }
+  }
+  if (request.fault === 'checkpoint') {
+    const bad = path.join(process.env.SPIKE_ROOT, 'invalid-checkpoint.json');
+    json(bad, { ...state, schema: 999 });
+    if (JSON.parse(fs.readFileSync(bad)).schema !== 1)
+      return { ok: false, reason: 'schema-invalid', attempted: false };
+  }
+  if (request.fault === 'fd') return preflight([{ ...state.sessions[0], fd: 999999 }]);
   // The native-addon preflight is a child we start, with the same private env.
   const probe = spawnSync(process.execPath, ['--input-type=module', '-e',
     `import {version} from ${JSON.stringify(new URL('./pty-io.mjs', import.meta.url).href)}; if(version!=='1.1.0')process.exit(1);`],

@@ -108,7 +108,13 @@ export function serve(fdOrPath, handler) {
     client.on('data', async chunk => {
       buffer += chunk;
       if (!buffer.includes('\n')) return;
-      try { client.end(`${JSON.stringify(await handler(JSON.parse(buffer.split('\n')[0])))}\n`); }
+      try {
+        const request = JSON.parse(buffer.split('\n')[0]);
+        const result = await handler(request);
+        if (request.dropResponse) client.destroy();
+        else if (request.watch) client.write(`${JSON.stringify(result)}\n`);
+        else client.end(`${JSON.stringify(result)}\n`);
+      }
       catch (error) { client.end(`${JSON.stringify({ error: error.message })}\n`); }
     });
   });
