@@ -1,0 +1,104 @@
+TAP version 13
+# Subtest: should report exact guardian exit 0 before exec
+ok 1 - should report exact guardian exit 0 before exec
+  ---
+  duration_ms: 191.203176
+  type: 'test'
+  ...
+# {"node":"v22.15.0","boundary":"before","expected":0,"exit":{"exitCode":0,"signal":0,"source":"node-pty-waitpid"},"guardian":"reaped","log":""}
+# Subtest: should report exact guardian exit 7 before exec
+ok 2 - should report exact guardian exit 7 before exec
+  ---
+  duration_ms: 193.325109
+  type: 'test'
+  ...
+# {"node":"v22.15.0","boundary":"before","expected":7,"exit":{"exitCode":7,"signal":0,"source":"node-pty-waitpid"},"guardian":"reaped","log":""}
+# Subtest: should report exact guardian exit 143 before exec
+ok 3 - should report exact guardian exit 143 before exec
+  ---
+  duration_ms: 194.869824
+  type: 'test'
+  ...
+# {"node":"v22.15.0","boundary":"before","expected":143,"exit":{"exitCode":143,"signal":0,"source":"node-pty-waitpid"},"guardian":"reaped","log":""}
+# Subtest: should report exact guardian exit 0 during exec
+ok 4 - should report exact guardian exit 0 during exec
+  ---
+  duration_ms: 275.274267
+  type: 'test'
+  ...
+# {"node":"v22.15.0","boundary":"during","expected":0,"exit":{"exitCode":0,"signal":0,"source":"proc-zombie"},"guardian":{"pid":521702,"state":"Z","ppid":521691,"pgid":521702,"sid":521702,"tty":0,"start":"491498","exit":0},"log":""}
+# Subtest: should report exact guardian exit 7 during exec
+ok 5 - should report exact guardian exit 7 during exec
+  ---
+  duration_ms: 263.487521
+  type: 'test'
+  ...
+# {"node":"v22.15.0","boundary":"during","expected":7,"exit":{"exitCode":7,"signal":0,"source":"proc-zombie"},"guardian":{"pid":521790,"state":"Z","ppid":521779,"pgid":521790,"sid":521790,"tty":0,"start":"491524","exit":1792},"log":""}
+# Subtest: should report exact guardian exit 143 during exec
+ok 6 - should report exact guardian exit 143 during exec
+  ---
+  duration_ms: 254.504911
+  type: 'test'
+  ...
+# {"node":"v22.15.0","boundary":"during","expected":143,"exit":{"exitCode":143,"signal":0,"source":"proc-zombie"},"guardian":{"pid":521853,"state":"Z","ppid":521835,"pgid":521853,"sid":521853,"tty":0,"start":"491551","exit":36608},"log":""}
+# Subtest: should report exact guardian exit 0 after exec
+ok 7 - should report exact guardian exit 0 after exec
+  ---
+  duration_ms: 170.784401
+  type: 'test'
+  ...
+# {"node":"v22.15.0","boundary":"after","expected":0,"exit":{"exitCode":0,"signal":0,"source":"proc-zombie"},"guardian":{"pid":521909,"state":"Z","ppid":521898,"pgid":521909,"sid":521909,"tty":0,"start":"491576","exit":0},"log":""}
+# Subtest: should report exact guardian exit 7 after exec
+ok 8 - should report exact guardian exit 7 after exec
+  ---
+  duration_ms: 175.20599
+  type: 'test'
+  ...
+# {"node":"v22.15.0","boundary":"after","expected":7,"exit":{"exitCode":7,"signal":0,"source":"proc-zombie"},"guardian":{"pid":521965,"state":"Z","ppid":521954,"pgid":521965,"sid":521965,"tty":0,"start":"491594","exit":1792},"log":""}
+# Subtest: should report exact guardian exit 143 after exec
+ok 9 - should report exact guardian exit 143 after exec
+  ---
+  duration_ms: 173.082584
+  type: 'test'
+  ...
+# {"node":"v22.15.0","boundary":"after","expected":143,"exit":{"exitCode":143,"signal":0,"source":"proc-zombie"},"guardian":{"pid":522021,"state":"Z","ppid":522010,"pgid":522021,"sid":522021,"tty":0,"start":"491610","exit":36608},"log":""}
+# Subtest: should expose the result lost between native waitpid and its JS callback
+not ok 10 - should expose the result lost between native waitpid and its JS callback
+  ---
+  duration_ms: 419.858195
+  type: 'test'
+  location: '/home/antoinefa/src/h2a/tmp/worktrees/spike-pty/spike/pty-owner/exits.test.mjs:42:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    full C contract loses exit 7
+    
+    true !== false
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: false
+  actual: true
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///home/antoinefa/src/h2a/tmp/worktrees/spike-pty/spike/pty-owner/exits.test.mjs:50:55)
+    process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# {"node":"v22.15.0","requiredCriterion":"exact-exit-at-all-boundaries","exit":{"unknown":true,"source":"waitpid-callback-lost-before-exec"},"log":""}
+# Subtest: should retain the exact SIGKILL guardian result after adoption
+ok 11 - should retain the exact SIGKILL guardian result after adoption
+  ---
+  duration_ms: 177.311181
+  type: 'test'
+  ...
+# {"node":"v22.15.0","exit":{"exitCode":0,"signal":9,"source":"proc-zombie"}}
+1..11
+# tests 11
+# suites 0
+# pass 10
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 2526.895971
