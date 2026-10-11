@@ -1,0 +1,16 @@
+TAP version 13
+# Subtest: should explicitly refuse unsupported Node exec without attempting or replacing the owner
+ok 1 - should explicitly refuse unsupported Node exec without attempting or replacing the owner
+  ---
+  duration_ms: 98.408915
+  ...
+# {"node":"v22.14.0","result":{"ok":false,"reason":"execve-unavailable","attempted":false},"owner":{"pid":528411,"state":"R","ppid":528400,"pgid":510213,"sid":510213,"tty":0,"start":"494367","exit":0}}
+1..1
+# tests 1
+# suites 0
+# pass 1
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 128.256911
