@@ -59,6 +59,13 @@ function needsVerify(job_) {
   return Boolean(job_.needs?.verify);
 }
 
+/** Same shape for any job id. */
+function needsJob(job_, id) {
+  if (job_.needs === id) return true;
+  if (Array.isArray(job_.needs)) return job_.needs.includes(id);
+  return Boolean(job_.needs?.[id]);
+}
+
 test("R8.2 (1): publish proceeds only on an observed verify success, never a skip", () => {
   const publish = job("publish");
   assert.ok(needsVerify(publish), "publish must need verify");
@@ -72,26 +79,52 @@ test("R8.2 (1): publish proceeds only on an observed verify success, never a ski
   );
 });
 
-test("R8.2 TOCTOU: verify resolves the release SHA before checkout, and checks out the SHA", () => {
+test("R8.2 TOCTOU + race: the SHA is resolved ONCE in a prior job; verify consumes it and never resolves", () => {
+  // The review reproduced the race with a fake git: when EACH verify matrix
+  // leg resolved the mutable tag itself, two legs could gate two different
+  // commits while the artifacts came from only one of them. The fix is
+  // structural: ONE resolution, before the matrix exists.
+  const resolveJob = job("resolve-release-sha");
+  const resolveStep = resolveJob.steps.find((step) => step.id === "resolve");
+  assert.ok(resolveStep, "resolve-release-sha must resolve the exact release SHA in a named step");
+  assert.equal(
+    resolveJob.steps.length,
+    1,
+    "the resolution job must do nothing but resolve — no checkout, no build, nothing that could fail on a different SHA",
+  );
+  assert.equal(resolveJob.needs, undefined, "the resolution job must not inherit another job's verdict");
+  assert.ok(
+    String(resolveStep.run).includes("git ls-remote"),
+    "the backfill path must peel the existing tag from the remote",
+  );
+  assert.equal(resolveJob.outputs?.["release-sha"], "${{ steps.resolve.outputs.sha }}");
+
   const verify = job("verify");
-  const resolveStep = verify.steps.find((step) => step.id === "resolve");
-  assert.ok(resolveStep, "verify must resolve the exact release SHA in a named step before anything else");
-  const resolveIndex = verify.steps.indexOf(resolveStep);
+  assert.ok(
+    needsJob(verify, "resolve-release-sha"),
+    "verify must need resolve-release-sha and consume its output — never re-resolve per leg",
+  );
+  for (const step of verify.steps) {
+    assert.ok(
+      step.id !== "resolve",
+      "verify must NOT carry its own resolve step: per-leg resolution is the reproduced race",
+    );
+    assert.ok(
+      !String(step.run ?? "").includes("git ls-remote"),
+      "verify must not resolve a tag: the mutable tag is peeled exactly once, before the matrix",
+    );
+  }
   const checkout = verify.steps.find((step) => step.uses === "actions/checkout@v4");
   assert.ok(checkout, "verify must check out the repository");
-  assert.ok(
-    resolveIndex < verify.steps.indexOf(checkout),
-    "the SHA must be resolved BEFORE the checkout — resolving after would gate a different commit than it checks out",
-  );
   assert.equal(
     checkout.with?.ref,
-    "${{ steps.resolve.outputs.sha }}",
-    "verify must check out the resolved SHA, never a mutable tag name",
+    "${{ needs.resolve-release-sha.outputs.release-sha }}",
+    "verify must check out the one resolved SHA, never a mutable tag name",
   );
   assert.equal(
     verify.outputs?.["release-sha"],
-    "${{ steps.resolve.outputs.sha }}",
-    "verify must export the gated SHA for publish to consume",
+    "${{ needs.resolve-release-sha.outputs.release-sha }}",
+    "verify must re-export the gated SHA for publish to consume — identical on every leg, by construction",
   );
 });
 
@@ -168,9 +201,48 @@ test("R8.2 (4): publish downloads the verify-built tarballs and verifies every s
   }
 });
 
+test("R8.2: the artifact manifest is TIED to the resolved SHA, and publish re-checks the tie before publishing", () => {
+  const pack = job("verify").steps.find((step) => String(step.run ?? "").includes("sha256sum"));
+  assert.ok(pack, "verify must record the tarball sha256 sums");
+  assert.ok(
+    String(pack.run).includes("release-sha.txt"),
+    "verify must write the ONE resolved SHA into the artifact (release-sha.txt): the manifest must travel with the bytes it describes",
+  );
+  assert.ok(
+    String(pack.run).includes("${{ needs.resolve-release-sha.outputs.release-sha }}"),
+    "the manifest SHA must be the resolve-release-sha output — the same SHA every leg gated",
+  );
+  const publish = job("publish");
+  const manifestCheck = publish.steps.find((step) => String(step.run ?? "").includes("release-sha.txt"));
+  assert.ok(
+    manifestCheck,
+    "publish must compare the manifest SHA with the verify-gated SHA before publishing anything",
+  );
+  const firstPublish = publish.steps.findIndex((step) => String(step.run ?? "").includes("npm publish"));
+  assert.ok(
+    publish.steps.indexOf(manifestCheck) < firstPublish,
+    "the manifest tie check must run BEFORE the first npm publish",
+  );
+});
+
+test("R8.2/R8.4: no step anywhere may swallow its own failure (continue-on-error)", () => {
+  // The review's mutation: `continue-on-error: true` on the three verification
+  // steps left every structural assertion green while a red verify would still
+  // read as success and publish. A gate that cannot fail is not a gate.
+  for (const [id, job_] of Object.entries(WORKFLOW.jobs)) {
+    for (const step of job_.steps ?? []) {
+      assert.equal(
+        step["continue-on-error"],
+        undefined,
+        `step "${step.name ?? step.run ?? step.uses}" of ${id} sets continue-on-error: its failure would read green and publish anyway`,
+      );
+    }
+  }
+});
+
 test("no publication path bypasses verify: publish needs verify and nothing else publishes", () => {
   for (const [id, job_] of Object.entries(WORKFLOW.jobs)) {
-    if (id === "verify") continue;
+    if (id === "verify" || id === "resolve-release-sha") continue;
     assert.ok(
       needsVerify(job_),
       `the ${id} job must depend on verify`,

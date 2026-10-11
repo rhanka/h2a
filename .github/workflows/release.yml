@@ -20,36 +20,20 @@ permissions:
   packages: write
 
 jobs:
-  verify:
-    # SPEC 0.98.5 R8.4 (gel total): verify runs for EVERY publication path —
-    # tag pushes AND backfill dispatches. The old `if: github.event_name == 'push'`
-    # let a backfill publish with zero tests on the same workflow.
-    runs-on: ${{ matrix.os }}
-    # SPEC 0.98.5 R8: verify now also runs the runtime TypeScript suites
-    # (npm test) and the packaged-artifact smoke; 15 minutes no longer fits.
-    timeout-minutes: 30
+  # SPEC 0.98.5 R8.2: the release SHA is resolved ONCE, HERE, before any
+  # matrix leg exists. The review reproduced the race this job removes: with
+  # each verify leg resolving the (mutable) tag by itself, two legs could
+  # gate two different commits while the artifacts came from only one of
+  # them, and the shared output could describe the other leg's SHA.
+  resolve-release-sha:
+    runs-on: ubuntu-latest
     outputs:
-      # The exact commit verify gated. publish MUST consume this SHA and never
-      # re-resolve a mutable tag (TOCTOU).
       release-sha: ${{ steps.resolve.outputs.sha }}
-    strategy:
-      fail-fast: false
-      matrix:
-        # Owner decision 2026-07-27 (track 01KYJ3Q3V5AW9YR0QMXSGW93RE): cross-platform
-        # Windows/macOS support is a SEPARATE workstream and must not gate a release.
-        # Known failures parked there — reporting-stdin on Windows (spawnSync stdin),
-        # restore-dead-session-recovery on Windows, and a truncated `--help` capture on
-        # the macOS/Node-20 runner — are pre-existing on main and unrelated to any release.
-        # What this gate no longer proves: that the released code works on macOS or Windows.
-        # `smoke-install` on push-to-main still exercises the PUBLISHED package on all three.
-        os: [ubuntu-latest]
-        node: ["20", "22"]
     steps:
-      # SPEC 0.98.5 R8.2: resolve the EXACT release SHA BEFORE the run, and
-      # check out the SHA, never the tag name — a tag can be re-pointed
-      # between here and publish (TOCTOU). For a tag push GITHUB_SHA is already
-      # the peeled commit; for a backfill dispatch the tag is peeled here.
-      - name: Resolve the exact release SHA (before any checkout)
+      # Resolve the EXACT release SHA BEFORE any checkout. For a tag push
+      # GITHUB_SHA is already the peeled commit; for a backfill dispatch the
+      # tag is peeled here — once for the whole run.
+      - name: Resolve the exact release SHA (once, before any checkout)
         id: resolve
         shell: bash
         run: |
@@ -71,17 +55,48 @@ jobs:
           echo "sha=${sha}" >> "$GITHUB_OUTPUT"
           echo "Resolved release SHA: ${sha}"
 
+  verify:
+    # SPEC 0.98.5 R8.4 (gel total): verify runs for EVERY publication path —
+    # tag pushes AND backfill dispatches. The old `if: github.event_name == 'push'`
+    # let a backfill publish with zero tests on the same workflow.
+    needs: resolve-release-sha
+    runs-on: ${{ matrix.os }}
+    # SPEC 0.98.5 R8: verify now also runs the runtime TypeScript suites
+    # (npm test) and the packaged-artifact smoke; 15 minutes no longer fits.
+    timeout-minutes: 30
+    outputs:
+      # The exact commit verify gated: the ONE SHA resolved by
+      # resolve-release-sha. publish MUST consume this SHA and never
+      # re-resolve a mutable tag (TOCTOU).
+      release-sha: ${{ needs.resolve-release-sha.outputs.release-sha }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # Owner decision 2026-07-27 (track 01KYJ3Q3V5AW9YR0QMXSGW93RE): cross-platform
+        # Windows/macOS support is a SEPARATE workstream and must not gate a release.
+        # Known failures parked there — reporting-stdin on Windows (spawnSync stdin),
+        # restore-dead-session-recovery on Windows, and a truncated `--help` capture on
+        # the macOS/Node-20 runner — are pre-existing on main and unrelated to any release.
+        # What this gate no longer proves: that the released code works on macOS or Windows.
+        # `smoke-install` on push-to-main still exercises the PUBLISHED package on all three.
+        os: [ubuntu-latest]
+        node: ["20", "22"]
+    steps:
+      # SPEC 0.98.5 R8.2: verify NEVER resolves the SHA itself — the ONE
+      # resolution happened in resolve-release-sha before this matrix
+      # existed. Per-leg resolution is the review's race: two legs could
+      # gate two different commits while the artifacts came from one.
       - uses: actions/checkout@v4
         with:
-          ref: ${{ steps.resolve.outputs.sha }}
+          ref: ${{ needs.resolve-release-sha.outputs.release-sha }}
 
       - name: Ensure release tag is on main
         shell: bash
         run: |
           set -euo pipefail
           git fetch origin main
-          if ! git merge-base --is-ancestor "${{ steps.resolve.outputs.sha }}" origin/main; then
-            echo "::error::Refusing release: the release commit ${{ steps.resolve.outputs.sha }} is not on origin/main."
+          if ! git merge-base --is-ancestor "${{ needs.resolve-release-sha.outputs.release-sha }}" origin/main; then
+            echo "::error::Refusing release: the release commit ${{ needs.resolve-release-sha.outputs.release-sha }} is not on origin/main."
             echo "::error::Create the tag only after the version commit is merged into main."
             exit 1
           fi
@@ -111,8 +126,8 @@ jobs:
       # SPEC 0.98.5 R8.2: the three lockstep tarballs published later are the
       # EXACT bytes verify built here — packed from the pinned SHA, sha256
       # recorded, uploaded as run artifacts. Packed on one matrix leg only:
-      # both legs build the same tree at the same SHA, and upload-artifact
-      # forbids duplicate artifact names.
+      # both legs consume the SAME resolve-release-sha output, and
+      # upload-artifact forbids duplicate artifact names.
       - name: Pack the three lockstep packages
         if: matrix.node == '22'
         shell: bash
@@ -123,6 +138,10 @@ jobs:
             npm pack --workspace "$pkg" --pack-destination dist-tarballs
           done
           (cd dist-tarballs && sha256sum *.tgz > sha256sums.txt && cat sha256sums.txt)
+          # SPEC 0.98.5 R8.2: TIE the artifact manifest to the one resolved
+          # SHA — the manifest travels with the bytes it describes, and
+          # publish re-checks it before any npm publish.
+          echo "${{ needs.resolve-release-sha.outputs.release-sha }}" > dist-tarballs/release-sha.txt
 
       - name: Upload the tarballs as run artifacts
         if: matrix.node == '22'
@@ -161,6 +180,14 @@ jobs:
         run: |
           set -euo pipefail
           (cd dist-tarballs && sha256sum --check --strict sha256sums.txt)
+          # SPEC 0.98.5 R8.2: the manifest is TIED to the gated SHA. If these
+          # bytes were not packed from the exact commit verify gated, refuse.
+          manifest_sha="$(cat dist-tarballs/release-sha.txt)"
+          gated_sha="${{ needs.verify.outputs.release-sha }}"
+          if [ "$manifest_sha" != "$gated_sha" ]; then
+            echo "::error::Artifact manifest SHA ${manifest_sha} != verify-gated SHA ${gated_sha}; refusing to publish bytes of an ungated commit." >&2
+            exit 1
+          fi
 
       - uses: actions/setup-node@v4
         with:
