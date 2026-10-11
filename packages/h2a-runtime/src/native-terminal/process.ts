@@ -13,6 +13,7 @@ import {
   NATIVE_TERMINAL_MAX_SESSIONS,
 } from "./protocol.js";
 import { startNativeTerminalHostServer } from "./server.js";
+import { NativeTerminalPublicationRefusal } from "./publication-refusal.js";
 
 type ProcessOptions = {
   socketPath: string;
@@ -247,7 +248,7 @@ function isEntryPoint(): boolean {
 
 if (isEntryPoint()) {
   runNativeTerminalHostProcess(process.argv).catch((error: unknown) => {
-    process.stderr.write(`[h2a-pty-host] fatal: ${error instanceof Error ? error.stack ?? error.message : String(error)}\n`);
-    process.exitCode = 1;
+    process.stderr.write(`[h2a-pty-host] fatal${error instanceof NativeTerminalPublicationRefusal ? ` [${error.code}]` : ""}: ${error instanceof Error ? error.stack ?? error.message : String(error)}\n`);
+    process.exitCode = error instanceof NativeTerminalPublicationRefusal ? error.exitCode : 1;
   });
 }

@@ -499,7 +499,10 @@ describe("native terminal local transport", () => {
       );
       expect(fulfilled).toHaveLength(1);
       expect(rejected).toHaveLength(1);
-      expect(String(rejected[0]!.reason)).toMatch(/already active/i);
+      expect(rejected[0]!.reason).toMatchObject({
+        code: "H2A_STALE_SOCKET_UNPROVEN", exitCode: 3,
+        message: "terminal host owner death is unproven; refusing stale socket reclamation",
+      });
       servers.add(fulfilled[0]!.value);
 
       const winner = await NativeTerminalClient.connect(socketPath);
