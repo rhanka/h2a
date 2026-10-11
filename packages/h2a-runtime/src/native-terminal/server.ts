@@ -4,6 +4,7 @@ import { chmod, link, lstat, mkdir, open, readFile, rename, unlink, writeFile, t
 import { createConnection, createServer, type Server, type Socket } from "node:net";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 
+import { writeHostLogLine } from "./crash-safe-log.js";
 import {
   NativeTerminalHost,
   defaultOwnerHostProbe,
@@ -763,11 +764,10 @@ function findActiveHostServingSocket(
     if (candidateCanonical !== targetCanonical) continue;
 
     const candDir = dirname(candidateSocket);
-    const candStem = basename(candidateSocket).slice(0, 8).replace(/[^A-Za-z0-9_.-]/g, "_");
     let isStagingCandidate = false;
     try {
       const dirEntries = readdirSync(candDir);
-      isStagingCandidate = dirEntries.some(name => name.startsWith(`.${candStem}.${pid}.`));
+      isStagingCandidate = dirEntries.some(name => isStagedSocketName(name, candidateSocket, pid));
     } catch {}
     if (isStagingCandidate) continue;
 
@@ -814,11 +814,11 @@ function findActiveHostServingSocket(
       // listener's canonical or PID-attributed staged address proves service,
       // including a listener whose filesystem pathname has been unlinked.
       if (!boundPath || (boundPath !== candidateSocket && !(dirname(boundPath) === candDir
-        && basename(boundPath).startsWith(`.${candStem}.${pid}.`) && boundPath.endsWith(".sock")))) continue;
+        && isStagedSocketName(basename(boundPath), candidateSocket, pid)))) continue;
       const canonicalBound = canonicalizePath(boundPath);
       if (!canonicalBound) return { state: "unknown", reason: `cannot canonicalize bound socket for host pid ${pid}` };
       if (canonicalBound === targetCanonical || (dirname(canonicalBound) === dirname(targetCanonical)
-        && basename(canonicalBound).startsWith(`.${candStem}.${pid}.`))) {
+        && isStagedSocketName(basename(canonicalBound), candidateSocket, pid))) {
         hasSocketFd = true;
         break;
       }
@@ -967,12 +967,38 @@ async function ensurePrivateSocketDirectory(socketPath: string): Promise<void> {
   }
 }
 
+/**
+ * Staged-socket naming grammar, shared by the generator (`stagingSocketPath`)
+ * and the recognizers in `findActiveHostServingSocket`. The staged name must
+ * stay as SHORT as its uniqueness allows — deep deployment or checkout
+ * directories leave only a few bytes of kernel sun_path budget — but it MUST
+ * remain recognizable: a live host that lost its published pathname is only
+ * attributable through its staged name, and refusing to attribute it would
+ * admit a second writer. Never edit the generator without the recognizers.
+ */
+function stagedSocketNamePrefix(publishedPath: string, pid: number): string {
+  const stem = basename(publishedPath).slice(0, 3).replace(/[^A-Za-z0-9_.-]/g, "_");
+  return `.${stem}.${pid}.`;
+}
+
+/** Current grammar plus the pre-0.98.5 grammar (rolling upgrades). */
+function isStagedSocketName(name: string, publishedPath: string, pid: number): boolean {
+  if (name.startsWith(stagedSocketNamePrefix(publishedPath, pid))) return true;
+  const legacyStem = basename(publishedPath).slice(0, 8).replace(/[^A-Za-z0-9_.-]/g, "_");
+  return name.startsWith(`.${legacyStem}.${pid}.`) && name.endsWith(".sock");
+}
+
 function stagingSocketPath(socketPath: string): string {
   const directory = dirname(socketPath);
-  const stem = basename(socketPath).slice(0, 8).replace(/[^A-Za-z0-9_.-]/g, "_");
+  // The staged name must stay as SHORT as its uniqueness allows: the published
+  // path can sit close to the kernel sun_path budget (deep deployment or
+  // checkout directories), and every byte of decoration here is budget taken
+  // from the parent path. Three stem bytes keep same-directory staging of
+  // different published names distinguishable; pid + 8 hex keep every staged
+  // bind in one directory unique.
   const stagedPath = join(
     directory,
-    `.${stem}.${process.pid}.${randomUUID().slice(0, 8)}.sock`,
+    `${stagedSocketNamePrefix(socketPath, process.pid)}${randomUUID().slice(0, 8)}`,
   );
   // The staged name is longer than the published one; a publishable path can
   // still overflow the kernel sun_path budget at the bind step.
@@ -1019,6 +1045,12 @@ async function publishSocket(
 
 export type NativeTerminalHostServer = Readonly<{
   socketPath: string;
+  /**
+   * The listening net.Server, exposed for supervision and fault-injection
+   * tests. Callers must not close it directly: use `close()` so publication
+   * rollback and socket cleanup run.
+   */
+  server: Server;
   close(options?: { stopSessions?: boolean; signal?: string }): Promise<void>;
 }>;
 
@@ -1093,6 +1125,15 @@ async function initializeNativeTerminalHostServer(options: {
         resolve();
       });
     }), options.signal);
+    // The listener that turned listen()-path errors into a rejected startup
+    // is gone by design; without a replacement, any error surfacing on the
+    // net.Server AFTER listen would be an unhandled `error` event — an
+    // uncaughtException that kills the host (the 2026-10-10/11 crash-loop's
+    // class of failure). This durable handler observes and survives:
+    // per-connection transport errors stay on each socket's own handler.
+    server.on("error", (error) => {
+      writeHostLogLine(`terminal host server error (contained): ${String(error)}`);
+    });
     // Capture the listener's inode before any publication await can suspend.
     ownedSocket = lstatSync(stagedPath);
     await abortable(chmod(stagedPath, 0o600), options.signal);
@@ -1130,6 +1171,7 @@ async function initializeNativeTerminalHostServer(options: {
 
   return Object.freeze({
     socketPath: options.socketPath,
+    server,
     close(closeOptions = {}) {
       closing ??= (async () => {
         let stopError: unknown;

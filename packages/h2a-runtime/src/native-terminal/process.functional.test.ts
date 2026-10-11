@@ -1113,8 +1113,12 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
       const unlink = fs.unlink;
       fs.unlink = async (...args) => {
         const path = String(args[0]);
+        // The staged socket is the one hidden file in the socket directory
+        // that is neither the publication lock identity nor a .tmp writer file.
         if ((${JSON.stringify(suspendAt)} === 'owner-unlink' && path.includes('.owner.') && path.endsWith('.tmp'))
-          || (${JSON.stringify(suspendAt)} === 'staged-unlink' && path.endsWith('.sock') && path !== ${JSON.stringify(socketPath)})) {
+          || (${JSON.stringify(suspendAt)} === 'staged-unlink' && path !== ${JSON.stringify(socketPath)}
+            && !path.endsWith('.tmp') && path.split('/').pop().startsWith('.')
+            && !path.endsWith('.h2a-native-terminal.lock-id'))) {
           await suspend();
         }
         return unlink(...args);
@@ -1186,7 +1190,8 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
     const otherOwner = JSON.stringify({ pid: process.pid, marker: "replacement-owner" });
     if (preserveOwner) await writeFile(`${socketPath}.owner`, otherOwner, { mode: 0o600 });
     const listenerPath = suspendAt === "socket-link"
-      ? join(directory, (await readdir(directory)).find(name => name.endsWith(".sock"))!)
+      ? join(directory, (await readdir(directory, { withFileTypes: true }))
+        .find(entry => entry.name.startsWith(".") && entry.isSocket())!.name)
       : socketPath;
     const client = createConnection(listenerPath);
     await once(client, "connect");
@@ -1243,7 +1248,8 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
       else await expect(stat(socketPath)).rejects.toMatchObject({ code: "ENOENT" });
       if (preserveOwner) expect(await readFile(`${socketPath}.owner`, "utf8")).toBe(otherOwner);
       else await expect(stat(`${socketPath}.owner`)).rejects.toMatchObject({ code: "ENOENT" });
-      expect((await readdir(directory)).filter((name) => name.endsWith(".sock") || name.endsWith(".tmp"))).toEqual(preserveSocket ? ["host.sock"] : []);
+      expect((await readdir(directory)).filter((name) => name.endsWith(".sock") || name.endsWith(".tmp")
+        || (name.startsWith(".") && name !== ".h2a-native-terminal.lock-id"))).toEqual(preserveSocket ? ["host.sock"] : []);
       await waitForPrivateNativeProcesses(process.env);
       if (blockJournal) expect(await readFile(journalLock, "utf8")).toBe("fixture-journal-lock");
     } finally {

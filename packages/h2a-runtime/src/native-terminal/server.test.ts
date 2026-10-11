@@ -304,6 +304,19 @@ describe("native terminal local transport", () => {
     );
   });
 
+  it("should contain a net.Server error surfacing after listen", async () => {
+    const { socketPath, server, client } = await service();
+    // The listener that guards listen() is removed once listening succeeds;
+    // without a durable replacement, any late server-level error would be an
+    // unhandled `error` event — an uncaughtException that kills the host.
+    expect(() => server.server.emit("error", new Error("late accept failure"))).not.toThrow();
+    // The contained server keeps serving existing and new clients.
+    expect((await client.ping()).generation).toBe("unit-generation");
+    const second = await NativeTerminalClient.connect(socketPath);
+    expect((await second.ping()).generation).toBe("unit-generation");
+    second.close();
+  });
+
   it("should bind controller authority to its connection and release it on disconnect", async () => {
     const { socketPath, client, ptys } = await service();
     const observer = await NativeTerminalClient.connect(socketPath);
