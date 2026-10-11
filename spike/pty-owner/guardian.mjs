@@ -11,5 +11,5 @@ export const original = [
 ].join('\n');
 // Experimental fix, only in this spike. Bash expands self fd list, then closes
 // each inherited fd before spawning CLI. This also closes the inherited listener.
-const closeForeign = 'for spike_fd_path in /proc/self/fd/*; do spike_fd=${spike_fd_path##*/}; if [[ $spike_fd -ge 3 ]]; then eval "exec ${spike_fd}>&-" 2>/dev/null; fi; done';
+export const closeForeign = 'for spike_fd_path in /proc/self/fd/*; do spike_fd=${spike_fd_path##*/}; if [[ $spike_fd -ge 3 ]]; then eval "exec ${spike_fd}>&-" 2>/dev/null; fi; done';
 export const hygienic = original.replace('"$@" < /dev/tty &', `${closeForeign}\n"$@" < /dev/tty &`);
