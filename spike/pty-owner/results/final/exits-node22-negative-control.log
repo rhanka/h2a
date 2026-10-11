@@ -1,0 +1,87 @@
+TAP version 13
+# Subtest: should report exact guardian exit 0 before exec
+ok 1 - should report exact guardian exit 0 before exec
+  ---
+  duration_ms: 499.142799
+  type: 'test'
+  ...
+# {"node":"v22.22.1","boundary":"before","expected":0,"exit":{"exitCode":0,"signal":0,"source":"node-pty-waitpid"},"guardian":"reaped","log":""}
+# Subtest: should report exact guardian exit 7 before exec
+ok 2 - should report exact guardian exit 7 before exec
+  ---
+  duration_ms: 511.039041
+  type: 'test'
+  ...
+# {"node":"v22.22.1","boundary":"before","expected":7,"exit":{"exitCode":7,"signal":0,"source":"node-pty-waitpid"},"guardian":"reaped","log":""}
+# Subtest: should report exact guardian exit 143 before exec
+ok 3 - should report exact guardian exit 143 before exec
+  ---
+  duration_ms: 482.186589
+  type: 'test'
+  ...
+# {"node":"v22.22.1","boundary":"before","expected":143,"exit":{"exitCode":143,"signal":0,"source":"node-pty-waitpid"},"guardian":"reaped","log":""}
+# Subtest: should report exact guardian exit 0 during exec
+ok 4 - should report exact guardian exit 0 during exec
+  ---
+  duration_ms: 506.819021
+  type: 'test'
+  ...
+# {"node":"v22.22.1","boundary":"during","expected":0,"exit":{"exitCode":0,"signal":0,"source":"proc-zombie"},"guardian":{"pid":515692,"state":"Z","ppid":515685,"pgid":515692,"sid":515692,"tty":0,"start":"489273","exit":0},"log":""}
+# Subtest: should report exact guardian exit 7 during exec
+ok 5 - should report exact guardian exit 7 during exec
+  ---
+  duration_ms: 465.025832
+  type: 'test'
+  ...
+# {"node":"v22.22.1","boundary":"during","expected":7,"exit":{"exitCode":7,"signal":0,"source":"proc-zombie"},"guardian":{"pid":515729,"state":"Z","ppid":515722,"pgid":515729,"sid":515729,"tty":0,"start":"489323","exit":1792},"log":""}
+# Subtest: should report exact guardian exit 143 during exec
+ok 6 - should report exact guardian exit 143 during exec
+  ---
+  duration_ms: 470.917266
+  type: 'test'
+  ...
+# {"node":"v22.22.1","boundary":"during","expected":143,"exit":{"exitCode":143,"signal":0,"source":"proc-zombie"},"guardian":{"pid":515765,"state":"Z","ppid":515758,"pgid":515765,"sid":515765,"tty":0,"start":"489369","exit":36608},"log":""}
+# Subtest: should report exact guardian exit 0 after exec
+ok 7 - should report exact guardian exit 0 after exec
+  ---
+  duration_ms: 484.820954
+  type: 'test'
+  ...
+# {"node":"v22.22.1","boundary":"after","expected":0,"exit":{"exitCode":0,"signal":0,"source":"proc-zombie"},"guardian":{"pid":515817,"state":"Z","ppid":515804,"pgid":515817,"sid":515817,"tty":0,"start":"489417","exit":0},"log":""}
+# Subtest: should report exact guardian exit 7 after exec
+ok 8 - should report exact guardian exit 7 after exec
+  ---
+  duration_ms: 513.580192
+  type: 'test'
+  ...
+# {"node":"v22.22.1","boundary":"after","expected":7,"exit":{"exitCode":7,"signal":0,"source":"proc-zombie"},"guardian":{"pid":515856,"state":"Z","ppid":515849,"pgid":515856,"sid":515856,"tty":0,"start":"489467","exit":1792},"log":""}
+# Subtest: should report exact guardian exit 143 after exec
+ok 9 - should report exact guardian exit 143 after exec
+  ---
+  duration_ms: 517.073344
+  type: 'test'
+  ...
+# {"node":"v22.22.1","boundary":"after","expected":143,"exit":{"exitCode":143,"signal":0,"source":"proc-zombie"},"guardian":{"pid":515892,"state":"Z","ppid":515885,"pgid":515892,"sid":515892,"tty":0,"start":"489518","exit":36608},"log":""}
+# Subtest: should expose the result lost between native waitpid and its JS callback
+ok 10 - should expose the result lost between native waitpid and its JS callback
+  ---
+  duration_ms: 653.28011
+  type: 'test'
+  ...
+# {"node":"v22.22.1","requiredCriterion":"exact-exit-at-all-boundaries","exit":{"unknown":true,"source":"waitpid-callback-lost-before-exec"},"log":""}
+# Subtest: should retain the exact SIGKILL guardian result after adoption
+ok 11 - should retain the exact SIGKILL guardian result after adoption
+  ---
+  duration_ms: 474.329976
+  type: 'test'
+  ...
+# {"node":"v22.22.1","exit":{"exitCode":0,"signal":9,"source":"proc-zombie"}}
+1..11
+# tests 11
+# suites 0
+# pass 11
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 5684.781075
