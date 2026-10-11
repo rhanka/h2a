@@ -188,7 +188,7 @@ describe("facade enrollment", () => {
     expect(facade.pollForCompletion).not.toHaveBeenCalled();
   });
 
-  it("completes Muse device-flow enrollment via completeMuseDeviceImport (muse-code)", async () => {
+  it("enrolls muse via the OAuth device flow by default (mesh-side id muse-code)", async () => {
     const facade = {
       enroll: vi.fn().mockResolvedValue({
         kind: "device-code",
@@ -207,14 +207,16 @@ describe("facade enrollment", () => {
     } as unknown as LlmMeshFacade;
     vi.spyOn(process.stdout, "write").mockImplementation(() => true);
 
-    await expect(enrollViaFacade("muse-code", {
+    await expect(enrollViaFacade("muse", {
       facade,
       ownerScope: "cli:test-host",
     })).resolves.toEqual({
       accountId: "account-muse-code",
-      provider: "muse-code",
+      provider: "muse",
       label: "Muse",
     });
+    // OAuth is the default: the facade session starts under the historical
+    // mesh-side provider id, but the user-facing provider stays "muse".
     expect(facade.enroll).toHaveBeenCalledWith("muse-code", {
       configRef: "default",
       mode: "cli",
@@ -246,12 +248,12 @@ describe("facade enrollment", () => {
     } as unknown as LlmMeshFacade;
     vi.spyOn(process.stdout, "write").mockImplementation(() => true);
 
-    await expect(enrollViaFacade("muse-code", { facade })).rejects.toThrow(
+    await expect(enrollViaFacade("muse", { facade })).rejects.toThrow(
       "completeMuseDeviceImport",
     );
   });
 
-  it("completes a Muse CLI-store import without browser or device round-trip", async () => {
+  it("completes a Muse CLI-store import without browser or device round-trip (--cli)", async () => {
     const facade = {
       enroll: vi.fn().mockResolvedValue({
         kind: "local-import",
@@ -271,6 +273,7 @@ describe("facade enrollment", () => {
     await expect(enrollViaFacade("muse", {
       facade,
       ownerScope: "cli:test-host",
+      cliImport: true,
     })).resolves.toEqual({
       accountId: "acct_muse_abc123",
       provider: "muse",
@@ -292,6 +295,19 @@ describe("facade enrollment", () => {
     expect(facade.pollForCompletion).not.toHaveBeenCalled();
   });
 
+  it("rejects --cli for providers without a local CLI-store import", async () => {
+    const facade = {
+      enroll: vi.fn(),
+    } as unknown as LlmMeshFacade;
+    await expect(enrollViaFacade("codex", { facade, cliImport: true })).rejects.toThrow(
+      /codex.*no CLI-store import.*--cli.*muse/,
+    );
+    await expect(enrollViaFacade("mistral-vibe", { facade, cliImport: true })).rejects.toThrow(
+      /mistral-vibe.*no CLI-store import.*--cli.*muse/,
+    );
+    expect(facade.enroll).not.toHaveBeenCalled();
+  });
+
   it("fails closed when the facade predates Muse import support", async () => {
     const facade = {
       enroll: vi.fn().mockResolvedValue({
@@ -305,7 +321,7 @@ describe("facade enrollment", () => {
     } as unknown as LlmMeshFacade;
     vi.spyOn(process.stdout, "write").mockImplementation(() => true);
 
-    await expect(enrollViaFacade("muse", { facade })).rejects.toThrow(
+    await expect(enrollViaFacade("muse", { facade, cliImport: true })).rejects.toThrow(
       "completeMuseImport",
     );
   });
