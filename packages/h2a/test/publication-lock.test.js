@@ -66,7 +66,10 @@ test("should admit only one owning host under simultaneous cross-process publica
       "--registry-path", join(f.root, "registry.json")], f.env));
     const [loser, status] = await Promise.race(children.map(async c => [c, (await c.closed)[0]]));
     assert.equal(status, 3, loser.output().stderr);
-    assert.match(loser.output().stderr, /H2A_STALE_SOCKET_UNPROVEN/);
+    // Scenario 9 v5: the losing publisher sees the LIVE winner through the
+    // active scan and gets the coded double-publication refusal.
+    assert.match(loser.output().stderr, /H2A_ENDPOINT_LIVE_OWNER/);
+    assert.match(loser.output().stderr, /endpoint owned by a live older host/);
     const winner = children.find(c => c !== loser);
     assert.equal(winner.process.exitCode, null);
     client = await NativeTerminalClient.connect(f.path);

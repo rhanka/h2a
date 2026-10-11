@@ -14,6 +14,9 @@ describe("durable process frame v5", () => {
   it("should require a known machine even when boot and namespace match", () => {
     expect(classifyDurableProcFrame({ ...current, machineId: undefined }, current)).toBe("foreign-frame");
   });
+  it.each(["bootId", "pidNamespace"] as const)("should classify an unrecorded %s as foreign-frame", key => {
+    expect(classifyDurableProcFrame({ ...current, [key]: undefined }, current)).toBe("foreign-frame");
+  });
   it.each([{ machineId: "0".repeat(32) }, { machineId: "A".repeat(32) }, { pidNamespace: "pid:[123]" }, { bootId: "garbage" }])(
     "should classify malformed stored anchors as foreign-frame: %j", malformed => {
       const recorded = { ...current, ...malformed };

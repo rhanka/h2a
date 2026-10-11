@@ -439,7 +439,9 @@ test("should keep socket identity unknown when the candidate Unix table is unrea
   f.env.H2A_TEST_PROC_ROOT = mockProc;
   const probe = await f.run(["probe", "--id", "h2a-unix-table-err"]);
   assert.equal(probe.payload.verdict, "unknown");
-  assert.match(JSON.stringify(probe.payload), /cannot inspect .*net\/unix/);
+  // The unreadable Unix table is now the coded refusal (T4/F3): the frozen
+  // literal names the sense; the scan reason rides as `cause`.
+  assert.match(JSON.stringify(probe.payload), /active scan is unknown; refusing socket publication/);
   const launched = await f.launch("unix-table-err");
   assert.equal(launched.payload.creationAttempted, false);
   assert.deepEqual(await host.client.ping(), host.ping);

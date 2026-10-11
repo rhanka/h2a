@@ -2,7 +2,7 @@
 import { createPrivateTestDirectory, setupNativeTestEnvironment, spawnIsolatedNative as spawn, spawnSyncIsolatedNative as spawnSync } from "../../../h2a/test/helpers/native-isolation.js";
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { once } from "node:events";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { chmod, mkdtemp, rm } from "node:fs/promises";
 import { createConnection, Socket } from "node:net";
@@ -98,7 +98,7 @@ describe("publication proof v5", () => {
     const path = await endpoint(); const probe = vi.fn(() => "dead" as const);
     const read = vi.fn(() => ({ ...current, machineId: undefined }));
     await expect(start(path, read, probe)).rejects.toMatchObject({ code: "H2A_MACHINE_ID_UNREADABLE", exitCode: 3,
-      message: "native host machine-id is unreadable or invalid; recovery remains blocked until a valid machine identity is restored; see docs/runbooks/2026-10-11-recuperation-parc-0.98.2-0.98.4.md#machine-id" });
+      message: "native host machine-id is unreadable or invalid; recovery remains blocked until a valid machine identity is restored; see docs/runbooks/2026-10-11-recuperation-parc-0.98.2-0.98.4.md, Phase 0 (machine-id durablement illisible)" });
     await expect(start(path, read, probe)).rejects.toMatchObject({ code: "H2A_MACHINE_ID_UNREADABLE", exitCode: 3 });
     expect(probe).not.toHaveBeenCalled();
     read.mockReturnValue(current);
@@ -225,6 +225,72 @@ describe("publication proof v5", () => {
     writeFileSync(file, JSON.stringify({ version: 1, entries: registry.loadRegistry().entries }));
     const actual = await vi.importActual<typeof import("../registry.js")>("../registry.js");
     expect(actual.listNativeTerminalPgidEntries(file)).toMatchObject({ known: true, entries: [{ frame: stale }] });
+  });
+  // T4 (spec §5, owner: upgrade branch): a malformed sidecar, lock identity or
+  // registry is a CODED refusal (startupError, exit 3, literal frozen by T8) —
+  // never an undifferentiated startup crash (exit 1).
+  it("should refuse coded when the endpoint sidecar is malformed (T4)", async () => {
+    const path = await endpoint();
+    for (const owner of [
+      { dev: 1, ino: 1, pid: 424242, startTime: 1, bootId: "garbage", pidNamespace: current.pidNamespace, machineId: current.machineId },
+      { dev: 1, ino: 1, pid: 0, startTime: 1, bootId: current.bootId, pidNamespace: current.pidNamespace, machineId: current.machineId },
+    ]) {
+      writeFileSync(`${path}.owner`, JSON.stringify(owner), { mode: 0o600 });
+      await expect(start(path, () => current)).rejects.toMatchObject({
+        code: "H2A_ENDPOINT_OWNER_MALFORMED", exitCode: 3,
+        message: "native endpoint owner identity is malformed or not a private owned file; refusing socket publication",
+      });
+      await rm(`${path}.owner`, { force: true });
+    }
+    writeFileSync(`${path}.owner`, "{not json", { mode: 0o600 });
+    await expect(start(path, () => current)).rejects.toMatchObject({ code: "H2A_ENDPOINT_OWNER_MALFORMED", exitCode: 3 });
+    await rm(`${path}.owner`, { force: true });
+    // A sidecar that is not a private owned file is the same coded refusal.
+    writeFileSync(`${path}.owner`, JSON.stringify({ dev: 1, ino: 1, pid: 424242, startTime: 1,
+      bootId: current.bootId, pidNamespace: current.pidNamespace, machineId: current.machineId }), { mode: 0o644 });
+    await expect(absent(path, () => current)).rejects.toMatchObject({ code: "H2A_ENDPOINT_OWNER_MALFORMED", exitCode: 3 });
+    await rm(`${path}.owner`, { force: true });
+    await start(path, () => current);
+  });
+  it("should refuse coded when the publication lock identity is malformed (T4)", async () => {
+    const path = await endpoint();
+    const identity = join(dirname(path), ".h2a-native-terminal.lock-id");
+    writeFileSync(identity, "not-a-uuid\n", { mode: 0o600 });
+    await expect(start(path, () => current)).rejects.toMatchObject({
+      code: "H2A_PUBLICATION_LOCK_ID_MALFORMED", exitCode: 3,
+      message: "terminal socket publication lock identity is malformed or not a private owned file; refusing socket publication",
+    });
+    await rm(identity, { force: true });
+    writeFileSync(identity, `${randomUUID()}\n`, { mode: 0o644 });
+    await expect(start(path, () => current)).rejects.toMatchObject({ code: "H2A_PUBLICATION_LOCK_ID_MALFORMED", exitCode: 3 });
+    await rm(identity, { force: true });
+    await start(path, () => current);
+  });
+  it("should refuse coded when the endpoint registry is corrupted (T4)", async () => {
+    const path = await endpoint(); await boundSocket(path); sidecar(path);
+    vi.mocked(registry.loadRegistry).mockReturnValue({ state: "unknown", entries: [], unreadable: [] });
+    await expect(start(path, () => current)).rejects.toMatchObject({
+      code: "H2A_ENDPOINT_REGISTRY_UNKNOWN", exitCode: 3,
+      message: "native endpoint owner registry is unreadable or corrupted; refusing socket publication",
+    });
+    vi.mocked(registry.loadRegistry).mockReturnValue({ state: "ok", entries: [], unreadable: ["native-terminal-pty:corrupt"] });
+    await expect(start(path, () => current)).rejects.toMatchObject({ code: "H2A_ENDPOINT_REGISTRY_UNKNOWN", exitCode: 3 });
+    vi.mocked(registry.loadRegistry).mockReturnValue({ state: "ok", entries: [], unreadable: [] });
+    vi.mocked(registry.listNativeTerminalPgidEntries).mockReturnValue({ known: false, reason: "registry is unreadable" });
+    await expect(start(path, () => current)).rejects.toMatchObject({ code: "H2A_ENDPOINT_REGISTRY_UNKNOWN", exitCode: 3 });
+  });
+  it("should refuse coded when the active host scan is unknown (T4)", async () => {
+    const path = await endpoint();
+    process.env.H2A_TEST_PROC_UNAVAILABLE = "1";
+    try {
+      await expect(start(path, () => current)).rejects.toMatchObject({
+        code: "H2A_ENDPOINT_SCAN_UNKNOWN", exitCode: 3,
+        message: "native host active scan is unknown; refusing socket publication",
+      });
+    } finally {
+      delete process.env.H2A_TEST_PROC_UNAVAILABLE;
+    }
+    await start(path, () => current);
   });
 
 });
