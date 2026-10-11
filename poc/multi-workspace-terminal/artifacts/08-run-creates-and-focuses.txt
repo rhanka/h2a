@@ -1,0 +1,3 @@
+repo-alpha[running] | *repo-beta[running]
+idle[idle] | *new-idle[running]
+Idle session ready

@@ -1,0 +1,3 @@
+*repo-alpha[waiting-for-input-question] | repo-beta[idle]
+counter[running] | *question[waiting-for-input-question]
+Proceed? [y/n]

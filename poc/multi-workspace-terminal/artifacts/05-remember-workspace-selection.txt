@@ -1,0 +1,5 @@
+*repo-alpha[running] | repo-beta[idle]
+counter[running] | *question[running]
+Proceed? [y/n] y
+
+answer accepted: y
