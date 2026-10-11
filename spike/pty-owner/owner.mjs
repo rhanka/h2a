@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import net from 'node:net';
 import { spawnSession, collect, flush, native, replay, preflight, version } from './pty-io.mjs';
 import { identity, fds, serve, json, read, here } from './lab.mjs';
 import { transition } from './transition.mjs';
@@ -21,6 +22,8 @@ export async function owner(build) {
     process.execve(process.execPath, [process.execPath, path.join(here, `image-${(state.generation - 1) % 2}.mjs`)], process.env);
   }
   if (state.birth.start !== identity(process.pid).start) throw new Error('owner birth changed');
+  if (!process.env.SPIKE_RESUME) fs.writeFileSync(path.join(root, 'owner.lock'), JSON.stringify(state.birth), { flag: 'wx', mode: 0o600 });
+  else if (read(path.join(root, 'owner.lock')).start !== state.birth.start) throw new Error('publisher fence changed');
   for (const session of state.sessions.filter(s => !s.closed)) {
     const proof = preflight([session]);
     // Ended child may be gone; collect will expose a lost waitpid result.
@@ -29,6 +32,10 @@ export async function owner(build) {
   if (state.transitionAt) state.transitions.push({ generation: state.generation, build,
     pauseMs: performance.timeOrigin + performance.now() - state.transitionAt });
   state.quiescing = false;
+  for (const session of state.sessions) {
+    session.holdWrites = false;
+    if (process.env.SPIKE_RESUME) session.adopted = true;
+  }
   setInterval(() => {
     if (state.quiescing) return;
     for (const session of state.sessions) { collect(session); if (!session.holdWrites) flush(session); }
@@ -55,22 +62,36 @@ export async function owner(build) {
       if (session.controller !== null) return { error: 'controller-busy' };
       session.controller = request.client; return { epoch: ++session.epoch };
     }
-    if (request.op === 'release') { session.epoch++; session.controller = null; return { ok: true }; }
+    if (request.op === 'release') {
+      if (request.epoch !== undefined && session.epoch !== request.epoch) return { error: 'stale-lease' };
+      session.epoch++; session.controller = null; return { ok: true };
+    }
     if (request.op === 'write' || request.op === 'resize') {
       if (state.quiescing) return { error: 'upgrade-in-progress', retrySafe: true };
       if (session.controller !== request.client || session.epoch !== request.epoch) return { error: 'stale-lease' };
       if (request.op === 'resize') {
         native.resize(session.fd, request.cols, request.rows); session.cols = request.cols; session.rows = request.rows;
-      } else { session.queued.push(Buffer.from(request.data).toString('base64')); flush(session, request.limit); }
+      } else {
+        session.queued.push(Buffer.from(request.data).toString('base64'));
+        session.holdWrites = request.hold === true; flush(session, request.limit);
+      }
       return { ok: true };
     }
     if (request.op === 'close-master') { fs.closeSync(session.fd); session.closed = true; return { ok: true }; }
+    if (request.op === 'signal-guardian') {
+      if (identity(session.pid).start !== session.birth.start) throw new Error('birth changed');
+      process.kill(session.pid, 'SIGUSR1'); return { ok: true };
+    }
     if (request.op === 'exit-race') {
       session.queued.push(Buffer.from('EXIT:7\n').toString('base64')); flush(session);
       Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 300);
       // Native waitpid has reaped child; callback is queued on this blocked JS thread.
       state.generation++; state.transitionAt = performance.timeOrigin + performance.now(); json(checkpoint, state);
       process.execve(process.execPath, [process.execPath, path.join(here, 'image-1.mjs')], { ...process.env, SPIKE_RESUME: '1' });
+    }
+    if (request.op === 'tty-transfer') {
+      try { new net.Socket({ fd: session.fd }); return { unexpected: 'TTY accepted' }; }
+      catch (error) { return { code: error.code, message: error.message }; }
     }
     if (request.op === 'die') { setTimeout(() => process.exit(0), 10); return { ok: true }; }
     return { error: 'unknown-operation' };
