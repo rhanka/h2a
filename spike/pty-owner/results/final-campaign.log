@@ -1,0 +1,79 @@
+RUN  /usr/bin/node --test --test-reporter=tap /home/antoinefa/src/h2a/tmp/worktrees/spike-pty/spike/pty-owner/reference.test.mjs
+RESULT reference-node22: exit=0 pass=1 fail=0 skipped=0 expectedExit=0
+RUN SPIKE_HYGIENE=0 /usr/bin/node --test --test-reporter=tap /home/antoinefa/src/h2a/tmp/worktrees/spike-pty/spike/pty-owner/fd-hygiene.test.mjs
+RESULT fd-hygiene-node22-red: exit=1 pass=0 fail=1 skipped=0 expectedExit=1
+RUN  /usr/bin/node --test --test-reporter=tap /home/antoinefa/src/h2a/tmp/worktrees/spike-pty/spike/pty-owner/fd-hygiene.test.mjs
+RESULT fd-hygiene-node22: exit=0 pass=1 fail=0 skipped=0 expectedExit=0
+RUN SPIKE_DIRECT_LISTENER=1 /usr/bin/node --test --test-reporter=tap /home/antoinefa/src/h2a/tmp/worktrees/spike-pty/spike/pty-owner/listener.test.mjs
+RESULT listener-node22-red: exit=1 pass=0 fail=1 skipped=0 expectedExit=1
+RUN  /usr/bin/node --test --test-reporter=tap /home/antoinefa/src/h2a/tmp/worktrees/spike-pty/spike/pty-owner/listener.test.mjs
+RESULT listener-node22: exit=0 pass=1 fail=0 skipped=0 expectedExit=0
+RUN SPIKE_B_ACTIVATION=0 /usr/bin/node --test --test-reporter=tap /home/antoinefa/src/h2a/tmp/worktrees/spike-pty/spike/pty-owner/split.test.mjs
+RESULT split-node22-red: exit=1 pass=0 fail=1 skipped=0 expectedExit=1
+RUN  /usr/bin/node --test --test-reporter=tap /home/antoinefa/src/h2a/tmp/worktrees/spike-pty/spike/pty-owner/admission.test.mjs
+RESULT admission-node22: exit=0 pass=1 fail=0 skipped=0 expectedExit=0
+RUN  /usr/bin/node --test --test-reporter=tap /home/antoinefa/src/h2a/tmp/worktrees/spike-pty/spike/pty-owner/binary-transition.test.mjs
+RESULT binary-transition-node22: exit=0 pass=1 fail=0 skipped=0 expectedExit=0
+RUN  /usr/bin/node --test --test-reporter=tap /home/antoinefa/src/h2a/tmp/worktrees/spike-pty/spike/pty-owner/nominal.test.mjs
+RESULT nominal-node22: exit=0 pass=2 fail=0 skipped=0 expectedExit=0
+RUN  /usr/bin/node --test --test-reporter=tap /home/antoinefa/src/h2a/tmp/worktrees/spike-pty/spike/pty-owner/split.test.mjs
+RESULT split-node22: exit=0 pass=1 fail=0 skipped=0 expectedExit=0
+RUN  /usr/bin/node --test --test-reporter=tap /home/antoinefa/src/h2a/tmp/worktrees/spike-pty/spike/pty-owner/faults.test.mjs
+RESULT faults-node22: exit=0 pass=6 fail=0 skipped=0 expectedExit=0
+RUN  /usr/bin/node --test --test-reporter=tap /home/antoinefa/src/h2a/tmp/worktrees/spike-pty/spike/pty-owner/flow.test.mjs
+RESULT flow-node22: exit=0 pass=2 fail=0 skipped=0 expectedExit=0
+RUN  /usr/bin/node --test --test-reporter=tap /home/antoinefa/src/h2a/tmp/worktrees/spike-pty/spike/pty-owner/attach.test.mjs
+RESULT attach-node22: exit=0 pass=1 fail=0 skipped=0 expectedExit=0
+RUN  /usr/bin/node --test --test-reporter=tap /home/antoinefa/src/h2a/tmp/worktrees/spike-pty/spike/pty-owner/cat.test.mjs
+RESULT cat-node22: exit=0 pass=1 fail=0 skipped=0 expectedExit=0
+RUN SPIKE_REQUIRE_EXITS=1 /usr/bin/node --test --test-reporter=tap /home/antoinefa/src/h2a/tmp/worktrees/spike-pty/spike/pty-owner/exits.test.mjs
+RESULT exits-node22-contract-red: exit=1 pass=10 fail=1 skipped=0 expectedExit=1
+RUN  /usr/bin/node --test --test-reporter=tap /home/antoinefa/src/h2a/tmp/worktrees/spike-pty/spike/pty-owner/exits.test.mjs
+RESULT exits-node22-negative-control: exit=0 pass=11 fail=0 skipped=0 expectedExit=0
+RUN  /usr/bin/node --test --test-reporter=tap /home/antoinefa/src/h2a/tmp/worktrees/spike-pty/spike/pty-owner/exact-guardian.test.mjs
+RESULT exact-guardian-node22: exit=0 pass=1 fail=0 skipped=0 expectedExit=0
+RUN  /home/antoinefa/.cache-tmp/pty-node-matrix-uM1Ptm/22.15.0/bin/node --test --test-reporter=tap /home/antoinefa/src/h2a/tmp/worktrees/spike-pty/spike/pty-owner/nominal.test.mjs
+RESULT nominal-node2215: exit=0 pass=2 fail=0 skipped=0 expectedExit=0
+RUN  /home/antoinefa/.cache-tmp/pty-node-matrix-uM1Ptm/22.15.0/bin/node --test --test-reporter=tap /home/antoinefa/src/h2a/tmp/worktrees/spike-pty/spike/pty-owner/split.test.mjs
+RESULT split-node2215: exit=0 pass=1 fail=0 skipped=0 expectedExit=0
+RUN  /home/antoinefa/.cache-tmp/pty-node-matrix-uM1Ptm/22.15.0/bin/node --test --test-reporter=tap /home/antoinefa/src/h2a/tmp/worktrees/spike-pty/spike/pty-owner/faults.test.mjs
+RESULT faults-node2215: exit=0 pass=6 fail=0 skipped=0 expectedExit=0
+RUN  /home/antoinefa/.cache-tmp/pty-node-matrix-uM1Ptm/22.15.0/bin/node --test --test-reporter=tap /home/antoinefa/src/h2a/tmp/worktrees/spike-pty/spike/pty-owner/flow.test.mjs
+RESULT flow-node2215: exit=0 pass=2 fail=0 skipped=0 expectedExit=0
+RUN  /home/antoinefa/.cache-tmp/pty-node-matrix-uM1Ptm/22.15.0/bin/node --test --test-reporter=tap /home/antoinefa/src/h2a/tmp/worktrees/spike-pty/spike/pty-owner/attach.test.mjs
+RESULT attach-node2215: exit=0 pass=1 fail=0 skipped=0 expectedExit=0
+RUN  /home/antoinefa/.cache-tmp/pty-node-matrix-uM1Ptm/22.15.0/bin/node --test --test-reporter=tap /home/antoinefa/src/h2a/tmp/worktrees/spike-pty/spike/pty-owner/cat.test.mjs
+RESULT cat-node2215: exit=0 pass=1 fail=0 skipped=0 expectedExit=0
+RUN SPIKE_REQUIRE_EXITS=1 /home/antoinefa/.cache-tmp/pty-node-matrix-uM1Ptm/22.15.0/bin/node --test --test-reporter=tap /home/antoinefa/src/h2a/tmp/worktrees/spike-pty/spike/pty-owner/exits.test.mjs
+RESULT exits-node2215-contract-red: exit=1 pass=10 fail=1 skipped=0 expectedExit=1
+RUN  /home/antoinefa/.cache-tmp/pty-node-matrix-uM1Ptm/22.15.0/bin/node --test --test-reporter=tap /home/antoinefa/src/h2a/tmp/worktrees/spike-pty/spike/pty-owner/exits.test.mjs
+RESULT exits-node2215-negative-control: exit=0 pass=11 fail=0 skipped=0 expectedExit=0
+RUN  /home/antoinefa/.cache-tmp/pty-node-matrix-uM1Ptm/22.15.0/bin/node --test --test-reporter=tap /home/antoinefa/src/h2a/tmp/worktrees/spike-pty/spike/pty-owner/exact-guardian.test.mjs
+RESULT exact-guardian-node2215: exit=0 pass=1 fail=0 skipped=0 expectedExit=0
+RUN  /home/antoinefa/.nvm/versions/node/v24.18.0/bin/node --test --test-reporter=tap /home/antoinefa/src/h2a/tmp/worktrees/spike-pty/spike/pty-owner/nominal.test.mjs
+RESULT nominal-node24: exit=0 pass=2 fail=0 skipped=0 expectedExit=0
+RUN  /home/antoinefa/.nvm/versions/node/v24.18.0/bin/node --test --test-reporter=tap /home/antoinefa/src/h2a/tmp/worktrees/spike-pty/spike/pty-owner/split.test.mjs
+RESULT split-node24: exit=0 pass=1 fail=0 skipped=0 expectedExit=0
+RUN  /home/antoinefa/.nvm/versions/node/v24.18.0/bin/node --test --test-reporter=tap /home/antoinefa/src/h2a/tmp/worktrees/spike-pty/spike/pty-owner/faults.test.mjs
+RESULT faults-node24: exit=0 pass=6 fail=0 skipped=0 expectedExit=0
+RUN  /home/antoinefa/.nvm/versions/node/v24.18.0/bin/node --test --test-reporter=tap /home/antoinefa/src/h2a/tmp/worktrees/spike-pty/spike/pty-owner/flow.test.mjs
+RESULT flow-node24: exit=0 pass=2 fail=0 skipped=0 expectedExit=0
+RUN  /home/antoinefa/.nvm/versions/node/v24.18.0/bin/node --test --test-reporter=tap /home/antoinefa/src/h2a/tmp/worktrees/spike-pty/spike/pty-owner/attach.test.mjs
+RESULT attach-node24: exit=0 pass=1 fail=0 skipped=0 expectedExit=0
+RUN  /home/antoinefa/.nvm/versions/node/v24.18.0/bin/node --test --test-reporter=tap /home/antoinefa/src/h2a/tmp/worktrees/spike-pty/spike/pty-owner/cat.test.mjs
+RESULT cat-node24: exit=0 pass=1 fail=0 skipped=0 expectedExit=0
+RUN SPIKE_REQUIRE_EXITS=1 /home/antoinefa/.nvm/versions/node/v24.18.0/bin/node --test --test-reporter=tap /home/antoinefa/src/h2a/tmp/worktrees/spike-pty/spike/pty-owner/exits.test.mjs
+RESULT exits-node24-contract-red: exit=1 pass=10 fail=1 skipped=0 expectedExit=1
+RUN  /home/antoinefa/.nvm/versions/node/v24.18.0/bin/node --test --test-reporter=tap /home/antoinefa/src/h2a/tmp/worktrees/spike-pty/spike/pty-owner/exits.test.mjs
+RESULT exits-node24-negative-control: exit=0 pass=11 fail=0 skipped=0 expectedExit=0
+RUN  /home/antoinefa/.nvm/versions/node/v24.18.0/bin/node --test --test-reporter=tap /home/antoinefa/src/h2a/tmp/worktrees/spike-pty/spike/pty-owner/exact-guardian.test.mjs
+RESULT exact-guardian-node24: exit=0 pass=1 fail=0 skipped=0 expectedExit=0
+RUN  /home/antoinefa/.nvm/versions/node/v20.20.2/bin/node --test --test-reporter=tap /home/antoinefa/src/h2a/tmp/worktrees/spike-pty/spike/pty-owner/capability.test.mjs
+RESULT capability-node20: exit=0 pass=1 fail=0 skipped=0 expectedExit=0
+RUN  /home/antoinefa/.nvm/versions/node/v20.20.2/bin/node --test --test-reporter=tap /home/antoinefa/src/h2a/tmp/worktrees/spike-pty/spike/pty-owner/split.test.mjs
+RESULT split-node20: exit=0 pass=1 fail=0 skipped=0 expectedExit=0
+RUN  /home/antoinefa/.cache-tmp/pty-node-matrix-uM1Ptm/22.14.0/bin/node --test --test-reporter=tap /home/antoinefa/src/h2a/tmp/worktrees/spike-pty/spike/pty-owner/capability.test.mjs
+RESULT capability-node2214: exit=0 pass=1 fail=0 skipped=0 expectedExit=0
+RUN  /home/antoinefa/.cache-tmp/pty-node-matrix-uM1Ptm/22.14.0/bin/node --test --test-reporter=tap /home/antoinefa/src/h2a/tmp/worktrees/spike-pty/spike/pty-owner/split.test.mjs
+RESULT split-node2214: exit=0 pass=1 fail=0 skipped=0 expectedExit=0
+CAMPAIGN 39 targeted invocations; status=0
