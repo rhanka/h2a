@@ -4,19 +4,21 @@ import { spawnIsolatedNative as spawn, spawnSyncIsolatedNative as spawnSync, set
 
 setupNativeTestEnvironment(afterAll);
 import { once } from "node:events";
+import { mkdirSync, unlinkSync, writeFileSync } from "node:fs";
 import { chmod, mkdtemp, rm, stat, unlink } from "node:fs/promises";
 import { createConnection, createServer, type Socket } from "node:net";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
 
 import type { PtyHandle, PtySpawner } from "../pty.js";
+import { resolveRegistryPath } from "../registry.js";
 import { NativeTerminalClient } from "./client.js";
-import { NativeTerminalHost } from "./host.js";
+import { NativeTerminalHost, readProcessStartTime } from "./host.js";
 import type { NativeTerminalStopSignal } from "./protocol.js";
 import { NATIVE_TERMINAL_MAX_REPLAY_CHUNKS_PER_SESSION } from "./replay-buffer.js";
-import { startNativeTerminalHostServer, type NativeTerminalHostServer } from "./server.js";
+import { proveNativeTerminalEndpointAbsent, startNativeTerminalHostServer, type NativeTerminalHostServer } from "./server.js";
 import { defaultNativeTerminalSocketPath } from "./socket-path.js";
 
 class StubPty implements PtyHandle {
@@ -522,6 +524,133 @@ describe("native terminal local transport", () => {
       );
       await rm(directory, { recursive: true, force: true });
     }
+  });
+
+  // The boot-boundary death proof (incident 2026-10-11) and its fail-closed
+  // complement, exercised through the typed `ReadProcessFrame` seam: the
+  // current frame is INJECTED here (deterministic, no /proc dependence),
+  // never faked through a public environment variable. The integration
+  // matrix in packages/h2a/test/native-inventory-absence.test.js proves the
+  // same classification against the real system readers end to end.
+  describe("endpoint absence frame classification", () => {
+    const currentFrame = {
+      pidNamespace: "4026531836",
+      bootId: "11111111-1111-4111-8111-111111111111",
+      machineId: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    };
+    const previousBootRowFrame = {
+      pgidPidNamespace: currentFrame.pidNamespace,
+      pgidMachineId: currentFrame.machineId,
+      pgidBootId: "00000000-0000-4000-8000-000000000000",
+    };
+    const currentBootRowFrame = {
+      pgidPidNamespace: currentFrame.pidNamespace,
+      pgidMachineId: currentFrame.machineId,
+      pgidBootId: currentFrame.bootId,
+    };
+
+    function writeAttributedRow(
+      socketPath: string,
+      owner: { pid: number; startTime?: number },
+      frame: Record<string, string>,
+    ): string {
+      const registryPath = resolveRegistryPath();
+      mkdirSync(dirname(registryPath), { recursive: true, mode: 0o700 });
+      writeFileSync(registryPath, JSON.stringify({ version: 1, entries: [{
+        id: "native-terminal-pty:unit-frame-row",
+        tool: "claude",
+        kind: "local",
+        cwd: "",
+        source: "scan",
+        enrolledAt: "2026-10-11T00:00:00.000Z",
+        lastSeenAt: "2026-10-11T00:00:00.000Z",
+        pgid: 424242,
+        ownerHostPid: owner.pid,
+        ...(owner.startTime !== undefined ? { ownerHostStartTime: owner.startTime } : {}),
+        ownerHostSocketPath: socketPath,
+        ...frame,
+      }] }));
+      return registryPath;
+    }
+
+    async function proveAbsent(socketPath: string): Promise<boolean> {
+      return proveNativeTerminalEndpointAbsent(
+        socketPath,
+        Object.assign(new Error("connect ENOENT"), { code: "ENOENT" }),
+        () => currentFrame,
+      );
+    }
+
+    it.skipIf(process.platform !== "linux")(
+      "ENDPOINT_ABSENCE_GRANTS_THE_PREVIOUS_BOOT_OF_THIS_MACHINE_WITHOUT_PROBING_ITS_PIDS",
+      async () => {
+        const directory = await mkdtemp(join(tmpdir(), "frame-"));
+        cleanup.push(() => rm(directory, { recursive: true, force: true }));
+        const socketPath = join(directory, "host.sock");
+        // The row names THIS live test process as its previous-boot owner: a
+        // reboot reset the pid space, so the number may be held by a stranger
+        // now. Granting absence proves no liveness probe ran on that pid.
+        const registryPath = writeAttributedRow(socketPath,
+          { pid: process.pid, startTime: 1 }, previousBootRowFrame);
+        cleanup.push(() => unlinkSync(registryPath));
+        expect(await proveAbsent(socketPath)).toBe(true);
+      },
+    );
+
+    it.skipIf(process.platform !== "linux")(
+      "ENDPOINT_ABSENCE_REFUSES_A_LIVE_OWNER_OF_THE_CURRENT_BOOT",
+      async () => {
+        const directory = await mkdtemp(join(tmpdir(), "frame-"));
+        cleanup.push(() => rm(directory, { recursive: true, force: true }));
+        const socketPath = join(directory, "host.sock");
+        const registryPath = writeAttributedRow(socketPath,
+          { pid: process.pid, startTime: readProcessStartTime(process.pid) },
+          currentBootRowFrame);
+        cleanup.push(() => unlinkSync(registryPath));
+        expect(await proveAbsent(socketPath)).toBe(false);
+      },
+    );
+
+    it.skipIf(process.platform !== "linux")(
+      "ENDPOINT_ABSENCE_PROVES_A_RECYCLED_OWNER_OF_THE_CURRENT_BOOT_DEAD",
+      async () => {
+        const directory = await mkdtemp(join(tmpdir(), "frame-"));
+        cleanup.push(() => rm(directory, { recursive: true, force: true }));
+        const socketPath = join(directory, "host.sock");
+        // Same live pid, but a start-time from another life: the pid was
+        // recycled, which PROVES the recorded owner dead — a positive death
+        // proof, never trust in the bare number.
+        const registryPath = writeAttributedRow(socketPath,
+          { pid: process.pid, startTime: 1 }, currentBootRowFrame);
+        cleanup.push(() => unlinkSync(registryPath));
+        expect(await proveAbsent(socketPath)).toBe(true);
+      },
+    );
+
+    it.skipIf(process.platform !== "linux")(
+      "ENDPOINT_ABSENCE_REFUSES_ANY_FRAME_IT_CANNOT_PIN_TO_THIS_MACHINE",
+      async () => {
+        const directory = await mkdtemp(join(tmpdir(), "frame-"));
+        cleanup.push(() => rm(directory, { recursive: true, force: true }));
+        const socketPath = join(directory, "host.sock");
+        // A different boot with no machine anchor: could be another machine
+        // sharing the registry — never proof of a local reboot.
+        const registryPath = writeAttributedRow(socketPath,
+          { pid: 424242, startTime: 1 }, { ...previousBootRowFrame, pgidMachineId: undefined });
+        cleanup.push(() => unlinkSync(registryPath));
+        expect(await proveAbsent(socketPath)).toBe(false);
+
+        // A namespace change alone, same boot: the pid number names a
+        // different process; nothing can be concluded either way.
+        writeAttributedRow(socketPath, { pid: 424242, startTime: 1 },
+          { ...currentBootRowFrame, pgidPidNamespace: "4026599999" });
+        expect(await proveAbsent(socketPath)).toBe(false);
+
+        // A row with no anchors at all (legacy): no verdict may be derived.
+        writeAttributedRow(socketPath, { pid: 424242, startTime: 1 }, {});
+        expect(await proveAbsent(socketPath)).toBe(false);
+      },
+    );
   });
 });
 
