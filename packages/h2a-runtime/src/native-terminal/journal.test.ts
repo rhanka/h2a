@@ -5,13 +5,13 @@ import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 // @ts-ignore Shared JS qualification helper; tests are outside the production build.
-import { assertIsolatedEnvironment, createPrivateTestDirectory } from "../../../h2a/test/helpers/native-isolation.js";
+import { assertIsolatedEnvironment, createPrivateTestDirectory, nativeQualificationRoot } from "../../../h2a/test/helpers/native-isolation.js";
 import { NativeTerminalClient } from "./client.js";
 import { readProcessStartTime } from "./host.js";
 import { appendHostJournal, getDroppedJournalEntriesCount, getRuntimeVersion, MAX_HOST_JOURNAL_BYTES, readHostJournal, resolveHostJournalPath } from "./journal.js";
 
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), "../../../..");
-const qualRoot = join(repo, ".qual-tmp");
+const qualRoot = nativeQualificationRoot;
 const entry = join(repo, "packages/h2a-runtime/dist/native-terminal/process.js");
 const journalModule = pathToFileURL(join(repo, "packages/h2a-runtime/dist/native-terminal/journal.js")).href;
 const processModule = pathToFileURL(entry).href;
@@ -227,6 +227,21 @@ describe("native host life journal", () => {
     expect(events.map(row => row.event)).toEqual(["startupError", "exit"]);
     expect(events[0]).toMatchObject({ error: "[REDACTED]" });
     expect(events[1]).toMatchObject({ exitCode: 1, cause: "startupError" });
+  });
+  it("should persist a listener failure classification and normalize an unknown kind", () => {
+    const f = fixture();
+    appendHostJournal({ event: "listenerFailure", pid: process.pid, generation: "stack-test",
+      kind: "unknown", errno: undefined }, f.log);
+    appendHostJournal({ event: "listenerFailure", pid: process.pid, generation: "stack-test",
+      kind: "unusable", errno: "EADDRINUSE" }, f.log);
+    appendHostJournal({ event: "listenerFailure", pid: process.pid, generation: "stack-test",
+      kind: "hostile-invented-kind", errno: "EHOSTILE" } as never, f.log);
+    const rows = readHostJournal(f.log);
+    expect(rows.map(row => row.event)).toEqual(["listenerFailure", "listenerFailure", "listenerFailure"]);
+    expect(rows[0]).toMatchObject({ kind: "unknown" });
+    expect(rows[0]).not.toHaveProperty("errno");
+    expect(rows[1]).toMatchObject({ kind: "unusable", errno: "EADDRINUSE" });
+    expect(rows[2]).toMatchObject({ kind: "unknown", errno: "EHOSTILE" });
   });
   it("should redact arbitrary diagnostics, Basic/Bearer, cookies, tokens, keys and env through an allowlist", () => {
     const f = fixture(), secret = "qZ8r2V7w4M1n9L6x", basic = Buffer.from(`user:${secret}`).toString("base64");
