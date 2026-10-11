@@ -22,7 +22,9 @@
  *   - Every step runs, even if an earlier step failed.
  *   - Every step is REPORTED, even if running it threw.
  *   - Every step handed to the runner must RECEIVE a verdict: a step dropped
- *     from the results (the round-3 loop-bypass shape) fails the run by name.
+ *     from the results (the round-3 loop-bypass shape) or removed from the
+ *     list before the loop (the round-4 entry-filter shape) fails the run by
+ *     name.
  *   - Each step's own stdout/stderr is inherited verbatim, in order, unmodified.
  *   - A final summary names every step with its exit code and status.
  *   - Exit 0 only if ALL steps passed.
@@ -284,6 +286,15 @@ export function describeScope() {
  * can be driven from tests with synthetic steps.
  */
 export function runGates(steps, options = {}) {
+  // Round-4 review finding F01: the round-3 guard below compared the results
+  // against the `steps` PARAMETER, so reassigning it on the very first line
+  // (`steps = steps.filter(...)`) laundered the dropped step out of the very
+  // list the guard checks against. A module is strict-mode code: `arguments`
+  // keeps the argument values AS PASSED, independent of any later parameter
+  // reassignment, so the verdict-completeness guard is computed against the
+  // list the CALLER handed in — which no statement inside this function,
+  // including a first-line filter, can rewrite.
+  const handedSteps = Array.isArray(arguments[0]) ? [...arguments[0]] : []
   const write = options.write ?? ((s) => process.stdout.write(s))
   const writeErr = options.writeErr ?? ((s) => process.stderr.write(s))
 
@@ -340,13 +351,16 @@ export function runGates(steps, options = {}) {
     results.push({ id: step.id, status, code, ms, timeoutMs })
   }
 
-  // Round-3 review finding N02: a `continue` targeting one step id dropped it
-  // from the results entirely — a broken runtime suite was never executed and
-  // the run still exited 0. A step handed to this runner must RECEIVE a
-  // verdict: absence from the results is not evidence about the step, it is a
-  // hole shaped exactly like the step it erased. Checked against the ids of
-  // the steps ACTUALLY handed in, so the real ids stay in the execution proof.
-  const dropped = steps
+  // Round-3 review finding N02 + round-4 finding F01: a `continue` targeting
+  // one step id inside the loop, or a `steps = steps.filter(...)` reassignment
+  // BEFORE it, dropped a step from the results entirely — a broken runtime
+  // suite was never executed and the run still exited 0. A step handed to
+  // this runner must RECEIVE a verdict: absence from the results is not
+  // evidence about the step, it is a hole shaped exactly like the step it
+  // erased. Checked against the ids of the steps ACTUALLY handed in (the
+  // entry snapshot above, immune to reassignment), so the real ids stay in
+  // the execution proof.
+  const dropped = handedSteps
     .map((step, index) => ({ id: step?.id, observed: results[index]?.id }))
     .filter((entry) => entry.observed !== entry.id)
   if (dropped.length > 0) {

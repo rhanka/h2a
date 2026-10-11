@@ -69,13 +69,52 @@ function needsJob(job_, id) {
 test("R8.2 (1): publish proceeds only on an observed verify success, never a skip", () => {
   const publish = job("publish");
   assert.ok(needsVerify(publish), "publish must need verify");
-  assert.ok(
-    publish.if.includes("needs.verify.result == 'success'"),
-    "publish.if must require needs.verify.result == 'success'",
+  // Round-4 review finding F04: the condition merely had to CONTAIN the
+  // substring `needs.verify.result == 'success'` — so appending `|| true`
+  // (publish regardless of verify) left every assertion green. A textual
+  // mention is not a logical requirement: the condition is pinned EXACTLY,
+  // so any edit that makes verify's success optional — an `||` escape, a
+  // dropped `!failure()`, a reintroduced 'skipped' — changes the string and
+  // fails here.
+  assert.equal(
+    publish.if,
+    "${{ !cancelled() && !failure() && needs.verify.result == 'success' }}",
+    "publish.if must REQUIRE verify's success logically, not mention it textually: the round-4 mutation `(needs.verify.result == 'success' || true)` passed every substring check",
   );
   assert.ok(
     !publish.if.includes("skipped"),
     "the 'skipped' acceptance is what let backfills publish with zero tests; it must stay gone",
+  );
+});
+
+test("R8.2/R8.4: no publish step may disable itself, and the integrity checks run before the first npm publish", () => {
+  // Round-4 review finding F03: `if: false` on the tarball-sha256 step left
+  // every structural assertion green while publish would ship unverified
+  // bytes. The steps of publish are the LAST line of defence before the
+  // registry: none of them may carry an `if:` (one edit to `if: false`
+  // disables it, and even `if: true` is one edit away from a condition), and
+  // the integrity checks must precede every publication.
+  const publish = job("publish");
+  const firstPublish = publish.steps.findIndex((step) => String(step.run ?? "").includes("npm publish"));
+  assert.ok(firstPublish !== -1, "publish must publish the lockstep packages");
+  for (const step of publish.steps) {
+    assert.equal(
+      step.if,
+      undefined,
+      `the publish step "${step.name ?? step.run ?? step.uses}" sets if: — one edit to 'if: false' disables it while every structural assertion stays green (round-4 finding F03)`,
+    );
+  }
+  const shaCheck = publish.steps.find((step) => String(step.run ?? "").includes("sha256sum --check"));
+  assert.ok(shaCheck, "publish must verify every tarball sha256 before publishing");
+  assert.ok(
+    publish.steps.indexOf(shaCheck) < firstPublish,
+    "the sha256 check must run BEFORE the first npm publish — the bytes are verified, then published",
+  );
+  const manifestCheck = publish.steps.find((step) => String(step.run ?? "").includes("release-sha.txt"));
+  assert.ok(manifestCheck, "publish must compare the artifact manifest SHA with the gated SHA");
+  assert.ok(
+    publish.steps.indexOf(manifestCheck) < firstPublish,
+    "the manifest tie check must run BEFORE the first npm publish",
   );
 });
 
