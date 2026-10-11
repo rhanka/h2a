@@ -8,6 +8,7 @@ import test from "node:test";
 import { pathToFileURL } from "node:url";
 import { NativeTerminalClient } from "../../h2a-runtime/dist/native-terminal/client.js";
 import { readProcessStartTime } from "../../h2a-runtime/dist/native-terminal/host.js";
+import { readBootId, readMachineId, readPidNamespaceId } from "../../h2a-runtime/dist/proc-identity.js";
 
 const repo = resolve(import.meta.dirname, "../../..");
 const terminal = join(repo, "packages/h2a-runtime/dist/native-terminal");
@@ -556,4 +557,237 @@ test("should prove a pre-upgrade historical host dead using its durable PID and 
   assert.equal((await f.run(["probe", "--id", "h2a-legacy-dead"])).payload.verdict, "dead");
   const launched = await f.launch("legacy-dead");
   assert.equal(launched.status, 0, JSON.stringify(launched));
+}));
+
+// ---------------------------------------------------------------------------
+// POST-REBOOT RECOVERY (incident 2026-10-11): the boot boundary of THIS
+// machine — same KNOWN pid namespace, same KNOWN machine id, DIFFERENT known
+// boot id — is the strongest death proof there is, never a refusal. The CI
+// seam for "a previous boot" is the DURABLE ROW CONTENT itself: rows keep the
+// real namespace/machine anchors read via the production system readers and
+// carry a fabricated boot id that differs from the current one. Everything
+// below runs the REAL startup, publication, handshake and PTY operations — no
+// helper that merely returns true.
+// ---------------------------------------------------------------------------
+
+const FABRICATED_PREVIOUS_BOOT_ID = "00000000-0000-4000-8000-000000000000";
+
+function currentBootRowFrame() {
+  const bootId = readBootId(), pidNamespace = readPidNamespaceId(), machineId = readMachineId();
+  assert.ok(bootId && pidNamespace && machineId,
+    "the post-reboot fixtures require this machine's /proc anchors, machine-id included");
+  return { pgidBootId: bootId, pgidPidNamespace: pidNamespace, pgidMachineId: machineId };
+}
+
+function previousBootRowFrame() {
+  // A row written by a previous boot of THIS machine: identical namespace and
+  // machine anchors, different (fabricated) boot id — what a hard reboot
+  // leaves in the persistent registry.
+  return { ...currentBootRowFrame(), pgidBootId: FABRICATED_PREVIOUS_BOOT_ID };
+}
+
+function fixtureRegistryPath(f) {
+  return join(f.home, ".config/sentropic/h2a/registry.json");
+}
+
+function writePgidRows(f, rows) {
+  const registryPath = fixtureRegistryPath(f);
+  mkdirSync(dirname(registryPath), { recursive: true, mode: 0o700 });
+  const entries = rows.map((row, index) => ({
+    id: `native-terminal-pty:${row.id ?? `post-reboot-${index}`}`,
+    tool: "claude",
+    kind: "local",
+    cwd: "",
+    source: "scan",
+    enrolledAt: "2026-10-11T00:00:00.000Z",
+    lastSeenAt: "2026-10-11T00:00:00.000Z",
+    pgid: row.pgid ?? 424242,
+    ...(row.owner ? {
+      ownerHostPid: row.owner.pid,
+      ...(row.owner.startTime !== undefined ? { ownerHostStartTime: row.owner.startTime } : {}),
+    } : {}),
+    ownerHostSocketPath: f.paths[0],
+    ...(row.frame ?? {}),
+  }));
+  writeFileSync(registryPath, JSON.stringify({ version: 1, entries }));
+  return registryPath;
+}
+
+async function assertServingThroughPublishedSocket(f, sessionId) {
+  // Handshake through the real published endpoint, then a real PTY operation:
+  // create a session that reads one line from its terminal into a scratch
+  // file, deliver that line as raw keystrokes through the published socket,
+  // and observe the command consume it. Nothing here is stubbed — the host,
+  // the publication, the handshake and the PTY data path are all production.
+  const client = await NativeTerminalClient.connect(f.paths[0]);
+  f.clients.push(client);
+  const ping = await client.ping();
+  assert.ok(Number.isSafeInteger(ping.hostPid) && ping.hostPid > 0, "handshake must return a live host identity");
+  const receipt = join(f.root, `${sessionId}-pty-receipt`);
+  const ptySession = `${sessionId}-pty`;
+  await client.create({ id: ptySession, command: "/bin/bash",
+    args: ["--noprofile", "--norc", "-c",
+      `read -r line; printf '%s' "$line" > ${JSON.stringify(receipt)}; read -r line`],
+    cwd: f.workspace, env: f.env, cols: 80, rows: 24 });
+  const proof = "post-reboot-proof";
+  assert.equal((await f.run(["write", "--id", ptySession, "--b64", Buffer.from(proof).toString("base64")])).status, 0);
+  assert.equal((await f.run(["enter", "--id", ptySession])).status, 0);
+  const deadline = Date.now() + 5_000;
+  for (;;) {
+    let delivered = undefined;
+    try {
+      delivered = readFileSync(receipt, "utf8");
+    } catch (error) {
+      if (error?.code !== "ENOENT") throw error;
+    }
+    if (delivered === proof) break;
+    assert.ok(Date.now() < deadline, `PTY line was never consumed by the session command: ${proof}`);
+    await new Promise(resolve => setTimeout(resolve, 25));
+  }
+  assert.match((await f.run(["capture", "--id", ptySession])).payload.text, new RegExp(proof));
+}
+
+test("should start, publish, handshake and serve a PTY over previous-boot rows after a hard reboot", linux, () => fixture(async f => {
+  // The exact incident shape: the registry survived in the config home with
+  // rows written by the PREVIOUS boot; the runtime directory (tmpfs) came
+  // back empty — no socket, no .owner sidecar. The host MUST publish again.
+  writePgidRows(f, [
+    { id: "reboot-cold-1", owner: { pid: 424242, startTime: 111 }, frame: previousBootRowFrame() },
+    { id: "reboot-cold-2", owner: { pid: 424243, startTime: 112 }, frame: previousBootRowFrame() },
+  ]);
+  assert.equal(existsSync(f.paths[0]), false);
+  assert.equal((await f.run(["probe", "--id", "h2a-reboot-cold"])).payload.verdict, "dead");
+  const launched = await f.launch("reboot-cold");
+  assert.equal(launched.status, 0, JSON.stringify(launched));
+  assert.equal(launched.payload.owner.socketPath, f.paths[0]);
+  await assertServingThroughPublishedSocket(f, "h2a-reboot-cold");
+}));
+
+test("should start over previous-boot rows whose pid numbers are now recycled, touching no live process", linux, () => fixture(async f => {
+  // A reboot resets the pid space: the numbers a previous boot recorded can
+  // now be held by unrelated LIVE processes. The proof must neither probe
+  // those numbers (reading a stranger as the owner) nor signal them.
+  const survivor = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { env: f.env, stdio: "ignore" });
+  try {
+    const startTime = readProcessStartTime(survivor.pid);
+    assert.ok(startTime !== undefined, "the recycled-pid fixture needs a readable start time");
+    writePgidRows(f, [
+      { id: "reboot-recycled-1", owner: { pid: survivor.pid, startTime }, frame: previousBootRowFrame() },
+    ]);
+    assert.equal((await f.run(["probe", "--id", "h2a-reboot-recycled"])).payload.verdict, "dead");
+    const launched = await f.launch("reboot-recycled");
+    assert.equal(launched.status, 0, JSON.stringify(launched));
+    // The live occupant of the recycled pid number was never the owner and
+    // must still be alive: nothing was signalled at it.
+    process.kill(survivor.pid, 0);
+    const client = await NativeTerminalClient.connect(f.paths[0]);
+    f.clients.push(client);
+    assert.ok(Number.isSafeInteger((await client.ping()).hostPid));
+  } finally {
+    const exited = once(survivor, "exit");
+    survivor.kill("SIGKILL");
+    await exited;
+  }
+}));
+
+test("should still refuse a live CURRENT-boot owner mixed with previous-boot rows", linux, () => fixture(async f => {
+  const survivor = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { env: f.env, stdio: "ignore" });
+  try {
+    const startTime = readProcessStartTime(survivor.pid);
+    assert.ok(startTime !== undefined);
+    writePgidRows(f, [
+      { id: "mixed-old-1", owner: { pid: 424242, startTime: 111 }, frame: previousBootRowFrame() },
+      { id: "mixed-old-2", owner: { pid: 424243, startTime: 112 }, frame: previousBootRowFrame() },
+      { id: "mixed-current", owner: { pid: survivor.pid, startTime }, frame: currentBootRowFrame() },
+    ]);
+    const probe = (await f.run(["probe", "--id", "h2a-mixed"])).payload;
+    assert.equal(probe.verdict, "unknown");
+    const launched = await f.launch("mixed");
+    assert.equal(launched.payload.code, "native-inventory-unknown");
+    assert.equal(launched.payload.creationAttempted, false);
+    assert.equal(existsSync(f.paths[0]), false, "no socket may be published over a live current-boot owner");
+    process.kill(survivor.pid, 0);
+  } finally {
+    const exited = once(survivor, "exit");
+    survivor.kill("SIGKILL");
+    await exited;
+  }
+}));
+
+test("should still refuse a CURRENT-boot owner row without a start-time baseline among old rows", linux, () => fixture(async f => {
+  writePgidRows(f, [
+    { id: "baseline-old", owner: { pid: 424242, startTime: 111 }, frame: previousBootRowFrame() },
+    // Current-boot row whose owner pid is long gone yet carries no baseline:
+    // a dead pid alone proves nothing — the row stays indeterminate.
+    { id: "baseline-current", owner: { pid: 999999 }, frame: currentBootRowFrame() },
+  ]);
+  const launched = await f.launch("baseline");
+  assert.equal(launched.payload.code, "native-inventory-unknown");
+  assert.equal(launched.payload.creationAttempted, false);
+  assert.equal(existsSync(f.paths[0]), false);
+}));
+
+for (const [label, frameFactory] of [
+  ["a foreign pid namespace", () => ({ ...currentBootRowFrame(), pgidPidNamespace: "4026599999" })],
+  ["a foreign machine", () => ({ ...previousBootRowFrame(), pgidMachineId: "ffffffffffffffffffffffffffffffff" })],
+  ["no frame anchors at all", () => ({})],
+]) test(`should refuse boot-boundary-looking rows from ${label}: no false death proof`, linux, () => fixture(async f => {
+  writePgidRows(f, [{ id: "foreign-looking", owner: { pid: 424242, startTime: 111 }, frame: frameFactory() }]);
+  const probe = (await f.run(["probe", "--id", "h2a-foreign-looking"])).payload;
+  assert.equal(probe.verdict, "unknown");
+  const launched = await f.launch("foreign-looking");
+  assert.equal(launched.payload.code, "native-inventory-unknown");
+  assert.equal(launched.payload.creationAttempted, false);
+  assert.equal(existsSync(f.paths[0]), false);
+}));
+
+test("should refuse reclamation of a persistent stale socket whose old sidecar proves no machine", linux, () => fixture(async f => {
+  // A sidecar written before 0.98.5 carries no machine id: after a reboot it
+  // cannot attribute its boot difference to THIS machine (it could be another
+  // machine sharing the directory), so it must keep the fail-closed refusal.
+  const host = await f.start();
+  const exited = once(host.child, "exit"); host.child.kill("SIGKILL"); await exited;
+  assert.ok(existsSync(f.paths[0]));
+  const ownerPath = `${f.paths[0]}.owner`;
+  const owner = JSON.parse(readFileSync(ownerPath, "utf8"));
+  delete owner.machineId;
+  owner.bootId = FABRICATED_PREVIOUS_BOOT_ID;
+  writeFileSync(ownerPath, JSON.stringify(owner));
+  const probe = (await f.run(["probe", "--id", "h2a-old-sidecar"])).payload;
+  assert.equal(probe.verdict, "unknown");
+  const launched = await f.launch("old-sidecar");
+  assert.equal(launched.payload.code, "native-inventory-unknown");
+  assert.equal(launched.payload.creationAttempted, false);
+  assert.ok(existsSync(f.paths[0]), "an unattributable sidecar must not be reclaimed");
+}));
+
+test("should reclaim a persistent stale socket through its machine-attributed previous-boot sidecar", linux, () => fixture(async f => {
+  const host = await f.start();
+  const exited = once(host.child, "exit"); host.child.kill("SIGKILL"); await exited;
+  assert.ok(existsSync(f.paths[0]));
+  // The reboot, reproduced in CI: the sidecar keeps THIS machine's anchors and
+  // takes a boot id from the previous boot.
+  const ownerPath = `${f.paths[0]}.owner`;
+  const owner = JSON.parse(readFileSync(ownerPath, "utf8"));
+  assert.equal(typeof owner.machineId, "string", "current sidecars must carry the machine anchor");
+  owner.bootId = FABRICATED_PREVIOUS_BOOT_ID;
+  writeFileSync(ownerPath, JSON.stringify(owner));
+  assert.equal((await f.run(["probe", "--id", "h2a-new-sidecar"])).payload.verdict, "dead");
+  const launched = await f.launch("new-sidecar");
+  assert.equal(launched.status, 0, JSON.stringify(launched));
+  await assertServingThroughPublishedSocket(f, "h2a-new-sidecar");
+}));
+
+test("should admit no second owning host over a live host that lost its pathname, under concurrent starts", linux, () => fixture(async f => {
+  const host = await f.start();
+  unlinkSync(`${f.paths[0]}.owner`);
+  unlinkSync(f.paths[0]);
+  assert.deepEqual(await host.client.ping(), host.ping);
+  const refusals = await Promise.all([f.launch("concurrent-1"), f.launch("concurrent-2")]);
+  for (const refused of refusals) {
+    assert.equal(refused.payload.code, "native-inventory-unknown");
+    assert.equal(refused.payload.creationAttempted, false);
+  }
+  assert.equal(existsSync(f.paths[0]), false, "no second publisher may install the vanished pathname");
+  assert.deepEqual(await host.client.ping(), host.ping, "the live host must remain the only owner");
 }));
