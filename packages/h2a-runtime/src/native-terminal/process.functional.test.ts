@@ -66,6 +66,24 @@ async function eventually<T>(read: () => Promise<T> | T, accept: (value: T) => b
   throw new Error(`condition did not become true; last value: ${JSON.stringify(last)}`);
 }
 
+async function clientAfterFirstRestartBackoff(
+  supervisor: NativeTerminalHostSupervisor,
+): Promise<NativeTerminalClient> {
+  try {
+    return await supervisor.client();
+  } catch (error) {
+    // R7 preserves the first 250 ms backoff even after a healthy handshake.
+    // Retry only that refusal, once; containment and startup errors stay fatal.
+    const backoff = error instanceof Error
+      ? /^native terminal host restart backoff active for (\d+)ms after:/.exec(error.message)
+      : null;
+    if (backoff === null) throw error;
+    expect(Number(backoff[1])).toBeLessThanOrEqual(250);
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    return supervisor.client();
+  }
+}
+
 /**
  * Wait for a host child to exit, with an explicit deadline. `once(child,
  * "exit")` alone is the one open-ended wait in a shutdown scenario: a host
@@ -536,7 +554,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
     // takeover of this health-checked, known-dead host as containment work:
     // client() returns only after the durable pgid has been reaped (or it
     // fails rather than starting a replacement over live descendants).
-    const replacement = await supervisor.client();
+    const replacement = await clientAfterFirstRestartBackoff(supervisor);
     expect(await processGroupMemberPids(hardCrashPgid)).toEqual([]);
     const hardCrashStates = await Promise.all(hardCrashPids.map(processObservation));
     expect(hardCrashStates.every((state) => state.missing === true)).toBe(true);
@@ -1113,8 +1131,12 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
       const unlink = fs.unlink;
       fs.unlink = async (...args) => {
         const path = String(args[0]);
+        // The staged socket is the one hidden file in the socket directory
+        // that is neither the publication lock identity nor a .tmp writer file.
         if ((${JSON.stringify(suspendAt)} === 'owner-unlink' && path.includes('.owner.') && path.endsWith('.tmp'))
-          || (${JSON.stringify(suspendAt)} === 'staged-unlink' && path.endsWith('.sock') && path !== ${JSON.stringify(socketPath)})) {
+          || (${JSON.stringify(suspendAt)} === 'staged-unlink' && path !== ${JSON.stringify(socketPath)}
+            && !path.endsWith('.tmp') && path.split('/').pop().startsWith('.')
+            && !path.endsWith('.h2a-native-terminal.lock-id'))) {
           await suspend();
         }
         return unlink(...args);
@@ -1186,7 +1208,8 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
     const otherOwner = JSON.stringify({ pid: process.pid, marker: "replacement-owner" });
     if (preserveOwner) await writeFile(`${socketPath}.owner`, otherOwner, { mode: 0o600 });
     const listenerPath = suspendAt === "socket-link"
-      ? join(directory, (await readdir(directory)).find(name => name.endsWith(".sock"))!)
+      ? join(directory, (await readdir(directory, { withFileTypes: true }))
+        .find(entry => entry.name.startsWith(".") && entry.isSocket())!.name)
       : socketPath;
     const client = createConnection(listenerPath);
     await once(client, "connect");
@@ -1243,7 +1266,8 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
       else await expect(stat(socketPath)).rejects.toMatchObject({ code: "ENOENT" });
       if (preserveOwner) expect(await readFile(`${socketPath}.owner`, "utf8")).toBe(otherOwner);
       else await expect(stat(`${socketPath}.owner`)).rejects.toMatchObject({ code: "ENOENT" });
-      expect((await readdir(directory)).filter((name) => name.endsWith(".sock") || name.endsWith(".tmp"))).toEqual(preserveSocket ? ["host.sock"] : []);
+      expect((await readdir(directory)).filter((name) => name.endsWith(".sock") || name.endsWith(".tmp")
+        || (name.startsWith(".") && name !== ".h2a-native-terminal.lock-id"))).toEqual(preserveSocket ? ["host.sock"] : []);
       await waitForPrivateNativeProcesses(process.env);
       if (blockJournal) expect(await readFile(journalLock, "utf8")).toBe("fixture-journal-lock");
     } finally {
@@ -1320,7 +1344,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
       status: "unresolved",
       reason: expect.stringMatching(/no pgid recorded/i),
     });
-    const restarted = await supervisor.client();
+    const restarted = await clientAfterFirstRestartBackoff(supervisor);
     expect(supervisor.spawnedPid).not.toBe(stoppedHostPid);
     expect(await restarted.ping()).toMatchObject({ generation: "restart-generation" });
   }, GRACEFUL_SHUTDOWN_BUDGET_MS);

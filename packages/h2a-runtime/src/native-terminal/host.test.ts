@@ -1,5 +1,5 @@
 // @ts-ignore Shared JS test isolation helper.
-import { setupNativeTestEnvironment } from "../../../h2a/test/helpers/native-isolation.js";
+import { createPrivateTestDirectory, setupNativeTestEnvironment } from "../../../h2a/test/helpers/native-isolation.js";
 setupNativeTestEnvironment(afterAll);
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { once } from "node:events";
@@ -12,8 +12,7 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { PtyHandle, PtySpawner } from "../pty.js";
@@ -31,78 +30,8 @@ import {
   type NativeTerminalProcessGroupReaper,
 } from "./host.js";
 import type { NativeTerminalStopSignal } from "./protocol.js";
-
-function isErrnoException(error: unknown): error is NodeJS.ErrnoException {
-  return error instanceof Error && "code" in error;
-}
-
-/**
- * Find a REAL, currently-alive process group this test process does not own
- * (a root-owned daemon on a typical Linux host) so that
- * `process.kill(-pgid, 0)` genuinely raises EPERM ("the group exists, I may
- * not signal it") — the exact non-ESRCH condition
- * posixProcessGroupReaper.isGroupAlive's catch branch must treat as ALIVE,
- * never dead. Scans /proc directly (mirrors the parsing
- * posixProcessGroupReaper.describeGroup already does). Returns null if no
- * such candidate exists in this environment (e.g. running as root, where
- * every kill(-pgid,0) succeeds instead of EPERM-ing, or no /proc at all).
- */
-function findEpermProbeCandidatePgid(): number | null {
-  if (process.platform !== "linux") return null;
-  let entries: string[];
-  try {
-    entries = readdirSync("/proc");
-  } catch {
-    return null;
-  }
-  for (const name of entries) {
-    if (!/^\d+$/.test(name)) continue;
-    let ruid: string | undefined;
-    try {
-      const status = readFileSync(`/proc/${name}/status`, "utf8");
-      const uidLine = status
-        .split("\n")
-        .find((line) => line.startsWith("Uid:"));
-      ruid = uidLine?.split(/\s+/)[1];
-    } catch {
-      continue;
-    }
-    if (ruid !== "0") continue; // only interested in groups we do NOT own
-    let pgrp: number;
-    try {
-      const stat = readFileSync(`/proc/${name}/stat`, "utf8");
-      const commandEnd = stat.lastIndexOf(")");
-      const fields = stat.slice(commandEnd + 2).split(" ");
-      pgrp = Number(fields[2]);
-    } catch {
-      continue;
-    }
-    // pgrp 0: unmappable across this process's pid-namespace view. pgrp 1:
-    // kill(-1, sig) has special broadcast semantics in POSIX, not a group
-    // target — never usable as a probe candidate.
-    if (!Number.isInteger(pgrp) || pgrp <= 1) continue;
-    try {
-      process.kill(-pgrp, 0);
-      // No throw: we DO have permission (e.g. running as root) — not usable
-      // to exercise the EPERM branch; keep looking.
-      continue;
-    } catch (error) {
-      if (isErrnoException(error) && error.code === "EPERM") return pgrp;
-      // ESRCH (group gone mid-scan) or anything else: try the next one.
-      continue;
-    }
-  }
-  return null;
-}
-
-// Scratch dir inside the package (never /tmp), like the other test suites.
-const SCRATCH_ROOT = join(
-  dirname(fileURLToPath(import.meta.url)),
-  "..",
-  "..",
-  ".test-scratch",
-  "native-terminal-host",
-);
+import { HOST_FAULT_COUNTERS, hostFaultCounters } from "./fault-counters.js";
+import { hostLogSinkDiagnostics } from "./crash-safe-log.js";
 
 let scratch: string;
 let registryPath: string;
@@ -112,8 +41,7 @@ const strayProcesses = new Set<ChildProcess>();
 const strayProcessGroups = new Set<ChildProcess>();
 
 beforeEach(() => {
-  mkdirSync(SCRATCH_ROOT, { recursive: true });
-  scratch = mkdtempSync(join(SCRATCH_ROOT, "h-"));
+  scratch = createPrivateTestDirectory("h-");
   registryPath = join(scratch, "registry.json");
 });
 
@@ -478,6 +406,136 @@ describe("NativeTerminalHost", () => {
     expect(pty.write).toHaveBeenCalledTimes(2);
   });
 
+  it("should contain a faulty pty data callback without losing the host or other sessions", () => {
+    const before = hostFaultCounters();
+    const { spawner, ptys } = stubSpawner();
+    const lines: string[] = [];
+    const host = new NativeTerminalHost({
+      generation: "host-generation-guard",
+      replayBytesPerSession: 4096,
+      spawner,
+      registryPath,
+      log: (line) => lines.push(line),
+    });
+
+    createSession(host, "hostile-data");
+    createSession(host, "healthy-data");
+    // A data chunk whose mere length read throws runs on the host's shared
+    // event loop: without a guard this is an uncaughtException, the exact
+    // class of failure that crash-looped the night of 2026-10-10/11.
+    const hostile = { get length() { throw new Error("hostile data chunk"); } } as unknown as string;
+    expect(() => ptys.get("hostile-data")!.emitData(hostile)).not.toThrow();
+    // The faulty session's subscription is disposed: later chunks are not
+    // delivered to the faulty callback at all.
+    expect(() => ptys.get("hostile-data")!.emitData("later-chunk")).not.toThrow();
+    expect(ptys.get("hostile-data")!.write).not.toHaveBeenCalled();
+    expect(lines.some((line) => line.includes("contained a faulty pty data callback")
+      && line.includes("hostile-data"))).toBe(true);
+    // The guard owns its DISTINCT named counter; no other site moved.
+    expect(hostFaultCounters()[HOST_FAULT_COUNTERS.ptyDataCallbackContained]).toBe((before[HOST_FAULT_COUNTERS.ptyDataCallbackContained] ?? 0) + 1);
+    expect(hostLogSinkDiagnostics().faultCounters.h2a_host_pty_callback_failures).toBe((before[HOST_FAULT_COUNTERS.hostPtyCallbackFailures] ?? 0) + 1);
+
+    // The host and the OTHER session keep serving output.
+    ptys.get("healthy-data")!.emitData("healthy-output");
+    expect(host.readOutput("healthy-data", 0).chunks).toEqual([{ seq: 1, data: "healthy-output" }]);
+  });
+
+  it("should settle a session from a faulty pty exit callback and keep the host alive", () => {
+    const before = hostFaultCounters();
+    const { spawner, ptys } = stubSpawner();
+    const lines: string[] = [];
+    const host = new NativeTerminalHost({
+      generation: "host-generation-guard",
+      replayBytesPerSession: 4096,
+      spawner,
+      registryPath,
+      log: (line) => lines.push(line),
+    });
+
+    createSession(host, "hostile-exit");
+    // An exit event whose signal field throws runs synchronously on the
+    // host's shared event loop; the guard must finalize the record from the
+    // readable fields instead of letting the throw escape.
+    const hostileEvent = {
+      exitCode: 3,
+      get signal() { throw new Error("hostile exit signal"); },
+    } as { exitCode: number; signal?: number };
+    expect(() => ptys.get("hostile-exit")!.emitExit(hostileEvent)).not.toThrow();
+    const state = host.state("hostile-exit");
+    expect(state.status).toBe("exited");
+    expect(state.exit).toEqual({ exitCode: 3 });
+    expect(lines.some((line) => line.includes("contained a faulty pty exit callback")
+      && line.includes("hostile-exit"))).toBe(true);
+    // The guard owns its DISTINCT named counter.
+    expect(hostFaultCounters()[HOST_FAULT_COUNTERS.ptyExitCallbackContained]).toBe((before[HOST_FAULT_COUNTERS.ptyExitCallbackContained] ?? 0) + 1);
+    expect(hostLogSinkDiagnostics().faultCounters.h2a_host_pty_callback_failures).toBe((before[HOST_FAULT_COUNTERS.hostPtyCallbackFailures] ?? 0) + 1);
+
+    // The host still serves other sessions.
+    createSession(host, "healthy-exit");
+    ptys.get("healthy-exit")!.emitExit({ exitCode: 0 });
+    expect(host.state("healthy-exit").status).toBe("exited");
+  });
+
+  it("should settle an unreadable pty exit code as minus one and keep the host alive", () => {
+    const { spawner, ptys } = stubSpawner();
+    const before = hostFaultCounters();
+    const host = new NativeTerminalHost({ generation: "unreadable-exit", replayBytesPerSession: 4096,
+      spawner, registryPath });
+    createSession(host, "unreadable");
+    const event = { get exitCode() { throw new Error("unreadable exit code"); } };
+    expect(() => ptys.get("unreadable")!.emitExit(event)).not.toThrow();
+    expect(host.state("unreadable").exit).toEqual({ exitCode: -1 });
+    expect(hostLogSinkDiagnostics().faultCounters.h2a_host_pty_callback_failures).toBe((before[HOST_FAULT_COUNTERS.hostPtyCallbackFailures] ?? 0) + 1);
+    createSession(host, "still-serving");
+    ptys.get("still-serving")!.emitData("alive");
+    expect(host.readOutput("still-serving", 0).chunks[0]?.data).toBe("alive");
+  });
+
+  it("should expose the named pty write-break counter and keep serving after a DSR write throws", () => {
+    const { spawner, ptys } = stubSpawner();
+    const before = hostFaultCounters();
+    const host = new NativeTerminalHost({ generation: "write-break", replayBytesPerSession: 4096,
+      spawner, registryPath });
+    createSession(host, "broken-write");
+    createSession(host, "healthy-write");
+    const pty = ptys.get("broken-write")!;
+    pty.write.mockImplementation(() => { throw new Error("EPIPE"); });
+    expect(() => pty.emitData("\x1b[6n\x1b[6n")).not.toThrow();
+    expect(pty.write).toHaveBeenCalledTimes(1);
+    expect(hostLogSinkDiagnostics().faultCounters.h2a_host_pty_write_breaks).toBe((before[HOST_FAULT_COUNTERS.hostPtyWriteBreaks] ?? 0) + 1);
+    ptys.get("healthy-write")!.emitData("still-alive");
+    expect(host.readOutput("healthy-write", 0).chunks[0]?.data).toBe("still-alive");
+  });
+
+  it("should keep a durable row when its data callback throws while the group is alive", async () => {
+    const { spawner, ptys } = stubSpawner();
+    const { reaper, alive, killGroup } = fakeReaper();
+    const host = new NativeTerminalHost({ generation: "durable-callback", replayBytesPerSession: 4096,
+      spawner, registryPath, reaper, readLeaderStartTime: () => 1000 });
+    createSession(host, "durable");
+    const pty = ptys.get("durable")!;
+    alive.add(pty.pgid);
+    const before = hostFaultCounters();
+    const hostile = { get length() { throw new Error("bad data"); } } as unknown as string;
+    expect(() => pty.emitData(hostile)).not.toThrow();
+    expect(hostLogSinkDiagnostics().faultCounters.h2a_host_pty_callback_failures).toBe((before[HOST_FAULT_COUNTERS.hostPtyCallbackFailures] ?? 0) + 1);
+    expect(readNativeTerminalPgid("durable", registryPath)).toMatchObject({ status: "resolved", pgid: pty.pgid });
+    vi.useFakeTimers();
+    try {
+      pty.emitExit({ exitCode: 0 });
+      await vi.runOnlyPendingTimersAsync();
+      expect(readNativeTerminalPgid("durable", registryPath).status).toBe("resolved");
+      // Only a later positive group-empty proof permits removing this row.
+      alive.delete(pty.pgid);
+      // The reconcile path owns the compare-and-delete after a positive reap.
+      const summary = await reconcileDeadHostOrphans({ registryPath, ownerProbe: () => "dead",
+        reap: (id, pgid, signal, expected) => host.reapOrphan(id, signal, pgid, expected), log: vi.fn() });
+      expect(summary.outcomes).toContainEqual(expect.objectContaining({ sessionId: "durable", status: "reaped" }));
+      expect(readNativeTerminalPgid("durable", registryPath).status).toBe("unresolved");
+      expect(killGroup).not.toHaveBeenCalled();
+    } finally { vi.useRealTimers(); }
+  });
+
   it("should let the controller escalate one stopping session without affecting another", () => {
     const { spawner, ptys } = stubSpawner();
     const host = new NativeTerminalHost({
@@ -811,40 +869,19 @@ describe("NativeTerminalHost", () => {
     ).toBe(false);
   });
 
-  it("POSIX_GROUP_LIVENESS_PROBE_TREATS_EPERM_AS_ALIVE_NEVER_DEAD", (ctx) => {
-    // PROBE guard (real implementation): the wiring test above injects a
-    // fake reaper and is therefore blind to a regression INSIDE
-    // posixProcessGroupReaper.isGroupAlive's own non-ESRCH handling (an
-    // injected fake never calls it — mutating it would not move that test).
-    // This test exercises the REAL exported posixProcessGroupReaper against
-    // a REAL non-ESRCH failure: a root-owned process group's pgid, probed
-    // from this unprivileged test process, genuinely raises EPERM ("the
-    // group exists, you may not signal it"). isGroupAlive must treat that
-    // as ALIVE (return true), never as dead.
-    const pgid = findEpermProbeCandidatePgid();
-    if (pgid === null) {
-      ctx.skip(
-        "no root-owned process group produced EPERM on process.kill(-pgid,0) in this " +
-          "environment (running as root, no /proc, or no qualifying process found) — " +
-          "cannot exercise the real non-ESRCH branch here",
-      );
-    }
-    // Re-confirm immediately before asserting: closes the race window
-    // between discovery above and use here (the candidate must still be
-    // alive-but-unsignallable right now, not just at discovery time).
-    let stillEperm = false;
+  it("POSIX_GROUP_LIVENESS_PROBE_TREATS_EPERM_AS_ALIVE_NEVER_DEAD", () => {
+    // Exercise the real reaper's non-ESRCH branch without discovering or
+    // probing a process outside this test. EPERM must never prove death.
+    const pgid = 51000;
+    const kill = vi.spyOn(process, "kill").mockImplementation(() => {
+      throw Object.assign(new Error("permission denied"), { code: "EPERM" });
+    });
     try {
-      process.kill(-pgid, 0);
-    } catch (error) {
-      stillEperm = isErrnoException(error) && error.code === "EPERM";
+      expect(posixProcessGroupReaper.isGroupAlive(pgid)).toBe(true);
+      expect(kill).toHaveBeenCalledExactlyOnceWith(-pgid, 0);
+    } finally {
+      kill.mockRestore();
     }
-    if (!stillEperm) {
-      ctx.skip(
-        `candidate pgid=${pgid} no longer raises EPERM (process likely exited between discovery and use)`,
-      );
-    }
-
-    expect(posixProcessGroupReaper.isGroupAlive(pgid)).toBe(true);
   });
 
   it("should refuse to reap and warn loudly when a session's pgid cannot be resolved from the registry, killing nothing", async () => {
