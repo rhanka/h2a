@@ -280,6 +280,13 @@ async function runSupervisionClient<TWitness>(options: {
     `const runtime = await import(${JSON.stringify(pathToFileURL(join(options.distRoot, "index.js")).href)});`,
     `const leaseModule = await import(${JSON.stringify(pathToFileURL(join(options.distRoot, "session-lease.js")).href)});`,
     `const registryModule = await import(${JSON.stringify(pathToFileURL(join(options.distRoot, "registry.js")).href)});`,
+    // R4 (round-4 finding): the production fleet reader always reads the real
+    // /proc and ignores H2A_TEST_PROC* env; this TEST client confines the
+    // walk to the private process view through the test-only setter instead.
+    `if (process.env.H2A_TEST_PROC_ROOT === undefined)`,
+    `  throw new Error("the supervision client must run under the private process view");`,
+    `const tmuxModule = await import(${JSON.stringify(pathToFileURL(join(options.distRoot, "tmux.js")).href)});`,
+    `tmuxModule.setTestProcReaderRoot(process.env.H2A_TEST_PROC_ROOT);`,
     `const { spawnSync } = await import("node:child_process");`,
     `const fs = await import("node:fs");`,
     options.body,
