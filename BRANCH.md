@@ -849,9 +849,31 @@ Branch: `fix/presence-identity-liveness`. Base: `58f111b3` (origin/main at check
 - Reuse the 0.98.6 identity fence recovery. Collect only old dead-holder `.lock.stale-*` archives, never active fences or succession/journal files.
 - Refuse live MCP discussion without fresh recipient presence (`recipient_not_live`). Bound mesh initialization/send acknowledgement to 10 seconds (`send_timeout`, delivery unconfirmed).
 
+- [x] Allowed: #316 integration paths, packages/h2a/src/runtime/mcp-central-*, packages/h2a/src/bin.ts, packages/h2a/src/runtime/mcp/transport/**, packages/h2a/src/runtime/handover/{image,schemas}.js, docs/plan/mh-l0/schemas.json, packages/h2a/test/mh-l1-*, scripts/mh-l1-*, docs/plan/mh-l1/**, BRANCH.md.
+- [x] Forbidden: main, installed state, native-terminal implementation, .track (conductor single writer), full suite, version bump/publication.
+- [x] Conditional: packaging prototype is not a release freeze; QF/QC remain owner decisions.
+- [x] BR-L1-EX1: preserve #316 history in an integration merge; cohesive integration/vendor/test commits may exceed 150 lines, rollback by git revert.
+- [x] No Makefile in this repo: selective staging and git commit directly.
+
+## Lot 1 — Integrate #316
+- [x] Merge #316 onto L0 without rewriting source refs or losing L0 contracts.
+- [x] Gate: node --test packages/h2a/test/mh-l1-preservation.test.js, assertion red then green.
+
+## Lot 2 — Route before initialize
+- [x] Read and retain first initialize; choose by exact clientInfo and qualification observations.
+- [x] Replay first message and buffered tail in the same process on stdio or central; no response before choice.
+- [x] Preserve exclusions, legacy connector behavior, explicit diagnostics and lightweight graph.
+- [x] Gate: node --test packages/h2a/test/mh-l1-routing.test.js.
+
 The parallel `feat/live-cross-cli-messaging` lot owns delivery, host wake and cross-CLI end-to-end measurements. This lot changes only presence/identity and the requested MCP send admission/deadline boundary. `sendLocalMessage` and the CLI retain the existing dormant-deposit contract; MCP opts into live-only admission.
 
 ## Isolation and collection invariants
+
+## Lot 4 — Packaging prototype
+- [ ] Produce repeatable core/runtime payload with exact dependency resolution and published shrinkwrap.
+- [ ] Retain real node-pty legacy probe, no Python/node-gyp install path; record closure limits explicitly.
+- [x] Close L0 R1 with a native digest mismatch vector that kills the missing-guard mutation.
+- [ ] Gate: node --test packages/h2a/test/mh-l1-package.test.js and mh-l0-image.test.js.
 
 - Repository source builds only, into mkdtemp lanes; temporary HOME, TMPDIR and XDG roots, with the existing forbidden-state/owned-PID guard.
 - Targeted test files only. No installed h2a invocation, owner state/workspace, unowned process access, full suite, PR or release. Rounds 5 and 6 explicitly authorize merging origin/main into this branch.
