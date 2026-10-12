@@ -5,6 +5,7 @@
 .playwright-mcp/
 .claude/
 tmp/
+.q/
 .remote/
 .worktrees/
 node_modules/

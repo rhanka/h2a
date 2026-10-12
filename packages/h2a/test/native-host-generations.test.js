@@ -1,7 +1,7 @@
 import { createPrivateTestDirectory, assertPrivateQualificationPath, nativeQualificationRoot, assertIsolatedEnvironment, assertIsolatedNativeOperation, spawnIsolatedNative as spawn, waitForPrivateNativeProcesses } from "./helpers/native-isolation.js";
 import assert from "node:assert/strict";
 
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, realpathSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import test from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -101,13 +101,16 @@ async function withLegacy(context, body, historicalEntry = legacyEntry) {
   assertPrivateQualificationPath(qualRoot, nativeQualificationRoot);
   mkdirSync(qualRoot, { recursive: true, mode: 0o700 });
   let root;
-  // Never reuse a path in this test process: its spawn guard retains the
-  // fixture's process-view identity even after the directory is removed.
+  // Reserve a unique short name, then move a fresh mkdtemp directory into it.
+  // The historical lf1 staging name needs four more bytes than its old peer.
   while (legacyFixtureNumber < 256 && root === undefined) {
     const candidate = join(qualRoot, `g${(legacyFixtureNumber++).toString(16).padStart(2, "0")}`);
     assertPrivateQualificationPath(candidate, nativeQualificationRoot);
-    try { mkdirSync(candidate, { mode: 0o700 }); root = realpathSync(candidate); }
-    catch (error) { if (error.code !== "EEXIST") throw error; }
+    try {
+      mkdirSync(candidate, { mode: 0o700 });
+      renameSync(createPrivateTestDirectory("g", qualRoot), candidate);
+      root = realpathSync(candidate);
+    } catch (error) { if (error.code !== "EEXIST") throw error; }
   }
   assert.ok(root, "no short private directory available for historical socket qualification");
   const home = join(root, "home");
