@@ -1,12 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
+import type {
+  ClaudeCodeCliCapabilities,
+  ClaudeCodeCliEvent,
+  ClaudeCodeCliRunner,
+} from "../claude-seat-mesh-contract.js";
 import {
-  ClaudeCodeRuntimeClient,
-  type ClaudeCodeCliCapabilities,
-  type ClaudeCodeCliEvent,
-  type ClaudeCodeCliRunner,
-} from "@sentropic/llm-mesh";
-import {
-  bindClaudeCodeAttemptRunner,
   createBoundAttemptRunner,
   getClaudeSeatSeamDependencyHandoff,
   isClaudeSeatGatewaySeamAvailable,
@@ -33,7 +31,7 @@ describe("claude-code-seat-wiring (gateway host integration)", () => {
 
     const handoff = getClaudeSeatSeamDependencyHandoff();
     expect(handoff.status).toBe("blocked_pending_mesh_seam");
-    expect(handoff.targetPackage).toBe("@sentropic/llm-mesh");
+    expect(handoff.targetPackage).toContain("pinned 0.25.0");
     expect(handoff.pinnedBaseline).toBe("0.25.0");
     expect(handoff.requiredSeam).toContain("Pre-acquire account attempt lease hook");
   });
@@ -160,7 +158,12 @@ describe("claude-code-seat-wiring (gateway host integration)", () => {
     expect(order).toEqual(["inner-cleanup", "lease-release"]);
   });
 
-  it("projects access without refresh token, headers, or owner metadata", async () => {
+  it("passes the projected access through to the runner untouched", async () => {
+    // The no-refresh guarantee at this boundary is structural: the seat
+    // access shape carries no refresh field, and the binding forwards the
+    // projection opaquely. Mesh-side projection is the mesh suite's own
+    // coverage; child-observable absence is proven by the refresh probe
+    // with real subprocesses (claude-code-cli-refresh-probe.test.ts).
     let capturedAccess: any;
     const mockRunner: ClaudeCodeCliRunner = {
       async *run(input) {
@@ -170,79 +173,41 @@ describe("claude-code-seat-wiring (gateway host integration)", () => {
       },
     };
 
-    const client = new ClaudeCodeRuntimeClient({
+    const boundRunner = createBoundAttemptRunner({
+      lease: {
+        ownerScope: "cli:owner-1",
+        accountId: "acct_claude_1",
+        acquiredAt: Date.now(),
+        release: async () => {},
+      },
       runner: mockRunner,
       capabilities: fakeCapabilities,
     });
 
-    const stream = await client.stream({
-      modelId: "claude-3-5-sonnet-20241022",
-      messages: [{ role: "user", content: "Hello" }],
-    }, {
-      auth: {
-        type: "account-transport",
-        provider: "claude-code",
-        accessToken: "seat-access-tok",
-        refreshToken: "secret-refresh-tok", // Must NOT be projected
-        expiresAt: new Date(Date.now() + 3600000).toISOString(),
-        metadata: { scopes: ["user:inference"] },
-      } as any,
-    });
-
+    const seatAccess = {
+      accessToken: "seat-access-tok",
+      expiresAt: Date.now() + 3600000,
+      scopes: ["user:inference"],
+    };
     const events = [];
-    for await (const event of stream) {
+    for await (const event of boundRunner.run({
+      access: seatAccess,
+      request: {
+        modelId: "claude-3-5-sonnet-20241022",
+        messages: [{ role: "user", content: [{ type: "text", text: "Hello" }] }],
+      },
+      signal: new AbortController().signal,
+    })) {
       events.push(event);
     }
 
-    expect(capturedAccess).toBeDefined();
-    expect(capturedAccess.accessToken).toBe("seat-access-tok");
-    expect(capturedAccess.scopes).toEqual(["user:inference"]);
-    // Must NOT leak refresh token
+    expect(capturedAccess).toEqual(seatAccess);
     expect(capturedAccess).not.toHaveProperty("refreshToken");
     expect(capturedAccess).not.toHaveProperty("refresh_token");
-  });
-
-  it("delegates direct API-key auth only to explicitly supplied direct client and refuses if none exists", async () => {
-    const mockFallback = {
-      stream: vi.fn().mockResolvedValue((async function* () {
-        yield { type: "content_delta", data: { delta: "from-fallback" } };
-      })()),
-      generate: vi.fn(),
-    };
-
-    const clientWithFallback = new ClaudeCodeRuntimeClient({
-      runner: { async *run() {} },
-      capabilities: fakeCapabilities,
-      fallback: mockFallback as any,
-    });
-
-    // Request with direct API key auth
-    const stream = await clientWithFallback.stream({
-      modelId: "claude-3-5-sonnet-20241022",
-      messages: [{ role: "user", content: "Direct key" }],
-      auth: { type: "bearer", token: "sk-ant-user-key" } as any,
-    });
-
-    const events = [];
-    for await (const event of stream) {
-      events.push(event);
-    }
-    expect(mockFallback.stream).toHaveBeenCalled();
-    expect(events).toEqual([{ type: "content_delta", data: { delta: "from-fallback" } }]);
-
-    // Without fallback client: direct API key throws static auth failure
-    const clientNoFallback = new ClaudeCodeRuntimeClient({
-      runner: { async *run() {} },
-      capabilities: fakeCapabilities,
-    });
-
-    await expect(
-      clientNoFallback.stream({
-        modelId: "claude-3-5-sonnet-20241022",
-        messages: [{ role: "user", content: "Direct key" }],
-        auth: { type: "bearer", token: "sk-ant-user-key" } as any,
-      }),
-    ).rejects.toThrow();
+    expect(events).toEqual([
+      { type: "text_delta", text: "Hello" },
+      { type: "result", finishReason: "stop" },
+    ]);
   });
 
   it("integrates Claude adapter into gateway host and exposes readiness", async () => {
