@@ -679,8 +679,8 @@ the root concurrency defect is fixed without introducing a persistent global loc
 ## Lot 5 — Heritage, npm and pair
 - [ ] Audit source refs, native relaunch closure, legacy probe, dependencies and pending .6 dist gate.
 - [x] Reproduce BX with private prefix/cache, local tarballs/registry; revise U09 and prepare QF dossier.
-- [ ] Test-only network peer, evidence and CAS/ACK fault primitives.
-- [ ] Gate: node --test packages/h2a/test/mh-l0-npm.test.js and mh-l0-peer.test.js, red then green.
+- [x] Test-only network peer, evidence and CAS/ACK fault primitives.
+- [x] Gate: node --test packages/h2a/test/mh-l0-npm.test.js and mh-l0-peer.test.js, red then green.
 
 ## Lot 6 — Delivery
 - [ ] Reconcile scope/evidence/review limitations; recalibrate MH-L1–MH-L8.
