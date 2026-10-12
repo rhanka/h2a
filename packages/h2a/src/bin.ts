@@ -3,6 +3,8 @@
 import { canonicalCentralRoot, centralRoutingEnabled, shouldUseCentralMcp } from "./runtime/mcp-central-policy.js";
 import { runCentralShim } from "./runtime/mcp-central-shim.js";
 import { readCentralMcpMarker } from "./runtime/mcp-central-discovery.js";
+import { inspectFirstInitialize } from "./runtime/mcp-central-initialize.js";
+import { qualifiedClaudeInitialize } from "./runtime/mcp-central-qualification.js";
 
 const argv = process.argv.slice(2);
 // Qualified Claude attachments default to central; explicit opt-outs remain authoritative.
@@ -16,7 +18,18 @@ for (let i = 1; i < argv.length; i++) {
 }
 
 try {
-  if (argv[0] === "mcp-serve" && shouldUseCentralMcp(flags, process.env, centralByDefault)) {
+  const isMcp = argv[0] === "mcp-serve" || argv[0] === "mcp-central-connect";
+  // Structured sidecars must acknowledge their readiness challenge without
+  // waiting for a host request. Other structural exclusions need no peeking.
+  const inspect = isMcp && flags.host === "claude" && Boolean(process.env.CLAUDE_CODE_SESSION_ID?.trim()) &&
+    !flags.instance && flags.backend !== "cluster-mesh" && process.env.H2A_MESSAGE_BACKEND !== "cluster-mesh" &&
+    !process.env.H2A_MCP_READY_FILE && !process.env.H2A_MCP_READY_NONCE &&
+    process.env.H2A_MCP_CENTRAL !== "0" && process.env.H2A_MCP_CENTRAL !== "false";
+  const initialize = inspect ? await inspectFirstInitialize(process.stdin) : undefined;
+  if (inspect && !qualifiedClaudeInitialize(initialize)) {
+    process.stderr.write("h2a mcp: claude_version_unqualified; using stdio\n");
+  }
+  if (argv[0] === "mcp-serve" && shouldUseCentralMcp(flags, process.env, centralByDefault, initialize)) {
     process.exitCode = await runCentralShim(flags, canonicalCentralRoot());
   } else if (argv[0] === "mcp-central-connect") {
     // Legacy v1 connectors without explicit host qualification remain in stdio
@@ -25,7 +38,7 @@ try {
     const hasClaudeId = Boolean(process.env.CLAUDE_CODE_SESSION_ID?.trim());
     const isExplicitClaude = flags.host === "claude";
 
-    if (!isExplicitClaude || !hasClaudeId || !centralRoutingEnabled(process.env, centralByDefault)) {
+    if (!isExplicitClaude || !hasClaudeId || !qualifiedClaudeInitialize(initialize) || !centralRoutingEnabled(process.env, centralByDefault)) {
       process.argv[2] = "mcp-serve";
       await import("./bin-heavy.js");
     } else {
@@ -44,7 +57,7 @@ try {
           ...flags,
           endpoint: marker.endpoint
         };
-        if (!shouldUseCentralMcp(effectiveFlags, process.env, centralByDefault)) {
+        if (!shouldUseCentralMcp(effectiveFlags, process.env, centralByDefault, initialize)) {
           process.argv[2] = "mcp-serve";
           await import("./bin-heavy.js");
         } else {
