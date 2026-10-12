@@ -1,0 +1,91 @@
+command: /usr/bin/node --test packages/h2a/test/mh-l1-routing.test.js
+private test root: /home/antoinefa/.cache-tmp/mh-l1-test-qrvx8B
+TAP version 13
+# Subtest: C01 should choose stdio for unknown clientInfo before reading even malformed central configuration
+not ok 1 - C01 should choose stdio for unknown clientInfo before reading even malformed central configuration
+  ---
+  duration_ms: 2.986616
+  type: 'test'
+  location: '/home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/test/mh-l1-routing.test.js:27:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    
+    true !== false
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: false
+  actual: true
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/test/mh-l1-routing.test.js:30:12)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.start (node:internal/test_runner/test:944:17)
+    startSubtestAfterBootstrap (node:internal/test_runner/harness:296:17)
+  ...
+# Subtest: C01 should admit only an exact qualified client and preserve every existing exclusion
+not ok 2 - C01 should admit only an exact qualified client and preserve every existing exclusion
+  ---
+  duration_ms: 0.896265
+  type: 'test'
+  location: '/home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/test/mh-l1-routing.test.js:38:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    
+    true !== false
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: false
+  actual: true
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/test/mh-l1-routing.test.js:50:14)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+  ...
+# Subtest: C01 should retain fragmented initialize and pipelined tail exactly once without emitting a response
+not ok 3 - C01 should retain fragmented initialize and pipelined tail exactly once without emitting a response
+  ---
+  duration_ms: 1.122079
+  type: 'test'
+  location: '/home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/test/mh-l1-routing.test.js:60:1'
+  failureType: 'testCodeFailure'
+  error: "Cannot find module '/home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/dist/runtime/mcp-central-initialize.js' imported from /home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/test/mh-l1-routing.test.js"
+  code: 'ERR_MODULE_NOT_FOUND'
+  stack: |-
+    finalizeResolution (node:internal/modules/esm/resolve:275:11)
+    moduleResolve (node:internal/modules/esm/resolve:861:10)
+    defaultResolve (node:internal/modules/esm/resolve:985:11)
+    #cachedDefaultResolve (node:internal/modules/esm/loader:731:20)
+    ModuleLoader.resolve (node:internal/modules/esm/loader:708:38)
+    ModuleLoader.getModuleJobForImport (node:internal/modules/esm/loader:310:38)
+    onImport.tracePromise.__proto__ (node:internal/modules/esm/loader:664:36)
+    TracingChannel.tracePromise (node:diagnostics_channel:350:14)
+    ModuleLoader.import (node:internal/modules/esm/loader:663:21)
+    defaultImportModuleDynamicallyForModule (node:internal/modules/esm/utils:222:31)
+  ...
+# Subtest: C02 should keep static shim imports free of the CLI, store, SDK and native runtime
+ok 4 - C02 should keep static shim imports free of the CLI, store, SDK and native runtime
+  ---
+  duration_ms: 0.981646
+  type: 'test'
+  ...
+1..4
+# tests 4
+# suites 0
+# pass 1
+# fail 3
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 117.515671
+
+receipt: {"command":["/usr/bin/node","--test","packages/h2a/test/mh-l1-routing.test.js"],"code":1,"signal":null,"elapsedMs":200}
