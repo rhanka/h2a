@@ -18,6 +18,7 @@ import {
   buildIsolatedEnvironment,
   cleanClaudeRunSandbox,
   createClaudeRunSandbox,
+  DEFAULT_INFERENCE_HOST,
   verifyCredentialNotRewritten,
 } from "./claude-code-cli-isolation.js";
 import {
@@ -42,6 +43,34 @@ export const DEFAULT_MAX_FRAME_BYTES = 65536; // 64 KiB
 export const DEFAULT_MAX_TOTAL_BYTES = 10 * 1024 * 1024; // 10 MiB
 export const DEFAULT_RUN_DEADLINE_MS = 120_000; // 2 minutes
 
+/**
+ * Owner attestation that default-deny inference-only egress is enforced
+ * outside this process (network namespace, firewall, or forced proxy) for
+ * the whole child tree. The runner cannot install that boundary itself, so
+ * without this attestation AND the out-of-band switch below, spawn is
+ * refused (brief stop condition: no proven egress, no seat spawn).
+ */
+export interface ClaudeEgressEnforcement {
+  readonly mechanism: string;
+  readonly inferenceHost: string;
+}
+
+/** Out-of-band owner switch confirming enforced egress for this host. */
+export const CLAUDE_EGRESS_ENFORCED_ENV = "H2A_CLAUDE_EGRESS_ENFORCED";
+
+export function requireEgressEnforcement(attestation: ClaudeEgressEnforcement | undefined): void {
+  if (
+    !attestation ||
+    !attestation.mechanism.trim() ||
+    attestation.inferenceHost !== DEFAULT_INFERENCE_HOST
+  ) {
+    throw new Error("Claude seat spawn refused: inference-only egress not enforced");
+  }
+  if (process.env[CLAUDE_EGRESS_ENFORCED_ENV] !== "1") {
+    throw new Error("Claude seat spawn refused: inference-only egress not enforced");
+  }
+}
+
 export interface OfficialClaudeCodeCliRunnerOptions {
   readonly binaryPath?: string;
   readonly expectedVersion?: string;
@@ -54,6 +83,7 @@ export interface OfficialClaudeCodeCliRunnerOptions {
   readonly now?: () => number;
   /** Test seam directing sandbox roots away from the per-user runtime base. */
   readonly sandboxRootDir?: string;
+  readonly egressEnforcement?: ClaudeEgressEnforcement;
 }
 
 export class OfficialClaudeCodeCliRunner implements ClaudeCodeCliRunner {
@@ -67,6 +97,7 @@ export class OfficialClaudeCodeCliRunner implements ClaudeCodeCliRunner {
   private readonly spawnFn: typeof spawn;
   private readonly now: () => number;
   private readonly sandboxRootDir: string | undefined;
+  private readonly egressEnforcement: ClaudeEgressEnforcement | undefined;
 
   constructor(options: OfficialClaudeCodeCliRunnerOptions = {}) {
     this.binaryPath = options.binaryPath ?? "";
@@ -79,6 +110,7 @@ export class OfficialClaudeCodeCliRunner implements ClaudeCodeCliRunner {
     this.spawnFn = options.spawnFn ?? spawn;
     this.now = options.now ?? Date.now;
     this.sandboxRootDir = options.sandboxRootDir;
+    this.egressEnforcement = options.egressEnforcement;
   }
 
   /**
@@ -131,6 +163,10 @@ export class OfficialClaudeCodeCliRunner implements ClaudeCodeCliRunner {
       yield { type: "error" };
       return;
     }
+
+    // Default-deny egress is a spawn precondition, not a URL label:
+    // without owner-attested enforcement, no child is created at all.
+    requireEgressEnforcement(this.egressEnforcement);
 
     // 2. Admission and TTL checks
     const admission = checkTokenTtlAdmission(input.access.expiresAt, this.now());

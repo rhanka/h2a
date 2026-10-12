@@ -35,9 +35,11 @@ const RUNNER_SCRATCH = join(tmpdir(), `h2a-claude-runner-test-${Date.now()}-${pr
 
 beforeEach(() => {
   mkdirSync(RUNNER_SCRATCH, { recursive: true });
+  process.env.H2A_CLAUDE_EGRESS_ENFORCED = "1";
 });
 
 afterEach(() => {
+  delete process.env.H2A_CLAUDE_EGRESS_ENFORCED;
   rmSync(RUNNER_SCRATCH, { recursive: true, force: true });
 });
 
@@ -70,6 +72,7 @@ describe("claude-code-cli-runner (protocol)", () => {
     expectedDigest: PINNED_TEST_DIGEST,
     capabilities: validCaps,
     sandboxRootDir: RUNNER_SCRATCH,
+    egressEnforcement: { mechanism: "test-host-firewall", inferenceHost: "api.anthropic.com" },
   };
 
   it("refuses relative binary path or missing qualification reference before spawn", async () => {
@@ -138,6 +141,50 @@ describe("claude-code-cli-runner (protocol)", () => {
     await expect(
       runOnce({ expectedDigest: "0".repeat(64) }),
     ).rejects.toThrow("binary digest mismatch");
+
+    expect(spawnFn).not.toHaveBeenCalled();
+  });
+
+  it("refuses spawn while inference-only egress is not enforced", async () => {
+    const spawnFn = vi.fn(() => createMockChild());
+    const runOnce = (options: Record<string, unknown>) => {
+      const runner = new OfficialClaudeCodeCliRunner({
+        ...qualifiedOptions,
+        spawnFn: spawnFn as any,
+        ...options,
+      });
+      return runner
+        .run({
+          access: fakeAccess,
+          request: fakeRequest,
+          signal: new AbortController().signal,
+        })[Symbol.asyncIterator]()
+        .next();
+    };
+
+    const saved = process.env.H2A_CLAUDE_EGRESS_ENFORCED;
+    try {
+      // No out-of-band switch, even with an attestation: refuse.
+      delete process.env.H2A_CLAUDE_EGRESS_ENFORCED;
+      await expect(runOnce({})).rejects.toThrow("egress not enforced");
+
+      process.env.H2A_CLAUDE_EGRESS_ENFORCED = "1";
+      // No attestation, even with the switch: refuse.
+      await expect(runOnce({ egressEnforcement: undefined })).rejects.toThrow(
+        "egress not enforced",
+      );
+      // Empty mechanism: refuse.
+      await expect(
+        runOnce({ egressEnforcement: { mechanism: "  ", inferenceHost: "api.anthropic.com" } }),
+      ).rejects.toThrow("egress not enforced");
+      // Wrong inference host: refuse.
+      await expect(
+        runOnce({ egressEnforcement: { mechanism: "netns", inferenceHost: "evil.example" } }),
+      ).rejects.toThrow("egress not enforced");
+    } finally {
+      if (saved === undefined) delete process.env.H2A_CLAUDE_EGRESS_ENFORCED;
+      else process.env.H2A_CLAUDE_EGRESS_ENFORCED = saved;
+    }
 
     expect(spawnFn).not.toHaveBeenCalled();
   });
@@ -660,6 +707,7 @@ describe("claude-code-cli-runner (protocol)", () => {
       capabilities: { ...validCaps, qualificationRef: buildClaudeQualificationRef(digest) },
       spawnFn,
       sandboxRootDir: RUNNER_SCRATCH,
+      egressEnforcement: { mechanism: "test-host-firewall", inferenceHost: "api.anthropic.com" },
       timeoutMs: 30_000,
     });
 
