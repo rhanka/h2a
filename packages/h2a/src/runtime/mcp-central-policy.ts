@@ -3,6 +3,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
 import { readCentralMcpMarker } from "./mcp-central-discovery.js";
+import { qualifiedClaudeInitialize, claudeQualificationManifest, type ClaudeQualificationManifest } from "./mcp-central-qualification.js";
 
 export function centralConfigPath(env: NodeJS.ProcessEnv = process.env): string {
   const home = env.REMOTE_CLI_CONFIG_HOME ?? env.HOME ?? homedir();
@@ -27,7 +28,9 @@ export function centralRoutingEnabled(env: NodeJS.ProcessEnv = process.env, defa
   if (setting === false) return false;
   return setting === true || env.H2A_MCP_CENTRAL === "1" || env.H2A_MCP_CENTRAL === "true" || defaultEnabled;
 }
-export function shouldUseCentralMcp(flags: Record<string, string>, env: NodeJS.ProcessEnv = process.env, defaultEnabled = false): boolean {
+export function shouldUseCentralMcp(flags: Record<string, string>, env: NodeJS.ProcessEnv = process.env, defaultEnabled = false,
+  initialize?: unknown, manifest: ClaudeQualificationManifest = claudeQualificationManifest): boolean {
+  if (!qualifiedClaudeInitialize(initialize, manifest)) return false;
   if (process.platform !== "linux" || flags.host !== "claude" || flags.instance || flags.backend === "cluster-mesh" || env.H2A_MESSAGE_BACKEND === "cluster-mesh") return false;
   // Structured sidecar launches with readiness challenges stay on stdio
   if (env.H2A_MCP_READY_FILE || env.H2A_MCP_READY_NONCE) return false;
