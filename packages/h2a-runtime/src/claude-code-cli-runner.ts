@@ -40,6 +40,8 @@ export interface OfficialClaudeCodeCliRunnerOptions {
   readonly timeoutMs?: number;
   readonly spawnFn?: typeof spawn;
   readonly now?: () => number;
+  /** Test seam directing sandbox roots away from the per-user runtime base. */
+  readonly sandboxRootDir?: string;
 }
 
 export class OfficialClaudeCodeCliRunner implements ClaudeCodeCliRunner {
@@ -52,6 +54,7 @@ export class OfficialClaudeCodeCliRunner implements ClaudeCodeCliRunner {
   private readonly timeoutMs: number;
   private readonly spawnFn: typeof spawn;
   private readonly now: () => number;
+  private readonly sandboxRootDir: string | undefined;
 
   constructor(options: OfficialClaudeCodeCliRunnerOptions = {}) {
     this.binaryPath = options.binaryPath ?? "";
@@ -63,6 +66,7 @@ export class OfficialClaudeCodeCliRunner implements ClaudeCodeCliRunner {
     this.timeoutMs = options.timeoutMs ?? DEFAULT_RUN_DEADLINE_MS;
     this.spawnFn = options.spawnFn ?? spawn;
     this.now = options.now ?? Date.now;
+    this.sandboxRootDir = options.sandboxRootDir;
   }
 
   /**
@@ -106,7 +110,10 @@ export class OfficialClaudeCodeCliRunner implements ClaudeCodeCliRunner {
     }
 
     // 3. Create isolated sandbox
-    const sandbox = createClaudeRunSandbox({ access: input.access });
+    const sandbox = createClaudeRunSandbox({
+      access: input.access,
+      ...(this.sandboxRootDir ? { rootDir: this.sandboxRootDir } : {}),
+    });
     const env = buildIsolatedEnvironment(sandbox);
 
     // 4. Construct candidate arguments
@@ -275,12 +282,17 @@ export class OfficialClaudeCodeCliRunner implements ClaudeCodeCliRunner {
 
         // Verify exit agreement, credential integrity, and reap process tree
         const credentialIntact = verifyCredentialNotRewritten(sandbox, input.access);
-        const exitAgreement = exitCode === 0 && !streamFailed && pendingResult !== null;
-
+        let cleanupOk = true;
         if (childPid > 0) {
           await reapProcessTree(childPid, "SIGTERM", 50);
         }
-        cleanClaudeRunSandbox(sandbox);
+        try {
+          cleanClaudeRunSandbox(sandbox);
+        } catch {
+          cleanupOk = false;
+        }
+        const exitAgreement =
+          exitCode === 0 && !streamFailed && pendingResult !== null && cleanupOk;
 
         if (exitAgreement && credentialIntact && pendingResult) {
           pushQueue({ event: pendingResult });
@@ -323,7 +335,11 @@ export class OfficialClaudeCodeCliRunner implements ClaudeCodeCliRunner {
       if (childPid > 0) {
         await reapProcessTree(childPid, "SIGKILL", 50);
       }
-      cleanClaudeRunSandbox(sandbox);
+      try {
+        cleanClaudeRunSandbox(sandbox);
+      } catch {
+        // Terminal outcome already decided in the close handler; retry is best-effort.
+      }
     }
   }
 }

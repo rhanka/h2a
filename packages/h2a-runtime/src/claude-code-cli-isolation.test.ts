@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -161,6 +161,26 @@ describe("claude-code-cli-isolation", () => {
       expect(verifyCredentialNotRewritten(sandbox, fakeAccess)).toBe(false);
     } finally {
       cleanClaudeRunSandbox(sandbox);
+    }
+  });
+
+  it("surfaces sandbox cleanup failure instead of swallowing it", () => {
+    if (process.geteuid?.() === 0) return; // root bypasses permission bits; failure not inducible
+    const sandbox = createClaudeRunSandbox({
+      access: fakeAccess,
+      rootDir: TEST_SCRATCH,
+    });
+
+    try {
+      chmodSync(sandbox.runDir, 0o500);
+      expect(() => cleanClaudeRunSandbox(sandbox)).toThrow(
+        "Claude run sandbox cleanup failed",
+      );
+      expect(existsSync(sandbox.runDir)).toBe(true);
+    } finally {
+      chmodSync(sandbox.runDir, 0o700);
+      cleanClaudeRunSandbox(sandbox);
+      expect(existsSync(sandbox.runDir)).toBe(false);
     }
   });
 
