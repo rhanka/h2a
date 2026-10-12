@@ -156,6 +156,35 @@ describe("claude-seat-input", () => {
     expect(stdin.setRawMode).toHaveBeenCalledWith(false);
   });
 
+  it("applies Backspace/DEL edits without incorporating them into the secret", async () => {
+    const stdin = createMockTtyStream();
+    const stdout = new PassThrough();
+
+    const inputPromise = readMaskedInput("Code: ", { stdin, stdout });
+    stdin.write(Buffer.from("ab"));
+    stdin.write(Buffer.from([0x7f])); // DEL removes "b"
+    stdin.write(Buffer.from([0x08])); // Backspace removes "a"
+    stdin.write(Buffer.from([0xc3, 0xa9])); // é
+    stdin.write(Buffer.from([0x7f])); // DEL removes the whole multibyte char
+    stdin.write("ok\n");
+
+    await expect(inputPromise).resolves.toBe("ok");
+  });
+
+  it("pauses stdin and restores the previous raw mode on completion", async () => {
+    const stdin = createMockTtyStream();
+    (stdin as unknown as { isRaw: boolean }).isRaw = true;
+    const pauseSpy = vi.spyOn(stdin, "pause");
+    const stdout = new PassThrough();
+
+    const inputPromise = readMaskedInput("Code: ", { stdin, stdout });
+    stdin.write("done\n");
+    await inputPromise;
+
+    expect(pauseSpy).toHaveBeenCalled();
+    expect(stdin.setRawMode).toHaveBeenLastCalledWith(true);
+  });
+
   it("handles multibyte UTF-8 input correctly across chunk boundaries", async () => {
     const stdin = createMockTtyStream();
     const stdout = new PassThrough();
