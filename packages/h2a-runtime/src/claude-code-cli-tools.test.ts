@@ -1,6 +1,9 @@
 import { EventEmitter } from "node:events";
+import { mkdirSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { PassThrough } from "node:stream";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type {
   ClaudeCodeAccessProjection,
   ClaudeCodeCliCapabilities,
@@ -17,6 +20,16 @@ function createMockChild() {
   child.kill = vi.fn();
   return child;
 }
+
+const TOOLS_SCRATCH = join(tmpdir(), `h2a-claude-tools-test-${Date.now()}-${process.pid}`);
+
+beforeEach(() => {
+  mkdirSync(TOOLS_SCRATCH, { recursive: true });
+});
+
+afterEach(() => {
+  rmSync(TOOLS_SCRATCH, { recursive: true, force: true });
+});
 
 describe("claude-code-cli-tools", () => {
   const fakeAccess: ClaudeCodeAccessProjection = {
@@ -74,6 +87,7 @@ describe("claude-code-cli-tools", () => {
     const runner = new OfficialClaudeCodeCliRunner({
       binaryPath: "/usr/bin/node",
       capabilities: textOnlyCaps, // No tools capability
+      sandboxRootDir: TOOLS_SCRATCH,
       spawnFn: spawnFn as any,
     });
 
@@ -127,6 +141,7 @@ describe("claude-code-cli-tools", () => {
     const runner = new OfficialClaudeCodeCliRunner({
       binaryPath: "/usr/bin/node",
       capabilities: capsWithTools,
+      sandboxRootDir: TOOLS_SCRATCH,
       spawnFn: spawnFn as any,
     });
 

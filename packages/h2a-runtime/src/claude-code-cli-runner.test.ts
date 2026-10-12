@@ -3,7 +3,7 @@ import { chmodSync, mkdirSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PassThrough } from "node:stream";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type {
   ClaudeCodeAccessProjection,
   ClaudeCodeCliCapabilities,
@@ -20,6 +20,16 @@ function createMockChild() {
   child.kill = vi.fn();
   return child;
 }
+
+const RUNNER_SCRATCH = join(tmpdir(), `h2a-claude-runner-test-${Date.now()}-${process.pid}`);
+
+beforeEach(() => {
+  mkdirSync(RUNNER_SCRATCH, { recursive: true });
+});
+
+afterEach(() => {
+  rmSync(RUNNER_SCRATCH, { recursive: true, force: true });
+});
 
 describe("claude-code-cli-runner (protocol)", () => {
   const fakeAccess: ClaudeCodeAccessProjection = {
@@ -104,6 +114,7 @@ describe("claude-code-cli-runner (protocol)", () => {
     const runner = new OfficialClaudeCodeCliRunner({
       binaryPath: "/usr/bin/node",
       capabilities: validCaps,
+      sandboxRootDir: RUNNER_SCRATCH,
       spawnFn: spawnFn as any,
     });
 
@@ -167,6 +178,7 @@ describe("claude-code-cli-runner (protocol)", () => {
     const runner = new OfficialClaudeCodeCliRunner({
       binaryPath: "/usr/bin/node",
       capabilities: validCaps,
+      sandboxRootDir: RUNNER_SCRATCH,
       spawnFn: spawnFn as any,
     });
 
@@ -201,6 +213,7 @@ describe("claude-code-cli-runner (protocol)", () => {
     const runner = new OfficialClaudeCodeCliRunner({
       binaryPath: "/usr/bin/node",
       capabilities: validCaps,
+      sandboxRootDir: RUNNER_SCRATCH,
       spawnFn: spawnFn as any,
     });
 
@@ -281,6 +294,7 @@ describe("claude-code-cli-runner (protocol)", () => {
     const runner = new OfficialClaudeCodeCliRunner({
       binaryPath: "/usr/bin/node",
       capabilities: validCaps,
+      sandboxRootDir: RUNNER_SCRATCH,
       spawnFn: spawnFn as any,
     });
 
