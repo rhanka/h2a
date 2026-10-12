@@ -839,6 +839,8 @@ suite was run. Full TAP and environments: scratch `presence-evidence/tour7/`.
 
 Branch: `fix/presence-identity-liveness`. Base: `58f111b3` (origin/main at checkout).
 
+- [x] Deliver only spec v7 §12 MH-L1 on cf690fe2, integrating #316 (25117303).
+
 ## Scope / Guardrails
 - [x] Branch feat/vibe-host-equip; base origin/main 58f111b3; package 0.98.6.
 - [x] Isolated HOME/XDG roots, repository sources only, named tests, no Python or installed h2a.
@@ -906,6 +908,10 @@ The parallel `feat/live-cross-cli-messaging` lot owns delivery, host wake and cr
 - GC requires age >=24 hours, regular file, one link, a provably dead PID (ESRCH), and unchanged inode/timestamps before unlink. Presence filenames must also carry an old creation timestamp.
 - Retain live/unknown holders, malformed archives, young files, symlinks and linked files. Read-only presence scans disable GC.
 - Expiry stays honest during storage failure or disconnection. An MCP reconnect publishes a new session for the same instance; EOF removes the old attachment presence.
+
+## Lot 5 — Delivery
+- [x] Review diff/scope, record constrained review status without consensus claim.
+- [ ] Push own branch fast-forward and write French mhl1-report.md, agent-hours and review rounds.
 
 ## Feedback Loop
 - [x] B receipt discovery/API not accepted: no production reader or invented MCP writer.
