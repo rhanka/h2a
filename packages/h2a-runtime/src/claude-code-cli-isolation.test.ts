@@ -1,4 +1,4 @@
-import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, chownSync, existsSync, lstatSync, mkdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -162,6 +162,56 @@ describe("claude-code-cli-isolation", () => {
     } finally {
       cleanClaudeRunSandbox(sandbox);
     }
+  });
+
+  it("refuses symlink, file, and foreign-owned roots and tightens reused roots", () => {
+    const realDir = join(TEST_SCRATCH, "real-root");
+    mkdirSync(realDir, { recursive: true });
+
+    const linkPath = join(TEST_SCRATCH, "link-root");
+    symlinkSync(realDir, linkPath);
+    expect(lstatSync(linkPath).isSymbolicLink()).toBe(true);
+    expect(() => resolvePrivateRuntimeRoot(linkPath)).toThrow(
+      "Claude private runtime root refused",
+    );
+
+    const filePath = join(TEST_SCRATCH, "file-root");
+    writeFileSync(filePath, "not a directory");
+    expect(() => resolvePrivateRuntimeRoot(filePath)).toThrow(
+      "Claude private runtime root refused",
+    );
+
+    // Reused directory is tightened to 0700, never trusted as found.
+    chmodSync(realDir, 0o755);
+    const resolved = resolvePrivateRuntimeRoot(realDir);
+    expect(resolved).toBe(realDir);
+    expect(statSync(realDir).mode & 0o777).toBe(0o700);
+
+    // Foreign-owned directory is refused when ownership can be staged.
+    const foreignDir = join(TEST_SCRATCH, "foreign-root");
+    mkdirSync(foreignDir, { recursive: true });
+    try {
+      chownSync(foreignDir, 65534, 65534);
+    } catch {
+      return; // Cannot stage foreign ownership without privilege; symlink/file cases above still guard.
+    }
+    expect(() => resolvePrivateRuntimeRoot(foreignDir)).toThrow(
+      "Claude private runtime root refused",
+    );
+  });
+
+  it("resolves the default root outside shared temporary roots", () => {
+    const hasUserBase =
+      !!process.env.XDG_RUNTIME_DIR ||
+      (process.platform === "linux" &&
+        typeof process.geteuid === "function" &&
+        existsSync(`/run/user/${process.geteuid()}`));
+    if (!hasUserBase) return; // No per-user base: fail-closed throw is the correct outcome there.
+    const root = resolvePrivateRuntimeRoot();
+    expect(root.startsWith(`${tmpdir()}/.h2a-claude-runtime`)).toBe(false);
+    expect(root.startsWith("/dev/shm")).toBe(false);
+    const st = statSync(root);
+    expect(st.mode & 0o777).toBe(0o700);
   });
 
   it("surfaces sandbox cleanup failure instead of swallowing it", () => {
