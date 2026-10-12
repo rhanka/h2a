@@ -28,7 +28,8 @@
 - [x] Gate: node --test packages/h2a/test/mh-l0-state.test.js, red then green.
 
 ## Lot 4 — Domain, layout and image audit
-- [ ] Physical prefix identity, private authority domain, bounded abstract pre-claim and closed/native manifest.
+- [x] Physical prefix identity, private authority domain and bounded abstract pre-claim.
+- [ ] Closed/native manifest and no-Python native feasibility.
 - [ ] Gate: node --test packages/h2a/test/mh-l0-authority.test.js and mh-l0-image.test.js, red then green.
 
 ## Lot 5 — Heritage, npm and pair
