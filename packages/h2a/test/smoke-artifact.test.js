@@ -64,6 +64,10 @@ test("C9 A10: smoke must fail when the installed runtime has a different version
   await assert.rejects(observeSmoke(SMOKE_SOURCE, SMOKE_PATH, { loadedVersion: "0.98.4" }), /runtime version/);
 });
 
+test("C9 A11: a failed fault connection proves no injection", async () => {
+  await assert.rejects(observeSmoke(SMOKE_SOURCE, SMOKE_PATH, { failConnect: true }), /fault connection/);
+});
+
 test("R8.3: the runtime manifest must let the smoke prove the loaded path (./package.json subpath export)", () => {
   // The proof is resolution from an INSTALLED prefix, not from the workspace:
   // the reviewer reproduced the defect by installing the real manifest into a
