@@ -1201,8 +1201,8 @@ the root concurrency defect is fixed without introducing a persistent global loc
 
 ## Lot 4 — Domain, layout and image audit
 - [x] Physical prefix identity, private authority domain and bounded abstract pre-claim.
-- [ ] Closed/native manifest and no-Python native feasibility.
-- [ ] Gate: node --test packages/h2a/test/mh-l0-authority.test.js and mh-l0-image.test.js, red then green.
+- [x] Closed/native manifest and no-Python native feasibility.
+- [x] Gate: node --test packages/h2a/test/mh-l0-authority.test.js and mh-l0-image.test.js and mh-l0-native.test.js, red then green.
 
 ## Lot 5 — Heritage, npm and pair
 - [ ] Audit source refs, native relaunch closure, legacy probe, dependencies and pending .6 dist gate.
