@@ -123,7 +123,7 @@ export interface AcquirePrefixLockOptions {
   readonly readFirst?: boolean;
 }
 
-interface LockIdent {
+export interface LockIdent {
   readonly host: string;
   /** Missing only on records written before host provenance was recorded. */
   readonly hostKind?: HostKind;
@@ -135,7 +135,7 @@ interface LockIdent {
   readonly start: string | null;
 }
 
-interface LockRec extends LockIdent {
+export interface LockRec extends LockIdent {
   /** v4 records never carry a discriminator; legacy views use `kind: "legacy"`. */
   readonly kind?: never;
   readonly token: string;
@@ -169,12 +169,18 @@ export type LockHolder = LockRec | LegacyLockHolder;
 
 /** Tokens are hex (plus -/_ tolerance); anything else in a record is corruption. */
 const LOCK_TOKEN_RE = /^[A-Za-z0-9_-]{12,128}$/;
+/** Linux boot id (strict form; an anchor is never given a fake Linux format). */
+const BOOT_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+/** Persisted pid namespace link target, as read from /proc/<pid>/ns/pid. */
+const PID_NS_RE = /^pid:\[\d+\]$/;
+/** Persisted time namespace link target, as read from /proc/<pid>/ns/time. */
+const TIME_NS_RE = /^time:\[\d+\]$/;
 
 export function lockPathFor(prefix: string): string {
   return join(prefix, ".h2a-upgrade.lock");
 }
 
-function succPathFor(lockPath: string, t: string): string {
+export function succPathFor(lockPath: string, t: string): string {
   return `${lockPath}.succ.${t}`;
 }
 
@@ -221,6 +227,12 @@ interface HostIdentityDeps {
   readonly hostname?: () => string;
   readonly ioreg?: () => { readonly status: number | null; readonly stdout: string | null };
   readonly spawn?: typeof spawnSync;
+  /**
+   * Machine-id source paths, tried in order (identity producers pass the
+   * /etc/machine-id then /var/lib/dbus/machine-id pair; the upgrade default
+   * keeps its single 0.98.5 source).
+   */
+  readonly machineIdPaths?: readonly string[];
 }
 
 const MACHINE_ID_RE = /^[0-9a-f]{32}$/;
@@ -267,11 +279,13 @@ export function readHostId(deps: HostIdentityDeps = {}): HostIdentity {
   const readFile = deps.readFile ?? ((path: string) => readFileSync(path, "utf8"));
   const hostnameReader = deps.hostname ?? hostname;
   if (platform === "linux") {
-    try {
-      const host = readFile("/etc/machine-id").trim();
-      if (MACHINE_ID_RE.test(host) && !isNullMachineId(host)) return { host, hostKind: "machine-id" };
-    } catch {
-      // fall through to a weak hostname
+    for (const source of deps.machineIdPaths ?? ["/etc/machine-id"]) {
+      try {
+        const host = readFile(source).trim();
+        if (MACHINE_ID_RE.test(host) && !isNullMachineId(host)) return { host, hostKind: "machine-id" };
+      } catch {
+        // try the next machine-id source, then fall through to a weak hostname
+      }
     }
   } else if (platform === "darwin") {
     try {
@@ -406,7 +420,7 @@ export function procStartInfo(
   platform: NodeJS.Platform = process.platform,
   mapsToSelf: () => boolean = procMapsToSelf,
   spawn: typeof spawnSync = spawnSync
-): { state?: string; start?: string } | undefined {
+): { state?: string; start?: string; threads?: number } | undefined {
   // A start time is only trusted from a source whose value is STABLE for the life of the
   // process (never moving under a wall-clock step), else a clock jump while the lock is held
   // could make a live holder's start "differ" ⇒ a false death ⇒ two holders (I3).
@@ -429,7 +443,21 @@ export function procStartInfo(
         const after = s.slice(close + 1).trim().split(/\s+/);
         // after[0] is state (field 3); after[19] is starttime (field 22).
         if (after.length >= 20 && after[0] && after[19]) {
-          return { state: after[0], start: `proc:${after[19]}` };
+          const state = after[0];
+          // A zombie's thread count is read only for the reliable-zombie proof
+          // (identity protocol R3 rule 7): state Z + concordant start + Threads: 1.
+          // Reading it for every probe would tax the hot path for nothing.
+          let threads: number | undefined;
+          if (state === "Z") {
+            try {
+              const status = readFileSync(`/proc/${pid}/status`, "utf8");
+              const match = status.match(/^Threads:\s+(\d+)$/m);
+              if (match) threads = Number(match[1]);
+            } catch {
+              // unreadable status: the caller sees no thread count (undecidable)
+            }
+          }
+          return { state, start: `proc:${after[19]}`, ...(threads !== undefined ? { threads } : {}) };
         }
       }
     } catch {
@@ -458,7 +486,7 @@ function startSource(s: string): "proc" | "ps" | "legacy" {
   return "legacy";
 }
 
-interface SelfIdent extends LockIdent {
+export interface SelfIdent extends LockIdent {
   readonly hostKind: HostKind;
   readonly pid: number;
 }
@@ -546,7 +574,7 @@ export function parseLockRec(raw: unknown): LockRec {
   };
 }
 
-function parseLegacyLockHolder(raw: unknown, bytes: Buffer): LegacyLockHolder {
+export function parseLegacyLockHolder(raw: unknown, bytes: Buffer): LegacyLockHolder {
   if (typeof raw !== "object" || raw === null || Array.isArray(raw)) throw new Error("bad legacy lock record");
   const o = raw as Record<string, unknown>;
   const keys = Object.keys(o);
@@ -576,13 +604,13 @@ function parseLegacyLockHolder(raw: unknown, bytes: Buffer): LegacyLockHolder {
   };
 }
 
-interface LockHolderReadError {
+export interface LockHolderReadError {
   readonly kind: "io-error";
   readonly code: string;
 }
 
 /** Advisory reader: distinguish failed reads from malformed file content. */
-function readLockHolderDetailed(path: string): LockHolder | "absent" | "corrupt" | LockHolderReadError {
+export function readLockHolderDetailed(path: string): LockHolder | "absent" | "corrupt" | LockHolderReadError {
   let bytes: Buffer;
   try {
     bytes = readFileSync(path);
@@ -620,6 +648,7 @@ export function readLockRecord(path: string): LockRec | "absent" | "corrupt" {
 }
 
 type PublishStatus = { status: "ok" } | { status: "exists" } | { status: "retry" } | { status: "error"; code: string };
+export type { PublishStatus };
 
 /**
  * opus `publish` (I1): a name appears only with complete, durable content.
@@ -628,11 +657,11 @@ type PublishStatus = { status: "ok" } | { status: "exists" } | { status: "retry"
  * any other failure -> "error" with the errno (no hard links -> fail closed).
  * The tmp never contains `.succ.` (C2).
  */
-export function publishLockRecord(path: string, rec: LockRec): PublishStatus {
+export function publishLockRecord(path: string, rec: LockRec, mode: number = 0o644): PublishStatus {
   const tmp = tmpPathFor(path, rec.token);
   try {
     const data = JSON.stringify(rec);
-    const fd = openSync(tmp, "wx", 0o644);
+    const fd = openSync(tmp, "wx", mode);
     let truncated = false;
     try {
       const written = writeSync(fd, data);
@@ -684,9 +713,15 @@ export function publishLockRecord(path: string, rec: LockRec): PublishStatus {
 type Liveness = "dead" | "live" | "undecidable";
 
 /** Injected only by tests (platform / start-probe sims); production passes none. */
-interface LivenessDeps {
+export interface LivenessDeps {
   readonly platform?: NodeJS.Platform;
-  readonly probe?: (pid: number) => { state?: string; start?: string } | undefined;
+  readonly probe?: (pid: number) => { state?: string; start?: string; threads?: number } | undefined;
+  /**
+   * Explicit protocol selector (spec 0.98.6 R2): the default keeps the upgrade
+   * prefix lock's exact 0.98.5 doctrine; "identity" applies the stricter
+   * identity-binding-fence-v1 rules (stale-boot death, reliable zombie).
+   */
+  readonly protocol?: "identity";
 }
 
 /**
@@ -714,6 +749,7 @@ export function classifyLiveness(r: LockHolder, self: SelfIdent, deps: LivenessD
   // even a same-host ESRCH PID may have been reused, so never probe it and never
   // promote the holder to dead. The operator escape hatch consumes this token later.
   if (r.kind === "legacy") return { verdict: "undecidable", datable: false };
+  if (deps.protocol === "identity") return classifyIdentityLiveness(r, self, deps);
   const platform = deps.platform ?? process.platform;
   const probe = deps.probe ?? procStartInfo;
   // Lot 4 §2 permits a death proof only for a strong machine identity on Linux or
@@ -766,6 +802,74 @@ export function classifyLiveness(r: LockHolder, self: SelfIdent, deps: LivenessD
   }
   // Present but with an undatable start ⇒ live: never reclaim a live-or-unknown holder.
   return { verdict: exists ? "live" : "undecidable", datable: false };
+}
+
+/**
+ * Identity protocol classifier (0.98.6 spec v4 R3, rules 0–9 in order). The
+ * first applicable rule decides; a death verdict only ever comes from:
+ *  - rule 3: same strong machine, same known pid namespace, both boots valid
+ *    and different (stale boot — no PID probe, no signal);
+ *  - rule 4: same boot, PID absent (ESRCH) in the known shared namespace;
+ *  - rule 6: start times comparable and different (PID reused);
+ *  - rule 7: start concordant + zombie state + exactly one thread.
+ * Everything else — missing or malformed anchors, foreign machine or
+ * namespace, probe errors, multi-threaded or unverifiable zombies, undatable
+ * starts — is `undecidable`, never `dead`. No age, mtime, hostname or
+ * declared date participates (I7).
+ */
+function classifyIdentityLiveness(r: LockRec, self: SelfIdent, deps: LivenessDeps): LivenessInfo {
+  const undecidable = { verdict: "undecidable" as const, datable: false };
+  // Rule 0/platform: automatic recovery is authorized on Linux only; the
+  // identity fence never claims a death proof through another platform's tools.
+  const platform = deps.platform ?? process.platform;
+  if (platform !== "linux") return undecidable;
+  // Rules 1–2: a strong machine identity, known on both sides, is required.
+  if (r.hostKind !== "machine-id" || self.hostKind !== "machine-id") return undecidable;
+  if (!MACHINE_ID_RE.test(r.host) || isNullMachineId(r.host) || !MACHINE_ID_RE.test(self.host)) return undecidable;
+  if (r.host !== self.host) return undecidable; // foreign machine, known: rule 2
+  // Rules 1–2: the pid namespace must be known, well-formed and equal on both sides.
+  if (r.ns === null || self.ns === null || !PID_NS_RE.test(r.ns) || !PID_NS_RE.test(self.ns)) return undecidable;
+  if (r.ns !== self.ns) return undecidable; // foreign namespace, known: rule 2
+  // Rules 1 and 3: boots must be present and valid on both sides; equal boots
+  // fall through to the PID probe, different boots are the stale-boot death.
+  if (r.boot === null || self.boot === null || !BOOT_ID_RE.test(r.boot) || !BOOT_ID_RE.test(self.boot)) {
+    return undecidable;
+  }
+  if (r.boot !== self.boot) return { verdict: "dead", datable: false }; // rule 3: stale boot
+  // Same boot, known shared namespace: probe the recorded PID.
+  const probe = deps.probe ?? procStartInfo;
+  let exists = false;
+  try {
+    process.kill(r.pid, 0);
+    exists = true;
+  } catch (e) {
+    const code = errnoOf(e);
+    if (code === "ESRCH") return { verdict: "dead", datable: false }; // rule 4
+    if (code === "EPERM") exists = true; // rule 6 continues with a start comparison
+    else return undecidable; // rule 5: a probe error never means dead
+  }
+  const p = probe(r.pid); // undefined when unknown
+  if (r.start !== null && p?.start !== undefined) {
+    const rSrc = startSource(r.start);
+    const pSrc = startSource(p.start);
+    if (rSrc === "legacy" || pSrc === "legacy") return undecidable; // untrustworthy start value
+    if (rSrc !== pSrc) return undecidable; // not comparable: no claim either way
+    if (rSrc === "proc" && (r.timeNs === null || self.timeNs === null || r.timeNs !== self.timeNs
+      || !TIME_NS_RE.test(r.timeNs) || (self.timeNs !== null && !TIME_NS_RE.test(self.timeNs)))) {
+      return undecidable; // start values live in different time bases
+    }
+    if (p.start !== r.start) return { verdict: "dead", datable: true }; // rule 6: PID reused
+    // Start concordant: a zombie is proven dead only with exactly one thread.
+    if (p.state === "Z") {
+      return typeof p.threads === "number" && p.threads === 1
+        ? { verdict: "dead", datable: false } // rule 7: reliable zombie
+        : undecidable; // multi-threaded / unverifiable zombie: rule 9
+    }
+    return { verdict: "live", datable: true }; // rule 8: same, confirmed process
+  }
+  // PID present with an undatable start, or a zombie without a concordant
+  // start: nothing is proven. Never reclaim, never claim liveness (rule 9).
+  return undecidable;
 }
 
 export function livenessOf(r: LockHolder, self: SelfIdent, deps: LivenessDeps = {}): Liveness {
@@ -919,26 +1023,31 @@ export function acquirePrefixLock(
  * opus `succeed`: the owner of g is certainly dead. Walk the one-shot chain
  * SUCC(g) -> SUCC(r0) -> ...; publishing a link elects the sole live
  * successor (Lemma B). "retry" means the chain settled meanwhile (re-read).
+ *
+ * The serializer/reader/classifier/publisher bindings (`io`) keep this THE one
+ * election implementation: the upgrade prefix lock passes nothing (its exact
+ * 0.98.5 behavior), the identity binding fence passes its v2-record protocol.
  */
-function succeedDeadToken(
+export function succeedDeadToken(
   prefix: string,
   lockPath: string,
   g: string,
-  self: SelfIdent
+  self: SelfIdent,
+  io: FenceElectionIo = UPGRADE_FENCE_IO
 ): PrefixLockLease | "retry" {
   let t = g;
   for (let depth = 0; depth < PREFIX_LOCK_MAX_CHAIN; depth++) {
     const tok = newToken();
-    const pub = publishLockRecord(succPathFor(lockPath, t), makeLockRecFor(self, tok, g));
+    const pub = io.publish(succPathFor(lockPath, t), io.makeRec(self, tok, g));
     if (pub.status === "ok") {
-      return retireDeadToken(prefix, lockPath, g, self);
+      return retireDeadToken(prefix, lockPath, g, self, io);
     }
     if (pub.status === "error") return lockDenied(`error:${pub.code}`);
     if (pub.status === "retry") return "retry";
-    const s = readLockRecord(succPathFor(lockPath, t));
+    const s = io.readRecord(succPathFor(lockPath, t));
     if (s === "absent") return "retry"; // chain already settled
     if (s === "corrupt" || s.target !== g) return lockDenied("dead-undecidable");
-    const live = classifyLiveness(s, self).verdict;
+    const live = io.classify(s, self);
     if (live !== "dead") return lockDenied(live === "live" ? "busy" : "dead-undecidable");
     t = s.token; // it died: succeed it
   }
@@ -950,13 +1059,14 @@ function succeedDeadToken(
  * opus `retire`: targeted removal (S) of exactly g (Lemma C), then purge the
  * now-inert SUCC files targeting g (I5), then publish a fresh token.
  */
-function retireDeadToken(
+export function retireDeadToken(
   prefix: string,
   lockPath: string,
   g: string,
-  self: SelfIdent
+  self: SelfIdent,
+  io: FenceElectionIo = UPGRADE_FENCE_IO
 ): PrefixLockLease | "retry" {
-  const cur = readLockRecord(lockPath);
+  const cur = io.readRecord(lockPath);
   if (cur === "corrupt") return lockDenied("dead-undecidable"); // keep our SUCC: fail closed
   if (cur !== "absent" && cur.token === g) {
     // Lemma C (targeted removal), hardened: re-read LOCK as the LAST step before the
@@ -966,12 +1076,12 @@ function retireDeadToken(
     // defense-in-depth that also holds under manual intervention / a fresh owner /
     // corruption appearing in this window: such a LOCK bears a different token (or is
     // corrupt) and is NEVER deleted — we only ever unlink a lock we still own.
-    const now = readLockRecord(lockPath);
+    const now = io.readRecord(lockPath);
     if (now === "corrupt") return lockDenied("dead-undecidable"); // keep our SUCC: fail closed
     if (now !== "absent" && now.token !== g) {
       // A different owner appeared in the window: our SUCC(g) is inert. Purge it and
       // retry against the new LOCK — never delete a lock we do not own.
-      purgeSuccession(prefix, lockPath, g);
+      purgeSuccession(prefix, lockPath, g, io);
       return "retry";
     }
     if (now !== "absent") {
@@ -990,23 +1100,45 @@ function retireDeadToken(
     // now === "absent": g already removed by someone else; fall through to publish.
   }
   // From here LOCK != g forever (I2): every SUCC targeting g is inert.
-  purgeSuccession(prefix, lockPath, g); // unlink SUCC files whose target === g
+  purgeSuccession(prefix, lockPath, g, io); // unlink SUCC files whose target === g
   const tok = newToken();
-  const pub = publishLockRecord(lockPath, makeLockRecFor(self, tok));
-  if (pub.status === "ok") return makeLease(prefix, lockPath, tok);
+  const pub = io.publish(lockPath, io.makeRec(self, tok));
+  if (pub.status === "ok") return makeLease(prefix, lockPath, tok, io);
   if (pub.status === "exists" || pub.status === "retry") return "retry";
   return lockDenied(`error:${pub.code}`);
 }
+
+/** Serializer/reader/classifier/publisher bindings for the ONE election engine. */
+export interface FenceElectionIo {
+  /** Record serializer for LOCK and SUCC publications of this protocol. */
+  makeRec(self: SelfIdent, token: string, target?: string): LockRec;
+  /** Chain-link reader; anything unreadable or unknown fails closed as "corrupt". */
+  readRecord(path: string): LockRec | "absent" | "corrupt";
+  /** Protocol-selected liveness classifier (verdict only). */
+  classify(r: LockHolder, self: SelfIdent): Liveness;
+  /** Publication primitive (tmp + link, or the protocol's qualified fallback). */
+  publish(path: string, rec: LockRec): PublishStatus;
+}
+
+export type { Liveness };
+
+/** The upgrade prefix lock's exact bindings (its 0.98.5 behavior). */
+export const UPGRADE_FENCE_IO: FenceElectionIo = {
+  makeRec: makeLockRecFor,
+  readRecord: readLockRecord,
+  classify: (r, self) => classifyLiveness(r, self).verdict,
+  publish: publishLockRecord
+};
 
 /**
  * opus `lease`: conditional release — unlink only when LOCK == tok (I2/Lemma
  * A: while we live, LOCK == tok is stable). Runs on process exit too.
  */
-function makeLease(prefix: string, lockPath: string, token: string): PrefixLockLease {
+export function makeLease(prefix: string, lockPath: string, token: string, io: FenceElectionIo = UPGRADE_FENCE_IO): PrefixLockLease {
   let done = false;
   const stillHeld = (): boolean => {
     if (done) return false;
-    const cur = readLockRecord(lockPath);
+    const cur = io.readRecord(lockPath);
     return cur !== "absent" && cur !== "corrupt" && cur.token === token;
   };
   const release = (): void => {
@@ -1017,7 +1149,7 @@ function makeLease(prefix: string, lockPath: string, token: string): PrefixLockL
     } catch {
       // best-effort
     }
-    const cur = readLockRecord(lockPath);
+    const cur = io.readRecord(lockPath);
     if (cur !== "absent" && cur !== "corrupt" && cur.token === token) {
       try {
         unlinkSync(lockPath); // (R) safe: LOCK == tok stable while we live
@@ -1037,7 +1169,12 @@ function makeLease(prefix: string, lockPath: string, token: string): PrefixLockL
 }
 
 /** Unlink SUCC files whose target === g (called only when LOCK != g can hold). */
-function purgeSuccession(prefix: string, lockPath: string, g: string): void {
+export function purgeSuccession(
+  prefix: string,
+  lockPath: string,
+  g: string,
+  io: FenceElectionIo = UPGRADE_FENCE_IO
+): void {
   let names: string[];
   try {
     names = readdirSync(prefix);
@@ -1049,7 +1186,7 @@ function purgeSuccession(prefix: string, lockPath: string, g: string): void {
     if (!n.startsWith(`${base}.succ.`)) continue;
     if (n.includes(".tmp.")) continue; // C2: never treat a tmp as a SUCC record
     const full = join(prefix, n);
-    const rec = readLockRecord(full);
+    const rec = io.readRecord(full);
     if (rec !== "absent" && rec !== "corrupt" && rec.target === g) {
       try {
         unlinkSync(full);

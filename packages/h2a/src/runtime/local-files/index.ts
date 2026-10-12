@@ -53,6 +53,24 @@ export {
 } from "./locks.js";
 
 export {
+  IDENTITY_BINDING_FENCE_PROTOCOL,
+  attestBindingsTailDurable,
+  identityFsQualified,
+  identitySelf,
+  neutralizeBindingsTail,
+  readIdentityLock,
+  withIdentityFence,
+  withIdentityFenceSync,
+  IdentityLockTimeoutError,
+  type IdentityFenceLease,
+  type IdentityFenceOptions,
+  type IdentityLockDiagnostic,
+  type IdentityLockRec,
+  type IdentityLockRead,
+  type TailNeutralized
+} from "./identity-fence.js";
+
+export {
   withLease,
   withLeaseSync,
   tryAcquireLease,
