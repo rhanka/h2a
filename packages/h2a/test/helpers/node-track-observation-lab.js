@@ -16,6 +16,7 @@ export function observeNodeTrackEntry(source, repoRoot) {
     writeFileSync(join(root, track), '')
     writeFileSync(join(root, 'scripts/test-inventory.json'), JSON.stringify(Object.fromEntries([...files, track].map((file) => [file, ['required execution']]))))
     writeFileSync(join(root, 'scripts/test-skip-exceptions.json'), '[]')
+    writeFileSync(join(root, 'scripts/test-non-tests-0986.json'), JSON.stringify({ schemaVersion: 1, release: '0.98.6', entries: [] }))
     const markers = join(root, 'observed.json')
     let copy = source
     for (const module of ['test-execution-evidence', 'test-inventory']) copy = copy.replace(`"./${module}.mjs"`, JSON.stringify(pathToFileURL(resolve(repoRoot, `scripts/${module}.mjs`)).href))

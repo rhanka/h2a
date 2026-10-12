@@ -50,6 +50,7 @@ export function verifyExecutionReport(report, requiredFiles, policy = {}) {
   const required = new Set(requiredFiles.map(identityPath))
   if (required.size !== requiredFiles.length) failures.push('duplicate required file identity')
   const files = new Map()
+  const nonTests = (policy.declaredNonTests ?? []).filter(entry => required.has(identityPath(entry.file)))
   const counts = { passed: 0, failed: 0, skipped: 0, todo: 0 }
   const passedNames = []
   if (report.success === false || report.numFailedTestSuites > 0 || report.unhandledErrors?.length) failures.push('the report records suite or unhandled errors')
@@ -74,7 +75,7 @@ export function verifyExecutionReport(report, requiredFiles, policy = {}) {
       if (status === 'passed' || status === 'failed') executed++
       if (status === 'passed') passedNames.push(name)
       if (status === 'failed') failures.push(`${file} :: ${name}: failed assertion`)
-      if (status !== 'passed' && status !== 'failed' && !policy.allowedSkips?.some((entry) =>
+      if (status !== 'passed' && status !== 'failed' && ![...(policy.allowedSkips ?? []), ...nonTests].some((entry) =>
         identityPath(entry.file) === file && entry.fullName === name && entry.status === status)) {
         failures.push(`${file} :: ${name}: status "${status}" is not an authorized test result`)
       }
@@ -85,6 +86,14 @@ export function verifyExecutionReport(report, requiredFiles, policy = {}) {
     }
   }
   for (const file of required) if (!files.has(file)) failures.push(`${file}: NEVER EXECUTED`)
+  for (const entry of nonTests) {
+    const file = identityPath(entry.file)
+    const observed = files.get(file)?.assertionResults?.find(assertion => assertion.fullName === entry.fullName)
+    if (!observed) failures.push(`${file} :: ${entry.fullName}: declared non-test disappeared`)
+    else if (observed.status !== entry.status) {
+      failures.push(`${file} :: ${entry.fullName}: declared non-test changed status from "${entry.status}" to "${observed.status}"; review the versioned declaration`)
+    }
+  }
   for (const requiredTitle of policy.requiredTitles ?? []) {
     const titles = Array.isArray(requiredTitle) ? requiredTitle : [requiredTitle]
     if (!titles.some((title) => passedNames.some((name) => name === title || name.endsWith(' ' + title)))) failures.push(`${titles.join(' / ')}: normative scenario absent or not passed`)
