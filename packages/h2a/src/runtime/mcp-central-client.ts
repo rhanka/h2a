@@ -49,6 +49,7 @@ export async function bridgeCentralMcpStdio(options: CentralMcpStdioBridgeOption
   if (marker.endpoint !== parseCentralMcpEndpoint(options.endpoint)) throw new Error("central MCP marker does not match requested endpoint");
   let sessionId: string | undefined;
   let initialize: Rpc | undefined;
+  let initializing: Promise<void> | undefined;
   let broken = false;
   let recovering: Promise<void> | undefined;
   let stopped = false;
@@ -191,7 +192,13 @@ export async function bridgeCentralMcpStdio(options: CentralMcpStdioBridgeOption
       return;
     }
     active++;
-    void forward(message).finally(() => { active--; });
+    // The peeked initialize and its pipelined tail may share one stdio chunk.
+    // Establish its HTTP session before forwarding the tail, so it cannot
+    // allocate a second attachment while initialization is still in flight.
+    const pending = message.method === "initialize"
+      ? (initializing = forward(message))
+      : (initializing ?? Promise.resolve()).then(() => forward(message));
+    void pending.finally(() => { active--; });
   });
   await new Promise<void>(resolve => { reader.once("close", resolve); if (stopped) resolve(); });
   stop();
