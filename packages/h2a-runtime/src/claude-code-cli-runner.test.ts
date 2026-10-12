@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { EventEmitter } from "node:events";
-import { chmodSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PassThrough } from "node:stream";
@@ -685,6 +685,51 @@ describe("claude-code-cli-runner (protocol)", () => {
       { type: "text_delta", text: "Hi there!" },
       { type: "result", finishReason: "stop" },
     ]);
+  });
+
+  it("sweeps stale dead orphans at runner start", async () => {
+    const staleDir = join(RUNNER_SCRATCH, "run-stale-orphan");
+    mkdirSync(staleDir, { recursive: true });
+    writeFileSync(
+      join(staleDir, "run-meta.json"),
+      JSON.stringify({ pid: 99999996, createdAt: Date.now() - 600_000 }),
+    );
+
+    const mockChild = createMockChild();
+    const spawnFn = vi.fn(() => {
+      setTimeout(() => {
+        mockChild.stdout.write(
+          JSON.stringify({
+            type: "assistant",
+            message: { content: [{ type: "text", text: "fresh" }] },
+          }) + "\n",
+        );
+        mockChild.stdout.write(
+          JSON.stringify({ type: "result", subtype: "success", is_error: false }) + "\n",
+        );
+        mockChild.emit("close", 0);
+      }, 10);
+      return mockChild;
+    });
+    const runner = new OfficialClaudeCodeCliRunner({
+      ...qualifiedOptions,
+      spawnFn: spawnFn as any,
+    });
+
+    const events = [];
+    for await (const event of runner.run({
+      access: fakeAccess,
+      request: fakeRequest,
+      signal: new AbortController().signal,
+    })) {
+      events.push(event);
+    }
+
+    expect(events).toEqual([
+      { type: "text_delta", text: "fresh" },
+      { type: "result", finishReason: "stop" },
+    ]);
+    expect(existsSync(staleDir)).toBe(false);
   });
 
   it("abort kills a real silent child before any output", async () => {
