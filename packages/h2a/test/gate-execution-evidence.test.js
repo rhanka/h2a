@@ -11,7 +11,8 @@ import { verifyExecutionReport, discoverSuites, readInventory, readTrainRequirem
 import { configContractFailures } from '../../../scripts/test-config-contract.mjs'
 import { releaseContractFailures } from '../../../scripts/release-workflow-contract.mjs'
 import { declaredTests, declarationFailures } from '../../../scripts/test-inventory.mjs'
-import { runGates, verifyRuntimeExecution } from '../../../scripts/run-test-gates.mjs'
+import { runGates, verifyRuntimeExecution, listRuntimeSuiteFiles } from '../../../scripts/run-test-gates.mjs'
+import { listNodeTrackSuiteFiles } from '../../../scripts/run-tests.mjs'
 import { observeNodeTrackEntry } from './helpers/node-track-observation-lab.js'
 import { observeSmoke } from './helpers/smoke-observation-lab.js'
 import nodeEvidenceReporter from '../../../scripts/node-evidence-reporter.mjs'
@@ -197,4 +198,15 @@ test('A03: the 0.98.5 candidate requires the named spec scenarios independently 
     const file=join(lab,'a.test.ts')
     assert.equal(verifyExecutionReport(report(file),[file],{requiredTitles:required.titles.map((entry)=>entry.anyOf)}).length,29)
   } finally {fs.rmSync(lab,{recursive:true,force:true})}
+})
+
+test('train scenarios must be declared inside the gate assigned to execute them', () => {
+  const declarations = Object.fromEntries([
+    ['node', listNodeTrackSuiteFiles()], ['runtime', listRuntimeSuiteFiles()],
+  ].map(([scope, files]) => [scope, files.flatMap(file =>
+    declaredTests(fs.readFileSync(file, 'utf8'), file).map(test => test.fullName))]))
+  const misplaced = readTrainRequirements(repo).titles.filter(entry =>
+    !entry.anyOf.some(title => declarations[entry.scope]?.some(name =>
+      name === title || name.endsWith(' ' + title))))
+  assert.deepEqual(misplaced, [], 'every required scenario must be satisfiable by its assigned execution report')
 })

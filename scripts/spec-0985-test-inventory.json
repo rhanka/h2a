@@ -29,7 +29,7 @@
       ]
     },
     {
-      "scope": "runtime",
+      "scope": "node",
       "anyOf": [
         "should reclaim a persistent stale socket through its machine-attributed previous-boot sidecar"
       ]
@@ -42,13 +42,13 @@
       ]
     },
     {
-      "scope": "runtime",
+      "scope": "node",
       "anyOf": [
         "should not block the cold path on an unattributed pre-0.98.5 sidecar"
       ]
     },
     {
-      "scope": "runtime",
+      "scope": "node",
       "anyOf": [
         "should admit no second owning host over a live host that lost its pathname, under concurrent starts"
       ]
@@ -57,7 +57,8 @@
       "scope": "runtime",
       "anyOf": [
         "should refuse publication when a dead-classified sidecar coexists with a live current-boot row",
-        "should refuse a machine-attributed previous-boot sidecar when a CURRENT-boot row is alive"
+        "should refuse a machine-attributed previous-boot sidecar when a CURRENT-boot row is alive",
+        "ENDPOINT_ABSENCE_REFUSES_WHEN_A_STALE_BOOT_SIDECAR_MEETS_A_LIVE_CURRENT_BOOT_ROW"
       ]
     },
     {
