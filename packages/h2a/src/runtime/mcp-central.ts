@@ -19,7 +19,7 @@ import { monitorEventLoopDelay } from "node:perf_hooks";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { realpathSync, statSync } from "node:fs";
 
-import { StreamableHTTPTransport } from "@hono/mcp";
+import { StreamableHTTPTransport } from "./mcp/transport/streamable-http.js";
 import { serve } from "@hono/node-server";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import {
