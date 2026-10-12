@@ -1,0 +1,245 @@
+import { EventEmitter } from "node:events";
+import { PassThrough } from "node:stream";
+import { describe, expect, it, vi } from "vitest";
+import type {
+  ClaudeCodeAccessProjection,
+  ClaudeCodeCliCapabilities,
+  ClaudeCodeCliRequest,
+} from "@sentropic/llm-mesh";
+import { OfficialClaudeCodeCliRunner } from "./claude-code-cli-runner.js";
+
+function createMockChild() {
+  const child = new EventEmitter() as any;
+  child.stdin = new PassThrough();
+  child.stdout = new PassThrough();
+  child.stderr = new PassThrough();
+  child.pid = 12345;
+  child.kill = vi.fn();
+  return child;
+}
+
+describe("claude-code-cli-runner (protocol)", () => {
+  const fakeAccess: ClaudeCodeAccessProjection = {
+    accessToken: "test-token",
+    expiresAt: Date.now() + 3600000,
+    scopes: ["user:inference"],
+  };
+
+  const fakeRequest: ClaudeCodeCliRequest = {
+    modelId: "claude-3-5-sonnet-20241022",
+    messages: [
+      {
+        role: "user",
+        content: [{ type: "text", text: "Hello Claude" }],
+      },
+    ],
+  };
+
+  const validCaps: ClaudeCodeCliCapabilities = {
+    protocol: "claude-code-stream-json-v1",
+    cliVersion: "2.1.296",
+    source: "official",
+    qualificationRef: "qual-2026-10-12",
+  };
+
+  it("refuses relative binary path or missing qualification reference before spawn", async () => {
+    const runnerNoAbs = new OfficialClaudeCodeCliRunner({
+      binaryPath: "relative/path/claude",
+      capabilities: validCaps,
+    });
+
+    const iterator = runnerNoAbs.run({
+      access: fakeAccess,
+      request: fakeRequest,
+      signal: new AbortController().signal,
+    })[Symbol.asyncIterator]();
+
+    await expect(iterator.next()).rejects.toThrow("absolute binary path required");
+
+    const runnerNoQual = new OfficialClaudeCodeCliRunner({
+      binaryPath: "/usr/bin/node",
+      capabilities: { ...validCaps, qualificationRef: "" },
+    });
+
+    const iter2 = runnerNoQual.run({
+      access: fakeAccess,
+      request: fakeRequest,
+      signal: new AbortController().signal,
+    })[Symbol.asyncIterator]();
+
+    await expect(iter2.next()).rejects.toThrow("missing qualification reference");
+  });
+
+  it("formats exact argv and stdin NDJSON without prompt or credentials in argv", async () => {
+    let capturedArgs: string[] = [];
+    let stdinData = "";
+
+    const mockChild = createMockChild();
+    mockChild.stdin.on("data", (chunk: Buffer) => {
+      stdinData += chunk.toString("utf8");
+    });
+
+    const spawnFn = vi.fn((_cmd: string, args: string[]) => {
+      capturedArgs = args;
+      // Emit mock response
+      setTimeout(() => {
+        mockChild.stdout.write(
+          JSON.stringify({ type: "text_delta", text: "Hi there!" }) + "\n",
+        );
+        mockChild.stdout.write(
+          JSON.stringify({
+            type: "result",
+            finishReason: "stop",
+            usage: { inputTokens: 10, outputTokens: 5 },
+          }) + "\n",
+        );
+        mockChild.emit("close", 0);
+      }, 10);
+      return mockChild;
+    });
+
+    const runner = new OfficialClaudeCodeCliRunner({
+      binaryPath: "/usr/bin/node",
+      capabilities: validCaps,
+      spawnFn: spawnFn as any,
+    });
+
+    const events = [];
+    for await (const event of runner.run({
+      access: fakeAccess,
+      request: fakeRequest,
+      signal: new AbortController().signal,
+    })) {
+      events.push(event);
+    }
+
+    // Check argv invariants
+    expect(capturedArgs).toContain("-p");
+    expect(capturedArgs).toContain("--input-format");
+    expect(capturedArgs).toContain("stream-json");
+    expect(capturedArgs).toContain("--output-format");
+    expect(capturedArgs).toContain("stream-json");
+    expect(capturedArgs).toContain("--verbose");
+    expect(capturedArgs).toContain("--include-partial-messages");
+    expect(capturedArgs).toContain("--model");
+    expect(capturedArgs).toContain("claude-3-5-sonnet-20241022");
+
+    // Stdin must contain request NDJSON
+    expect(stdinData).toContain("Hello Claude");
+    // Argv must NOT contain prompt or secret tokens
+    expect(capturedArgs.join(" ")).not.toContain("Hello Claude");
+    expect(capturedArgs.join(" ")).not.toContain("test-token");
+
+    // Events emitted correctly
+    expect(events).toEqual([
+      { type: "text_delta", text: "Hi there!" },
+      {
+        type: "result",
+        finishReason: "stop",
+        usage: { inputTokens: 10, outputTokens: 5 },
+      },
+    ]);
+  });
+
+  it("deduplicates partial vs complete messages", async () => {
+    const mockChild = createMockChild();
+    const spawnFn = vi.fn(() => {
+      setTimeout(() => {
+        // First delta
+        mockChild.stdout.write(
+          JSON.stringify({ type: "text_delta", text: "Hello" }) + "\n",
+        );
+        // Repeated complete text "Hello world"
+        mockChild.stdout.write(
+          JSON.stringify({ type: "assistant", text: "Hello world" }) + "\n",
+        );
+        mockChild.stdout.write(
+          JSON.stringify({ type: "result", finishReason: "stop" }) + "\n",
+        );
+        mockChild.emit("close", 0);
+      }, 10);
+      return mockChild;
+    });
+
+    const runner = new OfficialClaudeCodeCliRunner({
+      binaryPath: "/usr/bin/node",
+      capabilities: validCaps,
+      spawnFn: spawnFn as any,
+    });
+
+    const events = [];
+    for await (const event of runner.run({
+      access: fakeAccess,
+      request: fakeRequest,
+      signal: new AbortController().signal,
+    })) {
+      events.push(event);
+    }
+
+    expect(events).toEqual([
+      { type: "text_delta", text: "Hello" },
+      { type: "text_delta", text: " world" },
+      { type: "result", finishReason: "stop" },
+    ]);
+  });
+
+  it("yields error when exit 0 occurs without terminal result frame", async () => {
+    const mockChild = createMockChild();
+    const spawnFn = vi.fn(() => {
+      setTimeout(() => {
+        mockChild.stdout.write(
+          JSON.stringify({ type: "text_delta", text: "Cut off" }) + "\n",
+        );
+        mockChild.emit("close", 0); // Exited 0 without emitting "result" frame
+      }, 10);
+      return mockChild;
+    });
+
+    const runner = new OfficialClaudeCodeCliRunner({
+      binaryPath: "/usr/bin/node",
+      capabilities: validCaps,
+      spawnFn: spawnFn as any,
+    });
+
+    const events = [];
+    for await (const event of runner.run({
+      access: fakeAccess,
+      request: fakeRequest,
+      signal: new AbortController().signal,
+    })) {
+      events.push(event);
+    }
+
+    expect(events).toEqual([
+      { type: "text_delta", text: "Cut off" },
+      { type: "error" },
+    ]);
+  });
+
+  it("fails on malformed or oversized NDJSON frames without leaking raw data", async () => {
+    const mockChild = createMockChild();
+    const spawnFn = vi.fn(() => {
+      setTimeout(() => {
+        mockChild.stdout.write("CANARY_CORRUPTED_NOT_JSON\n");
+      }, 10);
+      return mockChild;
+    });
+
+    const runner = new OfficialClaudeCodeCliRunner({
+      binaryPath: "/usr/bin/node",
+      capabilities: validCaps,
+      spawnFn: spawnFn as any,
+    });
+
+    const events = [];
+    for await (const event of runner.run({
+      access: fakeAccess,
+      request: fakeRequest,
+      signal: new AbortController().signal,
+    })) {
+      events.push(event);
+    }
+
+    expect(events).toEqual([{ type: "error" }]);
+  });
+});

@@ -130,3 +130,28 @@ it("never reaches legacy pool, auth resolver or dispatch ports on routed request
     for (const spy of spies) expect(spy).not.toHaveBeenCalled();
   } finally { for (const spy of spies) spy.mockRestore(); }
 });
+
+it("fails before serving when Claude seat host composition is unqualified", async () => {
+  const app = await createLocalGatewayApp();
+  const session = await app.request("/v1/session", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ sessionId: "unqualified-claude-session" }),
+  });
+  const { gatewayToken } = await session.json() as { gatewayToken: string };
+
+  const response = await app.request("/v1/messages", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-api-key": gatewayToken,
+    },
+    body: JSON.stringify({
+      model: "claude-3-5-sonnet-20241022",
+      messages: [{ role: "user", content: "hello" }],
+    }),
+  });
+
+  // Without a qualified Claude seat candidate, routing fails safely before serving without crash
+  expect([404, 503]).toContain(response.status);
+});
