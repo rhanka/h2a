@@ -119,7 +119,7 @@ export const schemas = {
     delegatedBuildId: text, targetManifestDigest: hash, delegatedControllerIdentity: identity,
     ticketNonce: text, expiresAt: positive }),
   manifest: versioned({ packageVersion: text, buildId: text, profile: object({ platform: literal('linux'),
-    arch: choice('x64', 'arm64'), libc: literal('glibc'), nodeMajor: choice(20, 22), nodeAbi: text }),
+    arch: choice('x64', 'arm64'), libc: literal('glibc'), nodeMajor: choice(22, 24), nodeAbi: text }),
     entrypoints: record(relative), startupWaitBudgetMs: { ...integer, minimum: 10000, maximum: 60000 },
     maxAttachments: positive, files: list(object({ path: relative, type: choice('file', 'symlink', 'directory'),
     mode: integer, digest: nullable(hash), target: nullable(relative) })),
