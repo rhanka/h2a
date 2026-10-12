@@ -1,0 +1,153 @@
+import assert from 'node:assert/strict'
+import * as fs from 'node:fs'
+import { EventEmitter, once } from 'node:events'
+import { createHash } from 'node:crypto'
+import { join, dirname, resolve } from 'node:path'
+import { tmpdir } from 'node:os'
+import { fileURLToPath, pathToFileURL } from 'node:url'
+import { createRequire } from 'node:module'
+
+// Execute the smoke's complete orchestration. Only OS/packaged dependencies
+// are simulated. Assertions below observe their effects, not source tokens.
+export async function observeSmoke(source, scriptPath, options = {}) {
+  const root = fs.mkdtempSync(join(tmpdir(), 'smoke-observation-'))
+  const observations = { packed: [], installed: [], seeded: false, faults: [], closed: false, ptys: [], pruned: false, pings: [] }
+  const children = new Map()
+  const prebuilt = join(root, 'candidate-tarballs')
+  if (options.prebuilt) {
+    fs.mkdirSync(prebuilt)
+    for (const name of ['h2a', 'h2a-runtime', 'h2a-cli']) fs.writeFileSync(join(prebuilt, `sentropic-${name}-0.98.5.tgz`), `prebuilt candidate ${name}`)
+  }
+  const nodeRequire = createRequire(import.meta.url)
+  let resolvedManifest
+  let polls = 0
+  const fakeProcess = { ...process, argv: ['node', scriptPath, ...(options.prebuilt ? ['--tarballs', prebuilt] : [])], execPath: process.execPath,
+    env: { HOME: root, XDG_RUNTIME_DIR: root }, exit: (code) => { throw new Error(`premature exit ${code}`) } }
+  const spawnSync = (command, args, spawnOptions) => {
+    if (command === 'npm' && args[0] === 'pack') {
+      const pkg = args[2], staging = args[4]
+      observations.packed.push(pkg)
+      fs.writeFileSync(join(staging, pkg.replace('@', '').replace('/', '-') + '-0.98.5.tgz'), pkg)
+    } else if (command === 'npm' && args[0] === 'install') {
+      const prefix = args[2]
+      observations.installed = args.slice(5)
+      const dist = join(prefix, 'node_modules/@sentropic/h2a-runtime/dist')
+      fs.mkdirSync(join(dist, 'native-terminal'), { recursive: true })
+      for (const name of ['process.js', 'client.js', 'op.js']) fs.writeFileSync(join(dist, 'native-terminal', name), '')
+      resolvedManifest = join(dirname(dist), 'package.json')
+      fs.writeFileSync(resolvedManifest, JSON.stringify({ version: options.loadedVersion ?? '0.98.5' }))
+    } else if (args[0] === '-p') return { status: 0, stdout: resolvedManifest, stderr: '' }
+    else if (args[1] === 'host-stop') {
+      const child = children.get(args[3])
+      child.exitCode = 0
+      queueMicrotask(() => child.emit('exit', 0))
+    } else throw new Error(`unexpected command ${command} ${args}`)
+    return { status: 0, stdout: '', stderr: '' }
+  }
+  const spawn = (command, args, options) => {
+    const child = new EventEmitter()
+    child.pid = 500 + children.size
+    child.exitCode = null; child.signalCode = null
+    child.stdout = new EventEmitter(); child.stderr = new EventEmitter()
+    child.stderr.destroy = () => {
+      assert.ok(observations.ptys.includes('smoke-exit'), 'stderr must close after the live session was created')
+      assert.equal(polls, 0, 'stderr must close before the prune observation')
+      child.stderr.destroyed = true; observations.closed = true
+    }
+    child.kill = () => { child.exitCode = 1; queueMicrotask(() => child.emit('exit', 1)) }
+    child.generation = args[4]
+    child.registry = args[6]
+    children.set(args[2], child)
+    if (child.generation === 'smoke-cold') {
+      const row = JSON.parse(fs.readFileSync(child.registry, 'utf8')).entries[0]
+      observations.seeded = row?.pgidBootId === '1f0e3d99-c948-4a67-8b11-2c5b7a9d0001' && row.pgidMachineId === 'a'.repeat(32) && row.pgidPidNamespace === '4026531836'
+    }
+    queueMicrotask(() => child.stdout.emit('data', 'h2a.native-terminal.ready'))
+    return child
+  }
+  const NativeTerminalClient = { connect: async (socket) => {
+    const host = children.get(socket)
+    return {
+      ping: async () => {
+        observations.pings.push(host.generation)
+        const changed = (options.changedIdentity === 'client' && host.generation === 'smoke-cold' && observations.faults.length > 0) ||
+          (options.changedIdentity === 'stderr' && host.generation === 'smoke-stderr' && observations.closed)
+        return { hostPid: changed ? host.pid + 1 : host.pid, generation: changed ? 'replacement-host' : host.generation }
+      },
+      close: () => {},
+      create: async (request) => {
+        observations.ptys.push(request.id)
+        if (request.id === 'smoke-exit') {
+          fs.writeFileSync(host.registry, JSON.stringify({ entries: [{ id: 'native-terminal-pty:smoke-exit' }] }))
+        } else if (request.id !== options.omitMarker) {
+          // The actual command requested from the PTY writes the marker.
+          const run = new Function('require', request.args[1])
+          run(nodeRequire)
+        }
+      },
+    }
+  } }
+  const registryReader = {
+    loadRegistry: async (path) => {
+      const host = [...children.values()].find((child) => child.registry === path)
+      if (polls++ > 0 && host.stderr.destroyed) {
+        observations.pruned = true
+        fs.writeFileSync(path, JSON.stringify({ entries: [] }))
+      }
+      return { state: 'ok', entries: JSON.parse(fs.readFileSync(path, 'utf8')).entries, unreadable: [] }
+    },
+    unreadableRowsForTarget: () => [],
+  }
+  const loadModule = async (url) => {
+    if (url.endsWith('/client.js')) return { NativeTerminalClient }
+    if (url.endsWith('/registry.js')) return registryReader
+    if (url === 'node:fs/promises') return { readlink: async () => 'pid:[4026531836]' }
+    throw new Error(`unexpected module ${url}`)
+  }
+  const readFileSync = (path, encoding) => {
+    if (String(path).endsWith('/packages/h2a-runtime/package.json')) return JSON.stringify({ version: '0.98.5' })
+    if (path === '/proc/sys/kernel/random/boot_id') return 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+    if (path === '/etc/machine-id') return 'a'.repeat(32)
+    return fs.readFileSync(path, encoding)
+  }
+  const createConnection = (socket) => {
+    assert.ok(children.has(socket), 'fault must target the packaged host under test')
+    const faulty = new EventEmitter()
+    faulty.write = (bytes) => { observations.faults.push(bytes); queueMicrotask(() => faulty.emit('close')) }
+    queueMicrotask(() => {
+      if (options.failConnect) { faulty.emit('error', new Error('fault connection refused')); faulty.emit('close') }
+      else faulty.emit('connect')
+    })
+    return faulty
+  }
+  // Keep timers real enough for stream ordering, bounded and local.
+  const timer = (fn, ms) => setTimeout(fn, Math.min(ms, 10))
+  const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor
+  const code = source.replace(/^#!.*\n/, '').replace(/^import[\s\S]*?from ['"][^'"]+['"]\s*;?\s*$/gm, '')
+    .replaceAll('import.meta.url', JSON.stringify(pathToFileURL(scriptPath).href))
+    .replace(/\bimport\(/g, 'loadModule(')
+    .replaceAll('20_000', '200').replaceAll('30_000', '200')
+  const deps = { spawn, spawnSync, createConnection, once, existsSync: (path) => path === '/etc/machine-id' || fs.existsSync(path),
+    mkdirSync: fs.mkdirSync, mkdtempSync: (prefix) => fs.mkdtempSync(join(root, prefix.split('/').at(-1))),
+    readFileSync, readdirSync: fs.readdirSync, rmSync: fs.rmSync, writeFileSync: fs.writeFileSync,
+    tmpdir: () => root, dirname, join, resolve, fileURLToPath, pathToFileURL, createHash,
+    process: fakeProcess, loadModule, setTimeout: timer, clearTimeout, console: { log: () => {} } }
+  try {
+    await new AsyncFunction(...Object.keys(deps), code)(...Object.values(deps))
+    assert.deepEqual(observations.packed.sort(), options.prebuilt ? [] : ['@sentropic/h2a', '@sentropic/h2a-cli', '@sentropic/h2a-runtime'])
+    assert.equal(observations.installed.length, 3)
+    for (const name of ['h2a', 'h2a-runtime', 'h2a-cli']) assert.ok(observations.installed.some((path) => path.startsWith(root + '/') && path.endsWith(`sentropic-${name}-0.98.5.tgz`)), `candidate ${name} must be installed from its local tarball`)
+    if (options.prebuilt) for (const name of ['h2a', 'h2a-runtime', 'h2a-cli']) {
+      const path = join(prebuilt, `sentropic-${name}-0.98.5.tgz`)
+      assert.ok(observations.installed.includes(path), 'smoke must install the workflow-built bytes')
+      assert.equal(fs.readFileSync(path, 'utf8'), `prebuilt candidate ${name}`, 'the provided tarballs must be preserved')
+    }
+    assert.equal(observations.seeded, true, 'cold-boot previous-boot row was not observed')
+    assert.deepEqual(observations.faults, ['this is not a frame at all\n', '\x00\x01\x02garbage'], 'faulty client bytes were not injected')
+    assert.equal(observations.closed, true, 'stderr reader was not closed')
+    assert.equal(observations.pruned, true, 'post-close prune was not observed')
+    assert.deepEqual(observations.ptys, ['smoke-pty', 'smoke-pty-after-fault', 'smoke-exit', 'smoke-pty-after-stderr-fault'])
+    assert.deepEqual(observations.pings, ['smoke-cold', 'smoke-cold', 'smoke-stderr', 'smoke-stderr'])
+    return observations
+  } finally { fs.rmSync(root, { recursive: true, force: true }) }
+}
