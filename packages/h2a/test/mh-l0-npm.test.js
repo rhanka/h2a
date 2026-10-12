@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readlinkSync, readFileSync, existsSync } from 'node:fs';
+import { join } from 'node:path';
 import { npmLab } from './helpers/mh-l0-npm-lab.js';
 import { observeEntry, checkEntry } from '../src/runtime/handover/entry.js';
 
@@ -8,21 +9,24 @@ test('BX/U09 foundation: npm replaces a registered managed entry; all canonical-
   const lab = await npmLab();
   try {
     assert.equal((await lab.npm('install', '-g', lab.tarballs['0.98.7'], '--offline')).code, 0);
-    for (const [action, args] of [
-      ['upgrade', ['install', '-g', lab.tarballs['0.98.8'], '--offline']],
-      ['downgrade', ['install', '-g', lab.tarballs['0.98.6'], '--offline']],
-      ['reinstall', ['install', '-g', lab.tarballs['0.98.7'], '--offline']],
-      ['update', ['update', '-g', '@sentropic/h2a', '--registry', lab.registry]],
-      ['force', ['install', '-g', lab.tarballs['0.98.8'], '--offline', '--force']],
-      ['uninstall', ['uninstall', '-g', '@sentropic/h2a', '--offline']]
+    for (const [action, args, expectedVersion] of [
+      ['upgrade', ['install', '-g', lab.tarballs['0.98.8'], '--offline'], '0.98.8'],
+      ['downgrade', ['install', '-g', lab.tarballs['0.98.6'], '--offline'], '0.98.6'],
+      ['reinstall', ['install', '-g', lab.tarballs['0.98.7'], '--offline'], '0.98.7'],
+      ['update', ['update', '-g', '@sentropic/h2a', '--registry', lab.registry], '0.98.8'],
+      ['force', ['install', '-g', lab.tarballs['0.98.8'], '--offline', '--force'], '0.98.8'],
+      ['uninstall', ['uninstall', '-g', '@sentropic/h2a', '--offline'], null]
     ]) {
       assert.equal((await lab.npm('install', '-g', lab.tarballs['0.98.7'], '--offline', '--force')).code, 0);
       lab.adopt(); const expected = observeEntry(lab.link, lab.launcher);
       assert.equal(checkEntry(lab.link, expected, 'prepare').allowed, true);
       const result = await lab.npm(...args);
+      const packagePath = join(lab.prefix, 'lib/node_modules/@sentropic/h2a/package.json');
+      const installedVersion = existsSync(packagePath) ? JSON.parse(readFileSync(packagePath, 'utf8')).version : null;
       t.diagnostic(JSON.stringify({ action, code: result.code, stdout: result.stdout,
-        stderr: result.stderr, observedLink: existsSync(lab.link) ? readlinkSync(lab.link) : null }));
+        stderr: result.stderr, installedVersion, observedLink: existsSync(lab.link) ? readlinkSync(lab.link) : null }));
       assert.equal(result.code, 0, action);
+      assert.equal(installedVersion, expectedVersion, action);
       for (const phase of ['prepare', 'barrier', 'commit-stop']) {
         assert.deepEqual(checkEntry(lab.link, expected, phase),
           { allowed: false, phase, reason: 'external_install_detected' }, action);
