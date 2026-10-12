@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import YAML from "yaml";
 
 const workflow = readFileSync(new URL("../../../.github/workflows/release.yml", import.meta.url), "utf8");
 
@@ -51,12 +52,20 @@ test("release publishes are backfill-safe: a version below latest gets --tag bac
 });
 
 test("release workflow supports a backfill dispatch for an existing tag", () => {
-  assert.match(workflow, /workflow_dispatch:/, "release must be dispatchable for backfills");
-  assert.match(workflow, /backfill-version:/, "dispatch must take the tag version to backfill");
-  // Verify only gates real tag pushes; a backfill dispatch proceeds on the skipped verify.
-  assert.match(workflow, /if: github\.event_name == 'push'/, "verify must be gated to tag pushes");
-  assert.match(workflow, /needs\.verify\.result == 'skipped'/, "publish must proceed when verify is skipped (dispatch)");
-  // The dispatch checks out the requested tag and revalidates it is on main.
-  assert.match(workflow, /format\('v\{0\}', inputs\.backfill-version\)/, "dispatch checkout must target the requested tag");
-  assert.match(workflow, /Refusing publish: \$\{?tag\}? is not on origin\/main|Refusing publish: \$tag is not on origin\/main/, "dispatch must refuse tags not on main");
+  const parsed = YAML.parse(workflow);
+  assert.equal(parsed.on.workflow_dispatch.inputs["backfill-version"].required, true);
+  // R8.2/R8.4: backfill resolves once, verifies both legs, and publishes
+  // only the immutable SHA's verified artifact. Comments prove no behavior.
+  const verify = parsed.jobs.verify;
+  assert.equal(verify.if, undefined, "backfills must run verify too");
+  assert.equal(verify.needs, "resolve-release-sha");
+  assert.equal(verify.steps.find((step) => step.uses === "actions/checkout@v4").with.ref,
+    "${{ needs.resolve-release-sha.outputs.release-sha }}");
+  const publish = parsed.jobs.publish;
+  assert.equal(publish.needs, "verify");
+  assert.equal(publish.if, "${{ !cancelled() && !failure() && needs.verify.result == 'success' }}");
+  assert.equal(publish.steps.find((step) => step.uses === "actions/checkout@v4").with.ref,
+    "${{ needs.verify.outputs.release-sha }}");
+  const sanity = publish.steps.find((step) => step.name === "Version sanity gate (tag vs package.json)");
+  assert.match(sanity.run, /git merge-base --is-ancestor "\$release_sha" origin\/main/);
 });
