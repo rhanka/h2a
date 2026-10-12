@@ -26,6 +26,7 @@ import {
   formatLlmMeshAccountError,
   listAccountsViaFacade,
   removeAccountViaFacade,
+  sanitizeClaudeEnrollmentError,
 } from "./llm-mesh-accounts.js";
 
 vi.mock("node:child_process", () => ({ spawn: vi.fn() }));
@@ -886,6 +887,26 @@ describe("claude-code enrollment", () => {
       ownerScope: "cli:claude-owner-1",
     });
     expect(accountsAfterRemoval).toHaveLength(0);
+  });
+});
+
+describe("claude enrollment error boundary", () => {
+  it("keeps allowlisted static errors and collapses everything else", () => {
+    expect(
+      sanitizeClaudeEnrollmentError(new Error("Claude enrollment cancelled")).message,
+    ).toBe("Claude enrollment cancelled");
+  });
+
+  it("never surfaces mesh dynamic text carrying token fragments", () => {
+    const leaked = new Error(
+      "mesh store expired for user:inference: oauth_token sk-ant-canary " +
+        "https://auth.example/token?code=secret /var/lib/mesh/keyring.json " +
+        "Duplicate enrollment not found",
+    );
+    const sanitized = sanitizeClaudeEnrollmentError(leaked);
+    expect(sanitized.message).toBe("Claude enrollment failed");
+    expect(sanitized.message).not.toContain("sk-ant-canary");
+    expect(sanitized.message).not.toContain("auth.example");
   });
 });
 

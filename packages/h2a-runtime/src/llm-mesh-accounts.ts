@@ -127,23 +127,9 @@ export function sanitizeClaudeEnrollmentError(error: unknown): Error {
     }
   }
 
-  if (
-    message.includes("state mismatch") ||
-    message.includes("expired") ||
-    message.includes("Duplicate") ||
-    message.includes("already enrolled") ||
-    message.includes("Invalid profile") ||
-    message.includes("invalid-profile") ||
-    message.includes("missing refresh") ||
-    message.includes("user:inference") ||
-    message.includes("not found")
-  ) {
-    const sanitized = message
-      .replace(/https?:\/\/[^\s]+/g, "[redacted-url]")
-      .replace(/\/[\w./\\-]+/g, "[redacted-path]");
-    return new Error(sanitized);
-  }
-
+  // Strictly static beyond the allowlisted prefixes: dynamic mesh/storage
+  // text may carry token fragments or JSON, and no redactor can prove it
+  // does not. Public errors are allowlisted or the generic failure.
   return new Error("Claude enrollment failed");
 }
 
