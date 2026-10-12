@@ -40,7 +40,7 @@
 
 ## Lot 6 — Delivery
 - [x] Reconcile scope/evidence/review limitations; recalibrate MH-L1–MH-L8.
-- [ ] Push own branch fast-forward; write owner mhl0-report.md in French.
+- [x] Push own branch fast-forward; write owner mhl0-report.md in French.
 
 ## Feedback Loop
 - [x] Final .6 dist unavailable: audit source closure now; U13 byte qualification remains MH-L1/MH-L8.
