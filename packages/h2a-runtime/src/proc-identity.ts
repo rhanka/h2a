@@ -74,6 +74,57 @@ export function readBootId(): string | undefined {
   }
 }
 
+/**
+ * Read a process's start-time — Linux `/proc/<pid>/stat` field 22
+ * ("starttime", clock ticks since boot) — the pid-recycling-proof
+ * discriminant: two DIFFERENT processes that ever held the same pid cannot
+ * both report the same start-time (barring a read error), which is what
+ * makes "pid matches AND start-time matches" a safe proof of "still the
+ * same process", not just "some process now owns this pid".
+ *
+ * Parsing anchors on the LAST occurrence of the two-character sequence ") "
+ * rather than a naive whitespace split: field 2 (`comm`, the executable
+ * name) is parenthesized and CAN itself contain spaces and parentheses
+ * (e.g. a process named "node (pty host)"), which would shift every
+ * subsequent field under a plain split — silently reading the wrong number
+ * "most of the time" and breaking on the one process with a weird name. That
+ * would be a confident wrong answer, worse than no discriminant.
+ *
+ * After locating the split point, man(5) proc's field 3 ("state") is
+ * `rest[0]`; field 22 ("starttime") is therefore `rest[19]`.
+ *
+ * A mandatory sanity check follows: `starttime` (in clock ticks, USER_HZ=100
+ * on Linux) divided by 100 must not exceed the system's current uptime — a
+ * process cannot have started in the future relative to boot. If that check
+ * fails, the parse is treated as shifted/malformed and this function returns
+ * undefined (never answers from a mis-parsed field) rather than guessing.
+ *
+ * Returns undefined — never throws — on any read/parse failure or on a
+ * non-Linux platform (no /proc); callers must treat "unavailable" the same
+ * conservative way `posixProcessGroupReaper.isGroupAlive` treats EPERM: as
+ * "cannot prove", never as "prove me dead".
+ */
+export function readProcessStartTime(pid: number): number | undefined {
+  if (process.platform !== "linux") return undefined;
+  try {
+    const raw = readFileSync(`/proc/${pid}/stat`, "utf8");
+    const splitAt = raw.lastIndexOf(") ");
+    if (splitAt < 0) return undefined;
+    const rest = raw.slice(splitAt + 2).split(" ");
+    const starttime = Number(rest[19]);
+    if (!Number.isFinite(starttime) || starttime < 0) return undefined;
+    const uptimeRaw = readFileSync("/proc/uptime", "utf8");
+    const uptimeSeconds = Number(uptimeRaw.trim().split(/\s+/)[0]);
+    if (!Number.isFinite(uptimeSeconds) || starttime / 100 > uptimeSeconds) {
+      // Sanity check failed: refuse rather than answer from a shifted parse.
+      return undefined;
+    }
+    return starttime;
+  } catch {
+    return undefined;
+  }
+}
+
 /** Where machine-id(5) lives: systemd's path first, then the D-Bus fallback
  * that systems without systemd provide. */
 const MACHINE_ID_PATHS = ["/etc/machine-id", "/var/lib/dbus/machine-id"] as const;
