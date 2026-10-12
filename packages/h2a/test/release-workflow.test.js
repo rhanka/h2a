@@ -497,11 +497,9 @@ test("R8.1/R8.3/R8.4: the mandatory verify steps are UNCONDITIONAL — a disable
   // An `if:` on a verification step is one edit away from disabling the gate,
   // so NO step of verify may set one — not even `if: true`, which only looks
   // harmless until someone edits the condition.
-  // The matrix-scoped `if` on the pack step is legitimate (one leg packs;
-  // upload-artifact forbids duplicate names), so the pin targets exactly the
-  // steps whose skipping would silence a verification: trust root, npm test,
-  // packaged-artifact smoke. Everything verify claims to prove flows through
-  // those three.
+  // (The pack step is unconditional since the round-7 fix; the only remaining
+  // matrix-scoped `if` in verify is the single-leg upload, pinned exactly by
+  // the total-unconditionality test below.)
   const verify = job("verify");
   const mandatory = new Map([
     ["node --test packages/h2a/test/run-test-gates.test.js", "the trust root"],
@@ -516,6 +514,40 @@ test("R8.1/R8.3/R8.4: the mandatory verify steps are UNCONDITIONAL — a disable
       undefined,
       `the step running \`${run}\` (${what}) sets if: — one edit to \`if: false\` disables the gate while every structural assertion stays green`,
     );
+  }
+});
+
+test("R8/R8.4: EVERY step of the workflow is UNCONDITIONAL — the only sanctioned `if` is the single-leg upload", () => {
+  // Round-7 review finding P2: `if: false` on verify's setup-node kept every
+  // assertion above green — both legs then ran the runner's default Node
+  // while the matrix still claimed 20+22. The round-3 mandatory pin covered
+  // run-steps only; a `uses:` step (checkout, setup-node) or any other
+  // dependency (npm ci, the pack/checksums step) could be disabled with one
+  // `if:` line while the workflow kept reading green. The invariant is
+  // therefore STRUCTURAL and TOTAL: NO step of ANY job may carry an `if:`,
+  // with exactly one sanctioned exception — verify's single-leg upload
+  // (actions/upload-artifact forbids duplicate artifact names, and a missing
+  // upload fails publish's download step fail-closed; it cannot silently
+  // read green). The exception's condition is pinned exactly, so any other
+  // condition — including `if: false` — fails here.
+  for (const [id, job_] of Object.entries(WORKFLOW.jobs)) {
+    for (const step of job_.steps ?? []) {
+      const isVerifyUpload =
+        id === "verify" && String(step.uses ?? "").startsWith("actions/upload-artifact");
+      if (isVerifyUpload) {
+        assert.equal(
+          step.if,
+          "matrix.node == '22'",
+          "the single-leg upload condition is pinned exactly: any other condition can drop the artifact leg — and with it the bytes publish consumes — behind a green workflow",
+        );
+        continue;
+      }
+      assert.equal(
+        step.if,
+        undefined,
+        `the step "${step.name ?? step.run ?? step.uses}" of ${id} sets if: — one edit to \`if: false\` disables it while every structural assertion stays green (round-7 finding P2)`,
+      );
+    }
   }
 });
 
