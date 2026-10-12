@@ -1,5 +1,6 @@
 import type { ChildProcess } from "node:child_process";
 import { once } from "node:events";
+import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
 import { chmod, mkdir, mkdtemp, readFile, readdir, readlink, rm, stat, unlink, writeFile } from "node:fs/promises";
 import { createConnection, createServer } from "node:net";
 import { tmpdir } from "node:os";
@@ -15,6 +16,8 @@ import { persistNativeTerminalPgid, readNativeTerminalPgid } from "../registry.j
 import { NativeTerminalClient } from "./client.js";
 import {
   NATIVE_TERMINAL_FORCE_KILL_TIMEOUT_MS,
+  groupCarriesSessionToken,
+  groupIsOnlyZombies,
   NativeTerminalHost,
   readProcessStartTime,
   reconcileDeadHostOrphans,
@@ -28,6 +31,7 @@ import {
 import {
   NATIVE_TERMINAL_HEALTH_TIMEOUT_MS,
   NATIVE_TERMINAL_MAX_FRAME_BYTES,
+  type NativeTerminalStopSignal,
 } from "./protocol.js";
 
 const children = new Set<ChildProcess>();
@@ -207,6 +211,33 @@ function expectProcessGroupEmpty(processGroup: number): void {
     empty = true;
   }
   expect(empty, `process group ${processGroup} still has live members`).toBe(true);
+}
+
+/**
+ * A /proc-shaped view containing EXACTLY the processes this fixture started
+ * (round-4 confinement finding): one symlink per owned pid — the pin the
+ * isolation guard applies to guarded spawns, extended here to the PTY trees
+ * only this suite knows the pids of — plus the positively-described proc
+ * mount line the zombie census requires. The PRODUCTION group readers run
+ * unchanged against this root (real stat, real environ, real thread lists):
+ * only the enumeration is confined, and a dangling pin reads as ENOENT/ESRCH,
+ * exactly like a process that exited mid-scan.
+ */
+function createOwnedProcView(directory: string, pids: Iterable<number>): string {
+  const root = mkdtempSync(join(directory, "owned-proc-"));
+  mkdirSync(join(root, "self"), { recursive: true });
+  writeFileSync(
+    join(root, "self", "mountinfo"),
+    `54 46 0:25 / ${root} rw,nosuid,nodev,noexec,relatime shared:12 - proc proc rw\n`,
+  );
+  for (const pid of pids) {
+    try {
+      symlinkSync(`/proc/${pid}`, join(root, String(pid)));
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+    }
+  }
+  return root;
 }
 
 
@@ -636,6 +667,31 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
     process.kill(forcedReapPgid, "SIGKILL");
     supervisor.disconnect();
     process.kill(replacementPing.hostPid, "SIGSTOP");
+    // Confinement (round-4 finding): the forced reap reaches the
+    // leader-absent branch, whose DEFAULT group readers enumerate the GLOBAL
+    // /proc — a read of processes this test did not start. The reaps below
+    // still run the REAL NativeTerminalHost.reapOrphan (same group kill, same
+    // ESRCH confirmation, same counters and logs); only its group readers are
+    // confined to a view holding exactly the fixture's own processes.
+    const ownedView = createOwnedProcView(directory, ownedPids);
+    const confinedReapHost = new NativeTerminalHost({
+      generation: "parent-death-confined-reap",
+      replayBytesPerSession: 1,
+      spawner: () => {
+        throw new Error("the confined reap host must never spawn a pty");
+      },
+      registryPath: join(directory, "registry.json"),
+      findGroupMemberToken: (pgid, expectedToken) =>
+        groupCarriesSessionToken(pgid, expectedToken, ownedView),
+      groupIsOnlyZombies: (pgid) => groupIsOnlyZombies(pgid, ownedView),
+      log: (line) => reconcileLogs.push(line),
+    });
+    const reapConfinedToOwnedView = (
+      sessionId: string,
+      pgid: number,
+      signal: NativeTerminalStopSignal,
+      expected?: { groupToken?: string },
+    ) => confinedReapHost.reapOrphan(sessionId, signal, pgid, expected);
     const reaper = new NativeTerminalHostSupervisor({
       socketPath,
       registryPath: join(directory, "registry.json"),
@@ -645,6 +701,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
       log: (line) => reconcileLogs.push(line),
       generationFactory: () => "parent-death-reap-timeout",
       spawnHost: () => spawnedHosts[1]!,
+      reapOrphan: reapConfinedToOwnedView,
     });
     await expect(reaper.client()).rejects.toThrow(/did not become ready/i);
     const cleanupSupervisor = new NativeTerminalHostSupervisor({
@@ -656,6 +713,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
       log: (line) => reconcileLogs.push(line),
       generationFactory: () => "parent-death-cleanup",
       spawnHost,
+      reapOrphan: reapConfinedToOwnedView,
     });
     await cleanupSupervisor.client();
 
@@ -1019,6 +1077,11 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
     // owning host — reaps purely from the durably persisted registry row.
     // The owning host's own liveness is irrelevant to reapOrphan's
     // contract; this isolates the invariant under test.
+    // Confinement (round-4 finding): the DEFAULT group readers enumerate the
+    // GLOBAL /proc — a read of processes this test did not start. The
+    // production readers run unchanged against a view holding exactly the
+    // fixture's own processes, so the token proof stays real.
+    const ownedView = createOwnedProcView(directory, ownedPids);
     const freshHost = new NativeTerminalHost({
       generation: "leader-dead-fresh-host",
       replayBytesPerSession: 1024,
@@ -1026,6 +1089,9 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
         throw new Error("the fresh host in this test must never spawn a pty");
       },
       registryPath,
+      findGroupMemberToken: (pgid, expectedToken) =>
+        groupCarriesSessionToken(pgid, expectedToken, ownedView),
+      groupIsOnlyZombies: (pgid) => groupIsOnlyZombies(pgid, ownedView),
     });
 
     const outcome = await freshHost.reapOrphan("leader-dead-orphan", "SIGKILL");

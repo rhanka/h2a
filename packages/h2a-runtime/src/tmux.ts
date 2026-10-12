@@ -2541,13 +2541,21 @@ export function readFleetProcView(): ProcView {
   return readProcView(procReaderDeps());
 }
 
+// R4 test-only seam: the fleet-wide /proc walk below also reads WORKER
+// IDENTITY (pane attribution, `workerDisproven`), so production must always
+// read the real /proc — no environment variable may redirect it (identity
+// spoofing, round-4 finding). Tests that need to confine the walk to the
+// private process view the isolation guard pins their spawned processes into
+// call this setter explicitly; no production code path ever does.
+let testProcRootForTests: string | undefined;
+
+/** Confine the fleet /proc walk for tests; `undefined` restores /proc. */
+export function setTestProcReaderRoot(root: string | undefined): void {
+  testProcRootForTests = root;
+}
+
 export function procReaderDeps(): ProcReaderDeps {
-  // Same qualification boundary as the native-terminal host scan (server.ts):
-  // tests redirect this fleet-wide /proc walk to the private process view the
-  // isolation guard pins their spawned processes into, so a supervising pass
-  // under test reads only processes the test started. Production never sets
-  // the variable and reads the real /proc.
-  const procRoot = process.env.H2A_TEST_PROC_ROOT ?? "/proc";
+  const procRoot = testProcRootForTests ?? "/proc";
   return {
     listPids: () => {
       try {
