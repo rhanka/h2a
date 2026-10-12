@@ -28,9 +28,9 @@
 - [x] Gate: node --test packages/h2a/test/mh-l1-routing.test.js.
 
 ## Lot 3 — Isolate and integrate transport
-- [ ] Exercise conversation/workspace/terminal isolation and config preservation with targeted #316 tests.
-- [ ] Integrate corrected HTTP transport into h2a payload and prove batch correlation/cleanup with actual HTTP.
-- [ ] Gate: node --test packages/h2a/test/mh-l1-transport.test.js and mcp-central-attachments.test.js (named cases only).
+- [x] Exercise conversation/workspace/terminal isolation and config preservation with targeted #316 tests.
+- [x] Integrate corrected HTTP transport into h2a payload and prove batch correlation/cleanup with actual HTTP.
+- [x] Gate: node --test packages/h2a/test/mh-l1-transport.test.js and mcp-central-attachments.test.js (named cases only).
 
 ## Lot 4 — Packaging prototype
 - [ ] Produce repeatable core/runtime payload with exact dependency resolution and published shrinkwrap.
