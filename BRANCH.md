@@ -1,59 +1,47 @@
-# Vibe mesh train
+# MH-L0 — 0.98.7 contract foundations
 
-Branch: `feat/0.98.x-vibe-mesh-train`, rebased on `origin/main` (5ca5c7bc).
-Scope: the vibe vertical end to end — host, profile, enrollment, gateway
-route, MCP launch, plugin surface, skills, docs and contract — mirroring the
-muse pattern at every step (one alias rule, direct provider, honest refusals).
+## Objective
+- [ ] Deliver only spec v7 §12 MH-L0, including the measured npm BX correction.
 
-Upstream: the Mistral runtime client lives in `@sentropic/llm-mesh` 0.25.0
-(sentropic PR #655, merged and published by the release train with
-llm-gateway 0.19.5 and cluster-mesh 0.13.3). This branch lifts the ranges
-and wires `new MistralAdapter({ client: new MistralRuntimeClient() })` into
-the gateway registry (gateway-host/host.ts:76).
+## Scope / Guardrails
+- [x] Branch feat/0.98.7-mh-l0, base e3fc1a52 (0.98.5); no integration of #316 or .6 here.
+- [x] Owner state, installed h2a/dist, native sockets and unrelated processes forbidden.
+- [x] Private temporary test directories; targeted files only; no Python.
+- [x] Public strategies, CLI routing, native restart and .8 coordinator/verifier forbidden.
 
-Live proof (candidate gateway, isolated foreground process on :3003, owner
-gateway and sessions never touched): real `mistral-small-2603` call through
-the rebased candidate — anthropic-shape `POST /v1/messages` → HTTP 200,
-exact reply `candidate-ok` (21/4 tokens) — via the enrolled `mistral-vibe`
-account; `/v1/models` serves magistral-medium-2509, mistral-large-4,
-mistral-small-2603, zai-glm-5-3.
+## Branch Scope Boundaries
+- [x] Allowed: packages/h2a/src/runtime/handover/**, packages/h2a/test/mh-l0-*, packages/h2a/test/helpers/mh-l0-*, docs/plan/mh-l0/**, scripts/mh-l0-*, BRANCH.md.
+- [x] Forbidden: other runtime files, package versions/dependencies, installed state, main, .track (shared writer), full-suite commands.
+- [x] Conditional: QF entrypoint/layout contract provisional until owner ratification; runtime routing belongs to MH-L6.
+- [x] BR-L0-EX1: cohesive contract/test commits may exceed 150 lines; one concern, selective staging, rollback by git revert.
 
-## Vibe completeness checklist
+## Lot 1 — Canonical bytes and authentication vectors
+- [x] Strict RFC 8785 bytes, SHA-256, domain-separated HKDF/HMAC and negative vectors.
+- [x] Gate: node --test packages/h2a/test/mh-l0-wire.test.js, red then green.
 
-| Surface | State | Evidence (test → file:line) |
-|---|---|---|
-| Host descriptor + CLI_HOSTS registration | covered | cli-host-status.test.js:37,43 → hosts/vibe.ts:39 (H2A_VIBE_HOST), cli.ts:391,4450 |
-| Host setup MCP config render (TOML translation hint) | covered | cli-host-status.test.js (host status wave info) + cli.ts:4450; renderMcpConfig hosts/vibe.ts:19 |
-| Profile `vibe` (command `vibe`) | covered | profiles.test.ts:17 → profiles.ts:20, profile-menu.ts:10 |
-| Single alias `mistral-vibe` (muse one-alias rule) | covered | profiles.test.ts:81 → profiles.ts:63, profile-menu.ts:21, index.ts:2884 |
-| START verb `h2a vibe` | covered | fixtures/runtime-help-commands.json:41-42 (golden pinned by cli-command-map.test.js) → cli-command-map.ts:268 |
-| Resume spellings (`--resume <id>` / `-c`) | covered | profiles.test.ts:40-44 → profiles.ts:50; agent-launch-args.test.ts:186 → agent-launch-args.ts (vibe branch) |
-| Enrollment `mistral-vibe` (PKCE browser sign-in via facade) | covered | llm-mesh-accounts.test.ts:118 → llm-mesh-accounts.ts:9,101,187 |
-| Gateway route (MistralAdapter + MistralRuntimeClient) + range lift | covered, live-proven | llm-mesh-resolution.test.ts:40 (0.25.0) → host.ts:7,8,76; package.json 0.13.3/0.25.0/0.19.5; live `candidate-ok` above |
-| MCP `h2a_run` profile `vibe` (direct, `required` rejected, headless rejected, agent rejected) | covered | mcp-run.test.js:118,129,320,326 → tools.ts enum, agent-launch.ts:9,148,211 |
-| Delegate (headless vibe -p documented programmatic mode; throttle signatures `vibe: []`) | covered | delegate.test.ts:149,822 → delegate.ts, throttle-signatures.ts |
-| Plugin surface (vibe-hooks: post_agent record, push) | covered | host-plugin.test.js:228 → plugin.ts:96 (mechanism `vibe-hooks`) |
-| Plugin `--write` refusal (TOML, format-strict merger) | covered | host-plugin.test.js (write refused) → cli.ts cmdHostPlugin |
-| install-skills `--host vibe` (SKILL.md dirs, verifyHint) | covered | install-skills-hosts.test.js (vibe render test) → cli.ts:6618-6636, 7020-7023 |
-| install-skills unknown-host message lists vibe | covered | install-skills-hosts.test.js:445 → cli.ts:6935 |
-| Skills h2a / h2a-run / harness usable by vibe | covered | install-skills-hosts.test.js:294 (single-source render incl. harness) ; h2a-run/SKILL.md vibe section ; harness/review/SKILL.md vibe reviewer leg ; gateway-host-docs.test.js (new consistency test) |
-| Harness reviewer/executor via h2a_run | covered | harness/review/SKILL.md:17,49-56,71 (vibe dispatch + reviewer-host) ; gateway-host-docs.test.js pins skill↔runtime parity |
-| Docs (tracked integration status + capability note) | covered | docs/host-integration-matrix.md Vibe row ; docs/plugin-capability-matrix.md vibe note |
-| Public contract (MCP tools + CLI verbs unchanged) | covered | scripts/check-public-contract.sh OK (60 tools / 99 verbs) |
-| Core help golden | covered | dispatch-characterization-goldens.test.js (13,733 bytes / SHA pinned, +32 host / +52 plugin accounting) |
-| Restore tool union | code only | restore.ts:67 includes `vibe`; no vibe-targeted restore test — non couvert (tsc-checked) |
-| Doctor | non couvert | installation-doctor.ts:51 scopes doctor to claude\|codex (muse is not covered either — consistent) |
+## Lot 2 — Versioned formats
+- [ ] Marker, namespace/authority, readiness, requests/frames, evidence, ownership/checkpoint, H4/selection, manifest/native formats.
+- [ ] Gate: node --test packages/h2a/test/mh-l0-formats.test.js, red then green.
 
-Also documents the factual correction of the muse-code device-flow comment in
-`llm-mesh-accounts.ts` (`pollForCompletion` is no longer codex-hardwired
-upstream) — a retouche of muse text, flagged in the feature commit message.
-The store schema sentinel is now created atomically (tmp + rename) — root
-cause of the F2 burst flake, fixed deterministically (5/5 consecutive runs).
+## Lot 3 — Durable private state
+- [ ] Private reads, exclusive publication, replacement under caller exclusion, fsync and reconciliation errors.
+- [ ] Gate: node --test packages/h2a/test/mh-l0-state.test.js, red then green.
 
-Validation: `tsc -b` clean; targeted suites green (cli-host-status +
-cli-command-map + goldens + host-plugin + mcp-run + install-skills 78/0,
-gateway-host-docs 2/0; profiles / agent-launch-args / delegate /
-llm-mesh-accounts / resolution / routing-preferences 148 passed 1 skip);
-`npm test` exit 0 (h2a/test + focus-interactive + track 1193/1193);
-`check-public-contract.sh` OK. No push of a tag, no publication, no version
-bump from this worktree.
+## Lot 4 — Domain, layout and image audit
+- [ ] Physical prefix identity, private authority domain, bounded abstract pre-claim and closed/native manifest.
+- [ ] Gate: node --test packages/h2a/test/mh-l0-authority.test.js and mh-l0-image.test.js, red then green.
+
+## Lot 5 — Heritage, npm and pair
+- [ ] Audit source refs, native relaunch closure, legacy probe, dependencies and pending .6 dist gate.
+- [ ] Reproduce BX with private prefix/cache, local tarballs/registry; revise U09 and prepare QF dossier.
+- [ ] Test-only network peer, evidence and CAS/ACK fault primitives.
+- [ ] Gate: node --test packages/h2a/test/mh-l0-npm.test.js and mh-l0-peer.test.js, red then green.
+
+## Lot 6 — Delivery
+- [ ] Reconcile scope/evidence/review limitations; recalibrate MH-L1–MH-L8.
+- [ ] Push own branch fast-forward; write owner mhl0-report.md in French.
+
+## Feedback Loop
+- [x] Final .6 dist unavailable: audit source closure now; U13 byte qualification remains MH-L1/MH-L8.
+- [x] QF/QC/QD/QE/QG remain owner decisions; no runtime entrypoint chosen by MH-L0.
+- [x] Installed-h2a harness review/recorders conflict with owner confinement: do not invoke; no consensus claim.
