@@ -1163,7 +1163,7 @@ The parallel `feat/live-cross-cli-messaging` lot owns delivery, host wake and cr
 
 ## Lot 5 — Delivery
 - [x] Review diff/scope, record constrained review status without consensus claim.
-- [ ] Push own branch fast-forward and write French mhl1-report.md, agent-hours and review rounds.
+- [x] Push own branch fast-forward and write French mhl1-report.md, agent-hours and review rounds.
 
 ## Feedback Loop
 - [x] B receipt discovery/API not accepted: no production reader or invented MCP writer.
