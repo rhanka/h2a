@@ -1,0 +1,28 @@
+name: Native namespace qualification
+on:
+  pull_request:
+    paths:
+      - 'packages/h2a-runtime/src/native-terminal/**'
+      - 'packages/h2a-runtime/qualification/**'
+      - 'packages/h2a-runtime/src/proc-identity*'
+      - 'packages/h2a-runtime/src/registry.ts'
+      - 'packages/h2a/test/helpers/native-isolation.js'
+      - 'scripts/run-namespace-qualification.mjs'
+      - '.github/workflows/native-namespace-qualification.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  native-namespaces:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: node_modules/.bin/tsc -b packages/h2a-runtime
+      - name: Qualify real PID and network namespace boundaries (T10)
+        run: sudo env "PATH=$PATH" node scripts/run-namespace-qualification.mjs
