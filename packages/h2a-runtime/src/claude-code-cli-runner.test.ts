@@ -1,6 +1,7 @@
+import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { EventEmitter } from "node:events";
-import { chmodSync, mkdirSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { chmodSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PassThrough } from "node:stream";
@@ -358,4 +359,168 @@ describe("claude-code-cli-runner (protocol)", () => {
 
     expect(events).toEqual([{ type: "error" }]);
   });
+
+  it("abort during a pending read kills the child and ends the stream", async () => {
+    const mockChild = createMockChild();
+    const spawnFn = vi.fn(() => mockChild); // Silent: never writes, never closes.
+    const controller = new AbortController();
+    const runner = new OfficialClaudeCodeCliRunner({
+      ...qualifiedOptions,
+      spawnFn: spawnFn as any,
+      timeoutMs: 30_000,
+    });
+
+    const iterator = runner.run({
+      access: fakeAccess,
+      request: fakeRequest,
+      signal: controller.signal,
+    })[Symbol.asyncIterator]();
+    const pending = iterator.next();
+    await new Promise((r) => setTimeout(r, 50));
+    controller.abort();
+
+    const first = await pending;
+    expect(first.value).toEqual({ type: "error" });
+    expect(mockChild.kill).toHaveBeenCalledWith("SIGKILL");
+    await expect(iterator.next()).resolves.toMatchObject({ done: true });
+  });
+
+  it("deadline during a pending read kills the child and ends the stream", async () => {
+    const mockChild = createMockChild();
+    const spawnFn = vi.fn(() => mockChild); // Silent: never writes, never closes.
+    const runner = new OfficialClaudeCodeCliRunner({
+      ...qualifiedOptions,
+      spawnFn: spawnFn as any,
+      timeoutMs: 120,
+    });
+
+    const events = [];
+    for await (const event of runner.run({
+      access: fakeAccess,
+      request: fakeRequest,
+      signal: new AbortController().signal,
+    })) {
+      events.push(event);
+    }
+
+    expect(events).toEqual([{ type: "error" }]);
+    expect(mockChild.kill).toHaveBeenCalledWith("SIGKILL");
+  });
+
+  it("iterator early-close ends a pending read promptly", async () => {
+    const mockChild = createMockChild();
+    const spawnFn = vi.fn(() => {
+      setTimeout(() => {
+        mockChild.stdout.write(
+          JSON.stringify({ type: "text_delta", text: "Partial" }) + "\n",
+        );
+      }, 10);
+      return mockChild;
+    });
+    const runner = new OfficialClaudeCodeCliRunner({
+      ...qualifiedOptions,
+      spawnFn: spawnFn as any,
+      timeoutMs: 30_000,
+    });
+
+    const iterator = runner.run({
+      access: fakeAccess,
+      request: fakeRequest,
+      signal: new AbortController().signal,
+    })[Symbol.asyncIterator]();
+    await expect(iterator.next()).resolves.toEqual({
+      value: { type: "text_delta", text: "Partial" },
+      done: false,
+    });
+    await expect(iterator.return?.()).resolves.toMatchObject({ done: true });
+  });
+
+  it("drains child stderr without forwarding it to the caller", async () => {
+    const mockChild = createMockChild();
+    const spawnFn = vi.fn(() => {
+      setTimeout(() => {
+        mockChild.stderr.write(Buffer.alloc(65536, 0x41));
+        mockChild.stdout.write(
+          JSON.stringify({ type: "text_delta", text: "Hi there!" }) + "\n",
+        );
+        mockChild.stdout.write(
+          JSON.stringify({ type: "result", finishReason: "stop" }) + "\n",
+        );
+        mockChild.emit("close", 0);
+      }, 10);
+      return mockChild;
+    });
+    const runner = new OfficialClaudeCodeCliRunner({
+      ...qualifiedOptions,
+      spawnFn: spawnFn as any,
+    });
+
+    const events = [];
+    for await (const event of runner.run({
+      access: fakeAccess,
+      request: fakeRequest,
+      signal: new AbortController().signal,
+    })) {
+      events.push(event);
+    }
+
+    expect(events).toEqual([
+      { type: "text_delta", text: "Hi there!" },
+      { type: "result", finishReason: "stop" },
+    ]);
+  });
+
+  it("abort kills a real silent child before any output", async () => {
+    const scriptPath = join(RUNNER_SCRATCH, "silent-fake-claude.sh");
+    writeFileSync(scriptPath, "#!/bin/sh\nsleep 60\n");
+    chmodSync(scriptPath, 0o755);
+    const digest = createHash("sha256").update(readFileSync(scriptPath)).digest("hex");
+
+    let childPid = 0;
+    const spawnFn = ((cmd: string, args: string[], opts: object) => {
+      const child = spawn(cmd, args, opts as never);
+      childPid = child.pid ?? 0;
+      return child;
+    }) as never;
+
+    const controller = new AbortController();
+    const runner = new OfficialClaudeCodeCliRunner({
+      binaryPath: scriptPath,
+      expectedDigest: digest,
+      capabilities: { ...validCaps, qualificationRef: buildClaudeQualificationRef(digest) },
+      spawnFn,
+      sandboxRootDir: RUNNER_SCRATCH,
+      timeoutMs: 30_000,
+    });
+
+    const iterator = runner.run({
+      access: fakeAccess,
+      request: fakeRequest,
+      signal: controller.signal,
+    })[Symbol.asyncIterator]();
+    const pending = iterator.next();
+    await new Promise((r) => setTimeout(r, 200));
+    expect(childPid).toBeGreaterThan(0);
+    expect(() => process.kill(childPid, 0)).not.toThrow();
+    controller.abort();
+
+    await expect(pending).resolves.toEqual({
+      value: { type: "error" },
+      done: false,
+    });
+    await expect(iterator.next()).resolves.toMatchObject({ done: true });
+
+    const deadline = Date.now() + 2000;
+    for (;;) {
+      try {
+        process.kill(childPid, 0);
+      } catch {
+        break;
+      }
+      if (Date.now() > deadline) {
+        throw new Error("aborted child survived SIGKILL");
+      }
+      await new Promise((r) => setTimeout(r, 25));
+    }
+  }, 15000);
 });
