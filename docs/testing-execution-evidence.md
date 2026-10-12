@@ -22,7 +22,8 @@ Vitest configurations are literal data contracts. Unsupported effective options
 are rejected, including hooks that suppress unhandled asynchronous errors.
 
 `release-execution-plan.json` is the complete qualified execution plan, checked
-against parsed YAML. Comments and display names are excluded; all executable
+against parsed YAML. YAML comments and display names are excluded; every script
+line is retained, including comment-shaped lines inside quotes. All executable
 fields, action inputs, contexts, job edges and step ordering are checked. Changing
 the pipeline requires an explicit reviewed update to this contract and its
 negative controls. Additional checkouts, shells, environment overrides, artifact

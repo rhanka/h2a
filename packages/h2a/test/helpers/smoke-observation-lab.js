@@ -110,9 +110,14 @@ export async function observeSmoke(source, scriptPath, options = {}) {
     if (path === '/etc/machine-id') return 'a'.repeat(32)
     return fs.readFileSync(path, encoding)
   }
-  const createConnection = () => {
+  const createConnection = (socket) => {
+    assert.ok(children.has(socket), 'fault must target the packaged host under test')
     const faulty = new EventEmitter()
     faulty.write = (bytes) => { observations.faults.push(bytes); queueMicrotask(() => faulty.emit('close')) }
+    queueMicrotask(() => {
+      if (options.failConnect) { faulty.emit('error', new Error('fault connection refused')); faulty.emit('close') }
+      else faulty.emit('connect')
+    })
     return faulty
   }
   // Keep timers real enough for stream ordering, bounded and local.

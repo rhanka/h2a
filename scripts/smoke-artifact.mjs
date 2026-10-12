@@ -392,13 +392,21 @@ try {
   // --- isolated; the good client and the PTY keep working.
   await new Promise((resolveFault, rejectFault) => {
     const faulty = createConnection(cold.socketPath)
+    let connected = false
     const timeout = setTimeout(() => rejectFault(new Error('faulty connection was not destroyed')), 5_000)
-    faulty.on('error', () => {})
-    faulty.on('close', () => { clearTimeout(timeout); resolveFault() })
+    faulty.on('error', (error) => { if (!connected) { clearTimeout(timeout); rejectFault(error) } })
+    faulty.on('close', () => {
+      clearTimeout(timeout)
+      if (!connected) rejectFault(new Error('fault connection closed before connect'))
+      else resolveFault()
+    })
     // Invalid framing: not JSON, not a legal frame. The host must destroy THIS
     // connection only (server confinement), never the listeners or sessions.
-    faulty.write('this is not a frame at all\n')
-    faulty.write('\x00\x01\x02garbage')
+    faulty.once('connect', () => {
+      connected = true
+      faulty.write('this is not a frame at all\n')
+      faulty.write('\x00\x01\x02garbage')
+    })
   })
   await new Promise((r) => setTimeout(r, 500))
   const afterFault = await goodClient.ping()
