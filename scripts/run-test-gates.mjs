@@ -62,11 +62,14 @@
  * separate direct CI test enforces that the reporter cannot grade its own exam.
  */
 import { spawnSync } from 'node:child_process'
-import { readdirSync, readFileSync, realpathSync, rmSync } from 'node:fs'
+import { readdirSync, readFileSync, realpathSync, rmSync, mkdirSync, mkdtempSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { performance } from 'node:perf_hooks'
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import { TEST_DIRS, discoverTestFiles } from './run-tests.mjs'
+import { TEST_DIRS, discoverTestFiles, listNodeTrackSuiteFiles, NODE_TRACK_EXECUTION_REPORT, verifyNodeTrackExecution } from './run-tests.mjs'
+import { discoverSuites, verifyExecutionReport, readInventory, inventoryFailures } from './test-execution-evidence.mjs'
+import { policyFor } from './test-inventory.mjs'
+import { tmpdir } from 'node:os'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const REPO_ROOT = resolve(HERE, '..')
@@ -167,6 +170,10 @@ export const STEPS = [
     args: ['scripts/run-tests.mjs'],
     requiresBuild: true,
     timeoutMs: 4 * MINUTE_MS,
+    reportPath: NODE_TRACK_EXECUTION_REPORT,
+    requiredFiles: listNodeTrackSuiteFiles,
+    verifyExecution: verifyNodeTrackExecution,
+    invocationEvidence: true,
   },
   {
     id: 'h2a-runtime',
@@ -190,6 +197,7 @@ export const STEPS = [
     // executed-count per required suite). A hole in the proof fails the step
     // even when the command exited 0.
     reportPath: RUNTIME_EXECUTION_REPORT,
+    invocationEvidence: true,
     requiredFiles: listRuntimeSuiteFiles,
     verifyExecution: verifyRuntimeExecution,
   },
@@ -241,175 +249,15 @@ function normalizePath(p) {
   }
 }
 
-/**
- * The REQUIRED runtime suite set: every *.test.ts under
- * packages/h2a-runtime/src, enumerated from the FILESYSTEM (never from a list
- * that can rot). A read failure yields an empty set on purpose: the verifier
- * below then fails closed — "the required set could not be enumerated" —
- * instead of grading an unknown scope as proven.
- */
 export function listRuntimeSuiteFiles() {
-  const files = []
-  const walk = (dir) => {
-    let entries
-    try {
-      entries = readdirSync(dir, { withFileTypes: true })
-    } catch {
-      return
-    }
-    for (const entry of entries) {
-      if (entry.isDirectory()) {
-        if (entry.name === 'node_modules' || entry.name === 'dist') continue
-        walk(join(dir, entry.name))
-      } else if (entry.name.endsWith('.test.ts')) {
-        files.push(normalizePath(join(dir, entry.name)))
-      }
-    }
-  }
-  walk(RUNTIME_SRC)
-  return files.sort()
+  const files = discoverSuites(RUNTIME_SRC)
+  const inventory = Object.fromEntries(Object.entries(readInventory(REPO_ROOT)).filter(([file]) => file.startsWith('packages/h2a-runtime/src/')))
+  return inventoryFailures(REPO_ROOT, inventory, files).length ? [] : files
 }
 
-/**
- * Static skip markers: a suite file that DECLARES its own skips. The runtime
- * suites carry committed, review-sanctioned skips — platform-conditional
- * `describe.skipIf(process.platform !== "linux")`, tool-availability
- * `skipIf(tmux/cc)`, `ctx.skip`, and two tracked-debt unconditional ones —
- * so a skipped file is tolerated ONLY when its own source carries such a
- * marker. A skip in a file with NO marker is a silent removal: the exact
- * shape this gate exists to reject. A file whose source cannot be read
- * counts as unmarked (fail closed).
- */
-const STATIC_SKIP_MARKERS = [
-  /\.skip(?:If)?\s*\(/,
-  /\.todo\s*\(/,
-  /\.fixme\s*\(/,
-  /\bctx\.skip\s*\(/,
-  /\.runIf\s*\(/,
-  /\bx(?:it|test|describe)\s*\(/,
-]
-
-function fileDeclaresSkips(file) {
-  let source
-  try {
-    source = readFileSync(file, 'utf8')
-  } catch {
-    return false
-  }
-  return STATIC_SKIP_MARKERS.some((marker) => marker.test(source))
-}
-
-/**
- * The EXECUTION proof of the h2a-runtime gate. Discovery — vitest being
- * handed the right config — proves nothing about what actually ran: the
- * round-7 review added `testNamePattern: "^C7_NO_TEST_HAS_THIS_NAME$"` to
- * the pinned config and the runner stayed green at exit 0 while every native
- * test silently became "ignored". This function grades the report the run
- * just produced, by identity and executed count per required suite, and
- * returns a failure for every hole:
- *
- *   - report missing or unreadable        no evidence at all;
- *   - required set empty/unenumerable     no scope, so no proof possible;
- *   - a required file ABSENT from the     an exclude/include edit or a cold
- *     report                               path — the file never ran;
- *   - a reported file OUTSIDE the         the report does not correspond
- *     required set                        to the pinned discovery;
- *   - an assertion whose status is        a skip, a filter, a todo — a
- *     neither passed nor failed, in a     required test silently not run
- *     file with NO declared skip marker   (sanctioned, declared skips in
- *                                          marked files are the only
- *                                          tolerance);
- *   - a required file with ZERO executed  the whole suite was filtered away
- *     tests (unmarked file)               while its source declares no skip;
- *   - non-integer or self-inconsistent    a report that lies about its own
- *     summary counts                      totals is not evidence.
- *
- * Exit 0 from vitest is NOT proof; this list empty is.
- */
 export function verifyRuntimeExecution(report, requiredFiles) {
-  const failures = []
-  if (!report || typeof report !== 'object' || !Array.isArray(report.testResults)) {
-    return [
-      'the execution report is missing or unreadable: with no report there is no evidence that any required test executed',
-    ]
-  }
-  const required = Array.isArray(requiredFiles) ? requiredFiles.map(normalizePath) : []
-  if (required.length === 0) {
-    return [
-      'the required runtime suite set is empty or could not be enumerated: with no required set, no execution can be proven',
-    ]
-  }
-  const byFile = new Map()
-  for (const result of report.testResults) {
-    if (!result || typeof result.name !== 'string') {
-      failures.push('the report contains a file result without a name: it proves nothing')
-      continue
-    }
-    byFile.set(normalizePath(result.name), result)
-  }
-  for (const file of byFile.keys()) {
-    if (!required.includes(file)) {
-      failures.push(
-        `${file} appears in the report but is not part of the required suite set: ` +
-          'the report does not correspond to the pinned discovery',
-      )
-    }
-  }
-  for (const requiredFile of required) {
-    const result = byFile.get(requiredFile)
-    if (!result) {
-      failures.push(
-        `${requiredFile} was NEVER EXECUTED: it is a required suite and the report contains no run of it ` +
-          '(an exclude/include/absence in the effective config shows up exactly here)',
-      )
-      continue
-    }
-    const assertions = result.assertionResults
-    if (!Array.isArray(assertions)) {
-      failures.push(`${requiredFile} carries no per-test results in the report: its tests cannot be accounted for`)
-      continue
-    }
-    const declaredSkips = fileDeclaresSkips(requiredFile)
-    let executed = 0
-    for (const assertion of assertions) {
-      const status = assertion?.status
-      if (status === 'passed' || status === 'failed') {
-        executed += 1
-        continue
-      }
-      if (declaredSkips) continue
-      failures.push(
-        `${requiredFile} :: "${assertion?.fullName ?? assertion?.title ?? 'an unnamed test'}" has status ` +
-          `"${status ?? 'missing'}": a required test skipped, filtered out, todo'd or otherwise never run must fail ` +
-          'the gate — a suite whose own source declares no skip marker cannot lose tests silently ' +
-          '(round-7 finding P1: testNamePattern left the native tests "ignored" behind an exit 0)',
-      )
-    }
-    if (executed === 0 && !declaredSkips) {
-      failures.push(
-        `${requiredFile} executed ZERO tests: every test in it was skipped or filtered away while its source ` +
-          'declares no skip marker — discovery is not execution',
-      )
-    }
-  }
-  const counts = [
-    report.numTotalTests,
-    report.numPassedTests,
-    report.numFailedTests,
-    report.numPendingTests,
-    report.numTodoTests,
-  ]
-  if (counts.some((n) => !Number.isInteger(n))) {
-    failures.push(
-      'the report does not carry integer total/passed/failed/pending/todo counts: the executed-count proof cannot be evaluated',
-    )
-  } else if (
-    report.numTotalTests !==
-    report.numPassedTests + report.numFailedTests + report.numPendingTests + report.numTodoTests
-  ) {
-    failures.push('the report summary counts do not add up to its own per-test statuses: the report is inconsistent')
-  }
-  return failures
+  const inventory = readInventory(REPO_ROOT)
+  return verifyExecutionReport(report, requiredFiles, policyFor(REPO_ROOT, inventory, 'runtime'))
 }
 
 
@@ -519,12 +367,19 @@ export function runGates(steps, options = {}) {
     // Freshness of the execution proof: prune the step's report BEFORE the
     // run, so a file left by an earlier invocation can never be graded as
     // this run's evidence.
-    if (typeof step.reportPath === 'string') {
+    let proofFresh = true
+    let evidenceDir
+    let reportPath = step.reportPath
+    if (step.invocationEvidence) {
+      evidenceDir = mkdtempSync(join(tmpdir(), 'test-evidence-'))
+      reportPath = join(evidenceDir, 'report.json')
+    }
+    if (typeof reportPath === 'string') {
       try {
-        rmSync(step.reportPath, { force: true })
+        rmSync(reportPath, { force: true })
       } catch {
-        // A prune failure surfaces below: the verify then cannot read the
-        // report and fails closed.
+        proofFresh = false
+        writeErr(`run-test-gates: ${step.id}: report cleanup failed; stale evidence rejected\n`)
       }
     }
     // MONOTONIC, not Date.now(). A wall clock can jump (NTP correction, suspend,
@@ -542,6 +397,7 @@ export function runGates(steps, options = {}) {
         shell: step.shell ?? false,
         timeout: timeoutMs,
         killSignal: 'SIGKILL',
+        env: { ...process.env, ...(evidenceDir ? { H2A_TEST_REPORT_PATH: reportPath } : {}) },
       })
       code = classifyRun(run)
       if (code === 'spawn-error') {
@@ -566,7 +422,7 @@ export function runGates(steps, options = {}) {
     if (status === PASSED && typeof step.verifyExecution === 'function') {
       let report = null
       try {
-        report = JSON.parse(readFileSync(step.reportPath, 'utf8'))
+        report = proofFresh ? JSON.parse(readFileSync(reportPath, 'utf8')) : null
       } catch {
         report = null
       }
@@ -599,6 +455,7 @@ export function runGates(steps, options = {}) {
       }
     }
 
+    if (evidenceDir) rmSync(evidenceDir, { recursive: true, force: true })
     if (status !== PASSED && step.id === 'build') buildFailed = true
     results.push({ id: step.id, status, code, ms, timeoutMs })
   }
