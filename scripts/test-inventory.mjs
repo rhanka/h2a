@@ -33,6 +33,25 @@ export function declaredTests(source, file) {
   return tests
 }
 
+export function readDeclaredNonTests(root) {
+  const manifest = JSON.parse(readFileSync(join(root, 'scripts/test-non-tests-0986.json'), 'utf8'))
+  if (manifest.schemaVersion !== 1 || manifest.release !== '0.98.6' || !Array.isArray(manifest.entries)) {
+    throw new Error('invalid RC 0.98.6 declared non-test manifest version')
+  }
+  const identities = new Set()
+  for (const entry of manifest.entries) {
+    if (typeof entry.file !== 'string' || !/^packages\/h2a\/test\/[^/*]+\.test\.js$/.test(entry.file)
+      || typeof entry.fullName !== 'string' || !entry.fullName.trim()
+      || !['skipped', 'todo'].includes(entry.status) || typeof entry.reason !== 'string' || !entry.reason.trim()) {
+      throw new Error('invalid RC 0.98.6 declared non-test identity, status or reason')
+    }
+    const identity = entry.file + ' :: ' + entry.fullName
+    if (identities.has(identity)) throw new Error(`duplicate declared non-test: ${identity}`)
+    identities.add(identity)
+  }
+  return manifest.entries
+}
+
 export function policyFor(root, inventory, scope) {
   return {
     requiredTests: Object.fromEntries(Object.entries(inventory).map(([file, names]) => [identityPath(join(root, file)), names])),
@@ -40,6 +59,10 @@ export function policyFor(root, inventory, scope) {
     // Existing nonnormative, explicitly tracked debt. Each exception names
     // one assertion and status; no source marker can grant an exception.
     allowedSkips: JSON.parse(readFileSync(join(root, 'scripts/test-skip-exceptions.json'), 'utf8'))
+      .map((entry) => ({ ...entry, file: join(root, entry.file) })),
+    // Owner decision for this RC only. These are declarations, not coverage;
+    // the execution proof must also detect activation or disappearance.
+    declaredNonTests: scope === 'runtime' ? [] : readDeclaredNonTests(root)
       .map((entry) => ({ ...entry, file: join(root, entry.file) })),
   }
 }

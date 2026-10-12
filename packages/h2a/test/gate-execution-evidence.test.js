@@ -10,7 +10,7 @@ import YAML from 'yaml'
 import { verifyExecutionReport, discoverSuites, readInventory, readTrainRequirements } from '../../../scripts/test-execution-evidence.mjs'
 import { configContractFailures } from '../../../scripts/test-config-contract.mjs'
 import { releaseContractFailures } from '../../../scripts/release-workflow-contract.mjs'
-import { declaredTests, declarationFailures } from '../../../scripts/test-inventory.mjs'
+import { declaredTests, declarationFailures, policyFor, readDeclaredNonTests } from '../../../scripts/test-inventory.mjs'
 import { runGates, verifyRuntimeExecution, listRuntimeSuiteFiles } from '../../../scripts/run-test-gates.mjs'
 import { listNodeTrackSuiteFiles } from '../../../scripts/run-tests.mjs'
 import { observeNodeTrackEntry } from './helpers/node-track-observation-lab.js'
@@ -209,4 +209,100 @@ test('train scenarios must be declared inside the gate assigned to execute them'
     !entry.anyOf.some(title => declarations[entry.scope]?.some(name =>
       name === title || name.endsWith(' ' + title))))
   assert.deepEqual(misplaced, [], 'every required scenario must be satisfiable by its assigned execution report')
+})
+
+test('RC 0.98.6 declared non-tests accept only exact identities and report lifecycle changes', () => {
+  const lab = fs.mkdtempSync(join(tmpdir(), 'non-test-policy-'))
+  try {
+    const file = join(lab, 'fixture.test.mjs')
+    const entry = { file, fullName: 'disabled case', status: 'skipped', reason: 'Owner-declared non-test' }
+    const policy = { declaredNonTests: [entry] }
+    const observed = report(file)
+    observed.testResults[0].assertionResults.push({ fullName: entry.fullName, status: entry.status })
+    observed.numTotalTests++; observed.numPendingTests++
+    assert.deepEqual(verifyExecutionReport(observed, [file], policy), [])
+    for (const changedEntry of [{ ...entry, fullName: 'another case' }, { ...entry, file: join(lab, 'other.test.mjs') }]) {
+      assert.ok(verifyExecutionReport(observed, [file], { declaredNonTests: [changedEntry] }).some(f => f.includes('not an authorized test result')))
+    }
+    for (const status of ['passed', 'failed', 'todo']) {
+      const changed = structuredClone(observed)
+      changed.testResults[0].assertionResults[1].status = status
+      changed.numPendingTests--; changed[{ passed: 'numPassedTests', failed: 'numFailedTests', todo: 'numTodoTests' }[status]]++
+      assert.ok(verifyExecutionReport(changed, [file], policy).some(f => f.includes('declared non-test changed status')))
+    }
+    assert.ok(verifyExecutionReport(report(file), [file], policy).some(f => f.includes('declared non-test disappeared')))
+    const normative = { ...policy, requiredTests: { [file]: [entry.fullName] } }
+    assert.ok(verifyExecutionReport(observed, [file], normative).some(f => f.includes('normative test absent or not passed')))
+    assert.ok(verifyExecutionReport(observed, [file], { ...policy, requiredTitles: [entry.fullName] }).some(f => f.includes('normative scenario absent or not passed')))
+  } finally { fs.rmSync(lab, { recursive: true, force: true }) }
+})
+
+test('RC 0.98.6 production policy is a versioned list of exactly 38 named non-tests', () => {
+  const manifest = JSON.parse(fs.readFileSync(join(repo, 'scripts/test-non-tests-0986.json'), 'utf8'))
+  assert.equal(manifest.schemaVersion, 1)
+  assert.equal(manifest.release, '0.98.6')
+  assert.equal(manifest.ownerDecision, "s'ils sont désactivés ce n'est pas un pb ce ne sont pas encore des tests")
+  assert.equal(manifest.entries.length, 38)
+  assert.equal(manifest.entries.filter(e => e.status === 'skipped').length, 17)
+  assert.equal(manifest.entries.filter(e => e.status === 'todo').length, 21)
+  assert.equal(new Set(manifest.entries.map(e => e.file + ' :: ' + e.fullName)).size, 38)
+  for (const entry of manifest.entries) assert.ok(entry.file && entry.fullName && entry.reason.trim())
+  const node = policyFor(repo, readInventory(repo), 'node')
+  assert.equal(node.declaredNonTests.length, 38)
+  assert.deepEqual(policyFor(repo, readInventory(repo), 'runtime').declaredNonTests, [])
+})
+
+test('RC 0.98.6 invalid or duplicate non-test declarations fail closed', () => {
+  const lab = fs.mkdtempSync(join(tmpdir(), 'non-test-manifest-'))
+  try {
+    fs.mkdirSync(join(lab, 'scripts'))
+    const path = join(lab, 'scripts/test-non-tests-0986.json')
+    const manifest = JSON.parse(fs.readFileSync(join(repo, 'scripts/test-non-tests-0986.json'), 'utf8'))
+    for (const mutate of [m => { m.schemaVersion = 2 }, m => { m.release = '0.98.7' }, m => { m.entries[0].reason = '' }, m => { m.entries[0].status = 'passed' }, m => { m.entries.push(m.entries[0]) }]) {
+      const changed = structuredClone(manifest); mutate(changed)
+      fs.writeFileSync(path, JSON.stringify(changed))
+      assert.throws(() => readDeclaredNonTests(lab))
+    }
+  } finally { fs.rmSync(lab, { recursive: true, force: true }) }
+})
+
+test('RC 0.98.6 removing a declared non-test suite invalidates discovery', () => {
+  const original = fs.default.readdirSync
+  try {
+    fs.default.readdirSync = (path, ...args) => {
+      const entries = original(path, ...args)
+      return String(path) === join(repo, 'packages/h2a/test') ? entries.filter(entry => entry !== 'pty-objective-loop.test.js') : entries
+    }
+    syncBuiltinESMExports()
+    assert.deepEqual(listNodeTrackSuiteFiles(), [])
+  } finally { fs.default.readdirSync = original; syncBuiltinESMExports() }
+})
+
+test('RC 0.98.6 an unlisted skip mutation fails the gate over real Node execution evidence', () => {
+  const lab = fs.mkdtempSync(join(tmpdir(), 'non-test-mutation-'))
+  try {
+    const file = join(lab, 'fixture.test.mjs'), output = join(lab, 'report.json')
+    const policy = { declaredNonTests: [{ file, fullName: 'disabled case', status: 'skipped', reason: 'Owner-declared non-test' }] }
+    const original = 'import {test} from "node:test"; test("required",()=>{}); test.skip("disabled case",()=>{}); test("other",()=>{});'
+    const run = (source) => {
+      fs.writeFileSync(file, source)
+      const previous = process.env.NODE_TEST_CONTEXT
+      delete process.env.NODE_TEST_CONTEXT
+      try {
+        return runGates([{ id: 'non-test-mutation', command: process.execPath,
+          args: ['--test', `--test-reporter=${join(repo, 'scripts/node-evidence-reporter.mjs')}`, `--test-reporter-destination=${output}`, file],
+          reportPath: output, requiredFiles: () => [file], verifyExecution: r => verifyExecutionReport(r, [file], policy),
+        }], { scope: '', stdio: 'ignore', write: () => {}, writeErr: () => {} })
+      } finally {
+        if (previous === undefined) delete process.env.NODE_TEST_CONTEXT; else process.env.NODE_TEST_CONTEXT = previous
+      }
+    }
+    assert.equal(run(original), 0, 'the exact declared non-test is accepted')
+    const mutant = original.replace('test("other"', 'test.skip("other"')
+    assert.notEqual(mutant, original)
+    assert.equal(run(mutant), 1, 'exit 0 from Node cannot authorize the unlisted skip')
+    const observed = JSON.parse(fs.readFileSync(output, 'utf8'))
+    assert.ok(verifyExecutionReport(observed, [file], policy).some(f => f.includes('other') && f.includes('not an authorized test result')))
+    assert.equal(run(original), 0, 'restoring the mutation restores the gate')
+  } finally { fs.rmSync(lab, { recursive: true, force: true }) }
 })
