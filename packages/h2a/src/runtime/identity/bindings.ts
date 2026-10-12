@@ -25,22 +25,24 @@
  * (no reclaim/mint race, F3).
  */
 
-import { existsSync, mkdirSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { performance } from "node:perf_hooks";
+import { commitBinding, pendingBindingWinner, bindingKeyHash } from "./binding-commit.js";
+import { BindingCommitIntegrityError, BindingFenceStaleError, preparePossession, receiptMatches, withPossession } from "./possession.js";
+import { ensureDurableDirectory } from "./durable.js";
+import type { IdentityFenceOptions } from "../local-files/identity-fence.js";
 
 import { verifyCanonical, type H2ASignature } from "@sentropic/h2a";
 
 import { localStorePaths } from "../local-files/index.js";
 import {
-  attestBindingsTailDurable,
   IDENTITY_BINDING_FENCE_PROTOCOL,
-  neutralizeBindingsTail,
   withIdentityFence,
   withIdentityFenceSync,
   type IdentityFenceLease
 } from "../local-files/identity-fence.js";
-import { getActiveMcpTrace } from "../mcp/phase-trace.js";
-import { appendLaunchRow, launchLookupKey, lookupLaunchRows } from "../local-files/launch-index.js";
+import { launchLookupKey, lookupLaunchRows } from "../local-files/launch-index.js";
 
 /**
  * The one protocol accepted by the DEF identity-binding writer.  The cull
@@ -80,10 +82,11 @@ export function listBindings(root: string): H2AIdentityBinding[] {
   const f = bindingsFile(root);
   if (!existsSync(f)) return [];
   const out: H2AIdentityBinding[] = [];
-  for (const line of readFileSync(f, "utf8").split("\n")) {
+  for (const line of readFileSync(f, "utf8").split("\n").slice(0, -1)) {
     if (!line.trim()) continue;
     try {
-      out.push(JSON.parse(line) as H2AIdentityBinding);
+      const row=JSON.parse(line);
+      if(row && typeof row==='object' && !Array.isArray(row))out.push(row as H2AIdentityBinding);
     } catch {
       // skip malformed
     }
@@ -149,153 +152,75 @@ export interface ReclaimOrMintResult {
 }
 
 /**
- * R5 tail discipline inside the HELD fence: terminate an unterminated final
- * suffix of the journal (exactly one appended byte, never a concatenation onto
- * a fragment), and after a RECOVERY attest the durability of a tail whose
- * previous fsync is unattested. The trace event is detailed-gated and
- * content-free (byte range + content hash only).
- */
-function neutralizeBindingsTailHeld(root: string, lease: IdentityFenceLease): void {
-  const file = bindingsFile(root);
-  const neutralized = neutralizeBindingsTail(file);
-  const trace = getActiveMcpTrace();
-  if (neutralized !== undefined) {
-    if (trace?.detailed) {
-      trace.phase("binding_tail_neutralized", {
-        tool: "identity",
-        bytes: neutralized.length,
-        code: neutralized.sha256
-      });
-    }
-  } else if (lease.recovered) {
-    attestBindingsTailDurable(file);
-  }
-}
-
-/**
  * Atomically (one lock) reclaim the existing binding iff it exists AND
  * proof-of-possession passes; otherwise mint a fresh identity and record the new
  * binding. Spoofing the id without the key → mint (a new identity), never a
  * reclaim of someone else's.
  */
-export function reclaimOrMint(
-  root: string,
-  key: IdentityBindingKey,
-  deps: ReclaimOrMintDeps
-): ReclaimOrMintResult {
-  mkdirSync(identityDir(root), { recursive: true });
-  // L0 (detailed-gated): observe the binding lock's wait/acquire/hold so the
-  // trace shows time spent contending the identity write — a logical lock id,
-  // never a binding row's content.
-  const trace = getActiveMcpTrace();
-  const observe = trace?.detailed
-    ? (event: { event: string; waitMs?: number; holdMs?: number }): void => {
-        trace.phase(`binding_lock_${event.event}`, {
-          tool: "identity",
-          ...(event.waitMs !== undefined ? { waitMs: event.waitMs } : {}),
-          ...(event.holdMs !== undefined ? { holdMs: event.holdMs } : {})
-        });
-      }
-    : undefined;
-  return withIdentityFenceSync(bindingsLock(root), (lease) => {
-    neutralizeBindingsTailHeld(root, lease);
-    const existing = findBinding(root, key);
-    if (existing && deps.verifyProof(existing)) {
-      return { action: "reclaim", instance: existing.instance, agentUuid: existing.agentUuid };
-    }
-    const minted = deps.mint();
-    appendLaunchRow(bindingsFile(root), "bindings", {
-      ...key, instance: minted.instance, agentUuid: minted.agentUuid,
-      at: new Date(deps.now()).toISOString()
-    } satisfies H2AIdentityBinding);
-    return { action: "mint", instance: minted.instance, agentUuid: minted.agentUuid };
-  }, {
-    // The identity fence (0.98.6) replaces the fail-closed sentinel: it carries
-    // its own provenance and provable-death recovery, so no stale-reclaim flag
-    // and no extra owner metadata apply here.
-    ...(observe ? { observe } : {})
-  });
-}
 
-/**
- * L2 options for the ASYNC (MCP identity worker) reclaim/mint transaction.
- */
-export interface ReclaimOrMintOptions {
-  /**
-   * Cooperative cancellation (transport closed / signal). When aborted BEFORE the
-   * lock is held, the wait stops and the attempt throws; a transaction already
-   * entered under the lock finishes so no half-written binding is left.
-   */
-  readonly signal?: AbortSignal;
-  /** Monotone remaining budget (ms) bounding the lock wait for this attempt. */
+export interface ReclaimOrMintOptions extends IdentityFenceOptions {
   readonly deadlineMs?: number;
-  /**
-   * Materialize keys / registration / alias BEFORE the binding row is appended
-   * (mint path only), all inside the held identity lock. This closes the
-   * publish-order window through which a concurrent worker that read the fresh
-   * binding — but not yet its keyring — could fail proof-of-possession and mint a
-   * DUPLICATE identity. The binding is always the LAST durable write.
-   */
-  readonly beforePublish?: (
-    result: ReclaimOrMintResult,
-    heldLocks: { readonly identity: true }
-  ) => void;
+  readonly beforePublish?: (result: ReclaimOrMintResult, heldLocks: { readonly identity: true }) => void;
 }
 
-/**
- * Async twin of {@link reclaimOrMint} used by the L2 identity worker. Identical
- * invariants — proof-of-possession gates reclaim, the identity fence
- * recovers only a provably dead holder (never an ambiguous one),
- * `reclaimOrMint*` stays
- * the UNIQUE append of a binding row — but the lock WAIT is asynchronous so the
- * worker can receive an IPC cancel between poll attempts instead of blocking the
- * event loop inside `Atomics.wait`. On a mint, `beforePublish` publishes the
- * keyring/registration/alias before the binding append (window closure, T5).
- */
-export async function reclaimOrMintAsync(
-  root: string,
-  key: IdentityBindingKey,
-  deps: ReclaimOrMintDeps,
-  options: ReclaimOrMintOptions = {}
-): Promise<ReclaimOrMintResult> {
-  mkdirSync(identityDir(root), { recursive: true });
-  const trace = getActiveMcpTrace();
-  const observe = trace?.detailed
-    ? (event: { event: string; waitMs?: number; holdMs?: number }): void => {
-        trace.phase(`binding_lock_${event.event}`, {
-          tool: "identity",
-          ...(event.waitMs !== undefined ? { waitMs: event.waitMs } : {}),
-          ...(event.holdMs !== undefined ? { holdMs: event.holdMs } : {})
-        });
-      }
-    : undefined;
-  return withIdentityFence(
-    bindingsLock(root),
-    (lease) => {
-      neutralizeBindingsTailHeld(root, lease);
-      const existing = findBinding(root, key);
-      if (existing && deps.verifyProof(existing)) {
-        return { action: "reclaim", instance: existing.instance, agentUuid: existing.agentUuid };
-      }
-      const minted = deps.mint();
-      const result: ReclaimOrMintResult = {
-        action: "mint",
-        instance: minted.instance,
-        agentUuid: minted.agentUuid
-      };
-      // Publish keys / registration / alias BEFORE the binding row so no reader
-      // can observe a binding whose keyring is not yet provable.
-      options.beforePublish?.(result, { identity: true });
-      appendLaunchRow(bindingsFile(root), "bindings", {
-        ...key, instance: minted.instance, agentUuid: minted.agentUuid,
-        at: new Date(deps.now()).toISOString()
-      } satisfies H2AIdentityBinding);
-      return result;
-    },
-    {
-      ...(options.signal ? { signal: options.signal } : {}),
-      ...(options.deadlineMs !== undefined ? { timeoutMs: options.deadlineMs } : {}),
-      ...(observe ? { observe } : {})
-    }
-  );
+function prepareTransaction(root: string, key: IdentityBindingKey, deps: ReclaimOrMintDeps,
+  options: ReclaimOrMintOptions, memo: { value?: ReclaimOrMintResult }) {
+  const binding = findBinding(root, key);
+  let pending:H2AIdentityBinding|undefined;
+  try{pending=pendingBindingWinner(identityDir(root),bindingKeyHash(key.host,key.providerSessionId)) as unknown as H2AIdentityBinding|undefined;}
+  catch(e){if(!(e instanceof BindingCommitIntegrityError))throw e;return {binding,proof:undefined};}
+  if(pending) {
+    const proof=preparePossession(root,pending.instance);
+    if(!proof)return {binding:pending,proof:undefined};
+    return {binding:pending,proof};
+  }
+  const proof = binding && deps.verifyProof(binding) ? preparePossession(root, binding.instance) : undefined;
+  if (binding && proof) return { binding, proof };
+  memo.value ??= { action: 'mint', ...deps.mint() };
+  options.beforePublish?.(memo.value, { identity: true });
+  const mintedProof = preparePossession(root, memo.value.instance);
+  if (!mintedProof) throw new BindingCommitIntegrityError('binding possession prerequisites missing');
+  return { binding, proof: mintedProof };
+}
+
+function transact(root: string, key: IdentityBindingKey, deps: ReclaimOrMintDeps, memo: {value?: ReclaimOrMintResult},
+  prepared: ReturnType<typeof prepareTransaction>, lease: IdentityFenceLease): ReclaimOrMintResult {
+  if(!prepared.proof)throw new BindingFenceStaleError();
+  const existing = findBinding(root, key);
+  if (existing?.instance !== prepared.binding?.instance || !receiptMatches(root, prepared.proof)) throw new BindingFenceStaleError();
+  if (existing && prepared.proof.instance === existing.instance) {
+    return withPossession(root, prepared.proof, () => ({action:'reclaim',instance:existing.instance,agentUuid:existing.agentUuid}));
+  }
+  if (!memo.value) throw new BindingCommitIntegrityError('mint candidate unavailable');
+  commitBinding(identityDir(root), {...key,instance:memo.value.instance,agentUuid:memo.value.agentUuid,at:new Date(deps.now()).toISOString()},
+    lease.token!, prepared.proof, lease.stillHeld, lease.beginMutation, lease.endMutation);
+  return memo.value;
+}
+
+export function reclaimOrMint(root: string, key: IdentityBindingKey, deps: ReclaimOrMintDeps,
+  options: ReclaimOrMintOptions = {}): ReclaimOrMintResult {
+  ensureDurableDirectory(identityDir(root));
+  const end = performance.now() + (options.deadlineMs ?? options.timeoutMs ?? 5000);
+  const memo: {value?: ReclaimOrMintResult} = {};
+  options={...options,signal:options.signal ?? new AbortController().signal};
+  for (;;) {
+    const prepared = prepareTransaction(root, key, deps, options, memo);
+    try { return withIdentityFenceSync(bindingsLock(root), lease => transact(root,key,deps,memo,prepared,lease),
+      {...options, timeoutMs:Math.max(0,end-performance.now())}); }
+    catch(e) { if (!(e instanceof BindingFenceStaleError) || performance.now() >= end) throw e; }
+  }
+}
+
+export async function reclaimOrMintAsync(root: string, key: IdentityBindingKey, deps: ReclaimOrMintDeps,
+  options: ReclaimOrMintOptions = {}): Promise<ReclaimOrMintResult> {
+  ensureDurableDirectory(identityDir(root));
+  const end = performance.now() + (options.deadlineMs ?? options.timeoutMs ?? 5000);
+  const memo: {value?: ReclaimOrMintResult} = {};
+  options={...options,signal:options.signal ?? new AbortController().signal};
+  for (;;) {
+    const prepared = prepareTransaction(root,key,deps,options,memo);
+    try { return await withIdentityFence(bindingsLock(root), lease => transact(root,key,deps,memo,prepared,lease),
+      {...options, timeoutMs:Math.max(0,end-performance.now())}); }
+    catch(e) { if (!(e instanceof BindingFenceStaleError) || performance.now() >= end) throw e; await new Promise(r=>setTimeout(r,0)); }
+  }
 }

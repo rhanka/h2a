@@ -1,58 +1,34 @@
-/**
- * Identity binding fence (0.98.6) — `identity/.lock` with provable provenance
- * and AUTOMATIC recovery when the holder is provably dead.
- *
- * The 0.98.5 lock was a plain O_EXCL sentinel carrying only
- * `{pid, hostname, startedAt}`: with `reclaimStale:false` no acquisition could
- * ever prove the holder dead, so an abandoned lock blocked every session until
- * a human ran `h2a identity unlock` (incident 2026-10-11: 24 h of
- * identity_timeout across two reboots).
- *
- * This module implements the 0.98.6 spec v4 core for the identity path:
- *  - R2: records are `recordVersion:2` of protocol `identity-binding-fence-v1`
- *    with machine/boot/pid-namespace/start provenance, published through a
- *    byte-count-checked tmp + fsync + `link(2)` + directory fsync (0600), with
- *    a qualified O_EXCL fallback that is never recovered automatically. No
- *    `hostname`/`startedAt`/`acquiredAt` field is ever written (an old parser's
- *    ESRCH + hostname recovery must stay impossible).
- *  - R3: classification and recovery authorization are distinct; the verdict
- *    comes from the single classifier (`classifyLiveness`, identity protocol).
- *    Non-recoverable blockers are re-read until the deadline.
- *  - R4: recovery rides the existing succession election (one implementation,
- *    `succeedDeadToken`/`retireDeadToken`), removing exactly the dead
- *    generation and republishing exclusively.
- *  - R5: non-destructive tail neutralization for `bindings.jsonl` (a single
- *    O_APPEND `\n` behind an unterminated suffix), never concatenating a new
- *    line onto a fragment.
- *  - R7: a bounded, structured, expurgated timeout error (no raw machine-id,
- *    no absolute path).
- *
- * Non-goals kept on purpose (spec D1): legacy locks are never recovered
- * automatically; recovery is Linux + qualified-filesystem + link-publication
- * only; no CAS slot store is introduced.
+/** Identity binding fence, FINAL v6 (A+B). Strict v2/v4 discrimination,
+ * qualified death proofs, bounded legacy NSpid evidence, shared succession,
+ * durable journal/slot repair before retirement, and monotone diagnostics.
+ * Upgrade retains its own protocol bindings. No operator call or signal is
+ * used by automatic recovery; every unsupported blocker waits for release.
  */
 
 import { createHash, createHmac, randomBytes } from "node:crypto";
 import {
+  constants,
   closeSync,
-  existsSync,
   fsyncSync,
-  mkdirSync,
   openSync,
   readFileSync,
   readSync,
   statfsSync,
   statSync,
   fstatSync,
+  lstatSync,
   unlinkSync,
   writeSync
 } from "node:fs";
-import { basename, dirname } from "node:path";
+import { basename, dirname, join } from "node:path";
+import { performance } from "node:perf_hooks";
+import { repairBindingSlots, prepareBindingSlots, type PreparedBindingSlots } from "../identity/binding-commit.js";
+import { ensureDurableDirectory, syncDirectory, redactIdentityStorageError } from "../identity/durable.js";
+import { captureLegacyLock, collectLegacyEvidence, legacyCaptureHeld, legacyCapacityExceeded, type LegacyCapture, type LegacyEvidenceResult } from './legacy-identity-evidence.js';
 
 import {
   LockCancelledError,
   LockTimeoutError,
-  busyWaitSync,
   logicalLockId,
   notifyObserver,
   type LockObservation
@@ -60,7 +36,6 @@ import {
 import {
   classifyLiveness,
   errnoOf,
-  makeLease,
   parseLegacyLockHolder,
   parseLockRec,
   procStartInfo,
@@ -77,6 +52,8 @@ import {
   type LockRec,
   type PrefixLockLease,
   type PublishStatus,
+  type BreakLockAsOperatorOptions,
+  type OperatorBreakResult,
   type SelfIdent
 } from "./succession-lock.js";
 
@@ -109,6 +86,8 @@ const DEFAULT_TIMEOUT_MS = 5000;
 const DEFAULT_POLL_MS = 50;
 /** Suggested bounded retry delay for `interval` refusals (R7). */
 const RETRY_AFTER_MS = 1000;
+// One worker cancellation signal identifies one external attempt across retries.
+const LEGACY_PASS_QUOTAS = new WeakMap<AbortSignal,{passes:number}>();
 
 type RecordPlatform = "linux" | "darwin" | "win32" | "other";
 type RecordPublication = "link" | "o-excl";
@@ -182,8 +161,8 @@ function makeIdentityRecord(
     protocol: IDENTITY_BINDING_FENCE_PROTOCOL,
     platform,
     publication,
-    hostKind: self.hostKind,
-    host: self.hostKind === "machine-id" ? self.host : null,
+    hostKind: platform === 'linux' ? self.hostKind : 'weak',
+    host: platform === 'linux' && self.hostKind === "machine-id" ? self.host : null,
     boot: platform === "linux" ? self.boot : null,
     ns: platform === "linux" ? self.ns : null,
     timeNs: platform === "linux" ? self.timeNs : null,
@@ -215,7 +194,7 @@ function parseIdentityRecord(raw: unknown): IdentityLockRec | undefined {
   if (o.boot !== null && (typeof o.boot !== "string" || !BOOT_ID_RE.test(o.boot))) return undefined;
   if (o.ns !== null && (typeof o.ns !== "string" || !PID_NS_RE.test(o.ns))) return undefined;
   if (o.timeNs !== null && (typeof o.timeNs !== "string" || !TIME_NS_RE.test(o.timeNs))) return undefined;
-  if (typeof o.pid !== "number" || !Number.isInteger(o.pid) || o.pid <= 0) return undefined;
+  if (typeof o.pid !== "number" || !Number.isSafeInteger(o.pid) || o.pid <= 0) return undefined;
   if (o.start !== null && (typeof o.start !== "string" || !PROC_START_RE.test(o.start))) return undefined;
   if (typeof o.token !== "string" || !/^[0-9a-f]{32}$/.test(o.token)) return undefined;
   if (o.fenceEpoch !== o.token) return undefined;
@@ -250,7 +229,7 @@ export type IdentityLockRead =
   | { kind: "io-error"; code: string }
   | { kind: "v2"; rec: IdentityLockRec; bytes: Buffer }
   | { kind: "adapter"; rec: LockRec; bytes: Buffer }
-  | { kind: "legacy"; holder: LegacyLockHolder; bytes: Buffer }
+  | { kind: "legacy"; holder: LegacyLockHolder; bytes: Buffer; eligible?: boolean }
   | { kind: "cull"; bytes: Buffer };
 
 const CULL_KEYS: ReadonlySet<string> = new Set(["protocol", "fenceEpoch", "pid", "acquiredAt"]);
@@ -264,13 +243,17 @@ const CULL_KEYS: ReadonlySet<string> = new Set(["protocol", "fenceEpoch", "pid",
  */
 export function readIdentityLock(path: string): IdentityLockRead {
   let bytes: Buffer;
+  let fd:number|undefined;
   try {
-    bytes = readFileSync(path);
+    fd=openSync(path,constants.O_RDONLY|constants.O_NOFOLLOW);
+    if(!fstatSync(fd).isFile())return 'corrupt';
+    bytes = readFileSync(fd);
   } catch (e) {
     const code = errnoOf(e);
     if (code === "ENOENT") return "absent";
+    if(code==='ELOOP')return 'corrupt';
     return { kind: "io-error", code };
-  }
+  }finally{if(fd!==undefined)closeSync(fd);}
   let parsed: unknown;
   try {
     parsed = JSON.parse(bytes.toString("utf8"));
@@ -288,10 +271,18 @@ export function readIdentityLock(path: string): IdentityLockRead {
     return "unknown";
   }
   const legacyKeys = new Set(["pid", "hostname", "startedAt", "protocol", "fenceEpoch"]);
+  if ('protocol' in o && o.protocol !== IDENTITY_BINDING_FENCE_PROTOCOL) return 'unknown';
   if (keys.includes("pid") && keys.includes("hostname") && keys.includes("startedAt")
     && keys.every((key) => legacyKeys.has(key))) {
     try {
-      return { kind: "legacy", holder: parseLegacyLockHolder(parsed, bytes), bytes };
+      const eligible = keys.length === 5 && Number.isInteger(o.pid) && (o.pid as number) >= 1 && (o.pid as number) <= 4194304
+        && typeof o.hostname === 'string' && o.hostname.length > 0
+        && typeof o.startedAt === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(o.startedAt)
+        && Number.isFinite(Date.parse(o.startedAt)) && new Date(o.startedAt).toISOString() === o.startedAt
+        && typeof o.fenceEpoch === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(o.fenceEpoch)
+        && bytes.equals(Buffer.from(JSON.stringify({pid:o.pid,hostname:o.hostname,startedAt:o.startedAt,protocol:o.protocol,fenceEpoch:o.fenceEpoch})));
+      if (keys.length === 5 && !eligible) return 'corrupt';
+      return { kind: "legacy", holder: parseLegacyLockHolder(parsed, bytes), bytes, eligible };
     } catch {
       return "corrupt";
     }
@@ -299,6 +290,10 @@ export function readIdentityLock(path: string): IdentityLockRead {
   if (keys.length === CULL_KEYS.size && keys.every((key) => CULL_KEYS.has(key))) {
     return { kind: "cull", bytes };
   }
+  if ('protocol' in o) return 'unknown';
+  const required = ['host','boot','ns','timeNs','pid','start','token','at'];
+  const allowed = new Set([...required, 'hostKind','target','operator']);
+  if (!required.every(key => key in o) || !keys.every(key => allowed.has(key))) return 'corrupt';
   try {
     return { kind: "adapter", rec: parseLockRec(parsed), bytes };
   } catch {
@@ -315,7 +310,7 @@ function identityChainView(path: string): LockRec | "absent" | "corrupt" {
     return "corrupt";
   }
   if (read.kind === "adapter") return read.rec;
-  return identityLockView(read.rec);
+  return { ...identityLockView(read.rec), platform: read.rec.platform, publication: read.rec.publication } as LockRec;
 }
 
 /** LockRec-shaped view of a v2 record for the classifier (host may be null: weak). */
@@ -339,6 +334,7 @@ function identityVerdict(read: Exclude<IdentityLockRead, "absent" | { kind: "io-
   if (read === "corrupt" || read === "unknown" || read.kind === "legacy" || read.kind === "cull") {
     return "undecidable";
   }
+  if(read.kind==='v2' && read.rec.platform!=='linux')return 'undecidable';
   const rec = read.kind === "v2" ? identityLockView(read.rec) : read.rec;
   return classifyLiveness(rec, self, { protocol: "identity" }).verdict;
 }
@@ -380,20 +376,7 @@ function fsyncDirectory(dir: string): void {
   }
 }
 
-function ensureIdentityDir(dir: string): void {
-  if (existsSync(dir)) return;
-  const parent = dirname(dir);
-  mkdirSync(dir, { recursive: true });
-  if (process.platform === "linux" || process.platform === "darwin") {
-    try {
-      fsyncDirectory(dir);
-      fsyncDirectory(parent);
-    } catch {
-      // A best-effort durability of the directory itself: the fence record's
-      // own publication fsync below is the load-bearing barrier.
-    }
-  }
-}
+function ensureIdentityDir(dir: string): void { ensureDurableDirectory(dir); }
 
 /**
  * Publication (R2): tmp (wx, byte-count-checked write, fsync, close) then
@@ -404,13 +387,14 @@ function ensureIdentityDir(dir: string): void {
  */
 export type IdentityPublishStatus = PublishStatus & { publication?: RecordPublication };
 
-export function publishIdentityRecord(path: string, rec: IdentityLockRec): IdentityPublishStatus {
+export function publishIdentityRecord(path: string, rec: IdentityLockRec, atomicOnly=false): IdentityPublishStatus {
   const pub = publishLockRecord(path, rec as unknown as LockRec, LOCK_RECORD_MODE);
   if (pub.status === "ok") {
     fsyncDirectory(dirname(path));
     return { ...pub, publication: "link" };
   }
   if (pub.status !== "error" || !LINK_FALLBACK_CODES.has(pub.code)) return pub;
+  if(atomicOnly)return pub;
   const fallback = { ...rec, publication: "o-excl" as const };
   const data = JSON.stringify(fallback);
   let fd: number | undefined;
@@ -461,9 +445,9 @@ export function publishIdentityRecord(path: string, rec: IdentityLockRec): Ident
 let DIAGNOSTIC_KEY: Buffer | undefined;
 
 /** Ephemeral per-process fingerprint key (R7; a standalone CLI uses its own). */
-function diagnosticFingerprint(machineId: string): string {
+function diagnosticFingerprint(machineId: string, key?: Buffer): string {
   DIAGNOSTIC_KEY ??= randomBytes(32);
-  return createHmac("sha256", DIAGNOSTIC_KEY)
+  return createHmac("sha256", key ?? DIAGNOSTIC_KEY)
     .update(`h2a-identity-diagnostic-v1\0${machineId}`)
     .digest("hex")
     .slice(0, 16);
@@ -536,7 +520,8 @@ function identityUndecidableReason(rec: LockRec, self: SelfIdent): { reasonCode:
 function blockerFromRead(
   read: Exclude<IdentityLockRead, "absent" | { kind: "io-error" }>,
   self: SelfIdent,
-  blockerType: "LOCK" | "SUCC"
+  blockerType: "LOCK" | "SUCC",
+  diagnosticKey?: Buffer
 ): IdentityBlockerInfo {
   const unknown: IdentityBlockerInfo = {
     blockerType,
@@ -563,15 +548,15 @@ function blockerFromRead(
       ...unknown,
       pid: read.holder.pid,
       generation: read.holder.token,
-      reasonCode: "legacy-record",
-      reason: "a lock written by h2a <= 0.98.5 lacks the provenance required for automatic recovery",
+      reasonCode: "legacy-generation-unsupported",
+      reason: "legacy record is outside the supported automatic recovery class",
       retryCondition: "blocker-change"
     };
   }
   const isV2 = read.kind === "v2";
   const v2 = isV2 ? (read as { rec: IdentityLockRec }).rec : undefined;
   const view = isV2 ? identityLockView(v2 as IdentityLockRec) : (read as { rec: LockRec }).rec;
-  const verdict = classifyLiveness(view, self, { protocol: "identity" }).verdict;
+  const verdict = isV2 && v2?.platform!=='linux' ? 'undecidable' : classifyLiveness(view, self, { protocol: "identity" }).verdict;
   const machineClass: "local" | "other" | "unknown" =
     view.hostKind === "machine-id" && self.hostKind === "machine-id" && typeof view.host === "string" && MACHINE_ID_RE.test(view.host)
       ? view.host === self.host ? "local" : "other"
@@ -585,7 +570,7 @@ function blockerFromRead(
     pid: view.pid,
     machineClass,
     ...(machineClass !== "unknown" && typeof view.host === "string"
-      ? { machineFingerprint: diagnosticFingerprint(view.host) }
+      ? { machineFingerprint: diagnosticFingerprint(view.host,diagnosticKey) }
       : {}),
     bootClass,
     ns: view.ns ?? "unknown",
@@ -593,6 +578,7 @@ function blockerFromRead(
     generation: view.token,
     target: view.target ?? "unknown"
   };
+  if(isV2 && v2?.platform!=='linux')return {...base,reasonCode:'platform-unsupported',reason:'automatic identity recovery requires a Linux record and reader',retryCondition:'blocker-change'};
   if (verdict === "live") {
     return {
       ...base,
@@ -636,7 +622,7 @@ function blockerFromRead(
 }
 
 /** R7 common literal; absent values render as "unknown". */
-function diagnosticMessage(d: IdentityLockDiagnostic): string {
+export function diagnosticMessage(d: IdentityLockDiagnostic): string {
   const unknown = "unknown";
   let text =
     `Identity unavailable after ${d.elapsedMs} ms; budget ${d.budgetMs} ms. `
@@ -657,7 +643,7 @@ export class IdentityLockTimeoutError extends LockTimeoutError {
   readonly diagnostic: IdentityLockDiagnostic;
 
   constructor(lockPath: string, diagnostic: IdentityLockDiagnostic) {
-    super(lockPath, undefined, diagnostic.budgetMs);
+    super(diagnostic.lock, undefined, diagnostic.budgetMs);
     this.name = "LockTimeoutError";
     this.diagnostic = diagnostic;
     this.message = diagnosticMessage(diagnostic);
@@ -669,6 +655,8 @@ export class IdentityLockTimeoutError extends LockTimeoutError {
 // ---------------------------------------------------------------------------
 
 export interface IdentityFenceOptions {
+  readonly onBlocker?: (info: IdentityBlockerInfo, stabilityKey: string) => void;
+  readonly diagnosticKey?: Buffer;
   /** Monotone budget bounding the whole wait (default 5000 ms). */
   readonly timeoutMs?: number;
   readonly pollMs?: number;
@@ -681,6 +669,8 @@ export interface IdentityFenceOptions {
 }
 
 export interface IdentityFenceLease extends PrefixLockLease {
+  beginMutation(): void;
+  endMutation(): void;
   /** Publication actually used for this fence (o-excl is never recovered). */
   readonly publication: RecordPublication;
   /** True when acquisition recovered a provably dead previous holder. */
@@ -688,34 +678,37 @@ export interface IdentityFenceLease extends PrefixLockLease {
 }
 
 interface BlockerObservation {
-  readonly info: IdentityBlockerInfo;
+  info: IdentityBlockerInfo;
   /** Stability key (token for records; bytes+dev/ino for opaque formats). */
   readonly key: string;
 }
 
 function blockerKey(read: Exclude<IdentityLockRead, "absent" | { kind: "io-error" }>, lockPath: string): string {
   if (read === "corrupt" || read === "unknown") {
-    return `${read}:${sha256Bytes(readBytesOf(lockPath))}`;
+    const st=statOf(lockPath);
+    return `${read}:${sha256Bytes(readBytesOf(lockPath))}:${st ? `${st.dev}/${st.ino}` : 'meta-unobserved'}`;
   }
   if (read.kind === "legacy" || read.kind === "cull") {
     const st = statOf(lockPath);
-    return `${read.kind}:${sha256Bytes(read.bytes)}:${st ? `${st.dev}/${st.ino}` : "unknown"}`;
+    return `${read.kind}:${sha256Bytes(read.bytes)}:${st ? `${st.dev}/${st.ino}/${st.uid}/${st.mode}/${st.nlink}/${st.mtimeMs}/${st.ctimeMs}` : "meta-unobserved"}`;
   }
   return `${read.kind}:${read.rec.token}`;
 }
 
 function readBytesOf(path: string): Buffer {
+  let fd:number|undefined;
   try {
-    return readFileSync(path);
+    fd=openSync(path,constants.O_RDONLY|constants.O_NOFOLLOW);
+    return fstatSync(fd).isFile()?readFileSync(fd):Buffer.alloc(0);
   } catch {
     return Buffer.alloc(0);
-  }
+  }finally{if(fd!==undefined)closeSync(fd);}
 }
 
-function statOf(path: string): { dev: number; ino: number } | undefined {
+function statOf(path: string): ReturnType<typeof statSync> | undefined {
   try {
-    const st = statSync(path);
-    return { dev: st.dev, ino: st.ino };
+    const st = lstatSync(path);
+    return st;
   } catch {
     return undefined;
   }
@@ -728,6 +721,8 @@ function sha256Bytes(bytes: Buffer): string {
 type IdentityBlockerRead = Exclude<IdentityLockRead, "absent" | { kind: "io-error" }>;
 
 interface SuccessionScan {
+  readonly exhausted?:true;
+  readonly blockingPath?: string;
   /** The LOCK holder that blocks (dead or not). */
   readonly lock: IdentityBlockerRead;
   /**
@@ -740,33 +735,76 @@ interface SuccessionScan {
 }
 
 /** Read the chain up to the SUCC effectively blocking (R4 readFirst). */
-function scanSuccession(lockPath: string, self: SelfIdent, first: IdentityBlockerRead): SuccessionScan {
-  if (first === "corrupt" || first === "unknown" || first.kind === "legacy" || first.kind === "cull") {
+function scanSuccession(lockPath: string, self: SelfIdent, first: IdentityBlockerRead, legacyDead=false): SuccessionScan {
+  if (first === "corrupt" || first === "unknown" || first.kind === "legacy" && !legacyDead || first.kind === "cull") {
     return { lock: first };
   }
-  if (identityVerdict(first, self) !== "dead") return { lock: first };
+  if (!legacyDead && identityVerdict(first, self) !== "dead") return { lock: first };
   // The LOCK holder is provably dead: walk the SUCC chain one link at a time.
-  let t = first.rec.token;
+  const generation = typeof first === 'object' && first.kind === 'legacy' ? first.holder.token : (first as {rec:LockRec}).rec.token;
+  let t = generation;
   for (let depth = 0; depth < 8; depth++) {
-    const link = readIdentityLock(succPathFor(lockPath, t));
+    const path=succPathFor(lockPath,t);
+    const link = readIdentityLock(path);
     if (link === "absent") return { lock: first };
     if (link === "corrupt" || link === "unknown" || link.kind === "io-error"
       || link.kind === "legacy" || link.kind === "cull") {
-      return { lock: first, blockingLink: link };
+      return { lock: first, blockingLink: link, blockingPath:path };
     }
-    if (identityVerdict(link, self) !== "dead") return { lock: first, blockingLink: link };
+    if (link.rec.target !== generation || identityVerdict(link, self) !== "dead" || !recoveryAuthorized(link, dirname(lockPath))) return { lock: first, blockingLink: link, blockingPath:path };
     t = link.rec.token;
   }
-  return { lock: first, blockingLink: "unknown" };
+  return { lock: first, blockingLink: "unknown", exhausted:true };
 }
 
-function identityElectionIo(self: SelfIdent): FenceElectionIo {
+function identityElectionIo(self: SelfIdent, lockPath?: string, ctx?: FenceLoopContext): FenceElectionIo {
+  let electedPath: string | undefined; let electedToken: string | undefined; let target: string | undefined;
+  const held = (): boolean => {
+    if (!lockPath || !electedPath || !electedToken || !target) return false;
+    const current=identitySelf();
+    if(current.host!==self.host || current.hostKind!==self.hostKind || current.boot!==self.boot || current.ns!==self.ns || current.timeNs!==self.timeNs)return false;
+    const original = identityChainView(lockPath); const elected = identityChainView(electedPath);
+    return original !== 'absent' && original !== 'corrupt' && original.token === target
+      && elected !== 'absent' && elected !== 'corrupt' && elected.token === electedToken && elected.target === target
+      && readIdentityLock(succPathFor(lockPath, electedToken)) === 'absent';
+  };
   return {
+    ...(lockPath ? {beforeElection:(g:string):boolean=>{
+      if(ctx && performance.now()>=ctx.deadline)return false;
+      const read=readIdentityLock(lockPath);
+      return typeof read==='object' && (read.kind==='v2'||read.kind==='adapter') && read.rec.token===g
+        && recoveryAuthorized(read,dirname(lockPath)) && identityVerdict(read,identitySelf())==='dead';
+    }} : {}),
     makeRec: (s, token, target) => makeIdentityRecord(s, token, target) as unknown as LockRec,
     readRecord: identityChainView,
-    classify: (r, s) => classifyLiveness(r, s, { protocol: "identity" }).verdict,
-    publish: (path, rec) => publishIdentityRecord(path, rec as unknown as IdentityLockRec)
+    classify: (r, s) => {
+      const metadata = r as LockRec & { publication?: string; platform?: string };
+      if (metadata.publication === 'o-excl' || metadata.platform && metadata.platform !== 'linux') return 'undecidable';
+      return classifyLiveness(r, identitySelf(), { protocol: "identity" }).verdict;
+    },
+    publish: (path, rec) => {
+      const pub = publishIdentityRecord(path, rec as unknown as IdentityLockRec, Boolean(rec.target));
+      if (rec.target && pub.status === 'ok' && pub.publication !== 'link') return {status:'error',code:'ENOTSUP'};
+      return pub;
+    },
+    onElected: (path, token, g) => { electedPath = path; electedToken = token; target = g; },
+    ...(lockPath ? { beforeRetire: () => {
+      if (!held() || ctx && performance.now()>=ctx.deadline) {
+        if(electedPath && electedToken && target)abandonOwnSuccessor(lockPath,electedPath,electedToken,target);
+        return false;
+      }
+      repairIdentityJournal(dirname(lockPath), held,ctx!.slotReceipts!);
+      return held();
+    }, afterRetire: dir=>{syncDirectory(dir);if(ctx)ctx.recovered=true;} } : {}),
+    lease: (_prefix, path, token) => makeIdentityLease(path, token, 'link', true)
   };
+}
+
+function abandonOwnSuccessor(lockPath:string,path:string,token:string,target:string):void {
+  const read=readIdentityLock(path);
+  if(typeof read!=='object' || read.kind!=='v2' || read.rec.token!==token || read.rec.target!==target || read.rec.pid!==process.pid)return;
+  if(readIdentityLock(succPathFor(lockPath,token))!=='absent')return;
+  unlinkSync(path);syncDirectory(dirname(path));
 }
 
 function recoveryAuthorized(first: { kind: "v2"; rec: IdentityLockRec } | { kind: "adapter"; rec: LockRec }, dir: string): boolean {
@@ -777,12 +815,57 @@ function recoveryAuthorized(first: { kind: "v2"; rec: IdentityLockRec } | { kind
   return identityFsQualified(dir);
 }
 
-function identityLease(lease: PrefixLockLease, publication: RecordPublication, recovered: boolean): IdentityFenceLease {
-  return {
-    ...lease,
-    publication,
-    recovered
+function makeIdentityLease(lockPath: string, token: string, publication: RecordPublication, recovered: boolean): IdentityFenceLease {
+  let done = false; let dirty = false;
+  const stillHeld = (): boolean => { const read = identityChainView(lockPath); return !done && read !== 'absent' && read !== 'corrupt' && read.token === token; };
+  const release = (): void => {
+    process.off('exit', exit);
+    if (done || dirty) return;
+    if (stillHeld()) { unlinkSync(lockPath); syncDirectory(dirname(lockPath)); }
+    done = true;
   };
+  const exit = (): void => { try { release(); } catch { /* preserve barrier on storage failure */ } };
+  process.on('exit', exit);
+  return { acquired: true, token, stillHeld, release, publication, recovered,
+    beginMutation: () => { if (!stillHeld()) throw new Error('identity fence lost'); dirty = true; }, endMutation: () => { dirty = false; } };
+}
+
+export function repairIdentityJournal(dir: string, held: () => boolean, slots:PreparedBindingSlots): void {
+  if (!held()) throw new Error('identity repair election lost');
+  neutralizeBindingsTail(join(dir, 'bindings.jsonl'), held);
+  attestBindingsTailDurable(join(dir, 'bindings.jsonl'));
+  if (!held()) throw new Error('identity repair election lost');
+  repairBindingSlots(dir, held,slots);
+}
+
+/** Identity operator uses the same election and repair barrier; upgrade stays separate. */
+export function breakIdentityLockAsOperator(lockPath: string, options: BreakLockAsOperatorOptions): OperatorBreakResult {
+  const read = readIdentityLock(lockPath);
+  if (read === 'absent' || read === 'corrupt' || read === 'unknown' || read.kind === 'io-error' || read.kind === 'cull') return {broken:false,reason:read === 'absent' ? 'absent' : 'corrupt',legacyRecords:0};
+  const legacyRecords = read.kind === 'legacy' ? 1 : 0;
+  const token = read.kind === 'legacy' ? read.holder.token : read.rec.token;
+  const result = {token,pid:read.kind === 'legacy' ? read.holder.pid : read.rec.pid,legacyRecords} as const;
+  if (token !== options.expectToken) return {...result,broken:false,reason:'token-mismatch'};
+  const verdict = read.kind === 'legacy' ? 'undecidable' : identityVerdict(read, identitySelf());
+  if (verdict === 'live') return {...result,broken:false,reason:'live'};
+  if (verdict === 'undecidable' && !options.assertDead) return {...result,broken:false,reason:'assert-dead-required'};
+  const before = statSync(lockPath);
+  const same = (): boolean => { try { const st=statSync(lockPath);return st.dev===before.dev && st.ino===before.ino && readFileSync(lockPath).equals(read.bytes); } catch {return false;} };
+  let electedPath=''; let electedToken='';
+  const held = (): boolean => { const rec=identityChainView(electedPath);return same() && rec!=='absent' && rec!=='corrupt' && rec.token===electedToken && rec.target===token && readIdentityLock(succPathFor(lockPath,electedToken))==='absent'; };
+  const io = identityElectionIo(identitySelf());
+  const chainRead = io.readRecord;
+  io.readRecord = path => path===lockPath && read.kind==='legacy' && same()
+    ? {host:'',hostKind:'weak',boot:null,ns:null,timeNs:null,pid:read.holder.pid,start:null,token,at:0} : chainRead(path);
+  io.makeRec = (self,t,g) => ({...makeIdentityRecord(self,t,g),operator:true}) as unknown as LockRec;
+  io.onElected = (path,t) => {electedPath=path;electedToken=t;};
+  const slots=prepareBindingSlots(dirname(lockPath));
+  io.beforeRetire = () => {if(!held()){abandonOwnSuccessor(lockPath,electedPath,electedToken,token);return false;}repairIdentityJournal(dirname(lockPath),held,slots);return held();};
+  io.afterRetire = syncDirectory;
+  io.retireOnly = true;
+  const next=succeedDeadToken(dirname(lockPath),lockPath,token,identitySelf(),io);
+  if(next==='retry')return {...result,broken:false,reason:'token-mismatch'};
+  return {...result,broken:next.acquired,...(!next.acquired ? {reason:next.reason as OperatorBreakResult['reason']} : {})};
 }
 
 interface AcquireOutcome {
@@ -815,7 +898,7 @@ function unreadableBlocker(code: string): BlockerObservation {
  * wait on, or a retry signal. Never throws for contention; storage errors
  * propagate (errno preserved for the worker's cause classification).
  */
-function acquireIdentityRound(lockPath: string, dir: string, self: SelfIdent): AcquireOutcome {
+function acquireIdentityRound(lockPath: string, dir: string, self: SelfIdent, ctx: FenceLoopContext): AcquireOutcome {
   const read = readIdentityLock(lockPath);
   if (typeof read === "object" && read.kind === "io-error") {
     if (STORAGE_READ_CODES.has(read.code)) {
@@ -827,16 +910,88 @@ function acquireIdentityRound(lockPath: string, dir: string, self: SelfIdent): A
     return { blocker: unreadableBlocker(read.code) };
   }
   if (read === "absent") {
+    ctx.slotReceipts=prepareBindingSlots(dir);
+    fenceTimedOut(ctx);
     const tok = newIdentityToken();
     const rec = makeIdentityRecord(self, tok);
     const pub = publishIdentityRecord(lockPath, rec);
     if (pub.status === "ok") {
-      return { lease: identityLease(makeLease(dir, lockPath, tok, identityElectionIo(self)), pub.publication ?? "link", false) };
+      return { lease: makeIdentityLease(lockPath, tok, pub.publication ?? "link", ctx.recovered===true) };
     }
     if (pub.status === "exists" || pub.status === "retry") return { retry: true };
     const err = new Error(`identity fence publish failed: ${pub.code}`);
     (err as NodeJS.ErrnoException).code = pub.code;
     throw err;
+  }
+  if (typeof read === 'object' && read.kind === 'legacy' && read.eligible) {
+    if (!ctx.legacyAttempt) {
+      const captured = captureLegacyLock(lockPath,read.bytes,read.holder,self);
+      ctx.legacyAttempt={generation:read.holder.token};
+      if ('fd' in captured) {
+        ctx.legacyAttempt.capture=captured;
+        ctx.legacyAttempt.result = identityFsQualified(dir) && process.platform==='linux' ? legacyPass(ctx,captured)
+          : {dead:false,reasonCode:'fs-not-qualified',reason:'identity filesystem or platform is not recovery qualified',structural:true};
+      } else ctx.legacyAttempt.result=captured;
+    }
+    const attempt=ctx.legacyAttempt;
+    let evidence=attempt.result!;
+    if(evidence.limit==='processes' && attempt.capture) {
+      const exceeded=legacyCapacityExceeded(attempt.capture,ctx.deadline,identitySelf);
+      if(exceeded!==true)ctx.state.stable=false;
+      evidence={...evidence,structural:exceeded===true && ctx.state.stable};
+    }
+    if (attempt.generation!==read.holder.token || attempt.capture && !legacyCaptureHeld(attempt.capture,identitySelf())) {
+      evidence={dead:false,reasonCode:'legacy-observation-changed',reason:'legacy file or current frame changed'};
+    }
+    if (evidence.dead && attempt.capture && !attempt.confirmed) {
+      const scan=scanSuccession(lockPath,self,read,true);
+      if(scan.blockingLink===undefined) {
+        ctx.slotReceipts=prepareBindingSlots(dir);
+        fenceTimedOut(ctx);
+        const capture=attempt.capture;
+        const g=read.holder.token;
+        const io=identityElectionIo(self);
+        io.beforeElection=()=>legacyCaptureHeld(capture,identitySelf()) && performance.now()<ctx.deadline;
+        const chainRead=io.readRecord;
+        io.readRecord=path=>path===lockPath && legacyCaptureHeld(capture,identitySelf())
+          ? {host:'',hostKind:'weak',boot:null,ns:null,timeNs:null,pid:read.holder.pid,start:null,token:g,at:0}:chainRead(path);
+        let electionPath='';let electionToken='';
+        const held=():boolean=>{const link=chainRead(electionPath);return legacyCaptureHeld(capture,identitySelf()) && link!=='absent' && link!=='corrupt' && link.token===electionToken && link.target===g && readIdentityLock(succPathFor(lockPath,electionToken))==='absent';};
+        io.onElected=(path,token)=>{electionPath=path;electionToken=token;};
+        io.beforeRetire=()=>{
+          attempt.confirmed=true;
+          const confirmation=legacyPass(ctx,capture);
+          if(!confirmation.dead || !held()) {
+            attempt.result=confirmation.dead ? {dead:false,reasonCode:'legacy-observation-changed',reason:'election changed before repair'}:confirmation;
+            abandonOwnSuccessor(lockPath,electionPath,electionToken,g);
+            return false;
+          }
+          try{fenceTimedOut(ctx);}catch(e){abandonOwnSuccessor(lockPath,electionPath,electionToken,g);throw e;}
+          repairIdentityJournal(dir,held,ctx.slotReceipts!);
+          return held();
+        };
+        io.afterRetire=dir=>{syncDirectory(dir);ctx.recovered=true;};
+        const next=succeedDeadToken(dir,lockPath,g,self,io);
+        if(next==='retry')return {retry:true};
+        if(next.acquired)return {lease:next as IdentityFenceLease};
+        if(next.reason?.startsWith('error:')) {
+          const code=next.reason.slice(6);
+          if(LINK_FALLBACK_CODES.has(code))attempt.result={dead:false,reasonCode:'fs-no-atomic-publish',reason:'succession requires atomic link publication',structural:true};
+          else throw Object.assign(new Error('identity succession storage failure'),{code});
+        }
+        evidence=attempt.result!;
+      } else if(scan.exhausted) {
+        return {blocker:{key:`${read.holder.token}:chain-exhausted`,info:{...blockerFromRead(read,self,'SUCC',ctx.options.diagnosticKey),reasonCode:'succ-chain-exhausted',reason:'succession chain depth limit (8) reached',retryCondition:'blocker-change'}}};
+      } else if(scan.blockingLink==='unknown' || scan.blockingLink==='corrupt') {
+        return {blocker:{key:`${read.holder.token}:${blockerKey(scan.blockingLink,scan.blockingPath!)}`,info:blockerFromRead(scan.blockingLink,self,'SUCC',ctx.options.diagnosticKey)}};
+      } else if(scan.blockingLink !== 'absent'
+        && typeof scan.blockingLink==='object' && scan.blockingLink.kind!=='io-error') {
+        return {blocker:{key:`${read.holder.token}:${blockerKey(scan.blockingLink,scan.blockingPath!)}`,info:blockerFromRead(scan.blockingLink,self,'SUCC',ctx.options.diagnosticKey)}};
+      } else evidence={dead:false,reasonCode:'succession-contested',reason:'legacy succession is blocked'};
+    }
+    const base=blockerFromRead(read,self,'LOCK',ctx.options.diagnosticKey);
+    return {blocker:{key:`${blockerKey(read,lockPath)}:${evidence.reasonCode}`,info:{...base,reasonCode:evidence.reasonCode,reason:evidence.reason,
+      retryCondition:evidence.structural?'blocker-change':'interval'}}};
   }
   // A blocker exists: classify fresh, then decide recovery or wait (R3/R4).
   const scan = scanSuccession(lockPath, self, read);
@@ -845,13 +1000,16 @@ function acquireIdentityRound(lockPath: string, dir: string, self: SelfIdent): A
     if (typeof read === "object" && (read.kind === "v2" || read.kind === "adapter")
       && identityVerdict(read, self) === "dead" && recoveryAuthorized(read, dir)) {
       const g = read.rec.token;
-      const next = succeedDeadToken(dir, lockPath, g, self, identityElectionIo(self));
+      ctx.slotReceipts=prepareBindingSlots(dir);
+      fenceTimedOut(ctx);
+      const next = succeedDeadToken(dir, lockPath, g, self, identityElectionIo(self, lockPath,ctx));
       if (next === "retry") return { retry: true };
       if (next.acquired) {
-        return { lease: identityLease(next, "link", true) };
+        return { lease: next as IdentityFenceLease };
       }
       if (next.reason !== undefined && next.reason.startsWith("error:")) {
         const code = next.reason.slice("error:".length);
+        if(LINK_FALLBACK_CODES.has(code))return {blocker:{key:blockerKey(read,lockPath),info:{...blockerFromRead(read,self,'LOCK',ctx.options.diagnosticKey),reasonCode:'fs-no-atomic-publish',reason:'succession requires atomic link publication',retryCondition:'blocker-change'}}};
         const err = new Error(`identity fence recovery failed: ${code}`);
         (err as NodeJS.ErrnoException).code = code;
         throw err;
@@ -862,7 +1020,7 @@ function acquireIdentityRound(lockPath: string, dir: string, self: SelfIdent): A
         blocker: {
           key: blockerKey(read, lockPath),
           info: {
-            ...blockerFromRead(read, self, "LOCK"),
+            ...blockerFromRead(read, self, "LOCK",ctx.options.diagnosticKey),
             reasonCode: "succession-contested",
             reason: "another live successor won the election for the dead holder",
             retryCondition: "interval"
@@ -873,17 +1031,17 @@ function acquireIdentityRound(lockPath: string, dir: string, self: SelfIdent): A
     return {
       blocker: {
         key: blockerKey(read, lockPath),
-        info: blockerFromRead(read, self, "LOCK")
+        info: blockerFromRead(read, self, "LOCK",ctx.options.diagnosticKey)
       }
     };
   }
-  if (scan.blockingLink === "unknown") {
+  if (scan.exhausted) {
     // Chain exhausted at depth 8 (R4): bounded wait, no blind purge.
     return {
       blocker: {
         key: "chain-exhausted",
         info: {
-          ...blockerFromRead(read, self, "LOCK"),
+          ...blockerFromRead(read, self, "LOCK",ctx.options.diagnosticKey),
           blockerType: "SUCC",
           reasonCode: "succ-chain-exhausted",
           reason: "the succession chain reached its depth limit; no blind purge is performed",
@@ -897,11 +1055,11 @@ function acquireIdentityRound(lockPath: string, dir: string, self: SelfIdent): A
     return { retry: true };
   }
   const link = scan.blockingLink;
-  if (link === "corrupt" || (typeof link === "object" && link.kind !== "io-error")) {
+  if (link === "corrupt" || link === 'unknown' || (typeof link === "object" && link.kind !== "io-error")) {
     return {
       blocker: {
-        key: `SUCC@${blockerKey(link, lockPath)}`,
-        info: blockerFromRead(link, self, "SUCC")
+        key: `SUCC@${blockerKey(read,lockPath)}:${blockerKey(link, scan.blockingPath!)}`,
+        info: blockerFromRead(link, self, "SUCC",ctx.options.diagnosticKey)
       }
     };
   }
@@ -922,6 +1080,7 @@ interface WaitState {
 }
 
 function observeBlocker(state: WaitState, blocker: BlockerObservation): void {
+  blocker={...blocker,key:`${blocker.key}:${blocker.info.reasonCode}`};
   if (state.firstKey === undefined) {
     state.firstKey = blocker.key;
     state.firstInfo = blocker.info;
@@ -941,15 +1100,16 @@ function timeoutDiagnostic(
   relative: string
 ): IdentityLockTimeoutError {
   const info = state.lastInfo ?? state.firstInfo;
-  const stable = state.stable && state.lastKey !== undefined;
-  const isStableLegacy = stable && info?.reasonCode === "legacy-record";
+  const stable = state.stable && state.lastKey !== undefined && !state.lastKey.includes('meta-unobserved') && info?.reasonCode!=='holder-unreadable';
+  const isStableLegacy = stable && info?.reasonCode === "legacy-generation-unsupported";
+  const isB = info?.blockerType==='LOCK' && info.generation.startsWith('legacy-') && !isStableLegacy;
   const diagnostic: IdentityLockDiagnostic = {
-    elapsedMs: Date.now() - startedAt,
+    elapsedMs: Math.round(performance.now() - startedAt),
     budgetMs,
     lock: relative,
     stable,
     ...(info
-      ? info
+      ? { ...info, retryCondition: stable ? info.retryCondition : 'interval' as const }
       : {
         blockerType: "unknown" as const,
         pid: "unknown" as const,
@@ -970,12 +1130,18 @@ function timeoutDiagnostic(
         command: `h2a identity unlock --root <validated-store-root> --token ${info.generation} --assert-dead`
       }
       : {})
+    ,...(isB ? {legacyNote:`Legacy identity lock retained: independent recovery evidence is incomplete (${info.reasonCode}). Normal release may still allow acquisition.`} : {})
   };
   return new IdentityLockTimeoutError(lockPath, diagnostic);
 }
 
 /** Common per-round state shared by the sync and async acquisition loops. */
 interface FenceLoopContext {
+  recovered?:boolean;
+  slotReceipts?:PreparedBindingSlots;
+  quota: {passes:number};
+  legacyAttempt?: { generation: string; capture?: LegacyCapture; result?: LegacyEvidenceResult; confirmed?: boolean };
+  readonly options: IdentityFenceOptions;
   readonly lockPath: string;
   readonly dir: string;
   readonly relative: string;
@@ -991,26 +1157,36 @@ function newLoopContext(lockPath: string, options: IdentityFenceOptions): FenceL
   const dir = dirname(lockPath);
   ensureIdentityDir(dir);
   const observe = options.observe;
+  const quota=options.signal ? LEGACY_PASS_QUOTAS.get(options.signal) ?? {passes:0} : {passes:0};
+  if(options.signal)LEGACY_PASS_QUOTAS.set(options.signal,quota);
   return {
+    quota,
+    options,
     lockPath,
     dir,
     relative: options.relativeLockPath ?? defaultRelativeLockPath(lockPath),
     lock: observe ? logicalLockId(lockPath) : "",
     ...(observe ? { observe } : {}),
-    startedAt: Date.now(),
-    deadline: Date.now() + (options.timeoutMs ?? DEFAULT_TIMEOUT_MS),
+    startedAt: performance.now(),
+    deadline: performance.now() + (options.timeoutMs ?? DEFAULT_TIMEOUT_MS),
     state: { stable: true },
     attempts: 0
   };
 }
 
+function legacyPass(ctx: FenceLoopContext,capture:LegacyCapture):LegacyEvidenceResult {
+  if(ctx.quota.passes>=2)return {dead:false,reasonCode:'legacy-inventory-incomplete',reason:'legacy inventory attempt quota exhausted'};
+  ctx.quota.passes++;
+  return collectLegacyEvidence(capture,ctx.deadline,identitySelf);
+}
+
 /** Throw the bounded R7 diagnostic when the budget is spent; else return. */
 function fenceTimedOut(ctx: FenceLoopContext): void {
-  if (Date.now() < ctx.deadline) return;
+  if (performance.now() < ctx.deadline) return;
   notifyObserver(ctx.observe, {
     lock: ctx.lock,
     event: "timeout",
-    waitMs: Date.now() - ctx.startedAt,
+    waitMs: performance.now() - ctx.startedAt,
     attempts: ctx.attempts
   });
   throw timeoutDiagnostic(
@@ -1028,30 +1204,47 @@ export function withIdentityFenceSync<T>(
   fn: (lease: IdentityFenceLease) => T,
   options: IdentityFenceOptions = {}
 ): T {
+  try{return withIdentityFenceSyncInternal(lockPath,fn,options);}catch(error){throw redactIdentityStorageError(error);}
+}
+
+function withIdentityFenceSyncInternal<T>(
+  lockPath: string,
+  fn: (lease: IdentityFenceLease) => T,
+  options: IdentityFenceOptions
+): T {
   const ctx = newLoopContext(lockPath, options);
+  try {
   const pollMs = options.pollMs ?? DEFAULT_POLL_MS;
   notifyObserver(ctx.observe, { lock: ctx.lock, event: "wait" });
   let lease: IdentityFenceLease | undefined;
   for (;;) {
+    fenceTimedOut(ctx);
     const outcome = acquireIdentityRoundOnce(ctx);
     if (outcome !== undefined) {
       lease = outcome;
       break;
     }
     fenceTimedOut(ctx);
-    busyWaitSync(pollMs);
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, Math.min(pollMs, Math.max(0, ctx.deadline - performance.now())));
   }
-  const acquiredAt = Date.now();
+  const acquiredAt = performance.now();
   try {
-    return fn(lease);
+    lease.beginMutation();
+    repairIdentityJournal(ctx.dir, lease.stillHeld,ctx.slotReceipts!);
+    lease.endMutation();
+    fenceTimedOut(ctx);
+    const result=fn(lease);
+    fenceTimedOut(ctx);
+    return result;
   } finally {
     lease.release();
     notifyObserver(ctx.observe, {
       lock: ctx.lock,
       event: "released",
-      holdMs: Date.now() - acquiredAt
+      holdMs: performance.now() - acquiredAt
     });
   }
+  } finally { if(ctx.legacyAttempt?.capture)closeSync(ctx.legacyAttempt.capture.fd); }
 }
 
 /** Asynchronous identity fence (the identity worker's binding transaction). */
@@ -1060,17 +1253,27 @@ export async function withIdentityFence<T>(
   fn: (lease: IdentityFenceLease) => T | Promise<T>,
   options: IdentityFenceOptions = {}
 ): Promise<T> {
+  try{return await withIdentityFenceInternal(lockPath,fn,options);}catch(error){throw redactIdentityStorageError(error);}
+}
+
+async function withIdentityFenceInternal<T>(
+  lockPath: string,
+  fn: (lease: IdentityFenceLease) => T | Promise<T>,
+  options: IdentityFenceOptions
+): Promise<T> {
   const ctx = newLoopContext(lockPath, options);
+  try {
   const pollMs = options.pollMs ?? DEFAULT_POLL_MS;
   const signal = options.signal;
   notifyObserver(ctx.observe, { lock: ctx.lock, event: "wait" });
   let lease: IdentityFenceLease | undefined;
   for (;;) {
+    fenceTimedOut(ctx);
     if (signal?.aborted) {
       notifyObserver(ctx.observe, {
         lock: ctx.lock,
         event: "timeout",
-        waitMs: Date.now() - ctx.startedAt,
+        waitMs: performance.now() - ctx.startedAt,
         attempts: ctx.attempts
       });
       throw new LockCancelledError(lockPath, String(signal.reason ?? "aborted"));
@@ -1086,27 +1289,34 @@ export async function withIdentityFence<T>(
     if (signal !== undefined) {
       if (signal.aborted) continue;
       await new Promise<void>((resolve) => {
-        const timer = setTimeout(resolve, pollMs);
+        const timer = setTimeout(resolve, Math.min(pollMs, Math.max(0, ctx.deadline - performance.now())));
         signal.addEventListener("abort", () => {
           clearTimeout(timer);
           resolve();
         }, { once: true });
       });
     } else {
-      await new Promise<void>((resolve) => setTimeout(resolve, pollMs));
+      await new Promise<void>((resolve) => setTimeout(resolve, Math.min(pollMs, Math.max(0, ctx.deadline - performance.now()))));
     }
   }
-  const acquiredAt = Date.now();
+  const acquiredAt = performance.now();
   try {
-    return await fn(lease);
+    lease.beginMutation();
+    repairIdentityJournal(ctx.dir, lease.stillHeld,ctx.slotReceipts!);
+    lease.endMutation();
+    fenceTimedOut(ctx);
+    const result=await fn(lease);
+    fenceTimedOut(ctx);
+    return result;
   } finally {
     lease.release();
     notifyObserver(ctx.observe, {
       lock: ctx.lock,
       event: "released",
-      holdMs: Date.now() - acquiredAt
+      holdMs: performance.now() - acquiredAt
     });
   }
+  } finally { if(ctx.legacyAttempt?.capture)closeSync(ctx.legacyAttempt.capture.fd); }
 }
 
 /**
@@ -1116,17 +1326,20 @@ export async function withIdentityFence<T>(
 function acquireIdentityRoundOnce(ctx: FenceLoopContext): IdentityFenceLease | undefined {
   ctx.attempts += 1;
   const self = identitySelf();
-  const outcome = acquireIdentityRound(ctx.lockPath, ctx.dir, self);
+  const outcome = acquireIdentityRound(ctx.lockPath, ctx.dir, self, ctx);
   if (outcome.lease !== undefined) {
     notifyObserver(ctx.observe, {
       lock: ctx.lock,
       event: "acquired",
-      waitMs: Date.now() - ctx.startedAt,
+      waitMs: performance.now() - ctx.startedAt,
       attempts: ctx.attempts
     });
     return outcome.lease;
   }
-  if (outcome.blocker !== undefined) observeBlocker(ctx.state, outcome.blocker);
+  if (outcome.blocker !== undefined) {
+    observeBlocker(ctx.state, outcome.blocker);
+    ctx.options.onBlocker?.(outcome.blocker.info, outcome.blocker.key);
+  } else ctx.state.stable = false;
   return undefined;
 }
 
@@ -1159,7 +1372,7 @@ function readRange(fd: number, start: number, end: number): Buffer {
  * the operation is idempotent. `offset`/`length` are in bytes, `sha256` covers
  * the ORIGINAL suffix without the added separator; no content is exposed.
  */
-export function neutralizeBindingsTail(file: string): TailNeutralized | undefined {
+export function neutralizeBindingsTail(file: string, held: () => boolean = () => true): TailNeutralized | undefined {
   let fd: number | undefined;
   try {
     fd = openSync(file, "r+");
@@ -1183,17 +1396,19 @@ export function neutralizeBindingsTail(file: string): TailNeutralized | undefine
     const st1 = fstatSync(fd);
     if (st1.dev !== before.dev || st1.ino !== before.ino || st1.size !== before.size) {
       // Possession/inode changed under us: re-read fresh, apply nothing stale.
-      return neutralizeBindingsTail(file);
+      return neutralizeBindingsTail(file, held);
     }
     if (suffixStart >= st1.size) return undefined; // already terminated: no-op
     const suffix = readRange(fd, suffixStart, st1.size);
     const st2 = fstatSync(fd);
     if (st2.dev !== st1.dev || st2.ino !== st1.ino || st2.size !== st1.size) {
-      return neutralizeBindingsTail(file);
+      return neutralizeBindingsTail(file, held);
     }
     // Append exactly one separator, byte-count checked, then fsync file + dir.
     const appendFd = openSync(file, "a");
     try {
+      const pathStat = statSync(file); const appendStat = fstatSync(appendFd);
+      if (!held() || pathStat.dev !== before.dev || pathStat.ino !== before.ino || appendStat.ino !== before.ino || pathStat.size !== before.size) throw new Error('binding journal changed before neutralization');
       const written = writeSync(appendFd, "\n");
       if (written !== 1) {
         const err = new Error("binding journal separator short write");
@@ -1246,11 +1461,5 @@ export function attestBindingsTailDurable(file: string): void {
       }
     }
   }
-  if (process.platform !== "win32") {
-    try {
-      fsyncDirectory(dirname(file));
-    } catch {
-      // best-effort: the file fsync above is the load-bearing barrier
-    }
-  }
+  fsyncDirectory(dirname(file));
 }

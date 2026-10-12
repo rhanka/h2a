@@ -6,6 +6,7 @@
  * CAS needed by a future, separately owner-authorized executor.
  */
 
+import { withIdentityFenceSync } from "@sentropic/h2a";
 import { createHash, randomUUID } from "node:crypto";
 import {
   closeSync,
@@ -1016,64 +1017,6 @@ function compareHeldDescriptor(fd: number, expectedSize: number, expectedSha256:
     : { state: "ABORTED", reason: "HELD_DESCRIPTOR_HASH_MISMATCH" };
 }
 
-interface CanonicalBindingFence {
-  readonly lockPath: string;
-  readonly epoch: string;
-}
-
-function fencePayload(fence: CanonicalBindingFence): string {
-  return JSON.stringify({
-    protocol: IDENTITY_BINDING_FENCE_PROTOCOL,
-    fenceEpoch: fence.epoch,
-    pid: process.pid,
-    acquiredAt: new Date().toISOString(),
-  });
-}
-
-function fenceIsHeld(fence: CanonicalBindingFence): boolean {
-  try {
-    const stat = lstatSync(fence.lockPath);
-    if (stat.isSymbolicLink() || !stat.isFile()) return false;
-    const payload: unknown = JSON.parse(readFileSync(fence.lockPath, "utf8"));
-    return isRecord(payload)
-      && payload.protocol === IDENTITY_BINDING_FENCE_PROTOCOL
-      && payload.fenceEpoch === fence.epoch
-      && payload.pid === process.pid;
-  } catch {
-    return false;
-  }
-}
-
-function acquireCanonicalBindingFence(lockPath: string): CanonicalBindingFence | undefined {
-  const fence: CanonicalBindingFence = { lockPath, epoch: randomUUID() };
-  let fd: number;
-  try {
-    fd = openSync(lockPath, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "EEXIST") return undefined;
-    throw error;
-  }
-  try {
-    writeFileSync(fd, fencePayload(fence));
-    fsyncSync(fd);
-  } catch (error) {
-    closeSync(fd);
-    try {
-      unlinkSync(lockPath);
-    } catch {
-      // A failure to clean up an owned fence is safer than proceeding.
-    }
-    throw error;
-  }
-  closeSync(fd);
-  return fence;
-}
-
-function releaseCanonicalBindingFence(fence: CanonicalBindingFence): void {
-  if (!fenceIsHeld(fence)) throw new Error("canonical binding fence ownership was lost");
-  unlinkSync(fence.lockPath);
-}
-
 /**
  * Exercises the authoritative len/hash primitive over one held descriptor.
  * This staging-only verification releases its test fence before it returns and
@@ -1086,10 +1029,9 @@ export function verifyHeldDescriptorCas(input: HeldDescriptorCasInput): HeldDesc
     return { state: "ABORTED", reason: "SINGLE_WRITER_PRECONDITION_FAILED" };
   }
   const canonicalBindingPath = realpathSync(input.bindingPath);
-  const fence = acquireCanonicalBindingFence(join(dirname(canonicalBindingPath), ".lock"));
-  if (!fence) return { state: "ABORTED", reason: "CANONICAL_BINDING_FENCE_UNAVAILABLE" };
   try {
-    if (!fenceIsHeld(fence)) return { state: "ABORTED", reason: "CANONICAL_BINDING_FENCE_LOST" };
+    return withIdentityFenceSync(join(dirname(canonicalBindingPath), ".lock"), fence => {
+    if (!fence.stillHeld()) return { state: "ABORTED", reason: "CANONICAL_BINDING_FENCE_LOST" };
     const fd = openSync(canonicalBindingPath, constants.O_RDONLY | constants.O_NOFOLLOW);
     try {
       if (!fstatSync(fd).isFile()) return { state: "ABORTED", reason: "HELD_DESCRIPTOR_HASH_MISMATCH" };
@@ -1099,10 +1041,10 @@ export function verifyHeldDescriptorCas(input: HeldDescriptorCasInput): HeldDesc
       // here models a bypass; the immediately-pre-rename held-fd CAS below
       // must refuse it before any executor could rename.
     input.afterPreflight?.();
-      if (!fenceIsHeld(fence)) return { state: "ABORTED", reason: "CANONICAL_BINDING_FENCE_LOST" };
+      if (!fence.stillHeld()) return { state: "ABORTED", reason: "CANONICAL_BINDING_FENCE_LOST" };
     const final = compareHeldDescriptor(fd, input.expectedSize, input.expectedSha256);
     if (final.state === "ABORTED") return final;
-      if (!fenceIsHeld(fence)) return { state: "ABORTED", reason: "CANONICAL_BINDING_FENCE_LOST" };
+      if (!fence.stillHeld()) return { state: "ABORTED", reason: "CANONICAL_BINDING_FENCE_LOST" };
       // Never call rename: execution remains hard-gated for this release. This
       // staging verification releases its fence at return; an executor must not
       // use it as a released-then-reacquired rename precondition.
@@ -1111,8 +1053,10 @@ export function verifyHeldDescriptorCas(input: HeldDescriptorCasInput): HeldDesc
     } finally {
       closeSync(fd);
     }
-  } finally {
-    releaseCanonicalBindingFence(fence);
+    }, {timeoutMs:5000});
+  } catch(error) {
+    if(error instanceof Error && error.name === "LockTimeoutError") return {state:"ABORTED",reason:"CANONICAL_BINDING_FENCE_UNAVAILABLE"};
+    throw error;
   }
 }
 
