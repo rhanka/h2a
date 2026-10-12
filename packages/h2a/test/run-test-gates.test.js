@@ -28,7 +28,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 import { discoverTestFiles, RUNNER_TEST_FILE, listNodeTrackSuiteFiles, verifyNodeTrackExecution } from '../../../scripts/run-tests.mjs'
 
 import { configContractFailures } from '../../../scripts/test-config-contract.mjs'
-import { readInventory, inventoryFailures } from '../../../scripts/test-execution-evidence.mjs'
+import { readInventory, inventoryFailures, verifyExecutionReport, readTrainRequirements } from '../../../scripts/test-execution-evidence.mjs'
 import { declarationFailures } from '../../../scripts/test-inventory.mjs'
 import { observeNodeTrackEntry } from './helpers/node-track-observation-lab.js'
 
@@ -325,6 +325,9 @@ test('the real STEPS list is non-empty and contains the test runner', () => {
   assert.ok(ids.includes('build'))
   const tests = STEPS.find((s) => s.id === 'tests')
   assert.equal(tests.requiresBuild, true, 'the suite depends on the compiled dist')
+  // run-tests grants Node and Track ten minutes each, sequentially.
+  assert.ok(tests.timeoutMs > 2 * 10 * 60_000,
+    'the outer Node/Track gate must allow both child deadlines and report verification')
   for (const step of STEPS) {
     assert.ok(Number.isInteger(step.timeoutMs) && step.timeoutMs > 0, `${step.id} needs a bounded timeout`)
   }
@@ -650,6 +653,8 @@ test('R8.1 execution: the pinned config wires the report the gate verifies — a
 })
 
 test('R8.1 execution: verifyRuntimeExecution grades reports by executed identity and count', () => {
+  // These reports describe a synthetic lab, not the integrated release train.
+  const verifyLabExecution = verifyExecutionReport
   const lab = mkdtempSync(join(tmpdir(), 'h2a-exec-unit-'))
   try {
     const unmarked = join(lab, 'unmarked.test.ts')
@@ -692,7 +697,7 @@ test('R8.1 execution: verifyRuntimeExecution grades reports by executed identity
     // A complete, all-executed report over the required set is the ONE
     // accepted shape.
     assert.deepEqual(
-      verifyRuntimeExecution(
+      verifyLabExecution(
         reportOf([[unmarked, [a('passed')]], [marked, [a('passed', 'one'), a('passed', 'two')]]]),
         [unmarked, marked],
       ),
@@ -700,50 +705,50 @@ test('R8.1 execution: verifyRuntimeExecution grades reports by executed identity
       'every required suite present, every test executed: the accepted shape',
     )
     // No report / no required set: fail closed.
-    assert.ok(verifyRuntimeExecution(null, [unmarked]).length > 0, 'a missing report can never be a proof')
+    assert.ok(verifyLabExecution(null, [unmarked]).length > 0, 'a missing report can never be a proof')
     assert.ok(
-      verifyRuntimeExecution(reportOf([[unmarked, [a('passed')]]]), []).length > 0,
+      verifyLabExecution(reportOf([[unmarked, [a('passed')]]]), []).length > 0,
       'an empty required set can never be a proof',
     )
     // A required file ABSENT from the report never executed.
-    const absent = verifyRuntimeExecution(reportOf([[unmarked, [a('passed')]]]), [unmarked, marked])
+    const absent = verifyLabExecution(reportOf([[unmarked, [a('passed')]]]), [unmarked, marked])
     assert.ok(
       absent.some((f) => f.includes('NEVER EXECUTED') && f.includes('marked.test.ts')),
       'a required suite missing from the report must be named as never executed',
     )
     // A reported file OUTSIDE the required set: the report does not match the pinned discovery.
     const stranger = join(lab, 'stranger.test.ts')
-    const extra = verifyRuntimeExecution(reportOf([[unmarked, [a('passed')]], [stranger, [a('passed')]]]), [unmarked])
+    const extra = verifyLabExecution(reportOf([[unmarked, [a('passed')]], [stranger, [a('passed')]]]), [unmarked])
     assert.ok(
       extra.some((f) => f.includes('not part of the required suite set')),
       'a reported file outside the required set must fail the proof',
     )
     // A skipped or todo'd test in an UNMARKED file is a silent removal.
     for (const status of ['skipped', 'todo']) {
-      const skipped = verifyRuntimeExecution(reportOf([[unmarked, [a('passed'), a(status)]]]), [unmarked])
+      const skipped = verifyLabExecution(reportOf([[unmarked, [a('passed'), a(status)]]]), [unmarked])
       assert.ok(
         skipped.some((f) => f.includes(`"${status}"`)),
         `a ${status} test in a suite that declares no skip marker must fail the gate`,
       )
     }
     // A status-less assertion is not an executed test either.
-    const statusless = verifyRuntimeExecution(reportOf([[unmarked, [a('passed'), {}]]]), [unmarked])
+    const statusless = verifyLabExecution(reportOf([[unmarked, [a('passed'), {}]]]), [unmarked])
     assert.ok(statusless.some((f) => f.includes('"missing"') || f.includes('unnamed')), 'an assertion without a status proves nothing')
     // A declaration or comment cannot authorize a skipped assertion.
-    assert.ok(verifyRuntimeExecution(reportOf([[marked, [a('skipped')]]]), [marked]).length > 0)
+    assert.ok(verifyLabExecution(reportOf([[marked, [a('skipped')]]]), [marked]).length > 0)
     // An unmarked file with ZERO executed tests: the whole suite was filtered away.
-    const zero = verifyRuntimeExecution(reportOf([[unmarked, [a('skipped')]]]), [unmarked])
+    const zero = verifyLabExecution(reportOf([[unmarked, [a('skipped')]]]), [unmarked])
     assert.ok(zero.some((f) => f.includes('executed ZERO tests') || f.includes('missing or unreadable')), 'a filtered-away suite must fail by executed count')
     // The summary counts must exist and add up.
     const shapeless = JSON.parse(JSON.stringify(reportOf([[unmarked, [a('passed')]]])))
     delete shapeless.numTotalTests
     assert.ok(
-      verifyRuntimeExecution(shapeless, [unmarked]).length > 0,
+      verifyLabExecution(shapeless, [unmarked]).length > 0,
       'a report without integer summary counts proves nothing',
     )
     const lying = reportOf([[unmarked, [a('passed', 'one'), a('skipped', 'two')]]], { numTotalTests: 2, numPendingTests: 0 })
     assert.ok(
-      verifyRuntimeExecution(lying, [unmarked]).some((f) => f.includes('do not add up')),
+      verifyLabExecution(lying, [unmarked]).some((f) => f.includes('do not add up')),
       'a report whose totals contradict its own statuses is not evidence',
     )
   } finally {
@@ -752,6 +757,7 @@ test('R8.1 execution: verifyRuntimeExecution grades reports by executed identity
 })
 
 test('R8.1 execution (lab): through the pinned config, a filter or skip that removes a required test turns the gate red', () => {
+  const verifyLabExecution = verifyExecutionReport
   mkdirSync(join(REPO_ROOT, 'tmp'), { recursive: true })
   const lab = mkdtempSync(join(REPO_ROOT, 'tmp', 'h2a-exec-lab-'))
   try {
@@ -806,7 +812,7 @@ test('R8.1 execution (lab): through the pinned config, a filter or skip that rem
         encoding: 'utf8',
         timeout: 120_000,
         // Confinement: the probe runs against temp dirs only.
-        env: { ...process.env, XDG_RUNTIME_DIR: lab, TMPDIR: lab },
+        env: { ...process.env, XDG_RUNTIME_DIR: lab, TMPDIR: lab, H2A_TEST_REPORT_PATH: reportPath },
       })
       let report = null
       try {
@@ -816,7 +822,7 @@ test('R8.1 execution (lab): through the pinned config, a filter or skip that rem
       }
       return {
         exit: run.status,
-        failures: verifyRuntimeExecution(report, required),
+        failures: verifyLabExecution(report, required),
         output: `${run.stdout}\n${run.stderr}`,
       }
     }
@@ -1360,6 +1366,12 @@ test('C9 A01/A03/A04: effective config and versioned test inventory are mandator
   assert.deepEqual(declarationFailures(REPO_ROOT, inventory), [])
   assert.deepEqual(inventoryFailures(REPO_ROOT, inventory, [...listRuntimeSuiteFiles(), ...listNodeTrackSuiteFiles()]), [])
   assert.strictEqual(STEPS.find((step) => step.id === 'tests').verifyExecution, verifyNodeTrackExecution)
+  assert.strictEqual(STEPS.find((step) => step.id === 'h2a-runtime').verifyExecution, verifyRuntimeExecution)
+  if (readTrainRequirements(REPO_ROOT).titles.length) {
+    assert.ok(verifyRuntimeExecution({ testResults: [] }, listRuntimeSuiteFiles())
+      .some((failure) => failure.includes('normative scenario absent or not passed')),
+      'the production verifier must still enforce the integrated train scenarios')
+  }
   for (const id of ['tests', 'h2a-runtime']) assert.equal(STEPS.find((step) => step.id === id).invocationEvidence, true, `${id} evidence must belong to its own invocation`)
   const source = readFileSync(resolve(REPO_ROOT, 'scripts/run-tests.mjs'), 'utf8')
   assert.match(source, /if \(invokedDirectly\) \{\s*main\(\);\s*\}/)

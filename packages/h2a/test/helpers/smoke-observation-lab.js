@@ -101,6 +101,7 @@ export async function observeSmoke(source, scriptPath, options = {}) {
   const loadModule = async (url) => {
     if (url.endsWith('/client.js')) return { NativeTerminalClient }
     if (url.endsWith('/registry.js')) return registryReader
+    if (url.endsWith('/protocol.js')) return { NATIVE_TERMINAL_MAX_FRAME_BYTES: 32 * 1024 * 1024 }
     if (url === 'node:fs/promises') return { readlink: async () => 'pid:[4026531836]' }
     throw new Error(`unexpected module ${url}`)
   }
@@ -113,7 +114,11 @@ export async function observeSmoke(source, scriptPath, options = {}) {
   const createConnection = (socket) => {
     assert.ok(children.has(socket), 'fault must target the packaged host under test')
     const faulty = new EventEmitter()
-    faulty.write = (bytes) => { observations.faults.push(bytes); queueMicrotask(() => faulty.emit('close')) }
+    faulty.resume = () => {}
+    faulty.write = (bytes) => {
+      observations.faults.push(bytes)
+      if (Buffer.byteLength(bytes) > 32 * 1024 * 1024) queueMicrotask(() => faulty.emit('close'))
+    }
     queueMicrotask(() => {
       if (options.failConnect) { faulty.emit('error', new Error('fault connection refused')); faulty.emit('close') }
       else faulty.emit('connect')
@@ -143,7 +148,9 @@ export async function observeSmoke(source, scriptPath, options = {}) {
       assert.equal(fs.readFileSync(path, 'utf8'), `prebuilt candidate ${name}`, 'the provided tarballs must be preserved')
     }
     assert.equal(observations.seeded, true, 'cold-boot previous-boot row was not observed')
-    assert.deepEqual(observations.faults, ['this is not a frame at all\n', '\x00\x01\x02garbage'], 'faulty client bytes were not injected')
+    assert.deepEqual(observations.faults.slice(0, 2), ['this is not a frame at all\n', '\x00\x01\x02garbage'], 'faulty client bytes were not injected')
+    assert.equal(observations.faults.length, 3)
+    assert.equal(observations.faults[2], 'x'.repeat(32 * 1024 * 1024 + 1), 'the destructive oversize frame was not injected')
     assert.equal(observations.closed, true, 'stderr reader was not closed')
     assert.equal(observations.pruned, true, 'post-close prune was not observed')
     assert.deepEqual(observations.ptys, ['smoke-pty', 'smoke-pty-after-fault', 'smoke-exit', 'smoke-pty-after-stderr-fault'])
