@@ -1,5 +1,6 @@
+import { createHash } from "node:crypto";
 import { EventEmitter } from "node:events";
-import { mkdirSync, rmSync } from "node:fs";
+import { mkdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PassThrough } from "node:stream";
@@ -9,7 +10,15 @@ import type {
   ClaudeCodeCliCapabilities,
   ClaudeCodeCliRequest,
 } from "@sentropic/llm-mesh";
-import { OfficialClaudeCodeCliRunner } from "./claude-code-cli-runner.js";
+import {
+  buildClaudeQualificationRef,
+  OfficialClaudeCodeCliRunner,
+} from "./claude-code-cli-runner.js";
+
+const PINNED_TEST_BINARY = "/usr/bin/node";
+const PINNED_TEST_DIGEST = createHash("sha256")
+  .update(readFileSync(PINNED_TEST_BINARY))
+  .digest("hex");
 
 function createMockChild() {
   const child = new EventEmitter() as any;
@@ -42,8 +51,13 @@ describe("claude-code-cli-tools", () => {
     protocol: "claude-code-stream-json-v1",
     cliVersion: "2.1.296",
     source: "official",
-    qualificationRef: "qual-text-only",
+    qualificationRef: buildClaudeQualificationRef(PINNED_TEST_DIGEST),
     // tools and history intentionally omitted
+  };
+
+  const qualifiedBase = {
+    binaryPath: PINNED_TEST_BINARY,
+    expectedDigest: PINNED_TEST_DIGEST,
   };
 
   const toolRequest: ClaudeCodeCliRequest = {
@@ -85,7 +99,7 @@ describe("claude-code-cli-tools", () => {
     });
 
     const runner = new OfficialClaudeCodeCliRunner({
-      binaryPath: "/usr/bin/node",
+      ...qualifiedBase,
       capabilities: textOnlyCaps, // No tools capability
       sandboxRootDir: TOOLS_SCRATCH,
       spawnFn: spawnFn as any,
@@ -139,7 +153,7 @@ describe("claude-code-cli-tools", () => {
     };
 
     const runner = new OfficialClaudeCodeCliRunner({
-      binaryPath: "/usr/bin/node",
+      ...qualifiedBase,
       capabilities: capsWithTools,
       sandboxRootDir: TOOLS_SCRATCH,
       spawnFn: spawnFn as any,

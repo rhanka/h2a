@@ -26,6 +26,18 @@ import {
 } from "./claude-code-cli-lifecycle.js";
 
 export const DEFAULT_PINNED_CLI_VERSION = "2.1.296";
+
+/**
+ * Build the only accepted qualification reference for a pinned binary:
+ * an attestation binding the sha256 fingerprint to the pinned version.
+ * A nonempty invented reference is not qualification and is refused.
+ */
+export function buildClaudeQualificationRef(
+  digest: string,
+  version: string = DEFAULT_PINNED_CLI_VERSION,
+): string {
+  return `attest:sha256:${digest}@${version}`;
+}
 export const DEFAULT_MAX_FRAME_BYTES = 65536; // 64 KiB
 export const DEFAULT_MAX_TOTAL_BYTES = 10 * 1024 * 1024; // 10 MiB
 export const DEFAULT_RUN_DEADLINE_MS = 120_000; // 2 minutes
@@ -70,7 +82,9 @@ export class OfficialClaudeCodeCliRunner implements ClaudeCodeCliRunner {
   }
 
   /**
-   * Validate that the candidate binary is absolute, exists, matches expected version and digest.
+   * Validate that the candidate binary is absolute, exists, matches the
+   * pinned version, and carries a mandatory fingerprint plus a digest-bound
+   * qualification attestation. Anything less is refused before spawn.
    */
   private qualifyBinary(): void {
     if (!this.binaryPath || !isAbsolute(this.binaryPath)) {
@@ -82,15 +96,25 @@ export class OfficialClaudeCodeCliRunner implements ClaudeCodeCliRunner {
     if (!this.capabilities || this.capabilities.protocol !== "claude-code-stream-json-v1") {
       throw new Error("Claude CLI candidate unqualified: unsupported protocol");
     }
-    if (!this.capabilities.qualificationRef || !this.capabilities.qualificationRef.trim()) {
-      throw new Error("Claude CLI candidate unqualified: missing qualification reference");
+    if (this.expectedVersion !== DEFAULT_PINNED_CLI_VERSION) {
+      throw new Error("Claude CLI candidate unqualified: version pin mismatch (2.1.296 required)");
     }
-    if (this.expectedDigest) {
-      const bytes = readFileSync(this.binaryPath);
-      const actualDigest = createHash("sha256").update(bytes).digest("hex");
-      if (actualDigest !== this.expectedDigest) {
-        throw new Error("Claude CLI candidate unqualified: binary digest mismatch");
-      }
+    if (this.capabilities.cliVersion !== DEFAULT_PINNED_CLI_VERSION) {
+      throw new Error("Claude CLI candidate unqualified: CLI version attestation mismatch");
+    }
+    if (!this.expectedDigest || !/^[0-9a-f]{64}$/.test(this.expectedDigest)) {
+      throw new Error("Claude CLI candidate unqualified: binary fingerprint required");
+    }
+    const bytes = readFileSync(this.binaryPath);
+    const actualDigest = createHash("sha256").update(bytes).digest("hex");
+    if (actualDigest !== this.expectedDigest) {
+      throw new Error("Claude CLI candidate unqualified: binary digest mismatch");
+    }
+    if (
+      this.capabilities.qualificationRef !==
+      buildClaudeQualificationRef(this.expectedDigest, DEFAULT_PINNED_CLI_VERSION)
+    ) {
+      throw new Error("Claude CLI candidate unqualified: qualification attestation required");
     }
   }
 

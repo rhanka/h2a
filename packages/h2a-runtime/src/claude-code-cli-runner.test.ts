@@ -1,5 +1,6 @@
+import { createHash } from "node:crypto";
 import { EventEmitter } from "node:events";
-import { chmodSync, mkdirSync, readdirSync, rmSync } from "node:fs";
+import { chmodSync, mkdirSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PassThrough } from "node:stream";
@@ -9,7 +10,15 @@ import type {
   ClaudeCodeCliCapabilities,
   ClaudeCodeCliRequest,
 } from "@sentropic/llm-mesh";
-import { OfficialClaudeCodeCliRunner } from "./claude-code-cli-runner.js";
+import {
+  buildClaudeQualificationRef,
+  OfficialClaudeCodeCliRunner,
+} from "./claude-code-cli-runner.js";
+
+const PINNED_TEST_BINARY = "/usr/bin/node";
+const PINNED_TEST_DIGEST = createHash("sha256")
+  .update(readFileSync(PINNED_TEST_BINARY))
+  .digest("hex");
 
 function createMockChild() {
   const child = new EventEmitter() as any;
@@ -52,7 +61,14 @@ describe("claude-code-cli-runner (protocol)", () => {
     protocol: "claude-code-stream-json-v1",
     cliVersion: "2.1.296",
     source: "official",
-    qualificationRef: "qual-2026-10-12",
+    qualificationRef: buildClaudeQualificationRef(PINNED_TEST_DIGEST),
+  };
+
+  const qualifiedOptions = {
+    binaryPath: PINNED_TEST_BINARY,
+    expectedDigest: PINNED_TEST_DIGEST,
+    capabilities: validCaps,
+    sandboxRootDir: RUNNER_SCRATCH,
   };
 
   it("refuses relative binary path or missing qualification reference before spawn", async () => {
@@ -70,7 +86,7 @@ describe("claude-code-cli-runner (protocol)", () => {
     await expect(iterator.next()).rejects.toThrow("absolute binary path required");
 
     const runnerNoQual = new OfficialClaudeCodeCliRunner({
-      binaryPath: "/usr/bin/node",
+      ...qualifiedOptions,
       capabilities: { ...validCaps, qualificationRef: "" },
     });
 
@@ -80,7 +96,49 @@ describe("claude-code-cli-runner (protocol)", () => {
       signal: new AbortController().signal,
     })[Symbol.asyncIterator]();
 
-    await expect(iter2.next()).rejects.toThrow("missing qualification reference");
+    await expect(iter2.next()).rejects.toThrow("qualification attestation required");
+  });
+
+  it("refuses spawn without a mandatory fingerprint, on version drift, or on invented references", async () => {
+    const spawnFn = vi.fn(() => createMockChild());
+
+    const runOnce = (options: Record<string, unknown>) => {
+      const runner = new OfficialClaudeCodeCliRunner({
+        ...qualifiedOptions,
+        spawnFn: spawnFn as any,
+        ...options,
+      });
+      return runner
+        .run({
+          access: fakeAccess,
+          request: fakeRequest,
+          signal: new AbortController().signal,
+        })[Symbol.asyncIterator]()
+        .next();
+    };
+
+    // No fingerprint: any absolute binary would otherwise pass.
+    await expect(runOnce({ expectedDigest: undefined })).rejects.toThrow(
+      "binary fingerprint required",
+    );
+    // Expected-version drift.
+    await expect(runOnce({ expectedVersion: "2.1.297" })).rejects.toThrow(
+      "version pin mismatch",
+    );
+    // Attested CLI version drift.
+    await expect(
+      runOnce({ capabilities: { ...validCaps, cliVersion: "2.1.297" } }),
+    ).rejects.toThrow("CLI version attestation mismatch");
+    // Nonempty invented reference without digest binding.
+    await expect(
+      runOnce({ capabilities: { ...validCaps, qualificationRef: "qual-2026-10-12" } }),
+    ).rejects.toThrow("qualification attestation required");
+    // Wrong fingerprint.
+    await expect(
+      runOnce({ expectedDigest: "0".repeat(64) }),
+    ).rejects.toThrow("binary digest mismatch");
+
+    expect(spawnFn).not.toHaveBeenCalled();
   });
 
   it("formats exact argv and stdin NDJSON without prompt or credentials in argv", async () => {
@@ -112,9 +170,7 @@ describe("claude-code-cli-runner (protocol)", () => {
     });
 
     const runner = new OfficialClaudeCodeCliRunner({
-      binaryPath: "/usr/bin/node",
-      capabilities: validCaps,
-      sandboxRootDir: RUNNER_SCRATCH,
+      ...qualifiedOptions,
       spawnFn: spawnFn as any,
     });
 
@@ -176,9 +232,7 @@ describe("claude-code-cli-runner (protocol)", () => {
     });
 
     const runner = new OfficialClaudeCodeCliRunner({
-      binaryPath: "/usr/bin/node",
-      capabilities: validCaps,
-      sandboxRootDir: RUNNER_SCRATCH,
+      ...qualifiedOptions,
       spawnFn: spawnFn as any,
     });
 
@@ -211,9 +265,7 @@ describe("claude-code-cli-runner (protocol)", () => {
     });
 
     const runner = new OfficialClaudeCodeCliRunner({
-      binaryPath: "/usr/bin/node",
-      capabilities: validCaps,
-      sandboxRootDir: RUNNER_SCRATCH,
+      ...qualifiedOptions,
       spawnFn: spawnFn as any,
     });
 
@@ -256,8 +308,7 @@ describe("claude-code-cli-runner (protocol)", () => {
       });
 
       const runner = new OfficialClaudeCodeCliRunner({
-        binaryPath: "/usr/bin/node",
-        capabilities: validCaps,
+        ...qualifiedOptions,
         spawnFn: spawnFn as any,
         sandboxRootDir: rootDir,
       });
@@ -292,9 +343,7 @@ describe("claude-code-cli-runner (protocol)", () => {
     });
 
     const runner = new OfficialClaudeCodeCliRunner({
-      binaryPath: "/usr/bin/node",
-      capabilities: validCaps,
-      sandboxRootDir: RUNNER_SCRATCH,
+      ...qualifiedOptions,
       spawnFn: spawnFn as any,
     });
 
