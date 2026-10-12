@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { spawn } from "node:child_process";
+import { EventEmitter } from "node:events";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -887,6 +888,60 @@ describe("claude-code enrollment", () => {
       ownerScope: "cli:claude-owner-1",
     });
     expect(accountsAfterRemoval).toHaveLength(0);
+  });
+});
+
+describe("claude browser opener", () => {
+  const authUrl = "https://claude.com/cai/oauth/authorize?state=secret-state";
+  const claudeFacade = () =>
+    ({
+      enroll: vi.fn().mockResolvedValue({
+        kind: "authorization-url",
+        enrollmentId: "enroll-claude-browser",
+        url: authUrl,
+      }),
+      completeClaudeEnrollment: vi.fn().mockResolvedValue({
+        accountId: "acct_claude_browser",
+        label: "Claude",
+      }),
+      cancel: vi.fn().mockResolvedValue(undefined),
+    }) as unknown as LlmMeshFacade;
+
+  it("skips the argv exposure with H2A_NO_BROWSER and still completes", async () => {
+    vi.mocked(spawn).mockClear();
+    vi.stubEnv("H2A_NO_BROWSER", "1");
+    try {
+      const result = await enrollViaFacade("claude-code", {
+        facade: claudeFacade(),
+        readInput: vi.fn().mockResolvedValue("code123#xyz"),
+        ownerScope: "cli:test-host",
+      });
+      expect(result.accountId).toBe("acct_claude_browser");
+      expect(vi.mocked(spawn)).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("handles a missing opener asynchronously without leaking spawnargs", async () => {
+    vi.stubEnv("H2A_NO_BROWSER", "");
+    const openerChild = new EventEmitter() as EventEmitter & { unref: () => void };
+    openerChild.unref = vi.fn();
+    vi.mocked(spawn).mockReturnValueOnce(openerChild as never);
+    try {
+      const result = await enrollViaFacade("claude-code", {
+        facade: claudeFacade(),
+        readInput: vi.fn().mockResolvedValue("code123#xyz"),
+        ownerScope: "cli:test-host",
+      });
+      expect(result.accountId).toBe("acct_claude_browser");
+      // The async spawn failure path is listened to: no crash, no URL dump.
+      expect(openerChild.listenerCount("error")).toBe(1);
+      openerChild.emit("error", Object.assign(new Error("spawn xdg-open ENOENT"), { spawnargs: [authUrl] }));
+      await new Promise((r) => setTimeout(r, 10));
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 });
 
