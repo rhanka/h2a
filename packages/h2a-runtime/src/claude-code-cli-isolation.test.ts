@@ -43,6 +43,7 @@ describe("claude-code-cli-isolation", () => {
       expect(existsSync(sandbox.configDir)).toBe(true);
       expect(existsSync(sandbox.cwdDir)).toBe(true);
       expect(existsSync(sandbox.credentialPath)).toBe(true);
+      expect(existsSync(join(sandbox.runDir, "run-meta.json"))).toBe(true);
 
       // Verify file permissions: 0o700 for dirs, 0o600 for credentials
       const runStat = statSync(sandbox.runDir);

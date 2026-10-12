@@ -11,13 +11,11 @@ import {
   readdirSync,
   readFileSync,
   rmSync,
-  statSync,
   unlinkSync,
   writeFileSync,
 } from "node:fs";
 import { createHash, randomUUID } from "node:crypto";
 import { join } from "node:path";
-import { tmpdir } from "node:os";
 import { resolvePrivateRuntimeRoot } from "./claude-code-cli-isolation.js";
 import { readBootId, readMachineId, readPidNamespaceId, readProcessStartTime } from "./proc-identity.js";
 
@@ -362,32 +360,27 @@ export interface SweepResult {
   readonly skippedAlive: number;
 }
 
+/** Sweep mutual-exclusion file inside the runtime root. */
+export const CLAUDE_SWEEP_LOCK_FILENAME = ".sweep.lock";
+
 /**
  * Content-blind orphan sweep at host boot and runner start.
- * Sweeps runs whose PID is proven dead and age > orphanStaleAfterMs.
- * Retains young orphans and skips live processes.
+ * A run is swept only when its run-meta.json carries a valid pid plus
+ * createdAt AND the holder is proven dead by pid/start-time/boot identity
+ * AND its age exceeds the stale threshold. Runs without valid metadata are
+ * always retained (never deleted blindly); live holders are skipped; a
+ * concurrent active sweeper makes this call a no-op.
  */
 export async function sweepOrphanSandboxes(
   rootDir?: string,
   options: {
     readonly maxAgeMs?: number;
     readonly now?: () => number;
-    readonly isProcessAlive?: (pid: number) => boolean;
   } = {},
 ): Promise<SweepResult> {
   const root = resolvePrivateRuntimeRoot(rootDir);
   const maxAgeMs = options.maxAgeMs ?? DEFAULT_ORPHAN_STALE_AFTER_MS;
   const now = (options.now ?? Date.now)();
-  const isProcessAlive =
-    options.isProcessAlive ??
-    ((pid: number) => {
-      try {
-        process.kill(pid, 0);
-        return true;
-      } catch {
-        return false;
-      }
-    });
 
   let swept = 0;
   let retained = 0;
@@ -397,53 +390,116 @@ export async function sweepOrphanSandboxes(
     return { swept, retained, skippedAlive };
   }
 
-  const entries = readdirSync(root, { withFileTypes: true });
-  for (const entry of entries) {
-    if (!entry.isDirectory() || entry.name.startsWith(".")) continue;
-
-    const runDir = join(root, entry.name);
-    const metaPath = join(runDir, "run-meta.json");
-
-    let pid: number | null = null;
-    let createdAt: number = 0;
-
-    if (existsSync(metaPath)) {
-      try {
-        const meta = JSON.parse(readFileSync(metaPath, "utf8"));
-        pid = typeof meta.pid === "number" ? meta.pid : null;
-        createdAt = typeof meta.createdAt === "number" ? meta.createdAt : 0;
-      } catch {
-        // Unreadable metadata
-      }
+  // Sweep mutual exclusion: one active sweeper per root.
+  const sweepLockFile = join(root, CLAUDE_SWEEP_LOCK_FILENAME);
+  const sweepToken = randomUUID();
+  const readSweepHolder = (): ClaudeLockHolderRecord | null => {
+    try {
+      const parsed: unknown = JSON.parse(readFileSync(sweepLockFile, "utf8"));
+      if (!parsed || typeof parsed !== "object") return null;
+      return parsed as ClaudeLockHolderRecord;
+    } catch {
+      return null;
     }
-
-    if (!createdAt) {
+  };
+  let sweepFd: number | null = null;
+  try {
+    sweepFd = openSync(sweepLockFile, constants.O_CREAT | constants.O_EXCL | constants.O_RDWR, 0o600);
+    writeFileSync(
+      sweepFd,
+      JSON.stringify({
+        pid: process.pid,
+        startTime: readProcessStartTime(process.pid) ?? null,
+        bootId: readBootId() ?? null,
+        pidNamespace: readPidNamespaceId() ?? null,
+        machineId: readMachineId() ?? null,
+        acquiredAt: now,
+        token: sweepToken,
+      }),
+    );
+  } catch {
+    const holder = readSweepHolder();
+    const holderAge =
+      holder && typeof (holder as { acquiredAt?: unknown }).acquiredAt === "number"
+        ? now - ((holder as { acquiredAt: number }).acquiredAt)
+        : 0;
+    if (holder && (isRecordedHolderProvenDead(holder) || holderAge > 2 * maxAgeMs)) {
       try {
-        createdAt = statSync(runDir).ctimeMs;
+        unlinkSync(sweepLockFile);
       } catch {
+        // Lost the race; skip this round.
+        return { swept, retained, skippedAlive };
+      }
+      try {
+        sweepFd = openSync(sweepLockFile, constants.O_CREAT | constants.O_EXCL | constants.O_RDWR, 0o600);
+        writeFileSync(sweepFd, JSON.stringify({ pid: process.pid, acquiredAt: now, token: sweepToken }));
+      } catch {
+        return { swept, retained, skippedAlive };
+      }
+    } else {
+      return { swept, retained, skippedAlive };
+    }
+  }
+
+  try {
+    const entries = readdirSync(root, { withFileTypes: true });
+    for (const entry of entries) {
+      if (!entry.isDirectory() || entry.name.startsWith(".")) continue;
+
+      const runDir = join(root, entry.name);
+      const metaPath = join(runDir, "run-meta.json");
+
+      let meta: (ClaudeLockHolderRecord & { createdAt?: unknown }) | null = null;
+      try {
+        const parsed: unknown = JSON.parse(readFileSync(metaPath, "utf8"));
+        if (parsed && typeof parsed === "object") {
+          meta = parsed as ClaudeLockHolderRecord & { createdAt?: unknown };
+        }
+      } catch {
+        meta = null;
+      }
+
+      // No valid identity metadata: retain, never delete blindly.
+      if (!meta || typeof meta.pid !== "number" || typeof meta.createdAt !== "number") {
+        retained++;
         continue;
       }
+
+      if (!isRecordedHolderProvenDead(meta)) {
+        skippedAlive++;
+        continue;
+      }
+
+      // Young orphan retry: do NOT delete if younger than stale threshold
+      if (now - meta.createdAt < maxAgeMs) {
+        retained++;
+        continue;
+      }
+
+      // Holder proven dead and age > maxAgeMs: delete content-blindly
+      try {
+        rmSync(runDir, { recursive: true, force: true });
+        swept++;
+      } catch {
+        retained++;
+      }
     }
-
-    const age = now - createdAt;
-
-    if (pid !== null && isProcessAlive(pid)) {
-      skippedAlive++;
-      continue;
-    }
-
-    // Young orphan retry: do NOT delete if younger than stale threshold
-    if (age < maxAgeMs) {
-      retained++;
-      continue;
-    }
-
-    // Process is proven dead and age > maxAgeMs: delete content-blindly
+  } finally {
     try {
-      rmSync(runDir, { recursive: true, force: true });
-      swept++;
+      if (sweepFd !== null) {
+        closeSync(sweepFd);
+        sweepFd = null;
+      }
     } catch {
-      retained++;
+      // Best effort
+    }
+    try {
+      const current = readSweepHolder() as { token?: unknown } | null;
+      if (current && current.token === sweepToken) {
+        unlinkSync(sweepLockFile);
+      }
+    } catch {
+      // Best effort
     }
   }
 

@@ -24,6 +24,7 @@ import {
 import {
   checkTokenTtlAdmission,
   reapProcessTree,
+  sweepOrphanSandboxes,
 } from "./claude-code-cli-lifecycle.js";
 
 export const DEFAULT_PINNED_CLI_VERSION = "2.1.296";
@@ -167,6 +168,15 @@ export class OfficialClaudeCodeCliRunner implements ClaudeCodeCliRunner {
     // Default-deny egress is a spawn precondition, not a URL label:
     // without owner-attested enforcement, no child is created at all.
     requireEgressEnforcement(this.egressEnforcement);
+
+    // Orphan sweep at each runner start (brief invariant 6): stale dead
+    // runs are reaped before a new sandbox is created. Best-effort: a
+    // sweep failure never blocks the run.
+    try {
+      await sweepOrphanSandboxes(this.sandboxRootDir);
+    } catch {
+      // Sweep is hygiene, not admission.
+    }
 
     // 2. Admission and TTL checks
     const admission = checkTokenTtlAdmission(input.access.expiresAt, this.now());

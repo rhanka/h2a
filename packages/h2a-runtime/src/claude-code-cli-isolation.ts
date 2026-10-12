@@ -17,6 +17,7 @@ import {
 } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
+import { readBootId, readPidNamespaceId, readProcessStartTime } from "./proc-identity.js";
 import type { ClaudeCodeAccessProjection } from "@sentropic/llm-mesh";
 
 export interface ClaudeRunSandbox {
@@ -153,6 +154,18 @@ export function createClaudeRunSandbox(options: {
   mkdirSync(configDir, { recursive: true, mode: 0o700 });
   mkdirSync(cwdDir, { recursive: true, mode: 0o700 });
   mkdirSync(tmpDir, { recursive: true, mode: 0o700 });
+
+  // Identity-anchored run metadata for orphan sweeps: pid plus start-time
+  // and boot discriminants, so a later sweep can prove death instead of
+  // guessing from pid presence or directory age.
+  const runMeta = {
+    pid: process.pid,
+    startTime: readProcessStartTime(process.pid) ?? null,
+    bootId: readBootId() ?? null,
+    pidNamespace: readPidNamespaceId() ?? null,
+    createdAt: Date.now(),
+  };
+  writeFileSync(join(runDir, "run-meta.json"), JSON.stringify(runMeta), { mode: 0o600 });
 
   const settingsPath = join(configDir, "settings.json");
   const mcpConfigPath = join(configDir, "mcp-config.json");
