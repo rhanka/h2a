@@ -73,6 +73,7 @@ describe("claude-code-cli-runner (protocol)", () => {
     capabilities: validCaps,
     sandboxRootDir: RUNNER_SCRATCH,
     egressEnforcement: { mechanism: "test-host-firewall", inferenceHost: "api.anthropic.com" },
+    managedSettingsPaths: [] as readonly string[],
   };
 
   it("refuses relative binary path or missing qualification reference before spawn", async () => {
@@ -569,6 +570,29 @@ describe("claude-code-cli-runner (protocol)", () => {
     }
 
     expect(events).toEqual([{ type: "error" }]);
+  });
+
+  it("refuses spawn while managed configuration prevents isolation", async () => {
+    const managedFile = join(RUNNER_SCRATCH, "managed-settings.json");
+    writeFileSync(managedFile, "{}");
+    const mockChild = createMockChild();
+    const spawnFn = vi.fn(() => mockChild);
+    const runner = new OfficialClaudeCodeCliRunner({
+      ...qualifiedOptions,
+      spawnFn: spawnFn as any,
+      managedSettingsPaths: [managedFile],
+    });
+
+    await expect(
+      runner
+        .run({
+          access: fakeAccess,
+          request: fakeRequest,
+          signal: new AbortController().signal,
+        })[Symbol.asyncIterator]()
+        .next(),
+    ).rejects.toThrow("managed configuration prevents isolation");
+    expect(spawnFn).not.toHaveBeenCalled();
   });
 
   it("abort during a pending read kills the child and ends the stream", async () => {

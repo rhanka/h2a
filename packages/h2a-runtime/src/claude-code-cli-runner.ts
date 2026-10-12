@@ -15,6 +15,7 @@ import type {
   ClaudeCodeCliRunner,
 } from "@sentropic/llm-mesh";
 import {
+  assertManagedConfigIsolation,
   buildIsolatedEnvironment,
   cleanClaudeRunSandbox,
   createClaudeRunSandbox,
@@ -85,6 +86,8 @@ export interface OfficialClaudeCodeCliRunnerOptions {
   /** Test seam directing sandbox roots away from the per-user runtime base. */
   readonly sandboxRootDir?: string;
   readonly egressEnforcement?: ClaudeEgressEnforcement;
+  /** Test seam overriding the managed-settings locations checked pre-spawn. */
+  readonly managedSettingsPaths?: readonly string[];
 }
 
 export class OfficialClaudeCodeCliRunner implements ClaudeCodeCliRunner {
@@ -99,6 +102,7 @@ export class OfficialClaudeCodeCliRunner implements ClaudeCodeCliRunner {
   private readonly now: () => number;
   private readonly sandboxRootDir: string | undefined;
   private readonly egressEnforcement: ClaudeEgressEnforcement | undefined;
+  private readonly managedSettingsPaths: readonly string[] | undefined;
 
   constructor(options: OfficialClaudeCodeCliRunnerOptions = {}) {
     this.binaryPath = options.binaryPath ?? "";
@@ -112,6 +116,7 @@ export class OfficialClaudeCodeCliRunner implements ClaudeCodeCliRunner {
     this.now = options.now ?? Date.now;
     this.sandboxRootDir = options.sandboxRootDir;
     this.egressEnforcement = options.egressEnforcement;
+    this.managedSettingsPaths = options.managedSettingsPaths;
   }
 
   /**
@@ -169,6 +174,14 @@ export class OfficialClaudeCodeCliRunner implements ClaudeCodeCliRunner {
     // without owner-attested enforcement, no child is created at all.
     requireEgressEnforcement(this.egressEnforcement);
 
+    // Managed admin settings would survive --setting-sources isolation:
+    // refuse while they exist.
+    if (this.managedSettingsPaths) {
+      assertManagedConfigIsolation(this.managedSettingsPaths);
+    } else {
+      assertManagedConfigIsolation();
+    }
+
     // Orphan sweep at each runner start (brief invariant 6): stale dead
     // runs are reaped before a new sandbox is created. Best-effort: a
     // sweep failure never blocks the run.
@@ -190,7 +203,9 @@ export class OfficialClaudeCodeCliRunner implements ClaudeCodeCliRunner {
       access: input.access,
       ...(this.sandboxRootDir ? { rootDir: this.sandboxRootDir } : {}),
     });
-    const env = buildIsolatedEnvironment(sandbox);
+    const env = buildIsolatedEnvironment(sandbox, process.env, {
+      binaryPath: this.binaryPath,
+    });
 
     // 4. Construct candidate arguments. No --include-partial-messages:
     // partial stream_event deltas would duplicate the final assistant
