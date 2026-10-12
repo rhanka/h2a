@@ -147,6 +147,10 @@ export function llmMeshOwnerScopeRef(): string {
 }
 
 function openEnrollmentBrowser(url: string): void {
+  // Owner opt-out: skip the argv exposure entirely (the URL is visible in
+  // /proc/*/cmdline while the opener runs); the masked code prompt below
+  // still completes the flow manually.
+  if (process.env.H2A_NO_BROWSER === "1") return;
   const command = process.platform === "darwin"
     ? "open"
     : process.platform === "win32"
@@ -155,9 +159,12 @@ function openEnrollmentBrowser(url: string): void {
   const args = process.platform === "win32" ? ["/c", "start", "", url] : [url];
   try {
     const child = spawn(command, args, { detached: true, stdio: "ignore" });
+    // A missing opener reports asynchronously: without this listener Node
+    // crashes printing spawnargs, which carry the full authorization URL.
+    child.on("error", () => {});
     child.unref();
   } catch {
-    // The URL is always printed, so a headless CLI can continue manually.
+    // Manual flow continues; failures here never carry the URL.
   }
 }
 
