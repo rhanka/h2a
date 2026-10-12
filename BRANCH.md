@@ -875,10 +875,10 @@ The parallel `feat/live-cross-cli-messaging` lot owns delivery, host wake and cr
 - [x] Gate: node --test packages/h2a/test/mh-l1-transport.test.js and mcp-central-attachments.test.js (named cases only).
 
 ## Lot 4 — Packaging prototype
-- [ ] Produce repeatable core/runtime payload with exact dependency resolution and published shrinkwrap.
-- [ ] Retain real node-pty legacy probe, no Python/node-gyp install path; record closure limits explicitly.
+- [x] Produce repeatable core/runtime payload with exact dependency resolution and published shrinkwrap.
+- [x] Retain real node-pty legacy probe, no Python/node-gyp install path; record closure limits explicitly.
 - [x] Close L0 R1 with a native digest mismatch vector that kills the missing-guard mutation; Node 20 refused, Node 24 ABI recognized.
-- [ ] Gate: node --test packages/h2a/test/mh-l1-package.test.js and mh-l0-image.test.js.
+- [x] Gate: node --test packages/h2a/test/mh-l1-package.test.js and mh-l0-image.test.js.
 
 - Repository source builds only, into mkdtemp lanes; temporary HOME, TMPDIR and XDG roots, with the existing forbidden-state/owned-PID guard.
 - Targeted test files only. No installed h2a invocation, owner state/workspace, unowned process access, full suite, PR or release. Rounds 5 and 6 explicitly authorize merging origin/main into this branch.
