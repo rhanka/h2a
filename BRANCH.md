@@ -46,3 +46,4 @@
 - [x] Final .6 dist unavailable: audit source closure now; U13 byte qualification remains MH-L1/MH-L8.
 - [x] QF/QC/QD/QE/QG remain owner decisions; no runtime entrypoint chosen by MH-L0.
 - [x] Installed-h2a harness review/recorders conflict with owner confinement: do not invoke; no consensus claim.
+- [x] Npm matrix verifies the actual installed version after each private operation, including update and downgrade.
