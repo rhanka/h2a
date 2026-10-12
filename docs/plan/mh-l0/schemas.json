@@ -1,0 +1,2940 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:h2a:mh-l0:formats:1",
+  "$defs": {
+    "namespace": {
+      "type": "object",
+      "properties": {
+        "schemaVersion": {
+          "const": 1
+        },
+        "namespaceId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "prefixId": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "uid": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "canonicalRoot": {
+          "type": "string",
+          "minLength": 1,
+          "format": "absolute-path"
+        },
+        "canonicalMarkerLocation": {
+          "type": "string",
+          "minLength": 1,
+          "format": "absolute-path"
+        },
+        "stateDirectory": {
+          "type": "string",
+          "minLength": 1,
+          "format": "absolute-path"
+        },
+        "machineIdentity": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^(?!0+$)[0-9a-f]{32}$"
+        },
+        "authorityDomainReference": {
+          "type": "string",
+          "minLength": 1,
+          "format": "relative-path"
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "namespaceId",
+        "prefixId",
+        "uid",
+        "canonicalRoot",
+        "canonicalMarkerLocation",
+        "stateDirectory",
+        "machineIdentity",
+        "authorityDomainReference"
+      ],
+      "additionalProperties": false
+    },
+    "authorityDomain": {
+      "type": "object",
+      "properties": {
+        "schemaVersion": {
+          "const": 1
+        },
+        "namespaceId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "prefixId": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "uid": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "canonicalMarkerLocation": {
+          "type": "string",
+          "minLength": 1,
+          "format": "absolute-path"
+        },
+        "canonicalRoot": {
+          "type": "string",
+          "minLength": 1,
+          "format": "absolute-path"
+        },
+        "processFrame": {
+          "type": "object",
+          "properties": {
+            "machineId": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^(?!0+$)[0-9a-f]{32}$"
+            },
+            "bootId": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+            },
+            "pidNamespace": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[0-9]+$"
+            },
+            "nsNet": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[0-9]+$"
+            }
+          },
+          "required": [
+            "machineId",
+            "bootId",
+            "pidNamespace",
+            "nsNet"
+          ],
+          "additionalProperties": false
+        },
+        "lockSecretReference": {
+          "type": "string",
+          "minLength": 1,
+          "format": "relative-path"
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "namespaceId",
+        "prefixId",
+        "uid",
+        "canonicalMarkerLocation",
+        "canonicalRoot",
+        "processFrame",
+        "lockSecretReference",
+        "revision"
+      ],
+      "additionalProperties": false
+    },
+    "marker": {
+      "type": "object",
+      "properties": {
+        "schemaVersion": {
+          "const": 2
+        },
+        "service": {
+          "const": "h2a-mcp-central"
+        },
+        "namespaceId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "prefixId": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "uid": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "stateDirectory": {
+          "type": "string",
+          "minLength": 1,
+          "format": "absolute-path"
+        },
+        "endpoint": {
+          "type": "string",
+          "minLength": 1,
+          "format": "endpoint"
+        },
+        "endpointMode": {
+          "enum": [
+            "discovered",
+            "fixed"
+          ]
+        },
+        "generation": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "publicationEpoch": {
+          "type": "object",
+          "properties": {
+            "bootId": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+            },
+            "counter": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            }
+          },
+          "required": [
+            "bootId",
+            "counter"
+          ],
+          "additionalProperties": false
+        },
+        "processIdentity": {
+          "type": "object",
+          "properties": {
+            "machineId": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^(?!0+$)[0-9a-f]{32}$"
+            },
+            "bootId": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+            },
+            "pidNamespace": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[0-9]+$"
+            },
+            "nsNet": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[0-9]+$"
+            },
+            "pid": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            },
+            "startTime": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            }
+          },
+          "required": [
+            "machineId",
+            "bootId",
+            "pidNamespace",
+            "nsNet",
+            "pid",
+            "startTime"
+          ],
+          "additionalProperties": false
+        },
+        "predecessorGeneration": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+            }
+          ]
+        },
+        "root": {
+          "type": "string",
+          "minLength": 1,
+          "format": "absolute-path"
+        },
+        "pid": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "startedAt": {
+          "type": "string",
+          "minLength": 1
+        },
+        "packageVersion": {
+          "type": "string",
+          "minLength": 1
+        },
+        "buildId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "manifestDigest": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "protocol": {
+          "const": 2
+        },
+        "handoverProtocol": {
+          "const": 1
+        },
+        "handoverCapabilities": {
+          "type": "object",
+          "properties": {
+            "managedImage": {
+              "type": "boolean"
+            },
+            "endpointPinned": {
+              "type": "boolean"
+            },
+            "restrictions": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "primitives": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "attachTransfer": {
+              "type": "boolean"
+            },
+            "liveCoordinator": {
+              "const": false
+            }
+          },
+          "required": [
+            "managedImage",
+            "endpointPinned",
+            "restrictions",
+            "primitives",
+            "attachTransfer",
+            "liveCoordinator"
+          ],
+          "additionalProperties": false
+        },
+        "mcpProtocolVersions": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "descriptorDigest": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "contractDigest": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "state": {
+          "const": "ready"
+        },
+        "token": {
+          "type": "string",
+          "minLength": 1
+        },
+        "authKeyReference": {
+          "type": "string",
+          "minLength": 1,
+          "format": "relative-path"
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "service",
+        "namespaceId",
+        "prefixId",
+        "uid",
+        "stateDirectory",
+        "endpoint",
+        "endpointMode",
+        "generation",
+        "publicationEpoch",
+        "processIdentity",
+        "predecessorGeneration",
+        "root",
+        "pid",
+        "startedAt",
+        "packageVersion",
+        "buildId",
+        "manifestDigest",
+        "protocol",
+        "handoverProtocol",
+        "handoverCapabilities",
+        "mcpProtocolVersions",
+        "descriptorDigest",
+        "contractDigest",
+        "state",
+        "token",
+        "authKeyReference"
+      ],
+      "additionalProperties": false
+    },
+    "readiness": {
+      "type": "object",
+      "properties": {
+        "schemaVersion": {
+          "const": 1
+        },
+        "clientNonce": {
+          "type": "string",
+          "minLength": 1
+        },
+        "serverNonce": {
+          "type": "string",
+          "minLength": 1
+        },
+        "connectionNonce": {
+          "type": "string",
+          "minLength": 1
+        },
+        "service": {
+          "const": "h2a-mcp-central"
+        },
+        "namespaceId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "generation": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "publicationEpoch": {
+          "type": "object",
+          "properties": {
+            "bootId": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+            },
+            "counter": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            }
+          },
+          "required": [
+            "bootId",
+            "counter"
+          ],
+          "additionalProperties": false
+        },
+        "processIdentity": {
+          "type": "object",
+          "properties": {
+            "machineId": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^(?!0+$)[0-9a-f]{32}$"
+            },
+            "bootId": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+            },
+            "pidNamespace": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[0-9]+$"
+            },
+            "nsNet": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[0-9]+$"
+            },
+            "pid": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            },
+            "startTime": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            }
+          },
+          "required": [
+            "machineId",
+            "bootId",
+            "pidNamespace",
+            "nsNet",
+            "pid",
+            "startTime"
+          ],
+          "additionalProperties": false
+        },
+        "endpoint": {
+          "type": "string",
+          "minLength": 1,
+          "format": "endpoint"
+        },
+        "endpointMode": {
+          "enum": [
+            "discovered",
+            "fixed"
+          ]
+        },
+        "root": {
+          "type": "string",
+          "minLength": 1,
+          "format": "absolute-path"
+        },
+        "uid": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "state": {
+          "const": "ready"
+        },
+        "packageVersion": {
+          "type": "string",
+          "minLength": 1
+        },
+        "buildId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "manifestDigest": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "mcpProtocolVersions": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "descriptorDigest": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "contractDigest": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "capabilities": {
+          "type": "object",
+          "properties": {
+            "managedImage": {
+              "type": "boolean"
+            },
+            "endpointPinned": {
+              "type": "boolean"
+            },
+            "restrictions": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "primitives": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "attachTransfer": {
+              "type": "boolean"
+            },
+            "liveCoordinator": {
+              "const": false
+            }
+          },
+          "required": [
+            "managedImage",
+            "endpointPinned",
+            "restrictions",
+            "primitives",
+            "attachTransfer",
+            "liveCoordinator"
+          ],
+          "additionalProperties": false
+        },
+        "challengeValidityMs": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "mac": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "clientNonce",
+        "serverNonce",
+        "connectionNonce",
+        "service",
+        "namespaceId",
+        "generation",
+        "publicationEpoch",
+        "processIdentity",
+        "endpoint",
+        "endpointMode",
+        "root",
+        "uid",
+        "state",
+        "packageVersion",
+        "buildId",
+        "manifestDigest",
+        "mcpProtocolVersions",
+        "descriptorDigest",
+        "contractDigest",
+        "capabilities",
+        "challengeValidityMs",
+        "mac"
+      ],
+      "additionalProperties": false
+    },
+    "request": {
+      "type": "object",
+      "properties": {
+        "schemaVersion": {
+          "const": 1
+        },
+        "generation": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "publicationEpoch": {
+          "type": "object",
+          "properties": {
+            "bootId": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+            },
+            "counter": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            }
+          },
+          "required": [
+            "bootId",
+            "counter"
+          ],
+          "additionalProperties": false
+        },
+        "method": {
+          "type": "string",
+          "minLength": 1
+        },
+        "authority": {
+          "type": "string",
+          "minLength": 1
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "bodyDigest": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "requestUid": {
+          "type": "string",
+          "minLength": 1
+        },
+        "requestNonce": {
+          "type": "string",
+          "minLength": 1
+        },
+        "serverNonce": {
+          "type": "string",
+          "minLength": 1
+        },
+        "connectionNonce": {
+          "type": "string",
+          "minLength": 1
+        },
+        "attachmentId": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "minLength": 1
+            }
+          ]
+        },
+        "transportEpoch": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            }
+          ]
+        },
+        "mac": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "generation",
+        "publicationEpoch",
+        "method",
+        "authority",
+        "path",
+        "bodyDigest",
+        "requestUid",
+        "requestNonce",
+        "serverNonce",
+        "connectionNonce",
+        "attachmentId",
+        "transportEpoch",
+        "mac"
+      ],
+      "additionalProperties": false
+    },
+    "frame": {
+      "type": "object",
+      "properties": {
+        "schemaVersion": {
+          "const": 1
+        },
+        "generation": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "attachmentId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "transportEpoch": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "channel": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sequence": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "payloadDigest": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "requestUid": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "minLength": 1
+            }
+          ]
+        },
+        "mac": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "generation",
+        "attachmentId",
+        "transportEpoch",
+        "channel",
+        "sequence",
+        "payloadDigest",
+        "requestUid",
+        "mac"
+      ],
+      "additionalProperties": false
+    },
+    "administration": {
+      "type": "object",
+      "properties": {
+        "protocolVersion": {
+          "const": 1
+        },
+        "mode": {
+          "enum": [
+            "cold-stop",
+            "live-transfer",
+            "catalogue"
+          ]
+        },
+        "upgradeId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "handoverId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "transactionEpoch": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "expectedGeneration": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "expectedPublicationEpoch": {
+          "type": "object",
+          "properties": {
+            "bootId": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+            },
+            "counter": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            }
+          },
+          "required": [
+            "bootId",
+            "counter"
+          ],
+          "additionalProperties": false
+        },
+        "inventoryRevision": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "stepId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "payloadDigest": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        }
+      },
+      "required": [
+        "protocolVersion",
+        "mode",
+        "upgradeId",
+        "handoverId",
+        "transactionEpoch",
+        "expectedGeneration",
+        "expectedPublicationEpoch",
+        "inventoryRevision",
+        "stepId",
+        "payloadDigest"
+      ],
+      "additionalProperties": false
+    },
+    "resume": {
+      "type": "object",
+      "properties": {
+        "schemaVersion": {
+          "const": 1
+        },
+        "attachmentId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "expectedGeneration": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "expectedTransportEpoch": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "resumeAttemptId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "expectedInstance": {
+          "type": "string",
+          "minLength": 1
+        },
+        "lastAcceptedNotificationSequence": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "attachmentId",
+        "expectedGeneration",
+        "expectedTransportEpoch",
+        "resumeAttemptId",
+        "expectedInstance",
+        "lastAcceptedNotificationSequence"
+      ],
+      "additionalProperties": false
+    },
+    "compatibilityEvidence": {
+      "type": "object",
+      "properties": {
+        "schemaVersion": {
+          "const": 1
+        },
+        "proofId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "mode": {
+          "enum": [
+            "catalogue",
+            "handover"
+          ]
+        },
+        "namespaceId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "root": {
+          "type": "string",
+          "minLength": 1,
+          "format": "absolute-path"
+        },
+        "uid": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "attester": {
+          "type": "object",
+          "properties": {
+            "generation": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+            },
+            "publicationEpoch": {
+              "type": "object",
+              "properties": {
+                "bootId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                },
+                "counter": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": [
+                "bootId",
+                "counter"
+              ],
+              "additionalProperties": false
+            },
+            "processIdentity": {
+              "type": "object",
+              "properties": {
+                "machineId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "pattern": "^(?!0+$)[0-9a-f]{32}$"
+                },
+                "bootId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                },
+                "pidNamespace": {
+                  "type": "string",
+                  "minLength": 1,
+                  "pattern": "^[0-9]+$"
+                },
+                "nsNet": {
+                  "type": "string",
+                  "minLength": 1,
+                  "pattern": "^[0-9]+$"
+                },
+                "pid": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9007199254740991
+                },
+                "startTime": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": [
+                "machineId",
+                "bootId",
+                "pidNamespace",
+                "nsNet",
+                "pid",
+                "startTime"
+              ],
+              "additionalProperties": false
+            },
+            "buildId": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "generation",
+            "publicationEpoch",
+            "processIdentity",
+            "buildId"
+          ],
+          "additionalProperties": false
+        },
+        "verifier": {
+          "type": "object",
+          "properties": {
+            "algorithmVersion": {
+              "type": "string",
+              "minLength": 1
+            },
+            "buildId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "reportDigest": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            },
+            "verdict": {
+              "const": "additive-compatible"
+            }
+          },
+          "required": [
+            "algorithmVersion",
+            "buildId",
+            "reportDigest",
+            "verdict"
+          ],
+          "additionalProperties": false
+        },
+        "authorization": {
+          "type": "object",
+          "properties": {
+            "upgradeId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "handoverId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "transactionEpoch": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            },
+            "controllerEpoch": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            },
+            "selectedManifestDigest": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            },
+            "delegatedControllerIdentity": {
+              "type": "object",
+              "properties": {
+                "machineId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "pattern": "^(?!0+$)[0-9a-f]{32}$"
+                },
+                "bootId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                },
+                "pidNamespace": {
+                  "type": "string",
+                  "minLength": 1,
+                  "pattern": "^[0-9]+$"
+                },
+                "nsNet": {
+                  "type": "string",
+                  "minLength": 1,
+                  "pattern": "^[0-9]+$"
+                },
+                "pid": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9007199254740991
+                },
+                "startTime": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": [
+                "machineId",
+                "bootId",
+                "pidNamespace",
+                "nsNet",
+                "pid",
+                "startTime"
+              ],
+              "additionalProperties": false
+            },
+            "delegationReceiptDigest": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            }
+          },
+          "required": [
+            "upgradeId",
+            "handoverId",
+            "transactionEpoch",
+            "controllerEpoch",
+            "selectedManifestDigest",
+            "delegatedControllerIdentity",
+            "delegationReceiptDigest"
+          ],
+          "additionalProperties": false
+        },
+        "source": {
+          "type": "object",
+          "properties": {
+            "generation": {
+              "anyOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                }
+              ]
+            },
+            "buildId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "profileId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "descriptorDigest": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            },
+            "contractDigest": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            }
+          },
+          "required": [
+            "generation",
+            "buildId",
+            "profileId",
+            "descriptorDigest",
+            "contractDigest"
+          ],
+          "additionalProperties": false
+        },
+        "target": {
+          "type": "object",
+          "properties": {
+            "generation": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+            },
+            "publicationEpoch": {
+              "type": "object",
+              "properties": {
+                "bootId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                },
+                "counter": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": [
+                "bootId",
+                "counter"
+              ],
+              "additionalProperties": false
+            },
+            "endpoint": {
+              "type": "string",
+              "minLength": 1,
+              "format": "endpoint"
+            },
+            "buildId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "manifestDigest": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            },
+            "descriptorDigest": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            },
+            "contractDigest": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            },
+            "catalogueRevision": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            }
+          },
+          "required": [
+            "generation",
+            "publicationEpoch",
+            "endpoint",
+            "buildId",
+            "manifestDigest",
+            "descriptorDigest",
+            "contractDigest",
+            "catalogueRevision"
+          ],
+          "additionalProperties": false
+        },
+        "attachmentId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "inventoryRevision": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "issuedAt": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "expiresAt": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "challengeNonce": {
+          "type": "string",
+          "minLength": 1
+        },
+        "mac": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "proofId",
+        "mode",
+        "namespaceId",
+        "root",
+        "uid",
+        "attester",
+        "verifier",
+        "authorization",
+        "source",
+        "target",
+        "attachmentId",
+        "inventoryRevision",
+        "issuedAt",
+        "expiresAt",
+        "challengeNonce",
+        "mac"
+      ],
+      "additionalProperties": false
+    },
+    "inventory": {
+      "type": "object",
+      "properties": {
+        "schemaVersion": {
+          "const": 1
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "shims": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "attachmentId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "shimVersion": {
+                "type": "string",
+                "minLength": 1
+              },
+              "shimBuildId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "shimProcessIdentity": {
+                "type": "object",
+                "properties": {
+                  "machineId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "pattern": "^(?!0+$)[0-9a-f]{32}$"
+                  },
+                  "bootId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                  },
+                  "pidNamespace": {
+                    "type": "string",
+                    "minLength": 1,
+                    "pattern": "^[0-9]+$"
+                  },
+                  "nsNet": {
+                    "type": "string",
+                    "minLength": 1,
+                    "pattern": "^[0-9]+$"
+                  },
+                  "pid": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 9007199254740991
+                  },
+                  "startTime": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  }
+                },
+                "required": [
+                  "machineId",
+                  "bootId",
+                  "pidNamespace",
+                  "nsNet",
+                  "pid",
+                  "startTime"
+                ],
+                "additionalProperties": false
+              },
+              "attachmentProtocol": {
+                "const": 1
+              },
+              "handoverProtocol": {
+                "const": 1
+              },
+              "downstreamProtocolVersion": {
+                "type": "string",
+                "minLength": 1
+              },
+              "servedDescriptorDigest": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "^sha256:[0-9a-f]{64}$"
+              },
+              "servedContractDigest": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "^sha256:[0-9a-f]{64}$"
+              },
+              "supportedCheckpointVersions": {
+                "type": "array",
+                "items": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9007199254740991
+                }
+              },
+              "capabilities": {
+                "type": "object",
+                "properties": {
+                  "listChanged": {
+                    "type": "boolean"
+                  },
+                  "attachTransfer": {
+                    "type": "boolean"
+                  },
+                  "admissionProof": {
+                    "type": "boolean"
+                  },
+                  "transportResume": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "listChanged",
+                  "attachTransfer",
+                  "admissionProof",
+                  "transportResume"
+                ],
+                "additionalProperties": false
+              },
+              "clientQualification": {}
+            },
+            "required": [
+              "attachmentId",
+              "shimVersion",
+              "shimBuildId",
+              "shimProcessIdentity",
+              "attachmentProtocol",
+              "handoverProtocol",
+              "downstreamProtocolVersion",
+              "servedDescriptorDigest",
+              "servedContractDigest",
+              "supportedCheckpointVersions",
+              "capabilities",
+              "clientQualification"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "transports": {
+          "type": "array",
+          "items": {}
+        },
+        "operations": {
+          "type": "array",
+          "items": {}
+        },
+        "quarantines": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "launches": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "endpointPinned": {
+          "type": "boolean"
+        },
+        "writerRestrictions": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "managedImage": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "revision",
+        "shims",
+        "transports",
+        "operations",
+        "quarantines",
+        "launches",
+        "endpointPinned",
+        "writerRestrictions",
+        "managedImage"
+      ],
+      "additionalProperties": false
+    },
+    "ownership": {
+      "type": "object",
+      "properties": {
+        "schemaVersion": {
+          "const": 1
+        },
+        "attachmentId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "ownerGeneration": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "ownershipEpoch": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "ownerProcessIdentity": {
+          "type": "object",
+          "properties": {
+            "machineId": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^(?!0+$)[0-9a-f]{32}$"
+            },
+            "bootId": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+            },
+            "pidNamespace": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[0-9]+$"
+            },
+            "nsNet": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[0-9]+$"
+            },
+            "pid": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            },
+            "startTime": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            }
+          },
+          "required": [
+            "machineId",
+            "bootId",
+            "pidNamespace",
+            "nsNet",
+            "pid",
+            "startTime"
+          ],
+          "additionalProperties": false
+        },
+        "state": {
+          "enum": [
+            "ACTIVE",
+            "FROZEN",
+            "TRANSFERRING",
+            "CLOSED"
+          ]
+        },
+        "handoverId": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "minLength": 1
+            }
+          ]
+        },
+        "checkpointVersion": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "checkpointHash": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            }
+          ]
+        },
+        "presenceSessionId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "expectedInstance": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "attachmentId",
+        "ownerGeneration",
+        "ownershipEpoch",
+        "ownerProcessIdentity",
+        "state",
+        "handoverId",
+        "checkpointVersion",
+        "checkpointHash",
+        "presenceSessionId",
+        "expectedInstance"
+      ],
+      "additionalProperties": false
+    },
+    "checkpoint": {
+      "type": "object",
+      "properties": {
+        "schemaVersion": {
+          "const": 1
+        },
+        "attachmentId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "ownershipEpoch": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "context": {},
+        "identity": {},
+        "presence": {},
+        "downstreamProtocol": {
+          "type": "string",
+          "minLength": 1
+        },
+        "servedCatalogue": {},
+        "subscriptions": {
+          "type": "array",
+          "items": {}
+        },
+        "observedPeers": {},
+        "observedInbox": {},
+        "notifications": {},
+        "negotiations": {},
+        "truncation": {},
+        "blockages": {},
+        "producedSequence": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "deliveredSequence": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "wakeState": {},
+        "terminalReferences": {
+          "type": "array",
+          "items": {}
+        },
+        "delegationReferences": {
+          "type": "array",
+          "items": {}
+        },
+        "launches": {
+          "type": "array",
+          "items": {}
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "attachmentId",
+        "ownershipEpoch",
+        "context",
+        "identity",
+        "presence",
+        "downstreamProtocol",
+        "servedCatalogue",
+        "subscriptions",
+        "observedPeers",
+        "observedInbox",
+        "notifications",
+        "negotiations",
+        "truncation",
+        "blockages",
+        "producedSequence",
+        "deliveredSequence",
+        "wakeState",
+        "terminalReferences",
+        "delegationReferences",
+        "launches"
+      ],
+      "additionalProperties": false
+    },
+    "launchMemo": {
+      "type": "object",
+      "properties": {
+        "schemaVersion": {
+          "const": 1
+        },
+        "attachmentId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "launchName": {
+          "type": "string",
+          "minLength": 1
+        },
+        "launchId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "initialArgumentsDigest": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "state": {
+          "enum": [
+            "reserved",
+            "launching",
+            "completed",
+            "unknown"
+          ]
+        },
+        "executionOwner": {
+          "type": "object",
+          "properties": {
+            "machineId": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^(?!0+$)[0-9a-f]{32}$"
+            },
+            "bootId": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+            },
+            "pidNamespace": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[0-9]+$"
+            },
+            "nsNet": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[0-9]+$"
+            },
+            "pid": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            },
+            "startTime": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            }
+          },
+          "required": [
+            "machineId",
+            "bootId",
+            "pidNamespace",
+            "nsNet",
+            "pid",
+            "startTime"
+          ],
+          "additionalProperties": false
+        },
+        "childProcessIdentity": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "object",
+              "properties": {
+                "machineId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "pattern": "^(?!0+$)[0-9a-f]{32}$"
+                },
+                "bootId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                },
+                "pidNamespace": {
+                  "type": "string",
+                  "minLength": 1,
+                  "pattern": "^[0-9]+$"
+                },
+                "nsNet": {
+                  "type": "string",
+                  "minLength": 1,
+                  "pattern": "^[0-9]+$"
+                },
+                "pid": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9007199254740991
+                },
+                "startTime": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": [
+                "machineId",
+                "bootId",
+                "pidNamespace",
+                "nsNet",
+                "pid",
+                "startTime"
+              ],
+              "additionalProperties": false
+            }
+          ]
+        },
+        "launchReceiptReference": {
+          "type": "string",
+          "minLength": 1,
+          "format": "relative-path"
+        },
+        "launchTokenBinding": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "briefReceipt": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {}
+          ]
+        },
+        "terminalResult": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {}
+          ]
+        },
+        "retrySafe": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "attachmentId",
+        "launchName",
+        "launchId",
+        "initialArgumentsDigest",
+        "state",
+        "executionOwner",
+        "childProcessIdentity",
+        "launchReceiptReference",
+        "launchTokenBinding",
+        "briefReceipt",
+        "terminalResult",
+        "retrySafe"
+      ],
+      "additionalProperties": false
+    },
+    "componentTransaction": {
+      "type": "object",
+      "properties": {
+        "schemaVersion": {
+          "const": 1
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "component": {
+          "enum": [
+            "mcp",
+            "gateway"
+          ]
+        },
+        "upgradeId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "handoverId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "transactionEpoch": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "mode": {
+          "enum": [
+            "cold-stop",
+            "live-transfer",
+            "catalogue"
+          ]
+        },
+        "source": {
+          "type": "object",
+          "properties": {
+            "generation": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+            },
+            "publicationEpoch": {
+              "type": "object",
+              "properties": {
+                "bootId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                },
+                "counter": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": [
+                "bootId",
+                "counter"
+              ],
+              "additionalProperties": false
+            },
+            "processIdentity": {
+              "type": "object",
+              "properties": {
+                "machineId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "pattern": "^(?!0+$)[0-9a-f]{32}$"
+                },
+                "bootId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                },
+                "pidNamespace": {
+                  "type": "string",
+                  "minLength": 1,
+                  "pattern": "^[0-9]+$"
+                },
+                "nsNet": {
+                  "type": "string",
+                  "minLength": 1,
+                  "pattern": "^[0-9]+$"
+                },
+                "pid": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9007199254740991
+                },
+                "startTime": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": [
+                "machineId",
+                "bootId",
+                "pidNamespace",
+                "nsNet",
+                "pid",
+                "startTime"
+              ],
+              "additionalProperties": false
+            },
+            "packageVersion": {
+              "type": "string",
+              "minLength": 1
+            },
+            "buildId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "manifestDigest": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            }
+          },
+          "required": [
+            "generation",
+            "publicationEpoch",
+            "processIdentity",
+            "packageVersion",
+            "buildId",
+            "manifestDigest"
+          ],
+          "additionalProperties": false
+        },
+        "target": {
+          "type": "object",
+          "properties": {
+            "packageVersion": {
+              "type": "string",
+              "minLength": 1
+            },
+            "buildId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "manifestDigest": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            },
+            "entrypoint": {
+              "type": "string",
+              "minLength": 1,
+              "format": "absolute-path"
+            }
+          },
+          "required": [
+            "packageVersion",
+            "buildId",
+            "manifestDigest",
+            "entrypoint"
+          ],
+          "additionalProperties": false
+        },
+        "coordinator": {
+          "type": "object",
+          "properties": {
+            "machineId": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^(?!0+$)[0-9a-f]{32}$"
+            },
+            "bootId": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+            },
+            "pidNamespace": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[0-9]+$"
+            },
+            "nsNet": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[0-9]+$"
+            },
+            "pid": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            },
+            "startTime": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            }
+          },
+          "required": [
+            "machineId",
+            "bootId",
+            "pidNamespace",
+            "nsNet",
+            "pid",
+            "startTime"
+          ],
+          "additionalProperties": false
+        },
+        "controllerEpoch": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "inventoryRevision": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "state": {
+          "enum": [
+            "RESERVED",
+            "PRECHECKED",
+            "BARRIER",
+            "FROZEN",
+            "PUBLISHED",
+            "DRAINING",
+            "RETIRED",
+            "STOP_COMMITTED",
+            "STOPPED",
+            "STARTING",
+            "READY",
+            "SUCCESSOR_FAILED",
+            "ABORTED",
+            "DRAIN_BLOCKED",
+            "DEFERRED_PAUSED",
+            "RECOVERY_BLOCKED"
+          ]
+        },
+        "barrierDeadline": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            }
+          ]
+        },
+        "precheckEvidenceDigest": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            }
+          ]
+        },
+        "checkpointReferences": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "format": "relative-path"
+          }
+        },
+        "stepResults": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "payloadDigest": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "^sha256:[0-9a-f]{64}$"
+              },
+              "result": {}
+            },
+            "required": [
+              "payloadDigest",
+              "result"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "successorReservation": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "object",
+              "properties": {
+                "attempts": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 3
+                },
+                "candidateIdentity": {
+                  "anyOf": [
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "machineId": {
+                          "type": "string",
+                          "minLength": 1,
+                          "pattern": "^(?!0+$)[0-9a-f]{32}$"
+                        },
+                        "bootId": {
+                          "type": "string",
+                          "minLength": 1,
+                          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                        },
+                        "pidNamespace": {
+                          "type": "string",
+                          "minLength": 1,
+                          "pattern": "^[0-9]+$"
+                        },
+                        "nsNet": {
+                          "type": "string",
+                          "minLength": 1,
+                          "pattern": "^[0-9]+$"
+                        },
+                        "pid": {
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 9007199254740991
+                        },
+                        "startTime": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        }
+                      },
+                      "required": [
+                        "machineId",
+                        "bootId",
+                        "pidNamespace",
+                        "nsNet",
+                        "pid",
+                        "startTime"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                },
+                "selectionEpoch": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9007199254740991
+                },
+                "targetManifestDigest": {
+                  "type": "string",
+                  "minLength": 1,
+                  "pattern": "^sha256:[0-9a-f]{64}$"
+                }
+              },
+              "required": [
+                "attempts",
+                "candidateIdentity",
+                "selectionEpoch",
+                "targetManifestDigest"
+              ],
+              "additionalProperties": false
+            }
+          ]
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "revision",
+        "component",
+        "upgradeId",
+        "handoverId",
+        "transactionEpoch",
+        "mode",
+        "source",
+        "target",
+        "coordinator",
+        "controllerEpoch",
+        "inventoryRevision",
+        "state",
+        "barrierDeadline",
+        "precheckEvidenceDigest",
+        "checkpointReferences",
+        "stepResults",
+        "successorReservation"
+      ],
+      "additionalProperties": false
+    },
+    "selection": {
+      "type": "object",
+      "properties": {
+        "schemaVersion": {
+          "const": 1
+        },
+        "prefixId": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "canonicalPrefix": {
+          "type": "string",
+          "minLength": 1,
+          "format": "absolute-path"
+        },
+        "uid": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "selectionEpoch": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "packageVersion": {
+          "type": "string",
+          "minLength": 1
+        },
+        "buildId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "manifestDigest": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "entrypoint": {
+          "type": "string",
+          "minLength": 1,
+          "format": "relative-path"
+        },
+        "previousSelectionReference": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "minLength": 1,
+              "format": "relative-path"
+            }
+          ]
+        },
+        "upgradeId": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "prefixId",
+        "canonicalPrefix",
+        "uid",
+        "selectionEpoch",
+        "packageVersion",
+        "buildId",
+        "manifestDigest",
+        "entrypoint",
+        "previousSelectionReference",
+        "upgradeId"
+      ],
+      "additionalProperties": false
+    },
+    "upgradeTransaction": {
+      "type": "object",
+      "properties": {
+        "schemaVersion": {
+          "const": 1
+        },
+        "upgradeId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "prefixId": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "canonicalPrefix": {
+          "type": "string",
+          "minLength": 1,
+          "format": "absolute-path"
+        },
+        "uid": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "requestedTarget": {
+          "type": "string",
+          "minLength": 1
+        },
+        "resolvedTarget": {
+          "type": "string",
+          "minLength": 1
+        },
+        "artifactDigests": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          }
+        },
+        "targetManifestDigest": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "origin": {
+          "enum": [
+            "manual",
+            "automatic",
+            "bootstrap",
+            "compensation"
+          ]
+        },
+        "initiatorIdentity": {
+          "type": "object",
+          "properties": {
+            "machineId": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^(?!0+$)[0-9a-f]{32}$"
+            },
+            "bootId": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+            },
+            "pidNamespace": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[0-9]+$"
+            },
+            "nsNet": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[0-9]+$"
+            },
+            "pid": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            },
+            "startTime": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            }
+          },
+          "required": [
+            "machineId",
+            "bootId",
+            "pidNamespace",
+            "nsNet",
+            "pid",
+            "startTime"
+          ],
+          "additionalProperties": false
+        },
+        "controllerIdentity": {
+          "type": "object",
+          "properties": {
+            "machineId": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^(?!0+$)[0-9a-f]{32}$"
+            },
+            "bootId": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+            },
+            "pidNamespace": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[0-9]+$"
+            },
+            "nsNet": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[0-9]+$"
+            },
+            "pid": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            },
+            "startTime": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            }
+          },
+          "required": [
+            "machineId",
+            "bootId",
+            "pidNamespace",
+            "nsNet",
+            "pid",
+            "startTime"
+          ],
+          "additionalProperties": false
+        },
+        "controllerBuildId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "controllerEpoch": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "controllerAuthorityState": {
+          "enum": [
+            "ACTIVE",
+            "REVOKED",
+            "ACQUIRING"
+          ]
+        },
+        "delegationState": {
+          "enum": [
+            "NONE",
+            "DELEGATING",
+            "DELEGATED"
+          ]
+        },
+        "delegatedBuildId": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "minLength": 1
+            }
+          ]
+        },
+        "delegationReceiptDigest": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            }
+          ]
+        },
+        "privateTicketReference": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "minLength": 1,
+              "format": "relative-path"
+            }
+          ]
+        },
+        "installationState": {
+          "enum": [
+            "PREPARING",
+            "PREPARED",
+            "SELECTING",
+            "SELECTED",
+            "DELEGATING",
+            "ACTIVATING",
+            "PARTIAL",
+            "COMPLETED",
+            "ABORTED",
+            "RECOVERY_BLOCKED"
+          ]
+        },
+        "selectionEpoch": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "previousSelectionReference": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "minLength": 1,
+              "format": "relative-path"
+            }
+          ]
+        },
+        "componentTransactions": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "minLength": 1,
+            "format": "relative-path"
+          }
+        },
+        "observations": {},
+        "verification": {},
+        "createdAt": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "updatedAt": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "upgradeId",
+        "revision",
+        "prefixId",
+        "canonicalPrefix",
+        "uid",
+        "requestedTarget",
+        "resolvedTarget",
+        "artifactDigests",
+        "targetManifestDigest",
+        "origin",
+        "initiatorIdentity",
+        "controllerIdentity",
+        "controllerBuildId",
+        "controllerEpoch",
+        "controllerAuthorityState",
+        "delegationState",
+        "delegatedBuildId",
+        "delegationReceiptDigest",
+        "privateTicketReference",
+        "installationState",
+        "selectionEpoch",
+        "previousSelectionReference",
+        "componentTransactions",
+        "observations",
+        "verification",
+        "createdAt",
+        "updatedAt"
+      ],
+      "additionalProperties": false
+    },
+    "delegationTicket": {
+      "type": "object",
+      "properties": {
+        "schemaVersion": {
+          "const": 1
+        },
+        "upgradeId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "controllerEpoch": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "expectedRevision": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "delegatedBuildId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "targetManifestDigest": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "delegatedControllerIdentity": {
+          "type": "object",
+          "properties": {
+            "machineId": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^(?!0+$)[0-9a-f]{32}$"
+            },
+            "bootId": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+            },
+            "pidNamespace": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[0-9]+$"
+            },
+            "nsNet": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[0-9]+$"
+            },
+            "pid": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            },
+            "startTime": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            }
+          },
+          "required": [
+            "machineId",
+            "bootId",
+            "pidNamespace",
+            "nsNet",
+            "pid",
+            "startTime"
+          ],
+          "additionalProperties": false
+        },
+        "ticketNonce": {
+          "type": "string",
+          "minLength": 1
+        },
+        "expiresAt": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "upgradeId",
+        "controllerEpoch",
+        "expectedRevision",
+        "delegatedBuildId",
+        "targetManifestDigest",
+        "delegatedControllerIdentity",
+        "ticketNonce",
+        "expiresAt"
+      ],
+      "additionalProperties": false
+    },
+    "manifest": {
+      "type": "object",
+      "properties": {
+        "schemaVersion": {
+          "const": 1
+        },
+        "packageVersion": {
+          "type": "string",
+          "minLength": 1
+        },
+        "buildId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "profile": {
+          "type": "object",
+          "properties": {
+            "platform": {
+              "const": "linux"
+            },
+            "arch": {
+              "enum": [
+                "x64",
+                "arm64"
+              ]
+            },
+            "libc": {
+              "const": "glibc"
+            },
+            "nodeMajor": {
+              "enum": [
+                20,
+                22
+              ]
+            },
+            "nodeAbi": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "platform",
+            "arch",
+            "libc",
+            "nodeMajor",
+            "nodeAbi"
+          ],
+          "additionalProperties": false
+        },
+        "entrypoints": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "minLength": 1,
+            "format": "relative-path"
+          }
+        },
+        "startupWaitBudgetMs": {
+          "type": "integer",
+          "minimum": 10000,
+          "maximum": 60000
+        },
+        "maxAttachments": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "files": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "path": {
+                "type": "string",
+                "minLength": 1,
+                "format": "relative-path"
+              },
+              "type": {
+                "enum": [
+                  "file",
+                  "symlink",
+                  "directory"
+                ]
+              },
+              "mode": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "digest": {
+                "anyOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "type": "string",
+                    "minLength": 1,
+                    "pattern": "^sha256:[0-9a-f]{64}$"
+                  }
+                ]
+              },
+              "target": {
+                "anyOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "type": "string",
+                    "minLength": 1,
+                    "format": "relative-path"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "path",
+              "type",
+              "mode",
+              "digest",
+              "target"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "nativeArtifacts": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "path": {
+                "type": "string",
+                "minLength": 1,
+                "format": "relative-path"
+              },
+              "digest": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "^sha256:[0-9a-f]{64}$"
+              },
+              "nodeAbi": {
+                "type": "string",
+                "minLength": 1
+              },
+              "arch": {
+                "type": "string",
+                "minLength": 1
+              },
+              "libc": {
+                "const": "glibc"
+              },
+              "toolchainDigest": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "^sha256:[0-9a-f]{64}$"
+              },
+              "probePath": {
+                "type": "string",
+                "minLength": 1,
+                "format": "relative-path"
+              }
+            },
+            "required": [
+              "path",
+              "digest",
+              "nodeAbi",
+              "arch",
+              "libc",
+              "toolchainDigest",
+              "probePath"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "packageVersion",
+        "buildId",
+        "profile",
+        "entrypoints",
+        "startupWaitBudgetMs",
+        "maxAttachments",
+        "files",
+        "nativeArtifacts"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

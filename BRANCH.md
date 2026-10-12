@@ -664,12 +664,12 @@ the root concurrency defect is fixed without introducing a persistent global loc
 - [x] Gate: node --test packages/h2a/test/mh-l0-wire.test.js, red then green.
 
 ## Lot 2 — Versioned formats
-- [ ] Marker, namespace/authority, readiness, requests/frames, evidence, ownership/checkpoint, H4/selection, manifest/native formats.
-- [ ] Gate: node --test packages/h2a/test/mh-l0-formats.test.js, red then green.
+- [x] Marker, namespace/authority, readiness, requests/frames, evidence, ownership/checkpoint, H4/selection, manifest/native formats.
+- [x] Gate: node --test packages/h2a/test/mh-l0-formats.test.js, red then green.
 
 ## Lot 3 — Durable private state
-- [ ] Private reads, exclusive publication, replacement under caller exclusion, fsync and reconciliation errors.
-- [ ] Gate: node --test packages/h2a/test/mh-l0-state.test.js, red then green.
+- [x] Private reads, exclusive publication, replacement under caller exclusion, fsync and reconciliation errors.
+- [x] Gate: node --test packages/h2a/test/mh-l0-state.test.js, red then green.
 
 ## Lot 4 — Domain, layout and image audit
 - [ ] Physical prefix identity, private authority domain, bounded abstract pre-claim and closed/native manifest.
