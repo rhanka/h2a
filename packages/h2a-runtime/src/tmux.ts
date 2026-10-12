@@ -2542,10 +2542,16 @@ export function readFleetProcView(): ProcView {
 }
 
 export function procReaderDeps(): ProcReaderDeps {
+  // Same qualification boundary as the native-terminal host scan (server.ts):
+  // tests redirect this fleet-wide /proc walk to the private process view the
+  // isolation guard pins their spawned processes into, so a supervising pass
+  // under test reads only processes the test started. Production never sets
+  // the variable and reads the real /proc.
+  const procRoot = process.env.H2A_TEST_PROC_ROOT ?? "/proc";
   return {
     listPids: () => {
       try {
-        return readdirSync("/proc")
+        return readdirSync(procRoot)
           .map((entry) => Number.parseInt(entry, 10))
           .filter((value) => Number.isInteger(value) && value > 0);
       } catch {
@@ -2554,7 +2560,7 @@ export function procReaderDeps(): ProcReaderDeps {
     },
     readStat: (target: number) => {
       try {
-        return readFileSync(`/proc/${target}/stat`, "utf8");
+        return readFileSync(join(procRoot, String(target), "stat"), "utf8");
       } catch {
         return undefined;
       }
