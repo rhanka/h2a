@@ -9,7 +9,7 @@ import {
   type LlmMeshFacade,
 } from "@sentropic/cluster-mesh/llm-mesh/facade";
 import { InMemoryKeyring } from "@sentropic/cluster-mesh/llm-mesh/node";
-import { EncryptedFileKeyring } from "@sentropic/llm-mesh/node";
+import { EncryptedFileKeyring } from "@sentropic/cluster-mesh/llm-mesh/node";
 
 import { readLlmMeshConfig, writeLlmMeshConfig } from "./gateway-host/config-file.js";
 import {
