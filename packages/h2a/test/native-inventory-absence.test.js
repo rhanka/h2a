@@ -552,7 +552,9 @@ test("should prove a pre-upgrade historical host dead using its durable PID and 
     : !legacyRequired && legacyUnavailable,
 }, () => fixture(async f => {
   assert.equal(legacyUnavailable, false, String(legacyUnavailable));
-  const host = await f.start(0, legacyEntry);
+  // The historical dist predates short staging names. Keep its fixture
+  // endpoint short enough even when this checkout is a deep worktree.
+  const host = await f.start(0, legacyEntry, join(f.root, "legacy.sock"));
   await host.client.create({ id: "h2a-legacy-dead", command: "/bin/bash", args: ["--noprofile", "--norc", "-c", "read -r line"],
     cwd: f.workspace, env: f.env, cols: 80, rows: 24 });
   const exited = once(host.child, "exit"); host.child.kill("SIGKILL"); await exited;

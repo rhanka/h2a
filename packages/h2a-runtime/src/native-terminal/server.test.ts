@@ -342,9 +342,12 @@ describe("native terminal local transport", () => {
   });
 
   it.each([
-    ["ERR_SERVER_CLOSED"], ["EADDRINUSE"], ["EMFILE", "EMFILE", "EMFILE"],
-    ["ENFILE", "ENFILE", "ENFILE"], ["EMFILE", "ENFILE", "EMFILE"],
-  ])("should exit when the listener becomes unusable (%s)", async (...codes) => {
+    ["ERR_SERVER_CLOSED", ["ERR_SERVER_CLOSED"]],
+    ["EADDRINUSE", ["EADDRINUSE"]],
+    ["EMFILE,EMFILE,EMFILE", ["EMFILE", "EMFILE", "EMFILE"]],
+    ["ENFILE,ENFILE,ENFILE", ["ENFILE", "ENFILE", "ENFILE"]],
+    ["EMFILE,ENFILE,EMFILE", ["EMFILE", "ENFILE", "EMFILE"]],
+  ] as const)("should exit when the listener becomes unusable (%s)", async (_label, codes) => {
     await assertListenerFaultExit(codes, 0, "server.listener-error-unusable");
   });
 

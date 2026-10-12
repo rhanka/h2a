@@ -169,7 +169,10 @@ export const STEPS = [
     command: process.execPath,
     args: ['scripts/run-tests.mjs'],
     requiresBuild: true,
-    timeoutMs: 4 * MINUTE_MS,
+    // Node and Track run sequentially, each with a ten-minute deadline in
+    // run-tests.mjs. Allow both runs plus report verification; the integrated
+    // inventory alone exceeds the former four-minute outer budget.
+    timeoutMs: 21 * MINUTE_MS,
     reportPath: NODE_TRACK_EXECUTION_REPORT,
     requiredFiles: listNodeTrackSuiteFiles,
     verifyExecution: verifyNodeTrackExecution,
