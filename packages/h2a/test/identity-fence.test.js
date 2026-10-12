@@ -1,3 +1,4 @@
+import { proofDeps } from './helpers/identity-proof-fixture.mjs';
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import {
@@ -22,12 +23,14 @@ import {
   identityFsQualified,
   neutralizeBindingsTail,
   readIdentityLock,
-  reclaimOrMint,
+  reclaimOrMint as rawReclaimOrMint,
   withIdentityFence,
   withIdentityFenceSync
 } from "../dist/index.js";
 
 const QUALIFIED_FS_TYPES = new Set(["ef53", "58465342", "9123683e", "f2f52010"]);
+
+function reclaimOrMint(root,key,deps,...options){return rawReclaimOrMint(root,key,proofDeps(root,deps),...options);}
 
 function freshDir(label) {
   const dir = mkdtempSync(join(tmpdir(), `h2a-fence-${label}-`));
@@ -305,7 +308,7 @@ test("a SIGKILLed holder of the same boot is recovered by the next acquisition",
 // Concurrency: two waiters over a dead holder serialize; exactly one recovers.
 // ---------------------------------------------------------------------------
 
-test("two concurrent waiters over a dead holder serialize and elect exactly one successor", async () => {
+test("same-process asynchronous waiters serialize over a dead holder (process concurrency is covered in v6)", async () => {
   const dir = freshDir("two");
   const lockPath = join(dir, ".lock");
   try {

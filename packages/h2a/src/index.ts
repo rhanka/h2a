@@ -920,6 +920,7 @@ export {
   readIdentityLock,
   withIdentityFence,
   withIdentityFenceSync,
+  breakIdentityLockAsOperator,
   IdentityLockTimeoutError,
   type IdentityFenceLease,
   type IdentityFenceOptions,
