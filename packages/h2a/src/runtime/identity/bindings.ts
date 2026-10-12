@@ -26,12 +26,19 @@
  */
 
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
-import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 
 import { verifyCanonical, type H2ASignature } from "@sentropic/h2a";
 
-import { localStorePaths, withLock, withLockSync } from "../local-files/index.js";
+import { localStorePaths } from "../local-files/index.js";
+import {
+  attestBindingsTailDurable,
+  IDENTITY_BINDING_FENCE_PROTOCOL,
+  neutralizeBindingsTail,
+  withIdentityFence,
+  withIdentityFenceSync,
+  type IdentityFenceLease
+} from "../local-files/identity-fence.js";
 import { getActiveMcpTrace } from "../mcp/phase-trace.js";
 import { appendLaunchRow, launchLookupKey, lookupLaunchRows } from "../local-files/launch-index.js";
 
@@ -40,7 +47,7 @@ import { appendLaunchRow, launchLookupKey, lookupLaunchRows } from "../local-fil
  * executor uses the same sentinel and refuses a writer inventory that cannot
  * prove this epoch-bearing protocol for every binding write path.
  */
-export const IDENTITY_BINDING_FENCE_PROTOCOL = "identity-binding-fence-v1";
+export { IDENTITY_BINDING_FENCE_PROTOCOL };
 
 export interface H2AIdentityBinding {
   readonly host: string;
@@ -142,6 +149,30 @@ export interface ReclaimOrMintResult {
 }
 
 /**
+ * R5 tail discipline inside the HELD fence: terminate an unterminated final
+ * suffix of the journal (exactly one appended byte, never a concatenation onto
+ * a fragment), and after a RECOVERY attest the durability of a tail whose
+ * previous fsync is unattested. The trace event is detailed-gated and
+ * content-free (byte range + content hash only).
+ */
+function neutralizeBindingsTailHeld(root: string, lease: IdentityFenceLease): void {
+  const file = bindingsFile(root);
+  const neutralized = neutralizeBindingsTail(file);
+  const trace = getActiveMcpTrace();
+  if (neutralized !== undefined) {
+    if (trace?.detailed) {
+      trace.phase("binding_tail_neutralized", {
+        tool: "identity",
+        bytes: neutralized.length,
+        code: neutralized.sha256
+      });
+    }
+  } else if (lease.recovered) {
+    attestBindingsTailDurable(file);
+  }
+}
+
+/**
  * Atomically (one lock) reclaim the existing binding iff it exists AND
  * proof-of-possession passes; otherwise mint a fresh identity and record the new
  * binding. Spoofing the id without the key → mint (a new identity), never a
@@ -166,7 +197,8 @@ export function reclaimOrMint(
         });
       }
     : undefined;
-  return withLockSync(bindingsLock(root), () => {
+  return withIdentityFenceSync(bindingsLock(root), (lease) => {
+    neutralizeBindingsTailHeld(root, lease);
     const existing = findBinding(root, key);
     if (existing && deps.verifyProof(existing)) {
       return { action: "reclaim", instance: existing.instance, agentUuid: existing.agentUuid };
@@ -178,13 +210,9 @@ export function reclaimOrMint(
     } satisfies H2AIdentityBinding);
     return { action: "mint", instance: minted.instance, agentUuid: minted.agentUuid };
   }, {
-    ownerMetadata: {
-      protocol: IDENTITY_BINDING_FENCE_PROTOCOL,
-      fenceEpoch: randomUUID()
-    },
-    // A cull fence is fail-closed.  Reclaiming an apparently stale sentinel
-    // would turn an ambiguous owner/fence state into a concurrent write.
-    reclaimStale: false,
+    // The identity fence (0.98.6) replaces the fail-closed sentinel: it carries
+    // its own provenance and provable-death recovery, so no stale-reclaim flag
+    // and no extra owner metadata apply here.
     ...(observe ? { observe } : {})
   });
 }
@@ -216,8 +244,9 @@ export interface ReclaimOrMintOptions {
 
 /**
  * Async twin of {@link reclaimOrMint} used by the L2 identity worker. Identical
- * invariants — proof-of-possession gates reclaim, a fail-closed fence
- * (`reclaimStale:false`) refuses an ambiguous sentinel, `reclaimOrMint*` stays
+ * invariants — proof-of-possession gates reclaim, the identity fence
+ * recovers only a provably dead holder (never an ambiguous one),
+ * `reclaimOrMint*` stays
  * the UNIQUE append of a binding row — but the lock WAIT is asynchronous so the
  * worker can receive an IPC cancel between poll attempts instead of blocking the
  * event loop inside `Atomics.wait`. On a mint, `beforePublish` publishes the
@@ -240,9 +269,10 @@ export async function reclaimOrMintAsync(
         });
       }
     : undefined;
-  return withLock(
+  return withIdentityFence(
     bindingsLock(root),
-    () => {
+    (lease) => {
+      neutralizeBindingsTailHeld(root, lease);
       const existing = findBinding(root, key);
       if (existing && deps.verifyProof(existing)) {
         return { action: "reclaim", instance: existing.instance, agentUuid: existing.agentUuid };
@@ -263,11 +293,6 @@ export async function reclaimOrMintAsync(
       return result;
     },
     {
-      ownerMetadata: {
-        protocol: IDENTITY_BINDING_FENCE_PROTOCOL,
-        fenceEpoch: randomUUID()
-      },
-      reclaimStale: false,
       ...(options.signal ? { signal: options.signal } : {}),
       ...(options.deadlineMs !== undefined ? { timeoutMs: options.deadlineMs } : {}),
       ...(observe ? { observe } : {})
