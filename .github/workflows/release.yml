@@ -106,32 +106,28 @@ jobs:
           node-version: ${{ matrix.node }}
           cache: npm
 
+      - name: Prove effective Node version and release checkout
+        shell: bash
+        run: |
+          set -euo pipefail
+          node -e 'if (process.versions.node.split(".")[0] !== process.argv[1]) process.exit(1)' "${{ matrix.node }}"
+          test "$(git rev-parse HEAD)" = "${{ needs.resolve-release-sha.outputs.release-sha }}"
+
       - run: npm ci
+        shell: bash
       - run: npm run audit:security
+        shell: bash
       - run: npm run typecheck
+        shell: bash
       # SPEC 0.98.5 R8.1: the trust root runs BEFORE npm test, at this same
       # SHA, so the gate runner cannot grade its own exam and no publication
       # can escape it even if ci.yml is blind.
       - name: Test npm test gate runner directly (trust root)
+        shell: bash
         run: node --test packages/h2a/test/run-test-gates.test.js
       - run: npm test
-      # SPEC 0.98.5 R8.3: smoke the PACKAGED artifact — pack the three lockstep
-      # packages, install them into a clean prefix from the candidate tarballs,
-      # prove the resolved runtime path/version, then drive the packaged host
-      # through cold-boot, handshake, a PTY operation and the crash-net
-      # injections.
-      - name: Smoke the packaged artifact
-        run: npm run smoke:artifact
-
-      # SPEC 0.98.5 R8.2: the three lockstep tarballs published later are the
-      # EXACT bytes verify built here — packed from the pinned SHA, sha256
-      # recorded, uploaded as run artifacts. The pack + checksum step is
-      # UNCONDITIONAL (round-7 review finding P2: a step the release depends
-      # on must never be one `if:` away from not running): every matrix leg
-      # packs the same resolved SHA and records the manifest. Only the UPLOAD
-      # stays single-leg — actions/upload-artifact forbids duplicate artifact
-      # names, and a missing upload fails publish's own download step, so
-      # that condition cannot silently read green.
+        shell: bash
+      # Build once, then smoke and upload these same three tarballs.
       - name: Pack the three lockstep packages
         shell: bash
         run: |
@@ -145,6 +141,10 @@ jobs:
           # SHA — the manifest travels with the bytes it describes, and
           # publish re-checks it before any npm publish.
           echo "${{ needs.resolve-release-sha.outputs.release-sha }}" > dist-tarballs/release-sha.txt
+
+      - name: Smoke the packaged artifact
+        shell: bash
+        run: npm run smoke:artifact -- --tarballs dist-tarballs
 
       - name: Upload the tarballs as run artifacts
         # The ONE sanctioned step-level condition (pinned exactly by the
@@ -203,6 +203,7 @@ jobs:
           node-version: "20"
 
       - name: Use npm with trusted publishing support
+        shell: bash
         run: npm install -g npm@^11.15.0
 
       # SPEC 0.98.5 R8.2: no re-run of typecheck/tests here. verify already
@@ -282,6 +283,7 @@ jobs:
       # Idempotent: if the lockstep version is already on the registry (token
       # publish), skip; otherwise publish via OIDC (works once trust is re-pointed).
       - name: Publish @sentropic/track (public; token-published out-of-band for now)
+        shell: bash
         run: |
           v="$(node -p "require('./packages/track/package.json').version")"
           if npm view "@sentropic/track@$v" version >/dev/null 2>&1; then
@@ -314,6 +316,7 @@ jobs:
           done
 
       - name: Publish @sentropic/h2a-runtime (trusted publishing, public)
+        shell: bash
         run: |
           v="$(node -p "require('./packages/h2a-runtime/package.json').version")"
           if npm view "@sentropic/h2a-runtime@$v" version >/dev/null 2>&1; then
@@ -330,6 +333,7 @@ jobs:
             fi
             # SPEC 0.98.5 R8.2: publish the VERIFIED tarball bytes that verify
             # packed from the gated SHA — never a fresh pack of a mutable ref.
+            (cd dist-tarballs && sha256sum --check --strict sha256sums.txt)
             if ! npm publish "dist-tarballs/sentropic-h2a-runtime-${v}.tgz" --access public $tagArgs; then
               echo "::error::@sentropic/h2a-runtime@$v: npm publish failed (not published)." >&2
               exit 1
@@ -348,6 +352,7 @@ jobs:
           done
 
       - name: Publish @sentropic/h2a (trusted publishing, public)
+        shell: bash
         run: |
           v="$(node -p "require('./packages/h2a/package.json').version")"
           if npm view "@sentropic/h2a@$v" version >/dev/null 2>&1; then
@@ -364,6 +369,7 @@ jobs:
             fi
             # SPEC 0.98.5 R8.2: publish the VERIFIED tarball bytes that verify
             # packed from the gated SHA — never a fresh pack of a mutable ref.
+            (cd dist-tarballs && sha256sum --check --strict sha256sums.txt)
             if ! npm publish "dist-tarballs/sentropic-h2a-${v}.tgz" --access public $tagArgs; then
               echo "::error::@sentropic/h2a@$v: npm publish failed (not published)." >&2
               exit 1
@@ -382,6 +388,7 @@ jobs:
           done
 
       - name: Publish @sentropic/h2a-cli (trusted publishing, public)
+        shell: bash
         run: |
           v="$(node -p "require('./packages/h2a-cli/package.json').version")"
           if npm view "@sentropic/h2a-cli@$v" version >/dev/null 2>&1; then
@@ -398,6 +405,7 @@ jobs:
             fi
             # SPEC 0.98.5 R8.2: publish the VERIFIED tarball bytes that verify
             # packed from the gated SHA — never a fresh pack of a mutable ref.
+            (cd dist-tarballs && sha256sum --check --strict sha256sums.txt)
             if ! npm publish "dist-tarballs/sentropic-h2a-cli-${v}.tgz" --access public $tagArgs; then
               echo "::error::@sentropic/h2a-cli@$v: npm publish failed (not published)." >&2
               exit 1

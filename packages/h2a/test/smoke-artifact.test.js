@@ -28,6 +28,7 @@ import { tmpdir } from "node:os";
 import { test } from "node:test";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { observeSmoke } from "./helpers/smoke-observation-lab.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(HERE, "..", "..", "..");
@@ -40,6 +41,28 @@ try {
 } catch (error) {
   assert.fail(`the smoke script and the runtime manifest must exist and be readable: ${error.message}`);
 }
+
+test("C9 A10/A11: execute smoke orchestration and observe seed, install, faults, identity, prune and PTYs", async () => {
+  await observeSmoke(SMOKE_SOURCE, SMOKE_PATH);
+});
+
+test("C9 A07: smoke consumes and preserves exactly the prebuilt candidate tarballs", async () => {
+  await observeSmoke(SMOKE_SOURCE, SMOKE_PATH, { prebuilt: true });
+});
+
+for (const omitMarker of ["smoke-pty", "smoke-pty-after-fault", "smoke-pty-after-stderr-fault"]) {
+  test(`C9 A11: smoke must fail when ${omitMarker} produced no marker`, async () => {
+    await assert.rejects(observeSmoke(SMOKE_SOURCE, SMOKE_PATH, { omitMarker }), /PTY/);
+  });
+}
+for (const changedIdentity of ["client", "stderr"]) {
+  test(`C9 A11: smoke must fail when host identity changes after ${changedIdentity}`, async () => {
+    await assert.rejects(observeSmoke(SMOKE_SOURCE, SMOKE_PATH, { changedIdentity }), /identity changed/);
+  });
+}
+test("C9 A10: smoke must fail when the installed runtime has a different version", async () => {
+  await assert.rejects(observeSmoke(SMOKE_SOURCE, SMOKE_PATH, { loadedVersion: "0.98.4" }), /runtime version/);
+});
 
 test("R8.3: the runtime manifest must let the smoke prove the loaded path (./package.json subpath export)", () => {
   // The proof is resolution from an INSTALLED prefix, not from the workspace:

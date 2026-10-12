@@ -37,9 +37,11 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  readdirSync,
   rmSync,
   writeFileSync,
 } from 'node:fs'
+import { createHash } from 'node:crypto'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
@@ -49,8 +51,7 @@ const REPO_ROOT = resolve(HERE, '..')
 const PACKAGES = ['@sentropic/h2a', '@sentropic/h2a-runtime', '@sentropic/h2a-cli']
 
 function fail(message) {
-  console.error(`smoke-artifact: FAIL — ${message}`)
-  process.exit(1)
+  throw new Error(`smoke-artifact: FAIL — ${message}`)
 }
 
 function runSync(command, args, options = {}) {
@@ -78,9 +79,6 @@ function runSync(command, args, options = {}) {
 // previously published version in the same range — the exact hole this step
 // exists to close.
 const PINNED_RUNTIME_VERSION = '0.98.5'
-const staging = mkdtempSync(join(tmpdir(), 'h2a-smoke-staging-'))
-const prefix = mkdtempSync(join(tmpdir(), 'h2a-smoke-prefix-'))
-const sandbox = mkdtempSync(join(tmpdir(), 'h2a-smoke-sandbox-'))
 const runtimeVersion = JSON.parse(
   readFileSync(join(REPO_ROOT, 'packages', 'h2a-runtime', 'package.json'), 'utf8'),
 ).version
@@ -90,14 +88,22 @@ if (runtimeVersion !== PINNED_RUNTIME_VERSION) {
       `bump the lockstep version (npm run release -- --version ${PINNED_RUNTIME_VERSION}) before tagging`,
   )
 }
+const providedTarballs = process.argv[2] === '--tarballs' ? resolve(process.argv[3]) : null
+if (process.argv.length > 2 && (!providedTarballs || process.argv.length !== 4)) fail('expected --tarballs <candidate directory>')
+const staging = providedTarballs ?? mkdtempSync(join(tmpdir(), 'h2a-smoke-staging-'))
+const prefix = mkdtempSync(join(tmpdir(), 'h2a-smoke-prefix-'))
+const sandbox = mkdtempSync(join(tmpdir(), 'h2a-smoke-sandbox-'))
+const ownedHosts = new Set()
 const tarballName = (name) =>
   `${name.replace(/^@/, '').replace(/\//, '-')}-${runtimeVersion}.tgz`
 
 try {
+  const digests = new Map()
   for (const pkg of PACKAGES) {
-    runSync('npm', ['pack', '--workspace', pkg, '--pack-destination', staging])
+    if (!providedTarballs) runSync('npm', ['pack', '--workspace', pkg, '--pack-destination', staging])
     const tarball = join(staging, tarballName(pkg))
     if (!existsSync(tarball)) fail(`expected candidate tarball ${tarball} was not packed`)
+    digests.set(tarball, createHash('sha256').update(readFileSync(tarball)).digest('hex'))
   }
 
   // -------------------------------------------------------------------------
@@ -117,7 +123,7 @@ try {
   const resolved = runSync(process.execPath, ['-p', "require.resolve('@sentropic/h2a-runtime/package.json')"], {
     cwd: prefix,
   }).trim()
-  if (!resolve(resolved).startsWith(prefix)) {
+  if (!resolve(resolved).startsWith(prefix + '/')) {
     fail(`@sentropic/h2a-runtime resolved OUTSIDE the candidate prefix: ${resolved}`)
   }
   const loadedVersion = JSON.parse(readFileSync(resolved, 'utf8')).version
@@ -227,6 +233,7 @@ try {
       ],
       { env: lab.env, cwd: lab.root, stdio },
     )
+    ownedHosts.add({ lab, child })
     let stderr = ''
     child.stderr?.on('data', (chunk) => { stderr += chunk })
     let stdout = ''
@@ -262,7 +269,8 @@ try {
       'host-stop',
       '--socket', lab.socketPath,
     ], { env: lab.env, cwd: lab.root })
-    await once(child, 'exit').catch(() => {})
+    if (child.exitCode === null && child.signalCode === null) await once(child, 'exit')
+    for (const host of ownedHosts) if (host.child === child) ownedHosts.delete(host)
   }
 
   /** Drive a real PTY operation through a client and wait for its marker file. */
@@ -351,6 +359,9 @@ try {
   // --- cold-boot: start over previous-boot rows with an empty runtime dir ---
   const cold = isolatedHostLab('cold')
   seedPreviousBootRows(cold, 'smoke-cold-boot')
+  if (readdirSync(cold.runtimeDir).length !== 0) fail('cold runtime directory must be empty')
+  const seeded = JSON.parse(readFileSync(cold.registryPath, 'utf8')).entries
+  if (seeded.length !== 1 || seeded[0].pgidBootId !== previousBootId || seeded[0].pgidMachineId !== frame.machineId || !frame.machineId || !frame.pidNamespace) fail('cold-boot seed is absent or unattributed')
   const coldHost = await startPackagedHost(cold, 'smoke-cold')
   console.log('smoke-artifact: packaged host started over previous-boot rows (cold-boot)')
 
@@ -380,15 +391,18 @@ try {
   // --- crash-net injection, scenario 8: a faulty client connection must be
   // --- isolated; the good client and the PTY keep working.
   await new Promise((resolveFault, rejectFault) => {
-    const faulty = createConnection(cold.socketPath, () => resolveFault())
-    faulty.on('error', rejectFault)
+    const faulty = createConnection(cold.socketPath)
+    const timeout = setTimeout(() => rejectFault(new Error('faulty connection was not destroyed')), 5_000)
+    faulty.on('error', () => {})
+    faulty.on('close', () => { clearTimeout(timeout); resolveFault() })
     // Invalid framing: not JSON, not a legal frame. The host must destroy THIS
     // connection only (server confinement), never the listeners or sessions.
     faulty.write('this is not a frame at all\n')
     faulty.write('\x00\x01\x02garbage')
   })
   await new Promise((r) => setTimeout(r, 500))
-  await goodClient.ping()
+  const afterFault = await goodClient.ping()
+  if (afterFault.hostPid !== ping.hostPid || afterFault.generation !== ping.generation) fail('host identity changed after client fault')
   // PTY operation AFTER the fault: a ping proves the connection; only a real
   // PTY proves the sessions. The review's gap: ping-only after the fault.
   await provePtyOperation(cold, goodClient, 'smoke-pty-after-fault')
@@ -417,15 +431,18 @@ try {
     cols: 80,
     rows: 24,
   })
+  const beforeStderr = await stderrClient.ping()
   // Give the host a moment to register the session, then close its log reader.
   await new Promise((r) => setTimeout(r, 500))
   stderrHost.stderr.destroy()
+  if (!stderrHost.stderr.destroyed) fail('stderr reader did not close')
   await waitForPrune(stderrLab, 'smoke-exit', registryReader)
   if (stderrHost.exitCode !== null || stderrHost.signalCode !== null) {
     fail('the packaged host died when its stderr reader disappeared (scenario 7)')
   }
   const survivalClient = await NativeTerminalClient.connect(stderrLab.socketPath)
-  await survivalClient.ping()
+  const afterStderr = await survivalClient.ping()
+  if (afterStderr.hostPid !== beforeStderr.hostPid || afterStderr.generation !== beforeStderr.generation || afterStderr.hostPid !== stderrHost.pid) fail('host identity changed after stderr fault')
   // PTY operation AFTER the fault: a ping proves the connection; only a real
   // PTY proves the sessions still serve through the dead-log host.
   await provePtyOperation(stderrLab, survivalClient, 'smoke-pty-after-stderr-fault')
@@ -434,10 +451,26 @@ try {
   stderrClient.close()
   await stopPackagedHost(stderrLab, stderrHost)
 
+  for (const [tarball, digest] of digests) {
+    if (createHash('sha256').update(readFileSync(tarball)).digest('hex') !== digest) fail('candidate bytes changed during smoke')
+  }
   console.log('smoke-artifact: PASS — packaged candidate proved on cold-boot, handshake, PTY, and crash-net injections')
 } finally {
+  for (const { lab, child } of ownedHosts) {
+    if (child.exitCode === null && child.signalCode === null) {
+      try {
+        runSync(process.execPath, [join(prefix, 'node_modules/@sentropic/h2a-runtime/dist/native-terminal/op.js'), 'host-stop', '--socket', lab.socketPath], { env: lab.env, cwd: lab.root })
+      } catch { child.kill('SIGTERM') }
+      if (child.exitCode === null && child.signalCode === null) {
+        await new Promise((done) => {
+          const timer = setTimeout(() => { child.kill('SIGKILL'); done() }, 5_000)
+          child.once('exit', () => { clearTimeout(timer); done() })
+        })
+      }
+    }
+  }
   // Only paths this script created, all under mkdtemp'd temp parents.
-  for (const path of [staging, prefix, sandbox]) {
+  for (const path of [...(providedTarballs ? [] : [staging]), prefix, sandbox]) {
     rmSync(path, { recursive: true, force: true })
   }
 }

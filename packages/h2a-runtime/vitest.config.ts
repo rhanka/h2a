@@ -21,7 +21,12 @@
  * boundary. This config is the one the release gate invokes by exact path.
  */
 import { fileURLToPath } from "node:url";
-import { defineConfig } from "vitest/config";
+import { defineConfig as vitestConfig } from "vitest/config";
+import { assertTestConfig } from "../../scripts/test-config-contract.mjs";
+
+function defineConfig(config) {
+  return vitestConfig(assertTestConfig(config, "runtime"));
+}
 
 export default defineConfig({
   root: fileURLToPath(new URL(".", import.meta.url)),
@@ -43,7 +48,7 @@ export default defineConfig({
     // scripts/run-test-gates.mjs; tmp/ is gitignored.
     reporters: [
       "default",
-      ["json", { outputFile: fileURLToPath(new URL("../../tmp/h2a-runtime-vitest-report.json", import.meta.url)) }],
+      ["json", { outputFile: process.env.H2A_TEST_REPORT_PATH ?? fileURLToPath(new URL("../../tmp/h2a-runtime-vitest-report.json", import.meta.url)) }],
     ],
   },
 });

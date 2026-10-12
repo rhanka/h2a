@@ -22,10 +22,13 @@
  * test count.
  */
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+
+import { discoverSuites, readInventory, verifyExecutionReport, inventoryFailures } from "./test-execution-evidence.mjs";
+import { policyFor } from "./test-inventory.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 export const REPO_ROOT = resolve(HERE, "..");
@@ -40,8 +43,8 @@ export const RUNNER_TEST_FILE = "packages/h2a/test/run-test-gates.test.js";
 /**
  * Floor on the number of discovered test files.
  *
- * WHY A FLOOR AND NOT JUST "> 0". This runner attests EXIT CODES, not work
- * performed. The existing `files.length === 0` guard catches total discovery
+ * WHY A FLOOR AND NOT JUST "> 0". This is an early discovery diagnostic; per-test execution reports
+ * are verified after both suites finish. The existing `files.length === 0` guard catches total discovery
  * failure, but nothing catches a COLLAPSE: a renamed directory, a changed
  * suffix, or a path bug that drops discovery from 189 files to 1 would still
  * exit 0 and still print a confident green. A run that silently stops looking
@@ -82,6 +85,18 @@ export function discoverTestFiles() {
     }
   }
   return files;
+}
+
+export const NODE_TRACK_EXECUTION_REPORT = join(REPO_ROOT, "tmp", "node-track-report.json");
+export function listNodeTrackSuiteFiles() {
+  const track = discoverSuites(join(REPO_ROOT, "packages/track/src"), [".test.ts", ".spec.ts"]);
+  if (!track.length) return [];
+  const files = [...discoverTestFiles().map((file) => join(REPO_ROOT, file)), ...track];
+  const inventory = Object.fromEntries(Object.entries(readInventory(REPO_ROOT)).filter(([file]) => !file.startsWith("packages/h2a-runtime/src/")));
+  return inventoryFailures(REPO_ROOT, inventory, files).length ? [] : files;
+}
+export function verifyNodeTrackExecution(report, requiredFiles) {
+  return verifyExecutionReport(report, requiredFiles, policyFor(REPO_ROOT, readInventory(REPO_ROOT), "node"));
 }
 
 function main() {
@@ -195,17 +210,20 @@ function main() {
   const durableRoot = join(testRoot, "durable");
   mkdirSync(durableRoot, { recursive: true });
 
+  mkdirSync(join(testRoot, "home"), { recursive: true });
+  mkdirSync(join(testRoot, "run"), { mode: 0o700 });
   const testEnv = {
     ...process.env,
+    HOME: join(testRoot, "home"),
+    XDG_RUNTIME_DIR: join(testRoot, "run"),
+    XDG_CONFIG_HOME: join(testRoot, "home/.config"),
+    XDG_STATE_HOME: join(testRoot, "home/.local/state"),
     H2A_ROOT: join(testRoot, ".h2a"),
     H2A_TEST_DURABLE_ROOT: durableRoot
   };
 
-  // Track's no-store fixtures intentionally walk to the filesystem root. Keep
-  // their temp parent away from a shared `/tmp/.track`, without changing the
-  // Node/h2a suite's tmpdir() semantics: h2a explicitly tests that `/tmp` launch
-  // workspaces are refused. Prefer /dev/shm when it is usable on Linux; other
-  // platforms, and hosts without a writable /dev/shm, keep their system temp.
+  // Track's no-store fixtures intentionally walk to the filesystem root.
+  // Use the invocation's temporary parent, and reject any .track ancestor.
   function hasTrackAncestor(dir) {
     let current = resolve(dir);
     for (;;) {
@@ -225,9 +243,7 @@ function main() {
 
   function makeTrackTempDir() {
     const fallback = tmpdir();
-    const parents = process.platform === "linux" && existsSync("/dev/shm") && fallback !== "/dev/shm"
-      ? ["/dev/shm", fallback]
-      : [fallback];
+    const parents = [fallback];
     let lastError;
     for (const parent of parents) {
       try {
@@ -279,10 +295,12 @@ function main() {
     return existsSync(local) ? local : join(REPO_ROOT, "node_modules", "vitest", "vitest.mjs");
   }
 
+  const nodeReport = join(testRoot, "node.json");
+  const trackReport = join(testRoot, "track.json");
   let exitCode = 0;
   try {
     const nodeStatus = runSuite("Node test suite", process.execPath,
-      ["--import", join(REPO_ROOT, "packages/h2a/test/helpers/native-isolation.js"), "--test", ...nodeTestFiles],
+      ["--import", join(REPO_ROOT, "packages/h2a/test/helpers/native-isolation.js"), "--test", "--test-reporter=spec", `--test-reporter=${join(REPO_ROOT, "scripts/node-evidence-reporter.mjs")}`, "--test-reporter-destination=stdout", `--test-reporter-destination=${nodeReport}`, ...nodeTestFiles],
       REPO_ROOT, trackFixtureEnv);
     const vitestStatuses = vitestSuites.map((suite) => {
       const cwd = join(REPO_ROOT, suite.dir);
@@ -290,12 +308,27 @@ function main() {
       return runSuite(
         `${suite.name} Vitest suite`,
         process.execPath,
-        [vitestEntrypoint(cwd), "run", ...configArgs, ...suite.files.map((file) => join(suite.testDir ?? "src", file))],
+        [vitestEntrypoint(cwd), "run", ...configArgs, "--reporter=default", "--reporter=json", `--outputFile=${trackReport}`, ...suite.files.map((file) => join(suite.testDir ?? "src", file))],
         cwd,
         trackTestEnv,
       );
     });
-    exitCode = [nodeStatus, ...vitestStatuses].every((status) => status === 0) ? 0 : Math.max(nodeStatus, ...vitestStatuses);
+    let reports;
+    try { reports = [nodeReport, trackReport].map((path) => JSON.parse(readFileSync(path, "utf8"))); }
+    catch { reports = []; }
+    const required = listNodeTrackSuiteFiles();
+    const combined = {
+      success: reports.length === 2 && reports.every((report) => report.success !== false),
+      testResults: reports.flatMap((report) => report.testResults ?? []),
+      ...Object.fromEntries(["numTotalTests", "numPassedTests", "numFailedTests", "numPendingTests", "numTodoTests"]
+        .map((key) => [key, reports.reduce((sum, report) => sum + report[key], 0)])),
+    };
+    const holes = verifyNodeTrackExecution(combined, required);
+    if (holes.length) process.stderr.write(holes.join("\n") + "\n");
+    const reportPath = process.env.H2A_TEST_REPORT_PATH ?? NODE_TRACK_EXECUTION_REPORT;
+    mkdirSync(dirname(reportPath), { recursive: true });
+    writeFileSync(reportPath, JSON.stringify(combined));
+    exitCode = holes.length ? 1 : [nodeStatus, ...vitestStatuses].every((status) => status === 0) ? 0 : Math.max(nodeStatus, ...vitestStatuses);
   } finally {
     try {
       rmSync(testRoot, { recursive: true, force: true });
