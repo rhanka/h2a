@@ -15,7 +15,7 @@ import {
   OfficialClaudeCodeCliRunner,
 } from "./claude-code-cli-runner.js";
 
-const PINNED_TEST_BINARY = "/usr/bin/node";
+const PINNED_TEST_BINARY = process.execPath;
 const PINNED_TEST_DIGEST = createHash("sha256")
   .update(readFileSync(PINNED_TEST_BINARY))
   .digest("hex");
