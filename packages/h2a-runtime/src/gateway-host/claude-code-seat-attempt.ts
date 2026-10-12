@@ -70,7 +70,12 @@ export interface AttemptRunnerBindingOptions {
 
 /**
  * Binds a trusted live lease to the ensuing attempt and ClaudeCodeCliRunner.
- * Guarantees that the lease is held through all generate/stream/cancel paths and released upon terminal cleanup.
+ * The lease is held through the whole inner stream — including the runner's
+ * own reaping and file cleanup, which settle only when its iterator
+ * completes — and released exactly once afterwards. Releasing on a terminal
+ * event before the inner iterator completes would free the account while
+ * the child tree is still being reaped, so the release lives only in the
+ * outer finally.
  */
 export function createBoundAttemptRunner(
   options: AttemptRunnerBindingOptions,
@@ -80,24 +85,16 @@ export function createBoundAttemptRunner(
   return {
     async *run(input) {
       let leaseReleased = false;
-      const releaseLease = async () => {
-        if (!leaseReleased) {
-          leaseReleased = true;
-          await lease.release().catch(() => {});
-        }
-      };
-
       try {
         const stream = runner.run(input);
         for await (const event of stream) {
           yield event;
-          if (event.type === "result" || event.type === "error") {
-            await releaseLease();
-            return;
-          }
         }
       } finally {
-        await releaseLease();
+        if (!leaseReleased) {
+          leaseReleased = true;
+          await lease.release().catch(() => {});
+        }
       }
     },
   };
