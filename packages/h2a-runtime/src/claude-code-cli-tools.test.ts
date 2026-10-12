@@ -34,9 +34,11 @@ const TOOLS_SCRATCH = join(tmpdir(), `h2a-claude-tools-test-${Date.now()}-${proc
 
 beforeEach(() => {
   mkdirSync(TOOLS_SCRATCH, { recursive: true });
+  process.env.H2A_CLAUDE_EGRESS_ENFORCED = "1";
 });
 
 afterEach(() => {
+  delete process.env.H2A_CLAUDE_EGRESS_ENFORCED;
   rmSync(TOOLS_SCRATCH, { recursive: true, force: true });
 });
 
@@ -58,6 +60,7 @@ describe("claude-code-cli-tools", () => {
   const qualifiedBase = {
     binaryPath: PINNED_TEST_BINARY,
     expectedDigest: PINNED_TEST_DIGEST,
+    egressEnforcement: { mechanism: "test-host-firewall", inferenceHost: "api.anthropic.com" },
   };
 
   const toolRequest: ClaudeCodeCliRequest = {
