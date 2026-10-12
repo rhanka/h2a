@@ -1,12 +1,10 @@
 /**
- * Opt-in, machine-local central MCP server.
- *
- * The marker deliberately lives beneath a UID-only runtime address. In
- * particular, neither the requested HTTP endpoint nor XDG_RUNTIME_DIR can
- * influence it: a varying rendezvous address cannot provide mutual exclusion.
+ * Machine-local central MCP server. Election is independent of endpoint and
+ * workspace within the current private UID runtime namespace.
  */
 import { randomUUID } from "node:crypto";
 import {
+  existsSync,
   lstatSync,
   linkSync,
   mkdirSync,
@@ -17,20 +15,20 @@ import {
   type Stats
 } from "node:fs";
 import { once } from "node:events";
-import { dirname, join } from "node:path";
+import { monitorEventLoopDelay } from "node:perf_hooks";
+import { dirname, isAbsolute, join, resolve } from "node:path";
+import { realpathSync, statSync } from "node:fs";
 
 import { StreamableHTTPTransport } from "@hono/mcp";
 import { serve } from "@hono/node-server";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
-import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import {
   CallToolRequestSchema,
   type CallToolResult,
-  type JSONRPCMessage,
   ListToolsRequestSchema
 } from "@modelcontextprotocol/sdk/types.js";
 import { Hono } from "hono";
-import type { Readable, Writable } from "node:stream";
+import { bodyLimit } from "hono/body-limit";
 
 import { currentCliVersion } from "./upgrade/index.js";
 import {
@@ -39,25 +37,11 @@ import {
   type McpServer
 } from "./mcp/server.js";
 import { boundCallToolResult } from "./mcp/frame-budget.js";
-
-export const H2A_MCP_CENTRAL_ENV = "H2A_MCP_CENTRAL";
-export const H2A_MCP_CENTRAL_ENDPOINT_ENV = "H2A_MCP_CENTRAL_ENDPOINT";
-
-const CENTRAL_RUNTIME_DIRECTORY = "h2a-mcp-central";
-const CENTRAL_MARKER_FILE = "marker.json";
-const CENTRAL_RECLAIM_LOCK_FILE = "reclaim.lock";
-const CENTRAL_PING_PATH = "/_h2a-central/ping";
-const CENTRAL_LIVENESS_TIMEOUT_MS = 1_500;
-const CENTRAL_LIVENESS_ATTEMPTS = 3;
-const CENTRAL_LIVENESS_BACKOFF_MS = 100;
-
-export type CentralMcpMarker = Readonly<{
-  endpoint: string;
-  generation: string;
-  pid: number;
-  startedAt: string;
-  token: string;
-}>;
+import { createLocalStore } from "./local-files/index.js";
+import { openCentralAttachment, type CentralAttachmentHandle } from "./mcp-central-attachment.js";
+import { parseCentralAttachment } from "./mcp-central-context.js";
+import type { H2aRunExecutor } from "./mcp/agent-launch.js";
+import { centralPausePath } from "./mcp-central-operator.js";
 
 type RuntimeOwnership = Readonly<{
   assertOwnedByCurrentUser(info: Stats, label: string): void;
@@ -83,292 +67,18 @@ function loadRuntimeOwnership(): Promise<RuntimeOwnership> {
   return runtimeOwnership;
 }
 
-function uid(): number {
-  if (typeof process.getuid !== "function") {
-    throw new Error(`${H2A_MCP_CENTRAL_ENDPOINT_ENV} requires a current uid`);
-  }
-  return process.getuid();
-}
-
-/** Only explicit values opt into central routing; all other values preserve stdio. */
-export function centralMcpEnabled(
-  env: Readonly<Record<string, string | undefined>> = process.env
-): boolean {
-  const value = env[H2A_MCP_CENTRAL_ENV];
-  return value === "1" || value === "true";
-}
-
-function isLoopbackHostname(hostname: string): boolean {
-  return hostname === "127.0.0.1" || hostname === "::1" || hostname === "[::1]" || hostname === "localhost";
-}
-
-/**
- * Validate and canonicalize the one endpoint both launcher and clients use.
- * Central MCP is plain Streamable HTTP; TLS termination belongs outside this
- * local process, so https URLs are deliberately refused rather than half-served.
- */
-export function parseCentralMcpEndpoint(
-  value: string | undefined
-): string {
-  if (!value || value.trim().length === 0) {
-    throw new Error(`${H2A_MCP_CENTRAL_ENDPOINT_ENV} must be a non-empty absolute http URL`);
-  }
-  let endpoint: URL;
-  try {
-    endpoint = new URL(value);
-  } catch {
-    throw new Error(`${H2A_MCP_CENTRAL_ENDPOINT_ENV} must be a non-empty absolute http URL`);
-  }
-  if (
-    endpoint.protocol !== "http:" ||
-    !isLoopbackHostname(endpoint.hostname) ||
-    !endpoint.port ||
-    Number(endpoint.port) < 1 ||
-    Number(endpoint.port) > 65_535 ||
-    endpoint.username ||
-    endpoint.password ||
-    endpoint.search ||
-    endpoint.hash
-  ) {
-    throw new Error(`${H2A_MCP_CENTRAL_ENDPOINT_ENV} must be an absolute http URL with an explicit port`);
-  }
-  return endpoint.href;
-}
-
-export type CentralMcpClientEndpoint = Readonly<{
-  command: string;
-  args: string[];
-}>;
-
-/** Returns the central URL only when the explicit opt-in is enabled. */
-export function centralMcpClientEndpoint(
-  env: Readonly<Record<string, string | undefined>> = process.env,
-  paths: CentralMcpPathsOptions = {}
-): CentralMcpClientEndpoint | undefined {
-  if (!centralMcpEnabled(env)) return undefined;
-  const endpoint = parseCentralMcpEndpoint(env[H2A_MCP_CENTRAL_ENDPOINT_ENV]);
-  const marker = readCentralClientMarker(centralMcpMarkerPath(paths));
-  if (marker.endpoint !== endpoint) {
-    throw new Error(
-      `${H2A_MCP_CENTRAL_ENDPOINT_ENV} does not match the private central MCP marker endpoint`
-    );
-  }
-  return {
-    command: "h2a",
-    args: [
-      "mcp-central-connect",
-      "--endpoint",
-      endpoint,
-      ...(paths.runtimeBase ? ["--runtime-base", paths.runtimeBase] : [])
-    ]
-  };
-}
-
-export interface CentralMcpPathsOptions {
-  /** Test seam. Production always uses /run/user/<uid>; it is never env-derived. */
-  runtimeBase?: string;
-}
-
-/**
- * Fixed UID-only marker path. `runtimeBase` is a test seam, never an env input.
- */
-export function centralMcpMarkerPath(options: CentralMcpPathsOptions = {}): string {
-  const base = options.runtimeBase ?? join("/run/user", String(uid()));
-  return join(base, CENTRAL_RUNTIME_DIRECTORY, CENTRAL_MARKER_FILE);
-}
-
-function markerDirectory(options: CentralMcpPathsOptions): string {
-  return join(options.runtimeBase ?? join("/run/user", String(uid())), CENTRAL_RUNTIME_DIRECTORY);
-}
-
-function runtimeBase(options: CentralMcpPathsOptions): string {
-  return options.runtimeBase ?? join("/run/user", String(uid()));
-}
-
-function expectedMode(info: Stats, mode: number, label: string): void {
-  if ((info.mode & 0o777) !== mode) {
-    throw new Error(`${label} must have mode ${mode.toString(8).padStart(4, "0")}`);
-  }
-}
-
-/** Read the token only from the same private marker clients rendezvous through. */
-function readCentralClientMarker(path: string): CentralMcpMarker {
-  const info = lstatSync(path);
-  if (!info.isFile()) throw new Error(`central MCP marker is not a regular file: ${path}`);
-  if (info.uid !== uid()) throw new Error(`central MCP marker is not owned by the current user: ${path}`);
-  expectedMode(info, 0o600, "central MCP marker");
-  let value: Partial<CentralMcpMarker>;
-  try {
-    value = JSON.parse(readFileSync(path, "utf8")) as Partial<CentralMcpMarker>;
-  } catch {
-    throw new Error(`central MCP marker is malformed: ${path}`);
-  }
-  if (
-    typeof value.endpoint !== "string" ||
-    typeof value.generation !== "string" ||
-    value.generation.length === 0 ||
-    typeof value.pid !== "number" ||
-    typeof value.startedAt !== "string" ||
-    typeof value.token !== "string" ||
-    value.token.length === 0
-  ) {
-    throw new Error(`central MCP marker is malformed: ${path}`);
-  }
-  try {
-    return {
-      endpoint: parseCentralMcpEndpoint(value.endpoint),
-      generation: value.generation,
-      pid: value.pid,
-      startedAt: value.startedAt,
-      token: value.token
-    };
-  } catch {
-    throw new Error(`central MCP marker is malformed: ${path}`);
-  }
-}
-
-/**
- * Read the protected central marker without exposing its token to callers that
- * only need liveness/generation metadata. A missing marker is the sole
- * non-error absence case; malformed or insecure state remains a hard failure.
- */
-export function readCentralMcpMarker(
-  paths: CentralMcpPathsOptions = {}
-): Omit<CentralMcpMarker, "token"> | undefined {
-  try {
-    const { token: _token, ...marker } = readCentralClientMarker(centralMcpMarkerPath(paths));
-    return marker;
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
-    throw error;
-  }
-}
-
-function parseCentralMcpBridgeMessages(body: string, contentType: string | null): JSONRPCMessage[] {
-  if (body.trim().length === 0) return [];
-  const values: unknown[] = [];
-  if (contentType?.includes("text/event-stream")) {
-    for (const event of body.split(/\r?\n\r?\n/)) {
-      const data = event
-        .split(/\r?\n/)
-        .filter((line) => line.startsWith("data:"))
-        .map((line) => line.slice("data:".length).trimStart())
-        .join("\n");
-      if (data) values.push(JSON.parse(data));
-    }
-  } else {
-    values.push(JSON.parse(body));
-  }
-  return values.flatMap((value) => Array.isArray(value) ? value : [value]) as JSONRPCMessage[];
-}
-
-export interface CentralMcpStdioBridgeOptions extends CentralMcpPathsOptions {
-  /** The endpoint persisted in the rendered command; it must match the marker. */
-  endpoint: string;
-  stdin: Readable;
-  stdout: Writable;
-  signal?: AbortSignal;
-}
-
-/**
- * Proxy one stdio MCP client to the current central Streamable-HTTP server.
- * The bridge reads the private marker once at connect time, so a config never
- * contains the bearer token and a newly launched bridge observes a restarted
- * owner's current credential.
- */
-export async function bridgeCentralMcpStdio(options: CentralMcpStdioBridgeOptions): Promise<void> {
-  const endpoint = parseCentralMcpEndpoint(options.endpoint);
-  const marker = readCentralClientMarker(centralMcpMarkerPath(options));
-  if (marker.endpoint !== endpoint) {
-    throw new Error(
-      `central MCP marker endpoint ${marker.endpoint} does not match requested endpoint ${endpoint}`
-    );
-  }
-
-  const stdio = new StdioServerTransport(options.stdin, options.stdout);
-  let sessionId: string | undefined;
-  let stopped = false;
-  let failure: Error | undefined;
-  let finish!: () => void;
-  const finished = new Promise<void>((resolve) => {
-    finish = resolve;
-  });
-
-  const close = async (error?: unknown): Promise<void> => {
-    if (error !== undefined && failure === undefined) {
-      failure = error instanceof Error ? error : new Error(String(error));
-    }
-    if (stopped) return;
-    stopped = true;
-    try {
-      await stdio.close();
-    } finally {
-      finish();
-    }
-  };
-
-  const forward = async (message: JSONRPCMessage): Promise<void> => {
-    if (stopped) return;
-    const headers: Record<string, string> = {
-      authorization: `Bearer ${marker.token}`,
-      "content-type": "application/json",
-      accept: "application/json, text/event-stream"
-    };
-    if (sessionId) headers["mcp-session-id"] = sessionId;
-    let response: Response;
-    try {
-      response = await fetch(marker.endpoint, {
-        method: "POST",
-        headers,
-        body: JSON.stringify(message)
-      });
-    } catch (error) {
-      await close(new Error(`central MCP bridge cannot reach ${marker.endpoint}: ${(error as Error).message}`));
-      return;
-    }
-    if (!response.ok) {
-      await close(new Error(`central MCP bridge request failed with HTTP ${response.status}`));
-      return;
-    }
-    const returnedSessionId = response.headers.get("mcp-session-id");
-    if (returnedSessionId) sessionId = returnedSessionId;
-    let messages: JSONRPCMessage[];
-    try {
-      messages = parseCentralMcpBridgeMessages(
-        await response.text(),
-        response.headers.get("content-type")
-      );
-    } catch (error) {
-      await close(new Error(`central MCP bridge received an invalid response: ${(error as Error).message}`));
-      return;
-    }
-    for (const next of messages) {
-      try {
-        await stdio.send(next);
-      } catch (error) {
-        await close(error);
-        return;
-      }
-    }
-  };
-
-  stdio.onmessage = (message) => {
-    void forward(message).catch((error) => void close(error));
-  };
-  stdio.onerror = (error) => {
-    void close(error);
-  };
-  stdio.onclose = () => {
-    void close();
-  };
-  if (options.signal) {
-    if (options.signal.aborted) void close();
-    else options.signal.addEventListener("abort", () => void close(), { once: true });
-  }
-  await stdio.start();
-  await finished;
-  if (failure) throw failure;
-}
+import { H2A_MCP_CENTRAL_ENDPOINT_ENV, centralMcpMarkerPath, expectedMode, isLoopbackHostname, markerDirectory, parseCentralMcpEndpoint, runtimeBase, uid, type CentralMcpMarker, type CentralMcpPathsOptions } from "./mcp-central-discovery.js";
+export { H2A_MCP_CENTRAL_ENV, H2A_MCP_CENTRAL_ENDPOINT_ENV, centralMcpEnabled, centralMcpClientEndpoint, centralMcpMarkerPath, parseCentralMcpEndpoint, readCentralMcpMarker } from "./mcp-central-discovery.js";
+export type { CentralMcpMarker, CentralMcpPathsOptions, CentralMcpClientEndpoint } from "./mcp-central-discovery.js";
+export { bridgeCentralMcpStdio } from "./mcp-central-client.js";
+export type { CentralMcpStdioBridgeOptions } from "./mcp-central-client.js";
+const CENTRAL_RUNTIME_DIRECTORY = "h2a-mcp-central";
+const CENTRAL_MARKER_FILE = "marker.json";
+const CENTRAL_RECLAIM_LOCK_FILE = "reclaim.lock";
+const CENTRAL_PING_PATH = "/_h2a-central/ping";
+const CENTRAL_LIVENESS_TIMEOUT_MS = 1_500;
+const CENTRAL_LIVENESS_ATTEMPTS = 3;
+const CENTRAL_LIVENESS_BACKOFF_MS = 100;
 
 function lstatRequired(path: string, label: string): Stats {
   try {
@@ -384,6 +94,7 @@ function lstatRequired(path: string, label: string): Stats {
 async function ensureMarkerDirectory(options: CentralMcpPathsOptions): Promise<void> {
   const ownership = await loadRuntimeOwnership();
   const base = runtimeBase(options);
+  if (!options.runtimeBase && !process.env.XDG_RUNTIME_DIR && base === join("/tmp", `h2a-mcp-runtime-${uid()}`)) mkdirSync(base, { mode: 0o700, recursive: true });
   const baseInfo = lstatRequired(base, "central MCP runtime base");
   if (!baseInfo.isDirectory()) {
     throw new Error(`${H2A_MCP_CENTRAL_ENDPOINT_ENV} requires private runtime base ${base}`);
@@ -455,7 +166,9 @@ async function readMarker(path: string): Promise<MarkerObservation | undefined> 
           pid: value.pid,
           // Informative only. It is intentionally never read by liveness or reclaim.
           startedAt: value.startedAt,
-          token: value.token
+          token: value.token,
+          ...(typeof value.root === "string" ? { root: value.root } : {}),
+          ...(typeof value.protocol === "number" ? { protocol: value.protocol } : {})
         },
         identity
       };
@@ -712,7 +425,8 @@ async function claimCentralMarker(
   paths: CentralMcpPathsOptions,
   candidate: CentralMcpMarker,
   beforeReplace?: (candidate: CentralMcpMarker) => Promise<void>,
-  beforeExclusivePublish?: () => Promise<void>
+  beforeExclusivePublish?: () => Promise<void>,
+  reuseAnyEndpoint = false
 ): Promise<MarkerClaim> {
   await ensureMarkerDirectory(paths);
   const path = centralMcpMarkerPath(paths);
@@ -728,7 +442,7 @@ async function claimCentralMarker(
     if (observation.marker) {
       const liveness = await markerLiveness(observation.marker);
       if (liveness === "alive") {
-        if (observation.marker.endpoint === endpoint) return { kind: "reused", marker: observation.marker };
+        if (observation.marker.endpoint === endpoint || reuseAnyEndpoint) return { kind: "reused", marker: observation.marker };
         throw new Error(
           `a LIVE central MCP server is registered on ${observation.marker.endpoint}; this launcher requests ${endpoint}`
         );
@@ -783,8 +497,10 @@ function createCentralProtocolServer(mcp: McpServer): Server {
   server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: mcp.listTools() }));
   server.setRequestHandler(
     CallToolRequestSchema,
-    async (request): Promise<CallToolResult> =>
-      centralToolResult(mcp, request.params.name, request.params.arguments ?? {})
+    async (request): Promise<CallToolResult> => {
+      for (const session of mcp.sessions.list()) mcp.sessions.markActivity(session.sessionId);
+      return centralToolResult(mcp, request.params.name, request.params.arguments ?? {});
+    }
   );
   return server;
 }
@@ -809,49 +525,118 @@ function sameHttpOrigin(origin: string | undefined, host: string): boolean {
 }
 
 function createCentralApp(
-  mcp: () => McpServer | undefined,
+  root: string,
+  store: () => ReturnType<typeof createLocalStore> | undefined,
   endpoint: string,
   generation: string,
-  token: string
-): Hono {
+  token: string,
+  options: { requestStop(): void; idleTimeoutMs: number; sessionLeaseMs: number; runExecutor?: H2aRunExecutor }
+): { app: Hono; close(): Promise<void> } {
   const app = new Hono();
-  const sessions = new Map<string, StreamableHTTPTransport>();
-  app.get(CENTRAL_PING_PATH, (context) => context.json({ generation }));
-  app.all(new URL(endpoint).pathname, async (context) => {
+  const lag = monitorEventLoopDelay({ resolution: 20 });
+  lag.enable();
+  app.use(new URL(endpoint).pathname, bodyLimit({ maxSize: 4 * 1024 * 1024 }));
+  type Attachment = { transport: StreamableHTTPTransport; handle: CentralAttachmentHandle; touched: number; closing?: Promise<void> };
+  const sessions = new Map<string, Attachment>();
+  let lastBusy = Date.now();
+  let closing = false;
+  const closeAttachment = (id: string, attachment: Attachment): Promise<void> => {
+    attachment.closing ??= (async () => {
+      sessions.delete(id);
+      await attachment.handle.close();
+      await attachment.transport.close();
+      lastBusy = Date.now();
+    })();
+    return attachment.closing;
+  };
+  const sweep = setInterval(() => {
+    const now = Date.now();
+    for (const [id, attachment] of sessions) {
+      if (now - attachment.touched > options.sessionLeaseMs) void closeAttachment(id, attachment);
+    }
+    if (!closing && sessions.size === 0 && now - lastBusy > options.idleTimeoutMs) options.requestStop();
+  }, Math.max(25, Math.min(1000, options.idleTimeoutMs, options.sessionLeaseMs) / 2));
+  sweep.unref();
+  app.use("*", async (context, next) => {
     const host = context.req.header("host");
-    if (!host || !loopbackHostHeader(host)) {
+    if (!host || !loopbackHostHeader(host) || !sameHttpOrigin(context.req.header("origin"), host)) {
       return context.json({ error: "central MCP request origin is not allowed" }, 403);
     }
-    if (!sameHttpOrigin(context.req.header("origin"), host)) {
-      return context.json({ error: "central MCP request origin is not allowed" }, 403);
-    }
-    if (context.req.header("authorization") !== `Bearer ${token}`) {
+    if (context.req.path !== CENTRAL_PING_PATH && context.req.header("authorization") !== `Bearer ${token}`) {
       context.header("www-authenticate", "Bearer");
       return context.json({ error: "central MCP authorization is required" }, 401);
     }
-    const centralMcp = mcp();
-    if (!centralMcp) return context.json({ error: "central MCP is starting" }, 503);
+    await next();
+  });
+  app.get(CENTRAL_PING_PATH, context => context.json({ generation }));
+  app.get("/_h2a-central/status", context => context.json({ generation, root, pid: process.pid, attachments: sessions.size, protocol: 2,
+    eventLoopLagMs: { p99: lag.percentile(99) / 1e6, max: lag.max / 1e6 }
+  }));
+  app.post("/_h2a-central/stop", context => {
+    options.requestStop();
+    return context.json({ stopped: true, generation });
+  });
+  app.get("/_h2a-central/lease/:id", context => {
+    const attachment = sessions.get(context.req.param("id"));
+    if (!attachment) return context.json({ error: "unknown attachment" }, 404);
+    attachment.touched = Date.now();
+    const status = attachment.handle.mcp.callTool("h2a_identity_status", {}) as { content: Array<{ text: string }> };
+    return context.json(JSON.parse(status.content[0].text));
+  });
+  app.all(new URL(endpoint).pathname, async context => {
+    if (closing) return context.json({ error: "central MCP is stopping" }, 503);
+    const sharedStore = store();
+    if (!sharedStore) return context.json({ error: "central MCP is starting" }, 503);
     const requestedSessionId = context.req.header("mcp-session-id");
-    let transport = requestedSessionId ? sessions.get(requestedSessionId) : undefined;
-    if (!transport) {
-      let created: StreamableHTTPTransport | undefined;
-      transport = new StreamableHTTPTransport({
+    let attachment = requestedSessionId ? sessions.get(requestedSessionId) : undefined;
+    if (requestedSessionId && !attachment) return context.json({ error: "central MCP session expired" }, 404);
+    if (!attachment) {
+      if (context.req.method !== "POST") return context.json({ error: "initialize required" }, 400);
+      let workspace = process.env.HOME ?? dirname(root);
+      let captured;
+      try {
+        const encoded = context.req.header("x-h2a-attachment");
+        captured = encoded ? parseCentralAttachment(encoded, root) : undefined;
+        workspace = captured?.workspace ?? decodeURIComponent(context.req.header("x-h2a-workspace") ?? workspace);
+        if (!isAbsolute(workspace) || !statSync(workspace).isDirectory()) throw new Error("workspace must be an existing absolute directory");
+        workspace = realpathSync(workspace);
+      } catch (error) { return context.json({ error: (error as Error).message }, 400); }
+      let created: Attachment | undefined;
+      let protocol: Server | undefined;
+      const transport = new StreamableHTTPTransport({
         enableJsonResponse: true,
         sessionIdGenerator: randomUUID,
-        onsessioninitialized: (sessionId) => {
-          if (created) sessions.set(sessionId, created);
-        },
-        onsessionclosed: (sessionId) => {
-          sessions.delete(sessionId);
-        }
+        onsessioninitialized: id => { if (created) sessions.set(id, created); },
+        onsessionclosed: id => { const current = sessions.get(id); if (current) void closeAttachment(id, current); }
       });
-      created = transport;
-      await createCentralProtocolServer(centralMcp).connect(transport);
+      const handle = openCentralAttachment(root, workspace, sharedStore, captured, notification => {
+        if (protocol) void protocol.notification(notification).catch(() => {});
+      }, options.runExecutor);
+      protocol = createCentralProtocolServer(handle.mcp);
+      attachment = created = { transport, handle, touched: Date.now() };
+      await protocol.connect(transport);
     }
-    const response = await transport.handleRequest(context);
+    attachment.touched = Date.now();
+    lastBusy = Date.now();
+    let response;
+    try { response = await attachment.transport.handleRequest(context); }
+    catch (error) {
+      if (!requestedSessionId) { await attachment.handle.close(); await attachment.transport.close(); }
+      throw error;
+    }
+    // The server owns identity; the shim only retains the expected resume id.
+    const statusResult = attachment.handle.mcp.callTool("h2a_identity_status", {}) as { content: Array<{ text: string }> };
+    const status = JSON.parse(statusResult.content[0].text) as { state?: string; instance?: string };
+    if (status.state === "identity_ready" && status.instance) context.header("x-h2a-instance", status.instance);
+    if (!requestedSessionId && ![...sessions.values()].includes(attachment)) { await attachment.handle.close(); await attachment.transport.close(); }
     return response ?? context.body(null, 202);
   });
-  return app;
+  return { app, async close() {
+    closing = true;
+    clearInterval(sweep);
+    lag.disable();
+    await Promise.all([...sessions.entries()].map(([id, attachment]) => closeAttachment(id, attachment)));
+  } };
 }
 
 function addressIsInUse(error: unknown): boolean {
@@ -887,19 +672,25 @@ async function markedCentralListener(
   }
 }
 
-async function closeHttpServer(httpServer: ReturnType<typeof serve>, mcp: McpServer | undefined): Promise<void> {
+async function closeHttpServer(httpServer: ReturnType<typeof serve>, closeAttachments: () => Promise<void>): Promise<void> {
   try {
+    await closeAttachments();
+    (httpServer as import("node:http").Server).closeAllConnections?.();
     await new Promise<void>((resolve, reject) => {
       httpServer.close((error?: Error) => error ? reject(error) : resolve());
     });
   } finally {
-    mcp?.sessions.closeAll("closed");
+    await closeAttachments();
   }
 }
 
 export interface StartCentralMcpServerOptions extends CentralMcpPathsOptions {
   root: string;
   env?: Readonly<Record<string, string | undefined>>;
+  idleTimeoutMs?: number;
+  sessionLeaseMs?: number;
+  runExecutor?: H2aRunExecutor;
+  automatic?: boolean;
   /** Test seam for forcing scheduling around a successful marker claim. */
   afterMarkerClaim?: () => Promise<void>;
   /** Test seam for scheduling contenders after identity-CAS and before rename. */
@@ -920,6 +711,7 @@ export type StartedCentralMcpServer =
       endpoint: string;
       generation: string;
       markerPath: string;
+      closed: Promise<void>;
       stop(): Promise<void>;
     }>;
 
@@ -932,24 +724,53 @@ export type StartedCentralMcpServer =
 export async function startCentralMcpServer(
   options: StartCentralMcpServerOptions
 ): Promise<StartedCentralMcpServer> {
+  if (!options.root || !isAbsolute(options.root)) {
+    throw new Error(`central MCP root must be an absolute path (received "${options.root ?? ""}")`);
+  }
+  const root = options.root;
   const env = options.env ?? process.env;
-  const endpoint = parseCentralMcpEndpoint(env[H2A_MCP_CENTRAL_ENDPOINT_ENV]);
+  const explicitEndpoint = env[H2A_MCP_CENTRAL_ENDPOINT_ENV];
+  let endpoint = explicitEndpoint ? parseCentralMcpEndpoint(explicitEndpoint) : "http://127.0.0.1:1/mcp";
   const paths: CentralMcpPathsOptions = options.runtimeBase ? { runtimeBase: options.runtimeBase } : {};
   const markerPath = centralMcpMarkerPath(paths);
-  const marker = newMarker(endpoint, randomUUID());
+  // Foreground serve is the explicit resume action. Auto-start checks this
+  // protected inhibition before invoking us.
+  if (options.automatic && existsSync(centralPausePath(paths))) throw new Error("central MCP was stopped by the operator");
+  try { if (!options.automatic) unlinkSync(centralPausePath(paths)); } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
+  let marker: CentralMcpMarker = { ...newMarker(endpoint, randomUUID()), root, protocol: 2 };
   const endpointUrl = new URL(endpoint);
   const hostname = endpointUrl.hostname.startsWith("[")
     ? endpointUrl.hostname.slice(1, -1)
     : endpointUrl.hostname;
-  let mcp: McpServer | undefined;
+  await loadRuntimeOwnership(); // Pin the runtime implementation before accepting attachments.
+  let sharedStore: ReturnType<typeof createLocalStore> | undefined;
+  let closePromise: Promise<void> | undefined;
+  let finish!: () => void;
+  const closed = new Promise<void>(resolve => { finish = resolve; });
+  let stopServer: () => Promise<void> = async () => {};
+  const application = createCentralApp(root, () => sharedStore, endpoint, marker.generation, marker.token, {
+    idleTimeoutMs: options.idleTimeoutMs ?? 60_000,
+    sessionLeaseMs: options.sessionLeaseMs ?? 90_000,
+    ...(options.runExecutor ? { runExecutor: options.runExecutor } : {}),
+    requestStop() { setImmediate(() => void stopServer()); }
+  });
   let httpServer: ReturnType<typeof serve> | undefined;
   try {
     httpServer = serve({
-      fetch: createCentralApp(() => mcp, endpoint, marker.generation, marker.token).fetch,
+      fetch: application.app.fetch,
       hostname,
-      port: Number(endpointUrl.port)
+      port: explicitEndpoint ? Number(endpointUrl.port) : 0
     });
     if (!httpServer.listening) await once(httpServer, "listening");
+    if (!explicitEndpoint) {
+      const address = httpServer.address();
+      if (!address || typeof address === "string") throw new Error("central MCP listener has no TCP address");
+      endpointUrl.port = String(address.port);
+      endpoint = endpointUrl.href;
+      marker = { ...marker, endpoint };
+    }
   } catch (error) {
     try {
       if (addressIsInUse(error)) {
@@ -964,7 +785,7 @@ export async function startCentralMcpServer(
         }
       }
     } finally {
-      mcp?.sessions.closeAll("closed");
+      await application.close();
     }
     throw error;
   }
@@ -976,10 +797,11 @@ export async function startCentralMcpServer(
       paths,
       marker,
       options.beforeMarkerReclaimReplace,
-      options.beforeExclusiveMarkerPublish
+      options.beforeExclusiveMarkerPublish,
+      !explicitEndpoint
     );
     if (claim.kind === "reused") {
-      await closeHttpServer(httpServer, mcp);
+      await closeHttpServer(httpServer, application.close);
       return {
         kind: "reused",
         endpoint: claim.marker.endpoint,
@@ -987,11 +809,13 @@ export async function startCentralMcpServer(
         markerPath
       };
     }
-    mcp = createMcpServer({ root: options.root, workspaceRoot: process.cwd() });
+    // The existing launch-index readers are shared with stdio; qualify their
+    // large-volume behavior before expanding central session budgets.
+    sharedStore = createLocalStore({ root, initialize: false, alwaysEmitConsentBudget: true });
     await options.afterMarkerClaim?.();
   } catch (error) {
     try {
-      await closeHttpServer(httpServer, mcp);
+      await closeHttpServer(httpServer, application.close);
     } catch {
       // Preserve the marker conflict or claim error after attempting cleanup.
     }
@@ -1006,22 +830,20 @@ export async function startCentralMcpServer(
     throw error;
   }
 
-  let stopped = false;
-  return {
-    kind: "started",
-    endpoint,
-    generation: marker.generation,
-    markerPath,
-    async stop(): Promise<void> {
-      if (stopped) return;
-      stopped = true;
-      await closeHttpServer(httpServer, mcp);
+  stopServer = (): Promise<void> => {
+    closePromise ??= (async () => {
       try {
-        const current = await readMarker(markerPath);
-        if (current?.marker?.generation === marker.generation) unlinkSync(markerPath);
-      } catch {
-        // A successor marker belongs to another server; never remove it.
-      }
-    }
+        await closeHttpServer(httpServer!, application.close);
+        try {
+          const current = await readMarker(markerPath);
+          if (current?.marker?.generation === marker.generation) unlinkSync(markerPath);
+        } catch { /* Never remove a successor marker. */ }
+      } finally { finish(); }
+    })();
+    return closePromise;
+  };
+  return {
+    kind: "started", endpoint, generation: marker.generation, markerPath, closed,
+    stop: stopServer
   };
 }
