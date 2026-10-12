@@ -35,7 +35,7 @@ function payload(root) {
 function validateContents(manifest) {
   const entries = new Map(manifest.files.map(f => [f.path, f]));
   if (entries.size !== manifest.files.length || entries.has('manifest.json')) throw new Error('invalid_manifest_entries');
-  const expectedAbi = { 20: '115', 22: '127' }[manifest.profile.nodeMajor];
+  const expectedAbi = { 22: '127', 24: '137' }[manifest.profile.nodeMajor];
   if (manifest.profile.nodeAbi !== expectedAbi) throw new Error('native_profile_mismatch');
   for (const entry of Object.values(manifest.entrypoints)) {
     if (!entries.has(entry) || entries.get(entry).type !== 'file') throw new Error('image_entrypoint_missing');
