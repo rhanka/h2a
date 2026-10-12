@@ -1,4 +1,7 @@
 import { EventEmitter } from "node:events";
+import { chmodSync, mkdirSync, readdirSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { PassThrough } from "node:stream";
 import { describe, expect, it, vi } from "vitest";
 import type {
@@ -214,6 +217,56 @@ describe("claude-code-cli-runner (protocol)", () => {
       { type: "text_delta", text: "Cut off" },
       { type: "error" },
     ]);
+  });
+
+  it("blocks result emission when sandbox cleanup fails", async () => {
+    if (process.geteuid?.() === 0) return; // root bypasses permission bits; failure not inducible
+    const rootDir = join(tmpdir(), `h2a-claude-cleanup-test-${Date.now()}-${process.pid}`);
+    mkdirSync(rootDir, { recursive: true });
+    try {
+      const mockChild = createMockChild();
+      const spawnFn = vi.fn(() => {
+        // Sandbox is created synchronously before spawn: lock the root so
+        // removing the run directory fails deterministically in cleanup.
+        expect(readdirSync(rootDir).filter((n) => n.startsWith("run_"))).toHaveLength(1);
+        chmodSync(rootDir, 0o500);
+        setTimeout(() => {
+          mockChild.stdout.write(
+            JSON.stringify({ type: "text_delta", text: "Hi there!" }) + "\n",
+          );
+          mockChild.stdout.write(
+            JSON.stringify({ type: "result", finishReason: "stop" }) + "\n",
+          );
+          mockChild.emit("close", 0);
+        }, 10);
+        return mockChild;
+      });
+
+      const runner = new OfficialClaudeCodeCliRunner({
+        binaryPath: "/usr/bin/node",
+        capabilities: validCaps,
+        spawnFn: spawnFn as any,
+        sandboxRootDir: rootDir,
+      });
+
+      const events = [];
+      for await (const event of runner.run({
+        access: fakeAccess,
+        request: fakeRequest,
+        signal: new AbortController().signal,
+      })) {
+        events.push(event);
+      }
+
+      // Terminal success must NOT be emitted: cleanup failure blocks result.
+      expect(events).toEqual([
+        { type: "text_delta", text: "Hi there!" },
+        { type: "error" },
+      ]);
+    } finally {
+      chmodSync(rootDir, 0o700);
+      rmSync(rootDir, { recursive: true, force: true });
+    }
   });
 
   it("fails on malformed or oversized NDJSON frames without leaking raw data", async () => {

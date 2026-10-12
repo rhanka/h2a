@@ -203,6 +203,8 @@ export function verifyCredentialNotRewritten(
 
 /**
  * Content-blind cleanup of the dedicated sandbox directory without following symlinks.
+ * Throws a static error when the run directory persists: callers must block
+ * any success terminal on cleanup failure (no success without custody release).
  */
 export function cleanClaudeRunSandbox(sandbox: ClaudeRunSandbox): void {
   try {
@@ -210,7 +212,10 @@ export function cleanClaudeRunSandbox(sandbox: ClaudeRunSandbox): void {
       rmSync(sandbox.runDir, { recursive: true, force: true });
     }
   } catch {
-    // Best-effort cleanup
+    throw new Error("Claude run sandbox cleanup failed");
+  }
+  if (existsSync(sandbox.runDir)) {
+    throw new Error("Claude run sandbox cleanup failed");
   }
 }
 
