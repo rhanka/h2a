@@ -127,4 +127,9 @@ Both paths persist credentials exclusively through the existing mesh-managed enc
 
 ### Status and limitations
 
-Current operational status: **enrollment only / execution not-covered** until independent qualification stages (M0–M7) are completed by the host owner. The gateway compose seam requires host-level qualification before text inference is served. History and tool execution remain disabled and `not-covered`.
+Current operational status: **enrollment only / execution not-covered** until independent qualification stages (M0–M7) are completed by the host owner.
+
+- **Pre-acquire lease integration gate (Section 3A):** llm-mesh 0.25.0 constructs its account directory internally without an outer pre-acquire lease seam. Seat gateway serving remains halted until an additive seam is delivered in mesh.
+- **One-message capability scope:** The initial qualified serving outcome covers one user text message and streamed response through the official pinned CLI (`protocol: 'claude-code-stream-json-v1'`).
+- **History and tools:** Multi-turn history and callable tools remain unproven and `not-covered`.
+- **Zero child refresh & network boundary:** Egress is strictly limited to candidate-qualified inference destinations (`api.anthropic.com`); OAuth endpoints and all child/descendant refresh attempts are blocked.

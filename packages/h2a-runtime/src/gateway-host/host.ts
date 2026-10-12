@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { serve } from "@hono/node-server";
 import {
+  AnthropicAdapter,
+  type AnthropicAdapterClient,
   CloudCodeRuntimeClient,
   CodexRuntimeClient,
   GeminiAdapter,
@@ -64,17 +66,20 @@ export const LEGACY_PORTS_INERT = {
   dispatch: { dispatch: legacyPortReached, dispatchStream: legacyPortReached },
 };
 
+import { sweepOrphanSandboxes } from "../claude-code-cli-lifecycle.js";
+
 const routingConfigFromEnvironment = (): LlmMeshRoutingConfig | undefined => {
   const raw = process.env.H2A_LLM_MESH_ROUTING_JSON;
   return raw ? parseLlmMeshRoutingConfig(raw) : undefined;
 };
 
-const runtimeMesh = () => createLlmMesh({
+const runtimeMesh = (claudeClient?: AnthropicAdapterClient) => createLlmMesh({
   registry: createProviderRegistry([
     new OpenAIAdapter({ client: new CodexRuntimeClient() }),
     new GeminiAdapter({ client: new CloudCodeRuntimeClient() }),
     new MistralAdapter({ client: new MistralRuntimeClient() }),
     new MuseAdapter({ client: new MuseRuntimeClient() }),
+    ...(claudeClient ? [new AnthropicAdapter({ client: claudeClient })] : []),
   ]),
 });
 
@@ -108,6 +113,8 @@ export interface LocalGatewayAppOptions {
   readonly ownerScopeRef?: string;
   /** Composition injection for readiness and fail-before-bind qualification. */
   readonly prepareNamespace?: typeof createGatewayNamespaceModule;
+  /** Optional qualified Anthropic adapter client for Claude seat serving. */
+  readonly claudeClient?: AnthropicAdapterClient;
 }
 
 function publicSessionLedger(): SessionLedgerEntry[] {
@@ -147,7 +154,7 @@ export function createGatewayHost(options: LocalGatewayAppOptions = {}): { app: 
   const ownerScopeRef = options.ownerScopeRef ?? llmMeshOwnerScopeRef();
   const facade = createCliLlmMeshFacade();
   const profiles = routingProfiles(routing);
-  const planner = observablePlanner(facade.createRoutePlanner(runtimeMesh(), {
+  const planner = observablePlanner(facade.createRoutePlanner(runtimeMesh(options.claudeClient), {
     ...(routing?.council ? { council: routing.council } : {}),
     ...(profiles ? { profiles } : {}),
   }));
@@ -223,6 +230,11 @@ export function createGatewayHost(options: LocalGatewayAppOptions = {}): { app: 
     ? gatewayPlugin.fetch(c.req.raw, c.env)
     : c.json({ error: "gateway composition incomplete" }, 503));
   const ready = (async () => {
+    try {
+      await sweepOrphanSandboxes();
+    } catch {
+      // Best-effort startup sweep
+    }
     const modules = createClusterMeshModules();
     const namespace = await (options.prepareNamespace ?? createGatewayNamespaceModule)(modules, {
       enabled: true,
