@@ -126,6 +126,12 @@ export class OfficialClaudeCodeCliRunner implements ClaudeCodeCliRunner {
     // 1. Candidate qualification preflight
     this.qualifyBinary();
 
+    // Caller abort before any work: refuse without spawning.
+    if (input.signal.aborted) {
+      yield { type: "error" };
+      return;
+    }
+
     // 2. Admission and TTL checks
     const admission = checkTokenTtlAdmission(input.access.expiresAt, this.now());
     if (!admission.admitted) {
@@ -168,6 +174,7 @@ export class OfficialClaudeCodeCliRunner implements ClaudeCodeCliRunner {
     const runController = new AbortController();
     const abortHandler = () => runController.abort();
     input.signal.addEventListener("abort", abortHandler, { once: true });
+    let onRunAbort: (() => void) | null = null;
 
     let timeoutTimer: NodeJS.Timeout | null = null;
     if (this.timeoutMs > 0 && Number.isFinite(this.timeoutMs)) {
@@ -190,19 +197,19 @@ export class OfficialClaudeCodeCliRunner implements ClaudeCodeCliRunner {
         return;
       }
 
-      // Stream request NDJSON onto stdin
-      const stdinPayload = JSON.stringify({
-        type: "user",
-        messages: input.request.messages,
-      }) + "\n";
-      child.stdin?.write(stdinPayload);
-      child.stdin?.end();
-
-      // Read stdout stream
-      let stdoutBuffer = "";
-      let totalBytesReceived = 0;
-      let emittedText = "";
-      let pendingResult: ClaudeCodeCliEvent | null = null;
+      // Drain stderr so a verbose child can never block on a full pipe.
+      // Stderr is bounded and never forwarded to the caller.
+      let stderrBytes = 0;
+      child.stderr?.on("data", (chunk: Buffer) => {
+        stderrBytes += chunk.length;
+        if (stderrBytes > this.maxTotalBytes) {
+          try {
+            child.kill("SIGKILL");
+          } catch {
+            // Already dead; reaping below settles the run.
+          }
+        }
+      });
 
       type QueueItem = { event: ClaudeCodeCliEvent } | { done: true } | { error: Error };
       const queue: QueueItem[] = [];
@@ -216,6 +223,47 @@ export class OfficialClaudeCodeCliRunner implements ClaudeCodeCliRunner {
           fn();
         }
       };
+
+      // Abort, deadline, and early-close must end work even while a read is
+      // pending: kill the whole child tree and wake the consumer loop.
+      const killChildTree = () => {
+        if (childPid > 0) {
+          try {
+            process.kill(-childPid, "SIGKILL");
+            return;
+          } catch {
+            // Not our group leader (mocks) or already dead: fall through.
+          }
+        }
+        try {
+          child.kill("SIGKILL");
+        } catch {
+          // Already dead; reaping below settles the run.
+        }
+      };
+      onRunAbort = () => {
+        killChildTree();
+        if (notifyNext) {
+          const wake = notifyNext;
+          notifyNext = null;
+          wake();
+        }
+      };
+      runController.signal.addEventListener("abort", onRunAbort);
+
+      // Stream request NDJSON onto stdin
+      const stdinPayload = JSON.stringify({
+        type: "user",
+        messages: input.request.messages,
+      }) + "\n";
+      child.stdin?.write(stdinPayload);
+      child.stdin?.end();
+
+      // Read stdout stream
+      let stdoutBuffer = "";
+      let totalBytesReceived = 0;
+      let emittedText = "";
+      let pendingResult: ClaudeCodeCliEvent | null = null;
 
       const parseLine = (line: string) => {
         const trimmed = line.trim();
@@ -336,6 +384,11 @@ export class OfficialClaudeCodeCliRunner implements ClaudeCodeCliRunner {
         if (queue.length === 0) {
           await new Promise<void>((r) => {
             notifyNext = r;
+            // Abort may fire between the check above and this wait.
+            if (runController.signal.aborted) {
+              notifyNext = null;
+              r();
+            }
           });
         }
         while (queue.length > 0) {
@@ -356,6 +409,9 @@ export class OfficialClaudeCodeCliRunner implements ClaudeCodeCliRunner {
         clearTimeout(timeoutTimer);
       }
       input.signal.removeEventListener("abort", abortHandler);
+      if (onRunAbort) {
+        runController.signal.removeEventListener("abort", onRunAbort);
+      }
       if (childPid > 0) {
         await reapProcessTree(childPid, "SIGKILL", 50);
       }
