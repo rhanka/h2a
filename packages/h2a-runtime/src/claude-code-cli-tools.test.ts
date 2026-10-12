@@ -88,10 +88,13 @@ describe("claude-code-cli-tools", () => {
       capturedArgs = args;
       setTimeout(() => {
         mockChild.stdout.write(
-          JSON.stringify({ type: "text_delta", text: "Tools not available" }) + "\n",
+          JSON.stringify({
+            type: "assistant",
+            message: { content: [{ type: "text", text: "Tools not available" }] },
+          }) + "\n",
         );
         mockChild.stdout.write(
-          JSON.stringify({ type: "result", finishReason: "stop" }) + "\n",
+          JSON.stringify({ type: "result", subtype: "success", is_error: false }) + "\n",
         );
         mockChild.emit("close", 0);
       }, 10);
@@ -130,17 +133,24 @@ describe("claude-code-cli-tools", () => {
     const spawnFn = vi.fn((_cmd: string, args: string[]) => {
       capturedArgs = args;
       setTimeout(() => {
-        // Emit tool call
+        // Emit tool call as a real assistant content block
         mockChild.stdout.write(
           JSON.stringify({
-            type: "tool_use",
-            id: "call_abc123",
-            name: "get_weather",
-            input: { location: "Boston" },
+            type: "assistant",
+            message: {
+              content: [
+                {
+                  type: "tool_use",
+                  id: "call_abc123",
+                  name: "get_weather",
+                  input: { location: "Boston" },
+                },
+              ],
+            },
           }) + "\n",
         );
         mockChild.stdout.write(
-          JSON.stringify({ type: "result", finishReason: "tool_calls" }) + "\n",
+          JSON.stringify({ type: "result", subtype: "success", is_error: false }) + "\n",
         );
         mockChild.emit("close", 0);
       }, 10);
