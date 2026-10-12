@@ -1,7 +1,7 @@
 # MH-L1 — 0.98.7 integration and packaging prototype
 
 ## Objective
-- [ ] Deliver only spec v7 §12 MH-L1 on cf690fe2, integrating #316 (25117303).
+- [x] Deliver only spec v7 §12 MH-L1 on cf690fe2, integrating #316 (25117303).
 
 ## Scope / Guardrails
 - [x] Own branch feat/0.98.7-mh-l1 created from feat/0.98.7-mh-l0; main untouched.
@@ -39,7 +39,7 @@
 - [x] Gate: node --test packages/h2a/test/mh-l1-package.test.js and mh-l0-image.test.js.
 
 ## Lot 5 — Delivery
-- [ ] Review diff/scope, record constrained review status without consensus claim.
+- [x] Review diff/scope, record constrained review status without consensus claim.
 - [ ] Push own branch fast-forward and write French mhl1-report.md, agent-hours and review rounds.
 
 ## Feedback Loop

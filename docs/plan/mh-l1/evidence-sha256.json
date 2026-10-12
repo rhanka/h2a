@@ -1,0 +1,110 @@
+{
+  "schemaVersion": 1,
+  "codeCommit": "3aa11533d6308349bc252e86b28320f2aba6df5d",
+  "files": [
+    {
+      "file": "central-mcp-0980.test.ts-green-runtime-legacy.log",
+      "sha256": "7c8974cc4a183be068d5f08b70c384886deab8aa769ff5cf60d0418e02ab80a3"
+    },
+    {
+      "file": "central-mcp.test.ts-green-runtime.log",
+      "sha256": "ac340511208b4a6c080a33b19af237d067c43358fa4ac8ac6fb95f1118f8aac4"
+    },
+    {
+      "file": "mcp-central-attachments.test.js-green-isolation.log",
+      "sha256": "6ccd078b76101cc60b41d35259b46892fb6154f8360fbe13144c093289ddc2a5"
+    },
+    {
+      "file": "mcp-central-attachments.test.js-green-shim-sdk.log",
+      "sha256": "74504a521c6d8122db91e67d92a6cacb7d80be4970d587f8c63400b1e89ac4f3"
+    },
+    {
+      "file": "mcp-central-attachments.test.js-green-terminal-isolation.log",
+      "sha256": "fcfa92167c75e4e1a7e98d37839e2bf8f9eb52664c1385e9dbc3c3f604cf2b95"
+    },
+    {
+      "file": "mh-l0-formats.test.js-green.log",
+      "sha256": "0227e8e613f8697d35e4591bbb6942b692cf93e5037b3d90d1710a3e40079f47"
+    },
+    {
+      "file": "mh-l0-image.test.js-green.log",
+      "sha256": "c3b2675350307b9c4d6c88e2d023003be9ad75f4a06b552536eee1e82247e74e"
+    },
+    {
+      "file": "mh-l0-image.test.js-red-mutated-R1.log",
+      "sha256": "e96343c48ebb03c468bc342d841637cdbbeb48b4a7c4f1673b21f05cb24a7a07"
+    },
+    {
+      "file": "mh-l0-image.test.js-red-node-profile.log",
+      "sha256": "b3394ff002fde3180bf9ae397cfda7aadd939814f44e854611eed97b97d84c09"
+    },
+    {
+      "file": "mh-l1-package.test.js-diagnose-missing-payload.log",
+      "sha256": "5412e7462c51504dcb7d7542070ab0404d57699d86aace5aeae3e302ef656b78"
+    },
+    {
+      "file": "mh-l1-package.test.js-diagnose-published-tests.log",
+      "sha256": "6ec984f59502c9d88ee0be271a5408952f4ab7abd28988b0710845228cf1625c"
+    },
+    {
+      "file": "mh-l1-package.test.js-green.log",
+      "sha256": "c4b0c6410c77502b11e2f49b08f246edc8020257bf5abaa673090a9857fa3f2d"
+    },
+    {
+      "file": "mh-l1-package.test.js-red-bin-mode.log",
+      "sha256": "58f85376d9bb6ed394a46fe42af5db25ed2827f2c0ea1deabe6e4bd908c6d2ad"
+    },
+    {
+      "file": "mh-l1-package.test.js-red-missing-payload.log",
+      "sha256": "801cc24b62126731b5e396dfa3b0e7775fa6288fdbb9732fc53031f1f6b3fbc6"
+    },
+    {
+      "file": "mh-l1-package.test.js-red-new-feature.log",
+      "sha256": "463d28d7905518b083f9e210e5df205a62e5c11a113956ba8deff8aac39e707a"
+    },
+    {
+      "file": "mh-l1-package.test.js-red-npm-files-filter.log",
+      "sha256": "7eb45d50cb22909b94910d20fc0ea4e2aa7fac72019411909a5dd5babb106538"
+    },
+    {
+      "file": "mh-l1-package.test.js-red-payload-mode.log",
+      "sha256": "dc0879a3c31f4a86b9318855de4161c2df9fd7790bb3f924df2640f2513fabe0"
+    },
+    {
+      "file": "mh-l1-package.test.js-verify-installed-payload.log",
+      "sha256": "c05847ac65a45282b08a9cee75697e12ce48ae1f0d380b3ea12f25a3ea13c0dc"
+    },
+    {
+      "file": "mh-l1-preservation.test.js-green.log",
+      "sha256": "6a870b3d04bc8a190097d6a13ed71a13bd6932c9a9c8ea1a2d86abeeef17bfbc"
+    },
+    {
+      "file": "mh-l1-preservation.test.js-red.log",
+      "sha256": "4f57597573995e6bd88792f0e466bcbd5af7102a8a8217b0e977d5bbdff8ed92"
+    },
+    {
+      "file": "mh-l1-routing.test.js-green.log",
+      "sha256": "4dbd15e8bdad94539ccc5997af30856931bcee85ddcbde833dd15aaa2ce9b112"
+    },
+    {
+      "file": "mh-l1-routing.test.js-red.log",
+      "sha256": "039a5d39803aabbde4ccb31b3a9499dd01afbba21065b5d0b5110c092024c8e7"
+    },
+    {
+      "file": "mh-l1-shim.test.js-green.log",
+      "sha256": "aa661f8fc5d1b045052dbf3661dac92f42f5603a1812959ca5adc2884e7fb233"
+    },
+    {
+      "file": "mh-l1-shim.test.js-red-pipeline.log",
+      "sha256": "5faf23c5d11ec76803e7ac44e4cc0e4018d39d9babc9d32fe5a8e5828c975a80"
+    },
+    {
+      "file": "mh-l1-transport.test.js-green.log",
+      "sha256": "bd2edb156e7c26b5dc52d08edd431e87b52b462cc82637099463a7aa119910d6"
+    },
+    {
+      "file": "mh-l1-transport.test.js-red.log",
+      "sha256": "6db6f8b5708c275f84fe1080802901f95657a6c0d6a263882594b11cc544f8bd"
+    }
+  ]
+}
