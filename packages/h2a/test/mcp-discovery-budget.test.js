@@ -2,7 +2,10 @@
  * T1 / L1 — the REAL discovery response is bounded (regression over the wire).
  *
  * Drives the real built `mcp-serve` binary against an UNCHANGED private copy of
- * the 26,753-inscription seed. On main the `h2a_discover_instances` response is
+ * the 26,753-inscription seed, or a temporary synthetic corpus of the same
+ * cardinality exceeding 16 MiB when no private seed is supplied. The private
+ * corpus is not claimed as covered by that synthetic run.
+ * On main the `h2a_discover_instances` response is
  * one ~19,185,053-byte frame — far over the 1 MiB frame budget AND over Claude's
  * 16 MiB cap — so `frameBytes <= B` fails (the behavioral red). On the candidate
  * every frame is bounded, the first page holds ≤200 inscriptions, and a full
@@ -14,11 +17,11 @@
 
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
 
-import { callRpc, copySeed, notify, spawnMcp, stopChildren } from "./helpers/mcp-fix-lab.js";
+import { callRpc, labRoot, notify, spawnMcp, stopChildren } from "./helpers/mcp-fix-lab.js";
 
 /** Frozen L1 frame ceiling (contract value; hardcoded so this test runs on main too). */
 const MCP_MAX_FRAME_BYTES = 1_048_576;
@@ -46,15 +49,25 @@ function parsePage(res) {
   return JSON.parse(text);
 }
 
-test("T1: the real discover response is bounded and never mutates the registry", { skip: !SEED }, async (t) => {
-  // Requires the real 26,753-inscription seed; skipped (not failed) in public CI
-  // where no private seed is present — the synthetic T6/SDK suites still cover it.
-  const root = copySeed(SEED);
+test("T1: the real discover response is bounded and never mutates the registry", async (t) => {
+  assert.ok(SEED || process.env.H2A_MCP_REQUIRE_REAL_SEED !== "1", "the explicitly required private seed is absent");
+  const root = labRoot(SEED);
   const registryFile = join(root, "registry", "instances.jsonl");
+  if (!SEED) {
+    const corpus = Array.from({ length: 26753 }, (_, index) => {
+      const id = `conductor:scale-${String(index).padStart(5, "0")}`;
+      return JSON.stringify({ id, instance: id, roles: ["CONDUCTOR"],
+        scopes: [`scope:scale:${"x".repeat(640)}`], capabilities: [], endpoints: [],
+        publicKeys: [], acceptedPolicies: [], createdAt: "2026-10-11T00:00:00.000Z" });
+    }).join("\n") + "\n";
+    assert.ok(Buffer.byteLength(corpus) > 16 * 1024 * 1024, "the synthetic corpus must reproduce the oversize response risk");
+    writeFileSync(registryFile, corpus);
+    t.diagnostic(`synthetic corpus: 26753 inscriptions, ${Buffer.byteLength(corpus)} bytes; private corpus NOT COVERED`);
+  }
   const shaBefore = sha256File(registryFile);
 
   const mcp = spawnMcp({ root });
-  t.after(() => stopChildren(mcp));
+  t.after(async () => { await stopChildren(mcp); rmSync(root, { recursive: true, force: true }); });
   await handshake(mcp);
 
   const res = await callRpc(
