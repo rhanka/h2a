@@ -5,13 +5,13 @@ import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 // @ts-ignore Shared JS qualification helper; tests are outside the production build.
-import { assertIsolatedEnvironment, createPrivateTestDirectory } from "../../../h2a/test/helpers/native-isolation.js";
+import { assertIsolatedEnvironment, createPrivateTestDirectory, nativeQualificationRoot } from "../../../h2a/test/helpers/native-isolation.js";
 import { NativeTerminalClient } from "./client.js";
 import { readProcessStartTime } from "./host.js";
 import { appendHostJournal, getDroppedJournalEntriesCount, getRuntimeVersion, MAX_HOST_JOURNAL_BYTES, readHostJournal, resolveHostJournalPath } from "./journal.js";
 
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), "../../../..");
-const qualRoot = join(repo, ".qual-tmp");
+const qualRoot = nativeQualificationRoot;
 const entry = join(repo, "packages/h2a-runtime/dist/native-terminal/process.js");
 const journalModule = pathToFileURL(join(repo, "packages/h2a-runtime/dist/native-terminal/journal.js")).href;
 const processModule = pathToFileURL(entry).href;
