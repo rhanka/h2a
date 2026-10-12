@@ -96,12 +96,18 @@ async function fixture(replayBytes = 4096, command?: { command: string; args: st
     cwd: directory, env: env as Record<string, string>, cols: 80, rows: 24,
   });
   const fault = join(directory, "attach-fault.mjs");
-  await writeFile(fault, `const write = process.stdout.write.bind(process.stdout);
+  const crashTrigger = join(directory, "attach-crash");
+  await writeFile(fault, `import { watch } from 'node:fs';
+    const write = process.stdout.write.bind(process.stdout);
     let armed = true;
     process.stdout.write = (chunk, ...args) => {
       if (armed && String(chunk).includes('ready')) {
         armed = false;
-        setImmediate(() => { throw new Error('isolated attach crash'); });
+        const trigger = watch(${JSON.stringify(directory)}, (_event, file) => {
+          if (file !== 'attach-crash') return;
+          trigger.close();
+          setImmediate(() => { throw new Error('isolated attach crash'); });
+        });
       }
       return write(chunk, ...args);
     };`);
@@ -130,9 +136,11 @@ async function fixture(replayBytes = 4096, command?: { command: string; args: st
     let ended = false;
     terminal.onData((data) => { output += data; });
     terminal.onExit(() => { ended = true; terminals.delete(terminal); });
-    return { terminal, output: () => output, ended: () => ended };
+    return { terminal, output: () => output, ended: () => ended,
+      pin: () => { processPins.add(pinPrivateNativeProcess(terminal.pid, env)); } };
   };
-  return { host, client, id, attach };
+  return { host, client, id, attach, crashTrigger,
+    pinChild: (pid: number) => { processPins.add(pinPrivateNativeProcess(pid, env)); } };
 }
 
 function clean(output: string): void {
@@ -148,6 +156,7 @@ describe.skipIf(process.platform !== "linux")("native attach terminal modes on r
       const f = await fixture();
       const outer = f.attach();
       await until(() => outer.output().includes("ready"));
+      outer.pin();
       if (ending === "inner exit") outer.terminal.write("x");
       else if (ending === "inner crash") outer.terminal.write("c");
       else if (ending === "host death") f.host.kill("SIGKILL");
@@ -161,6 +170,7 @@ describe.skipIf(process.platform !== "linux")("native attach terminal modes on r
     const f = await fixture(128);
     const first = f.attach();
     await until(() => first.output().includes("ready"));
+    first.pin();
     first.terminal.write("t");
     await until(() => first.output().includes("tail-ready"));
     first.terminal.write("\x1c");
@@ -172,6 +182,7 @@ describe.skipIf(process.platform !== "linux")("native attach terminal modes on r
     await f.client.releaseController(lease);
     const second = f.attach();
     await until(() => second.output().includes("tail-ready"));
+    second.pin();
     const tracker = new TerminalModeTracker();
     tracker.feed(second.output());
     expect(tracker.resetSequence()).toBe(RESET);
@@ -191,6 +202,7 @@ describe.skipIf(process.platform !== "linux")("native attach terminal modes on r
     });
     const outer = f.attach();
     await until(() => outer.output().includes("[h2a] relaunch:"));
+    outer.pin();
     expect(outer.output()).toContain(`${RESET}\r`);
     expect(outer.output().indexOf(RESET)).toBeLessThan(outer.output().indexOf("[h2a]"));
     // The inherited prompt hook must also clean modes from the next command.
@@ -208,12 +220,14 @@ describe.skipIf(process.platform !== "linux")("native attach terminal modes on r
     const f = await fixture();
     const outer = f.attach(true);
     await until(() => outer.output().includes("ready"));
+    outer.pin();
     const childPids = (await readFile(`/proc/${outer.terminal.pid}/task/${outer.terminal.pid}/children`, "utf8"))
       .trim().split(/\s+/).map(Number);
     expect(childPids).toHaveLength(1);
     const childPid = childPids[0]!;
     const argv = await readFile(`/proc/${childPid}/cmdline`, "utf8");
     expect(argv).toContain("/native-terminal/op.ts");
+    f.pinChild(childPid);
     process.kill(childPid, "SIGKILL");
     await until(outer.ended);
     clean(outer.output());
@@ -223,6 +237,9 @@ describe.skipIf(process.platform !== "linux")("native attach terminal modes on r
   it("should clean modes after an uncaught attach exception without suppressing the failure", async () => {
     const f = await fixture();
     const outer = f.attach(false, true);
+    await until(() => outer.output().includes("ready"));
+    outer.pin();
+    await writeFile(f.crashTrigger, "crash");
     await until(outer.ended);
     expect(outer.output()).toContain("isolated attach crash");
     expect(outer.output()).toContain(RESET);
