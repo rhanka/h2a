@@ -68,6 +68,26 @@ export async function readMaskedInput(
     let timer: NodeJS.Timeout | null = null;
     let totalBytes = 0;
     const chunks: Buffer[] = [];
+    const wasRawMode =
+      (stdin as unknown as { isRaw?: unknown }).isRaw === true;
+
+    // Drop the last UTF-8 sequence from the accumulated content (Backspace
+    // 0x08 / DEL 0x7f): walk back over continuation bytes so a multibyte
+    // character is removed whole, never truncated mid-sequence.
+    const popLastCharBytes = () => {
+      const all = Buffer.concat(chunks);
+      if (all.length === 0) return;
+      let end = all.length - 1;
+      while (end > 0) {
+        const byte = all[end] ?? 0;
+        if ((byte & 0xc0) !== 0x80) break;
+        end--;
+      }
+      const next = Buffer.from(all.subarray(0, end));
+      chunks.length = 0;
+      if (next.length > 0) chunks.push(next);
+      totalBytes = next.length;
+    };
 
     const cleanup = () => {
       if (timer) {
@@ -75,9 +95,14 @@ export async function readMaskedInput(
         timer = null;
       }
       try {
-        stdin.setRawMode?.(false);
+        stdin.setRawMode?.(wasRawMode);
       } catch {
         // Best-effort terminal mode restoration
+      }
+      try {
+        (stdin as unknown as { pause?: () => void }).pause?.();
+      } catch {
+        // Non-pausable stdin
       }
       stdin.removeListener("data", onData);
       stdin.removeListener("end", onEnd);
@@ -130,17 +155,6 @@ export async function readMaskedInput(
 
     const onData = (chunk: Buffer | string) => {
       const buf = typeof chunk === "string" ? Buffer.from(chunk, "utf8") : chunk;
-      totalBytes += buf.length;
-
-      if (totalBytes > maxBytes) {
-        fail(
-          new ClaudeSeatInputError(
-            `Claude credential input exceeded maximum allowed size (${Math.round(maxBytes / 1024)} KiB)`,
-            "oversized",
-          ),
-        );
-        return;
-      }
 
       // Check for control characters: Ctrl-C (0x03)
       for (let i = 0; i < buf.length; i++) {
@@ -155,7 +169,26 @@ export async function readMaskedInput(
         }
       }
 
-      chunks.push(buf);
+      // Apply content bytes and Backspace/DEL edits in arrival order so a
+      // correction deletes what precedes it, including multibyte characters.
+      for (const byte of buf) {
+        if (byte === 0x08 || byte === 0x7f) {
+          popLastCharBytes();
+        } else {
+          chunks.push(Buffer.from([byte]));
+          totalBytes += 1;
+        }
+      }
+
+      if (totalBytes > maxBytes) {
+        fail(
+          new ClaudeSeatInputError(
+            `Claude credential input exceeded maximum allowed size (${Math.round(maxBytes / 1024)} KiB)`,
+            "oversized",
+          ),
+        );
+        return;
+      }
 
       const fullContent = Buffer.concat(chunks).toString("utf8");
 
