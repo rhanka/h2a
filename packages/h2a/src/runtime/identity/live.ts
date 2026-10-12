@@ -31,6 +31,9 @@ import {
 import { defaultProviderSessionReaders, readHostSessionName } from "./readers.js";
 import { resolveProviderSession, type ProviderSessionReaders } from "./resolver.js";
 import { durableWorkspaceId } from "./workspace-id.js";
+import { syncFile, ensureDurableDirectory, redactIdentityStorageError } from './durable.js';
+import type { IdentityBlockerInfo } from '../local-files/identity-fence.js';
+import { performance } from 'node:perf_hooks';
 
 /**
  * The CLOSED vocabulary an agent may DECLARE at registration.
@@ -215,6 +218,7 @@ function ensureKeypair(
 ): { publicKeyPem: string; privateKeyPath: string; publicKeyPath: string } {
   const existing = readKeypair(root, instance);
   if (existing) {
+    syncFile(existing.privateKeyPath); syncFile(existing.publicKeyPath);
     return {
       publicKeyPem: existing.publicKeyPem,
       privateKeyPath: existing.privateKeyPath,
@@ -223,17 +227,19 @@ function ensureKeypair(
   }
 
   const paths = identityKeyPaths(root, instance);
-  mkdirSync(join(root, "keys"), { recursive: true });
+  ensureDurableDirectory(join(root, "keys"));
   const adopted = adoptFromInstance ? readKeypair(root, adoptFromInstance) : undefined;
   if (adopted) {
     copyFileSync(adopted.privateKeyPath, paths.privateKeyPath);
     copyFileSync(adopted.publicKeyPath, paths.publicKeyPath);
+    syncFile(paths.privateKeyPath); syncFile(paths.publicKeyPath);
     return { publicKeyPem: adopted.publicKeyPem, ...paths };
   }
 
   const generated = generateKeypair();
   writeFileSync(paths.privateKeyPath, generated.privateKeyPem, { encoding: "utf8", mode: 0o600 });
   writeFileSync(paths.publicKeyPath, generated.publicKeyPem, "utf8");
+  syncFile(paths.privateKeyPath); syncFile(paths.publicKeyPath);
   return { publicKeyPem: generated.publicKeyPem, ...paths };
 }
 
@@ -339,6 +345,10 @@ function ensureRegistered(input: {
 }
 
 export function resolveLiveIdentity(input: ResolveLiveIdentityInput): ResolvedLiveIdentity {
+  try{return resolveLiveIdentityInternal(input);}catch(error){throw redactIdentityStorageError(error);}
+}
+
+function resolveLiveIdentityInternal(input: ResolveLiveIdentityInput): ResolvedLiveIdentity {
   // L0 identity spans: provider resolution, key prep, proof, enrollment, alias.
   // NEVER a PEM or a private path in an event — only the phase and its timing.
   const trace = getActiveMcpTrace();
@@ -473,7 +483,7 @@ export function resolveLiveIdentity(input: ResolveLiveIdentityInput): ResolvedLi
           step("identity_proof", () => provesLocalKey(input.root, binding.instance)),
         mint,
         now
-      })
+      }, { beforePublish: result => { mintKeypair = publishIdentity(result.instance, result.agentUuid, 'mint', {skipExistingCheck:true}); } })
     );
     if (result.action === "mint") {
       keypair = mintKeypair ?? publishIdentity(result.instance, result.agentUuid, "mint", { skipExistingCheck: true });
@@ -511,6 +521,8 @@ export function resolveLiveIdentity(input: ResolveLiveIdentityInput): ResolvedLi
 }
 
 export interface ResolveLiveIdentityAsyncOptions {
+  readonly onBlocker?: (info: IdentityBlockerInfo, stabilityKey: string) => void;
+  readonly diagnosticKey?: Buffer;
   /** Cooperative cancellation propagated to the identity-lock wait. */
   readonly signal?: AbortSignal;
   /** Remaining budget (ms) bounding the identity-lock wait for this attempt. */
@@ -583,6 +595,14 @@ export async function resolveLiveIdentityAsync(
   input: ResolveLiveIdentityInput,
   options: ResolveLiveIdentityAsyncOptions = {}
 ): Promise<ResolvedLiveIdentity> {
+  try{return await resolveLiveIdentityAsyncInternal(input,options);}catch(error){throw redactIdentityStorageError(error);}
+}
+
+async function resolveLiveIdentityAsyncInternal(
+  input: ResolveLiveIdentityInput,
+  options: ResolveLiveIdentityAsyncOptions
+): Promise<ResolvedLiveIdentity> {
+  const started=performance.now();
   const host = input.host || "agent";
   if (input.explicitInstance) {
     return { instance: input.explicitInstance, host, action: "override" };
@@ -747,7 +767,10 @@ export async function resolveLiveIdentityAsync(
       },
       {
         ...(options.signal ? { signal: options.signal } : {}),
-        ...(options.deadlineMs !== undefined ? { deadlineMs: options.deadlineMs } : {})
+        beforePublish: result => { mintKeypair = publishIdentity(result.instance,result.agentUuid,'mint',{skipExistingCheck:true}); },
+        ...(options.onBlocker ? {onBlocker: options.onBlocker} : {}),
+        ...(options.diagnosticKey ? {diagnosticKey: options.diagnosticKey} : {}),
+        ...(options.deadlineMs !== undefined ? { deadlineMs: Math.max(0,options.deadlineMs-(performance.now()-started)) } : {})
       }
     );
     if (result.action === "mint") {

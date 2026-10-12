@@ -1,3 +1,4 @@
+import { proofDeps } from './helpers/identity-proof-fixture.mjs';
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
@@ -20,9 +21,11 @@ import test from "node:test";
 // holder is PROVABLY dead. These scenarios run against the production
 // acquisition path (reclaimOrMintAsync) with fixtures written through the
 // documented record formats, in a temporary store only.
-import { reclaimOrMintAsync } from "../dist/runtime/identity/bindings.js";
+import { reclaimOrMintAsync as rawReclaimOrMintAsync } from "../dist/runtime/identity/bindings.js";
 
 /** Filesystem types eligible for automatic recovery (same whitelist as the impl). */
+function reclaimOrMintAsync(root,key,deps,...options){return rawReclaimOrMintAsync(root,key,proofDeps(root,deps),...options);}
+
 const QUALIFIED_FS_TYPES = new Set(["ef53", "58465342", "9123683e", "f2f52010"]);
 
 function freshRoot() {
@@ -101,7 +104,7 @@ test("recovery: a previous-boot holder is recovered automatically (stale boot)",
   try {
     const otherBoot = "00000000-0000-4000-8000-000000000001";
     assert.match(otherBoot, /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
-    writeLock(identityDir, v2Record({ boot: otherBoot, pid: deadPid() }));
+    writeLock(identityDir, v2Record({ boot: otherBoot, pid: process.pid }));
     const r = await reclaimOrMintAsync(root, KEY, deps(), { deadlineMs: 1500 });
     assert.equal(r.action, "mint");
     // The recovered fence is fully released: no lock, no succession debris.
@@ -154,7 +157,7 @@ test("no recovery of a live holder: bounded timeout, expurgated reason, lock unt
   }
 });
 
-test("no automatic recovery of a legacy (<=0.98.5) lock: bounded timeout + legacy note, no downgrade", async () => {
+test("legacy with mismatched hostname: bounded B refusal, no downgrade", async () => {
   const { dir, root, identityDir } = freshRoot();
   try {
     const legacy = {
@@ -169,7 +172,7 @@ test("no automatic recovery of a legacy (<=0.98.5) lock: bounded timeout + legac
       () => reclaimOrMintAsync(root, KEY, deps(), { deadlineMs: 800 }),
       (err) => {
         assert.equal(err.name, "LockTimeoutError");
-        assert.match(err.message, /The same legacy lock was observed throughout this attempt/);
+        assert.match(err.message, /Legacy identity lock retained: independent recovery evidence is incomplete/);
         const after = readFileSync(join(identityDir, ".lock"));
         assert.equal(after.toString(), before.toString(), "a legacy lock is never rewritten or downgraded");
         assert.ok(

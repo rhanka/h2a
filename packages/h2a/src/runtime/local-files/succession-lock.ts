@@ -23,6 +23,7 @@ import {
   openSync,
   readdirSync,
   readFileSync,
+  readSync,
   readlinkSync,
   statSync,
   unlinkSync,
@@ -480,6 +481,47 @@ export function procStartInfo(
   return undefined;
 }
 
+/** Identity-only coherent probe; upgrade retains procStartInfo unchanged. */
+function procIdentityStartInfo(pid:number):{state:string;start:string;threads?:number}|undefined {
+  if(!procMapsToSelf())return undefined;
+  let statFd:number|undefined;let statusFd:number|undefined;
+  const readAtZero=(fd:number):string=>{
+    const bytes=Buffer.alloc(65537);let offset=0;
+    while(offset<bytes.length){const n=readSync(fd,bytes,offset,bytes.length-offset,offset);if(!n)break;offset+=n;}
+    if(offset===bytes.length)throw new Error('proc observation limit');
+    return bytes.subarray(0,offset).toString();
+  };
+  const parse=(text:string):{state:string;start:string}|undefined=>{
+    if(!text.startsWith(pid+' '))return undefined;
+    const parts=text.slice(text.lastIndexOf(')')+1).trim().split(/\s+/);
+    if(parts.length<20 || !/^[RSDZTWtXxKPI]$/.test(parts[0]) || !/^[0-9]+$/.test(parts[19]))return undefined;
+    return {state:parts[0],start:'proc:'+parts[19]};
+  };
+  try {
+    // NSpid contains every namespace from the procfs mount to this task.
+    // A singleton equal to process.pid positively attaches procfs to our PID
+    // namespace, including a numerical coincidence in a parent namespace.
+    const selfStatus=readFileSync('/proc/self/status','utf8');
+    const nspid=selfStatus.split('\n').filter(line=>line.startsWith('NSpid:'));
+    if(nspid.length!==1 || nspid[0].slice(6).trim()!==String(process.pid))return undefined;
+    statFd=openSync(`/proc/${pid}/stat`,'r');statusFd=openSync(`/proc/${pid}/status`,'r');
+    const before=parse(readAtZero(statFd));const status=readAtZero(statusFd);const after=parse(readAtZero(statFd));
+    if(!before || !after || before.start!==after.start)return undefined;
+    const field=(name:string):string|undefined=>{const rows=status.split('\n').filter(line=>line.startsWith(name+':'));return rows.length===1?rows[0].slice(name.length+1).trim():undefined;};
+    if(field('Pid')!==String(pid) || field('Tgid')!==String(pid))return undefined;
+    const state=field('State')?.match(/^([RSDZTWtXxKPI])(?:\s|$)/)?.[1];
+    if(!state)return undefined;
+    const threadsText=field('Threads');const threads=threadsText && /^[1-9][0-9]*$/.test(threadsText)?Number(threadsText):undefined;
+    if([before.state,state,after.state].includes('Z')) {
+      if(before.state!=='Z' || state!=='Z' || after.state!=='Z' || !Number.isSafeInteger(threads))return undefined;
+      return {state:'Z',start:before.start,threads};
+    }
+    if([before.state,state,after.state].some(s=>s==='X'||s==='x'))return undefined;
+    return {state:after.state,start:before.start};
+  }catch{return undefined;}
+  finally{if(statFd!==undefined)closeSync(statFd);if(statusFd!==undefined)closeSync(statusFd);}
+}
+
 function startSource(s: string): "proc" | "ps" | "legacy" {
   if (s.startsWith("proc:")) return "proc";
   if (s.startsWith("ps:")) return "ps";
@@ -837,7 +879,7 @@ function classifyIdentityLiveness(r: LockRec, self: SelfIdent, deps: LivenessDep
   }
   if (r.boot !== self.boot) return { verdict: "dead", datable: false }; // rule 3: stale boot
   // Same boot, known shared namespace: probe the recorded PID.
-  const probe = deps.probe ?? procStartInfo;
+  const probe = deps.probe ?? procIdentityStartInfo;
   let exists = false;
   try {
     process.kill(r.pid, 0);
@@ -1037,9 +1079,11 @@ export function succeedDeadToken(
 ): PrefixLockLease | "retry" {
   let t = g;
   for (let depth = 0; depth < PREFIX_LOCK_MAX_CHAIN; depth++) {
+    if(io.beforeElection && !io.beforeElection(g))return 'retry';
     const tok = newToken();
     const pub = io.publish(succPathFor(lockPath, t), io.makeRec(self, tok, g));
     if (pub.status === "ok") {
+      io.onElected?.(succPathFor(lockPath, t), tok, g);
       return retireDeadToken(prefix, lockPath, g, self, io);
     }
     if (pub.status === "error") return lockDenied(`error:${pub.code}`);
@@ -1066,6 +1110,7 @@ export function retireDeadToken(
   self: SelfIdent,
   io: FenceElectionIo = UPGRADE_FENCE_IO
 ): PrefixLockLease | "retry" {
+  if (io.beforeRetire && !io.beforeRetire(lockPath, g)) return lockDenied("dead-undecidable");
   const cur = io.readRecord(lockPath);
   if (cur === "corrupt") return lockDenied("dead-undecidable"); // keep our SUCC: fail closed
   if (cur !== "absent" && cur.token === g) {
@@ -1089,6 +1134,7 @@ export function retireDeadToken(
       let unlinkCode: string | undefined;
       try {
         unlinkSync(lockPath); // (S) removes exactly g (Lemma C)
+        io.afterRetire?.(prefix);
       } catch (e) {
         unlinkCode = errnoOf(e);
       }
@@ -1101,15 +1147,23 @@ export function retireDeadToken(
   }
   // From here LOCK != g forever (I2): every SUCC targeting g is inert.
   purgeSuccession(prefix, lockPath, g, io); // unlink SUCC files whose target === g
+  if (io.retireOnly) return { acquired: true, stillHeld: () => false, release: () => {} };
   const tok = newToken();
   const pub = io.publish(lockPath, io.makeRec(self, tok));
-  if (pub.status === "ok") return makeLease(prefix, lockPath, tok, io);
+  if (pub.status === "ok") return io.lease?.(prefix, lockPath, tok) ?? makeLease(prefix, lockPath, tok, io);
   if (pub.status === "exists" || pub.status === "retry") return "retry";
   return lockDenied(`error:${pub.code}`);
 }
 
 /** Serializer/reader/classifier/publisher bindings for the ONE election engine. */
 export interface FenceElectionIo {
+  beforeElection?(target:string):boolean;
+  retireOnly?: boolean;
+  /** Identity-only repair barrier; upgrade leaves these bindings absent. */
+  onElected?(path: string, token: string, target: string): void;
+  beforeRetire?(path: string, target: string): boolean;
+  afterRetire?(dir: string): void;
+  lease?(prefix: string, path: string, token: string): PrefixLockLease;
   /** Record serializer for LOCK and SUCC publications of this protocol. */
   makeRec(self: SelfIdent, token: string, target?: string): LockRec;
   /** Chain-link reader; anything unreadable or unknown fails closed as "corrupt". */
