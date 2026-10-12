@@ -1,0 +1,95 @@
+command: /usr/bin/node --test packages/h2a/test/mh-l1-package.test.js
+private test root: /tmp/mh-l1-test-R0d7xU
+TAP version 13
+# prototype a built: 12455 manifest entries
+# prototype b built: 12455 manifest entries
+# Subtest: MH-L1 prototype should pack/install twice offline with exact runtime, integrated transport and a real legacy node-pty probe
+not ok 1 - MH-L1 prototype should pack/install twice offline with exact runtime, integrated transport and a real legacy node-pty probe
+  ---
+  duration_ms: 22767.002071
+  type: 'test'
+  location: '/home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/test/mh-l1-package.test.js:15:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly deep-equal:
+    + actual - expected
+    
+    + [
+    +   'node_modules/fast-uri/test/ajv.test.js',
+    +   'node_modules/fast-uri/test/component-safe-serialization.test.js',
+    +   'node_modules/fast-uri/test/equal.test.js',
+    +   'node_modules/fast-uri/test/ipv6-canonical.test.js',
+    +   'node_modules/fast-uri/test/ipv6-validation.test.js',
+    +   'node_modules/fast-uri/test/malformed-percent.test.js',
+    +   'node_modules/fast-uri/test/malformed-urn.test.js',
+    +   'node_modules/fast-uri/test/parse.test.js',
+    +   'node_modules/fast-uri/test/query-fragment-normalization.test.js',
+    +   'node_modules/fast-uri/test/reserved-path-normalization.test.js',
+    +   'node_modules/fast-uri/test/resolve.test.js',
+    +   'node_modules/fast-uri/test/rfc-3986.test.js',
+    +   'node_modules/fast-uri/test/scheme-validation.test.js',
+    +   'node_modules/fast-uri/test/security-normalization.test.js',
+    +   'node_modules/fast-uri/test/security.test.js',
+    +   'node_modules/fast-uri/test/serialize.test.js',
+    +   'node_modules/fast-uri/test/uri-js-compatibility.test.js',
+    +   'node_modules/fast-uri/test/uri-js.test.js',
+    +   'node_modules/fast-uri/test/urn-full-input.test.js',
+    +   'node_modules/fast-uri/test/util.test.js',
+    +   'node_modules/fast-uri/test/websocket-query-preservation.test.js',
+    +   'node_modules/node-pty/lib/eventEmitter2.test.js',
+    +   'node_modules/node-pty/lib/terminal.test.js',
+    +   'node_modules/node-pty/lib/testUtils.test.js',
+    +   'node_modules/node-pty/lib/unixTerminal.test.js',
+    +   'node_modules/node-pty/lib/windowsPtyAgent.test.js',
+    +   'node_modules/node-pty/lib/windowsTerminal.test.js'
+    + ]
+    - []
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected:
+  actual:
+    0: 'node_modules/fast-uri/test/ajv.test.js'
+    1: 'node_modules/fast-uri/test/component-safe-serialization.test.js'
+    2: 'node_modules/fast-uri/test/equal.test.js'
+    3: 'node_modules/fast-uri/test/ipv6-canonical.test.js'
+    4: 'node_modules/fast-uri/test/ipv6-validation.test.js'
+    5: 'node_modules/fast-uri/test/malformed-percent.test.js'
+    6: 'node_modules/fast-uri/test/malformed-urn.test.js'
+    7: 'node_modules/fast-uri/test/parse.test.js'
+    8: 'node_modules/fast-uri/test/query-fragment-normalization.test.js'
+    9: 'node_modules/fast-uri/test/reserved-path-normalization.test.js'
+    10: 'node_modules/fast-uri/test/resolve.test.js'
+    11: 'node_modules/fast-uri/test/rfc-3986.test.js'
+    12: 'node_modules/fast-uri/test/scheme-validation.test.js'
+    13: 'node_modules/fast-uri/test/security-normalization.test.js'
+    14: 'node_modules/fast-uri/test/security.test.js'
+    15: 'node_modules/fast-uri/test/serialize.test.js'
+    16: 'node_modules/fast-uri/test/uri-js-compatibility.test.js'
+    17: 'node_modules/fast-uri/test/uri-js.test.js'
+    18: 'node_modules/fast-uri/test/urn-full-input.test.js'
+    19: 'node_modules/fast-uri/test/util.test.js'
+    20: 'node_modules/fast-uri/test/websocket-query-preservation.test.js'
+    21: 'node_modules/node-pty/lib/eventEmitter2.test.js'
+    22: 'node_modules/node-pty/lib/terminal.test.js'
+    23: 'node_modules/node-pty/lib/testUtils.test.js'
+    24: 'node_modules/node-pty/lib/unixTerminal.test.js'
+    25: 'node_modules/node-pty/lib/windowsPtyAgent.test.js'
+    26: 'node_modules/node-pty/lib/windowsTerminal.test.js'
+  operator: 'deepStrictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/test/mh-l1-package.test.js:49:12)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 0
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 22908.038591
+
+receipt: {"command":["/usr/bin/node","--test","packages/h2a/test/mh-l1-package.test.js"],"code":1,"signal":null,"elapsedMs":22978}

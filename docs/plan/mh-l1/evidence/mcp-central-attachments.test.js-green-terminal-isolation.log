@@ -1,0 +1,38 @@
+command: /usr/bin/node --test --test-name-pattern=R21 (auto|native|local-tmux) wake|R19 manual daemon native packages/h2a/test/mcp-central-attachments.test.js
+private test root: /tmp/mh-l1-test-mS7D03
+TAP version 13
+# Subtest: R21 auto wake inventories and writes only the client native socket with identical session names
+ok 1 - R21 auto wake inventories and writes only the client native socket with identical session names
+  ---
+  duration_ms: 895.759002
+  type: 'test'
+  ...
+# Subtest: R21 native wake inventories and writes only the client native socket with identical session names
+ok 2 - R21 native wake inventories and writes only the client native socket with identical session names
+  ---
+  duration_ms: 931.560286
+  type: 'test'
+  ...
+# Subtest: R21 local-tmux wake inventories and writes only the client native socket with identical session names
+ok 3 - R21 local-tmux wake inventories and writes only the client native socket with identical session names
+  ---
+  duration_ms: 879.85247
+  type: 'test'
+  ...
+# Subtest: R19 manual daemon native launcher context never becomes the target of a client without terminal context
+ok 4 - R19 manual daemon native launcher context never becomes the target of a client without terminal context
+  ---
+  duration_ms: 1765.813858
+  type: 'test'
+  ...
+1..4
+# tests 4
+# suites 0
+# pass 4
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 4744.547023
+
+receipt: {"command":["/usr/bin/node","--test","--test-name-pattern=R21 (auto|native|local-tmux) wake|R19 manual daemon native","packages/h2a/test/mcp-central-attachments.test.js"],"code":0,"signal":null,"elapsedMs":4824}
