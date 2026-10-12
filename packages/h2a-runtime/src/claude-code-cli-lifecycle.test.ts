@@ -242,7 +242,6 @@ describe("claude-code-cli-lifecycle", () => {
       const result = await sweepOrphanSandboxes(rootDir, {
         now: () => now,
         maxAgeMs: staleAge,
-        isProcessAlive: (pid) => pid === process.pid,
       });
 
       expect(result.swept).toBe(1);
@@ -252,6 +251,59 @@ describe("claude-code-cli-lifecycle", () => {
       expect(existsSync(staleDir)).toBe(false);
       expect(existsSync(youngDir)).toBe(true);
       expect(existsSync(liveDir)).toBe(true);
+    });
+
+    it("never deletes runs without valid identity metadata, however old", async () => {
+      const rootDir = join(TEST_SCRATCH, "meta-less-root");
+      mkdirSync(rootDir, { recursive: true });
+
+      // No run-meta.json at all, far past the stale threshold by the clock.
+      const bareDir = join(rootDir, "run-bare");
+      mkdirSync(bareDir, { recursive: true });
+
+      // Corrupt metadata is not identity either.
+      const corruptDir = join(rootDir, "run-corrupt");
+      mkdirSync(corruptDir, { recursive: true });
+      writeFileSync(join(corruptDir, "run-meta.json"), "not-json{{");
+
+      const result = await sweepOrphanSandboxes(rootDir, {
+        now: () => Date.now() + 3_600_000,
+        maxAgeMs: 300_000,
+      });
+
+      expect(result.swept).toBe(0);
+      expect(result.retained).toBe(2);
+      expect(existsSync(bareDir)).toBe(true);
+      expect(existsSync(corruptDir)).toBe(true);
+    });
+
+    it("yields to an active sweeper instead of sweeping concurrently", async () => {
+      const rootDir = join(TEST_SCRATCH, "contended-root");
+      mkdirSync(rootDir, { recursive: true });
+
+      const staleDir = join(rootDir, "run-stale");
+      mkdirSync(staleDir, { recursive: true });
+      writeFileSync(
+        join(staleDir, "run-meta.json"),
+        JSON.stringify({ pid: 999997, createdAt: Date.now() - 600_000 }),
+      );
+
+      // A live sweeper holds the sweep lock.
+      writeFileSync(
+        join(rootDir, ".sweep.lock"),
+        JSON.stringify({
+          pid: process.pid,
+          startTime: readProcessStartTime(process.pid) ?? null,
+          bootId: readBootId() ?? null,
+          acquiredAt: Date.now(),
+          token: "active-sweeper",
+        }),
+      );
+
+      const result = await sweepOrphanSandboxes(rootDir, { maxAgeMs: 300_000 });
+
+      expect(result).toEqual({ swept: 0, retained: 0, skippedAlive: 0 });
+      expect(existsSync(staleDir)).toBe(true);
     });
   });
 });
