@@ -146,13 +146,16 @@ export class OfficialClaudeCodeCliRunner implements ClaudeCodeCliRunner {
     });
     const env = buildIsolatedEnvironment(sandbox);
 
-    // 4. Construct candidate arguments
+    // 4. Construct candidate arguments. No --include-partial-messages:
+    // partial stream_event deltas would duplicate the final assistant
+    // message text. The parser still accepts stream_event envelopes
+    // defensively, but steady state carries each text once via assistant
+    // message.content[].
     const args = [
       "-p",
       "--input-format", "stream-json",
       "--output-format", "stream-json",
       "--verbose",
-      "--include-partial-messages",
       "--no-session-persistence",
       "--setting-sources", "",
       "--settings", sandbox.settingsPath,
@@ -251,70 +254,182 @@ export class OfficialClaudeCodeCliRunner implements ClaudeCodeCliRunner {
       };
       runController.signal.addEventListener("abort", onRunAbort);
 
-      // Stream request NDJSON onto stdin
-      const stdinPayload = JSON.stringify({
-        type: "user",
-        messages: input.request.messages,
-      }) + "\n";
-      child.stdin?.write(stdinPayload);
+      // Stream request NDJSON onto stdin: one stream-json line per message
+      // ({type:"user",message:{role,content}}), the documented --input-format
+      // stream-json shape (binary shows message.role user + content; the
+      // assistant leg is symmetric). Never argv, never env.
+      for (const message of input.request.messages) {
+        const role = message.role === "assistant" ? "assistant" : "user";
+        child.stdin?.write(
+          JSON.stringify({ type: role, message: { role, content: message.content } }) + "\n",
+        );
+      }
       child.stdin?.end();
 
       // Read stdout stream
       let stdoutBuffer = "";
       let totalBytesReceived = 0;
-      let emittedText = "";
       let pendingResult: ClaudeCodeCliEvent | null = null;
+      let terminalSeen = false;
+      let toolUseSeen = false;
+      const partialToolInputs = new Map<number, { id: string; name: string; json: string }>();
+      const blockKinds = new Map<number, string>();
+
+      // Frame shapes of the pinned CLI 2.1.296 --output-format stream-json
+      // (verified statically against the local binary: stream_event x72 with
+      // content_block_start/delta/stop and message_start/delta/stop inner
+      // events, assistant frames carrying message.content[], result frames
+      // carrying subtype/is_error/usage/total_cost_usd; no live call made).
+      // Unknown top-level types, second terminals, and post-terminal frames
+      // are refused: an invented shape is never silently accepted.
+      const failFrame = () => {
+        streamFailed = true;
+        pushQueue({ event: { type: "error" } });
+      };
+
+      const parseAssistantMessage = (message: unknown) => {
+        if (!message || typeof message !== "object") return failFrame();
+        const content = (message as { content?: unknown }).content;
+        if (!Array.isArray(content)) return failFrame();
+        for (const block of content) {
+          if (!block || typeof block !== "object") return failFrame();
+          const typed = block as { type?: unknown; text?: unknown; id?: unknown; name?: unknown; input?: unknown };
+          if (typed.type === "text" && typeof typed.text === "string") {
+            if (typed.text) pushQueue({ event: { type: "text_delta", text: typed.text } });
+          } else if (
+            typed.type === "tool_use" &&
+            typeof typed.id === "string" &&
+            typeof typed.name === "string"
+          ) {
+            toolUseSeen = true;
+            pushQueue({
+              event: { type: "tool_use", id: typed.id, name: typed.name, input: typed.input ?? {} },
+            });
+          } else if (typed.type === "thinking" || typed.type === "redacted_thinking") {
+            // Reasoning traces are never forwarded.
+          } else {
+            return failFrame();
+          }
+        }
+      };
+
+      const parseStreamEvent = (event: unknown) => {
+        if (!event || typeof event !== "object") return failFrame();
+        const inner = event as { type?: unknown; index?: unknown; delta?: unknown; content_block?: unknown };
+        if (inner.type === "content_block_delta") {
+          const delta = inner.delta as { type?: unknown; text?: unknown; partial_json?: unknown } | undefined;
+          const index = typeof inner.index === "number" ? inner.index : -1;
+          if (!delta || typeof delta.type !== "string") return;
+          if (delta.type === "text_delta" && typeof delta.text === "string") {
+            if (delta.text) pushQueue({ event: { type: "text_delta", text: delta.text } });
+          } else if (delta.type === "input_json_delta" && typeof delta.partial_json === "string") {
+            const slot = partialToolInputs.get(index);
+            if (slot) slot.json += delta.partial_json;
+          }
+          // thinking/signature/citation deltas are hints only; the terminal
+          // result frame governs the outcome.
+        } else if (inner.type === "content_block_start") {
+          const block = inner.content_block as { type?: unknown; id?: unknown; name?: unknown } | undefined;
+          const index = typeof inner.index === "number" ? inner.index : -1;
+          if (!block || typeof block.type !== "string" || index < 0) return;
+          blockKinds.set(index, block.type);
+          if (
+            block.type === "tool_use" &&
+            typeof block.id === "string" &&
+            typeof block.name === "string"
+          ) {
+            partialToolInputs.set(index, { id: block.id, name: block.name, json: "" });
+          }
+        } else if (inner.type === "content_block_stop") {
+          const index = typeof inner.index === "number" ? inner.index : -1;
+          const slot = index >= 0 ? partialToolInputs.get(index) : undefined;
+          if (slot) {
+            partialToolInputs.delete(index);
+            // Empty streamed input means no partials were observed (partials
+            // stay off at this seam): the assistant message carries the
+            // complete block, so nothing is emitted here.
+            if (slot.json) {
+              let parsed: unknown;
+              try {
+                parsed = JSON.parse(slot.json);
+              } catch {
+                return failFrame();
+              }
+              toolUseSeen = true;
+              pushQueue({ event: { type: "tool_use", id: slot.id, name: slot.name, input: parsed } });
+            }
+          }
+          if (index >= 0) blockKinds.delete(index);
+        } else if (
+          inner.type === "message_start" ||
+          inner.type === "message_delta" ||
+          inner.type === "message_stop"
+        ) {
+          // Transport bookkeeping (incremental usage lives here); the
+          // terminal result frame carries the canonical outcome.
+        }
+        // Unknown inner SSE events are ignored: they are hints, never the
+        // terminal contract. Unknown TOP-LEVEL types are refused below.
+      };
+
+      const parseResult = (frame: { subtype?: unknown; is_error?: unknown; usage?: unknown }) => {
+        if (terminalSeen) return failFrame();
+        terminalSeen = true;
+        if (frame.subtype !== "success" || frame.is_error === true) {
+          return failFrame();
+        }
+        let usage: { inputTokens?: number; outputTokens?: number } | undefined;
+        if (frame.usage !== undefined) {
+          const raw = frame.usage as { input_tokens?: unknown; output_tokens?: unknown };
+          if (!raw || typeof raw !== "object") return failFrame();
+          usage = {};
+          if (typeof raw.input_tokens === "number") usage.inputTokens = raw.input_tokens;
+          if (typeof raw.output_tokens === "number") usage.outputTokens = raw.output_tokens;
+          if (Object.keys(usage).length === 0) return failFrame();
+        }
+        // Stage pending terminal result: emitted only on exit agreement.
+        pendingResult = {
+          type: "result",
+          finishReason: toolUseSeen ? "tool_calls" : "stop",
+          ...(usage ? { usage } : {}),
+        };
+      };
 
       const parseLine = (line: string) => {
         const trimmed = line.trim();
         if (!trimmed) return;
+        let frame: unknown;
         try {
-          const frame = JSON.parse(trimmed);
-
-          // 1. Text delta / Content frame
-          if (frame.type === "text_delta" && typeof frame.text === "string") {
-            pushQueue({ event: { type: "text_delta", text: frame.text } });
-            emittedText += frame.text;
-          } else if (frame.type === "content_block_delta" && frame.delta?.type === "text_delta" && typeof frame.delta.text === "string") {
-            pushQueue({ event: { type: "text_delta", text: frame.delta.text } });
-            emittedText += frame.delta.text;
-          } else if (frame.type === "assistant" && typeof frame.text === "string") {
-            // Deduplicate partial vs complete: emit only newly added text
-            if (frame.text.startsWith(emittedText)) {
-              const delta = frame.text.slice(emittedText.length);
-              if (delta) {
-                pushQueue({ event: { type: "text_delta", text: delta } });
-                emittedText = frame.text;
-              }
-            }
-          } else if (frame.type === "tool_use" && frame.id && frame.name) {
-            pushQueue({
-              event: {
-                type: "tool_use",
-                id: frame.id,
-                name: frame.name,
-                input: frame.input ?? {},
-              },
-            });
-          } else if (frame.type === "result") {
-            // Stage pending terminal result: must not be emitted before exit agreement
-            const finishReason =
-              frame.finishReason === "tool_calls" || frame.finishReason === "length"
-                ? frame.finishReason
-                : "stop";
-            pendingResult = {
-              type: "result",
-              finishReason,
-              ...(frame.usage ? { usage: frame.usage } : {}),
-            };
-          } else if (frame.type === "error") {
-            streamFailed = true;
-            pushQueue({ event: { type: "error" } });
-          }
+          frame = JSON.parse(trimmed);
         } catch {
           // Malformed frame rejects
-          streamFailed = true;
-          pushQueue({ event: { type: "error" } });
+          failFrame();
+          return;
+        }
+        if (!frame || typeof frame !== "object") {
+          failFrame();
+          return;
+        }
+        const typed = frame as { type?: unknown; message?: unknown; event?: unknown };
+        if (terminalSeen) {
+          // No frame of any kind is legal after the terminal result.
+          failFrame();
+          return;
+        }
+        if (typed.type === "system") {
+          // Lifecycle frames (init/status): validated as known, never forwarded.
+          return;
+        } else if (typed.type === "assistant") {
+          parseAssistantMessage(typed.message);
+        } else if (typed.type === "stream_event") {
+          parseStreamEvent(typed.event);
+        } else if (typed.type === "result") {
+          parseResult(typed as { subtype?: unknown; is_error?: unknown; usage?: unknown });
+        } else if (typed.type === "error") {
+          failFrame();
+        } else {
+          // Unknown top-level frame (including invented delta shapes): refuse.
+          failFrame();
         }
       };
 
