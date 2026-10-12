@@ -2257,7 +2257,7 @@ async function injectLlmMeshGatewayEnv(
     delete process.env.ANTHROPIC_AUTH_TOKEN;
     if (mode === "gateway") {
       throw new Error(
-        "llm-mesh gateway is required but unavailable; no agent was started. Run `h2a llm-mesh start` or `h2a llm-mesh account enroll codex|cloud-code|muse` first",
+        "llm-mesh gateway is required but unavailable; no agent was started. Run `h2a llm-mesh start` or `h2a llm-mesh account enroll codex|cloud-code|muse|claude-code` first",
       );
     }
     if (allowDirectFallback) {
@@ -2381,7 +2381,7 @@ export async function prepareStructuredGateway(
   const gateway = await inject(mode);
   if (mode === "gateway" && !gateway) {
     throw new Error(
-      "llm-mesh gateway is required but unavailable; no agent was started. Run `h2a llm-mesh start` or `h2a llm-mesh account enroll codex|cloud-code|muse` first",
+      "llm-mesh gateway is required but unavailable; no agent was started. Run `h2a llm-mesh start` or `h2a llm-mesh account enroll codex|cloud-code|muse|claude-code` first",
     );
   }
   return gateway;
@@ -10666,13 +10666,18 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
     .command("enroll <provider>")
     .description(
       "Enroll through the sentropic-owned OAuth state machine " +
-        "(cloud-code, codex, muse OAuth device flow, or mistral-vibe browser sign-in — alias: vibe). " +
-        "--cli imports credentials from the provider's local CLI store instead (muse only)",
+        "(cloud-code, codex, muse OAuth device flow, mistral-vibe browser sign-in — alias: vibe, or claude-code). " +
+        "--cli imports credentials from the provider's local CLI store instead (muse only). " +
+        "--credential-import imports a renewable credential JSON into llm-mesh (claude-code only)",
     )
     .option("--config-ref <ref>", "sentropic configuration reference for OAuth")
     .option(
       "--cli",
       "import credentials from the provider's local CLI store (muse only) instead of the OAuth flow",
+    )
+    .option(
+      "--credential-import",
+      "import a renewable credential JSON into llm-mesh (claude-code only) instead of the OAuth flow",
     )
     .action(
       async (
@@ -10680,6 +10685,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         opts: {
           configRef?: string;
           cli?: boolean;
+          credentialImport?: boolean;
         },
       ) => {
         // "vibe" is the CLI-friendly alias of the mistral-vibe transport.
@@ -10695,15 +10701,38 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           process.exitCode = 1;
           return;
         }
+        if (opts.cli && opts.credentialImport) {
+          process.stderr.write(
+            "[h2a] llm-mesh account: --cli and --credential-import cannot be combined\n",
+          );
+          process.exitCode = 1;
+          return;
+        }
+        if (opts.cli && normalized !== "muse") {
+          process.stderr.write(
+            `[h2a] llm-mesh account: provider "${provider}" has no CLI-store import; ` +
+              "--cli is only valid for providers with a local CLI import (muse)\n",
+          );
+          process.exitCode = 1;
+          return;
+        }
+        if (opts.credentialImport && normalized !== "claude-code") {
+          process.stderr.write(
+            `[h2a] llm-mesh account: --credential-import is only valid for claude-code\n`,
+          );
+          process.exitCode = 1;
+          return;
+        }
         if (
           normalized !== "cloud-code" &&
           normalized !== "codex" &&
           normalized !== "muse" &&
-          normalized !== "mistral-vibe"
+          normalized !== "mistral-vibe" &&
+          normalized !== "claude-code"
         ) {
           process.stderr.write(
             `[h2a] llm-mesh account: unsupported provider "${provider}". ` +
-              "Supported: cloud-code, codex, muse (OAuth; --cli imports the CLI store), mistral-vibe (alias: vibe)\n",
+              "Supported: cloud-code, codex, muse (OAuth; --cli imports the CLI store), mistral-vibe (alias: vibe), claude-code (OAuth; --credential-import)\n",
           );
           process.exitCode = 1;
           return;
@@ -10712,6 +10741,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           const account = await enrollViaFacade(normalized, {
             ...(opts.configRef ? { configRef: opts.configRef } : {}),
             ...(opts.cli ? { cliImport: true } : {}),
+            ...(opts.credentialImport ? { credentialImport: true } : {}),
           });
           process.stdout.write(
             `[h2a] llm-mesh account: enrolled ${account.provider}; ` +
