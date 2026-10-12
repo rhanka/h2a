@@ -28,7 +28,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { discoverSuites, readInventory, verifyExecutionReport, inventoryFailures } from "./test-execution-evidence.mjs";
-import { policyFor } from "./test-inventory.mjs";
+import { policyFor, readDeclaredNonTests } from "./test-inventory.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 export const REPO_ROOT = resolve(HERE, "..");
@@ -93,6 +93,14 @@ export function listNodeTrackSuiteFiles() {
   if (!track.length) return [];
   const files = [...discoverTestFiles().map((file) => join(REPO_ROOT, file)), ...track];
   const inventory = Object.fromEntries(Object.entries(readInventory(REPO_ROOT)).filter(([file]) => !file.startsWith("packages/h2a-runtime/src/")));
+  // Removing an entire declared non-test file must not remove its identities
+  // from the required execution scope unnoticed.
+  const nonTestFiles = Object.fromEntries(readDeclaredNonTests(REPO_ROOT).map(entry => [entry.file, []]));
+  const missingNonTests = inventoryFailures(REPO_ROOT, nonTestFiles, files);
+  if (missingNonTests.length) {
+    process.stderr.write(missingNonTests.map(f => f.replace('normative suite missing', 'declared non-test suite disappeared')).join("\n") + "\n");
+    return [];
+  }
   return inventoryFailures(REPO_ROOT, inventory, files).length ? [] : files;
 }
 export function verifyNodeTrackExecution(report, requiredFiles) {
@@ -325,6 +333,7 @@ function main() {
     };
     const holes = verifyNodeTrackExecution(combined, required);
     if (holes.length) process.stderr.write(holes.join("\n") + "\n");
+    else process.stdout.write(`RC 0.98.6: ${readDeclaredNonTests(REPO_ROOT).length} declared non-tests observed at their exact expected statuses; not claimed as coverage.\n`);
     const reportPath = process.env.H2A_TEST_REPORT_PATH ?? NODE_TRACK_EXECUTION_REPORT;
     mkdirSync(dirname(reportPath), { recursive: true });
     writeFileSync(reportPath, JSON.stringify(combined));
