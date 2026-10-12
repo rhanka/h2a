@@ -1,4 +1,5 @@
-import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { spawn } from "node:child_process";
@@ -9,6 +10,14 @@ import {
   reapProcessTree,
   sweepOrphanSandboxes,
 } from "./claude-code-cli-lifecycle.js";
+import { readBootId, readProcessStartTime } from "./proc-identity.js";
+
+// Mirrors the lock filename scheme in claude-code-cli-lifecycle.ts.
+const lockPathFor = (lockDir: string, ownerScope: string, accountId: string) =>
+  join(
+    lockDir,
+    `${createHash("sha256").update(`${ownerScope}:${accountId}`).digest("hex").slice(0, 32)}.lock`,
+  );
 
 const TEST_SCRATCH = join(tmpdir(), "h2a-claude-lifecycle-test-" + Date.now());
 
@@ -51,6 +60,81 @@ describe("claude-code-cli-lifecycle", () => {
       });
       expect(lease2).toBeDefined();
       await lease2.release();
+    });
+
+    it("keeps a live holder's lock file intact when a waiter times out", async () => {
+      const lockDir = join(TEST_SCRATCH, "locks-intact");
+      const lease1 = await acquireClaudeAccountLease("owner-a", "acct-1", {
+        lockDir,
+        timeoutMs: 1000,
+      });
+      const lockFile = lockPathFor(lockDir, "owner-a", "acct-1");
+      const before = JSON.parse(readFileSync(lockFile, "utf8"));
+
+      await expect(
+        acquireClaudeAccountLease("owner-a", "acct-1", { lockDir, timeoutMs: 150 }),
+      ).rejects.toThrow("Claude account busy");
+
+      expect(JSON.parse(readFileSync(lockFile, "utf8"))).toEqual(before);
+      await lease1.release();
+      expect(existsSync(lockFile)).toBe(false);
+    });
+
+    it("reclaims a holder proven dead by start-time identity despite a live pid", async () => {
+      const lockDir = join(TEST_SCRATCH, "locks-reclaim");
+      mkdirSync(lockDir, { recursive: true });
+      const lockFile = lockPathFor(lockDir, "owner-a", "acct-1");
+      const liveStartTime = readProcessStartTime(process.pid);
+      if (liveStartTime === undefined) return; // No /proc identity: fail-closed wait is correct there.
+      // A live pid carrying a foreign start-time is a recycled pid: dead holder.
+      writeFileSync(
+        lockFile,
+        JSON.stringify({
+          pid: process.pid,
+          startTime: liveStartTime + 1_000_000,
+          bootId: readBootId() ?? null,
+          ownerScope: "owner-a",
+          accountId: "acct-1",
+          acquiredAt: Date.now(),
+          token: "stale-foreign-claim",
+        }),
+      );
+
+      const lease = await acquireClaudeAccountLease("owner-a", "acct-1", {
+        lockDir,
+        timeoutMs: 2000,
+      });
+      expect(lease.ownerScope).toBe("owner-a");
+      const current = JSON.parse(readFileSync(lockFile, "utf8"));
+      expect(current.token).not.toBe("stale-foreign-claim");
+      await lease.release();
+    });
+
+    it("release never deletes a successor's fresh lock file", async () => {
+      const lockDir = join(TEST_SCRATCH, "locks-successor");
+      const lease1 = await acquireClaudeAccountLease("owner-a", "acct-1", {
+        lockDir,
+        timeoutMs: 1000,
+      });
+      const lockFile = lockPathFor(lockDir, "owner-a", "acct-1");
+
+      // A successor claim lands (as after a reclaim race): release must keep it.
+      writeFileSync(
+        lockFile,
+        JSON.stringify({
+          pid: process.pid,
+          startTime: readProcessStartTime(process.pid) ?? null,
+          bootId: readBootId() ?? null,
+          ownerScope: "owner-a",
+          accountId: "acct-1",
+          acquiredAt: Date.now(),
+          token: "successor-claim",
+        }),
+      );
+      await lease1.release();
+
+      expect(existsSync(lockFile)).toBe(true);
+      expect(JSON.parse(readFileSync(lockFile, "utf8")).token).toBe("successor-claim");
     });
 
     it("allows concurrent leases for different accounts", async () => {

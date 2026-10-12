@@ -15,10 +15,11 @@ import {
   unlinkSync,
   writeFileSync,
 } from "node:fs";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { resolvePrivateRuntimeRoot } from "./claude-code-cli-isolation.js";
+import { readBootId, readMachineId, readPidNamespaceId, readProcessStartTime } from "./proc-identity.js";
 
 export const DEFAULT_LEASE_TIMEOUT_MS = 30_000; // 30 seconds
 export const DEFAULT_ORPHAN_STALE_AFTER_MS = 5 * 60 * 1000; // 5 minutes
@@ -45,9 +46,76 @@ function resolveLockDirectory(customDir?: string): string {
   return dir;
 }
 
+export interface ClaudeLockHolderRecord {
+  readonly pid?: unknown;
+  readonly startTime?: unknown;
+  readonly bootId?: unknown;
+  readonly pidNamespace?: unknown;
+  readonly machineId?: unknown;
+}
+
+/**
+ * Prove a recorded holder dead. PID presence alone proves nothing across
+ * PID reuse: a live pid with a mismatched start-time is a different process
+ * (reclaim), a mismatched boot id means a reboot happened (reclaim), and an
+ * ESRCH signal check means the process is gone (reclaim). Anything
+ * unprovable — EPERM liveness, unreadable identity, foreign namespace or
+ * machine sharing this directory — fails closed as alive (wait, never
+ * reclaim), so a live holder can never lose its lock to a waiter.
+ */
+function isRecordedHolderProvenDead(holder: ClaudeLockHolderRecord): boolean {
+  if (!holder || typeof holder !== "object") return false;
+  if (typeof holder.pid !== "number" || !Number.isInteger(holder.pid) || holder.pid <= 0) {
+    return false;
+  }
+  const liveNamespace = readPidNamespaceId();
+  if (
+    typeof holder.pidNamespace === "string" &&
+    liveNamespace !== undefined &&
+    holder.pidNamespace !== liveNamespace
+  ) {
+    return false;
+  }
+  const liveMachine = readMachineId();
+  if (
+    typeof holder.machineId === "string" &&
+    liveMachine !== undefined &&
+    holder.machineId !== liveMachine
+  ) {
+    return false;
+  }
+  try {
+    process.kill(holder.pid, 0);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ESRCH") return true;
+    return false;
+  }
+  const liveStartTime = readProcessStartTime(holder.pid);
+  if (
+    typeof holder.startTime === "number" &&
+    liveStartTime !== undefined &&
+    liveStartTime !== holder.startTime
+  ) {
+    return true;
+  }
+  const liveBootId = readBootId();
+  if (
+    typeof holder.bootId === "string" &&
+    liveBootId !== undefined &&
+    liveBootId !== holder.bootId
+  ) {
+    return true;
+  }
+  return false;
+}
+
 /**
  * Acquire exclusive in-process and cross-process lock for ownerScope:accountId.
  * Timeout after 30 seconds with a static busy error if cannot be acquired.
+ * The lock file carries a random claim token plus pid/start-time/boot
+ * identity: a waiter reclaims only a holder proven dead (never a live one,
+ * never on PID reuse), verifies it still owns the file after creation, and
+ * release deletes only its own claim.
  */
 export async function acquireClaudeAccountLease(
   ownerScope: string,
@@ -101,6 +169,31 @@ export async function acquireClaudeAccountLease(
   }
 
   // 2. Cross-process file lock with remaining timeout budget
+  const claimToken = randomUUID();
+  const readHolder = (): ClaudeLockHolderRecord | null => {
+    try {
+      const parsed: unknown = JSON.parse(readFileSync(lockFile, "utf8"));
+      if (!parsed || typeof parsed !== "object") return null;
+      return parsed as ClaudeLockHolderRecord;
+    } catch {
+      return null;
+    }
+  };
+  const writeClaim = (targetFd: number) => {
+    const lockPayload = JSON.stringify({
+      pid: process.pid,
+      startTime: readProcessStartTime(process.pid) ?? null,
+      bootId: readBootId() ?? null,
+      pidNamespace: readPidNamespaceId() ?? null,
+      machineId: readMachineId() ?? null,
+      ownerScope,
+      accountId,
+      acquiredAt: nowFn(),
+      token: claimToken,
+    });
+    writeFileSync(targetFd, lockPayload);
+  };
+
   let fd: number | null = null;
   while (true) {
     const elapsed = nowFn() - startTime;
@@ -118,39 +211,46 @@ export async function acquireClaudeAccountLease(
         constants.O_CREAT | constants.O_EXCL | constants.O_RDWR,
         0o600,
       );
-      // Write lock metadata (PID and acquisition timestamp)
-      const lockPayload = JSON.stringify({
-        pid: process.pid,
-        ownerScope,
-        accountId,
-        acquiredAt: nowFn(),
-      });
-      writeFileSync(fd, lockPayload);
+      writeClaim(fd);
+      // Read-back: prove this waiter still owns the file it just created.
+      // A concurrent reclaimer that replaced the file between creation and
+      // this read owns it instead; back off and wait on its live claim.
+      const back = readHolder() as { token?: unknown } | null;
+      if (!back || back.token !== claimToken) {
+        try {
+          if (fd !== null) {
+            closeSync(fd);
+            fd = null;
+          }
+        } catch {
+          // Best effort
+        }
+        await new Promise((r) => setTimeout(r, 100));
+        continue;
+      }
       break;
     } catch (err: unknown) {
       const code = (err as NodeJS.ErrnoException).code;
       if (code === "EEXIST") {
-        // Lockfile exists, check if holder process is dead
-        try {
-          const content = readFileSync(lockFile, "utf8");
-          const holder = JSON.parse(content);
-          if (holder && typeof holder.pid === "number") {
+        const holder = readHolder();
+        if (holder && isRecordedHolderProvenDead(holder)) {
+          // Re-read before unlink: never delete a file that changed under
+          // this waiter (a fresh claim may have landed since the first read).
+          const fresh = readHolder();
+          if (
+            fresh &&
+            JSON.stringify(fresh) === JSON.stringify(holder)
+          ) {
             try {
-              process.kill(holder.pid, 0); // Check if process is alive
-            } catch (killErr: unknown) {
-              const killCode = (killErr as NodeJS.ErrnoException).code;
-              if (killCode === "ESRCH") {
-                // Holder is dead, reclaim lockfile
-                unlinkSync(lockFile);
-                continue;
-              }
+              unlinkSync(lockFile);
+            } catch {
+              // Lost the race; the loop re-reads.
             }
           }
-        } catch {
-          // If unreadable or corrupted, retry shortly
+          continue;
         }
 
-        // Wait 100ms before retrying
+        // Live holder, unprovable holder, or unreadable file: wait.
         await new Promise((r) => setTimeout(r, 100));
         continue;
       }
@@ -179,7 +279,9 @@ export async function acquireClaudeAccountLease(
         // Best effort
       }
       try {
-        if (existsSync(lockFile)) {
+        // Delete only our own claim: a successor's fresh lock is never ours.
+        const current = readHolder() as { token?: unknown } | null;
+        if (current && current.token === claimToken && existsSync(lockFile)) {
           unlinkSync(lockFile);
         }
       } catch {
