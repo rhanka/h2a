@@ -94,7 +94,7 @@ format changed; do not replace keyrings or restore an expired bearer. Relaunch
 only the selected native sessions that need to acquire a fresh bearer, then
 compare the same public inventory and configuration recorded before migration.
 
-## Claude seat accounts (0.98.5+)
+## Claude seat accounts (unreleased — enrollment only)
 
 Claude subscription accounts are supported as owner-scoped `llm-mesh` seats.
 
@@ -106,7 +106,7 @@ Enrollment is available through two canonical CLI paths:
    ```sh
    h2a llm-mesh account enroll claude-code
    ```
-   Opens the Claude authorization URL in the local browser. The returned `<code>#<state>` string is entered via a trusted masked local terminal prompt that disables echo and command history.
+   Opens the Claude authorization URL in the local browser. The returned `<code>#<state>` string is entered via a trusted masked local terminal prompt that disables echo. Set `H2A_NO_BROWSER=1` to skip the browser opener entirely (no authorization URL in process arguments) and complete the flow at the prompt.
 
 2. **Renewable credential import:**
    ```sh
@@ -131,5 +131,7 @@ Current operational status: **enrollment only / execution not-covered** until in
 
 - **Pre-acquire lease integration gate (Section 3A):** llm-mesh 0.25.0 constructs its account directory internally without an outer pre-acquire lease seam. Seat gateway serving remains halted until an additive seam is delivered in mesh.
 - **One-message capability scope:** The initial qualified serving outcome covers one user text message and streamed response through the official pinned CLI (`protocol: 'claude-code-stream-json-v1'`).
-- **History and tools:** Multi-turn history and callable tools remain unproven and `not-covered`.
-- **Zero child refresh & network boundary:** Egress is strictly limited to candidate-qualified inference destinations (`api.anthropic.com`); OAuth endpoints and all child/descendant refresh attempts are blocked.
+- **History:** Multi-turn history remains unproven and `not-covered`.
+- **Zero child refresh & network boundary:** the projected credential carries access material only (no refresh token); a child that fails with an inference error is never retried and never refreshed by the runner — rotation stays a mesh-side parent operation.
+- **Seat spawn preconditions (fail closed):** no spawn without an owner attestation of enforced inference-only egress plus the out-of-band `H2A_CLAUDE_EGRESS_ENFORCED=1` switch; the pinned CLI fingerprint and digest-bound qualification are mandatory; spawn is refused while admin managed-settings exist. The runner inherits no parent `PATH` (fixed minimal value scoped to the binary directory).
+- **History and tools:** multi-turn history remains unproven and `not-covered`. Callable tools are implemented against the pinned CLI contract but unqualified end-to-end; the runner passes `--permission-mode dontAsk` (never `--dangerously-skip-permissions`).
