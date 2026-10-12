@@ -61,6 +61,7 @@ describe("claude-code-cli-tools", () => {
     binaryPath: PINNED_TEST_BINARY,
     expectedDigest: PINNED_TEST_DIGEST,
     egressEnforcement: { mechanism: "test-host-firewall", inferenceHost: "api.anthropic.com" },
+    managedSettingsPaths: [] as readonly string[],
   };
 
   const toolRequest: ClaudeCodeCliRequest = {
