@@ -14,7 +14,9 @@ if (shortQualificationRoot !== undefined) {
   assert.ok(info.isDirectory() && !info.isSymbolicLink() && info.uid === process.getuid() && (info.mode & 0o777) === 0o700,
     "REFUSING non-private short qualification root");
 }
-export const nativeQualificationRoot = shortQualificationRoot ?? resolve(import.meta.dirname, "../../../../.qual-tmp");
+// The repo default must also fit the historical host's longer staging name,
+// including a mkdtemp suffix and seven-digit PID in deeply nested worktrees.
+export const nativeQualificationRoot = shortQualificationRoot ?? resolve(import.meta.dirname, "../../../../.q");
 
 function rejectOwnerPath(path) {
   assert.ok(path !== "/home/antoinefa" && ![
@@ -227,6 +229,16 @@ function registerPrivateProcess(pid, env, replace = false) {
   };
 }
 
+// For children launched outside node:child_process (PTYs/tmux), the test must
+// call this with the PID returned by its own launcher, after the child is ready.
+// Keep the pin in the surviving test process: a SIGKILL cannot run the child's
+// exit hook, and its self-held /proc descriptor becomes inaccessible at death.
+// Release only after waitForPrivateNativeProcesses proves the pinned child dead.
+export function pinPrivateNativeProcess(pid, env = process.env) {
+  assertIsolatedEnvironment(env);
+  return registerPrivateProcess(pid, privateProcessEnvironment(env), true);
+}
+
 export function installNativeTestSpawnGuard() {
   const prototype = childProcess.ChildProcess.prototype;
   if (prototype[guardInstalled]) return;
@@ -270,13 +282,20 @@ export function installNativeTestSpawnGuard() {
   process.once("beforeExit", failUnexpected);
   process.once("exit", failUnexpected);
   const actualRealpath = fs.realpathSync;
-  fs.realpathSync = function (path, ...args) {
+  function guardRealpath(path) {
     // Defense in depth for malformed process fixtures: never canonicalize an
     // external candidate, even if a fixture accidentally names one. The
     // production scanner receives its normal fs implementation outside tests.
     if (new Error().stack?.match(/native-terminal[/\\]server\.[jt]s/))
       assertPrivateQualificationPath(String(path), nativeQualificationRoot);
+  }
+  fs.realpathSync = function (path, ...args) {
+    guardRealpath(path);
     return actualRealpath(path, ...args);
+  };
+  fs.realpathSync.native = function (path, ...args) {
+    guardRealpath(path);
+    return actualRealpath.native(path, ...args);
   };
   syncBuiltinESMExports();
 }

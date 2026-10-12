@@ -3,11 +3,11 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import { syncBuiltinESMExports } from "node:module";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import test from "node:test";
-import { createPrivateTestDirectory, assertIsolatedEnvironment, nativeTestEnvironment, spawnIsolatedNative } from "./helpers/native-isolation.js";
+import { createPrivateTestDirectory, assertIsolatedEnvironment, nativeQualificationRoot, nativeTestEnvironment, spawnIsolatedNative } from "./helpers/native-isolation.js";
 
-const qualRoot = resolve(import.meta.dirname, "../../../.qual-tmp");
+const qualRoot = nativeQualificationRoot;
 const keys = ["HOME", "XDG_RUNTIME_DIR", "XDG_STATE_HOME", "XDG_CONFIG_HOME", "H2A_NATIVE_SOCKET"];
 
 test("should provision and dispose a private suite without using inherited owner paths", () => {
@@ -87,4 +87,12 @@ test("should refuse direct paths and aliases before inspecting metadata outside 
     fs.lstatSync = original; syncBuiltinESMExports();
     rmSync(root, { recursive: true, force: true }); rmSync(outside, { recursive: true, force: true });
   }
+});
+
+test("should leave room for the historical staging socket and a seven-digit child PID", () => {
+  const root = createPrivateTestDirectory("g");
+  try {
+    const staging = join(root, "h2a-nt", ".native-terminal.sock.9999999.12345678.sock");
+    assert.ok(Buffer.byteLength(staging) <= 107, `historical staging exceeds AF_UNIX: ${staging}`);
+  } finally { rmSync(root, { recursive: true, force: true }); }
 });

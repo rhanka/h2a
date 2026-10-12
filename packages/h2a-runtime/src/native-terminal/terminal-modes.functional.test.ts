@@ -1,5 +1,5 @@
 // @ts-ignore Shared JS test isolation helper.
-import { isolatedNativeTestEnvironment, spawnIsolatedNative as spawn, spawnSyncIsolatedNative as spawnSync, setupNativeTestEnvironment } from "../../../h2a/test/helpers/native-isolation.js";
+import { isolatedNativeTestEnvironment, pinPrivateNativeProcess, spawnIsolatedNative as spawn, spawnSyncIsolatedNative as spawnSync, setupNativeTestEnvironment, waitForPrivateNativeProcesses } from "../../../h2a/test/helpers/native-isolation.js";
 setupNativeTestEnvironment(afterAll);
 import type { ChildProcess } from "node:child_process";
 import { once } from "node:events";
@@ -24,6 +24,7 @@ const terminals = new Set<NodePty.IPty>();
 const directories = new Set<string>();
 const supervisors = new Set<NativeTerminalHostSupervisor>();
 const tmuxSockets = new Set<string>();
+const processPins = new Set<() => void>();
 
 afterEach(async () => {
   for (const terminal of terminals) terminal.kill("SIGKILL");
@@ -40,6 +41,9 @@ afterEach(async () => {
     }
   }
   children.clear();
+  await waitForPrivateNativeProcesses(process.env);
+  for (const release of processPins) release();
+  processPins.clear();
   for (const directory of directories) await rm(directory, { recursive: true, force: true });
   directories.clear();
 });
@@ -253,6 +257,11 @@ describe.skipIf(process.platform !== "linux")("native attach terminal modes on r
       terminal.onData((data) => { output += data; });
       terminal.onExit(() => { ended = true; terminals.delete(terminal); });
       await until(() => output.includes("tmux-mode-ready"));
+      const pane = spawnSync("tmux", ["-S", socket, "display-message", "-p", "-t", "modes", "#{pane_pid}"],
+        { env, encoding: "utf8" });
+      expect(pane.status, pane.stderr).toBe(0);
+      expect(pane.stdout.trim()).toMatch(/^[1-9]\d*$/);
+      processPins.add(pinPrivateNativeProcess(Number(pane.stdout.trim()), env));
       terminal.write("\x02d");
       await until(() => ended);
       expect(output).toContain("\x1b[?1049h");
