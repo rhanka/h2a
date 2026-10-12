@@ -167,6 +167,12 @@ jobs:
           npx --no-install vitest run
           packages/h2a-runtime/src/llm-mesh-accounts.test.ts
           packages/h2a-runtime/src/claude-seat-input.test.ts
+          packages/h2a-runtime/src/claude-code-cli-runner.test.ts
+          packages/h2a-runtime/src/claude-code-cli-isolation.test.ts
+          packages/h2a-runtime/src/claude-code-cli-lifecycle.test.ts
+          packages/h2a-runtime/src/claude-code-cli-tools.test.ts
+          packages/h2a-runtime/src/claude-code-cli-refresh-probe.test.ts
+          packages/h2a-runtime/src/gateway-host/claude-code-seat-wiring.test.ts
           packages/h2a-runtime/src/gateway-host/daemon.test.ts
           packages/h2a-runtime/src/gateway-host/daemon-lifecycle.test.ts
           packages/h2a-runtime/src/gateway-host/config-file.test.ts

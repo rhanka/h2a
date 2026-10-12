@@ -1,0 +1,256 @@
+/**
+ * Claude Code CLI isolation: private filesystem root, clean environment,
+ * exclusive credential creation, and default-deny inference-only egress.
+ */
+import {
+  closeSync,
+  constants,
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
+import { randomUUID } from "node:crypto";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+import type { ClaudeCodeAccessProjection } from "@sentropic/llm-mesh";
+
+export interface ClaudeRunSandbox {
+  readonly runId: string;
+  readonly runDir: string;
+  readonly homeDir: string;
+  readonly configDir: string;
+  readonly cwdDir: string;
+  readonly tmpDir: string;
+  readonly credentialPath: string;
+  readonly settingsPath: string;
+  readonly mcpConfigPath: string;
+}
+
+export const ALLOWED_ENV_VARS = [
+  "PATH",
+  "LANG",
+  "LC_ALL",
+  "HOME",
+  "TMPDIR",
+  "XDG_CONFIG_HOME",
+  "CLAUDE_CONFIG_DIR",
+] as const;
+
+export const DEFAULT_INFERENCE_HOST = "api.anthropic.com";
+export const BLOCKED_AUTH_HOSTS = [
+  "platform.claude.com",
+  "claude.com",
+  "claude.ai",
+  "accounts.google.com",
+  "auth.meta.com",
+] as const;
+
+/**
+ * Resolve the dedicated private runtime root outside workspaces and backups.
+ * Prefers /dev/shm if present and writable tmpfs, else isolated dir in tmpdir().
+ */
+export function resolvePrivateRuntimeRoot(customRoot?: string): string {
+  if (customRoot) {
+    mkdirSync(customRoot, { recursive: true, mode: 0o700 });
+    return customRoot;
+  }
+  if (process.platform === "linux" && existsSync("/dev/shm")) {
+    try {
+      const shmDir = join("/dev/shm", ".h2a-claude-runtime");
+      mkdirSync(shmDir, { recursive: true, mode: 0o700 });
+      return shmDir;
+    } catch {
+      // Fall through to tmpdir
+    }
+  }
+  const defaultDir = join(tmpdir(), ".h2a-claude-runtime");
+  mkdirSync(defaultDir, { recursive: true, mode: 0o700 });
+  return defaultDir;
+}
+
+/**
+ * Creates isolated 0700 run/config/home/cwd directories and an exclusive 0600 .credentials.json.
+ * Writes access token only; real provider expiry preserved; NO refresh token.
+ */
+export function createClaudeRunSandbox(options: {
+  readonly access: ClaudeCodeAccessProjection;
+  readonly runId?: string;
+  readonly rootDir?: string;
+}): ClaudeRunSandbox {
+  const runId = options.runId ?? `run_${randomUUID().replace(/-/g, "")}`;
+  const root = resolvePrivateRuntimeRoot(options.rootDir);
+  const runDir = join(root, runId);
+
+  // 0700 private run directory
+  mkdirSync(runDir, { recursive: true, mode: 0o700 });
+
+  const homeDir = join(runDir, "home");
+  const configDir = join(runDir, "config");
+  const cwdDir = join(runDir, "cwd");
+  const tmpDir = join(runDir, "tmp");
+
+  mkdirSync(homeDir, { recursive: true, mode: 0o700 });
+  mkdirSync(configDir, { recursive: true, mode: 0o700 });
+  mkdirSync(cwdDir, { recursive: true, mode: 0o700 });
+  mkdirSync(tmpDir, { recursive: true, mode: 0o700 });
+
+  const settingsPath = join(configDir, "settings.json");
+  const mcpConfigPath = join(configDir, "mcp-config.json");
+  writeFileSync(settingsPath, JSON.stringify({}), { mode: 0o600 });
+  writeFileSync(mcpConfigPath, JSON.stringify({ mcpServers: {} }), { mode: 0o600 });
+
+  const credentialPath = join(configDir, ".credentials.json");
+
+  // Exclusive, no-follow creation (O_CREAT | O_EXCL | O_WRONLY | O_NOFOLLOW)
+  const openFlags =
+    constants.O_CREAT |
+    constants.O_EXCL |
+    constants.O_WRONLY |
+    (constants.O_NOFOLLOW ?? 0);
+
+  const fd = openSync(credentialPath, openFlags, 0o600);
+  try {
+    const credentialPayload = JSON.stringify({
+      claudeAiOauth: {
+        accessToken: options.access.accessToken,
+        expiresAt: options.access.expiresAt,
+        scopes: [...options.access.scopes],
+      },
+    });
+    writeFileSync(fd, credentialPayload, { encoding: "utf8" });
+  } finally {
+    closeSync(fd);
+  }
+
+  // Verify ownership and permissions: must not be a symlink
+  const lstat = lstatSync(credentialPath);
+  if (lstat.isSymbolicLink()) {
+    rmSync(runDir, { recursive: true, force: true });
+    throw new Error("Credential file must not be a symbolic link");
+  }
+
+  return {
+    runId,
+    runDir,
+    homeDir,
+    configDir,
+    cwdDir,
+    tmpDir,
+    credentialPath,
+    settingsPath,
+    mcpConfigPath,
+  };
+}
+
+/**
+ * Construct an environment allowlist; strips all ambient auth, proxies, traces, and overrides.
+ */
+export function buildIsolatedEnvironment(
+  sandbox: ClaudeRunSandbox,
+  baseEnv: NodeJS.ProcessEnv = process.env,
+): Record<string, string> {
+  const safeEnv: Record<string, string> = {
+    PATH: baseEnv.PATH ?? "/usr/local/bin:/usr/bin:/bin",
+    LANG: baseEnv.LANG ?? "C.UTF-8",
+    LC_ALL: baseEnv.LC_ALL ?? "C.UTF-8",
+    HOME: sandbox.homeDir,
+    TMPDIR: sandbox.tmpDir,
+    XDG_CONFIG_HOME: sandbox.configDir,
+    CLAUDE_CONFIG_DIR: sandbox.configDir,
+  };
+
+  return safeEnv;
+}
+
+/**
+ * Verify that the child process did not rewrite credentials, change auth, or write back a refresh token.
+ */
+export function verifyCredentialNotRewritten(
+  sandbox: ClaudeRunSandbox,
+  expectedAccess: ClaudeCodeAccessProjection,
+): boolean {
+  if (!existsSync(sandbox.credentialPath)) {
+    return false;
+  }
+  const lstat = lstatSync(sandbox.credentialPath);
+  if (lstat.isSymbolicLink()) {
+    return false;
+  }
+
+  try {
+    const raw = readFileSync(sandbox.credentialPath, "utf8");
+    const parsed = JSON.parse(raw);
+    const oauth = parsed?.claudeAiOauth;
+    if (!oauth || typeof oauth !== "object") return false;
+
+    // No refresh token allowed
+    if ("refreshToken" in oauth || "refresh_token" in oauth) return false;
+
+    // Must match expected access material
+    if (oauth.accessToken !== expectedAccess.accessToken) return false;
+    if (oauth.expiresAt !== expectedAccess.expiresAt) return false;
+
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Content-blind cleanup of the dedicated sandbox directory without following symlinks.
+ */
+export function cleanClaudeRunSandbox(sandbox: ClaudeRunSandbox): void {
+  try {
+    if (existsSync(sandbox.runDir)) {
+      rmSync(sandbox.runDir, { recursive: true, force: true });
+    }
+  } catch {
+    // Best-effort cleanup
+  }
+}
+
+/**
+ * Enforce default-deny egress: permits ONLY candidate-qualified inference endpoint.
+ * Denies OAuth token endpoint, alternate auth origins, IP literals, and proxies.
+ */
+export function checkEgressAllowed(
+  destinationUrl: string,
+  allowedInferenceHost = DEFAULT_INFERENCE_HOST,
+): { allowed: boolean; reason?: string } {
+  let url: URL;
+  try {
+    url = new URL(destinationUrl);
+  } catch {
+    return { allowed: false, reason: "invalid_url" };
+  }
+
+  if (url.protocol !== "https:") {
+    return { allowed: false, reason: "non_https_egress_denied" };
+  }
+
+  const hostname = url.hostname.toLowerCase();
+
+  // Deny IP address literals (IPv4 / IPv6)
+  if (/^(\d{1,3}\.){3}\d{1,3}$/.test(hostname) || hostname.startsWith("[") || hostname.includes(":")) {
+    return { allowed: false, reason: "ip_literal_egress_denied" };
+  }
+
+  // Deny OAuth token and alternate auth endpoints
+  for (const blocked of BLOCKED_AUTH_HOSTS) {
+    if (hostname === blocked || hostname.endsWith(`.${blocked}`)) {
+      return { allowed: false, reason: "oauth_auth_egress_denied" };
+    }
+  }
+
+  // Default-deny: permit ONLY source-qualified inference destination
+  if (hostname === allowedInferenceHost) {
+    return { allowed: true };
+  }
+
+  return { allowed: false, reason: "unauthorized_destination_denied" };
+}
