@@ -682,5 +682,14 @@
   "packages/h2a/test/wp6-host-session-name.test.js": [],
   "packages/h2a/test/wp7-stray-bus-sweep.test.js": [],
   "packages/focus-interactive/test/focus-interactive.test.js": [],
-  "packages/h2a/test/gate-execution-evidence.test.js": []
+  "packages/h2a/test/gate-execution-evidence.test.js": [],
+  "packages/h2a-runtime/src/native-terminal/crash-safe-log.test.ts": [],
+  "packages/h2a-runtime/src/native-terminal/crash-safety.functional.test.ts": [],
+  "packages/h2a-runtime/src/native-terminal/listener-failure.functional.test.ts": [],
+  "packages/h2a-runtime/src/native-terminal/publication-proof.test.ts": [],
+  "packages/h2a-runtime/src/native-terminal/publication-refusal.test.ts": [],
+  "packages/h2a-runtime/src/native-terminal/respawn.test.ts": [],
+  "packages/h2a-runtime/src/native-terminal/upgrade.functional.test.ts": [],
+  "packages/h2a-runtime/src/proc-identity.test.ts": [],
+  "packages/h2a/test/publication-lock.test.js": []
 }

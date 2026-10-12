@@ -145,6 +145,7 @@ try {
     if (!existsSync(required)) fail(`packaged runtime is missing ${required}`)
   }
   const { NativeTerminalClient } = await import(pathToFileURL(clientEntry).href)
+  const { NATIVE_TERMINAL_MAX_FRAME_BYTES } = await import(pathToFileURL(join(runtimeDist, 'native-terminal', 'protocol.js')).href)
   // The prune observation reads the registry through the PACKAGED reader —
   // the exact 3-state contract (valid entries / per-row unreadable /
   // whole-file unknown) the shipped CLI uses, from the very bytes under
@@ -392,6 +393,7 @@ try {
   // --- isolated; the good client and the PTY keep working.
   await new Promise((resolveFault, rejectFault) => {
     const faulty = createConnection(cold.socketPath)
+    faulty.resume()
     let connected = false
     const timeout = setTimeout(() => rejectFault(new Error('faulty connection was not destroyed')), 5_000)
     faulty.on('error', (error) => { if (!connected) { clearTimeout(timeout); rejectFault(error) } })
@@ -400,12 +402,13 @@ try {
       if (!connected) rejectFault(new Error('fault connection closed before connect'))
       else resolveFault()
     })
-    // Invalid framing: not JSON, not a legal frame. The host must destroy THIS
-    // connection only (server confinement), never the listeners or sessions.
+    // Malformed JSON gets an error response while preserving the connection.
+    // A frame over the packaged protocol's limit must destroy this peer only.
     faulty.once('connect', () => {
       connected = true
       faulty.write('this is not a frame at all\n')
       faulty.write('\x00\x01\x02garbage')
+      faulty.write('x'.repeat(NATIVE_TERMINAL_MAX_FRAME_BYTES + 1))
     })
   })
   await new Promise((r) => setTimeout(r, 500))

@@ -37,7 +37,8 @@
     {
       "scope": "runtime",
       "anyOf": [
-        "should reclaim a persistent stale socket through its unattributed pre-0.98.5 sidecar plus previous-boot rows"
+        "should reclaim a persistent stale socket through its unattributed pre-0.98.5 sidecar plus previous-boot rows",
+        "ENDPOINT_ABSENCE_MIGRATES_AN_UNATTRIBUTED_SIDECAR_THROUGH_THE_ALTERNATIVE_PROOF"
       ]
     },
     {
@@ -68,7 +69,8 @@
     {
       "scope": "runtime",
       "anyOf": [
-        "should tolerate a synchronous write throw and stop touching stderr"
+        "should tolerate a synchronous write throw and stop touching stderr",
+        "should tolerate a synchronous write throw, report undelivered, and stop touching stderr"
       ]
     },
     {
@@ -80,7 +82,8 @@
     {
       "scope": "runtime",
       "anyOf": [
-        "should never write to the failed stream again"
+        "should never write to the failed stream again",
+        "should never write to the failed stream again, and never re-bump the sync counter"
       ]
     },
     {
@@ -122,13 +125,24 @@
     {
       "scope": "runtime",
       "anyOf": [
-        "should exit non-zero on an unknown net.Server error"
+        "should exit non-zero on an unknown net.Server error",
+        "should exit non-zero on an unknown net.Server error (%s)",
+        "should exit non-zero on an unknown net.Server error (null)",
+        "should exit non-zero on an unknown net.Server error (EUNCLASSIFIED)"
       ]
     },
     {
       "scope": "runtime",
       "anyOf": [
-        "should exit when the listener becomes unusable"
+        "should exit when the listener becomes unusable",
+        "should exit when the listener becomes unusable (%s)",
+        "should exit when the listener becomes unusable (ERR_SERVER_CLOSED)",
+        "should exit when the listener becomes unusable (EADDRINUSE)",
+        "should exit when the listener becomes unusable (EMFILE)",
+        "should exit when the listener becomes unusable (ENFILE)",
+        "should exit when the listener becomes unusable (EMFILE,EMFILE,EMFILE)",
+        "should exit when the listener becomes unusable (ENFILE,ENFILE,ENFILE)",
+        "should exit when the listener becomes unusable (EMFILE,ENFILE,EMFILE)"
       ]
     },
     {
@@ -146,7 +160,10 @@
     {
       "scope": "runtime",
       "anyOf": [
-        "should never unlink a bound-but-not-listening socket attributed to a current-boot owner"
+        "should never unlink a bound-but-not-listening socket attributed to a current-boot owner",
+        "should never unlink a bound-but-not-listening socket attributed to a current-boot owner: %s",
+        "should never unlink a bound-but-not-listening socket attributed to a current-boot owner: alive",
+        "should never unlink a bound-but-not-listening socket attributed to a current-boot owner: unresolvable"
       ]
     },
     {
