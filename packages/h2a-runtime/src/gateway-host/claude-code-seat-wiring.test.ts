@@ -118,6 +118,48 @@ describe("claude-code-seat-wiring (gateway host integration)", () => {
     expect(leaseReleased).toBe(true);
   });
 
+  it("releases the lease only after inner reaping and cleanup settle", async () => {
+    const order: string[] = [];
+    const fakeLease = {
+      ownerScope: "cli:owner-1",
+      accountId: "acct_claude_1",
+      acquiredAt: Date.now(),
+      async release() {
+        order.push("lease-release");
+      },
+    };
+
+    const mockRunner: ClaudeCodeCliRunner = {
+      async *run() {
+        try {
+          yield { type: "error" };
+        } finally {
+          order.push("inner-cleanup"); // Stands for reaping + file cleanup.
+        }
+      },
+    };
+
+    const boundRunner = createBoundAttemptRunner({
+      lease: fakeLease,
+      runner: mockRunner,
+      capabilities: fakeCapabilities,
+    });
+
+    const iterator = boundRunner.run({
+      access: { accessToken: "tok", expiresAt: Date.now() + 3600000, scopes: ["user:inference"] },
+      request: { modelId: "claude-3-5-sonnet-20241022", messages: [{ role: "user", content: [{ type: "text", text: "hi" }] }] },
+      signal: new AbortController().signal,
+    })[Symbol.asyncIterator]();
+
+    await expect(iterator.next()).resolves.toEqual({
+      value: { type: "error" },
+      done: false,
+    });
+    expect(order).toEqual([]);
+    await expect(iterator.next()).resolves.toMatchObject({ done: true });
+    expect(order).toEqual(["inner-cleanup", "lease-release"]);
+  });
+
   it("projects access without refresh token, headers, or owner metadata", async () => {
     let capturedAccess: any;
     const mockRunner: ClaudeCodeCliRunner = {
