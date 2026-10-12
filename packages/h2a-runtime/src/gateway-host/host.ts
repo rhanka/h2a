@@ -55,6 +55,7 @@ import {
   listPublicSessions,
   sessionCount,
 } from "./sessions.js";
+import { sweepOrphanSandboxes } from "../claude-code-cli-lifecycle.js";
 
 /** Pending upstream U3: legacy config ports are inert on the planner-routed path. */
 const legacyPortReached = (): never => { throw new Error("Inert legacy gateway port reached (pending upstream U3)"); };
@@ -65,8 +66,6 @@ export const LEGACY_PORTS_INERT = {
   authResolver: { resolve: legacyPortReached },
   dispatch: { dispatch: legacyPortReached, dispatchStream: legacyPortReached },
 };
-
-import { sweepOrphanSandboxes } from "../claude-code-cli-lifecycle.js";
 
 const routingConfigFromEnvironment = (): LlmMeshRoutingConfig | undefined => {
   const raw = process.env.H2A_LLM_MESH_ROUTING_JSON;
@@ -230,10 +229,14 @@ export function createGatewayHost(options: LocalGatewayAppOptions = {}): { app: 
     ? gatewayPlugin.fetch(c.req.raw, c.env)
     : c.json({ error: "gateway composition incomplete" }, 503));
   const ready = (async () => {
-    try {
-      await sweepOrphanSandboxes();
-    } catch {
-      // Best-effort startup sweep
+    // Orphan sweeps only concern Claude sandboxes: without a Claude seat
+    // client there is nothing to sweep and no runtime directory to create.
+    if (options.claudeClient) {
+      try {
+        await sweepOrphanSandboxes();
+      } catch {
+        // Best-effort startup sweep
+      }
     }
     const modules = createClusterMeshModules();
     const namespace = await (options.prepareNamespace ?? createGatewayNamespaceModule)(modules, {
