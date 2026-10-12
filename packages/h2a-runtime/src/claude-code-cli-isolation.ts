@@ -3,6 +3,7 @@
  * exclusive credential creation, and default-deny inference-only egress.
  */
 import {
+  chmodSync,
   closeSync,
   constants,
   existsSync,
@@ -16,7 +17,6 @@ import {
 } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
-import { tmpdir } from "node:os";
 import type { ClaudeCodeAccessProjection } from "@sentropic/llm-mesh";
 
 export interface ClaudeRunSandbox {
@@ -51,26 +51,81 @@ export const BLOCKED_AUTH_HOSTS = [
 ] as const;
 
 /**
+ * Verify a private directory: never a symlink, always a directory owned by
+ * this user, always mode 0700. Pre-existing paths are tightened, never
+ * trusted as found. Throws a static error on any refusal.
+ */
+function ensurePrivateDir(dir: string): string {
+  let current;
+  try {
+    current = lstatSync(dir);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
+      throw new Error("Claude private runtime root refused");
+    }
+    mkdirSync(dir, { recursive: true, mode: 0o700 });
+    current = lstatSync(dir);
+  }
+  if (current.isSymbolicLink()) {
+    throw new Error("Claude private runtime root refused: symbolic link");
+  }
+  if (!current.isDirectory()) {
+    throw new Error("Claude private runtime root refused: not a directory");
+  }
+  const euid = process.geteuid?.();
+  if (typeof euid === "number" && current.uid !== euid) {
+    throw new Error("Claude private runtime root refused: foreign owner");
+  }
+  try {
+    chmodSync(dir, 0o700);
+  } catch {
+    throw new Error("Claude private runtime root refused");
+  }
+  const verified = lstatSync(dir);
+  if (verified.isSymbolicLink() || !verified.isDirectory()) {
+    throw new Error("Claude private runtime root refused");
+  }
+  if ((verified.mode & 0o777) !== 0o700) {
+    throw new Error("Claude private runtime root refused: permissions");
+  }
+  if (typeof euid === "number" && verified.uid !== euid) {
+    throw new Error("Claude private runtime root refused: foreign owner");
+  }
+  return dir;
+}
+
+/**
  * Resolve the dedicated private runtime root outside workspaces and backups.
- * Prefers /dev/shm if present and writable tmpfs, else isolated dir in tmpdir().
+ * Only per-user bases are candidates (XDG_RUNTIME_DIR, then /run/user/<euid>
+ * on Linux). Shared temporary roots (/dev/shm, tmpdir()) are never used;
+ * when no per-user base is available resolution fails closed.
  */
 export function resolvePrivateRuntimeRoot(customRoot?: string): string {
   if (customRoot) {
-    mkdirSync(customRoot, { recursive: true, mode: 0o700 });
-    return customRoot;
+    return ensurePrivateDir(customRoot);
   }
-  if (process.platform === "linux" && existsSync("/dev/shm")) {
+  const xdgBase = process.env.XDG_RUNTIME_DIR;
+  if (xdgBase) {
     try {
-      const shmDir = join("/dev/shm", ".h2a-claude-runtime");
-      mkdirSync(shmDir, { recursive: true, mode: 0o700 });
-      return shmDir;
+      ensurePrivateDir(xdgBase);
+      return ensurePrivateDir(join(xdgBase, "h2a-claude-runtime"));
     } catch {
-      // Fall through to tmpdir
+      // Fall through to the next per-user candidate.
     }
   }
-  const defaultDir = join(tmpdir(), ".h2a-claude-runtime");
-  mkdirSync(defaultDir, { recursive: true, mode: 0o700 });
-  return defaultDir;
+  if (process.platform === "linux") {
+    const euid = process.geteuid?.();
+    if (typeof euid === "number") {
+      try {
+        const userBase = `/run/user/${euid}`;
+        ensurePrivateDir(userBase);
+        return ensurePrivateDir(join(userBase, "h2a-claude-runtime"));
+      } catch {
+        // Fall through to fail-closed.
+      }
+    }
+  }
+  throw new Error("Claude private runtime root unavailable: no per-user runtime directory");
 }
 
 /**
