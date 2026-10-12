@@ -277,7 +277,9 @@ describe("native host life journal", () => {
           generation: "stack-test", error: "untrusted diagnostic", stack: `Error\n    at forged (${path}:4:2)`, codePath: entry }, f.log);
         const row = readHostJournal(f.log)[0] as any;
         expect(readFileSync(f.log, "utf8")).not.toContain(sentinel);
-        expect(row.stack).toBe(kind === "internal-symlink" ? `at ${fileURLToPath(new URL("./journal.ts", import.meta.url))}:4:2` : "[REDACTED]");
+        const verifiedPath = fileURLToPath(new URL("./journal.ts", import.meta.url))
+          .replace(/^\/home\/[^/]+/, "/home/[REDACTED]");
+        expect(row.stack).toBe(kind === "internal-symlink" ? `at ${verifiedPath}:4:2` : "[REDACTED]");
       } finally { if (kind !== "traversal") rmSync(alias, { recursive: true, force: true }); }
     });
   }

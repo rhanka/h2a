@@ -116,7 +116,9 @@ export function nativeTestEnvironment(root, overrides = {}) {
 export function installNativeTestEnvironment(env) {
   assertIsolatedEnvironment(env);
   const previous = Object.fromEntries(Object.keys(env).map(key => [key, process.env[key]]));
-  Object.assign(process.env, env);
+  for (const [key, value] of Object.entries(env)) {
+    if (value === undefined) delete process.env[key]; else process.env[key] = value;
+  }
   return () => {
     for (const [key, value] of Object.entries(previous)) {
       if (value === undefined) delete process.env[key]; else process.env[key] = value;
