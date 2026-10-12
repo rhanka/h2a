@@ -8,20 +8,14 @@ import { spawn } from "node:child_process";
 import {
   chmodSync,
   closeSync,
-  existsSync,
   mkdirSync,
   openSync,
-  readFileSync,
-  unlinkSync,
-  writeFileSync,
 } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, isAbsolute, join, resolve } from "node:path";
 
-import { getH2aConfig, resolveConfigPath, setH2aConfig } from "./config.js";
+import { getH2aConfig, resolveConfigPath } from "./config.js";
 
-const CENTRAL_PORT_BASE = 47_000;
-const CENTRAL_PORT_SPAN = 10_000;
 const CENTRAL_START_TIMEOUT_MS = 10_000;
 const CENTRAL_START_POLL_MS = 100;
 
@@ -30,6 +24,8 @@ type CentralMarker = Readonly<{
   generation: string;
   pid: number;
   startedAt: string;
+  root?: string;
+  protocol?: number;
 }>;
 
 type CentralPing =
@@ -56,10 +52,6 @@ type CoreCentralMcp = Readonly<{
 export type CentralMcpPreparation =
   | Readonly<{ status: "central"; endpoint: string; generation: string }>
   | Readonly<{ status: "degraded"; reason: string }>;
-
-type HostConfigSnapshot =
-  | Readonly<{ exists: true; contents: string }>
-  | Readonly<{ exists: false }>;
 
 let coreCentralMcp: Promise<CoreCentralMcp> | undefined;
 
@@ -88,26 +80,8 @@ function delay(milliseconds: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
-function defaultCentralEndpoint(): string {
-  if (typeof process.getuid !== "function") {
-    throw new Error("central MCP requires a current uid for deterministic endpoint selection");
-  }
-  const currentUid = process.getuid();
-  const offset = ((currentUid % CENTRAL_PORT_SPAN) + CENTRAL_PORT_SPAN) % CENTRAL_PORT_SPAN;
-  return `http://127.0.0.1:${CENTRAL_PORT_BASE + offset}/mcp`;
-}
-
 function configuredCentralEndpoint(): string | undefined {
-  const h2a = getH2aConfig();
-  if (!h2a.central?.enabled) return undefined;
-  if (h2a.central.endpoint) return h2a.central.endpoint;
-  const endpoint = defaultCentralEndpoint();
-  setH2aConfig({
-    enabled: h2a.enabled,
-    command: h2a.command,
-    central: { ...h2a.central, endpoint },
-  });
-  return endpoint;
+  return getH2aConfig().central?.endpoint;
 }
 
 function centralLogFile(): string {
@@ -118,18 +92,19 @@ function centralLogFile(): string {
 
 async function waitForCentralStart(
   core: CoreCentralMcp,
-  endpoint: string,
+  endpoint: string | undefined,
   spawnFailure: () => Error | undefined,
 ): Promise<{ endpoint: string; generation: string }> {
   const deadline = Date.now() + CENTRAL_START_TIMEOUT_MS;
   while (Date.now() < deadline) {
     const failure = spawnFailure();
     if (failure) throw failure;
-    const ping = await core.centralMcpPing(endpoint, CENTRAL_START_POLL_MS);
-    if (ping.kind === "generation") {
-      const marker = core.readCentralMcpMarker();
-      if (marker?.endpoint === endpoint && marker.generation === ping.generation) {
-        return { endpoint, generation: ping.generation };
+    const marker = core.readCentralMcpMarker();
+    const candidate = endpoint ?? marker?.endpoint;
+    if (candidate && marker) {
+      const ping = await core.centralMcpPing(candidate, CENTRAL_START_POLL_MS);
+      if (ping.kind === "generation" && marker.endpoint === candidate && marker.generation === ping.generation) {
+        return { endpoint: candidate, generation: ping.generation };
       }
     }
     await delay(CENTRAL_START_POLL_MS);
@@ -145,8 +120,14 @@ async function waitForCentralStart(
 export async function ensureCentralMcp(
   options: Readonly<{ root?: string }> = {},
 ): Promise<Readonly<{ endpoint: string; generation: string }> | undefined> {
+  if (!getH2aConfig().central?.enabled || process.env.H2A_MCP_CENTRAL === "0" || process.env.H2A_MCP_CENTRAL === "false") return undefined;
+  const rawRoot = options.root ?? process.env.H2A_ROOT;
+  if (rawRoot && !isAbsolute(rawRoot)) {
+    // Relative roots derive from cwd; deterministically select stdio per invariant
+    return undefined;
+  }
   const endpoint = configuredCentralEndpoint();
-  if (!endpoint) return undefined;
+  const root = rawRoot ? resolve(rawRoot) : join(homedir(), "h2a-workspace", ".h2a");
   const core = await loadCoreCentralMcp();
   const marker = core.readCentralMcpMarker();
   if (marker) {
@@ -155,8 +136,9 @@ export async function ensureCentralMcp(
       throw new Error(`central MCP liveness at ${marker.endpoint} is ambiguous; refusing to start another server`);
     }
     if (ping.kind === "generation") {
-      if (marker.endpoint === endpoint && ping.generation === marker.generation) {
-        return { endpoint, generation: marker.generation };
+      if (marker.root !== root || marker.protocol !== 2) throw new Error("central MCP state root/protocol does not match this launch");
+      if ((!endpoint || marker.endpoint === endpoint) && ping.generation === marker.generation) {
+        return { endpoint: marker.endpoint, generation: marker.generation };
       }
       throw new Error(
         `central MCP marker/listener mismatch (${marker.endpoint}, generation ${marker.generation}); refusing to replace a live server`,
@@ -171,14 +153,15 @@ export async function ensureCentralMcp(
   try {
     const child = spawn(
       "h2a",
-      ["mcp-central-serve", ...(options.root ? ["--root", options.root] : [])],
+      ["mcp-central-serve", "--root", root, "--auto-start"],
       {
         detached: true,
+        cwd: homedir(),
         stdio: ["ignore", logFd, logFd],
         env: {
-          ...process.env,
+          ...centralSpawnEnvironment(),
           [core.H2A_MCP_CENTRAL_ENV]: "1",
-          [core.H2A_MCP_CENTRAL_ENDPOINT_ENV]: endpoint,
+          ...(endpoint ? { [core.H2A_MCP_CENTRAL_ENDPOINT_ENV]: endpoint } : {}),
         },
       },
     );
@@ -192,52 +175,13 @@ export async function ensureCentralMcp(
   return waitForCentralStart(core, endpoint, () => spawnError);
 }
 
-function profileMcpConfig(profile: string, cwd: string): { host: string; path: string } | undefined {
-  switch (profile) {
-    case "claude":
-    case "claude-code":
-      return { host: "claude", path: join(cwd, ".mcp.json") };
-    case "codex": {
-      const legacy = process.env.CODEX_HOME
-        ? join(process.env.CODEX_HOME, "config.json")
-        : join(homedir(), ".codex", "config.json");
-      const xdg = join(process.env.XDG_CONFIG_HOME ?? join(homedir(), ".config"), "codex", "mcp.json");
-      return { host: "codex", path: existsSync(legacy) ? legacy : xdg };
-    }
-    case "gemini":
-    case "gemini-cli":
-      return { host: "gemini", path: join(cwd, ".gemini", "settings.json") };
-    case "agy":
-    case "antigravity":
-      return { host: "agy", path: join(homedir(), ".gemini", "config", "mcp_config.json") };
-    default:
-      return undefined;
+/** No conversation, terminal, provider credentials, or repo state enter the daemon. */
+function centralSpawnEnvironment(): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = {};
+  for (const key of ["PATH", "HOME", "XDG_RUNTIME_DIR", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME", "REMOTE_CLI_CONFIG_HOME", "TMPDIR", "LANG", "LC_ALL"]) {
+    if (process.env[key] !== undefined) env[key] = process.env[key];
   }
-}
-
-function coherentHostSetupReport(host: string): unknown {
-  return {
-    ok: true,
-    repair: false,
-    dryRun: false,
-    sessionFreshnessGuarantee: "runtime central MCP writer",
-    nativeCommandFailureLimit: "runtime central MCP writer",
-    version: "runtime-central-mcp",
-    hosts: [{
-      host,
-      ok: true,
-      findings: [],
-      diagnostics: [],
-      changed: [],
-      preserved: [],
-      failures: [],
-      unverifiable: [],
-      unrepaired: [],
-      coherencePaths: [],
-      plannedActions: [],
-      repairMarkerPath: "",
-    }],
-  };
+  return env;
 }
 
 function activateCentralMcpEnvironment(core: CoreCentralMcp, endpoint: string): void {
@@ -250,66 +194,20 @@ function deactivateCentralMcpEnvironment(): void {
   delete process.env.H2A_MCP_CENTRAL_ENDPOINT;
 }
 
-function captureHostConfig(path: string): HostConfigSnapshot {
-  return existsSync(path)
-    ? { exists: true, contents: readFileSync(path, "utf8") }
-    : { exists: false };
-}
-
-function restoreHostConfig(path: string, snapshot: HostConfigSnapshot): void {
-  if (snapshot.exists) {
-    writeFileSync(path, snapshot.contents, { mode: 0o600 });
-    chmodSync(path, 0o600);
-  } else if (existsSync(path)) {
-    unlinkSync(path);
-  }
-}
-
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-/** Ensure central MCP and rewrite the launched host's existing MCP config path. */
+/** Prepare transport only. Configuration writes require an explicit host setup --write. */
 export async function prepareCentralMcpForLaunch(options: Readonly<{
   root?: string;
   profile: string;
   cwd: string;
 }>): Promise<CentralMcpPreparation | undefined> {
-  let hostConfig: { path: string; snapshot: HostConfigSnapshot } | undefined;
-  try {
-    const central = await ensureCentralMcp({ ...(options.root ? { root: options.root } : {}) });
-    if (!central) return undefined;
-    const core = await loadCoreCentralMcp();
-    const target = profileMcpConfig(options.profile, options.cwd);
-    if (target) hostConfig = { path: target.path, snapshot: captureHostConfig(target.path) };
-    activateCentralMcpEnvironment(core, central.endpoint);
-    if (target) {
-      const quiet = { stdout: { write: () => true }, stderr: { write: () => true }, cwd: () => options.cwd };
-      const code = core.runCli(
-        ["host", "setup", "--host", target.host, "--write", target.path],
-        quiet,
-        { doctorHostInstallations: () => coherentHostSetupReport(target.host) },
-      );
-      if (code !== 0) {
-        throw new Error(`central MCP could not write the ${target.host} host config at ${target.path}`);
-      }
-    }
-    return { status: "central", ...central };
-  } catch (error) {
-    deactivateCentralMcpEnvironment();
-    let reason = errorMessage(error);
-    if (hostConfig) {
-      try {
-        restoreHostConfig(hostConfig.path, hostConfig.snapshot);
-      } catch (rollbackError) {
-        reason += `; could not restore the per-session MCP config: ${errorMessage(rollbackError)}`;
-      }
-    }
-    return { status: "degraded", reason };
-  }
+  return prepareCentralMcpForRestore(options.root ? { root: options.root } : {});
 }
 
-/** Restore launches inherit these values; each re-entered run rewrites its host config. */
+/** Restore and run never write a host or project configuration. */
 export async function prepareCentralMcpForRestore(
   options: Readonly<{ root?: string }> = {},
 ): Promise<CentralMcpPreparation | undefined> {

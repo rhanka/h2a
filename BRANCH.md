@@ -1,49 +1,49 @@
-# MH-L0 — 0.98.7 contract foundations
+# MH-L1 — 0.98.7 integration and packaging prototype
 
 ## Objective
-- [x] Deliver only spec v7 §12 MH-L0, including the measured npm BX correction.
+- [ ] Deliver only spec v7 §12 MH-L1 on cf690fe2, integrating #316 (25117303).
 
 ## Scope / Guardrails
-- [x] Branch feat/0.98.7-mh-l0, base e3fc1a52 (0.98.5); no integration of #316 or .6 here.
+- [x] Own branch feat/0.98.7-mh-l1 created from feat/0.98.7-mh-l0; main untouched.
 - [x] Owner state, installed h2a/dist, native sockets and unrelated processes forbidden.
-- [x] Private temporary test directories; targeted files only; no Python.
-- [x] Public strategies, CLI routing, native restart and .8 coordinator/verifier forbidden.
+- [x] Targeted test files, private temporary HOME/XDG/stores; no Python or install scripts.
+- [x] Node 22 minimum; Node 24 qualification belongs to the release matrix.
+- [x] No live switch, H4 adoption/entrypoint decision, gateway or native restart.
 
 ## Branch Scope Boundaries
-- [x] Allowed: packages/h2a/src/runtime/handover/**, packages/h2a/test/mh-l0-*, packages/h2a/test/helpers/mh-l0-*, docs/plan/mh-l0/**, scripts/mh-l0-*, BRANCH.md.
-- [x] Forbidden: other runtime files, package versions/dependencies, installed state, main, .track (shared writer), full-suite commands.
-- [x] Conditional: QF entrypoint/layout contract provisional until owner ratification; runtime routing belongs to MH-L6.
-- [x] BR-L0-EX1: cohesive contract/test commits may exceed 150 lines; one concern, selective staging, rollback by git revert.
+- [x] Allowed: #316 integration paths, packages/h2a/src/runtime/mcp-central-*, packages/h2a/src/bin.ts, packages/h2a/src/runtime/mcp/transport/**, packages/h2a/src/runtime/handover/image.js, packages/h2a/test/mh-l1-*, scripts/mh-l1-*, docs/plan/mh-l1/**, BRANCH.md.
+- [x] Forbidden: main, installed state, native-terminal implementation, .track (conductor single writer), full suite, version bump/publication.
+- [x] Conditional: packaging prototype is not a release freeze; QF/QC remain owner decisions.
+- [x] BR-L1-EX1: preserve #316 history in an integration merge; cohesive integration/vendor/test commits may exceed 150 lines, rollback by git revert.
+- [x] No Makefile in this repo: selective staging and git commit directly.
 
-## Lot 1 — Canonical bytes and authentication vectors
-- [x] Strict RFC 8785 bytes, SHA-256, domain-separated HKDF/HMAC and negative vectors.
-- [x] Gate: node --test packages/h2a/test/mh-l0-wire.test.js, red then green.
+## Lot 1 — Integrate #316
+- [ ] Merge #316 onto L0 without rewriting source refs or losing L0 contracts.
+- [ ] Gate: node --test packages/h2a/test/mh-l1-preservation.test.js, assertion red then green.
 
-## Lot 2 — Versioned formats
-- [x] Marker, namespace/authority, readiness, requests/frames, evidence, ownership/checkpoint, H4/selection, manifest/native formats.
-- [x] Gate: node --test packages/h2a/test/mh-l0-formats.test.js, red then green.
+## Lot 2 — Route before initialize
+- [ ] Read and retain first initialize; choose by exact clientInfo and qualification observations.
+- [ ] Replay first message and buffered tail in the same process on stdio or central; no response before choice.
+- [ ] Preserve exclusions, legacy connector behavior, explicit diagnostics and lightweight graph.
+- [ ] Gate: node --test packages/h2a/test/mh-l1-routing.test.js.
 
-## Lot 3 — Durable private state
-- [x] Private reads, exclusive publication, replacement under caller exclusion, fsync and reconciliation errors.
-- [x] Gate: node --test packages/h2a/test/mh-l0-state.test.js, red then green.
+## Lot 3 — Isolate and integrate transport
+- [ ] Exercise conversation/workspace/terminal isolation and config preservation with targeted #316 tests.
+- [ ] Integrate corrected HTTP transport into h2a payload and prove batch correlation/cleanup with actual HTTP.
+- [ ] Gate: node --test packages/h2a/test/mh-l1-transport.test.js and mcp-central-attachments.test.js (named cases only).
 
-## Lot 4 — Domain, layout and image audit
-- [x] Physical prefix identity, private authority domain and bounded abstract pre-claim.
-- [x] Closed/native manifest and no-Python native feasibility.
-- [x] Gate: node --test packages/h2a/test/mh-l0-authority.test.js and mh-l0-image.test.js and mh-l0-native.test.js, red then green.
+## Lot 4 — Packaging prototype
+- [ ] Produce repeatable core/runtime payload with exact dependency resolution and published shrinkwrap.
+- [ ] Retain real node-pty legacy probe, no Python/node-gyp install path; record closure limits explicitly.
+- [ ] Close L0 R1 with a native digest mismatch vector that kills the missing-guard mutation.
+- [ ] Gate: node --test packages/h2a/test/mh-l1-package.test.js and mh-l0-image.test.js.
 
-## Lot 5 — Heritage, npm and pair
-- [x] Audit source refs, native relaunch closure, legacy probe, dependencies and pending .6 dist gate.
-- [x] Reproduce BX with private prefix/cache, local tarballs/registry; revise U09 and prepare QF dossier.
-- [x] Test-only network peer, evidence and CAS/ACK fault primitives.
-- [x] Gate: node --test packages/h2a/test/mh-l0-npm.test.js and mh-l0-peer.test.js, red then green.
-
-## Lot 6 — Delivery
-- [x] Reconcile scope/evidence/review limitations; recalibrate MH-L1–MH-L8.
-- [x] Push own branch fast-forward; write owner mhl0-report.md in French.
+## Lot 5 — Delivery
+- [ ] Review diff/scope, record constrained review status without consensus claim.
+- [ ] Push own branch fast-forward and write French mhl1-report.md, agent-hours and review rounds.
 
 ## Feedback Loop
-- [x] Final .6 dist unavailable: audit source closure now; U13 byte qualification remains MH-L1/MH-L8.
-- [x] QF/QC/QD/QE/QG remain owner decisions; no runtime entrypoint chosen by MH-L0.
-- [x] Installed-h2a harness review/recorders conflict with owner confinement: do not invoke; no consensus claim.
-- [x] Npm matrix verifies the actual installed version after each private operation, including update and downgrade.
+- [x] No v0.98.6 tag locally: integrate current owner-mandated L0 base; byte freeze against final .6 remains release gate.
+- [x] L0 R2 belongs to MH-L3; R3 QF/QC remain open; R4 installed-h2a review is forbidden by owner confinement.
+- [x] Initial shared node_modules lacked workspace-local dependencies: npm ci --ignore-scripts creates checkout-local lockfile dependencies.
+- [x] Harness recorders/Track imports are not invoked because they would use installed h2a or shared Track state.
