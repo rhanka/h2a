@@ -4,6 +4,16 @@ import { createGatewayHost, createLocalGatewayApp, LEGACY_PORTS_INERT, startServ
 import { lookupToken, resetSessions } from "./sessions.js";
 import { resetSessionLedger } from "./ledger.js";
 
+vi.mock("../claude-code-cli-lifecycle.js", async (importOriginal) => {
+  const mod = await importOriginal<typeof import("../claude-code-cli-lifecycle.js")>();
+  return {
+    ...mod,
+    sweepOrphanSandboxes: vi
+      .fn()
+      .mockResolvedValue({ swept: 0, retained: 0, skippedAlive: 0 }),
+  };
+});
+
 beforeEach(() => {
   vi.stubEnv("NODE_ENV", "test");
   vi.stubEnv("H2A_LLM_MESH_OWNER_SCOPE", "cli:test-owner");
@@ -154,4 +164,32 @@ it("fails before serving when Claude seat host composition is unqualified", asyn
 
   // Without a qualified Claude seat candidate, routing fails safely before serving without crash
   expect([404, 503]).toContain(response.status);
+  // No Claude composition: the failure carries no seat/runner/lease
+  // material, and the model catalog lists no Claude entry.
+  const failureText = await response.text();
+  expect(failureText).not.toMatch(/seat|runner|lease|credential|x-api-key/i);
+  const models = await app.request("/v1/models", {
+    headers: { "x-api-key": gatewayToken },
+  });
+  expect(models.status).toBe(200);
+  expect(await models.text()).not.toMatch(/claude/i);
+});
+
+it("sweeps Claude orphans only when a Claude seat client is composed", async () => {
+  const { sweepOrphanSandboxes } = await import("../claude-code-cli-lifecycle.js");
+  const failingPrepare = async (): Promise<never> => {
+    throw new Error("composition probe");
+  };
+  vi.mocked(sweepOrphanSandboxes).mockClear();
+
+  const plain = createGatewayHost({ prepareNamespace: failingPrepare });
+  await expect(plain.ready).rejects.toThrow("composition probe");
+  expect(vi.mocked(sweepOrphanSandboxes)).not.toHaveBeenCalled();
+
+  const withClaude = createGatewayHost({
+    claudeClient: {} as never,
+    prepareNamespace: failingPrepare,
+  });
+  await expect(withClaude.ready).rejects.toThrow("composition probe");
+  expect(vi.mocked(sweepOrphanSandboxes)).toHaveBeenCalledTimes(1);
 });
