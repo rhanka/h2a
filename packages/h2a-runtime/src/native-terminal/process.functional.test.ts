@@ -37,6 +37,30 @@ const directories = new Set<string>();
 // suite — not the production reaper — owns its cleanup, including when an
 // assertion aborts the test before its own teardown.
 const processGroups = new Set<number>();
+/**
+ * PIDs this test may OBSERVE in /proc: every process it started itself, plus
+ * processes discovered only by walking an already-owned process's own
+ * `task/<pid>/children` (a fixture host's journal writer and PTY trees). The
+ * round-3 review finding: this file read the stat of EVERY pid in /proc
+ * before filtering — a read of processes the test did not start. Every /proc
+ * read below is bounded by this set: observing a pid outside it fails the
+ * suite instead of reading it.
+ */
+const ownedPids = new Set<number>([process.pid]);
+
+function assertOwnedPid(pid: number): void {
+  if (!ownedPids.has(pid)) {
+    throw new Error(
+      `confinement: refusing to read /proc/${pid} — not a process this test started`,
+    );
+  }
+}
+
+/** Register a spawned fixture process for cleanup AND /proc observation. */
+function adopt(child: ChildProcess): void {
+  children.add(child);
+  if (child.pid !== undefined) ownedPids.add(child.pid);
+}
 
 afterEach(async () => {
   for (const child of children) {
@@ -131,6 +155,7 @@ type ProcessObservation = Readonly<{
 }>;
 
 async function processObservation(pid: number): Promise<ProcessObservation> {
+  assertOwnedPid(pid);
   try {
     const raw = await readFile(`/proc/${pid}/stat`, "utf8");
     const commandEnd = raw.lastIndexOf(")");
@@ -151,21 +176,47 @@ async function processObservation(pid: number): Promise<ProcessObservation> {
   }
 }
 
-async function processGroupMemberPids(processGroup: number): Promise<number[]> {
-  const observations = await Promise.all(
-    (await readdir("/proc"))
-      .filter((entry) => /^\d+$/.test(entry))
-      .map((entry) => processObservation(Number(entry))),
-  );
+/**
+ * Live members of `processGroup` AMONG THE PID CANDIDATES this fixture owns
+ * (round-3 confinement finding: this reader used to enumerate and stat EVERY
+ * pid in /proc before filtering). The candidates are the members the test
+ * already knows — the workload's own pids, tracked at creation — so the stat
+ * reads stay bounded to processes this test started. Emptiness of the WHOLE
+ * group (members the test never learned a pid for included) is proven by the
+ * ESRCH probe below, which signals the group this fixture created and reads
+ * nobody.
+ */
+async function processGroupMemberPids(
+  processGroup: number,
+  candidates: readonly number[],
+): Promise<number[]> {
+  const observations = await Promise.all(candidates.map((pid) => processObservation(pid)));
   return observations
     .filter((observation) => observation.processGroup === processGroup)
     .map((observation) => observation.pid)
     .sort((left, right) => left - right);
 }
 
+/** ESRCH is the only acceptable answer to "is this fixture's group empty". */
+function expectProcessGroupEmpty(processGroup: number): void {
+  let empty = false;
+  try {
+    process.kill(-processGroup, 0);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
+    empty = true;
+  }
+  expect(empty, `process group ${processGroup} still has live members`).toBe(true);
+}
+
+
 async function directChildren(pid: number): Promise<number[]> {
+  assertOwnedPid(pid);
   const raw = await readFile(`/proc/${pid}/task/${pid}/children`, "utf8");
-  return raw.trim().length === 0 ? [] : raw.trim().split(/\s+/).map(Number);
+  const childPids = raw.trim().length === 0 ? [] : raw.trim().split(/\s+/).map(Number);
+  // Children of a process this fixture owns are fixture processes too.
+  for (const childPid of childPids) ownedPids.add(childPid);
+  return childPids;
 }
 
 /** Ping whoever currently serves `socketPath`, and leave no connection open. */
@@ -196,6 +247,7 @@ async function persistProvenDeadOwnerRow(
 ): Promise<number> {
   const owner = spawn(process.execPath, ["-e", "setTimeout(() => {}, 200)"]);
   const ownerPid = owner.pid!;
+  ownedPids.add(ownerPid);
   const startTime = await eventually(
     () => readProcessStartTime(ownerPid),
     (value) => typeof value === "number",
@@ -264,6 +316,9 @@ async function createStubbornWorkload(
     cols: 80,
     rows: 24,
   });
+  // The PTY session process is a child of the fixture host: owned from the
+  // moment the host (itself adopted) created it for this test.
+  ownedPids.add(session.pid);
   const output = await eventually(
     () => client.readOutput(id, 0),
     (replay) => replay.chunks.some((chunk) =>
@@ -273,6 +328,7 @@ async function createStubbornWorkload(
   const match = output.chunks.map((chunk) => chunk.data).join("")
     .match(new RegExp(`${id}-ready:(\\d+)`));
   if (!match) throw new Error("stubborn PTY did not report its descendant");
+  ownedPids.add(Number(match[1]));
   const targetChildren = await eventually(
     () => directChildren(session.pid),
     (pids) => pids.length === 1,
@@ -362,7 +418,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
         env: process.env,
         stdio: ["ignore", "pipe", "pipe"],
       });
-      children.add(child);
+      adopt(child);
       return child;
     };
     const supervisor = new NativeTerminalHostSupervisor({
@@ -403,6 +459,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
     const nodeChildrenBefore = await directChildren(ping.hostPid);
     const writerChildren = [];
     for (const pid of nodeChildrenBefore) {
+      assertOwnedPid(pid);
       const argv = (await readFile(`/proc/${pid}/cmdline`, "utf8")).split("\0");
       if (argv.includes("--native-host-journal-writer")) {
         expect(argv).toContain(fileURLToPath(new URL("../../dist/native-terminal/journal.js", import.meta.url)));
@@ -413,6 +470,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
     const terminalChildren = nodeChildrenBefore.filter(pid => !writerChildren.includes(pid));
     expect(terminalChildren.sort((left, right) => left - right)).toEqual([alpha.pid, beta.pid].sort((left, right) => left - right));
     for (const pid of terminalChildren) {
+      assertOwnedPid(pid);
       const executable = basename(await readlink(`/proc/${pid}/exe`));
       expect(executable.startsWith("node")).toBe(false);
     }
@@ -519,7 +577,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
         env: process.env,
         stdio: ["ignore", "pipe", "pipe"],
       });
-      children.add(child);
+      adopt(child);
       spawnedHosts.push(child);
       return child;
     };
@@ -555,7 +613,8 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
     // client() returns only after the durable pgid has been reaped (or it
     // fails rather than starting a replacement over live descendants).
     const replacement = await clientAfterFirstRestartBackoff(supervisor);
-    expect(await processGroupMemberPids(hardCrashPgid)).toEqual([]);
+    expect(await processGroupMemberPids(hardCrashPgid, hardCrashPids)).toEqual([]);
+    expectProcessGroupEmpty(hardCrashPgid);
     const hardCrashStates = await Promise.all(hardCrashPids.map(processObservation));
     expect(hardCrashStates.every((state) => state.missing === true)).toBe(true);
     const replacementPing = await replacement.ping();
@@ -606,7 +665,8 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
     // SIGKILL) and waited for kill(-pgid, 0) to return ESRCH. That reaches
     // descendants whether they reparented to init or to a subreaper.
     expect(running(replacementPing.hostPid)).toBe(false);
-    expect(await processGroupMemberPids(forcedReapPgid)).toEqual([]);
+    expect(await processGroupMemberPids(forcedReapPgid, forcedReapPids)).toEqual([]);
+    expectProcessGroupEmpty(forcedReapPgid);
     const forcedReapStates = await Promise.all(forcedReapPids.map(processObservation));
     expect(forcedReapStates.every((state) => state.missing === true)).toBe(true);
     expect(
@@ -673,7 +733,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
           env: process.env,
           stdio: ["ignore", "pipe", "pipe"],
         });
-        children.add(child);
+        adopt(child);
         return child;
       },
     });
@@ -692,7 +752,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
       ["-c", "trap '' HUP TERM INT; while :; do sleep 1; done"],
       { detached: true, stdio: "ignore" },
     );
-    children.add(distractor);
+    adopt(distractor);
     if (distractor.pid === undefined) throw new Error("expected distractor pid");
     const distractorPgid = distractor.pid;
     await eventually(() => running(distractorPgid), (alive) => alive);
@@ -840,7 +900,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
           env: process.env,
           stdio: ["ignore", "pipe", "pipe"],
         });
-        children.add(child);
+        adopt(child);
         return child;
       },
     });
@@ -924,7 +984,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
           env: process.env,
           stdio: ["ignore", "pipe", "pipe"],
         });
-        children.add(child);
+        adopt(child);
         return child;
       },
     });
@@ -1197,7 +1257,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
     const child = spawn(process.execPath, ["--import", "tsx", wrapper], {
       cwd: dirname(entry), env: { ...process.env, XDG_STATE_HOME: statePath }, stdio: ["ignore", "pipe", "pipe", "ipc"],
     });
-    children.add(child);
+    adopt(child);
     const messages: unknown[] = [];
     child.on("message", (message) => messages.push(message));
     let stdout = "";
@@ -1307,7 +1367,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
           String(options.replayBytesPerSession),
           ...(options.registryPath !== undefined ? ["--registry-path", options.registryPath] : []),
         ], { cwd: dirname(entry), env: process.env, stdio: ["ignore", "pipe", "pipe"] });
-        children.add(child);
+        adopt(child);
         return child;
       },
     });
@@ -1376,7 +1436,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
           env: process.env,
           stdio: ["ignore", "pipe", "pipe"],
         });
-        children.add(child);
+        adopt(child);
         return child;
       },
     });
@@ -1443,7 +1503,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
           env: process.env,
           stdio: ["ignore", "pipe", "pipe"],
         });
-        children.add(hostProcess);
+        adopt(hostProcess);
         return hostProcess;
       },
     });
@@ -1549,7 +1609,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
           env: process.env,
           stdio: ["ignore", "pipe", "pipe"],
         });
-        children.add(child);
+        adopt(child);
         return child;
       },
     });
@@ -1648,7 +1708,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
           env: process.env,
           stdio: ["ignore", "pipe", "pipe"],
         });
-        children.add(child);
+        adopt(child);
         return child;
       },
     });
@@ -1734,7 +1794,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
           env: process.env,
           stdio: ["ignore", "ignore", "pipe"],
         });
-        children.add(child);
+        adopt(child);
         return child;
       },
     });
@@ -1810,7 +1870,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
               stdio: ["ignore", "pipe", "pipe"],
             });
         if (spawnCount === 1) hungChild = child;
-        children.add(child);
+        adopt(child);
         return child;
       },
     });
@@ -1890,7 +1950,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
               stdio: ["ignore", "pipe", "pipe"],
             });
         if (losingSpawnCount === 1) losingChild = child;
-        children.add(child);
+        adopt(child);
         return child;
       },
     });
@@ -1924,7 +1984,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
           env: process.env,
           stdio: ["ignore", "pipe", "pipe"],
         });
-        children.add(winningChild);
+        adopt(winningChild);
         return winningChild;
       },
     });
@@ -1963,7 +2023,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
         String(options.replayBytesPerSession),
         ...(options.registryPath !== undefined ? ["--registry-path", options.registryPath] : []),
       ], { cwd: dirname(entry), env: process.env, stdio: ["ignore", "pipe", "pipe"] });
-      children.add(child);
+      adopt(child);
       return child;
     };
     const firstSupervisor = new NativeTerminalHostSupervisor({
@@ -2028,7 +2088,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
         String(options.replayBytesPerSession),
         ...(options.registryPath !== undefined ? ["--registry-path", options.registryPath] : []),
       ], { cwd: dirname(entry), env: process.env, stdio: ["ignore", "pipe", "pipe"] });
-      children.add(child);
+      adopt(child);
       return child;
     };
 
@@ -2106,7 +2166,8 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
       status: "unresolved",
       reason: expect.stringMatching(/no pgid recorded/i),
     });
-    expect(await processGroupMemberPids(stubbornPgid)).toEqual([]);
+    expect(await processGroupMemberPids(stubbornPgid, stubbornPids)).toEqual([]);
+    expectProcessGroupEmpty(stubbornPgid);
     const stubbornStates = await Promise.all(stubbornPids.map(processObservation));
     expect(stubbornStates.every((state) => state.missing === true)).toBe(true);
   });
@@ -2165,7 +2226,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
           env: process.env,
           stdio: ["ignore", "pipe", "pipe"],
         });
-        children.add(ownerChild);
+        adopt(ownerChild);
         return ownerChild;
       },
     });
@@ -2211,7 +2272,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
           env: process.env,
           stdio: ["ignore", "pipe", "pipe"],
         });
-        children.add(child);
+        adopt(child);
         return child;
       },
     });
@@ -2229,7 +2290,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
       env: process.env,
       stdio: ["ignore", "pipe", "pipe"],
     });
-    children.add(external);
+    adopt(external);
     const externalPid = await eventually(
       async () => {
         try {
@@ -2314,7 +2375,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
           String(options.replayBytesPerSession),
           ...(options.registryPath !== undefined ? ["--registry-path", options.registryPath] : []),
         ], { cwd: dirname(entry), env: process.env, stdio: ["ignore", "pipe", "pipe"] });
-        children.add(hostChild);
+        adopt(hostChild);
         return hostChild;
       },
     });
@@ -2384,7 +2445,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
       "--registry-path",
       registryPath,
     ], { cwd: dirname(entry), env: process.env, stdio: ["ignore", "pipe", "pipe"] });
-    children.add(external);
+    adopt(external);
     const externalPid = await eventually(
       () => pingSocket(socketPath).catch(() => undefined),
       (pid) => typeof pid === "number",
@@ -2420,7 +2481,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
           String(options.replayBytesPerSession),
           ...(options.registryPath !== undefined ? ["--registry-path", options.registryPath] : []),
         ], { cwd: dirname(entry), env: process.env, stdio: ["ignore", "pipe", "pipe"] });
-        children.add(child);
+        adopt(child);
         return child;
       },
     });

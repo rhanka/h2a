@@ -192,6 +192,7 @@ type PersistedLease = Readonly<{
   token: string;
   heartbeatAt: string;
   expiresAt: string;
+  sample?: Readonly<{ cpuMs: number; sampledAt: string }>;
 }>;
 
 /**
@@ -235,6 +236,65 @@ function clientDrivesSession(id: string, marker: string): string {
     "}",
     `if (!seen.includes(${JSON.stringify(marker)})) throw new Error("session produced no output");`,
   ].join("\n");
+}
+
+type SupervisionPassWitness = Readonly<{
+  beaten: string[];
+  observed: string[];
+  released: string[];
+  unreadable: string[];
+  proposals: ReadonlyArray<Readonly<{ sessionId: string }>>;
+}>;
+
+type SupervisedLeaseWitness = Readonly<{
+  sessionId: string;
+  token: string;
+  acquiredHeartbeatAt: string;
+  acquiredSample: Readonly<{ cpuMs: number; sampledAt: string }>;
+  heartbeatAt: string;
+  sample: Readonly<{ cpuMs: number; sampledAt: string }>;
+}>;
+
+type SupervisionWitness = Readonly<{
+  pass: SupervisionPassWitness;
+  burn: SupervisedLeaseWitness;
+  idle: SupervisedLeaseWitness;
+}>;
+
+/**
+ * A real CLIENT process of the CANDIDATE dist running the lease SUPERVISION
+ * pass the way the application runs it (`superviseSessionLeases(listJobs(),
+ * now)` — the exact production heartbeat caller of the jobs probe). The tmux
+ * server, its panes, the registry rows and the leases all belong to this
+ * fixture; the pane processes are pinned into the private process view first
+ * (the same pin the isolation guard applies to guarded spawns), so the
+ * pass's fleet-wide /proc walk reads only processes this test started.
+ */
+async function runSupervisionClient<TWitness>(options: {
+  distRoot: string;
+  leaseConfigHome: string;
+  root: string;
+  body: string;
+}): Promise<TWitness> {
+  const child = spawn(process.execPath, ["--input-type=module", "--eval", [
+    `const runtime = await import(${JSON.stringify(pathToFileURL(join(options.distRoot, "index.js")).href)});`,
+    `const leaseModule = await import(${JSON.stringify(pathToFileURL(join(options.distRoot, "session-lease.js")).href)});`,
+    `const registryModule = await import(${JSON.stringify(pathToFileURL(join(options.distRoot, "registry.js")).href)});`,
+    `const { spawnSync } = await import("node:child_process");`,
+    `const fs = await import("node:fs");`,
+    options.body,
+    `process.stdout.write(JSON.stringify(witness) + "\\n");`,
+  ].join("\n")], {
+    cwd: options.root,
+    env: { ...process.env, REMOTE_CLI_CONFIG_HOME: options.leaseConfigHome },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  children.add(child);
+  const output = captureOutput(child);
+  const [code] = await once(child, "exit");
+  expect(code, `supervision client of ${options.distRoot} failed: ${output.stderr}`).toBe(0);
+  const line = output.stdout.trim().split("\n").pop();
+  return JSON.parse(line!) as TWitness;
 }
 
 function socketAcceptsConnections(socketPath: string): Promise<void> {
@@ -625,4 +685,147 @@ describe.skipIf(process.platform !== "linux")("native terminal upgrade (scenario
       client.close();
     }
   }, 240_000);
+
+  // Round-3 P2 finding: the scenario exercised application acquisition and
+  // the store heartbeat, but never the supervision pass's own CPU decision
+  // (tmux pane rate vs threshold). This test drives the CANDIDATE dist's real
+  // decision end to end: one pass over two live panes of the SAME fixture
+  // tmux server, one burning CPU in its pane, one idle — the working pane's
+  // lease must be RENEWED by the pass, the idle pane's must NOT.
+  it("should let the candidate's supervision pass beat a working pane's lease and only observe an idle one", async () => {
+    const root = createPrivateTestDirectory("u9iii-");
+    directories.add(root);
+    const leaseConfigHome = join(root, "lease-config-home");
+    mkdirSync(leaseConfigHome, { recursive: true });
+    const burnSession = "u9-supervision-burn";
+    const idleSession = "u9-supervision-idle";
+
+    const witness = await runSupervisionClient<SupervisionWitness>({
+      distRoot: candidateRoot!,
+      leaseConfigHome,
+      root,
+      body: [
+        "let witness;",
+        "const pinned = [];",
+        "const tmux = (args) => {",
+        "  const result = spawnSync(\"tmux\", args, { encoding: \"utf8\" });",
+        "  if (result.status !== 0) throw new Error(`tmux failed: ${JSON.stringify(args)} ${String(result.stderr)}`);",
+        "  return String(result.stdout).trim();",
+        "};",
+        "try {",
+        "  // A private fixture tmux server (TMUX_TMPDIR is redirected): the",
+        "  // panes are explicit /bin/sh processes of this fixture, driven by",
+        "  // keys — never the owner's default shell.",
+        "  tmux([\"-f\", \"/dev/null\", \"new-session\", \"-d\", \"-s\", \"u9-supervision-burn\", \"/bin/sh\"]);",
+        "  tmux([\"new-session\", \"-d\", \"-s\", \"u9-supervision-idle\", \"/bin/sh\"]);",
+        "  tmux([\"send-keys\", \"-t\", \"u9-supervision-burn\", \"while :; do :; done\", \"Enter\"]);",
+        "  tmux([\"send-keys\", \"-t\", \"u9-supervision-idle\", \"while :; do sleep 1; done\", \"Enter\"]);",
+        "  const pinAgentPane = (sessionId) => {",
+        "    const paneId = tmux([\"list-panes\", \"-s\", \"-t\", sessionId, \"-F\", \"#{pane_id}\"]);",
+        "    if (!/^%\\d+$/.test(paneId)) throw new Error(`no pane id for ${sessionId}`);",
+        "    tmux([\"set-option\", \"-t\", sessionId, \"@remote_agent_pane\", paneId]);",
+        "    const panePid = Number(tmux([\"display-message\", \"-p\", \"-t\", sessionId, \"#{pane_pid}\"]));",
+        "    if (!Number.isInteger(panePid) || panePid <= 0) throw new Error(`no pane pid for ${sessionId}`);",
+        "    const procRoot = process.env.H2A_TEST_PROC_ROOT;",
+        "    if (!procRoot) throw new Error(\"the supervision client must run under the private process view\");",
+        "    // Pin this fixture's pane process into the private proc view (the",
+        "    // same pin the isolation guard applies to guarded spawns), so the",
+        "    // supervision pass's fleet /proc walk observes only fixture pids.",
+        "    const fd = fs.openSync(`/proc/${panePid}`, fs.constants.O_RDONLY | fs.constants.O_DIRECTORY);",
+        "    fs.symlinkSync(`/proc/${process.pid}/fd/${fd}`, `${procRoot}/${panePid}`);",
+        "    pinned.push(`${procRoot}/${panePid}`);",
+        "    return paneId;",
+        "  };",
+        "  const burnPane = pinAgentPane(\"u9-supervision-burn\");",
+        "  const idlePane = pinAgentPane(\"u9-supervision-idle\");",
+        "  const enrollLeased = (sessionId, pane) => {",
+        "    registryModule.enroll({",
+        "      id: sessionId,",
+        "      tool: \"codex\",",
+        "      kind: \"local-tmux\",",
+        `      cwd: ${JSON.stringify(root)},`,
+        "      source: \"run\",",
+        "      sessionClass: \"background\",",
+        "      role: \"job\",",
+        "      jobState: \"running\",",
+        "      tmuxSession: sessionId,",
+        "    });",
+        "    const lease = runtime.acquireSessionLease(sessionId, {",
+        "      holder: \"u9-supervision-0985\",",
+        `      workspace: ${JSON.stringify(root)},`,
+        "      agentPane: pane,",
+        "    });",
+        "    if (lease === undefined) throw new Error(`acquisition refused for ${sessionId}`);",
+        "    return lease;",
+        "  };",
+        "  const burnLease = enrollLeased(\"u9-supervision-burn\", burnPane);",
+        "  const idleLease = enrollLeased(\"u9-supervision-idle\", idlePane);",
+        "  // The burning pane accumulates real CPU between the acquisition's",
+        "  // baseline sample and the pass: the rate it computes is real work.",
+        "  await new Promise((resolve) => setTimeout(resolve, 2_000));",
+        "  const pass = runtime.superviseSessionLeases(registryModule.listJobs(), new Date().toISOString());",
+        "  const store = new leaseModule.SessionLeaseStore(leaseModule.resolveSessionLeasePath(), { now: () => new Date().toISOString() });",
+        "  const describeLease = (lease) => {",
+        "    const after = store.forSession(lease.sessionId);",
+        "    if (after === undefined) throw new Error(`lease missing after the pass: ${lease.sessionId}`);",
+        "    return {",
+        "      sessionId: lease.sessionId,",
+        "      token: lease.token,",
+        "      acquiredHeartbeatAt: lease.heartbeatAt,",
+        "      acquiredSample: lease.sample,",
+        "      heartbeatAt: after.heartbeatAt,",
+        "      sample: after.sample,",
+        "    };",
+        "  };",
+        "  witness = {",
+        "    pass: {",
+        "      beaten: pass.beaten,",
+        "      observed: pass.observed,",
+        "      released: pass.released,",
+        "      unreadable: pass.unreadable,",
+        "      proposals: pass.proposals,",
+        "    },",
+        "    burn: describeLease(burnLease),",
+        "    idle: describeLease(idleLease),",
+        "  };",
+        "} finally {",
+        "  try { tmux([\"kill-server\"]); } catch {}",
+        "  for (const pin of pinned) { try { fs.unlinkSync(pin); } catch {} }",
+        "}",
+      ].join("\n"),
+    });
+
+    // THE decision: the working pane is beaten, the idle one only observed —
+    // and nothing is unreadable, released or proposed.
+    expect(witness.pass.beaten).toEqual([burnSession]);
+    expect(witness.pass.observed).toEqual([idleSession]);
+    expect(witness.pass.unreadable).toEqual([]);
+    expect(witness.pass.released).toEqual([]);
+    expect(witness.pass.proposals).toEqual([]);
+    // The working lease was RENEWED by the pass, on a real CPU rate: its
+    // baseline sample moved to a strictly higher reading.
+    expect(Date.parse(witness.burn.heartbeatAt))
+      .toBeGreaterThan(Date.parse(witness.burn.acquiredHeartbeatAt));
+    expect(witness.burn.sample.cpuMs).toBeGreaterThan(witness.burn.acquiredSample.cpuMs);
+    // The idle lease was NOT renewed — the abandonment clock keeps running —
+    // but its CPU reading was still recorded.
+    expect(witness.idle.heartbeatAt).toBe(witness.idle.acquiredHeartbeatAt);
+    expect(Date.parse(witness.idle.sample.sampledAt))
+      .toBeGreaterThan(Date.parse(witness.idle.acquiredSample.sampledAt));
+
+    // INDEPENDENT re-read through the candidate's own store: what the pass
+    // did must be PERSISTED, not merely returned — the renewal on one side,
+    // the non-renewal on the other.
+    const persisted = await readPersistedLeases({ distRoot: candidateRoot!, leaseConfigHome, root });
+    const burnRecord = persisted.find((record) => record.sessionId === burnSession);
+    expect(burnRecord, "the beaten lease must be persisted").toBeDefined();
+    expect(burnRecord!.holder).toBe("u9-supervision-0985");
+    expect(burnRecord!.heartbeatAt, "the pass's renewal was returned but not persisted").toBe(witness.burn.heartbeatAt);
+    expect(burnRecord!.sample?.cpuMs, "the beat's CPU reading was returned but not persisted").toBe(witness.burn.sample.cpuMs);
+    const idleRecord = persisted.find((record) => record.sessionId === idleSession);
+    expect(idleRecord, "the observed lease must be persisted").toBeDefined();
+    expect(idleRecord!.holder).toBe("u9-supervision-0985");
+    expect(idleRecord!.heartbeatAt, "an under-threshold pane must not have its lease renewed").toBe(witness.idle.acquiredHeartbeatAt);
+    expect(idleRecord!.sample?.sampledAt, "the observe reading was returned but not persisted").toBe(witness.idle.sample.sampledAt);
+  }, 120_000);
 });
