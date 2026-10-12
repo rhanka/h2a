@@ -2,12 +2,13 @@ import { readFileSync } from 'node:fs'
 import { isDeepStrictEqual } from 'node:util'
 
 export function executionPlan(workflow) {
-  // Names and standalone comments describe steps. All executable fields,
-  // contexts, action inputs, job edges and ordering are part of the plan.
+  // YAML comments and display names describe steps. Every script line is
+  // retained: a line starting with # can be executable data inside a quote.
+  // Contexts, action inputs, job edges and ordering are part of the plan.
   const clone = structuredClone(workflow.jobs)
   for (const job of Object.values(clone)) for (const step of job.steps ?? []) {
     delete step.name
-    if (step.run) step.run = step.run.split('\n').map((line) => line.trim()).filter((line) => line && !line.startsWith('#'))
+    if (step.run) step.run = step.run.split('\n')
   }
   return clone
 }

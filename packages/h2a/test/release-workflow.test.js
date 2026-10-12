@@ -581,3 +581,12 @@ test("C9: the complete execution plan preserves context, SHA, Node, bytes and ev
   const upload = verify.steps.findIndex((step) => step.uses === "actions/upload-artifact@v4");
   assert.ok(pack < smoke && smoke + 1 === upload, "smoke exercises the built bytes immediately before their upload");
 });
+
+test("C9 A09: a comment-shaped line inside a quoted script cannot hide another publication", () => {
+  const mutant = structuredClone(WORKFLOW);
+  const doctor = mutant.jobs.publish.steps.find((step) => step.name === "Verify published @sentropic/h2a doctor (post-release)");
+  const original = doctor.run;
+  doctor.run = doctor.run.replace("node -e '\n", "node -e '\n#' || npm publish --workspace @sentropic/h2a\n");
+  assert.notEqual(doctor.run, original, "the quoting mutation must apply");
+  assert.ok(releaseContractFailures(mutant).length > 0, "script lines inside quotes are executable data, even when they start with #");
+});
