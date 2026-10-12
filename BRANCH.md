@@ -33,10 +33,10 @@
 - [x] Gate: node --test packages/h2a/test/mh-l1-transport.test.js and mcp-central-attachments.test.js (named cases only).
 
 ## Lot 4 — Packaging prototype
-- [ ] Produce repeatable core/runtime payload with exact dependency resolution and published shrinkwrap.
-- [ ] Retain real node-pty legacy probe, no Python/node-gyp install path; record closure limits explicitly.
+- [x] Produce repeatable core/runtime payload with exact dependency resolution and published shrinkwrap.
+- [x] Retain real node-pty legacy probe, no Python/node-gyp install path; record closure limits explicitly.
 - [x] Close L0 R1 with a native digest mismatch vector that kills the missing-guard mutation; Node 20 refused, Node 24 ABI recognized.
-- [ ] Gate: node --test packages/h2a/test/mh-l1-package.test.js and mh-l0-image.test.js.
+- [x] Gate: node --test packages/h2a/test/mh-l1-package.test.js and mh-l0-image.test.js.
 
 ## Lot 5 — Delivery
 - [ ] Review diff/scope, record constrained review status without consensus claim.
