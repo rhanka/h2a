@@ -1,0 +1,1593 @@
+{
+  "schemaVersion": 1,
+  "ref": "0b9cf8862be689380c3bcb6e7cb35dc1e10b5cbf",
+  "roots": [
+    "packages/h2a-runtime/src/native-terminal/supervisor.ts",
+    "packages/h2a-runtime/src/native-terminal/process.ts",
+    "packages/h2a-runtime/src/native-terminal/journal.ts",
+    "packages/h2a-runtime/src/native-terminal/op.ts",
+    "packages/h2a-runtime/src/launch-guard.ts",
+    "packages/h2a-runtime/src/pty.ts",
+    "packages/h2a-runtime/src/index.ts",
+    "packages/h2a-runtime/src/status-projection.ts",
+    "packages/h2a/src/runtime/drive/pty-actuator.ts"
+  ],
+  "files": [
+    {
+      "source": "packages/h2a-runtime/src/agent-launch-args.ts",
+      "emitted": "packages/h2a-runtime/dist/agent-launch-args.js",
+      "sourceDigest": "sha256:323b119fe60b9e1a2d656b6abc44b2669f540f554a3b769749e5e5356cfe2074"
+    },
+    {
+      "source": "packages/h2a-runtime/src/agents-projection.ts",
+      "emitted": "packages/h2a-runtime/dist/agents-projection.js",
+      "sourceDigest": "sha256:1b8a0d779d70a74a53164e7ef59b328122cbd3bbe14963577bf56e9f87731fa1"
+    },
+    {
+      "source": "packages/h2a-runtime/src/attach.ts",
+      "emitted": "packages/h2a-runtime/dist/attach.js",
+      "sourceDigest": "sha256:6d1937ca8684ff460d6616017a69f046faa6bcd9c5f21cde086f7ade0709921b"
+    },
+    {
+      "source": "packages/h2a-runtime/src/auth-bundle.ts",
+      "emitted": "packages/h2a-runtime/dist/auth-bundle.js",
+      "sourceDigest": "sha256:e1dca5a0912ab6bfe6c5441f1dc2aeb3fcdfcc40bd1841fbd067ac36394c6144"
+    },
+    {
+      "source": "packages/h2a-runtime/src/auth-diagnostics.ts",
+      "emitted": "packages/h2a-runtime/dist/auth-diagnostics.js",
+      "sourceDigest": "sha256:86e0ffe01cfac420114db3f2e1458250d7bb07efd7001b9881893e5a558e4bab"
+    },
+    {
+      "source": "packages/h2a-runtime/src/auth-login.ts",
+      "emitted": "packages/h2a-runtime/dist/auth-login.js",
+      "sourceDigest": "sha256:21812f3326bc2a70ba0b29708bd4d3ca7e712c146fc0ff9d7b84dca2861fc1b3"
+    },
+    {
+      "source": "packages/h2a-runtime/src/auth-refresh.ts",
+      "emitted": "packages/h2a-runtime/dist/auth-refresh.js",
+      "sourceDigest": "sha256:841065a0d86b657d7750bdb4612cf121d756d3c291c5e81a375ef0852d7c03a8"
+    },
+    {
+      "source": "packages/h2a-runtime/src/auth-tools.ts",
+      "emitted": "packages/h2a-runtime/dist/auth-tools.js",
+      "sourceDigest": "sha256:7c1022d5a0638292d5fe6c5171baba798461b1d2a07a8f02f94aa90767eb3340"
+    },
+    {
+      "source": "packages/h2a-runtime/src/browser-bridge-local.ts",
+      "emitted": "packages/h2a-runtime/dist/browser-bridge-local.js",
+      "sourceDigest": "sha256:3e55dce16609ee258cff84fd26d32a4928cfdfa86e6cf8aea38ca124d299f329"
+    },
+    {
+      "source": "packages/h2a-runtime/src/browser.ts",
+      "emitted": "packages/h2a-runtime/dist/browser.js",
+      "sourceDigest": "sha256:9ad6914b4b08f5a1a543218450dfe854d45aedd2a6dc659e83c46bf649eaff80"
+    },
+    {
+      "source": "packages/h2a-runtime/src/central-mcp.ts",
+      "emitted": "packages/h2a-runtime/dist/central-mcp.js",
+      "sourceDigest": "sha256:247cd935df9446ba51024b9003168ee19a75b6966da52d519e6213189053c791"
+    },
+    {
+      "source": "packages/h2a-runtime/src/cli-help-groups.ts",
+      "emitted": "packages/h2a-runtime/dist/cli-help-groups.js",
+      "sourceDigest": "sha256:fdecfaf5e9a3716b824127fb69c5a0a4e9a2c12f247664e191cc26aa6b1e1e66"
+    },
+    {
+      "source": "packages/h2a-runtime/src/conductor-launch.ts",
+      "emitted": "packages/h2a-runtime/dist/conductor-launch.js",
+      "sourceDigest": "sha256:2105226f7f0006c14cb0ec6deb10d722c64373e4bb6f6b85f2153482b243bbea"
+    },
+    {
+      "source": "packages/h2a-runtime/src/config.ts",
+      "emitted": "packages/h2a-runtime/dist/config.js",
+      "sourceDigest": "sha256:da2023b23d88155b11b6d64c89476f092a95296791cef1b09542da77ac4f694d"
+    },
+    {
+      "source": "packages/h2a-runtime/src/conv-guard.ts",
+      "emitted": "packages/h2a-runtime/dist/conv-guard.js",
+      "sourceDigest": "sha256:bebf88020ef4529b64df4b0e954e0ec7b6dabcaa3b42dbdbf833d9caeb70c94a"
+    },
+    {
+      "source": "packages/h2a-runtime/src/convsync.ts",
+      "emitted": "packages/h2a-runtime/dist/convsync.js",
+      "sourceDigest": "sha256:c5c5ae54e3ecdf8820b905c2edf1ecc676325ea1bbced39a45ccfe0b9d8f8609"
+    },
+    {
+      "source": "packages/h2a-runtime/src/cred-health.ts",
+      "emitted": "packages/h2a-runtime/dist/cred-health.js",
+      "sourceDigest": "sha256:cabeb5e03491e1944147037a7da10c38916d006df399d8bda9a1dcb65835e8e3"
+    },
+    {
+      "source": "packages/h2a-runtime/src/delegate.ts",
+      "emitted": "packages/h2a-runtime/dist/delegate.js",
+      "sourceDigest": "sha256:caa4118250df91387ec2acc3378cfd14ac19839ccc34dc3c8d59576ff16dbb78"
+    },
+    {
+      "source": "packages/h2a-runtime/src/enroll.ts",
+      "emitted": "packages/h2a-runtime/dist/enroll.js",
+      "sourceDigest": "sha256:d42b4162f9a6a1b2f9ed3d6a3e1e76a06b81fc0e368c2a5a52ae023b265d47d0"
+    },
+    {
+      "source": "packages/h2a-runtime/src/fanout.ts",
+      "emitted": "packages/h2a-runtime/dist/fanout.js",
+      "sourceDigest": "sha256:5da2996ca457128e33a1e4f5fa5aeee896a56568e8a47739d2d8c4d7cd4008fc"
+    },
+    {
+      "source": "packages/h2a-runtime/src/file-lock.ts",
+      "emitted": "packages/h2a-runtime/dist/file-lock.js",
+      "sourceDigest": "sha256:38f41807323039f90bc19af84ea5a3976b6a89c96e83c08df2c575891c62a649"
+    },
+    {
+      "source": "packages/h2a-runtime/src/forward.ts",
+      "emitted": "packages/h2a-runtime/dist/forward.js",
+      "sourceDigest": "sha256:0176131d069b28aafcef30de070b1d3b2f14a3d439ca0068e1a18f2f18331676"
+    },
+    {
+      "source": "packages/h2a-runtime/src/gateway-host/config-file.ts",
+      "emitted": "packages/h2a-runtime/dist/gateway-host/config-file.js",
+      "sourceDigest": "sha256:cd89dac29fbe1ea44d077964d4bf62445e318ae60933222d3e52d113f5beb3e8"
+    },
+    {
+      "source": "packages/h2a-runtime/src/gateway-host/daemon.ts",
+      "emitted": "packages/h2a-runtime/dist/gateway-host/daemon.js",
+      "sourceDigest": "sha256:c64a5aef461c57fc3bd9741c715b13f82e587a922a2d4a1418827c6984acb332"
+    },
+    {
+      "source": "packages/h2a-runtime/src/gitdiff.ts",
+      "emitted": "packages/h2a-runtime/dist/gitdiff.js",
+      "sourceDigest": "sha256:b8540d4fa7b187b246b2df64e9560f927e9d9dd69a20df4b9994e6ace5c9c327"
+    },
+    {
+      "source": "packages/h2a-runtime/src/h2a-bridge.ts",
+      "emitted": "packages/h2a-runtime/dist/h2a-bridge.js",
+      "sourceDigest": "sha256:578835dc4462cb5ac72a061f47c0aa3147665186f4ebe469d60d3be0b9f5c22f"
+    },
+    {
+      "source": "packages/h2a-runtime/src/h2a-jobs.ts",
+      "emitted": "packages/h2a-runtime/dist/h2a-jobs.js",
+      "sourceDigest": "sha256:5d17b9e74d19d56ffc9a92bee4af0e62cda9181649be05e335b412aec18dae52"
+    },
+    {
+      "source": "packages/h2a-runtime/src/h2a-ping.ts",
+      "emitted": "packages/h2a-runtime/dist/h2a-ping.js",
+      "sourceDigest": "sha256:581f0cb52bbd38933c289dcc2835c9e70429e835a1dbce0b206c667851001085"
+    },
+    {
+      "source": "packages/h2a-runtime/src/identity-cull/cull.ts",
+      "emitted": "packages/h2a-runtime/dist/identity-cull/cull.js",
+      "sourceDigest": "sha256:e872daf5b31f59565ba951bd5ef21750d65243356d10bf89bf03993c465c5f60"
+    },
+    {
+      "source": "packages/h2a-runtime/src/index.ts",
+      "emitted": "packages/h2a-runtime/dist/index.js",
+      "sourceDigest": "sha256:b6566380cb08e80a026ebf94d5cc99c1f2e5e5cc2b6bd125e328bcacde8532b4"
+    },
+    {
+      "source": "packages/h2a-runtime/src/interactive-throttle.ts",
+      "emitted": "packages/h2a-runtime/dist/interactive-throttle.js",
+      "sourceDigest": "sha256:7d1c2ee1e888fea8b29ba7d775825079d596825767bb0f05062c9fd0503eaac5"
+    },
+    {
+      "source": "packages/h2a-runtime/src/launch-context.ts",
+      "emitted": "packages/h2a-runtime/dist/launch-context.js",
+      "sourceDigest": "sha256:7b798782875e54100d637aafdff2528743fcd5936daa13096ffdf03bcef9d9af"
+    },
+    {
+      "source": "packages/h2a-runtime/src/launch-guard.ts",
+      "emitted": "packages/h2a-runtime/dist/launch-guard.js",
+      "sourceDigest": "sha256:cd39a70837e3c5f229f9b86c7ef101d676f2f27e56530faf134afde964ed1e70"
+    },
+    {
+      "source": "packages/h2a-runtime/src/launch-layout.ts",
+      "emitted": "packages/h2a-runtime/dist/launch-layout.js",
+      "sourceDigest": "sha256:7f02afbbdbf06fbe661bd8291d80f9ef667835d9ebe2ebf5f1e0aec2dc66637f"
+    },
+    {
+      "source": "packages/h2a-runtime/src/lineage-client.ts",
+      "emitted": "packages/h2a-runtime/dist/lineage-client.js",
+      "sourceDigest": "sha256:2a3a3292a4b587e974f123641ce3e01ea5bbedb3a742fb339a1b9967e12448d9"
+    },
+    {
+      "source": "packages/h2a-runtime/src/lineage-lease.ts",
+      "emitted": "packages/h2a-runtime/dist/lineage-lease.js",
+      "sourceDigest": "sha256:cffaa4654403e2c88622f539ac2584a8e5b77aa520e75745744c73a71e07fefa"
+    },
+    {
+      "source": "packages/h2a-runtime/src/llm-mesh-accounts.ts",
+      "emitted": "packages/h2a-runtime/dist/llm-mesh-accounts.js",
+      "sourceDigest": "sha256:213b99c54c350c48bc2ee8c05306191d9c850a9d29638d731f5972998cc8877c"
+    },
+    {
+      "source": "packages/h2a-runtime/src/migrate-candidates.ts",
+      "emitted": "packages/h2a-runtime/dist/migrate-candidates.js",
+      "sourceDigest": "sha256:6a614ab4fa787e5abbbec5986da45971b1ed332ca68061c9bd09360010833a66"
+    },
+    {
+      "source": "packages/h2a-runtime/src/migrate.ts",
+      "emitted": "packages/h2a-runtime/dist/migrate.js",
+      "sourceDigest": "sha256:d2f495b7876f2e6ecf98d63261905b7b5198426c2cfff9d92bad923103f7a036"
+    },
+    {
+      "source": "packages/h2a-runtime/src/native-host.ts",
+      "emitted": "packages/h2a-runtime/dist/native-host.js",
+      "sourceDigest": "sha256:98f908f8aa3e9076085e6a1df89809bffab8a3f95097e015e1fbf43a871c058f"
+    },
+    {
+      "source": "packages/h2a-runtime/src/native-restart.ts",
+      "emitted": "packages/h2a-runtime/dist/native-restart.js",
+      "sourceDigest": "sha256:9a48b340d462e6d7f5a76321fa171e7c25017711f0eb556f5d3cc19a4851cc54"
+    },
+    {
+      "source": "packages/h2a-runtime/src/native-terminal/attach-recovery.ts",
+      "emitted": "packages/h2a-runtime/dist/native-terminal/attach-recovery.js",
+      "sourceDigest": "sha256:747a2d4c6f1c467fead629e3934bc5fb3d613a193291859d24e7dbac479e2577"
+    },
+    {
+      "source": "packages/h2a-runtime/src/native-terminal/client.ts",
+      "emitted": "packages/h2a-runtime/dist/native-terminal/client.js",
+      "sourceDigest": "sha256:50b92e69ef7146d4ee96325fb306698cda5313ab715d3680cf08a6529b648d23"
+    },
+    {
+      "source": "packages/h2a-runtime/src/native-terminal/crash-safe-log.ts",
+      "emitted": "packages/h2a-runtime/dist/native-terminal/crash-safe-log.js",
+      "sourceDigest": "sha256:f0e6c5d4a102b331327f1e2c22a604c316decb14a80a0cf3062fd8e8ad4ec34e"
+    },
+    {
+      "source": "packages/h2a-runtime/src/native-terminal/fault-counters.ts",
+      "emitted": "packages/h2a-runtime/dist/native-terminal/fault-counters.js",
+      "sourceDigest": "sha256:9dd837f99b7d4bdce19ea9f099dca20560fcae1e5e09520651598dcbf7f999a5"
+    },
+    {
+      "source": "packages/h2a-runtime/src/native-terminal/fleet.ts",
+      "emitted": "packages/h2a-runtime/dist/native-terminal/fleet.js",
+      "sourceDigest": "sha256:12352432fdd78608cb3ecb61627eecc2fd88f8b714667bb55681f15a52a045df"
+    },
+    {
+      "source": "packages/h2a-runtime/src/native-terminal/host.ts",
+      "emitted": "packages/h2a-runtime/dist/native-terminal/host.js",
+      "sourceDigest": "sha256:88154cc6c7f899dfc2a514a456251fb30125adf01e58cc9f1388874cf782427c"
+    },
+    {
+      "source": "packages/h2a-runtime/src/native-terminal/journal.ts",
+      "emitted": "packages/h2a-runtime/dist/native-terminal/journal.js",
+      "sourceDigest": "sha256:7014f89768c31143c5243daaeceb9c65dc2436bd1746f63e26c4e7bf3293b499"
+    },
+    {
+      "source": "packages/h2a-runtime/src/native-terminal/op.ts",
+      "emitted": "packages/h2a-runtime/dist/native-terminal/op.js",
+      "sourceDigest": "sha256:b17c0bcc5ef6a891450e488026c02a54c5938ad038b922905baedc36996536de"
+    },
+    {
+      "source": "packages/h2a-runtime/src/native-terminal/process.ts",
+      "emitted": "packages/h2a-runtime/dist/native-terminal/process.js",
+      "sourceDigest": "sha256:6c09d8a4ebad9ab729fffec89d01bf88d8ca4d53fddc7452aa56aacf1387b96c"
+    },
+    {
+      "source": "packages/h2a-runtime/src/native-terminal/protocol.ts",
+      "emitted": "packages/h2a-runtime/dist/native-terminal/protocol.js",
+      "sourceDigest": "sha256:65b644680d95e9be590e24c2d7c21aaeedf5cfe5820df0d596e260b2d0d27654"
+    },
+    {
+      "source": "packages/h2a-runtime/src/native-terminal/publication-refusal.ts",
+      "emitted": "packages/h2a-runtime/dist/native-terminal/publication-refusal.js",
+      "sourceDigest": "sha256:0c5276b67e8f634ce4304c03a89d13d449d7cf955d3881b5223cf8a70c916c85"
+    },
+    {
+      "source": "packages/h2a-runtime/src/native-terminal/replay-buffer.ts",
+      "emitted": "packages/h2a-runtime/dist/native-terminal/replay-buffer.js",
+      "sourceDigest": "sha256:e2951a53b1390373c262b89f9ce8612eb52db421e5aca2517dc770799a37cd5c"
+    },
+    {
+      "source": "packages/h2a-runtime/src/native-terminal/reset-relay.ts",
+      "emitted": "packages/h2a-runtime/dist/native-terminal/reset-relay.js",
+      "sourceDigest": "sha256:1019c8dac1628cb050448213f4dcd6c2f27510639027089fa19f7e06dbfef21d"
+    },
+    {
+      "source": "packages/h2a-runtime/src/native-terminal/screen.ts",
+      "emitted": "packages/h2a-runtime/dist/native-terminal/screen.js",
+      "sourceDigest": "sha256:64f94f265f5cb620618e57ca7aa65e1c190a2ebdef7a8f251ae895105f7b9603"
+    },
+    {
+      "source": "packages/h2a-runtime/src/native-terminal/server.ts",
+      "emitted": "packages/h2a-runtime/dist/native-terminal/server.js",
+      "sourceDigest": "sha256:cbc55c7114814fca9a2ef66f0ee1cce0f3ea6b7b9f952d72d95f9e54df767e4c"
+    },
+    {
+      "source": "packages/h2a-runtime/src/native-terminal/socket-path.ts",
+      "emitted": "packages/h2a-runtime/dist/native-terminal/socket-path.js",
+      "sourceDigest": "sha256:4afeae3ef31adb4694a09d2bac27952a5bb60d77856a28f6b2804716394dcc2e"
+    },
+    {
+      "source": "packages/h2a-runtime/src/native-terminal/supervisor.ts",
+      "emitted": "packages/h2a-runtime/dist/native-terminal/supervisor.js",
+      "sourceDigest": "sha256:cbc4a8777508bbef60bbbd65ee1edf548263ae43356214fa2c1646b1b6a9dc0e"
+    },
+    {
+      "source": "packages/h2a-runtime/src/native-terminal/terminal-modes.ts",
+      "emitted": "packages/h2a-runtime/dist/native-terminal/terminal-modes.js",
+      "sourceDigest": "sha256:f034703a5550d29444b721527445bb97fb78faab92a0f28a586880ec54eb2291"
+    },
+    {
+      "source": "packages/h2a-runtime/src/plugin-manifest.ts",
+      "emitted": "packages/h2a-runtime/dist/plugin-manifest.js",
+      "sourceDigest": "sha256:116ae590c959beb2aeb3ef37640ed2e67840cf99268e1afbcc6969bd3af9f19b"
+    },
+    {
+      "source": "packages/h2a-runtime/src/plugin.ts",
+      "emitted": "packages/h2a-runtime/dist/plugin.js",
+      "sourceDigest": "sha256:17be2ee1b25e04c7659c7f18259b101776c7e3abb3f35c909216e29f2d1dca09"
+    },
+    {
+      "source": "packages/h2a-runtime/src/pod-liveness.ts",
+      "emitted": "packages/h2a-runtime/dist/pod-liveness.js",
+      "sourceDigest": "sha256:26c9ed335f51f7c1801a07014a6ded2a01ac897ec6d33a69509b64c97b23b138"
+    },
+    {
+      "source": "packages/h2a-runtime/src/proc-cpu.ts",
+      "emitted": "packages/h2a-runtime/dist/proc-cpu.js",
+      "sourceDigest": "sha256:a5a34b09d6880033b180847459f2df302ac5023c38833dcf24f18f76c944ddf7"
+    },
+    {
+      "source": "packages/h2a-runtime/src/proc-identity.ts",
+      "emitted": "packages/h2a-runtime/dist/proc-identity.js",
+      "sourceDigest": "sha256:2ef4945a278e2d079c7514c0ade5ded39b6c8ac24b3a5a72ac2ac25e9063033c"
+    },
+    {
+      "source": "packages/h2a-runtime/src/profile-menu.ts",
+      "emitted": "packages/h2a-runtime/dist/profile-menu.js",
+      "sourceDigest": "sha256:8071baba7594f3ef3a898ee69f6ba5b4581e1508ddfb84c8ccebc933f4d180ea"
+    },
+    {
+      "source": "packages/h2a-runtime/src/profiles.ts",
+      "emitted": "packages/h2a-runtime/dist/profiles.js",
+      "sourceDigest": "sha256:387534f7ea798a90c2eaa7bae6ef8891e666aa8d5b91dbb1db992a1ac8d7e58e"
+    },
+    {
+      "source": "packages/h2a-runtime/src/prompt-delivery.ts",
+      "emitted": "packages/h2a-runtime/dist/prompt-delivery.js",
+      "sourceDigest": "sha256:8c27decb3780537b82622ed9aefab5d49d49a02d0220e484ee852a6ca132e5d9"
+    },
+    {
+      "source": "packages/h2a-runtime/src/protocol-local.ts",
+      "emitted": "packages/h2a-runtime/dist/protocol-local.js",
+      "sourceDigest": "sha256:47dc95b326b46f77ad22ff738127def1f0a73b432778f392dc25c789d7fbb2c9"
+    },
+    {
+      "source": "packages/h2a-runtime/src/pty.ts",
+      "emitted": "packages/h2a-runtime/dist/pty.js",
+      "sourceDigest": "sha256:45508dcb69c70ed5d49a44c01b4f780ac2651ed424ba0d8b343c259ea999aee1"
+    },
+    {
+      "source": "packages/h2a-runtime/src/readiness.ts",
+      "emitted": "packages/h2a-runtime/dist/readiness.js",
+      "sourceDigest": "sha256:c9f065cd1eb6f7702649e6d99a329429253ff4202fb750bb127af3dab8273aa4"
+    },
+    {
+      "source": "packages/h2a-runtime/src/registry.ts",
+      "emitted": "packages/h2a-runtime/dist/registry.js",
+      "sourceDigest": "sha256:47f7f8c404969df2af306b749499cea8609ac287cff3db77a4846f1a65c7a396"
+    },
+    {
+      "source": "packages/h2a-runtime/src/relaunch.ts",
+      "emitted": "packages/h2a-runtime/dist/relaunch.js",
+      "sourceDigest": "sha256:8eb585d41756c0381fa173120b0ee2c7629ee752c54b5e92f5d26dd9b003bbfc"
+    },
+    {
+      "source": "packages/h2a-runtime/src/restore.ts",
+      "emitted": "packages/h2a-runtime/dist/restore.js",
+      "sourceDigest": "sha256:b5516aab9f22d0106b12355a966928eaac73cf56181486c03a023ab510666e40"
+    },
+    {
+      "source": "packages/h2a-runtime/src/resume-launch-options.ts",
+      "emitted": "packages/h2a-runtime/dist/resume-launch-options.js",
+      "sourceDigest": "sha256:1787afb3cabe588cd557495771da3401c0d918eb587097045a4cd490456e4342"
+    },
+    {
+      "source": "packages/h2a-runtime/src/routing-preferences.ts",
+      "emitted": "packages/h2a-runtime/dist/routing-preferences.js",
+      "sourceDigest": "sha256:5dd6948abdb4aa042e540016d580e8f11633f50151cac1bea512da9822bb65fc"
+    },
+    {
+      "source": "packages/h2a-runtime/src/run.ts",
+      "emitted": "packages/h2a-runtime/dist/run.js",
+      "sourceDigest": "sha256:523214c9dc32fc8eab43f3cf969f9f56706cff2f5e1f415d2922e360babbc874"
+    },
+    {
+      "source": "packages/h2a-runtime/src/secrets.ts",
+      "emitted": "packages/h2a-runtime/dist/secrets.js",
+      "sourceDigest": "sha256:5b3ca179ce06bcf205fd49ad1be5c89f6f16cc39a63b175772c99634fe13a0ef"
+    },
+    {
+      "source": "packages/h2a-runtime/src/session-class.ts",
+      "emitted": "packages/h2a-runtime/dist/session-class.js",
+      "sourceDigest": "sha256:721a94c6309c5a3df746d6683f19ed155b8550886251e555f062eccf62251e4e"
+    },
+    {
+      "source": "packages/h2a-runtime/src/session-lease.ts",
+      "emitted": "packages/h2a-runtime/dist/session-lease.js",
+      "sourceDigest": "sha256:2dc148faea1e441e5b8746777bc12d30c2636cc3cbdf9e6042b850cb2b1848e9"
+    },
+    {
+      "source": "packages/h2a-runtime/src/session-restore.ts",
+      "emitted": "packages/h2a-runtime/dist/session-restore.js",
+      "sourceDigest": "sha256:ebc389fa015870be6f39e46c9b066da371b8752b7c1c8622185d6bea357b5a08"
+    },
+    {
+      "source": "packages/h2a-runtime/src/skills-sync.ts",
+      "emitted": "packages/h2a-runtime/dist/skills-sync.js",
+      "sourceDigest": "sha256:dd57cea9f9f8ac31b3a71fef4bb443235db26ba6f47128f7063fb30b1ba5a2e3"
+    },
+    {
+      "source": "packages/h2a-runtime/src/smoke.ts",
+      "emitted": "packages/h2a-runtime/dist/smoke.js",
+      "sourceDigest": "sha256:88fbfc9146a3f15a97b4497c532cdb4dbb81cc03dd7269ed8d5298eae1f1a7ee"
+    },
+    {
+      "source": "packages/h2a-runtime/src/soft-refresh.ts",
+      "emitted": "packages/h2a-runtime/dist/soft-refresh.js",
+      "sourceDigest": "sha256:b64bceee1c6744cb868487e79886b3641d3cbcce74f29b79081fe476793badf0"
+    },
+    {
+      "source": "packages/h2a-runtime/src/status-projection.ts",
+      "emitted": "packages/h2a-runtime/dist/status-projection.js",
+      "sourceDigest": "sha256:1b0b427c61030e724ae3092752304a04311fc64a1a860ad980d0e89bd9842c20"
+    },
+    {
+      "source": "packages/h2a-runtime/src/sync-status.ts",
+      "emitted": "packages/h2a-runtime/dist/sync-status.js",
+      "sourceDigest": "sha256:4097f1854d6b259c7fe4344ee97228b84bb31c1400e77093b2a34f826347bca9"
+    },
+    {
+      "source": "packages/h2a-runtime/src/sync.ts",
+      "emitted": "packages/h2a-runtime/dist/sync.js",
+      "sourceDigest": "sha256:b27861da98c621bef7e8fad0649495dcab85f5c4c5da62d458372f42547c3940"
+    },
+    {
+      "source": "packages/h2a-runtime/src/throttle-signatures.ts",
+      "emitted": "packages/h2a-runtime/dist/throttle-signatures.js",
+      "sourceDigest": "sha256:ed0825dfae16440d93054aac56bbaee8378bc7cc8df674ca9a3437e7314d1e40"
+    },
+    {
+      "source": "packages/h2a-runtime/src/tmux-name-migration.ts",
+      "emitted": "packages/h2a-runtime/dist/tmux-name-migration.js",
+      "sourceDigest": "sha256:4017a47198c7ab1fc62fe3dae8559aee297f8854eda57ecbc0cea671eb74ab7b"
+    },
+    {
+      "source": "packages/h2a-runtime/src/tmux.ts",
+      "emitted": "packages/h2a-runtime/dist/tmux.js",
+      "sourceDigest": "sha256:394f265d713ccfdffc1177ee1c2c35411eaeaf669bf094c724ccd094e8d8e714"
+    },
+    {
+      "source": "packages/h2a-runtime/src/tunnel.ts",
+      "emitted": "packages/h2a-runtime/dist/tunnel.js",
+      "sourceDigest": "sha256:a2a5b0e0071d15974fd01d2148ef9bb0a84712314ea6db4413160ef1f03babef"
+    },
+    {
+      "source": "packages/h2a-runtime/src/workspace-merge.ts",
+      "emitted": "packages/h2a-runtime/dist/workspace-merge.js",
+      "sourceDigest": "sha256:b5e1aa860926743c24f408c2f61382c043d830269eb7e35519d22c68e899616c"
+    },
+    {
+      "source": "packages/h2a-runtime/src/workspace-sync-incremental.ts",
+      "emitted": "packages/h2a-runtime/dist/workspace-sync-incremental.js",
+      "sourceDigest": "sha256:ea48c471f05c64f3ce809104fe1dee5e3eca2c31ea815b7b979e51aeeed5725b"
+    },
+    {
+      "source": "packages/h2a-runtime/src/workspace-sync.ts",
+      "emitted": "packages/h2a-runtime/dist/workspace-sync.js",
+      "sourceDigest": "sha256:2564fb32a270e2246bd24d7bcbfddc50cb5a041b405e722428728046a41083b5"
+    },
+    {
+      "source": "packages/h2a-runtime/src/workspace.ts",
+      "emitted": "packages/h2a-runtime/dist/workspace.js",
+      "sourceDigest": "sha256:c40d3c691c625f921740a2c51ef79241ca91d30992b20d239c9265eaff26fb22"
+    },
+    {
+      "source": "packages/h2a/src/abc.ts",
+      "emitted": "packages/h2a/dist/abc.js",
+      "sourceDigest": "sha256:4f9707077a2cde380ab2907f0f071805ccc18a763c53b986e68af914523c0700"
+    },
+    {
+      "source": "packages/h2a/src/artifacts.ts",
+      "emitted": "packages/h2a/dist/artifacts.js",
+      "sourceDigest": "sha256:0fba3a7040199bdd037b2a4b06346f72d353242bfd263e757d05664eb08ad1ca"
+    },
+    {
+      "source": "packages/h2a/src/authority.ts",
+      "emitted": "packages/h2a/dist/authority.js",
+      "sourceDigest": "sha256:fcc4d2648562b8caa8aeef28510ad30a686e63037c57cd35ab43d44d9cdebd25"
+    },
+    {
+      "source": "packages/h2a/src/bin-routing.ts",
+      "emitted": "packages/h2a/dist/bin-routing.js",
+      "sourceDigest": "sha256:dcfab8196c5c713c9bee42da1c7ef46c96a42ad83924c18e565b783aa3cdab0a"
+    },
+    {
+      "source": "packages/h2a/src/bin.ts",
+      "emitted": "packages/h2a/dist/bin.js",
+      "sourceDigest": "sha256:bcd7d303c6b172df4bdf8fb42a4d728ccb25409c088e6cd377f5bd6cbe39b88f"
+    },
+    {
+      "source": "packages/h2a/src/blockage.ts",
+      "emitted": "packages/h2a/dist/blockage.js",
+      "sourceDigest": "sha256:5dbdc485b711080a83f39782202c29c2b0efe6dfafb58f3062780a9aef6c1df7"
+    },
+    {
+      "source": "packages/h2a/src/canonical.ts",
+      "emitted": "packages/h2a/dist/canonical.js",
+      "sourceDigest": "sha256:1833410a59e282372aea0a1dacf2c228c3e80a79e301f83d6f2973bbc78ef182"
+    },
+    {
+      "source": "packages/h2a/src/cli-command-map.ts",
+      "emitted": "packages/h2a/dist/cli-command-map.js",
+      "sourceDigest": "sha256:8d82a53082c98253e3606a06531c84e42cdf20cb10795840ee2534cf3c354c48"
+    },
+    {
+      "source": "packages/h2a/src/cli-contract.ts",
+      "emitted": "packages/h2a/dist/cli-contract.js",
+      "sourceDigest": "sha256:a52172b1b87c342915b447c012803d18f9ccc514d2c82e4338f1a43c82818278"
+    },
+    {
+      "source": "packages/h2a/src/cli.ts",
+      "emitted": "packages/h2a/dist/cli.js",
+      "sourceDigest": "sha256:667b8e8951f4882d9b1710190c87a467b8be5d9db1def77f84b75c9f90d84de1"
+    },
+    {
+      "source": "packages/h2a/src/comprehension-attestation.ts",
+      "emitted": "packages/h2a/dist/comprehension-attestation.js",
+      "sourceDigest": "sha256:158920a29cb3d48fcb6b3dfedc92cd18c8888101001d735e6711a454b2ec012f"
+    },
+    {
+      "source": "packages/h2a/src/confiance.ts",
+      "emitted": "packages/h2a/dist/confiance.js",
+      "sourceDigest": "sha256:342a908550a56858b627a62d32e9236d97fae12930f0f062e22c574c4a105361"
+    },
+    {
+      "source": "packages/h2a/src/conflit-interet.ts",
+      "emitted": "packages/h2a/dist/conflit-interet.js",
+      "sourceDigest": "sha256:2c7fec0b773af46ea53b4e5c270b3360122d5854f44e8c213758cd58a4f0b96d"
+    },
+    {
+      "source": "packages/h2a/src/contractual.ts",
+      "emitted": "packages/h2a/dist/contractual.js",
+      "sourceDigest": "sha256:9ea26d76974a06e68bf72031f72d6c7b96ddacd14da0bc3b7bf4e639ed650ae9"
+    },
+    {
+      "source": "packages/h2a/src/decision-dossier.ts",
+      "emitted": "packages/h2a/dist/decision-dossier.js",
+      "sourceDigest": "sha256:95516133a1fe3a935c83869761e1afb08efa426a77feb43cf79027ef37703d44"
+    },
+    {
+      "source": "packages/h2a/src/disclosure.ts",
+      "emitted": "packages/h2a/dist/disclosure.js",
+      "sourceDigest": "sha256:ee480715655622e9f641570771a4974fc16d2065f91d3401db5ded0cba68c07e"
+    },
+    {
+      "source": "packages/h2a/src/drumbeat-decision.ts",
+      "emitted": "packages/h2a/dist/drumbeat-decision.js",
+      "sourceDigest": "sha256:b3edefc42f222e2e01aedf930d4f9137044ebe5ed2e814ffd33c9d363906f8c1"
+    },
+    {
+      "source": "packages/h2a/src/drumbeat-resume.ts",
+      "emitted": "packages/h2a/dist/drumbeat-resume.js",
+      "sourceDigest": "sha256:8b3cfe51d8498e941bfb0d246bcf9b9125275eee91b9010b767ac2c549cbc56b"
+    },
+    {
+      "source": "packages/h2a/src/envelope.ts",
+      "emitted": "packages/h2a/dist/envelope.js",
+      "sourceDigest": "sha256:11479ff2bebce4e9e46f3ea03338ec3e19103019c71ddd9e3b098fdc3d0d4928"
+    },
+    {
+      "source": "packages/h2a/src/escalation.ts",
+      "emitted": "packages/h2a/dist/escalation.js",
+      "sourceDigest": "sha256:9d888daf1bd17d16a6e8a9195681d2207680fe7bfe24b29d7d3152194043add3"
+    },
+    {
+      "source": "packages/h2a/src/fixtures-index.ts",
+      "emitted": "packages/h2a/dist/fixtures-index.js",
+      "sourceDigest": "sha256:6f27790a600ce5d3dcda1e7165941906ff5d0bed8b90eca62922daca084b0da8"
+    },
+    {
+      "source": "packages/h2a/src/governance-boundary.ts",
+      "emitted": "packages/h2a/dist/governance-boundary.js",
+      "sourceDigest": "sha256:c93679e45a61f9322d9d309efae025334c59ee563028104f88f1e281774333f4"
+    },
+    {
+      "source": "packages/h2a/src/h2a-bridge.ts",
+      "emitted": "packages/h2a/dist/h2a-bridge.js",
+      "sourceDigest": "sha256:4517246e28ce570946dc8650d6100b1bab4f3a670deb3eeb36ada1b46d77500a"
+    },
+    {
+      "source": "packages/h2a/src/hosts/agy.ts",
+      "emitted": "packages/h2a/dist/hosts/agy.js",
+      "sourceDigest": "sha256:59092b76852d8efe1d43d22835c9f007fb91d1c3377388306f9077161ceaa68b"
+    },
+    {
+      "source": "packages/h2a/src/hosts/claude.ts",
+      "emitted": "packages/h2a/dist/hosts/claude.js",
+      "sourceDigest": "sha256:a6e759563a0f115edd7628f34f5c3606e38ff157bf3bc636756a8e4b69aac292"
+    },
+    {
+      "source": "packages/h2a/src/hosts/codex.ts",
+      "emitted": "packages/h2a/dist/hosts/codex.js",
+      "sourceDigest": "sha256:3d24f28556fc4ed74d2dd6bde8138c282fa46b48251e9668b8dbfcac93ee9586"
+    },
+    {
+      "source": "packages/h2a/src/hosts/gemini.ts",
+      "emitted": "packages/h2a/dist/hosts/gemini.js",
+      "sourceDigest": "sha256:fe54dbe3033b1ed101cda59ca6dbd219551e5dbd51d5614f9c849cf0d8672fa3"
+    },
+    {
+      "source": "packages/h2a/src/hosts/hermes.ts",
+      "emitted": "packages/h2a/dist/hosts/hermes.js",
+      "sourceDigest": "sha256:e66c3df4b9fb18cceefea6d1eb81447819e8ac258946544f4c406ed7bb9c13ed"
+    },
+    {
+      "source": "packages/h2a/src/hosts/installation-doctor-contract.js",
+      "emitted": "packages/h2a/dist/hosts/installation-doctor-contract.js",
+      "sourceDigest": "sha256:032d72183f1e46a4fb69e5b48074ea47f2673db33438a3567d3172fb00d938c3"
+    },
+    {
+      "source": "packages/h2a/src/hosts/installation-doctor.ts",
+      "emitted": "packages/h2a/dist/hosts/installation-doctor.js",
+      "sourceDigest": "sha256:15e5050915ec7f5880c017854f867b186ac036a4766c58634b39d276f68ef59c"
+    },
+    {
+      "source": "packages/h2a/src/hosts/muse.ts",
+      "emitted": "packages/h2a/dist/hosts/muse.js",
+      "sourceDigest": "sha256:6499efb2a3bcf6e7d01c6dad535a8c94ed793686e8fa38472238e81f361ba9a6"
+    },
+    {
+      "source": "packages/h2a/src/hosts/opencode.ts",
+      "emitted": "packages/h2a/dist/hosts/opencode.js",
+      "sourceDigest": "sha256:75a53722029d59a2ef7d797fb9613e5808466fe46c7d906625f055e9494ef782"
+    },
+    {
+      "source": "packages/h2a/src/hosts/plugin.ts",
+      "emitted": "packages/h2a/dist/hosts/plugin.js",
+      "sourceDigest": "sha256:462a98f41865254c182d93656c378b3b4d53658b245fcec200b641642ce35834"
+    },
+    {
+      "source": "packages/h2a/src/hosts/vibe.ts",
+      "emitted": "packages/h2a/dist/hosts/vibe.js",
+      "sourceDigest": "sha256:42d0b4cd46cb301f4cd389e97eec59721bc5e82646a61f6969766e9c5ef5220c"
+    },
+    {
+      "source": "packages/h2a/src/identity.ts",
+      "emitted": "packages/h2a/dist/identity.js",
+      "sourceDigest": "sha256:d58b2431eb3d29c6c6c7a7c2d997b65dd7ad53a120a7c776a386f587965186e4"
+    },
+    {
+      "source": "packages/h2a/src/index.ts",
+      "emitted": "packages/h2a/dist/index.js",
+      "sourceDigest": "sha256:99b978b67136d819343f0a28393cd3f5d154633ff238e31acfd09796fee863e2"
+    },
+    {
+      "source": "packages/h2a/src/journal.ts",
+      "emitted": "packages/h2a/dist/journal.js",
+      "sourceDigest": "sha256:fcf02cd157f9aadfecd7e565c46fbd6b1ce524a89756a49a2adcc9c0694da274"
+    },
+    {
+      "source": "packages/h2a/src/jurisdiction.ts",
+      "emitted": "packages/h2a/dist/jurisdiction.js",
+      "sourceDigest": "sha256:be048d96aef9e6c674cf7714bcf832c5bec080634312932b7e430e02296175d6"
+    },
+    {
+      "source": "packages/h2a/src/mcp.ts",
+      "emitted": "packages/h2a/dist/mcp.js",
+      "sourceDigest": "sha256:e8f631ec846c2d53cc044fb9c468ea89918f658039d8b5905a48a02bab8ec863"
+    },
+    {
+      "source": "packages/h2a/src/multi-human.ts",
+      "emitted": "packages/h2a/dist/multi-human.js",
+      "sourceDigest": "sha256:58f159670fe60327dd7b880e72d9229515d338b44b3fe3f7376c1be6e64e4039"
+    },
+    {
+      "source": "packages/h2a/src/mutualisation.ts",
+      "emitted": "packages/h2a/dist/mutualisation.js",
+      "sourceDigest": "sha256:f2cb4d36fd4fb8486f71b6f82d8af630cffcad4c157e98b3fa20e2acb87d3d41"
+    },
+    {
+      "source": "packages/h2a/src/negotiation.ts",
+      "emitted": "packages/h2a/dist/negotiation.js",
+      "sourceDigest": "sha256:ee06ccf0cf22b4b571b636d8a4f1e63c341299ad2260d90d31daab9f11d0a93e"
+    },
+    {
+      "source": "packages/h2a/src/nhi-export.ts",
+      "emitted": "packages/h2a/dist/nhi-export.js",
+      "sourceDigest": "sha256:ea0372ce4ccbb635d9dad166e68f1ee1702e6c308231f34a31c667bfcebc4f2d"
+    },
+    {
+      "source": "packages/h2a/src/nhi.ts",
+      "emitted": "packages/h2a/dist/nhi.js",
+      "sourceDigest": "sha256:8b4f7d36fa08f504d06bd17be5ac08f8304ef23b2e8837b84237ce866bc68aef"
+    },
+    {
+      "source": "packages/h2a/src/org-parse.ts",
+      "emitted": "packages/h2a/dist/org-parse.js",
+      "sourceDigest": "sha256:c367c494d4e57ec6e1a4d0a044be3771a6ae10fc0154f533b2b0cadc4eb0a3e8"
+    },
+    {
+      "source": "packages/h2a/src/org.ts",
+      "emitted": "packages/h2a/dist/org.js",
+      "sourceDigest": "sha256:23e443ad99139f1f5473caa056032bf15a4938294aa2b5d5d6ba0cbc6a5d2ca5"
+    },
+    {
+      "source": "packages/h2a/src/policy-precedence.ts",
+      "emitted": "packages/h2a/dist/policy-precedence.js",
+      "sourceDigest": "sha256:ea2bf171fb1b39478c5f267f640eac996345ece27b82bdb40a23b950f8de2f84"
+    },
+    {
+      "source": "packages/h2a/src/recourse.ts",
+      "emitted": "packages/h2a/dist/recourse.js",
+      "sourceDigest": "sha256:215b9068d76669ff100eaff18055fd9af9b7e93442806e34220cdf9f2e62d6c8"
+    },
+    {
+      "source": "packages/h2a/src/recurring-obligations.ts",
+      "emitted": "packages/h2a/dist/recurring-obligations.js",
+      "sourceDigest": "sha256:4277cf8930d89d7ed7e41837e04a365bac1b5415316998490beafe8abf8c9bb2"
+    },
+    {
+      "source": "packages/h2a/src/replay.ts",
+      "emitted": "packages/h2a/dist/replay.js",
+      "sourceDigest": "sha256:e8b3f02a528e5466e4ae105a8bdab3f430d47fff587dde54cc3edb93d36b3f0d"
+    },
+    {
+      "source": "packages/h2a/src/runtime/blockage/index.ts",
+      "emitted": "packages/h2a/dist/runtime/blockage/index.js",
+      "sourceDigest": "sha256:405fd9814a89936a4740036daee7a0df6b4afc873a3ed27926322ca73f1a7789"
+    },
+    {
+      "source": "packages/h2a/src/runtime/blockage/notifiers.ts",
+      "emitted": "packages/h2a/dist/runtime/blockage/notifiers.js",
+      "sourceDigest": "sha256:8ce4ded9a0224abdf111a04dd3f0cc2921392b11f06f87407d54e9805c034e26"
+    },
+    {
+      "source": "packages/h2a/src/runtime/blockage/registry.ts",
+      "emitted": "packages/h2a/dist/runtime/blockage/registry.js",
+      "sourceDigest": "sha256:b5038c8151cfc42055adbbd71e3ebd4414eb664fc09a261a6839b88e8382137e"
+    },
+    {
+      "source": "packages/h2a/src/runtime/canevas/adapter.ts",
+      "emitted": "packages/h2a/dist/runtime/canevas/adapter.js",
+      "sourceDigest": "sha256:c24f128342eeeac844872766bb02d093536449db5a59d72785ac1b6835e4b3b4"
+    },
+    {
+      "source": "packages/h2a/src/runtime/canevas/aggregate.ts",
+      "emitted": "packages/h2a/dist/runtime/canevas/aggregate.js",
+      "sourceDigest": "sha256:fbc840320feb94672e1129ad6ac2ed960d10cd07b4f79b290c2d4685bab38adb"
+    },
+    {
+      "source": "packages/h2a/src/runtime/canevas/answer.ts",
+      "emitted": "packages/h2a/dist/runtime/canevas/answer.js",
+      "sourceDigest": "sha256:24941a5694368a33c3ac9dd5c015a3b9fa832b009d52f59ce66a6c252dfd99e9"
+    },
+    {
+      "source": "packages/h2a/src/runtime/canevas/app.ts",
+      "emitted": "packages/h2a/dist/runtime/canevas/app.js",
+      "sourceDigest": "sha256:1f65627059422cf0fef285e5bc3e55956d5589263fe320cd13a44b4d3c7a1d62"
+    },
+    {
+      "source": "packages/h2a/src/runtime/canevas/gather.ts",
+      "emitted": "packages/h2a/dist/runtime/canevas/gather.js",
+      "sourceDigest": "sha256:605d509984306f39102e288a6951937ea1120765a59f5ab31fcab42206175462"
+    },
+    {
+      "source": "packages/h2a/src/runtime/canevas/reply.ts",
+      "emitted": "packages/h2a/dist/runtime/canevas/reply.js",
+      "sourceDigest": "sha256:e6dc05039708e262d601427ab218e38fbc49aa4991e01e9aa34874cb85af9904"
+    },
+    {
+      "source": "packages/h2a/src/runtime/canevas/serve.ts",
+      "emitted": "packages/h2a/dist/runtime/canevas/serve.js",
+      "sourceDigest": "sha256:1b7f34bcd018ac455d4192062ab32253f6805fb671befd0082c71ef65135df89"
+    },
+    {
+      "source": "packages/h2a/src/runtime/canevas/ui.ts",
+      "emitted": "packages/h2a/dist/runtime/canevas/ui.js",
+      "sourceDigest": "sha256:7bb9fda0d17e1148d66bd7ee3d5e073f03ea2ff583239baef392ec64547a5b6e"
+    },
+    {
+      "source": "packages/h2a/src/runtime/cluster-mesh-messaging.ts",
+      "emitted": "packages/h2a/dist/runtime/cluster-mesh-messaging.js",
+      "sourceDigest": "sha256:b9a67e882150874b7ddfd0885bca4992b3b5997dc1f7a9d5791f4bc89db1af5a"
+    },
+    {
+      "source": "packages/h2a/src/runtime/deploy/k8s-sidecar.ts",
+      "emitted": "packages/h2a/dist/runtime/deploy/k8s-sidecar.js",
+      "sourceDigest": "sha256:96e3c1cf15f59d7ac7fab7e446763c5a9e15e824b8da6d31ec7dcd1b9da0678f"
+    },
+    {
+      "source": "packages/h2a/src/runtime/deploy/k8s-tenant.ts",
+      "emitted": "packages/h2a/dist/runtime/deploy/k8s-tenant.js",
+      "sourceDigest": "sha256:6afb19cf87d204d2fdacd4d4961af8a2a50e3647650b1919fba8304c540f05d5"
+    },
+    {
+      "source": "packages/h2a/src/runtime/drive/cluster-mesh-outer.ts",
+      "emitted": "packages/h2a/dist/runtime/drive/cluster-mesh-outer.js",
+      "sourceDigest": "sha256:5aaf4d0f3f842f407c4a51e4f4c1ffaf5cffc2c17e3b971130dfaddd3ba07b38"
+    },
+    {
+      "source": "packages/h2a/src/runtime/drive/consent-tools.ts",
+      "emitted": "packages/h2a/dist/runtime/drive/consent-tools.js",
+      "sourceDigest": "sha256:b729e3cefb9e28469dd9e21db3a0b0d3fb804f59dd24d7132dd09f24798c85f4"
+    },
+    {
+      "source": "packages/h2a/src/runtime/drive/consent.ts",
+      "emitted": "packages/h2a/dist/runtime/drive/consent.js",
+      "sourceDigest": "sha256:ec8faf2c96ea1931ff4bc39f225d8a39f586d2ba1b9b0aed2f0062ab06b7cffb"
+    },
+    {
+      "source": "packages/h2a/src/runtime/drive/inbox-wake.ts",
+      "emitted": "packages/h2a/dist/runtime/drive/inbox-wake.js",
+      "sourceDigest": "sha256:3a42df14d4eabb08fdf7df9ef6c6333570e0ad3d919c960735756dabbe3ef1cf"
+    },
+    {
+      "source": "packages/h2a/src/runtime/drive/index.ts",
+      "emitted": "packages/h2a/dist/runtime/drive/index.js",
+      "sourceDigest": "sha256:eee46bdf808d918cd63e91a888c5d5c3c98d478a266e7f7b591f983d89830801"
+    },
+    {
+      "source": "packages/h2a/src/runtime/drive/pty-actuator.ts",
+      "emitted": "packages/h2a/dist/runtime/drive/pty-actuator.js",
+      "sourceDigest": "sha256:0d4093eb62061347cd86bb8a9385a7bd110169bd11c79d114617a00a6d9cf156"
+    },
+    {
+      "source": "packages/h2a/src/runtime/drumbeat/deciders.ts",
+      "emitted": "packages/h2a/dist/runtime/drumbeat/deciders.js",
+      "sourceDigest": "sha256:a9fdf6adde605e19d037fd0de48a75996724d3be42806a01b8c8e4e1f42cbf3b"
+    },
+    {
+      "source": "packages/h2a/src/runtime/drumbeat/decisions.ts",
+      "emitted": "packages/h2a/dist/runtime/drumbeat/decisions.js",
+      "sourceDigest": "sha256:93508af10c9023f91cfbdd18a4d30cd32ff6c06f9feb3da3ec852df7bd0c9edf"
+    },
+    {
+      "source": "packages/h2a/src/runtime/drumbeat/inbox-relance.ts",
+      "emitted": "packages/h2a/dist/runtime/drumbeat/inbox-relance.js",
+      "sourceDigest": "sha256:f37459ea40e3fdb0a4cd1bb1db00a5185c7022e7a9e5814b95082006733cd601"
+    },
+    {
+      "source": "packages/h2a/src/runtime/drumbeat/index.ts",
+      "emitted": "packages/h2a/dist/runtime/drumbeat/index.js",
+      "sourceDigest": "sha256:4f37a88426b9d8244e8ccabe16ec7799cf4412587bce4918dba6d9aab9e360f1"
+    },
+    {
+      "source": "packages/h2a/src/runtime/drumbeat/registry.ts",
+      "emitted": "packages/h2a/dist/runtime/drumbeat/registry.js",
+      "sourceDigest": "sha256:6a60382cb7ce78ceb92f5815d3e990b9f8f1923e9571f61426b09bed3252f9d7"
+    },
+    {
+      "source": "packages/h2a/src/runtime/drumbeat/relaunchers.ts",
+      "emitted": "packages/h2a/dist/runtime/drumbeat/relaunchers.js",
+      "sourceDigest": "sha256:bbe736fe5d0a7afaca02c1f0e17f45d24c88aad083b040d632d46f41f08666cd"
+    },
+    {
+      "source": "packages/h2a/src/runtime/drumbeat/scan.ts",
+      "emitted": "packages/h2a/dist/runtime/drumbeat/scan.js",
+      "sourceDigest": "sha256:3bb76f136240e20892e89c0eb2dc30327b6aa6d3ad9c4c0757427911492d43b5"
+    },
+    {
+      "source": "packages/h2a/src/runtime/drumbeat/watch.ts",
+      "emitted": "packages/h2a/dist/runtime/drumbeat/watch.js",
+      "sourceDigest": "sha256:93111695871ea68d8f1e4486e290a860d02b4d9765f04dc5a3077ce4e229a515"
+    },
+    {
+      "source": "packages/h2a/src/runtime/enrollment/ceremony.ts",
+      "emitted": "packages/h2a/dist/runtime/enrollment/ceremony.js",
+      "sourceDigest": "sha256:4a576e3df6b5ce73ec5a226a3bcc374ee9b2a5748344ea02cfa22053f114fe17"
+    },
+    {
+      "source": "packages/h2a/src/runtime/enrollment/index.ts",
+      "emitted": "packages/h2a/dist/runtime/enrollment/index.js",
+      "sourceDigest": "sha256:0f3bb0f5fbdfb980340a2df3b64f5caaa44087891e7d9170fe5067d1b5533c56"
+    },
+    {
+      "source": "packages/h2a/src/runtime/escalation/index.ts",
+      "emitted": "packages/h2a/dist/runtime/escalation/index.js",
+      "sourceDigest": "sha256:5461664ed166222b4c70bce7b4321f603f272cea5e3ec15e012e69660d6d1a95"
+    },
+    {
+      "source": "packages/h2a/src/runtime/escalation/registry.ts",
+      "emitted": "packages/h2a/dist/runtime/escalation/registry.js",
+      "sourceDigest": "sha256:fc2a5356c71a6e1388d2a04f1d394f9a0aa77bec2aec446e044058a5f9f77486"
+    },
+    {
+      "source": "packages/h2a/src/runtime/feed/descriptors.ts",
+      "emitted": "packages/h2a/dist/runtime/feed/descriptors.js",
+      "sourceDigest": "sha256:7ac2f85e2b15f7dca19644c045737cbf6ed4b178b7ae3f8f2159a6ea8341b8d6"
+    },
+    {
+      "source": "packages/h2a/src/runtime/feed/index.ts",
+      "emitted": "packages/h2a/dist/runtime/feed/index.js",
+      "sourceDigest": "sha256:d31043f6008a6aa4504c8e0533302faec9b79a270e3caf601464347ccadabcb4"
+    },
+    {
+      "source": "packages/h2a/src/runtime/feed/local.ts",
+      "emitted": "packages/h2a/dist/runtime/feed/local.js",
+      "sourceDigest": "sha256:bc8a0762087ae73b3728d321f17504ed2ed6f38575144ea286d82f87b2841ee2"
+    },
+    {
+      "source": "packages/h2a/src/runtime/focus/serve.ts",
+      "emitted": "packages/h2a/dist/runtime/focus/serve.js",
+      "sourceDigest": "sha256:0127a7411262ce8491ad1f9cc2ad0414530dce1ef13c903e255782c0b6d79f88"
+    },
+    {
+      "source": "packages/h2a/src/runtime/governance/claims.ts",
+      "emitted": "packages/h2a/dist/runtime/governance/claims.js",
+      "sourceDigest": "sha256:084dccc0bb47e3796e15394f3d0a1e3c5e69ac24c1c314603865cab22007b963"
+    },
+    {
+      "source": "packages/h2a/src/runtime/governance/conductor.ts",
+      "emitted": "packages/h2a/dist/runtime/governance/conductor.js",
+      "sourceDigest": "sha256:07be26c73cb268c36b58b800186d2355fb825662227cef3902a4c19267746c93"
+    },
+    {
+      "source": "packages/h2a/src/runtime/governance/index.ts",
+      "emitted": "packages/h2a/dist/runtime/governance/index.js",
+      "sourceDigest": "sha256:0646ce32bd4c565d9a46f8119de2c0dd5441fd720609451d4ef0bb3f80ce52ac"
+    },
+    {
+      "source": "packages/h2a/src/runtime/governance/launch-check.ts",
+      "emitted": "packages/h2a/dist/runtime/governance/launch-check.js",
+      "sourceDigest": "sha256:a617387f01cdd8e1d86a4d147fb50659414ec290705ba9eb068873aa6ec0cae1"
+    },
+    {
+      "source": "packages/h2a/src/runtime/governance/spawns.ts",
+      "emitted": "packages/h2a/dist/runtime/governance/spawns.js",
+      "sourceDigest": "sha256:38b56137e73ecbd3364a275e4a25b144001f8c4c8484095c60833c963e66a1e8"
+    },
+    {
+      "source": "packages/h2a/src/runtime/host-config-root.ts",
+      "emitted": "packages/h2a/dist/runtime/host-config-root.js",
+      "sourceDigest": "sha256:7de1ad3c6421bb1fb3cf026e633847434ff978440b3a6418d0c0010e84a03996"
+    },
+    {
+      "source": "packages/h2a/src/runtime/identity/bindings.ts",
+      "emitted": "packages/h2a/dist/runtime/identity/bindings.js",
+      "sourceDigest": "sha256:e4280df53f5bb1fa46fa73a986738e8f43ad382cff6bec9df6d5b6d591b13d99"
+    },
+    {
+      "source": "packages/h2a/src/runtime/identity/index.ts",
+      "emitted": "packages/h2a/dist/runtime/identity/index.js",
+      "sourceDigest": "sha256:e9cd1f1b65516727f07b62698fee5b30a9c0a3fcc33f084669a58023a8e018f7"
+    },
+    {
+      "source": "packages/h2a/src/runtime/identity/live.ts",
+      "emitted": "packages/h2a/dist/runtime/identity/live.js",
+      "sourceDigest": "sha256:b442647a4aabd9a0c58d7f9930b9cd9134f72bef950d41d49d6d3532d20aa1dd"
+    },
+    {
+      "source": "packages/h2a/src/runtime/identity/migration.ts",
+      "emitted": "packages/h2a/dist/runtime/identity/migration.js",
+      "sourceDigest": "sha256:15584b86d19381ff46dc598f5bab7284aa899e4427246a551b4714aeb1f4960b"
+    },
+    {
+      "source": "packages/h2a/src/runtime/identity/readers.ts",
+      "emitted": "packages/h2a/dist/runtime/identity/readers.js",
+      "sourceDigest": "sha256:8a4d6914e074906272a2b3fc994a47ff261990e624bf93941b52f4e6c4a02088"
+    },
+    {
+      "source": "packages/h2a/src/runtime/identity/resolver.ts",
+      "emitted": "packages/h2a/dist/runtime/identity/resolver.js",
+      "sourceDigest": "sha256:014ba8849f569262e2a25ba44102cba4777b0cbef65d09dd0789fb5bfb2d1f93"
+    },
+    {
+      "source": "packages/h2a/src/runtime/identity/worker.ts",
+      "emitted": "packages/h2a/dist/runtime/identity/worker.js",
+      "sourceDigest": "sha256:2f740a5abfca99c9e69b6d5450b9f5b16fe087f8392bbb9743c08f4fc1377261"
+    },
+    {
+      "source": "packages/h2a/src/runtime/identity/workspace-id.ts",
+      "emitted": "packages/h2a/dist/runtime/identity/workspace-id.js",
+      "sourceDigest": "sha256:1248cd728991b6c46a131e11c9ff5735046d8ffe7bbc21f81faf41a4dcdb6b39"
+    },
+    {
+      "source": "packages/h2a/src/runtime/local-files/index.ts",
+      "emitted": "packages/h2a/dist/runtime/local-files/index.js",
+      "sourceDigest": "sha256:4e574aa47e975905bbd20a1973d0908a3c25be563746489adb1e16d7705e2c55"
+    },
+    {
+      "source": "packages/h2a/src/runtime/local-files/launch-index.ts",
+      "emitted": "packages/h2a/dist/runtime/local-files/launch-index.js",
+      "sourceDigest": "sha256:267385ead1929765e09770f409f381781e457997ad37616875c5a2ca2d29a001"
+    },
+    {
+      "source": "packages/h2a/src/runtime/local-files/lease.ts",
+      "emitted": "packages/h2a/dist/runtime/local-files/lease.js",
+      "sourceDigest": "sha256:71cebc1f2e9f337c2b2bb7a3f905f53465a62b4bcd641b648a863e596cfa0340"
+    },
+    {
+      "source": "packages/h2a/src/runtime/local-files/locks.ts",
+      "emitted": "packages/h2a/dist/runtime/local-files/locks.js",
+      "sourceDigest": "sha256:a9c851afe7d4f6252fca136f7e41778eab90e0b4095958190da63525777691bd"
+    },
+    {
+      "source": "packages/h2a/src/runtime/local-files/migrate.ts",
+      "emitted": "packages/h2a/dist/runtime/local-files/migrate.js",
+      "sourceDigest": "sha256:431d3290a50f6227070a9a2b9b58c39eb6a211bbcb90ad92eb14ba0cddd68f8a"
+    },
+    {
+      "source": "packages/h2a/src/runtime/local-files/paths.ts",
+      "emitted": "packages/h2a/dist/runtime/local-files/paths.js",
+      "sourceDigest": "sha256:d031a1b88d7b42fa516b49f125aab4949f1115f143fdcace72e78407ee756abc"
+    },
+    {
+      "source": "packages/h2a/src/runtime/local-files/presence.ts",
+      "emitted": "packages/h2a/dist/runtime/local-files/presence.js",
+      "sourceDigest": "sha256:db919369356d5057f3fc150333e3d5fbff3f900f17edfb6bf7f807f80897f62d"
+    },
+    {
+      "source": "packages/h2a/src/runtime/local-files/schema.ts",
+      "emitted": "packages/h2a/dist/runtime/local-files/schema.js",
+      "sourceDigest": "sha256:69d7fd95805c37779174fb0bf263c34c3096ca006875e8b17cfa41a7334057fc"
+    },
+    {
+      "source": "packages/h2a/src/runtime/local-files/store.ts",
+      "emitted": "packages/h2a/dist/runtime/local-files/store.js",
+      "sourceDigest": "sha256:f0faba595551123e133210b2e5fecc7f03b2d438d7e38eab16d93d790960fda0"
+    },
+    {
+      "source": "packages/h2a/src/runtime/local-files/succession-lock.ts",
+      "emitted": "packages/h2a/dist/runtime/local-files/succession-lock.js",
+      "sourceDigest": "sha256:33376d38c702554d0272c5749667b50a593f83c4196ce1ddfdd66e36075a2497"
+    },
+    {
+      "source": "packages/h2a/src/runtime/loop/engine/adapters.ts",
+      "emitted": "packages/h2a/dist/runtime/loop/engine/adapters.js",
+      "sourceDigest": "sha256:7aaf5635f49e3b7441c2fdddb0ae3a063f6a19a2ea82d4619913aea3daed9395"
+    },
+    {
+      "source": "packages/h2a/src/runtime/loop/engine/decision.ts",
+      "emitted": "packages/h2a/dist/runtime/loop/engine/decision.js",
+      "sourceDigest": "sha256:afa3686eda32a60d645b34596bfc4b192c2ecfc348d35cc69a2addec9664aa3e"
+    },
+    {
+      "source": "packages/h2a/src/runtime/loop/engine/execute.ts",
+      "emitted": "packages/h2a/dist/runtime/loop/engine/execute.js",
+      "sourceDigest": "sha256:1c9f6456f065f70235636725e9295f362048e912a3c2702b78b5d4e6496feec5"
+    },
+    {
+      "source": "packages/h2a/src/runtime/loop/engine/tick.ts",
+      "emitted": "packages/h2a/dist/runtime/loop/engine/tick.js",
+      "sourceDigest": "sha256:00cd7714bc4097e0af153585762304114104237f06d83e5eabe9ec605a439663"
+    },
+    {
+      "source": "packages/h2a/src/runtime/loop/executor-lease.ts",
+      "emitted": "packages/h2a/dist/runtime/loop/executor-lease.js",
+      "sourceDigest": "sha256:03eb1a8ca9b1ddb1fe54f4396217e5e591b13e3305708b661f3fddc75b02af25"
+    },
+    {
+      "source": "packages/h2a/src/runtime/loop/index.ts",
+      "emitted": "packages/h2a/dist/runtime/loop/index.js",
+      "sourceDigest": "sha256:8351607fd62cae3b16a8530ca7fba0d1d8aa47de526f83503a9f21db5c5bfe0b"
+    },
+    {
+      "source": "packages/h2a/src/runtime/loop/supervisor.ts",
+      "emitted": "packages/h2a/dist/runtime/loop/supervisor.js",
+      "sourceDigest": "sha256:6ac3e7f91570a241ff6ded680ecef80fdf4fa6373d6870f94fb706e7dae8d743"
+    },
+    {
+      "source": "packages/h2a/src/runtime/mcp-central.ts",
+      "emitted": "packages/h2a/dist/runtime/mcp-central.js",
+      "sourceDigest": "sha256:856310c876347b1d5d22fe5967f7ff7dcf4bde133e6f787195d441b98a1c38e3"
+    },
+    {
+      "source": "packages/h2a/src/runtime/mcp-http/app.ts",
+      "emitted": "packages/h2a/dist/runtime/mcp-http/app.js",
+      "sourceDigest": "sha256:84e75102d1b9dfe1065c48ae2127831ce6446b3164fb23650b9368a8ba7a2ffe"
+    },
+    {
+      "source": "packages/h2a/src/runtime/mcp-http/hosted-mcp-server.ts",
+      "emitted": "packages/h2a/dist/runtime/mcp-http/hosted-mcp-server.js",
+      "sourceDigest": "sha256:b4ced291a94a7abb703121eb972b1f83724e4fae90f67ae08abd85bfd2229bae"
+    },
+    {
+      "source": "packages/h2a/src/runtime/mcp-http/index.ts",
+      "emitted": "packages/h2a/dist/runtime/mcp-http/index.js",
+      "sourceDigest": "sha256:482f11824dccd3b027b8d9c51e75f1f0dea9251f6c2b997a60a226e65f60a119"
+    },
+    {
+      "source": "packages/h2a/src/runtime/mcp-http/oauth/broker-login.ts",
+      "emitted": "packages/h2a/dist/runtime/mcp-http/oauth/broker-login.js",
+      "sourceDigest": "sha256:90db0c2f7f731e248bcd3c2456bcf6f62bff3db3381a591285d3ff49827713c7"
+    },
+    {
+      "source": "packages/h2a/src/runtime/mcp-http/oauth/broker-routes.ts",
+      "emitted": "packages/h2a/dist/runtime/mcp-http/oauth/broker-routes.js",
+      "sourceDigest": "sha256:25195a984922a8931a3e72bc319d5b269577ea008965639ca4a9a9bf1c775325"
+    },
+    {
+      "source": "packages/h2a/src/runtime/mcp-http/oauth/config.ts",
+      "emitted": "packages/h2a/dist/runtime/mcp-http/oauth/config.js",
+      "sourceDigest": "sha256:6a81ed0b90b384fba1e49718d774b077713acb0251b1e0cc253ad07373b33c8b"
+    },
+    {
+      "source": "packages/h2a/src/runtime/mcp-http/oauth/crypto.ts",
+      "emitted": "packages/h2a/dist/runtime/mcp-http/oauth/crypto.js",
+      "sourceDigest": "sha256:afe5305e777325c0cfce901110ffa32ca39800b3cfe751d509b442e91e0d7a2c"
+    },
+    {
+      "source": "packages/h2a/src/runtime/mcp-http/oauth/file-store.ts",
+      "emitted": "packages/h2a/dist/runtime/mcp-http/oauth/file-store.js",
+      "sourceDigest": "sha256:34fbad6f2f9064070668807ab460cad9cc425de9b277fc2480f232100418a9f3"
+    },
+    {
+      "source": "packages/h2a/src/runtime/mcp-http/oauth/hono-oauth-router.ts",
+      "emitted": "packages/h2a/dist/runtime/mcp-http/oauth/hono-oauth-router.js",
+      "sourceDigest": "sha256:1c27520bd57eee81a8c279006fc3b362c4bb23521c141d0133f0509b4bf0ec4e"
+    },
+    {
+      "source": "packages/h2a/src/runtime/mcp-http/oauth/oidc-rp.ts",
+      "emitted": "packages/h2a/dist/runtime/mcp-http/oauth/oidc-rp.js",
+      "sourceDigest": "sha256:d244396c95e84512c0305bf8e44f40991ac2d9c48a7c68eddbf808fecffc08f6"
+    },
+    {
+      "source": "packages/h2a/src/runtime/mcp-http/oauth/redirect-uri.ts",
+      "emitted": "packages/h2a/dist/runtime/mcp-http/oauth/redirect-uri.js",
+      "sourceDigest": "sha256:d9520cfd9ec5a835105acff8b444d7c31c9539397c518a4787fba8e3f9327775"
+    },
+    {
+      "source": "packages/h2a/src/runtime/mcp-http/oauth/single-tenant-provider.ts",
+      "emitted": "packages/h2a/dist/runtime/mcp-http/oauth/single-tenant-provider.js",
+      "sourceDigest": "sha256:651e9104c3190297af93c8fc30146fb005858da57f65c82d00acc1a8e63a5439"
+    },
+    {
+      "source": "packages/h2a/src/runtime/mcp-http/oauth/tenancy.ts",
+      "emitted": "packages/h2a/dist/runtime/mcp-http/oauth/tenancy.js",
+      "sourceDigest": "sha256:de861bc1ca5d0706777f3ff6cd38abc37fe5f2134fe319aa7dd67c60e5b9d7e1"
+    },
+    {
+      "source": "packages/h2a/src/runtime/mcp-http/readonly-allowlist.ts",
+      "emitted": "packages/h2a/dist/runtime/mcp-http/readonly-allowlist.js",
+      "sourceDigest": "sha256:cebd13e6b375e2276805e7b137d2d5ec04caac2b8431c7f2a3a88be7a95663b0"
+    },
+    {
+      "source": "packages/h2a/src/runtime/mcp-http/serve.ts",
+      "emitted": "packages/h2a/dist/runtime/mcp-http/serve.js",
+      "sourceDigest": "sha256:c12cc7cd1f1e43cc0a508d0c6e47f8057892f1cbb5c8388d113eb27f867f9199"
+    },
+    {
+      "source": "packages/h2a/src/runtime/mcp-registry/broker.ts",
+      "emitted": "packages/h2a/dist/runtime/mcp-registry/broker.js",
+      "sourceDigest": "sha256:a09b5e23e958531be752482097f43aa59002ab80d5efac34f486d7cfd4f09c5c"
+    },
+    {
+      "source": "packages/h2a/src/runtime/mcp/agent-launch.ts",
+      "emitted": "packages/h2a/dist/runtime/mcp/agent-launch.js",
+      "sourceDigest": "sha256:82aac9e7af19e24875f940edfb3834ba255106b17094091e19bf5876ffc3c813"
+    },
+    {
+      "source": "packages/h2a/src/runtime/mcp/discovery-pagination.ts",
+      "emitted": "packages/h2a/dist/runtime/mcp/discovery-pagination.js",
+      "sourceDigest": "sha256:3ccbe365e0f53c7bb024f25d2d69f2f94d5bac6be1f3c3246d0bf0612baf1686"
+    },
+    {
+      "source": "packages/h2a/src/runtime/mcp/frame-budget.ts",
+      "emitted": "packages/h2a/dist/runtime/mcp/frame-budget.js",
+      "sourceDigest": "sha256:7f6836bdcdd8d8b89b07c7497a09f00bba225e8eb2e9b541c1bf386ac27aceb2"
+    },
+    {
+      "source": "packages/h2a/src/runtime/mcp/handlers.ts",
+      "emitted": "packages/h2a/dist/runtime/mcp/handlers.js",
+      "sourceDigest": "sha256:d707eba9d2b5ff4a683c5ea0d0ceff9bede116364aca514de15a93e7209d5cbc"
+    },
+    {
+      "source": "packages/h2a/src/runtime/mcp/identity-state.ts",
+      "emitted": "packages/h2a/dist/runtime/mcp/identity-state.js",
+      "sourceDigest": "sha256:34a0f73b36479dce7bf78227f4b5d9063bbe9dcfccf40af3f5002c5de673157f"
+    },
+    {
+      "source": "packages/h2a/src/runtime/mcp/index.ts",
+      "emitted": "packages/h2a/dist/runtime/mcp/index.js",
+      "sourceDigest": "sha256:9988e7d2f44f51b830b49c5213eb77cfce49fbce1b022a673a036c253c13a04b"
+    },
+    {
+      "source": "packages/h2a/src/runtime/mcp/notifications.ts",
+      "emitted": "packages/h2a/dist/runtime/mcp/notifications.js",
+      "sourceDigest": "sha256:d9b825215169391316852a96b3a1f165ae92230aeb0cdfc5b77071aa97c5e83e"
+    },
+    {
+      "source": "packages/h2a/src/runtime/mcp/payload-store.ts",
+      "emitted": "packages/h2a/dist/runtime/mcp/payload-store.js",
+      "sourceDigest": "sha256:023b8738a39983463c21a55a4792cc2617b6bd7864229815d0732dd0dcf67c20"
+    },
+    {
+      "source": "packages/h2a/src/runtime/mcp/phase-trace.ts",
+      "emitted": "packages/h2a/dist/runtime/mcp/phase-trace.js",
+      "sourceDigest": "sha256:7cdcca80394b23ca6281d19b5eb357f32c01a1a8215e29b79b0b44b059202ae7"
+    },
+    {
+      "source": "packages/h2a/src/runtime/mcp/server.ts",
+      "emitted": "packages/h2a/dist/runtime/mcp/server.js",
+      "sourceDigest": "sha256:3e49f58e284da89c695090197918a3fa842a10e8f4edcb920babfc77cf867fb5"
+    },
+    {
+      "source": "packages/h2a/src/runtime/mcp/sessions.ts",
+      "emitted": "packages/h2a/dist/runtime/mcp/sessions.js",
+      "sourceDigest": "sha256:c633f7291fcdd6a74f00a0deeaf46ca4617bbdeabfab9cf9c47a7efd65ee7d3e"
+    },
+    {
+      "source": "packages/h2a/src/runtime/mcp/stdio.ts",
+      "emitted": "packages/h2a/dist/runtime/mcp/stdio.js",
+      "sourceDigest": "sha256:1f714cd44832e96bbd2f39055408327aef793d9a990ee389cebd65acba7e5522"
+    },
+    {
+      "source": "packages/h2a/src/runtime/mcp/tools.ts",
+      "emitted": "packages/h2a/dist/runtime/mcp/tools.js",
+      "sourceDigest": "sha256:0e20913f0a75274957189c5dfa2da31c203a04199dc9e4849722aa1029bb8ead"
+    },
+    {
+      "source": "packages/h2a/src/runtime/mirror/accept.ts",
+      "emitted": "packages/h2a/dist/runtime/mirror/accept.js",
+      "sourceDigest": "sha256:c97325d47511393ab667c45e8e324641c86e315ea3ff76f60ffd75c9fa0b76e9"
+    },
+    {
+      "source": "packages/h2a/src/runtime/mirror/build.ts",
+      "emitted": "packages/h2a/dist/runtime/mirror/build.js",
+      "sourceDigest": "sha256:e6f75554b7778682e810ab9f37574f0b19e98766384f2976eb0d90577f8dfb60"
+    },
+    {
+      "source": "packages/h2a/src/runtime/mirror/index.ts",
+      "emitted": "packages/h2a/dist/runtime/mirror/index.js",
+      "sourceDigest": "sha256:df188e39f1b5425e56c570157a562d4a3878a53e04defe5b455a5f73349efefa"
+    },
+    {
+      "source": "packages/h2a/src/runtime/mirror/ingest.ts",
+      "emitted": "packages/h2a/dist/runtime/mirror/ingest.js",
+      "sourceDigest": "sha256:863abf4eceb6cd96cbd36eb77539ea462359616fd1f901d54ccbbc97ffc9467d"
+    },
+    {
+      "source": "packages/h2a/src/runtime/mirror/push-daemon.ts",
+      "emitted": "packages/h2a/dist/runtime/mirror/push-daemon.js",
+      "sourceDigest": "sha256:48249fd112d68c6b3645cf6e6adea01c11b0126c9696a437ae034a6140dcd2fa"
+    },
+    {
+      "source": "packages/h2a/src/runtime/mirror/sanitize.ts",
+      "emitted": "packages/h2a/dist/runtime/mirror/sanitize.js",
+      "sourceDigest": "sha256:6775f32a98452d4689b5c0b7bca3c1c1bfd94713ae92607ab27eb5e194d1a531"
+    },
+    {
+      "source": "packages/h2a/src/runtime/mirror/serve.ts",
+      "emitted": "packages/h2a/dist/runtime/mirror/serve.js",
+      "sourceDigest": "sha256:16d35783dfafc6f22ef7aac448703ec48d64d3f96b0199393dbe9d7234ab7b21"
+    },
+    {
+      "source": "packages/h2a/src/runtime/nhi.ts",
+      "emitted": "packages/h2a/dist/runtime/nhi.js",
+      "sourceDigest": "sha256:9cb2a6f1d38c5836a8165ce7b37e56119cbd08b53393fbfd3368ce0f3f36fa47"
+    },
+    {
+      "source": "packages/h2a/src/runtime/path-safety.ts",
+      "emitted": "packages/h2a/dist/runtime/path-safety.js",
+      "sourceDigest": "sha256:551f71597e356e2e537b6e5c07cddeee4207dcfdc43ab042ff5eeac9ece05186"
+    },
+    {
+      "source": "packages/h2a/src/runtime/remote/accept.ts",
+      "emitted": "packages/h2a/dist/runtime/remote/accept.js",
+      "sourceDigest": "sha256:d9943662fb1659d4c599474d202abb3ae6132a82a10361bb5853e2f957d9d6ae"
+    },
+    {
+      "source": "packages/h2a/src/runtime/remote/client.ts",
+      "emitted": "packages/h2a/dist/runtime/remote/client.js",
+      "sourceDigest": "sha256:525a0908f4ab9602cc04740607d5f7fc7d55964e5d365ef5e73582bcfaeb4acb"
+    },
+    {
+      "source": "packages/h2a/src/runtime/remote/index.ts",
+      "emitted": "packages/h2a/dist/runtime/remote/index.js",
+      "sourceDigest": "sha256:87deb69344c8b864cacd026ca1e6d2c45233fdd55b60402b48519075407edadc"
+    },
+    {
+      "source": "packages/h2a/src/runtime/remote/serve.ts",
+      "emitted": "packages/h2a/dist/runtime/remote/serve.js",
+      "sourceDigest": "sha256:ca78dff127e41c19f64b53ba4684ffedbeb958577e017ef922c10734c5e5711d"
+    },
+    {
+      "source": "packages/h2a/src/runtime/remote/server.ts",
+      "emitted": "packages/h2a/dist/runtime/remote/server.js",
+      "sourceDigest": "sha256:e8b4d5a052aef236ce32cba68a7bca2373f096c1ef25cca083dff1cf99f14426"
+    },
+    {
+      "source": "packages/h2a/src/runtime/reporting/context.ts",
+      "emitted": "packages/h2a/dist/runtime/reporting/context.js",
+      "sourceDigest": "sha256:24bc431f461be01166c0ffcff19da896796a0d19aeb480294314a27fd07dbde0"
+    },
+    {
+      "source": "packages/h2a/src/runtime/reporting/index.ts",
+      "emitted": "packages/h2a/dist/runtime/reporting/index.js",
+      "sourceDigest": "sha256:a819483c257fcd8522546c90dfd264a830ece9f1ab9652b75ce341a6bab161af"
+    },
+    {
+      "source": "packages/h2a/src/runtime/send.ts",
+      "emitted": "packages/h2a/dist/runtime/send.js",
+      "sourceDigest": "sha256:75d06c8aa845f61ba702b0c245a3676d1a5c96549f4a1984a516d7049f37e4ec"
+    },
+    {
+      "source": "packages/h2a/src/runtime/sysml/client.ts",
+      "emitted": "packages/h2a/dist/runtime/sysml/client.js",
+      "sourceDigest": "sha256:8b42db7537bdc2fabc8fd12b6fb9a3c9ef8265ec9d1f5b4ed2d71b97b9eef7db"
+    },
+    {
+      "source": "packages/h2a/src/runtime/sysml/disclosure.ts",
+      "emitted": "packages/h2a/dist/runtime/sysml/disclosure.js",
+      "sourceDigest": "sha256:02125a0fd3828898136bf1c96ee84c387554b131030425e67a67edeacf830d34"
+    },
+    {
+      "source": "packages/h2a/src/runtime/sysml/index.ts",
+      "emitted": "packages/h2a/dist/runtime/sysml/index.js",
+      "sourceDigest": "sha256:267f952ed86f15da1ae999389c223917c06e8b9e54950f78871106fa414ce418"
+    },
+    {
+      "source": "packages/h2a/src/runtime/sysml/verify.ts",
+      "emitted": "packages/h2a/dist/runtime/sysml/verify.js",
+      "sourceDigest": "sha256:106e5fcb6a3ecc42d750cbe8c24ba4e35f30966dfe6d42ef26f6540dacd0dc7b"
+    },
+    {
+      "source": "packages/h2a/src/runtime/upgrade/index.ts",
+      "emitted": "packages/h2a/dist/runtime/upgrade/index.js",
+      "sourceDigest": "sha256:65b5e8ea4eb2cc45dc4be4ce67226784d41ecc5e117d79e6d7f38e4082746102"
+    },
+    {
+      "source": "packages/h2a/src/runtime/version/agent-version.ts",
+      "emitted": "packages/h2a/dist/runtime/version/agent-version.js",
+      "sourceDigest": "sha256:1bed8361e0c7c3f4ded8dba363afce2dfea5abceafcd98dfdf6d8cc8e8f1a9cf"
+    },
+    {
+      "source": "packages/h2a/src/session.ts",
+      "emitted": "packages/h2a/dist/session.js",
+      "sourceDigest": "sha256:a30e0af8b3be1a5350593e495364b731e3b4f666f7aae849b9403d57e8b2dd53"
+    },
+    {
+      "source": "packages/h2a/src/signature.ts",
+      "emitted": "packages/h2a/dist/signature.js",
+      "sourceDigest": "sha256:847702c662e5bc24580a69c8e5606c6ea153e98f07931cd42612c2313c6f2a98"
+    },
+    {
+      "source": "packages/h2a/src/status-bar-writer.ts",
+      "emitted": "packages/h2a/dist/status-bar-writer.js",
+      "sourceDigest": "sha256:aa7faadc2c2be2e3582caec2e892eac1dd89e8351d2c35caac2bf2d30ad70c1a"
+    },
+    {
+      "source": "packages/h2a/src/status-surface.ts",
+      "emitted": "packages/h2a/dist/status-surface.js",
+      "sourceDigest": "sha256:c1823fc895070512cd6c001afda5e10c02ecd6c6b42d7ce4e4fe074dcdfdde0c"
+    },
+    {
+      "source": "packages/h2a/src/subagents.ts",
+      "emitted": "packages/h2a/dist/subagents.js",
+      "sourceDigest": "sha256:17204fe2e1df2ac80598b8892f3e44ba45f649467fd7d97339f3048fdbcc9b6c"
+    },
+    {
+      "source": "packages/h2a/src/sysml.ts",
+      "emitted": "packages/h2a/dist/sysml.js",
+      "sourceDigest": "sha256:11dd05690602961c77ec91174979beac87e59a2092555ee4d9619f9613f405f0"
+    },
+    {
+      "source": "packages/h2a/src/types.ts",
+      "emitted": "packages/h2a/dist/types.js",
+      "sourceDigest": "sha256:0734ae645927c0d2a190601aca199682f6bdd305f629e91f163e681e715bacbc"
+    },
+    {
+      "source": "packages/h2a/src/value-chain.ts",
+      "emitted": "packages/h2a/dist/value-chain.js",
+      "sourceDigest": "sha256:2a20ecd1ea977a8477b32f693e26519ae288cc5780ad0fbc235b347f7c700b7e"
+    },
+    {
+      "source": "packages/h2a/src/vendor/harness/artifacts/validate-verification-run.js",
+      "emitted": "packages/h2a/dist/vendor/harness/artifacts/validate-verification-run.js",
+      "sourceDigest": "sha256:a893519141a7724761e4963c9da29ff944290cd1c4ba4a0b23dc93b3580df758"
+    },
+    {
+      "source": "packages/h2a/src/vendor/harness/branch-md/parse.js",
+      "emitted": "packages/h2a/dist/vendor/harness/branch-md/parse.js",
+      "sourceDigest": "sha256:cf161fc2fb909e0cde595f94abd44b1984a838bcbfd897b5d078eafc8da8feda"
+    },
+    {
+      "source": "packages/h2a/src/vendor/harness/checks/branch-check.js",
+      "emitted": "packages/h2a/dist/vendor/harness/checks/branch-check.js",
+      "sourceDigest": "sha256:1e3c645eef0ce714dc2814e48ce8318e962d9c022acb80705ec92e21c2d68e30"
+    },
+    {
+      "source": "packages/h2a/src/vendor/harness/checks/scope-check.js",
+      "emitted": "packages/h2a/dist/vendor/harness/checks/scope-check.js",
+      "sourceDigest": "sha256:ca45f346fb5475e5a27dc8a8b355eeb5ece1a39b9e6d4160f803a9d0368132ff"
+    },
+    {
+      "source": "packages/h2a/src/vendor/harness/cli/args.js",
+      "emitted": "packages/h2a/dist/vendor/harness/cli/args.js",
+      "sourceDigest": "sha256:e258c671733885f64bf9398574975ea0950e7438a48105e994d1c8363abd0c48"
+    },
+    {
+      "source": "packages/h2a/src/vendor/harness/cli/mechanical-verbs.js",
+      "emitted": "packages/h2a/dist/vendor/harness/cli/mechanical-verbs.js",
+      "sourceDigest": "sha256:da14b1117d49ee9613e1a25adf0fcd74fb07a3f82921226a508783429d927576"
+    },
+    {
+      "source": "packages/h2a/src/vendor/harness/cli/method-verbs.js",
+      "emitted": "packages/h2a/dist/vendor/harness/cli/method-verbs.js",
+      "sourceDigest": "sha256:7433f0fc0a84f545fce5573ec85985ca7ab855bf8a6fd9c139ec1b780d1d7253"
+    },
+    {
+      "source": "packages/h2a/src/vendor/harness/cli/run.js",
+      "emitted": "packages/h2a/dist/vendor/harness/cli/run.js",
+      "sourceDigest": "sha256:0ed4a20812190d9f3b38e1f2d2363acfe96775e5c1699216d26ac755f058cca1"
+    },
+    {
+      "source": "packages/h2a/src/vendor/harness/cli/scope.js",
+      "emitted": "packages/h2a/dist/vendor/harness/cli/scope.js",
+      "sourceDigest": "sha256:2cd9eeef9a96b994a79c04e599ab2cee9cf624f009e5d243e3300faead7916e4"
+    },
+    {
+      "source": "packages/h2a/src/vendor/harness/index.js",
+      "emitted": "packages/h2a/dist/vendor/harness/index.js",
+      "sourceDigest": "sha256:f8e109c8d1d7a1bb397a8fde58a3c943e1bdc64e68728a2c2d4c68a8f7634816"
+    },
+    {
+      "source": "packages/h2a/src/vendor/harness/profile/sentropic.js",
+      "emitted": "packages/h2a/dist/vendor/harness/profile/sentropic.js",
+      "sourceDigest": "sha256:0700a4476242a78f15ce145072d0545a451d28d3474f695ba7b42388da141dfb"
+    },
+    {
+      "source": "packages/h2a/src/vendor/harness/profile/stub.js",
+      "emitted": "packages/h2a/dist/vendor/harness/profile/stub.js",
+      "sourceDigest": "sha256:0c13db3e1bb66f1c1a99a5d53b53cde58fc7a04f85814f076a54b56006fcc453"
+    },
+    {
+      "source": "packages/h2a/src/vendor/harness/run/emit.js",
+      "emitted": "packages/h2a/dist/vendor/harness/run/emit.js",
+      "sourceDigest": "sha256:0a2b6c9dde3e89b524c93c932c4f9a14521ca63befc71b4f7ffd0db7b01603ea"
+    },
+    {
+      "source": "packages/h2a/src/vendor/harness/run/work-event.js",
+      "emitted": "packages/h2a/dist/vendor/harness/run/work-event.js",
+      "sourceDigest": "sha256:ef45af67be82972da45b4679346307c530d8bc6a36d97d448ec838c1109605a1"
+    },
+    {
+      "source": "packages/h2a/src/vendor/harness/scope/scope-boundary.js",
+      "emitted": "packages/h2a/dist/vendor/harness/scope/scope-boundary.js",
+      "sourceDigest": "sha256:5563f8298f2f518e79590c7028996cd520c349ec1105f242956fa63b73fc965b"
+    },
+    {
+      "source": "packages/h2a/src/vendor/harness/skills/manifest.js",
+      "emitted": "packages/h2a/dist/vendor/harness/skills/manifest.js",
+      "sourceDigest": "sha256:f61cf217ed72ccdde59da01b234d008a118cb2af4e87502f4c62a1d116cd940c"
+    },
+    {
+      "source": "packages/h2a/src/wake.ts",
+      "emitted": "packages/h2a/dist/wake.js",
+      "sourceDigest": "sha256:725abb4f910cc7a3d8866644a0b700c156f084421dce5019d45fab94d64cb0b7"
+    }
+  ],
+  "externalDependencies": [
+    {
+      "specifier": "@hono/mcp",
+      "firstSource": "packages/h2a/src/runtime/mcp-central.ts"
+    },
+    {
+      "specifier": "@hono/mcp/auth",
+      "firstSource": "packages/h2a/src/runtime/mcp-http/app.ts"
+    },
+    {
+      "specifier": "@hono/node-server",
+      "firstSource": "packages/h2a-runtime/src/run.ts"
+    },
+    {
+      "specifier": "@modelcontextprotocol/sdk/server/auth/errors.js",
+      "firstSource": "packages/h2a/src/runtime/mcp-http/oauth/hono-oauth-router.ts"
+    },
+    {
+      "specifier": "@modelcontextprotocol/sdk/server/index.js",
+      "firstSource": "packages/h2a/src/runtime/mcp-central.ts"
+    },
+    {
+      "specifier": "@modelcontextprotocol/sdk/server/stdio.js",
+      "firstSource": "packages/h2a/src/runtime/mcp-central.ts"
+    },
+    {
+      "specifier": "@modelcontextprotocol/sdk/types.js",
+      "firstSource": "packages/h2a/src/runtime/mcp-central.ts"
+    },
+    {
+      "specifier": "@sentropic/cluster-mesh",
+      "firstSource": "packages/h2a/src/runtime/cluster-mesh-messaging.ts"
+    },
+    {
+      "specifier": "@sentropic/cluster-mesh/llm-mesh",
+      "firstSource": "packages/h2a-runtime/src/routing-preferences.ts"
+    },
+    {
+      "specifier": "@sentropic/cluster-mesh/llm-mesh/facade",
+      "firstSource": "packages/h2a-runtime/src/llm-mesh-accounts.ts"
+    },
+    {
+      "specifier": "@sentropic/track",
+      "firstSource": "packages/h2a/src/cli.ts"
+    },
+    {
+      "specifier": "@sentropic/track/mcp",
+      "firstSource": "packages/h2a/src/runtime/mcp/tools.ts"
+    },
+    {
+      "specifier": "@xterm/headless",
+      "firstSource": "packages/h2a-runtime/src/native-terminal/screen.ts"
+    },
+    {
+      "specifier": "commander",
+      "firstSource": "packages/h2a-runtime/src/index.ts"
+    },
+    {
+      "specifier": "hono",
+      "firstSource": "packages/h2a-runtime/src/run.ts"
+    },
+    {
+      "specifier": "hono/streaming",
+      "firstSource": "packages/h2a-runtime/src/run.ts"
+    },
+    {
+      "specifier": "node-pty",
+      "firstSource": "packages/h2a-runtime/src/pty.ts"
+    }
+  ],
+  "unresolved": [
+    {
+      "source": "packages/h2a-runtime/src/central-mcp.ts",
+      "line": 71,
+      "kind": "dynamic-load"
+    },
+    {
+      "source": "packages/h2a/src/bin-routing.ts",
+      "line": 274,
+      "kind": "dynamic-load"
+    },
+    {
+      "source": "packages/h2a/src/bin.ts",
+      "line": 313,
+      "kind": "dynamic-load"
+    },
+    {
+      "source": "packages/h2a/src/runtime/canevas/adapter.ts",
+      "line": 19,
+      "kind": "dynamic-load"
+    },
+    {
+      "source": "packages/h2a/src/runtime/cluster-mesh-messaging.ts",
+      "line": 139,
+      "kind": "dynamic-load"
+    },
+    {
+      "source": "packages/h2a/src/runtime/focus/serve.ts",
+      "line": 357,
+      "kind": "dynamic-load"
+    },
+    {
+      "source": "packages/h2a/src/runtime/loop/engine/adapters.ts",
+      "line": 47,
+      "kind": "dynamic-load"
+    },
+    {
+      "source": "packages/h2a/src/runtime/mcp-central.ts",
+      "line": 74,
+      "kind": "dynamic-load"
+    },
+    {
+      "source": "packages/h2a/src/status-bar-writer.ts",
+      "line": 147,
+      "kind": "dynamic-load"
+    },
+    {
+      "source": "packages/h2a/src/status-surface.ts",
+      "line": 507,
+      "kind": "dynamic-load"
+    }
+  ],
+  "legacyNativeProbe": "<stagedPkgDir>/node_modules/node-pty",
+  "additionalPinnedResources": [
+    "node-pty/lib/**",
+    "node-pty/build/Release/pty.node",
+    "node-addon-api provenance",
+    "runtime/package.json (version diagnostic)",
+    "fixed system bash/setpriv per qualified profile"
+  ],
+  "finalDistQualification": "blocked-until-final-0.98.6-dist"
+}
