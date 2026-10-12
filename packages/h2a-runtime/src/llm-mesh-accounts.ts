@@ -4,9 +4,11 @@ import { spawn } from "node:child_process";
 import { createLlmMeshFacade, type LlmMeshAdministrativeFacade, type LlmMeshFacade } from "@sentropic/cluster-mesh/llm-mesh/facade";
 import type { AccountPublic } from "@sentropic/cluster-mesh/llm-mesh/enrollment";
 
+import { readMaskedInput, ClaudeSeatInputError } from "./claude-seat-input.js";
+
 export interface LlmMeshEnrollmentAccount {
   accountId: string;
-  provider: "cloud-code" | "codex" | "muse" | "mistral-vibe";
+  provider: "cloud-code" | "codex" | "muse" | "mistral-vibe" | "claude-code";
   label: string;
 }
 
@@ -42,16 +44,39 @@ export interface FacadeEnrollmentOptions {
    * exists for providers that actually keep a local CLI store (muse today).
    */
   cliImport?: boolean;
+  /**
+   * Explicit sessionless renewable credential import mode for Claude.
+   * Accepts no secret value argument on CLI; prompt is masked in-process.
+   */
+  credentialImport?: boolean;
   /** Injection seam for CLI tests; production uses the opaque facade. */
   facade?: LlmMeshFacade;
   /** Injection seam that keeps enrollment tests from opening a real browser. */
   openBrowser?: (url: string) => void;
+  /** Injection seam for trusted local input (browser return code / credential JSON). */
+  readInput?: (prompt: string, options?: { multiline?: boolean }) => Promise<string>;
 }
 
 export interface FacadeAccountOptions {
   ownerScope?: string;
   /** Injection seam for account-administration tests. */
   facade?: Pick<LlmMeshAdministrativeFacade, "listAccounts" | "removeAccount">;
+}
+
+export function validateClaudeConfigJson(): void {
+  const raw = process.env.H2A_LLM_MESH_CONFIG_JSON;
+  if (raw === undefined || raw === "") return;
+  try {
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      throw new Error("Invalid H2A_LLM_MESH_CONFIG_JSON: configuration must be a JSON object");
+    }
+  } catch (error) {
+    if (error instanceof Error && error.message.startsWith("Invalid H2A_LLM_MESH_CONFIG_JSON")) {
+      throw error;
+    }
+    throw new Error("Invalid H2A_LLM_MESH_CONFIG_JSON: configuration must be valid JSON");
+  }
 }
 
 function facadeConfigResolver() {
@@ -65,11 +90,61 @@ function facadeConfigResolver() {
         return scoped && typeof scoped === "object" && !Array.isArray(scoped)
           ? (scoped as Record<string, unknown>)
           : parsed;
-      } catch {
+      } catch (error) {
+        if (configRef === "claude-code") {
+          throw new Error("Invalid H2A_LLM_MESH_CONFIG_JSON: configuration must be valid JSON");
+        }
         return {};
       }
     },
   };
+}
+
+export function sanitizeClaudeEnrollmentError(error: unknown): Error {
+  if (error instanceof ClaudeSeatInputError) {
+    return new Error(error.message);
+  }
+  const message = error instanceof Error ? error.message : String(error);
+  const allowedPrefixes = [
+    "Claude enrollment requires facade.completeClaudeEnrollment",
+    "Claude credential import requires facade.completeClaudeCredentialImport",
+    "Claude enrollment did not return an authorization URL",
+    "Claude enrollment cancelled",
+    "Claude credential entry timed out",
+    "Claude credential entry received EOF",
+    "Claude credential entry received empty input",
+    "Claude credential input exceeded maximum allowed size",
+    "trusted local terminal required for Claude credential entry",
+    "ownerScope is required and cannot be blank",
+    "Invalid H2A_LLM_MESH_CONFIG_JSON",
+    "provider \"claude-code\" has no CLI-store import",
+    "--credential-import is only valid for claude-code",
+    "--cli and --credential-import cannot be combined",
+  ];
+  for (const prefix of allowedPrefixes) {
+    if (message.startsWith(prefix)) {
+      return new Error(message);
+    }
+  }
+
+  if (
+    message.includes("state mismatch") ||
+    message.includes("expired") ||
+    message.includes("Duplicate") ||
+    message.includes("already enrolled") ||
+    message.includes("Invalid profile") ||
+    message.includes("invalid-profile") ||
+    message.includes("missing refresh") ||
+    message.includes("user:inference") ||
+    message.includes("not found")
+  ) {
+    const sanitized = message
+      .replace(/https?:\/\/[^\s]+/g, "[redacted-url]")
+      .replace(/\/[\w./\\-]+/g, "[redacted-path]");
+    return new Error(sanitized);
+  }
+
+  return new Error("Claude enrollment failed");
 }
 
 export function createCliLlmMeshFacade(): LlmMeshAdministrativeFacade {
@@ -111,16 +186,129 @@ function openEnrollmentBrowser(url: string): void {
  * survives only as the mesh-side provider id for the device flow.
  */
 export async function enrollViaFacade(
-  provider: "cloud-code" | "codex" | "muse" | "mistral-vibe",
+  provider: "cloud-code" | "codex" | "muse" | "mistral-vibe" | "claude-code",
   options: FacadeEnrollmentOptions = {},
 ): Promise<LlmMeshEnrollmentAccount> {
-  const facade = options.facade ?? createCliLlmMeshFacade();
-  const ownerScope = options.ownerScope ?? llmMeshOwnerScopeRef();
+  const rawOwner = options.ownerScope ?? llmMeshOwnerScopeRef();
+  const ownerScope = rawOwner.trim();
+  if (!ownerScope) {
+    throw new Error("ownerScope is required and cannot be blank");
+  }
+  if (options.cliImport && options.credentialImport) {
+    throw new Error("--cli and --credential-import cannot be combined");
+  }
   if (options.cliImport && provider !== "muse") {
     throw new Error(
       `provider "${provider}" has no CLI-store import; --cli is only valid for providers with a local CLI import (muse)`,
     );
   }
+  if (options.credentialImport && provider !== "claude-code") {
+    throw new Error(
+      `--credential-import is only valid for claude-code`,
+    );
+  }
+
+  if (provider === "claude-code") {
+    validateClaudeConfigJson();
+    const facade = options.facade ?? createCliLlmMeshFacade();
+
+    if (options.credentialImport) {
+      if (typeof facade.completeClaudeCredentialImport !== "function") {
+        throw new Error(
+          "Claude credential import requires facade.completeClaudeCredentialImport — upgrade @sentropic/cluster-mesh/llm-mesh " +
+          "to a version with Claude support",
+        );
+      }
+      const readInput = options.readInput ?? ((prompt) => readMaskedInput(prompt, { multiline: true }));
+      let credentialJson: string;
+      try {
+        credentialJson = await readInput(
+          "[h2a] llm-mesh: paste renewable credential JSON: ",
+          { multiline: true },
+        );
+      } catch (err) {
+        throw sanitizeClaudeEnrollmentError(err);
+      }
+      try {
+        const completed = await facade.completeClaudeCredentialImport(
+          credentialJson,
+          ownerScope,
+        );
+        return {
+          accountId: completed.accountId,
+          provider: "claude-code",
+          label: completed.label,
+        };
+      } catch (err) {
+        throw sanitizeClaudeEnrollmentError(err);
+      }
+    }
+
+    if (typeof facade.completeClaudeEnrollment !== "function") {
+      throw new Error(
+        "Claude enrollment requires facade.completeClaudeEnrollment — upgrade @sentropic/cluster-mesh/llm-mesh " +
+        "to a version with Claude support",
+      );
+    }
+
+    const configRef = options.configRef ?? process.env.H2A_LLM_MESH_CONFIG_REF ?? "claude-code";
+    const redirectUri = options.redirectUri !== undefined ? options.redirectUri : "";
+
+    let session: any;
+    try {
+      session = await facade.enroll("claude-code" as "codex", {
+        configRef,
+        mode: "cli",
+        redirectUri,
+        ownerScope,
+      });
+    } catch (err) {
+      throw sanitizeClaudeEnrollmentError(err);
+    }
+
+    if (!session || session.kind !== "authorization-url" || typeof session.url !== "string") {
+      throw new Error("Claude enrollment did not return an authorization URL");
+    }
+
+    process.stdout.write(
+      `[h2a] llm-mesh: opening Claude authorization in your browser; authorize and paste the returned code\n`,
+    );
+    try {
+      (options.openBrowser ?? openEnrollmentBrowser)(session.url);
+    } catch {
+      // safe fallback
+    }
+
+    const readInput = options.readInput ?? ((prompt) => readMaskedInput(prompt, { multiline: false }));
+    let returnedCode: string;
+    try {
+      returnedCode = await readInput(
+        "[h2a] llm-mesh: paste the authorization code (<code-and-state>): ",
+        { multiline: false },
+      );
+    } catch (inputErr) {
+      await facade.cancel?.(session.enrollmentId).catch(() => {});
+      throw sanitizeClaudeEnrollmentError(inputErr);
+    }
+
+    try {
+      const completed = await facade.completeClaudeEnrollment(
+        session.enrollmentId,
+        returnedCode,
+        ownerScope,
+      );
+      return {
+        accountId: completed.accountId,
+        provider: "claude-code",
+        label: completed.label,
+      };
+    } catch (completionErr) {
+      await facade.cancel?.(session.enrollmentId).catch(() => {});
+      throw sanitizeClaudeEnrollmentError(completionErr);
+    }
+  }
+
+  const facade = options.facade ?? createCliLlmMeshFacade();
   // The facade knows the device flow under its historical mesh-side id.
   const facadeProvider = provider === "muse" && !options.cliImport ? "muse-code" : provider;
   // The installed @sentropic/cluster-mesh/llm-mesh types predate the muse provider, but
