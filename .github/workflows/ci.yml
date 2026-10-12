@@ -166,6 +166,7 @@ jobs:
         run: >-
           npx --no-install vitest run
           packages/h2a-runtime/src/llm-mesh-accounts.test.ts
+          packages/h2a-runtime/src/claude-seat-input.test.ts
           packages/h2a-runtime/src/gateway-host/daemon.test.ts
           packages/h2a-runtime/src/gateway-host/daemon-lifecycle.test.ts
           packages/h2a-runtime/src/gateway-host/config-file.test.ts

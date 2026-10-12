@@ -93,3 +93,38 @@ Start the 0.98.0 daemon explicitly. Restore public preferences only if their
 format changed; do not replace keyrings or restore an expired bearer. Relaunch
 only the selected native sessions that need to acquire a fresh bearer, then
 compare the same public inventory and configuration recorded before migration.
+
+## Claude seat accounts (0.98.5+)
+
+Claude subscription accounts are supported as owner-scoped `llm-mesh` seats.
+
+### Enrollment and credential import
+
+Enrollment is available through two canonical CLI paths:
+
+1. **Browser OAuth flow (canonical default):**
+   ```sh
+   h2a llm-mesh account enroll claude-code
+   ```
+   Opens the Claude authorization URL in the local browser. The returned `<code>#<state>` string is entered via a trusted masked local terminal prompt that disables echo and command history.
+
+2. **Renewable credential import:**
+   ```sh
+   h2a llm-mesh account enroll claude-code --credential-import
+   ```
+   Accepts a renewable credential JSON document containing `claudeAiOauth` via a trusted masked multiline prompt. No secret value argument is accepted on argv.
+
+Both paths persist credentials exclusively through the existing mesh-managed encrypted file keyring. No tokens or secrets are stored in h2a configurations or process arguments.
+
+### Secret boundary and owner isolation
+
+- Interactive terminal (TTY) is required for credential entry; non-interactive captures fail closed.
+- The owner scope is bound to trusted host identity (`H2A_LLM_MESH_OWNER_SCOPE`, defaulting to `cli:<hostname>`). Foreign owners cannot inspect, acquire or remove the account.
+- The running gateway loads accounts at boot time only. After enrollment or import, restart the local gateway:
+  ```sh
+  h2a llm-mesh restart
+  ```
+
+### Status and limitations
+
+Current operational status: **enrollment only / execution not-covered** until independent qualification stages (M0–M7) are completed by the host owner. The gateway compose seam requires host-level qualification before text inference is served. History and tool execution remain disabled and `not-covered`.

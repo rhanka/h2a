@@ -38,9 +38,23 @@ test(
     assert.equal(canonical.status, 0, canonical.output);
     assert.match(canonical.output, /Usage: h2a llm-mesh account enroll/);
     assert.match(canonical.output, /cloud-code, codex, muse/);
+    assert.match(canonical.output, /claude-code/);
+    assert.match(canonical.output, /--credential-import/);
     assert.match(canonical.output, /muse\s+OAuth device flow/);
     assert.match(canonical.output, /--cli/);
     assert.doesNotMatch(canonical.output, /muse-code device flow/);
+
+    const badCli = run("llm-mesh", "account", "enroll", "claude-code", "--cli");
+    assert.notEqual(badCli.status, 0, badCli.output);
+    assert.match(badCli.output, /--cli is only valid for providers with a local CLI import \(muse\)/);
+
+    const badImport = run("llm-mesh", "account", "enroll", "codex", "--credential-import");
+    assert.notEqual(badImport.status, 0, badImport.output);
+    assert.match(badImport.output, /--credential-import is only valid for claude-code/);
+
+    const badBoth = run("llm-mesh", "account", "enroll", "claude-code", "--cli", "--credential-import");
+    assert.notEqual(badBoth.status, 0, badBoth.output);
+    assert.match(badBoth.output, /--cli and --credential-import cannot be combined/);
 
     for (const command of ["list", "ls"]) {
       const help = run("llm-mesh", "account", command, "--help");
