@@ -24,10 +24,19 @@ import { ensureCentralForShim } from "../dist/runtime/mcp-central-start.js";
 import { enroll } from "../../h2a-runtime/dist/registry.js";
 import { createLocalStore } from "../dist/runtime/local-files/store.js";
 import { qualifiedEnvironment, qualificationRoot, assertQualifiedPath } from "./helpers/qual-env.js";
+import { qualifiedShim, fixtureQualification, initialize as fixtureInitialize } from "./helpers/mh-l1-shim.js";
 
-const bin = resolve("packages/h2a/dist/bin.js");
+// Exact fixture clients exercise routing without qualifying any release Claude.
+const testManifest = { ...fixtureQualification, clients: [
+  ...fixtureQualification.clients,
+  ...[["r6-default-gate", "1"], ["real-sdk-client", "1.0.0"], ["test-client", "1"]]
+    .map(([name, version]) => ({ ...fixtureQualification.clients[0], name, version, protocolVersions: ["2025-06-18", "2025-11-25"] }))
+] };
+const shimDirectory = mkdtempSync(join(tmpdir(), "mh-l1-qualified-"));
+const bin = qualifiedShim(join(shimDirectory, "light"), testManifest);
+test.after(() => rmSync(shimDirectory, { recursive: true, force: true }));
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
-function fixture({ temporary = false } = {}) {
+function fixture({ temporary = true } = {}) {
   const base = temporary ? tmpdir() : join(qualificationRoot, "mcp-attachment-tests");
   mkdirSync(base, { recursive: true });
   const dir = mkdtempSync(join(base, "case-"));
@@ -56,6 +65,7 @@ function rpcChannel(input, output) {
     else notifications.push(frame);
   });
   return { notifications, call(method, params, timeout = 12_000) {
+    if (method === "initialize" && params === undefined) params = fixtureInitialize.params;
     const id = ++nextId;
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => { pending.delete(id); reject(new Error(`RPC ${method} timed out`)); }, timeout);
@@ -415,7 +425,9 @@ test("an orphaned HTTP attachment is purged and the central exits idle", { timeo
 });
 
 test("two attached repos route Track and h2a_run to their own workspace, sharing only state", { timeout: 30_000 }, async () => {
-  const f = fixture();
+  // h2a_run intentionally refuses OS-global temporary workspaces. This case
+  // owns a mkdtemp directory beneath the repo qualification root instead.
+  const f = fixture({ temporary: false });
   let server;
   const channels = [];
   try {
@@ -1043,7 +1055,7 @@ test("runtime-base namespace is strictly isolated across discovery, auto-start, 
   mkdirSync(f.root, { recursive: true, mode: 0o700 });
 
   // 1. Policy check: must respect explicit runtime-base
-  assert.equal(shouldUseCentralMcp({ host: "claude", "runtime-base": nsA }, isolatedEnv, true), true);
+  assert.equal(shouldUseCentralMcp({ host: "claude", "runtime-base": nsA }, isolatedEnv, true, fixtureInitialize, testManifest), true);
 
   // 2. Exercise real shim with --runtime-base=nsA while XDG_RUNTIME_DIR is defaultNs
   const repo = join(f.dir, "repo-a");
