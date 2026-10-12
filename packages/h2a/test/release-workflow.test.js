@@ -25,6 +25,8 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import YAML from "yaml";
 
+import { releaseContractFailures } from "../../../scripts/release-workflow-contract.mjs";
+
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(HERE, "..", "..", "..");
 const WORKFLOW_PATH = resolve(REPO_ROOT, ".github", "workflows", "release.yml");
@@ -282,7 +284,7 @@ test("R8.1/R8.3 (3): verify runs the trust root BEFORE npm test, then the packag
   const verify = job("verify");
   const trustRoot = firstStepIndex(verify, "node --test packages/h2a/test/run-test-gates.test.js");
   const npmTest = firstStepIndex(verify, "npm test");
-  const smoke = firstStepIndex(verify, "npm run smoke:artifact");
+  const smoke = firstStepIndex(verify, "npm run smoke:artifact -- --tarballs dist-tarballs");
   assert.ok(
     trustRoot < npmTest,
     "the trust root must gate the runner BEFORE the runner is trusted to report npm test",
@@ -504,7 +506,7 @@ test("R8.1/R8.3/R8.4: the mandatory verify steps are UNCONDITIONAL — a disable
   const mandatory = new Map([
     ["node --test packages/h2a/test/run-test-gates.test.js", "the trust root"],
     ["npm test", "the full gate suite (h2a + runtime TS suites)"],
-    ["npm run smoke:artifact", "the packaged-artifact smoke"],
+    ["npm run smoke:artifact -- --tarballs dist-tarballs", "the packaged-artifact smoke"],
   ]);
   for (const [run, what] of mandatory) {
     const step = verify.steps.find((s) => s.run === run);
@@ -568,4 +570,14 @@ test("no publication path bypasses verify: publish needs verify and nothing else
       "every npm publish must fail the job on failure (#283): a silent publish error must never read as success",
     );
   }
+});
+
+
+test("C9: the complete execution plan preserves context, SHA, Node, bytes and every publication route", () => {
+  assert.deepEqual(releaseContractFailures(WORKFLOW), []);
+  const verify = job("verify");
+  const pack = verify.steps.findIndex((step) => String(step.run ?? "").includes("npm pack --workspace"));
+  const smoke = firstStepIndex(verify, "npm run smoke:artifact -- --tarballs dist-tarballs");
+  const upload = verify.steps.findIndex((step) => step.uses === "actions/upload-artifact@v4");
+  assert.ok(pack < smoke && smoke + 1 === upload, "smoke exercises the built bytes immediately before their upload");
 });

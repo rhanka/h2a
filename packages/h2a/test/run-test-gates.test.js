@@ -25,7 +25,12 @@ import { spawnSync } from 'node:child_process'
 import { test } from 'node:test'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import { discoverTestFiles, RUNNER_TEST_FILE } from '../../../scripts/run-tests.mjs'
+import { discoverTestFiles, RUNNER_TEST_FILE, listNodeTrackSuiteFiles, verifyNodeTrackExecution } from '../../../scripts/run-tests.mjs'
+
+import { configContractFailures } from '../../../scripts/test-config-contract.mjs'
+import { readInventory, inventoryFailures } from '../../../scripts/test-execution-evidence.mjs'
+import { declarationFailures } from '../../../scripts/test-inventory.mjs'
+import { observeNodeTrackEntry } from './helpers/node-track-observation-lab.js'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const REPO_ROOT = resolve(HERE, '..', '..', '..')
@@ -399,7 +404,7 @@ test('the real STEPS list invokes the exact production commands', () => {
         shell: false,
         requiresBuild: true,
         inconclusiveExitCode: null,
-        reportPath: null,
+        reportPath: resolve(REPO_ROOT, 'tmp/node-track-report.json'),
       },
       {
         id: 'h2a-runtime',
@@ -688,7 +693,7 @@ test('R8.1 execution: verifyRuntimeExecution grades reports by executed identity
     // accepted shape.
     assert.deepEqual(
       verifyRuntimeExecution(
-        reportOf([[unmarked, [a('passed')]], [marked, [a('passed'), a('failed')]]]),
+        reportOf([[unmarked, [a('passed')]], [marked, [a('passed', 'one'), a('passed', 'two')]]]),
         [unmarked, marked],
       ),
       [],
@@ -723,23 +728,12 @@ test('R8.1 execution: verifyRuntimeExecution grades reports by executed identity
     }
     // A status-less assertion is not an executed test either.
     const statusless = verifyRuntimeExecution(reportOf([[unmarked, [a('passed'), {}]]]), [unmarked])
-    assert.ok(statusless.some((f) => f.includes('"missing"')), 'an assertion without a status proves nothing')
-    // The same statuses in a file that DECLARES its skips are the sanctioned
-    // shape — HEAD's runtime suites carry committed platform conditionals
-    // and tracked-debt skips, and the gate must not false-red on them.
-    assert.deepEqual(
-      verifyRuntimeExecution(reportOf([[marked, [a('skipped')]]]), [marked]),
-      [],
-      'a DECLARED skip is sanctioned; the gate tolerates exactly the declared ones',
-    )
-    assert.deepEqual(
-      verifyRuntimeExecution(reportOf([[marked, [a('skipped'), a('skipped')]]]), [marked]),
-      [],
-      'a whole-file declared skip (platform conditional) stays sanctioned',
-    )
+    assert.ok(statusless.some((f) => f.includes('"missing"') || f.includes('unnamed')), 'an assertion without a status proves nothing')
+    // A declaration or comment cannot authorize a skipped assertion.
+    assert.ok(verifyRuntimeExecution(reportOf([[marked, [a('skipped')]]]), [marked]).length > 0)
     // An unmarked file with ZERO executed tests: the whole suite was filtered away.
     const zero = verifyRuntimeExecution(reportOf([[unmarked, [a('skipped')]]]), [unmarked])
-    assert.ok(zero.some((f) => f.includes('executed ZERO tests')), 'a filtered-away suite must fail by executed count')
+    assert.ok(zero.some((f) => f.includes('executed ZERO tests') || f.includes('missing or unreadable')), 'a filtered-away suite must fail by executed count')
     // The summary counts must exist and add up.
     const shapeless = JSON.parse(JSON.stringify(reportOf([[unmarked, [a('passed')]]])))
     delete shapeless.numTotalTests
@@ -747,7 +741,7 @@ test('R8.1 execution: verifyRuntimeExecution grades reports by executed identity
       verifyRuntimeExecution(shapeless, [unmarked]).length > 0,
       'a report without integer summary counts proves nothing',
     )
-    const lying = reportOf([[unmarked, [a('passed'), a('skipped')]]], { numTotalTests: 2, numPendingTests: 0 })
+    const lying = reportOf([[unmarked, [a('passed', 'one'), a('skipped', 'two')]]], { numTotalTests: 2, numPendingTests: 0 })
     assert.ok(
       verifyRuntimeExecution(lying, [unmarked]).some((f) => f.includes('do not add up')),
       'a report whose totals contradict its own statuses is not evidence',
@@ -758,6 +752,7 @@ test('R8.1 execution: verifyRuntimeExecution grades reports by executed identity
 })
 
 test('R8.1 execution (lab): through the pinned config, a filter or skip that removes a required test turns the gate red', () => {
+  mkdirSync(join(REPO_ROOT, 'tmp'), { recursive: true })
   const lab = mkdtempSync(join(REPO_ROOT, 'tmp', 'h2a-exec-lab-'))
   try {
     mkdirSync(join(lab, 'src'), { recursive: true })
@@ -795,6 +790,7 @@ test('R8.1 execution (lab): through the pinned config, a filter or skip that rem
       const beforeOut = source
       source = source.replace('"../../tmp/h2a-runtime-vitest-report.json"', '"report.json"')
       assert.notEqual(source, beforeOut, 'the outputFile splice must apply to the real config')
+      source = source.replace('../../scripts/test-config-contract.mjs', pathToFileURL(resolve(REPO_ROOT, 'scripts/test-config-contract.mjs')).href)
       if (mutate) source = mutate(source)
       const configPath = join(lab, 'vitest.config.ts')
       writeFileSync(configPath, source)
@@ -838,32 +834,25 @@ test('R8.1 execution (lab): through the pinned config, a filter or skip that rem
     ))
     assert.equal(
       pattern.exit,
-      0,
-      'vitest itself stays green under the pattern: that is exactly the false green this proof exists to catch',
+      1,
+      'the effective config must reject a pattern before it removes tests',
     )
     assert.ok(
-      pattern.failures.some((f) => f.includes('executed ZERO tests')),
-      `a run where NO required test executed must fail the gate while vitest exits 0:\n${pattern.failures.join('\n')}`,
+      pattern.failures.some((f) => f.includes('executed ZERO tests') || f.includes('missing or unreadable')),
+      `a rejected config must leave no accepted execution proof:\n${pattern.failures.join('\n')}`,
     )
 
     // (3) exclude: a required file silently leaves the run — vitest exit 0.
     const excluded = runGate(labConfig((source) =>
       source.replace('include: ["src/**/*.test.ts"],', 'include: ["src/**/*.test.ts"],\n    exclude: ["src/b.test.ts"],'),
     ))
-    assert.equal(excluded.exit, 0, `vitest stays green under the exclude:\n${excluded.output}`)
+    assert.equal(excluded.exit, 1, `the effective config must reject excludes:\n${excluded.output}`)
     assert.ok(
-      excluded.failures.some((f) => f.includes('NEVER EXECUTED') && f.includes('b.test.ts')),
+      excluded.failures.some((f) => (f.includes('NEVER EXECUTED') && f.includes('b.test.ts')) || f.includes('missing or unreadable')),
       `an excluded required file must be named as never executed:\n${excluded.failures.join('\n')}`,
     )
 
-    // (4) A file-level DECLARED skip is the sanctioned tracked-debt shape —
-    // HEAD's own runtime suites carry committed `it.skip`/`it.todo`. The
-    // boundary of the proof is exact: a skip is refused when it is SILENT
-    // (no marker in the source, as under a config pattern — case 2), and
-    // tolerated when the file DECLARES it in reviewable source. Pinning that
-    // boundary keeps the gate from false-reding on HEAD while documenting
-    // that a committed skip remains a review-visible removal, not a silent
-    // one.
+    // (4) An explicit skip still requires an identity-scoped exception.
     writeFileSync(join(lab, 'src', 'b.test.ts'),
       'import { test, expect } from "vitest"\n' +
       'test("b one", () => { expect(1).toBe(1) })\n' +
@@ -871,14 +860,12 @@ test('R8.1 execution (lab): through the pinned config, a filter or skip that rem
     const declared = runGate(labConfig())
     assert.equal(declared.exit, 0)
     assert.deepEqual(
-      declared.failures,
-      [],
-      `a DECLARED file-level skip must stay sanctioned (HEAD's committed debt) — a silent one does not:\n${declared.failures.join('\n')}`,
+      declared.failures.length > 0,
+      true,
+      `a skip declaration cannot authorize losing the required test:\n${declared.failures.join('\n')}`,
     )
 
-    // (5) A DECLARED platform skip is the sanctioned shape (HEAD's own): a
-    // whole file may skip when its source declares the condition — otherwise
-    // the gate would false-red on every non-Linux leg.
+    // (5) Whole-suite platform declarations grant no global skip exception.
     writeFileSync(join(lab, 'src', 'b.test.ts'),
       'import { test, expect, describe } from "vitest"\n' +
       '// emulates the committed describe.skipIf(process.platform !== "linux") suites\n' +
@@ -888,9 +875,9 @@ test('R8.1 execution (lab): through the pinned config, a filter or skip that rem
     const sanctioned = runGate(labConfig())
     assert.equal(sanctioned.exit, 0, `the declared-skip lab suite must pass:\n${sanctioned.output}`)
     assert.deepEqual(
-      sanctioned.failures,
-      [],
-      `a DECLARED skip must stay sanctioned:\n${sanctioned.failures.join('\n')}`,
+      sanctioned.failures.length > 0,
+      true,
+      `whole-suite skips must leave holes in the proof:\n${sanctioned.failures.join('\n')}`,
     )
   } finally {
     rmSync(lab, { recursive: true, force: true })
@@ -1015,10 +1002,13 @@ function sentinelRunnerSource({ brokenId, dropInLoop, dropAtEntry, executionProo
   let source = RUNNER_SOURCE
   const beforeImport = source
   source = source.replace(
-    "import { TEST_DIRS, discoverTestFiles } from './run-tests.mjs'",
-    "const TEST_DIRS = ['(trust-root sentinel stub)']\nconst discoverTestFiles = () => []",
+    "import { TEST_DIRS, discoverTestFiles, listNodeTrackSuiteFiles, NODE_TRACK_EXECUTION_REPORT, verifyNodeTrackExecution } from './run-tests.mjs'",
+    "const TEST_DIRS = ['(trust-root sentinel stub)']\nconst discoverTestFiles = () => []\nconst listNodeTrackSuiteFiles = () => []\nconst NODE_TRACK_EXECUTION_REPORT = 'unused'\nconst verifyNodeTrackExecution = () => []",
   )
   assert.notEqual(source, beforeImport, 'the import splice must apply to the real runner source')
+  source = source.replaceAll("'./test-execution-evidence.mjs'", JSON.stringify(pathToFileURL(resolve(REPO_ROOT, 'scripts/test-execution-evidence.mjs')).href))
+  source = source.replaceAll("'./test-inventory.mjs'", JSON.stringify(pathToFileURL(resolve(REPO_ROOT, 'scripts/test-inventory.mjs')).href))
+  source = source.replace("const inventory = readInventory(REPO_ROOT)", "const inventory = {}").replace("policyFor(REPO_ROOT, inventory, 'runtime')", "{}")
   const beforeRoot = source
   source = source.replace("const REPO_ROOT = resolve(HERE, '..')", 'const REPO_ROOT = HERE')
   assert.notEqual(source, beforeRoot, 'the REPO_ROOT splice must apply to the real runner source')
@@ -1252,6 +1242,7 @@ test('R8.1 execution: a step dropped BEFORE the loop cannot launder the run — 
  * holed report: exit 0 is a verdict about the process, never about the tests.
  */
 test('R8.1 execution (runner lab): the runner refuses a green exit over an absent, stale or holed report', () => {
+  mkdirSync(join(REPO_ROOT, 'tmp'), { recursive: true })
   const lab = mkdtempSync(join(REPO_ROOT, 'tmp', 'h2a-runner-exec-'))
   try {
     const sentinelDir = join(lab, 'markers')
@@ -1359,4 +1350,24 @@ test('R8.1 execution (runner lab): the runner refuses a green exit over an absen
   } finally {
     rmSync(lab, { recursive: true, force: true })
   }
+})
+
+
+test('C9 A01/A03/A04: effective config and versioned test inventory are mandatory', () => {
+  assert.deepEqual(configContractFailures(RUNTIME_CONFIG, 'runtime'), [])
+  assert.deepEqual(configContractFailures(readFileSync(resolve(REPO_ROOT, 'packages/track/vitest.config.ts'), 'utf8'), 'track'), [])
+  const inventory = readInventory(REPO_ROOT)
+  assert.deepEqual(declarationFailures(REPO_ROOT, inventory), [])
+  assert.deepEqual(inventoryFailures(REPO_ROOT, inventory, [...listRuntimeSuiteFiles(), ...listNodeTrackSuiteFiles()]), [])
+  assert.strictEqual(STEPS.find((step) => step.id === 'tests').verifyExecution, verifyNodeTrackExecution)
+  for (const id of ['tests', 'h2a-runtime']) assert.equal(STEPS.find((step) => step.id === id).invocationEvidence, true, `${id} evidence must belong to its own invocation`)
+  const source = readFileSync(resolve(REPO_ROOT, 'scripts/run-tests.mjs'), 'utf8')
+  assert.match(source, /if \(invokedDirectly\) \{\s*main\(\);\s*\}/)
+  assert.match(source, /process\.argv\[1\] && import\.meta\.url === pathToFileURL\(process\.argv\[1\]\)\.href/)
+  assert.doesNotMatch(source, /--test-name-pattern|--test-skip-pattern|--test-only|--passWithNoTests/)
+  assert.ok(source.includes('--test-reporter=spec') && source.includes('node-evidence-reporter.mjs'))
+})
+
+test('C9 A04: execute the effective Node/Track entry and observe both required suites', () => {
+  observeNodeTrackEntry(readFileSync(resolve(REPO_ROOT, 'scripts/run-tests.mjs'), 'utf8'), REPO_ROOT)
 })
