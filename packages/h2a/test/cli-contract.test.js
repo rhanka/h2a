@@ -1,8 +1,12 @@
 // DEC-034 — drive every entry of `H2A_CLI_VERB_CONTRACTS` through a happy-path
-// invocation of `runCli` and assert the stdout payload conforms to the
-// declared envelope shape (resource / list / action / text). A few verbs are
-// intentionally skipped (long-running `mcp-serve`, the `host setup --print`
-// resource is also covered as a sanity check below).
+// invocation and assert the emitted payload conforms to the declared envelope
+// shape (resource / list / action / text / stream). Sync verbs go through
+// `runCli`; async one-shot and long-running `stream` verbs go through the
+// bounded streaming harness below (temporary root, first envelope read + shape
+// assertion, guaranteed clean stop — abort signal, stdin EOF or child kill on
+// the PID we spawned). `keepalive` is the one remaining skip: its declared
+// `action` shape cannot match its text-only stdout (see the plan at
+// docs/plan/reenable-cli-contract-happy-paths.md).
 //
 // Then assert the new exit-code classification (DEC-034) for a handful of
 // representative failure modes:
@@ -12,18 +16,37 @@
 //   - `negotiate sign` with a missing private-key file → exit 3 (I/O error).
 
 import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
 import { generateKeyPairSync, randomBytes } from "node:crypto";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { get } from "node:http";
+import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { PassThrough } from "node:stream";
 import test from "node:test";
 
 import {
   H2A_CLI_VERB_CONTRACTS,
+  cmdUpgrade,
+  createEnvelope,
   createLocalStore,
+  formatSignedDriveInstruction,
   identityKeyPaths,
-  runCli
+  recordStop,
+  runCli,
+  runDriveServe,
+  runDrumbeatRelanceInbox,
+  runMcpServe,
+  signEnvelope
 } from "../dist/index.js";
+import {
+  runCanevasServeCli,
+  runDrumbeatWatch,
+  runLoopEngineCli,
+  runSysmlVerify
+} from "../dist/cli.js";
+import { runFocusServeCli } from "../dist/runtime/focus/serve.js";
 
 function captureStreams(cwd) {
   let stdout = "";
@@ -270,6 +293,43 @@ function ensureContractLoop(root) {
   );
 }
 
+/**
+ * Register the drive pair `drive`/`drive receive` need: claude:lead (CONDUCTOR
+ * holding the `drive` capability + the ed25519 public key) and codex:worker
+ * (AGENTS, conducted by the lead). Writes the lead's private key next to the
+ * root and returns its path.
+ */
+function ensureDrivePair(root) {
+  const { privateKey, publicKey } = generateKeyPairSync("ed25519");
+  const privateKeyPath = join(root, "..", "drive-lead.pkcs8.pem");
+  writeFileSync(privateKeyPath, privateKey.export({ format: "pem", type: "pkcs8" }).toString(), "utf8");
+  const store = createLocalStore({ root });
+  store.registerInstance({
+    id: "claude:lead",
+    instance: "claude:lead",
+    roles: ["CONDUCTOR"],
+    scopes: ["scope:contract"],
+    capabilities: ["drive"],
+    endpoints: [],
+    publicKeys: [publicKey.export({ format: "pem", type: "spki" }).toString()],
+    acceptedPolicies: [],
+    createdAt: "2026-05-20T00:00:00.000Z"
+  });
+  store.registerInstance({
+    id: "codex:worker",
+    instance: "codex:worker",
+    roles: ["AGENTS"],
+    scopes: ["scope:contract"],
+    conductor: "claude:lead",
+    capabilities: ["execute"],
+    endpoints: [],
+    publicKeys: [],
+    acceptedPolicies: [],
+    createdAt: "2026-05-20T00:00:00.000Z"
+  });
+  return privateKeyPath;
+}
+
 function buildHappyArgv(verb, ctx) {
   const { root, privateKeyPath, publicKeyPath } = ctx;
   switch (verb) {
@@ -363,8 +423,8 @@ function buildHappyArgv(verb, ctx) {
       return ["loop", "logs", "loop-contract", "--root", root];
     case "loop tick":
     case "loop watch":
-      // async (lazy runtime import + periodic loop) → not runnable via the sync
-      // runCli happy-path harness; covered by loop-tick-cli.test.js (spawns bin).
+      // Async (lazy runtime import + periodic) → handled by ASYNC_HAPPY_PATHS
+      // (in-process runLoopEngineCli), not this sync harness.
       return null;
     case "negotiate open":
       return [
@@ -461,11 +521,93 @@ function buildHappyArgv(verb, ctx) {
         "--private-key",
         privateKeyPath
       ];
-    case "negotiate stabilize":
-      // Covered by cli-negotiate-sign-stabilize.test.js — quorum + ed25519
-      // signature verification needs more setup than this happy-path harness
-      // is designed for. Reported as skip.
-      return null;
+    case "negotiate stabilize": {
+      // Stabilize verifies the quorum signature against the signer's REGISTERED
+      // public keys, so the harness mints its own negotiation with a properly
+      // registered signer (same recipe as cli-negotiate-sign-stabilize.test.js):
+      // register signer + key, open, offer the artifact, sign, then stabilize.
+      const sink = {
+        stdout: { write: () => {} },
+        stderr: { write: () => {} },
+        cwd: () => process.cwd()
+      };
+      runCli(
+        [
+          "register",
+          "--root",
+          root,
+          "--json",
+          JSON.stringify({
+            id: "signer:contract",
+            instance: "signer:contract",
+            roles: ["CONDUCTOR"],
+            scopes: ["scope:contract"],
+            capabilities: [],
+            endpoints: [],
+            publicKeys: [readFileSync(publicKeyPath, "utf8")],
+            acceptedPolicies: [],
+            createdAt: "2026-05-20T00:00:00.000Z"
+          })
+        ],
+        sink
+      );
+      runCli(
+        [
+          "negotiate",
+          "open",
+          "--root",
+          root,
+          "--json",
+          JSON.stringify({
+            id: "nego-stab",
+            scope: "scope:contract",
+            parties: ["signer:contract"],
+            subject: "engagement",
+            status: "draft",
+            requiredSigners: ["signer:contract"]
+          })
+        ],
+        sink
+      );
+      const artifact = { kind: "ENGAGEMENT", id: "engagement:stab", goal: "demo" };
+      runCli(
+        [
+          "negotiate",
+          "offer",
+          "--root",
+          root,
+          "--id",
+          "nego-stab",
+          "--instance",
+          "signer:contract",
+          "--artifact",
+          JSON.stringify(artifact),
+          "--event-id",
+          "evt-stab-offer"
+        ],
+        sink
+      );
+      runCli(
+        [
+          "negotiate",
+          "sign",
+          "--root",
+          root,
+          "--id",
+          "nego-stab",
+          "--instance",
+          "signer:contract",
+          "--artifact",
+          JSON.stringify(artifact),
+          "--private-key",
+          privateKeyPath,
+          "--event-id",
+          "evt-stab-sign"
+        ],
+        sink
+      );
+      return ["negotiate", "stabilize", "--root", root, "--id", "nego-stab"];
+    }
     case "negotiate journal":
       return ["negotiate", "journal", "--root", root, "--id", "nego-cc"];
     case "declare-interest":
@@ -619,8 +761,8 @@ function buildHappyArgv(verb, ctx) {
     case "outbox read":
       return ["outbox", "read", "--root", root, "--instance", "req-001"];
     case "mcp-serve":
-      // Long-running JSON-RPC stdio loop — can't happy-path in a one-shot
-      // assertion. Covered by mcp-stdio.test.js + the example.
+      // Long-running JSON-RPC stdio loop → handled by ASYNC_HAPPY_PATHS
+      // (initialize round-trip + clean EOF shutdown).
       return null;
     case "host setup":
       return ["host", "setup", "--host", "codex", "--print"];
@@ -754,22 +896,68 @@ function buildHappyArgv(verb, ctx) {
       ];
     case "subagent inbox":
       return ["subagent", "inbox", "--root", root, "--parent", "agent-001"];
-    case "drive":
-      // Needs a signer key + actor registrations; covered by drive.test.js.
-      return null;
-    case "drive receive":
-      // Needs a signed line + actor registrations; covered by drive.test.js.
-      return null;
+    case "drive": {
+      // authorizeDrive needs a registered driver pair: claude:lead (CONDUCTOR
+      // with the `drive` capability + public key) and codex:worker (AGENTS,
+      // conducted by the lead). The logging driver makes it a dry-run.
+      const privateKeyPath = ensureDrivePair(root);
+      return [
+        "drive",
+        "--root",
+        root,
+        "--from",
+        "claude:lead",
+        "--to",
+        "codex:worker",
+        "--instruction",
+        "Read your inbox.",
+        "--private-key",
+        privateKeyPath,
+        "--driver",
+        "logging",
+        "--nonce",
+        "nonce-contract",
+        "--at",
+        "2026-05-31T02:00:00.000Z"
+      ];
+    }
+    case "drive receive": {
+      // The verify-before-act gate needs a properly signed line for the
+      // registered pair; `--now` pins the freshness window.
+      const privateKeyPath = ensureDrivePair(root);
+      const line = formatSignedDriveInstruction({
+        from: "claude:lead",
+        to: "codex:worker",
+        instruction: "Read your inbox.",
+        nonce: "nonce-contract-recv",
+        at: "2026-05-31T02:00:00.000Z",
+        privateKeyPem: readFileSync(privateKeyPath, "utf8")
+      });
+      return [
+        "drive",
+        "receive",
+        "--root",
+        root,
+        "--to",
+        "codex:worker",
+        "--line",
+        line,
+        "--now",
+        String(Date.parse("2026-05-31T02:00:01.000Z"))
+      ];
+    }
     case "drive serve":
-      // Async long-running service; covered by drive.test.js.
+      // Long-running HTTP endpoint → handled by ASYNC_HAPPY_PATHS
+      // (onListening seam + clean server close).
       return null;
     case "sysml verify":
-      // Async verb (network on the content path) + needs a signed envelope with
-      // a ref; covered by sysml-verify.test.js.
+      // Async one-shot (network only on the --content-integrity path) → handled
+      // by ASYNC_HAPPY_PATHS (in-process runSysmlVerify, commit-trust only).
       return null;
     case "upgrade":
-      // Would hit the npm registry / run a global install; covered by
-      // upgrade.test.js with an injected runtime.
+      // Never a real install here: the runner invokes cmdUpgrade with the
+      // injected DEC-107 runtime (see injectedUpgradeRuntime) so every side
+      // effect lands in the test's temp dir.
       return null;
     case "drumbeat record":
       return ["drumbeat", "record", "--root", root, "--instance", "agent-001", "--status", "out-of-tokens"];
@@ -780,7 +968,8 @@ function buildHappyArgv(verb, ctx) {
     case "drumbeat escalations":
       return ["drumbeat", "escalations", "--root", root];
     case "drumbeat relance-inbox":
-      // Async verb (may await relaunchers); covered by drumbeat-remote-relance.test.js.
+      // Async one-shot → handled by ASYNC_HAPPY_PATHS (in-process
+      // runDrumbeatRelanceInbox on a seeded temp root).
       return null;
     case "nhi report":
       return ["nhi", "report", "--root", root];
@@ -842,7 +1031,12 @@ function buildHappyArgv(verb, ctx) {
       // An empty thread (no matching threadId) is a valid `list` happy path.
       return ["thread", "--id", "thr:1", "--instance", "claude:x:abc", "--root", root];
     case "keepalive":
-      // Async verb (long-running loop); covered by wp5-keepalive.test.js.
+      // STILL SKIPPED (the only one left): DEC-034 declares this verb
+      // "action" ({ok:true} JSON envelope) but it never writes JSON to
+      // stdout — only text lines "h2a keepalive: refreshed …", and nothing
+      // at all when no live tmux pane matches. Enabling it needs a DEC-034
+      // amendment (re-declare the shape or make the verb emit an envelope).
+      // Blocking dependency + target date: docs/plan/reenable-cli-contract-happy-paths.md §4.
       return null;
     case "conductor":
       // Read-only resolver; workspace defaults to cwd (no flags needed).
@@ -870,6 +1064,474 @@ function buildHappyArgv(verb, ctx) {
     default:
       throw new Error(`No happy-path argv for verb "${verb}"`);
   }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Bounded streaming / async harness (DEC-034 reactivation, 2026-10-12).
+//
+// Long-running `stream` verbs and async one-shot verbs cannot go through the
+// synchronous `runCli` happy path. Each harness below starts the verb in its
+// OWN temporary root, reads the FIRST envelope it emits, asserts the declared
+// shape, then stops it cleanly: AbortSignal for in-process servers/watchers,
+// stdin EOF for stdio JSON-RPC servers, SIGTERM (SIGKILL as a last resort, only
+// ever on the PID this test spawned) for a spawned child. Every wait is
+// deadline-bounded so a stuck command fails the test instead of hanging the
+// suite. No real h2a state is ever reached: spawned children get a temporary
+// HOME / XDG_RUNTIME_DIR / H2A_ROOT.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const BIN_PATH = join(process.cwd(), "packages", "h2a", "dist", "bin.js");
+
+async function waitFor(predicate, timeoutMs, label) {
+  const started = Date.now();
+  while (!predicate()) {
+    if (Date.now() - started > timeoutMs) {
+      throw new Error(`${label}: timed out after ${timeoutMs}ms`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+}
+
+/** Race a runner promise against a hard deadline; `cleanup` always runs. */
+async function settleBounded(promise, label, timeoutMs, cleanup) {
+  let timer;
+  const deadline = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${label}: did not settle within ${timeoutMs}ms`)), timeoutMs);
+  });
+  try {
+    return await Promise.race([promise, deadline]);
+  } finally {
+    clearTimeout(timer);
+    cleanup?.();
+  }
+}
+
+function captureAsyncStreams(cwd) {
+  let stdout = "";
+  let stderr = "";
+  return {
+    streams: {
+      stdout: { write: (chunk) => void (stdout += chunk) },
+      stderr: { write: (chunk) => void (stderr += chunk) },
+      cwd: () => cwd
+    },
+    stdoutText: () => stdout,
+    stderrText: () => stderr
+  };
+}
+
+function freshRoot(prefix) {
+  const dir = mkdtempSync(join(tmpdir(), prefix));
+  const root = join(dir, ".h2a");
+  runCli(["init", "--root", root], captureStreams(dir));
+  return { dir, root };
+}
+
+/** Bind an ephemeral port then release it, so a server can be pointed at it. */
+function freePort() {
+  return new Promise((resolve, reject) => {
+    const server = createServer();
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => {
+      const { port } = server.address();
+      server.close(() => resolve(port));
+    });
+  });
+}
+
+function httpGetJson(url) {
+  return new Promise((resolve, reject) => {
+    get(url, (response) => {
+      if (response.statusCode !== 200) {
+        response.resume();
+        reject(new Error(`GET ${url} → ${response.statusCode}`));
+        return;
+      }
+      let body = "";
+      response.on("data", (chunk) => void (body += chunk));
+      response.on("end", () => {
+        try {
+          resolve(JSON.parse(body));
+        } catch (error) {
+          reject(error);
+        }
+      });
+    }).once("error", reject).end();
+  });
+}
+
+function jsonRpcInitialize(id) {
+  return `${JSON.stringify({
+    jsonrpc: "2.0",
+    id,
+    method: "initialize",
+    params: {
+      protocolVersion: "2024-11-05",
+      capabilities: {},
+      clientInfo: { name: "h2a-contract-test", version: "0.0.0" }
+    }
+  })}\n`;
+}
+
+/**
+ * The FIRST non-empty stdout line, parsed as JSON. Deliberately strict: the
+ * declared envelope must be the first thing on the stream — a garbage or
+ * delayed first line fails the shape assertion.
+ */
+async function firstEnvelopeLine(text, label) {
+  await waitFor(
+    () => text().split("\n").some((line) => line.trim().length > 0),
+    20_000,
+    `${label}: no envelope on stdout`
+  );
+  const line = text().split("\n").find((line) => line.trim().length > 0);
+  return JSON.parse(line);
+}
+
+// `h2a mcp-serve` — JSON-RPC 2.0 over stdio. In-process (repo precedent:
+// mcp-stdio.test.js): PassThrough stdin/stdout, clean stop via stdin EOF.
+async function happyMcpServe() {
+  const { dir, root } = freshRoot("h2a-contract-mcp-");
+  try {
+    const stdin = new PassThrough();
+    const stdout = new PassThrough();
+    const stderr = new PassThrough();
+    let out = "";
+    stdout.on("data", (chunk) => void (out += chunk));
+    const ac = new AbortController();
+    const done = runMcpServe({ root }, { stdin, stdout, stderr, signal: ac.signal, cwd: () => dir });
+    stdin.write(jsonRpcInitialize(1));
+    const response = await firstEnvelopeLine(() => out, "mcp-serve");
+    assert.equal(response.jsonrpc, "2.0", "mcp-serve: first envelope must be JSON-RPC 2.0");
+    assert.equal(response.id, 1, "mcp-serve: response id must match the request");
+    assert.equal(typeof response.result?.protocolVersion, "string", "mcp-serve: initialize result must carry a protocolVersion");
+    assert.equal(response.result?.serverInfo?.name, "@sentropic/h2a", "mcp-serve: serverInfo must identify the h2a server");
+    stdin.end();
+    const rc = await settleBounded(done, "mcp-serve shutdown", 20_000, () => ac.abort());
+    assert.equal(rc, 0, `mcp-serve: expected exit 0, got ${rc}`);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+// `h2a track-mcp` — the runner binds to the PROCESS stdio (track's
+// serveTrackMcpStdio), so in-process is impossible: spawn the worktree binary
+// (never the installed `h2a`) in an isolated env and stop the PID we spawned.
+async function happyTrackMcp() {
+  const dir = mkdtempSync(join(tmpdir(), "h2a-contract-track-"));
+  const trackDir = join(dir, "track");
+  const runtimeDir = join(dir, "xdg-runtime");
+  let child;
+  try {
+    mkdirSync(trackDir, { recursive: true });
+    mkdirSync(runtimeDir, { recursive: true });
+    child = spawn(process.execPath, [BIN_PATH, "track-mcp", "--track-dir", trackDir], {
+      cwd: dir,
+      env: { ...process.env, HOME: dir, XDG_RUNTIME_DIR: runtimeDir, H2A_ROOT: join(dir, ".h2a") },
+      stdio: ["pipe", "pipe", "pipe"]
+    });
+    let out = "";
+    let childStderr = "";
+    child.stdout.on("data", (chunk) => void (out += chunk));
+    child.stderr.on("data", (chunk) => void (childStderr += chunk));
+    child.stdin.write(jsonRpcInitialize(1));
+    const response = await firstEnvelopeLine(() => out, "track-mcp");
+    assert.equal(response.jsonrpc, "2.0", "track-mcp: first envelope must be JSON-RPC 2.0");
+    assert.equal(response.id, 1, "track-mcp: response id must match the request");
+    assert.equal(response.result?.serverInfo?.name, "@sentropic/track", "track-mcp: serverInfo must identify the track server");
+    child.stdin.end();
+    const exitCode = await settleBounded(
+      new Promise((resolve) => child.once("exit", (code) => resolve(code))),
+      "track-mcp exit",
+      15_000,
+      () => { if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL"); }
+    );
+    assert.equal(exitCode, 0, `track-mcp: expected exit 0, stderr: ${childStderr}`);
+  } finally {
+    // Guaranteed termination of ONLY the child this test spawned.
+    if (child && child.exitCode === null && child.signalCode === null) child.kill("SIGTERM");
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+// `h2a loop tick` — async (lazy runtime import), so it cannot go through the
+// sync runCli harness. In-process via the exported runner bin.ts calls.
+async function happyLoopTick() {
+  const dir = mkdtempSync(join(tmpdir(), "h2a-contract-loop-"));
+  try {
+    const created = captureAsyncStreams(dir);
+    assert.equal(runCli(["loop", "create", "--name", "t", "--goal", "g", "--root", dir], created.streams), 0, created.stderrText());
+    const loopId = JSON.parse(created.stdoutText()).id;
+    const cap = captureAsyncStreams(dir);
+    const rc = await settleBounded(runLoopEngineCli(["loop", "tick", loopId, "--root", dir], cap.streams), "loop tick", 30_000);
+    assert.equal(rc, 0, `loop tick: expected exit 0, got ${rc} (stderr: ${cap.stderrText()})`);
+    const plan = JSON.parse(cap.stdoutText());
+    assert.equal(plan.loopId, loopId, "loop tick: plan must reference the loop");
+    assert.equal(typeof plan.outcome, "string", "loop tick: plan must carry an outcome");
+    assert.ok(Array.isArray(plan.actions), "loop tick: plan must carry an actions array");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+// `h2a loop watch` — periodic, but `--max 1` makes it self-terminating after
+// exactly one emitted plan (the stream's first envelope).
+async function happyLoopWatch() {
+  const dir = mkdtempSync(join(tmpdir(), "h2a-contract-loopw-"));
+  try {
+    const created = captureAsyncStreams(dir);
+    assert.equal(runCli(["loop", "create", "--name", "t", "--goal", "g", "--root", dir], created.streams), 0, created.stderrText());
+    const loopId = JSON.parse(created.stdoutText()).id;
+    const cap = captureAsyncStreams(dir);
+    const rc = await settleBounded(
+      runLoopEngineCli(["loop", "watch", loopId, "--root", dir, "--max", "1"], cap.streams),
+      "loop watch --max 1",
+      30_000
+    );
+    assert.equal(rc, 0, `loop watch: expected exit 0, got ${rc} (stderr: ${cap.stderrText()})`);
+    const plan = JSON.parse(cap.stdoutText().split("\n")[0]);
+    assert.equal(plan.loopId, loopId, "loop watch: first envelope must be the plan of this loop");
+    assert.ok(plan.exec, "loop watch: the executed beat must carry an execution report");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+// `h2a canevas serve` — read-only HTTP surface. In-process with an AbortSignal;
+// first envelope = the bind banner, then a real GET proves the stream serves.
+async function happyCanevasServe() {
+  const { dir, root } = freshRoot("h2a-contract-canevas-");
+  const port = await freePort();
+  const cap = captureAsyncStreams(dir);
+  const ac = new AbortController();
+  try {
+    const done = runCanevasServeCli(["canevas", "serve", "--root", root, "--port", String(port)], cap.streams, ac.signal);
+    await waitFor(
+      () => new RegExp(`on http://127\\.0\\.0\\.1:${port}`).test(cap.stderrText()),
+      10_000,
+      "canevas serve: no bind banner"
+    );
+    const decisions = await httpGetJson(`http://127.0.0.1:${port}/api/decisions`);
+    assert.equal(decisions.kind, "canevas-decisions", "canevas serve: /api/decisions must return the canevas aggregate");
+    assert.ok(Array.isArray(decisions.decisions), "canevas serve: aggregate must carry a decisions array");
+    ac.abort();
+    const rc = await settleBounded(done, "canevas serve shutdown", 10_000);
+    assert.equal(rc, 0, `canevas serve: expected exit 0 after abort, got ${rc}`);
+  } finally {
+    ac.abort();
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+// `h2a focus serve` / `h2a focus web` — packaged web app on a tracked temp repo.
+// In-process with an AbortSignal; first envelope = the "Focus Web:" URL line.
+async function happyFocusServe(sub) {
+  const dir = mkdtempSync(join(tmpdir(), "h2a-contract-focus-"));
+  const ac = new AbortController();
+  try {
+    const repo = join(dir, "repo");
+    mkdirSync(join(repo, ".track"), { recursive: true });
+    writeFileSync(join(repo, ".track", "events.jsonl"), "", "utf8");
+    const cap = captureAsyncStreams(dir);
+    const done = runFocusServeCli(["focus", sub, "--repo", repo, "--port", "0"], cap.streams, ac.signal);
+    await waitFor(
+      () => /Focus Web: http:\/\/127\.0\.0\.1:\d+/.test(cap.stdoutText()),
+      15_000,
+      `focus ${sub}: no bind banner`
+    );
+    assert.match(cap.stdoutText(), /Repository: \S+/, `focus ${sub}: banner must name the served repository`);
+    ac.abort();
+    const rc = await settleBounded(done, `focus ${sub} shutdown`, 10_000);
+    assert.equal(rc, 0, `focus ${sub}: expected exit 0 after abort, got ${rc}`);
+  } finally {
+    ac.abort();
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+// `h2a drive serve` — long-running HTTP injection endpoint. In-process with the
+// onListening seam; first envelope = the "listening on" line; stop = close.
+async function happyDriveServe() {
+  const { dir, root } = freshRoot("h2a-contract-driveserve-");
+  const cap = captureAsyncStreams(dir);
+  let server;
+  try {
+    const done = runDriveServe(
+      { to: "claude:worker", "inject-command": "true", root, port: "0" },
+      { ...cap.streams, cwd: () => dir, onListening: (bound) => void (server = bound) }
+    );
+    await waitFor(
+      () => /h2a drive serve: listening on http:\/\/127\.0\.0\.1:\d+\/h2a\/drive/.test(cap.stdoutText()),
+      10_000,
+      "drive serve: no listening banner"
+    );
+    assert.match(cap.stdoutText(), /\(to claude:worker, root \S+\)/, "drive serve: banner must name the target and root");
+    server.close();
+    const rc = await settleBounded(done, "drive serve shutdown", 10_000);
+    assert.equal(rc, 0, `drive serve: expected exit 0 after close, got ${rc}`);
+  } finally {
+    try { server?.close(); } catch { /* already closed */ }
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+// `h2a drumbeat watch` — anti-stall daemon. In-process with an AbortSignal;
+// first envelope = the "watching" banner; the seeded stop entry also gets a
+// logging relance on the first beat.
+async function happyDrumbeatWatch() {
+  const { dir, root } = freshRoot("h2a-contract-drumbeatw-");
+  recordStop(root, { instance: "claude:stalled", workStatus: "out-of-tokens", launchContext: { command: "echo hi" } });
+  const cap = captureAsyncStreams(dir);
+  const ac = new AbortController();
+  try {
+    const done = runDrumbeatWatch(
+      { root, "interval-ms": "60000", relauncher: "logging" },
+      { ...cap.streams, cwd: () => dir, signal: ac.signal }
+    );
+    await waitFor(
+      () => /h2a drumbeat watch: watching \S+ every \d+ms \(relauncher=logging/.test(cap.stdoutText()),
+      10_000,
+      "drumbeat watch: no watch banner"
+    );
+    ac.abort();
+    const rc = await settleBounded(done, "drumbeat watch shutdown", 10_000);
+    assert.equal(rc, 0, `drumbeat watch: expected exit 0 after abort, got ${rc}`);
+  } finally {
+    ac.abort();
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+// `h2a sysml verify` — async one-shot; commit-trust only (no --content-integrity
+// → no network). Signed envelope with a sysmlRef, verified against a PEM file.
+async function happySysmlVerify() {
+  const dir = mkdtempSync(join(tmpdir(), "h2a-contract-sysml-"));
+  try {
+    const { privateKey, publicKey } = generateKeyPairSync("ed25519");
+    const publicKeyPath = join(dir, "sysml.spki.pem");
+    writeFileSync(publicKeyPath, publicKey.export({ format: "pem", type: "spki" }).toString(), "utf8");
+    const envelope = signEnvelope(
+      createEnvelope({
+        id: "env-sysml-contract",
+        type: "event",
+        actor: { instance: "conductor:01", role: "CONDUCTOR", scope: "scope:model" },
+        body: {
+          kind: "ENGAGEMENT",
+          subject: { sysmlRef: { kind: "sysmlv2", apiBase: "https://repo.example/api", project: "proj-1", commit: "c0ffee", element: "el-42" } }
+        }
+      }),
+      { by: "conductor:01", privateKeyPem: privateKey.export({ format: "pem", type: "pkcs8" }).toString() }
+    );
+    const cap = captureAsyncStreams(dir);
+    const rc = await settleBounded(
+      runSysmlVerify({ json: JSON.stringify(envelope), "public-key": publicKeyPath, by: "conductor:01" }, cap.streams),
+      "sysml verify",
+      15_000
+    );
+    assert.equal(rc, 0, `sysml verify: expected exit 0, got ${rc} (stderr: ${cap.stderrText()})`);
+    const result = JSON.parse(cap.stdoutText());
+    assert.equal(result.ok, true, "sysml verify: envelope must verify");
+    assert.equal(result.signatureVerified, true, "sysml verify: commit-trust must verify the signature");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+// `h2a drumbeat relance-inbox` — async one-shot. A stopped entry + a
+// drumbeat.resume envelope; the logging relauncher also logs to stdout, so the
+// action envelope is the final JSON object on stdout.
+async function happyDrumbeatRelanceInbox() {
+  const { dir, root } = freshRoot("h2a-contract-relance-");
+  const target = "claude:remote";
+  try {
+    createLocalStore({ root }).putInboxMessage(
+      target,
+      createEnvelope({
+        id: "env-resume-contract",
+        type: "event",
+        actor: { instance: "codex:watch", role: "AGENTS", scope: "scope:contract" },
+        target: { instance: target },
+        body: { kind: "drumbeat.resume", target, reason: "stopped", requestedBy: "codex:watch" },
+        createdAt: new Date().toISOString()
+      })
+    );
+    recordStop(root, { instance: target, workStatus: "paused", launchContext: { command: "echo relance" } });
+    const cap = captureAsyncStreams(dir);
+    const rc = await settleBounded(
+      runDrumbeatRelanceInbox({ root, instance: target, relauncher: "logging" }, cap.streams),
+      "drumbeat relance-inbox",
+      15_000
+    );
+    assert.equal(rc, 0, `drumbeat relance-inbox: expected exit 0, got ${rc} (stderr: ${cap.stderrText()})`);
+    const envelopeStart = cap.stdoutText().indexOf("{");
+    assert.ok(envelopeStart !== -1, "drumbeat relance-inbox: expected an action envelope on stdout");
+    const envelope = JSON.parse(cap.stdoutText().slice(envelopeStart));
+    assert.equal(envelope.ok, true, "drumbeat relance-inbox: action envelope must include ok: true");
+    assert.ok(envelope.relanced.includes(target), "drumbeat relance-inbox: the stopped entry must be relanced");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+/** Async happy paths keyed by verb; the sync loop below skips these. */
+const ASYNC_HAPPY_PATHS = new Map([
+  ["loop tick", happyLoopTick],
+  ["loop watch", happyLoopWatch],
+  ["mcp-serve", happyMcpServe],
+  ["track-mcp", happyTrackMcp],
+  ["canevas serve", happyCanevasServe],
+  ["focus serve", () => happyFocusServe("serve")],
+  ["focus web", () => happyFocusServe("web")],
+  ["drive serve", happyDriveServe],
+  ["drumbeat watch", happyDrumbeatWatch],
+  ["sysml verify", happySysmlVerify],
+  ["drumbeat relance-inbox", happyDrumbeatRelanceInbox]
+]);
+
+/**
+ * Exact reasons for the verbs that still cannot be enabled. Everything not
+ * listed here is exercised for real. See
+ * docs/plan/reenable-cli-contract-happy-paths.md for the analysis.
+ */
+const NO_HAPPY_PATH_REASONS = new Map([
+  [
+    "keepalive",
+    "DEC-034 declares an \"action\" ({ok:true} JSON) envelope but the verb only writes plain-text " +
+      "\"h2a keepalive: refreshed …\" lines (nothing at all without a live tmux pane) — needs a DEC-034 " +
+      "amendment; blocking dependency and target date in docs/plan/reenable-cli-contract-happy-paths.md §4"
+  ]
+]);
+
+/**
+ * DEC-107 upgrade runtime, fully injected: every side effect (registry fetch,
+ * staging, swap, prefix) is fake and pointed at the test's temp dir. The real
+ * installation is never touched — `runInstall` would be a real global npm
+ * install, so it throws if the staged path ever falls back to it.
+ */
+function injectedUpgradeRuntime(prefix) {
+  let swapped = false;
+  return {
+    now: () => 1_000_000,
+    readCache: () => undefined,
+    writeCache: () => {},
+    fetchLatest: () => "999.0.0",
+    runInstall: () => {
+      throw new Error("upgrade happy path must never run a real npm install");
+    },
+    resolvePrefix: () => prefix,
+    completeRepairIfPending: () => false,
+    acquirePrefixLock: () => ({ acquired: true, release: () => {} }),
+    fetchTarball: () => ({ ok: true, file: join(prefix, "staged.tgz") }),
+    stageInstall: () => ({ ok: true }),
+    probeStagedVersion: () => "999.0.0",
+    verifyStagedNative: () => ({ ok: true }),
+    swapPackageDir: () => {
+      swapped = true;
+      return { ok: true, repaired: false };
+    },
+    readGlobalPkgVersion: () => (swapped ? "999.0.0" : "0.0.0"),
+    writeDiagnostics: () => {}
+  };
 }
 
 test("H2A_CLI_VERB_CONTRACTS covers every dispatchable verb (smoke)", () => {
@@ -994,9 +1656,16 @@ test("H2A_CLI_VERB_CONTRACTS covers every dispatchable verb (smoke)", () => {
 });
 
 for (const contract of H2A_CLI_VERB_CONTRACTS) {
+  const asyncPath = ASYNC_HAPPY_PATHS.get(contract.verb);
+  if (asyncPath !== undefined) {
+    test(`${contract.verb} emits a ${contract.outputShape} envelope on the happy path`, async () => {
+      await asyncPath();
+    });
+    continue;
+  }
   test(`${contract.verb} emits a ${contract.outputShape} envelope on the happy path`, (t) => {
     if (contract.outputShape === "stream") {
-      t.skip(`${contract.verb}: stream shape; covered by mcp-stdio.test.js`);
+      t.skip(`${contract.verb}: stream shape without a registered streaming harness (ASYNC_HAPPY_PATHS)`);
       return;
     }
     const dir = mkdtempSync(join(tmpdir(), "h2a-contract-"));
@@ -1021,27 +1690,34 @@ for (const contract of H2A_CLI_VERB_CONTRACTS) {
         "utf8"
       );
 
-      const argv = buildHappyArgv(contract.verb, { root, privateKeyPath, publicKeyPath });
+      // `upgrade` bypasses runCli: it needs the DEC-107 injectable runtime so
+      // the happy path never reaches the real registry or global prefix.
+      const argv = contract.verb === "upgrade" ? [] : buildHappyArgv(contract.verb, { root, privateKeyPath, publicKeyPath });
       if (argv === null) {
-        t.skip(`${contract.verb}: no single-shot happy-path harness`);
+        t.skip(`${contract.verb}: ${NO_HAPPY_PATH_REASONS.get(contract.verb) ?? "no single-shot happy-path harness"}`);
         return;
       }
       const streams = captureStreams(dir);
-      const rc = runCli(
-        argv,
-        streams,
-        contract.verb === "host setup"
-          ? {
-              doctorHostInstallations: () => ({
-                ok: true,
-                hosts: [
-                  { host: "claude", ok: true, unrepaired: [] },
-                  { host: "codex", ok: true, unrepaired: [] }
-                ]
-              })
-            }
-          : undefined
-      );
+      let rc;
+      if (contract.verb === "upgrade") {
+        rc = cmdUpgrade({}, streams, injectedUpgradeRuntime(dir));
+      } else {
+        rc = runCli(
+          argv,
+          streams,
+          contract.verb === "host setup"
+            ? {
+                doctorHostInstallations: () => ({
+                  ok: true,
+                  hosts: [
+                    { host: "claude", ok: true, unrepaired: [] },
+                    { host: "codex", ok: true, unrepaired: [] }
+                  ]
+                })
+              }
+            : undefined
+        );
+      }
       assert.equal(
         rc,
         0,
