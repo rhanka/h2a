@@ -26,6 +26,9 @@
  *     list before the loop (the round-4 entry-filter shape) fails the run by
  *     name.
  *   - Each step's own stdout/stderr is inherited verbatim, in order, unmodified.
+ *   - A step wired with an execution proof must OBSERVE its required tests
+ *     executing: exit 0 over a missing, stale or holed report is reported as
+ *     `failed` (execution-not-proven), never as a pass.
  *   - A final summary names every step with its exit code and status.
  *   - Exit 0 only if ALL steps passed.
  *   - A step that could not produce a verdict is named as such — never as passed:
@@ -59,7 +62,7 @@
  * separate direct CI test enforces that the reporter cannot grade its own exam.
  */
 import { spawnSync } from 'node:child_process'
-import { readdirSync } from 'node:fs'
+import { readdirSync, readFileSync, realpathSync, rmSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { performance } from 'node:perf_hooks'
 import { fileURLToPath, pathToFileURL } from 'node:url'
@@ -67,6 +70,13 @@ import { TEST_DIRS, discoverTestFiles } from './run-tests.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const REPO_ROOT = resolve(HERE, '..')
+const RUNTIME_SRC = resolve(REPO_ROOT, 'packages', 'h2a-runtime', 'src')
+// SPEC 0.98.5 R8 (round-7 review finding P1): the h2a-runtime gate must prove
+// EXECUTION, not discovery. The pinned vitest config writes its JSON report
+// here (tmp/ is gitignored); the path is pinned BY NAME on both sides — this
+// constant and the config's outputFile — so config and runner cannot drift
+// apart without the trust root going red.
+export const RUNTIME_EXECUTION_REPORT = resolve(REPO_ROOT, 'tmp', 'h2a-runtime-vitest-report.json')
 
 export const PASSED = 'passed'
 export const FAILED = 'failed'
@@ -172,6 +182,16 @@ export const STEPS = [
     args: ['run', '--config', 'packages/h2a-runtime/vitest.config.ts'],
     requiresBuild: true,
     timeoutMs: 10 * MINUTE_MS,
+    // SPEC 0.98.5 R8 (round-7 finding P1): exit 0 from vitest is not evidence
+    // that the required suites ran — a config-level testNamePattern/exclude
+    // makes vitest exit 0 over tests that never executed. The step therefore
+    // carries its own execution proof: the report the pinned config writes is
+    // pruned before the run (freshness) and verified after it (identity and
+    // executed-count per required suite). A hole in the proof fails the step
+    // even when the command exited 0.
+    reportPath: RUNTIME_EXECUTION_REPORT,
+    requiredFiles: listRuntimeSuiteFiles,
+    verifyExecution: verifyRuntimeExecution,
   },
 ]
 
@@ -212,6 +232,186 @@ export function verdictFor(code, step) {
   }
   return FAILED
 }
+
+function normalizePath(p) {
+  try {
+    return realpathSync(p)
+  } catch {
+    return resolve(p)
+  }
+}
+
+/**
+ * The REQUIRED runtime suite set: every *.test.ts under
+ * packages/h2a-runtime/src, enumerated from the FILESYSTEM (never from a list
+ * that can rot). A read failure yields an empty set on purpose: the verifier
+ * below then fails closed — "the required set could not be enumerated" —
+ * instead of grading an unknown scope as proven.
+ */
+export function listRuntimeSuiteFiles() {
+  const files = []
+  const walk = (dir) => {
+    let entries
+    try {
+      entries = readdirSync(dir, { withFileTypes: true })
+    } catch {
+      return
+    }
+    for (const entry of entries) {
+      if (entry.isDirectory()) {
+        if (entry.name === 'node_modules' || entry.name === 'dist') continue
+        walk(join(dir, entry.name))
+      } else if (entry.name.endsWith('.test.ts')) {
+        files.push(normalizePath(join(dir, entry.name)))
+      }
+    }
+  }
+  walk(RUNTIME_SRC)
+  return files.sort()
+}
+
+/**
+ * Static skip markers: a suite file that DECLARES its own skips. The runtime
+ * suites carry committed, review-sanctioned skips — platform-conditional
+ * `describe.skipIf(process.platform !== "linux")`, tool-availability
+ * `skipIf(tmux/cc)`, `ctx.skip`, and two tracked-debt unconditional ones —
+ * so a skipped file is tolerated ONLY when its own source carries such a
+ * marker. A skip in a file with NO marker is a silent removal: the exact
+ * shape this gate exists to reject. A file whose source cannot be read
+ * counts as unmarked (fail closed).
+ */
+const STATIC_SKIP_MARKERS = [
+  /\.skip(?:If)?\s*\(/,
+  /\.todo\s*\(/,
+  /\.fixme\s*\(/,
+  /\bctx\.skip\s*\(/,
+  /\.runIf\s*\(/,
+  /\bx(?:it|test|describe)\s*\(/,
+]
+
+function fileDeclaresSkips(file) {
+  let source
+  try {
+    source = readFileSync(file, 'utf8')
+  } catch {
+    return false
+  }
+  return STATIC_SKIP_MARKERS.some((marker) => marker.test(source))
+}
+
+/**
+ * The EXECUTION proof of the h2a-runtime gate. Discovery — vitest being
+ * handed the right config — proves nothing about what actually ran: the
+ * round-7 review added `testNamePattern: "^C7_NO_TEST_HAS_THIS_NAME$"` to
+ * the pinned config and the runner stayed green at exit 0 while every native
+ * test silently became "ignored". This function grades the report the run
+ * just produced, by identity and executed count per required suite, and
+ * returns a failure for every hole:
+ *
+ *   - report missing or unreadable        no evidence at all;
+ *   - required set empty/unenumerable     no scope, so no proof possible;
+ *   - a required file ABSENT from the     an exclude/include edit or a cold
+ *     report                               path — the file never ran;
+ *   - a reported file OUTSIDE the         the report does not correspond
+ *     required set                        to the pinned discovery;
+ *   - an assertion whose status is        a skip, a filter, a todo — a
+ *     neither passed nor failed, in a     required test silently not run
+ *     file with NO declared skip marker   (sanctioned, declared skips in
+ *                                          marked files are the only
+ *                                          tolerance);
+ *   - a required file with ZERO executed  the whole suite was filtered away
+ *     tests (unmarked file)               while its source declares no skip;
+ *   - non-integer or self-inconsistent    a report that lies about its own
+ *     summary counts                      totals is not evidence.
+ *
+ * Exit 0 from vitest is NOT proof; this list empty is.
+ */
+export function verifyRuntimeExecution(report, requiredFiles) {
+  const failures = []
+  if (!report || typeof report !== 'object' || !Array.isArray(report.testResults)) {
+    return [
+      'the execution report is missing or unreadable: with no report there is no evidence that any required test executed',
+    ]
+  }
+  const required = Array.isArray(requiredFiles) ? requiredFiles.map(normalizePath) : []
+  if (required.length === 0) {
+    return [
+      'the required runtime suite set is empty or could not be enumerated: with no required set, no execution can be proven',
+    ]
+  }
+  const byFile = new Map()
+  for (const result of report.testResults) {
+    if (!result || typeof result.name !== 'string') {
+      failures.push('the report contains a file result without a name: it proves nothing')
+      continue
+    }
+    byFile.set(normalizePath(result.name), result)
+  }
+  for (const file of byFile.keys()) {
+    if (!required.includes(file)) {
+      failures.push(
+        `${file} appears in the report but is not part of the required suite set: ` +
+          'the report does not correspond to the pinned discovery',
+      )
+    }
+  }
+  for (const requiredFile of required) {
+    const result = byFile.get(requiredFile)
+    if (!result) {
+      failures.push(
+        `${requiredFile} was NEVER EXECUTED: it is a required suite and the report contains no run of it ` +
+          '(an exclude/include/absence in the effective config shows up exactly here)',
+      )
+      continue
+    }
+    const assertions = result.assertionResults
+    if (!Array.isArray(assertions)) {
+      failures.push(`${requiredFile} carries no per-test results in the report: its tests cannot be accounted for`)
+      continue
+    }
+    const declaredSkips = fileDeclaresSkips(requiredFile)
+    let executed = 0
+    for (const assertion of assertions) {
+      const status = assertion?.status
+      if (status === 'passed' || status === 'failed') {
+        executed += 1
+        continue
+      }
+      if (declaredSkips) continue
+      failures.push(
+        `${requiredFile} :: "${assertion?.fullName ?? assertion?.title ?? 'an unnamed test'}" has status ` +
+          `"${status ?? 'missing'}": a required test skipped, filtered out, todo'd or otherwise never run must fail ` +
+          'the gate — a suite whose own source declares no skip marker cannot lose tests silently ' +
+          '(round-7 finding P1: testNamePattern left the native tests "ignored" behind an exit 0)',
+      )
+    }
+    if (executed === 0 && !declaredSkips) {
+      failures.push(
+        `${requiredFile} executed ZERO tests: every test in it was skipped or filtered away while its source ` +
+          'declares no skip marker — discovery is not execution',
+      )
+    }
+  }
+  const counts = [
+    report.numTotalTests,
+    report.numPassedTests,
+    report.numFailedTests,
+    report.numPendingTests,
+    report.numTodoTests,
+  ]
+  if (counts.some((n) => !Number.isInteger(n))) {
+    failures.push(
+      'the report does not carry integer total/passed/failed/pending/todo counts: the executed-count proof cannot be evaluated',
+    )
+  } else if (
+    report.numTotalTests !==
+    report.numPassedTests + report.numFailedTests + report.numPendingTests + report.numTodoTests
+  ) {
+    failures.push('the report summary counts do not add up to its own per-test statuses: the report is inconsistent')
+  }
+  return failures
+}
+
 
 const DIR_PRUNE = new Set([
   'node_modules',
@@ -316,6 +516,17 @@ export function runGates(steps, options = {}) {
     }
 
     write(`\n=== ${step.id} — ${step.description} ===\n`)
+    // Freshness of the execution proof: prune the step's report BEFORE the
+    // run, so a file left by an earlier invocation can never be graded as
+    // this run's evidence.
+    if (typeof step.reportPath === 'string') {
+      try {
+        rmSync(step.reportPath, { force: true })
+      } catch {
+        // A prune failure surfaces below: the verify then cannot read the
+        // report and fails closed.
+      }
+    }
     // MONOTONIC, not Date.now(). A wall clock can jump (NTP correction, suspend,
     // a container clock resync) and an elapsed time computed by subtracting two
     // wall-clock readings then reports nonsense — this runner once printed a
@@ -346,7 +557,48 @@ export function runGates(steps, options = {}) {
     }
     const ms = performance.now() - startedAt
 
-    const status = verdictFor(code, step)
+    let status = verdictFor(code, step)
+
+    // The execution proof: a step wired with one must OBSERVE its required
+    // tests executing. A green exit code alone is not evidence (round-7
+    // finding P1), so the proof is deliberately the LAST word on a pass — it
+    // can only DOWNGRADE a pass to a failure, never upgrade anything.
+    if (status === PASSED && typeof step.verifyExecution === 'function') {
+      let report = null
+      try {
+        report = JSON.parse(readFileSync(step.reportPath, 'utf8'))
+      } catch {
+        report = null
+      }
+      let required = null
+      try {
+        required = typeof step.requiredFiles === 'function' ? step.requiredFiles() : null
+      } catch {
+        required = null
+      }
+      let proofFailures
+      try {
+        proofFailures = step.verifyExecution(report, required)
+      } catch (error) {
+        proofFailures = [
+          `the execution proof itself threw: ${error instanceof Error ? error.message : String(error)}`,
+        ]
+      }
+      if (!Array.isArray(proofFailures)) {
+        proofFailures = ['the execution proof returned no verdict list']
+      }
+      if (proofFailures.length > 0) {
+        status = FAILED
+        code = 'execution-not-proven'
+        for (const proofFailure of proofFailures.slice(0, 5)) {
+          writeErr(`run-test-gates: ${step.id} exit 0 is NOT a pass — execution not proven: ${proofFailure}\n`)
+        }
+        if (proofFailures.length > 5) {
+          writeErr(`run-test-gates: ${step.id} execution proof: ...and ${proofFailures.length - 5} more holes\n`)
+        }
+      }
+    }
+
     if (status !== PASSED && step.id === 'build') buildFailed = true
     results.push({ id: step.id, status, code, ms, timeoutMs })
   }

@@ -125,11 +125,14 @@ jobs:
 
       # SPEC 0.98.5 R8.2: the three lockstep tarballs published later are the
       # EXACT bytes verify built here — packed from the pinned SHA, sha256
-      # recorded, uploaded as run artifacts. Packed on one matrix leg only:
-      # both legs consume the SAME resolve-release-sha output, and
-      # upload-artifact forbids duplicate artifact names.
+      # recorded, uploaded as run artifacts. The pack + checksum step is
+      # UNCONDITIONAL (round-7 review finding P2: a step the release depends
+      # on must never be one `if:` away from not running): every matrix leg
+      # packs the same resolved SHA and records the manifest. Only the UPLOAD
+      # stays single-leg — actions/upload-artifact forbids duplicate artifact
+      # names, and a missing upload fails publish's own download step, so
+      # that condition cannot silently read green.
       - name: Pack the three lockstep packages
-        if: matrix.node == '22'
         shell: bash
         run: |
           set -euo pipefail
@@ -144,6 +147,10 @@ jobs:
           echo "${{ needs.resolve-release-sha.outputs.release-sha }}" > dist-tarballs/release-sha.txt
 
       - name: Upload the tarballs as run artifacts
+        # The ONE sanctioned step-level condition (pinned exactly by the
+        # release-workflow test): upload-artifact forbids duplicate artifact
+        # names, and a leg that fails to upload blocks publish's download
+        # fail-closed — the condition cannot silently read green.
         if: matrix.node == '22'
         uses: actions/upload-artifact@v4
         with:

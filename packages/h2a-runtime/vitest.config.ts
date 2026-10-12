@@ -29,5 +29,21 @@ export default defineConfig({
     include: ["src/**/*.test.ts"],
     setupFiles: ["./vitest.native-isolation.mjs"],
     environment: "node",
+    // SPEC 0.98.5 R8 (round-7 review finding P1): the gate command is pinned
+    // EXACTLY, so the execution proof cannot ride on extra CLI arguments —
+    // the report is wired HERE. The gate runner reads it after the run and
+    // refuses a green unless every required suite EXECUTED (round 7:
+    // `testNamePattern: "^C7_NO_TEST_HAS_THIS_NAME$"` in this config left the
+    // runner green at exit 0 while 14 native tests silently never ran).
+    // Filters that remove tests are structurally banned from this file by
+    // the trust root (testNamePattern/exclude/skip/only/todo/grep/
+    // passWithNoTests), so a run that writes no report or a report full of
+    // skipped tests fails the gate instead of grading discovery as
+    // execution. Output path is pinned by name in both this config and
+    // scripts/run-test-gates.mjs; tmp/ is gitignored.
+    reporters: [
+      "default",
+      ["json", { outputFile: fileURLToPath(new URL("../../tmp/h2a-runtime-vitest-report.json", import.meta.url)) }],
+    ],
   },
 });
