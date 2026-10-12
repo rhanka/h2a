@@ -48,8 +48,10 @@ test("should exclude unrelated process sockets before any external metadata acce
 
 test("should retain missing optional variables when installing the in-process fixture view", () => {
   const root = createPrivateTestDirectory("pv");
-  const restoreEnvironment = installNativeTestEnvironment(nativeTestEnvironment(root));
+  const restoreEnvironment = installNativeTestEnvironment({ ...nativeTestEnvironment(root), H2A_TEST_QUALIFICATION_ROOT: undefined });
   try {
+    assert.equal(process.env.H2A_TEST_QUALIFICATION_ROOT, undefined,
+      'an absent optional variable must not become the string "undefined" in child environments');
     delete process.env.H2A_ROOT;
     isolatedNativeTestEnvironment(process.env);
     assert.equal(process.env.H2A_ROOT, undefined);

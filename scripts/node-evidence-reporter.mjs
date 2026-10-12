@@ -1,4 +1,6 @@
 // Node's event stream is execution evidence; stdout text and exit 0 are not.
+import { identityPath } from './test-execution-evidence.mjs'
+
 export default async function* reporter(events) {
   const files = new Map()
   const parents = new Map()
@@ -6,18 +8,19 @@ export default async function* reporter(events) {
   for await (const { type, data } of events) {
     if (type === 'test:summary' && data.success === false) success = false
     if (!data?.file) continue
-    if (!files.has(data.file)) files.set(data.file, { name: data.file, status: 'passed', assertionResults: [] })
+    const identity = identityPath(data.file)
+    if (!files.has(identity)) files.set(identity, { name: identity, status: 'passed', assertionResults: [] })
     if (type === 'test:dequeue') {
-      const stack = parents.get(data.file) ?? []
+      const stack = parents.get(identity) ?? []
       stack[data.nesting] = data.name
       stack.length = data.nesting + 1
-      parents.set(data.file, stack)
+      parents.set(identity, stack)
     }
     if (type !== 'test:pass' && type !== 'test:fail') continue
-    const file = files.get(data.file)
+    const file = files.get(identity)
     if (type === 'test:fail') { file.status = 'failed'; success = false }
     if (data.details?.type === 'suite') continue
-    const fullName = [...(parents.get(data.file) ?? []).slice(0, data.nesting), data.name].join(' ')
+    const fullName = [...(parents.get(identity) ?? []).slice(0, data.nesting), data.name].join(' ')
     file.assertionResults.push({ fullName, status: data.todo ? 'todo' : data.skip ? 'skipped' : type === 'test:pass' ? 'passed' : 'failed' })
   }
   const assertions = [...files.values()].flatMap((file) => file.assertionResults)

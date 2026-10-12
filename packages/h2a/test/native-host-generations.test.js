@@ -70,7 +70,7 @@ function assertPrivatePaths(root, paths) {
 }
 
 function start(command, args, env) {
-  assertIsolatedNativeOperation(env, join(repo, ".qual-tmp"));
+  assertIsolatedNativeOperation(env, nativeQualificationRoot);
   const child = spawn(command, args, { env, cwd: env.HOME, stdio: ["pipe", "pipe", "pipe"] });
   let stdout = "", stderr = "";
   child.stdout.setEncoding("utf8").on("data", chunk => { stdout += chunk; });
@@ -95,7 +95,7 @@ async function eventually(read, predicate) {
 
 async function withLegacy(context, body, historicalEntry = legacyEntry) {
   assert.equal(unavailable, false, String(unavailable)); // Required evidence must never skip.
-  const qualRoot = join(repo, ".qual-tmp");
+  const qualRoot = nativeQualificationRoot;
   // The historical host's staging name includes the full socket basename and
   // PID. Leave room for seven-digit PIDs even in this deeply nested worktree.
   assertPrivateQualificationPath(qualRoot, nativeQualificationRoot);
