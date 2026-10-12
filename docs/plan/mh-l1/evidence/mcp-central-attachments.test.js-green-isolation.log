@@ -1,0 +1,62 @@
+command: /usr/bin/node --test --test-name-pattern=two attached repos|a live shim survives central token rotation|operator stop is authenticated|central stop when daemon is already absent|structured sidecar launches packages/h2a/test/mcp-central-attachments.test.js
+private test root: /tmp/mh-l1-test-Mk198g
+TAP version 13
+# {"event":"drive-consent.full-verification","durationMs":0.003115999999977248,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# h2a mcp-serve: identity migration: claude:repo-a:b0fdd4deba19 reads legacy claude:repo-a; no proof of possession of a legacy key — mint net-new keys
+# h2a mcp-serve: auto-opened session for claude:repo-a:b0fdd4deba19
+# h2a mcp-serve: identity ready: claude:repo-a:b0fdd4deba19 (signing available)
+# h2a mcp-serve: identity migration: claude:repo-b:b17ab6c298f8 reads legacy claude:repo-b; no proof of possession of a legacy key — mint net-new keys
+# h2a mcp-serve: auto-opened session for claude:repo-b:b17ab6c298f8
+# h2a mcp-serve: identity ready: claude:repo-b:b17ab6c298f8 (signing available)
+# Subtest: two attached repos route Track and h2a_run to their own workspace, sharing only state
+ok 1 - two attached repos route Track and h2a_run to their own workspace, sharing only state
+  ---
+  duration_ms: 1106.665588
+  type: 'test'
+  ...
+# {"event":"drive-consent.full-verification","durationMs":0.0022440000000187865,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# h2a mcp-serve: identity migration: claude:repo-a:9ed570e9d0f8 reads legacy claude:repo-a; no proof of possession of a legacy key — mint net-new keys
+# h2a mcp-serve: auto-opened session for claude:repo-a:9ed570e9d0f8
+# h2a mcp-serve: identity ready: claude:repo-a:9ed570e9d0f8 (signing available)
+# {"event":"drive-consent.full-verification","durationMs":0.01699200000007295,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# h2a mcp-serve: auto-opened session for claude:repo-a:9ed570e9d0f8
+# h2a mcp-serve: identity ready: claude:repo-a:9ed570e9d0f8 (signing available)
+# Subtest: a live shim survives central token rotation with the same identity and no added binding
+ok 2 - a live shim survives central token rotation with the same identity and no added binding
+  ---
+  duration_ms: 646.772837
+  type: 'test'
+  ...
+# {"event":"drive-consent.full-verification","durationMs":0.002114000000347005,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# h2a mcp-serve: identity migration: claude:repo-a:e40587bc65d2 reads legacy claude:repo-a; no proof of possession of a legacy key — mint net-new keys
+# h2a mcp-serve: auto-opened session for claude:repo-a:e40587bc65d2
+# h2a mcp-serve: identity ready: claude:repo-a:e40587bc65d2 (signing available)
+# Subtest: operator stop is authenticated, leaves shims open, and residue detection never changes files
+ok 3 - operator stop is authenticated, leaves shims open, and residue detection never changes files
+  ---
+  duration_ms: 344.916922
+  type: 'test'
+  ...
+# Subtest: central stop when daemon is already absent writes the pause inhibition
+ok 4 - central stop when daemon is already absent writes the pause inhibition
+  ---
+  duration_ms: 2.351121
+  type: 'test'
+  ...
+# Subtest: structured sidecar launches with readiness challenge stay on stdio and acknowledge without initial MCP request
+ok 5 - structured sidecar launches with readiness challenge stay on stdio and acknowledge without initial MCP request
+  ---
+  duration_ms: 618.085952
+  type: 'test'
+  ...
+1..5
+# tests 5
+# suites 0
+# pass 5
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 3200.991288
+
+receipt: {"command":["/usr/bin/node","--test","--test-name-pattern=two attached repos|a live shim survives central token rotation|operator stop is authenticated|central stop when daemon is already absent|structured sidecar launches","packages/h2a/test/mcp-central-attachments.test.js"],"code":0,"signal":null,"elapsedMs":3276}
