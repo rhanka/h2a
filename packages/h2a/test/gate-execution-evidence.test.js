@@ -14,12 +14,26 @@ import { declaredTests, declarationFailures } from '../../../scripts/test-invent
 import { runGates, verifyRuntimeExecution } from '../../../scripts/run-test-gates.mjs'
 import { observeNodeTrackEntry } from './helpers/node-track-observation-lab.js'
 import { observeSmoke } from './helpers/smoke-observation-lab.js'
+import nodeEvidenceReporter from '../../../scripts/node-evidence-reporter.mjs'
 
 const repo = resolve(fileURLToPath(new URL('../../..', import.meta.url)))
 const runtimeConfig = fs.readFileSync(join(repo, 'packages/h2a-runtime/vitest.config.ts'), 'utf8')
 const workflow = YAML.parse(fs.readFileSync(join(repo, '.github/workflows/release.yml'), 'utf8'))
 const smoke = fs.readFileSync(join(repo, 'scripts/smoke-artifact.mjs'), 'utf8')
 const nodeTrack = fs.readFileSync(join(repo, 'scripts/run-tests.mjs'), 'utf8')
+test('Node execution evidence merges relative and absolute events for the same suite', async () => {
+  const file = 'packages/h2a/test/gate-execution-evidence.test.js'
+  async function* events() {
+    yield { type: 'test:dequeue', data: { file, name: 'required', nesting: 0 } }
+    yield { type: 'test:pass', data: { file: resolve(file), name: 'required', nesting: 0 } }
+  }
+  const result = await nodeEvidenceReporter(events()).next()
+  const observed = JSON.parse(result.value)
+  assert.equal(observed.testResults.length, 1, 'one suite must have one canonical execution identity')
+  assert.equal(observed.testResults[0].name, resolve(file))
+  assert.equal(observed.numPassedTests, 1)
+  assert.deepEqual(verifyExecutionReport(observed, [resolve(file)]), [])
+})
 const report = (file) => ({ success: true, numTotalTests: 1, numPassedTests: 1, numFailedTests: 0, numPendingTests: 0, numTodoTests: 0,
   testResults: [{ name: file, status: 'passed', assertionResults: [{ fullName: 'required', status: 'passed' }] }] })
 
