@@ -40,7 +40,7 @@
 
 ## Lot 5 — Delivery
 - [x] Review diff/scope, record constrained review status without consensus claim.
-- [ ] Push own branch fast-forward and write French mhl1-report.md, agent-hours and review rounds.
+- [x] Push own branch fast-forward and write French mhl1-report.md, agent-hours and review rounds.
 
 ## Feedback Loop
 - [x] No v0.98.6 tag locally: integrate current owner-mandated L0 base; byte freeze against final .6 remains release gate.
