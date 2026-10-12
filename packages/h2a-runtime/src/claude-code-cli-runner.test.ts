@@ -153,16 +153,33 @@ describe("claude-code-cli-runner (protocol)", () => {
 
     const spawnFn = vi.fn((_cmd: string, args: string[]) => {
       capturedArgs = args;
-      // Emit mock response
+      // Emit a real 2.1.296-shaped response: system init, assistant message,
+      // success result.
       setTimeout(() => {
         mockChild.stdout.write(
-          JSON.stringify({ type: "text_delta", text: "Hi there!" }) + "\n",
+          JSON.stringify({ type: "system", subtype: "init", session_id: "sess-1" }) + "\n",
+        );
+        mockChild.stdout.write(
+          JSON.stringify({
+            type: "assistant",
+            message: {
+              id: "msg-1",
+              type: "message",
+              role: "assistant",
+              model: "claude-3-5-sonnet-20241022",
+              content: [{ type: "text", text: "Hi there!" }],
+              stop_reason: null,
+              usage: { input_tokens: 10, output_tokens: 5 },
+            },
+          }) + "\n",
         );
         mockChild.stdout.write(
           JSON.stringify({
             type: "result",
-            finishReason: "stop",
-            usage: { inputTokens: 10, outputTokens: 5 },
+            subtype: "success",
+            is_error: false,
+            usage: { input_tokens: 10, output_tokens: 5 },
+            session_id: "sess-1",
           }) + "\n",
         );
         mockChild.emit("close", 0);
@@ -191,12 +208,23 @@ describe("claude-code-cli-runner (protocol)", () => {
     expect(capturedArgs).toContain("--output-format");
     expect(capturedArgs).toContain("stream-json");
     expect(capturedArgs).toContain("--verbose");
-    expect(capturedArgs).toContain("--include-partial-messages");
+    // Partials stay off so assistant text is never emitted twice.
+    expect(capturedArgs).not.toContain("--include-partial-messages");
     expect(capturedArgs).toContain("--model");
     expect(capturedArgs).toContain("claude-3-5-sonnet-20241022");
 
-    // Stdin must contain request NDJSON
+    // Stdin carries one stream-json line per message, never argv/env-shaped.
     expect(stdinData).toContain("Hello Claude");
+    const stdinLines = stdinData.trim().split("\n");
+    expect(stdinLines).toHaveLength(1);
+    expect(JSON.parse(stdinLines[0]!)).toEqual({
+      type: "user",
+      message: {
+        role: "user",
+        content: [{ type: "text", text: "Hello Claude" }],
+      },
+    });
+    expect(stdinData).not.toContain('"messages"');
     // Argv must NOT contain prompt or secret tokens
     expect(capturedArgs.join(" ")).not.toContain("Hello Claude");
     expect(capturedArgs.join(" ")).not.toContain("test-token");
@@ -212,20 +240,99 @@ describe("claude-code-cli-runner (protocol)", () => {
     ]);
   });
 
-  it("deduplicates partial vs complete messages", async () => {
+  it("assembles streamed tool_use input from stream_event envelopes", async () => {
     const mockChild = createMockChild();
     const spawnFn = vi.fn(() => {
       setTimeout(() => {
-        // First delta
+        const write = (frame: unknown) => {
+          mockChild.stdout.write(JSON.stringify(frame) + "\n");
+        };
+        write({ type: "system", subtype: "init", session_id: "sess-2" });
+        write({
+          type: "stream_event",
+          event: { type: "message_start", message: { id: "msg-2" } },
+        });
+        write({
+          type: "stream_event",
+          event: {
+            type: "content_block_start",
+            index: 0,
+            content_block: { type: "tool_use", id: "call_1", name: "get_weather" },
+          },
+        });
+        write({
+          type: "stream_event",
+          event: {
+            type: "content_block_delta",
+            index: 0,
+            delta: { type: "input_json_delta", partial_json: '{"location":' },
+          },
+        });
+        write({
+          type: "stream_event",
+          event: {
+            type: "content_block_delta",
+            index: 0,
+            delta: { type: "input_json_delta", partial_json: '"Boston"}' },
+          },
+        });
+        write({ type: "stream_event", event: { type: "content_block_stop", index: 0 } });
+        write({
+          type: "assistant",
+          message: {
+            id: "msg-2",
+            type: "message",
+            role: "assistant",
+            content: [
+              { type: "tool_use", id: "call_1", name: "get_weather", input: { location: "Boston" } },
+            ],
+          },
+        });
+        write({ type: "result", subtype: "success", is_error: false });
+        mockChild.emit("close", 0);
+      }, 10);
+      return mockChild;
+    });
+
+    const runner = new OfficialClaudeCodeCliRunner({
+      ...qualifiedOptions,
+      spawnFn: spawnFn as any,
+    });
+
+    const events = [];
+    for await (const event of runner.run({
+      access: fakeAccess,
+      request: fakeRequest,
+      signal: new AbortController().signal,
+    })) {
+      events.push(event);
+    }
+
+    // Both the streamed assembly and the final message describe the same
+    // call: each arrival is forwarded once, in arrival order.
+    expect(events).toEqual([
+      {
+        type: "tool_use",
+        id: "call_1",
+        name: "get_weather",
+        input: { location: "Boston" },
+      },
+      {
+        type: "tool_use",
+        id: "call_1",
+        name: "get_weather",
+        input: { location: "Boston" },
+      },
+      { type: "result", finishReason: "tool_calls" },
+    ]);
+  });
+
+  it("refuses invented top-level delta shapes from the pre-2.1.296 draft", async () => {
+    const mockChild = createMockChild();
+    const spawnFn = vi.fn(() => {
+      setTimeout(() => {
         mockChild.stdout.write(
-          JSON.stringify({ type: "text_delta", text: "Hello" }) + "\n",
-        );
-        // Repeated complete text "Hello world"
-        mockChild.stdout.write(
-          JSON.stringify({ type: "assistant", text: "Hello world" }) + "\n",
-        );
-        mockChild.stdout.write(
-          JSON.stringify({ type: "result", finishReason: "stop" }) + "\n",
+          JSON.stringify({ type: "text_delta", text: "invented" }) + "\n",
         );
         mockChild.emit("close", 0);
       }, 10);
@@ -246,10 +353,61 @@ describe("claude-code-cli-runner (protocol)", () => {
       events.push(event);
     }
 
-    expect(events).toEqual([
-      { type: "text_delta", text: "Hello" },
-      { type: "text_delta", text: " world" },
-      { type: "result", finishReason: "stop" },
+    expect(events).toEqual([{ type: "error" }]);
+  });
+
+  it("refuses error results, double terminals, post-terminal, and unknown frames", async () => {
+    const runFrames = async (frames: unknown[]) => {
+      const mockChild = createMockChild();
+      const spawnFn = vi.fn(() => {
+        setTimeout(() => {
+          for (const frame of frames) {
+            mockChild.stdout.write(JSON.stringify(frame) + "\n");
+          }
+          mockChild.emit("close", 0);
+        }, 10);
+        return mockChild;
+      });
+      const runner = new OfficialClaudeCodeCliRunner({
+        ...qualifiedOptions,
+        spawnFn: spawnFn as any,
+      });
+      const events = [];
+      for await (const event of runner.run({
+        access: fakeAccess,
+        request: fakeRequest,
+        signal: new AbortController().signal,
+      })) {
+        events.push(event);
+      }
+      return events;
+    };
+
+    // is_error result
+    expect(
+      await runFrames([{ type: "result", subtype: "success", is_error: true }]),
+    ).toEqual([{ type: "error" }]);
+    // Non-success subtype
+    expect(
+      await runFrames([{ type: "result", subtype: "error_during_execution", is_error: true }]),
+    ).toEqual([{ type: "error" }]);
+    // Double terminal
+    expect(
+      await runFrames([
+        { type: "result", subtype: "success", is_error: false },
+        { type: "result", subtype: "success", is_error: false },
+      ]),
+    ).toEqual([{ type: "error" }]);
+    // Post-terminal content
+    expect(
+      await runFrames([
+        { type: "result", subtype: "success", is_error: false },
+        { type: "assistant", message: { content: [{ type: "text", text: "late" }] } },
+      ]),
+    ).toEqual([{ type: "error" }]);
+    // Unknown top-level type
+    expect(await runFrames([{ type: "frobnicator", text: "x" }])).toEqual([
+      { type: "error" },
     ]);
   });
 
@@ -258,7 +416,10 @@ describe("claude-code-cli-runner (protocol)", () => {
     const spawnFn = vi.fn(() => {
       setTimeout(() => {
         mockChild.stdout.write(
-          JSON.stringify({ type: "text_delta", text: "Cut off" }) + "\n",
+          JSON.stringify({
+            type: "assistant",
+            message: { content: [{ type: "text", text: "Cut off" }] },
+          }) + "\n",
         );
         mockChild.emit("close", 0); // Exited 0 without emitting "result" frame
       }, 10);
@@ -298,10 +459,13 @@ describe("claude-code-cli-runner (protocol)", () => {
         chmodSync(rootDir, 0o500);
         setTimeout(() => {
           mockChild.stdout.write(
-            JSON.stringify({ type: "text_delta", text: "Hi there!" }) + "\n",
+            JSON.stringify({
+              type: "assistant",
+              message: { content: [{ type: "text", text: "Hi there!" }] },
+            }) + "\n",
           );
           mockChild.stdout.write(
-            JSON.stringify({ type: "result", finishReason: "stop" }) + "\n",
+            JSON.stringify({ type: "result", subtype: "success", is_error: false }) + "\n",
           );
           mockChild.emit("close", 0);
         }, 10);
@@ -412,7 +576,10 @@ describe("claude-code-cli-runner (protocol)", () => {
     const spawnFn = vi.fn(() => {
       setTimeout(() => {
         mockChild.stdout.write(
-          JSON.stringify({ type: "text_delta", text: "Partial" }) + "\n",
+          JSON.stringify({
+            type: "assistant",
+            message: { content: [{ type: "text", text: "Partial" }] },
+          }) + "\n",
         );
       }, 10);
       return mockChild;
@@ -441,10 +608,13 @@ describe("claude-code-cli-runner (protocol)", () => {
       setTimeout(() => {
         mockChild.stderr.write(Buffer.alloc(65536, 0x41));
         mockChild.stdout.write(
-          JSON.stringify({ type: "text_delta", text: "Hi there!" }) + "\n",
+          JSON.stringify({
+            type: "assistant",
+            message: { content: [{ type: "text", text: "Hi there!" }] },
+          }) + "\n",
         );
         mockChild.stdout.write(
-          JSON.stringify({ type: "result", finishReason: "stop" }) + "\n",
+          JSON.stringify({ type: "result", subtype: "success", is_error: false }) + "\n",
         );
         mockChild.emit("close", 0);
       }, 10);
