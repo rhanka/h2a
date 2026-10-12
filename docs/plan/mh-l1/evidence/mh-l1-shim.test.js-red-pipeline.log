@@ -1,0 +1,44 @@
+command: /usr/bin/node --test packages/h2a/test/mh-l1-shim.test.js
+private test root: /tmp/mh-l1-test-NPhinb
+TAP version 13
+# Subtest: C01 should replay unknown initialize and its pipelined tail into the real stdio server without central or project writes
+ok 1 - C01 should replay unknown initialize and its pipelined tail into the real stdio server without central or project writes
+  ---
+  duration_ms: 765.377091
+  type: 'test'
+  ...
+# {"event":"drive-consent.full-verification","durationMs":0.003316000000040731,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# Subtest: C01 should route an exact fixture client through the real shim and central with one attachment for a pipelined handshake
+not ok 2 - C01 should route an exact fixture client through the real shim and central with one attachment for a pipelined handshake
+  ---
+  duration_ms: 230.280699
+  type: 'test'
+  location: '/home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/test/mh-l1-shim.test.js:45:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    
+    2 !== 1
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 1
+  actual: 2
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/test/mh-l1-shim.test.js:56:12)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+1..2
+# tests 2
+# suites 0
+# pass 1
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 1287.544428
+
+receipt: {"command":["/usr/bin/node","--test","packages/h2a/test/mh-l1-shim.test.js"],"code":1,"signal":null,"elapsedMs":1364}

@@ -1,0 +1,20 @@
+command: /usr/bin/node --test packages/h2a/test/mh-l1-preservation.test.js
+private test root: /home/antoinefa/.cache-tmp/mh-l1-test-cdOMzF
+TAP version 13
+# Subtest: C03 should preserve every foreign byte and create an exact backup on explicit host setup
+ok 1 - C03 should preserve every foreign byte and create an exact backup on explicit host setup
+  ---
+  duration_ms: 9.87079
+  type: 'test'
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 1
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 316.767728
+
+receipt: {"command":["/usr/bin/node","--test","packages/h2a/test/mh-l1-preservation.test.js"],"code":0,"signal":null,"elapsedMs":394}
