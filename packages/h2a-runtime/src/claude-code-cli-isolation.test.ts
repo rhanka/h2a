@@ -6,6 +6,7 @@ import {
   ALLOWED_ENV_VARS,
   BLOCKED_AUTH_HOSTS,
   DEFAULT_INFERENCE_HOST,
+  assertManagedConfigIsolation,
   buildIsolatedEnvironment,
   checkEgressAllowed,
   cleanClaudeRunSandbox,
@@ -78,7 +79,7 @@ describe("claude-code-cli-isolation", () => {
 
     try {
       const contaminatedEnv: NodeJS.ProcessEnv = {
-        PATH: "/usr/bin:/bin",
+        PATH: "/malicious/bin:/usr/bin",
         LANG: "en_US.UTF-8",
         ANTHROPIC_API_KEY: "canary-anthropic-key",
         ANTHROPIC_AUTH_TOKEN: "canary-anthropic-token",
@@ -98,8 +99,9 @@ describe("claude-code-cli-isolation", () => {
 
       const cleanEnv = buildIsolatedEnvironment(sandbox, contaminatedEnv);
 
-      // Verify allowed keys exist and point to sandbox
-      expect(cleanEnv.PATH).toBe("/usr/bin:/bin");
+      // PATH is fixed, never inherited from the parent.
+      expect(cleanEnv.PATH).toBe("/usr/local/bin:/usr/bin:/bin");
+      expect(cleanEnv.PATH).not.toContain("malicious");
       expect(cleanEnv.LANG).toBe("en_US.UTF-8");
       expect(cleanEnv.HOME).toBe(sandbox.homeDir);
       expect(cleanEnv.TMPDIR).toBe(sandbox.tmpDir);
@@ -160,6 +162,30 @@ describe("claude-code-cli-isolation", () => {
         }),
       );
       expect(verifyCredentialNotRewritten(sandbox, fakeAccess)).toBe(false);
+    } finally {
+      cleanClaudeRunSandbox(sandbox);
+    }
+  });
+
+  it("refuses managed configuration and scopes PATH to the binary directory", () => {
+    const managedFile = join(TEST_SCRATCH, "managed-settings.json");
+    writeFileSync(managedFile, "{}");
+    expect(() => assertManagedConfigIsolation([managedFile])).toThrow(
+      "managed configuration prevents isolation",
+    );
+    expect(() =>
+      assertManagedConfigIsolation([join(TEST_SCRATCH, "absent-settings.json")]),
+    ).not.toThrow();
+
+    const sandbox = createClaudeRunSandbox({ access: fakeAccess, rootDir: TEST_SCRATCH });
+    try {
+      const withBinary = buildIsolatedEnvironment(
+        sandbox,
+        { PATH: "/malicious/bin" },
+        { binaryPath: "/opt/claude/bin/claude" },
+      );
+      expect(withBinary.PATH).toBe("/opt/claude/bin:/usr/local/bin:/usr/bin:/bin");
+      expect(withBinary.PATH).not.toContain("malicious");
     } finally {
       cleanClaudeRunSandbox(sandbox);
     }

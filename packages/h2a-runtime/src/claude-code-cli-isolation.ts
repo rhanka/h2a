@@ -16,7 +16,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { randomUUID } from "node:crypto";
-import { join } from "node:path";
+import { dirname, isAbsolute, join } from "node:path";
 import { readBootId, readPidNamespaceId, readProcessStartTime } from "./proc-identity.js";
 import type { ClaudeCodeAccessProjection } from "@sentropic/llm-mesh";
 
@@ -216,14 +216,45 @@ export function createClaudeRunSandbox(options: {
 }
 
 /**
+ * Managed (admin-policy) settings locations the CLI still honors on top of
+ * --settings/--setting-sources. Their presence makes configuration isolation
+ * escapable, so spawn is refused while any of them exists.
+ */
+function defaultManagedSettingsPaths(): string[] {
+  if (process.platform === "darwin") {
+    return ["/Library/Application Support/ClaudeCode/managed-settings.json"];
+  }
+  if (process.platform === "win32") {
+    const base = process.env.PROGRAMDATA ?? "C:\\ProgramData";
+    return [join(base, "ClaudeCode", "managed-settings.json")];
+  }
+  return ["/etc/claude-code/managed-settings.json"];
+}
+
+export function assertManagedConfigIsolation(
+  paths: readonly string[] = defaultManagedSettingsPaths(),
+): void {
+  if (paths.some((candidate) => existsSync(candidate))) {
+    throw new Error("Claude seat spawn refused: managed configuration prevents isolation");
+  }
+}
+
+/**
  * Construct an environment allowlist; strips all ambient auth, proxies, traces, and overrides.
+ * PATH is never inherited: a fixed minimal value (plus the binary directory
+ * when known) replaces whatever the parent carried.
  */
 export function buildIsolatedEnvironment(
   sandbox: ClaudeRunSandbox,
   baseEnv: NodeJS.ProcessEnv = process.env,
+  options: { readonly binaryPath?: string } = {},
 ): Record<string, string> {
+  const fixedPath =
+    options.binaryPath && isAbsolute(options.binaryPath)
+      ? `${dirname(options.binaryPath)}:/usr/local/bin:/usr/bin:/bin`
+      : "/usr/local/bin:/usr/bin:/bin";
   const safeEnv: Record<string, string> = {
-    PATH: baseEnv.PATH ?? "/usr/local/bin:/usr/bin:/bin",
+    PATH: fixedPath,
     LANG: baseEnv.LANG ?? "C.UTF-8",
     LC_ALL: baseEnv.LC_ALL ?? "C.UTF-8",
     HOME: sandbox.homeDir,

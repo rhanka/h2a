@@ -67,6 +67,7 @@ function qualifiedRunnerFor(scriptPath: string) {
     spawnFn: spawn as never,
     sandboxRootDir: TEST_SCRATCH,
     egressEnforcement: EGRESS,
+    managedSettingsPaths: [],
     timeoutMs: 10_000,
   });
 }
@@ -190,6 +191,7 @@ describe("claude-code-cli-refresh-probe (no child refresh, real children)", () =
       spawnFn: countingSpawn,
       sandboxRootDir: TEST_SCRATCH,
       egressEnforcement: EGRESS,
+      managedSettingsPaths: [],
       timeoutMs: 10_000,
     });
     const now = Date.now();
@@ -239,6 +241,7 @@ describe("claude-code-cli-refresh-probe (no child refresh, real children)", () =
       spawnFn: countingSpawn,
       sandboxRootDir: TEST_SCRATCH,
       egressEnforcement: EGRESS,
+      managedSettingsPaths: [],
       timeoutMs: 10_000,
     });
     const access = {
