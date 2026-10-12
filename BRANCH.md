@@ -1194,7 +1194,7 @@ the root concurrency defect is fixed without introducing a persistent global loc
 # MH-L0 — 0.98.7 contract foundations
 
 ## Objective
-- [ ] Deliver only spec v7 §12 MH-L0, including the measured npm BX correction.
+- [x] Deliver only spec v7 §12 MH-L0, including the measured npm BX correction.
 
 ## Scope / Guardrails
 - [x] Branch feat/0.98.7-mh-l0, base e3fc1a52 (0.98.5); no integration of #316 or .6 here.
@@ -1226,13 +1226,13 @@ the root concurrency defect is fixed without introducing a persistent global loc
 - [x] Gate: node --test packages/h2a/test/mh-l0-authority.test.js and mh-l0-image.test.js and mh-l0-native.test.js, red then green.
 
 ## Lot 5 — Heritage, npm and pair
-- [ ] Audit source refs, native relaunch closure, legacy probe, dependencies and pending .6 dist gate.
+- [x] Audit source refs, native relaunch closure, legacy probe, dependencies and pending .6 dist gate.
 - [x] Reproduce BX with private prefix/cache, local tarballs/registry; revise U09 and prepare QF dossier.
 - [x] Test-only network peer, evidence and CAS/ACK fault primitives.
 - [x] Gate: node --test packages/h2a/test/mh-l0-npm.test.js and mh-l0-peer.test.js, red then green.
 
 ## Lot 6 — Delivery
-- [ ] Reconcile scope/evidence/review limitations; recalibrate MH-L1–MH-L8.
+- [x] Reconcile scope/evidence/review limitations; recalibrate MH-L1–MH-L8.
 - [ ] Push own branch fast-forward; write owner mhl0-report.md in French.
 
 ## Feedback Loop
