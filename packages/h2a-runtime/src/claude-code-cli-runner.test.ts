@@ -10,7 +10,7 @@ import type {
   ClaudeCodeAccessProjection,
   ClaudeCodeCliCapabilities,
   ClaudeCodeCliRequest,
-} from "@sentropic/llm-mesh";
+} from "./claude-seat-mesh-contract.js";
 import {
   buildClaudeQualificationRef,
   OfficialClaudeCodeCliRunner,

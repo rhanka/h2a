@@ -18,7 +18,7 @@ import {
 import { randomUUID } from "node:crypto";
 import { dirname, isAbsolute, join } from "node:path";
 import { readBootId, readPidNamespaceId, readProcessStartTime } from "./proc-identity.js";
-import type { ClaudeCodeAccessProjection } from "@sentropic/llm-mesh";
+import type { ClaudeCodeAccessProjection } from "./claude-seat-mesh-contract.js";
 
 export interface ClaudeRunSandbox {
   readonly runId: string;
