@@ -8,17 +8,16 @@
  * acquire before returning a prepared attempt. No public pre-acquire seam exists.
  * Per brief Section 3A & 7, seat gateway serving is halted until an additive seam is delivered.
  */
-import {
-  ClaudeCodeRuntimeClient,
-  type ClaudeCodeCliCapabilities,
-  type ClaudeCodeCliRunner,
-} from "@sentropic/llm-mesh";
-import type { LlmMeshFacade } from "@sentropic/llm-mesh/facade";
+import type {
+  ClaudeCodeCliCapabilities,
+  ClaudeCodeCliRunner,
+  ClaudeSeatFacadeLike,
+} from "../claude-seat-mesh-contract.js";
 import type { ClaudeAccountLease } from "../claude-code-cli-lifecycle.js";
 
 export interface MeshSeamDependencyHandoff {
   readonly status: "blocked_pending_mesh_seam";
-  readonly targetPackage: "@sentropic/llm-mesh";
+  readonly targetPackage: string;
   readonly pinnedBaseline: "0.25.0";
   readonly requiredSeam: string;
   readonly specification: string;
@@ -28,16 +27,12 @@ export interface MeshSeamDependencyHandoff {
 /**
  * Section 3A gate: check whether a supported pre-acquire hook is exposed by the facade/mesh.
  */
-export function isClaudeSeatGatewaySeamAvailable(facade?: LlmMeshFacade): boolean {
+export function isClaudeSeatGatewaySeamAvailable(facade?: ClaudeSeatFacadeLike): boolean {
   if (!facade) return false;
   // Check for supported pre-acquire attempt hook on facade or custom directory option
-  const candidate = facade as unknown as {
-    createPreAcquireRoutePlanner?: unknown;
-    setPreAcquireAttemptHook?: unknown;
-  };
   return (
-    typeof candidate.createPreAcquireRoutePlanner === "function" ||
-    typeof candidate.setPreAcquireAttemptHook === "function"
+    typeof facade.createPreAcquireRoutePlanner === "function" ||
+    typeof facade.setPreAcquireAttemptHook === "function"
   );
 }
 
@@ -47,7 +42,7 @@ export function isClaudeSeatGatewaySeamAvailable(facade?: LlmMeshFacade): boolea
 export function getClaudeSeatSeamDependencyHandoff(): MeshSeamDependencyHandoff {
   return {
     status: "blocked_pending_mesh_seam",
-    targetPackage: "@sentropic/llm-mesh",
+    targetPackage: "mesh seat package (pinned 0.25.0 in package.json)",
     pinnedBaseline: "0.25.0",
     requiredSeam: "Pre-acquire account attempt lease hook in AccountDirectoryPort / LlmMeshFacade",
     specification:
@@ -101,15 +96,12 @@ export function createBoundAttemptRunner(
 }
 
 /**
- * Construct ClaudeCodeRuntimeClient with attempt-bound runner and capabilities.
+ * Bind the attempt runner without constructing the mesh runtime client:
+ * client construction belongs to the mesh side once the pre-acquire seam
+ * lands (gate 3A). Until then the bound runner is the servable unit.
  */
 export function bindClaudeCodeAttemptRunner(
   options: AttemptRunnerBindingOptions,
-): ClaudeCodeRuntimeClient {
-  const boundRunner = createBoundAttemptRunner(options);
-  return new ClaudeCodeRuntimeClient({
-    runner: boundRunner,
-    capabilities: options.capabilities,
-    ...(options.now ? { now: options.now } : {}),
-  });
+): ClaudeCodeCliRunner {
+  return createBoundAttemptRunner(options);
 }
