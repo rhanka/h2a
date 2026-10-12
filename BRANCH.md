@@ -898,7 +898,7 @@ The parallel `feat/live-cross-cli-messaging` lot owns delivery, host wake and cr
 ## Lot 4 — Packaging prototype
 - [ ] Produce repeatable core/runtime payload with exact dependency resolution and published shrinkwrap.
 - [ ] Retain real node-pty legacy probe, no Python/node-gyp install path; record closure limits explicitly.
-- [x] Close L0 R1 with a native digest mismatch vector that kills the missing-guard mutation.
+- [x] Close L0 R1 with a native digest mismatch vector that kills the missing-guard mutation; Node 20 refused, Node 24 ABI recognized.
 - [ ] Gate: node --test packages/h2a/test/mh-l1-package.test.js and mh-l0-image.test.js.
 
 - Repository source builds only, into mkdtemp lanes; temporary HOME, TMPDIR and XDG roots, with the existing forbidden-state/owned-PID guard.
