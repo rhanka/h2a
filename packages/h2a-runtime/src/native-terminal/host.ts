@@ -1,6 +1,6 @@
 import { readFileSync, readdirSync } from "node:fs";
 import { randomUUID } from "node:crypto";
-import { resolve } from "node:path";
+import { join, resolve } from "node:path";
 
 import { writeHostLogLine } from "./crash-safe-log.js";
 import { HOST_FAULT_COUNTERS, recordHostFault } from "./fault-counters.js";
@@ -186,11 +186,11 @@ export const H2A_SESSION_TOKEN_ENV_VAR = "H2A_SESSION_TOKEN";
  * process that exits mid-scan is silently skipped, never treated as a parse
  * failure.
  */
-function listProcessGroupMemberPids(pgid: number): number[] {
+function listProcessGroupMemberPids(pgid: number, procRoot = "/proc"): number[] {
   if (process.platform !== "linux") return [];
   let names: string[];
   try {
-    names = readdirSync("/proc");
+    names = readdirSync(procRoot);
   } catch {
     return [];
   }
@@ -198,7 +198,7 @@ function listProcessGroupMemberPids(pgid: number): number[] {
   for (const name of names) {
     if (!/^\d+$/.test(name)) continue;
     try {
-      const raw = readFileSync(`/proc/${name}/stat`, "utf8");
+      const raw = readFileSync(join(procRoot, name, "stat"), "utf8");
       const commandEnd = raw.lastIndexOf(")");
       const fields = raw.slice(commandEnd + 2).split(" ");
       if (Number(fields[2]) === pgid) members.push(Number(name));
@@ -216,10 +216,10 @@ function listProcessGroupMemberPids(pgid: number): number[] {
  * escaping to worry about). Returns undefined on ANY read/parse failure or
  * a non-Linux platform — same "never guess" contract as `readProcessStartTime`.
  */
-function readProcessSessionToken(pid: number): string | undefined {
+function readProcessSessionToken(pid: number, procRoot = "/proc"): string | undefined {
   if (process.platform !== "linux") return undefined;
   try {
-    const raw = readFileSync(`/proc/${pid}/environ`, "utf8");
+    const raw = readFileSync(join(procRoot, String(pid), "environ"), "utf8");
     const prefix = `${H2A_SESSION_TOKEN_ENV_VAR}=`;
     for (const entry of raw.split("\0")) {
       if (entry.startsWith(prefix)) return entry.slice(prefix.length);
@@ -250,10 +250,19 @@ function readProcessSessionToken(pid: number): string | undefined {
  *  - This enumeration runs ONLY on the leader-absent path (never on every
  *    reap), keeping it rare in practice — the fast leader-start-time check
  *    above it covers the common case.
+ *
+ * `procRoot` is injected ONLY by tests: a /proc-shaped view that contains
+ * exactly the processes a test started (the enumeration is the confinement
+ * boundary — the stat/environ reads stay real). Production always reads the
+ * real `/proc`.
  */
-export function groupCarriesSessionToken(pgid: number, expectedToken: string): boolean {
-  for (const pid of listProcessGroupMemberPids(pgid)) {
-    if (readProcessSessionToken(pid) === expectedToken) return true;
+export function groupCarriesSessionToken(
+  pgid: number,
+  expectedToken: string,
+  procRoot = "/proc",
+): boolean {
+  for (const pid of listProcessGroupMemberPids(pgid, procRoot)) {
+    if (readProcessSessionToken(pid, procRoot) === expectedToken) return true;
   }
   return false;
 }

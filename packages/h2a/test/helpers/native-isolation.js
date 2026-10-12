@@ -5,7 +5,16 @@ import { isMainThread } from "node:worker_threads";
 import fs, { closeSync, constants, lstatSync, mkdirSync, mkdtempSync, openSync, readlinkSync, rmSync, symlinkSync, unlinkSync } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 
-export const nativeQualificationRoot = resolve(import.meta.dirname, "../../../../.qual-tmp");
+// Test-only short root for deep worktrees whose AF_UNIX paths would overflow.
+// The runner creates it with mkdtemp; every child carries the same boundary.
+const shortQualificationRoot = process.env.H2A_TEST_QUALIFICATION_ROOT;
+if (shortQualificationRoot !== undefined) {
+  assert.ok(/^\/tmp\/h2a-qual-[A-Za-z0-9]+$/.test(shortQualificationRoot), "REFUSING invalid short qualification root");
+  const info = lstatSync(shortQualificationRoot);
+  assert.ok(info.isDirectory() && !info.isSymbolicLink() && info.uid === process.getuid() && (info.mode & 0o777) === 0o700,
+    "REFUSING non-private short qualification root");
+}
+export const nativeQualificationRoot = shortQualificationRoot ?? resolve(import.meta.dirname, "../../../../.qual-tmp");
 
 function rejectOwnerPath(path) {
   assert.ok(path !== "/home/antoinefa" && ![
@@ -94,7 +103,7 @@ export function assertIsolatedNativeOperation(env, root = nativeQualificationRoo
 // A complete child fixture never inherits owner configuration or socket overrides.
 export function nativeTestEnvironment(root, overrides = {}) {
   assertPrivateQualificationPath(root, nativeQualificationRoot);
-  const env = { PATH: "/usr/bin:/bin", TERM: "xterm-256color", HOME: join(root, "home"),
+  const env = { H2A_TEST_QUALIFICATION_ROOT: nativeQualificationRoot.startsWith("/tmp/") ? nativeQualificationRoot : undefined, PATH: "/usr/bin:/bin", TERM: "xterm-256color", HOME: join(root, "home"),
     XDG_RUNTIME_DIR: root, XDG_STATE_HOME: join(root, "state"), XDG_CONFIG_HOME: join(root, "config"),
     H2A_NATIVE_SOCKET: join(root, "host.sock"), REMOTE_CLI_CONFIG_HOME: join(root, "config"),
     TMPDIR: join(root, "tmp"), TMUX_TMPDIR: root, H2A_ROOT: join(root, "store"), ...overrides };
@@ -175,6 +184,7 @@ function privateProcessEnvironment(env) {
   if (!["HOME", "XDG_RUNTIME_DIR", "XDG_STATE_HOME", "XDG_CONFIG_HOME"].every(key =>
     env[key]?.startsWith(`${nativeQualificationRoot}/`)) || env.H2A_NATIVE_SOCKET === undefined) return env;
   assertIsolatedNativeOperation(env);
+  if (shortQualificationRoot) env = { ...env, H2A_TEST_QUALIFICATION_ROOT: shortQualificationRoot };
   if (env.H2A_TEST_PROC_ROOT) return env; // Preserve deliberately injected error fixtures.
   // One view per fixture in this running test process. A later campaign must
   // never inherit dangling descriptor links left by a killed earlier child.
@@ -183,7 +193,7 @@ function privateProcessEnvironment(env) {
     root = createPrivateTestDirectory("proc-owned-", env.XDG_RUNTIME_DIR);
     privateProcessRoots.set(env.XDG_RUNTIME_DIR, root);
   }
-  return { ...env, H2A_TEST_PROC_ROOT: root, H2A_TEST_OWNED_PROC_ROOT: root };
+  return { ...env, ...(shortQualificationRoot ? { H2A_TEST_QUALIFICATION_ROOT: shortQualificationRoot } : {}), H2A_TEST_PROC_ROOT: root, H2A_TEST_OWNED_PROC_ROOT: root };
 }
 
 function installProcessViewVariables(env) {

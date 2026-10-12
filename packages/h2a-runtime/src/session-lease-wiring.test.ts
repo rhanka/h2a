@@ -12,6 +12,15 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { acquireSessionLease, main, superviseSessionLeases } from "./index.js";
 import { advanceJob, enroll, listJobs, resolveRegistryPath } from "./registry.js";
 import { resolveSessionLeasePath, SessionLeaseStore } from "./session-lease.js";
+import { setTestProcReaderRoot } from "./tmux.js";
+
+// Confinement: the real supervising pass runs one fleet-wide /proc walk. The
+// production reader ignores H2A_TEST_PROC* env (R4 — identity spoofing), so
+// this suite confines the walk through the test-only seam instead: under the
+// test isolation boundary it reads only the private process view, and on a
+// plain local run (no isolation boundary installed) it keeps reading the real
+// /proc exactly like production.
+setTestProcReaderRoot(process.env.H2A_TEST_PROC_ROOT);
 
 const SCRATCH_ROOT = join(
   dirname(fileURLToPath(import.meta.url)),
