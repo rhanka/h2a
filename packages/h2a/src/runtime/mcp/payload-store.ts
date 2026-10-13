@@ -1,3 +1,4 @@
+import { withWriterMutation } from "../handover/mutation.js";
 /**
  * Durable recovery store for oversize MCP outputs (lot L1).
  *
@@ -314,5 +315,7 @@ export function createPayloadStore(root: string, scope: string = root): PayloadS
     };
   }
 
-  return { scope, persistOutput, readPayload, sweepExpired };
+  return { scope, readPayload,
+    persistOutput: bytes => withWriterMutation(root, 'payloads', () => persistOutput(bytes)),
+    sweepExpired: now => withWriterMutation(root, 'payloads', () => sweepExpired(now)) };
 }

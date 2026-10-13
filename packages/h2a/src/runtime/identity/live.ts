@@ -1,3 +1,4 @@
+import { withWriterMutation } from "../handover/mutation.js";
 import { createHash, generateKeyPairSync } from "node:crypto";
 import {
   copyFileSync,
@@ -210,7 +211,7 @@ function readKeypair(root: string, instance: string):
   };
 }
 
-function ensureKeypair(
+function ensureKeypairUnfenced(
   root: string,
   instance: string,
   adoptFromInstance?: string
@@ -248,7 +249,7 @@ function ensureKeypair(
  * the registry growth L3 compaction addresses) and are left for L3. Best-effort:
  * a failure never affects the resolved identity.
  */
-function cleanupOrphanKeypair(root: string, instance: string): void {
+function cleanupOrphanKeypairUnfenced(root: string, instance: string): void {
   const paths = identityKeyPaths(root, instance);
   for (const p of [paths.privateKeyPath, paths.publicKeyPath]) {
     try {
@@ -794,4 +795,12 @@ export async function resolveLiveIdentityAsync(
         ? `identity migration: ${result.instance} reads legacy ${P.legacyInstance}; ${P.legacyDecision.reason}`
         : undefined
   };
+}
+
+function ensureKeypair(...args: Parameters<typeof ensureKeypairUnfenced>): ReturnType<typeof ensureKeypairUnfenced> {
+  return withWriterMutation(args[0], 'registry', () => ensureKeypairUnfenced(...args));
+}
+
+function cleanupOrphanKeypair(...args: Parameters<typeof cleanupOrphanKeypairUnfenced>): ReturnType<typeof cleanupOrphanKeypairUnfenced> {
+  return withWriterMutation(args[0], 'registry', () => cleanupOrphanKeypairUnfenced(...args));
 }
