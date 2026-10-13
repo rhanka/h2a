@@ -705,7 +705,11 @@ export async function sweepOrphanSandboxes(
         if (childAlive) {
           const proof = isRecordedChildProvenTarget(rawMeta.childPid, rawMeta, meta, runDir);
           if (proof.proven) {
-            // Re-verify start-time immediately prior to signal to minimize race window
+            // Re-verify start-time immediately prior to signal to minimize
+            // the proof-to-signal window (c-m3). The window cannot be closed
+            // from Node: pidfd_open/pidfd_send_signal have no stdlib binding
+            // and a native addon is out of scope, so the re-read plus
+            // fail-closed retain on any divergence is the mitigation.
             let raceDiverged = false;
             if (process.platform === "linux") {
               const liveNow = readProcessStartTime(rawMeta.childPid);
