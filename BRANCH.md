@@ -36,3 +36,30 @@ Darwin/Windows native qualification, and independent final re-review are not
 inferred from scoped green tests. The build report records exact commands,
 outputs, simulations and remaining qualification gaps. A+B has no release GO
 until the FINAL v6 B10 gate is satisfied.
+
+## Release candidate round 6
+
+Owner scope: F1–F10 and interrupted PTY teardown. Tests use private temporary
+HOME/XDG roots, owned processes only, and named files until the explicit final
+`npm test` integration exception (at most two runs). No installed h2a, main
+changes, dependency version changes, Python, merge, tag or publication.
+
+- PTY reincarnation waits for the observed exit within the product stop bound.
+  Teardown discovers created trees before host death, kills entire groups, and
+  verifies no live descendant; fault-injected failure and timeout are qualified.
+- Legacy predicate regressions cover Threads: 1, hostname/collection, inode
+  protections, time namespaces, and exact civil-date/boot agreement margins.
+- Published 0.98.5 `identity unlock` races the candidate in both election orders
+  through the real exclusive filesystem publication, using a private npm prefix.
+- The isolated typecheck creates a fresh source lane and preserves npm workspace
+  dependency resolution; a previous test run is no longer a prerequisite.
+- The four runtime placeholders are declared non-tests alongside the 38 Node
+  placeholders. Their exact identities, statuses and continued presence are
+  required by the execution gate; none is claimed as coverage.
+- Native qualification records real initial procfs anchors and owned PID churn.
+  A global NSpid census over unowned processes, suspend/KVM and physical power
+  loss remain outside this confinement; B10 is not inferred from partial evidence.
+
+The external round-6 report preserves every command/output, mutant and failed
+experiment. Final qualification, pushed commits and remaining B9 limitations are
+recorded there; no merge is authorized while a reserve remains.
