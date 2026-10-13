@@ -13,6 +13,7 @@ import {
   cleanClaudeRunSandbox,
   createClaudeRunSandbox,
   defaultManagedConfigPaths,
+  getClaudeSeatOrgProofHandoff,
   isWsl,
   resolvePrivateRuntimeRoot,
   recordChildPidInSandbox,
@@ -321,64 +322,26 @@ describe("claude-code-cli-isolation", () => {
     );
   });
 
-  it("refuses spawn when MDM or server-managed settings cannot be verified", () => {
-    // 1. MDM detected flag
-    expect(() =>
-      assertManagedConfigIsolation([], { mdmDetected: true }),
-    ).toThrow("MDM policy detected");
-
-    // 2. Windows registry check seam
+  it("refuses managed configuration via files or registry, and reports org proof blocked", () => {
+    // 1. Windows registry check seam: detected policy refuses.
     expect(() =>
       assertManagedConfigIsolation([], { checkRegistry: () => true }),
     ).toThrow("Windows registry policy detected");
 
-    // 3. Server-managed detected flag
+    // 2. Clean registry seam with no managed paths: passes.
     expect(() =>
-      assertManagedConfigIsolation([], { serverManagedDetected: true }),
-    ).toThrow("server-managed settings cannot be verified for organization accounts");
-
-    // 4. Access with organizationId
-    expect(() =>
-      assertManagedConfigIsolation([], {
-        access: { ...fakeAccess, organizationId: "org_123" },
-      }),
-    ).toThrow("server-managed settings cannot be verified for organization accounts");
-
-    // 5. Access with orgId
-    expect(() =>
-      assertManagedConfigIsolation([], {
-        access: { ...fakeAccess, orgId: "org_456" },
-      }),
-    ).toThrow("server-managed settings cannot be verified for organization accounts");
-
-    // 6. Access with organization name
-    expect(() =>
-      assertManagedConfigIsolation([], {
-        access: { ...fakeAccess, organization: "Anthropic PBC" },
-      }),
-    ).toThrow("server-managed settings cannot be verified for organization accounts");
-
-    // 7. Access with organization accountType
-    expect(() =>
-      assertManagedConfigIsolation([], {
-        access: { ...fakeAccess, accountType: "organization" },
-      }),
-    ).toThrow("server-managed settings cannot be verified for organization accounts");
-
-    // 8. Access with enterprise accountType
-    expect(() =>
-      assertManagedConfigIsolation([], {
-        access: { ...fakeAccess, accountType: "enterprise" },
-      }),
-    ).toThrow("server-managed settings cannot be verified for organization accounts");
-
-    // 9. Individual account with clean environment succeeds
-    expect(() =>
-      assertManagedConfigIsolation([], {
-        access: { ...fakeAccess, accountType: "individual", isIndividual: true },
-        checkRegistry: () => false,
-      }),
+      assertManagedConfigIsolation([], { checkRegistry: () => false }),
     ).not.toThrow();
+
+    // 3. Organization proof is a blocked mesh seam, not an access read:
+    //    the 0.25.0 projection carries no account-type field, so no
+    //    access-based organization refusal is claimed.
+    expect(getClaudeSeatOrgProofHandoff()).toEqual({
+      status: "blocked_pending_mesh_seam",
+      pinnedBaseline: "0.25.0",
+      requiredSeam: "individual-vs-organization account-type field on ClaudeCodeAccessProjection",
+      rationale: expect.stringContaining("only accessToken/expiresAt/scopes"),
+    });
   });
 
   it("refuses symlink, file, and foreign-owned roots and tightens reused roots", () => {
