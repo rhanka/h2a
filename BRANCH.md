@@ -342,19 +342,20 @@ Branch: `fix/presence-identity-liveness`. Base: `58f111b3` (origin/main at check
 
 ## Branch Scope Boundaries
 - [x] Allowed: packages/h2a/src/runtime/handover/**, mcp-central*.ts, packages/h2a/src/{bin,cli,cli-contract,index}.ts, packages/h2a-runtime/src/{central-mcp,proc-identity}.ts, packages/h2a/test/mh-l2*, scripts/mh-l2*, docs/plan/mh-l{1,2}/**, BRANCH.md.
+- [x] Conditional: docs/plan/mh-l0/schemas.json regenerated for new L2 records; frozen L0 definitions unchanged.
 - [x] Forbidden: main, installed state, native-terminal implementation, .track, full suite, version/publication, H4 coordinator, gateway, live product switch.
 - [x] BR-L2-EX1: cohesive protocol/test commits may exceed 150 lines; selective staging, rollback by git revert.
 - [x] No Makefile: commit directly; no installed harness recorders or shared Track imports.
 
 ## Lot 1 — Authority and selection
-- [ ] Reuse exact .6 identity leaf; preclaim before writers through durable ready; marker generation/epoch/inode CAS.
+- [x] Reuse exact .6 identity leaf; preclaim before writers through durable ready; marker generation/epoch/inode CAS.
 - [ ] Common absolute selection, pause and successor reservations for starters; QF npm router seam.
 - [ ] Gate: mh-l2-authority.test.js and mh-l2-starters.test.js red then green.
 
 ## Lot 2 — Authentication
-- [ ] Private v2 secret distinct from decoy; connection challenge, bounded expiring nonces, signed requests/frames.
-- [ ] No bearer admission or unchallenged application body on new TCP connection.
-- [ ] Gate: mh-l2-auth.test.js red then green.
+- [x] Private v2 secret distinct from decoy; connection challenge, bounded expiring nonces, signed requests/frames.
+- [x] No bearer admission or unchallenged application body on new TCP connection.
+- [x] Gate: mh-l2-auth.test.js red then green.
 
 The parallel `feat/live-cross-cli-messaging` lot owns delivery, host wake and cross-CLI end-to-end measurements. This lot changes only presence/identity and the requested MCP send admission/deadline boundary. `sendLocalMessage` and the CLI retain the existing dormant-deposit contract; MCP opts into live-only admission.
 
