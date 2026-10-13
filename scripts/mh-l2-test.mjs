@@ -20,7 +20,7 @@ const args = runner === 'node' ? ['--test', ...extra, file]
   : [resolve('node_modules/vitest/vitest.mjs'), 'run', file, ...extra];
 const command = [process.execPath, ...args];
 const started = Date.now();
-let output = `command: ${command.join(' ')}\nprivate test root: ${directory}\n`;
+let output = `command: ${command.join(' ')}\nnode: ${process.version}\nprivate test root: ${directory}\n`;
 process.stdout.write(output);
 const child = spawn(process.execPath, args, { env, stdio: ['ignore', 'pipe', 'pipe'] });
 for (const stream of [child.stdout, child.stderr]) stream.on('data', bytes => {
@@ -28,6 +28,8 @@ for (const stream of [child.stdout, child.stderr]) stream.on('data', bytes => {
 });
 child.once('error', error => { output += String(error); });
 const result = await new Promise(resolve => child.once('close', (code, signal) => resolve({ code, signal })));
+const skipped = [...output.matchAll(/(?:#|ℹ) skipped (\d+)/g)].some(match => Number(match[1]) !== 0);
+if (skipped) { output += '\nrequired test skipped: treated as FAILED\n'; result.code = 1; }
 const receipt = { command, ...result, elapsedMs: Date.now() - started };
 output += `\nreceipt: ${JSON.stringify(receipt)}\n`;
 process.stdout.write(`receipt: ${JSON.stringify(receipt)}\n`);
