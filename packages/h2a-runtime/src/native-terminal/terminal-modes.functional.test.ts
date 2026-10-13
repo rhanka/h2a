@@ -3,7 +3,7 @@ import { isolatedNativeTestEnvironment, nativeQualificationRoot, pinPrivateNativ
 setupNativeTestEnvironment(afterAll);
 import type { ChildProcess } from "node:child_process";
 import { once } from "node:events";
-import { mkdtemp, readFile, readlink, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, readlink, readdir, rm, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -53,6 +53,23 @@ async function until(accept: () => boolean): Promise<void> {
   while (!accept()) {
     if (Date.now() > deadline) throw new Error("isolated terminal did not reach the expected state");
     await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+}
+
+async function allTasksStopped(pid: number, deadline: number): Promise<void> {
+  // node-pty waits in a native worker thread. A stopped leader alone does not
+  // prove that the waitpid thread has reached the group stop.
+  const taskRoot = `/proc/${pid}/task`;
+  for (;;) {
+    const tasks = await readdir(taskRoot);
+    expect(tasks.length).toBeGreaterThan(0);
+    const stats = await Promise.all(tasks.map(tid => readFile(join(taskRoot, tid, "stat"), "utf8")));
+    const confirmed = await readdir(taskRoot);
+    if (stats.every(stat => /\) [Tt] /.test(stat))) {
+      if (tasks.sort().join(",") === confirmed.sort().join(",")) return;
+    }
+    expect(Date.now()).toBeLessThan(deadline);
+    await new Promise(resolve => setTimeout(resolve, 10));
   }
 }
 
@@ -185,10 +202,7 @@ describe.skipIf(process.platform !== "linux")("native attach terminal modes on r
     f.host.kill("SIGSTOP");
     try {
       const deadline = Date.now() + 4_000;
-      while (!/\) [Tt] /.test(await readFile(`/proc/${f.host.pid}/stat`, "utf8"))) {
-        expect(Date.now()).toBeLessThan(deadline);
-        await new Promise((resolve) => setTimeout(resolve, 10));
-      }
+      await allTasksStopped(f.host.pid!, deadline);
       process.kill(f.innerPid, "SIGKILL");
       let stat = "";
       while (!/\) [ZX] /.test(stat)) {
@@ -219,14 +233,8 @@ describe.skipIf(process.platform !== "linux")("native attach terminal modes on r
     process.kill(f.innerPid, "SIGSTOP");
     try {
       const deadline = Date.now() + 4_000;
-      while (!/\) [Tt] /.test(await readFile(`/proc/${f.host.pid}/stat`, "utf8"))) {
-        expect(Date.now()).toBeLessThan(deadline);
-        await new Promise((resolve) => setTimeout(resolve, 10));
-      }
-      while (!/\) [Tt] /.test(await readFile(`/proc/${f.innerPid}/stat`, "utf8"))) {
-        expect(Date.now()).toBeLessThan(deadline);
-        await new Promise((resolve) => setTimeout(resolve, 10));
-      }
+      await allTasksStopped(f.host.pid!, deadline);
+      await allTasksStopped(f.innerPid, deadline);
       process.kill(nodePid, "SIGKILL");
       let stat = "";
       while (!/\) [ZX] /.test(stat)) {
