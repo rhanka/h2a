@@ -1,0 +1,39 @@
+command: /usr/bin/node --test packages/h2a/test/mh-l1-routing.test.js
+node: v22.22.1
+private test root: /tmp/mh-l2-test-7G4pyk
+TAP version 13
+# Subtest: C01 should choose stdio for unknown clientInfo before reading even malformed central configuration
+ok 1 - C01 should choose stdio for unknown clientInfo before reading even malformed central configuration
+  ---
+  duration_ms: 2.150007
+  type: 'test'
+  ...
+# Subtest: C01 should admit only an exact qualified client and preserve every existing exclusion
+ok 2 - C01 should admit only an exact qualified client and preserve every existing exclusion
+  ---
+  duration_ms: 1.355882
+  type: 'test'
+  ...
+# Subtest: C01 should retain fragmented initialize and pipelined tail exactly once without emitting a response
+ok 3 - C01 should retain fragmented initialize and pipelined tail exactly once without emitting a response
+  ---
+  duration_ms: 4.615598
+  type: 'test'
+  ...
+# Subtest: C02 should keep static shim imports free of the CLI, store, SDK and native runtime
+ok 4 - C02 should keep static shim imports free of the CLI, store, SDK and native runtime
+  ---
+  duration_ms: 1.054996
+  type: 'test'
+  ...
+1..4
+# tests 4
+# suites 0
+# pass 4
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 110.869228
+
+receipt: {"command":["/usr/bin/node","--test","packages/h2a/test/mh-l1-routing.test.js"],"code":0,"signal":null,"elapsedMs":185}

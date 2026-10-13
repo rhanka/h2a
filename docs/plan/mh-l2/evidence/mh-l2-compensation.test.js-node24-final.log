@@ -1,0 +1,14 @@
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node --test packages/h2a/test/mh-l2-compensation.test.js
+node: v24.21.0
+private test root: /tmp/mh-l2-test-sztONh
+✔ compensation should require new ACTIVE H4 authority, a verified source image and proven absence; never reopen G0 (47.634973ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 1
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 122.620655
+
+receipt: {"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","--test","packages/h2a/test/mh-l2-compensation.test.js"],"code":0,"signal":null,"elapsedMs":167}
