@@ -65,6 +65,7 @@ export class ColdAdministration {
     const directory = fs.openSync(this.directory, fs.constants.O_RDONLY | fs.constants.O_DIRECTORY | fs.constants.O_NOFOLLOW);
     try { fs.fsyncSync(directory); } finally { fs.closeSync(directory); }
     this.indeterminate = false;
+    this.options.reconcileParticipants?.(transaction?.value);
     if (transaction?.value.state === 'STOP_COMMITTED' || control.value.operatorStopCommitted) this.requestClose();
     return this.status();
   }
@@ -81,6 +82,13 @@ export class ColdAdministration {
     return { ...drain, complete: keys.every(k => drain[k] === 0) };
   }
   execute(operation, step, payload, coordinator) {
+    const fn = () => {
+      try { return this.executeStep(operation, step, payload, coordinator); }
+      catch (error) { if (error.message.startsWith('persistence_indeterminate')) this.indeterminate = true; throw error; }
+    };
+    return this.options.withMutationLock ? this.options.withMutationLock(fn) : fn();
+  }
+  executeStep(operation, step, payload, coordinator) {
     validate('administration', step);
     if (!primitives.includes(operation)) throw new Error('administration_unknown');
     if (step.payloadDigest !== digest(payload)) throw new Error('payload_digest_mismatch');
@@ -91,6 +99,7 @@ export class ColdAdministration {
     this.options.verifyAuthority?.();
     let observed = this.transaction();
     const tx = observed?.value;
+    this.options.reconcileParticipants?.(tx);
     if (tx && operation !== 'reserve') {
       if (step.upgradeId !== tx.upgradeId || step.handoverId !== tx.handoverId || step.transactionEpoch !== tx.transactionEpoch ||
         step.mode !== tx.mode || digest(coordinator) !== digest(tx.coordinator)) throw new Error('transaction_authority_mismatch');
@@ -117,6 +126,7 @@ export class ColdAdministration {
       if (step.transactionEpoch <= control.value.transactionEpoch) throw new Error('transaction_epoch_stale');
       if (step.mode !== 'cold-stop') throw new Error('live_coordinator_unavailable');
       const inventory = this.options.inventory();
+      this.options.assertEligible?.();
       if (step.inventoryRevision !== inventory.revision) throw new Error('inventory_stale');
       if (inventory.transports?.length && inventory.writerRestrictions?.includes('participant_checkpoint_unqualified')) throw new Error('participant_checkpoint_unqualified');
       if (!Number.isSafeInteger(payload.selectionEpoch) || payload.selectionEpoch < 1) throw new Error('selection_epoch_invalid');
@@ -155,12 +165,18 @@ export class ColdAdministration {
     if (irrevocable.has(tx.state)) throw new Error('stop_irreversible');
     if (tx.state === 'ABORTED') throw new Error('transaction_aborted');
     if (step.inventoryRevision !== tx.inventoryRevision || this.options.inventory().revision !== tx.inventoryRevision) throw new Error('inventory_stale');
-    if (operation === 'abort') return this.update(observed, { state: 'ABORTED', barrierDeadline: null }, step, { state: 'ABORTED' });
+    if (operation === 'abort') {
+      const result = this.update(observed, { state: 'ABORTED', barrierDeadline: null }, step, { state: 'ABORTED' });
+      this.options.reconcileParticipants?.({ ...tx, state: 'ABORTED' });
+      return result;
+    }
     if (operation === 'barrier') {
       if (!['PRECHECKED', 'RESERVED'].includes(tx.state) || this.pause()) throw new Error('barrier_state_invalid');
       if (!Number.isSafeInteger(payload.deadline) || payload.deadline <= this.now()) throw new Error('barrier_expired');
       this.options.authorizeTarget(tx.target, tx.successorReservation.selectionEpoch);
       this.options.verifyEntry?.('barrier');
+      this.options.assertEligible?.();
+      this.options.barrier?.(tx);
       return this.update(observed, { state: 'BARRIER', barrierDeadline: payload.deadline }, step,
         { state: 'BARRIER', barrierId: randomUUID() });
     }
@@ -191,7 +207,9 @@ export class ColdAdministration {
       this.options.authorizeTarget(tx.target, payload.selectionEpoch);
       this.options.verifyEntry?.('commit-stop');
       this.options.verifyPrecheck(tx.precheckEvidenceDigest, tx.target);
+      this.options.assertEligible?.();
       const result = this.update(observed, { state: 'STOP_COMMITTED' }, step, { state: 'STOP_COMMITTED', generation: m.generation });
+      this.options.commit?.(tx);
       this.requestClose(); // Journal already durable. A lost ACK only re-reads it.
       return result;
     }
@@ -202,7 +220,10 @@ export class ColdAdministration {
     if (!observed || irrevocable.has(observed.value.state) || observed.value.barrierDeadline === null || observed.value.barrierDeadline > this.now()) return false;
     if (this.indeterminate) throw new Error('reconciliation_required');
     const state = this.drain().complete ? 'ABORTED' : 'DRAIN_BLOCKED';
-    if (state !== observed.value.state) this.update(observed, { state, ...(state === 'ABORTED' ? { barrierDeadline: null } : {}) }, null, null);
+    if (state !== observed.value.state) {
+      this.update(observed, { state, ...(state === 'ABORTED' ? { barrierDeadline: null } : {}) }, null, null);
+      if (state === 'ABORTED') this.options.reconcileParticipants?.({ ...observed.value, state });
+    }
     return state === 'ABORTED';
   }
   writePause(paused) {
@@ -213,7 +234,10 @@ export class ColdAdministration {
   operatorStop() {
     if (!this.pause()) this.writePause(true);
     const tx = this.transaction();
-    if (tx && !irrevocable.has(tx.value.state) && tx.value.state !== 'ABORTED') this.update(tx, { state: 'ABORTED' }, null, null);
+    if (tx && !irrevocable.has(tx.value.state) && tx.value.state !== 'ABORTED') {
+      this.update(tx, { state: 'ABORTED' }, null, null);
+      this.options.reconcileParticipants?.({ ...tx.value, state: 'ABORTED' });
+    }
     this.poll();
     const control = this.control().value;
     return { paused: true, state: control.operatorStopped ? 'stopped' : control.operatorStopCommitted ? 'STOP_COMMITTED' : 'pause_active_stop_deferred',

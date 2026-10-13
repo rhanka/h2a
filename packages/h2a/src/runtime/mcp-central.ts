@@ -1,3 +1,4 @@
+import { Participants } from "./handover/participants.js";
 /**
  * Machine-local central MCP server. Election is independent of endpoint and
  * workspace within the current private UID runtime namespace.
@@ -35,14 +36,8 @@ import { StreamableHTTPTransport } from "./mcp/transport/streamable-http.js";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import {
   CallToolRequestSchema,
-  ListResourcesRequestSchema,
-  ListToolsRequestSchema,
-  McpError,
-  ReadResourceRequestSchema,
   type CallToolResult,
-  type JSONRPCMessage,
-  type ListResourcesResult,
-  type ReadResourceResult
+  ListToolsRequestSchema
 } from "@modelcontextprotocol/sdk/types.js";
 import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
@@ -51,16 +46,9 @@ import { currentCliVersion } from "./upgrade/index.js";
 import {
   createMcpServer,
   isMcpTransportResult,
-  type McpCallContext,
   type McpServer
 } from "./mcp/server.js";
 import { boundCallToolResult } from "./mcp/frame-budget.js";
-import { createUiRenderModule, type UiRenderModule } from "./mcp/ui-render/index.js";
-import {
-  negotiateUiExtension,
-  serverUiExtensionCapability
-} from "./mcp/ui-render/negotiation.js";
-import { UnknownResourceError, type UiExtensionCapability } from "./mcp/ui-render/types.js";
 import { createLocalStore } from "./local-files/index.js";
 import { openCentralAttachment, type CentralAttachmentHandle } from "./mcp-central-attachment.js";
 import { parseCentralAttachment } from "./mcp-central-context.js";
@@ -102,102 +90,8 @@ export async function centralMcpPing(
   }
 }
 
-type MarkerLiveness = "alive" | "dead" | "ambiguous";
-
-/** Identity, not PID, is the only liveness proof for a registered server. */
-async function markerLiveness(marker: CentralMcpMarker): Promise<MarkerLiveness> {
-  for (let attempt = 0; attempt < CENTRAL_LIVENESS_ATTEMPTS; attempt += 1) {
-    const result = await centralMcpPing(
-      marker.endpoint,
-      CENTRAL_LIVENESS_TIMEOUT_MS + attempt * CENTRAL_LIVENESS_BACKOFF_MS
-    );
-    if (result.kind === "generation") {
-      return result.generation === marker.generation ? "alive" : "dead";
-    }
-    if (result.kind === "dead") return "dead";
-    if (attempt + 1 < CENTRAL_LIVENESS_ATTEMPTS) {
-      await delay(CENTRAL_LIVENESS_BACKOFF_MS * (attempt + 1));
-    }
-  }
-  return "ambiguous";
-}
-
-function newMarker(endpoint: string, generation = randomUUID()): CentralMcpMarker {
-  return {
-    endpoint,
-    generation,
-    pid: process.pid,
-    startedAt: new Date().toISOString(),
-    token: randomUUID()
-  };
-}
-
-type MarkerClaim =
-  | Readonly<{ kind: "claimed"; marker: CentralMcpMarker }>
-  | Readonly<{ kind: "reused"; marker: CentralMcpMarker }>;
-
-/**
- * Load-bearing order: ownership → read → identity liveness → claim/reclaim.
- * A stale PID or an old startedAt cannot block a restart because neither enters
- * the decision.
- */
-async function claimCentralMarker(
-  endpoint: string,
-  paths: CentralMcpPathsOptions,
-  candidate: CentralMcpMarker,
-  beforeReplace?: (candidate: CentralMcpMarker) => Promise<void>,
-  beforeExclusivePublish?: () => Promise<void>,
-  reuseAnyEndpoint = false
-): Promise<MarkerClaim> {
-  await ensureMarkerDirectory(paths);
-  const path = centralMcpMarkerPath(paths);
-  for (;;) {
-    const observation = await readMarker(path);
-    if (!observation) {
-      if (await writeExclusiveMarker(path, candidate, beforeExclusivePublish)) {
-        return { kind: "claimed", marker: candidate };
-      }
-      continue;
-    }
-
-    if (observation.marker) {
-      const liveness = await markerLiveness(observation.marker);
-      if (liveness === "alive") {
-        if (observation.marker.endpoint === endpoint || reuseAnyEndpoint) return { kind: "reused", marker: observation.marker };
-        throw new Error(
-          `a LIVE central MCP server is registered on ${observation.marker.endpoint}; this launcher requests ${endpoint}`
-        );
-      }
-      if (liveness === "ambiguous") {
-        throw new Error(
-          `central MCP liveness for ${observation.marker.endpoint} is ambiguous; refusing to reclaim a possibly-live server`
-        );
-      }
-    }
-
-    // A connection refusal, a responding non-generation peer, or a different
-    // generation is positive proof that THIS registration is dead. Reclaim
-    // even when endpoints are equal; never reclaim on ambiguous liveness.
-    if (await reclaimMarker(
-      path,
-      observation.identity,
-      observation.marker,
-      candidate,
-      beforeReplace,
-      beforeExclusivePublish
-    )) {
-      return { kind: "claimed", marker: candidate };
-    }
-  }
-}
-
-async function centralToolResult(
-  server: McpServer,
-  name: string,
-  args: Record<string, unknown>,
-  context: McpCallContext
-): Promise<CallToolResult> {
-  const result = await server.callTool(name, args, context);
+async function centralToolResult(server: McpServer, name: string, args: Record<string, unknown>): Promise<CallToolResult> {
+  const result = await server.callTool(name, args);
   const shaped: CallToolResult = isMcpTransportResult(result)
     ? (result as CallToolResult)
     : {
@@ -216,46 +110,16 @@ async function centralToolResult(
 }
 
 function createCentralProtocolServer(mcp: McpServer): Server {
-  // L3 (json-render): the central server advertises tools.listChanged, the
-  // resource surface and the SEP-1865 ui extension (h2a spec §2.1.3).
   const server = new Server(
     { name: "@sentropic/h2a", version: currentCliVersion() },
-    {
-      capabilities: {
-        tools: { listChanged: true },
-        resources: {},
-        extensions: { "io.modelcontextprotocol/ui": serverUiExtensionCapability }
-      }
-    }
+    { capabilities: { tools: {} } }
   );
-  // L3: one SDK Server per transport → one negotiation per HTTP session:
-  // getClientCapabilities() reflects THIS session's initialize params.
-  const negotiated = (): UiExtensionCapability =>
-    negotiateUiExtension({ capabilities: server.getClientCapabilities() });
-  // Stable identity for this transport; capability stays current after initialize.
-  const connection: McpCallContext = { get uiCapability() { return negotiated(); } };
   server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: mcp.listTools() }));
-  server.setRequestHandler(ListResourcesRequestSchema, async (): Promise<ListResourcesResult> => ({
-    resources: mcp.listResources(connection).resources
-  }));
-  server.setRequestHandler(ReadResourceRequestSchema, async (request): Promise<ReadResourceResult> => {
-    try {
-      // Shape-compatible with the SDK's TextResourceContents modulo readonly
-      // arrays (the handler-side descriptors are deeply readonly).
-      return mcp.readResource(request.params.uri, connection) as ReadResourceResult;
-    } catch (error) {
-      // An unknown resource URI is a typed -32002 refusal (h2a spec §3.3).
-      if (error instanceof UnknownResourceError) {
-        throw new McpError(-32002, error.message);
-      }
-      throw error;
-    }
-  });
   server.setRequestHandler(
     CallToolRequestSchema,
     async (request): Promise<CallToolResult> => {
       for (const session of mcp.sessions.list()) mcp.sessions.markActivity(session.sessionId);
-      return centralToolResult(mcp, request.params.name, request.params.arguments ?? {}, connection);
+      return centralToolResult(mcp, request.params.name, request.params.arguments ?? {});
     }
   );
   return server;
@@ -286,13 +150,14 @@ function createCentralApp(
   endpoint: string,
   generation: string,
   administration: () => ColdAdministration | undefined,
+  participants: () => Participants | undefined,
   options: { requestStop(): void; idleTimeoutMs: number; sessionLeaseMs: number; precheck?: boolean; endpointPinned?: boolean; managedImage?: boolean; runExecutor?: H2aRunExecutor }
 ): { app: Hono; inventory(): { revision: number; transports: unknown[] }; drain(): { revision: number; calls: number; children: number; briefs: number; callbacks: number; effects: number }; close(): Promise<void> } {
   const app = new Hono();
   const lag = monitorEventLoopDelay({ resolution: 20 });
   lag.enable();
   app.use(new URL(endpoint).pathname, bodyLimit({ maxSize: 4 * 1024 * 1024 }));
-  type Attachment = { transport: StreamableHTTPTransport; handle: CentralAttachmentHandle; touched: number; closing?: Promise<void> };
+  type Attachment = { participant: import("./handover/participants.js").AttachmentParticipant; transport: StreamableHTTPTransport; handle: CentralAttachmentHandle; touched: number; closing?: Promise<void> };
   const sessions = new Map<string, Attachment>();
   let lastBusy = Date.now();
   let closing = false;
@@ -302,23 +167,12 @@ function createCentralApp(
   let launches = 0;
   let callbacks = 0;
   let unresolvedEffects = 0;
-  const runExecutor: H2aRunExecutor = request => {
-    launches++; drainRevision++;
-    const finish = (value: unknown) => {
-      launches--; drainRevision++;
-      if (!value || ["unknown", "launching", "cleanup-failed"].includes((value as { state?: string }).state ?? "")) unresolvedEffects++;
-      return value as Record<string, unknown>;
-    };
-    try {
-      const value = (options.runExecutor ?? executeH2aRun)(request);
-      return value instanceof Promise ? value.then(finish, error => { finish({ state: "unknown" }); throw error; }) : finish(value);
-    } catch (error) { finish({ state: "unknown" }); throw error; }
-  };
+  const runExecutor = options.runExecutor ?? executeH2aRun;
   const closeAttachment = (id: string, attachment: Attachment): Promise<void> => {
     attachment.closing ??= (async () => {
       sessions.delete(id);
       inventoryRevision++;
-      await attachment.handle.close();
+      await attachment.participant.close(() => attachment.handle.close());
       await attachment.transport.close();
       lastBusy = Date.now();
     })();
@@ -337,7 +191,7 @@ function createCentralApp(
     const transaction = administration()?.transaction()?.value;
     const pending = transaction && !["ABORTED", "READY"].includes(transaction.state);
     if (!closing && activeCalls === 0 && launches === 0 && callbacks === 0 && unresolvedEffects === 0 && sessions.size === 0 &&
-      administration()?.admissionsOpen() && !pending && now - lastBusy > options.idleTimeoutMs) options.requestStop();
+      participants()?.drain().complete && administration()?.admissionsOpen() && !pending && now - lastBusy > options.idleTimeoutMs) options.requestStop();
   }, Math.max(25, Math.min(1000, options.idleTimeoutMs, options.sessionLeaseMs) / 2));
   sweep.unref();
   app.use("*", async (context, next) => {
@@ -377,7 +231,14 @@ function createCentralApp(
     if (options.precheck) return context.json({ error: "precheck_admission_closed" }, 409);
     if (closing) return context.json({ error: "central MCP is stopping" }, 503);
     if (!administration()?.admissionsOpen()) {
-      const control = context.req.method !== "POST" || /notifications\/cancelled/.test(await context.req.text());
+      let control = context.req.method !== "POST";
+      if (!control) {
+        try {
+          const message = await context.req.json();
+          const frames = Array.isArray(message) ? message : [message];
+          control = frames.length > 0 && frames.every(frame => frame?.method === 'notifications/cancelled' && !('id' in frame));
+        } catch { control = false; }
+      }
       if (!control) return context.json({ error: "admission_closed", accepted: false, execution: "not_started" }, 409);
     }
     const sharedStore = store();
@@ -404,38 +265,52 @@ function createCentralApp(
         onsessioninitialized: id => { if (created) { sessions.set(id, created); inventoryRevision++; } },
         onsessionclosed: id => { const current = sessions.get(id); if (current) void closeAttachment(id, current); }
       });
-      const handle = openCentralAttachment(root, workspace, sharedStore, captured, notification => {
+      const participant = participants()!.attach(randomUUID(), { workspace, ...(captured ? { attachment: captured } : {}) });
+      participant.initialized = false;
+      const handle = participant.runOwner(() => openCentralAttachment(root, workspace, sharedStore, captured, async notification => {
         if (protocol) {
           callbacks++; drainRevision++;
-          void protocol.notification(notification).catch(() => {}).finally(() => { callbacks--; drainRevision++; });
+          const operation = participant.begin('callback');
+          try { await protocol.notification(notification); participant.finish(operation, { delivered: true }); }
+          catch (error) { participant.finish(operation, { state: 'unknown', error: String(error) }, true); throw error; }
+          finally { callbacks--; drainRevision++; }
         }
-      }, runExecutor);
+      }, runExecutor, participant));
       protocol = createCentralProtocolServer(handle.mcp);
-      attachment = created = { transport, handle, touched: Date.now() };
-      await protocol.connect(transport);
+      attachment = created = { participant, transport, handle, touched: Date.now() };
+      try { await protocol.connect(transport); }
+      catch (error) { await participant.close(() => handle.close()); await transport.close(); throw error; }
     }
     attachment.touched = Date.now();
     lastBusy = Date.now();
     let response;
     try { response = await attachment.transport.handleRequest(context); }
     catch (error) {
-      if (!requestedSessionId) { await attachment.handle.close(); await attachment.transport.close(); }
+      if (!requestedSessionId) { await attachment.participant.close(() => attachment.handle.close()); await attachment.transport.close(); }
       throw error;
     }
     // The server owns identity; the shim only retains the expected resume id.
     const statusResult = attachment.handle.mcp.callTool("h2a_identity_status", {}) as { content: Array<{ text: string }> };
     const status = JSON.parse(statusResult.content[0].text) as { state?: string; instance?: string };
     if (status.state === "identity_ready" && status.instance) context.header("x-h2a-instance", status.instance);
-    if (!requestedSessionId && ![...sessions.values()].includes(attachment)) { await attachment.handle.close(); await attachment.transport.close(); }
+    if (!requestedSessionId && response?.ok) {
+      try {
+        const initialized = await response.clone().json() as { result?: { protocolVersion?: string } };
+        if (initialized.result?.protocolVersion) {
+          attachment.participant.downstreamProtocol = initialized.result.protocolVersion;
+          attachment.participant.initialized = true;
+        }
+      } catch { /* An invalid initialization is closed below, never checkpointed. */ }
+    }
+    if (!requestedSessionId && ![...sessions.values()].includes(attachment)) { await attachment.participant.close(() => attachment.handle.close()); await attachment.transport.close(); }
     return response ?? context.body(null, 202);
     } finally { activeCalls--; drainRevision++; }
   });
-  return { app, inventory: () => ({ schemaVersion: 1, revision: inventoryRevision, shims: [],
-      transports: [...sessions.keys()].map(sessionId => ({ sessionId, attachmentProtocol: "unqualified" })),
-      operations: [{ activeCalls, callbacks, launches, unresolvedEffects }], quarantines: [], launches: [],
-      endpointPinned: Boolean(options.endpointPinned), managedImage: Boolean(options.managedImage),
-      writerRestrictions: sessions.size ? ["participant_checkpoint_unqualified"] : [] }),
-    drain: () => ({ revision: drainRevision, calls: activeCalls, children: launches, briefs: launches, callbacks, effects: unresolvedEffects }),
+  return { app, inventory: () => ({ ...(participants()?.inventory() ?? { schemaVersion: 1, shims: [], transports: [], operations: [], quarantines: [], launches: [], writerRestrictions: ["precheck_admission_closed"] }), revision: inventoryRevision }),
+    drain: () => {
+      const durable = participants()?.drain() ?? { revision: 1, calls: 0, children: 0, briefs: 0, callbacks: 0, effects: 0 };
+      return { ...durable, revision: drainRevision + durable.revision, calls: activeCalls + durable.calls, callbacks: callbacks + durable.callbacks };
+    },
     async close() {
     closing = true;
     clearInterval(sweep);
@@ -450,6 +325,8 @@ export interface StartCentralMcpServerOptions extends CentralMcpPathsOptions {
   successor?: { handoverId: string; transactionEpoch: number; attempt: number };
   /** Verified physical installation prefix; explicit laboratory installation seam. */
   physicalPrefix?: string;
+  /** Trusted admission-closure verifier; absent means continuity is refused. */
+  writerProof?: { evidenceDigest: string; verify(context: unknown): string };
   env?: Readonly<Record<string, string | undefined>>;
   idleTimeoutMs?: number;
   sessionLeaseMs?: number;
@@ -518,6 +395,7 @@ export async function startCentralMcpServer(
   }
   let sharedStore: ReturnType<typeof createLocalStore> | undefined;
   let administration: ColdAdministration | undefined;
+  let participants: Participants | undefined;
   let authentication: ConnectionAuthentication | undefined;
   let marker: any;
   let httpServer: ReturnType<typeof createAuthenticatedServer> | undefined;
@@ -545,48 +423,87 @@ export async function startCentralMcpServer(
           if (pause?.value.paused) throw new Error("deferred_paused");
         }
       }
-    } finally {
-      await application.close();
-    }
-    throw error;
-  }
-
-  let claim: MarkerClaim | undefined;
-  try {
-    claim = await claimCentralMarker(
-      endpoint,
-      paths,
-      marker,
-      options.beforeMarkerReclaimReplace,
-      options.beforeExclusiveMarkerPublish,
-      !explicitEndpoint
-    );
-    if (claim.kind === "reused") {
-      await closeHttpServer(httpServer, application.close);
-      return {
-        kind: "reused",
-        endpoint: claim.marker.endpoint,
-        generation: claim.marker.generation,
-        markerPath
-      };
-    }
-    // L3: load and verify the vendored DS elements build before serving. An
-    // integrity_mismatch (or any load failure) NEVER takes the central server
-    // down (§7.2): it serves without the ui:// resource surface, noted on
-    // stderr only.
-    let uiRender: UiRenderModule | undefined;
-    try {
-      uiRender = createUiRenderModule({ env: env as Record<string, string | undefined> });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      process.stderr.write(`h2a central MCP: ui-render assets unavailable (ui:// resources disabled): ${message}\n`);
-    }
-    mcp = createMcpServer({
-      root: options.root,
-      workspaceRoot: process.cwd(),
-      ...(uiRender ? { uiRender } : {})
+      if (pause?.value.paused && !options.automatic) replaceState(pausePath, { ...pause.value, revision: pause.value.revision + 1, paused: false }, "pause", pause);
+      let endpoint = explicitEndpoint ? parseCentralMcpEndpoint(explicitEndpoint) : "http://127.0.0.1:1/mcp";
+      const endpointUrl = new URL(endpoint);
+      marker = { schemaVersion: 2, service: "h2a-mcp-central", namespaceId: authority.domain.namespaceId,
+        stateDirectory, prefixId: authority.domain.prefixId, endpoint,
+        endpointMode: explicitEndpoint ? "fixed" : "discovered", generation: randomUUID(), publicationEpoch,
+        predecessorGeneration: options.successor ? plan.reservation.source.generation : null, root, uid: uid(), pid: process.pid, startedAt: new Date().toISOString(),
+        processIdentity: identity, packageVersion: plan.selection?.packageVersion ?? currentCliVersion(), buildId: plan.selection?.buildId ?? "npm-unmanaged",
+        manifestDigest: plan.selection?.manifestDigest ?? digest({ packageVersion: currentCliVersion(), entry: physicalPrefix }),
+        protocol: 2, handoverProtocol: 1, handoverCapabilities: { managedImage: Boolean(installation),
+          endpointPinned: Boolean(explicitEndpoint), restrictions: [...(installation ? [] : ["unmanaged_image"]), "store_writer_set_unknown"],
+          primitives: ["describe", "inventory", "reserve", "barrier", "renew", "freeze", "checkpoint", "drain-status", "abort", "commit-stop", "stop-status"],
+          attachTransfer: false, liveCoordinator: false }, mcpProtocolVersions: ["2025-06-18"],
+        descriptorDigest: digest({ tools: [] }), contractDigest: digest({ tools: [] }), state: "ready",
+        token: randomUUID(), authKeyReference: authority.authKeyReference };
+      application = createCentralApp(root, () => sharedStore, endpoint, marker.generation, () => administration, () => participants, {
+        precheck: options.precheck,
+        endpointPinned: Boolean(explicitEndpoint), managedImage: Boolean(installation),
+        idleTimeoutMs: options.idleTimeoutMs ?? 60_000, sessionLeaseMs: options.sessionLeaseMs ?? 90_000,
+        ...(options.runExecutor ? { runExecutor: options.runExecutor } : {}),
+        requestStop() { setImmediate(() => void stopServer()); }
+      });
+      const auth = new ConnectionAuthentication(marker, authority.rootKey);
+      authentication = auth;
+      (auth as any).ready = false;
+      httpServer = createAuthenticatedServer(auth, application.app.fetch);
+      httpServer.listen(explicitEndpoint ? Number(endpointUrl.port) : 0, endpointUrl.hostname.replace(/^\[|\]$/g, ""));
+      if (!httpServer.listening) await once(httpServer, "listening");
+      const address = httpServer.address();
+      if (!address || typeof address === "string") throw new Error("listener_address_unknown");
+      endpointUrl.port = String(address.port); marker.endpoint = endpoint = endpointUrl.href;
+      // Writer and catalogue are ready before durable marker publication.
+      mkdirSync(root, { recursive: true, mode: 0o700 });
+      if (!options.precheck) {
+        participants = new Participants({ root, directory: stateDirectory, marker, writerProof: options.writerProof });
+        // The admission preclaim has already proved any previous owner dead.
+        // A committed old writer gate is reopened only by this new authority.
+        if (participants.writerControl().gate !== 'OPEN') {
+          const { updateWriterControl } = await import('./handover/mutation.js');
+          updateWriterControl(root, { gate: 'OPEN', handoverId: null });
+        }
+      }
+      sharedStore = createLocalStore({ root, initialize: false, readOnly: Boolean(options.precheck), alwaysEmitConsentBudget: true });
+      const catalogServer = createMcpServer({ root, store: sharedStore });
+      const catalogue = JSON.parse(JSON.stringify(catalogServer.listTools())) as ReturnType<McpServer["listTools"]>;
+      catalogServer.notifications.stop();
+      marker.descriptorDigest = digest({ tools: catalogue });
+      marker.contractDigest = digest({ tools: catalogue.map(({ description: _description, ...contract }) => contract) });
+      const nowControl = readState(join(stateDirectory, "component-control.json"), "componentControl");
+      if (nowControl) replaceState(join(stateDirectory, "component-control.json"), { ...nowControl.value, revision: nowControl.value.revision + 1,
+        sourceGeneration: marker.generation, ownerIdentity: identity, ownerState: "ACTIVE",
+        operatorStopCommitted: false, operatorStopped: false }, "componentControl", nowControl);
+      administration = new ColdAdministration({ directory: stateDirectory, marker, inventory: application.inventory, drain: application.drain,
+        ...(installation ? { pinDirectory: join(installation.managedRoot, "state", "pins") } : {}),
+        verifyAuthority: () => { if (!claim) throw new Error("readiness_unavailable"); compareMarker(markerPath, claim); },
+        ...(participants ? {
+          withMutationLock: (fn: () => unknown) => participants!.registry.withLock(fn),
+          reconcileParticipants: (tx: any) => participants!.reconcileTransaction(tx),
+          assertEligible: () => participants!.assertEligible(),
+          barrier: (tx: any) => participants!.barrier(tx.handoverId),
+          abort: (tx: any) => participants!.abort(tx.handoverId),
+          freeze: (_payload: any, tx: any) => participants!.freeze(tx.handoverId),
+          checkpoint: (_payload: any, tx: any) => participants!.checkpoint(tx.handoverId),
+          commit: () => participants!.commit()
+        } : {}),
+        ...(installation && !options.precheck ? {
+          authorizeTarget: (target: any, epoch: number) => verifyTarget(installation, target, epoch),
+          verifyEntry: (phase: string) => checkManagedEntry(installation, managedEntry, phase),
+          verifyPrecheck: (evidence: string, target: any) => verifyPrecheckEvidence(stateDirectory, evidence, target,
+            resolveSelectedEntry(installation).selection.selectionEpoch)
+        } : {}),
+        close() { setImmediate(() => void stopServer()); } });
+      await options.beforeExclusiveMarkerPublish?.();
+      await options.afterMarkerClaim?.();
+      return marker;
+    }, (published: NonNullable<ReturnType<typeof readMarkerObservation>>) => {
+      claim = published;
+      if (options.successor && plan.transactionPath) readySuccessor(plan.transactionPath, options.successor, identity);
+      markStartupReady(stateDirectory, identity);
+      (authentication as any).ready = true;
     });
-    await options.afterMarkerClaim?.();
   } catch (error) {
     if (httpServer) { httpServer.closeAllConnections(); await new Promise<void>(resolve => httpServer!.close(() => resolve())); }
     await application?.close();
