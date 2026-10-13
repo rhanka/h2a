@@ -173,6 +173,7 @@ test("legacy with mismatched hostname: bounded B refusal, no downgrade", async (
       (err) => {
         assert.equal(err.name, "LockTimeoutError");
         assert.match(err.message, /Legacy identity lock retained: independent recovery evidence is incomplete/);
+        assert.equal(err.diagnostic.reasonCode, "legacy-hostname-mismatch");
         const after = readFileSync(join(identityDir, ".lock"));
         assert.equal(after.toString(), before.toString(), "a legacy lock is never rewritten or downgraded");
         assert.ok(
