@@ -10,6 +10,7 @@ import {
   openSync,
   readdirSync,
   readFileSync,
+  renameSync,
   rmSync,
   unlinkSync,
   writeFileSync,
@@ -232,18 +233,25 @@ export async function acquireClaudeAccountLease(
       if (code === "EEXIST") {
         const holder = readHolder();
         if (holder && isRecordedHolderProvenDead(holder)) {
-          // Re-read before unlink: never delete a file that changed under
-          // this waiter (a fresh claim may have landed since the first read).
-          const fresh = readHolder();
-          if (
-            fresh &&
-            JSON.stringify(fresh) === JSON.stringify(holder)
-          ) {
+          // Reclaim atomically using renameSync: moving stale lockFile to a
+          // unique retire path atomically removes lockFile from the directory.
+          // Exactly one reclaimer wins the renameSync; concurrent reclaimers
+          // receive ENOENT and cannot overwrite a new live lock.
+          const retirePath = `${lockFile}.retiring.${claimToken}.${Date.now()}`;
+          try {
+            renameSync(lockFile, retirePath);
             try {
-              unlinkSync(lockFile);
+              const retiredHolder = JSON.parse(readFileSync(retirePath, "utf8"));
+              if (isRecordedHolderProvenDead(retiredHolder)) {
+                unlinkSync(retirePath);
+              } else {
+                try { renameSync(retirePath, lockFile); } catch {}
+              }
             } catch {
-              // Lost the race; the loop re-reads.
+              try { unlinkSync(retirePath); } catch {}
             }
+          } catch {
+            // Lost the rename race; the loop re-reads.
           }
           continue;
         }
@@ -476,7 +484,24 @@ export async function sweepOrphanSandboxes(
         continue;
       }
 
-      // Holder proven dead and age > maxAgeMs: delete content-blindly
+      // Holder proven dead and age > maxAgeMs: reap detached child if recorded, then delete
+      const rawMeta = meta as { childPid?: unknown; childStartTime?: unknown };
+      if (typeof rawMeta.childPid === "number" && rawMeta.childPid > 0) {
+        const childRecord: ClaudeLockHolderRecord = {
+          pid: rawMeta.childPid,
+          startTime: typeof rawMeta.childStartTime === "number" ? rawMeta.childStartTime : null,
+          bootId: meta.bootId,
+          pidNamespace: meta.pidNamespace,
+        };
+        if (!isRecordedHolderProvenDead(childRecord)) {
+          try {
+            await reapProcessTree(rawMeta.childPid, "SIGKILL", 50);
+          } catch {
+            // Best effort
+          }
+        }
+      }
+
       try {
         rmSync(runDir, { recursive: true, force: true });
         swept++;
