@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, symlinkSync, writeFileSync } from 'node:fs';
+import { dirname, join, relative } from 'node:path';
 import { createInterface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
 
@@ -14,27 +14,34 @@ export const initialize = { jsonrpc: '2.0', id: 'init', method: 'initialize', pa
   protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'fixture-claude', version: 'fixture-qualified' }
 } };
 
-/** Copy the real compiled lightweight graph; only the qualification data is a fixture. */
+/** Copy the whole compiled server next to the fixture qualification data, so every
+ * spawned process (serve, connect, auto-started daemon) derives the same physical
+ * prefix and entrypoint from a single code location. Only the qualification data
+ * is a fixture; everything else is byte-identical, never a mock. Bare imports
+ * resolve through a node_modules symlink to the workspace root, which never
+ * affects prefix or entrypoint derivation. */
 export function qualifiedShim(directory, manifest = fixtureQualification) {
-  const base = new URL('../../dist/', import.meta.url);
-  const seen = new Set();
-  function copy(url) {
-    if (seen.has(url.href)) return; seen.add(url.href);
-    let bytes = readFileSync(url, 'utf8');
-    if (url.pathname.endsWith('/mcp-central-qualification.js')) {
-      assert.ok(bytes.includes('clients: Object.freeze([])'), 'only shipped empty qualification data may be replaced');
-      bytes = bytes.replace('clients: Object.freeze([])', `clients: Object.freeze(${JSON.stringify(manifest.clients)})`);
+  const basePath = fileURLToPath(new URL('../../dist/', import.meta.url));
+  const modules = join(basePath, '..', '..', '..', 'node_modules');
+  assert.ok(existsSync(modules), 'workspace node_modules must be installed for the fixture shim');
+  const copyTree = (source) => {
+    for (const entry of readdirSync(source, { withFileTypes: true })) {
+      if (entry.name.endsWith('.map')) continue;
+      const from = join(source, entry.name);
+      const to = join(directory, relative(basePath, from));
+      if (entry.isDirectory()) { copyTree(from); continue; }
+      if (!entry.isFile()) continue;
+      mkdirSync(dirname(to), { recursive: true });
+      if (from.endsWith('/mcp-central-qualification.js')) {
+        const bytes = readFileSync(from, 'utf8');
+        assert.ok(bytes.includes('clients: Object.freeze([])'), 'only shipped empty qualification data may be replaced');
+        writeFileSync(to, bytes.replace('clients: Object.freeze([])', `clients: Object.freeze(${JSON.stringify(manifest.clients)})`));
+      } else copyFileSync(from, to);
     }
-    const target = join(directory, url.href.slice(base.href.length));
-    mkdirSync(dirname(target), { recursive: true }); writeFileSync(target, bytes);
-    for (const match of bytes.matchAll(/^import\s+(?!type\b)(?:[^;]*?\s+from\s+)?["']([^"']+)["']/gm)) {
-      if (match[1].startsWith('.')) copy(new URL(match[1], url));
-    }
-  }
-  copy(new URL('bin.js', base));
+  };
+  copyTree(basePath);
   writeFileSync(join(directory, 'package.json'), JSON.stringify({ type: 'module' }));
-  // The fallback executes the real server in the same process, never a mock.
-  writeFileSync(join(directory, 'bin-heavy.js'), `import ${JSON.stringify(new URL('bin-heavy.js', base).href)};\n`);
+  symlinkSync(modules, join(directory, 'node_modules'), 'dir');
   return join(directory, 'bin.js');
 }
 
