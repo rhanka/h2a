@@ -74,7 +74,10 @@ export function withWriterMutation(root, domain, fn) {
     const authority = execution.getStore();
     if (authority?.root === resolve(root)) {
       if (domain !== 'presence' && authority.operation) authority.ledger.assertOperation(authority.operation);
-      else authority.registry.assertOwner(authority.token, authority.cleanup ? ['ACTIVE', 'FROZEN'] : ['ACTIVE']);
+      else {
+        authority.registry.assertOwner(authority.token, authority.cleanup ? ['ACTIVE', 'FROZEN'] : ['ACTIVE']);
+        if (control.gate !== 'OPEN' && !authority.cleanup) throw new Error('store_admission_closed');
+      }
     } else if (control.gate !== 'OPEN') throw new Error('store_admission_closed');
     return fn();
   });

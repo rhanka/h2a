@@ -50,3 +50,20 @@ test('should reconcile freeze after lost ACK and reject different handover tuple
     assert.throws(() => restarted.claim({attachmentId:'a',presenceSessionId:'s',expectedInstance:'i'}), /ownership_exists/);
   } finally { fs.rmSync(directory,{recursive:true,force:true}); }
 });
+
+
+test('should close ownership admissions after publication fsync uncertainty until explicit reconciliation', t => {
+ const directory=fs.mkdtempSync(join(tmpdir(),'mh-l4-uncertain-'));
+ try{
+  const registry=new OwnershipRegistry({directory,generation:marker().generation,processIdentity:identity});
+  const token=registry.claim({attachmentId:'a',presenceSessionId:'s',expectedInstance:'i'});
+  const fsync=fs.fsyncSync;let injected=false;
+  t.mock.method(fs,'fsyncSync',fd=>{if(!injected&&fs.fstatSync(fd).isDirectory()){injected=true;throw Error('injected directory fsync failure');}return fsync(fd);});
+  assert.throws(()=>registry.freeze(token,'h'),/persistence_indeterminate/);
+  assert.throws(()=>registry.claim({attachmentId:'b',presenceSessionId:'s2',expectedInstance:'i'}),/reconciliation_required/);
+  assert.throws(()=>registry.assertOwner(token),/reconciliation_required/);
+  t.mock.restoreAll();registry.reconcile();
+  assert.equal(registry.freeze(token,'h').state,'FROZEN');
+  assert.throws(()=>registry.assertOwner(token),/ownership_fenced/);
+ }finally{t.mock.restoreAll();fs.rmSync(directory,{recursive:true,force:true});}
+});
