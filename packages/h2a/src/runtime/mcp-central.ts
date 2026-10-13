@@ -1,3 +1,4 @@
+import { Participants } from "./handover/participants.js";
 /**
  * Machine-local central MCP server. Election is independent of endpoint and
  * workspace within the current private UID runtime namespace.
@@ -149,13 +150,14 @@ function createCentralApp(
   endpoint: string,
   generation: string,
   administration: () => ColdAdministration | undefined,
+  participants: () => Participants | undefined,
   options: { requestStop(): void; idleTimeoutMs: number; sessionLeaseMs: number; precheck?: boolean; endpointPinned?: boolean; managedImage?: boolean; runExecutor?: H2aRunExecutor }
 ): { app: Hono; inventory(): { revision: number; transports: unknown[] }; drain(): { revision: number; calls: number; children: number; briefs: number; callbacks: number; effects: number }; close(): Promise<void> } {
   const app = new Hono();
   const lag = monitorEventLoopDelay({ resolution: 20 });
   lag.enable();
   app.use(new URL(endpoint).pathname, bodyLimit({ maxSize: 4 * 1024 * 1024 }));
-  type Attachment = { transport: StreamableHTTPTransport; handle: CentralAttachmentHandle; touched: number; closing?: Promise<void> };
+  type Attachment = { participant: import("./handover/participants.js").AttachmentParticipant; transport: StreamableHTTPTransport; handle: CentralAttachmentHandle; touched: number; closing?: Promise<void> };
   const sessions = new Map<string, Attachment>();
   let lastBusy = Date.now();
   let closing = false;
@@ -165,23 +167,12 @@ function createCentralApp(
   let launches = 0;
   let callbacks = 0;
   let unresolvedEffects = 0;
-  const runExecutor: H2aRunExecutor = request => {
-    launches++; drainRevision++;
-    const finish = (value: unknown) => {
-      launches--; drainRevision++;
-      if (!value || ["unknown", "launching", "cleanup-failed"].includes((value as { state?: string }).state ?? "")) unresolvedEffects++;
-      return value as Record<string, unknown>;
-    };
-    try {
-      const value = (options.runExecutor ?? executeH2aRun)(request);
-      return value instanceof Promise ? value.then(finish, error => { finish({ state: "unknown" }); throw error; }) : finish(value);
-    } catch (error) { finish({ state: "unknown" }); throw error; }
-  };
+  const runExecutor = options.runExecutor ?? executeH2aRun;
   const closeAttachment = (id: string, attachment: Attachment): Promise<void> => {
     attachment.closing ??= (async () => {
       sessions.delete(id);
       inventoryRevision++;
-      await attachment.handle.close();
+      await attachment.participant.close(() => attachment.handle.close());
       await attachment.transport.close();
       lastBusy = Date.now();
     })();
@@ -200,7 +191,7 @@ function createCentralApp(
     const transaction = administration()?.transaction()?.value;
     const pending = transaction && !["ABORTED", "READY"].includes(transaction.state);
     if (!closing && activeCalls === 0 && launches === 0 && callbacks === 0 && unresolvedEffects === 0 && sessions.size === 0 &&
-      administration()?.admissionsOpen() && !pending && now - lastBusy > options.idleTimeoutMs) options.requestStop();
+      participants()?.drain().complete && administration()?.admissionsOpen() && !pending && now - lastBusy > options.idleTimeoutMs) options.requestStop();
   }, Math.max(25, Math.min(1000, options.idleTimeoutMs, options.sessionLeaseMs) / 2));
   sweep.unref();
   app.use("*", async (context, next) => {
@@ -240,7 +231,14 @@ function createCentralApp(
     if (options.precheck) return context.json({ error: "precheck_admission_closed" }, 409);
     if (closing) return context.json({ error: "central MCP is stopping" }, 503);
     if (!administration()?.admissionsOpen()) {
-      const control = context.req.method !== "POST" || /notifications\/cancelled/.test(await context.req.text());
+      let control = context.req.method !== "POST";
+      if (!control) {
+        try {
+          const message = await context.req.json();
+          const frames = Array.isArray(message) ? message : [message];
+          control = frames.length > 0 && frames.every(frame => frame?.method === 'notifications/cancelled' && !('id' in frame));
+        } catch { control = false; }
+      }
       if (!control) return context.json({ error: "admission_closed", accepted: false, execution: "not_started" }, 409);
     }
     const sharedStore = store();
@@ -267,38 +265,52 @@ function createCentralApp(
         onsessioninitialized: id => { if (created) { sessions.set(id, created); inventoryRevision++; } },
         onsessionclosed: id => { const current = sessions.get(id); if (current) void closeAttachment(id, current); }
       });
-      const handle = openCentralAttachment(root, workspace, sharedStore, captured, notification => {
+      const participant = participants()!.attach(randomUUID(), { workspace, ...(captured ? { attachment: captured } : {}) });
+      participant.initialized = false;
+      const handle = participant.runOwner(() => openCentralAttachment(root, workspace, sharedStore, captured, async notification => {
         if (protocol) {
           callbacks++; drainRevision++;
-          void protocol.notification(notification).catch(() => {}).finally(() => { callbacks--; drainRevision++; });
+          const operation = participant.begin('callback');
+          try { await protocol.notification(notification); participant.finish(operation, { delivered: true }); }
+          catch (error) { participant.finish(operation, { state: 'unknown', error: String(error) }, true); throw error; }
+          finally { callbacks--; drainRevision++; }
         }
-      }, runExecutor);
+      }, runExecutor, participant));
       protocol = createCentralProtocolServer(handle.mcp);
-      attachment = created = { transport, handle, touched: Date.now() };
-      await protocol.connect(transport);
+      attachment = created = { participant, transport, handle, touched: Date.now() };
+      try { await protocol.connect(transport); }
+      catch (error) { await participant.close(() => handle.close()); await transport.close(); throw error; }
     }
     attachment.touched = Date.now();
     lastBusy = Date.now();
     let response;
     try { response = await attachment.transport.handleRequest(context); }
     catch (error) {
-      if (!requestedSessionId) { await attachment.handle.close(); await attachment.transport.close(); }
+      if (!requestedSessionId) { await attachment.participant.close(() => attachment.handle.close()); await attachment.transport.close(); }
       throw error;
     }
     // The server owns identity; the shim only retains the expected resume id.
     const statusResult = attachment.handle.mcp.callTool("h2a_identity_status", {}) as { content: Array<{ text: string }> };
     const status = JSON.parse(statusResult.content[0].text) as { state?: string; instance?: string };
     if (status.state === "identity_ready" && status.instance) context.header("x-h2a-instance", status.instance);
-    if (!requestedSessionId && ![...sessions.values()].includes(attachment)) { await attachment.handle.close(); await attachment.transport.close(); }
+    if (!requestedSessionId && response?.ok) {
+      try {
+        const initialized = await response.clone().json() as { result?: { protocolVersion?: string } };
+        if (initialized.result?.protocolVersion) {
+          attachment.participant.downstreamProtocol = initialized.result.protocolVersion;
+          attachment.participant.initialized = true;
+        }
+      } catch { /* An invalid initialization is closed below, never checkpointed. */ }
+    }
+    if (!requestedSessionId && ![...sessions.values()].includes(attachment)) { await attachment.participant.close(() => attachment.handle.close()); await attachment.transport.close(); }
     return response ?? context.body(null, 202);
     } finally { activeCalls--; drainRevision++; }
   });
-  return { app, inventory: () => ({ schemaVersion: 1, revision: inventoryRevision, shims: [],
-      transports: [...sessions.keys()].map(sessionId => ({ sessionId, attachmentProtocol: "unqualified" })),
-      operations: [{ activeCalls, callbacks, launches, unresolvedEffects }], quarantines: [], launches: [],
-      endpointPinned: Boolean(options.endpointPinned), managedImage: Boolean(options.managedImage),
-      writerRestrictions: sessions.size ? ["participant_checkpoint_unqualified"] : [] }),
-    drain: () => ({ revision: drainRevision, calls: activeCalls, children: launches, briefs: launches, callbacks, effects: unresolvedEffects }),
+  return { app, inventory: () => ({ ...(participants()?.inventory() ?? { schemaVersion: 1, shims: [], transports: [], operations: [], quarantines: [], launches: [], writerRestrictions: ["precheck_admission_closed"] }), revision: inventoryRevision }),
+    drain: () => {
+      const durable = participants()?.drain() ?? { revision: 1, calls: 0, children: 0, briefs: 0, callbacks: 0, effects: 0 };
+      return { ...durable, revision: drainRevision + durable.revision, calls: activeCalls + durable.calls, callbacks: callbacks + durable.callbacks };
+    },
     async close() {
     closing = true;
     clearInterval(sweep);
@@ -313,6 +325,8 @@ export interface StartCentralMcpServerOptions extends CentralMcpPathsOptions {
   successor?: { handoverId: string; transactionEpoch: number; attempt: number };
   /** Verified physical installation prefix; explicit laboratory installation seam. */
   physicalPrefix?: string;
+  /** Trusted admission-closure verifier; absent means continuity is refused. */
+  writerProof?: { evidenceDigest: string; verify(context: unknown): string };
   env?: Readonly<Record<string, string | undefined>>;
   idleTimeoutMs?: number;
   sessionLeaseMs?: number;
@@ -381,6 +395,7 @@ export async function startCentralMcpServer(
   }
   let sharedStore: ReturnType<typeof createLocalStore> | undefined;
   let administration: ColdAdministration | undefined;
+  let participants: Participants | undefined;
   let authentication: ConnectionAuthentication | undefined;
   let marker: any;
   let httpServer: ReturnType<typeof createAuthenticatedServer> | undefined;
@@ -418,12 +433,12 @@ export async function startCentralMcpServer(
         processIdentity: identity, packageVersion: plan.selection?.packageVersion ?? currentCliVersion(), buildId: plan.selection?.buildId ?? "npm-unmanaged",
         manifestDigest: plan.selection?.manifestDigest ?? digest({ packageVersion: currentCliVersion(), entry: physicalPrefix }),
         protocol: 2, handoverProtocol: 1, handoverCapabilities: { managedImage: Boolean(installation),
-          endpointPinned: Boolean(explicitEndpoint), restrictions: [...(installation ? [] : ["unmanaged_image"]), "participant_checkpoint_unqualified"],
+          endpointPinned: Boolean(explicitEndpoint), restrictions: [...(installation ? [] : ["unmanaged_image"]), "store_writer_set_unknown"],
           primitives: ["describe", "inventory", "reserve", "barrier", "renew", "freeze", "checkpoint", "drain-status", "abort", "commit-stop", "stop-status"],
           attachTransfer: false, liveCoordinator: false }, mcpProtocolVersions: ["2025-06-18"],
         descriptorDigest: digest({ tools: [] }), contractDigest: digest({ tools: [] }), state: "ready",
         token: randomUUID(), authKeyReference: authority.authKeyReference };
-      application = createCentralApp(root, () => sharedStore, endpoint, marker.generation, () => administration, {
+      application = createCentralApp(root, () => sharedStore, endpoint, marker.generation, () => administration, () => participants, {
         precheck: options.precheck,
         endpointPinned: Boolean(explicitEndpoint), managedImage: Boolean(installation),
         idleTimeoutMs: options.idleTimeoutMs ?? 60_000, sessionLeaseMs: options.sessionLeaseMs ?? 90_000,
@@ -441,6 +456,15 @@ export async function startCentralMcpServer(
       endpointUrl.port = String(address.port); marker.endpoint = endpoint = endpointUrl.href;
       // Writer and catalogue are ready before durable marker publication.
       mkdirSync(root, { recursive: true, mode: 0o700 });
+      if (!options.precheck) {
+        participants = new Participants({ root, directory: stateDirectory, marker, writerProof: options.writerProof });
+        // The admission preclaim has already proved any previous owner dead.
+        // A committed old writer gate is reopened only by this new authority.
+        if (participants.writerControl().gate !== 'OPEN') {
+          const { updateWriterControl } = await import('./handover/mutation.js');
+          updateWriterControl(root, { gate: 'OPEN', handoverId: null });
+        }
+      }
       sharedStore = createLocalStore({ root, initialize: false, readOnly: Boolean(options.precheck), alwaysEmitConsentBudget: true });
       const catalogServer = createMcpServer({ root, store: sharedStore });
       const catalogue = JSON.parse(JSON.stringify(catalogServer.listTools())) as ReturnType<McpServer["listTools"]>;
@@ -454,18 +478,16 @@ export async function startCentralMcpServer(
       administration = new ColdAdministration({ directory: stateDirectory, marker, inventory: application.inventory, drain: application.drain,
         ...(installation ? { pinDirectory: join(installation.managedRoot, "state", "pins") } : {}),
         verifyAuthority: () => { if (!claim) throw new Error("readiness_unavailable"); compareMarker(markerPath, claim); },
-        freeze: () => {
-          if (application!.inventory().transports?.length || !administration!.drain().complete) throw new Error("participant_checkpoint_unqualified");
-          return { frozen: true, generation: marker.generation, inventoryRevision: application!.inventory().revision };
-        },
-        checkpoint: () => {
-          if (application!.inventory().transports?.length || !administration!.drain().complete) throw new Error("participant_checkpoint_unqualified");
-          const checkpoint = { schemaVersion: 1, generation: marker.generation, publicationEpoch: marker.publicationEpoch,
-            inventoryRevision: application!.inventory().revision, drainRevision: administration!.drain().revision, emptyAttachments: true };
-          const reference = `checkpoint-${digest(checkpoint).slice(7)}.json`, path = join(stateDirectory, reference);
-          if (!readState(path, "emptyCheckpoint")) publishState(path, checkpoint, "emptyCheckpoint");
-          return { references: [reference] };
-        },
+        ...(participants ? {
+          withMutationLock: (fn: () => unknown) => participants!.registry.withLock(fn),
+          reconcileParticipants: (tx: any) => participants!.reconcileTransaction(tx),
+          assertEligible: () => participants!.assertEligible(),
+          barrier: (tx: any) => participants!.barrier(tx.handoverId),
+          abort: (tx: any) => participants!.abort(tx.handoverId),
+          freeze: (_payload: any, tx: any) => participants!.freeze(tx.handoverId),
+          checkpoint: (_payload: any, tx: any) => participants!.checkpoint(tx.handoverId),
+          commit: () => participants!.commit()
+        } : {}),
         ...(installation && !options.precheck ? {
           authorizeTarget: (target: any, epoch: number) => verifyTarget(installation, target, epoch),
           verifyEntry: (phase: string) => checkManagedEntry(installation, managedEntry, phase),

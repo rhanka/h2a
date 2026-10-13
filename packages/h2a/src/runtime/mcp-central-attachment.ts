@@ -6,6 +6,7 @@ import type { createLocalStore } from "./local-files/index.js";
 import { createMcpServer, type McpServer } from "./mcp/server.js";
 import type { H2aRunExecutor } from "./mcp/agent-launch.js";
 import { CENTRAL_ATTACHMENT_ENV, type CentralMcpAttachment } from "./mcp-central-context.js";
+import type { AttachmentParticipant } from "./handover/participants.js";
 
 export type CentralAttachmentHandle = { mcp: McpServer; close(): Promise<void> };
 
@@ -14,11 +15,13 @@ export function openCentralAttachment(
   workspace: string,
   store: ReturnType<typeof createLocalStore>,
   context: CentralMcpAttachment | undefined,
-  notify: (notification: Notification) => void,
-  runExecutor?: H2aRunExecutor
+  notify: (notification: Notification) => Promise<void>,
+  runExecutor?: H2aRunExecutor,
+  participant?: AttachmentParticipant
 ): CentralAttachmentHandle {
   if (!context) {
-    const mcp = createMcpServer({ root, workspaceRoot: workspace, store, ...(runExecutor ? { runExecutor } : {}) });
+    const mcp = createMcpServer({ root, workspaceRoot: workspace, store, ...(participant ? { participant } : {}), ...(runExecutor ? { runExecutor } : {}) });
+    participant?.bind(mcp);
     return { mcp, async close() { mcp.notifications.stop(); mcp.sessions.closeAll("closed"); } };
   }
   const input = new PassThrough();
@@ -26,11 +29,12 @@ export function openCentralAttachment(
   let mcp: McpServer | undefined;
   const output = new Writable({ write(chunk: Buffer, _encoding, done) {
     try {
+      const deliveries: Promise<void>[] = [];
       for (const line of chunk.toString("utf8").split("\n").filter(Boolean)) {
         const message = JSON.parse(line) as Notification;
-        if (message.method) notify(message);
+        if (message.method) deliveries.push(notify(message));
       }
-      done();
+      void Promise.all(deliveries).then(() => done(), done);
     } catch (error) { done(error as Error); }
   } });
   const daemonEnvironment = Object.fromEntries(Object.entries(process.env).filter(([key]) =>
@@ -42,11 +46,12 @@ export function openCentralAttachment(
     cwd: () => workspace,
     env: { ...daemonEnvironment, ...context.env, H2A_ROOT: root },
     sharedStore: store,
+    ...(participant ? { participant } : {}),
     centralAttachment: true,
     reclaimOnly: context.resume,
     expectedInstance: context.expectedInstance,
     signal: controller.signal,
-    onServer(server) { mcp = server; },
+    onServer(server) { mcp = server; participant?.bind(server); },
     ...(runExecutor ? { runExecutor } : {})
   });
   if (!mcp) { controller.abort(); input.end(); throw new Error("central attachment activation failed"); }
