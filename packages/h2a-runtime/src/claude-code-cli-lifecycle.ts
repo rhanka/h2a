@@ -1,51 +1,34 @@
 /**
- * Claude Code CLI lifecycle: owner/account lease management,
- * process-tree supervision, TTL admission, and startup orphan sweeps.
+ * Claude Code CLI lifecycle: process-tree supervision, TTL admission,
+ * and startup orphan sweeps. Account locking lives in the mesh account
+ * directory (common seat model) — never here.
  */
 import {
   closeSync,
   constants,
   existsSync,
-  mkdirSync,
   openSync,
   readdirSync,
   readFileSync,
   readlinkSync,
-  renameSync,
   rmSync,
   unlinkSync,
   writeFileSync,
 } from "node:fs";
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { resolvePrivateRuntimeRoot } from "./claude-code-cli-isolation.js";
 import { readBootId, readMachineId, readPidNamespaceId, readProcessStartTime } from "./proc-identity.js";
 
-export const DEFAULT_LEASE_TIMEOUT_MS = 30_000; // 30 seconds
 export const DEFAULT_ORPHAN_STALE_AFTER_MS = 5 * 60 * 1000; // 5 minutes
 export const DEFAULT_MIN_REMAINING_TTL_MS = 60_000; // 1 minute
 export const DEFAULT_MAX_REMAINING_TTL_MS = 86_400_000; // 24 hours
 
-export interface ClaudeAccountLease {
-  readonly ownerScope: string;
-  readonly accountId: string;
-  readonly acquiredAt: number;
-  release(): Promise<void>;
-}
-
-// In-process lock registry: one promise queue per ownerScope:accountId
-const inProcessLocks = new Map<string, Promise<void>>();
-
-function hashKey(key: string): string {
-  return createHash("sha256").update(key).digest("hex").slice(0, 32);
-}
-
-function resolveLockDirectory(customDir?: string): string {
-  const dir = customDir ?? join(resolvePrivateRuntimeRoot(), ".locks");
-  mkdirSync(dir, { recursive: true, mode: 0o700 });
-  return dir;
-}
-
+/**
+ * Account locking lives in the mesh account directory, like every other
+ * seat: h2a holds no per-account lease here. The holder record below only
+ * describes sweep/identity metadata (run-meta.json), never a lock claim.
+ */
 export interface ClaudeLockHolderRecord {
   readonly pid?: unknown;
   readonly startTime?: unknown;
@@ -213,289 +196,14 @@ export function isRecordedChildProvenTarget(
   return { proven: true };
 }
 
-function claimTokenOf(holder: ClaudeLockHolderRecord): unknown {
-  return holder.token ?? holder.claimToken;
-}
-
 /**
- * Atomically reclaim a lock file holding a dead claim (c-m6): rename the
- * file aside to a unique path first, so a concurrent claimant's live lock
- * can never be deleted by this waiter. Only the renamed copy is inspected
- * and deleted, and only while it is still the identical dead claim. A live
- * or foreign claim is moved back through an exclusive-create guard — never
- * overwritten, never deleted — and a successor that already claimed the
- * path keeps it (only the stale aside copy is dropped). Never throws;
- * returns true when the path is free to retry.
+ * Account locking lives in the mesh account directory for every seat
+ * (owner decision 2026-10-13, realign on the common seat model): h2a holds
+ * no per-account lease. `acquireClaudeAccountLease` and
+ * `reclaimDeadAccountLock` were removed without replacement — the mesh route
+ * planner serializes acquisition and refresh. What follows is TTL admission,
+ * process reaping, and the orphan sweep (proven-dead sandboxes only).
  */
-export function reclaimDeadAccountLock(
-  lockFile: string,
-  expectedHolder: ClaudeLockHolderRecord,
-): boolean {
-  const aside = `${lockFile}.reclaim.${process.pid}.${randomUUID()}`;
-  try {
-    renameSync(lockFile, aside);
-  } catch {
-    return false; // Lost the race or unreadable; caller re-reads.
-  }
-  let moved: ClaudeLockHolderRecord | null = null;
-  try {
-    const parsed: unknown = JSON.parse(readFileSync(aside, "utf8"));
-    if (parsed && typeof parsed === "object") moved = parsed as ClaudeLockHolderRecord;
-  } catch {
-    moved = null;
-  }
-  if (
-    moved &&
-    claimTokenOf(moved) === claimTokenOf(expectedHolder) &&
-    isRecordedHolderProvenDead(moved)
-  ) {
-    try {
-      unlinkSync(aside);
-    } catch {
-      return false;
-    }
-    return true;
-  }
-  // Not the identical dead claim: move it back without ever deleting a
-  // successor's live lock. Claim the path with an exclusive marker, verify
-  // the marker is still ours, then move the aside copy back over it.
-  const marker = `reclaim-guard:${randomUUID()}`;
-  let guardFd: number | null = null;
-  try {
-    guardFd = openSync(lockFile, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY, 0o600);
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === "EEXIST") {
-      // A successor already owns the path: drop only our stale aside copy.
-      try {
-        unlinkSync(aside);
-      } catch {
-        // Best effort
-      }
-    }
-    return false;
-  }
-  try {
-    if (guardFd !== null) writeFileSync(guardFd, marker);
-  } catch {
-    // Best effort
-  }
-  try {
-    if (guardFd !== null) closeSync(guardFd);
-    guardFd = null;
-  } catch {
-    // Best effort
-  }
-  try {
-    const guardBack = readFileSync(lockFile, "utf8");
-    if (guardBack === marker) {
-      renameSync(aside, lockFile);
-    } else {
-      // Our guard was replaced: keep the successor's file, drop ours.
-      try {
-        unlinkSync(aside);
-      } catch {
-        // Best effort
-      }
-    }
-  } catch {
-    // Last-instant race: if the current path holds a live claim it owns the
-    // lease — drop only our stale aside copy, else leave it for next cycle.
-    try {
-      const current: unknown = JSON.parse(readFileSync(lockFile, "utf8"));
-      if (
-        current &&
-        typeof current === "object" &&
-        !isRecordedHolderProvenDead(current as ClaudeLockHolderRecord)
-      ) {
-        unlinkSync(aside);
-      }
-    } catch {
-      // Leave the aside copy for the next cycle; never delete blindly.
-    }
-  }
-  return false;
-}
-
-/**
- * Acquire exclusive in-process and cross-process lock for ownerScope:accountId.
- * Timeout after 30 seconds with a static busy error if cannot be acquired.
- * The lock file carries a random claim token plus pid/start-time/boot
- * identity: a waiter reclaims only a holder proven dead (never a live one,
- * never on PID reuse), verifies it still owns the file after creation, and
- * release deletes only its own claim.
- */
-export async function acquireClaudeAccountLease(
-  ownerScope: string,
-  accountId: string,
-  options: {
-    readonly timeoutMs?: number;
-    readonly lockDir?: string;
-    readonly now?: () => number;
-  } = {},
-): Promise<ClaudeAccountLease> {
-  const timeoutMs = options.timeoutMs ?? DEFAULT_LEASE_TIMEOUT_MS;
-  const nowFn = options.now ?? Date.now;
-  const startTime = nowFn();
-  const leaseKey = `${ownerScope}:${accountId}`;
-  const lockDir = resolveLockDirectory(options.lockDir);
-  const lockFile = join(lockDir, `${hashKey(leaseKey)}.lock`);
-
-  // 1. In-process mutex queue
-  let releaseInProcess: () => void = () => {};
-  const currentLock = inProcessLocks.get(leaseKey) ?? Promise.resolve();
-
-  let acquiredInProcess = false;
-  const inProcessPromise = new Promise<void>((resolve, reject) => {
-    let timer: NodeJS.Timeout | null = null;
-    if (timeoutMs > 0 && Number.isFinite(timeoutMs)) {
-      timer = setTimeout(() => {
-        reject(new Error("Claude account busy: lease acquisition timed out (30s)"));
-      }, timeoutMs);
-    }
-
-    currentLock.then(() => {
-      if (timer) clearTimeout(timer);
-      acquiredInProcess = true;
-      resolve();
-    }).catch(reject);
-  });
-
-  const nextLock = new Promise<void>((resolve) => {
-    releaseInProcess = resolve;
-  });
-  inProcessLocks.set(leaseKey, nextLock);
-
-  try {
-    await inProcessPromise;
-  } catch (err) {
-    releaseInProcess();
-    if (inProcessLocks.get(leaseKey) === nextLock) {
-      inProcessLocks.delete(leaseKey);
-    }
-    throw err;
-  }
-
-  // 2. Cross-process file lock with remaining timeout budget
-  const claimToken = randomUUID();
-  const readHolder = (): ClaudeLockHolderRecord | null => {
-    try {
-      const parsed: unknown = JSON.parse(readFileSync(lockFile, "utf8"));
-      if (!parsed || typeof parsed !== "object") return null;
-      return parsed as ClaudeLockHolderRecord;
-    } catch {
-      return null;
-    }
-  };
-  const writeClaim = (targetFd: number) => {
-    const lockPayload = JSON.stringify({
-      pid: process.pid,
-      startTime: readProcessStartTime(process.pid) ?? null,
-      bootId: readBootId() ?? null,
-      pidNamespace: readPidNamespaceId() ?? null,
-      machineId: readMachineId() ?? null,
-      ownerScope,
-      accountId,
-      acquiredAt: nowFn(),
-      token: claimToken,
-    });
-    writeFileSync(targetFd, lockPayload);
-  };
-
-  let fd: number | null = null;
-  while (true) {
-    const elapsed = nowFn() - startTime;
-    if (elapsed >= timeoutMs) {
-      releaseInProcess();
-      if (inProcessLocks.get(leaseKey) === nextLock) {
-        inProcessLocks.delete(leaseKey);
-      }
-      throw new Error("Claude account busy: lease acquisition timed out (30s)");
-    }
-
-    try {
-      fd = openSync(
-        lockFile,
-        constants.O_CREAT | constants.O_EXCL | constants.O_RDWR,
-        0o600,
-      );
-      writeClaim(fd);
-      // Read-back: prove this waiter still owns the file it just created.
-      // A concurrent reclaimer that replaced the file between creation and
-      // this read owns it instead; back off and wait on its live claim.
-      const back = readHolder() as { token?: unknown } | null;
-      if (!back || back.token !== claimToken) {
-        try {
-          if (fd !== null) {
-            closeSync(fd);
-            fd = null;
-          }
-        } catch {
-          // Best effort
-        }
-        await new Promise((r) => setTimeout(r, 100));
-        continue;
-      }
-      break;
-    } catch (err: unknown) {
-      const code = (err as NodeJS.ErrnoException).code;
-      if (code === "EEXIST") {
-        const holder = readHolder();
-        if (holder && isRecordedHolderProvenDead(holder)) {
-          // Atomic reclaim: rename aside first, so a concurrent claimant's
-          // live lock can never be deleted by this waiter (c-m6). The path
-          // itself is never unlinked here.
-          try {
-            reclaimDeadAccountLock(lockFile, holder);
-          } catch {
-            // Best effort; the loop re-reads.
-          }
-          continue;
-        }
-
-        // Live holder, unprovable holder, or unreadable file: wait.
-        await new Promise((r) => setTimeout(r, 100));
-        continue;
-      }
-      releaseInProcess();
-      if (inProcessLocks.get(leaseKey) === nextLock) {
-        inProcessLocks.delete(leaseKey);
-      }
-      throw err;
-    }
-  }
-
-  let released = false;
-  return {
-    ownerScope,
-    accountId,
-    acquiredAt: nowFn(),
-    async release() {
-      if (released) return;
-      released = true;
-      try {
-        if (fd !== null) {
-          closeSync(fd);
-          fd = null;
-        }
-      } catch {
-        // Best effort
-      }
-      try {
-        // Delete only our own claim: a successor's fresh lock is never ours.
-        const current = readHolder() as { token?: unknown } | null;
-        if (current && current.token === claimToken && existsSync(lockFile)) {
-          unlinkSync(lockFile);
-        }
-      } catch {
-        // Best effort
-      }
-      releaseInProcess();
-      if (inProcessLocks.get(leaseKey) === nextLock) {
-        inProcessLocks.delete(leaseKey);
-      }
-    },
-  };
-}
 
 /**
  * Validate token remaining TTL against admission boundaries.

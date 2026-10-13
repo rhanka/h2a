@@ -36,20 +36,12 @@ import {
 import { checkTokenTtlAdmission } from "./claude-code-cli-lifecycle.js";
 
 const TEST_SCRATCH = join(tmpdir(), `h2a-claude-probe-test-${Date.now()}-${process.pid}`);
-const ISOLATED_NETNS_READER = (procPath: string): string =>
-  procPath === "/proc/1/ns/net" ? "net:[4026531836]" : "net:[4026532444]";
-const EGRESS = {
-  mechanism: "netns",
-  inferenceHost: "api.anthropic.com",
-};
 
 beforeEach(() => {
   mkdirSync(TEST_SCRATCH, { recursive: true });
-  process.env.H2A_CLAUDE_EGRESS_ENFORCED = "1";
 });
 
 afterEach(() => {
-  delete process.env.H2A_CLAUDE_EGRESS_ENFORCED;
   rmSync(TEST_SCRATCH, { recursive: true, force: true });
 });
 
@@ -72,9 +64,6 @@ function qualifiedRunnerFor(scriptPath: string) {
     },
     spawnFn: spawn as never,
     sandboxRootDir: TEST_SCRATCH,
-    egressEnforcement: EGRESS,
-    managedSettingsPaths: [],
-    egressNetnsReader: ISOLATED_NETNS_READER,
     timeoutMs: 10_000,
   });
 }
@@ -197,9 +186,6 @@ describe("claude-code-cli-refresh-probe (no child refresh, real children)", () =
       },
       spawnFn: countingSpawn,
       sandboxRootDir: TEST_SCRATCH,
-      egressEnforcement: EGRESS,
-      managedSettingsPaths: [],
-      egressNetnsReader: ISOLATED_NETNS_READER,
       timeoutMs: 10_000,
     });
     const now = Date.now();
@@ -248,9 +234,6 @@ describe("claude-code-cli-refresh-probe (no child refresh, real children)", () =
       },
       spawnFn: countingSpawn,
       sandboxRootDir: TEST_SCRATCH,
-      egressEnforcement: EGRESS,
-      managedSettingsPaths: [],
-      egressNetnsReader: ISOLATED_NETNS_READER,
       timeoutMs: 10_000,
     });
     const access = {
