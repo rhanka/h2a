@@ -9,6 +9,7 @@ import {
   checkTokenTtlAdmission,
   isRecordedChildProvenTarget,
   reapProcessTree,
+  reclaimDeadAccountLock,
   sweepOrphanSandboxes,
 } from "./claude-code-cli-lifecycle.js";
 import { readBootId, readPidNamespaceId, readProcessStartTime } from "./proc-identity.js";
@@ -127,6 +128,61 @@ describe("claude-code-cli-lifecycle", () => {
       const current = JSON.parse(readFileSync(lockFile, "utf8"));
       expect(current.token).not.toBe("stale-foreign-claim");
       await lease.release();
+    });
+
+    it("reclaim deletes only the identical dead claim, never a live lock", async () => {
+      const lockDir = join(TEST_SCRATCH, "locks-reclaim-atomic");
+      mkdirSync(lockDir, { recursive: true });
+      const lockFile = lockPathFor(lockDir, "owner-a", "acct-1");
+
+      // Dead claim on an unrecyclable pid: reclaim frees the path.
+      const dead = { pid: 999999999, startTime: 1, token: "dead-claim" };
+      writeFileSync(lockFile, JSON.stringify(dead));
+      expect(reclaimDeadAccountLock(lockFile, dead)).toBe(true);
+      expect(existsSync(lockFile)).toBe(false);
+
+      // Live claim (this process) seen through a stale dead view: reclaim
+      // refuses and restores the file byte-identical via the guard path.
+      const live = {
+        pid: process.pid,
+        startTime: 12345,
+        bootId: "boot-x",
+        ownerScope: "owner-a",
+        accountId: "acct-1",
+        acquiredAt: Date.now(),
+        token: "live-claim",
+      };
+      writeFileSync(lockFile, JSON.stringify(live));
+      expect(reclaimDeadAccountLock(lockFile, { ...live, token: "stale-view" })).toBe(false);
+      expect(JSON.parse(readFileSync(lockFile, "utf8"))).toEqual(live);
+
+      // Missing path (lost reclaim race): refuse without throwing.
+      expect(reclaimDeadAccountLock(join(lockDir, "missing.lock"), dead)).toBe(false);
+    });
+
+    it("interleaved reclaim keeps the successor's live lock", async () => {
+      // A renames the dead claim aside, B claims the freed path, then A's
+      // stale aside copy must never delete B's live lock.
+      const lockDir = join(TEST_SCRATCH, "locks-reclaim-race");
+      mkdirSync(lockDir, { recursive: true });
+      const lockFile = lockPathFor(lockDir, "owner-a", "acct-1");
+      const dead = { pid: 999999999, startTime: 1, token: "dead-claim" };
+      writeFileSync(lockFile, JSON.stringify(dead));
+      expect(reclaimDeadAccountLock(lockFile, dead)).toBe(true);
+
+      const live = {
+        pid: process.pid,
+        startTime: 12345,
+        bootId: "boot-x",
+        ownerScope: "owner-a",
+        accountId: "acct-1",
+        acquiredAt: Date.now(),
+        token: "successor-claim",
+      };
+      writeFileSync(lockFile, JSON.stringify(live));
+      // A second reclaim against the stale dead view must not touch B.
+      expect(reclaimDeadAccountLock(lockFile, dead)).toBe(false);
+      expect(JSON.parse(readFileSync(lockFile, "utf8"))).toEqual(live);
     });
 
     it("release never deletes a successor's fresh lock file", async () => {
