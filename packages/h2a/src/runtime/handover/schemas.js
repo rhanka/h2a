@@ -35,6 +35,17 @@ const authorization = object({ upgradeId: text, handoverId: text, transactionEpo
 const mac = { ...text, pattern: '^[0-9a-f]{64}$' };
 const mode = choice('cold-stop', 'live-transfer', 'catalogue');
 export const schemas = {
+  secret: versioned({ authorityBinding: hash, purpose: choice('lock', 'authentication'), key: { ...text, pattern: '^[0-9a-f]{64}$' } }),
+  epochs: versioned({ revision: positive, bootId: uuid, counter: integer }),
+  pause: versioned({ revision: positive, paused: boolean, requestedAt: integer, generation: nullable(uuid) }),
+  componentControl: versioned({ revision: positive, activeTransaction: nullable(relative),
+    sourceGeneration: uuid, transactionEpoch: integer, operatorStopCommitted: boolean }),
+  imagePin: versioned({ upgradeId: text, handoverId: text, sourceManifestDigest: hash, targetManifestDigest: hash }),
+  installation: versioned({ prefixId: hash, canonicalPrefix: absolute, uid: integer, managedRoot: absolute }),
+  precheckEvidence: versioned({ targetBuildId: text, targetManifestDigest: hash, targetEntrypoint: absolute,
+    selectionEpoch: positive, trialIdentity: identity, elapsedMs: integer, cleanupVerified: literal(true) }),
+  startupReservation: versioned({ revision: positive, starterIdentity: identity, candidateIdentity: nullable(identity),
+    entrypoint: absolute, createdAt: integer, state: choice('RESERVED', 'STARTING', 'READY', 'FAILED') }),
   namespace: versioned({ ...authority, canonicalRoot: absolute, canonicalMarkerLocation: absolute,
     stateDirectory: absolute, machineIdentity: identity.properties.machineId, authorityDomainReference: relative }),
   authorityDomain: versioned({ ...authority, canonicalMarkerLocation: absolute, canonicalRoot: absolute,
