@@ -859,33 +859,34 @@ Branch: `fix/presence-identity-liveness`. Base: `58f111b3` (origin/main at check
 
 # MH-L2 — authority and authenticated cold succession
 
+# MH-L4 — attachment ownership and admitted operations
+
 ## Objective
-- [x] Deliver author implementation of spec v7 MH-L2 only from 5cb66f7e with ratified QF A+B.
+- [ ] Implement spec v7 §6.6–6.8: ownership, checkpoints, wake, conforming writers, launch receipts and drain.
+- [ ] Freeze executable contracts consumed by MH-L3; product acquisition/restoration remains .8.
 
 ## Scope / Guardrails
-- [x] Own branch feat/0.98.7-mh-l2; main untouched.
-- [x] No installed h2a/dist, real state or unrelated process access.
-- [x] Targeted tests in mkdtemp HOME/XDG/store, Node 22/24, red/green evidence, no skips or Python.
-- [x] Ratifications recorded; real Claude qualification belongs to MH-L8.
+- [x] Branch feat/0.98.7-mh-l4 from c8a11016; main untouched; English conventional commits without trailers.
+- [ ] Targeted Node 22/24 tests, temporary HOME/XDG/store, no skip, nominal red/green and mutation proofs.
+- [ ] Prefix-sensitive integration from git archive plus npm ci under umask 022.
+- [x] No installed h2a/dist, operator state, unrelated process, Python, version bump or publication.
 
 ## Branch Scope Boundaries
-- [x] Allowed: packages/h2a/src/runtime/handover/**, mcp-central*.ts, packages/h2a/src/{bin,cli,cli-contract,index}.ts, packages/h2a-runtime/src/{central-mcp,proc-identity}.ts, packages/h2a/test/mh-l2*, scripts/mh-l2*, docs/plan/mh-l{1,2}/**, BRANCH.md.
-- [x] Conditional: mh-l1-shim.test.js private physicalPrefix fixture required by L2 authority; assertions unchanged.
-- [x] Conditional: CLI contract/map, their named tests and golden counts change together for central stop (§6.5).
-- [x] Conditional: docs/plan/mh-l0/schemas.json regenerated for new L2 records; frozen L0 definitions unchanged.
-- [x] Forbidden: main, installed state, native-terminal implementation, .track, full suite, version/publication, H4 coordinator, gateway, live product switch.
-- [x] BR-L2-EX1: cohesive protocol/test commits and raw evidence archives may exceed 150 lines (evidence also 15 files); selective staging, rollback by git revert.
-- [x] No Makefile: commit directly; no installed harness recorders or shared Track imports.
+- [x] Allowed: runtime/handover/**; local-files/{store,presence,launch-index}.ts; mcp/{notifications,sessions,server,stdio,agent-launch,payload-store}.ts; mirror/serve.ts (audited mirror-seq writer); drive/inbox-wake.ts; blockage/registry.ts; identity/{bindings,live,migration}.ts; mcp-central{,-attachment}.ts; cli.ts internal seam; MH-L4 tests/scripts/docs; BRANCH.md.
+- [x] Conditional: additional business writers only when the audit proves fencing necessary; no native-terminal implementation.
+- [x] Forbidden: main, .track, full suite, H4/live coordinator, MH-L3 shim/replay/catalogue work, gateway, package metadata.
+- [x] BR-L4-EX1: cohesive protocol/test changes and evidence archives may exceed 150 lines / 15 files; selective staging; rollback by git revert.
+- [x] No installed harness/Track recorders. Owner confinement overrides installed h2a review dispatch; conductor owns cross-host review.
 
-## Lot 1 — Authority and selection
-- [x] Reuse exact .6 identity leaf; preclaim before writers through durable ready; marker generation/epoch/inode CAS.
-- [x] Common absolute selection, pause and successor reservations for starters; QF npm router seam.
-- [x] Gate: mh-l2-authority.test.js and mh-l2-starters.test.js red then green.
+## Lot 1 — Ownership and writer authority
+- [x] Durable ownership and epoch CAS, independent operation rights, maintained writer-closure evidence.
+- [x] Mutation guards inside critical sections, janitor revalidation and pure preparatory reads.
+- [x] Gate: mh-l4-ownership.test.js and mh-l4-writers.test.js red/green.
 
-## Lot 2 — Authentication
-- [x] Private v2 secret distinct from decoy; connection challenge, bounded expiring nonces, signed requests/frames.
-- [x] No bearer admission or unchallenged application body on new TCP connection.
-- [x] Gate: mh-l2-auth.test.js red then green.
+## Lot 2 — Checkpoints, notifications and wake
+- [ ] Complete immutable checkpoints, lost ACK, producer/delivery/application receipt separation.
+- [ ] Wake intent before injection, serialized wakes, no automatic unknown replay.
+- [ ] Gate: mh-l4-checkpoint.test.js and mh-l4-wake.test.js red/green.
 
 The parallel `feat/live-cross-cli-messaging` lot owns delivery, host wake and cross-CLI end-to-end measurements. This lot changes only presence/identity and the requested MCP send admission/deadline boundary. `sendLocalMessage` and the CLI retain the existing dormant-deposit contract; MCP opts into live-only admission.
 
@@ -1606,13 +1607,16 @@ La synchronisation finale intègre `origin/main` à `8c1912d7` par avance rapide
 - [x] Shared successor budget ≤3 before spawn; refuse live/unknown candidates; pins preserved and explicit failure.
 - [x] Gate: mh-l2-cold.test.js red then green.
 
-## Lot 4 — Foreground integration and delivery
-- [x] Raccord foreground, shim, run/restore, explicit/auto serve and operator routes.
-- [x] Gate: seven explicit MH-L2 files, Node 22/24; scoped typecheck and required L0/L1 files.
-- [x] Resume regression: L1 shim prefix_owner_mismatch red; private physicalPrefix fixture green on Node 22/24; no assertion weakened.
-- [x] Own branch delivery: fast-forward push, conductor review handoff, French mhl2b-report.md with estimates; final receipt recorded in external report.
+## Lot 3 — Launch receipts and drain
+- [ ] Atomic attachment/name reservation, argument conflict, token-bound receipts, no duplicate spawn/brief.
+- [ ] Drain children/briefs/callbacks/effects after launching reply; durable owner-directed completion.
+- [ ] Gate: mh-l4-launch.test.js and mh-l4-integration.test.js red/green.
+
+## Lot 4 — Verification and delivery
+- [ ] Mutation proofs and explicit files on Node 22 and 24.
+- [ ] Scoped typecheck and affected existing tests; no full suite.
+- [ ] Frozen contracts/audit, fast-forward push, French report with gaps and agent-hour/review estimates.
 
 ## Feedback Loop
-- [x] bwrap userns unavailable; approved worktree/doc operations with private test environment.
-- [x] Final .6 byte freeze and real-client qualification remain conductor/MH-L8 gates.
-- [ ] Conductor independent review of final L2 SHA pending; no consensus claimed by author.
+- [x] bwrap fails before execution; reviewed commands confined to authorized files/private tests.
+- [ ] Conductor independent review and MH-L5/MH-L8 qualification remain visible.
