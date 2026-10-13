@@ -61,6 +61,16 @@ export interface H2ACliVerbContract {
 }
 
 export const H2A_CLI_VERB_CONTRACTS: readonly H2ACliVerbContract[] = [
+  {
+    verb: "central status", outputShape: "resource", exitCodes: [0, 1, 2, 3],
+    requiredFlags: [], optionalFlags: ["runtime-base", "json"],
+    description: "Read authenticated central status and durable MCP pause."
+  },
+  {
+    verb: "central stop", outputShape: "resource", exitCodes: [0, 1, 2, 3],
+    requiredFlags: [], optionalFlags: ["runtime-base", "json"],
+    description: "Persist MCP pause, drain without force; deferred stop remains armed. Exit 0 acknowledges pause, stopped requires verified closure."
+  },
   // --- meta / help ---
   {
     verb: "--help",
