@@ -121,6 +121,7 @@ cases['delegation-effect']=['handover/launch-memo.js',"return this.ledger.publis
 cases['delegation-recovery']=['handover/launch-memo.js',"this.publishDelegation(memo, memo.terminalResult);","",'cuts',true];
 cases['presence-reread']=['local-files/presence.ts',"() => readPresence(args[0], args[1])?.instance","readPresence(args[0], args[1])?.instance",'cuts',true,2];
 cases['wake-freshness']=['handover/wake.js',"...old.value, instructionLine, revision:","...old.value, revision:",'wake',false];
+cases['readiness-idle']=['mcp-central.ts',"application!.ready();","",'idle',true];
 cases['reply-lifetime']=['mcp-central.ts',"async (request): Promise<CallToolResult> => participant.call(async () => {\n      for (const session of mcp.sessions.list()) mcp.sessions.markActivity(session.sessionId);\n      return centralToolResult(mcp, request.params.name, request.params.arguments ?? {});\n    })","async (request): Promise<CallToolResult> => {\n      for (const session of mcp.sessions.list()) mcp.sessions.markActivity(session.sessionId);\n      return centralToolResult(mcp, request.params.name, request.params.arguments ?? {});\n    }",'central',true];
 const name=process.argv[2],vector=cases[name];if(!vector)throw Error('unknown mutation');
 const [leaf,before,after,file,build,count=1]=vector,path='packages/h2a/src/runtime/'+leaf,source=fs.readFileSync(path,'utf8');
