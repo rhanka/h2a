@@ -1,17 +1,17 @@
 command: /usr/bin/node --test packages/h2a/test/mh-l2-authority.test.js
 node: v22.22.1
-private test root: /tmp/mh-l2-test-5vX4jc
+private test root: /tmp/mh-l2-test-ryy6Io
 TAP version 13
 # Subtest: M04 should release its abstract preclaim while a spawned child remains alive without inheriting the descriptor
 ok 1 - M04 should release its abstract preclaim while a spawned child remains alive without inheriting the descriptor
   ---
-  duration_ms: 184.260392
+  duration_ms: 106.880869
   type: 'test'
   ...
 # Subtest: M04 should refuse HTTP-based reclaim, hold preclaim through ready and compare epoch plus inode
 ok 2 - M04 should refuse HTTP-based reclaim, hold preclaim through ready and compare epoch plus inode
   ---
-  duration_ms: 41.967843
+  duration_ms: 20.921786
   type: 'test'
   ...
 1..2
@@ -22,6 +22,6 @@ ok 2 - M04 should refuse HTTP-based reclaim, hold preclaim through ready and com
 # cancelled 0
 # skipped 0
 # todo 0
-# duration_ms 403.19123
+# duration_ms 225.420627
 
-receipt: {"command":["/usr/bin/node","--test","packages/h2a/test/mh-l2-authority.test.js"],"code":0,"signal":null,"elapsedMs":548}
+receipt: {"command":["/usr/bin/node","--test","packages/h2a/test/mh-l2-authority.test.js"],"code":0,"signal":null,"elapsedMs":303}
