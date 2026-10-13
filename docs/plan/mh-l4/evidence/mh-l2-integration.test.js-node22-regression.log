@@ -1,25 +1,25 @@
 command: /usr/bin/node --test packages/h2a/test/mh-l2-integration.test.js
 node: v22.22.1
-private test root: /tmp/mh-l4-test-Z7QU4y
+private test root: /tmp/mh-l4-test-Te0FT4
 TAP version 13
-# {"event":"drive-consent.full-verification","durationMs":0.004568000000006123,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# {"event":"drive-consent.full-verification","durationMs":0.003926999999976033,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
 # Subtest: central should publish v2 ready, refuse decoy, authenticate the bridge and persist an operator stop
-# {"event":"drive-consent.full-verification","durationMs":0.003425999999990381,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# {"event":"drive-consent.full-verification","durationMs":0.0031559999999899446,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
 ok 1 - central should publish v2 ready, refuse decoy, authenticate the bridge and persist an operator stop
   ---
-  duration_ms: 432.132888
+  duration_ms: 368.098329
   type: 'test'
   ...
 # Subtest: central stop should reject force and report a durable deferred pause when no owner is published
 ok 2 - central stop should reject force and report a durable deferred pause when no owner is published
   ---
-  duration_ms: 4.076133
+  duration_ms: 3.258664
   type: 'test'
   ...
 # Subtest: operator stop should wait for an attachment admitted before its asynchronous protocol connection
 ok 3 - operator stop should wait for an attachment admitted before its asynchronous protocol connection
   ---
-  duration_ms: 537.600455
+  duration_ms: 525.761103
   type: 'test'
   ...
 1..3
@@ -30,6 +30,6 @@ ok 3 - operator stop should wait for an attachment admitted before its asynchron
 # cancelled 0
 # skipped 0
 # todo 0
-# duration_ms 1094.576182
+# duration_ms 998.21991
 
-receipt: {"command":["/usr/bin/node","--test","packages/h2a/test/mh-l2-integration.test.js"],"code":0,"signal":null,"elapsedMs":1181}
+receipt: {"command":["/usr/bin/node","--test","packages/h2a/test/mh-l2-integration.test.js"],"code":0,"signal":null,"elapsedMs":1079}
