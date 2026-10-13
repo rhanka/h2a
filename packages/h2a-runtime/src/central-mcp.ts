@@ -4,20 +4,9 @@
  * a persisted endpoint, asks core for protected liveness facts, and starts the
  * existing foreground command as a detached child when necessary.
  */
-import { spawn } from "node:child_process";
-import {
-  chmodSync,
-  closeSync,
-  mkdirSync,
-  openSync,
-} from "node:fs";
 import { homedir } from "node:os";
-import { dirname, isAbsolute, join, resolve } from "node:path";
-
-import { getH2aConfig, resolveConfigPath } from "./config.js";
-
-const CENTRAL_START_TIMEOUT_MS = 10_000;
-const CENTRAL_START_POLL_MS = 100;
+import { isAbsolute, join, resolve } from "node:path";
+import { getH2aConfig } from "./config.js";
 
 type CentralMarker = Readonly<{
   endpoint: string;
@@ -26,6 +15,7 @@ type CentralMarker = Readonly<{
   startedAt: string;
   root?: string;
   protocol?: number;
+  endpointMode?: "fixed" | "discovered";
 }>;
 
 type CentralPing =
@@ -34,6 +24,8 @@ type CentralPing =
   | Readonly<{ kind: "ambiguous" }>;
 
 type CoreCentralMcp = Readonly<{
+  ensureCentralForRoot(root: string): Promise<CentralMarker>;
+  centralMcpMarkerPath(): string;
   H2A_MCP_CENTRAL_ENV: string;
   H2A_MCP_CENTRAL_ENDPOINT_ENV: string;
   centralMcpPing(endpoint: string, timeoutMs?: number): Promise<CentralPing>;
@@ -76,42 +68,6 @@ function loadCoreCentralMcp(): Promise<CoreCentralMcp> {
   return coreCentralMcp;
 }
 
-function delay(milliseconds: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, milliseconds));
-}
-
-function configuredCentralEndpoint(): string | undefined {
-  return getH2aConfig().central?.endpoint;
-}
-
-function centralLogFile(): string {
-  const path = join(dirname(resolveConfigPath()), "mcp-central.log");
-  mkdirSync(dirname(path), { recursive: true });
-  return path;
-}
-
-async function waitForCentralStart(
-  core: CoreCentralMcp,
-  endpoint: string | undefined,
-  spawnFailure: () => Error | undefined,
-): Promise<{ endpoint: string; generation: string }> {
-  const deadline = Date.now() + CENTRAL_START_TIMEOUT_MS;
-  while (Date.now() < deadline) {
-    const failure = spawnFailure();
-    if (failure) throw failure;
-    const marker = core.readCentralMcpMarker();
-    const candidate = endpoint ?? marker?.endpoint;
-    if (candidate && marker) {
-      const ping = await core.centralMcpPing(candidate, CENTRAL_START_POLL_MS);
-      if (ping.kind === "generation" && marker.endpoint === candidate && marker.generation === ping.generation) {
-        return { endpoint: candidate, generation: ping.generation };
-      }
-    }
-    await delay(CENTRAL_START_POLL_MS);
-  }
-  throw new Error(`central MCP did not become ready at ${endpoint} within ${CENTRAL_START_TIMEOUT_MS}ms`);
-}
-
 /**
  * Ensure the persisted central endpoint is served. A live matching marker is
  * reused; dead registrations are reclaimed by the existing foreground serve
@@ -126,70 +82,22 @@ export async function ensureCentralMcp(
     // Relative roots derive from cwd; deterministically select stdio per invariant
     return undefined;
   }
-  const endpoint = configuredCentralEndpoint();
   const root = rawRoot ? resolve(rawRoot) : join(homedir(), "h2a-workspace", ".h2a");
   const core = await loadCoreCentralMcp();
-  const marker = core.readCentralMcpMarker();
-  if (marker) {
-    const ping = await core.centralMcpPing(marker.endpoint);
-    if (ping.kind === "ambiguous") {
-      throw new Error(`central MCP liveness at ${marker.endpoint} is ambiguous; refusing to start another server`);
-    }
-    if (ping.kind === "generation") {
-      if (marker.root !== root || marker.protocol !== 2) throw new Error("central MCP state root/protocol does not match this launch");
-      if ((!endpoint || marker.endpoint === endpoint) && ping.generation === marker.generation) {
-        return { endpoint: marker.endpoint, generation: marker.generation };
-      }
-      throw new Error(
-        `central MCP marker/listener mismatch (${marker.endpoint}, generation ${marker.generation}); refusing to replace a live server`,
-      );
-    }
-  }
-
-  const logFile = centralLogFile();
-  const logFd = openSync(logFile, "a", 0o600);
-  chmodSync(logFile, 0o600);
-  let spawnError: Error | undefined;
-  try {
-    const child = spawn(
-      "h2a",
-      ["mcp-central-serve", "--root", root, "--auto-start"],
-      {
-        detached: true,
-        cwd: homedir(),
-        stdio: ["ignore", logFd, logFd],
-        env: {
-          ...centralSpawnEnvironment(),
-          [core.H2A_MCP_CENTRAL_ENV]: "1",
-          ...(endpoint ? { [core.H2A_MCP_CENTRAL_ENDPOINT_ENV]: endpoint } : {}),
-        },
-      },
-    );
-    child.once("error", (error) => {
-      spawnError = error;
-    });
-    child.unref();
-  } finally {
-    closeSync(logFd);
-  }
-  return waitForCentralStart(core, endpoint, () => spawnError);
-}
-
-/** No conversation, terminal, provider credentials, or repo state enter the daemon. */
-function centralSpawnEnvironment(): NodeJS.ProcessEnv {
-  const env: NodeJS.ProcessEnv = {};
-  for (const key of ["PATH", "HOME", "XDG_RUNTIME_DIR", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME", "REMOTE_CLI_CONFIG_HOME", "TMPDIR", "LANG", "LC_ALL"]) {
-    if (process.env[key] !== undefined) env[key] = process.env[key];
-  }
-  return env;
+  if (typeof core.ensureCentralForRoot !== "function") throw new Error("central_starter_unqualified");
+  return core.ensureCentralForRoot(root);
 }
 
 function activateCentralMcpEnvironment(core: CoreCentralMcp, endpoint: string): void {
   process.env[core.H2A_MCP_CENTRAL_ENV] = "1";
-  process.env[core.H2A_MCP_CENTRAL_ENDPOINT_ENV] = endpoint;
+  process.env.H2A_MCP_AUTHORITY = core.centralMcpMarkerPath();
+  const marker = core.readCentralMcpMarker();
+  if (marker?.endpointMode === "fixed") process.env[core.H2A_MCP_CENTRAL_ENDPOINT_ENV] = endpoint;
+  else delete process.env[core.H2A_MCP_CENTRAL_ENDPOINT_ENV];
 }
 
 function deactivateCentralMcpEnvironment(): void {
+  delete process.env.H2A_MCP_AUTHORITY;
   delete process.env.H2A_MCP_CENTRAL;
   delete process.env.H2A_MCP_CENTRAL_ENDPOINT;
 }
