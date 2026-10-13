@@ -11,9 +11,9 @@ not ok 1 - central should publish v2 ready, refuse decoy, authenticate the bridg
   failureType: 'testCodeFailure'
   error: |-
     Expected values to be strictly equal:
-    
+
     undefined !== 2
-    
+
   code: 'ERR_ASSERTION'
   name: 'AssertionError'
   expected: 2

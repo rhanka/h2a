@@ -17,9 +17,9 @@ not ok 2 - M04 should refuse HTTP-based reclaim, hold preclaim through ready and
   failureType: 'testCodeFailure'
   error: |-
     The input did not match the regular expression /owner_alive/. Input:
-    
+
     'Error: writer must not run'
-    
+
   code: 'ERR_ASSERTION'
   name: 'AssertionError'
   expected:

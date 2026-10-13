@@ -11,9 +11,9 @@ not ok 1 - nominal image should precheck in isolation, cold-stop G0 and start on
   failureType: 'testCodeFailure'
   error: |-
     The input did not match the regular expression /owner_alive/. Input:
-    
+
     'Error: successor_startup_failed'
-    
+
   code: 'ERR_ASSERTION'
   name: 'AssertionError'
   expected:
