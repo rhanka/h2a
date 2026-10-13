@@ -694,7 +694,7 @@ describe("claude-code enrollment", () => {
 
     const result = await enrollViaFacade("claude-code", {
       facade,
-      credentialImport: true,
+      tokenImport: true,
       openBrowser,
       readInput,
       ownerScope: "cli:test-host",
@@ -730,7 +730,7 @@ describe("claude-code enrollment", () => {
     await expect(
       enrollViaFacade("claude-code", {
         facade,
-        credentialImport: true,
+        tokenImport: true,
         readInput,
         ownerScope: "cli:test-host",
       }),
@@ -773,24 +773,12 @@ describe("claude-code enrollment", () => {
     ).rejects.toThrow(/codex.*no CLI-store import.*muse, claude-code/);
 
     await expect(
-      enrollViaFacade("muse", { facade, credentialImport: true }),
-    ).rejects.toThrow(/--token\/--from token is only valid for claude-code/);
-
-    await expect(
       enrollViaFacade("muse", { facade, tokenImport: true }),
     ).rejects.toThrow(/--token\/--from token is only valid for claude-code/);
 
     await expect(
       enrollViaFacade("codex", { facade, from: "token" }),
     ).rejects.toThrow(/--token\/--from token is only valid for claude-code/);
-
-    await expect(
-      enrollViaFacade("claude-code", {
-        facade,
-        cliImport: true,
-        credentialImport: true,
-      }),
-    ).rejects.toThrow(/--cli and --token cannot be combined/);
 
     await expect(
       enrollViaFacade("claude-code", {
@@ -818,12 +806,7 @@ describe("claude-code enrollment", () => {
     expect(resolveEnrollmentMode({ from: "cli" })).toBe("cli");
     expect(resolveEnrollmentMode({ from: "token" })).toBe("token");
     expect(resolveEnrollmentMode({ cliImport: true })).toBe("cli");
-    expect(resolveEnrollmentMode({ credentialImport: true })).toBe("token");
     expect(resolveEnrollmentMode({ tokenImport: true })).toBe("token");
-    // Legacy token spellings agree with each other (same mode, no conflict).
-    expect(
-      resolveEnrollmentMode({ credentialImport: true, tokenImport: true }),
-    ).toBe("token");
     expect(() =>
       resolveEnrollmentMode({ from: "cli", tokenImport: true }),
     ).toThrow(/--from cannot be combined/);
@@ -1039,11 +1022,7 @@ describe("claude-code import modes (--from cli|token)", () => {
   });
 
   it("treats --from token and legacy --token as the token import leg", async () => {
-    for (const options of [
-      { from: "token" as const },
-      { tokenImport: true },
-      { credentialImport: true },
-    ]) {
+    for (const options of [{ from: "token" as const }, { tokenImport: true }]) {
       const facade = credentialImportFacade();
       const fakeJson = JSON.stringify({
         claudeAiOauth: {

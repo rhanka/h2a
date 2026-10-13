@@ -63,12 +63,6 @@ export interface FacadeEnrollmentOptions {
    */
   cliImport?: boolean;
   /**
-   * Legacy spelling of the token import mode for Claude (use `tokenImport`
-   * / `--from token`). Accepts no secret value argument on CLI; TTY prompt
-   * is masked in-process, non-TTY stdin is read as a pipe.
-   */
-  credentialImport?: boolean;
-  /**
    * Serialized token import mode for Claude (`--token` / `--from token`):
    * a renewable credential JSON from a secret manager. Never argv, never
    * logged: piped stdin when stdin is not a TTY, masked prompt otherwise.
@@ -217,21 +211,18 @@ const ENROLLMENT_MODES: readonly string[] = ["oauth", "cli", "token"];
 
 /**
  * Resolve the effective enrollment source from the canonical `--from`
- * selector and the legacy `--cli` / `--credential-import` / `--token`
- * booleans. Static errors only; nothing secret-adjacent is echoed.
+ * selector and the legacy `--cli` / `--token` booleans. Static errors
+ * only; nothing secret-adjacent is echoed.
  */
 export function resolveEnrollmentMode(
-  options: Pick<
-    FacadeEnrollmentOptions,
-    "from" | "cliImport" | "credentialImport" | "tokenImport"
-  >,
+  options: Pick<FacadeEnrollmentOptions, "from" | "cliImport" | "tokenImport">,
 ): LlmMeshEnrollmentMode {
   const legacy: LlmMeshEnrollmentMode[] = [
     ...(options.cliImport ? (["cli"] as const) : []),
-    ...((options.credentialImport || options.tokenImport) ? (["token"] as const) : []),
+    ...(options.tokenImport ? (["token"] as const) : []),
   ];
   if (options.from !== undefined && legacy.length > 0) {
-    throw new Error("--from cannot be combined with --cli, --credential-import or --token");
+    throw new Error("--from cannot be combined with --cli or --token");
   }
   if (legacy.length > 1) {
     throw new Error("--cli and --token cannot be combined");
