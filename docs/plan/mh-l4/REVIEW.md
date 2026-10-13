@@ -12,4 +12,6 @@ Two read-only local collaboration legs were used for adversarial critique, under
 | Ownership/writers | Abort before barrier, presence-target binding and instance re-read under lock, admissions between barrier and freeze, mirror-seq writer: accepted and corrected. Latest delta re-read: no remaining factual blocker. No demonstrated inverse identity-lock order. |
 | Effects/cuts | Async token mismatch, cache argument conflict, final-memo/ledger crash and lost delegation event, cancellation-string bypass, actual downstream version, reply-payload operation lifetime: accepted and corrected with targeted regression oracles. Latest delta re-read: no remaining factual blocker. |
 
+Qualification found an idle retirement race on Node 22 (100 ms fixture) after slow participant preparation. A deterministic synchronous preparation stall reproduced ECONNRESET; the private app readiness hook now starts the idle clock after durable publication, without changing the fixture threshold. See the qualification evidence for red/green and mutation receipts.
+
 Skill reference: /home/antoinefa/.codex/skills/harness-review/SKILL.md. Its installed h2a dispatch is overridden by explicit owner confinement. This record does not substitute for the requested conductor review.
