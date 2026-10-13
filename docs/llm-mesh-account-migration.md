@@ -94,7 +94,7 @@ format changed; do not replace keyrings or restore an expired bearer. Relaunch
 only the selected native sessions that need to acquire a fresh bearer, then
 compare the same public inventory and configuration recorded before migration.
 
-## Claude seat accounts (unreleased — enrollment only)
+## Claude seat accounts (common seat model — DEC-118)
 
 Claude subscription accounts are supported as owner-scoped `llm-mesh` seats.
 
@@ -127,10 +127,10 @@ Both paths persist credentials exclusively through the existing mesh-managed enc
 
 ### Status and limitations
 
-Current operational status: **enrollment only / execution not-covered** until independent qualification stages (M0–M7) are completed by the host owner.
+Current operational status: **same seat model as every other provider; serving needs the owner-qualified pinned CLI** (owner decision 2026-10-13, DEC-118: "je veux une connexion réelle au compte claude code exactement dans le meme modele que les autres sieges" — "tu fais comme pour les autres sieges, rien de spécifique a claude"). The Claude-only guards are gone: no egress/netns precondition, no managed-config or registry/MDM refusal, no org-proof gate, no h2a-side account lease, no serving halt.
 
-- **Pre-acquire lease integration gate (Section 3A):** llm-mesh 0.25.0 constructs its account directory internally without an outer pre-acquire lease seam. Seat gateway serving remains halted until an additive seam is delivered in mesh.
+- **Gateway composition:** the host composes mesh `ClaudeCodeRuntimeClient` on the h2a pinned-CLI runner into the provider registry via `AnthropicAdapter` — like the other four seats — when `H2A_CLAUDE_BINARY_PATH` and `H2A_CLAUDE_BINARY_DIGEST` (64-hex fingerprint) are both set. Unconfigured composes no Anthropic route: the same fail-closed per-attempt outcome as a seat with no enrolled account. After setting them, restart the local gateway (`h2a llm-mesh restart`).
 - **One-message capability scope:** The initial qualified serving outcome covers one user text message and streamed response through the official pinned CLI (`protocol: 'claude-code-stream-json-v1'`).
-- **Zero child refresh & network boundary:** the projected credential carries access material only (no refresh token); a child that fails with an inference error is never retried and never refreshed by the runner — rotation stays a mesh-side parent operation.
-- **Seat spawn preconditions (fail closed):** no spawn unless the runner itself observes an isolated Linux network namespace (`/proc/self/ns/net` != `/proc/1/ns/net`, owner-established via `unshare -n` / `ip netns exec` before launching h2a) plus the out-of-band `H2A_CLAUDE_EGRESS_ENFORCED=1` switch; after spawn the child's namespace (`/proc/<pid>/ns/net`) must equal the runner-observed one or the child is killed before any streaming. Non-Linux refuses. No caller callback, path, proxy variable, or test mechanism is trusted (no such path exists in shipped code). The pinned CLI fingerprint and digest-pinned probe qualification (version string alone never qualifies) are mandatory; spawn is refused while admin managed-settings exist (managed files including conservative unverified macOS plist candidates; Windows `HKLM`+`HKCU\SOFTWARE\Policies\ClaudeCode` including WSL, fail-closed on unreadable source). Organization proof is `blocked_pending_mesh_seam` (mesh 0.25.0 projects only accessToken/expiresAt/scopes). The runner inherits no parent `PATH` (fixed minimal value scoped to the binary directory).
+- **Zero child refresh:** the projected credential carries access material only (no refresh token); a child that fails with an inference error is never retried and never refreshed by the runner — rotation stays a mesh-side parent operation.
+- **Seat spawn preconditions (fail closed):** absolute binary path, pinned CLI 2.1.296, mandatory sha256 fingerprint with digest-bound qualification attestation (version string alone never qualifies), and a real provider TTL window. The runner inherits no parent `PATH` (fixed minimal value scoped to the binary directory). Sandbox cleanup failure blocks the result; process identity is proven before any signal.
 - **History and tools:** Multi-turn history and caller tools remain unproven and `not-covered`. Requests with tools are refused at spawn until client-side tool transport (local MCP qualification) and end-to-end proofs are delivered; caller-provided tool names are never passed to `--tools` and built-in CLI tool names are rejected. The runner passes `--permission-mode dontAsk` (never `--dangerously-skip-permissions`).
