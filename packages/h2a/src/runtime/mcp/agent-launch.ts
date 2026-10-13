@@ -662,6 +662,7 @@ function recordMcpRunDelegationUnfenced(
   root: string,
   result: Record<string, unknown>,
   delegation: H2aRunDelegation | undefined,
+  eventId?: string,
 ): void {
   if (!delegation || result.ok !== true || result.state !== "started") return;
   const session = result.session;
@@ -673,10 +674,17 @@ function recordMcpRunDelegationUnfenced(
   try {
     const registry = join(root, "registry");
     mkdirSync(registry, { recursive: true, mode: 0o700 });
+    if (eventId) {
+      try {
+        if (readFileSync(join(registry, 'mcp-delegations.jsonl'), 'utf8').split('\n').filter(Boolean)
+          .some(line => (JSON.parse(line) as { eventId?: string }).eventId === eventId)) return;
+      } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
+    }
     appendFileSync(
       join(registry, "mcp-delegations.jsonl"),
       `${JSON.stringify({
         version: 1,
+        ...(eventId ? { eventId } : {}),
         workerTmuxSession: tmuxSession,
         workerPid,
         origin: delegation.origin,
