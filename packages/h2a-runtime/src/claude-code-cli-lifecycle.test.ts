@@ -21,11 +21,29 @@ const lockPathFor = (lockDir: string, ownerScope: string, accountId: string) =>
 
 const TEST_SCRATCH = join(tmpdir(), "h2a-claude-lifecycle-test-" + Date.now());
 
+let savedXdgRuntime: string | undefined;
+let savedHome: string | undefined;
+let savedH2aRoot: string | undefined;
+
 beforeEach(() => {
   mkdirSync(TEST_SCRATCH, { recursive: true });
+  savedXdgRuntime = process.env.XDG_RUNTIME_DIR;
+  savedHome = process.env.HOME;
+  savedH2aRoot = process.env.H2A_ROOT;
+  const tempRuntime = join(TEST_SCRATCH, "run");
+  mkdirSync(tempRuntime, { recursive: true, mode: 0o700 });
+  process.env.XDG_RUNTIME_DIR = tempRuntime;
+  process.env.HOME = join(TEST_SCRATCH, "home");
+  process.env.H2A_ROOT = join(TEST_SCRATCH, "h2a-root");
 });
 
 afterEach(() => {
+  if (savedXdgRuntime === undefined) delete process.env.XDG_RUNTIME_DIR;
+  else process.env.XDG_RUNTIME_DIR = savedXdgRuntime;
+  if (savedHome === undefined) delete process.env.HOME;
+  else process.env.HOME = savedHome;
+  if (savedH2aRoot === undefined) delete process.env.H2A_ROOT;
+  else process.env.H2A_ROOT = savedH2aRoot;
   rmSync(TEST_SCRATCH, { recursive: true, force: true });
   vi.restoreAllMocks();
 });
@@ -304,6 +322,51 @@ describe("claude-code-cli-lifecycle", () => {
 
       expect(result).toEqual({ swept: 0, retained: 0, skippedAlive: 0 });
       expect(existsSync(staleDir)).toBe(true);
+    });
+
+    it("reaps an orphan detached child process when sweeping its sandbox", async () => {
+      const rootDir = join(TEST_SCRATCH, "child-reap-root");
+      mkdirSync(rootDir, { recursive: true });
+
+      const staleDir = join(rootDir, "run-orphan-child");
+      mkdirSync(staleDir, { recursive: true });
+
+      // Spawn a real throwaway child process that stays alive until killed
+      const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], {
+        detached: true,
+        stdio: "ignore",
+      });
+      const childPid = child.pid!;
+      expect(childPid).toBeGreaterThan(0);
+      expect(() => process.kill(childPid, 0)).not.toThrow();
+
+      writeFileSync(
+        join(staleDir, "run-meta.json"),
+        JSON.stringify({
+          pid: 999999, // Dead parent
+          childPid,
+          createdAt: Date.now() - 600_000,
+        }),
+      );
+
+      const result = await sweepOrphanSandboxes(rootDir, { maxAgeMs: 300_000 });
+      expect(result.swept).toBe(1);
+      expect(existsSync(staleDir)).toBe(false);
+
+      // Verify the orphan child was reaped
+      const deadline = Date.now() + 2000;
+      for (;;) {
+        try {
+          process.kill(childPid, 0);
+        } catch {
+          break;
+        }
+        if (Date.now() > deadline) {
+          try { process.kill(childPid, "SIGKILL"); } catch {}
+          throw new Error("Orphan child process survived sweep");
+        }
+        await new Promise((r) => setTimeout(r, 25));
+      }
     });
   });
 });

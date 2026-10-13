@@ -35,7 +35,11 @@ import {
 import { checkTokenTtlAdmission } from "./claude-code-cli-lifecycle.js";
 
 const TEST_SCRATCH = join(tmpdir(), `h2a-claude-probe-test-${Date.now()}-${process.pid}`);
-const EGRESS = { mechanism: "test-host-firewall", inferenceHost: "api.anthropic.com" };
+const EGRESS = {
+  mechanism: "test-host-firewall",
+  inferenceHost: "api.anthropic.com",
+  verifySandbox: () => true,
+};
 
 beforeEach(() => {
   mkdirSync(TEST_SCRATCH, { recursive: true });
@@ -275,45 +279,72 @@ describe("claude-code-cli-refresh-probe (no child refresh, real children)", () =
   }, 15000);
 
   it("pinned probe reads real binary bytes into separate receipts without executing", () => {
-    const pinnedBinaryPath = process.env.CLAUDE_PINNED_BINARY_PATH ?? "/opt/claude/bin/claude";
-    const runPinnedProbe = process.env.RUN_PINNED_CLAUDE_PROBE === "1";
-
-    if (!runPinnedProbe || !existsSync(pinnedBinaryPath)) {
-      const qualificationReceipt = {
+    function probeBinary(binaryPath: string) {
+      if (!existsSync(binaryPath)) {
+        return {
+          stage: "M5-probe",
+          status: "not-qualified" as const,
+          reason: "pinned_binary_probe_unconfigured_or_binary_absent",
+        };
+      }
+      const bytes = readFileSync(binaryPath);
+      const versionText = bytes.toString("utf8");
+      return {
         stage: "M5-probe",
-        status: "not-qualified",
-        reason: "pinned_binary_probe_unconfigured_or_binary_absent",
+        status: "qualified" as const,
+        digestReceipt: {
+          stage: "M5-probe",
+          kind: "digest",
+          path: binaryPath,
+          sha256: createHash("sha256").update(bytes).digest("hex"),
+          bytes: bytes.length,
+        },
+        versionReceipt: {
+          stage: "M5-probe",
+          kind: "version",
+          path: binaryPath,
+          pinnedVersion: "2.1.296",
+          versionStringPresent: versionText.includes("2.1.296"),
+        },
       };
-      expect(qualificationReceipt.status).toBe("not-qualified");
-      return;
     }
 
-    // Real probe, still no execution: static byte reads only.
-    const bytes = readFileSync(pinnedBinaryPath);
-    const digestReceipt = {
-      stage: "M5-probe",
-      kind: "digest",
-      path: pinnedBinaryPath,
-      sha256: createHash("sha256").update(bytes).digest("hex"),
-      bytes: bytes.length,
-    };
-    const versionText = bytes.toString("utf8");
-    const versionReceipt = {
-      stage: "M5-probe",
-      kind: "version",
-      path: pinnedBinaryPath,
-      pinnedVersion: "2.1.296",
-      versionStringPresent: versionText.includes("2.1.296"),
-    };
-    const digestReceiptPath = join(TEST_SCRATCH, "pinned-digest-receipt.json");
-    const versionReceiptPath = join(TEST_SCRATCH, "pinned-version-receipt.json");
-    writeFileSync(digestReceiptPath, JSON.stringify(digestReceipt));
-    writeFileSync(versionReceiptPath, JSON.stringify(versionReceipt));
+    // 1. Verify absent binary returns not-qualified receipt
+    const absentResult = probeBinary(join(TEST_SCRATCH, "non-existent-claude"));
+    expect(absentResult.status).toBe("not-qualified");
+    expect(absentResult.reason).toBe("pinned_binary_probe_unconfigured_or_binary_absent");
 
-    expect(digestReceipt.sha256).toMatch(/^[0-9a-f]{64}$/);
-    expect(digestReceipt.bytes).toBeGreaterThan(0);
-    expect(versionReceipt.versionStringPresent).toBe(true);
-    expect(JSON.parse(readFileSync(digestReceiptPath, "utf8"))).toEqual(digestReceipt);
-    expect(JSON.parse(readFileSync(versionReceiptPath, "utf8"))).toEqual(versionReceipt);
+    // 2. Verify static probe on a controlled fixture binary containing the version string
+    const fixturePath = join(TEST_SCRATCH, "fixture-claude-2.1.296");
+    const fixtureContent = Buffer.from("header\0version 2.1.296 build\0footer");
+    writeFileSync(fixturePath, fixtureContent);
+    const fixtureResult = probeBinary(fixturePath);
+    expect(fixtureResult.status).toBe("qualified");
+    if (fixtureResult.status === "qualified") {
+      expect(fixtureResult.digestReceipt.sha256).toBe(
+        createHash("sha256").update(fixtureContent).digest("hex"),
+      );
+      expect(fixtureResult.digestReceipt.bytes).toBe(fixtureContent.length);
+      expect(fixtureResult.versionReceipt.versionStringPresent).toBe(true);
+
+      const digestReceiptPath = join(TEST_SCRATCH, "pinned-digest-receipt.json");
+      const versionReceiptPath = join(TEST_SCRATCH, "pinned-version-receipt.json");
+      writeFileSync(digestReceiptPath, JSON.stringify(fixtureResult.digestReceipt));
+      writeFileSync(versionReceiptPath, JSON.stringify(fixtureResult.versionReceipt));
+      expect(JSON.parse(readFileSync(digestReceiptPath, "utf8"))).toEqual(fixtureResult.digestReceipt);
+      expect(JSON.parse(readFileSync(versionReceiptPath, "utf8"))).toEqual(fixtureResult.versionReceipt);
+    }
+
+    // 3. If explicit environment run requested and pinned binary exists, probe real binary
+    const pinnedBinaryPath = process.env.CLAUDE_PINNED_BINARY_PATH ?? "/opt/claude/bin/claude";
+    if (process.env.RUN_PINNED_CLAUDE_PROBE === "1" && existsSync(pinnedBinaryPath)) {
+      const realResult = probeBinary(pinnedBinaryPath);
+      expect(realResult.status).toBe("qualified");
+      if (realResult.status === "qualified") {
+        expect(realResult.digestReceipt.sha256).toMatch(/^[0-9a-f]{64}$/);
+        expect(realResult.digestReceipt.bytes).toBeGreaterThan(0);
+        expect(realResult.versionReceipt.versionStringPresent).toBe(true);
+      }
+    }
   });
 });
