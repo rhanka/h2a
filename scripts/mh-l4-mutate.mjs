@@ -116,6 +116,8 @@ const cases={
     true
   ]
 };
+cases['fsync-uncertainty']=['handover/ownership.js',"this.indeterminate = true; this.onIndeterminate?.();","this.onIndeterminate?.();",'ownership',false];
+cases['delegation-effect']=['handover/participants.js',"const eventId = this.manager.ledger.publishEffect(operation, { type: 'launch-delegation', launchId: memo.launchId,\n      delegation: request.delegation, terminalResult: result });","const eventId = digest(result);",'cuts',true];
 const name=process.argv[2],vector=cases[name];if(!vector)throw Error('unknown mutation');
 const [leaf,before,after,file,build,count=1]=vector,path='packages/h2a/src/runtime/'+leaf,source=fs.readFileSync(path,'utf8');
 if(source.split(before).length!==count+1)throw Error('mutation anchor count');
