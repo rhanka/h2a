@@ -62,12 +62,12 @@ describe("claude-code-cli-tools", () => {
     binaryPath: PINNED_TEST_BINARY,
     expectedDigest: PINNED_TEST_DIGEST,
     egressEnforcement: {
-      mechanism: "test-host-firewall",
+      mechanism: "netns",
       inferenceHost: "api.anthropic.com",
-      verifySandbox: vi.fn().mockResolvedValue(true),
     },
     managedSettingsPaths: [] as readonly string[],
-    allowTestEgressMechanism: true,
+    egressNetnsReader: (procPath: string): string =>
+      procPath === "/proc/1/ns/net" ? "net:[4026531836]" : "net:[4026532444]",
     killProcessTreeFn: vi.fn(),
     reapProcessTreeFn: vi.fn().mockResolvedValue(undefined),
   };
