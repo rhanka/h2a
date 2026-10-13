@@ -158,9 +158,6 @@ export function sanitizeClaudeEnrollmentError(error: unknown): Error {
     "piped input required for Claude token entry",
     "ownerScope is required and cannot be blank",
     "Invalid H2A_LLM_MESH_CONFIG_JSON",
-    "provider \"claude-code\" has no CLI-store import",
-    "--token is only valid for claude-code",
-    "--from token is only valid for claude-code",
     "--cli and --token cannot be combined",
     "--from cannot be combined with --cli",
   ];
@@ -241,7 +238,7 @@ export function resolveEnrollmentMode(
   }
   const mode = options.from ?? legacy[0] ?? "oauth";
   if (!ENROLLMENT_MODES.includes(mode)) {
-    throw new Error(`--from must be one of oauth, cli, token (received "${options.from}")`);
+    throw new Error("--from must be one of oauth, cli, token");
   }
   return mode;
 }
