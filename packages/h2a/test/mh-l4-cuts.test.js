@@ -9,6 +9,7 @@ import {Participants} from '../dist/runtime/handover/participants.js';
 import {OwnershipRegistry,OperationLedger} from '../dist/runtime/handover/ownership.js';
 import {LaunchJournal} from '../dist/runtime/handover/launch-memo.js';
 import {writePresence,updatePresence,readPresence,deletePresence} from '../dist/runtime/local-files/presence.js';
+import {localStorePaths,presenceFile} from '../dist/runtime/local-files/paths.js';
 import {createMcpServer} from '../dist/runtime/mcp/server.js';
 import {recordMcpRunDelegation,executeH2aRunWithAsyncSpawn} from '../dist/runtime/mcp/agent-launch.js';
 import {identity,marker,hash} from './helpers/mh-l0-fixtures.js';
@@ -39,6 +40,23 @@ test('should propagate the reserved token through the real async subprocess seam
  assert.equal(options.env.H2A_RUN_LAUNCH_TOKEN,'reserved-token');
  queueMicrotask(()=>{child.stdout.write(JSON.stringify({kind:'h2a.run.failure',version:1,state:'not-started',code:'native-name-collision',phase:'admission',id:'worker',socketPath:join(directory,'socket'),launchId:'worker',creationAttempted:false,retrySafe:true,prompt:{delivered:false}}));child.emit('close',1);});return child;};
  const result=await executeH2aRunWithAsyncSpawn(request,fake,1000,{});assert.equal(result.state,'not-started');
+ }finally{fs.rmSync(directory,{recursive:true,force:true});}
+});
+
+test('should revalidate a replaced presence instance under the mutation lock for update and delete',()=>{
+ const directory=fs.mkdtempSync(join(tmpdir(),'mh-l4-presence-cut-')),root=join(directory,'store');fs.mkdirSync(root,{mode:0o700});
+ try{
+ const p=new Participants({directory,root,marker:marker()}),a=p.attach('a',{workspace:directory});
+ const mcp=a.runOwner(()=>createMcpServer({root,participant:a}));a.bind(mcp);
+ const session=a.runOwner(()=>mcp.sessions.open({instance:'one'}));
+ const file=presenceFile(localStorePaths(root),session.sessionId),assertOwner=p.registry.assertOwner.bind(p.registry);
+ for(const mutate of [()=>updatePresence(root,session.sessionId,{state:'closed'}),()=>deletePresence(root,session.sessionId)]){
+  fs.writeFileSync(file,JSON.stringify(session));let swapped=false;
+  p.registry.assertOwner=(...args)=>{if(!swapped){swapped=true;fs.writeFileSync(file,JSON.stringify({...session,instance:'replacement'}));}return assertOwner(...args);};
+  assert.throws(()=>a.runOwner(mutate),/presence_ownership_mismatch/);
+  p.registry.assertOwner=assertOwner;assert.equal(readPresence(root,session.sessionId).instance,'replacement');assert.equal(readPresence(root,session.sessionId).state,'live');
+ }
+ fs.writeFileSync(file,JSON.stringify(session));mcp.notifications.stop();a.runOwner(()=>mcp.sessions.closeAll());
  }finally{fs.rmSync(directory,{recursive:true,force:true});}
 });
 
@@ -84,5 +102,20 @@ test('should persist owner-directed delegation after freeze and deduplicate the 
  assert.equal(fs.readFileSync(join(root,'registry','mcp-delegations.jsonl'),'utf8').trim().split('\n').length,1);
  assert.equal(p.ledger.effects('a').filter(e=>e.result.type==='launch-delegation').length,1);
  mcp.notifications.stop();mcp.sessions.closeAll();
+ }finally{fs.rmSync(directory,{recursive:true,force:true});}
+});
+
+test('should recover the delegation event after final memo publication but before operation closure',()=>{
+ const directory=fs.mkdtempSync(join(tmpdir(),'mh-l4-delegation-cut-')),root=join(directory,'store');fs.mkdirSync(root,{mode:0o700});
+ try{
+ const p=new Participants({directory,root,marker:marker()}),a=p.attach('a',{workspace:directory});
+ const request={name:'worker',workspace:directory,prompt:'brief',delegation:{origin:'mcp:h2a_run',delegatorInstance:'parent'}};
+ const publish=p.ledger.publishEffect.bind(p.ledger),finish=p.ledger.finish.bind(p.ledger);
+ p.ledger.publishEffect=()=>{throw Error('crash before effect');};p.ledger.finish=()=>{throw Error('crash before closure');};
+ assert.throws(()=>a.executeLaunch(request,()=>({state:'started',ok:true,prompt:{delivered:true}})),/crash before/);
+ p.ledger.publishEffect=publish;p.ledger.finish=finish;assert.equal(a.launches.memos()[0].state,'completed');
+ LaunchJournal.reconcileAll(p.registry,p.ledger);LaunchJournal.reconcileAll(p.registry,p.ledger);
+ const events=p.ledger.effects('a').filter(e=>e.result.type==='launch-delegation');
+ assert.equal(events.length,1);assert.equal(events[0].result.delegation.delegatorInstance,'parent');assert.equal(p.ledger.drain().complete,true);
  }finally{fs.rmSync(directory,{recursive:true,force:true});}
 });

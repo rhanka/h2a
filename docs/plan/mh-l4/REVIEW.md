@@ -9,7 +9,7 @@ Two read-only local collaboration legs were used for adversarial critique, under
 
 | Lens | Findings and disposition |
 |---|---|
-| Ownership/writers | Abort before barrier, presence-target binding, admissions between barrier and freeze, mirror-seq writer: accepted and corrected. No demonstrated inverse identity-lock order. |
-| Effects/cuts | Async token mismatch, cache argument conflict, final-memo/ledger crash, cancellation-string bypass, actual downstream version: accepted and corrected with targeted regression oracles. |
+| Ownership/writers | Abort before barrier, presence-target binding and instance re-read under lock, admissions between barrier and freeze, mirror-seq writer: accepted and corrected. Latest delta re-read: no remaining factual blocker. No demonstrated inverse identity-lock order. |
+| Effects/cuts | Async token mismatch, cache argument conflict, final-memo/ledger crash and lost delegation event, cancellation-string bypass, actual downstream version, reply-payload operation lifetime: accepted and corrected with targeted regression oracles. Latest delta re-read: no remaining factual blocker. |
 
 Skill reference: /home/antoinefa/.codex/skills/harness-review/SKILL.md. Its installed h2a dispatch is overridden by explicit owner confinement. This record does not substitute for the requested conductor review.
