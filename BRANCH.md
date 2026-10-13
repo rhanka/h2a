@@ -1,50 +1,42 @@
-# MH-L1 — 0.98.7 integration and packaging prototype
+# MH-L2 — authority and authenticated cold succession
 
 ## Objective
-- [x] Deliver only spec v7 §12 MH-L1 on cf690fe2, integrating #316 (25117303).
+- [ ] Deliver spec v7 MH-L2 only from 5cb66f7e with ratified QF A+B.
 
 ## Scope / Guardrails
-- [x] Own branch feat/0.98.7-mh-l1 created from feat/0.98.7-mh-l0; main untouched.
-- [x] Owner state, installed h2a/dist, native sockets and unrelated processes forbidden.
-- [x] Targeted test files, private temporary HOME/XDG/stores; no Python or install scripts.
-- [x] Node 22 minimum; Node 24 qualification belongs to the release matrix.
-- [x] No live switch, H4 adoption/entrypoint decision, gateway or native restart.
+- [x] Own branch feat/0.98.7-mh-l2; main untouched.
+- [x] No installed h2a/dist, real state or unrelated process access.
+- [x] Targeted tests in mkdtemp HOME/XDG/store, Node 22/24, red/green evidence, no skips or Python.
+- [x] Ratifications recorded; real Claude qualification belongs to MH-L8.
 
 ## Branch Scope Boundaries
-- [x] Allowed: #316 integration paths, packages/h2a/src/runtime/mcp-central-*, packages/h2a/src/bin.ts, packages/h2a/src/runtime/mcp/transport/**, packages/h2a/src/runtime/handover/{image,schemas}.js, docs/plan/mh-l0/schemas.json, packages/h2a/test/mh-l1-*, scripts/mh-l1-*, docs/plan/mh-l1/**, BRANCH.md.
-- [x] Forbidden: main, installed state, native-terminal implementation, .track (conductor single writer), full suite, version bump/publication.
-- [x] Conditional: packaging prototype is not a release freeze; QF/QC remain owner decisions.
-- [x] BR-L1-EX1: preserve #316 history in an integration merge; cohesive integration/vendor/test commits may exceed 150 lines, rollback by git revert.
-- [x] No Makefile in this repo: selective staging and git commit directly.
+- [x] Allowed: packages/h2a/src/runtime/handover/**, mcp-central*.ts, packages/h2a/src/{bin,cli,cli-contract,index}.ts, packages/h2a-runtime/src/{central-mcp,proc-identity}.ts, packages/h2a/test/mh-l2*, scripts/mh-l2*, docs/plan/mh-l{1,2}/**, BRANCH.md.
+- [x] Forbidden: main, installed state, native-terminal implementation, .track, full suite, version/publication, H4 coordinator, gateway, live product switch.
+- [x] BR-L2-EX1: cohesive protocol/test commits may exceed 150 lines; selective staging, rollback by git revert.
+- [x] No Makefile: commit directly; no installed harness recorders or shared Track imports.
 
-## Lot 1 — Integrate #316
-- [x] Merge #316 onto L0 without rewriting source refs or losing L0 contracts.
-- [x] Gate: node --test packages/h2a/test/mh-l1-preservation.test.js, assertion red then green.
+## Lot 1 — Authority and selection
+- [ ] Reuse exact .6 identity leaf; preclaim before writers through durable ready; marker generation/epoch/inode CAS.
+- [ ] Common absolute selection, pause and successor reservations for starters; QF npm router seam.
+- [ ] Gate: mh-l2-authority.test.js and mh-l2-starters.test.js red then green.
 
-## Lot 2 — Route before initialize
-- [x] Read and retain first initialize; choose by exact clientInfo and qualification observations.
-- [x] Replay first message and buffered tail in the same process on stdio or central; no response before choice.
-- [x] Preserve exclusions, legacy connector behavior, explicit diagnostics and lightweight graph.
-- [x] Gate: node --test packages/h2a/test/mh-l1-routing.test.js.
+## Lot 2 — Authentication
+- [ ] Private v2 secret distinct from decoy; connection challenge, bounded expiring nonces, signed requests/frames.
+- [ ] No bearer admission or unchallenged application body on new TCP connection.
+- [ ] Gate: mh-l2-auth.test.js red then green.
 
-## Lot 3 — Isolate and integrate transport
-- [x] Exercise conversation/workspace/terminal isolation and config preservation with targeted #316 tests.
-- [x] Integrate corrected HTTP transport into h2a payload and prove batch correlation/cleanup with actual HTTP.
-- [x] Gate: node --test packages/h2a/test/mh-l1-transport.test.js and mcp-central-attachments.test.js (named cases only).
+## Lot 3 — Administration and cold stop
+- [ ] Durable serialized steps, idempotence/digest conflicts, barriers and drain.
+- [ ] Internal irreversible STOP_COMMITTED, lost ACK reconciliation, operator pause and armed deferred stop.
+- [ ] Shared successor budget ≤3 before spawn; refuse live/unknown candidates; pins preserved and explicit failure.
+- [ ] Gate: mh-l2-cold.test.js red then green.
 
-## Lot 4 — Packaging prototype
-- [x] Produce repeatable core/runtime payload with exact dependency resolution and published shrinkwrap.
-- [x] Retain real node-pty legacy probe, no Python/node-gyp install path; record closure limits explicitly.
-- [x] Close L0 R1 with a native digest mismatch vector that kills the missing-guard mutation; Node 20 refused, Node 24 ABI recognized.
-- [x] Gate: node --test packages/h2a/test/mh-l1-package.test.js and mh-l0-image.test.js.
-
-## Lot 5 — Delivery
-- [x] Review diff/scope, record constrained review status without consensus claim.
-- [x] Push own branch fast-forward and write French mhl1-report.md, agent-hours and review rounds.
+## Lot 4 — Foreground integration and delivery
+- [ ] Raccord foreground, shim, run/restore, explicit/auto serve and operator routes.
+- [ ] Gate: mh-l2-integration.test.js, scoped typecheck and required L0/L1 files.
+- [ ] Push own branch fast-forward; conductor review handoff and French mhl2b-report.md with estimates.
 
 ## Feedback Loop
-- [x] No v0.98.6 tag locally: integrate current owner-mandated L0 base; byte freeze against final .6 remains release gate.
-- [x] L0 R2 closed now at owner's request: four non-ACTIVE authority vectors kill the missing-guard mutation (r2-red/r2-green logs).
-- [ ] Review R3 QF/QC awaiting explicit owner arbitration; R4–R6 awaiting owner decision on release gates versus L1 fusion verdict (docs/plan/mh-l1/reserve-closure.md).
-- [x] Initial shared node_modules lacked workspace-local dependencies: npm ci --ignore-scripts creates checkout-local lockfile dependencies.
-- [x] Harness recorders/Track imports are not invoked because they would use installed h2a or shared Track state.
+- [x] bwrap userns unavailable; approved worktree/doc operations with private test environment.
+- [x] Final .6 byte freeze and real-client qualification remain conductor/MH-L8 gates.
+- [ ] Conductor independent review of final L2 SHA pending; no consensus claimed by author.
