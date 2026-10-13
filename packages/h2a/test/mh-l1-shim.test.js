@@ -45,7 +45,7 @@ test('C01 should replay unknown initialize and its pipelined tail into the real 
 test('C01 should route an exact fixture client through the real shim and central with one attachment for a pipelined handshake', async () => {
   const f = fixture(); let shim; let central;
   try {
-    central = await startCentralMcpServer({ root: f.root, runtimeBase: f.runtimeBase, env: { H2A_MCP_CENTRAL_ENDPOINT: await endpoint() } });
+    central = await startCentralMcpServer({ root: f.root, runtimeBase: f.runtimeBase, physicalPrefix: f.dir, env: { H2A_MCP_CENTRAL_ENDPOINT: await endpoint() } });
     shim = spawnShim(qualifiedShim(join(f.dir, 'light')), ['mcp-serve', '--host', 'claude', '--runtime-base', f.runtimeBase], f.env, f.repo);
     const pid = shim.child.pid;
     shim.child.stdin.write([initialize, { jsonrpc: '2.0', method: 'notifications/initialized' },

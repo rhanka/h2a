@@ -1,0 +1,77 @@
+command: /usr/bin/node --test packages/h2a/test/mh-l2-cold.test.js
+private test root: /tmp/mh-l2-test-5rehAu
+TAP version 13
+# Subtest: M23/M24 should persist internal stop before close, reconcile lost ACK and never reopen
+not ok 1 - M23/M24 should persist internal stop before close, reconcile lost ACK and never reopen
+  ---
+  duration_ms: 1.621852
+  type: 'test'
+  location: '/home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/test/mh-l2-cold.test.js:9:1'
+  failureType: 'testCodeFailure'
+  error: "Cannot find module '/home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/src/runtime/handover/administration.js' imported from /home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/test/mh-l2-cold.test.js"
+  code: 'ERR_MODULE_NOT_FOUND'
+  stack: |-
+    finalizeResolution (node:internal/modules/esm/resolve:275:11)
+    moduleResolve (node:internal/modules/esm/resolve:861:10)
+    defaultResolve (node:internal/modules/esm/resolve:985:11)
+    #cachedDefaultResolve (node:internal/modules/esm/loader:731:20)
+    ModuleLoader.resolve (node:internal/modules/esm/loader:708:38)
+    ModuleLoader.getModuleJobForImport (node:internal/modules/esm/loader:310:38)
+    onImport.tracePromise.__proto__ (node:internal/modules/esm/loader:664:36)
+    TracingChannel.tracePromise (node:diagnostics_channel:350:14)
+    ModuleLoader.import (node:internal/modules/esm/loader:663:21)
+    defaultImportModuleDynamicallyForModule (node:internal/modules/esm/utils:222:31)
+  ...
+# Subtest: operator pause should remain armed after timeout, cancel explicitly before commit and never clear on upgrade
+not ok 2 - operator pause should remain armed after timeout, cancel explicitly before commit and never clear on upgrade
+  ---
+  duration_ms: 0.342725
+  type: 'test'
+  location: '/home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/test/mh-l2-cold.test.js:52:1'
+  failureType: 'testCodeFailure'
+  error: "Cannot find module '/home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/src/runtime/handover/administration.js' imported from /home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/test/mh-l2-cold.test.js"
+  code: 'ERR_MODULE_NOT_FOUND'
+  stack: |-
+    finalizeResolution (node:internal/modules/esm/resolve:275:11)
+    moduleResolve (node:internal/modules/esm/resolve:861:10)
+    defaultResolve (node:internal/modules/esm/resolve:985:11)
+    #cachedDefaultResolve (node:internal/modules/esm/loader:731:20)
+    ModuleLoader.resolve (node:internal/modules/esm/loader:708:38)
+    ModuleLoader.getModuleJobForImport (node:internal/modules/esm/loader:310:38)
+    onImport.tracePromise.__proto__ (node:internal/modules/esm/loader:664:36)
+    TracingChannel.tracePromise (node:diagnostics_channel:350:14)
+    ModuleLoader.import (node:internal/modules/esm/loader:663:21)
+    defaultImportModuleDynamicallyForModule (node:internal/modules/esm/utils:222:31)
+  ...
+# Subtest: M25 should durably consume at most three attempts, refuse live/unknown candidates and preserve pins
+not ok 3 - M25 should durably consume at most three attempts, refuse live/unknown candidates and preserve pins
+  ---
+  duration_ms: 0.325493
+  type: 'test'
+  location: '/home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/test/mh-l2-cold.test.js:70:1'
+  failureType: 'testCodeFailure'
+  error: "Cannot find module '/home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/src/runtime/handover/successor.js' imported from /home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/test/mh-l2-cold.test.js"
+  code: 'ERR_MODULE_NOT_FOUND'
+  stack: |-
+    finalizeResolution (node:internal/modules/esm/resolve:275:11)
+    moduleResolve (node:internal/modules/esm/resolve:861:10)
+    defaultResolve (node:internal/modules/esm/resolve:985:11)
+    #cachedDefaultResolve (node:internal/modules/esm/loader:731:20)
+    ModuleLoader.resolve (node:internal/modules/esm/loader:708:38)
+    ModuleLoader.getModuleJobForImport (node:internal/modules/esm/loader:310:38)
+    onImport.tracePromise.__proto__ (node:internal/modules/esm/loader:664:36)
+    TracingChannel.tracePromise (node:diagnostics_channel:350:14)
+    ModuleLoader.import (node:internal/modules/esm/loader:663:21)
+    defaultImportModuleDynamicallyForModule (node:internal/modules/esm/utils:222:31)
+  ...
+1..3
+# tests 3
+# suites 0
+# pass 0
+# fail 3
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 101.533979
+
+receipt: {"command":["/usr/bin/node","--test","packages/h2a/test/mh-l2-cold.test.js"],"code":1,"signal":null,"elapsedMs":178}
