@@ -1,0 +1,92 @@
+command: /usr/bin/node --test packages/h2a/test/mh-l4-cuts.test.js
+node: v22.22.1
+private test root: /tmp/mh-l4-test-3rYVi8
+TAP version 13
+# {"event":"drive-consent.full-verification","durationMs":0.04431299999998828,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# {"event":"drive-consent.full-verification","durationMs":0.017624000000012074,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# {"event":"drive-consent.full-verification","durationMs":0.01806400000003805,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# {"event":"drive-consent.full-verification","durationMs":0.022482999999965614,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# {"event":"drive-consent.full-verification","durationMs":0.023033999999995558,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# Subtest: should close admissions at barrier and bind presence mutations to the exact session
+not ok 1 - should close admissions at barrier and bind presence mutations to the exact session
+  ---
+  duration_ms: 79.759463
+  type: 'test'
+  location: '/tmp/mh-l4-release-check-RvMsgD/packages/h2a/test/mh-l4-cuts.test.js:17:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    The input did not match the regular expression /store_admission_closed/. Input:
+    
+    'Error: must not run'
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected:
+  actual:
+  error: 'must not run'
+  stack: |-
+    file:///tmp/mh-l4-release-check-RvMsgD/packages/h2a/test/mh-l4-cuts.test.js:26:53
+    AsyncLocalStorage.run (node:internal/async_local_storage/async_hooks:91:14)
+    withExecution (file:///tmp/mh-l4-release-check-RvMsgD/packages/h2a/dist/runtime/handover/mutation.js:42:65)
+    AttachmentParticipant.call (file:///tmp/mh-l4-release-check-RvMsgD/packages/h2a/dist/runtime/handover/participants.js:218:28)
+    file:///tmp/mh-l4-release-check-RvMsgD/packages/h2a/test/mh-l4-cuts.test.js:26:37
+    getActual (node:assert:609:5)
+    Function.throws (node:assert:757:24)
+    TestContext.<anonymous> (file:///tmp/mh-l4-release-check-RvMsgD/packages/h2a/test/mh-l4-cuts.test.js:26:24)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+  operator: 'throws'
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/mh-l4-release-check-RvMsgD/packages/h2a/test/mh-l4-cuts.test.js:26:24)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.start (node:internal/test_runner/test:944:17)
+    startSubtestAfterBootstrap (node:internal/test_runner/harness:296:17)
+  ...
+# Subtest: should propagate the reserved token through the real async subprocess seam
+ok 2 - should propagate the reserved token through the real async subprocess seam
+  ---
+  duration_ms: 1.825085
+  type: 'test'
+  ...
+# Subtest: should revalidate a replaced presence instance under the mutation lock for update and delete
+ok 3 - should revalidate a replaced presence instance under the mutation lock for update and delete
+  ---
+  duration_ms: 38.94385
+  type: 'test'
+  ...
+# Subtest: should detect conflicting launch parameters through the MCP server cache
+ok 4 - should detect conflicting launch parameters through the MCP server cache
+  ---
+  duration_ms: 67.423582
+  type: 'test'
+  ...
+# Subtest: should reconcile a final memo after a crash before operation closure without executing again
+ok 5 - should reconcile a final memo after a crash before operation closure without executing again
+  ---
+  duration_ms: 47.031094
+  type: 'test'
+  ...
+# Subtest: should persist owner-directed delegation after freeze and deduplicate the eventual writer receipt
+ok 6 - should persist owner-directed delegation after freeze and deduplicate the eventual writer receipt
+  ---
+  duration_ms: 93.002632
+  type: 'test'
+  ...
+# Subtest: should recover the delegation event after final memo publication but before operation closure
+ok 7 - should recover the delegation event after final memo publication but before operation closure
+  ---
+  duration_ms: 63.949833
+  type: 'test'
+  ...
+1..7
+# tests 7
+# suites 0
+# pass 6
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 690.718261
+
+receipt: {"command":["/usr/bin/node","--test","packages/h2a/test/mh-l4-cuts.test.js"],"code":1,"signal":null,"elapsedMs":772}
