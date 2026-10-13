@@ -1,0 +1,26 @@
+command: /usr/bin/node --test packages/h2a/test/mh-l2-auth.test.js
+private test root: /tmp/mh-l2-test-aCnkXL
+TAP version 13
+# Subtest: M18c should never send an application body when a challenged TCP socket is replaced
+ok 1 - M18c should never send an application body when a challenged TCP socket is replaced
+  ---
+  duration_ms: 45.898191
+  type: 'test'
+  ...
+# Subtest: M03/M18b/c should bind challenges and every frame, reject decoy, replay, expiry and saturation
+ok 2 - M03/M18b/c should bind challenges and every frame, reject decoy, replay, expiry and saturation
+  ---
+  duration_ms: 5.673587
+  type: 'test'
+  ...
+1..2
+# tests 2
+# suites 0
+# pass 2
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 339.471061
+
+receipt: {"command":["/usr/bin/node","--test","packages/h2a/test/mh-l2-auth.test.js"],"code":0,"signal":null,"elapsedMs":558}
