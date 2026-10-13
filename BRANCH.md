@@ -342,15 +342,16 @@ Branch: `fix/presence-identity-liveness`. Base: `58f111b3` (origin/main at check
 
 ## Branch Scope Boundaries
 - [x] Allowed: packages/h2a/src/runtime/handover/**, mcp-central*.ts, packages/h2a/src/{bin,cli,cli-contract,index}.ts, packages/h2a-runtime/src/{central-mcp,proc-identity}.ts, packages/h2a/test/mh-l2*, scripts/mh-l2*, docs/plan/mh-l{1,2}/**, BRANCH.md.
+- [x] Conditional: CLI contract/map, their named tests and golden counts change together for central stop (§6.5).
 - [x] Conditional: docs/plan/mh-l0/schemas.json regenerated for new L2 records; frozen L0 definitions unchanged.
 - [x] Forbidden: main, installed state, native-terminal implementation, .track, full suite, version/publication, H4 coordinator, gateway, live product switch.
-- [x] BR-L2-EX1: cohesive protocol/test commits may exceed 150 lines; selective staging, rollback by git revert.
+- [x] BR-L2-EX1: cohesive protocol/test commits and raw evidence archives may exceed 150 lines (evidence also 15 files); selective staging, rollback by git revert.
 - [x] No Makefile: commit directly; no installed harness recorders or shared Track imports.
 
 ## Lot 1 — Authority and selection
 - [x] Reuse exact .6 identity leaf; preclaim before writers through durable ready; marker generation/epoch/inode CAS.
-- [ ] Common absolute selection, pause and successor reservations for starters; QF npm router seam.
-- [ ] Gate: mh-l2-authority.test.js and mh-l2-starters.test.js red then green.
+- [x] Common absolute selection, pause and successor reservations for starters; QF npm router seam.
+- [x] Gate: mh-l2-authority.test.js and mh-l2-starters.test.js red then green.
 
 ## Lot 2 — Authentication
 - [x] Private v2 secret distinct from decoy; connection challenge, bounded expiring nonces, signed requests/frames.
@@ -1071,13 +1072,13 @@ La synchronisation finale intègre `origin/main` à `8c1912d7` par avance rapide
 - [x] Harness recorders/Track imports are not invoked because they would use installed h2a or shared Track state.
 
 ## Lot 3 — Administration and cold stop
-- [ ] Durable serialized steps, idempotence/digest conflicts, barriers and drain.
-- [ ] Internal irreversible STOP_COMMITTED, lost ACK reconciliation, operator pause and armed deferred stop.
-- [ ] Shared successor budget ≤3 before spawn; refuse live/unknown candidates; pins preserved and explicit failure.
-- [ ] Gate: mh-l2-cold.test.js red then green.
+- [x] Durable serialized steps, idempotence/digest conflicts, barriers and drain.
+- [x] Internal irreversible STOP_COMMITTED, lost ACK reconciliation, operator pause and armed deferred stop.
+- [x] Shared successor budget ≤3 before spawn; refuse live/unknown candidates; pins preserved and explicit failure.
+- [x] Gate: mh-l2-cold.test.js red then green.
 
 ## Lot 4 — Foreground integration and delivery
-- [ ] Raccord foreground, shim, run/restore, explicit/auto serve and operator routes.
+- [x] Raccord foreground, shim, run/restore, explicit/auto serve and operator routes.
 - [ ] Gate: mh-l2-integration.test.js, scoped typecheck and required L0/L1 files.
 - [ ] Push own branch fast-forward; conductor review handoff and French mhl2b-report.md with estimates.
 
