@@ -22,7 +22,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { get } from "node:http";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, dirname } from "node:path";
 import { PassThrough } from "node:stream";
 import test from "node:test";
 
@@ -333,6 +333,9 @@ function ensureDrivePair(root) {
 function buildHappyArgv(verb, ctx) {
   const { root, privateKeyPath, publicKeyPath } = ctx;
   switch (verb) {
+    case "central status":
+    case "central stop":
+      return [...verb.split(" "), "--runtime-base", dirname(root)];
     case "--help":
       return ["--help"];
     case "explain":
@@ -1538,6 +1541,8 @@ test("H2A_CLI_VERB_CONTRACTS covers every dispatchable verb (smoke)", () => {
   const declared = H2A_CLI_VERB_CONTRACTS.map((c) => c.verb);
   // Hand-rolled list of verbs we know `runCli` will dispatch.
   const expected = [
+    "central status",
+    "central stop",
     "--help",
     // 2026-07-25: public-contract addition. This branch was written against a
     // 97-verb main; PR #30 landed `keys prove-control` first, then `explain`,
@@ -1663,7 +1668,7 @@ for (const contract of H2A_CLI_VERB_CONTRACTS) {
     });
     continue;
   }
-  test(`${contract.verb} emits a ${contract.outputShape} envelope on the happy path`, (t) => {
+  test(`${contract.verb} emits a ${contract.outputShape} envelope on the happy path`, async (t) => {
     if (contract.outputShape === "stream") {
       t.skip(`${contract.verb}: stream shape without a registered streaming harness (ASYNC_HAPPY_PATHS)`);
       return;
@@ -1702,7 +1707,7 @@ for (const contract of H2A_CLI_VERB_CONTRACTS) {
       if (contract.verb === "upgrade") {
         rc = cmdUpgrade({}, streams, injectedUpgradeRuntime(dir));
       } else {
-        rc = runCli(
+        rc = await runCli(
           argv,
           streams,
           contract.verb === "host setup"

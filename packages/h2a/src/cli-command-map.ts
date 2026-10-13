@@ -206,6 +206,7 @@ const CORE_GROUP_BY_FIRST_WORD: Readonly<Record<string, H2ACommandGroupId>> = {
   register: "SET_UP",
   connect: "SET_UP",
   doctor: "SET_UP",
+  central: "SET_UP",
   hosts: "SET_UP",
   "install-skills": "SET_UP",
   "mcp-serve": "SET_UP",
