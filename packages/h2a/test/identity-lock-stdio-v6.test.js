@@ -36,6 +36,6 @@ test('R7: the actual 0.98.5 parent accepts a 0.98.6 worker with a v1 request and
    const {createIdentityController}=await import(pathToFileURL(copied));const start=performance.now();
    controller=createIdentityController({request:{root,cwd:root,host:'claude',name:'fixture',providerEnv:{CLAUDE_CODE_SESSION_ID:'old-parent',IDLOCK_SIM_ROOT:root,NODE_OPTIONS:process.env.NODE_OPTIONS+' --import '+join(import.meta.dirname,'helpers/legacy-reboot-loader.mjs')}},timeoutMs:2000,activate:identity=>({ok:true,sessionId:'compatible'})});controller.start();
    while(controller.status().state==='identity_pending' && performance.now()-start<2000)await new Promise(r=>setTimeout(r,10));
-   assert.equal(controller.status().state,'identity_ready');assert.equal(controller.status().instance,first.instance);
+   assert.equal(controller.status().state,'identity_ready',JSON.stringify(controller.status()));assert.equal(controller.status().instance,first.instance);
  }finally{controller?.cancel('transport_closed');await new Promise(r=>setTimeout(r,100));fs.rmSync(dir,{recursive:true,force:true});}
 });
