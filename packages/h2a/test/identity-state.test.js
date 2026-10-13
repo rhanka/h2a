@@ -218,7 +218,10 @@ for (const outcome of ["ready", "timeout", "cancel", "reject", "starved"]) {
     assert.equal(prepares, 1, "duplicate worker result cannot start another preparation");
     assert.equal(calls, 0);
     assert.equal(controller.status().state, "identity_pending");
-    if (outcome === "timeout") await new Promise((r) => setTimeout(r, 40));
+    if (outcome === "timeout") {
+      clock = 20_000_000n;
+      await new Promise((r) => setTimeout(r, 40));
+    }
     if (outcome === "cancel") controller.cancel("transport_closed");
     if (outcome === "starved") clock = 6_000_000_000n;
     if (outcome === "reject") reject(new Error("deployment failed"));
@@ -326,3 +329,22 @@ for (const late of ["resolve", "reject"]) {
     controller.cancel("transport_closed");
   });
 }
+
+test('deadline: an early timer wakeup waits for the authoritative monotonic deadline', async t => {
+  const w = fakeWorker();
+  let clockNs = 0n;
+  const controller = createIdentityController({ request, timeoutMs: 20,
+    nowNs: () => clockNs, spawnWorker: w.make,
+    activate: () => { assert.fail('blocked worker must not activate'); } });
+  t.after(() => controller.cancel('transport_closed'));
+  controller.start();
+  clockNs = 19_999_999n;
+  await new Promise(resolve => setTimeout(resolve, 40));
+  assert.equal(controller.status().state, 'identity_pending', 'a timer wakeup is not proof that 20 ms elapsed');
+  clockNs = 20_000_000n;
+  await new Promise(resolve => setTimeout(resolve, 10));
+  const failed = controller.status();
+  assert.equal(failed.state, 'identity_failed');
+  assert.equal(failed.cause, 'identity_timeout');
+  assert.ok(failed.elapsedMs >= 20);
+});

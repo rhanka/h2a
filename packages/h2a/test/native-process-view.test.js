@@ -117,3 +117,42 @@ test("should preserve native realpath in a guarded child with a replaced environ
     assert.equal(child.stdout.trim(), root);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
+
+test("should retain a surviving parent's PTY pin when a late child preload registers itself", async () => {
+  const root = createPrivateTestDirectory("pv"), env = nativeTestEnvironment(root);
+  const pty = createRequire(new URL("../../h2a-runtime/package.json", import.meta.url))("node-pty");
+  const late = new URL("./helpers/native-isolation.js?late-pin", import.meta.url).href;
+  const terminal = pty.spawn(process.execPath, ["--input-type=module", "-e",
+    `process.stdin.setRawMode(true); process.stdin.resume(); console.log('late-pin-ready');
+      process.stdin.once('data', async () => { await import(${JSON.stringify(late)}); console.log('late-pin-installed'); });`],
+    { cwd: root, env, name: "xterm-256color", cols: 80, rows: 24 });
+  let output = "", ended = false;
+  terminal.onData(data => { output += data; });
+  const exited = new Promise(resolve => terminal.onExit(event => { ended = true; resolve(event); }));
+  const until = async marker => {
+    const deadline = performance.now() + 4000;
+    while (!output.includes(marker)) {
+      assert.ok(performance.now() < deadline, output);
+      await new Promise(resolve => setTimeout(resolve, 10));
+    }
+  };
+  let release;
+  try {
+    await until('late-pin-ready');
+    release = pinPrivateNativeProcess(terminal.pid, env);
+    const entry = join(env.H2A_TEST_OWNED_PROC_ROOT, String(terminal.pid));
+    const pin = fs.readlinkSync(entry);
+    assert.ok(pin.startsWith('/proc/' + process.pid + '/fd/'), pin);
+    terminal.write('x');
+    await until('late-pin-installed');
+    terminal.kill("SIGKILL");
+    await exited;
+    await waitForPrivateNativeProcesses(env);
+    assert.equal(fs.readlinkSync(entry), pin, 'late preload must preserve the surviving parent pin');
+  } finally {
+    if (!ended) terminal.kill("SIGKILL");
+    await exited;
+    release?.();
+    rmSync(root, { recursive: true, force: true });
+  }
+});

@@ -490,10 +490,19 @@ export function createIdentityController<P = unknown>(
     startedNs = nowNs();
     state = { state: "identity_pending", attemptId, elapsedMs: 0, timeoutMs: 20000, ...(lastFailure ? {lastFailure} : {}) };
     getActiveMcpTrace()?.phase("identity_pending");
-    deadlineTimer = setTimeout(() => {
-      if (attemptId !== thisAttempt) return;
+    const onDeadline = (): void => {
+      if (attemptId !== thisAttempt || terminal || cancelled) return;
+      // Timers can wake before their requested duration (millisecond clock
+      // quantization). Only the monotonic deadline authorizes expiry.
+      const remaining = timeoutMs - Number(nowNs() - startedNs) / 1_000_000;
+      if (remaining > 0) {
+        deadlineTimer = setTimeout(onDeadline, Math.ceil(remaining));
+        deadlineTimer.unref?.();
+        return;
+      }
       fail("identity_timeout", `identity did not become ready within ${timeoutMs}ms`);
-    }, timeoutMs);
+    };
+    deadlineTimer = setTimeout(onDeadline, timeoutMs);
     deadlineTimer.unref?.();
     worker = spawnWorker(options.request, Math.max(0,timeoutMs-elapsedMs()), {attemptId,diagnosticKey,deadlineNs:(startedNs+BigInt(Math.floor(timeoutMs))*1_000_000n).toString()});
     worker.onObservation?.(observation => {

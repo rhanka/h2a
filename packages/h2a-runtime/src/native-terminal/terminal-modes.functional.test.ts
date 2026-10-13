@@ -1,9 +1,9 @@
 // @ts-ignore Shared JS test isolation helper.
-import { isolatedNativeTestEnvironment, pinPrivateNativeProcess, spawnIsolatedNative as spawn, spawnSyncIsolatedNative as spawnSync, setupNativeTestEnvironment, waitForPrivateNativeProcesses } from "../../../h2a/test/helpers/native-isolation.js";
+import { isolatedNativeTestEnvironment, nativeQualificationRoot, pinPrivateNativeProcess, spawnIsolatedNative as spawn, spawnSyncIsolatedNative as spawnSync, setupNativeTestEnvironment, waitForPrivateNativeProcesses } from "../../../h2a/test/helpers/native-isolation.js";
 setupNativeTestEnvironment(afterAll);
 import type { ChildProcess } from "node:child_process";
 import { once } from "node:events";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, readlink, rm, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -81,11 +81,18 @@ async function fixture(replayBytes = 4096, command?: { command: string; args: st
   supervisors.add(supervisor);
   const client = await supervisor.client();
   const id = "mode-fixture";
+  // A distinct file forces a real late preload even when tsx canonicalizes
+  // module query strings. Preserve the original qualification boundary.
+  const latePreload = join(directory, "late-native-isolation.mjs");
+  await writeFile(latePreload, (await readFile(new URL("../../../h2a/test/helpers/native-isolation.js", import.meta.url), "utf8"))
+    .replace('resolve(import.meta.dirname, "../../../../.q")', JSON.stringify(nativeQualificationRoot)));
   const created = await client.create({
     id, command: command?.command ?? process.execPath,
     args: command?.args ?? ["-e", `process.stdin.setRawMode(true); process.stdin.resume();
-      process.stdout.write(${JSON.stringify(ENABLE)} + 'ready');
+      process.stdout.write(${JSON.stringify(ENABLE)} + 'ready inner-node-' + process.pid);
       process.stdin.on('data', b => {
+        if (b.includes(112)) import(${JSON.stringify(latePreload)})
+          .then(() => process.stdout.write('late-pin-installed:' + JSON.stringify({pid:process.pid,root:process.env.H2A_TEST_OWNED_PROC_ROOT})));
         if (b.includes(120)) process.exit(0);
         if (b.includes(99)) throw new Error('isolated inner crash');
         if (b.includes(116)) {
@@ -191,6 +198,46 @@ describe.skipIf(process.platform !== "linux")("native attach terminal modes on r
       }
       expect(stat).toMatch(/\) [ZX] /);
     } finally {
+      f.host.kill("SIGCONT");
+    }
+  }, 10_000);
+
+  it("should retain the parent pin after a late preload and prove the unreaped inner child dead", async () => {
+    const f = await fixture();
+    const outer = f.attach();
+    await until(() => outer.output().includes("ready"));
+    outer.pin();
+    const nodePid = Number(/inner-node-(\d+)/.exec(outer.output())![1]);
+    const ownedChildren = (await readFile(`/proc/${f.innerPid}/task/${f.innerPid}/children`, "utf8"))
+      .trim().split(/\s+/).map(Number);
+    expect(ownedChildren).toContain(nodePid);
+    const entry = join(f.procRoot, String(nodePid));
+    outer.terminal.write("p");
+    await until(() => outer.output().includes("late-pin-installed"));
+    const parentPin = await readlink(entry);
+    f.host.kill("SIGSTOP");
+    process.kill(f.innerPid, "SIGSTOP");
+    try {
+      const deadline = Date.now() + 4_000;
+      while (!/\) [Tt] /.test(await readFile(`/proc/${f.host.pid}/stat`, "utf8"))) {
+        expect(Date.now()).toBeLessThan(deadline);
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      while (!/\) [Tt] /.test(await readFile(`/proc/${f.innerPid}/stat`, "utf8"))) {
+        expect(Date.now()).toBeLessThan(deadline);
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      process.kill(nodePid, "SIGKILL");
+      let stat = "";
+      while (!/\) [ZX] /.test(stat)) {
+        stat = await readFile(join(entry, "stat"), "utf8");
+        expect(Date.now()).toBeLessThan(deadline);
+        if (!/\) [ZX] /.test(stat)) await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      expect(stat).toMatch(/\) [ZX] /);
+      expect(parentPin.startsWith(`/proc/${process.pid}/fd/`)).toBe(true);
+    } finally {
+      process.kill(f.innerPid, "SIGCONT");
       f.host.kill("SIGCONT");
     }
   }, 10_000);

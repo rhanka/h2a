@@ -122,8 +122,8 @@ process.on("message", (raw: unknown) => {
   const startNs = process.hrtime.bigint();
   const parentDeadline=req.deadlineNs && /^[0-9]{1,30}$/.test(req.deadlineNs)?BigInt(req.deadlineNs):undefined;
   const remainingMs = (): number =>
-    Math.min(budgetMs - Number((process.hrtime.bigint() - startNs) / 1_000_000n),
-      parentDeadline===undefined ? Infinity : Number((parentDeadline-process.hrtime.bigint())/1_000_000n));
+    Math.min(budgetMs - Number(process.hrtime.bigint() - startNs) / 1_000_000,
+      parentDeadline===undefined ? Infinity : Number(parentDeadline-process.hrtime.bigint())/1_000_000);
 
   const cancellableDelay = (ms: number): Promise<void> =>
     new Promise((resolve) => {
