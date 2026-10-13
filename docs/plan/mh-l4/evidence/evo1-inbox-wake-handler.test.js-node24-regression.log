@@ -1,9 +1,9 @@
 command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node --test packages/h2a/test/evo1-inbox-wake-handler.test.js
 node: v24.21.0
-private test root: /tmp/mh-l4-test-qByTfi
-✔ inbox-wake handler threads launchContext from resolveLaunchContext into the drive request (2.686256ms)
-✔ inbox-wake handler separates the native PTY target from the signed agent address (0.432665ms)
-✔ inbox-wake handler injects a signed wake on a NEW envelope, dedups, and ignores boot backlog (0.472149ms)
+private test root: /tmp/mh-l4-test-B4pSS5
+✔ inbox-wake handler threads launchContext from resolveLaunchContext into the drive request (2.822953ms)
+✔ inbox-wake handler separates the native PTY target from the signed agent address (0.45166ms)
+✔ inbox-wake handler injects a signed wake on a NEW envelope, dedups, and ignores boot backlog (0.502817ms)
 ℹ tests 3
 ℹ suites 0
 ℹ pass 3
@@ -11,6 +11,6 @@ private test root: /tmp/mh-l4-test-qByTfi
 ℹ cancelled 0
 ℹ skipped 0
 ℹ todo 0
-ℹ duration_ms 199.595267
+ℹ duration_ms 201.674281
 
-receipt: {"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","--test","packages/h2a/test/evo1-inbox-wake-handler.test.js"],"code":0,"signal":null,"elapsedMs":223}
+receipt: {"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","--test","packages/h2a/test/evo1-inbox-wake-handler.test.js"],"code":0,"signal":null,"elapsedMs":227}

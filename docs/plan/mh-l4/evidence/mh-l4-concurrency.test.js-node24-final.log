@@ -1,8 +1,8 @@
 command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node --test packages/h2a/test/mh-l4-concurrency.test.js
 node: v24.21.0
-private test root: /tmp/mh-l4-test-1OJP50
-✔ should serialize eight conforming writers without losing acknowledged registry or inbox writes (566.645651ms)
-✔ should release the filesystem exclusion after killing only its spawned lock holder (31.888859ms)
+private test root: /tmp/mh-l4-test-6vvk6f
+✔ should serialize eight conforming writers without losing acknowledged registry or inbox writes (460.560129ms)
+✔ should release the filesystem exclusion after killing only its spawned lock holder (31.574286ms)
 ℹ tests 2
 ℹ suites 0
 ℹ pass 2
@@ -10,6 +10,6 @@ private test root: /tmp/mh-l4-test-1OJP50
 ℹ cancelled 0
 ℹ skipped 0
 ℹ todo 0
-ℹ duration_ms 793.88161
+ℹ duration_ms 676.460841
 
-receipt: {"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","--test","packages/h2a/test/mh-l4-concurrency.test.js"],"code":0,"signal":null,"elapsedMs":822}
+receipt: {"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","--test","packages/h2a/test/mh-l4-concurrency.test.js"],"code":0,"signal":null,"elapsedMs":704}
