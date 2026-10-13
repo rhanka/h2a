@@ -4,6 +4,29 @@ import fs from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { marker, identity } from './helpers/mh-l0-fixtures.js';
+import { spawn } from 'node:child_process';
+import { once } from 'node:events';
+
+test('M04 should release its abstract preclaim while a spawned child remains alive without inheriting the descriptor', async () => {
+  const { prepareAuthority, currentIdentity } = await import('../src/runtime/handover/admission.js');
+  const { acquirePreclaim } = await import('../src/runtime/handover/authority.js');
+  const { classifyDurableProcFrame } = await import('../src/runtime/handover/proc-identity.js');
+  const dir = fs.mkdtempSync(join(tmpdir(), 'mh-l2-fd-'));
+  let first, next, child;
+  try {
+    const frame = currentIdentity(), authority = await prepareAuthority({ directory: dir, root: dir, physicalPrefix: dir, frame });
+    first = await acquirePreclaim(authority.domain, frame, authority.lockKey, classifyDurableProcFrame);
+    child = spawn(process.execPath, ['-e', "process.stdin.resume(); process.stdout.write('ready');"], { stdio: ['pipe', 'pipe', 'pipe'] });
+    await once(child.stdout, 'data');
+    await first.release();
+    next = await acquirePreclaim(authority.domain, frame, authority.lockKey, classifyDurableProcFrame);
+    assert.equal(child.exitCode, null);
+  } finally {
+    await next?.release(); await first?.release();
+    if (child && child.exitCode === null) { const ended = once(child, 'close'); child.stdin.end(); await ended; }
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
 
 test('M04 should refuse HTTP-based reclaim, hold preclaim through ready and compare epoch plus inode', async () => {
   const { ownerLiveness, prepareAuthority, admitGeneration, removeMarker } = await import('../src/runtime/handover/admission.js');
