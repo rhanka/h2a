@@ -34,7 +34,10 @@ import { ensureDurableDirectory } from "./durable.js";
 import { LockTimeoutError } from "../local-files/locks.js";
 import type { IdentityFenceOptions } from "../local-files/identity-fence.js";
 
-import { verifyCanonical, type H2ASignature } from "@sentropic/h2a";
+import type {
+  H2ASignature
+} from "@sentropic/h2a";
+import { verifyCanonical } from "../../signature.js";
 
 import { localStorePaths } from "../local-files/index.js";
 import {

@@ -12,14 +12,13 @@ import {
 import { hostname } from "node:os";
 import { basename, join } from "node:path";
 
-import {
-  deriveInstanceId,
-  deriveWorkspaceId,
-  mintAgentUuid,
-  signCanonical,
-  type H2AActorRegistration,
-  type H2AWorkspaceRef
+// Worker boot must not initialize the unrelated runtime exported by the public barrel.
+import type {
+  H2AActorRegistration,
+  H2AWorkspaceRef
 } from "@sentropic/h2a";
+import { deriveInstanceId, deriveWorkspaceId, mintAgentUuid } from "../../identity.js";
+import { signCanonical } from "../../signature.js";
 
 import { createLocalStore } from "../local-files/store.js";
 import { getActiveMcpTrace } from "../mcp/phase-trace.js";

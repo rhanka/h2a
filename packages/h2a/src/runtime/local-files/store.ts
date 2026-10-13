@@ -12,42 +12,35 @@ import {
 } from "node:fs";
 import { dirname, join } from "node:path";
 
-import {
-  H2A_ARTIFACT_KINDS,
-  H2A_AUTHORITY_MATRIX,
-  H2A_DECLARATION_INTERET_BODY_KIND,
-  H2A_DEFAULT_MAX_SKEW_MS,
-  appendJournalEntry,
-  assertValidNegotiationState,
-  canSignArtifactKind,
-  computeHash,
-  createJournalEntry,
-  deriveDecisionDossier as deriveDecisionDossierCore,
-  derivePostureConflit,
-  derivePostureConfiance as derivePostureConfianceCore,
-  evaluatePresenterBias,
-  isH2AEnvelope,
-  validateH2AEnvelope,
-  isH2ADeclarationInteret,
-  validateSubagentBinding,
-  verifyCanonical,
-  verifyJournalChain,
-  type H2AActorRegistration,
-  type H2AOrgMembershipGrant,
-  type H2ASubagentBinding,
-  type H2AArtifactKind,
-  type H2AEnvelope,
-  type H2AJournalEntry,
-  type H2AJournalPayload,
-  type H2ANegotiationRecord,
-  type H2ADecisionDossier,
-  type H2ADeclarationInteret,
-  type H2APostureConfianceResult,
-  type H2APostureConflitResult,
-  type H2APresenterBias,
-  type H2ARole,
-  type H2ASignature
+import type {
+  H2AActorRegistration,
+  H2AOrgMembershipGrant,
+  H2ASubagentBinding,
+  H2AArtifactKind,
+  H2AEnvelope,
+  H2AJournalEntry,
+  H2AJournalPayload,
+  H2ANegotiationRecord,
+  H2ADecisionDossier,
+  H2ADeclarationInteret,
+  H2APostureConfianceResult,
+  H2APostureConflitResult,
+  H2APresenterBias,
+  H2ARole,
+  H2ASignature
 } from "@sentropic/h2a";
+import { H2A_ARTIFACT_KINDS } from "../../types.js";
+import { H2A_AUTHORITY_MATRIX, canSignArtifactKind } from "../../authority.js";
+import { H2A_DECLARATION_INTERET_BODY_KIND, derivePostureConflit, isH2ADeclarationInteret } from "../../conflit-interet.js";
+import { H2A_DEFAULT_MAX_SKEW_MS } from "../../replay.js";
+import { appendJournalEntry, createJournalEntry, verifyJournalChain } from "../../journal.js";
+import { assertValidNegotiationState } from "../../negotiation.js";
+import { computeHash } from "../../canonical.js";
+import { deriveDecisionDossier as deriveDecisionDossierCore, evaluatePresenterBias } from "../../decision-dossier.js";
+import { derivePostureConfiance as derivePostureConfianceCore } from "../../confiance.js";
+import { isH2AEnvelope, validateH2AEnvelope } from "../../envelope.js";
+import { validateSubagentBinding } from "../../subagents.js";
+import { verifyCanonical } from "../../signature.js";
 
 import { MCP_IDENTITY_TIMEOUT_MS } from '../mcp/identity-state.js';
 
