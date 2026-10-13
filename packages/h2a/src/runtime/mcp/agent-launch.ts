@@ -1,3 +1,6 @@
+import { digest as argumentsDigest } from "../handover/wire.js";
+import { withWriterMutation } from "../handover/mutation.js";
+import { currentIdentity, observeProcess } from "../handover/admission.js";
 import { spawn, type SpawnSyncOptionsWithStringEncoding, type SpawnSyncReturns } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { appendFileSync, mkdirSync, readFileSync, realpathSync, statSync } from "node:fs";
@@ -15,6 +18,8 @@ export type H2aRunGateway = (typeof H2A_RUN_GATEWAYS)[number];
 export const H2A_RUN_API_VERSION = "h2a.run/v1";
 
 export type H2aRunRequest = {
+  /** Private participant seam, never accepted from MCP arguments. */
+  launchAuthority?: { token: string; launchId: string; onSpawn(identity: unknown): void };
   profile: H2aRunProfile;
   name: string;
   workspace: string;
@@ -393,7 +398,7 @@ export function executeH2aRunWithSpawn(
     Pick<SpawnSyncReturns<string>, "status" | "stdout" | "stderr" | "error">,
 ): unknown {
   const invocation = buildH2aRunInvocation(request);
-  const launchToken = randomUUID();
+  const launchToken = request.launchAuthority?.token ?? randomUUID();
   const result = spawn(invocation.command, invocation.args, {
     cwd: invocation.cwd,
     input: invocation.input,
@@ -469,7 +474,7 @@ export async function executeH2aRunWithAsyncSpawn(
   environment: NodeJS.ProcessEnv = process.env,
 ): Promise<Record<string, unknown>> {
   const invocation = buildH2aRunInvocation(request);
-  const launchToken = randomUUID();
+  const launchToken = request.launchAuthority?.token ?? randomUUID();
   const result = await new Promise<{ status: number | null; stdout: string; stderr: string; timedOut: boolean }>((resolve, reject) => {
     const child = spawnRuntime(invocation.command, invocation.args, {
       cwd: invocation.cwd, shell: false, stdio: ["pipe", "pipe", "pipe"],
@@ -501,6 +506,13 @@ export async function executeH2aRunWithAsyncSpawn(
       else resolve({ status, stdout, stderr, timedOut: timedOut || status === null });
     });
     child.stdin!.end(invocation.input);
+    if (request.launchAuthority && child.pid) {
+      try {
+        const startTime = observeProcess(child.pid).startTime;
+        if (Number.isSafeInteger(startTime)) request.launchAuthority.onSpawn({ ...currentIdentity(), pid: child.pid, startTime });
+      } catch { /* A lost identity stays conservatively unresolved in the memo. */ }
+    }
+
   });
   if (!result.timedOut) {
     // Share contract validation with the synchronous compatibility/test seam.
@@ -535,9 +547,16 @@ export function createH2aRunLauncher(
   onCompleted?: (request: H2aRunRequest, result: Record<string, unknown>) => void,
 ): H2aRunExecutor {
   const launches = new Map<string, Record<string, unknown>>();
+  const argumentsByName = new Map<string, string>();
   return request => {
+    const { launchAuthority: _authority, ...initialArguments } = request;
+    const digest = argumentsDigest(initialArguments);
     const existing = launches.get(request.name);
-    if (existing) return existing;
+    if (existing) {
+      if (argumentsByName.get(request.name) !== digest) throw new Error('launch_arguments_conflict');
+      return existing;
+    }
+    argumentsByName.set(request.name, digest);
     const launching = { state: "launching", launchId: request.name, retrySafe: false };
     launches.set(request.name, launching);
     const finish = (result: unknown): Record<string, unknown> => {
@@ -567,7 +586,7 @@ export function createH2aRunLauncher(
  * CLI has no argument or environment channel through which a direct caller
  * can assert this origin.
  */
-export function recordMcpRunDelegation(
+function recordMcpRunDelegationUnfenced(
   root: string,
   result: Record<string, unknown>,
   delegation: H2aRunDelegation | undefined,
@@ -624,4 +643,8 @@ export function handleH2aRun(
   } catch (error) {
     return { error: error instanceof Error ? error.message : String(error) };
   }
+}
+
+export function recordMcpRunDelegation(...args: Parameters<typeof recordMcpRunDelegationUnfenced>): ReturnType<typeof recordMcpRunDelegationUnfenced> {
+  return withWriterMutation(args[0], 'registry', () => recordMcpRunDelegationUnfenced(...args));
 }

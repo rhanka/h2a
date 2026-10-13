@@ -259,6 +259,26 @@ export class SessionRegistry {
     return Array.from(this.entries.values(), (entry) => entry.session);
   }
 
+  /** Suspend owner heartbeats without deleting the checkpointed presence. */
+  suspend(): void {
+    for (const entry of this.entries.values()) {
+      if (entry.heartbeatHandle) clearInterval(entry.heartbeatHandle);
+      entry.heartbeatHandle = undefined;
+    }
+  }
+
+  resume(): void {
+    if (!this.autoHeartbeat) return;
+    for (const [id, entry] of this.entries) {
+      if (!entry.heartbeatHandle) {
+        entry.heartbeatHandle = setInterval(() => {
+          try { this.touch(id); } catch { /* A revoked owner must stop writing. */ }
+        }, this.heartbeatIntervalMs);
+        entry.heartbeatHandle.unref?.();
+      }
+    }
+  }
+
   /**
    * Scan all presence files under root (own + peers), filtered by freshness.
    *

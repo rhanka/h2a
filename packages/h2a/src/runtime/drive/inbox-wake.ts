@@ -12,8 +12,11 @@
 import { decideInboxWake, type H2AEnvelope, type H2ALaunchContext } from "@sentropic/h2a";
 
 import { formatSignedDriveInstruction, type H2ADriver } from "./index.js";
+import type { WakeJournal } from "../handover/wake.js";
 
 export interface InboxWakeHandlerDeps {
+  readonly journal?: WakeJournal;
+  readonly restoredSeen?: readonly string[];
   /** This agent's instance id (signer + drive target — it wakes itself). */
   readonly instance: string;
   /** Read the current inbox for `instance` (e.g. `() => store.readInbox(instance)`). */
@@ -40,14 +43,17 @@ export interface InboxWakeHandlerDeps {
 }
 
 /** Returns a handler; calling it injects a wake iff new inbox envelopes exist. */
-export function createInboxWakeHandler(deps: InboxWakeHandlerDeps): () => Promise<boolean> {
+export function createInboxWakeHandler(deps: InboxWakeHandlerDeps): (() => Promise<boolean>) & { checkpointState(): { seen: string[] } } {
   const now = deps.now ?? Date.now;
   // Seed from the current inbox: boot backlog must not trigger a wake.
-  let seen: string[] = deps.readInbox().map((e) => e.id);
-  return async () => {
+  let seen: string[] = deps.restoredSeen ? [...deps.restoredSeen] : deps.readInbox().map((e) => e.id);
+  let pending: Promise<boolean> | undefined;
+  const perform = async () => {
+    const inbox = deps.readInbox();
+    const eligible = deps.journal ? new Set(deps.journal.eligibleEnvelopeIds(inbox.map(e => e.id))) : undefined;
     const decision = decideInboxWake({
       seen,
-      inbox: deps.readInbox(),
+      inbox: eligible ? inbox.filter(e => eligible.has(e.id)) : inbox,
       nowIso: new Date(now()).toISOString()
     });
     if (!decision) return false;
@@ -60,14 +66,17 @@ export function createInboxWakeHandler(deps: InboxWakeHandlerDeps): () => Promis
     });
     const launchContext = deps.resolveLaunchContext?.();
     const nativeSessionId = deps.resolveNativeSessionId?.();
-    const ok = await deps.driver.drive({
+    const inject = (line: string) => deps.driver.drive({
       to: nativeSessionId && nativeSessionId.length > 0
         ? nativeSessionId
         : deps.instance,
-      instructionLine,
+      instructionLine: line,
       ...(deps.host ? { host: deps.host } : {}),
       ...(launchContext ? { launchContext } : {})
     });
+    const ok = deps.journal
+      ? await deps.journal.perform(decision.fresh.map(e => e.id), instructionLine, inject)
+      : await inject(instructionLine);
     // Advance `seen` ONLY on a successful drive: a transient failure (no pane,
     // tmux hiccup) must leave the envelope fresh so the next tick retries it,
     // instead of marking it seen and never waking on it again.
@@ -75,4 +84,7 @@ export function createInboxWakeHandler(deps: InboxWakeHandlerDeps): () => Promis
     deps.log?.(`inbox-wake: ${decision.fresh.length} new envelope(s) → drive ${ok ? "ok" : "failed"}`);
     return ok;
   };
+  const handler = () => pending ??= perform().finally(() => { pending = undefined; });
+  handler.checkpointState = () => ({ seen: [...seen] });
+  return handler;
 }

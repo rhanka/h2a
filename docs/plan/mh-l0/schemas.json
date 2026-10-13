@@ -2,6 +2,319 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "urn:h2a:mh-l0:formats:1",
   "$defs": {
+    "participantRevision": {
+      "type": "object",
+      "properties": {
+        "schemaVersion": {
+          "const": 1
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "revision"
+      ],
+      "additionalProperties": false
+    },
+    "launchLocation": {
+      "type": "object",
+      "properties": {
+        "schemaVersion": {
+          "const": 1
+        },
+        "launchId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "attachmentId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "workspaceRoot": {
+          "type": "string",
+          "minLength": 1,
+          "format": "absolute-path"
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "launchId",
+        "attachmentId",
+        "workspaceRoot"
+      ],
+      "additionalProperties": false
+    },
+    "writerControl": {
+      "type": "object",
+      "properties": {
+        "schemaVersion": {
+          "const": 1
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "root": {
+          "type": "string",
+          "minLength": 1,
+          "format": "absolute-path"
+        },
+        "stateDirectory": {
+          "type": "string",
+          "minLength": 1,
+          "format": "absolute-path"
+        },
+        "gate": {
+          "enum": [
+            "OPEN",
+            "BARRIER",
+            "CLOSED"
+          ]
+        },
+        "handoverId": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "minLength": 1
+            }
+          ]
+        },
+        "restriction": {
+          "enum": [
+            "qualified",
+            "legacy_writer_unfenced",
+            "store_writer_set_unknown"
+          ]
+        },
+        "closureEvidenceDigest": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            }
+          ]
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "revision",
+        "root",
+        "stateDirectory",
+        "gate",
+        "handoverId",
+        "restriction",
+        "closureEvidenceDigest"
+      ],
+      "additionalProperties": false
+    },
+    "admittedOperation": {
+      "type": "object",
+      "properties": {
+        "schemaVersion": {
+          "const": 1
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "operationId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "attachmentId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "ownerGeneration": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "executionOwner": {
+          "type": "object",
+          "properties": {
+            "machineId": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^(?!0+$)[0-9a-f]{32}$"
+            },
+            "bootId": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+            },
+            "pidNamespace": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[0-9]+$"
+            },
+            "nsNet": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[0-9]+$"
+            },
+            "pid": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            },
+            "startTime": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            }
+          },
+          "required": [
+            "machineId",
+            "bootId",
+            "pidNamespace",
+            "nsNet",
+            "pid",
+            "startTime"
+          ],
+          "additionalProperties": false
+        },
+        "kind": {
+          "enum": [
+            "call",
+            "child",
+            "brief",
+            "callback",
+            "wake"
+          ]
+        },
+        "state": {
+          "enum": [
+            "pending",
+            "unknown",
+            "completed"
+          ]
+        },
+        "result": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {}
+          ]
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "revision",
+        "operationId",
+        "attachmentId",
+        "ownerGeneration",
+        "executionOwner",
+        "kind",
+        "state",
+        "result"
+      ],
+      "additionalProperties": false
+    },
+    "ownerEffect": {
+      "type": "object",
+      "properties": {
+        "schemaVersion": {
+          "const": 1
+        },
+        "operationId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "attachmentId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "destination": {
+          "const": "current-owner"
+        },
+        "result": {}
+      },
+      "required": [
+        "schemaVersion",
+        "operationId",
+        "attachmentId",
+        "destination",
+        "result"
+      ],
+      "additionalProperties": false
+    },
+    "wakeIntent": {
+      "type": "object",
+      "properties": {
+        "schemaVersion": {
+          "const": 1
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "attachmentId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "key": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "envelopeIds": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "instructionLine": {
+          "type": "string",
+          "minLength": 1
+        },
+        "state": {
+          "enum": [
+            "intent",
+            "unknown",
+            "delivered",
+            "deferred"
+          ]
+        },
+        "result": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "boolean"
+            }
+          ]
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "revision",
+        "attachmentId",
+        "key",
+        "envelopeIds",
+        "instructionLine",
+        "state",
+        "result"
+      ],
+      "additionalProperties": false
+    },
     "secret": {
       "type": "object",
       "properties": {
