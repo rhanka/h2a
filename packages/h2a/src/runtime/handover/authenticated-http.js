@@ -5,6 +5,7 @@ import { readState } from './state.js';
 import { digest } from './wire.js';
 import { validate } from './formats.js';
 import { dirname, join } from 'node:path';
+import { StringDecoder } from 'node:string_decoder';
 
 const MAX_BYTES = 4 * 1024 * 1024;
 const headersOf = headers => Object.fromEntries(headers.entries());
@@ -23,7 +24,7 @@ export function readAuthenticationKey(markerPath, marker) {
   const domain = readState(join(directory, 'authority-domain.json'), 'authorityDomain')?.value;
   if (!domain || domain.prefixId !== marker.prefixId || domain.namespaceId !== marker.namespaceId ||
     domain.canonicalMarkerLocation !== markerPath || domain.canonicalRoot !== marker.root || domain.uid !== marker.uid) throw new Error('authority_marker_mismatch');
-  const secret = readState(join(directory, marker.authKeyReference), 'secret')?.value;
+  const secret = readState(join(marker.stateDirectory, marker.authKeyReference), 'secret')?.value;
   if (!secret || secret.purpose !== 'authentication' || secret.authorityBinding !== digest({ canonicalMarkerLocation: markerPath,
     prefixId: marker.prefixId, uid: marker.uid })) throw new Error('authentication_key_mismatch');
   return Buffer.from(secret.key, 'hex');
@@ -78,10 +79,10 @@ export async function authenticatedHttpRequest(markerPath, marker, url, options 
     const metadata = JSON.parse(Buffer.from(String(incoming.headers['x-h2a-response']), 'base64url').toString());
     const status = verifier.accept(metadata, expected);
     async function* stream() {
-      let buffer = '';
+      let buffer = ''; const decoder = new StringDecoder('utf8');
       try {
         for await (const chunk of incoming) {
-          buffer += chunk.toString('utf8');
+          buffer += decoder.write(chunk);
           if (Buffer.byteLength(buffer) > MAX_BYTES) throw new Error('http_frame_budget');
           let boundary;
           while ((boundary = /\r?\n\r?\n/.exec(buffer))) {
@@ -143,11 +144,11 @@ export function createAuthenticatedServer(auth, fetch) {
       }
       outgoing.writeHead(response.status, { 'content-type': 'text/event-stream',
         'x-h2a-response': Buffer.from(JSON.stringify(auth.frame(metadata, ownership))).toString('base64url') });
-      let buffer = ''; const reader = response.body.getReader();
+      let buffer = ''; const decoder = new StringDecoder('utf8'); const reader = response.body.getReader();
       try {
         for (;;) {
           const { done, value } = await reader.read(); if (done) break;
-          buffer += Buffer.from(value).toString('utf8');
+          buffer += decoder.write(Buffer.from(value));
           if (Buffer.byteLength(buffer) > MAX_BYTES) throw new Error('http_frame_budget');
           let boundary;
           while ((boundary = /\r?\n\r?\n/.exec(buffer))) {
