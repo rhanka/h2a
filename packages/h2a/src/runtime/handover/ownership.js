@@ -13,13 +13,49 @@ export class OwnershipRegistry {
     this.generation = options.generation;
     this.processIdentity = options.processIdentity;
     this.lockDirectory = options.lockDirectory ?? this.directory;
+    this.indeterminate = false;
+    this.onIndeterminate = undefined;
     privateDirectory(this.directory);
     this.revisionPath = join(this.directory, 'participant-revision.json');
     this.withLock(() => {
       if (!readState(this.revisionPath, 'participantRevision')) publishState(this.revisionPath, { schemaVersion: 1, revision: 1 }, 'participantRevision');
     });
   }
-  withLock(fn) { return mutationLock(this.lockDirectory, fn); }
+  withLock(fn) {
+    return mutationLock(this.lockDirectory, () => {
+      if (this.indeterminate) throw new Error('reconciliation_required');
+      try { return fn(); }
+      catch (error) {
+        if (error.message.startsWith('persistence_indeterminate')) {
+          this.indeterminate = true; this.onIndeterminate?.();
+        }
+        throw error;
+      }
+    });
+  }
+  reconcile() {
+    return mutationLock(this.lockDirectory, () => {
+      const formats = { ownership: 'ownership', operation: 'admittedOperation', effect: 'ownerEffect',
+        wake: 'wakeIntent', launch: 'launchMemo' };
+      for (const name of fs.readdirSync(this.directory)) {
+        const prefix = name.split('-')[0];
+        let schema = formats[prefix];
+        if (name === 'participant-revision.json') schema = 'participantRevision';
+        if (name.startsWith('launch-location-')) schema = 'launchLocation';
+        if (name.startsWith('checkpoint-')) {
+          const candidate = JSON.parse(fs.readFileSync(join(this.directory, name), 'utf8'));
+          schema = candidate.emptyAttachments === true ? 'emptyCheckpoint' : 'checkpoint';
+        }
+        if (!schema || !name.endsWith('.json')) continue;
+        readState(join(this.directory, name), schema);
+        const fd = fs.openSync(join(this.directory, name), fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+        try { fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
+      }
+      const fd = fs.openSync(this.directory, fs.constants.O_RDONLY | fs.constants.O_DIRECTORY | fs.constants.O_NOFOLLOW);
+      try { fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
+      this.indeterminate = false;
+    });
+  }
   bump() {
     const old = readState(this.revisionPath, 'participantRevision');
     replaceState(this.revisionPath, { ...old.value, revision: old.value.revision + 1 }, 'participantRevision', old);
@@ -43,6 +79,7 @@ export class OwnershipRegistry {
       ownershipEpoch: value.ownershipEpoch, ownerProcessIdentity: value.ownerProcessIdentity });
   }
   assertOwner(token, states = ['ACTIVE']) {
+    if (this.indeterminate) throw new Error('reconciliation_required');
     const observed = readState(this.ownerPath(token.attachmentId), 'ownership');
     if (!observed || token.ownerGeneration !== observed.value.ownerGeneration ||
         token.ownershipEpoch !== observed.value.ownershipEpoch ||
@@ -54,6 +91,13 @@ export class OwnershipRegistry {
       const old = this.assertOwner(token);
       if (old.value.presenceSessionId === presenceSessionId && old.value.expectedInstance === expectedInstance) return;
       replaceState(this.ownerPath(token.attachmentId), { ...old.value, presenceSessionId, expectedInstance }, 'ownership', old); this.bump();
+    });
+  }
+  releasePresence(token, sessionId) {
+    return this.withLock(() => {
+      const old = this.assertOwner(token);
+      if (old.value.presenceSessionId !== sessionId) throw new Error('presence_ownership_mismatch');
+      replaceState(this.ownerPath(token.attachmentId), { ...old.value, presenceSessionId: `pending:${token.attachmentId}` }, 'ownership', old); this.bump();
     });
   }
   freeze(token, handoverId) {
@@ -97,7 +141,7 @@ export class OwnershipRegistry {
   }
   close(token) {
     return this.withLock(() => {
-      const old = this.assertOwner(token, ['ACTIVE', 'FROZEN']);
+      const old = this.assertOwner(token, ['ACTIVE', 'FROZEN', 'TRANSFERRING']);
       replaceState(this.ownerPath(token.attachmentId), { ...old.value, state: 'CLOSED' }, 'ownership', old); this.bump();
     });
   }
@@ -105,6 +149,7 @@ export class OwnershipRegistry {
     return this.withLock(() => {
       const old = this.assertOwner(token, ['FROZEN', 'TRANSFERRING']);
       if (old.value.handoverId !== handoverId || !checkpointHash || old.value.checkpointHash !== checkpointHash) throw new Error('checkpoint_binding_mismatch');
+      this.loadCheckpoint(`checkpoint-${checkpointHash.slice(7)}.json`, checkpointHash);
       if (old.value.state === 'TRANSFERRING') return old.value;
       const next = { ...old.value, state: 'TRANSFERRING' };
       replaceState(this.ownerPath(token.attachmentId), next, 'ownership', old); this.bump(); return next;
@@ -132,6 +177,7 @@ export class OperationLedger {
     });
   }
   assertOperation(operation) {
+    if (this.registry.indeterminate) throw new Error('reconciliation_required');
     const old = readState(this.path(operation.operationId), 'admittedOperation');
     if (!old || old.value.state !== 'pending' || old.value.attachmentId !== operation.attachmentId ||
         old.value.ownerGeneration !== operation.ownerGeneration || digest(old.value.executionOwner) !== digest(operation.executionOwner) ||
@@ -159,6 +205,16 @@ export class OperationLedger {
   }
   operations() { return fs.readdirSync(this.directory).filter(p => p.startsWith('operation-')).map(p => readState(join(this.directory, p), 'admittedOperation').value); }
   effects(attachmentId) { return fs.readdirSync(this.directory).filter(p => p.startsWith('effect-')).map(p => readState(join(this.directory, p), 'ownerEffect').value).filter(v => v.attachmentId === attachmentId); }
+  publishEffect(operation, result) {
+    return this.registry.withLock(() => {
+      const saved = readState(this.path(operation.operationId), 'admittedOperation')?.value;
+      if (!saved || saved.attachmentId !== operation.attachmentId || digest(saved.executionOwner) !== digest(operation.executionOwner)) throw new Error('operation_fenced');
+      const event = { schemaVersion: 1, operationId: operation.operationId, attachmentId: operation.attachmentId, destination: 'current-owner', result };
+      const path = join(this.directory, leaf('effect', { operationId: operation.operationId, result }));
+      if (!readState(path, 'ownerEffect')) { publishState(path, event, 'ownerEffect'); this.registry.bump(); }
+      return digest(event);
+    });
+  }
   drain() {
     return this.registry.withLock(() => {
       const value = { revision: this.registry.revision(), calls: 0, children: 0, briefs: 0, callbacks: 0, effects: 0 };

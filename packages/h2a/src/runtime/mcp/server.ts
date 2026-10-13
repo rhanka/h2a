@@ -337,7 +337,9 @@ export function createMcpServer(options: CreateMcpServerOptions): McpServer {
   const executor = options.runExecutor ?? executeH2aRun;
   const launch = createH2aRunLauncher(options.participant
     ? request => options.participant!.executeLaunch(request, executor) : executor, 49_000, (request, result) =>
-    recordMcpRunDelegation(store.paths.root, result, request.delegation));
+    options.participant
+      ? options.participant.completeLaunch(request, result, (eventId: string) => recordMcpRunDelegation(store.paths.root, result, request.delegation, eventId))
+      : recordMcpRunDelegation(store.paths.root, result, request.delegation));
 
   function callToolUnfenced(
     name: string,

@@ -10,7 +10,7 @@ import {OwnershipRegistry,OperationLedger} from '../dist/runtime/handover/owners
 import {LaunchJournal} from '../dist/runtime/handover/launch-memo.js';
 import {writePresence,updatePresence,readPresence,deletePresence} from '../dist/runtime/local-files/presence.js';
 import {createMcpServer} from '../dist/runtime/mcp/server.js';
-import {executeH2aRunWithAsyncSpawn} from '../dist/runtime/mcp/agent-launch.js';
+import {recordMcpRunDelegation,executeH2aRunWithAsyncSpawn} from '../dist/runtime/mcp/agent-launch.js';
 import {identity,marker,hash} from './helpers/mh-l0-fixtures.js';
 
 test('should close admissions at barrier and bind presence mutations to the exact session',()=>{
@@ -24,7 +24,9 @@ test('should close admissions at barrier and bind presence mutations to the exac
  assert.equal(readPresence(root,s2.sessionId).state,'live');
  p.barrier('h');assert.throws(()=>a.call(()=>{throw Error('must not run');}),/store_admission_closed/);
  assert.throws(()=>a.executeLaunch({name:'new',workspace:directory,prompt:'brief'},()=>{throw Error('must not spawn');}),/store_admission_closed/);
- p.abort('h');a.runOwner(()=>one.sessions.closeAll());b.runOwner(()=>two.sessions.closeAll());
+ p.abort('h');a.runOwner(()=>one.sessions.closeAll());
+ const reopened=a.runOwner(()=>one.sessions.open({instance:'one'}));assert.notEqual(reopened.sessionId,s1.sessionId);
+ a.runOwner(()=>one.sessions.closeAll());b.runOwner(()=>two.sessions.closeAll());
  }finally{fs.rmSync(directory,{recursive:true,force:true});}
 });
 
@@ -63,5 +65,24 @@ test('should reconcile a final memo after a crash before operation closure witho
  assert.equal(journal.memos()[0].state,'completed');assert.equal(ledger.drain().children,1);
  const recovered=new LaunchJournal({registry,token,ledger,root:directory});assert.equal((await recovered.launch(request,()=>{spawned++;})).state,'started');
  assert.equal(ledger.drain().complete,true);assert.equal(spawned,1);
+ }finally{fs.rmSync(directory,{recursive:true,force:true});}
+});
+
+
+test('should persist owner-directed delegation after freeze and deduplicate the eventual writer receipt',()=>{
+ const directory=fs.mkdtempSync(join(tmpdir(),'mh-l4-delegation-')),root=join(directory,'store');fs.mkdirSync(root,{mode:0o700});
+ try{
+ const p=new Participants({directory,root,marker:marker(),writerProof:{evidenceDigest:hash,verify:()=> 'qualified'}}),a=p.attach('a',{workspace:directory});
+ const mcp=a.runOwner(()=>createMcpServer({root,participant:a}));a.bind(mcp);
+ const request={name:'worker',workspace:directory,prompt:'brief',delegation:{origin:'mcp:h2a_run',delegatorInstance:'parent',delegatorTmuxSession:'fixture-parent'}};
+ const result=a.executeLaunch(request,()=>({state:'started',ok:true,prompt:{delivered:true},session:{tmuxSession:'fixture-child',pid:process.pid}}));
+ p.barrier('h');p.freeze('h');let writes=0;
+ const record=eventId=>{writes++;recordMcpRunDelegation(root,result,request.delegation,eventId);};
+ a.completeLaunch(request,result,record);assert.equal(writes,0);
+ const events=p.ledger.effects('a').filter(e=>e.result.type==='launch-delegation');assert.equal(events.length,1);assert.equal(events[0].result.delegation.delegatorInstance,'parent');
+ p.abort('h');a.completeLaunch(request,result,record);a.completeLaunch(request,result,record);
+ assert.equal(fs.readFileSync(join(root,'registry','mcp-delegations.jsonl'),'utf8').trim().split('\n').length,1);
+ assert.equal(p.ledger.effects('a').filter(e=>e.result.type==='launch-delegation').length,1);
+ mcp.notifications.stop();mcp.sessions.closeAll();
  }finally{fs.rmSync(directory,{recursive:true,force:true});}
 });
