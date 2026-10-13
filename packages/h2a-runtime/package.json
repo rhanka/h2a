@@ -16,6 +16,7 @@
     "@aws-sdk/client-s3": "^3.1075.0",
     "@hono/node-server": "^2.0.12",
     "@sentropic/cluster-mesh": "0.13.3",
+    "@sentropic/engram-live": "file:../../vendor/sentropic-engram-live-0.1.0.tgz",
     "@sentropic/llm-gateway": "0.19.5",
     "@sentropic/llm-mesh": "0.25.0",
     "@xterm/headless": "^6.0.0",
