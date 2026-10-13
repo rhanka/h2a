@@ -167,7 +167,7 @@ function createCentralApp(
   let launches = 0;
   let callbacks = 0;
   let unresolvedEffects = 0;
-  const runExecutor = options.runExecutor ?? executeH2aRun;
+  const runExecutor = options.runExecutor;
   const closeAttachment = (id: string, attachment: Attachment): Promise<void> => {
     attachment.closing ??= (async () => {
       sessions.delete(id);
@@ -300,7 +300,7 @@ function createCentralApp(
           attachment.participant.downstreamProtocol = initialized.result.protocolVersion;
           attachment.participant.initialized = true;
         }
-      } catch { /* An invalid initialization is closed below, never checkpointed. */ }
+      } catch { /* Without a negotiated version, freeze remains refused. */ }
     }
     if (!requestedSessionId && ![...sessions.values()].includes(attachment)) { await attachment.participant.close(() => attachment.handle.close()); await attachment.transport.close(); }
     return response ?? context.body(null, 202);
@@ -495,6 +495,7 @@ export async function startCentralMcpServer(
             resolveSelectedEntry(installation).selection.selectionEpoch)
         } : {}),
         close() { setImmediate(() => void stopServer()); } });
+      if (participants) participants.registry.onIndeterminate = () => { administration!.indeterminate = true; };
       await options.beforeExclusiveMarkerPublish?.();
       await options.afterMarkerClaim?.();
       return marker;

@@ -110,12 +110,14 @@ export class Participants {
   }
   commit() { updateWriterControl(this.root, { gate: 'CLOSED' }); }
   reconcileTransaction(tx) {
+    if (this.registry.indeterminate) this.registry.reconcile();
     const control = this.writerControl();
     if (tx?.source.generation !== this.marker.generation) return;
     if (tx.state === 'ABORTED' && control.gate === 'BARRIER' && control.handoverId === tx.handoverId) this.abort(tx.handoverId);
     if (['STOP_COMMITTED', 'STOPPED'].includes(tx.state) && control.gate !== 'CLOSED') this.commit();
   }
   drain() {
+    if (this.registry.indeterminate) return { revision: this.registry.revision(), calls: 0, children: 0, briefs: 0, callbacks: 0, effects: 1, complete: false };
     return this.registry.withLock(() => {
       LaunchJournal.reconcileAll(this.registry, this.ledger);
       const drain = this.ledger.drain();
@@ -171,6 +173,25 @@ export class AttachmentParticipant {
       const operation = this.launches.operation(memo, 'child');
       return withExecution(this.authority(operation), () => execute(enriched));
     });
+  }
+  completeLaunch(request, result, record) {
+    if (!request.delegation) return;
+    const memo = this.launches.memos().find(m => m.launchName === request.name);
+    const operation = memo && this.launches.operation(memo, 'child');
+    if (!operation) throw new Error('operation_fenced');
+    const eventId = this.manager.ledger.publishEffect(operation, { type: 'launch-delegation', launchId: memo.launchId,
+      delegation: request.delegation, terminalResult: result });
+    try {
+      this.manager.registry.withLock(() => {
+        this.manager.registry.assertOwner(this.token);
+        if (this.manager.writerControl().gate !== 'OPEN') throw new Error('store_admission_closed');
+        this.runOwner(() => record(eventId));
+      });
+    }
+    catch (error) {
+      if (!['ownership_fenced', 'store_admission_closed'].includes(error.message)) throw error;
+      // The current-owner event remains durable; no old owner effect is replayed.
+    }
   }
   snapshot() {
     const notification = this.mcp.notifications.checkpointState();
