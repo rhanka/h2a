@@ -176,6 +176,9 @@ it("fails before serving when Claude seat host composition is unqualified", asyn
 });
 
 it("sweeps Claude orphans only when a Claude seat client is composed", async () => {
+  // Deterministic regardless of the ambient environment: no seat env config.
+  vi.stubEnv("H2A_CLAUDE_BINARY_PATH", "");
+  vi.stubEnv("H2A_CLAUDE_BINARY_DIGEST", "");
   const { sweepOrphanSandboxes } = await import("../claude-code-cli-lifecycle.js");
   const failingPrepare = async (): Promise<never> => {
     throw new Error("composition probe");
