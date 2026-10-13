@@ -40,7 +40,7 @@ export function readDeclaredNonTests(root) {
   }
   const identities = new Set()
   for (const entry of manifest.entries) {
-    if (typeof entry.file !== 'string' || !/^packages\/h2a\/test\/[^/*]+\.test\.js$/.test(entry.file)
+    if (typeof entry.file !== 'string' || !/^(?:packages\/h2a\/test\/[^/*]+\.test\.js|packages\/h2a-runtime\/src\/(?:[\w-]+\/)*[\w-]+\.test\.ts)$/.test(entry.file)
       || typeof entry.fullName !== 'string' || !entry.fullName.trim()
       || !['skipped', 'todo'].includes(entry.status) || typeof entry.reason !== 'string' || !entry.reason.trim()) {
       throw new Error('invalid RC 0.98.6 declared non-test identity, status or reason')
@@ -62,7 +62,8 @@ export function policyFor(root, inventory, scope) {
       .map((entry) => ({ ...entry, file: join(root, entry.file) })),
     // Owner decision for this RC only. These are declarations, not coverage;
     // the execution proof must also detect activation or disappearance.
-    declaredNonTests: scope === 'runtime' ? [] : readDeclaredNonTests(root)
+    declaredNonTests: readDeclaredNonTests(root)
+      .filter(entry => scope === undefined || (scope === 'runtime') === entry.file.startsWith('packages/h2a-runtime/'))
       .map((entry) => ({ ...entry, file: join(root, entry.file) })),
   }
 }

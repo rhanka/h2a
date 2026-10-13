@@ -68,7 +68,7 @@ import { performance } from 'node:perf_hooks'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { TEST_DIRS, discoverTestFiles, listNodeTrackSuiteFiles, NODE_TRACK_EXECUTION_REPORT, verifyNodeTrackExecution } from './run-tests.mjs'
 import { discoverSuites, verifyExecutionReport, readInventory, inventoryFailures } from './test-execution-evidence.mjs'
-import { policyFor } from './test-inventory.mjs'
+import { policyFor, readDeclaredNonTests } from './test-inventory.mjs'
 import { tmpdir } from 'node:os'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
@@ -255,6 +255,7 @@ function normalizePath(p) {
 export function listRuntimeSuiteFiles() {
   const files = discoverSuites(RUNTIME_SRC)
   const inventory = Object.fromEntries(Object.entries(readInventory(REPO_ROOT)).filter(([file]) => file.startsWith('packages/h2a-runtime/src/')))
+  for (const entry of readDeclaredNonTests(REPO_ROOT).filter(entry => entry.file.startsWith('packages/h2a-runtime/'))) inventory[entry.file] ??= []
   return inventoryFailures(REPO_ROOT, inventory, files).length ? [] : files
 }
 

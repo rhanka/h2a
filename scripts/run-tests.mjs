@@ -95,7 +95,8 @@ export function listNodeTrackSuiteFiles() {
   const inventory = Object.fromEntries(Object.entries(readInventory(REPO_ROOT)).filter(([file]) => !file.startsWith("packages/h2a-runtime/src/")));
   // Removing an entire declared non-test file must not remove its identities
   // from the required execution scope unnoticed.
-  const nonTestFiles = Object.fromEntries(readDeclaredNonTests(REPO_ROOT).map(entry => [entry.file, []]));
+  const nonTestFiles = Object.fromEntries(readDeclaredNonTests(REPO_ROOT)
+    .filter(entry => !entry.file.startsWith('packages/h2a-runtime/')).map(entry => [entry.file, []]));
   const missingNonTests = inventoryFailures(REPO_ROOT, nonTestFiles, files);
   if (missingNonTests.length) {
     process.stderr.write(missingNonTests.map(f => f.replace('normative suite missing', 'declared non-test suite disappeared')).join("\n") + "\n");

@@ -231,6 +231,30 @@
       "fullName": "native PTY wake injection depends on PR-1 native-PTY transport; validated post-PR-1 merge",
       "status": "todo",
       "reason": "Unimplemented native PTY objective-loop placeholder pending PR-1 transport; owner declares it is not yet a test."
+    },
+    {
+      "file": "packages/h2a-runtime/src/delegate.test.ts",
+      "fullName": "delegate on a tmux-less machine — NAMED DEBT, not covered DELEGATE_REGISTERS_LOCAL_NATIVE_WHILE_REQUIRING_TMUX — tracked debt: #199 creates the POPULATION that can hit this (a tmux-less machine becomes a legitimate config when pty is the default), not the defect; pending delegate native-without-tmux",
+      "status": "skipped",
+      "reason": "Owner round 6: declared non-test; Pre-existing tracked debt outside spec §5"
+    },
+    {
+      "file": "packages/h2a-runtime/src/destructive-act-unknown-failclosed.test.ts",
+      "fullName": "attach missing->remote fallthrough — NAMED DEBT, not covered ATTACH_MISSING_IDENTITY_MUST_NOT_FALL_THROUGH_TO_REMOTE_HOMONYM — pending attach fail-closed symmetry (tracked debt 2026-08-08)",
+      "status": "todo",
+      "reason": "Owner round 6: declared non-test; Pre-existing tracked debt outside spec §5"
+    },
+    {
+      "file": "packages/h2a-runtime/src/host-selection-invariants.test.ts",
+      "fullName": "dead legacy tmux row relaunch policy — NAMED DEBT, not covered DEAD_LEGACY_TMUX_ROW_RELAUNCHES_NATIVE_NOT_TMUX — pending dead-tmux-relaunch host policy decision (reopened by owner tmux-permanent ratification 2026-08-08)",
+      "status": "todo",
+      "reason": "Owner round 6: declared non-test; Pre-existing tracked debt outside spec §5"
+    },
+    {
+      "file": "packages/h2a-runtime/src/native-terminal/supervisor.test.ts",
+      "fullName": "NativeTerminalHostSupervisor takeover reconcile reap treats unknown per identity, never as a global state",
+      "status": "skipped",
+      "reason": "Owner round 6: declared non-test; Pre-existing tracked debt outside spec §5"
     }
   ]
 }
