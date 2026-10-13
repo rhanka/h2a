@@ -25,6 +25,14 @@ R3–R6 remain open. No supplied independent review or owner decision is edited.
 
 ## Review of this change
 
+### Owner ratification for MH-L2 (2026-10-12)
+
+R3: QF=A+B and QC=opt-in publication outside latest are now ratified.
+R4: confined independent conductor reviews count as lot review; installed MCP
+dispatch remains forbidden. R5: real Claude qualification belongs to MH-L8.
+These reserves no longer prevent starting L2. R6 remains a conductor release
+gate. See `../mh-l2/RATIFICATIONS.md` for source and scope.
+
 The diff only extends the existing network provenance test and records evidence.
 Production behavior already rejects non-ACTIVE controllers; the test now kills
 the independently observed surviving mutation. The helper still starts and
