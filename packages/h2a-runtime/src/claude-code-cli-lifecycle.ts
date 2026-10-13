@@ -27,16 +27,16 @@ export const DEFAULT_MAX_REMAINING_TTL_MS = 86_400_000; // 24 hours
 /**
  * Account locking lives in the mesh account directory, like every other
  * seat: h2a holds no per-account lease here. The holder record below only
- * describes sweep/identity metadata (run-meta.json), never a lock claim.
+ * describes sweep/identity metadata (run-meta.json and the sweep lock),
+ * never a lock claim.
  */
-export interface ClaudeLockHolderRecord {
+export interface ClaudeSweepHolderRecord {
   readonly pid?: unknown;
   readonly startTime?: unknown;
   readonly bootId?: unknown;
   readonly pidNamespace?: unknown;
   readonly machineId?: unknown;
   readonly token?: unknown;
-  readonly claimToken?: unknown;
 }
 
 /**
@@ -48,7 +48,7 @@ export interface ClaudeLockHolderRecord {
  * machine sharing this directory — fails closed as alive (wait, never
  * reclaim), so a live holder can never lose its lock to a waiter.
  */
-function isRecordedHolderProvenDead(holder: ClaudeLockHolderRecord): boolean {
+function isRecordedHolderProvenDead(holder: ClaudeSweepHolderRecord): boolean {
   if (!holder || typeof holder !== "object") return false;
   if (typeof holder.pid !== "number" || !Number.isInteger(holder.pid) || holder.pid <= 0) {
     return false;
@@ -108,7 +108,7 @@ export function isRecordedChildProvenTarget(
     readonly childCwd?: unknown;
     readonly runId?: unknown;
   },
-  parentMeta: ClaudeLockHolderRecord,
+  parentMeta: ClaudeSweepHolderRecord,
   runDir: string,
 ): { proven: boolean; reason?: string } {
   if (typeof childPid !== "number" || !Number.isInteger(childPid) || childPid <= 0) {
@@ -311,11 +311,11 @@ export async function sweepOrphanSandboxes(
   // Sweep mutual exclusion: one active sweeper per root.
   const sweepLockFile = join(root, CLAUDE_SWEEP_LOCK_FILENAME);
   const sweepToken = randomUUID();
-  const readSweepHolder = (): ClaudeLockHolderRecord | null => {
+  const readSweepHolder = (): ClaudeSweepHolderRecord | null => {
     try {
       const parsed: unknown = JSON.parse(readFileSync(sweepLockFile, "utf8"));
       if (!parsed || typeof parsed !== "object") return null;
-      return parsed as ClaudeLockHolderRecord;
+      return parsed as ClaudeSweepHolderRecord;
     } catch {
       return null;
     }
@@ -367,11 +367,11 @@ export async function sweepOrphanSandboxes(
       const runDir = join(root, entry.name);
       const metaPath = join(runDir, "run-meta.json");
 
-      let meta: (ClaudeLockHolderRecord & { createdAt?: unknown }) | null = null;
+      let meta: (ClaudeSweepHolderRecord & { createdAt?: unknown }) | null = null;
       try {
         const parsed: unknown = JSON.parse(readFileSync(metaPath, "utf8"));
         if (parsed && typeof parsed === "object") {
-          meta = parsed as ClaudeLockHolderRecord & { createdAt?: unknown };
+          meta = parsed as ClaudeSweepHolderRecord & { createdAt?: unknown };
         }
       } catch {
         meta = null;
