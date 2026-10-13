@@ -33,6 +33,20 @@ function createMockChild() {
 
 const RUNNER_SCRATCH = join(tmpdir(), `h2a-claude-runner-test-${Date.now()}-${process.pid}`);
 
+/**
+ * Host-independent netns observations (c-m1): the verdict logic is
+ * runner-owned, only the link content is injected. Isolated: self/child
+ * differ from init. Host: everything equals init.
+ */
+const ISOLATED_NETNS_READER = (procPath: string): string =>
+  procPath === "/proc/1/ns/net" ? "net:[4026531836]" : "net:[4026532444]";
+const HOST_NETNS_READER = (_procPath: string): string => "net:[4026531836]";
+const CHILD_ESCAPE_NETNS_READER = (procPath: string): string => {
+  if (procPath === "/proc/1/ns/net") return "net:[4026531836]";
+  if (procPath === "/proc/99999999/ns/net") return "net:[4026531836]";
+  return "net:[4026532444]";
+};
+
 beforeEach(() => {
   mkdirSync(RUNNER_SCRATCH, { recursive: true });
   process.env.H2A_CLAUDE_EGRESS_ENFORCED = "1";
@@ -76,12 +90,11 @@ describe("claude-code-cli-runner (protocol)", () => {
     capabilities: validCaps,
     sandboxRootDir: RUNNER_SCRATCH,
     egressEnforcement: {
-      mechanism: "test-host-firewall",
+      mechanism: "netns",
       inferenceHost: "api.anthropic.com",
-      verifySandbox: vi.fn().mockResolvedValue(true),
     },
     managedSettingsPaths: [] as readonly string[],
-    allowTestEgressMechanism: true,
+    egressNetnsReader: ISOLATED_NETNS_READER,
     killProcessTreeFn: defaultKillProcessTree,
     reapProcessTreeFn: defaultReapProcessTree,
   };
@@ -192,129 +205,72 @@ describe("claude-code-cli-runner (protocol)", () => {
       await expect(
         runOnce({ egressEnforcement: { mechanism: "netns", inferenceHost: "evil.example" } }),
       ).rejects.toThrow("egress not enforced");
-      // Declaration-only trust (missing verifySandbox): refuse.
-      await expect(
-        runOnce({
-          egressEnforcement: {
-            mechanism: "test-host-firewall",
-            inferenceHost: "api.anthropic.com",
-          },
-        }),
-      ).rejects.toThrow("declaration-only trust refused: enforcing sandbox verification required");
-      // Sandbox verification returns false: refuse.
-      await expect(
-        runOnce({
-          egressEnforcement: {
-            mechanism: "test-host-firewall",
-            inferenceHost: "api.anthropic.com",
-            verifySandbox: () => false,
-          },
-        }),
-      ).rejects.toThrow("egress sandbox verification failed");
-      // Sandbox verification throws: refuse.
-      await expect(
-        runOnce({
-          egressEnforcement: {
-            mechanism: "test-host-firewall",
-            inferenceHost: "api.anthropic.com",
-            verifySandbox: () => {
-              throw new Error("nftables check failed");
-            },
-          },
-        }),
-      ).rejects.toThrow("egress sandbox verification failed");
-      // Caller callback without an enforcing mechanism (e.g. "callback", "caller-callback", "none"): refuse.
-      await expect(
-        runOnce({
-          egressEnforcement: {
-            mechanism: "callback",
-            inferenceHost: "api.anthropic.com",
-            verifySandbox: () => true,
-          },
-        }),
-      ).rejects.toThrow("egress verification cannot be only a caller callback without an enforcing mechanism");
-      await expect(
-        runOnce({
-          egressEnforcement: {
-            mechanism: "none",
-            inferenceHost: "api.anthropic.com",
-            verifySandbox: () => true,
-          },
-        }),
-      ).rejects.toThrow("egress verification cannot be only a caller callback without an enforcing mechanism");
-
-      // test-host-firewall is refused if allowTestEgressMechanism is false/omitted
-      await expect(
-        runOnce({
-          allowTestEgressMechanism: false,
-          egressEnforcement: {
-            mechanism: "test-host-firewall",
-            inferenceHost: "api.anthropic.com",
-            verifySandbox: () => true,
-          },
-        }),
-      ).rejects.toThrow("test-host-firewall is not permitted in production builds");
-
-      // test-host-firewall is refused unconditionally in production
-      const savedNodeEnv = process.env.NODE_ENV;
-      try {
-        process.env.NODE_ENV = "production";
+      // Caller-supplied callbacks change nothing: every non-netns mechanism
+      // is refused even with an arbitrary `() => true` probe, sandbox
+      // callback, path, or proxy URL attached. test-host-firewall has no
+      // production path at all: it is simply not runner-observable.
+      for (const mechanism of [
+        "callback",
+        "caller-callback",
+        "none",
+        "unspecified",
+        "unverified",
+        "declaration",
+        "test-host-firewall",
+        "proxy",
+        "iptables",
+        "nftables",
+        "ebpf",
+        "landlock",
+      ]) {
         await expect(
           runOnce({
-            allowTestEgressMechanism: true,
             egressEnforcement: {
-              mechanism: "test-host-firewall",
+              mechanism,
               inferenceHost: "api.anthropic.com",
+              observableProbe: () => true,
               verifySandbox: () => true,
-            },
+              netnsPath: "/",
+              proxyUrl: "http://proxy.example:8080",
+            } as never,
           }),
-        ).rejects.toThrow("test-host-firewall is not permitted in production builds");
-      } finally {
-        if (savedNodeEnv === undefined) delete process.env.NODE_ENV;
-        else process.env.NODE_ENV = savedNodeEnv;
+        ).rejects.toThrow("is not runner-observable");
       }
 
-      // netns mechanism without isolation throws
+      // netns while the runner itself is in the host namespace: refuse,
+      // even with caller-supplied callbacks attached.
       await expect(
         runOnce({
+          egressNetnsReader: HOST_NETNS_READER,
           egressEnforcement: {
             mechanism: "netns",
             inferenceHost: "api.anthropic.com",
+            observableProbe: () => true,
             verifySandbox: () => true,
-          },
+          } as never,
         }),
-      ).rejects.toThrow("process is in host root network namespace and no netns path provided");
+      ).rejects.toThrow("host root network namespace");
 
-      // proxy mechanism without proxy configuration throws
-      const savedHttpsProxy = process.env.HTTPS_PROXY;
-      delete process.env.HTTPS_PROXY;
-      delete process.env.https_proxy;
-      delete process.env.ALL_PROXY;
-      delete process.env.all_proxy;
-      try {
-        await expect(
-          runOnce({
-            egressEnforcement: {
-              mechanism: "proxy",
-              inferenceHost: "api.anthropic.com",
-              verifySandbox: () => true,
-            },
-          }),
-        ).rejects.toThrow("egress mechanism 'proxy' is not enforcing (no HTTPS_PROXY or proxyUrl configured)");
-      } finally {
-        if (savedHttpsProxy !== undefined) process.env.HTTPS_PROXY = savedHttpsProxy;
-      }
-
-      // iptables mechanism requires observableProbe
+      // Child outside the runner-observed namespace: refuse and kill it
+      // before any streaming.
+      const escapeChild = createMockChild();
+      const escapeSpawn = vi.fn(() => escapeChild);
+      const escapeRunner = new OfficialClaudeCodeCliRunner({
+        ...qualifiedOptions,
+        spawnFn: escapeSpawn as any,
+        egressNetnsReader: CHILD_ESCAPE_NETNS_READER,
+      });
       await expect(
-        runOnce({
-          egressEnforcement: {
-            mechanism: "iptables",
-            inferenceHost: "api.anthropic.com",
-            verifySandbox: () => true,
-          },
-        }),
-      ).rejects.toThrow("requires an observable verification probe (caller-supplied callback alone is insufficient)");
+        escapeRunner
+          .run({
+            access: fakeAccess,
+            request: fakeRequest,
+            signal: new AbortController().signal,
+          })[Symbol.asyncIterator]()
+          .next(),
+      ).rejects.toThrow("child is not in the runner-observed isolated network namespace");
+      expect(escapeSpawn).toHaveBeenCalledTimes(1);
+      expect(escapeChild.kill).toHaveBeenCalledWith("SIGKILL");
     } finally {
       if (saved === undefined) delete process.env.H2A_CLAUDE_EGRESS_ENFORCED;
       else process.env.H2A_CLAUDE_EGRESS_ENFORCED = saved;
@@ -323,26 +279,27 @@ describe("claude-code-cli-runner (protocol)", () => {
     expect(spawnFn).not.toHaveBeenCalled();
   });
 
-  it("refuses spawn when account has organization credentials (server-managed settings unverified)", async () => {
-    const spawnFn = vi.fn();
+  it("ignores invented organization fields on the access projection (MAJ-2 source-gap)", async () => {
+    // The mesh 0.25.0 projection carries only accessToken/expiresAt/scopes:
+    // unknown extra fields never refuse spawn and never pass anywhere.
+    const mockChild = createMockChild();
+    const spawnFn = vi.fn(() => mockChild);
     const runner = new OfficialClaudeCodeCliRunner({
       ...qualifiedOptions,
       spawnFn: spawnFn as any,
     });
 
-    const orgAccess = {
-      ...fakeAccess,
-      organizationId: "org-claude-test-1",
-    };
-
-    const iter = runner.run({
-      access: orgAccess,
+    const iterator = runner.run({
+      access: { ...fakeAccess, organizationId: "org-claude-test-1" } as never,
       request: fakeRequest,
       signal: new AbortController().signal,
     })[Symbol.asyncIterator]();
-
-    await expect(iter.next()).rejects.toThrow("server-managed settings cannot be verified for organization accounts");
-    expect(spawnFn).not.toHaveBeenCalled();
+    const pendingRead = iterator.next();
+    await new Promise((r) => setTimeout(r, 20));
+    expect(spawnFn).toHaveBeenCalledTimes(1);
+    await expect(iterator.return?.()).resolves.toMatchObject({ done: true });
+    await expect(pendingRead).resolves.toMatchObject({ done: true });
+    expect(mockChild.kill).toHaveBeenCalledWith("SIGKILL");
   });
 
   it("formats exact argv and stdin NDJSON without prompt or credentials in argv", async () => {
@@ -866,13 +823,13 @@ describe("claude-code-cli-runner (protocol)", () => {
     const runner = new OfficialClaudeCodeCliRunner({
       ...qualifiedOptions,
       egressEnforcement: {
-        mechanism: "test-host-firewall",
+        mechanism: "netns",
         inferenceHost: "api.anthropic.com",
-        verifySandbox: async () => {
-          controller.abort();
-          return true;
-        },
       },
+      egressNetnsReader: ((procPath: string) => {
+        controller.abort();
+        return ISOLATED_NETNS_READER(procPath);
+      }) as never,
       spawnFn: spawnFn as any,
     });
 
@@ -1075,11 +1032,10 @@ wait
       spawnFn,
       sandboxRootDir: RUNNER_SCRATCH,
       egressEnforcement: {
-        mechanism: "test-host-firewall",
+        mechanism: "netns",
         inferenceHost: "api.anthropic.com",
-        verifySandbox: () => true,
       },
-      allowTestEgressMechanism: true,
+      egressNetnsReader: ISOLATED_NETNS_READER,
       timeoutMs: 30_000,
     });
 
