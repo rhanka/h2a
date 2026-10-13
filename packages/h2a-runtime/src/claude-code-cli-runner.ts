@@ -102,128 +102,122 @@ export const KNOWN_IGNORED_TOP_LEVEL_TYPES = new Set([
   "control_request",
 ]);
 
-/** Enforcing network mechanisms that provide kernel-level or proxy-level isolation. */
-export const RECOGNIZED_EGRESS_MECHANISMS = new Set([
-  "netns",
-  "network-namespace",
-  "proxy",
-  "iptables",
-  "nftables",
-  "ebpf",
-  "landlock",
-]);
+/**
+ * Network mechanisms the runner observes itself. Only a Linux network
+ * namespace verified from /proc is accepted: proxy environment variables,
+ * firewall callbacks, caller-supplied paths, and test values are refused.
+ * Any extra field a caller attaches to the attestation object is ignored by
+ * construction — only mechanism and inferenceHost are read.
+ */
+export const RUNNER_OBSERVED_EGRESS_MECHANISMS = new Set(["netns", "network-namespace"]);
 
 /**
  * Egress enforcement requirement: default-deny inference-only egress must be
- * actually enforced and verified outside this process (network namespace, firewall,
- * or forced proxy) for the whole child tree. The runner refuses to start unless
- * an enforcing sandbox is verified (no declaration/env-only trust).
+ * actually enforced. The runner observes the enforcing mechanism itself (its
+ * own network namespace pre-spawn, then the child's post-spawn) and refuses
+ * to start otherwise. No caller-supplied callback, path, or URL is trusted.
  */
 export interface ClaudeEgressEnforcement {
   readonly mechanism: string;
   readonly inferenceHost: string;
-  /**
-   * Verifier that actively proves the enforcing sandbox is in place.
-   * Pure declaration/env-only trust without active verification is refused.
-   */
-  readonly verifySandbox?: () => Promise<boolean | { verified: boolean; reason?: string }> | boolean | { verified: boolean; reason?: string };
-  readonly netnsPath?: string;
-  readonly proxyUrl?: string;
-  readonly observableProbe?: () => Promise<boolean | { verified: boolean; reason?: string }> | boolean | { verified: boolean; reason?: string };
+}
+
+/**
+ * Test seam reading a /proc netns magic link. Production always uses the
+ * default (real readlinkSync): the seam replaces the observation
+ * implementation in tests, never the verdict — parsing and comparison stay
+ * runner-owned.
+ */
+export type EgressNetnsLinkReader = (procNetnsPath: string) => string;
+
+function parseNetnsInode(link: string): string | undefined {
+  const match = /\[(\d+)\]/.exec(link);
+  return match?.[1];
+}
+
+/**
+ * Runner-side proof: this process must already live in an isolated network
+ * namespace (established by the owner via `unshare -n` / `ip netns exec`
+ * before launching h2a). Returns the runner's namespace inode for the
+ * post-spawn child check. Host namespace, unreadable /proc, or non-Linux
+ * refuses to start.
+ */
+export function verifyRunnerEgressNetns(
+  reader: EgressNetnsLinkReader = (path) => readlinkSync(path),
+): string {
+  if (process.platform !== "linux") {
+    throw new Error(
+      "Claude seat spawn refused: egress mechanism 'netns' is not verifiable on this platform (Linux network namespace required)",
+    );
+  }
+  let selfLink: string;
+  let initLink: string;
+  try {
+    selfLink = reader("/proc/self/ns/net");
+  } catch {
+    throw new Error(
+      "Claude seat spawn refused: runner network namespace unreadable (/proc/self/ns/net)",
+    );
+  }
+  try {
+    initLink = reader("/proc/1/ns/net");
+  } catch {
+    throw new Error(
+      "Claude seat spawn refused: host network namespace unreadable (/proc/1/ns/net)",
+    );
+  }
+  const selfId = parseNetnsInode(selfLink);
+  const initId = parseNetnsInode(initLink);
+  if (!selfId || !initId) {
+    throw new Error("Claude seat spawn refused: network namespace identity unparsable");
+  }
+  if (selfId === initId) {
+    throw new Error(
+      "Claude seat spawn refused: runner is in the host root network namespace (launch h2a inside an isolated network namespace: unshare -n / ip netns exec)",
+    );
+  }
+  return selfId;
+}
+
+/**
+ * Child-bound proof: after spawn, the child must live in the same isolated
+ * namespace the runner observed for itself. Mismatch kills the child and
+ * refuses the run before any streaming.
+ */
+export function verifyChildEgressNetns(
+  childPid: number,
+  expectedRunnerInode: string,
+  reader: EgressNetnsLinkReader = (path) => readlinkSync(path),
+): void {
+  if (process.platform !== "linux") {
+    throw new Error(
+      "Claude seat spawn refused: egress mechanism 'netns' is not verifiable on this platform (Linux network namespace required)",
+    );
+  }
+  if (!Number.isInteger(childPid) || childPid <= 0) {
+    throw new Error("Claude seat spawn refused: child network namespace unprovable (invalid pid)");
+  }
+  let childLink: string;
+  try {
+    childLink = reader(`/proc/${childPid}/ns/net`);
+  } catch {
+    throw new Error("Claude seat spawn refused: child network namespace unreadable");
+  }
+  const childId = parseNetnsInode(childLink);
+  if (!childId || childId !== expectedRunnerInode) {
+    throw new Error(
+      "Claude seat spawn refused: child is not in the runner-observed isolated network namespace",
+    );
+  }
 }
 
 /** Out-of-band owner switch confirming enforced egress for this host. */
 export const CLAUDE_EGRESS_ENFORCED_ENV = "H2A_CLAUDE_EGRESS_ENFORCED";
 
-export async function verifyObservableEgressMechanism(
-  mechanism: string,
-  attestation: ClaudeEgressEnforcement,
-): Promise<void> {
-  if (attestation.observableProbe && typeof attestation.observableProbe === "function") {
-    let probeResult: unknown;
-    try {
-      probeResult = await attestation.observableProbe();
-    } catch (err) {
-      throw new Error(
-        `Claude seat spawn refused: observable egress probe failed: ${(err as Error)?.message || err}`,
-      );
-    }
-    const ok =
-      probeResult === true ||
-      (typeof probeResult === "object" && probeResult !== null && (probeResult as { verified?: unknown }).verified === true);
-    if (!ok) {
-      throw new Error("Claude seat spawn refused: observable egress probe rejected isolation");
-    }
-    return;
-  }
-
-  if (mechanism === "netns" || mechanism === "network-namespace") {
-    if (process.platform === "linux") {
-      let isIsolated = false;
-      try {
-        const selfNet = readlinkSync("/proc/self/ns/net");
-        const initNet = readlinkSync("/proc/1/ns/net");
-        if (selfNet && initNet && selfNet !== initNet) {
-          isIsolated = true;
-        }
-      } catch {
-        // Non-standard proc or permission
-      }
-      if (attestation.netnsPath) {
-        if (!existsSync(attestation.netnsPath)) {
-          throw new Error(
-            `Claude seat spawn refused: specified network namespace path does not exist: ${attestation.netnsPath}`,
-          );
-        }
-        isIsolated = true;
-      }
-      if (!isIsolated) {
-        throw new Error(
-          "Claude seat spawn refused: egress mechanism 'netns' is not enforcing (process is in host root network namespace and no netns path provided)",
-        );
-      }
-    }
-    return;
-  }
-
-  if (mechanism === "proxy") {
-    const proxyEnv =
-      process.env.HTTPS_PROXY ??
-      process.env.https_proxy ??
-      process.env.ALL_PROXY ??
-      process.env.all_proxy ??
-      attestation.proxyUrl;
-    if (!proxyEnv || !proxyEnv.trim()) {
-      throw new Error(
-        "Claude seat spawn refused: egress mechanism 'proxy' is not enforcing (no HTTPS_PROXY or proxyUrl configured)",
-      );
-    }
-    return;
-  }
-
-  if (
-    mechanism === "iptables" ||
-    mechanism === "nftables" ||
-    mechanism === "ebpf" ||
-    mechanism === "landlock"
-  ) {
-    if (!attestation.observableProbe) {
-      throw new Error(
-        `Claude seat spawn refused: egress mechanism '${mechanism}' requires an observable verification probe (caller-supplied callback alone is insufficient)`,
-      );
-    }
-    return;
-  }
-
-  throw new Error(
-    `Claude seat spawn refused: egress mechanism '${mechanism}' cannot be verified as enforcing`,
-  );
-}
-
 export async function requireEgressEnforcement(
   attestation: ClaudeEgressEnforcement | undefined,
-  options?: { allowTestMechanism?: boolean },
-): Promise<void> {
+  options?: { netnsReader?: EgressNetnsLinkReader },
+): Promise<string> {
   if (
     !attestation ||
     !attestation.mechanism.trim() ||
@@ -232,60 +226,15 @@ export async function requireEgressEnforcement(
     throw new Error("Claude seat spawn refused: inference-only egress not enforced");
   }
   const mech = attestation.mechanism.trim().toLowerCase();
-  if (
-    mech === "callback" ||
-    mech === "caller-callback" ||
-    mech === "none" ||
-    mech === "unspecified" ||
-    mech === "unverified" ||
-    mech === "declaration"
-  ) {
+  if (!RUNNER_OBSERVED_EGRESS_MECHANISMS.has(mech)) {
     throw new Error(
-      "Claude seat spawn refused: egress verification cannot be only a caller callback without an enforcing mechanism",
+      `Claude seat spawn refused: egress mechanism '${attestation.mechanism.trim()}' is not runner-observable (only 'netns', verified from /proc, is accepted)`,
     );
   }
   if (process.env[CLAUDE_EGRESS_ENFORCED_ENV] !== "1") {
     throw new Error("Claude seat spawn refused: inference-only egress not enforced");
   }
-
-  const isProd = process.env.NODE_ENV === "production" || process.env.H2A_PRODUCTION === "1";
-  if (mech === "test-host-firewall") {
-    if (isProd || !options?.allowTestMechanism) {
-      throw new Error(
-        "Claude seat spawn refused: test-host-firewall is not permitted in production builds",
-      );
-    }
-  } else if (!RECOGNIZED_EGRESS_MECHANISMS.has(mech)) {
-    throw new Error(
-      "Claude seat spawn refused: egress verification cannot be only a caller callback without an enforcing mechanism",
-    );
-  }
-
-  if (!attestation.verifySandbox || typeof attestation.verifySandbox !== "function") {
-    throw new Error(
-      "Claude seat spawn refused: inference-only egress not enforced (declaration-only trust refused: enforcing sandbox verification required)",
-    );
-  }
-
-  // Active observable verification of the enforcing mechanism
-  if (mech !== "test-host-firewall") {
-    await verifyObservableEgressMechanism(mech, attestation);
-  }
-
-  let outcome: unknown;
-  try {
-    outcome = await attestation.verifySandbox();
-  } catch (err) {
-    throw new Error(
-      `Claude seat spawn refused: egress sandbox verification failed: ${(err as Error)?.message || err}`,
-    );
-  }
-  const isOk =
-    outcome === true ||
-    (typeof outcome === "object" && outcome !== null && (outcome as { verified?: unknown }).verified === true);
-  if (!isOk) {
-    throw new Error("Claude seat spawn refused: egress sandbox verification failed");
-  }
+  return verifyRunnerEgressNetns(options?.netnsReader);
 }
 
 export interface ClaudeBinaryProbeResult {
@@ -417,8 +366,8 @@ export interface OfficialClaudeCodeCliRunnerOptions {
   readonly killProcessTreeFn?: (pid: number, signal?: NodeJS.Signals) => void;
   /** Test seam injecting process tree reaper instead of reapProcessTree(childPid). */
   readonly reapProcessTreeFn?: (pid: number, signal?: NodeJS.Signals, gracePeriodMs?: number) => Promise<void>;
-  /** Test seam permitting test egress mechanisms outside production. */
-  readonly allowTestEgressMechanism?: boolean;
+  /** Test seam replacing the /proc netns observation (verdict logic stays runner-owned). */
+  readonly egressNetnsReader?: EgressNetnsLinkReader;
   /** Test seam or external signal indicating MDM presence. */
   readonly mdmDetected?: boolean;
   /** Test seam or external signal indicating server-managed settings. */
@@ -443,7 +392,7 @@ export class OfficialClaudeCodeCliRunner implements ClaudeCodeCliRunner {
   private readonly reapProcessTreeFn:
     | ((pid: number, signal?: NodeJS.Signals, gracePeriodMs?: number) => Promise<void>)
     | undefined;
-  private readonly allowTestEgressMechanism: boolean;
+  private readonly egressNetnsReader: EgressNetnsLinkReader | undefined;
   private readonly mdmDetected: boolean | undefined;
   private readonly serverManagedDetected: boolean | undefined;
 
@@ -463,7 +412,7 @@ export class OfficialClaudeCodeCliRunner implements ClaudeCodeCliRunner {
     this.allowedCliTools = options.allowedCliTools;
     this.killProcessTreeFn = options.killProcessTreeFn;
     this.reapProcessTreeFn = options.reapProcessTreeFn;
-    this.allowTestEgressMechanism = options.allowTestEgressMechanism ?? false;
+    this.egressNetnsReader = options.egressNetnsReader;
     this.mdmDetected = options.mdmDetected;
     this.serverManagedDetected = options.serverManagedDetected;
   }
@@ -556,10 +505,12 @@ export class OfficialClaudeCodeCliRunner implements ClaudeCodeCliRunner {
       return;
     }
 
-    // Default-deny egress is a spawn precondition, not a URL label:
-    // without owner-attested enforcement AND active sandbox verification, no child is created at all.
-    await requireEgressEnforcement(this.egressEnforcement, {
-      allowTestMechanism: this.allowTestEgressMechanism,
+    // Default-deny egress is a spawn precondition, not a URL label: the
+    // runner must itself observe an isolated network namespace, or no child
+    // is created at all. Returns the runner's namespace inode for the
+    // post-spawn child check below.
+    const egressNetnsInode = await requireEgressEnforcement(this.egressEnforcement, {
+      netnsReader: this.egressNetnsReader,
     });
 
     // Managed admin settings and MDM/server policy would survive --setting-sources isolation:
@@ -681,6 +632,25 @@ export class OfficialClaudeCodeCliRunner implements ClaudeCodeCliRunner {
         return;
       }
       recordChildPidInSandbox(sandbox, childPid);
+
+      // Child-bound egress proof before any streaming: the child must live
+      // in the runner-observed isolated namespace. Mismatch kills the child
+      // and refuses the run.
+      try {
+        verifyChildEgressNetns(childPid, egressNetnsInode, this.egressNetnsReader);
+      } catch (err) {
+        try {
+          child.kill("SIGKILL");
+        } catch {
+          // Already dead
+        }
+        try {
+          cleanClaudeRunSandbox(sandbox);
+        } catch {
+          // Best effort; cleanup failure already blocks success terminals.
+        }
+        throw err;
+      }
 
       // Drain stderr so a verbose child can never block on a full pipe.
       // Stderr is bounded and never forwarded to the caller.
