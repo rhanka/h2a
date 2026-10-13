@@ -1,0 +1,16 @@
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node --test packages/h2a/test/mh-l4-writers.test.js
+node: v24.21.0
+private test root: /tmp/mh-l4-test-iMfOd7
+✔ should revalidate registry, inbox, presence, blockage and payload writes at the barrier (80.10329ms)
+✔ should refuse janitor cleanup when a snapshot has been replaced during liveness proof (0.964406ms)
+✔ should keep preparatory readOnly opens pure and reject every mutating method (0.422105ms)
+ℹ tests 3
+ℹ suites 0
+ℹ pass 3
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 293.857291
+
+receipt: {"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","--test","packages/h2a/test/mh-l4-writers.test.js"],"code":0,"signal":null,"elapsedMs":322}

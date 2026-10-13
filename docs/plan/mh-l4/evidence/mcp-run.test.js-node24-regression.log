@@ -1,0 +1,36 @@
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node --test packages/h2a/test/mcp-run.test.js
+node: v24.21.0
+private test root: /tmp/mh-l4-test-GKfZAa
+{"event":"drive-consent.full-verification","durationMs":0.0191560000000095,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+{"event":"drive-consent.full-verification","durationMs":0.011853000000002112,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+{"event":"drive-consent.full-verification","durationMs":0.011492000000004055,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+{"event":"drive-consent.full-verification","durationMs":0.00976900000000569,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+{"event":"drive-consent.full-verification","durationMs":0.00809500000002572,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+{"event":"drive-consent.full-verification","durationMs":0.006302000000005137,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+{"event":"drive-consent.full-verification","durationMs":0.01077000000000794,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+✔ h2a_run descriptor is exact, background-only, and shared by the local MCP (3.559921ms)
+✔ h2a_run validates every structured profile and returns the real launcher result (2.890091ms)
+✔ MCP launch records post-launch delegation evidence outside the CLI argv/env (0.456419ms)
+✔ h2a_run threads --bare / --no-bare into the CLI invocation; default omits both (0.106059ms)
+✔ stdio tools/call exposes the same h2a_run contract (3.208149ms)
+✔ h2a_run rejects unknown fields, unsafe workspaces and invalid combinations (1.252829ms)
+✔ canonical invocation uses argv + stdin with no prompt in any argv token (0.264007ms)
+✔ canonical AGY run-once invocation is direct and keeps the prompt on stdin (0.232127ms)
+✔ subprocess bridge sets shell:false and fails closed on API/runtime skew (1.175773ms)
+✔ h2a_run accepts a native-terminal-host result that carries no tmux pane (0.602474ms)
+✔ duplicate-name runtime refusal is surfaced as an error, never success (0.350009ms)
+✔ timeout before session creation reports that retry is safe (0.341844ms)
+✔ timeout after session creation was attempted forbids blind retry (0.313851ms)
+✔ profile launch budgets should include readiness, paste, activity and cleanup (0.465136ms)
+✔ timeout cleanup receipt should be fenced to this attempt without inviting duplicate work (3.508274ms)
+✔ a verified provider-blocked failure should retain delivery and cleanup evidence (0.490293ms)
+ℹ tests 16
+ℹ suites 0
+ℹ pass 16
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 217.308192
+
+receipt: {"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","--test","packages/h2a/test/mcp-run.test.js"],"code":0,"signal":null,"elapsedMs":246}

@@ -1,0 +1,23 @@
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node --test packages/h2a/test/mcp-notifications.test.js
+node: v24.21.0
+private test root: /tmp/mh-l4-test-hwyYem
+{"event":"drive-consent.full-verification","durationMs":0.018796000000008917,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+{"event":"drive-consent.full-verification","durationMs":0.01317400000002067,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+{"event":"drive-consent.full-verification","durationMs":0.009908999999993284,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+{"event":"drive-consent.full-verification","durationMs":0.009456999999997606,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+{"event":"drive-consent.full-verification","durationMs":0.010159999999984848,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+✔ NotificationDispatcher pushes inbox.envelope_arrived to a subscribed session (13.458736ms)
+✔ NotificationDispatcher pushes presence.peer_joined when a new peer file appears (1.854762ms)
+✔ NotificationDispatcher pushes negotiation.event_appended for followed negotiations (1.838992ms)
+✔ NotificationDispatcher does not push topics the session did not subscribe to (1.183578ms)
+✔ L1: a sink returning {accepted:false} holds the snapshot so the diff is retried (1.926416ms)
+ℹ tests 5
+ℹ suites 0
+ℹ pass 5
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 232.950877
+
+receipt: {"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","--test","packages/h2a/test/mcp-notifications.test.js"],"code":0,"signal":null,"elapsedMs":264}

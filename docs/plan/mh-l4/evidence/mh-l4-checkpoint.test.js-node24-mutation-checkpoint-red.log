@@ -1,0 +1,48 @@
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node --test packages/h2a/test/mh-l4-checkpoint.test.js
+node: v24.21.0
+private test root: /tmp/mh-l4-test-p6JBe7
+✔ should preserve notification dedup and separate production, delivery and CLI acknowledgement (1.975539ms)
+✖ should persist every checkpoint field, reconcile a lost ACK and reject hash, epoch or payload changes (296.687008ms)
+ℹ tests 2
+ℹ suites 0
+ℹ pass 1
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 489.894621
+
+✖ failing tests:
+
+test at packages/h2a/test/mh-l4-checkpoint.test.js:33:1
+✖ should persist every checkpoint field, reconcile a lost ACK and reject hash, epoch or payload changes (296.687008ms)
+  AssertionError [ERR_ASSERTION]: The input did not match the regular expression /checkpoint_binding_mismatch/. Input:
+  
+  'Error: checkpoint_conflict'
+  
+      at TestContext.<anonymous> (file:///tmp/mh-l4-release-check-RvMsgD/packages/h2a/test/mh-l4-checkpoint.test.js:44:10)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:974:18)
+      at Test.postRun (node:internal/test_runner/test:1542:19)
+      at Test.run (node:internal/test_runner/test:1467:12)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: Error: checkpoint_conflict
+        at file:///tmp/mh-l4-release-check-RvMsgD/packages/h2a/src/runtime/handover/ownership.js:120:80
+        at file:///tmp/mh-l4-release-check-RvMsgD/packages/h2a/src/runtime/handover/ownership.js:27:20
+        at mutationLock (file:///tmp/mh-l4-release-check-RvMsgD/packages/h2a/src/runtime/handover/mutation.js:31:19)
+        at OwnershipRegistry.withLock (file:///tmp/mh-l4-release-check-RvMsgD/packages/h2a/src/runtime/handover/ownership.js:25:12)
+        at OwnershipRegistry.checkpoint (file:///tmp/mh-l4-release-check-RvMsgD/packages/h2a/src/runtime/handover/ownership.js:115:17)
+        at file:///tmp/mh-l4-release-check-RvMsgD/packages/h2a/test/mh-l4-checkpoint.test.js:44:31
+        at getActual (node:assert:611:5)
+        at strict.throws (node:assert:759:24)
+        at TestContext.<anonymous> (file:///tmp/mh-l4-release-check-RvMsgD/packages/h2a/test/mh-l4-checkpoint.test.js:44:10)
+        at Test.runInAsyncScope (node:async_hooks:227:14),
+    expected: /checkpoint_binding_mismatch/,
+    operator: 'throws',
+    diff: 'simple'
+  }
+
+receipt: {"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","--test","packages/h2a/test/mh-l4-checkpoint.test.js"],"code":1,"signal":null,"elapsedMs":513}

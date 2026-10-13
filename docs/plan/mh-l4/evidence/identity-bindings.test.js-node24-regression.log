@@ -1,0 +1,20 @@
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node --test packages/h2a/test/identity-bindings.test.js
+node: v24.21.0
+private test root: /tmp/mh-l4-test-iotM9K
+✔ first connect with no binding → MINT + records the binding (1.948177ms)
+✔ binding writer carries the canonical fence epoch for its entire append transaction (0.437514ms)
+✔ reconnect with a bound key + valid proof → RECLAIM (same identity, no new binding) (0.479452ms)
+✔ a present id/workspace but FAILED proof → MINT a fresh identity (spoof rejected, de-collision) (0.452742ms)
+✔ re-anchored on conversation: a DIFFERENT providerSessionId in the same workspace MINTS a distinct identity (no collision) (0.4838ms)
+✔ re-anchored on conversation: the SAME providerSessionId reclaims its identity even across workspaces (one conversation = one agent) (0.47829ms)
+✔ verifyReclaimProof: a nonce signed by a bound key verifies; a stranger key does not (2.201905ms)
+ℹ tests 7
+ℹ suites 0
+ℹ pass 7
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 185.28034
+
+receipt: {"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","--test","packages/h2a/test/identity-bindings.test.js"],"code":0,"signal":null,"elapsedMs":208}
