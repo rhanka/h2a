@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { OwnershipRegistry, OperationLedger } from './ownership.js';
 import { WakeJournal } from './wake.js';
 import { LaunchJournal } from './launch-memo.js';
-import { establishWriterControl, updateWriterControl, writerDirectory, withExecution } from './mutation.js';
+import { establishWriterControl, updateWriterControl, writerDirectory, withExecution, currentExecution } from './mutation.js';
 import { readState, publishState } from './state.js';
 import { digest } from './wire.js';
 
@@ -159,6 +159,12 @@ export class AttachmentParticipant {
     if (session) this.manager.registry.updateIdentity(this.token, session.sessionId, session.instance);
   }
   call(fn) {
+    const parent = currentExecution();
+    if (parent?.registry === this.manager.registry && parent.operation?.kind === 'call' &&
+        parent.operation.attachmentId === this.token.attachmentId) {
+      this.manager.ledger.assertOperation(parent.operation);
+      return fn();
+    }
     const operation = this.begin('call');
     const finish = result => { this.finish(operation, { completed: true }); return result; };
     const fail = error => { this.finish(operation, { error: String(error) }, true); throw error; };
