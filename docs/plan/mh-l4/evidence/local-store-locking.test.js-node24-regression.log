@@ -1,10 +1,10 @@
 command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node --test packages/h2a/test/local-store-locking.test.js
 node: v24.21.0
-private test root: /tmp/mh-l4-test-ZjlcNc
-✔ registerInstance under no contention completes with a tight lock timeout (2.350916ms)
-✔ stale lock with a dead PID is reclaimed automatically (51.588252ms)
-✔ live lock holding the current PID times out with LockTimeoutError (201.111151ms)
-✔ withLockSync exposes LockTimeoutError directly with lockPath in the message (101.983689ms)
+private test root: /tmp/mh-l4-test-gG783V
+✔ registerInstance under no contention completes with a tight lock timeout (2.717605ms)
+✔ stale lock with a dead PID is reclaimed automatically (51.743572ms)
+✔ live lock holding the current PID times out with LockTimeoutError (202.418833ms)
+✔ withLockSync exposes LockTimeoutError directly with lockPath in the message (102.65627ms)
 ℹ tests 4
 ℹ suites 0
 ℹ pass 4
@@ -12,6 +12,6 @@ private test root: /tmp/mh-l4-test-ZjlcNc
 ℹ cancelled 0
 ℹ skipped 0
 ℹ todo 0
-ℹ duration_ms 548.806659
+ℹ duration_ms 545.364926
 
-receipt: {"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","--test","packages/h2a/test/local-store-locking.test.js"],"code":0,"signal":null,"elapsedMs":575}
+receipt: {"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","--test","packages/h2a/test/local-store-locking.test.js"],"code":0,"signal":null,"elapsedMs":570}

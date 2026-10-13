@@ -1,3 +1,6 @@
+// Built-output prerequisite: this file imports compiled ../dist modules. Run
+// the documented setup first (docs/plan/mh-l4/QUALIFICATION.md): npm ci
+// --ignore-scripts, npm run build -w @sentropic/track, then tsc -b --force.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
