@@ -122,8 +122,9 @@ const name=process.argv[2],vector=cases[name];if(!vector)throw Error('unknown mu
 const [leaf,before,after,file,build,count=1]=vector,path='packages/h2a/src/runtime/'+leaf,source=fs.readFileSync(path,'utf8');
 if(source.split(before).length!==count+1)throw Error('mutation anchor count');
 const compile=()=>{const r=spawnSync(process.execPath,['node_modules/typescript/bin/tsc','-b','packages/h2a','--pretty','false'],{stdio:'inherit'});if(r.status!==0)throw Error('mutation compile failed');};
+const major=process.versions.node.split('.')[0];
 let code;
-try{fs.writeFileSync(path,source.replaceAll(before,after));if(build)compile();const r=spawnSync(process.execPath,['scripts/mh-l4-test.mjs','packages/h2a/test/mh-l4-'+file+'.test.js','mutation-'+name+'-red'],{stdio:'inherit'});code=r.status;}
+try{fs.writeFileSync(path,source.replaceAll(before,after));if(build)compile();const r=spawnSync(process.execPath,['scripts/mh-l4-test.mjs','packages/h2a/test/mh-l4-'+file+'.test.js','node'+major+'-mutation-'+name+'-red'],{stdio:'inherit'});code=r.status;}
 finally{fs.writeFileSync(path,source);if(build)compile();}
 if(code!==1)throw Error('mutation survived or failed abnormally '+code);
-const r=spawnSync(process.execPath,['scripts/mh-l4-test.mjs','packages/h2a/test/mh-l4-'+file+'.test.js','mutation-'+name+'-green'],{stdio:'inherit'});process.exitCode=r.status??1;
+const r=spawnSync(process.execPath,['scripts/mh-l4-test.mjs','packages/h2a/test/mh-l4-'+file+'.test.js','node'+major+'-mutation-'+name+'-green'],{stdio:'inherit'});process.exitCode=r.status??1;
