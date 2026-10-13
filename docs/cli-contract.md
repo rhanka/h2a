@@ -349,3 +349,7 @@ Stderr lines always follow the form `h2a <verb> [sub]: <message>` so callers can
 - **Envelope**: `stream` — JSON-RPC 2.0 over stdio, long-running.
 - **Exit codes**: `0`, `1`.
 - **Description**: Run the built-in MCP server. Not bound by the envelope contract; covered by `mcp-stdio.test.js` and `examples/principal-conductors`.
+
+## MCP central control (0.98.7)
+
+`h2a central status|stop [--runtime-base <private-directory>] [--json]` emits a resource JSON object. `stop` persists the MCP operator pause and waits up to two seconds for verified closure. Exit 0 acknowledges the durable pause; `state: stopped` requires the source closure journal. `pause_active_stop_deferred` remains armed until drain reaches zero. Runtime failures return 2, user/flag errors 1, filesystem errors 3. Explicit serve resumes before commitment; an upgrade never clears pause or forces pending work.
