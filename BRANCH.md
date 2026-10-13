@@ -1,4 +1,4 @@
-# Claude seat on the common seat model (realign 2026-10-13)
+# Claude seat on the common seat model (realign 2026-10-13, r8)
 
 Branch: `feat/claude-seat-h2a-lots` (worktree `claude-seat-lots`).
 Scope: Claude subscription seat for llm-mesh, realigned on the model every
@@ -6,31 +6,44 @@ other seat follows (owner decision 2026-10-13, DEC-118): same facade
 enrollment shape, mesh-side storage/refresh, gateway registry wiring, same
 test families — nothing Claude-specific.
 
-State: **enrolled seats route through the mesh; serving needs the
-owner-qualified pinned CLI**. The gateway composes mesh
+State: **enrolled seats route through the mesh; serving needs the official
+`claude` CLI on `PATH`**. The gateway always composes mesh
 `ClaudeCodeRuntimeClient` on the h2a runner into the provider registry via
-`AnthropicAdapter` when `H2A_CLAUDE_BINARY_PATH` +
-`H2A_CLAUDE_BINARY_DIGEST` are set; unconfigured composes no Anthropic
-route (same fail-closed per-attempt outcome as a seat with no enrolled
-account). The pre-acquire seam halt is gone — account locking lives in the
-mesh directory like every other seat.
+`AnthropicAdapter`, with no per-seat configuration. The runner resolves
+`claude` from `PATH` per attempt (generic spawn safety only: no version
+pin, no digest, no attestation). A seat with no enrolled account (or no
+`claude` on `PATH`) never serves a route — fail-closed per attempt, like
+every other seat. The pre-acquire seam halt is gone — account locking
+lives in the mesh directory like every other seat.
 
 Removed without replacement (no other seat carries them): egress/netns
 guard (`egressNetnsReader`, `H2A_CLAUDE_EGRESS_ENFORCED`, `/proc` netns
 checks), org-proof handoff, managed-config + registry/MDM guards, h2a-side
-account lease lock, seam-gate attempt binding.
+account lease lock, seam-gate attempt binding, seat-qualification env
+configuration (`H2A_CLAUDE_BINARY_PATH` / `H2A_CLAUDE_BINARY_DIGEST`),
+version pin + digest/attestation machinery.
 
 Kept: facade enrollment (OAuth default + `--from cli` official store +
 `--from token` secret-manager pipe, DEC-119), mesh keyring
-storage/refresh, pinned-CLI qualification per attempt (absolute path,
-2.1.296, digest match, attestation), sandbox transport, identity-proven
-reaping/sweeps, cleanup blocking the result, static error boundary, masked
-TTY input / piped-token boundary (never argv, never logged).
+storage/refresh, sandbox transport, identity-proven sweep, cleanup
+blocking the result, static error boundary (never echoes values),
+masked TTY input / piped-token boundary (never argv, never logged).
+
+Import note (differs from muse by mesh limitation 0.25.0): `--from cli`
+is a point-in-time COPY — the mesh never writes the official store file,
+but its copy refreshes independently, so re-run `--from cli` when the
+grant rotates. Linux store file only; macOS keychain unverified.
+
+Follow-ups (not built here, other seats unchanged): `--from cli` on
+codex/cloud-code/mistral-vibe, `--from token` on
+codex/cloud-code/mistral-vibe/muse, a mesh-side Claude store leg
+(CLI sole writer, mesh re-reads at refresh), the shared GitHub-secret +
+cron refresh/re-enroll circuit (exists for NO seat today).
 
 Validation: `tsc -b` clean; seat suites green
 (`claude-code-cli-*`, `claude-seat-input`, `llm-mesh-accounts`,
-`gateway-host/claude-code-seat-wiring`, `gateway-host/host`);
-`gh pr checks 327 -R rhanka/h2a` green. Reports under `.h2a/` stay
-untracked; the realign report lives in
-`.h2a/build/claude_seat_realign_report.md` (untracked) and the seat-model
+`gateway-host/claude-code-seat-wiring`, `gateway-host/host`,
+`runtime-llm-mesh-account`); `gh pr checks 327 -R rhanka/h2a` green.
+Reports under `.h2a/` stay untracked; the r8 report lives in
+`.h2a/build/claude_seat_r8_report.md` (untracked) and the seat-model
 inventory in `.h2a/build/seat_model_inventory.md` (untracked).
