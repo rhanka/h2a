@@ -1,35 +1,35 @@
 command: /usr/bin/node --test packages/h2a/test/mcp-payload-store.test.js
 node: v22.22.1
-private test root: /tmp/mh-l4-test-Pn2Y99
+private test root: /tmp/mh-l4-test-cgT0G5
 TAP version 13
 # Subtest: persist + chunked read reproduces the bytes and verifies sha256
 ok 1 - persist + chunked read reproduces the bytes and verifies sha256
   ---
-  duration_ms: 6.013881
+  duration_ms: 5.631661
   type: 'test'
   ...
 # Subtest: store directory is 0700 and payload files are 0600
 ok 2 - store directory is 0700 and payload files are 0600
   ---
-  duration_ms: 0.588418
+  duration_ms: 0.57404
   type: 'test'
   ...
 # Subtest: typed read errors: not_found, invalid_offset
 ok 3 - typed read errors: not_found, invalid_offset
   ---
-  duration_ms: 0.637941
+  duration_ms: 0.6218
   type: 'test'
   ...
 # Subtest: two roots are isolated: one store cannot read another's ref
 ok 4 - two roots are isolated: one store cannot read another's ref
   ---
-  duration_ms: 0.630537
+  duration_ms: 0.587176
   type: 'test'
   ...
 # Subtest: maxBytes is capped at 65536 and never cuts a chunk mid-read
 ok 5 - maxBytes is capped at 65536 and never cuts a chunk mid-read
   ---
-  duration_ms: 0.761864
+  duration_ms: 0.80203
   type: 'test'
   ...
 1..5
@@ -40,6 +40,6 @@ ok 5 - maxBytes is capped at 65536 and never cuts a chunk mid-read
 # cancelled 0
 # skipped 0
 # todo 0
-# duration_ms 116.752931
+# duration_ms 113.304464
 
-receipt: {"command":["/usr/bin/node","--test","packages/h2a/test/mcp-payload-store.test.js"],"code":0,"signal":null,"elapsedMs":201}
+receipt: {"command":["/usr/bin/node","--test","packages/h2a/test/mcp-payload-store.test.js"],"code":0,"signal":null,"elapsedMs":192}
