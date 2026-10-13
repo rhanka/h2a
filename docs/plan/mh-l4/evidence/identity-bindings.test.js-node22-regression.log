@@ -1,0 +1,57 @@
+command: /usr/bin/node --test packages/h2a/test/identity-bindings.test.js
+node: v22.22.1
+private test root: /tmp/mh-l4-test-X2p1Ot
+TAP version 13
+# Subtest: first connect with no binding → MINT + records the binding
+ok 1 - first connect with no binding → MINT + records the binding
+  ---
+  duration_ms: 4.265399
+  type: 'test'
+  ...
+# Subtest: binding writer carries the canonical fence epoch for its entire append transaction
+ok 2 - binding writer carries the canonical fence epoch for its entire append transaction
+  ---
+  duration_ms: 0.878434
+  type: 'test'
+  ...
+# Subtest: reconnect with a bound key + valid proof → RECLAIM (same identity, no new binding)
+ok 3 - reconnect with a bound key + valid proof → RECLAIM (same identity, no new binding)
+  ---
+  duration_ms: 0.954977
+  type: 'test'
+  ...
+# Subtest: a present id/workspace but FAILED proof → MINT a fresh identity (spoof rejected, de-collision)
+ok 4 - a present id/workspace but FAILED proof → MINT a fresh identity (spoof rejected, de-collision)
+  ---
+  duration_ms: 0.711981
+  type: 'test'
+  ...
+# Subtest: re-anchored on conversation: a DIFFERENT providerSessionId in the same workspace MINTS a distinct identity (no collision)
+ok 5 - re-anchored on conversation: a DIFFERENT providerSessionId in the same workspace MINTS a distinct identity (no collision)
+  ---
+  duration_ms: 0.739642
+  type: 'test'
+  ...
+# Subtest: re-anchored on conversation: the SAME providerSessionId reclaims its identity even across workspaces (one conversation = one agent)
+ok 6 - re-anchored on conversation: the SAME providerSessionId reclaims its identity even across workspaces (one conversation = one agent)
+  ---
+  duration_ms: 0.753749
+  type: 'test'
+  ...
+# Subtest: verifyReclaimProof: a nonce signed by a bound key verifies; a stranger key does not
+ok 7 - verifyReclaimProof: a nonce signed by a bound key verifies; a stranger key does not
+  ---
+  duration_ms: 2.559969
+  type: 'test'
+  ...
+1..7
+# tests 7
+# suites 0
+# pass 7
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 367.682262
+
+receipt: {"command":["/usr/bin/node","--test","packages/h2a/test/identity-bindings.test.js"],"code":0,"signal":null,"elapsedMs":445}

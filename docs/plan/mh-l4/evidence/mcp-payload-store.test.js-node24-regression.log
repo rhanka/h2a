@@ -1,0 +1,18 @@
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node --test packages/h2a/test/mcp-payload-store.test.js
+node: v24.21.0
+private test root: /tmp/mh-l4-test-m9Vz0P
+✔ persist + chunked read reproduces the bytes and verifies sha256 (3.269685ms)
+✔ store directory is 0700 and payload files are 0600 (0.629395ms)
+✔ typed read errors: not_found, invalid_offset (0.439888ms)
+✔ two roots are isolated: one store cannot read another's ref (0.409201ms)
+✔ maxBytes is capped at 65536 and never cuts a chunk mid-read (0.571757ms)
+ℹ tests 5
+ℹ suites 0
+ℹ pass 5
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 50.600794
+
+receipt: {"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","--test","packages/h2a/test/mcp-payload-store.test.js"],"code":0,"signal":null,"elapsedMs":75}
