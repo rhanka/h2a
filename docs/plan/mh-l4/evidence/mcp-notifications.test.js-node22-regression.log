@@ -1,0 +1,50 @@
+command: /usr/bin/node --test packages/h2a/test/mcp-notifications.test.js
+node: v22.22.1
+private test root: /tmp/mh-l4-test-q1Hupw
+TAP version 13
+# {"event":"drive-consent.full-verification","durationMs":0.038031999999986965,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# {"event":"drive-consent.full-verification","durationMs":0.014858000000003813,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# {"event":"drive-consent.full-verification","durationMs":0.00994900000000598,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# {"event":"drive-consent.full-verification","durationMs":0.010289000000000215,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# {"event":"drive-consent.full-verification","durationMs":0.01051999999998543,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# Subtest: NotificationDispatcher pushes inbox.envelope_arrived to a subscribed session
+ok 1 - NotificationDispatcher pushes inbox.envelope_arrived to a subscribed session
+  ---
+  duration_ms: 8.638882
+  type: 'test'
+  ...
+# Subtest: NotificationDispatcher pushes presence.peer_joined when a new peer file appears
+ok 2 - NotificationDispatcher pushes presence.peer_joined when a new peer file appears
+  ---
+  duration_ms: 2.1941
+  type: 'test'
+  ...
+# Subtest: NotificationDispatcher pushes negotiation.event_appended for followed negotiations
+ok 3 - NotificationDispatcher pushes negotiation.event_appended for followed negotiations
+  ---
+  duration_ms: 2.31083
+  type: 'test'
+  ...
+# Subtest: NotificationDispatcher does not push topics the session did not subscribe to
+ok 4 - NotificationDispatcher does not push topics the session did not subscribe to
+  ---
+  duration_ms: 1.326668
+  type: 'test'
+  ...
+# Subtest: L1: a sink returning {accepted:false} holds the snapshot so the diff is retried
+ok 5 - L1: a sink returning {accepted:false} holds the snapshot so the diff is retried
+  ---
+  duration_ms: 2.227654
+  type: 'test'
+  ...
+1..5
+# tests 5
+# suites 0
+# pass 5
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 334.459292
+
+receipt: {"command":["/usr/bin/node","--test","packages/h2a/test/mcp-notifications.test.js"],"code":0,"signal":null,"elapsedMs":420}

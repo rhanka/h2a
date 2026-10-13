@@ -1,0 +1,79 @@
+command: /usr/bin/node --test packages/h2a/test/mcp-run-async.test.js
+node: v22.22.1
+private test root: /tmp/mh-l4-test-S7INRR
+TAP version 13
+# {"event":"drive-consent.full-verification","durationMs":0.044043000000044685,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# Subtest: should propagate a proven pre-create failure through the asynchronous launcher and remember the same name
+ok 1 - should propagate a proven pre-create failure through the asynchronous launcher and remember the same name
+  ---
+  duration_ms: 8.841012
+  type: 'test'
+  ...
+# Subtest: should accept the typed pre-create refusal through the synchronous CLI bridge
+ok 2 - should accept the typed pre-create refusal through the synchronous CLI bridge
+  ---
+  duration_ms: 0.454365
+  type: 'test'
+  ...
+# Subtest: should preserve certified fleet admission refusals and reject any post-create certificate
+ok 3 - should preserve certified fleet admission refusals and reject any post-create certificate
+  ---
+  duration_ms: 0.692764
+  type: 'test'
+  ...
+# Subtest: should not reclassify a timed-out runtime from an unfinished failure payload
+ok 4 - should not reclassify a timed-out runtime from an unfinished failure payload
+  ---
+  duration_ms: 0.452853
+  type: 'test'
+  ...
+# Subtest: should retain unknown for unproved, malformed, cross-name or post-create capability failures
+ok 5 - should retain unknown for unproved, malformed, cross-name or post-create capability failures
+  ---
+  duration_ms: 4.83945
+  type: 'test'
+  ...
+# Subtest: should expose the typed refusal unchanged through MCP tools/call
+ok 6 - should expose the typed refusal unchanged through MCP tools/call
+  ---
+  duration_ms: 7.731635
+  type: 'test'
+  ...
+# Subtest: should keep the event loop responsive while the runtime runs
+ok 7 - should keep the event loop responsive while the runtime runs
+  ---
+  duration_ms: 10.985911
+  type: 'test'
+  ...
+# {"event":"drive-consent.full-verification","durationMs":0.018293999999968946,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# (node:4174455) ExperimentalWarning: The MockTimers API is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: should return launching within the response budget and deliver once after a caller disconnects
+ok 8 - should return launching within the response budget and deliver once after a caller disconnects
+  ---
+  duration_ms: 21.591095
+  type: 'test'
+  ...
+# Subtest: should cap the production MCP wait at 49 seconds while keeping the launch alive
+ok 9 - should cap the production MCP wait at 49 seconds while keeping the launch alive
+  ---
+  duration_ms: 1.357866
+  type: 'test'
+  ...
+# Subtest: should finish one runtime and one brief after MCP client cancellation and transport close
+ok 10 - should finish one runtime and one brief after MCP client cancellation and transport close
+  ---
+  duration_ms: 239.845056
+  type: 'test'
+  ...
+1..10
+# tests 10
+# suites 0
+# pass 10
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 603.211023
+
+receipt: {"command":["/usr/bin/node","--test","packages/h2a/test/mcp-run-async.test.js"],"code":0,"signal":null,"elapsedMs":683}

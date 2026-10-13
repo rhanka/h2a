@@ -1,0 +1,44 @@
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node --test packages/h2a/test/mh-l4-cuts.test.js
+node: v24.21.0
+private test root: /tmp/mh-l4-test-uXadSv
+{"event":"drive-consent.full-verification","durationMs":0.02081900000001724,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+{"event":"drive-consent.full-verification","durationMs":0.01280399999996007,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+{"event":"drive-consent.full-verification","durationMs":0.018675000000030195,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+{"event":"drive-consent.full-verification","durationMs":0.012653999999997723,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+{"event":"drive-consent.full-verification","durationMs":0.02063899999984642,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+✔ should close admissions at barrier and bind presence mutations to the exact session (751.762063ms)
+✔ should propagate the reserved token through the real async subprocess seam (1.836066ms)
+✔ should revalidate a replaced presence instance under the mutation lock for update and delete (28.703282ms)
+✖ should detect conflicting launch parameters through the MCP server cache (70.506344ms)
+✔ should reconcile a final memo after a crash before operation closure without executing again (355.159829ms)
+✔ should persist owner-directed delegation after freeze and deduplicate the eventual writer receipt (257.168917ms)
+✔ should recover the delegation event after final memo publication but before operation closure (179.210314ms)
+ℹ tests 7
+ℹ suites 0
+ℹ pass 6
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1838.187662
+
+✖ failing tests:
+
+test at packages/h2a/test/mh-l4-cuts.test.js:63:1
+✖ should detect conflicting launch parameters through the MCP server cache (70.506344ms)
+  AssertionError [ERR_ASSERTION]: The input did not match the regular expression /launch_arguments_conflict/. Input:
+  
+  '{"state":"started","ok":true,"prompt":{"delivered":true}}'
+  
+      at TestContext.<anonymous> (file:///tmp/mh-l4-release-check-RvMsgD/packages/h2a/test/mh-l4-cuts.test.js:70:9)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: '{"state":"started","ok":true,"prompt":{"delivered":true}}',
+    expected: /launch_arguments_conflict/,
+    operator: 'match',
+    diff: 'simple'
+  }
+
+receipt: {"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","--test","packages/h2a/test/mh-l4-cuts.test.js"],"code":1,"signal":null,"elapsedMs":1863}

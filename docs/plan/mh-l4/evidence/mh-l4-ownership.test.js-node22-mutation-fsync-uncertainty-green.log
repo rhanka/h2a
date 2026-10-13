@@ -1,0 +1,39 @@
+command: /usr/bin/node --test packages/h2a/test/mh-l4-ownership.test.js
+node: v22.22.1
+private test root: /tmp/mh-l4-test-PA6uqe
+TAP version 13
+# Subtest: should fence a stale owner while admitted operations retain separate rights
+ok 1 - should fence a stale owner while admitted operations retain separate rights
+  ---
+  duration_ms: 335.558641
+  type: 'test'
+  ...
+# Subtest: should reconcile freeze after lost ACK and reject different handover tuples
+ok 2 - should reconcile freeze after lost ACK and reject different handover tuples
+  ---
+  duration_ms: 46.238662
+  type: 'test'
+  ...
+# Subtest: should close ownership admissions after publication fsync uncertainty until explicit reconciliation
+ok 3 - should close ownership admissions after publication fsync uncertainty until explicit reconciliation
+  ---
+  duration_ms: 18.108448
+  type: 'test'
+  ...
+# Subtest: should refuse only the stale ownership epoch even when generation and process stay identical
+ok 4 - should refuse only the stale ownership epoch even when generation and process stay identical
+  ---
+  duration_ms: 10.615593
+  type: 'test'
+  ...
+1..4
+# tests 4
+# suites 0
+# pass 4
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 520.448697
+
+receipt: {"command":["/usr/bin/node","--test","packages/h2a/test/mh-l4-ownership.test.js"],"code":0,"signal":null,"elapsedMs":598}
