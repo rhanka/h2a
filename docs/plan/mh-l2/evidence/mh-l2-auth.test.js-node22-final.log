@@ -1,23 +1,23 @@
 command: /usr/bin/node --test packages/h2a/test/mh-l2-auth.test.js
 node: v22.22.1
-private test root: /tmp/mh-l2-test-UjLQYq
+private test root: /tmp/mh-l2-test-cyQu0X
 TAP version 13
 # Subtest: M18c should never send an application body when a challenged TCP socket is replaced
 ok 1 - M18c should never send an application body when a challenged TCP socket is replaced
   ---
-  duration_ms: 55.748015
+  duration_ms: 53.75145
   type: 'test'
   ...
 # Subtest: authenticated SSE should preserve UTF-8 across fragmented source chunks before stdout forwarding
 ok 2 - authenticated SSE should preserve UTF-8 across fragmented source chunks before stdout forwarding
   ---
-  duration_ms: 29.54219
+  duration_ms: 23.124874
   type: 'test'
   ...
 # Subtest: M03/M18b/c should bind challenges and every frame, reject decoy, replay, expiry and saturation
 ok 3 - M03/M18b/c should bind challenges and every frame, reject decoy, replay, expiry and saturation
   ---
-  duration_ms: 5.47569
+  duration_ms: 5.17948
   type: 'test'
   ...
 1..3
@@ -28,6 +28,6 @@ ok 3 - M03/M18b/c should bind challenges and every frame, reject decoy, replay, 
 # cancelled 0
 # skipped 0
 # todo 0
-# duration_ms 274.239777
+# duration_ms 211.298521
 
-receipt: {"command":["/usr/bin/node","--test","packages/h2a/test/mh-l2-auth.test.js"],"code":0,"signal":null,"elapsedMs":407}
+receipt: {"command":["/usr/bin/node","--test","packages/h2a/test/mh-l2-auth.test.js"],"code":0,"signal":null,"elapsedMs":305}
