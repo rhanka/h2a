@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import { join } from 'node:path';
 import { syncBuiltinESMExports } from 'node:module';
 export function simulatedReboot(dir, options={}) {
-  const delta=86_400_000;const now=Date.now()+delta;const uptime=options.uptime??100;const boot=Math.floor((now-uptime*1000)/1000);
+  const delta=86_400_000;const capturedNow=Date.now();const now=capturedNow+delta;const uptime=options.uptime??100;const boot=Math.floor((now-uptime*1000)/1000);
   const originals={readFileSync:fs.readFileSync,readlinkSync:fs.readlinkSync,readdirSync:fs.readdirSync,openSync:fs.openSync};const dateNow=Date.now;
   const status=pid=>`Name:\tfixture\nState:\tR (running)\nPid:\t${pid}\nTgid:\t${pid}\nNSpid:\t${pid}${options.innerPid ? '\t'+options.innerPid : ''}\nThreads:\t1\n`;
   const sources=new Map([
@@ -15,7 +15,11 @@ export function simulatedReboot(dir, options={}) {
   ]);
   const files=new Map();let index=0;for(const [path,data] of sources){const file=join(dir,`proc-source-${index++}`);originals.openSync;fs.writeFileSync(file,data);files.set(path,file);}
   fs.readFileSync=(p,...args)=>{if(files.has(p))return originals.readFileSync(files.get(p),...args);return originals.readFileSync(p,...args);};
-  fs.openSync=(p,...args)=>{if(/^\/proc\/[0-9]+\/status$/.test(String(p)) && !files.has(p)) {
+  fs.openSync=(p,...args)=>{
+    // btime is a boot constant; uptime must advance with the fixture's clock.
+    // Worker startup under load can take longer than the 2 s evidence tolerance.
+    if(p==='/proc/uptime')fs.writeFileSync(files.get(p),`${(uptime+(dateNow()-capturedNow)/1000).toFixed(3)} 0.00\n`);
+    if(/^\/proc\/[0-9]+\/status$/.test(String(p)) && !files.has(p)) {
     if(options.statusError)throw Object.assign(new Error('synthetic status failure'),{code:options.statusError});
     return originals.openSync(join(dir,'vanished-proc-entry'),...args);
   }return originals.openSync(files.get(p)??p,...args);};
