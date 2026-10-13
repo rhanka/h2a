@@ -1,3 +1,4 @@
+import { withWriterMutation } from '../handover/mutation.js';
 /**
  * Reversible point indexes for the append-only launch logs. Offsets reference
  * the ORIGINAL records: no registration, binding, alias or audit is rewritten.
@@ -11,7 +12,7 @@ import {
   appendFileSync, closeSync, existsSync, fstatSync, mkdirSync, openSync,
   readFileSync, readSync, renameSync, statSync, writeFileSync, type Stats
 } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { withLockSync } from "./locks.js";
 import { getActiveMcpTrace } from "../mcp/phase-trace.js";
 
@@ -178,7 +179,7 @@ export function lookupLaunchRows<T>(file: string, kind: LaunchLogKind, key: stri
  * command on unchanged logs is a no-op. Must not be called under registry or
  * identity locks: the initial scan belongs to explicit maintenance.
  */
-export function buildLaunchIndex(file: string, kind: LaunchLogKind, incremental = false): void {
+ function buildLaunchIndexUnfenced(file: string, kind: LaunchLogKind, incremental = false): void {
   mkdirSync(directory(file), { recursive: true, mode: 0o700 });
   withLockSync(join(directory(file), ".lock"), () => {
     const fd = openSync(file, "r");
@@ -242,10 +243,18 @@ export function buildLaunchIndex(file: string, kind: LaunchLogKind, incremental 
 }
 
 /** Append audit first. A crash/failed index update is recovered by tail replay. */
-export function appendLaunchRow(file: string, kind: LaunchLogKind, row: unknown): void {
+ function appendLaunchRowUnfenced(file: string, kind: LaunchLogKind, row: unknown): void {
   appendFileSync(file, `${JSON.stringify(row)}\n`, "utf8");
   if (existsSync(manifestPath(file))) {
     try { buildLaunchIndex(file, kind, true); }
     catch { /* index failure must not roll back an already published audit row */ }
   }
+}
+
+export function buildLaunchIndex(...args: Parameters<typeof buildLaunchIndexUnfenced>): ReturnType<typeof buildLaunchIndexUnfenced> {
+  return withWriterMutation(dirname(dirname(args[0])), 'registry', () => buildLaunchIndexUnfenced(...args));
+}
+
+export function appendLaunchRow(...args: Parameters<typeof appendLaunchRowUnfenced>): ReturnType<typeof appendLaunchRowUnfenced> {
+  return withWriterMutation(dirname(dirname(args[0])), 'registry', () => appendLaunchRowUnfenced(...args));
 }
