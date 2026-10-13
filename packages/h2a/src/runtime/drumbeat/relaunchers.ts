@@ -18,13 +18,13 @@
 import { spawn, spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 
-import {
-  H2A_DRUMBEAT_RESUME_BODY_KIND,
-  createEnvelope,
-  type H2AActorRef,
-  type H2ADrumbeatResumeBody,
-  type H2AEnvelope
+import type {
+  H2AActorRef,
+  H2ADrumbeatResumeBody,
+  H2AEnvelope
 } from "@sentropic/h2a";
+import { H2A_DRUMBEAT_RESUME_BODY_KIND } from "../../drumbeat-resume.js";
+import { createEnvelope } from "../../envelope.js";
 
 import { createLocalStore } from "../local-files/store.js";
 import {
