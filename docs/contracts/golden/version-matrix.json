@@ -42,6 +42,6 @@
     "rule": "h2a-cli and h2a-runtime follow the h2a lockstep version. Cluster-mesh and its selected providers use the qualified exact tuple; the Pod bridge is versioned separately.",
     "busKey": "h2a",
     "mcpToolsSurface": "38 (cf mcp-tools.json)",
-    "cliVerbs": "100 (cf cli-verbs.json)"
+    "cliVerbs": "102 (cf cli-verbs.json)"
   }
 }
