@@ -1133,7 +1133,7 @@ Branch: `fix/presence-identity-liveness`. Base: `58f111b3` (origin/main at check
 # MH-L2 — authority and authenticated cold succession
 
 ## Objective
-- [ ] Deliver spec v7 MH-L2 only from 5cb66f7e with ratified QF A+B.
+- [x] Deliver author implementation of spec v7 MH-L2 only from 5cb66f7e with ratified QF A+B.
 
 ## Scope / Guardrails
 - [x] Own branch feat/0.98.7-mh-l2; main untouched.
@@ -1143,6 +1143,7 @@ Branch: `fix/presence-identity-liveness`. Base: `58f111b3` (origin/main at check
 
 ## Branch Scope Boundaries
 - [x] Allowed: packages/h2a/src/runtime/handover/**, mcp-central*.ts, packages/h2a/src/{bin,cli,cli-contract,index}.ts, packages/h2a-runtime/src/{central-mcp,proc-identity}.ts, packages/h2a/test/mh-l2*, scripts/mh-l2*, docs/plan/mh-l{1,2}/**, BRANCH.md.
+- [x] Conditional: mh-l1-shim.test.js private physicalPrefix fixture required by L2 authority; assertions unchanged.
 - [x] Conditional: CLI contract/map, their named tests and golden counts change together for central stop (§6.5).
 - [x] Conditional: docs/plan/mh-l0/schemas.json regenerated for new L2 records; frozen L0 definitions unchanged.
 - [x] Forbidden: main, installed state, native-terminal implementation, .track, full suite, version/publication, H4 coordinator, gateway, live product switch.
@@ -1880,8 +1881,9 @@ La synchronisation finale intègre `origin/main` à `8c1912d7` par avance rapide
 
 ## Lot 4 — Foreground integration and delivery
 - [x] Raccord foreground, shim, run/restore, explicit/auto serve and operator routes.
-- [ ] Gate: mh-l2-integration.test.js, scoped typecheck and required L0/L1 files.
-- [ ] Push own branch fast-forward; conductor review handoff and French mhl2b-report.md with estimates.
+- [x] Gate: seven explicit MH-L2 files, Node 22/24; scoped typecheck and required L0/L1 files.
+- [x] Resume regression: L1 shim prefix_owner_mismatch red; private physicalPrefix fixture green on Node 22/24; no assertion weakened.
+- [x] Own branch delivery: fast-forward push, conductor review handoff, French mhl2b-report.md with estimates; final receipt recorded in external report.
 
 ## Feedback Loop
 - [x] bwrap userns unavailable; approved worktree/doc operations with private test environment.
