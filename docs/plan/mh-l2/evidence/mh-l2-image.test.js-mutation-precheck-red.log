@@ -11,9 +11,9 @@ not ok 1 - nominal image should precheck in isolation, cold-stop G0 and start on
   failureType: 'testCodeFailure'
   error: |-
     {"state":"PRECHECKED","handoverId":"h"}
-    
+
     200 !== 409
-    
+
   code: 'ERR_ASSERTION'
   name: 'AssertionError'
   expected: 409
