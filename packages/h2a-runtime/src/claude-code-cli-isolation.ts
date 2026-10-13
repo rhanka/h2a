@@ -16,7 +16,8 @@ import {
   writeFileSync,
 } from "node:fs";
 import { randomUUID } from "node:crypto";
-import { dirname, isAbsolute, join } from "node:path";
+import { dirname, isAbsolute, join, win32 as win32Path } from "node:path";
+import { spawnSync } from "node:child_process";
 import { readBootId, readPidNamespaceId, readProcessStartTime } from "./proc-identity.js";
 import type { ClaudeCodeAccessProjection } from "./claude-seat-mesh-contract.js";
 
@@ -237,23 +238,34 @@ export function createClaudeRunSandbox(options: {
  * gives enterprise policy exclusive control or injects drop-ins, making
  * configuration isolation escapable, so spawn is refused while any of them exists.
  */
-export function defaultManagedConfigPaths(): string[] {
-  if (process.platform === "darwin") {
+export function defaultManagedConfigPaths(platform: NodeJS.Platform = process.platform): string[] {
+  if (platform === "darwin") {
     const base = "/Library/Application Support/ClaudeCode";
     return [
       join(base, "managed-settings.json"),
       join(base, "managed-settings.d"),
       join(base, "managed-mcp.json"),
+      "/Library/Managed Preferences/com.anthropic.claudecode.plist",
+      "/Library/Managed Preferences/com.anthropic.claude-code.plist",
+      "/Library/Preferences/com.anthropic.claudecode.plist",
     ];
   }
-  if (process.platform === "win32") {
-    const base = process.env.PROGRAMDATA ?? "C:\\ProgramData";
-    const dir = join(base, "ClaudeCode");
-    return [
-      join(dir, "managed-settings.json"),
-      join(dir, "managed-settings.d"),
-      join(dir, "managed-mcp.json"),
+  if (platform === "win32") {
+    const base = "C:\\Program Files\\ClaudeCode";
+    const candidates = [
+      win32Path.join(base, "managed-settings.json"),
+      win32Path.join(base, "managed-settings.d"),
+      win32Path.join(base, "managed-mcp.json"),
     ];
+    if (process.env.ProgramFiles && process.env.ProgramFiles !== "C:\\Program Files") {
+      const altBase = win32Path.join(process.env.ProgramFiles, "ClaudeCode");
+      candidates.push(
+        win32Path.join(altBase, "managed-settings.json"),
+        win32Path.join(altBase, "managed-settings.d"),
+        win32Path.join(altBase, "managed-mcp.json"),
+      );
+    }
+    return candidates;
   }
   return [
     "/etc/claude-code/managed-settings.json",
@@ -264,11 +276,60 @@ export function defaultManagedConfigPaths(): string[] {
 
 export const defaultManagedSettingsPaths = defaultManagedConfigPaths;
 
+export function checkWindowsManagedRegistry(): boolean {
+  if (process.platform !== "win32") return false;
+  try {
+    const regExe = join(process.env.SystemRoot ?? "C:\\Windows", "System32", "reg.exe");
+    const exe = existsSync(regExe) ? regExe : "reg.exe";
+    const res = spawnSync(exe, ["query", "HKLM\\SOFTWARE\\Policies\\ClaudeCode"], {
+      stdio: "ignore",
+      windowsHide: true,
+    });
+    return res.status === 0;
+  } catch {
+    return false;
+  }
+}
+
+export interface ManagedConfigIsolationOptions {
+  readonly access?: ClaudeCodeAccessProjection;
+  readonly mdmDetected?: boolean;
+  readonly serverManagedDetected?: boolean;
+  readonly checkRegistry?: () => boolean;
+}
+
 export function assertManagedConfigIsolation(
   paths: readonly string[] = defaultManagedConfigPaths(),
+  options?: ManagedConfigIsolationOptions,
 ): void {
+  // 1. Filesystem managed paths
   if (paths.some((candidate) => existsSync(candidate))) {
     throw new Error("Claude seat spawn refused: managed configuration prevents isolation");
+  }
+
+  // 2. MDM / Registry policy
+  if (options?.mdmDetected) {
+    throw new Error("Claude seat spawn refused: managed configuration prevents isolation (MDM policy detected)");
+  }
+  const regCheck = options?.checkRegistry ?? (process.platform === "win32" ? checkWindowsManagedRegistry : undefined);
+  if (regCheck && regCheck()) {
+    throw new Error("Claude seat spawn refused: managed configuration prevents isolation (Windows registry policy detected)");
+  }
+
+  // 3. Server-managed settings
+  if (options?.serverManagedDetected) {
+    throw new Error("Claude seat spawn refused: server-managed settings cannot be verified for organization accounts");
+  }
+  if (options?.access) {
+    const rawAccess = options.access as unknown as Record<string, unknown>;
+    if (
+      rawAccess.organizationId ||
+      rawAccess.orgId ||
+      rawAccess.organization ||
+      rawAccess.accountType === "organization"
+    ) {
+      throw new Error("Claude seat spawn refused: server-managed settings cannot be verified for organization accounts");
+    }
   }
 }
 
@@ -284,6 +345,8 @@ export function recordChildPidInSandbox(sandbox: ClaudeRunSandbox, childPid: num
       ...existing,
       childPid,
       childStartTime: readProcessStartTime(childPid) ?? null,
+      childCwd: sandbox.cwdDir,
+      runId: sandbox.runId,
     };
     writeFileSync(metaPath, JSON.stringify(updated), { mode: 0o600 });
   } catch {

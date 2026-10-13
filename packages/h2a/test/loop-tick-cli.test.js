@@ -23,11 +23,13 @@ const ISOLATED_ENV = {
   XDG_CONFIG_HOME: join(TEST_ENV_ROOT, "config"),
   XDG_RUNTIME_DIR: join(TEST_ENV_ROOT, "run"),
   XDG_STATE_HOME: join(TEST_ENV_ROOT, "state"),
+  H2A_ROOT: join(TEST_ENV_ROOT, "h2a-root"),
 };
 mkdirSync(ISOLATED_ENV.HOME, { recursive: true, mode: 0o700 });
 mkdirSync(ISOLATED_ENV.XDG_CONFIG_HOME, { recursive: true, mode: 0o700 });
 mkdirSync(ISOLATED_ENV.XDG_RUNTIME_DIR, { recursive: true, mode: 0o700 });
 mkdirSync(ISOLATED_ENV.XDG_STATE_HOME, { recursive: true, mode: 0o700 });
+mkdirSync(ISOLATED_ENV.H2A_ROOT, { recursive: true, mode: 0o700 });
 
 test.after(() => {
   rmSync(TEST_ENV_ROOT, { recursive: true, force: true });

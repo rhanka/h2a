@@ -145,51 +145,54 @@ describe("claude-code-cli-tools", () => {
     expect(capturedArgs).toContain("--strict-mcp-config");
   });
 
-  it("refuses spawn when caller requests tools but tools capability is missing or unqualified", async () => {
+  it("refuses spawn when caller requests tools because client tool transport is not available", async () => {
     const spawnFn = vi.fn(() => createMockChild());
 
-    // 1. Missing tools capability
-    const runnerNoTools = new OfficialClaudeCodeCliRunner({
+    const runner = new OfficialClaudeCodeCliRunner({
       ...qualifiedBase,
       capabilities: textOnlyCaps,
       sandboxRootDir: TOOLS_SCRATCH,
       spawnFn: spawnFn as any,
     });
-    const iter1 = runnerNoTools.run({
+    const iter = runner.run({
       access: fakeAccess,
       request: toolRequest,
       signal: new AbortController().signal,
     })[Symbol.asyncIterator]();
-    await expect(iter1.next()).rejects.toThrow("tools capability not qualified");
-
-    // 2. Invented string for tools capability (not bound to digest)
-    const runnerInvented = new OfficialClaudeCodeCliRunner({
-      ...qualifiedBase,
-      capabilities: { ...textOnlyCaps, tools: "qual-tools-ref-1" },
-      sandboxRootDir: TOOLS_SCRATCH,
-      spawnFn: spawnFn as any,
-    });
-    const iter2 = runnerInvented.run({
-      access: fakeAccess,
-      request: toolRequest,
-      signal: new AbortController().signal,
-    })[Symbol.asyncIterator]();
-    await expect(iter2.next()).rejects.toThrow("tools capability not qualified");
+    await expect(iter.next()).rejects.toThrow(
+      "requests with tools are rejected (client tool transport is not available; tools would be ignored)",
+    );
 
     expect(spawnFn).not.toHaveBeenCalled();
   });
 
-  it("refuses spawn when caller requests built-in tool names (Bash, Edit, etc.)", async () => {
+  it("refuses spawn when caller requests built-in tool names (Bash, Edit, WebSearch, etc.)", async () => {
     const spawnFn = vi.fn(() => createMockChild());
-    const qualifiedToolsRef = buildClaudeToolsQualificationRef(PINNED_TEST_DIGEST);
     const runner = new OfficialClaudeCodeCliRunner({
       ...qualifiedBase,
-      capabilities: { ...textOnlyCaps, tools: qualifiedToolsRef },
+      capabilities: textOnlyCaps,
       sandboxRootDir: TOOLS_SCRATCH,
       spawnFn: spawnFn as any,
     });
 
-    for (const builtinName of ["Bash", "Edit", "Read", "Write", "Glob", "Grep", "WebFetch", "Agent"]) {
+    for (const builtinName of [
+      "Bash",
+      "BashOutput",
+      "Edit",
+      "MultiEdit",
+      "Read",
+      "Write",
+      "Glob",
+      "Grep",
+      "WebFetch",
+      "WebSearch",
+      "Agent",
+      "Skill",
+      "TodoWrite",
+      "NotebookEdit",
+      "KillShell",
+      "ExitPlanMode",
+    ]) {
       const maliciousRequest: ClaudeCodeCliRequest = {
         modelId: "claude-3-5-sonnet-20241022",
         messages: [{ role: "user", content: [{ type: "text", text: "run bash" }] }],
@@ -206,36 +209,8 @@ describe("claude-code-cli-tools", () => {
     expect(spawnFn).not.toHaveBeenCalled();
   });
 
-  it("when tools capability is qualified, never passes caller tool names to --tools and handles tool_use events", async () => {
-    let capturedArgs: string[] = [];
-    const mockChild = createMockChild();
-    const spawnFn = vi.fn((_cmd: string, args: string[]) => {
-      capturedArgs = args;
-      setTimeout(() => {
-        // Emit tool call as a real assistant content block
-        mockChild.stdout.write(
-          JSON.stringify({
-            type: "assistant",
-            message: {
-              content: [
-                {
-                  type: "tool_use",
-                  id: "call_abc123",
-                  name: "get_weather",
-                  input: { location: "Boston" },
-                },
-              ],
-            },
-          }) + "\n",
-        );
-        mockChild.stdout.write(
-          JSON.stringify({ type: "result", subtype: "success", is_error: false }) + "\n",
-        );
-        mockChild.emit("close", 0);
-      }, 10);
-      return mockChild;
-    });
-
+  it("refuses spawn fail-closed when caller requests tools even with candidate qualification (no silent dropping of tools)", async () => {
+    const spawnFn = vi.fn(() => createMockChild());
     const qualifiedToolsRef = buildClaudeToolsQualificationRef(PINNED_TEST_DIGEST);
     const runner = new OfficialClaudeCodeCliRunner({
       ...qualifiedBase,
@@ -244,34 +219,15 @@ describe("claude-code-cli-tools", () => {
       spawnFn: spawnFn as any,
     });
 
-    const events = [];
-    for await (const event of runner.run({
+    const iter = runner.run({
       access: fakeAccess,
       request: toolRequest,
       signal: new AbortController().signal,
-    })) {
-      events.push(event);
-    }
+    })[Symbol.asyncIterator]();
 
-    // Caller tool names are NEVER passed to --tools (it remains empty unless allowlisted typed identifiers exist)
-    const toolsIndex = capturedArgs.indexOf("--tools");
-    expect(capturedArgs[toolsIndex + 1]).toBe("");
-    expect(capturedArgs[toolsIndex + 1]).not.toContain("get_weather");
-    expect(capturedArgs[toolsIndex + 1]).not.toContain("Bash");
-    expect(capturedArgs[toolsIndex + 1]).not.toContain("Edit");
-    expect(capturedArgs[toolsIndex + 1]).not.toContain("Read");
-
-    expect(events).toEqual([
-      {
-        type: "tool_use",
-        id: "call_abc123",
-        name: "get_weather",
-        input: { location: "Boston" },
-      },
-      {
-        type: "result",
-        finishReason: "tool_calls",
-      },
-    ]);
+    await expect(iter.next()).rejects.toThrow(
+      "requests with tools are rejected (client tool transport is not available; tools would be ignored)",
+    );
+    expect(spawnFn).not.toHaveBeenCalled();
   });
 });

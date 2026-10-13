@@ -31,6 +31,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   buildClaudeQualificationRef,
   OfficialClaudeCodeCliRunner,
+  probeClaudeBinary,
 } from "./claude-code-cli-runner.js";
 import { checkTokenTtlAdmission } from "./claude-code-cli-lifecycle.js";
 
@@ -279,38 +280,8 @@ describe("claude-code-cli-refresh-probe (no child refresh, real children)", () =
   }, 15000);
 
   it("pinned probe reads real binary bytes into separate receipts without executing", () => {
-    function probeBinary(binaryPath: string) {
-      if (!existsSync(binaryPath)) {
-        return {
-          stage: "M5-probe",
-          status: "not-qualified" as const,
-          reason: "pinned_binary_probe_unconfigured_or_binary_absent",
-        };
-      }
-      const bytes = readFileSync(binaryPath);
-      const versionText = bytes.toString("utf8");
-      return {
-        stage: "M5-probe",
-        status: "qualified" as const,
-        digestReceipt: {
-          stage: "M5-probe",
-          kind: "digest",
-          path: binaryPath,
-          sha256: createHash("sha256").update(bytes).digest("hex"),
-          bytes: bytes.length,
-        },
-        versionReceipt: {
-          stage: "M5-probe",
-          kind: "version",
-          path: binaryPath,
-          pinnedVersion: "2.1.296",
-          versionStringPresent: versionText.includes("2.1.296"),
-        },
-      };
-    }
-
     // 1. Verify absent binary returns not-qualified receipt
-    const absentResult = probeBinary(join(TEST_SCRATCH, "non-existent-claude"));
+    const absentResult = probeClaudeBinary(join(TEST_SCRATCH, "non-existent-claude"));
     expect(absentResult.status).toBe("not-qualified");
     expect(absentResult.reason).toBe("pinned_binary_probe_unconfigured_or_binary_absent");
 
@@ -318,14 +289,14 @@ describe("claude-code-cli-refresh-probe (no child refresh, real children)", () =
     const fixturePath = join(TEST_SCRATCH, "fixture-claude-2.1.296");
     const fixtureContent = Buffer.from("header\0version 2.1.296 build\0footer");
     writeFileSync(fixturePath, fixtureContent);
-    const fixtureResult = probeBinary(fixturePath);
+    const fixtureResult = probeClaudeBinary(fixturePath);
     expect(fixtureResult.status).toBe("qualified");
     if (fixtureResult.status === "qualified") {
-      expect(fixtureResult.digestReceipt.sha256).toBe(
+      expect(fixtureResult.digestReceipt?.sha256).toBe(
         createHash("sha256").update(fixtureContent).digest("hex"),
       );
-      expect(fixtureResult.digestReceipt.bytes).toBe(fixtureContent.length);
-      expect(fixtureResult.versionReceipt.versionStringPresent).toBe(true);
+      expect(fixtureResult.digestReceipt?.bytes).toBe(fixtureContent.length);
+      expect(fixtureResult.versionReceipt?.versionStringPresent).toBe(true);
 
       const digestReceiptPath = join(TEST_SCRATCH, "pinned-digest-receipt.json");
       const versionReceiptPath = join(TEST_SCRATCH, "pinned-version-receipt.json");
@@ -338,12 +309,12 @@ describe("claude-code-cli-refresh-probe (no child refresh, real children)", () =
     // 3. If explicit environment run requested and pinned binary exists, probe real binary
     const pinnedBinaryPath = process.env.CLAUDE_PINNED_BINARY_PATH ?? "/opt/claude/bin/claude";
     if (process.env.RUN_PINNED_CLAUDE_PROBE === "1" && existsSync(pinnedBinaryPath)) {
-      const realResult = probeBinary(pinnedBinaryPath);
+      const realResult = probeClaudeBinary(pinnedBinaryPath);
       expect(realResult.status).toBe("qualified");
       if (realResult.status === "qualified") {
-        expect(realResult.digestReceipt.sha256).toMatch(/^[0-9a-f]{64}$/);
-        expect(realResult.digestReceipt.bytes).toBeGreaterThan(0);
-        expect(realResult.versionReceipt.versionStringPresent).toBe(true);
+        expect(realResult.digestReceipt?.sha256).toMatch(/^[0-9a-f]{64}$/);
+        expect(realResult.digestReceipt?.bytes).toBeGreaterThan(0);
+        expect(realResult.versionReceipt?.versionStringPresent).toBe(true);
       }
     }
   });
