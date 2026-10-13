@@ -1,12 +1,12 @@
 command: /usr/bin/node --test packages/h2a/test/mh-l4-idle.test.js
 node: v22.22.1
-private test root: /tmp/mh-l4-test-PSiC1d
+private test root: /tmp/mh-l4-test-DwB7Ew
 TAP version 13
-# {"event":"drive-consent.full-verification","durationMs":0.009697999999957574,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# {"event":"drive-consent.full-verification","durationMs":0.0041279999999801475,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
 # Subtest: should start the idle interval at durable readiness after slow source preparation
 ok 1 - should start the idle interval at durable readiness after slow source preparation
   ---
-  duration_ms: 503.753629
+  duration_ms: 475.417537
   type: 'test'
   ...
 1..1
@@ -17,6 +17,6 @@ ok 1 - should start the idle interval at durable readiness after slow source pre
 # cancelled 0
 # skipped 0
 # todo 0
-# duration_ms 3163.8758
+# duration_ms 3142.627676
 
-receipt: {"command":["/usr/bin/node","--test","packages/h2a/test/mh-l4-idle.test.js"],"code":0,"signal":null,"elapsedMs":3240}
+receipt: {"command":["/usr/bin/node","--test","packages/h2a/test/mh-l4-idle.test.js"],"code":0,"signal":null,"elapsedMs":3232}

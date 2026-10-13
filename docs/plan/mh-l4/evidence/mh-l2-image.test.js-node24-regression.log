@@ -1,8 +1,8 @@
 command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node --test packages/h2a/test/mh-l2-image.test.js
 node: v24.21.0
-private test root: /tmp/mh-l4-test-3ZyNzW
-{"event":"drive-consent.full-verification","durationMs":0.0032559999999648426,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
-✔ nominal image should precheck in isolation, cold-stop G0 and start one reserved successor (14172.174873ms)
+private test root: /tmp/mh-l4-test-Me3Sbe
+{"event":"drive-consent.full-verification","durationMs":0.0035269999998490675,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+✔ nominal image should precheck in isolation, cold-stop G0 and start one reserved successor (11331.808352ms)
 ℹ tests 1
 ℹ suites 0
 ℹ pass 1
@@ -10,6 +10,6 @@ private test root: /tmp/mh-l4-test-3ZyNzW
 ℹ cancelled 0
 ℹ skipped 0
 ℹ todo 0
-ℹ duration_ms 14265.825796
+ℹ duration_ms 11418.548571
 
-receipt: {"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","--test","packages/h2a/test/mh-l2-image.test.js"],"code":0,"signal":null,"elapsedMs":14293}
+receipt: {"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","--test","packages/h2a/test/mh-l2-image.test.js"],"code":0,"signal":null,"elapsedMs":11442}

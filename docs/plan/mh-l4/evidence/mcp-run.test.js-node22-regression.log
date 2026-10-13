@@ -1,108 +1,108 @@
 command: /usr/bin/node --test packages/h2a/test/mcp-run.test.js
 node: v22.22.1
-private test root: /tmp/mh-l4-test-9WHCsJ
+private test root: /tmp/mh-l4-test-LGMcfC
 TAP version 13
-# {"event":"drive-consent.full-verification","durationMs":0.04923300000001518,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
-# {"event":"drive-consent.full-verification","durationMs":0.013705999999956475,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
-# {"event":"drive-consent.full-verification","durationMs":0.011000000000024102,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
-# {"event":"drive-consent.full-verification","durationMs":0.008997000000022126,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
-# {"event":"drive-consent.full-verification","durationMs":0.007965000000012878,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
-# {"event":"drive-consent.full-verification","durationMs":0.007764000000008764,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
-# {"event":"drive-consent.full-verification","durationMs":0.018534999999985757,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# {"event":"drive-consent.full-verification","durationMs":0.03894300000001749,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# {"event":"drive-consent.full-verification","durationMs":0.011041000000005852,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# {"event":"drive-consent.full-verification","durationMs":0.0100490000000093,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# {"event":"drive-consent.full-verification","durationMs":0.008576000000005024,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# {"event":"drive-consent.full-verification","durationMs":0.007304000000004862,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# {"event":"drive-consent.full-verification","durationMs":0.010078999999990401,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# {"event":"drive-consent.full-verification","durationMs":0.02186100000000124,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
 # Subtest: h2a_run descriptor is exact, background-only, and shared by the local MCP
 ok 1 - h2a_run descriptor is exact, background-only, and shared by the local MCP
   ---
-  duration_ms: 7.379471
+  duration_ms: 6.164584
   type: 'test'
   ...
 # Subtest: h2a_run validates every structured profile and returns the real launcher result
 ok 2 - h2a_run validates every structured profile and returns the real launcher result
   ---
-  duration_ms: 4.038722
+  duration_ms: 3.381205
   type: 'test'
   ...
 # Subtest: MCP launch records post-launch delegation evidence outside the CLI argv/env
 ok 3 - MCP launch records post-launch delegation evidence outside the CLI argv/env
   ---
-  duration_ms: 0.745543
+  duration_ms: 0.684047
   type: 'test'
   ...
 # Subtest: h2a_run threads --bare / --no-bare into the CLI invocation; default omits both
 ok 4 - h2a_run threads --bare / --no-bare into the CLI invocation; default omits both
   ---
-  duration_ms: 0.131608
+  duration_ms: 0.143249
   type: 'test'
   ...
 # Subtest: stdio tools/call exposes the same h2a_run contract
 ok 5 - stdio tools/call exposes the same h2a_run contract
   ---
-  duration_ms: 4.533193
+  duration_ms: 3.992946
   type: 'test'
   ...
 # Subtest: h2a_run rejects unknown fields, unsafe workspaces and invalid combinations
 ok 6 - h2a_run rejects unknown fields, unsafe workspaces and invalid combinations
   ---
-  duration_ms: 1.477361
+  duration_ms: 1.916968
   type: 'test'
   ...
 # Subtest: canonical invocation uses argv + stdin with no prompt in any argv token
 ok 7 - canonical invocation uses argv + stdin with no prompt in any argv token
   ---
-  duration_ms: 0.325773
+  duration_ms: 0.373833
   type: 'test'
   ...
 # Subtest: canonical AGY run-once invocation is direct and keeps the prompt on stdin
 ok 8 - canonical AGY run-once invocation is direct and keeps the prompt on stdin
   ---
-  duration_ms: 0.304022
+  duration_ms: 0.355229
   type: 'test'
   ...
 # Subtest: subprocess bridge sets shell:false and fails closed on API/runtime skew
 ok 9 - subprocess bridge sets shell:false and fails closed on API/runtime skew
   ---
-  duration_ms: 1.643423
+  duration_ms: 1.631452
   type: 'test'
   ...
 # Subtest: h2a_run accepts a native-terminal-host result that carries no tmux pane
 ok 10 - h2a_run accepts a native-terminal-host result that carries no tmux pane
   ---
-  duration_ms: 0.762024
+  duration_ms: 0.825433
   type: 'test'
   ...
 # Subtest: duplicate-name runtime refusal is surfaced as an error, never success
 ok 11 - duplicate-name runtime refusal is surfaced as an error, never success
   ---
-  duration_ms: 0.408809
+  duration_ms: 0.444146
   type: 'test'
   ...
 # Subtest: timeout before session creation reports that retry is safe
 ok 12 - timeout before session creation reports that retry is safe
   ---
-  duration_ms: 0.377411
+  duration_ms: 0.415112
   type: 'test'
   ...
 # Subtest: timeout after session creation was attempted forbids blind retry
 ok 13 - timeout after session creation was attempted forbids blind retry
   ---
-  duration_ms: 0.330281
+  duration_ms: 0.369576
   type: 'test'
   ...
 # Subtest: profile launch budgets should include readiness, paste, activity and cleanup
 ok 14 - profile launch budgets should include readiness, paste, activity and cleanup
   ---
-  duration_ms: 0.508387
+  duration_ms: 0.618815
   type: 'test'
   ...
 # Subtest: timeout cleanup receipt should be fenced to this attempt without inviting duplicate work
 ok 15 - timeout cleanup receipt should be fenced to this attempt without inviting duplicate work
   ---
-  duration_ms: 0.667186
+  duration_ms: 2.901381
   type: 'test'
   ...
 # Subtest: a verified provider-blocked failure should retain delivery and cleanup evidence
 ok 16 - a verified provider-blocked failure should retain delivery and cleanup evidence
   ---
-  duration_ms: 0.507174
+  duration_ms: 0.602655
   type: 'test'
   ...
 1..16
@@ -113,6 +113,6 @@ ok 16 - a verified provider-blocked failure should retain delivery and cleanup e
 # cancelled 0
 # skipped 0
 # todo 0
-# duration_ms 327.491555
+# duration_ms 313.543725
 
-receipt: {"command":["/usr/bin/node","--test","packages/h2a/test/mcp-run.test.js"],"code":0,"signal":null,"elapsedMs":409}
+receipt: {"command":["/usr/bin/node","--test","packages/h2a/test/mcp-run.test.js"],"code":0,"signal":null,"elapsedMs":394}
