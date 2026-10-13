@@ -583,6 +583,10 @@ export function runMcpStdio(options: RunMcpStdioOptions): Promise<void> {
       };
       recordTmuxOwner(delegatorTmuxSession, cfg.instance);
     }
+    if (options.participant) {
+      options.participant.delegationReferences = delegation ? [delegation] : [];
+      options.participant.terminalReferences = [{ instance: cfg.instance, launchContext: opened.launchContext ?? null }];
+    }
     stderr.write(`h2a mcp-serve: auto-opened session for ${cfg.instance}\n`);
     // Reap the false-live presence left by a previous connection of THIS agent
     // that the host dropped without signalling. Best-effort, same-instance only.
@@ -624,7 +628,7 @@ export function runMcpStdio(options: RunMcpStdioOptions): Promise<void> {
     });
     if (options.participant) {
       options.participant.wakeHandler = wake;
-      options.participant.terminalReferences = [{ instance: cfg.instance,
+      options.participant.terminalReferences = [...options.participant.terminalReferences, { instance: cfg.instance,
         ...(wakeCfg.nativeSessionId ? { nativeSessionId: wakeCfg.nativeSessionId } : {}) }];
       options.participant.delegationReferences = delegation ? [delegation] : [];
     }

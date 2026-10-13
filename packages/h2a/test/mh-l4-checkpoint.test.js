@@ -43,7 +43,13 @@ test('should persist every checkpoint field, reconcile a lost ACK and reject has
   assert.throws(()=>recovered.checkpoint(token,{...snapshot,deliveredSequence:4}),/checkpoint_conflict/);
   assert.throws(()=>recovered.checkpoint(token,{...snapshot,ownershipEpoch:2}),/checkpoint_binding_mismatch/);
   assert.throws(()=>recovered.loadCheckpoint('../escape',receipt.checkpointHash),/checkpoint_reference_invalid/);
+  const bytes=fs.readFileSync(join(directory,receipt.reference));
   fs.appendFileSync(join(directory,receipt.reference),' ');
   assert.throws(()=>recovered.loadCheckpoint(receipt.reference,receipt.checkpointHash),/noncanonical_state/);
+  assert.throws(()=>recovered.fence(token,'h',receipt.checkpointHash),/noncanonical_state/);
+  fs.writeFileSync(join(directory,receipt.reference),bytes);
+  assert.equal(recovered.fence(token,'h',receipt.checkpointHash).state,'TRANSFERRING');
+  assert.equal(recovered.fence(token,'h',receipt.checkpointHash).state,'TRANSFERRING');
+  assert.throws(()=>recovered.abort(token,'h'),/ownership_fenced/);
  } finally {fs.rmSync(directory,{recursive:true,force:true});}
 });

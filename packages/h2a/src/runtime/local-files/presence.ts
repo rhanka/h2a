@@ -1,4 +1,4 @@
-import { withPresenceMutation, withWriterMutation } from '../handover/mutation.js';
+import { currentExecution, withPresenceMutation, withWriterMutation } from '../handover/mutation.js';
 import {
   closeSync,
   mkdirSync,
@@ -361,7 +361,11 @@ export function writePresence(...args: Parameters<typeof writePresenceUnfenced>)
 }
 
 export function deletePresence(...args: Parameters<typeof deletePresenceUnfenced>): ReturnType<typeof deletePresenceUnfenced> {
-  return withPresenceMutation(args[0], args[1], readPresence(args[0], args[1])?.instance, () => deletePresenceUnfenced(...args));
+  return withPresenceMutation(args[0], args[1], readPresence(args[0], args[1])?.instance, () => {
+    deletePresenceUnfenced(...args);
+    const authority = currentExecution();
+    if (authority?.root === args[0] && !authority.cleanup) authority.registry.releasePresence(authority.token, args[1]);
+  });
 }
 
 export function updatePresence(...args: Parameters<typeof updatePresenceUnfenced>): ReturnType<typeof updatePresenceUnfenced> {
