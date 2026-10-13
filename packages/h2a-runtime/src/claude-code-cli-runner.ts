@@ -20,6 +20,7 @@ import {
   cleanClaudeRunSandbox,
   createClaudeRunSandbox,
   DEFAULT_INFERENCE_HOST,
+  recordChildPidInSandbox,
   verifyCredentialNotRewritten,
 } from "./claude-code-cli-isolation.js";
 import {
@@ -41,26 +42,72 @@ export function buildClaudeQualificationRef(
 ): string {
   return `attest:sha256:${digest}@${version}`;
 }
+export function buildClaudeToolsQualificationRef(
+  digest: string,
+  version: string = DEFAULT_PINNED_CLI_VERSION,
+): string {
+  return `${buildClaudeQualificationRef(digest, version)}:tools`;
+}
+
 export const DEFAULT_MAX_FRAME_BYTES = 65536; // 64 KiB
 export const DEFAULT_MAX_TOTAL_BYTES = 10 * 1024 * 1024; // 10 MiB
 export const DEFAULT_RUN_DEADLINE_MS = 120_000; // 2 minutes
 
 /**
- * Owner attestation that default-deny inference-only egress is enforced
- * outside this process (network namespace, firewall, or forced proxy) for
- * the whole child tree. The runner cannot install that boundary itself, so
- * without this attestation AND the out-of-band switch below, spawn is
- * refused (brief stop condition: no proven egress, no seat spawn).
+ * Strict allowlist of typed tool identifiers permitted for the CLI --tools flag.
+ * Caller-provided tool names are never passed to --tools.
+ */
+export const ALLOWED_TYPED_TOOL_IDENTIFIERS: readonly string[] = [] as const;
+
+/**
+ * Known built-in tools of the Claude CLI. Callers cannot request these names.
+ */
+export const BUILTIN_CLI_TOOLS = new Set([
+  "Bash",
+  "Edit",
+  "Read",
+  "Write",
+  "Glob",
+  "Grep",
+  "WebFetch",
+  "Agent",
+  "NotebookEditCell",
+]);
+
+/**
+ * Top-level NDJSON frame types emitted by the official CLI 2.1.296 stream-json
+ * output that are known transport or lifecycle events and should not be failed as unknown.
+ */
+export const KNOWN_IGNORED_TOP_LEVEL_TYPES = new Set([
+  "system",
+  "rate_limit_event",
+  "tool_use_summary",
+  "user",
+  "auth_status",
+]);
+
+/**
+ * Egress enforcement requirement: default-deny inference-only egress must be
+ * actually enforced and verified outside this process (network namespace, firewall,
+ * or forced proxy) for the whole child tree. The runner refuses to start unless
+ * an enforcing sandbox is verified (no declaration/env-only trust).
  */
 export interface ClaudeEgressEnforcement {
   readonly mechanism: string;
   readonly inferenceHost: string;
+  /**
+   * Verifier that actively proves the enforcing sandbox is in place.
+   * Pure declaration/env-only trust without active verification is refused.
+   */
+  readonly verifySandbox?: () => Promise<boolean | { verified: boolean; reason?: string }> | boolean | { verified: boolean; reason?: string };
 }
 
 /** Out-of-band owner switch confirming enforced egress for this host. */
 export const CLAUDE_EGRESS_ENFORCED_ENV = "H2A_CLAUDE_EGRESS_ENFORCED";
 
-export function requireEgressEnforcement(attestation: ClaudeEgressEnforcement | undefined): void {
+export async function requireEgressEnforcement(
+  attestation: ClaudeEgressEnforcement | undefined,
+): Promise<void> {
   if (
     !attestation ||
     !attestation.mechanism.trim() ||
@@ -70,6 +117,25 @@ export function requireEgressEnforcement(attestation: ClaudeEgressEnforcement | 
   }
   if (process.env[CLAUDE_EGRESS_ENFORCED_ENV] !== "1") {
     throw new Error("Claude seat spawn refused: inference-only egress not enforced");
+  }
+  if (!attestation.verifySandbox || typeof attestation.verifySandbox !== "function") {
+    throw new Error(
+      "Claude seat spawn refused: inference-only egress not enforced (declaration-only trust refused: enforcing sandbox verification required)",
+    );
+  }
+  let outcome: unknown;
+  try {
+    outcome = await attestation.verifySandbox();
+  } catch (err) {
+    throw new Error(
+      `Claude seat spawn refused: egress sandbox verification failed: ${(err as Error)?.message || err}`,
+    );
+  }
+  const isOk =
+    outcome === true ||
+    (typeof outcome === "object" && outcome !== null && (outcome as { verified?: unknown }).verified === true);
+  if (!isOk) {
+    throw new Error("Claude seat spawn refused: egress sandbox verification failed");
   }
 }
 
@@ -88,6 +154,12 @@ export interface OfficialClaudeCodeCliRunnerOptions {
   readonly egressEnforcement?: ClaudeEgressEnforcement;
   /** Test seam overriding the managed-settings locations checked pre-spawn. */
   readonly managedSettingsPaths?: readonly string[];
+  /** Allowlist of typed tool identifiers authorized for the CLI --tools flag. */
+  readonly allowedCliTools?: readonly string[];
+  /** Test seam injecting process group killer instead of process.kill(-childPid). */
+  readonly killProcessTreeFn?: (pid: number, signal?: NodeJS.Signals) => void;
+  /** Test seam injecting process tree reaper instead of reapProcessTree(childPid). */
+  readonly reapProcessTreeFn?: (pid: number, signal?: NodeJS.Signals, gracePeriodMs?: number) => Promise<void>;
 }
 
 export class OfficialClaudeCodeCliRunner implements ClaudeCodeCliRunner {
@@ -103,6 +175,11 @@ export class OfficialClaudeCodeCliRunner implements ClaudeCodeCliRunner {
   private readonly sandboxRootDir: string | undefined;
   private readonly egressEnforcement: ClaudeEgressEnforcement | undefined;
   private readonly managedSettingsPaths: readonly string[] | undefined;
+  private readonly allowedCliTools: readonly string[] | undefined;
+  private readonly killProcessTreeFn: ((pid: number, signal?: NodeJS.Signals) => void) | undefined;
+  private readonly reapProcessTreeFn:
+    | ((pid: number, signal?: NodeJS.Signals, gracePeriodMs?: number) => Promise<void>)
+    | undefined;
 
   constructor(options: OfficialClaudeCodeCliRunnerOptions = {}) {
     this.binaryPath = options.binaryPath ?? "";
@@ -117,6 +194,9 @@ export class OfficialClaudeCodeCliRunner implements ClaudeCodeCliRunner {
     this.sandboxRootDir = options.sandboxRootDir;
     this.egressEnforcement = options.egressEnforcement;
     this.managedSettingsPaths = options.managedSettingsPaths;
+    this.allowedCliTools = options.allowedCliTools;
+    this.killProcessTreeFn = options.killProcessTreeFn;
+    this.reapProcessTreeFn = options.reapProcessTreeFn;
   }
 
   /**
@@ -156,23 +236,60 @@ export class OfficialClaudeCodeCliRunner implements ClaudeCodeCliRunner {
     }
   }
 
-  async *run(input: {
+  run(input: {
     access: ClaudeCodeAccessProjection;
     request: ClaudeCodeCliRequest;
     signal: AbortSignal;
   }): AsyncIterable<ClaudeCodeCliEvent> {
+    const runController = new AbortController();
+    const abortHandler = () => runController.abort();
+    input.signal.addEventListener("abort", abortHandler, { once: true });
+    const runState = { earlyClosed: false };
+
+    const gen = this.runInternal(input, runController, abortHandler, runState);
+    const iterator: AsyncGenerator<ClaudeCodeCliEvent, void, unknown> = {
+      [Symbol.asyncIterator]() {
+        return this;
+      },
+      next() {
+        return gen.next();
+      },
+      return(val?: unknown) {
+        runState.earlyClosed = true;
+        runController.abort();
+        return gen.return(val as never);
+      },
+      throw(err?: unknown) {
+        runState.earlyClosed = true;
+        runController.abort();
+        return gen.throw(err);
+      },
+    };
+    return iterator;
+  }
+
+  private async *runInternal(
+    input: {
+      access: ClaudeCodeAccessProjection;
+      request: ClaudeCodeCliRequest;
+      signal: AbortSignal;
+    },
+    runController: AbortController,
+    abortHandler: () => void,
+    runState: { earlyClosed: boolean },
+  ): AsyncGenerator<ClaudeCodeCliEvent, void, unknown> {
     // 1. Candidate qualification preflight
     this.qualifyBinary();
 
     // Caller abort before any work: refuse without spawning.
-    if (input.signal.aborted) {
+    if (input.signal.aborted || runController.signal.aborted) {
       yield { type: "error" };
       return;
     }
 
     // Default-deny egress is a spawn precondition, not a URL label:
-    // without owner-attested enforcement, no child is created at all.
-    requireEgressEnforcement(this.egressEnforcement);
+    // without owner-attested enforcement AND active sandbox verification, no child is created at all.
+    await requireEgressEnforcement(this.egressEnforcement);
 
     // Managed admin settings would survive --setting-sources isolation:
     // refuse while they exist.
@@ -180,6 +297,23 @@ export class OfficialClaudeCodeCliRunner implements ClaudeCodeCliRunner {
       assertManagedConfigIsolation(this.managedSettingsPaths);
     } else {
       assertManagedConfigIsolation();
+    }
+
+    // Tool preflight: caller tool names are never passed to --tools, built-in tool names
+    // requested by caller are refused, and tools must be qualified by digest-bound attestation.
+    if (input.request.tools && input.request.tools.length > 0) {
+      for (const t of input.request.tools) {
+        if (BUILTIN_CLI_TOOLS.has(t.name)) {
+          throw new Error("Claude seat spawn refused: built-in tool names cannot be requested by caller");
+        }
+      }
+      const expectedToolsRef = buildClaudeToolsQualificationRef(
+        this.expectedDigest ?? "",
+        DEFAULT_PINNED_CLI_VERSION,
+      );
+      if (!this.capabilities?.tools || this.capabilities.tools !== expectedToolsRef) {
+        throw new Error("Claude seat spawn refused: tools capability not qualified");
+      }
     }
 
     // Orphan sweep at each runner start (brief invariant 6): stale dead
@@ -212,6 +346,12 @@ export class OfficialClaudeCodeCliRunner implements ClaudeCodeCliRunner {
     // message text. The parser still accepts stream_event envelopes
     // defensively, but steady state carries each text once via assistant
     // message.content[].
+    let toolsArg = "";
+    if (this.allowedCliTools && this.allowedCliTools.length > 0) {
+      const allowed = this.allowedCliTools.filter((t) => ALLOWED_TYPED_TOOL_IDENTIFIERS.includes(t));
+      toolsArg = allowed.join(",");
+    }
+
     const args = [
       "-p",
       "--input-format", "stream-json",
@@ -222,9 +362,7 @@ export class OfficialClaudeCodeCliRunner implements ClaudeCodeCliRunner {
       "--settings", sandbox.settingsPath,
       "--strict-mcp-config",
       "--mcp-config", sandbox.mcpConfigPath,
-      "--tools", input.request.tools && this.capabilities?.tools
-        ? input.request.tools.map((t) => t.name).join(",")
-        : "",
+      "--tools", toolsArg,
       "--disable-slash-commands",
       "--permission-mode", "dontAsk",
       "--model", input.request.modelId,
@@ -234,11 +372,15 @@ export class OfficialClaudeCodeCliRunner implements ClaudeCodeCliRunner {
     let terminalResultEmitted = false;
     let streamFailed = false;
 
-    // Abort controller linked to caller signal & timeout
-    const runController = new AbortController();
-    const abortHandler = () => runController.abort();
-    input.signal.addEventListener("abort", abortHandler, { once: true });
     let onRunAbort: (() => void) | null = null;
+
+    // Check for abort that fired during preflight, sweep, or sandbox creation
+    if (input.signal.aborted || runController.signal.aborted) {
+      runController.abort();
+      try { cleanClaudeRunSandbox(sandbox); } catch {}
+      yield { type: "error" };
+      return;
+    }
 
     let timeoutTimer: NodeJS.Timeout | null = null;
     if (this.timeoutMs > 0 && Number.isFinite(this.timeoutMs)) {
@@ -260,6 +402,7 @@ export class OfficialClaudeCodeCliRunner implements ClaudeCodeCliRunner {
         yield { type: "error" };
         return;
       }
+      recordChildPidInSandbox(sandbox, childPid);
 
       // Drain stderr so a verbose child can never block on a full pipe.
       // Stderr is bounded and never forwarded to the caller.
@@ -291,6 +434,15 @@ export class OfficialClaudeCodeCliRunner implements ClaudeCodeCliRunner {
       // Abort, deadline, and early-close must end work even while a read is
       // pending: kill the whole child tree and wake the consumer loop.
       const killChildTree = () => {
+        if (this.killProcessTreeFn && childPid > 0) {
+          this.killProcessTreeFn(childPid, "SIGKILL");
+          try {
+            child.kill("SIGKILL");
+          } catch {
+            // Already dead
+          }
+          return;
+        }
         if (childPid > 0) {
           try {
             process.kill(-childPid, "SIGKILL");
@@ -477,8 +629,8 @@ export class OfficialClaudeCodeCliRunner implements ClaudeCodeCliRunner {
           failFrame();
           return;
         }
-        if (typed.type === "system") {
-          // Lifecycle frames (init/status): validated as known, never forwarded.
+        if (KNOWN_IGNORED_TOP_LEVEL_TYPES.has(typed.type as string)) {
+          // Known lifecycle/transport frames: accepted as valid, not forwarded.
           return;
         } else if (typed.type === "assistant") {
           parseAssistantMessage(typed.message);
@@ -532,7 +684,11 @@ export class OfficialClaudeCodeCliRunner implements ClaudeCodeCliRunner {
         const credentialIntact = verifyCredentialNotRewritten(sandbox, input.access);
         let cleanupOk = true;
         if (childPid > 0) {
-          await reapProcessTree(childPid, "SIGTERM", 50);
+          if (this.reapProcessTreeFn) {
+            await this.reapProcessTreeFn(childPid, "SIGTERM", 50);
+          } else {
+            await reapProcessTree(childPid, "SIGTERM", 50);
+          }
         }
         try {
           cleanClaudeRunSandbox(sandbox);
@@ -553,6 +709,9 @@ export class OfficialClaudeCodeCliRunner implements ClaudeCodeCliRunner {
 
       // Consumer generator loop
       while (true) {
+        if (runState.earlyClosed) {
+          return;
+        }
         if (runController.signal.aborted) {
           yield { type: "error" };
           return;
@@ -561,7 +720,7 @@ export class OfficialClaudeCodeCliRunner implements ClaudeCodeCliRunner {
           await new Promise<void>((r) => {
             notifyNext = r;
             // Abort may fire between the check above and this wait.
-            if (runController.signal.aborted) {
+            if (runController.signal.aborted || runState.earlyClosed) {
               notifyNext = null;
               r();
             }
@@ -588,8 +747,16 @@ export class OfficialClaudeCodeCliRunner implements ClaudeCodeCliRunner {
       if (onRunAbort) {
         runController.signal.removeEventListener("abort", onRunAbort);
       }
+      runController.abort();
       if (childPid > 0) {
-        await reapProcessTree(childPid, "SIGKILL", 50);
+        if (this.killProcessTreeFn) {
+          this.killProcessTreeFn(childPid, "SIGKILL");
+        }
+        if (this.reapProcessTreeFn) {
+          await this.reapProcessTreeFn(childPid, "SIGKILL", 50);
+        } else {
+          await reapProcessTree(childPid, "SIGKILL", 50);
+        }
       }
       try {
         cleanClaudeRunSandbox(sandbox);

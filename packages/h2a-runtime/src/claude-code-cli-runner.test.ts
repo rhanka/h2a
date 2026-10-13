@@ -26,7 +26,7 @@ function createMockChild() {
   child.stdin = new PassThrough();
   child.stdout = new PassThrough();
   child.stderr = new PassThrough();
-  child.pid = 12345;
+  child.pid = 99999999;
   child.kill = vi.fn();
   return child;
 }
@@ -67,13 +67,22 @@ describe("claude-code-cli-runner (protocol)", () => {
     qualificationRef: buildClaudeQualificationRef(PINNED_TEST_DIGEST),
   };
 
+  const defaultKillProcessTree = vi.fn();
+  const defaultReapProcessTree = vi.fn().mockResolvedValue(undefined);
+
   const qualifiedOptions = {
     binaryPath: PINNED_TEST_BINARY,
     expectedDigest: PINNED_TEST_DIGEST,
     capabilities: validCaps,
     sandboxRootDir: RUNNER_SCRATCH,
-    egressEnforcement: { mechanism: "test-host-firewall", inferenceHost: "api.anthropic.com" },
+    egressEnforcement: {
+      mechanism: "test-host-firewall",
+      inferenceHost: "api.anthropic.com",
+      verifySandbox: vi.fn().mockResolvedValue(true),
+    },
     managedSettingsPaths: [] as readonly string[],
+    killProcessTreeFn: defaultKillProcessTree,
+    reapProcessTreeFn: defaultReapProcessTree,
   };
 
   it("refuses relative binary path or missing qualification reference before spawn", async () => {
@@ -182,6 +191,37 @@ describe("claude-code-cli-runner (protocol)", () => {
       await expect(
         runOnce({ egressEnforcement: { mechanism: "netns", inferenceHost: "evil.example" } }),
       ).rejects.toThrow("egress not enforced");
+      // Declaration-only trust (missing verifySandbox): refuse.
+      await expect(
+        runOnce({
+          egressEnforcement: {
+            mechanism: "test-host-firewall",
+            inferenceHost: "api.anthropic.com",
+          },
+        }),
+      ).rejects.toThrow("declaration-only trust refused: enforcing sandbox verification required");
+      // Sandbox verification returns false: refuse.
+      await expect(
+        runOnce({
+          egressEnforcement: {
+            mechanism: "test-host-firewall",
+            inferenceHost: "api.anthropic.com",
+            verifySandbox: () => false,
+          },
+        }),
+      ).rejects.toThrow("egress sandbox verification failed");
+      // Sandbox verification throws: refuse.
+      await expect(
+        runOnce({
+          egressEnforcement: {
+            mechanism: "test-host-firewall",
+            inferenceHost: "api.anthropic.com",
+            verifySandbox: () => {
+              throw new Error("nftables check failed");
+            },
+          },
+        }),
+      ).rejects.toThrow("egress sandbox verification failed");
     } finally {
       if (saved === undefined) delete process.env.H2A_CLAUDE_EGRESS_ENFORCED;
       else process.env.H2A_CLAUDE_EGRESS_ENFORCED = saved;
@@ -459,6 +499,77 @@ describe("claude-code-cli-runner (protocol)", () => {
     ]);
   });
 
+  it("accepts real CLI 2.1.296 frames (rate_limit_event, tool_use_summary, user, auth_status)", async () => {
+    const mockChild = createMockChild();
+    const spawnFn = vi.fn(() => {
+      setTimeout(() => {
+        mockChild.stdout.write(
+          JSON.stringify({ type: "system", subtype: "init" }) + "\n",
+        );
+        mockChild.stdout.write(
+          JSON.stringify({ type: "auth_status", status: "authenticated" }) + "\n",
+        );
+        mockChild.stdout.write(
+          JSON.stringify({
+            type: "user",
+            message: { role: "user", content: "Hello" },
+          }) + "\n",
+        );
+        mockChild.stdout.write(
+          JSON.stringify({
+            type: "rate_limit_event",
+            rate_limit_info: { status: "allowed" },
+          }) + "\n",
+        );
+        mockChild.stdout.write(
+          JSON.stringify({
+            type: "assistant",
+            message: { content: [{ type: "text", text: "Hello there!" }] },
+          }) + "\n",
+        );
+        mockChild.stdout.write(
+          JSON.stringify({
+            type: "tool_use_summary",
+            summary: "no tools used",
+          }) + "\n",
+        );
+        mockChild.stdout.write(
+          JSON.stringify({
+            type: "result",
+            subtype: "success",
+            is_error: false,
+            usage: { input_tokens: 10, output_tokens: 5 },
+          }) + "\n",
+        );
+        mockChild.emit("close", 0);
+      }, 10);
+      return mockChild;
+    });
+
+    const runner = new OfficialClaudeCodeCliRunner({
+      ...qualifiedOptions,
+      spawnFn: spawnFn as any,
+    });
+
+    const events = [];
+    for await (const event of runner.run({
+      access: fakeAccess,
+      request: fakeRequest,
+      signal: new AbortController().signal,
+    })) {
+      events.push(event);
+    }
+
+    expect(events).toEqual([
+      { type: "text_delta", text: "Hello there!" },
+      {
+        type: "result",
+        finishReason: "stop",
+        usage: { inputTokens: 10, outputTokens: 5 },
+      },
+    ]);
+  });
+
   it("yields error when exit 0 occurs without terminal result frame", async () => {
     const mockChild = createMockChild();
     const spawnFn = vi.fn(() => {
@@ -595,6 +706,61 @@ describe("claude-code-cli-runner (protocol)", () => {
     expect(spawnFn).not.toHaveBeenCalled();
   });
 
+  it("refuses caller abort before spawn and never creates child process", async () => {
+    const mockChild = createMockChild();
+    const spawnFn = vi.fn(() => mockChild);
+    const controller = new AbortController();
+    controller.abort(); // Pre-aborted
+
+    const runner = new OfficialClaudeCodeCliRunner({
+      ...qualifiedOptions,
+      spawnFn: spawnFn as any,
+    });
+
+    const events = [];
+    for await (const event of runner.run({
+      access: fakeAccess,
+      request: fakeRequest,
+      signal: controller.signal,
+    })) {
+      events.push(event);
+    }
+
+    expect(events).toEqual([{ type: "error" }]);
+    expect(spawnFn).not.toHaveBeenCalled();
+  });
+
+  it("caller abort during pre-spawn verification yields error and never creates child process", async () => {
+    const mockChild = createMockChild();
+    const spawnFn = vi.fn(() => mockChild);
+    const controller = new AbortController();
+
+    const runner = new OfficialClaudeCodeCliRunner({
+      ...qualifiedOptions,
+      egressEnforcement: {
+        mechanism: "test-host-firewall",
+        inferenceHost: "api.anthropic.com",
+        verifySandbox: async () => {
+          controller.abort();
+          return true;
+        },
+      },
+      spawnFn: spawnFn as any,
+    });
+
+    const events = [];
+    for await (const event of runner.run({
+      access: fakeAccess,
+      request: fakeRequest,
+      signal: controller.signal,
+    })) {
+      events.push(event);
+    }
+
+    expect(events).toEqual([{ type: "error" }]);
+    expect(spawnFn).not.toHaveBeenCalled();
+  });
+
   it("abort during a pending read kills the child and ends the stream", async () => {
     const mockChild = createMockChild();
     const spawnFn = vi.fn(() => mockChild); // Silent: never writes, never closes.
@@ -644,17 +810,7 @@ describe("claude-code-cli-runner (protocol)", () => {
 
   it("iterator early-close ends a pending read promptly", async () => {
     const mockChild = createMockChild();
-    const spawnFn = vi.fn(() => {
-      setTimeout(() => {
-        mockChild.stdout.write(
-          JSON.stringify({
-            type: "assistant",
-            message: { content: [{ type: "text", text: "Partial" }] },
-          }) + "\n",
-        );
-      }, 10);
-      return mockChild;
-    });
+    const spawnFn = vi.fn(() => mockChild); // Silent: pending read in queue
     const runner = new OfficialClaudeCodeCliRunner({
       ...qualifiedOptions,
       spawnFn: spawnFn as any,
@@ -666,11 +822,17 @@ describe("claude-code-cli-runner (protocol)", () => {
       request: fakeRequest,
       signal: new AbortController().signal,
     })[Symbol.asyncIterator]();
-    await expect(iterator.next()).resolves.toEqual({
-      value: { type: "text_delta", text: "Partial" },
-      done: false,
-    });
-    await expect(iterator.return?.()).resolves.toMatchObject({ done: true });
+
+    // Start a read while child has emitted nothing: iterator is suspended waiting for output
+    const pendingRead = iterator.next();
+    await new Promise((r) => setTimeout(r, 20));
+
+    // Early close while read is pending
+    const returnPromise = iterator.return?.();
+
+    await expect(returnPromise).resolves.toMatchObject({ done: true });
+    await expect(pendingRead).resolves.toMatchObject({ done: true });
+    expect(mockChild.kill).toHaveBeenCalledWith("SIGKILL");
   });
 
   it("drains child stderr without forwarding it to the caller", async () => {
@@ -756,9 +918,17 @@ describe("claude-code-cli-runner (protocol)", () => {
     expect(existsSync(staleDir)).toBe(false);
   });
 
-  it("abort kills a real silent child before any output", async () => {
+  it("abort kills a real silent child and its grandchildren before any output", async () => {
     const scriptPath = join(RUNNER_SCRATCH, "silent-fake-claude.sh");
-    writeFileSync(scriptPath, "#!/bin/sh\nsleep 60\n");
+    const grandchildPidPath = join(RUNNER_SCRATCH, "grandchild.pid");
+    writeFileSync(
+      scriptPath,
+      `#!/bin/sh
+sleep 60 &
+echo $! > "${grandchildPidPath}"
+wait
+`,
+    );
     chmodSync(scriptPath, 0o755);
     const digest = createHash("sha256").update(readFileSync(scriptPath)).digest("hex");
 
@@ -776,7 +946,11 @@ describe("claude-code-cli-runner (protocol)", () => {
       capabilities: { ...validCaps, qualificationRef: buildClaudeQualificationRef(digest) },
       spawnFn,
       sandboxRootDir: RUNNER_SCRATCH,
-      egressEnforcement: { mechanism: "test-host-firewall", inferenceHost: "api.anthropic.com" },
+      egressEnforcement: {
+        mechanism: "test-host-firewall",
+        inferenceHost: "api.anthropic.com",
+        verifySandbox: () => true,
+      },
       timeoutMs: 30_000,
     });
 
@@ -786,9 +960,27 @@ describe("claude-code-cli-runner (protocol)", () => {
       signal: controller.signal,
     })[Symbol.asyncIterator]();
     const pending = iterator.next();
-    await new Promise((r) => setTimeout(r, 200));
+
+    let grandchildPid = 0;
+    const spawnDeadline = Date.now() + 5000;
+    while (Date.now() < spawnDeadline) {
+      if (existsSync(grandchildPidPath)) {
+        try {
+          const raw = readFileSync(grandchildPidPath, "utf8").trim();
+          if (raw) {
+            grandchildPid = parseInt(raw, 10);
+            if (grandchildPid > 0) break;
+          }
+        } catch {}
+      }
+      await new Promise((r) => setTimeout(r, 25));
+    }
+
     expect(childPid).toBeGreaterThan(0);
+    expect(grandchildPid).toBeGreaterThan(0);
     expect(() => process.kill(childPid, 0)).not.toThrow();
+    expect(() => process.kill(grandchildPid, 0)).not.toThrow();
+
     controller.abort();
 
     await expect(pending).resolves.toEqual({
@@ -797,15 +989,27 @@ describe("claude-code-cli-runner (protocol)", () => {
     });
     await expect(iterator.next()).resolves.toMatchObject({ done: true });
 
-    const deadline = Date.now() + 2000;
+    const deadline = Date.now() + 3000;
     for (;;) {
+      let childAlive = true;
+      let grandchildAlive = true;
       try {
         process.kill(childPid, 0);
       } catch {
+        childAlive = false;
+      }
+      try {
+        process.kill(grandchildPid, 0);
+      } catch {
+        grandchildAlive = false;
+      }
+      if (!childAlive && !grandchildAlive) {
         break;
       }
       if (Date.now() > deadline) {
-        throw new Error("aborted child survived SIGKILL");
+        throw new Error(
+          `aborted child/grandchild survived SIGKILL (child=${childAlive}, grandchild=${grandchildAlive})`,
+        );
       }
       await new Promise((r) => setTimeout(r, 25));
     }
