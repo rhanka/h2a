@@ -11,9 +11,9 @@ not ok 1 - nominal image should precheck in isolation, cold-stop G0 and start on
   failureType: 'testCodeFailure'
   error: |-
     The expression evaluated to a falsy value:
-    
+
       assert.ok(durableDirectory.startsWith(join(managedRoot, 'state', 'mcp')))
-    
+
   code: 'ERR_ASSERTION'
   name: 'AssertionError'
   expected: true

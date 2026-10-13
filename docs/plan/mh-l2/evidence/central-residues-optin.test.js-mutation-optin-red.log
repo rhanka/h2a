@@ -12,7 +12,7 @@ not ok 1 - residues --repair does not add --auto-upgrade when the prior config l
   error: |-
     Expected values to be strictly deep-equal:
     + actual - expected
-    
+
       [
         'mcp-serve',
         '--auto-open',
@@ -22,7 +22,7 @@ not ok 1 - residues --repair does not add --auto-upgrade when the prior config l
         '--wake',
         'auto'
       ]
-    
+
   code: 'ERR_ASSERTION'
   name: 'AssertionError'
   expected:
