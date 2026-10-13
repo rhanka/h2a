@@ -5,6 +5,7 @@ import { join } from "node:path";
 
 const [moduleUrl, root, id, operation, cut] = process.argv.slice(2);
 const path = join(root, "live", "declarations.json");
+const lockDir = join(root, "live", ".declarations.lock");
 const report = (value) => fs.writeSync(1, `${JSON.stringify(value)}\n`);
 let paused = false;
 const pause = () => {
@@ -14,14 +15,22 @@ const pause = () => {
   process.kill(process.pid, "SIGSTOP");
 };
 
-// Stop AFTER update's revision reread returned its bytes, or BEFORE the
-// atomic rename. No fake filesystem, clock, module instance or lock is used.
+// Stop AFTER update's revision reread returned its bytes, BEFORE the
+// atomic rename, or BETWEEN the two lock-acquisition mkdirs (cut
+// "acquire": after mkdir(lockDir), before mkdir(lockDir/token)). No fake
+// filesystem, clock, module instance or lock is used.
 if (operation === "A" || cut === "hold") {
   let reads = 0;
   const read = fs.readFileSync;
   fs.readFileSync = function (file, ...args) {
     const result = read.call(this, file, ...args);
     if (String(file) === path && ++reads === 2 && cut === "read") pause();
+    return result;
+  };
+  const mkdir = fs.mkdirSync;
+  fs.mkdirSync = function (file, ...args) {
+    const result = mkdir.call(this, file, ...args);
+    if (String(file) === lockDir && cut === "acquire") pause();
     return result;
   };
   const rename = fs.renameSync;
