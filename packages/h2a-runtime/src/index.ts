@@ -10677,12 +10677,12 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
       "enrollment source: oauth (default), cli (provider official CLI store) or token (secret-manager credential)",
     )
     .option(
-      "--cli",
-      "import credentials from the provider's local CLI store (muse, claude-code) instead of the OAuth flow",
+      "--cli [value]",
+      "import credentials from the provider's local CLI store (muse, claude-code) instead of the OAuth flow. Takes no value",
     )
     .option(
-      "--token",
-      "import a serialized credential from a secret manager into llm-mesh (claude-code only): pipe it on stdin, or enter it at the masked prompt. Never argv, never logged",
+      "--token [value]",
+      "import a serialized credential from a secret manager into llm-mesh (claude-code only): pipe it on stdin, or enter it at the masked prompt. Takes no value; never argv, never logged",
     )
     .action(
       async (
@@ -10690,8 +10690,8 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         opts: {
           configRef?: string;
           from?: string;
-          cli?: boolean;
-          token?: boolean;
+          cli?: boolean | string;
+          token?: boolean | string;
         },
       ) => {
         // "vibe" is the CLI-friendly alias of the mistral-vibe transport.
@@ -10707,9 +10707,16 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           process.exitCode = 1;
           return;
         }
+        if (typeof opts.cli === "string" || typeof opts.token === "string") {
+          process.stderr.write(
+            "[h2a] llm-mesh account: --cli and --token take no value (pipe the credential on stdin or use the masked prompt; never argv)\n",
+          );
+          process.exitCode = 1;
+          return;
+        }
         if (opts.from !== undefined && opts.from !== "oauth" && opts.from !== "cli" && opts.from !== "token") {
           process.stderr.write(
-            `[h2a] llm-mesh account: --from must be one of oauth, cli, token (received "${opts.from}")\n`,
+            "[h2a] llm-mesh account: --from must be one of oauth, cli, token\n",
           );
           process.exitCode = 1;
           return;
