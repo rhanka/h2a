@@ -1,0 +1,39 @@
+command: /usr/bin/node --test packages/h2a/test/local-store-locking.test.js
+node: v22.22.1
+private test root: /tmp/mh-l4-test-ibVVOP
+TAP version 13
+# Subtest: registerInstance under no contention completes with a tight lock timeout
+ok 1 - registerInstance under no contention completes with a tight lock timeout
+  ---
+  duration_ms: 4.511753
+  type: 'test'
+  ...
+# Subtest: stale lock with a dead PID is reclaimed automatically
+ok 2 - stale lock with a dead PID is reclaimed automatically
+  ---
+  duration_ms: 52.156481
+  type: 'test'
+  ...
+# Subtest: live lock holding the current PID times out with LockTimeoutError
+ok 3 - live lock holding the current PID times out with LockTimeoutError
+  ---
+  duration_ms: 203.95783
+  type: 'test'
+  ...
+# Subtest: withLockSync exposes LockTimeoutError directly with lockPath in the message
+ok 4 - withLockSync exposes LockTimeoutError directly with lockPath in the message
+  ---
+  duration_ms: 102.772314
+  type: 'test'
+  ...
+1..4
+# tests 4
+# suites 0
+# pass 4
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 657.821414
+
+receipt: {"command":["/usr/bin/node","--test","packages/h2a/test/local-store-locking.test.js"],"code":0,"signal":null,"elapsedMs":739}

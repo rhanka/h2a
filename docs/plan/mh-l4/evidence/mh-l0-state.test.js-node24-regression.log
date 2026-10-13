@@ -1,0 +1,17 @@
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node --test packages/h2a/test/mh-l0-state.test.js
+node: v24.21.0
+private test root: /tmp/mh-l4-test-ZZU6u4
+✔ U05 foundation: exclusive durable publication and inode/epoch compare preserve current marker (10.91163ms)
+✔ U06 foundation: corruption, unknown schema, symlinks, wrong owner/modes never become empty (1.988483ms)
+✔ U05 foundation: fsync failure before/after publication has no false success (5.861614ms)
+✔ same-boot publication counter cannot regress under a fresh inode compare (6.008831ms)
+ℹ tests 4
+ℹ suites 0
+ℹ pass 4
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 74.140416
+
+receipt: {"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","--test","packages/h2a/test/mh-l0-state.test.js"],"code":0,"signal":null,"elapsedMs":105}
