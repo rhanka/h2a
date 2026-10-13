@@ -1,0 +1,17 @@
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node --test packages/h2a/test/mh-l4-ownership.test.js
+node: v24.21.0
+private test root: /tmp/mh-l4-test-es5N3t
+✔ should fence a stale owner while admitted operations retain separate rights (53.688225ms)
+✔ should reconcile freeze after lost ACK and reject different handover tuples (42.272826ms)
+✔ should close ownership admissions after publication fsync uncertainty until explicit reconciliation (18.467935ms)
+✔ should refuse only the stale ownership epoch even when generation and process stay identical (12.664601ms)
+ℹ tests 4
+ℹ suites 0
+ℹ pass 4
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 176.683708
+
+receipt: {"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","--test","packages/h2a/test/mh-l4-ownership.test.js"],"code":0,"signal":null,"elapsedMs":206}

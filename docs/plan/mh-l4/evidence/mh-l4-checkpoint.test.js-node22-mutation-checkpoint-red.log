@@ -1,0 +1,59 @@
+command: /usr/bin/node --test packages/h2a/test/mh-l4-checkpoint.test.js
+node: v22.22.1
+private test root: /tmp/mh-l4-test-T1EboN
+TAP version 13
+# Subtest: should preserve notification dedup and separate production, delivery and CLI acknowledgement
+ok 1 - should preserve notification dedup and separate production, delivery and CLI acknowledgement
+  ---
+  duration_ms: 3.695226
+  type: 'test'
+  ...
+# Subtest: should persist every checkpoint field, reconcile a lost ACK and reject hash, epoch or payload changes
+not ok 2 - should persist every checkpoint field, reconcile a lost ACK and reject hash, epoch or payload changes
+  ---
+  duration_ms: 48.034662
+  type: 'test'
+  location: '/tmp/mh-l4-release-check-RvMsgD/packages/h2a/test/mh-l4-checkpoint.test.js:33:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    The input did not match the regular expression /checkpoint_binding_mismatch/. Input:
+    
+    'Error: checkpoint_conflict'
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected:
+  actual:
+  error: 'checkpoint_conflict'
+  stack: |-
+    file:///tmp/mh-l4-release-check-RvMsgD/packages/h2a/src/runtime/handover/ownership.js:120:80
+    file:///tmp/mh-l4-release-check-RvMsgD/packages/h2a/src/runtime/handover/ownership.js:27:20
+    mutationLock (file:///tmp/mh-l4-release-check-RvMsgD/packages/h2a/src/runtime/handover/mutation.js:31:19)
+    OwnershipRegistry.withLock (file:///tmp/mh-l4-release-check-RvMsgD/packages/h2a/src/runtime/handover/ownership.js:25:12)
+    OwnershipRegistry.checkpoint (file:///tmp/mh-l4-release-check-RvMsgD/packages/h2a/src/runtime/handover/ownership.js:115:17)
+    file:///tmp/mh-l4-release-check-RvMsgD/packages/h2a/test/mh-l4-checkpoint.test.js:44:31
+    getActual (node:assert:609:5)
+    Function.throws (node:assert:757:24)
+    TestContext.<anonymous> (file:///tmp/mh-l4-release-check-RvMsgD/packages/h2a/test/mh-l4-checkpoint.test.js:44:10)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+  operator: 'throws'
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/mh-l4-release-check-RvMsgD/packages/h2a/test/mh-l4-checkpoint.test.js:44:10)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+  ...
+1..2
+# tests 2
+# suites 0
+# pass 1
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 340.147219
+
+receipt: {"command":["/usr/bin/node","--test","packages/h2a/test/mh-l4-checkpoint.test.js"],"code":1,"signal":null,"elapsedMs":427}

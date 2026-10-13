@@ -1,0 +1,25 @@
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node --test packages/h2a/test/mh-l4-idle.test.js
+node: v24.21.0
+private test root: /tmp/mh-l4-test-TJVO34
+{"event":"drive-consent.full-verification","durationMs":0.003647000000000844,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+✖ should start the idle interval at durable readiness after slow source preparation (3091.416461ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 0
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 3282.743789
+
+✖ failing tests:
+
+test at packages/h2a/test/mh-l4-idle.test.js:9:1
+✖ should start the idle interval at durable readiness after slow source preparation (3091.416461ms)
+  Error: orphan did not retire
+      at file:///tmp/mh-l4-release-check-RvMsgD/packages/h2a/test/mh-l4-idle.test.js:20:65
+      at async TestContext.<anonymous> (file:///tmp/mh-l4-release-check-RvMsgD/packages/h2a/test/mh-l4-idle.test.js:20:3)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3)
+
+receipt: {"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","--test","packages/h2a/test/mh-l4-idle.test.js"],"code":1,"signal":null,"elapsedMs":3309}
