@@ -5,6 +5,7 @@ import {
   DEFAULT_CLAUDE_INPUT_TIMEOUT_MS,
   MAX_CLAUDE_INPUT_BYTES,
   readMaskedInput,
+  readPipedCredentialInput,
 } from "./claude-seat-input.js";
 
 function createMockTtyStream() {
@@ -228,5 +229,51 @@ describe("claude-seat-input", () => {
     expect(errorMessage).not.toContain(canaryPath);
     expect(stdoutBuffer).not.toContain(canaryCode);
     expect(stdoutBuffer).not.toContain(canaryPath);
+  });
+
+  it("reads piped secret-manager output without echo or logging", async () => {
+    const canary = `{"claudeAiOauth":{"accessToken":"CANARY_PIPE_ACCESS","refreshToken":"CANARY_PIPE_REFRESH"}}`;
+    const stdin = new PassThrough() as PassThrough & { isTTY?: boolean };
+    stdin.isTTY = false;
+
+    const pending = readPipedCredentialInput({ stdin });
+    stdin.write(canary);
+    stdin.end();
+
+    const result = await pending;
+    expect(result).toBe(canary);
+  });
+
+  it("refuses empty piped input and TTY stdin with static errors", async () => {
+    const emptyPipe = new PassThrough() as PassThrough & { isTTY?: boolean };
+    emptyPipe.isTTY = false;
+    const pendingEmpty = readPipedCredentialInput({ stdin: emptyPipe });
+    emptyPipe.end();
+    await expect(pendingEmpty).rejects.toThrow(
+      "Claude token entry received empty input",
+    );
+
+    const tty = createMockTtyStream();
+    await expect(readPipedCredentialInput({ stdin: tty })).rejects.toThrow(
+      "piped input required for Claude token entry",
+    );
+  });
+
+  it("bounds piped input and never reflects canary material", async () => {
+    const canary = "CANARY_PIPE_OVERFLOW_";
+    const stdin = new PassThrough() as PassThrough & { isTTY?: boolean };
+    stdin.isTTY = false;
+
+    const pending = readPipedCredentialInput({ stdin, maxBytes: 16 });
+    stdin.write(`${canary}-payload-exceeding-sixteen-bytes`);
+
+    let caughtError: unknown;
+    try {
+      await pending;
+    } catch (err) {
+      caughtError = err;
+    }
+    expect(caughtError).toBeInstanceOf(ClaudeSeatInputError);
+    expect((caughtError as Error).message).not.toContain(canary);
   });
 });
