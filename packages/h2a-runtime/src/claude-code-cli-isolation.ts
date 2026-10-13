@@ -361,10 +361,31 @@ export function checkWindowsManagedRegistry(options?: {
 }
 
 export interface ManagedConfigIsolationOptions {
-  readonly access?: ClaudeCodeAccessProjection | undefined;
-  readonly mdmDetected?: boolean | undefined;
-  readonly serverManagedDetected?: boolean | undefined;
   readonly checkRegistry?: (() => boolean) | undefined;
+}
+
+/**
+ * Organization-proof dependency handoff: mesh 0.25.0 projects only
+ * accessToken/expiresAt/scopes, so individual-vs-organization status is
+ * unprovable from real fields. No access-based organization refusal is
+ * claimed; managed files and Windows registry policy below remain enforced
+ * fail-closed until the mesh seam lands.
+ */
+export interface ClaudeSeatOrgProofHandoff {
+  readonly status: "blocked_pending_mesh_seam";
+  readonly pinnedBaseline: "0.25.0";
+  readonly requiredSeam: string;
+  readonly rationale: string;
+}
+
+export function getClaudeSeatOrgProofHandoff(): ClaudeSeatOrgProofHandoff {
+  return {
+    status: "blocked_pending_mesh_seam",
+    pinnedBaseline: "0.25.0",
+    requiredSeam: "individual-vs-organization account-type field on ClaudeCodeAccessProjection",
+    rationale:
+      "mesh 0.25.0 projects only accessToken/expiresAt/scopes; individuality is unprovable from real fields, so no access-based organization refusal is claimed. Managed files and Windows registry policy remain enforced fail-closed.",
+  };
 }
 
 export function assertManagedConfigIsolation(
@@ -376,33 +397,13 @@ export function assertManagedConfigIsolation(
     throw new Error("Claude seat spawn refused: managed configuration prevents isolation");
   }
 
-  // 2. MDM / Registry policy
-  if (options?.mdmDetected) {
-    throw new Error("Claude seat spawn refused: managed configuration prevents isolation (MDM policy detected)");
-  }
+  // 2. Windows registry policy (HKLM + HKCU, fail-closed on unreadable source)
   const isWindowsOrWsl = process.platform === "win32" || isWsl();
   const regCheck = options?.checkRegistry ?? (isWindowsOrWsl ? () => checkWindowsManagedRegistry() : undefined);
   if (regCheck) {
     const regDetected = regCheck();
     if (regDetected) {
       throw new Error("Claude seat spawn refused: managed configuration prevents isolation (Windows registry policy detected)");
-    }
-  }
-
-  // 3. Server-managed settings
-  if (options?.serverManagedDetected) {
-    throw new Error("Claude seat spawn refused: server-managed settings cannot be verified for organization accounts");
-  }
-  if (options?.access) {
-    const access = options.access;
-    if (
-      access.organizationId ||
-      access.orgId ||
-      access.organization ||
-      access.accountType === "organization" ||
-      (access.accountType && access.accountType !== "individual")
-    ) {
-      throw new Error("Claude seat spawn refused: server-managed settings cannot be verified for organization accounts");
     }
   }
 }

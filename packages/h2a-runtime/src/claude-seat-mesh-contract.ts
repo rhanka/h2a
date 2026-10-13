@@ -10,16 +10,20 @@
  * here; the seat tests pin every shape this mirror carries.
  */
 
-/** In-process secret boundary. Never serialize this input into logs, argv or env. */
+/**
+ * In-process secret boundary. Never serialize this input into logs, argv or env.
+ *
+ * Identical to mesh 0.25.0 `transport/claude-code-runtime-client.ts`: only
+ * accessToken/expiresAt/scopes exist upstream. No account-type or
+ * organization field is available, so individuality is unprovable from real
+ * fields (see `getClaudeSeatOrgProofHandoff` in
+ * claude-code-cli-isolation.js); invented optional fields must not be added
+ * back here.
+ */
 export interface ClaudeCodeAccessProjection {
   readonly accessToken: string;
   readonly expiresAt: number;
   readonly scopes: readonly string[];
-  readonly accountType?: "individual" | "organization" | string;
-  readonly organizationId?: string;
-  readonly orgId?: string;
-  readonly organization?: string;
-  readonly isIndividual?: boolean;
 }
 
 export type ClaudeCodeCliContent = {
