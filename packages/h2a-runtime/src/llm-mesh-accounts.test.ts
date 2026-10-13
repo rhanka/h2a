@@ -832,6 +832,18 @@ describe("claude-code enrollment", () => {
     ).toThrow(/--cli and --token cannot be combined/);
   });
 
+  it("never echoes --from values in errors (m4 canary)", () => {
+    const canary = "canary-from-value-9f8e7d6c5b";
+    let message = "";
+    try {
+      resolveEnrollmentMode({ from: canary as never });
+    } catch (err) {
+      message = err instanceof Error ? err.message : String(err);
+    }
+    expect(message).toBe("--from must be one of oauth, cli, token");
+    expect(message).not.toContain(canary);
+  });
+
   it("validates H2A_LLM_MESH_CONFIG_JSON for claude-code and refuses malformed JSON", async () => {
     const facade = {
       completeClaudeEnrollment: vi.fn(),
