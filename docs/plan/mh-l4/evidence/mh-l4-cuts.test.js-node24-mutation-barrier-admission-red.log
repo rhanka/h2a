@@ -1,0 +1,56 @@
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node --test packages/h2a/test/mh-l4-cuts.test.js
+node: v24.21.0
+private test root: /tmp/mh-l4-test-FLvLBV
+{"event":"drive-consent.full-verification","durationMs":0.01879500000001144,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+{"event":"drive-consent.full-verification","durationMs":0.014606999999983827,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+{"event":"drive-consent.full-verification","durationMs":0.017792999999983294,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+{"event":"drive-consent.full-verification","durationMs":0.018083999999987554,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+{"event":"drive-consent.full-verification","durationMs":0.012133000000005723,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+✖ should close admissions at barrier and bind presence mutations to the exact session (73.361818ms)
+✔ should propagate the reserved token through the real async subprocess seam (1.339992ms)
+✔ should revalidate a replaced presence instance under the mutation lock for update and delete (30.833421ms)
+✔ should detect conflicting launch parameters through the MCP server cache (66.942664ms)
+✔ should reconcile a final memo after a crash before operation closure without executing again (47.106193ms)
+✔ should persist owner-directed delegation after freeze and deduplicate the eventual writer receipt (75.493781ms)
+✔ should recover the delegation event after final memo publication but before operation closure (62.340571ms)
+ℹ tests 7
+ℹ suites 0
+ℹ pass 6
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 540.491251
+
+✖ failing tests:
+
+test at packages/h2a/test/mh-l4-cuts.test.js:17:1
+✖ should close admissions at barrier and bind presence mutations to the exact session (73.361818ms)
+  AssertionError [ERR_ASSERTION]: The input did not match the regular expression /store_admission_closed/. Input:
+  
+  'Error: must not run'
+  
+      at TestContext.<anonymous> (file:///tmp/mh-l4-release-check-RvMsgD/packages/h2a/test/mh-l4-cuts.test.js:26:24)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.start (node:internal/test_runner/test:1262:17)
+      at startSubtestAfterBootstrap (node:internal/test_runner/harness:387:17) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: Error: must not run
+        at file:///tmp/mh-l4-release-check-RvMsgD/packages/h2a/test/mh-l4-cuts.test.js:26:53
+        at AsyncLocalStorage.run (node:internal/async_local_storage/async_context_frame:65:14)
+        at withExecution (file:///tmp/mh-l4-release-check-RvMsgD/packages/h2a/dist/runtime/handover/mutation.js:42:65)
+        at AttachmentParticipant.call (file:///tmp/mh-l4-release-check-RvMsgD/packages/h2a/dist/runtime/handover/participants.js:218:28)
+        at file:///tmp/mh-l4-release-check-RvMsgD/packages/h2a/test/mh-l4-cuts.test.js:26:37
+        at getActual (node:assert:611:5)
+        at strict.throws (node:assert:759:24)
+        at TestContext.<anonymous> (file:///tmp/mh-l4-release-check-RvMsgD/packages/h2a/test/mh-l4-cuts.test.js:26:24)
+        at Test.runInAsyncScope (node:async_hooks:227:14)
+        at Test.run (node:internal/test_runner/test:1402:25),
+    expected: /store_admission_closed/,
+    operator: 'throws',
+    diff: 'simple'
+  }
+
+receipt: {"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","--test","packages/h2a/test/mh-l4-cuts.test.js"],"code":1,"signal":null,"elapsedMs":567}

@@ -1,0 +1,80 @@
+command: /usr/bin/node --test packages/h2a/test/mcp-sessions.test.js
+node: v22.22.1
+private test root: /tmp/mh-l4-test-o4qpDc
+TAP version 13
+# {"event":"drive-consent.full-verification","durationMs":0.06635399999998981,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# {"event":"drive-consent.full-verification","durationMs":0.011221000000034564,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# {"event":"drive-consent.full-verification","durationMs":0.021579999999971733,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# {"event":"drive-consent.full-verification","durationMs":0.011542000000019925,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# {"event":"drive-consent.full-verification","durationMs":0.015169000000014421,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# Subtest: h2a_session_open writes a presence file and returns the session + peers
+ok 1 - h2a_session_open writes a presence file and returns the session + peers
+  ---
+  duration_ms: 7.48453
+  type: 'test'
+  ...
+# Subtest: h2a_session_open with no instance returns a friendly error
+ok 2 - h2a_session_open with no instance returns a friendly error
+  ---
+  duration_ms: 12.962752
+  type: 'test'
+  ...
+# Subtest: h2a_session_open rejects unknown subscribedTopics
+ok 3 - h2a_session_open rejects unknown subscribedTopics
+  ---
+  duration_ms: 1.322059
+  type: 'test'
+  ...
+# Subtest: h2a_discover_sessions returns peers from disk and filters by scope/instance
+ok 4 - h2a_discover_sessions returns peers from disk and filters by scope/instance
+  ---
+  duration_ms: 2.401631
+  type: 'test'
+  ...
+# Subtest: h2a_discover_sessions matches native or presence names case-insensitively and slug-stably
+ok 5 - h2a_discover_sessions matches native or presence names case-insensitively and slug-stably
+  ---
+  duration_ms: 6.680866
+  type: 'test'
+  ...
+# Subtest: h2a_session_close deletes the presence file and stops the heartbeat
+ok 6 - h2a_session_close deletes the presence file and stops the heartbeat
+  ---
+  duration_ms: 1.996428
+  type: 'test'
+  ...
+# Subtest: SessionRegistry expires stale peer presence files on scan
+ok 7 - SessionRegistry expires stale peer presence files on scan
+  ---
+  duration_ms: 0.839922
+  type: 'test'
+  ...
+# Subtest: SessionRegistry.touch keeps the heartbeat fresh
+ok 8 - SessionRegistry.touch keeps the heartbeat fresh
+  ---
+  duration_ms: 0.807551
+  type: 'test'
+  ...
+# Subtest: SessionRegistry.touch recreates a missing presence file for a still-open session
+ok 9 - SessionRegistry.touch recreates a missing presence file for a still-open session
+  ---
+  duration_ms: 0.806328
+  type: 'test'
+  ...
+# Subtest: H2A_SESSION_DEFAULT_HEARTBEAT_INTERVAL_MS is < expiry (sanity)
+ok 10 - H2A_SESSION_DEFAULT_HEARTBEAT_INTERVAL_MS is < expiry (sanity)
+  ---
+  duration_ms: 0.29716
+  type: 'test'
+  ...
+1..10
+# tests 10
+# suites 0
+# pass 10
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 367.407425
+
+receipt: {"command":["/usr/bin/node","--test","packages/h2a/test/mcp-sessions.test.js"],"code":0,"signal":null,"elapsedMs":453}
