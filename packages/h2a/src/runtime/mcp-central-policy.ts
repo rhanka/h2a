@@ -41,7 +41,12 @@ export function shouldUseCentralMcp(flags: Record<string, string>, env: NodeJS.P
   const root = canonicalCentralRoot(env);
   if (flags.root && resolve(flags.root) !== root) return false;
   const paths = flags["runtime-base"] ? { runtimeBase: flags["runtime-base"] } : {};
-  const marker = readCentralMcpMarker(paths);
+  let marker: ReturnType<typeof readCentralMcpMarker>;
+  try { marker = readCentralMcpMarker(paths); }
+  catch (error) {
+    if ((error as Error).message === "foreign_installation_authority") return false;
+    throw error;
+  }
   // Unsupported legacy protocol/root routes deterministically to stdio before initialize.
   if (marker && (marker.protocol !== 2 || marker.root !== root)) return false;
   return true;
