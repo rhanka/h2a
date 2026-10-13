@@ -1079,3 +1079,5 @@ export const H2A_CLI_ADAPTER = {
   hosts: H2A_CLI_HOSTS,
   mcpToolNames: H2A_CLI_MCP_TOOL_NAMES
 } as const;
+
+export { ensureCentralForRoot } from "./runtime/mcp-central-start.js";
