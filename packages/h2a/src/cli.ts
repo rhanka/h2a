@@ -81,7 +81,7 @@ import { HostConfigConflict, writeHostMcpEntry } from "./hosts/config-writer.js"
 import { executeH2aRunWithAsyncSpawn, type H2aRunExecutor } from "./runtime/mcp/agent-launch.js";
 import { captureCentralAttachment } from "./runtime/mcp-central-context.js";
 import { ensureCentralForShim } from "./runtime/mcp-central-start.js";
-import { centralOperator, centralResidueReport } from "./runtime/mcp-central-operator.js";
+import { centralOperator, centralOperatorExitCode, centralFailureExitCode, centralResidueReport } from "./runtime/mcp-central-operator.js";
 import { resolveHostConfigRoot } from "./runtime/host-config-root.js";
 import { isNativeHost, NATIVE_HOSTS, REGISTRY_WAITING, stateRoot, vibeHome } from "./hosts/native-paths.js";
 import { convergeNativeHost } from "./hosts/native-convergence.js";
@@ -482,7 +482,8 @@ export function renderCliHelp(): string {
     "  h2a drumbeat escalations [--root <path>]",
     "  h2a drumbeat relance-inbox [--instance <id>] [--relauncher logging|local-tmux|headless|auto] [--root <path>]",
     "  h2a drumbeat watch [--interval-ms <n>] [--max-relances <n>] [--relauncher logging|local-tmux|remote|headless|auto] [--instance <signer> --private-key <pem>] [--decider logging|<command>] [--decider-after <k>] [--decider-enforce] [--root <path>]",
-    "  h2a central status|stop   (authenticated machine-local central control; stop inhibits automatic restart)",
+    "  h2a central status|stop   (authenticated control; stop persists MCP pause and drains without force)",
+    "                           (pause_active_stop_deferred remains armed; explicit serve resumes before commit)",
     "  h2a central residues [--workspace <repo>] [--agy-config <file>]   (report only; never rewrites or deletes residues)",
     "  h2a host setup --host <codex|claude|gemini|agy|hermes|opencode|muse|vibe> [--endpoint local|remote] [--url <https://…/mcp>] [--root <path>] [--print | --write <file>] [--allow-tracked] [--force] [--no-wake]   (selects one endpoint; Muse/agy render nonrecommended historical direct paths pending registry bootstrap; Vibe --write installs the interim direct entry pending registry bootstrap (--remove clears it for migration))",
     "  h2a host status [--host <name>]",
@@ -2251,6 +2252,8 @@ export async function runCentralMcpServe(
       root,
       env: io.env ?? process.env,
       automatic: flags["auto-start"] === "true",
+      ...(flags["handover-id"] ? { successor: { handoverId: flags["handover-id"],
+        transactionEpoch: Number(flags["transaction-epoch"]), attempt: Number(flags["successor-attempt"]) } } : {}),
       runtimeBase: flags["runtime-base"]
     });
     if (started.kind === "reused") {
@@ -7721,14 +7724,15 @@ export function runCli(
   if (command === "central") {
     const sub = argv[1];
     const { flags: centralFlags } = parseFlags(argv.slice(2));
+    if (sub === "stop" && centralFlags.force !== undefined) { streams.stderr.write("h2a central stop: no force mode\n"); return 1; }
     if (sub === "residues") {
       streams.stdout.write(JSON.stringify(centralResidueReport(centralFlags.workspace ?? streams.cwd?.() ?? process.cwd(), centralFlags["agy-config"]), null, 2) + "\n");
       return 0;
     }
     if (sub === "status" || sub === "stop") return centralOperator(sub, centralFlags["runtime-base"] ? { runtimeBase: centralFlags["runtime-base"] } : {}).then(result => {
       streams.stdout.write(JSON.stringify(result, null, 2) + "\n");
-      return 0;
-    });
+      return centralOperatorExitCode(result);
+    }).catch(error => { streams.stderr.write(`h2a central ${sub}: ${(error as Error).message}\n`); return centralFailureExitCode(error); });
     streams.stderr.write("h2a central: use status, stop or residues\n");
     return 1;
   }
