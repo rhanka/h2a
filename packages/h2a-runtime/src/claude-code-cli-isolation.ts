@@ -261,6 +261,9 @@ export function defaultManagedConfigPaths(platform: NodeJS.Platform | "wsl" = pr
       join(base, "managed-settings.json"),
       join(base, "managed-settings.d"),
       join(base, "managed-mcp.json"),
+      // Conservative fail-closed candidates, UNVERIFIED against the pinned
+      // binary 2.1.296 (only its CFBundleIdentifier is known): their
+      // presence only ever refuses spawn, never admits it.
       "/Library/Managed Preferences/com.anthropic.claude-code.plist",
       "/Library/Preferences/com.anthropic.claude-code.plist",
       "/Library/Managed Preferences/com.anthropic.claudecode.plist",

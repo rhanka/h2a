@@ -235,7 +235,7 @@ describe("claude-code-cli-isolation", () => {
     }
   });
 
-  it("resolves defaultManagedConfigPaths per platform including Windows C:\\Program Files and macOS plists", () => {
+  it("resolves defaultManagedConfigPaths per platform including conservative unverified macOS plist candidates", () => {
     const winPaths = defaultManagedConfigPaths("win32");
     expect(winPaths).toContain("C:\\Program Files\\ClaudeCode\\managed-settings.json");
     expect(winPaths).toContain("C:\\Program Files\\ClaudeCode\\managed-settings.d");
