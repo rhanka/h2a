@@ -10,11 +10,10 @@ import { currentIdentity } from '../src/runtime/handover/admission.js';
 
 test('should checkpoint a real source attachment and reject a cancellation string inside new tool arguments', async () => {
   const { buildPackagingPrototype } = await import('../../../scripts/mh-l1-package-prototype.mjs');
-  const { launchCentral } = await import('../src/runtime/handover/launch.js');
   const { runIsolatedPrecheck } = await import('../src/runtime/handover/precheck.js');
-  const dir = fs.mkdtempSync(join(tmpdir(), 'mh-l2-image-'));
-  let source, successor;
-  const children = [];
+  const dir = fs.mkdtempSync(join(process.env.XDG_CACHE_HOME, 'mh-l4-image-'));
+  let source, releaseTool, enteredTool;
+  const toolEntered = new Promise(resolve => { enteredTool = resolve; });
   try {
     const managedRoot = join(dir, 'h2a-managed', String(process.getuid()));
     const images = join(managedRoot, 'images'), state = join(managedRoot, 'state'), root = join(dir, 'store'), runtime = join(dir, 'run');
@@ -32,21 +31,27 @@ test('should checkpoint a real source attachment and reject a cancellation strin
       selectionEpoch: 1, packageVersion: payload.manifest.packageVersion, buildId: payload.manifest.buildId,
       manifestDigest: payload.manifestDigest, entrypoint: 'dist/bin.js', previousSelectionReference: null, upgradeId: 'u' };
     const selectionPath = join(state, 'selected-build.json'); publishState(selectionPath, selection, 'selection');
-    const environment = { ...process.env, H2A_ROOT: root, XDG_RUNTIME_DIR: runtime };
-    delete environment.NODE_PATH; delete environment.NODE_OPTIONS;
-    const directory = join(runtime, 'h2a-mcp-central');
-    const startOptions = { directory, root, installation, fallbackEntry: join(image, 'dist/bin.js'), environment, kind: 'controller', onSpawn: child => children.push(child) };
     const { startCentralMcpServer } = await import(join(image, 'node_modules/@sentropic/h2a/dist/runtime/mcp-central.js'));
     source = await startCentralMcpServer({ root, runtimeBase: runtime, writerProof: {
       evidenceDigest: payload.manifestDigest, verify: () => 'qualified'
+    }, runExecutor: () => {
+      enteredTool();
+      return new Promise(resolve => { releaseTool = () => resolve({ state: 'started', ok: true,
+        prompt: { delivered: true }, padding: 'x'.repeat(2 * 1024 * 1024) }); });
     } });
     assert.equal(source.kind, 'started');
     const markerPath = source.markerPath, m = JSON.parse(fs.readFileSync(markerPath, 'utf8'));
+    let mcpSessionId;
     const post = async body => authenticatedHttpRequest(markerPath, m, m.endpoint, { method: 'POST',
-      headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', 'x-h2a-workspace': encodeURIComponent(dir) }, body: JSON.stringify(body) });
+      headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', 'x-h2a-workspace': encodeURIComponent(dir), ...(mcpSessionId ? { 'mcp-session-id': mcpSessionId } : {}) }, body: JSON.stringify(body) });
     const initialized = await post({ jsonrpc:'2.0', id:1, method:'initialize', params:{protocolVersion:'2024-11-05',capabilities:{},clientInfo:{name:'mh-l4-fixture',version:'1'}} });
     assert.equal(initialized.status,200);
+    mcpSessionId = initialized.headers.get('mcp-session-id');
     const downstream = (await initialized.json()).result.protocolVersion;
+    await post({ jsonrpc:'2.0', method:'notifications/initialized' });
+    const toolResponse = post({ jsonrpc:'2.0', id:11, method:'tools/call', params:{name:'h2a_run',
+      arguments:{profile:'claude',name:'large-reply',prompt:'brief',workspace:dir,background:true,h2aSidecar:false}} });
+    await toolEntered;
     const inventoryRevision = 2;
     const durableDirectory = m.stateDirectory;
     assert.ok(durableDirectory.startsWith(join(managedRoot, 'state', 'mcp')));
@@ -86,6 +91,13 @@ test('should checkpoint a real source attachment and reject a cancellation strin
     assert.equal(saved.context.workspace,dir);
     assert.ok(saved.servedCatalogue.length > 10);
     assert.deepEqual(await call('checkpoint', {}),checkpoint);
+    releaseTool();
+    const toolFrame = await (await toolResponse).json();
+    const overflow = JSON.parse(toolFrame.result.content[0].text);
+    assert.equal(overflow.code,'response_too_large');
+    assert.ok(overflow.recovery?.ref,'an admitted operation must persist its large reply after owner freeze');
+    const recovered = fs.readFileSync(join(root,'mcp-payloads',overflow.recovery.ref+'.bin'),'utf8');
+    assert.ok(recovered.includes('x'.repeat(1024)));
     const drain = await call('drain-status', {});
     assert.equal(drain.complete, true);
     await call('commit-stop', { sourceGeneration: m.generation, sourceProcessIdentity: m.processIdentity,
@@ -97,11 +109,8 @@ test('should checkpoint a real source attachment and reject a cancellation strin
     assert.equal(fs.existsSync(markerPath), false);
     assert.equal(fs.existsSync(join(durableDirectory, 'operator-stop.json')), false);
   } finally {
-    // PIDs were created by launchCentral above; no pattern or unrelated PID.
+    releaseTool?.();
     if (source?.kind === 'started') await source.stop();
-    for (const child of children) if (child.exitCode === null && child.signalCode === null) {
-      child.ref(); const ended = new Promise(resolve => child.once('close', resolve)); child.kill('SIGTERM'); await ended;
-    }
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
