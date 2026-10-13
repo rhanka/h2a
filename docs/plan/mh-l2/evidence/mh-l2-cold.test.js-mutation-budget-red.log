@@ -23,10 +23,10 @@ not ok 3 - M25 should durably consume at most three attempts, refuse live/unknow
   error: |-
     Expected values to be strictly equal:
     + actual - expected
-    
+
     + 'STOPPED'
     - 'SUCCESSOR_FAILED'
-    
+
   code: 'ERR_ASSERTION'
   name: 'AssertionError'
   expected: 'SUCCESSOR_FAILED'

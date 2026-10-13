@@ -18,20 +18,20 @@ not ok 2 - authenticated SSE should preserve UTF-8 across fragmented source chun
   error: |-
     Expected values to be strictly equal:
     + actual - expected
-    
+
     + 'data: {"jsonrpc":"2.0","method":"notice","params":{"text":"��té 🌍"}}\n\n'
     - 'data: {"jsonrpc":"2.0","method":"notice","params":{"text":"été 🌍"}}\n\n'
-    
+
   code: 'ERR_ASSERTION'
   name: 'AssertionError'
   expected: |-
     data: {"jsonrpc":"2.0","method":"notice","params":{"text":"été 🌍"}}
-    
-    
+
+
   actual: |-
     data: {"jsonrpc":"2.0","method":"notice","params":{"text":"��té 🌍"}}
-    
-    
+
+
   operator: 'strictEqual'
   stack: |-
     TestContext.<anonymous> (file:///home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/test/mh-l2-auth.test.js:54:12)
