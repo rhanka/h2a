@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { withWriterMutation } from "../handover/mutation.js";
 import {
   appendFileSync,
   openSync, closeSync, fsyncSync,
@@ -399,7 +400,8 @@ export function createLocalStore(options: CreateLocalStoreOptions): LocalStore {
   const paths = localStorePaths(options.root);
   const initialize = options.initialize !== false;
   const readOnly = options.readOnly === true;
-  if (initialize) {
+  if (initialize && !readOnly) {
+    withWriterMutation(paths.root, "registry", () => {
     ensureLayout(paths);
     ensureSchemaSentinel(paths.root, {
       allowVersionMismatch: options.allowVersionMismatch === true
@@ -407,6 +409,7 @@ export function createLocalStore(options: CreateLocalStoreOptions): LocalStore {
     if (!existsSync(paths.instances)) {
       writeFileSync(paths.instances, "", { encoding: "utf8" });
     }
+    });
   } else {
     // Non-initializing open (L2): create nothing. Only VALIDATE a sentinel that
     // already exists — an incompatible one still fails closed (an unsupported
@@ -1815,7 +1818,7 @@ export function createLocalStore(options: CreateLocalStoreOptions): LocalStore {
     }));
   }
 
-  return {
+  const store: LocalStore = {
     paths,
     registerInstance,
     listInstances,
@@ -1855,4 +1858,81 @@ export function createLocalStore(options: CreateLocalStoreOptions): LocalStore {
     subagentStatus,
     revokeSubagent
   };
+  store.registerInstance = (...args: Parameters<LocalStore['registerInstance']>) => {
+    assertWritable('registerInstance');
+    return withWriterMutation(paths.root, 'registry', () => registerInstance(...args));
+  };
+  store.addInstanceKey = (...args: Parameters<LocalStore['addInstanceKey']>) => {
+    assertWritable('addInstanceKey');
+    return withWriterMutation(paths.root, 'registry', () => addInstanceKey(...args));
+  };
+  store.revokeInstanceKey = (...args: Parameters<LocalStore['revokeInstanceKey']>) => {
+    assertWritable('revokeInstanceKey');
+    return withWriterMutation(paths.root, 'registry', () => revokeInstanceKey(...args));
+  };
+  store.grantOrgMembership = (...args: Parameters<LocalStore['grantOrgMembership']>) => {
+    assertWritable('grantOrgMembership');
+    return withWriterMutation(paths.root, 'registry', () => grantOrgMembership(...args));
+  };
+  store.offboardInstance = (...args: Parameters<LocalStore['offboardInstance']>) => {
+    assertWritable('offboardInstance');
+    return withWriterMutation(paths.root, 'registry', () => offboardInstance(...args));
+  };
+  store.registerSubagent = (...args: Parameters<LocalStore['registerSubagent']>) => {
+    assertWritable('registerSubagent');
+    return withWriterMutation(paths.root, 'registry', () => registerSubagent(...args));
+  };
+  store.revokeSubagent = (...args: Parameters<LocalStore['revokeSubagent']>) => {
+    assertWritable('revokeSubagent');
+    return withWriterMutation(paths.root, 'registry', () => revokeSubagent(...args));
+  };
+  store.openNegotiation = (...args: Parameters<LocalStore['openNegotiation']>) => {
+    assertWritable('openNegotiation');
+    return withWriterMutation(paths.root, 'negotiations', () => openNegotiation(...args));
+  };
+  store.updateNegotiationStatus = (...args: Parameters<LocalStore['updateNegotiationStatus']>) => {
+    assertWritable('updateNegotiationStatus');
+    return withWriterMutation(paths.root, 'negotiations', () => updateNegotiationStatus(...args));
+  };
+  store.appendNegotiationEvent = <TBody>(...args: Parameters<typeof appendNegotiationEvent<TBody>>) => {
+    assertWritable('appendNegotiationEvent');
+    return withWriterMutation(paths.root, 'negotiations', () => appendNegotiationEvent<TBody>(...args));
+  };
+  store.declareConflitInteret = (...args: Parameters<LocalStore['declareConflitInteret']>) => {
+    assertWritable('declareConflitInteret');
+    return withWriterMutation(paths.root, 'negotiations', () => declareConflitInteret(...args));
+  };
+  store.deriveDecisionDossier = (...args: Parameters<LocalStore['deriveDecisionDossier']>) => {
+    assertWritable('deriveDecisionDossier');
+    return withWriterMutation(paths.root, 'negotiations', () => deriveDecisionDossier(...args));
+  };
+  store.stabilizeNegotiation = (...args: Parameters<LocalStore['stabilizeNegotiation']>) => {
+    assertWritable('stabilizeNegotiation');
+    return withWriterMutation(paths.root, 'negotiations', () => stabilizeNegotiation(...args));
+  };
+  store.putInboxMessage = (...args: Parameters<LocalStore['putInboxMessage']>) => {
+    assertWritable('putInboxMessage');
+    return withWriterMutation(paths.root, 'inbox', () => putInboxMessage(...args));
+  };
+  store.popInboxMessage = (...args: Parameters<LocalStore['popInboxMessage']>) => {
+    assertWritable('popInboxMessage');
+    return withWriterMutation(paths.root, 'inbox', () => popInboxMessage(...args));
+  };
+  store.putOutboxMessage = (...args: Parameters<LocalStore['putOutboxMessage']>) => {
+    assertWritable('putOutboxMessage');
+    return withWriterMutation(paths.root, 'inbox', () => putOutboxMessage(...args));
+  };
+  store.routeToSubagent = (...args: Parameters<LocalStore['routeToSubagent']>) => {
+    assertWritable('routeToSubagent');
+    return withWriterMutation(paths.root, 'inbox', () => routeToSubagent(...args));
+  };
+  store.recordDriveConsentEnvelope = (...args: Parameters<LocalStore['recordDriveConsentEnvelope']>) => {
+    assertWritable('recordDriveConsentEnvelope');
+    return withWriterMutation(paths.root, 'consent', () => recordDriveConsentEnvelope(...args));
+  };
+  store.commitDriveConsentAdmission = (...args: Parameters<LocalStore['commitDriveConsentAdmission']>) => {
+    assertWritable('commitDriveConsentAdmission');
+    return withWriterMutation(paths.root, 'consent', () => commitDriveConsentAdmission(...args));
+  };
+  return store;
 }

@@ -1,3 +1,4 @@
+import { withPresenceMutation, withWriterMutation } from '../handover/mutation.js';
 import {
   closeSync,
   mkdirSync,
@@ -45,7 +46,7 @@ function ensurePresenceDir(paths: LocalStorePaths): void {
  * JSON document (the session owns its own file, so writer contention is
  * not expected, but we keep the rename anyway for partial-write safety).
  */
-export function writePresence(
+ function writePresenceUnfenced(
   root: string,
   session: H2ASession
 ): PresenceWriteResult {
@@ -111,7 +112,7 @@ export function readPresence(
 /**
  * Delete a presence file. Idempotent: missing file is not an error.
  */
-export function deletePresence(root: string, sessionId: string): void {
+ function deletePresenceUnfenced(root: string, sessionId: string): void {
   const paths = localStorePaths(root);
   const file = presenceFile(paths, sessionId);
   // Preserve pre-upgrade publications too, before close or the janitor removes
@@ -124,6 +125,16 @@ export function deletePresence(root: string, sessionId: string): void {
     if ((err as NodeJS.ErrnoException).code === "ENOENT") return;
     throw err;
   }
+}
+
+/** Re-read under mutation exclusion; a janitor snapshot is never delete authority. */
+function deletePresenceIfCurrent(root: string, expected: H2ASession): boolean {
+  return withWriterMutation(root, 'presence-janitor', () => {
+    const current = readPresence(root, expected.sessionId);
+    if (JSON.stringify(current) !== JSON.stringify(expected)) return false;
+    deletePresenceUnfenced(root, expected.sessionId);
+    return true;
+  });
 }
 
 export interface ListPresenceOptions {
@@ -196,7 +207,7 @@ export function listPresence(
  * patching, and re-writing. The session owns its file so this is safe
  * without a lock for V1 (DEC-051 acknowledges this constraint).
  */
-export function updatePresence(
+ function updatePresenceUnfenced(
   root: string,
   sessionId: string,
   patch: {
@@ -298,8 +309,7 @@ export function reapDeadInstancePresence(
     if (typeof pid !== "number") continue;
     if (isAlive(pid)) continue;
     try {
-      deletePresence(root, session.sessionId);
-      reaped.push(session.sessionId);
+      if (deletePresenceIfCurrent(root, session)) reaped.push(session.sessionId);
     } catch {
       // best-effort: a delete race is harmless (another booter reaped it)
     }
@@ -333,11 +343,22 @@ export function reapAllDeadPresence(
     if (typeof pid !== "number") continue;
     if (isAlive(pid)) continue;
     try {
-      deletePresence(root, session.sessionId);
-      reaped.push({ sessionId: session.sessionId, instance: session.instance, pid });
+      if (deletePresenceIfCurrent(root, session)) reaped.push({ sessionId: session.sessionId, instance: session.instance, pid });
     } catch {
       // best-effort
     }
   }
   return reaped;
+}
+
+export function writePresence(...args: Parameters<typeof writePresenceUnfenced>): ReturnType<typeof writePresenceUnfenced> {
+  return withPresenceMutation(args[0], args[1].sessionId, args[1].instance, () => writePresenceUnfenced(...args));
+}
+
+export function deletePresence(...args: Parameters<typeof deletePresenceUnfenced>): ReturnType<typeof deletePresenceUnfenced> {
+  return withPresenceMutation(args[0], args[1], readPresence(args[0], args[1])?.instance, () => deletePresenceUnfenced(...args));
+}
+
+export function updatePresence(...args: Parameters<typeof updatePresenceUnfenced>): ReturnType<typeof updatePresenceUnfenced> {
+  return withPresenceMutation(args[0], args[1], readPresence(args[0], args[1])?.instance, () => updatePresenceUnfenced(...args));
 }

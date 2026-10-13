@@ -53,6 +53,7 @@ import { createReplayGuard, type H2AReplayGuard } from "@sentropic/h2a";
 
 import { localStorePaths, withLockSync, writePresence, type LocalStore } from "../local-files/index.js";
 import { acceptMirrorEnvelope, type H2AMirrorRejection } from "./accept.js";
+import { withWriterMutation } from '../handover/mutation.js';
 
 /**
  * Durable, per-instance monotonic fence (P2). Returns a predicate that accepts
@@ -65,7 +66,7 @@ function makeSequenceFence(root: string): (instance: string, seq: number) => boo
   const dir = join(localStorePaths(root).root, "identity");
   const file = join(dir, "mirror-seq.json");
   const lock = join(dir, ".mirror-seq.lock");
-  return (instance, seq) => {
+  return (instance, seq) => withWriterMutation(root, 'registry', () => {
     mkdirSync(dir, { recursive: true });
     return withLockSync(lock, () => {
       let map: Record<string, number> = {};
@@ -80,7 +81,7 @@ function makeSequenceFence(root: string): (instance: string, seq: number) => boo
       writeFileSync(file, `${JSON.stringify(map)}\n`, "utf8");
       return true;
     });
-  };
+  });
 }
 
 export interface MirrorServerForStoreOptions {

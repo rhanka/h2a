@@ -1,3 +1,4 @@
+import { withWriterMutation } from "../handover/mutation.js";
 /**
  * Identity binding registry + proof-of-possession (DEC-116 F1 security core;
  * stability unit RE-ANCHORED 2026-06-07 — supersedes the per-workspace choice).
