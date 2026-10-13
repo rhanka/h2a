@@ -1,0 +1,39 @@
+command: /usr/bin/node --test packages/h2a/test/mh-l2-cold.test.js
+node: v22.22.1
+private test root: /tmp/mh-l2-test-aY0zK2
+TAP version 13
+# Subtest: M23/M24 should persist internal stop before close, reconcile lost ACK and never reopen
+ok 1 - M23/M24 should persist internal stop before close, reconcile lost ACK and never reopen
+  ---
+  duration_ms: 34.387163
+  type: 'test'
+  ...
+# Subtest: operator pause should remain armed after timeout, cancel explicitly before commit and never clear on upgrade
+ok 2 - operator pause should remain armed after timeout, cancel explicitly before commit and never clear on upgrade
+  ---
+  duration_ms: 17.042007
+  type: 'test'
+  ...
+# Subtest: M25 should durably consume at most three attempts, refuse live/unknown candidates and preserve pins
+ok 3 - M25 should durably consume at most three attempts, refuse live/unknown candidates and preserve pins
+  ---
+  duration_ms: 34.217344
+  type: 'test'
+  ...
+# Subtest: M24 should keep admissions closed after indeterminate fsync and reconcile the committed journal before close
+ok 4 - M24 should keep admissions closed after indeterminate fsync and reconcile the committed journal before close
+  ---
+  duration_ms: 17.927913
+  type: 'test'
+  ...
+1..4
+# tests 4
+# suites 0
+# pass 4
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 204.208354
+
+receipt: {"command":["/usr/bin/node","--test","packages/h2a/test/mh-l2-cold.test.js"],"code":0,"signal":null,"elapsedMs":284}
