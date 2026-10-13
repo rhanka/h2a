@@ -23,15 +23,25 @@
  *    EXPLICITLY as unsupported — never silently migrated, never silently
  *    read: L6a is not consumed yet, so no migration replay exists and the
  *    operator removes the file to start fresh.
- *  - Update is revision-guarded: the caller composes the next record
- *    through the contract rules (declarationRevision + 1, immutable
+ *  - Update is revision-guarded ATOMICALLY: the caller composes the next
+ *    record through the contract rules (declarationRevision + 1, immutable
  *    identity triangle, binding renewal-or-preserved); the store verifies
- *    the guard (stale writer refused with revision_conflict, never
- *    clobbering), the triangle, the binding monotonicity (first binding
+ *    the guard, the triangle, the binding monotonicity (first binding
  *    exactly INITIAL_BINDING_REVISION, then strictly greater) and the
- *    final DTOs, then persists.
+ *    final DTOs, then re-verifies the durable revision and persists under
+ *    ONE exclusive lock. A stale writer is refused with the typed
+ *    LiveRevisionConflict, never clobbering; a declaration removed after
+ *    the read is never resurrected. Insert and remove hold the same lock,
+ *    so every read-check-write (including removals) is serialized.
  */
-import { existsSync, readFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 
 import {
@@ -50,6 +60,119 @@ import { writePrivateMetadata } from "./config-file.js";
 
 export const LIVE_DECLARATION_KIND = "h2a-live-declaration";
 export const LIVE_DECLARATION_SCHEMA_VERSION = 1;
+
+/**
+ * Typed revision conflict: the durable declaration moved (or vanished)
+ * under a writer holding a stale base revision. The message keeps the
+ * `revision_conflict` marker; the name and the revision fields let callers
+ * branch on it without parsing text.
+ */
+export class LiveRevisionConflict extends Error {
+  readonly declarationId: string;
+  readonly expectedDeclarationRevision: number;
+  /** Current durable revision; undefined when the declaration is gone. */
+  readonly actualDeclarationRevision: number | undefined;
+
+  constructor(
+    declarationId: string,
+    expectedDeclarationRevision: number,
+    actualDeclarationRevision: number | undefined,
+  ) {
+    super(
+      actualDeclarationRevision === undefined
+        ? `revision_conflict: live declaration ${declarationId} was removed; stale writer held declaration revision ${expectedDeclarationRevision}`
+        : `revision_conflict: live declaration ${declarationId} is at declaration revision ` +
+            `${actualDeclarationRevision}, stale writer held ${expectedDeclarationRevision}`,
+    );
+    this.name = "LiveRevisionConflict";
+    this.declarationId = declarationId;
+    this.expectedDeclarationRevision = expectedDeclarationRevision;
+    this.actualDeclarationRevision = actualDeclarationRevision;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Exclusive store lock (synchronous, no dependency).
+// ---------------------------------------------------------------------------
+//
+// Every mutation (insert/update/remove) holds this lock from its read to
+// its persisted rename, so no stale revision can slip between the guard
+// check and the write — across processes as well as across store
+// instances. The lock is an atomically created directory; acquisition
+// retries briefly, recovers abandoned locks by age, then fails explicitly
+// (never silently proceeding unlocked). Re-entry by the SAME process only
+// bumps a counter: the pre-persist re-verification inside update() still
+// rejects a same-process interleaving, so re-entrancy never hides a
+// conflict. Reads stay lock-free: the tmp+rename persistence is atomic,
+// so readers always observe one whole committed file.
+
+const STORE_LOCK_DIRNAME = ".declarations.lock";
+const STORE_LOCK_TIMEOUT_MS = 5_000;
+const STORE_LOCK_STALE_MS = 10_000;
+const STORE_LOCK_POLL_MS = 5;
+
+/** Lock re-entry counters for this process, keyed by lock directory. */
+const storeLocksHeld = new Map<string, number>();
+
+const lockDirFor = (root: string): string => join(root, "live", STORE_LOCK_DIRNAME);
+
+const sleepSync = (ms: number): void => {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+};
+
+function acquireStoreLock(root: string): void {
+  const dir = lockDirFor(root);
+  mkdirSync(join(root, "live"), { recursive: true });
+  const held = storeLocksHeld.get(dir) ?? 0;
+  if (held > 0) {
+    storeLocksHeld.set(dir, held + 1);
+    return;
+  }
+  const deadline = Date.now() + STORE_LOCK_TIMEOUT_MS;
+  for (;;) {
+    try {
+      mkdirSync(dir);
+      writeFileSync(join(dir, "pid"), `${process.pid}\n`, { mode: 0o600 });
+      storeLocksHeld.set(dir, 1);
+      return;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+    }
+    // A lock older than the stale threshold belongs to a crashed holder
+    // (critical sections are milliseconds): clear it and retry.
+    try {
+      if (Date.now() - statSync(dir).mtimeMs > STORE_LOCK_STALE_MS) {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    } catch {
+      // The directory vanished under us; the next iteration retries.
+    }
+    if (Date.now() >= deadline) {
+      throw new Error(`live declarations store busy: cannot acquire lock at ${dir}`);
+    }
+    sleepSync(STORE_LOCK_POLL_MS);
+  }
+}
+
+function releaseStoreLock(root: string): void {
+  const dir = lockDirFor(root);
+  const held = storeLocksHeld.get(dir) ?? 0;
+  if (held > 1) {
+    storeLocksHeld.set(dir, held - 1);
+    return;
+  }
+  storeLocksHeld.delete(dir);
+  rmSync(dir, { recursive: true, force: true });
+}
+
+function withStoreLock<T>(root: string, fn: () => T): T {
+  acquireStoreLock(root);
+  try {
+    return fn();
+  } finally {
+    releaseStoreLock(root);
+  }
+}
 
 export interface LiveDeclarationRecord {
   readonly kind: typeof LIVE_DECLARATION_KIND;
@@ -240,109 +363,139 @@ export function createLiveDeclarationStore(root: string): LiveDeclarationStore {
       if (problem !== undefined) {
         throw new Error(`invalid live declaration record: ${problem}`);
       }
-      const declarations = load();
-      if (
-        declarations.some(
-          (existing) => existing.declaration.declarationId === record.declaration.declarationId,
-        )
-      ) {
-        throw new Error(
-          `live declaration already exists: ${record.declaration.declarationId}`,
-        );
-      }
-      persist([...declarations, record]);
-    },
-    update(declarationId, expectedDeclarationRevision, mutate) {
-      const declarations = load();
-      const index = declarations.findIndex(
-        (record) => record.declaration.declarationId === declarationId,
-      );
-      if (index === -1) {
-        throw new Error(`unknown live declaration: ${declarationId}`);
-      }
-      const current = declarations[index]!;
-      if (current.declaration.declarationRevision !== expectedDeclarationRevision) {
-        throw new Error(
-          `revision_conflict: live declaration ${declarationId} is at declaration revision ` +
-            `${current.declaration.declarationRevision}, stale writer held ${expectedDeclarationRevision}`,
-        );
-      }
-      const next = mutate(current);
-      if (next.declaration.declarationId !== declarationId) {
-        throw new Error(`update must not change declarationId: ${declarationId}`);
-      }
-      if (next.declaration.declarationRevision !== expectedDeclarationRevision + 1) {
-        throw new Error(
-          `update must advance declarationRevision by exactly one: held ${expectedDeclarationRevision}`,
-        );
-      }
-      for (
-        const field of [
-          "tenant",
-          "principal",
-          "hostFingerprint",
-          "cloneId",
-          "worktreeId",
-          "liveCapability",
-        ] as const
-      ) {
-        if (next.declaration[field] !== current.declaration[field]) {
-          throw new Error(
-            `update must not change declaration identity field "${field}": ${declarationId}`,
-          );
-        }
-      }
-      // Binding renewal-or-preserved: a workspace/issuer/revision change
-      // renews the binding (complete triplet, first binding exactly
-      // INITIAL_BINDING_REVISION, then strictly greater); any other
-      // mutation preserves it.
-      const previous = current.declaration;
-      const candidate = next.declaration;
-      const workspaceChanged = candidate.serverWorkspaceId !== previous.serverWorkspaceId;
-      const issuerChanged = candidate.serverIssuer !== previous.serverIssuer;
-      const revisionTouched = candidate.bindingRevision !== previous.bindingRevision;
-      if (workspaceChanged || issuerChanged || revisionTouched) {
+      withStoreLock(root, () => {
+        const declarations = load();
         if (
-          candidate.serverWorkspaceId === undefined ||
-          candidate.serverIssuer === undefined ||
-          candidate.bindingRevision === undefined
+          declarations.some(
+            (existing) => existing.declaration.declarationId === record.declaration.declarationId,
+          )
         ) {
           throw new Error(
-            `update must carry the complete serverWorkspaceId + serverIssuer + bindingRevision triplet when the binding changes: ${declarationId}`,
+            `live declaration already exists: ${record.declaration.declarationId}`,
           );
         }
-        if (previous.bindingRevision === undefined) {
-          if (candidate.bindingRevision !== INITIAL_BINDING_REVISION) {
+        persist([...declarations, record]);
+      });
+    },
+    update(declarationId, expectedDeclarationRevision, mutate) {
+      return withStoreLock(root, () => {
+        const declarations = load();
+        const index = declarations.findIndex(
+          (record) => record.declaration.declarationId === declarationId,
+        );
+        if (index === -1) {
+          throw new Error(`unknown live declaration: ${declarationId}`);
+        }
+        const current = declarations[index]!;
+        if (current.declaration.declarationRevision !== expectedDeclarationRevision) {
+          throw new LiveRevisionConflict(
+            declarationId,
+            expectedDeclarationRevision,
+            current.declaration.declarationRevision,
+          );
+        }
+        const next = mutate(current);
+        if (next.declaration.declarationId !== declarationId) {
+          throw new Error(`update must not change declarationId: ${declarationId}`);
+        }
+        if (next.declaration.declarationRevision !== expectedDeclarationRevision + 1) {
+          throw new Error(
+            `update must advance declarationRevision by exactly one: held ${expectedDeclarationRevision}`,
+          );
+        }
+        for (
+          const field of [
+            "tenant",
+            "principal",
+            "hostFingerprint",
+            "cloneId",
+            "worktreeId",
+            "liveCapability",
+          ] as const
+        ) {
+          if (next.declaration[field] !== current.declaration[field]) {
             throw new Error(
-              `update must carry bindingRevision ${INITIAL_BINDING_REVISION} for the first product binding: ${declarationId}`,
+              `update must not change declaration identity field "${field}": ${declarationId}`,
             );
           }
-        } else if (candidate.bindingRevision <= previous.bindingRevision) {
-          throw new Error(
-            `update must carry a strictly increasing bindingRevision: ${declarationId}`,
+        }
+        // Binding renewal-or-preserved: a workspace/issuer/revision change
+        // renews the binding (complete triplet, first binding exactly
+        // INITIAL_BINDING_REVISION, then strictly greater); any other
+        // mutation preserves it.
+        const previous = current.declaration;
+        const candidate = next.declaration;
+        const workspaceChanged = candidate.serverWorkspaceId !== previous.serverWorkspaceId;
+        const issuerChanged = candidate.serverIssuer !== previous.serverIssuer;
+        const revisionTouched = candidate.bindingRevision !== previous.bindingRevision;
+        if (workspaceChanged || issuerChanged || revisionTouched) {
+          if (
+            candidate.serverWorkspaceId === undefined ||
+            candidate.serverIssuer === undefined ||
+            candidate.bindingRevision === undefined
+          ) {
+            throw new Error(
+              `update must carry the complete serverWorkspaceId + serverIssuer + bindingRevision triplet when the binding changes: ${declarationId}`,
+            );
+          }
+          if (previous.bindingRevision === undefined) {
+            if (candidate.bindingRevision !== INITIAL_BINDING_REVISION) {
+              throw new Error(
+                `update must carry bindingRevision ${INITIAL_BINDING_REVISION} for the first product binding: ${declarationId}`,
+              );
+            }
+          } else if (candidate.bindingRevision <= previous.bindingRevision) {
+            throw new Error(
+              `update must carry a strictly increasing bindingRevision: ${declarationId}`,
+            );
+          }
+        }
+        const problem = validateRecord(next);
+        if (problem !== undefined) {
+          throw new Error(`invalid updated live declaration record: ${problem}`);
+        }
+        // Atomic compare-and-write under the same lock: re-read the durable
+        // file and refuse when the declaration moved (a concurrent writer
+        // committed inside mutate()) or vanished (an interleaved removal).
+        // The merge applies onto the FRESH list, so unrelated concurrent
+        // records are never dropped; a stale write never clobbers and a
+        // removed declaration never resurrects.
+        const fresh = load();
+        const refetch = fresh.find(
+          (record) => record.declaration.declarationId === declarationId,
+        );
+        if (refetch === undefined) {
+          throw new LiveRevisionConflict(
+            declarationId,
+            expectedDeclarationRevision,
+            undefined,
           );
         }
-      }
-      const problem = validateRecord(next);
-      if (problem !== undefined) {
-        throw new Error(`invalid updated live declaration record: ${problem}`);
-      }
-      const updated = [
-        ...declarations.slice(0, index),
-        next,
-        ...declarations.slice(index + 1),
-      ];
-      persist(updated);
-      return next;
+        if (refetch.declaration.declarationRevision !== expectedDeclarationRevision) {
+          throw new LiveRevisionConflict(
+            declarationId,
+            expectedDeclarationRevision,
+            refetch.declaration.declarationRevision,
+          );
+        }
+        persist(
+          fresh.map((record) =>
+            record.declaration.declarationId === declarationId ? next : record,
+          ),
+        );
+        return next;
+      });
     },
     remove(declarationId) {
-      const declarations = load();
-      const remaining = declarations.filter(
-        (record) => record.declaration.declarationId !== declarationId,
-      );
-      if (remaining.length === declarations.length) return false;
-      persist(remaining);
-      return true;
+      return withStoreLock(root, () => {
+        const declarations = load();
+        const remaining = declarations.filter(
+          (record) => record.declaration.declarationId !== declarationId,
+        );
+        if (remaining.length === declarations.length) return false;
+        persist(remaining);
+        return true;
+      });
     },
   };
 }
