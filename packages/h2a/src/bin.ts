@@ -6,6 +6,8 @@ import { readCentralMcpMarker } from "./runtime/mcp-central-discovery.js";
 import { inspectFirstInitialize } from "./runtime/mcp-central-initialize.js";
 import { qualifiedClaudeInitialize } from "./runtime/mcp-central-qualification.js";
 
+import { routeSelectedEntrypoint } from "./runtime/handover/selection.js";
+
 const argv = process.argv.slice(2);
 // Qualified Claude attachments default to central; explicit opt-outs remain authoritative.
 const centralByDefault = true;
@@ -18,6 +20,18 @@ for (let i = 1; i < argv.length; i++) {
 }
 
 try {
+  if (await routeSelectedEntrypoint(import.meta.url)) { /* same-process selected entry owns execution */ }
+  else if (argv[0] === "mcp-central-precheck") {
+    const { readPrecheckManifest } = await import("./runtime/handover/precheck.js");
+    const trial = readPrecheckManifest(flags["image-root"], flags["manifest-digest"]);
+    const { startCentralMcpServer } = await import("./runtime/mcp-central.js");
+    const started = await startCentralMcpServer({ root: flags.root, runtimeBase: flags["runtime-base"],
+      physicalPrefix: flags["image-root"], precheck: true });
+    if (started.kind !== "started") throw new Error("precheck_not_fresh");
+    process.stdout.write(JSON.stringify({ precheckReady: true, manifestDigest: flags["manifest-digest"],
+      buildId: trial.manifest.buildId, processIdentity: trial.processIdentity }) + "\n");
+    await started.stop();
+  } else {
   const isMcp = argv[0] === "mcp-serve" || argv[0] === "mcp-central-connect";
   // Structured sidecars must acknowledge their readiness challenge without
   // waiting for a host request. Other structural exclusions need no peeking.
@@ -66,15 +80,21 @@ try {
       }
     }
   } else if (argv[0] === "central" && ["status", "stop", "residues"].includes(argv[1])) {
-    const { centralOperator, centralResidueReport } = await import("./runtime/mcp-central-operator.js");
+    if (argv[1] === "stop" && flags.force !== undefined) throw new Error("central stop has no force mode");
+    const { centralOperator, centralOperatorExitCode, centralResidueReport } = await import("./runtime/mcp-central-operator.js");
     const result = argv[1] === "residues"
       ? centralResidueReport(flags.workspace ?? process.cwd(), flags["agy-config"], { repair: flags.repair === "true", allowTracked: flags["allow-tracked"] === "true" })
       : await centralOperator(argv[1] as "status" | "stop", flags["runtime-base"] ? { runtimeBase: flags["runtime-base"] } : {});
     process.stdout.write(JSON.stringify(result, null, 2) + "\n");
+    process.exitCode = centralOperatorExitCode(result);
   } else {
     await import("./bin-heavy.js");
   }
+  }
 } catch (error) {
   process.stderr.write(`h2a ${argv[0] ?? ""}: ${(error as Error).message}\n`);
-  process.exitCode = 1;
+  if (argv[0] === "central" && !(error as Error).message.includes("no force mode")) {
+    const { centralFailureExitCode } = await import("./runtime/mcp-central-operator.js");
+    process.exitCode = centralFailureExitCode(error);
+  } else process.exitCode = 1;
 }
