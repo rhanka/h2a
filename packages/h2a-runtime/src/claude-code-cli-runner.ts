@@ -216,7 +216,7 @@ export const CLAUDE_EGRESS_ENFORCED_ENV = "H2A_CLAUDE_EGRESS_ENFORCED";
 
 export async function requireEgressEnforcement(
   attestation: ClaudeEgressEnforcement | undefined,
-  options?: { netnsReader?: EgressNetnsLinkReader },
+  options?: { netnsReader?: EgressNetnsLinkReader | undefined },
 ): Promise<string> {
   if (
     !attestation ||
