@@ -1,3 +1,4 @@
+import {fixtureIdentity, proofDeps} from './helpers/identity-proof-fixture.mjs';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createHash } from 'node:crypto';
@@ -31,7 +32,8 @@ test('indexed bindings preserve latest conversation binding, proof gating and ap
   assert.deepEqual(readFileSync(join(indexPath(file), 'current.json')), manifest, 'idempotent publication');
   assert.deepEqual(readFileSync(file), original, 'original is the retained backup / authority');
   assert.equal(findBinding(root, key).instance, 'second', 'workspace is metadata, not the match key');
-  const deps = proof => ({ verifyProof: () => proof, mint: () => ({ instance: 'third', agentUuid: 'third' }), now: Date.now });
+  fixtureIdentity(root, 'second', 'second');
+  const deps = proof => proofDeps(root, { verifyProof: () => proof, mint: () => ({ instance: 'third', agentUuid: 'third' }), now: Date.now });
   assert.equal(reclaimOrMint(root, key, deps(true)).action, 'reclaim');
   assert.equal(listBindings(root).length, 2);
   assert.equal(reclaimOrMint(root, key, deps(false)).action, 'mint');

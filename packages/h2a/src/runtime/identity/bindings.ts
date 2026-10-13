@@ -31,6 +31,7 @@ import { performance } from "node:perf_hooks";
 import { commitBinding, pendingBindingWinner, bindingKeyHash } from "./binding-commit.js";
 import { BindingCommitIntegrityError, BindingFenceStaleError, preparePossession, receiptMatches, withPossession } from "./possession.js";
 import { ensureDurableDirectory } from "./durable.js";
+import { LockTimeoutError } from "../local-files/locks.js";
 import type { IdentityFenceOptions } from "../local-files/identity-fence.js";
 
 import { verifyCanonical, type H2ASignature } from "@sentropic/h2a";
@@ -204,10 +205,15 @@ export function reclaimOrMint(root: string, key: IdentityBindingKey, deps: Recla
   const memo: {value?: ReclaimOrMintResult} = {};
   options={...options,signal:options.signal ?? new AbortController().signal};
   for (;;) {
-    const prepared = prepareTransaction(root, key, deps, options, memo);
-    try { return withIdentityFenceSync(bindingsLock(root), lease => transact(root,key,deps,memo,prepared,lease),
+    try {
+      const prepared = prepareTransaction(root, key, deps, options, memo);
+      return withIdentityFenceSync(bindingsLock(root), lease => transact(root,key,deps,memo,prepared,lease),
       {...options, timeoutMs:Math.max(0,end-performance.now())}); }
-    catch(e) { if (!(e instanceof BindingFenceStaleError) || performance.now() >= end) throw e; }
+    catch(e) {
+      // The short registry wait is one preparation attempt within the original deadline.
+      const contention = e instanceof LockTimeoutError && e.lockPath === join(root, "registry", ".lock");
+      if ((!(e instanceof BindingFenceStaleError) && !contention) || performance.now() >= end) throw e;
+    }
   }
 }
 
@@ -218,9 +224,14 @@ export async function reclaimOrMintAsync(root: string, key: IdentityBindingKey, 
   const memo: {value?: ReclaimOrMintResult} = {};
   options={...options,signal:options.signal ?? new AbortController().signal};
   for (;;) {
-    const prepared = prepareTransaction(root,key,deps,options,memo);
-    try { return await withIdentityFence(bindingsLock(root), lease => transact(root,key,deps,memo,prepared,lease),
+    try {
+      const prepared = prepareTransaction(root,key,deps,options,memo);
+      return await withIdentityFence(bindingsLock(root), lease => transact(root,key,deps,memo,prepared,lease),
       {...options, timeoutMs:Math.max(0,end-performance.now())}); }
-    catch(e) { if (!(e instanceof BindingFenceStaleError) || performance.now() >= end) throw e; await new Promise(r=>setTimeout(r,0)); }
+    catch(e) {
+      const contention = e instanceof LockTimeoutError && e.lockPath === join(root, "registry", ".lock");
+      if ((!(e instanceof BindingFenceStaleError) && !contention) || performance.now() >= end) throw e;
+      await new Promise(r=>setTimeout(r,0));
+    }
   }
 }
