@@ -6,6 +6,8 @@
   "blockage resolve",
   "canevas list",
   "canevas serve",
+  "central status",
+  "central stop",
   "coach propose",
   "coach ratify",
   "comprehension list",
