@@ -1,0 +1,53 @@
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node --test packages/h2a/test/mh-l4-cuts.test.js
+node: v24.21.0
+private test root: /tmp/mh-l4-test-lvYbxo
+{"event":"drive-consent.full-verification","durationMs":0.0212399999999775,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+{"event":"drive-consent.full-verification","durationMs":0.01079000000004271,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+{"event":"drive-consent.full-verification","durationMs":0.02510699999999133,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+{"event":"drive-consent.full-verification","durationMs":0.014978000000041902,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+{"event":"drive-consent.full-verification","durationMs":0.0196770000000015,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+✔ should close admissions at barrier and bind presence mutations to the exact session (212.846893ms)
+✖ should propagate the reserved token through the real async subprocess seam (1.218644ms)
+✔ should revalidate a replaced presence instance under the mutation lock for update and delete (118.558059ms)
+✔ should detect conflicting launch parameters through the MCP server cache (70.248088ms)
+✔ should reconcile a final memo after a crash before operation closure without executing again (45.686543ms)
+✔ should persist owner-directed delegation after freeze and deduplicate the eventual writer receipt (199.069608ms)
+✔ should recover the delegation event after final memo publication but before operation closure (165.897243ms)
+ℹ tests 7
+ℹ suites 0
+ℹ pass 6
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1007.420166
+
+✖ failing tests:
+
+test at packages/h2a/test/mh-l4-cuts.test.js:34:1
+✖ should propagate the reserved token through the real async subprocess seam (1.218644ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  + actual - expected
+  
+  + '63a90fe1-186e-46b0-91a3-59b17e438554'
+  - 'reserved-token'
+  
+      at fake (file:///tmp/mh-l4-release-check-RvMsgD/packages/h2a/test/mh-l4-cuts.test.js:40:9)
+      at result (file:///tmp/mh-l4-release-check-RvMsgD/packages/h2a/dist/runtime/mcp/agent-launch.js:404:23)
+      at new Promise (<anonymous>)
+      at executeH2aRunWithAsyncSpawn (file:///tmp/mh-l4-release-check-RvMsgD/packages/h2a/dist/runtime/mcp/agent-launch.js:403:26)
+      at TestContext.<anonymous> (file:///tmp/mh-l4-release-check-RvMsgD/packages/h2a/test/mh-l4-cuts.test.js:42:21)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:974:18)
+      at Test.postRun (node:internal/test_runner/test:1542:19)
+      at Test.run (node:internal/test_runner/test:1467:12) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: '63a90fe1-186e-46b0-91a3-59b17e438554',
+    expected: 'reserved-token',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+receipt: {"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","--test","packages/h2a/test/mh-l4-cuts.test.js"],"code":1,"signal":null,"elapsedMs":1034}

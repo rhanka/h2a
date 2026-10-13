@@ -1,0 +1,17 @@
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node --test packages/h2a/test/mh-l0-formats.test.js
+node: v24.21.0
+private test root: /tmp/mh-l4-test-TmiaNU
+✔ M18b/M18c format: v2 retains every v1 field, decoy and separate auth reference (1.938919ms)
+✔ M10b format: future builds are open, schema/provenance fields are closed (2.22027ms)
+✔ formats cover all L0 persistence families and reject unknown versions (0.326815ms)
+✔ published v1 reader accepts the actual v2 file and rejects insecure permissions (167.001652ms)
+ℹ tests 4
+ℹ suites 0
+ℹ pass 4
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 227.042416
+
+receipt: {"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","--test","packages/h2a/test/mh-l0-formats.test.js"],"code":0,"signal":null,"elapsedMs":248}
