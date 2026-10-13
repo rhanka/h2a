@@ -2,6 +2,451 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "urn:h2a:mh-l0:formats:1",
   "$defs": {
+    "secret": {
+      "type": "object",
+      "properties": {
+        "schemaVersion": {
+          "const": 1
+        },
+        "authorityBinding": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "purpose": {
+          "enum": [
+            "lock",
+            "authentication"
+          ]
+        },
+        "key": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "authorityBinding",
+        "purpose",
+        "key"
+      ],
+      "additionalProperties": false
+    },
+    "epochs": {
+      "type": "object",
+      "properties": {
+        "schemaVersion": {
+          "const": 1
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "bootId": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "counter": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "revision",
+        "bootId",
+        "counter"
+      ],
+      "additionalProperties": false
+    },
+    "pause": {
+      "type": "object",
+      "properties": {
+        "schemaVersion": {
+          "const": 1
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "paused": {
+          "type": "boolean"
+        },
+        "requestedAt": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "generation": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+            }
+          ]
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "revision",
+        "paused",
+        "requestedAt",
+        "generation"
+      ],
+      "additionalProperties": false
+    },
+    "componentControl": {
+      "type": "object",
+      "properties": {
+        "schemaVersion": {
+          "const": 1
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "activeTransaction": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "minLength": 1,
+              "format": "relative-path"
+            }
+          ]
+        },
+        "sourceGeneration": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "transactionEpoch": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "operatorStopCommitted": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "revision",
+        "activeTransaction",
+        "sourceGeneration",
+        "transactionEpoch",
+        "operatorStopCommitted"
+      ],
+      "additionalProperties": false
+    },
+    "imagePin": {
+      "type": "object",
+      "properties": {
+        "schemaVersion": {
+          "const": 1
+        },
+        "upgradeId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "handoverId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sourceManifestDigest": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "targetManifestDigest": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "upgradeId",
+        "handoverId",
+        "sourceManifestDigest",
+        "targetManifestDigest"
+      ],
+      "additionalProperties": false
+    },
+    "installation": {
+      "type": "object",
+      "properties": {
+        "schemaVersion": {
+          "const": 1
+        },
+        "prefixId": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "canonicalPrefix": {
+          "type": "string",
+          "minLength": 1,
+          "format": "absolute-path"
+        },
+        "uid": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "managedRoot": {
+          "type": "string",
+          "minLength": 1,
+          "format": "absolute-path"
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "prefixId",
+        "canonicalPrefix",
+        "uid",
+        "managedRoot"
+      ],
+      "additionalProperties": false
+    },
+    "precheckEvidence": {
+      "type": "object",
+      "properties": {
+        "schemaVersion": {
+          "const": 1
+        },
+        "targetBuildId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "targetManifestDigest": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "targetEntrypoint": {
+          "type": "string",
+          "minLength": 1,
+          "format": "absolute-path"
+        },
+        "selectionEpoch": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "trialIdentity": {
+          "type": "object",
+          "properties": {
+            "machineId": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^(?!0+$)[0-9a-f]{32}$"
+            },
+            "bootId": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+            },
+            "pidNamespace": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[0-9]+$"
+            },
+            "nsNet": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[0-9]+$"
+            },
+            "pid": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            },
+            "startTime": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            }
+          },
+          "required": [
+            "machineId",
+            "bootId",
+            "pidNamespace",
+            "nsNet",
+            "pid",
+            "startTime"
+          ],
+          "additionalProperties": false
+        },
+        "elapsedMs": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "cleanupVerified": {
+          "const": true
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "targetBuildId",
+        "targetManifestDigest",
+        "targetEntrypoint",
+        "selectionEpoch",
+        "trialIdentity",
+        "elapsedMs",
+        "cleanupVerified"
+      ],
+      "additionalProperties": false
+    },
+    "startupReservation": {
+      "type": "object",
+      "properties": {
+        "schemaVersion": {
+          "const": 1
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "starterIdentity": {
+          "type": "object",
+          "properties": {
+            "machineId": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^(?!0+$)[0-9a-f]{32}$"
+            },
+            "bootId": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+            },
+            "pidNamespace": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[0-9]+$"
+            },
+            "nsNet": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[0-9]+$"
+            },
+            "pid": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            },
+            "startTime": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            }
+          },
+          "required": [
+            "machineId",
+            "bootId",
+            "pidNamespace",
+            "nsNet",
+            "pid",
+            "startTime"
+          ],
+          "additionalProperties": false
+        },
+        "candidateIdentity": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "object",
+              "properties": {
+                "machineId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "pattern": "^(?!0+$)[0-9a-f]{32}$"
+                },
+                "bootId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                },
+                "pidNamespace": {
+                  "type": "string",
+                  "minLength": 1,
+                  "pattern": "^[0-9]+$"
+                },
+                "nsNet": {
+                  "type": "string",
+                  "minLength": 1,
+                  "pattern": "^[0-9]+$"
+                },
+                "pid": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9007199254740991
+                },
+                "startTime": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": [
+                "machineId",
+                "bootId",
+                "pidNamespace",
+                "nsNet",
+                "pid",
+                "startTime"
+              ],
+              "additionalProperties": false
+            }
+          ]
+        },
+        "entrypoint": {
+          "type": "string",
+          "minLength": 1,
+          "format": "absolute-path"
+        },
+        "createdAt": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "state": {
+          "enum": [
+            "RESERVED",
+            "STARTING",
+            "READY",
+            "FAILED"
+          ]
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "revision",
+        "starterIdentity",
+        "candidateIdentity",
+        "entrypoint",
+        "createdAt",
+        "state"
+      ],
+      "additionalProperties": false
+    },
     "namespace": {
       "type": "object",
       "properties": {
