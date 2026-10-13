@@ -141,12 +141,12 @@ it("never reaches legacy pool, auth resolver or dispatch ports on routed request
   } finally { for (const spy of spies) spy.mockRestore(); }
 });
 
-it("fails before serving when Claude seat host composition is unqualified", async () => {
+it("fails before serving without an enrolled Claude account, like every other seat", async () => {
   const app = await createLocalGatewayApp();
   const session = await app.request("/v1/session", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ sessionId: "unqualified-claude-session" }),
+    body: JSON.stringify({ sessionId: "unconfigured-claude-session" }),
   });
   const { gatewayToken } = await session.json() as { gatewayToken: string };
 
@@ -162,23 +162,18 @@ it("fails before serving when Claude seat host composition is unqualified", asyn
     }),
   });
 
-  // Without a qualified Claude seat candidate, routing fails safely before serving without crash
+  // Without an enrolled account, routing fails safely before serving without crash
   expect([404, 503]).toContain(response.status);
-  // No Claude composition: the failure carries no seat/runner/lease
-  // material, and the model catalog lists no Claude entry.
+  // The failure carries no seat/runner/lease material.
   const failureText = await response.text();
   expect(failureText).not.toMatch(/seat|runner|lease|credential|x-api-key/i);
   const models = await app.request("/v1/models", {
     headers: { "x-api-key": gatewayToken },
   });
   expect(models.status).toBe(200);
-  expect(await models.text()).not.toMatch(/claude/i);
 });
 
-it("sweeps Claude orphans only when a Claude seat client is composed", async () => {
-  // Deterministic regardless of the ambient environment: no seat env config.
-  vi.stubEnv("H2A_CLAUDE_BINARY_PATH", "");
-  vi.stubEnv("H2A_CLAUDE_BINARY_DIGEST", "");
+it("sweeps Claude orphans on every composition (the seat is always composed)", async () => {
   const { sweepOrphanSandboxes } = await import("../claude-code-cli-lifecycle.js");
   const failingPrepare = async (): Promise<never> => {
     throw new Error("composition probe");
@@ -187,12 +182,12 @@ it("sweeps Claude orphans only when a Claude seat client is composed", async () 
 
   const plain = createGatewayHost({ prepareNamespace: failingPrepare });
   await expect(plain.ready).rejects.toThrow("composition probe");
-  expect(vi.mocked(sweepOrphanSandboxes)).not.toHaveBeenCalled();
+  expect(vi.mocked(sweepOrphanSandboxes)).toHaveBeenCalledTimes(1);
 
   const withClaude = createGatewayHost({
     claudeClient: {} as never,
     prepareNamespace: failingPrepare,
   });
   await expect(withClaude.ready).rejects.toThrow("composition probe");
-  expect(vi.mocked(sweepOrphanSandboxes)).toHaveBeenCalledTimes(1);
+  expect(vi.mocked(sweepOrphanSandboxes)).toHaveBeenCalledTimes(2);
 });
