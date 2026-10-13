@@ -35,8 +35,8 @@ test('should retry a proven deferred wake but never inject from a frozen owner',
  try {
   const registry=new OwnershipRegistry({directory,generation:marker().generation,processIdentity:identity});
   const token=registry.claim({attachmentId:'a',presenceSessionId:'s',expectedInstance:'i'}),ledger=new OperationLedger(registry), journal=new WakeJournal({registry,token,ledger});let calls=0;
-  assert.equal(await journal.perform(['e'],'line',async()=>{calls++;return false;}),false);
-  assert.equal(await journal.perform(['e'],'line',async()=>{calls++;return true;}),true);
+  assert.equal(await journal.perform(['e'],'old signed line',async line=>{calls++;assert.equal(line,'old signed line');return false;}),false);
+  assert.equal(await journal.perform(['e'],'fresh signed line',async line=>{calls++;assert.equal(line,'fresh signed line');return true;}),true);
   assert.equal(calls,2);assert.equal(ledger.drain().complete,true);
   assert.equal(await journal.perform(['e'],'line',async()=>{calls++;return true;}),false);
   registry.freeze(token,'h');
