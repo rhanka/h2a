@@ -33,6 +33,28 @@ test('M18c should never send an application body when a challenged TCP socket is
   } finally { if (server) { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); } fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
+test('authenticated SSE should preserve UTF-8 across fragmented source chunks before stdout forwarding', async () => {
+  const { ConnectionAuthentication } = await import('../src/runtime/handover/authentication.js');
+  const { authenticatedHttpRequest, createAuthenticatedServer } = await import('../src/runtime/handover/authenticated-http.js');
+  const { prepareAuthority, currentIdentity } = await import('../src/runtime/handover/admission.js');
+  const dir = fs.mkdtempSync(join(tmpdir(), 'mh-l2-unicode-')); let server;
+  try {
+    const frame = currentIdentity(), authority = await prepareAuthority({ directory: dir, root: dir, physicalPrefix: dir, frame });
+    const m = { ...marker(), namespaceId: authority.domain.namespaceId, prefixId: authority.domain.prefixId,
+      root: dir, stateDirectory: dir, uid: process.getuid(), authKeyReference: authority.authKeyReference };
+    const message = { jsonrpc: '2.0', method: 'notice', params: { text: 'été 🌍' } };
+    const bytes = Buffer.from(`data: ${JSON.stringify(message)}\n\n`), cut = bytes.indexOf(Buffer.from('été'))+1;
+    const auth = new ConnectionAuthentication(m, authority.rootKey);
+    server = createAuthenticatedServer(auth, () => new Response(new ReadableStream({ start(controller) {
+      controller.enqueue(bytes.subarray(0, cut)); controller.enqueue(bytes.subarray(cut)); controller.close();
+    } }), { headers: { 'content-type': 'text/event-stream' } }));
+    await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+    m.endpoint = `http://127.0.0.1:${server.address().port}/mcp`;
+    const response = await authenticatedHttpRequest(join(dir, 'marker.json'), m, m.endpoint);
+    assert.equal(await response.text(), `data: ${JSON.stringify(message)}\n\n`);
+  } finally { if (server) { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); } fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
 test('M03/M18b/c should bind challenges and every frame, reject decoy, replay, expiry and saturation', async () => {
   const { ConnectionAuthentication, FrameVerifier } = await import('../src/runtime/handover/authentication.js');
   let now = 100;

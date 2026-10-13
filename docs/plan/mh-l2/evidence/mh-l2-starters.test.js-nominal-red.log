@@ -1,0 +1,35 @@
+command: /usr/bin/node --test packages/h2a/test/mh-l2-starters.test.js
+private test root: /tmp/mh-l2-test-mOYoeg
+TAP version 13
+# Subtest: QF A+B starters should verify absolute selected entry, reject pause and refuse implicit old-image fallback
+not ok 1 - QF A+B starters should verify absolute selected entry, reject pause and refuse implicit old-image fallback
+  ---
+  duration_ms: 1.78001
+  type: 'test'
+  location: '/home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/test/mh-l2-starters.test.js:10:1'
+  failureType: 'testCodeFailure'
+  error: "Cannot find module '/home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/src/runtime/handover/selection.js' imported from /home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/test/mh-l2-starters.test.js"
+  code: 'ERR_MODULE_NOT_FOUND'
+  stack: |-
+    finalizeResolution (node:internal/modules/esm/resolve:275:11)
+    moduleResolve (node:internal/modules/esm/resolve:861:10)
+    defaultResolve (node:internal/modules/esm/resolve:985:11)
+    #cachedDefaultResolve (node:internal/modules/esm/loader:731:20)
+    ModuleLoader.resolve (node:internal/modules/esm/loader:708:38)
+    ModuleLoader.getModuleJobForImport (node:internal/modules/esm/loader:310:38)
+    onImport.tracePromise.__proto__ (node:internal/modules/esm/loader:664:36)
+    TracingChannel.tracePromise (node:diagnostics_channel:350:14)
+    ModuleLoader.import (node:internal/modules/esm/loader:663:21)
+    defaultImportModuleDynamicallyForModule (node:internal/modules/esm/utils:222:31)
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 0
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 106.719107
+
+receipt: {"command":["/usr/bin/node","--test","packages/h2a/test/mh-l2-starters.test.js"],"code":1,"signal":null,"elapsedMs":189}

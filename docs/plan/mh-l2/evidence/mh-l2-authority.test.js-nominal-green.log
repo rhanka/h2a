@@ -1,0 +1,20 @@
+command: /usr/bin/node --test packages/h2a/test/mh-l2-authority.test.js
+private test root: /tmp/mh-l2-test-cg8Jhv
+TAP version 13
+# Subtest: M04 should refuse HTTP-based reclaim, hold preclaim through ready and compare epoch plus inode
+ok 1 - M04 should refuse HTTP-based reclaim, hold preclaim through ready and compare epoch plus inode
+  ---
+  duration_ms: 723.620619
+  type: 'test'
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 1
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 1352.032453
+
+receipt: {"command":["/usr/bin/node","--test","packages/h2a/test/mh-l2-authority.test.js"],"code":0,"signal":null,"elapsedMs":1529}
