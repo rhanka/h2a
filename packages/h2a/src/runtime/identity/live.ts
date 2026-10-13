@@ -5,6 +5,7 @@ import {
   mkdirSync,
   readFileSync,
   realpathSync,
+  statSync,
   unlinkSync,
   writeFileSync
 } from "node:fs";
@@ -241,6 +242,13 @@ function ensureKeypair(
   writeFileSync(paths.publicKeyPath, generated.publicKeyPem, "utf8");
   syncFile(paths.privateKeyPath); syncFile(paths.publicKeyPath);
   return { publicKeyPem: generated.publicKeyPem, ...paths };
+}
+
+function keypairSourceStamp(paths: { privateKeyPath: string; publicKeyPath: string }): string {
+  return [paths.privateKeyPath, paths.publicKeyPath].map(path => {
+    const stat = statSync(path, { bigint: true });
+    return [stat.dev, stat.ino, stat.size, stat.mtimeNs, stat.ctimeNs].join(":");
+  }).join("|");
 }
 
 /**
@@ -616,7 +624,10 @@ async function resolveLiveIdentityAsyncInternal(
 
   // Expensive OUTSIDE-lock reads are computed ONCE and cached across the worker's
   // retry attempts (a contended retry must not re-parse the ~17 MB registry).
-  const cache = (options.prepCache ?? {}) as { prepared?: AsyncPrepared };
+  const cache = (options.prepCache ?? {}) as {
+    prepared?: AsyncPrepared;
+    durableKeypair?: { root: string; instance: string; material: ReturnType<typeof ensureKeypair>; stamp: string };
+  };
   if (!cache.prepared) {
     const label = labelFromCwd(input.cwd);
     const readers = input.readers ?? defaultProviderSessionReaders;
@@ -690,7 +701,22 @@ async function resolveLiveIdentityAsyncInternal(
     opts: { skipExistingCheck?: boolean } = {}
   ): { publicKeyPem: string; privateKeyPath: string; publicKeyPath: string } => {
     const adoptedFrom = action === "mint" && P.legacyDecision.adopt ? P.legacyInstance : undefined;
-    const keypair = step("identity_keys", () => ensureKeypair(input.root, resolvedInstance, adoptedFrom));
+    const keypair = step("identity_keys", () => {
+      const previous = cache.durableKeypair;
+      if (previous?.root === input.root && previous.instance === resolvedInstance) {
+        try {
+          if (keypairSourceStamp(previous.material) === previous.stamp) return previous.material;
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+        }
+      }
+      // Registry contention must not re-sync unchanged, already durable keys.
+      // The fresh possession receipt still verifies the actual key files and
+      // active keyring before every binding; this memo grants no authority.
+      const material = ensureKeypair(input.root, resolvedInstance, adoptedFrom);
+      cache.durableKeypair = { root: input.root, instance: resolvedInstance, material, stamp: keypairSourceStamp(material) };
+      return material;
+    });
     step("identity_register", () =>
       ensureRegistered({
         root: input.root,
