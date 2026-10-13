@@ -308,11 +308,13 @@ export function probeClaudeBinary(
     }
 
     const digest = hash.digest("hex");
-    const digestMatches = pinnedDigest ? digest === pinnedDigest : true;
+    const digestMatches = pinnedDigest ? digest === pinnedDigest : false;
     const isQualified = versionStringPresent && digestMatches;
     let failureReason: string | undefined;
     if (!versionStringPresent) {
       failureReason = "version_string_absent";
+    } else if (!pinnedDigest) {
+      failureReason = "digest_unpinned";
     } else if (!digestMatches) {
       failureReason = "digest_mismatch";
     }
