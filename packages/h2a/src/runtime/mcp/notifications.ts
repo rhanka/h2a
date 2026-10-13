@@ -6,6 +6,7 @@ import {
 } from "@sentropic/h2a";
 
 import { listBlockages } from "../blockage/registry.js";
+import { digest } from "../handover/wire.js";
 import type { LocalStore } from "../local-files/store.js";
 import type { SessionRegistry } from "./sessions.js";
 
@@ -28,9 +29,9 @@ export interface McpPushNotification {
  * session's snapshot is NOT advanced, so the diff is retried next tick — no ACK
  * of a purely-ephemeral event is fabricated.
  */
-export type NotificationReceipt = { readonly accepted: boolean } | void;
+export type NotificationReceipt = { readonly accepted: boolean; readonly delivered?: boolean } | void;
 
-export type NotificationSink = (notification: McpPushNotification) => NotificationReceipt;
+export type NotificationSink = (notification: McpPushNotification, sequence?: number) => NotificationReceipt;
 
 interface InboxSnapshot {
   /** Set of envelope ids seen in this session's inbox at last scan. */
@@ -40,6 +41,7 @@ interface InboxSnapshot {
 interface NegotiationSnapshot {
   /** Number of journal entries observed at last scan. */
   count: number;
+  lastHash?: string;
 }
 
 interface SessionDiffState {
@@ -92,6 +94,10 @@ function emptyDiffState(): SessionDiffState {
  */
 export class NotificationDispatcher {
   private readonly snapshots = new Map<string, SessionDiffState>();
+  private readonly produced = new Map<string, { key: string; sequence: number; notification: McpPushNotification; delivered: boolean; applicationAcknowledged: false }>();
+  private producedSequence = 0;
+  private deliveredSequence = 0;
+  private readonly truncations: Array<{ negotiationId: string; previousCount: number; count: number; lastHash: string }> = [];
   private timer?: ReturnType<typeof setInterval>;
 
   constructor(
@@ -128,6 +134,25 @@ export class NotificationDispatcher {
     this.timer = undefined;
   }
 
+  /** Transport delivery never asserts that the host CLI consumed the event. */
+  markDelivered(sequence: number): void {
+    const entry = [...this.produced.values()].find(v => v.sequence === sequence);
+    if (!entry) throw new Error('notification_sequence_unknown');
+    entry.delivered = true;
+    const delivered = new Set([...this.produced.values()].filter(v => v.delivered).map(v => v.sequence));
+    while (delivered.has(this.deliveredSequence + 1)) this.deliveredSequence++;
+  }
+
+  checkpointState() {
+    return {
+      producedSequence: this.producedSequence, deliveredSequence: this.deliveredSequence,
+      notifications: [...this.produced.values()].map(v => ({ ...v })), truncation: [...this.truncations],
+      snapshots: [...this.snapshots].map(([sessionId, state]) => ({ sessionId,
+        observedPeers: [...state.peers], observedInbox: [...state.inbox.envelopeIds],
+        negotiations: [...state.negotiations].map(([negotiationId, v]) => ({ negotiationId, ...v })), blockages: [...state.blocked] }))
+    };
+  }
+
   /**
    * Compute and emit one round of diffs. Pulled into a public method so
    * tests can drive the dispatch deterministically without a timer.
@@ -140,7 +165,7 @@ export class NotificationDispatcher {
     // Peer set: everyone in presence files, fresh according to the
     // registry's TTL (so test configurations with short expiry behave
     // correctly), regardless of which process wrote the file.
-    const freshPeers = this.registry.scanFresh();
+    const freshPeers = this.registry.scanFresh(Date.now(), { sweep: false });
     const peerIds = new Set(freshPeers.map((s) => s.sessionId));
 
     // Active blockages, computed once per tick (EVO-3, DEC-092). Per session we
@@ -149,6 +174,8 @@ export class NotificationDispatcher {
 
     for (const session of ownSessions) {
       const prev = this.snapshots.get(session.sessionId) ?? emptyDiffState();
+      // Include unadvanced baselines in a checkpoint after a failed delivery.
+      if (!this.snapshots.has(session.sessionId)) this.snapshots.set(session.sessionId, prev);
       // L1: a session's snapshot advances only if EVERY emitted diff was accepted
       // (bounded/persisted). One unaccepted push holds the whole session snapshot
       // so the diffs are retried next tick — an at-least-once guarantee that never
@@ -211,17 +238,24 @@ export class NotificationDispatcher {
       const negotiationSnap = new Map<string, NegotiationSnapshot>();
       if (isInterestedIn(session, "negotiation.event_appended")) {
         for (const negotiationId of session.interests.negotiations) {
-          const count = readJournalLength(this.store, negotiationId);
+          const journal = this.store.readNegotiationJournal(negotiationId);
+          const count = journal.length;
+          const lastHash = digest(journal.at(-1) ?? null);
           const prevCount =
             prev.negotiations.get(negotiationId)?.count ?? 0;
-          if (count > prevCount) {
+          const previousHash = prev.negotiations.get(negotiationId)?.lastHash;
+          const truncated = count < prevCount || (count === prevCount && previousHash !== undefined && lastHash !== previousHash);
+          if (truncated && !this.truncations.some(v => v.negotiationId === negotiationId && v.count === count && v.lastHash === lastHash)) {
+            this.truncations.push({ negotiationId, previousCount: prevCount, count, lastHash });
+          }
+          if (count > prevCount || truncated) {
             accepted = this.push(session.sessionId, "negotiation.event_appended", {
               negotiationId,
-              newEntries: count - prevCount,
-              totalEntries: count
+              newEntries: truncated ? count : count - prevCount,
+              totalEntries: count, lastHash, ...(truncated ? { truncated: true } : {})
             }) && accepted;
           }
-          negotiationSnap.set(negotiationId, { count });
+          negotiationSnap.set(negotiationId, { count, lastHash });
         }
       }
 
@@ -273,11 +307,19 @@ export class NotificationDispatcher {
   ): boolean {
     if (!this.sink) return true;
     if (!H2A_SESSION_NOTIFICATION_TOPICS.includes(topic)) return true;
-    const receipt = this.sink({
+    const notification: McpPushNotification = {
       jsonrpc: "2.0",
       method: "notifications/h2a",
       params: { topic, sessionId, data }
-    });
+    };
+    const key = digest(notification);
+    let produced = this.produced.get(key);
+    if (!produced) {
+      produced = { key, sequence: ++this.producedSequence, notification, delivered: false, applicationAcknowledged: false };
+      this.produced.set(key, produced);
+    }
+    const receipt = this.sink(notification, produced.sequence);
+    if (receipt && receipt.delivered === true) this.markDelivered(produced.sequence);
     // Accepted unless the sink explicitly returns `{ accepted: false }`. A sink
     // that returns void, or any other value (e.g. a legacy `array.push` count),
     // is treated as accepted so existing sinks keep advancing the snapshot.
