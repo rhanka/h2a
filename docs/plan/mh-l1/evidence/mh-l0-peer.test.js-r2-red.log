@@ -1,0 +1,32 @@
+command: /usr/bin/node --test packages/h2a/test/mh-l0-peer.test.js
+private test root: /tmp/mh-l1-test-0el3pb
+TAP version 13
+# Subtest: L0 network pair: valid future verdict, negative provenance, CAS and lost ACK without duplicate restoration
+not ok 1 - L0 network pair: valid future verdict, negative provenance, CAS and lost ACK without duplicate restoration
+  ---
+  duration_ms: 151.101592
+  type: 'test'
+  location: '/home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/test/mh-l0-peer.test.js:14:1'
+  failureType: 'testCodeFailure'
+  error: 'Missing expected exception.'
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected:
+  operator: 'throws'
+  stack: |-
+    TestContext.<anonymous> (file:///home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/test/mh-l0-peer.test.js:43:14)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 0
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 257.871397
+
+receipt: {"command":["/usr/bin/node","--test","packages/h2a/test/mh-l0-peer.test.js"],"code":1,"signal":null,"elapsedMs":339}
