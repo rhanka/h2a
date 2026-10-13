@@ -1,0 +1,1463 @@
+Node v24.21.0
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node scripts/mh-l4-mutate.mjs epoch
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node --test packages/h2a/test/mh-l4-ownership.test.js
+node: v24.21.0
+private test root: /tmp/mh-l4-test-gzvtPf
+✔ should fence a stale owner while admitted operations retain separate rights (335.216417ms)
+✔ should reconcile freeze after lost ACK and reject different handover tuples (119.160202ms)
+✔ should close ownership admissions after publication fsync uncertainty until explicit reconciliation (14.787236ms)
+✖ should refuse only the stale ownership epoch even when generation and process stay identical (10.642023ms)
+ℹ tests 4
+ℹ suites 0
+ℹ pass 3
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 524.24288
+
+✖ failing tests:
+
+test at packages/h2a/test/mh-l4-ownership.test.js:72:1
+✖ should refuse only the stale ownership epoch even when generation and process stay identical (10.642023ms)
+  AssertionError [ERR_ASSERTION]: Missing expected exception.
+      at TestContext.<anonymous> (file:///tmp/mh-l4-release-check-RvMsgD/packages/h2a/test/mh-l4-ownership.test.js:78:9)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:974:18)
+      at Test.postRun (node:internal/test_runner/test:1542:19)
+      at Test.run (node:internal/test_runner/test:1467:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: undefined,
+    expected: /ownership_fenced/,
+    operator: 'throws',
+    diff: 'simple'
+  }
+receipt: {"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","--test","packages/h2a/test/mh-l4-ownership.test.js"],"code":1,"signal":null,"elapsedMs":547}
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node --test packages/h2a/test/mh-l4-ownership.test.js
+node: v24.21.0
+private test root: /tmp/mh-l4-test-wHXaAl
+✔ should fence a stale owner while admitted operations retain separate rights (66.636499ms)
+✔ should reconcile freeze after lost ACK and reject different handover tuples (24.863444ms)
+✔ should close ownership admissions after publication fsync uncertainty until explicit reconciliation (14.028729ms)
+✔ should refuse only the stale ownership epoch even when generation and process stay identical (9.974085ms)
+ℹ tests 4
+ℹ suites 0
+ℹ pass 4
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 157.961484
+receipt: {"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","--test","packages/h2a/test/mh-l4-ownership.test.js"],"code":0,"signal":null,"elapsedMs":179}
+
+case exit: 0
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node scripts/mh-l4-mutate.mjs readonly
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node --test packages/h2a/test/mh-l4-writers.test.js
+node: v24.21.0
+private test root: /tmp/mh-l4-test-dXslh1
+✔ should revalidate registry, inbox, presence, blockage and payload writes at the barrier (166.824819ms)
+✔ should refuse janitor cleanup when a snapshot has been replaced during liveness proof (0.717872ms)
+✖ should keep preparatory readOnly opens pure and reject every mutating method (0.730565ms)
+ℹ tests 3
+ℹ suites 0
+ℹ pass 2
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 346.479058
+
+✖ failing tests:
+
+test at packages/h2a/test/mh-l4-writers.test.js:57:1
+✖ should keep preparatory readOnly opens pure and reject every mutating method (0.730565ms)
+  AssertionError [ERR_ASSERTION]: The input did not match the regular expression /storage_readonly/. Input:
+  
+  'Error: Unknown negotiation state: undefined'
+  
+      at TestContext.<anonymous> (file:///tmp/mh-l4-release-check-RvMsgD/packages/h2a/test/mh-l4-writers.test.js:63:12)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:974:18)
+      at Test.postRun (node:internal/test_runner/test:1542:19)
+      at Test.run (node:internal/test_runner/test:1467:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: Error: Unknown negotiation state: undefined
+        at assertValidNegotiationState (file:///tmp/mh-l4-release-check-RvMsgD/packages/h2a/dist/negotiation.js:6:11)
+        at openNegotiation (file:///tmp/mh-l4-release-check-RvMsgD/packages/h2a/dist/runtime/local-files/store.js:443:9)
+        at file:///tmp/mh-l4-release-check-RvMsgD/packages/h2a/dist/runtime/local-files/store.js:1463:69
+        at withWriterMutation (file:///tmp/mh-l4-release-check-RvMsgD/packages/h2a/dist/runtime/handover/mutation.js:75:16)
+        at store.openNegotiation (file:///tmp/mh-l4-release-check-RvMsgD/packages/h2a/dist/runtime/local-files/store.js:1463:16)
+        at file:///tmp/mh-l4-release-check-RvMsgD/packages/h2a/test/mh-l4-writers.test.js:63:29
+        at getActual (node:assert:611:5)
+        at strict.throws (node:assert:759:24)
+        at TestContext.<anonymous> (file:///tmp/mh-l4-release-check-RvMsgD/packages/h2a/test/mh-l4-writers.test.js:63:12)
+        at Test.runInAsyncScope (node:async_hooks:227:14),
+    expected: /storage_readonly/,
+    operator: 'throws',
+    diff: 'simple'
+  }
+receipt: {"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","--test","packages/h2a/test/mh-l4-writers.test.js"],"code":1,"signal":null,"elapsedMs":373}
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node --test packages/h2a/test/mh-l4-writers.test.js
+node: v24.21.0
+private test root: /tmp/mh-l4-test-ciNslz
+✔ should revalidate registry, inbox, presence, blockage and payload writes at the barrier (396.436612ms)
+✔ should refuse janitor cleanup when a snapshot has been replaced during liveness proof (2.174864ms)
+✔ should keep preparatory readOnly opens pure and reject every mutating method (0.375858ms)
+ℹ tests 3
+ℹ suites 0
+ℹ pass 3
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 566.781737
+receipt: {"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","--test","packages/h2a/test/mh-l4-writers.test.js"],"code":0,"signal":null,"elapsedMs":590}
+
+case exit: 0
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node scripts/mh-l4-mutate.mjs gate
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node --test packages/h2a/test/mh-l4-writers.test.js
+node: v24.21.0
+private test root: /tmp/mh-l4-test-xkR6ZC
+✖ should revalidate registry, inbox, presence, blockage and payload writes at the barrier (318.873923ms)
+✔ should refuse janitor cleanup when a snapshot has been replaced during liveness proof (2.037255ms)
+✔ should keep preparatory readOnly opens pure and reject every mutating method (0.454245ms)
+ℹ tests 3
+ℹ suites 0
+ℹ pass 2
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 510.355277
+
+✖ failing tests:
+
+test at packages/h2a/test/mh-l4-writers.test.js:15:1
+✖ should revalidate registry, inbox, presence, blockage and payload writes at the barrier (318.873923ms)
+  AssertionError [ERR_ASSERTION]: Missing expected exception.
+      at TestContext.<anonymous> (file:///tmp/mh-l4-release-check-RvMsgD/packages/h2a/test/mh-l4-writers.test.js:28:12)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.start (node:internal/test_runner/test:1262:17)
+      at startSubtestAfterBootstrap (node:internal/test_runner/harness:387:17) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: undefined,
+    expected: /store_admission_closed/,
+    operator: 'throws',
+    diff: 'simple'
+  }
+receipt: {"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","--test","packages/h2a/test/mh-l4-writers.test.js"],"code":1,"signal":null,"elapsedMs":543}
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node --test packages/h2a/test/mh-l4-writers.test.js
+node: v24.21.0
+private test root: /tmp/mh-l4-test-6rM5UG
+✔ should revalidate registry, inbox, presence, blockage and payload writes at the barrier (290.006593ms)
+✔ should refuse janitor cleanup when a snapshot has been replaced during liveness proof (0.634985ms)
+✔ should keep preparatory readOnly opens pure and reject every mutating method (0.366921ms)
+ℹ tests 3
+ℹ suites 0
+ℹ pass 3
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 467.179481
+receipt: {"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","--test","packages/h2a/test/mh-l4-writers.test.js"],"code":0,"signal":null,"elapsedMs":491}
+
+case exit: 0
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node scripts/mh-l4-mutate.mjs janitor
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node --test packages/h2a/test/mh-l4-writers.test.js
+node: v24.21.0
+private test root: /tmp/mh-l4-test-Cebj0O
+✔ should revalidate registry, inbox, presence, blockage and payload writes at the barrier (63.124368ms)
+✖ should refuse janitor cleanup when a snapshot has been replaced during liveness proof (1.597497ms)
+✔ should keep preparatory readOnly opens pure and reject every mutating method (0.417266ms)
+ℹ tests 3
+ℹ suites 0
+ℹ pass 2
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 236.669899
+
+✖ failing tests:
+
+test at packages/h2a/test/mh-l4-writers.test.js:44:1
+✖ should refuse janitor cleanup when a snapshot has been replaced during liveness proof (1.597497ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
+  + actual - expected
+  
+  + [
+  +   {
+  +     instance: 'i',
+  +     pid: 123,
+  +     sessionId: 's'
+  +   }
+  + ]
+  - []
+  
+      at TestContext.<anonymous> (file:///tmp/mh-l4-release-check-RvMsgD/packages/h2a/test/mh-l4-writers.test.js:52:12)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:974:18)
+      at Test.postRun (node:internal/test_runner/test:1542:19)
+      at Test.run (node:internal/test_runner/test:1467:12)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: [ { sessionId: 's', instance: 'i', pid: 123 } ],
+    expected: [],
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }
+receipt: {"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","--test","packages/h2a/test/mh-l4-writers.test.js"],"code":1,"signal":null,"elapsedMs":260}
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node --test packages/h2a/test/mh-l4-writers.test.js
+node: v24.21.0
+private test root: /tmp/mh-l4-test-6hM9O1
+✔ should revalidate registry, inbox, presence, blockage and payload writes at the barrier (248.821363ms)
+✔ should refuse janitor cleanup when a snapshot has been replaced during liveness proof (0.774388ms)
+✔ should keep preparatory readOnly opens pure and reject every mutating method (0.365368ms)
+ℹ tests 3
+ℹ suites 0
+ℹ pass 3
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 427.484748
+receipt: {"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","--test","packages/h2a/test/mh-l4-writers.test.js"],"code":0,"signal":null,"elapsedMs":449}
+
+case exit: 0
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node scripts/mh-l4-mutate.mjs checkpoint
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node --test packages/h2a/test/mh-l4-checkpoint.test.js
+node: v24.21.0
+private test root: /tmp/mh-l4-test-p6JBe7
+✔ should preserve notification dedup and separate production, delivery and CLI acknowledgement (1.975539ms)
+✖ should persist every checkpoint field, reconcile a lost ACK and reject hash, epoch or payload changes (296.687008ms)
+ℹ tests 2
+ℹ suites 0
+ℹ pass 1
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 489.894621
+
+✖ failing tests:
+
+test at packages/h2a/test/mh-l4-checkpoint.test.js:33:1
+✖ should persist every checkpoint field, reconcile a lost ACK and reject hash, epoch or payload changes (296.687008ms)
+  AssertionError [ERR_ASSERTION]: The input did not match the regular expression /checkpoint_binding_mismatch/. Input:
+  
+  'Error: checkpoint_conflict'
+  
+      at TestContext.<anonymous> (file:///tmp/mh-l4-release-check-RvMsgD/packages/h2a/test/mh-l4-checkpoint.test.js:44:10)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:974:18)
+      at Test.postRun (node:internal/test_runner/test:1542:19)
+      at Test.run (node:internal/test_runner/test:1467:12)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: Error: checkpoint_conflict
+        at file:///tmp/mh-l4-release-check-RvMsgD/packages/h2a/src/runtime/handover/ownership.js:120:80
+        at file:///tmp/mh-l4-release-check-RvMsgD/packages/h2a/src/runtime/handover/ownership.js:27:20
+        at mutationLock (file:///tmp/mh-l4-release-check-RvMsgD/packages/h2a/src/runtime/handover/mutation.js:31:19)
+        at OwnershipRegistry.withLock (file:///tmp/mh-l4-release-check-RvMsgD/packages/h2a/src/runtime/handover/ownership.js:25:12)
+        at OwnershipRegistry.checkpoint (file:///tmp/mh-l4-release-check-RvMsgD/packages/h2a/src/runtime/handover/ownership.js:115:17)
+        at file:///tmp/mh-l4-release-check-RvMsgD/packages/h2a/test/mh-l4-checkpoint.test.js:44:31
+        at getActual (node:assert:611:5)
+        at strict.throws (node:assert:759:24)
+        at TestContext.<anonymous> (file:///tmp/mh-l4-release-check-RvMsgD/packages/h2a/test/mh-l4-checkpoint.test.js:44:10)
+        at Test.runInAsyncScope (node:async_hooks:227:14),
+    expected: /checkpoint_binding_mismatch/,
+    operator: 'throws',
+    diff: 'simple'
+  }
+receipt: {"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","--test","packages/h2a/test/mh-l4-checkpoint.test.js"],"code":1,"signal":null,"elapsedMs":513}
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node --test packages/h2a/test/mh-l4-checkpoint.test.js
+node: v24.21.0
+private test root: /tmp/mh-l4-test-26pTDF
+✔ should preserve notification dedup and separate production, delivery and CLI acknowledgement (18.63013ms)
+✔ should persist every checkpoint field, reconcile a lost ACK and reject hash, epoch or payload changes (484.199671ms)
+ℹ tests 2
+ℹ suites 0
+ℹ pass 2
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 689.073174
+receipt: {"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","--test","packages/h2a/test/mh-l4-checkpoint.test.js"],"code":0,"signal":null,"elapsedMs":714}
+
+case exit: 0
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node scripts/mh-l4-mutate.mjs delivery
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node --test packages/h2a/test/mh-l4-checkpoint.test.js
+node: v24.21.0
+private test root: /tmp/mh-l4-test-WqZ478
+✖ should preserve notification dedup and separate production, delivery and CLI acknowledgement (1.971291ms)
+✔ should persist every checkpoint field, reconcile a lost ACK and reject hash, epoch or payload changes (427.142944ms)
+ℹ tests 2
+ℹ suites 0
+ℹ pass 1
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 605.837989
+
+✖ failing tests:
+
+test at packages/h2a/test/mh-l4-checkpoint.test.js:10:1
+✖ should preserve notification dedup and separate production, delivery and CLI acknowledgement (1.971291ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  1 !== 0
+  
+      at TestContext.<anonymous> (file:///tmp/mh-l4-release-check-RvMsgD/packages/h2a/test/mh-l4-checkpoint.test.js:20:51)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.start (node:internal/test_runner/test:1262:17)
+      at startSubtestAfterBootstrap (node:internal/test_runner/harness:387:17) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 1,
+    expected: 0,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+receipt: {"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","--test","packages/h2a/test/mh-l4-checkpoint.test.js"],"code":1,"signal":null,"elapsedMs":636}
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node --test packages/h2a/test/mh-l4-checkpoint.test.js
+node: v24.21.0
+private test root: /tmp/mh-l4-test-Sb71y7
+✔ should preserve notification dedup and separate production, delivery and CLI acknowledgement (1.996117ms)
+✔ should persist every checkpoint field, reconcile a lost ACK and reject hash, epoch or payload changes (322.340609ms)
+ℹ tests 2
+ℹ suites 0
+ℹ pass 2
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 514.339006
+receipt: {"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","--test","packages/h2a/test/mh-l4-checkpoint.test.js"],"code":0,"signal":null,"elapsedMs":540}
+
+case exit: 0
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node scripts/mh-l4-mutate.mjs wake-intent
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node --test packages/h2a/test/mh-l4-wake.test.js
+node: v24.21.0
+private test root: /tmp/mh-l4-test-fuXsXp
+✖ should serialize wakes, persist intent before injection and suppress unknown envelopes after restart (329.996962ms)
+✔ should retry a proven deferred wake but never inject from a frozen owner (325.324647ms)
+ℹ tests 2
+ℹ suites 0
+ℹ pass 1
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 845.945568
+
+✖ failing tests:
+
+test at packages/h2a/test/mh-l4-wake.test.js:13:1
+✖ should serialize wakes, persist intent before injection and suppress unknown envelopes after restart (329.996962ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
+  + actual - expected
+  
+    [
+  +   'e',
+      'new'
+    ]
+  
+      at TestContext.<anonymous> (file:///tmp/mh-l4-release-check-RvMsgD/packages/h2a/test/mh-l4-wake.test.js:27:10)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: [ 'e', 'new' ],
+    expected: [ 'new' ],
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }
+receipt: {"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","--test","packages/h2a/test/mh-l4-wake.test.js"],"code":1,"signal":null,"elapsedMs":872}
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node --test packages/h2a/test/mh-l4-wake.test.js
+node: v24.21.0
+private test root: /tmp/mh-l4-test-8JdRsA
+✔ should serialize wakes, persist intent before injection and suppress unknown envelopes after restart (205.848489ms)
+✔ should retry a proven deferred wake but never inject from a frozen owner (160.212111ms)
+ℹ tests 2
+ℹ suites 0
+ℹ pass 2
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 599.452367
+receipt: {"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","--test","packages/h2a/test/mh-l4-wake.test.js"],"code":0,"signal":null,"elapsedMs":627}
+
+case exit: 0
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node scripts/mh-l4-mutate.mjs wake-replay
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node --test packages/h2a/test/mh-l4-wake.test.js
+node: v24.21.0
+private test root: /tmp/mh-l4-test-9r1fl2
+✖ should serialize wakes, persist intent before injection and suppress unknown envelopes after restart (198.354041ms)
+✔ should retry a proven deferred wake but never inject from a frozen owner (182.130561ms)
+ℹ tests 2
+ℹ suites 0
+ℹ pass 1
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 592.647668
+
+✖ failing tests:
+
+test at packages/h2a/test/mh-l4-wake.test.js:13:1
+✖ should serialize wakes, persist intent before injection and suppress unknown envelopes after restart (198.354041ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
+  + actual - expected
+  
+    [
+  +   'e',
+      'new'
+    ]
+  
+      at TestContext.<anonymous> (file:///tmp/mh-l4-release-check-RvMsgD/packages/h2a/test/mh-l4-wake.test.js:27:10)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: [ 'e', 'new' ],
+    expected: [ 'new' ],
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }
+receipt: {"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","--test","packages/h2a/test/mh-l4-wake.test.js"],"code":1,"signal":null,"elapsedMs":615}
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node --test packages/h2a/test/mh-l4-wake.test.js
+node: v24.21.0
+private test root: /tmp/mh-l4-test-0sQbBi
+✔ should serialize wakes, persist intent before injection and suppress unknown envelopes after restart (290.055093ms)
+✔ should retry a proven deferred wake but never inject from a frozen owner (58.914643ms)
+ℹ tests 2
+ℹ suites 0
+ℹ pass 2
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 557.244603
+receipt: {"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","--test","packages/h2a/test/mh-l4-wake.test.js"],"code":0,"signal":null,"elapsedMs":585}
+
+case exit: 0
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node scripts/mh-l4-mutate.mjs reservation
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node --test packages/h2a/test/mh-l4-launch.test.js
+node: v24.21.0
+private test root: /tmp/mh-l4-test-8pGLDO
+✖ should reserve before spawn, conflict on arguments and drain child/brief after a launching reply (456.355906ms)
+✔ should reconcile token-bound existing launch.json without a second spawn or brief (59.668974ms)
+ℹ tests 2
+ℹ suites 0
+ℹ pass 1
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 556.650936
+
+✖ failing tests:
+
+test at packages/h2a/test/mh-l4-launch.test.js:17:1
+✖ should reserve before spawn, conflict on arguments and drain child/brief after a launching reply (456.355906ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  + actual - expected
+  
+  + 'unknown'
+  - 'launching'
+  
+      at TestContext.<anonymous> (file:///tmp/mh-l4-release-check-RvMsgD/packages/h2a/test/mh-l4-launch.test.js:27:10)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 'unknown',
+    expected: 'launching',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+receipt: {"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","--test","packages/h2a/test/mh-l4-launch.test.js"],"code":1,"signal":null,"elapsedMs":581}
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node --test packages/h2a/test/mh-l4-launch.test.js
+node: v24.21.0
+private test root: /tmp/mh-l4-test-HMrrZC
+✔ should reserve before spawn, conflict on arguments and drain child/brief after a launching reply (86.047389ms)
+✔ should reconcile token-bound existing launch.json without a second spawn or brief (57.197531ms)
+ℹ tests 2
+ℹ suites 0
+ℹ pass 2
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 181.507719
+receipt: {"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","--test","packages/h2a/test/mh-l4-launch.test.js"],"code":0,"signal":null,"elapsedMs":205}
+
+case exit: 0
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node scripts/mh-l4-mutate.mjs token
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node --test packages/h2a/test/mh-l4-cuts.test.js
+node: v24.21.0
+private test root: /tmp/mh-l4-test-lvYbxo
+{"event":"drive-consent.full-verification","durationMs":0.0212399999999775,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+{"event":"drive-consent.full-verification","durationMs":0.01079000000004271,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+{"event":"drive-consent.full-verification","durationMs":0.02510699999999133,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+{"event":"drive-consent.full-verification","durationMs":0.014978000000041902,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+{"event":"drive-consent.full-verification","durationMs":0.0196770000000015,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+✔ should close admissions at barrier and bind presence mutations to the exact session (212.846893ms)
+✖ should propagate the reserved token through the real async subprocess seam (1.218644ms)
+✔ should revalidate a replaced presence instance under the mutation lock for update and delete (118.558059ms)
+✔ should detect conflicting launch parameters through the MCP server cache (70.248088ms)
+✔ should reconcile a final memo after a crash before operation closure without executing again (45.686543ms)
+✔ should persist owner-directed delegation after freeze and deduplicate the eventual writer receipt (199.069608ms)
+✔ should recover the delegation event after final memo publication but before operation closure (165.897243ms)
+ℹ tests 7
+ℹ suites 0
+ℹ pass 6
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1007.420166
+
+✖ failing tests:
+
+test at packages/h2a/test/mh-l4-cuts.test.js:34:1
+✖ should propagate the reserved token through the real async subprocess seam (1.218644ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  + actual - expected
+  
+  + '63a90fe1-186e-46b0-91a3-59b17e438554'
+  - 'reserved-token'
+  
+      at fake (file:///tmp/mh-l4-release-check-RvMsgD/packages/h2a/test/mh-l4-cuts.test.js:40:9)
+      at result (file:///tmp/mh-l4-release-check-RvMsgD/packages/h2a/dist/runtime/mcp/agent-launch.js:404:23)
+      at new Promise (<anonymous>)
+      at executeH2aRunWithAsyncSpawn (file:///tmp/mh-l4-release-check-RvMsgD/packages/h2a/dist/runtime/mcp/agent-launch.js:403:26)
+      at TestContext.<anonymous> (file:///tmp/mh-l4-release-check-RvMsgD/packages/h2a/test/mh-l4-cuts.test.js:42:21)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:974:18)
+      at Test.postRun (node:internal/test_runner/test:1542:19)
+      at Test.run (node:internal/test_runner/test:1467:12) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: '63a90fe1-186e-46b0-91a3-59b17e438554',
+    expected: 'reserved-token',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+receipt: {"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","--test","packages/h2a/test/mh-l4-cuts.test.js"],"code":1,"signal":null,"elapsedMs":1034}
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node --test packages/h2a/test/mh-l4-cuts.test.js
+node: v24.21.0
+private test root: /tmp/mh-l4-test-TwmqEC
+{"event":"drive-consent.full-verification","durationMs":0.01851500000000783,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+{"event":"drive-consent.full-verification","durationMs":0.01091099999999301,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+{"event":"drive-consent.full-verification","durationMs":0.015649999999993724,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+{"event":"drive-consent.full-verification","durationMs":0.023383999999964544,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+{"event":"drive-consent.full-verification","durationMs":0.061655999999970845,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+✔ should close admissions at barrier and bind presence mutations to the exact session (157.753272ms)
+✔ should propagate the reserved token through the real async subprocess seam (1.299847ms)
+✔ should revalidate a replaced presence instance under the mutation lock for update and delete (28.192611ms)
+✔ should detect conflicting launch parameters through the MCP server cache (430.716942ms)
+✔ should reconcile a final memo after a crash before operation closure without executing again (211.953701ms)
+✔ should persist owner-directed delegation after freeze and deduplicate the eventual writer receipt (67.086276ms)
+✔ should recover the delegation event after final memo publication but before operation closure (185.796252ms)
+ℹ tests 7
+ℹ suites 0
+ℹ pass 7
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1266.852954
+receipt: {"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","--test","packages/h2a/test/mh-l4-cuts.test.js"],"code":0,"signal":null,"elapsedMs":1294}
+
+case exit: 0
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node scripts/mh-l4-mutate.mjs arguments
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node --test packages/h2a/test/mh-l4-cuts.test.js
+node: v24.21.0
+private test root: /tmp/mh-l4-test-uXadSv
+{"event":"drive-consent.full-verification","durationMs":0.02081900000001724,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+{"event":"drive-consent.full-verification","durationMs":0.01280399999996007,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+{"event":"drive-consent.full-verification","durationMs":0.018675000000030195,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+{"event":"drive-consent.full-verification","durationMs":0.012653999999997723,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+{"event":"drive-consent.full-verification","durationMs":0.02063899999984642,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+✔ should close admissions at barrier and bind presence mutations to the exact session (751.762063ms)
+✔ should propagate the reserved token through the real async subprocess seam (1.836066ms)
+✔ should revalidate a replaced presence instance under the mutation lock for update and delete (28.703282ms)
+✖ should detect conflicting launch parameters through the MCP server cache (70.506344ms)
+✔ should reconcile a final memo after a crash before operation closure without executing again (355.159829ms)
+✔ should persist owner-directed delegation after freeze and deduplicate the eventual writer receipt (257.168917ms)
+✔ should recover the delegation event after final memo publication but before operation closure (179.210314ms)
+ℹ tests 7
+ℹ suites 0
+ℹ pass 6
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1838.187662
+
+✖ failing tests:
+
+test at packages/h2a/test/mh-l4-cuts.test.js:63:1
+✖ should detect conflicting launch parameters through the MCP server cache (70.506344ms)
+  AssertionError [ERR_ASSERTION]: The input did not match the regular expression /launch_arguments_conflict/. Input:
+  
+  '{"state":"started","ok":true,"prompt":{"delivered":true}}'
+  
+      at TestContext.<anonymous> (file:///tmp/mh-l4-release-check-RvMsgD/packages/h2a/test/mh-l4-cuts.test.js:70:9)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: '{"state":"started","ok":true,"prompt":{"delivered":true}}',
+    expected: /launch_arguments_conflict/,
+    operator: 'match',
+    diff: 'simple'
+  }
+receipt: {"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","--test","packages/h2a/test/mh-l4-cuts.test.js"],"code":1,"signal":null,"elapsedMs":1863}
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node --test packages/h2a/test/mh-l4-cuts.test.js
+node: v24.21.0
+private test root: /tmp/mh-l4-test-yr2JA9
+{"event":"drive-consent.full-verification","durationMs":0.019926999999995587,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+{"event":"drive-consent.full-verification","durationMs":0.01200299999999288,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+{"event":"drive-consent.full-verification","durationMs":0.024125000000026375,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+{"event":"drive-consent.full-verification","durationMs":0.018505000000004657,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+{"event":"drive-consent.full-verification","durationMs":0.02035799999998744,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+✔ should close admissions at barrier and bind presence mutations to the exact session (679.868547ms)
+✔ should propagate the reserved token through the real async subprocess seam (1.963947ms)
+✔ should revalidate a replaced presence instance under the mutation lock for update and delete (183.70783ms)
+✔ should detect conflicting launch parameters through the MCP server cache (67.716943ms)
+✔ should reconcile a final memo after a crash before operation closure without executing again (391.842263ms)
+✔ should persist owner-directed delegation after freeze and deduplicate the eventual writer receipt (251.126603ms)
+✔ should recover the delegation event after final memo publication but before operation closure (165.277617ms)
+ℹ tests 7
+ℹ suites 0
+ℹ pass 7
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1942.953958
+receipt: {"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","--test","packages/h2a/test/mh-l4-cuts.test.js"],"code":0,"signal":null,"elapsedMs":1971}
+
+case exit: 0
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node scripts/mh-l4-mutate.mjs final-receipt
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node --test packages/h2a/test/mh-l4-cuts.test.js
+node: v24.21.0
+private test root: /tmp/mh-l4-test-rM5saA
+{"event":"drive-consent.full-verification","durationMs":0.05704800000000887,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+{"event":"drive-consent.full-verification","durationMs":0.031458999999983916,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+{"event":"drive-consent.full-verification","durationMs":0.020278000000075735,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+{"event":"drive-consent.full-verification","durationMs":0.03323199999999815,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+{"event":"drive-consent.full-verification","durationMs":0.018595000000004802,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+✔ should close admissions at barrier and bind presence mutations to the exact session (360.331385ms)
+✔ should propagate the reserved token through the real async subprocess seam (1.314294ms)
+✔ should revalidate a replaced presence instance under the mutation lock for update and delete (47.171629ms)
+✔ should detect conflicting launch parameters through the MCP server cache (106.341873ms)
+✖ should reconcile a final memo after a crash before operation closure without executing again (55.153594ms)
+✔ should persist owner-directed delegation after freeze and deduplicate the eventual writer receipt (115.839812ms)
+✖ should recover the delegation event after final memo publication but before operation closure (245.61063ms)
+ℹ tests 7
+ℹ suites 0
+ℹ pass 5
+ℹ fail 2
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1117.702396
+
+✖ failing tests:
+
+test at packages/h2a/test/mh-l4-cuts.test.js:75:1
+✖ should reconcile a final memo after a crash before operation closure without executing again (55.153594ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  false !== true
+  
+      at TestContext.<anonymous> (file:///tmp/mh-l4-release-check-RvMsgD/packages/h2a/test/mh-l4-cuts.test.js:85:9)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at packages/h2a/test/mh-l4-cuts.test.js:108:1
+✖ should recover the delegation event after final memo publication but before operation closure (245.61063ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  0 !== 1
+  
+      at TestContext.<anonymous> (file:///tmp/mh-l4-release-check-RvMsgD/packages/h2a/test/mh-l4-cuts.test.js:119:9)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:974:18)
+      at Test.postRun (node:internal/test_runner/test:1542:19)
+      at Test.run (node:internal/test_runner/test:1467:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 0,
+    expected: 1,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+receipt: {"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","--test","packages/h2a/test/mh-l4-cuts.test.js"],"code":1,"signal":null,"elapsedMs":1144}
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node --test packages/h2a/test/mh-l4-cuts.test.js
+node: v24.21.0
+private test root: /tmp/mh-l4-test-mNu7X0
+{"event":"drive-consent.full-verification","durationMs":0.020278000000018892,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+{"event":"drive-consent.full-verification","durationMs":0.011432000000013431,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+{"event":"drive-consent.full-verification","durationMs":0.017182000000047992,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+{"event":"drive-consent.full-verification","durationMs":0.022903000000042084,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+{"event":"drive-consent.full-verification","durationMs":0.02773299999989831,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+✔ should close admissions at barrier and bind presence mutations to the exact session (606.137983ms)
+✔ should propagate the reserved token through the real async subprocess seam (1.386229ms)
+✔ should revalidate a replaced presence instance under the mutation lock for update and delete (29.625409ms)
+✔ should detect conflicting launch parameters through the MCP server cache (203.135552ms)
+✔ should reconcile a final memo after a crash before operation closure without executing again (392.704115ms)
+✔ should persist owner-directed delegation after freeze and deduplicate the eventual writer receipt (319.623645ms)
+✔ should recover the delegation event after final memo publication but before operation closure (166.717547ms)
+ℹ tests 7
+ℹ suites 0
+ℹ pass 7
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1905.676204
+receipt: {"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","--test","packages/h2a/test/mh-l4-cuts.test.js"],"code":0,"signal":null,"elapsedMs":1933}
+
+case exit: 0
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node scripts/mh-l4-mutate.mjs barrier-admission
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node --test packages/h2a/test/mh-l4-cuts.test.js
+node: v24.21.0
+private test root: /tmp/mh-l4-test-FLvLBV
+{"event":"drive-consent.full-verification","durationMs":0.01879500000001144,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+{"event":"drive-consent.full-verification","durationMs":0.014606999999983827,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+{"event":"drive-consent.full-verification","durationMs":0.017792999999983294,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+{"event":"drive-consent.full-verification","durationMs":0.018083999999987554,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+{"event":"drive-consent.full-verification","durationMs":0.012133000000005723,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+✖ should close admissions at barrier and bind presence mutations to the exact session (73.361818ms)
+✔ should propagate the reserved token through the real async subprocess seam (1.339992ms)
+✔ should revalidate a replaced presence instance under the mutation lock for update and delete (30.833421ms)
+✔ should detect conflicting launch parameters through the MCP server cache (66.942664ms)
+✔ should reconcile a final memo after a crash before operation closure without executing again (47.106193ms)
+✔ should persist owner-directed delegation after freeze and deduplicate the eventual writer receipt (75.493781ms)
+✔ should recover the delegation event after final memo publication but before operation closure (62.340571ms)
+ℹ tests 7
+ℹ suites 0
+ℹ pass 6
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 540.491251
+
+✖ failing tests:
+
+test at packages/h2a/test/mh-l4-cuts.test.js:17:1
+✖ should close admissions at barrier and bind presence mutations to the exact session (73.361818ms)
+  AssertionError [ERR_ASSERTION]: The input did not match the regular expression /store_admission_closed/. Input:
+  
+  'Error: must not run'
+  
+      at TestContext.<anonymous> (file:///tmp/mh-l4-release-check-RvMsgD/packages/h2a/test/mh-l4-cuts.test.js:26:24)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.start (node:internal/test_runner/test:1262:17)
+      at startSubtestAfterBootstrap (node:internal/test_runner/harness:387:17) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: Error: must not run
+        at file:///tmp/mh-l4-release-check-RvMsgD/packages/h2a/test/mh-l4-cuts.test.js:26:53
+        at AsyncLocalStorage.run (node:internal/async_local_storage/async_context_frame:65:14)
+        at withExecution (file:///tmp/mh-l4-release-check-RvMsgD/packages/h2a/dist/runtime/handover/mutation.js:42:65)
+        at AttachmentParticipant.call (file:///tmp/mh-l4-release-check-RvMsgD/packages/h2a/dist/runtime/handover/participants.js:218:28)
+        at file:///tmp/mh-l4-release-check-RvMsgD/packages/h2a/test/mh-l4-cuts.test.js:26:37
+        at getActual (node:assert:611:5)
+        at strict.throws (node:assert:759:24)
+        at TestContext.<anonymous> (file:///tmp/mh-l4-release-check-RvMsgD/packages/h2a/test/mh-l4-cuts.test.js:26:24)
+        at Test.runInAsyncScope (node:async_hooks:227:14)
+        at Test.run (node:internal/test_runner/test:1402:25),
+    expected: /store_admission_closed/,
+    operator: 'throws',
+    diff: 'simple'
+  }
+receipt: {"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","--test","packages/h2a/test/mh-l4-cuts.test.js"],"code":1,"signal":null,"elapsedMs":567}
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node --test packages/h2a/test/mh-l4-cuts.test.js
+node: v24.21.0
+private test root: /tmp/mh-l4-test-4YNqgG
+{"event":"drive-consent.full-verification","durationMs":0.018525000000011005,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+{"event":"drive-consent.full-verification","durationMs":0.010851000000002387,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+{"event":"drive-consent.full-verification","durationMs":0.015588999999977204,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+{"event":"drive-consent.full-verification","durationMs":0.013374999999996362,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+{"event":"drive-consent.full-verification","durationMs":0.016602000000034423,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+✔ should close admissions at barrier and bind presence mutations to the exact session (95.631368ms)
+✔ should propagate the reserved token through the real async subprocess seam (1.323572ms)
+✔ should revalidate a replaced presence instance under the mutation lock for update and delete (26.798486ms)
+✔ should detect conflicting launch parameters through the MCP server cache (70.637049ms)
+✔ should reconcile a final memo after a crash before operation closure without executing again (51.264782ms)
+✔ should persist owner-directed delegation after freeze and deduplicate the eventual writer receipt (74.57995ms)
+✔ should recover the delegation event after final memo publication but before operation closure (52.313476ms)
+ℹ tests 7
+ℹ suites 0
+ℹ pass 7
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 575.369948
+receipt: {"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","--test","packages/h2a/test/mh-l4-cuts.test.js"],"code":0,"signal":null,"elapsedMs":600}
+
+case exit: 0
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node scripts/mh-l4-mutate.mjs presence-target
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node --test packages/h2a/test/mh-l4-cuts.test.js
+node: v24.21.0
+private test root: /tmp/mh-l4-test-LYe9al
+{"event":"drive-consent.full-verification","durationMs":0.01853500000001418,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+{"event":"drive-consent.full-verification","durationMs":0.013045000000005302,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+{"event":"drive-consent.full-verification","durationMs":0.017833999999993466,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+{"event":"drive-consent.full-verification","durationMs":0.014347000000043408,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+{"event":"drive-consent.full-verification","durationMs":0.018584999999973206,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+✖ should close admissions at barrier and bind presence mutations to the exact session (49.901676ms)
+✔ should propagate the reserved token through the real async subprocess seam (1.275491ms)
+✖ should revalidate a replaced presence instance under the mutation lock for update and delete (19.866577ms)
+✔ should detect conflicting launch parameters through the MCP server cache (68.103018ms)
+✔ should reconcile a final memo after a crash before operation closure without executing again (45.529175ms)
+✔ should persist owner-directed delegation after freeze and deduplicate the eventual writer receipt (83.758589ms)
+✔ should recover the delegation event after final memo publication but before operation closure (48.717938ms)
+ℹ tests 7
+ℹ suites 0
+ℹ pass 5
+ℹ fail 2
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 530.599822
+
+✖ failing tests:
+
+test at packages/h2a/test/mh-l4-cuts.test.js:17:1
+✖ should close admissions at barrier and bind presence mutations to the exact session (49.901676ms)
+  AssertionError [ERR_ASSERTION]: Missing expected exception.
+      at TestContext.<anonymous> (file:///tmp/mh-l4-release-check-RvMsgD/packages/h2a/test/mh-l4-cuts.test.js:23:9)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.start (node:internal/test_runner/test:1262:17)
+      at startSubtestAfterBootstrap (node:internal/test_runner/harness:387:17) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: undefined,
+    expected: /presence_ownership_mismatch/,
+    operator: 'throws',
+    diff: 'simple'
+  }
+
+test at packages/h2a/test/mh-l4-cuts.test.js:46:1
+✖ should revalidate a replaced presence instance under the mutation lock for update and delete (19.866577ms)
+  AssertionError [ERR_ASSERTION]: Missing expected exception.
+      at TestContext.<anonymous> (file:///tmp/mh-l4-release-check-RvMsgD/packages/h2a/test/mh-l4-cuts.test.js:56:10)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:974:18)
+      at Test.postRun (node:internal/test_runner/test:1542:19)
+      at Test.run (node:internal/test_runner/test:1467:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: undefined,
+    expected: /presence_ownership_mismatch/,
+    operator: 'throws',
+    diff: 'simple'
+  }
+receipt: {"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","--test","packages/h2a/test/mh-l4-cuts.test.js"],"code":1,"signal":null,"elapsedMs":560}
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node --test packages/h2a/test/mh-l4-cuts.test.js
+node: v24.21.0
+private test root: /tmp/mh-l4-test-79SZc0
+{"event":"drive-consent.full-verification","durationMs":0.01931600000000344,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+{"event":"drive-consent.full-verification","durationMs":0.010279000000025462,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+{"event":"drive-consent.full-verification","durationMs":0.02391499999998814,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+{"event":"drive-consent.full-verification","durationMs":0.016491000000030454,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+{"event":"drive-consent.full-verification","durationMs":0.02289300000001049,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+✔ should close admissions at barrier and bind presence mutations to the exact session (90.850529ms)
+✔ should propagate the reserved token through the real async subprocess seam (1.3761ms)
+✔ should revalidate a replaced presence instance under the mutation lock for update and delete (32.5433ms)
+✔ should detect conflicting launch parameters through the MCP server cache (73.182851ms)
+✔ should reconcile a final memo after a crash before operation closure without executing again (48.293939ms)
+✔ should persist owner-directed delegation after freeze and deduplicate the eventual writer receipt (73.376085ms)
+✔ should recover the delegation event after final memo publication but before operation closure (55.864069ms)
+ℹ tests 7
+ℹ suites 0
+ℹ pass 7
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 574.359144
+receipt: {"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","--test","packages/h2a/test/mh-l4-cuts.test.js"],"code":0,"signal":null,"elapsedMs":602}
+
+case exit: 0
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node scripts/mh-l4-mutate.mjs http-control
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node --test packages/h2a/test/mh-l4-central.test.js
+node: v24.21.0
+private test root: /tmp/mh-l4-test-Ro4Nz7
+{"event":"drive-consent.full-verification","durationMs":0.0033060000000659784,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+✖ should checkpoint a real source attachment and reject a cancellation string inside new tool arguments (5577.524619ms)
+ℹ Error: Test "should checkpoint a real source attachment and reject a cancellation string inside new tool arguments" at packages/h2a/test/mh-l4-central.test.js:11:1 generated asynchronous activity after the test ended. This activity created the error "Error: socket hang up" and would have caused the test to fail, but instead triggered an unhandledRejection event.
+ℹ tests 1
+ℹ suites 0
+ℹ pass 0
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 5665.499554
+
+✖ failing tests:
+
+test at packages/h2a/test/mh-l4-central.test.js:11:1
+✖ should checkpoint a real source attachment and reject a cancellation string inside new tool arguments (5577.524619ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  200 !== 409
+  
+      at TestContext.<anonymous> (file:///tmp/mh-l4-release-check-RvMsgD/packages/h2a/test/mh-l4-central.test.js:84:12)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 200,
+    expected: 409,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+receipt: {"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","--test","packages/h2a/test/mh-l4-central.test.js"],"code":1,"signal":null,"elapsedMs":5693}
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node --test packages/h2a/test/mh-l4-central.test.js
+node: v24.21.0
+private test root: /tmp/mh-l4-test-QuriMH
+{"event":"drive-consent.full-verification","durationMs":0.004648999999972148,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+✔ should checkpoint a real source attachment and reject a cancellation string inside new tool arguments (6538.846569ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 1
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 6629.081249
+receipt: {"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","--test","packages/h2a/test/mh-l4-central.test.js"],"code":0,"signal":null,"elapsedMs":6653}
+
+case exit: 0
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node scripts/mh-l4-mutate.mjs downstream-version
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node --test packages/h2a/test/mh-l4-central.test.js
+node: v24.21.0
+private test root: /tmp/mh-l4-test-oc2RLp
+{"event":"drive-consent.full-verification","durationMs":0.0026649999999790452,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+✖ should checkpoint a real source attachment and reject a cancellation string inside new tool arguments (5554.462906ms)
+ℹ Error: Test "should checkpoint a real source attachment and reject a cancellation string inside new tool arguments" at packages/h2a/test/mh-l4-central.test.js:11:1 generated asynchronous activity after the test ended. This activity created the error "Error: socket hang up" and would have caused the test to fail, but instead triggered an unhandledRejection event.
+ℹ tests 1
+ℹ suites 0
+ℹ pass 0
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 5640.427709
+
+✖ failing tests:
+
+test at packages/h2a/test/mh-l4-central.test.js:11:1
+✖ should checkpoint a real source attachment and reject a cancellation string inside new tool arguments (5554.462906ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  + actual - expected
+  
+  + '2025-06-18'
+  - '2024-11-05'
+        ^
+  
+      at TestContext.<anonymous> (file:///tmp/mh-l4-release-check-RvMsgD/packages/h2a/test/mh-l4-central.test.js:90:12)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: '2025-06-18',
+    expected: '2024-11-05',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+receipt: {"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","--test","packages/h2a/test/mh-l4-central.test.js"],"code":1,"signal":null,"elapsedMs":5662}
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node --test packages/h2a/test/mh-l4-central.test.js
+node: v24.21.0
+private test root: /tmp/mh-l4-test-XTHyhF
+{"event":"drive-consent.full-verification","durationMs":0.003206000000318454,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+✔ should checkpoint a real source attachment and reject a cancellation string inside new tool arguments (6472.59738ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 1
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 6556.140213
+receipt: {"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","--test","packages/h2a/test/mh-l4-central.test.js"],"code":0,"signal":null,"elapsedMs":6583}
+
+case exit: 0
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node scripts/mh-l4-mutate.mjs fsync-uncertainty
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node --test packages/h2a/test/mh-l4-ownership.test.js
+node: v24.21.0
+private test root: /tmp/mh-l4-test-NrmZpx
+✔ should fence a stale owner while admitted operations retain separate rights (41.722599ms)
+✔ should reconcile freeze after lost ACK and reject different handover tuples (23.837381ms)
+✖ should close ownership admissions after publication fsync uncertainty until explicit reconciliation (13.64209ms)
+✔ should refuse only the stale ownership epoch even when generation and process stay identical (9.546271ms)
+ℹ tests 4
+ℹ suites 0
+ℹ pass 3
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 138.906961
+
+✖ failing tests:
+
+test at packages/h2a/test/mh-l4-ownership.test.js:55:1
+✖ should close ownership admissions after publication fsync uncertainty until explicit reconciliation (13.64209ms)
+  AssertionError [ERR_ASSERTION]: Missing expected exception.
+      at TestContext.<anonymous> (file:///tmp/mh-l4-release-check-RvMsgD/packages/h2a/test/mh-l4-ownership.test.js:63:10)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:974:18)
+      at Test.postRun (node:internal/test_runner/test:1542:19)
+      at Test.run (node:internal/test_runner/test:1467:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: undefined,
+    expected: /reconciliation_required/,
+    operator: 'throws',
+    diff: 'simple'
+  }
+receipt: {"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","--test","packages/h2a/test/mh-l4-ownership.test.js"],"code":1,"signal":null,"elapsedMs":166}
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node --test packages/h2a/test/mh-l4-ownership.test.js
+node: v24.21.0
+private test root: /tmp/mh-l4-test-5o7iW8
+✔ should fence a stale owner while admitted operations retain separate rights (37.167635ms)
+✔ should reconcile freeze after lost ACK and reject different handover tuples (25.257034ms)
+✔ should close ownership admissions after publication fsync uncertainty until explicit reconciliation (14.416959ms)
+✔ should refuse only the stale ownership epoch even when generation and process stay identical (9.720869ms)
+ℹ tests 4
+ℹ suites 0
+ℹ pass 4
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 126.188429
+receipt: {"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","--test","packages/h2a/test/mh-l4-ownership.test.js"],"code":0,"signal":null,"elapsedMs":152}
+
+case exit: 0
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node scripts/mh-l4-mutate.mjs delegation-effect
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node --test packages/h2a/test/mh-l4-cuts.test.js
+node: v24.21.0
+private test root: /tmp/mh-l4-test-ZdOuup
+{"event":"drive-consent.full-verification","durationMs":0.021119999999996253,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+{"event":"drive-consent.full-verification","durationMs":0.010550000000023374,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+{"event":"drive-consent.full-verification","durationMs":0.015399000000002161,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+{"event":"drive-consent.full-verification","durationMs":0.012624000000016622,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+{"event":"drive-consent.full-verification","durationMs":0.013034000000004653,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+✔ should close admissions at barrier and bind presence mutations to the exact session (103.134432ms)
+✔ should propagate the reserved token through the real async subprocess seam (1.337097ms)
+✔ should revalidate a replaced presence instance under the mutation lock for update and delete (26.302403ms)
+✔ should detect conflicting launch parameters through the MCP server cache (63.495195ms)
+✔ should reconcile a final memo after a crash before operation closure without executing again (44.095005ms)
+✖ should persist owner-directed delegation after freeze and deduplicate the eventual writer receipt (53.832185ms)
+✖ should recover the delegation event after final memo publication but before operation closure (43.413302ms)
+ℹ tests 7
+ℹ suites 0
+ℹ pass 5
+ℹ fail 2
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 517.261764
+
+✖ failing tests:
+
+test at packages/h2a/test/mh-l4-cuts.test.js:90:1
+✖ should persist owner-directed delegation after freeze and deduplicate the eventual writer receipt (53.832185ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  0 !== 1
+  
+      at TestContext.<anonymous> (file:///tmp/mh-l4-release-check-RvMsgD/packages/h2a/test/mh-l4-cuts.test.js:100:91)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:974:18)
+      at Test.postRun (node:internal/test_runner/test:1542:19)
+      at Test.run (node:internal/test_runner/test:1467:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 0,
+    expected: 1,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at packages/h2a/test/mh-l4-cuts.test.js:108:1
+✖ should recover the delegation event after final memo publication but before operation closure (43.413302ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  0 !== 1
+  
+      at TestContext.<anonymous> (file:///tmp/mh-l4-release-check-RvMsgD/packages/h2a/test/mh-l4-cuts.test.js:119:9)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:974:18)
+      at Test.postRun (node:internal/test_runner/test:1542:19)
+      at Test.run (node:internal/test_runner/test:1467:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 0,
+    expected: 1,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+receipt: {"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","--test","packages/h2a/test/mh-l4-cuts.test.js"],"code":1,"signal":null,"elapsedMs":544}
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node --test packages/h2a/test/mh-l4-cuts.test.js
+node: v24.21.0
+private test root: /tmp/mh-l4-test-8AxhvP
+{"event":"drive-consent.full-verification","durationMs":0.01991800000001831,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+{"event":"drive-consent.full-verification","durationMs":0.012022000000001754,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+{"event":"drive-consent.full-verification","durationMs":0.017202999999994972,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+{"event":"drive-consent.full-verification","durationMs":0.026028999999994085,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+{"event":"drive-consent.full-verification","durationMs":0.016710999999986598,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+✔ should close admissions at barrier and bind presence mutations to the exact session (98.9361ms)
+✔ should propagate the reserved token through the real async subprocess seam (1.277495ms)
+✔ should revalidate a replaced presence instance under the mutation lock for update and delete (30.543144ms)
+✔ should detect conflicting launch parameters through the MCP server cache (73.881676ms)
+✔ should reconcile a final memo after a crash before operation closure without executing again (47.073442ms)
+✔ should persist owner-directed delegation after freeze and deduplicate the eventual writer receipt (72.22078ms)
+✔ should recover the delegation event after final memo publication but before operation closure (46.37093ms)
+ℹ tests 7
+ℹ suites 0
+ℹ pass 7
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 553.353954
+receipt: {"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","--test","packages/h2a/test/mh-l4-cuts.test.js"],"code":0,"signal":null,"elapsedMs":576}
+
+case exit: 0
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node scripts/mh-l4-mutate.mjs reply-lifetime
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node --test packages/h2a/test/mh-l4-central.test.js
+node: v24.21.0
+private test root: /tmp/mh-l4-test-0suQGU
+{"event":"drive-consent.full-verification","durationMs":0.003997000000254047,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+✖ should checkpoint a real source attachment and reject a cancellation string inside new tool arguments (5649.278619ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 0
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 5734.875228
+
+✖ failing tests:
+
+test at packages/h2a/test/mh-l4-central.test.js:11:1
+✖ should checkpoint a real source attachment and reject a cancellation string inside new tool arguments (5649.278619ms)
+  AssertionError [ERR_ASSERTION]: an admitted operation must persist its large reply after owner freeze
+      at TestContext.<anonymous> (file:///tmp/mh-l4-release-check-RvMsgD/packages/h2a/test/mh-l4-central.test.js:98:12)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: undefined,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }
+receipt: {"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","--test","packages/h2a/test/mh-l4-central.test.js"],"code":1,"signal":null,"elapsedMs":5761}
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node --test packages/h2a/test/mh-l4-central.test.js
+node: v24.21.0
+private test root: /tmp/mh-l4-test-tUpOo4
+{"event":"drive-consent.full-verification","durationMs":0.003305999999611231,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+✔ should checkpoint a real source attachment and reject a cancellation string inside new tool arguments (6676.3724ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 1
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 6763.394993
+receipt: {"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","--test","packages/h2a/test/mh-l4-central.test.js"],"code":0,"signal":null,"elapsedMs":6790}
+
+case exit: 0
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node scripts/mh-l4-mutate.mjs delegation-recovery
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node --test packages/h2a/test/mh-l4-cuts.test.js
+node: v24.21.0
+private test root: /tmp/mh-l4-test-pMKZJZ
+{"event":"drive-consent.full-verification","durationMs":0.017853999999999814,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+{"event":"drive-consent.full-verification","durationMs":0.010680000000007794,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+{"event":"drive-consent.full-verification","durationMs":0.016582000000028074,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+{"event":"drive-consent.full-verification","durationMs":0.017301999999972395,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+{"event":"drive-consent.full-verification","durationMs":0.014185999999995147,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+✔ should close admissions at barrier and bind presence mutations to the exact session (105.430344ms)
+✔ should propagate the reserved token through the real async subprocess seam (1.534248ms)
+✔ should revalidate a replaced presence instance under the mutation lock for update and delete (28.14462ms)
+✔ should detect conflicting launch parameters through the MCP server cache (69.980833ms)
+✔ should reconcile a final memo after a crash before operation closure without executing again (48.797898ms)
+✔ should persist owner-directed delegation after freeze and deduplicate the eventual writer receipt (78.405762ms)
+✖ should recover the delegation event after final memo publication but before operation closure (49.088255ms)
+ℹ tests 7
+ℹ suites 0
+ℹ pass 6
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 567.577609
+
+✖ failing tests:
+
+test at packages/h2a/test/mh-l4-cuts.test.js:108:1
+✖ should recover the delegation event after final memo publication but before operation closure (49.088255ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  0 !== 1
+  
+      at TestContext.<anonymous> (file:///tmp/mh-l4-release-check-RvMsgD/packages/h2a/test/mh-l4-cuts.test.js:119:9)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:974:18)
+      at Test.postRun (node:internal/test_runner/test:1542:19)
+      at Test.run (node:internal/test_runner/test:1467:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 0,
+    expected: 1,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+receipt: {"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","--test","packages/h2a/test/mh-l4-cuts.test.js"],"code":1,"signal":null,"elapsedMs":592}
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node --test packages/h2a/test/mh-l4-cuts.test.js
+node: v24.21.0
+private test root: /tmp/mh-l4-test-HxJvER
+{"event":"drive-consent.full-verification","durationMs":0.020788999999979296,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+{"event":"drive-consent.full-verification","durationMs":0.013264999999989868,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+{"event":"drive-consent.full-verification","durationMs":0.018034000000000106,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+{"event":"drive-consent.full-verification","durationMs":0.016420999999979813,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+{"event":"drive-consent.full-verification","durationMs":0.012833999999998014,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+✔ should close admissions at barrier and bind presence mutations to the exact session (93.529352ms)
+✔ should propagate the reserved token through the real async subprocess seam (1.366262ms)
+✔ should revalidate a replaced presence instance under the mutation lock for update and delete (28.71304ms)
+✔ should detect conflicting launch parameters through the MCP server cache (71.244773ms)
+✔ should reconcile a final memo after a crash before operation closure without executing again (44.708701ms)
+✔ should persist owner-directed delegation after freeze and deduplicate the eventual writer receipt (82.184756ms)
+✔ should recover the delegation event after final memo publication but before operation closure (65.07614ms)
+ℹ tests 7
+ℹ suites 0
+ℹ pass 7
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 604.847096
+receipt: {"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","--test","packages/h2a/test/mh-l4-cuts.test.js"],"code":0,"signal":null,"elapsedMs":630}
+
+case exit: 0
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node scripts/mh-l4-mutate.mjs presence-reread
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node --test packages/h2a/test/mh-l4-cuts.test.js
+node: v24.21.0
+private test root: /tmp/mh-l4-test-pVdhAW
+{"event":"drive-consent.full-verification","durationMs":0.01822400000000357,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+{"event":"drive-consent.full-verification","durationMs":0.013585000000006175,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+{"event":"drive-consent.full-verification","durationMs":0.02150100000000066,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+{"event":"drive-consent.full-verification","durationMs":0.020499000000029355,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+{"event":"drive-consent.full-verification","durationMs":0.019256999999981872,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+✔ should close admissions at barrier and bind presence mutations to the exact session (109.623097ms)
+✔ should propagate the reserved token through the real async subprocess seam (1.353919ms)
+✖ should revalidate a replaced presence instance under the mutation lock for update and delete (28.961648ms)
+✔ should detect conflicting launch parameters through the MCP server cache (70.954546ms)
+✔ should reconcile a final memo after a crash before operation closure without executing again (47.892324ms)
+✔ should persist owner-directed delegation after freeze and deduplicate the eventual writer receipt (79.966721ms)
+✔ should recover the delegation event after final memo publication but before operation closure (58.009488ms)
+ℹ tests 7
+ℹ suites 0
+ℹ pass 6
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 586.671772
+
+✖ failing tests:
+
+test at packages/h2a/test/mh-l4-cuts.test.js:46:1
+✖ should revalidate a replaced presence instance under the mutation lock for update and delete (28.961648ms)
+  AssertionError [ERR_ASSERTION]: Missing expected exception.
+      at TestContext.<anonymous> (file:///tmp/mh-l4-release-check-RvMsgD/packages/h2a/test/mh-l4-cuts.test.js:56:10)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:974:18)
+      at Test.postRun (node:internal/test_runner/test:1542:19)
+      at Test.run (node:internal/test_runner/test:1467:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: undefined,
+    expected: /presence_ownership_mismatch/,
+    operator: 'throws',
+    diff: 'simple'
+  }
+receipt: {"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","--test","packages/h2a/test/mh-l4-cuts.test.js"],"code":1,"signal":null,"elapsedMs":618}
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node --test packages/h2a/test/mh-l4-cuts.test.js
+node: v24.21.0
+private test root: /tmp/mh-l4-test-VYmaD9
+{"event":"drive-consent.full-verification","durationMs":0.017642999999992526,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+{"event":"drive-consent.full-verification","durationMs":0.012314000000003489,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+{"event":"drive-consent.full-verification","durationMs":0.01551000000000613,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+{"event":"drive-consent.full-verification","durationMs":0.013425999999981286,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+{"event":"drive-consent.full-verification","durationMs":0.013495000000034452,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+✔ should close admissions at barrier and bind presence mutations to the exact session (97.025994ms)
+✔ should propagate the reserved token through the real async subprocess seam (1.630089ms)
+✔ should revalidate a replaced presence instance under the mutation lock for update and delete (27.970763ms)
+✔ should detect conflicting launch parameters through the MCP server cache (66.291158ms)
+✔ should reconcile a final memo after a crash before operation closure without executing again (43.434552ms)
+✔ should persist owner-directed delegation after freeze and deduplicate the eventual writer receipt (76.057973ms)
+✔ should recover the delegation event after final memo publication but before operation closure (53.962691ms)
+ℹ tests 7
+ℹ suites 0
+ℹ pass 7
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 554.81266
+receipt: {"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","--test","packages/h2a/test/mh-l4-cuts.test.js"],"code":0,"signal":null,"elapsedMs":578}
+
+case exit: 0
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node scripts/mh-l4-mutate.mjs wake-freshness
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node --test packages/h2a/test/mh-l4-wake.test.js
+node: v24.21.0
+private test root: /tmp/mh-l4-test-5Z6Njx
+✔ should serialize wakes, persist intent before injection and suppress unknown envelopes after restart (43.793898ms)
+✖ should retry a proven deferred wake but never inject from a frozen owner (47.728155ms)
+ℹ tests 2
+ℹ suites 0
+ℹ pass 1
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 273.652108
+
+✖ failing tests:
+
+test at packages/h2a/test/mh-l4-wake.test.js:33:1
+✖ should retry a proven deferred wake but never inject from a frozen owner (47.728155ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  false !== true
+  
+      at TestContext.<anonymous> (file:///tmp/mh-l4-release-check-RvMsgD/packages/h2a/test/mh-l4-wake.test.js:39:10)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+receipt: {"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","--test","packages/h2a/test/mh-l4-wake.test.js"],"code":1,"signal":null,"elapsedMs":297}
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node --test packages/h2a/test/mh-l4-wake.test.js
+node: v24.21.0
+private test root: /tmp/mh-l4-test-8iMvtF
+✔ should serialize wakes, persist intent before injection and suppress unknown envelopes after restart (37.87143ms)
+✔ should retry a proven deferred wake but never inject from a frozen owner (61.979932ms)
+ℹ tests 2
+ℹ suites 0
+ℹ pass 2
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 303.038295
+receipt: {"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","--test","packages/h2a/test/mh-l4-wake.test.js"],"code":0,"signal":null,"elapsedMs":328}
+
+case exit: 0
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node scripts/mh-l4-mutate.mjs readiness-idle
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node --test packages/h2a/test/mh-l4-idle.test.js
+node: v24.21.0
+private test root: /tmp/mh-l4-test-TJVO34
+{"event":"drive-consent.full-verification","durationMs":0.003647000000000844,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+✖ should start the idle interval at durable readiness after slow source preparation (3091.416461ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 0
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 3282.743789
+
+✖ failing tests:
+
+test at packages/h2a/test/mh-l4-idle.test.js:9:1
+✖ should start the idle interval at durable readiness after slow source preparation (3091.416461ms)
+  Error: orphan did not retire
+      at file:///tmp/mh-l4-release-check-RvMsgD/packages/h2a/test/mh-l4-idle.test.js:20:65
+      at async TestContext.<anonymous> (file:///tmp/mh-l4-release-check-RvMsgD/packages/h2a/test/mh-l4-idle.test.js:20:3)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3)
+receipt: {"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","--test","packages/h2a/test/mh-l4-idle.test.js"],"code":1,"signal":null,"elapsedMs":3309}
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node --test packages/h2a/test/mh-l4-idle.test.js
+node: v24.21.0
+private test root: /tmp/mh-l4-test-lg9wxk
+{"event":"drive-consent.full-verification","durationMs":0.0037269999999693937,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+✔ should start the idle interval at durable readiness after slow source preparation (811.854681ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 1
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 3368.765418
+receipt: {"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","--test","packages/h2a/test/mh-l4-idle.test.js"],"code":0,"signal":null,"elapsedMs":3395}
+
+case exit: 0

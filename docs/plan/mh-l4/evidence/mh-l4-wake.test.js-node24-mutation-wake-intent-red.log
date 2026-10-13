@@ -1,0 +1,38 @@
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node --test packages/h2a/test/mh-l4-wake.test.js
+node: v24.21.0
+private test root: /tmp/mh-l4-test-fuXsXp
+✖ should serialize wakes, persist intent before injection and suppress unknown envelopes after restart (329.996962ms)
+✔ should retry a proven deferred wake but never inject from a frozen owner (325.324647ms)
+ℹ tests 2
+ℹ suites 0
+ℹ pass 1
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 845.945568
+
+✖ failing tests:
+
+test at packages/h2a/test/mh-l4-wake.test.js:13:1
+✖ should serialize wakes, persist intent before injection and suppress unknown envelopes after restart (329.996962ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
+  + actual - expected
+  
+    [
+  +   'e',
+      'new'
+    ]
+  
+      at TestContext.<anonymous> (file:///tmp/mh-l4-release-check-RvMsgD/packages/h2a/test/mh-l4-wake.test.js:27:10)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: [ 'e', 'new' ],
+    expected: [ 'new' ],
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }
+
+receipt: {"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","--test","packages/h2a/test/mh-l4-wake.test.js"],"code":1,"signal":null,"elapsedMs":872}
