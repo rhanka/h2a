@@ -1,3 +1,4 @@
+import { withWriterMutation } from "../handover/mutation.js";
 /**
  * Identity binding registry + proof-of-possession (DEC-116 F1 security core;
  * stability unit RE-ANCHORED 2026-06-07 — supersedes the per-workspace choice).
@@ -152,7 +153,7 @@ export function reclaimOrMint(
   key: IdentityBindingKey,
   deps: ReclaimOrMintDeps
 ): ReclaimOrMintResult {
-  mkdirSync(identityDir(root), { recursive: true });
+  withWriterMutation(root, "registry", () => mkdirSync(identityDir(root), { recursive: true }));
   // L0 (detailed-gated): observe the binding lock's wait/acquire/hold so the
   // trace shows time spent contending the identity write — a logical lock id,
   // never a binding row's content.
@@ -166,7 +167,7 @@ export function reclaimOrMint(
         });
       }
     : undefined;
-  return withLockSync(bindingsLock(root), () => {
+  return withLockSync(bindingsLock(root), () => withWriterMutation(root, "registry", () => {
     const existing = findBinding(root, key);
     if (existing && deps.verifyProof(existing)) {
       return { action: "reclaim", instance: existing.instance, agentUuid: existing.agentUuid };
@@ -177,7 +178,7 @@ export function reclaimOrMint(
       at: new Date(deps.now()).toISOString()
     } satisfies H2AIdentityBinding);
     return { action: "mint", instance: minted.instance, agentUuid: minted.agentUuid };
-  }, {
+  }), {
     ownerMetadata: {
       protocol: IDENTITY_BINDING_FENCE_PROTOCOL,
       fenceEpoch: randomUUID()
@@ -229,7 +230,7 @@ export async function reclaimOrMintAsync(
   deps: ReclaimOrMintDeps,
   options: ReclaimOrMintOptions = {}
 ): Promise<ReclaimOrMintResult> {
-  mkdirSync(identityDir(root), { recursive: true });
+  withWriterMutation(root, "registry", () => mkdirSync(identityDir(root), { recursive: true }));
   const trace = getActiveMcpTrace();
   const observe = trace?.detailed
     ? (event: { event: string; waitMs?: number; holdMs?: number }): void => {
@@ -242,7 +243,7 @@ export async function reclaimOrMintAsync(
     : undefined;
   return withLock(
     bindingsLock(root),
-    () => {
+    () => withWriterMutation(root, "registry", () => {
       const existing = findBinding(root, key);
       if (existing && deps.verifyProof(existing)) {
         return { action: "reclaim", instance: existing.instance, agentUuid: existing.agentUuid };
@@ -261,7 +262,7 @@ export async function reclaimOrMintAsync(
         at: new Date(deps.now()).toISOString()
       } satisfies H2AIdentityBinding);
       return result;
-    },
+    }),
     {
       ownerMetadata: {
         protocol: IDENTITY_BINDING_FENCE_PROTOCOL,
