@@ -1,273 +1,88 @@
 /**
- * Live Git Indexing — L6a (H): data-pure live-declaration DTOs (h2a side).
+ * Live Git Indexing — L6a (H): h2a-side core contract view.
  *
- * DESIGN (LIVE SPEC §3 WorkspaceDeclaration/Clone/Worktree, §12):
- *  - A live declaration is durable LOCAL h2a state, created only by explicit
- *    activation (owner decision Q4 = A). Bind, transcript upload, code-workspace
- *    creation and agent sessions are never implicit activation and never
- *    withdraw a declaration.
- *  - The declaration is stored under the injected h2a root, outside every
- *    observed worktree and its git-dir/common-dir (LIVE §2).
- *  - Clone identity is NEVER a URL/fingerprint-only key: it binds the
- *    common-dir project fingerprint (the public `ws:` derivation with the
- *    empty main-worktree component) to the host scope and the common-dir
- *    realpath. Two clones with equal `ws:` fingerprints stay distinct; linked
- *    worktrees share exactly one clone.
- *  - The public `ws:` worktree fingerprint is preserved unchanged and stays a
- *    declaration/worktree attribute, never the sole clone key.
- *  - Missing (unborn HEAD) or shallow history yields EXPLICIT identity
- *    uncertainty; it never merges clones by remote URL or a missing
- *    fingerprint.
+ * The neutral contract FROZE at @sentropic/engram-live 0.1.0 (graphify
+ * 70ebdfee, PR rhanka/engram#359): H no longer carries its own declaration
+ * vocabulary, validators or identity derivations. This module re-exports the
+ * consumed contract surface — the underlying contracts.js takes zero imports,
+ * so this re-export stays data-pure (types, constants and deterministic
+ * validation only; no I/O, no host state) — and adds only H-core-owned pure
+ * policy (isLocalLiveTenant below).
  *
- * This module is data-pure: types, constants and deterministic derivations
- * only, no I/O and no host/runtime imports (LIVE §3 "H2a's copyable DTOs
- * remain data-pure"). The neutral `@sentropic/engram-live/contracts` export is
- * still moving; the assumptions this h2a contract makes are isolated here so
- * they stay easy to reconcile:
- *  - A01/A09/A17 assumption: the declaration carries a worktree-specific
- *    identity plus a clone identity; one declaration per activated worktree.
- *  - Field names and the uncertainty vocabulary below are h2a-local until
- *    the neutral contract freezes its WorkspaceDeclaration shape.
- *  - `principal` is the host-verified local principal reference; local
- *    verification itself is L7a work and stays outside this module.
+ * PRE-RELEASE CONSUMPTION (spec §11): @sentropic/engram-live is not
+ * published yet, so H consumes the digest-pinned packed prerelease built
+ * from graphify@70ebdfee with the repo's own scripts/build-live.mjs (see
+ * vendor/sentropic-engram-live-0.1.0.tgz; integrity pinned by the GUARD
+ * test in h2a-runtime live-registration.test.ts and recorded in
+ * package-lock.json). No neighboring checkout is imported, no `file:`
+ * outside the vendored tarball is shipped, and no contract code is copied:
+ * at publication time this becomes an exact registry version pin. The
+ * derivations (deriveCloneIdentity / deriveWorktreeIdentity /
+ * deriveDeclarationIdentity) live in the /integration entry and are consumed
+ * by the runtime side only — core never imports the factory entry, keeping
+ * copyable DTOs separate from factory imports per spec §3.
+ *
+ * RETIRED H VOCABULARY (L6a realignment; L6a is not consumed yet, so the
+ * break is local-only, no migration replay):
+ * - hostScope -> tenant (the value stays a `local:<id>` scope)
+ * - capability -> liveCapability (the value stays "live")
+ * - revision -> declarationRevision
+ * - workspaceFingerprint -> hostFingerprint (declaration level)
+ * - policy "live-git-1" -> POLICY_VERSION "live-git-indexing/1"
+ * - nested binding {sentropicWorkspaceId, issuer, bindingRevision} ->
+ *   flat serverWorkspaceId / serverIssuer / bindingRevision
+ * - nested clone {cloneId, commonDirRealpath, projectFingerprint} ->
+ *   CloneIdentityDto {hostScope, commonDirRealpath,
+ *   commonDirProjectFingerprint, cloneId, oidAlgorithm}
+ * - nested worktree {worktreeId, path, workspaceFingerprint} ->
+ *   WorktreeIdentityDto {cloneId, worktreeId, worktreePath, gitDir,
+ *   worktreeFingerprint}
+ * - newline-joined sha256 identity derivations -> the three canonical
+ *   public derivations (runtime side, see above).
  */
-import { createHash } from "node:crypto";
-
-import { computeDurableWorkspaceId } from "../identity/workspace-id.js";
-
-export const LIVE_DECLARATION_KIND = "h2a-live-declaration";
-export const LIVE_DECLARATION_SCHEMA_VERSION = 1;
-/** Versioned collection policy stamped on every declaration (LIVE §3). */
-export const LIVE_DECLARATION_POLICY_VERSION = "live-git-1";
-/** Explicit live capability; distinct from bind and upload consent. */
-export const LIVE_CAPABILITY = "live";
-/** Unborn/missing history: no root commits, no `ws:` fingerprint. */
-export const LIVE_IDENTITY_UNCERTAINTY_MISSING_HISTORY = "missing_history";
-/** Grafted (shallow) history: fingerprints computed, coverage uncertain. */
-export const LIVE_IDENTITY_UNCERTAINTY_SHALLOW_HISTORY = "shallow_history";
-
-export interface LiveWorktreeIdentity {
-  /** Opaque, host-scoped worktree identity (NOT the public `ws:` value). */
-  readonly worktreeId: string;
-  /** Authorized root: resolved real path of the observed worktree. */
-  readonly path: string;
-  /** Resolved git-dir (`.git/worktrees/<name>` for a linked worktree). */
-  readonly gitDir: string;
-  /** Preserved public `ws:` fingerprint; absent with missing_history. */
-  readonly workspaceFingerprint?: string;
-}
-
-export interface LiveCloneIdentity {
-  /** Opaque, host-scoped clone key. Never URL/fingerprint-only. */
-  readonly cloneId: string;
-  /** Resolved common-dir real path; shared by all linked worktrees. */
-  readonly commonDirRealpath: string;
-  /**
-   * Project fingerprint from the common-dir history with the EMPTY
-   * main-worktree component. Equal in two clones of one project; the clone
-   * key stays distinct through host scope + common-dir realpath.
-   */
-  readonly projectFingerprint?: string;
-  /** Explicit identity/coverage uncertainty labels, never silent. */
-  readonly identityUncertainty: readonly string[];
-}
-
-export interface LiveSentropicBinding {
-  /** Server-bound sentropic workspace the live intent is bound to. */
-  readonly sentropicWorkspaceId: string;
-  /** Issuer/server the enrollment token (and this binding) is bound to. */
-  readonly issuer: string;
-  /** Monotonic binding-record revision; bumps on revalidation+rebind. */
-  readonly bindingRevision: number;
-}
-
-export interface LiveWorkspaceDeclaration {
-  readonly kind: typeof LIVE_DECLARATION_KIND;
-  readonly schemaVersion: typeof LIVE_DECLARATION_SCHEMA_VERSION;
-  /** Opaque, deterministic: host scope + common-dir realpath + `ws:`. */
-  readonly declarationId: string;
-  /** Stable local scope, `local:<host-owner-id>`; never a sentropic tenant. */
-  readonly hostScope: string;
-  /** Host-verified local principal reference, when the authority supplies one. */
-  readonly principal?: string;
-  readonly worktree: LiveWorktreeIdentity;
-  readonly clone: LiveCloneIdentity;
-  /** Authorized roots this declaration covers (its worktree path today). */
-  readonly authorizedRoots: readonly string[];
-  readonly capability: typeof LIVE_CAPABILITY;
-  readonly policyVersion: string;
-  /** Declaration revision; monotonic, one per applied mutation. */
-  readonly revision: number;
-  /** Optional product live intent; requires revalidation to change. */
-  readonly binding?: LiveSentropicBinding;
-  readonly createdAt: string;
-  /** Activation timestamp; replay after restart never renews it. */
-  readonly activatedAt: string;
-  readonly updatedAt: string;
-}
-
-// ---------------------------------------------------------------------------
-// Pure derivations
-// ---------------------------------------------------------------------------
-
-const sha256Hex = (payload: string): string =>
-  createHash("sha256").update(payload, "utf8").digest("hex");
+export {
+  CONTRACT_NAME,
+  CONTRACT_VERSION,
+  EXPLICIT_LIVE_CAPABILITY,
+  IDENTITY_UNCERTAINTY_STATES,
+  INITIAL_BINDING_REVISION,
+  INITIAL_DECLARATION_REVISION,
+  NON_ACTIVATING_LIFECYCLE_KINDS,
+  POLICY_VERSION,
+  isIdentityUncertaintyState,
+  isNonActivatingLifecycleKind,
+  isRevocationReason,
+  validateCloneIdentity,
+  validateDeclarationRevocation,
+  validatePrivatePurgeRequest,
+  validateWorkspaceDeclaration,
+  validateWorktreeIdentity,
+} from "@sentropic/engram-live/contracts";
+export type {
+  CloneIdentityDto,
+  DeclarationRevocationDto,
+  IdentityUncertaintyState,
+  NonActivatingLifecycleKind,
+  OidAlgorithm,
+  PrivatePurgeRequestDto,
+  RevocationReason,
+  ValidationResult,
+  WorkspaceDeclarationDto,
+  WorktreeIdentityDto,
+} from "@sentropic/engram-live/contracts";
 
 /**
- * Project fingerprint for clone identity: the common-dir history with the
- * empty main-worktree component (LIVE §12). Byte-equal for every worktree,
- * linked or main, of one clone.
+ * H tenant guard: the live tenant is ALWAYS a stable local scope
+ * `local:<host-owner-id>`, never a sentropic tenant inferred from a
+ * workspace id. The verified owner scope and principal proof are L7a work;
+ * until then the tenant default is provisional (see the runtime
+ * live-registration service).
  */
-export function deriveLiveProjectFingerprint(rootCommitSha: string): string {
-  return computeDurableWorkspaceId(rootCommitSha, "");
-}
-
-/**
- * Clone key = host scope + common-dir realpath + project fingerprint.
- * Realpath keeps two equal-`ws:` clones distinct; common-dir keeps linked
- * worktrees together. A missing fingerprint never merges clones: the
- * realpath still keys them apart, and the uncertainty is explicit.
- */
-export function deriveLiveCloneIdentity(input: {
-  readonly hostScope: string;
-  readonly commonDirRealpath: string;
-  readonly projectFingerprint?: string;
-  readonly identityUncertainty?: readonly string[];
-}): LiveCloneIdentity {
-  const cloneId =
-    "clone:" +
-    sha256Hex(
-      `${input.hostScope}\n${input.commonDirRealpath}\n${input.projectFingerprint ?? ""}`,
-    );
-  return {
-    cloneId,
-    commonDirRealpath: input.commonDirRealpath,
-    ...(input.projectFingerprint !== undefined
-      ? { projectFingerprint: input.projectFingerprint }
-      : {}),
-    identityUncertainty: [...(input.identityUncertainty ?? [])],
-  };
-}
-
-/** Worktree identity: git-dir is unique per linked worktree on a host. */
-export function deriveLiveWorktreeIdentity(input: {
-  readonly hostScope: string;
-  readonly path: string;
-  readonly gitDir: string;
-  readonly workspaceFingerprint?: string;
-}): LiveWorktreeIdentity {
-  return {
-    worktreeId: "wt:" + sha256Hex(`${input.hostScope}\n${input.gitDir}`),
-    path: input.path,
-    gitDir: input.gitDir,
-    ...(input.workspaceFingerprint !== undefined
-      ? { workspaceFingerprint: input.workspaceFingerprint }
-      : {}),
-  };
-}
-
-/** One declaration per activated worktree, keyed without host absolute paths leaking into sentropic surfaces. */
-export function deriveLiveDeclarationId(input: {
-  readonly hostScope: string;
-  readonly commonDirRealpath: string;
-  readonly workspaceFingerprint?: string;
-}): string {
+export function isLocalLiveTenant(value: unknown): value is string {
   return (
-    "decl:" +
-    sha256Hex(
-      `${input.hostScope}\n${input.commonDirRealpath}\n${input.workspaceFingerprint ?? ""}`,
-    )
+    typeof value === "string" &&
+    value.startsWith("local:") &&
+    value.trim().length > "local:".length &&
+    !value.includes("\0")
   );
-}
-
-/**
- * Structural validation. Returns the first problem, or undefined when the
- * value is a well-formed live declaration. Data-pure: no I/O, no authority.
- */
-export function validateLiveDeclaration(value: unknown): string | undefined {
-  if (typeof value !== "object" || value === null) {
-    return "declaration is not an object";
-  }
-  const record = value as Partial<LiveWorkspaceDeclaration>;
-  if (record.kind !== LIVE_DECLARATION_KIND) {
-    return "unexpected declaration kind";
-  }
-  if (record.schemaVersion !== LIVE_DECLARATION_SCHEMA_VERSION) {
-    return "unsupported declaration schema version";
-  }
-  if (typeof record.declarationId !== "string" || record.declarationId.length === 0) {
-    return "missing declarationId";
-  }
-  if (typeof record.hostScope !== "string" || record.hostScope.length === 0) {
-    return "missing hostScope";
-  }
-  const worktree = record.worktree;
-  if (
-    typeof worktree !== "object" ||
-    worktree === null ||
-    typeof worktree.worktreeId !== "string" ||
-    typeof worktree.path !== "string" ||
-    worktree.path.length === 0 ||
-    typeof worktree.gitDir !== "string"
-  ) {
-    return "invalid worktree identity";
-  }
-  const clone = record.clone;
-  if (
-    typeof clone !== "object" ||
-    clone === null ||
-    typeof clone.cloneId !== "string" ||
-    clone.cloneId.length === 0 ||
-    typeof clone.commonDirRealpath !== "string" ||
-    !Array.isArray(clone.identityUncertainty)
-  ) {
-    return "invalid clone identity";
-  }
-  if (
-    worktree.workspaceFingerprint === undefined &&
-    !clone.identityUncertainty.includes(LIVE_IDENTITY_UNCERTAINTY_MISSING_HISTORY)
-  ) {
-    return "missing workspace fingerprint without explicit missing_history uncertainty";
-  }
-  if (
-    !Array.isArray(record.authorizedRoots) ||
-    record.authorizedRoots.length === 0 ||
-    record.authorizedRoots.some((root) => typeof root !== "string" || root.length === 0)
-  ) {
-    return "invalid authorized roots";
-  }
-  if (record.capability !== LIVE_CAPABILITY) {
-    return "declaration does not carry the live capability";
-  }
-  if (typeof record.policyVersion !== "string" || record.policyVersion.length === 0) {
-    return "missing policy version";
-  }
-  if (
-    typeof record.revision !== "number" ||
-    !Number.isInteger(record.revision) ||
-    record.revision < 1
-  ) {
-    return "invalid declaration revision";
-  }
-  const binding = record.binding;
-  if (
-    binding !== undefined &&
-    (typeof binding !== "object" ||
-      binding === null ||
-      typeof binding.sentropicWorkspaceId !== "string" ||
-      binding.sentropicWorkspaceId.length === 0 ||
-      typeof binding.issuer !== "string" ||
-      binding.issuer.length === 0 ||
-      typeof binding.bindingRevision !== "number" ||
-      !Number.isInteger(binding.bindingRevision) ||
-      binding.bindingRevision < 1)
-  ) {
-    return "invalid sentropic binding";
-  }
-  for (const field of ["createdAt", "activatedAt", "updatedAt"] as const) {
-    if (typeof record[field] !== "string" || record[field].length === 0) {
-      return `missing ${field}`;
-    }
-  }
-  return undefined;
 }

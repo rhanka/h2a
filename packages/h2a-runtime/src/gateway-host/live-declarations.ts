@@ -7,66 +7,61 @@
  *    its git-dir/common-dir. It is authoritative independently of the live
  *    projection: losing the projection never loses registrations, and the
  *    store is never a projection-owned surface.
+ *  - Each record wraps the EXACT neutral WorkspaceDeclarationDto (flat
+ *    identity triangle declarationId/cloneId/worktreeId, tenant,
+ *    liveCapability, declarationRevision, flat product binding) plus the
+ *    full local CloneIdentityDto/WorktreeIdentityDto (host-local realpath,
+ *    git-dir and paths needed to operate; only the opaque ids cross to
+ *    sentropic). Every write is validated with the engram validators — the
+ *    runtime keeps no mirror of the contract, it imports
+ *    @sentropic/engram-live/contracts (digest-pinned prerelease, see the
+ *    core live/contracts.ts header).
  *  - Writes are atomic (0600, tmp+rename) through the gateway-host private
  *    metadata writer; a corrupt store fails EXPLICITLY, it never silently
- *    restarts empty (that would erase desired live registrations).
- *  - Update is revision-guarded: a stale writer is refused with
- *    revision_conflict and never clobbers a newer revision.
+ *    restarts empty (that would erase desired live registrations). A
+ *    pre-realignment (nested, `live-git-1`) store file is rejected
+ *    EXPLICITLY as unsupported — never silently migrated, never silently
+ *    read: L6a is not consumed yet, so no migration replay exists and the
+ *    operator removes the file to start fresh.
+ *  - Update is revision-guarded: the caller composes the next record
+ *    through the contract rules (declarationRevision + 1, immutable
+ *    identity triangle, binding renewal-or-preserved); the store verifies
+ *    the guard (stale writer refused with revision_conflict, never
+ *    clobbering), the triangle, the binding monotonicity (first binding
+ *    exactly INITIAL_BINDING_REVISION, then strictly greater) and the
+ *    final DTOs, then persists.
  */
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
+import {
+  INITIAL_BINDING_REVISION,
+  validateCloneIdentity,
+  validateWorkspaceDeclaration,
+  validateWorktreeIdentity,
+} from "@sentropic/engram-live/contracts";
+import type {
+  CloneIdentityDto,
+  WorkspaceDeclarationDto,
+  WorktreeIdentityDto,
+} from "@sentropic/engram-live/contracts";
+
 import { writePrivateMetadata } from "./config-file.js";
 
-/**
- * Mirror of the data-pure core DTO (`@sentropic/h2a`
- * `src/runtime/live/contracts.ts`). The core/runtime boundary forbids a
- * static runtime→core import (core reaches runtime through string specifiers),
- * so the runtime keeps a byte-compatible copy, cross-checked by
- * live-registration.test.ts against the core source until the neutral
- * engram contract lands.
- */
 export const LIVE_DECLARATION_KIND = "h2a-live-declaration";
 export const LIVE_DECLARATION_SCHEMA_VERSION = 1;
-export const LIVE_DECLARATION_POLICY_VERSION = "live-git-1";
-export const LIVE_CAPABILITY = "live";
-export const LIVE_IDENTITY_UNCERTAINTY_MISSING_HISTORY = "missing_history";
-export const LIVE_IDENTITY_UNCERTAINTY_SHALLOW_HISTORY = "shallow_history";
-
-export interface LiveWorktreeRecord {
-  readonly worktreeId: string;
-  readonly path: string;
-  readonly gitDir: string;
-  readonly workspaceFingerprint?: string;
-}
-
-export interface LiveCloneRecord {
-  readonly cloneId: string;
-  readonly commonDirRealpath: string;
-  readonly projectFingerprint?: string;
-  readonly identityUncertainty: readonly string[];
-}
-
-export interface LiveSentropicBindingRecord {
-  readonly sentropicWorkspaceId: string;
-  readonly issuer: string;
-  readonly bindingRevision: number;
-}
 
 export interface LiveDeclarationRecord {
   readonly kind: typeof LIVE_DECLARATION_KIND;
   readonly schemaVersion: typeof LIVE_DECLARATION_SCHEMA_VERSION;
-  readonly declarationId: string;
-  readonly hostScope: string;
-  readonly principal?: string;
-  readonly worktree: LiveWorktreeRecord;
-  readonly clone: LiveCloneRecord;
-  readonly authorizedRoots: readonly string[];
-  readonly capability: typeof LIVE_CAPABILITY;
-  readonly policyVersion: string;
-  readonly revision: number;
-  readonly binding?: LiveSentropicBindingRecord;
+  /** The exact neutral DTO; validated with validateWorkspaceDeclaration on every write. */
+  readonly declaration: WorkspaceDeclarationDto;
+  /** Full local clone identity (commonDirRealpath stays host-local; only cloneId is shared). */
+  readonly clone: CloneIdentityDto;
+  /** Full local worktree identity. */
+  readonly worktree: WorktreeIdentityDto;
   readonly createdAt: string;
+  /** Activation timestamp; replay after restart never renews it. */
   readonly activatedAt: string;
   readonly updatedAt: string;
 }
@@ -77,18 +72,61 @@ interface LiveDeclarationsFile {
   readonly declarations: LiveDeclarationRecord[];
 }
 
-const isDeclarationRecord = (value: unknown): value is LiveDeclarationRecord => {
+/** Structural validation of a record: envelope, triangle consistency, then the engram validators. */
+const validateRecord = (record: LiveDeclarationRecord): string | undefined => {
+  if (record.kind !== LIVE_DECLARATION_KIND) return "unexpected declaration kind";
+  if (record.schemaVersion !== LIVE_DECLARATION_SCHEMA_VERSION) {
+    return "unsupported declaration schema version";
+  }
+  const declaration = validateWorkspaceDeclaration(record.declaration);
+  if (!declaration.ok) return `invalid declaration: ${declaration.errors.join("; ")}`;
+  if (record.clone.cloneId !== record.declaration.cloneId) {
+    return "clone/worktree attachment mismatch: clone.cloneId differs from declaration.cloneId";
+  }
+  if (record.worktree.cloneId !== record.declaration.cloneId) {
+    return "clone/worktree attachment mismatch: worktree.cloneId differs from declaration.cloneId";
+  }
+  if (record.worktree.worktreeId !== record.declaration.worktreeId) {
+    return "clone/worktree attachment mismatch: worktree.worktreeId differs from declaration.worktreeId";
+  }
+  const clone = validateCloneIdentity(record.clone);
+  if (!clone.ok) return `invalid clone identity: ${clone.errors.join("; ")}`;
+  const worktree = validateWorktreeIdentity(record.worktree);
+  if (!worktree.ok) return `invalid worktree identity: ${worktree.errors.join("; ")}`;
+  for (const field of ["createdAt", "activatedAt", "updatedAt"] as const) {
+    if (typeof record[field] !== "string" || record[field].length === 0) {
+      return `missing ${field}`;
+    }
+  }
+  return undefined;
+};
+
+const isRecord = (value: unknown): value is LiveDeclarationRecord => {
   if (typeof value !== "object" || value === null) return false;
   const record = value as Partial<LiveDeclarationRecord>;
+  if (
+    record.kind !== LIVE_DECLARATION_KIND ||
+    record.schemaVersion !== LIVE_DECLARATION_SCHEMA_VERSION ||
+    typeof record.declaration !== "object" ||
+    record.declaration === null ||
+    typeof record.clone !== "object" ||
+    record.clone === null ||
+    typeof record.worktree !== "object" ||
+    record.worktree === null ||
+    typeof record.declaration.declarationId !== "string"
+  ) {
+    return false;
+  }
+  return validateRecord(record as LiveDeclarationRecord) === undefined;
+};
+
+/** Pre-realignment entries (nested shape, top-level hostScope/revision, no neutral DTO) are never read as records. */
+const isLegacyRecord = (value: unknown): boolean => {
+  if (typeof value !== "object" || value === null) return false;
+  const record = value as Record<string, unknown>;
   return (
-    record.kind === LIVE_DECLARATION_KIND &&
-    typeof record.declarationId === "string" &&
-    record.declarationId.length > 0 &&
-    typeof record.worktree === "object" &&
-    record.worktree !== null &&
-    typeof record.clone === "object" &&
-    record.clone !== null &&
-    typeof record.revision === "number"
+    "hostScope" in record ||
+    ("declarationId" in record && !("declaration" in record))
   );
 };
 
@@ -124,7 +162,13 @@ const readStoreFile = (root: string): LiveDeclarationsFile => {
   }
   const file = parsed as LiveDeclarationsFile;
   for (const entry of file.declarations) {
-    if (!isDeclarationRecord(entry)) {
+    if (isLegacyRecord(entry)) {
+      throw new Error(
+        `live declarations store uses the pre-realignment L6a format at ${path}: ` +
+          `remove the file to start fresh (L6a is not consumed yet; no migration replay exists)`,
+      );
+    }
+    if (!isRecord(entry)) {
       throw new Error(
         `live declarations store contains a malformed declaration at ${path}`,
       );
@@ -146,14 +190,17 @@ export interface LiveDeclarationStore {
   insert(record: LiveDeclarationRecord): void;
   /**
    * Revision-guarded mutation: re-reads the durable store, refuses a stale
-   * `expectedRevision` with `revision_conflict`, stamps the next revision and
-   * persists atomically. The callback returns the next record body; the store
-   * owns the revision arithmetic.
+   * `expectedDeclarationRevision` with `revision_conflict`, verifies the
+   * composed next record (declarationRevision exactly + 1, immutable
+   * identity triangle, binding renewal-or-preserved with first binding
+   * exactly INITIAL_BINDING_REVISION then strictly greater, valid DTOs)
+   * and persists atomically. The callback returns the fully composed next
+   * record; the store owns the guard, never silent arithmetic.
    */
   update(
     declarationId: string,
-    expectedRevision: number,
-    mutate: (record: LiveDeclarationRecord) => Omit<LiveDeclarationRecord, "revision">,
+    expectedDeclarationRevision: number,
+    mutate: (record: LiveDeclarationRecord) => LiveDeclarationRecord,
   ): LiveDeclarationRecord;
   remove(declarationId: string): boolean;
 }
@@ -175,44 +222,111 @@ export function createLiveDeclarationStore(root: string): LiveDeclarationStore {
   return {
     list() {
       return [...load()].sort((a, b) =>
-        a.declarationId < b.declarationId ? -1 : a.declarationId > b.declarationId ? 1 : 0,
+        a.declaration.declarationId < b.declaration.declarationId
+          ? -1
+          : a.declaration.declarationId > b.declaration.declarationId
+            ? 1
+            : 0,
       );
     },
     get(declarationId) {
-      return load().find((record) => record.declarationId === declarationId);
+      return load().find((record) => record.declaration.declarationId === declarationId);
     },
     findByPath(path) {
-      return load().find((record) => record.authorizedRoots.includes(path));
+      return load().find((record) => record.declaration.authorizedRoots.includes(path));
     },
     insert(record) {
+      const problem = validateRecord(record);
+      if (problem !== undefined) {
+        throw new Error(`invalid live declaration record: ${problem}`);
+      }
       const declarations = load();
-      if (declarations.some((existing) => existing.declarationId === record.declarationId)) {
+      if (
+        declarations.some(
+          (existing) => existing.declaration.declarationId === record.declaration.declarationId,
+        )
+      ) {
         throw new Error(
-          `live declaration already exists: ${record.declarationId}`,
+          `live declaration already exists: ${record.declaration.declarationId}`,
         );
       }
       persist([...declarations, record]);
     },
-    update(declarationId, expectedRevision, mutate) {
+    update(declarationId, expectedDeclarationRevision, mutate) {
       const declarations = load();
       const index = declarations.findIndex(
-        (record) => record.declarationId === declarationId,
+        (record) => record.declaration.declarationId === declarationId,
       );
       if (index === -1) {
         throw new Error(`unknown live declaration: ${declarationId}`);
       }
       const current = declarations[index]!;
-      if (current.revision !== expectedRevision) {
+      if (current.declaration.declarationRevision !== expectedDeclarationRevision) {
         throw new Error(
-          `revision_conflict: live declaration ${declarationId} is at revision ` +
-            `${current.revision}, stale writer held ${expectedRevision}`,
+          `revision_conflict: live declaration ${declarationId} is at declaration revision ` +
+            `${current.declaration.declarationRevision}, stale writer held ${expectedDeclarationRevision}`,
         );
       }
-      const body = mutate(current);
-      if (body.declarationId !== declarationId) {
+      const next = mutate(current);
+      if (next.declaration.declarationId !== declarationId) {
         throw new Error(`update must not change declarationId: ${declarationId}`);
       }
-      const next: LiveDeclarationRecord = { ...body, revision: expectedRevision + 1 };
+      if (next.declaration.declarationRevision !== expectedDeclarationRevision + 1) {
+        throw new Error(
+          `update must advance declarationRevision by exactly one: held ${expectedDeclarationRevision}`,
+        );
+      }
+      for (
+        const field of [
+          "tenant",
+          "principal",
+          "hostFingerprint",
+          "cloneId",
+          "worktreeId",
+          "liveCapability",
+        ] as const
+      ) {
+        if (next.declaration[field] !== current.declaration[field]) {
+          throw new Error(
+            `update must not change declaration identity field "${field}": ${declarationId}`,
+          );
+        }
+      }
+      // Binding renewal-or-preserved: a workspace/issuer/revision change
+      // renews the binding (complete triplet, first binding exactly
+      // INITIAL_BINDING_REVISION, then strictly greater); any other
+      // mutation preserves it.
+      const previous = current.declaration;
+      const candidate = next.declaration;
+      const workspaceChanged = candidate.serverWorkspaceId !== previous.serverWorkspaceId;
+      const issuerChanged = candidate.serverIssuer !== previous.serverIssuer;
+      const revisionTouched = candidate.bindingRevision !== previous.bindingRevision;
+      if (workspaceChanged || issuerChanged || revisionTouched) {
+        if (
+          candidate.serverWorkspaceId === undefined ||
+          candidate.serverIssuer === undefined ||
+          candidate.bindingRevision === undefined
+        ) {
+          throw new Error(
+            `update must carry the complete serverWorkspaceId + serverIssuer + bindingRevision triplet when the binding changes: ${declarationId}`,
+          );
+        }
+        if (previous.bindingRevision === undefined) {
+          if (candidate.bindingRevision !== INITIAL_BINDING_REVISION) {
+            throw new Error(
+              `update must carry bindingRevision ${INITIAL_BINDING_REVISION} for the first product binding: ${declarationId}`,
+            );
+          }
+        } else if (candidate.bindingRevision <= previous.bindingRevision) {
+          throw new Error(
+            `update must carry a strictly increasing bindingRevision: ${declarationId}`,
+          );
+        }
+      }
+      const problem = validateRecord(next);
+      if (problem !== undefined) {
+        throw new Error(`invalid updated live declaration record: ${problem}`);
+      }
       const updated = [
         ...declarations.slice(0, index),
         next,
@@ -224,7 +338,7 @@ export function createLiveDeclarationStore(root: string): LiveDeclarationStore {
     remove(declarationId) {
       const declarations = load();
       const remaining = declarations.filter(
-        (record) => record.declarationId !== declarationId,
+        (record) => record.declaration.declarationId !== declarationId,
       );
       if (remaining.length === declarations.length) return false;
       persist(remaining);
