@@ -106,7 +106,17 @@ export function centralResidueReport(
       const isTrk = tracked(path);
       if (options.repair) {
         try {
-          const incoming = { command: "h2a", args: ["mcp-serve", "--auto-open", "--host", host, "--auto-upgrade", "--wake", "auto"] };
+          // Spec v7 P9: preserve the prior automatic opt-in, never add it.
+          const hadAutoUpgrade = (() => {
+            try {
+              const prior = JSON.parse(readFileSync(path, "utf8")) as { mcpServers?: { h2a?: { args?: unknown } } };
+              const priorArgs = prior?.mcpServers?.h2a?.args;
+              return Array.isArray(priorArgs) && (priorArgs as unknown[]).includes("--auto-upgrade");
+            } catch {
+              return false;
+            }
+          })();
+          const incoming = { command: "h2a", args: ["mcp-serve", "--auto-open", "--host", host, ...(hadAutoUpgrade ? ["--auto-upgrade"] : []), "--wake", "auto"] };
           const { backupPath } = writeHostMcpEntry(path, incoming, Boolean(options.allowTracked));
           findings.push({ path, kind: "v1-central-config", tracked: isTrk, action: "repaired", ...(backupPath ? { backupPath } : {}) });
           repairedCount++;

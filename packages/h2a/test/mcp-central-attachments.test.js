@@ -900,8 +900,8 @@ test("v1 residual configurations without --host route to stdio on missing marker
     assert.equal(repairReport.repairedCount, 3);
 
     const updatedClaude = JSON.parse(readFileSync(configPath, "utf8"));
-    const expectedClaudeArgs = ["mcp-serve", "--auto-open", "--host", "claude", "--auto-upgrade", "--wake", "auto"];
-    assert.deepEqual(updatedClaude.mcpServers.h2a.args, expectedClaudeArgs, "Claude repair produces complete coordination arguments");
+    const expectedClaudeArgs = ["mcp-serve", "--auto-open", "--host", "claude", "--wake", "auto"];
+    assert.deepEqual(updatedClaude.mcpServers.h2a.args, expectedClaudeArgs, "Claude repair without prior opt-in must not add --auto-upgrade (spec v7 P9)");
 
     // Verify repository containing "codex" in directory path receives Claude host args, not codex (R17)
     const repairCodexTools = centralResidueReport(repoCodexTools, agyConfigPath, { repair: true, allowTracked: true, codexConfig: codexConfigPath });
@@ -910,12 +910,24 @@ test("v1 residual configurations without --host route to stdio on missing marker
     assert.deepEqual(updatedCodexTools.mcpServers.h2a.args, expectedClaudeArgs, "repo path containing 'codex' must be repaired as Claude, not Codex");
 
     const updatedAgy = JSON.parse(readFileSync(agyConfigPath, "utf8"));
-    const expectedAgyArgs = ["mcp-serve", "--auto-open", "--host", "agy", "--auto-upgrade", "--wake", "auto"];
-    assert.deepEqual(updatedAgy.mcpServers.h2a.args, expectedAgyArgs, "agy repair produces complete coordination arguments");
+    const expectedAgyArgs = ["mcp-serve", "--auto-open", "--host", "agy", "--wake", "auto"];
+    assert.deepEqual(updatedAgy.mcpServers.h2a.args, expectedAgyArgs, "agy repair without prior opt-in must not add --auto-upgrade (spec v7 P9)");
 
     const updatedCodex = JSON.parse(readFileSync(codexConfigPath, "utf8"));
-    const expectedCodexArgs = ["mcp-serve", "--auto-open", "--host", "codex", "--auto-upgrade", "--wake", "auto"];
-    assert.deepEqual(updatedCodex.mcpServers.h2a.args, expectedCodexArgs, "codex repair produces complete coordination arguments");
+    const expectedCodexArgs = ["mcp-serve", "--auto-open", "--host", "codex", "--wake", "auto"];
+    assert.deepEqual(updatedCodex.mcpServers.h2a.args, expectedCodexArgs, "codex repair without prior opt-in must not add --auto-upgrade (spec v7 P9)");
+
+    // 4b. A prior config that already opted into --auto-upgrade keeps it after repair (spec v7 P9).
+    const repoOptin = mkdtempSync(join(f.dir, "repo-optin-"));
+    const optinConfigPath = join(repoOptin, ".mcp.json");
+    writeFileSync(optinConfigPath, JSON.stringify({ mcpServers: { h2a: { command: "h2a",
+      args: ["mcp-central-connect", "--endpoint", "http://127.0.0.1:47000/mcp", "--auto-upgrade"] } } }));
+    const optinReport = centralResidueReport(repoOptin, join(f.env.HOME, "missing-agy.json"),
+      { repair: true, codexConfig: join(f.env.HOME, "missing-codex.json") });
+    assert.equal(optinReport.repairedCount, 1);
+    assert.deepEqual(JSON.parse(readFileSync(optinConfigPath, "utf8")).mcpServers.h2a.args,
+      ["mcp-serve", "--auto-open", "--host", "claude", "--auto-upgrade", "--wake", "auto"],
+      "repair preserves a prior --auto-upgrade opt-in");
 
     // 5. Exercise each repaired configuration and reread its signed inbox envelope.
     for (const [host, config] of [["claude", updatedClaude], ["agy", updatedAgy], ["codex", updatedCodex]]) {
