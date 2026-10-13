@@ -152,7 +152,7 @@ function createCentralApp(
   administration: () => ColdAdministration | undefined,
   participants: () => Participants | undefined,
   options: { requestStop(): void; idleTimeoutMs: number; sessionLeaseMs: number; precheck?: boolean; endpointPinned?: boolean; managedImage?: boolean; runExecutor?: H2aRunExecutor }
-): { app: Hono; inventory(): { revision: number; transports: unknown[] }; drain(): { revision: number; calls: number; children: number; briefs: number; callbacks: number; effects: number }; close(): Promise<void> } {
+): { app: Hono; ready(): void; inventory(): { revision: number; transports: unknown[] }; drain(): { revision: number; calls: number; children: number; briefs: number; callbacks: number; effects: number }; close(): Promise<void> } {
   const app = new Hono();
   const lag = monitorEventLoopDelay({ resolution: 20 });
   lag.enable();
@@ -160,6 +160,7 @@ function createCentralApp(
   type Attachment = { participant: import("./handover/participants.js").AttachmentParticipant; transport: StreamableHTTPTransport; handle: CentralAttachmentHandle; touched: number; closing?: Promise<void> };
   const sessions = new Map<string, Attachment>();
   let lastBusy = Date.now();
+  let ready = false;
   let closing = false;
   let activeCalls = 0;
   let drainRevision = 1;
@@ -179,6 +180,7 @@ function createCentralApp(
     return attachment.closing;
   };
   const sweep = setInterval(() => {
+    if (!ready) return;
     const now = Date.now();
     for (const [id, attachment] of sessions) {
       if (now - attachment.touched > options.sessionLeaseMs) void closeAttachment(id, attachment);
@@ -306,7 +308,7 @@ function createCentralApp(
     return response ?? context.body(null, 202);
     } finally { activeCalls--; drainRevision++; }
   });
-  return { app, inventory: () => ({ ...(participants()?.inventory() ?? { schemaVersion: 1, shims: [], transports: [], operations: [], quarantines: [], launches: [], writerRestrictions: ["precheck_admission_closed"] }), revision: inventoryRevision }),
+  return { app, ready() { lastBusy = Date.now(); ready = true; }, inventory: () => ({ ...(participants()?.inventory() ?? { schemaVersion: 1, shims: [], transports: [], operations: [], quarantines: [], launches: [], writerRestrictions: ["precheck_admission_closed"] }), revision: inventoryRevision }),
     drain: () => {
       const durable = participants()?.drain() ?? { revision: 1, calls: 0, children: 0, briefs: 0, callbacks: 0, effects: 0 };
       return { ...durable, revision: drainRevision + durable.revision, calls: activeCalls + durable.calls, callbacks: callbacks + durable.callbacks };
@@ -503,6 +505,7 @@ export async function startCentralMcpServer(
       claim = published;
       if (options.successor && plan.transactionPath) readySuccessor(plan.transactionPath, options.successor, identity);
       markStartupReady(stateDirectory, identity);
+      application!.ready();
       (authentication as any).ready = true;
     });
   } catch (error) {
