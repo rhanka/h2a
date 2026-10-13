@@ -1,6 +1,5 @@
-import { createHash } from "node:crypto";
 import { EventEmitter } from "node:events";
-import { mkdirSync, readFileSync, rmSync } from "node:fs";
+import { mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PassThrough } from "node:stream";
@@ -10,16 +9,10 @@ import type {
   ClaudeCodeCliCapabilities,
   ClaudeCodeCliRequest,
 } from "./claude-seat-mesh-contract.js";
-import {
-  buildClaudeQualificationRef,
-  buildClaudeToolsQualificationRef,
-  OfficialClaudeCodeCliRunner,
-} from "./claude-code-cli-runner.js";
+import { OfficialClaudeCodeCliRunner } from "./claude-code-cli-runner.js";
 
-const PINNED_TEST_BINARY = process.execPath;
-const PINNED_TEST_DIGEST = createHash("sha256")
-  .update(readFileSync(PINNED_TEST_BINARY))
-  .digest("hex");
+// Explicit override for tests: absolute and present, no pinning involved.
+const EXPLICIT_TEST_BINARY = process.execPath;
 
 function createMockChild() {
   const child = new EventEmitter() as any;
@@ -50,15 +43,14 @@ describe("claude-code-cli-tools", () => {
 
   const textOnlyCaps: ClaudeCodeCliCapabilities = {
     protocol: "claude-code-stream-json-v1",
-    cliVersion: "2.1.296",
-    source: "official",
-    qualificationRef: buildClaudeQualificationRef(PINNED_TEST_DIGEST),
+    cliVersion: "unpinned",
+    source: "path-resolved-cli",
+    qualificationRef: "unpinned:path-resolved-cli",
     // tools and history intentionally omitted
   };
 
   const qualifiedBase = {
-    binaryPath: PINNED_TEST_BINARY,
-    expectedDigest: PINNED_TEST_DIGEST,
+    binaryPath: EXPLICIT_TEST_BINARY,
     killProcessTreeFn: vi.fn(),
     reapProcessTreeFn: vi.fn().mockResolvedValue(undefined),
   };
@@ -201,12 +193,11 @@ describe("claude-code-cli-tools", () => {
     expect(spawnFn).not.toHaveBeenCalled();
   });
 
-  it("refuses spawn fail-closed when caller requests tools even with candidate qualification (no silent dropping of tools)", async () => {
+  it("refuses spawn fail-closed when caller requests tools even with a resolvable candidate (no silent dropping of tools)", async () => {
     const spawnFn = vi.fn(() => createMockChild());
-    const qualifiedToolsRef = buildClaudeToolsQualificationRef(PINNED_TEST_DIGEST);
     const runner = new OfficialClaudeCodeCliRunner({
       ...qualifiedBase,
-      capabilities: { ...textOnlyCaps, tools: qualifiedToolsRef },
+      capabilities: { ...textOnlyCaps, tools: "tools-capability" },
       sandboxRootDir: TOOLS_SCRATCH,
       spawnFn: spawnFn as any,
     });
