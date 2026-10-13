@@ -3,6 +3,11 @@ import fs from 'node:fs';
 import { spawnSync } from 'node:child_process';
 
 const cases = {
+  unicode: ['authenticated-http.js', 'buffer += decoder.write(Buffer.from(value));', "buffer += Buffer.from(value).toString('utf8');", 'auth'],
+  durable: ['admission.js', 'stateDirectory = registry.value.stateDirectory;', 'stateDirectory = directory;', 'image', true],
+  'owner-record': ['launch.js', "if (owner?.value.ownerState === 'ACTIVE')", 'if (false)', 'image', true],
+  compensation: ['compensation.js', "upgrade.controllerAuthorityState !== 'ACTIVE' ||", '', 'compensation'],
+  pause: ['selection.js', "if (pause && kind !== 'explicit-serve') throw new Error('deferred_paused');", '', 'starters'],
   mac: ['authentication.js', " || !verify(this.key, 'requests', context(m), unsigned(request), request.mac)", '', 'auth'],
   socket: ['authenticated-http.js', 'if (requiredSocket && (assigned !== requiredSocket || assigned.destroyed))', 'if (false)', 'auth'],
   owner: ['admission.js', "if (liveness !== 'dead') throw new Error", 'if (false) throw new Error', 'authority'],
