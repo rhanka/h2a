@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import { join } from 'node:path';
 import { syncBuiltinESMExports } from 'node:module';
 export function simulatedReboot(dir, options={}) {
-  const delta=86_400_000;const capturedNow=Date.now();const now=capturedNow+delta;const uptime=options.uptime??100;const boot=Math.floor((now-uptime*1000)/1000);
+  const delta=86_400_000;const capturedNow=Date.now();const now=options.now??capturedNow+delta;const uptime=options.uptime??100;const boot=Math.floor((now-uptime*1000)/1000);
   const originals={readFileSync:fs.readFileSync,readlinkSync:fs.readlinkSync,readdirSync:fs.readdirSync,openSync:fs.openSync};const dateNow=Date.now;
   const status=pid=>`Name:\tfixture\nState:\tR (running)\nPid:\t${pid}\nTgid:\t${pid}\nNSpid:\t${pid}${options.innerPid ? '\t'+options.innerPid : ''}\nThreads:\t1\n`;
   const sources=new Map([
@@ -18,14 +18,14 @@ export function simulatedReboot(dir, options={}) {
   fs.openSync=(p,...args)=>{
     // btime is a boot constant; uptime must advance with the fixture's clock.
     // Worker startup under load can take longer than the 2 s evidence tolerance.
-    if(p==='/proc/uptime')fs.writeFileSync(files.get(p),`${(uptime+(dateNow()-capturedNow)/1000).toFixed(3)} 0.00\n`);
+    if(p==='/proc/uptime')fs.writeFileSync(files.get(p),`${(uptime+(options.now===undefined?(dateNow()-capturedNow)/1000:0)).toFixed(3)} 0.00\n`);
     if(/^\/proc\/[0-9]+\/status$/.test(String(p)) && !files.has(p)) {
     if(options.statusError)throw Object.assign(new Error('synthetic status failure'),{code:options.statusError});
     return originals.openSync(join(dir,'vanished-proc-entry'),...args);
   }return originals.openSync(files.get(p)??p,...args);};
   fs.readlinkSync=(p,...args)=>p==='/proc/self/ns/pid' ? (options.pidNs??'pid:[4026531836]') : p==='/proc/self/ns/time' ? (options.timeNs??'time:[4026531834]') : originals.readlinkSync(p,...args);
   fs.readdirSync=(p,...args)=>p==='/proc' ? (options.entries??[String(process.pid),...(options.innerPid ? ['4194000'] : [])]) : originals.readdirSync(p,...args);
-  Date.now=()=>dateNow()+delta;
+  Date.now=()=>options.now??dateNow()+delta;
   syncBuiltinESMExports();
   return ()=>{Object.assign(fs,originals);Date.now=dateNow;syncBuiltinESMExports();};
 }
