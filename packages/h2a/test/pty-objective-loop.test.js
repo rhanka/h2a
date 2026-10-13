@@ -3,6 +3,8 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import { setupNativeTestEnvironment } from "./helpers/native-isolation.js";
+setupNativeTestEnvironment(test.after);
 
 import {
   acquireLoopExecutorLease,
