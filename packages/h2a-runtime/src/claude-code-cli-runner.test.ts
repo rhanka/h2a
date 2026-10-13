@@ -222,11 +222,52 @@ describe("claude-code-cli-runner (protocol)", () => {
           },
         }),
       ).rejects.toThrow("egress sandbox verification failed");
+      // Caller callback without an enforcing mechanism (e.g. "callback", "caller-callback", "none"): refuse.
+      await expect(
+        runOnce({
+          egressEnforcement: {
+            mechanism: "callback",
+            inferenceHost: "api.anthropic.com",
+            verifySandbox: () => true,
+          },
+        }),
+      ).rejects.toThrow("egress verification cannot be only a caller callback without an enforcing mechanism");
+      await expect(
+        runOnce({
+          egressEnforcement: {
+            mechanism: "none",
+            inferenceHost: "api.anthropic.com",
+            verifySandbox: () => true,
+          },
+        }),
+      ).rejects.toThrow("egress verification cannot be only a caller callback without an enforcing mechanism");
     } finally {
       if (saved === undefined) delete process.env.H2A_CLAUDE_EGRESS_ENFORCED;
       else process.env.H2A_CLAUDE_EGRESS_ENFORCED = saved;
     }
 
+    expect(spawnFn).not.toHaveBeenCalled();
+  });
+
+  it("refuses spawn when account has organization credentials (server-managed settings unverified)", async () => {
+    const spawnFn = vi.fn();
+    const runner = new OfficialClaudeCodeCliRunner({
+      ...qualifiedOptions,
+      spawnFn: spawnFn as any,
+    });
+
+    const orgAccess = {
+      ...fakeAccess,
+      organizationId: "org-claude-test-1",
+    };
+
+    const iter = runner.run({
+      access: orgAccess,
+      request: fakeRequest,
+      signal: new AbortController().signal,
+    })[Symbol.asyncIterator]();
+
+    await expect(iter.next()).rejects.toThrow("server-managed settings cannot be verified for organization accounts");
     expect(spawnFn).not.toHaveBeenCalled();
   });
 
@@ -507,7 +548,20 @@ describe("claude-code-cli-runner (protocol)", () => {
           JSON.stringify({ type: "system", subtype: "init" }) + "\n",
         );
         mockChild.stdout.write(
-          JSON.stringify({ type: "auth_status", status: "authenticated" }) + "\n",
+          JSON.stringify({
+            type: "auth_status",
+            isAuthenticating: false,
+            output: "",
+            error: null,
+            uuid: "test-uuid-1",
+            session_id: "test-session-1",
+          }) + "\n",
+        );
+        mockChild.stdout.write(
+          JSON.stringify({ type: "keep_alive" }) + "\n",
+        );
+        mockChild.stdout.write(
+          JSON.stringify({ type: "control_request" }) + "\n",
         );
         mockChild.stdout.write(
           JSON.stringify({

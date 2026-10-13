@@ -1,6 +1,6 @@
 import { chmodSync, chownSync, existsSync, lstatSync, mkdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir, userInfo } from "node:os";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   ALLOWED_ENV_VARS,
@@ -11,6 +11,7 @@ import {
   checkEgressAllowed,
   cleanClaudeRunSandbox,
   createClaudeRunSandbox,
+  defaultManagedConfigPaths,
   resolvePrivateRuntimeRoot,
   recordChildPidInSandbox,
   verifyCredentialNotRewritten,
@@ -231,6 +232,56 @@ describe("claude-code-cli-isolation", () => {
     }
   });
 
+  it("resolves defaultManagedConfigPaths per platform including Windows C:\\Program Files and macOS plists", () => {
+    const winPaths = defaultManagedConfigPaths("win32");
+    expect(winPaths).toContain("C:\\Program Files\\ClaudeCode\\managed-settings.json");
+    expect(winPaths).toContain("C:\\Program Files\\ClaudeCode\\managed-settings.d");
+    expect(winPaths).toContain("C:\\Program Files\\ClaudeCode\\managed-mcp.json");
+
+    const macPaths = defaultManagedConfigPaths("darwin");
+    expect(macPaths).toContain("/Library/Application Support/ClaudeCode/managed-settings.json");
+    expect(macPaths).toContain("/Library/Application Support/ClaudeCode/managed-settings.d");
+    expect(macPaths).toContain("/Library/Application Support/ClaudeCode/managed-mcp.json");
+    expect(macPaths).toContain("/Library/Managed Preferences/com.anthropic.claudecode.plist");
+
+    const linuxPaths = defaultManagedConfigPaths("linux");
+    expect(linuxPaths).toContain("/etc/claude-code/managed-settings.json");
+    expect(linuxPaths).toContain("/etc/claude-code/managed-settings.d");
+    expect(linuxPaths).toContain("/etc/claude-code/managed-mcp.json");
+  });
+
+  it("refuses spawn when MDM or server-managed settings cannot be verified", () => {
+    // 1. MDM detected flag
+    expect(() =>
+      assertManagedConfigIsolation([], { mdmDetected: true }),
+    ).toThrow("MDM policy detected");
+
+    // 2. Windows registry check seam
+    expect(() =>
+      assertManagedConfigIsolation([], { checkRegistry: () => true }),
+    ).toThrow("Windows registry policy detected");
+
+    // 3. Server-managed detected flag
+    expect(() =>
+      assertManagedConfigIsolation([], { serverManagedDetected: true }),
+    ).toThrow("server-managed settings cannot be verified for organization accounts");
+
+    // 4. Access with organizationId
+    expect(() =>
+      assertManagedConfigIsolation([], {
+        access: { ...fakeAccess, organizationId: "org_123" } as any,
+      }),
+    ).toThrow("server-managed settings cannot be verified for organization accounts");
+
+    // 5. Individual account with clean environment succeeds
+    expect(() =>
+      assertManagedConfigIsolation([], {
+        access: fakeAccess,
+        checkRegistry: () => false,
+      }),
+    ).not.toThrow();
+  });
+
   it("refuses symlink, file, and foreign-owned roots and tightens reused roots", () => {
     const realDir = join(TEST_SCRATCH, "real-root");
     mkdirSync(realDir, { recursive: true });
@@ -367,16 +418,20 @@ describe("claude-code-cli-isolation", () => {
   });
 
   it("guards tests to run ONLY with temporary HOME, XDG_RUNTIME_DIR and H2A_ROOT", () => {
+    const ownerHome = userInfo().homedir || homedir();
+    const ownerUid = typeof process.getuid === "function" ? process.getuid() : 1000;
+    const ownerRun = `/run/user/${ownerUid}`;
+
     const forbiddenOwnerPaths = [
-      "/home/antoinefa/.config/sentropic/h2a",
-      "/home/antoinefa/h2a-workspace",
-      "/run/user/1000",
-      "/home/antoinefa/.config",
-      "/home/antoinefa/.local/state",
+      join(ownerHome, ".config/sentropic/h2a"),
+      join(ownerHome, "h2a-workspace"),
+      join(ownerHome, ".config"),
+      join(ownerHome, ".local/state"),
+      ownerRun,
     ];
 
-    expect(process.env.HOME).not.toBe("/home/antoinefa");
-    expect(process.env.XDG_RUNTIME_DIR).not.toBe("/run/user/1000");
+    expect(process.env.HOME).not.toBe(ownerHome);
+    expect(process.env.XDG_RUNTIME_DIR).not.toBe(ownerRun);
 
     for (const forbidden of forbiddenOwnerPaths) {
       for (const envVar of [process.env.HOME, process.env.XDG_RUNTIME_DIR, process.env.H2A_ROOT]) {

@@ -10,7 +10,7 @@ import {
   reapProcessTree,
   sweepOrphanSandboxes,
 } from "./claude-code-cli-lifecycle.js";
-import { readBootId, readProcessStartTime } from "./proc-identity.js";
+import { readBootId, readPidNamespaceId, readProcessStartTime } from "./proc-identity.js";
 
 // Mirrors the lock filename scheme in claude-code-cli-lifecycle.ts.
 const lockPathFor = (lockDir: string, ownerScope: string, accountId: string) =>
@@ -340,11 +340,15 @@ describe("claude-code-cli-lifecycle", () => {
       expect(childPid).toBeGreaterThan(0);
       expect(() => process.kill(childPid, 0)).not.toThrow();
 
+      const childStartTime = readProcessStartTime(childPid);
       writeFileSync(
         join(staleDir, "run-meta.json"),
         JSON.stringify({
-          pid: 999999, // Dead parent
+          pid: 99999999, // Dead parent (> pid_max)
+          bootId: readBootId() ?? "test-boot",
+          pidNamespace: readPidNamespaceId() ?? "test-ns",
           childPid,
+          childStartTime,
           createdAt: Date.now() - 600_000,
         }),
       );
@@ -366,6 +370,91 @@ describe("claude-code-cli-lifecycle", () => {
           throw new Error("Orphan child process survived sweep");
         }
         await new Promise((r) => setTimeout(r, 25));
+      }
+    });
+
+    it("proves child process identity before signalling: throwaway process with unrecorded or mismatched start time is never signalled and survives sweep", async () => {
+      const rootDir = join(TEST_SCRATCH, "child-prove-root");
+      mkdirSync(rootDir, { recursive: true });
+
+      // Spawn a real throwaway child process that stays alive
+      const throwaway = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], {
+        detached: true,
+        stdio: "ignore",
+      });
+      const throwawayPid = throwaway.pid!;
+      expect(throwawayPid).toBeGreaterThan(0);
+      expect(() => process.kill(throwawayPid, 0)).not.toThrow();
+
+      try {
+        const actualStartTime = readProcessStartTime(throwawayPid);
+
+        // Case 1: childStartTime is unrecorded (absent / null)
+        const unrecordedDir = join(rootDir, "run-unrecorded");
+        mkdirSync(unrecordedDir, { recursive: true });
+        writeFileSync(
+          join(unrecordedDir, "run-meta.json"),
+          JSON.stringify({
+            pid: 99999999,
+            bootId: readBootId() ?? "test-boot",
+            pidNamespace: readPidNamespaceId() ?? "test-ns",
+            childPid: throwawayPid,
+            // childStartTime intentionally omitted
+            createdAt: Date.now() - 600_000,
+          }),
+        );
+
+        let unprovenReports: Array<{ runDir: string; childPid: number; reason: string }> = [];
+        const result1 = await sweepOrphanSandboxes(rootDir, {
+          maxAgeMs: 300_000,
+          onUnprovenChild: (report) => unprovenReports.push(report),
+        });
+
+        // The throwaway process MUST NOT have been signalled and MUST be alive!
+        expect(() => process.kill(throwawayPid, 0)).not.toThrow();
+        expect(unprovenReports.length).toBe(1);
+        expect(unprovenReports[0]?.childPid).toBe(throwawayPid);
+        expect(unprovenReports[0]?.reason).toBe("child_start_time_unrecorded");
+        // Because start time is unrecorded, the child might still be running in this sandbox: sandbox is retained
+        expect(result1.retained).toBe(1);
+        expect(existsSync(unrecordedDir)).toBe(true);
+
+        // Clean up unrecorded dir for next case
+        rmSync(unrecordedDir, { recursive: true, force: true });
+        unprovenReports = [];
+
+        // Case 2: childStartTime is mismatched (different start-time = PID reuse!)
+        const mismatchedDir = join(rootDir, "run-mismatched");
+        mkdirSync(mismatchedDir, { recursive: true });
+        writeFileSync(
+          join(mismatchedDir, "run-meta.json"),
+          JSON.stringify({
+            pid: 99999999,
+            bootId: readBootId() ?? "test-boot",
+            pidNamespace: readPidNamespaceId() ?? "test-ns",
+            childPid: throwawayPid,
+            childStartTime: (actualStartTime ?? 12345) + 999999, // Mismatched!
+            createdAt: Date.now() - 600_000,
+          }),
+        );
+
+        const result2 = await sweepOrphanSandboxes(rootDir, {
+          maxAgeMs: 300_000,
+          onUnprovenChild: (report) => unprovenReports.push(report),
+        });
+
+        // The throwaway process MUST NOT have been signalled and MUST be alive!
+        expect(() => process.kill(throwawayPid, 0)).not.toThrow();
+        expect(unprovenReports.length).toBe(1);
+        expect(unprovenReports[0]?.childPid).toBe(throwawayPid);
+        expect(unprovenReports[0]?.reason).toBe("child_start_time_mismatched");
+        // Because start time was mismatched, original child is dead and current PID is an innocent process:
+        // sandbox is safely swept without signalling the innocent process!
+        expect(result2.swept).toBe(1);
+        expect(existsSync(mismatchedDir)).toBe(false);
+      } finally {
+        // Always clean up throwaway process
+        try { process.kill(throwawayPid, "SIGKILL"); } catch {}
       }
     });
   });

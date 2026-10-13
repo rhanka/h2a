@@ -64,14 +64,21 @@ export const ALLOWED_TYPED_TOOL_IDENTIFIERS: readonly string[] = [] as const;
  */
 export const BUILTIN_CLI_TOOLS = new Set([
   "Bash",
+  "BashOutput",
   "Edit",
+  "MultiEdit",
   "Read",
   "Write",
   "Glob",
   "Grep",
   "WebFetch",
+  "WebSearch",
   "Agent",
-  "NotebookEditCell",
+  "Skill",
+  "TodoWrite",
+  "NotebookEdit",
+  "KillShell",
+  "ExitPlanMode",
 ]);
 
 /**
@@ -84,6 +91,20 @@ export const KNOWN_IGNORED_TOP_LEVEL_TYPES = new Set([
   "tool_use_summary",
   "user",
   "auth_status",
+  "keep_alive",
+  "control_request",
+]);
+
+/** Enforcing network mechanisms that provide kernel-level or proxy-level isolation. */
+export const RECOGNIZED_EGRESS_MECHANISMS = new Set([
+  "netns",
+  "network-namespace",
+  "proxy",
+  "iptables",
+  "nftables",
+  "ebpf",
+  "landlock",
+  "test-host-firewall",
 ]);
 
 /**
@@ -115,6 +136,20 @@ export async function requireEgressEnforcement(
   ) {
     throw new Error("Claude seat spawn refused: inference-only egress not enforced");
   }
+  const mech = attestation.mechanism.trim().toLowerCase();
+  if (
+    mech === "callback" ||
+    mech === "caller-callback" ||
+    mech === "none" ||
+    mech === "unspecified" ||
+    mech === "unverified" ||
+    mech === "declaration" ||
+    !RECOGNIZED_EGRESS_MECHANISMS.has(mech)
+  ) {
+    throw new Error(
+      "Claude seat spawn refused: egress verification cannot be only a caller callback without an enforcing mechanism",
+    );
+  }
   if (process.env[CLAUDE_EGRESS_ENFORCED_ENV] !== "1") {
     throw new Error("Claude seat spawn refused: inference-only egress not enforced");
   }
@@ -137,6 +172,62 @@ export async function requireEgressEnforcement(
   if (!isOk) {
     throw new Error("Claude seat spawn refused: egress sandbox verification failed");
   }
+}
+
+export interface ClaudeBinaryProbeResult {
+  readonly stage: string;
+  readonly status: "qualified" | "not-qualified";
+  readonly reason?: string;
+  readonly digestReceipt?: {
+    readonly stage: string;
+    readonly kind: "digest";
+    readonly path: string;
+    readonly sha256: string;
+    readonly bytes: number;
+  };
+  readonly versionReceipt?: {
+    readonly stage: string;
+    readonly kind: "version";
+    readonly path: string;
+    readonly pinnedVersion: string;
+    readonly versionStringPresent: boolean;
+  };
+}
+
+/**
+ * Pinned binary probe: reads real binary bytes into separate receipts without executing.
+ */
+export function probeClaudeBinary(
+  binaryPath: string,
+  pinnedVersion = DEFAULT_PINNED_CLI_VERSION,
+): ClaudeBinaryProbeResult {
+  if (!existsSync(binaryPath)) {
+    return {
+      stage: "M5-probe",
+      status: "not-qualified",
+      reason: "pinned_binary_probe_unconfigured_or_binary_absent",
+    };
+  }
+  const bytes = readFileSync(binaryPath);
+  const versionText = bytes.toString("utf8");
+  return {
+    stage: "M5-probe",
+    status: "qualified",
+    digestReceipt: {
+      stage: "M5-probe",
+      kind: "digest",
+      path: binaryPath,
+      sha256: createHash("sha256").update(bytes).digest("hex"),
+      bytes: bytes.length,
+    },
+    versionReceipt: {
+      stage: "M5-probe",
+      kind: "version",
+      path: binaryPath,
+      pinnedVersion,
+      versionStringPresent: versionText.includes(pinnedVersion),
+    },
+  };
 }
 
 export interface OfficialClaudeCodeCliRunnerOptions {
@@ -291,29 +382,25 @@ export class OfficialClaudeCodeCliRunner implements ClaudeCodeCliRunner {
     // without owner-attested enforcement AND active sandbox verification, no child is created at all.
     await requireEgressEnforcement(this.egressEnforcement);
 
-    // Managed admin settings would survive --setting-sources isolation:
+    // Managed admin settings and MDM/server policy would survive --setting-sources isolation:
     // refuse while they exist.
     if (this.managedSettingsPaths) {
-      assertManagedConfigIsolation(this.managedSettingsPaths);
+      assertManagedConfigIsolation(this.managedSettingsPaths, { access: input.access });
     } else {
-      assertManagedConfigIsolation();
+      assertManagedConfigIsolation(undefined, { access: input.access });
     }
 
-    // Tool preflight: caller tool names are never passed to --tools, built-in tool names
-    // requested by caller are refused, and tools must be qualified by digest-bound attestation.
+    // Tool preflight: requests with tools are refused because caller tools would be silently
+    // ignored without client-side tool transport (local MCP qualification).
     if (input.request.tools && input.request.tools.length > 0) {
       for (const t of input.request.tools) {
         if (BUILTIN_CLI_TOOLS.has(t.name)) {
           throw new Error("Claude seat spawn refused: built-in tool names cannot be requested by caller");
         }
       }
-      const expectedToolsRef = buildClaudeToolsQualificationRef(
-        this.expectedDigest ?? "",
-        DEFAULT_PINNED_CLI_VERSION,
+      throw new Error(
+        "Claude seat spawn refused: requests with tools are rejected (client tool transport is not available; tools would be ignored)",
       );
-      if (!this.capabilities?.tools || this.capabilities.tools !== expectedToolsRef) {
-        throw new Error("Claude seat spawn refused: tools capability not qualified");
-      }
     }
 
     // Orphan sweep at each runner start (brief invariant 6): stale dead
