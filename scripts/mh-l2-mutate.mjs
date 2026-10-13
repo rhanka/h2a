@@ -10,7 +10,7 @@ const cases = {
   pause: ['selection.js', "if (pause && kind !== 'explicit-serve') throw new Error('deferred_paused');", '', 'starters'],
   mac: ['authentication.js', " || !verify(this.key, 'requests', context(m), unsigned(request), request.mac)", '', 'auth'],
   socket: ['authenticated-http.js', 'if (requiredSocket && (assigned !== requiredSocket || assigned.destroyed))', 'if (false)', 'auth'],
-  owner: ['admission.js', "if (liveness !== 'dead') throw new Error", 'if (false) throw new Error', 'authority'],
+  owner: ['admission.js', "const liveness = ownerLiveness(old.value, authority.frame, authority.observe);\n      if (liveness !== 'dead') throw new Error", "const liveness = ownerLiveness(old.value, authority.frame, authority.observe);\n      if (false) throw new Error", 'authority'],
   inode: ['admission.js', ' || now.ino !== expected.ino', '', 'authority'],
   precheck: ['administration.js', '      this.options.verifyPrecheck(payload.precheckEvidenceDigest, payload.target);', '', 'image', true],
   stop: ['administration.js', "      const result = this.update(observed, { state: 'STOP_COMMITTED' }, step, { state: 'STOP_COMMITTED', generation: m.generation });",
