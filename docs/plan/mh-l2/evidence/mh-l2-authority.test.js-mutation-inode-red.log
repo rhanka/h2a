@@ -1,0 +1,32 @@
+command: /usr/bin/node --test packages/h2a/test/mh-l2-authority.test.js
+private test root: /tmp/mh-l2-test-LFPyVk
+TAP version 13
+# Subtest: M04 should refuse HTTP-based reclaim, hold preclaim through ready and compare epoch plus inode
+not ok 1 - M04 should refuse HTTP-based reclaim, hold preclaim through ready and compare epoch plus inode
+  ---
+  duration_ms: 37.088181
+  type: 'test'
+  location: '/home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/test/mh-l2-authority.test.js:8:1'
+  failureType: 'testCodeFailure'
+  error: 'Missing expected exception.'
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected:
+  operator: 'throws'
+  stack: |-
+    TestContext.<anonymous> (file:///home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/test/mh-l2-authority.test.js:42:12)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 0
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 155.123486
+
+receipt: {"command":["/usr/bin/node","--test","packages/h2a/test/mh-l2-authority.test.js"],"code":1,"signal":null,"elapsedMs":243}

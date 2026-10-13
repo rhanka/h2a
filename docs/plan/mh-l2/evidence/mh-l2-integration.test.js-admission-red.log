@@ -1,0 +1,41 @@
+command: /usr/bin/node --test --test-name-pattern=asynchronous protocol packages/h2a/test/mh-l2-integration.test.js
+node: v22.22.1
+private test root: /tmp/mh-l2-test-5GHN0f
+TAP version 13
+# {"event":"drive-consent.full-verification","durationMs":0.004629000000022643,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# Subtest: operator stop should wait for an attachment admitted before its asynchronous protocol connection
+not ok 1 - operator stop should wait for an attachment admitted before its asynchronous protocol connection
+  ---
+  duration_ms: 282.567483
+  type: 'test'
+  location: '/home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/test/mh-l2-integration.test.js:63:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    + actual - expected
+    
+    + 'STOP_COMMITTED'
+    - 'pause_active_stop_deferred'
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 'pause_active_stop_deferred'
+  actual: 'STOP_COMMITTED'
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/test/mh-l2-integration.test.js:85:12)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 0
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 381.448945
+
+receipt: {"command":["/usr/bin/node","--test","--test-name-pattern=asynchronous protocol","packages/h2a/test/mh-l2-integration.test.js"],"code":1,"signal":null,"elapsedMs":455}
