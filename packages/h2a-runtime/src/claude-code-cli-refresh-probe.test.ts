@@ -293,7 +293,12 @@ describe("claude-code-cli-refresh-probe (no child refresh, real children)", () =
     const fixturePath = join(TEST_SCRATCH, "fixture-claude-2.1.296");
     const fixtureContent = Buffer.from("header\0version 2.1.296 build\0footer");
     writeFileSync(fixturePath, fixtureContent);
-    const fixtureResult = probeClaudeBinary(fixturePath);
+    // Version string alone never qualifies: a pinned digest is mandatory.
+    const unpinnedResult = probeClaudeBinary(fixturePath);
+    expect(unpinnedResult.status).toBe("not-qualified");
+    expect(unpinnedResult.reason).toBe("digest_unpinned");
+    const fixtureDigest = createHash("sha256").update(fixtureContent).digest("hex");
+    const fixtureResult = probeClaudeBinary(fixturePath, "2.1.296", fixtureDigest);
     expect(fixtureResult.status).toBe("qualified");
     if (fixtureResult.status === "qualified") {
       expect(fixtureResult.digestReceipt?.sha256).toBe(
@@ -314,12 +319,10 @@ describe("claude-code-cli-refresh-probe (no child refresh, real children)", () =
     const pinnedBinaryPath = process.env.CLAUDE_PINNED_BINARY_PATH ?? "/opt/claude/bin/claude";
     if (process.env.RUN_PINNED_CLAUDE_PROBE === "1" && existsSync(pinnedBinaryPath)) {
       const realResult = probeClaudeBinary(pinnedBinaryPath);
-      expect(realResult.status).toBe("qualified");
-      if (realResult.status === "qualified") {
-        expect(realResult.digestReceipt?.sha256).toMatch(/^[0-9a-f]{64}$/);
-        expect(realResult.digestReceipt?.bytes).toBeGreaterThan(0);
-        expect(realResult.versionReceipt?.versionStringPresent).toBe(true);
-      }
+      expect(realResult.status).toBe("not-qualified");
+      expect(realResult.reason).toBe("digest_unpinned");
+      expect(realResult.digestReceipt?.sha256).toMatch(/^[0-9a-f]{64}$/);
+      expect(realResult.digestReceipt?.bytes).toBeGreaterThan(0);
     }
   });
 });
