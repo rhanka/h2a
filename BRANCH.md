@@ -1146,6 +1146,7 @@ Branch: `fix/presence-identity-liveness`. Base: `58f111b3` (origin/main at check
 
 ## Branch Scope Boundaries
 - [x] Allowed: runtime/handover/**; local-files/{store,presence,launch-index}.ts; mcp/{notifications,sessions,server,stdio,agent-launch,payload-store}.ts; mirror/serve.ts (audited mirror-seq writer); drive/inbox-wake.ts; blockage/registry.ts; identity/{bindings,live,migration}.ts; mcp-central{,-attachment}.ts; cli.ts internal seam; MH-L4 tests/scripts/docs; docs/plan/mh-l0/schemas.json ($defs regenerated, old definitions unchanged); BRANCH.md.
+- [x] Conditional: mcp-run-async.test.js retains one-runtime/one-brief oracles while requiring parameter conflicts per §6.7.
 - [x] Conditional: mh-l2-image.test.js source factory receives private maintained fixture proof; cold-cycle assertions preserved, successor remains production starter.
 - [x] Conditional: additional business writers only when the audit proves fencing necessary; no native-terminal implementation.
 - [x] Forbidden: main, .track, full suite, H4/live coordinator, MH-L3 shim/replay/catalogue work, gateway, package metadata.
