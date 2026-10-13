@@ -1,7 +1,11 @@
 /** Lightweight central discovery. No store, CLI, SDK or runtime imports. */
 import { existsSync, lstatSync, readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, join, isAbsolute, basename, resolve } from "node:path";
 import type { Stats } from "node:fs";
+import { validate } from "./handover/formats.js";
+import { installationForEntry } from "./handover/selection.js";
+import { readState } from "./handover/state.js";
+import { fileURLToPath } from "node:url";
 
 export const H2A_MCP_CENTRAL_ENV = "H2A_MCP_CENTRAL";
 export const H2A_MCP_CENTRAL_ENDPOINT_ENV = "H2A_MCP_CENTRAL_ENDPOINT";
@@ -22,6 +26,9 @@ export type CentralMcpMarker = Readonly<{
   token: string;
   root?: string;
   protocol?: number;
+  schemaVersion?: number;
+  state?: string;
+  endpointMode?: "fixed" | "discovered";
 }>;
 
 export function uid(): number {
@@ -87,8 +94,8 @@ export function centralMcpClientEndpoint(
   paths: CentralMcpPathsOptions = {}
 ): CentralMcpClientEndpoint | undefined {
   if (!centralMcpEnabled(env)) return undefined;
-  const endpoint = parseCentralMcpEndpoint(env[H2A_MCP_CENTRAL_ENDPOINT_ENV]);
   const marker = readCentralClientMarker(centralMcpMarkerPath(paths));
+  const endpoint = parseCentralMcpEndpoint(env[H2A_MCP_CENTRAL_ENDPOINT_ENV] ?? marker.endpoint);
   if (marker.endpoint !== endpoint) {
     throw new Error(
       `${H2A_MCP_CENTRAL_ENDPOINT_ENV} does not match the private central MCP marker endpoint`
@@ -114,12 +121,37 @@ export interface CentralMcpPathsOptions {
  * One marker per UID runtime namespace, independent of endpoint and workspace.
  */
 export function centralMcpMarkerPath(options: CentralMcpPathsOptions = {}): string {
+  const reference = process.env.H2A_MCP_AUTHORITY;
+  if (!options.runtimeBase && reference) {
+    if (!isAbsolute(reference) || resolve(reference) !== reference || basename(reference) !== CENTRAL_MARKER_FILE) throw new Error("authority_reference_invalid");
+    return reference;
+  }
+  const namespace = installationNamespace();
+  if (namespace) {
+    const expected = options.runtimeBase ? join(options.runtimeBase, CENTRAL_RUNTIME_DIRECTORY, CENTRAL_MARKER_FILE) : namespace.canonicalMarkerLocation;
+    if (expected !== namespace.canonicalMarkerLocation) throw new Error("authority_reference_required");
+    return namespace.canonicalMarkerLocation;
+  }
   const base = runtimeBase(options);
   return join(base, CENTRAL_RUNTIME_DIRECTORY, CENTRAL_MARKER_FILE);
 }
 
+function installationNamespace(): any {
+  const installation = installationForEntry(fileURLToPath(new URL("../bin.js", import.meta.url)));
+  if (!installation) return undefined;
+  try {
+    const namespace = readState(join(installation.managedRoot, "state", "namespaces", "namespace.json"), "namespace")?.value;
+    if (namespace && (namespace.prefixId !== installation.prefixId || namespace.uid !== installation.uid)) throw new Error("foreign_installation_authority");
+    return namespace;
+  } catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined; throw error; }
+}
+export function centralStateDirectory(paths: CentralMcpPathsOptions = {}): string {
+  const namespace = installationNamespace();
+  return namespace?.stateDirectory ?? markerDirectory(paths);
+}
+
 export function markerDirectory(options: CentralMcpPathsOptions): string {
-  return join(runtimeBase(options), CENTRAL_RUNTIME_DIRECTORY);
+  return dirname(centralMcpMarkerPath(options));
 }
 
 export function runtimeBase(options: CentralMcpPathsOptions, env: NodeJS.ProcessEnv = process.env, standardExists: (path: string) => boolean = existsSync): string {
@@ -164,6 +196,13 @@ export function readCentralClientMarker(path: string): CentralMcpMarker {
     throw new Error(`central MCP marker is malformed: ${path}`);
   }
   try {
+    if ((value as { schemaVersion?: number }).schemaVersion !== undefined) {
+      const marker = validate("marker", value);
+      const namespace = installationNamespace();
+      if (namespace && (marker.prefixId !== namespace.prefixId || marker.namespaceId !== namespace.namespaceId ||
+        marker.stateDirectory !== namespace.stateDirectory)) throw new Error("foreign_installation_authority");
+      return marker as CentralMcpMarker;
+    }
     return {
       endpoint: parseCentralMcpEndpoint(value.endpoint),
       generation: value.generation,
@@ -173,7 +212,8 @@ export function readCentralClientMarker(path: string): CentralMcpMarker {
       ...(typeof value.root === "string" ? { root: value.root } : {}),
       ...(typeof value.protocol === "number" ? { protocol: value.protocol } : {})
     };
-  } catch {
+  } catch (error) {
+    if ((error as Error).message === "foreign_installation_authority") throw error;
     throw new Error(`central MCP marker is malformed: ${path}`);
   }
 }
