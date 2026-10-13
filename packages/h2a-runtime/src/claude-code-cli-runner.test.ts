@@ -1,9 +1,8 @@
 import { spawn } from "node:child_process";
-import { createHash } from "node:crypto";
 import { EventEmitter } from "node:events";
 import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { delimiter, join } from "node:path";
 import { PassThrough } from "node:stream";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type {
@@ -12,14 +11,12 @@ import type {
   ClaudeCodeCliRequest,
 } from "./claude-seat-mesh-contract.js";
 import {
-  buildClaudeQualificationRef,
   OfficialClaudeCodeCliRunner,
+  resolveClaudeBinaryFromPath,
 } from "./claude-code-cli-runner.js";
 
-const PINNED_TEST_BINARY = process.execPath;
-const PINNED_TEST_DIGEST = createHash("sha256")
-  .update(readFileSync(PINNED_TEST_BINARY))
-  .digest("hex");
+// Explicit override for tests: absolute and present, no pinning involved.
+const EXPLICIT_TEST_BINARY = process.execPath;
 
 function createMockChild() {
   const child = new EventEmitter() as any;
@@ -60,52 +57,56 @@ describe("claude-code-cli-runner (protocol)", () => {
 
   const validCaps: ClaudeCodeCliCapabilities = {
     protocol: "claude-code-stream-json-v1",
-    cliVersion: "2.1.296",
-    source: "official",
-    qualificationRef: buildClaudeQualificationRef(PINNED_TEST_DIGEST),
+    cliVersion: "unpinned",
+    source: "path-resolved-cli",
+    qualificationRef: "unpinned:path-resolved-cli",
   };
 
   const defaultKillProcessTree = vi.fn();
   const defaultReapProcessTree = vi.fn().mockResolvedValue(undefined);
 
   const qualifiedOptions = {
-    binaryPath: PINNED_TEST_BINARY,
-    expectedDigest: PINNED_TEST_DIGEST,
+    binaryPath: EXPLICIT_TEST_BINARY,
     capabilities: validCaps,
     sandboxRootDir: RUNNER_SCRATCH,
     killProcessTreeFn: defaultKillProcessTree,
     reapProcessTreeFn: defaultReapProcessTree,
   };
 
-  it("refuses relative binary path or missing qualification reference before spawn", async () => {
-    const runnerNoAbs = new OfficialClaudeCodeCliRunner({
-      binaryPath: "relative/path/claude",
-      capabilities: validCaps,
-    });
+  it("resolves claude from PATH and refuses when absent, before spawn", async () => {
+    const binDir = join(RUNNER_SCRATCH, "path-bin");
+    mkdirSync(binDir, { recursive: true });
+    const claudePath = join(binDir, "claude");
+    writeFileSync(claudePath, "#!/bin/sh\nexit 1\n");
+    chmodSync(claudePath, 0o755);
 
-    const iterator = runnerNoAbs.run({
-      access: fakeAccess,
-      request: fakeRequest,
-      signal: new AbortController().signal,
-    })[Symbol.asyncIterator]();
+    expect(
+      resolveClaudeBinaryFromPath({ PATH: `${binDir}${delimiter}/nonexistent` }),
+    ).toBe(claudePath);
+    expect(resolveClaudeBinaryFromPath({ PATH: "" })).toBeUndefined();
+    expect(resolveClaudeBinaryFromPath({ PATH: "/nonexistent-dir" })).toBeUndefined();
 
-    await expect(iterator.next()).rejects.toThrow("absolute binary path required");
+    // Deterministic regardless of the ambient PATH: no candidate exists.
+    const savedPath = process.env.PATH;
+    try {
+      process.env.PATH = "/nonexistent-dir-named-h2a";
+      const runnerNoPath = new OfficialClaudeCodeCliRunner({
+        capabilities: validCaps,
+      });
+      const iterator = runnerNoPath.run({
+        access: fakeAccess,
+        request: fakeRequest,
+        signal: new AbortController().signal,
+      })[Symbol.asyncIterator]();
 
-    const runnerNoQual = new OfficialClaudeCodeCliRunner({
-      ...qualifiedOptions,
-      capabilities: { ...validCaps, qualificationRef: "" },
-    });
-
-    const iter2 = runnerNoQual.run({
-      access: fakeAccess,
-      request: fakeRequest,
-      signal: new AbortController().signal,
-    })[Symbol.asyncIterator]();
-
-    await expect(iter2.next()).rejects.toThrow("qualification attestation required");
+      await expect(iterator.next()).rejects.toThrow("not found on PATH");
+    } finally {
+      if (savedPath === undefined) delete process.env.PATH;
+      else process.env.PATH = savedPath;
+    }
   });
 
-  it("refuses spawn without a mandatory fingerprint, on version drift, or on invented references", async () => {
+  it("refuses spawn on a relative override, a missing binary, or an unsupported protocol", async () => {
     const spawnFn = vi.fn(() => createMockChild());
 
     const runOnce = (options: Record<string, unknown>) => {
@@ -123,26 +124,15 @@ describe("claude-code-cli-runner (protocol)", () => {
         .next();
     };
 
-    // No fingerprint: any absolute binary would otherwise pass.
-    await expect(runOnce({ expectedDigest: undefined })).rejects.toThrow(
-      "binary fingerprint required",
-    );
-    // Expected-version drift.
-    await expect(runOnce({ expectedVersion: "2.1.297" })).rejects.toThrow(
-      "version pin mismatch",
-    );
-    // Attested CLI version drift.
     await expect(
-      runOnce({ capabilities: { ...validCaps, cliVersion: "2.1.297" } }),
-    ).rejects.toThrow("CLI version attestation mismatch");
-    // Nonempty invented reference without digest binding.
+      runOnce({ binaryPath: "relative/path/claude" }),
+    ).rejects.toThrow("not found on PATH");
     await expect(
-      runOnce({ capabilities: { ...validCaps, qualificationRef: "qual-2026-10-12" } }),
-    ).rejects.toThrow("qualification attestation required");
-    // Wrong fingerprint.
+      runOnce({ binaryPath: "/nonexistent-dir-named-h2a/claude" }),
+    ).rejects.toThrow("binary does not exist");
     await expect(
-      runOnce({ expectedDigest: "0".repeat(64) }),
-    ).rejects.toThrow("binary digest mismatch");
+      runOnce({ capabilities: { ...validCaps, protocol: "other-protocol" } }),
+    ).rejects.toThrow("unsupported protocol");
 
     expect(spawnFn).not.toHaveBeenCalled();
   });
@@ -829,7 +819,6 @@ wait
 `,
     );
     chmodSync(scriptPath, 0o755);
-    const digest = createHash("sha256").update(readFileSync(scriptPath)).digest("hex");
 
     let childPid = 0;
     const spawnFn = ((cmd: string, args: string[], opts: object) => {
@@ -841,8 +830,7 @@ wait
     const controller = new AbortController();
     const runner = new OfficialClaudeCodeCliRunner({
       binaryPath: scriptPath,
-      expectedDigest: digest,
-      capabilities: { ...validCaps, qualificationRef: buildClaudeQualificationRef(digest) },
+      capabilities: validCaps,
       spawnFn,
       sandboxRootDir: RUNNER_SCRATCH,
       timeoutMs: 30_000,
