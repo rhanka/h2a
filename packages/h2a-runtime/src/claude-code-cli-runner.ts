@@ -5,7 +5,14 @@
 import { spawn } from "node:child_process";
 import { isAbsolute } from "node:path";
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
+import {
+  closeSync,
+  existsSync,
+  openSync,
+  readFileSync,
+  readSync,
+  readlinkSync,
+} from "node:fs";
 import type {
   ClaudeCodeAccessProjection,
   ClaudeCodeCliCapabilities,
@@ -104,7 +111,6 @@ export const RECOGNIZED_EGRESS_MECHANISMS = new Set([
   "nftables",
   "ebpf",
   "landlock",
-  "test-host-firewall",
 ]);
 
 /**
@@ -121,13 +127,102 @@ export interface ClaudeEgressEnforcement {
    * Pure declaration/env-only trust without active verification is refused.
    */
   readonly verifySandbox?: () => Promise<boolean | { verified: boolean; reason?: string }> | boolean | { verified: boolean; reason?: string };
+  readonly netnsPath?: string;
+  readonly proxyUrl?: string;
+  readonly observableProbe?: () => Promise<boolean | { verified: boolean; reason?: string }> | boolean | { verified: boolean; reason?: string };
 }
 
 /** Out-of-band owner switch confirming enforced egress for this host. */
 export const CLAUDE_EGRESS_ENFORCED_ENV = "H2A_CLAUDE_EGRESS_ENFORCED";
 
+export async function verifyObservableEgressMechanism(
+  mechanism: string,
+  attestation: ClaudeEgressEnforcement,
+): Promise<void> {
+  if (attestation.observableProbe && typeof attestation.observableProbe === "function") {
+    let probeResult: unknown;
+    try {
+      probeResult = await attestation.observableProbe();
+    } catch (err) {
+      throw new Error(
+        `Claude seat spawn refused: observable egress probe failed: ${(err as Error)?.message || err}`,
+      );
+    }
+    const ok =
+      probeResult === true ||
+      (typeof probeResult === "object" && probeResult !== null && (probeResult as { verified?: unknown }).verified === true);
+    if (!ok) {
+      throw new Error("Claude seat spawn refused: observable egress probe rejected isolation");
+    }
+    return;
+  }
+
+  if (mechanism === "netns" || mechanism === "network-namespace") {
+    if (process.platform === "linux") {
+      let isIsolated = false;
+      try {
+        const selfNet = readlinkSync("/proc/self/ns/net");
+        const initNet = readlinkSync("/proc/1/ns/net");
+        if (selfNet && initNet && selfNet !== initNet) {
+          isIsolated = true;
+        }
+      } catch {
+        // Non-standard proc or permission
+      }
+      if (attestation.netnsPath) {
+        if (!existsSync(attestation.netnsPath)) {
+          throw new Error(
+            `Claude seat spawn refused: specified network namespace path does not exist: ${attestation.netnsPath}`,
+          );
+        }
+        isIsolated = true;
+      }
+      if (!isIsolated) {
+        throw new Error(
+          "Claude seat spawn refused: egress mechanism 'netns' is not enforcing (process is in host root network namespace and no netns path provided)",
+        );
+      }
+    }
+    return;
+  }
+
+  if (mechanism === "proxy") {
+    const proxyEnv =
+      process.env.HTTPS_PROXY ??
+      process.env.https_proxy ??
+      process.env.ALL_PROXY ??
+      process.env.all_proxy ??
+      attestation.proxyUrl;
+    if (!proxyEnv || !proxyEnv.trim()) {
+      throw new Error(
+        "Claude seat spawn refused: egress mechanism 'proxy' is not enforcing (no HTTPS_PROXY or proxyUrl configured)",
+      );
+    }
+    return;
+  }
+
+  if (
+    mechanism === "iptables" ||
+    mechanism === "nftables" ||
+    mechanism === "ebpf" ||
+    mechanism === "landlock"
+  ) {
+    if (!attestation.observableProbe) {
+      throw new Error(
+        `Claude seat spawn refused: egress mechanism '${mechanism}' requires an observable verification probe (caller-supplied callback alone is insufficient)`,
+      );
+    }
+    return;
+  }
+
+  throw new Error(
+    `Claude seat spawn refused: egress mechanism '${mechanism}' cannot be verified as enforcing`,
+  );
+}
+
 export async function requireEgressEnforcement(
   attestation: ClaudeEgressEnforcement | undefined,
+  options?: { allowTestMechanism?: boolean },
 ): Promise<void> {
   if (
     !attestation ||
@@ -143,8 +238,7 @@ export async function requireEgressEnforcement(
     mech === "none" ||
     mech === "unspecified" ||
     mech === "unverified" ||
-    mech === "declaration" ||
-    !RECOGNIZED_EGRESS_MECHANISMS.has(mech)
+    mech === "declaration"
   ) {
     throw new Error(
       "Claude seat spawn refused: egress verification cannot be only a caller callback without an enforcing mechanism",
@@ -153,11 +247,31 @@ export async function requireEgressEnforcement(
   if (process.env[CLAUDE_EGRESS_ENFORCED_ENV] !== "1") {
     throw new Error("Claude seat spawn refused: inference-only egress not enforced");
   }
+
+  const isProd = process.env.NODE_ENV === "production" || process.env.H2A_PRODUCTION === "1";
+  if (mech === "test-host-firewall") {
+    if (isProd || !options?.allowTestMechanism) {
+      throw new Error(
+        "Claude seat spawn refused: test-host-firewall is not permitted in production builds",
+      );
+    }
+  } else if (!RECOGNIZED_EGRESS_MECHANISMS.has(mech)) {
+    throw new Error(
+      "Claude seat spawn refused: egress verification cannot be only a caller callback without an enforcing mechanism",
+    );
+  }
+
   if (!attestation.verifySandbox || typeof attestation.verifySandbox !== "function") {
     throw new Error(
       "Claude seat spawn refused: inference-only egress not enforced (declaration-only trust refused: enforcing sandbox verification required)",
     );
   }
+
+  // Active observable verification of the enforcing mechanism
+  if (mech !== "test-host-firewall") {
+    await verifyObservableEgressMechanism(mech, attestation);
+  }
+
   let outcome: unknown;
   try {
     outcome = await attestation.verifySandbox();
@@ -196,10 +310,12 @@ export interface ClaudeBinaryProbeResult {
 
 /**
  * Pinned binary probe: reads real binary bytes into separate receipts without executing.
+ * Reads in streaming chunks to avoid loading 245+ MiB into memory.
  */
 export function probeClaudeBinary(
   binaryPath: string,
   pinnedVersion = DEFAULT_PINNED_CLI_VERSION,
+  pinnedDigest?: string,
 ): ClaudeBinaryProbeResult {
   if (!existsSync(binaryPath)) {
     return {
@@ -208,26 +324,76 @@ export function probeClaudeBinary(
       reason: "pinned_binary_probe_unconfigured_or_binary_absent",
     };
   }
-  const bytes = readFileSync(binaryPath);
-  const versionText = bytes.toString("utf8");
-  return {
-    stage: "M5-probe",
-    status: "qualified",
-    digestReceipt: {
+
+  try {
+    const hash = createHash("sha256");
+    const versionNeedle = Buffer.from(pinnedVersion, "utf8");
+    let versionStringPresent = false;
+    let totalBytes = 0;
+
+    const fd = openSync(binaryPath, "r");
+    const chunkSize = 65536;
+    const buf = Buffer.alloc(chunkSize);
+    let overlap = Buffer.alloc(0);
+
+    try {
+      let bytesRead: number;
+      while ((bytesRead = readSync(fd, buf, 0, chunkSize, null)) > 0) {
+        totalBytes += bytesRead;
+        const currentChunk = buf.subarray(0, bytesRead);
+        hash.update(currentChunk);
+
+        if (!versionStringPresent) {
+          const combined = overlap.length > 0 ? Buffer.concat([overlap, currentChunk]) : currentChunk;
+          if (combined.includes(versionNeedle)) {
+            versionStringPresent = true;
+            overlap = Buffer.alloc(0);
+          } else {
+            const keep = Math.min(combined.length, versionNeedle.length - 1);
+            overlap = Buffer.from(combined.subarray(combined.length - keep));
+          }
+        }
+      }
+    } finally {
+      closeSync(fd);
+    }
+
+    const digest = hash.digest("hex");
+    const digestMatches = pinnedDigest ? digest === pinnedDigest : true;
+    const isQualified = versionStringPresent && digestMatches;
+    let failureReason: string | undefined;
+    if (!versionStringPresent) {
+      failureReason = "version_string_absent";
+    } else if (!digestMatches) {
+      failureReason = "digest_mismatch";
+    }
+
+    return {
       stage: "M5-probe",
-      kind: "digest",
-      path: binaryPath,
-      sha256: createHash("sha256").update(bytes).digest("hex"),
-      bytes: bytes.length,
-    },
-    versionReceipt: {
+      status: isQualified ? "qualified" : "not-qualified",
+      ...(failureReason ? { reason: failureReason } : {}),
+      digestReceipt: {
+        stage: "M5-probe",
+        kind: "digest",
+        path: binaryPath,
+        sha256: digest,
+        bytes: totalBytes,
+      },
+      versionReceipt: {
+        stage: "M5-probe",
+        kind: "version",
+        path: binaryPath,
+        pinnedVersion,
+        versionStringPresent,
+      },
+    };
+  } catch (err) {
+    return {
       stage: "M5-probe",
-      kind: "version",
-      path: binaryPath,
-      pinnedVersion,
-      versionStringPresent: versionText.includes(pinnedVersion),
-    },
-  };
+      status: "not-qualified",
+      reason: `probe_read_failed: ${(err as Error)?.message || err}`,
+    };
+  }
 }
 
 export interface OfficialClaudeCodeCliRunnerOptions {
@@ -251,6 +417,12 @@ export interface OfficialClaudeCodeCliRunnerOptions {
   readonly killProcessTreeFn?: (pid: number, signal?: NodeJS.Signals) => void;
   /** Test seam injecting process tree reaper instead of reapProcessTree(childPid). */
   readonly reapProcessTreeFn?: (pid: number, signal?: NodeJS.Signals, gracePeriodMs?: number) => Promise<void>;
+  /** Test seam permitting test egress mechanisms outside production. */
+  readonly allowTestEgressMechanism?: boolean;
+  /** Test seam or external signal indicating MDM presence. */
+  readonly mdmDetected?: boolean;
+  /** Test seam or external signal indicating server-managed settings. */
+  readonly serverManagedDetected?: boolean;
 }
 
 export class OfficialClaudeCodeCliRunner implements ClaudeCodeCliRunner {
@@ -271,6 +443,9 @@ export class OfficialClaudeCodeCliRunner implements ClaudeCodeCliRunner {
   private readonly reapProcessTreeFn:
     | ((pid: number, signal?: NodeJS.Signals, gracePeriodMs?: number) => Promise<void>)
     | undefined;
+  private readonly allowTestEgressMechanism: boolean;
+  private readonly mdmDetected: boolean | undefined;
+  private readonly serverManagedDetected: boolean | undefined;
 
   constructor(options: OfficialClaudeCodeCliRunnerOptions = {}) {
     this.binaryPath = options.binaryPath ?? "";
@@ -288,6 +463,9 @@ export class OfficialClaudeCodeCliRunner implements ClaudeCodeCliRunner {
     this.allowedCliTools = options.allowedCliTools;
     this.killProcessTreeFn = options.killProcessTreeFn;
     this.reapProcessTreeFn = options.reapProcessTreeFn;
+    this.allowTestEgressMechanism = options.allowTestEgressMechanism ?? false;
+    this.mdmDetected = options.mdmDetected;
+    this.serverManagedDetected = options.serverManagedDetected;
   }
 
   /**
@@ -380,15 +558,17 @@ export class OfficialClaudeCodeCliRunner implements ClaudeCodeCliRunner {
 
     // Default-deny egress is a spawn precondition, not a URL label:
     // without owner-attested enforcement AND active sandbox verification, no child is created at all.
-    await requireEgressEnforcement(this.egressEnforcement);
+    await requireEgressEnforcement(this.egressEnforcement, {
+      allowTestMechanism: this.allowTestEgressMechanism,
+    });
 
     // Managed admin settings and MDM/server policy would survive --setting-sources isolation:
     // refuse while they exist.
-    if (this.managedSettingsPaths) {
-      assertManagedConfigIsolation(this.managedSettingsPaths, { access: input.access });
-    } else {
-      assertManagedConfigIsolation(undefined, { access: input.access });
-    }
+    assertManagedConfigIsolation(this.managedSettingsPaths, {
+      access: input.access,
+      mdmDetected: this.mdmDetected,
+      serverManagedDetected: this.serverManagedDetected,
+    });
 
     // Tool preflight: requests with tools are refused because caller tools would be silently
     // ignored without client-side tool transport (local MCP qualification).
@@ -407,7 +587,18 @@ export class OfficialClaudeCodeCliRunner implements ClaudeCodeCliRunner {
     // runs are reaped before a new sandbox is created. Best-effort: a
     // sweep failure never blocks the run.
     try {
-      await sweepOrphanSandboxes(this.sandboxRootDir);
+      const sweepResult = await sweepOrphanSandboxes(this.sandboxRootDir, {
+        onUnprovenChild: (unproven) => {
+          process.stderr.write(
+            `[claude-orphan-sweep] unproven child ${unproven.childPid} in ${unproven.runDir} skipped: ${unproven.reason}\n`,
+          );
+        },
+      });
+      if (sweepResult.skippedUnprovenChild) {
+        process.stderr.write(
+          `[claude-orphan-sweep] skipped ${sweepResult.skippedUnprovenChild} unproven child process(es)\n`,
+        );
+      }
     } catch {
       // Sweep is hygiene, not admission.
     }

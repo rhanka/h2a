@@ -6,13 +6,11 @@ import {
   closeSync,
   constants,
   existsSync,
-  linkSync,
   mkdirSync,
   openSync,
   readdirSync,
   readFileSync,
   readlinkSync,
-  renameSync,
   rmSync,
   unlinkSync,
   writeFileSync,
@@ -53,6 +51,8 @@ export interface ClaudeLockHolderRecord {
   readonly bootId?: unknown;
   readonly pidNamespace?: unknown;
   readonly machineId?: unknown;
+  readonly token?: unknown;
+  readonly claimToken?: unknown;
 }
 
 /**
@@ -119,6 +119,8 @@ export function isRecordedChildProvenTarget(
   childPid: number,
   rawMeta: {
     readonly childStartTime?: unknown;
+    readonly childBootId?: unknown;
+    readonly childPidNamespace?: unknown;
     readonly childCwd?: unknown;
     readonly runId?: unknown;
   },
@@ -139,21 +141,27 @@ export function isRecordedChildProvenTarget(
   // Linux-specific identity proofs: start-time, boot-id, pid-namespace
   if (process.platform === "linux") {
     const liveBootId = readBootId();
+    const recordedChildBoot =
+      (typeof rawMeta.childBootId === "string" && rawMeta.childBootId) ||
+      parentMeta.bootId;
     if (
-      typeof parentMeta.bootId !== "string" ||
-      !parentMeta.bootId ||
+      typeof recordedChildBoot !== "string" ||
+      !recordedChildBoot ||
       liveBootId === undefined ||
-      liveBootId !== parentMeta.bootId
+      liveBootId !== recordedChildBoot
     ) {
       return { proven: false, reason: "boot_id_mismatch_or_unrecorded" };
     }
 
     const liveNamespace = readPidNamespaceId();
+    const recordedChildNs =
+      (typeof rawMeta.childPidNamespace === "string" && rawMeta.childPidNamespace) ||
+      parentMeta.pidNamespace;
     if (
-      typeof parentMeta.pidNamespace !== "string" ||
-      !parentMeta.pidNamespace ||
+      typeof recordedChildNs !== "string" ||
+      !recordedChildNs ||
       liveNamespace === undefined ||
-      liveNamespace !== parentMeta.pidNamespace
+      liveNamespace !== recordedChildNs
     ) {
       return { proven: false, reason: "pid_namespace_mismatch_or_unrecorded" };
     }
@@ -183,11 +191,16 @@ export function isRecordedChildProvenTarget(
     if (typeof rawMeta.childCwd === "string") {
       try {
         const liveCwd = readlinkSync(`/proc/${childPid}/cwd`);
-        if (liveCwd !== rawMeta.childCwd && !liveCwd.startsWith(runDir)) {
+        const normalizedRunDir = runDir.endsWith("/") ? runDir : `${runDir}/`;
+        if (liveCwd !== rawMeta.childCwd && liveCwd !== runDir && !liveCwd.startsWith(normalizedRunDir)) {
           return { proven: false, reason: "child_cwd_mismatched" };
         }
-      } catch {
-        // If readlink fails, start-time + bootId + namespace already uniquely identify
+      } catch (err) {
+        const code = (err as NodeJS.ErrnoException).code;
+        if (code === "ENOENT" || code === "ESRCH") {
+          return { proven: false, reason: "process_dead" };
+        }
+        return { proven: false, reason: "child_cwd_unreadable" };
       }
     }
   } else {
@@ -324,33 +337,25 @@ export async function acquireClaudeAccountLease(
       if (code === "EEXIST") {
         const holder = readHolder();
         if (holder && isRecordedHolderProvenDead(holder)) {
-          // Reclaim atomically using renameSync: moving stale lockFile to a
-          // unique retire path atomically removes lockFile from the directory.
-          // Exactly one reclaimer wins the renameSync; concurrent reclaimers
-          // receive ENOENT and cannot overwrite a new live lock.
-          const retirePath = `${lockFile}.retiring.${claimToken}.${Date.now()}`;
+          // Re-verify before unlinking: only remove if current holder is still
+          // the identical dead claim. Never rename or remove a live holder's lock.
           try {
-            renameSync(lockFile, retirePath);
-            try {
-              const retiredHolder = JSON.parse(readFileSync(retirePath, "utf8"));
-              if (isRecordedHolderProvenDead(retiredHolder)) {
-                unlinkSync(retirePath);
-              } else {
-                // Never overwrite with renameSync: linkSync fails with EEXIST
-                // if a new lock was created in the gap, preventing double ownership.
-                try {
-                  linkSync(retirePath, lockFile);
-                  unlinkSync(retirePath);
-                } catch {
-                  // Another waiter or lockholder stepped in; drop the retired file
-                  try { unlinkSync(retirePath); } catch {}
+            const currentHolder = readHolder();
+            if (
+              currentHolder &&
+              (currentHolder.token ?? currentHolder.claimToken) === (holder.token ?? holder.claimToken) &&
+              isRecordedHolderProvenDead(currentHolder)
+            ) {
+              try {
+                unlinkSync(lockFile);
+              } catch (unlinkErr) {
+                if ((unlinkErr as NodeJS.ErrnoException).code !== "ENOENT") {
+                  throw unlinkErr;
                 }
               }
-            } catch {
-              try { unlinkSync(retirePath); } catch {}
             }
           } catch {
-            // Lost the rename race; the loop re-reads.
+            // Lock was replaced or unreadable; loop will re-check
           }
           continue;
         }
@@ -608,11 +613,30 @@ export async function sweepOrphanSandboxes(
         if (childAlive) {
           const proof = isRecordedChildProvenTarget(rawMeta.childPid, rawMeta, meta, runDir);
           if (proof.proven) {
-            try {
-              const reaper = options.reapProcessTreeFn ?? reapProcessTree;
-              await reaper(rawMeta.childPid, "SIGKILL", 50);
-            } catch {
-              // Best effort
+            // Re-verify start-time immediately prior to signal to minimize race window
+            let raceDiverged = false;
+            if (process.platform === "linux") {
+              const liveNow = readProcessStartTime(rawMeta.childPid);
+              if (liveNow === undefined || liveNow !== rawMeta.childStartTime) {
+                raceDiverged = true;
+              }
+            }
+            if (raceDiverged) {
+              skippedUnprovenChild++;
+              if (options.onUnprovenChild) {
+                options.onUnprovenChild({
+                  runDir,
+                  childPid: rawMeta.childPid,
+                  reason: "child_start_time_mismatched",
+                });
+              }
+            } else {
+              try {
+                const reaper = options.reapProcessTreeFn ?? reapProcessTree;
+                await reaper(rawMeta.childPid, "SIGKILL", 50);
+              } catch {
+                // Best effort
+              }
             }
           } else {
             // Identity not positively proven: NEVER signal! Skip child reap and report.
@@ -624,7 +648,15 @@ export async function sweepOrphanSandboxes(
                 reason: proof.reason ?? "unproven_identity",
               });
             }
-            if (proof.reason === "child_start_time_unrecorded") {
+            // Retain sandbox when the child might still be the legitimate seat process running
+            // (e.g. unrecorded start-time, non-Linux unprovable, pid namespace unprovable, cwd unreadable).
+            // Only sweep when identity proves it is definitely a different process (mismatched start-time, mismatched boot-id).
+            if (
+              proof.reason === "child_start_time_unrecorded" ||
+              proof.reason === "non_linux_process_identity_unprovable" ||
+              proof.reason === "pid_namespace_mismatch_or_unrecorded" ||
+              proof.reason === "child_cwd_unreadable"
+            ) {
               retained++;
               continue;
             }
