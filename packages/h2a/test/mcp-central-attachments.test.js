@@ -15,6 +15,7 @@ import { startCentralMcpServer } from "../dist/runtime/mcp-central.js";
 import { bridgeCentralMcpStdio } from "../dist/runtime/mcp-central-client.js";
 import { captureCentralAttachment } from "../dist/runtime/mcp-central-context.js";
 import { centralOperator, centralResidueReport, centralPausePath } from "../dist/runtime/mcp-central-operator.js";
+import { authenticatedHttpRequest } from "../dist/runtime/handover/authenticated-http.js";
 import { runtimeBase } from "../dist/runtime/mcp-central-discovery.js";
 import { identityKeyPaths } from "../dist/runtime/identity/live.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -415,7 +416,7 @@ test("an orphaned HTTP attachment is purged and the central exits idle", { timeo
   try {
     server = await startCentralMcpServer({ root: f.root, runtimeBase: f.runtimeBase, env: {}, idleTimeoutMs: 100, sessionLeaseMs: 100 });
     const marker = JSON.parse(readFileSync(server.markerPath, "utf8"));
-    const response = await fetch(server.endpoint, { method: "POST", headers: { authorization: `Bearer ${marker.token}`, "content-type": "application/json", accept: "application/json, text/event-stream" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "orphan-fixture", version: "1" } } }) });
+    const response = await authenticatedHttpRequest(server.markerPath, marker, server.endpoint, { method: "POST", headers: { "content-type": "application/json", accept: "application/json, text/event-stream" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "orphan-fixture", version: "1" } } }) });
     assert.equal(response.status, 200);
     await response.text();
     assert.equal((await centralOperator("status", { runtimeBase: f.runtimeBase })).attachments, 1);
@@ -1032,7 +1033,7 @@ test("central stop when daemon is already absent writes the pause inhibition", a
     const pausePath = centralPausePath({ runtimeBase: f.runtimeBase });
     assert.equal(existsSync(pausePath), false, "initially not paused");
     const stopped = await centralOperator("stop", { runtimeBase: f.runtimeBase });
-    assert.equal(stopped.running, false);
+    assert.equal(stopped.running, "unverified");
     assert.equal(stopped.paused, true, "stop must report paused=true even if daemon was absent");
     assert.equal(existsSync(pausePath), true, "inhibition file must be written even when daemon was absent");
   } finally {
