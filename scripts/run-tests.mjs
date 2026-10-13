@@ -13,8 +13,9 @@
  *     runner's own trust-root test (RUNNER_TEST_FILE below), which CI invokes
  *     directly in a dedicated, independently requireable job so a mutation in
  *     the runner cannot decide that its own failing test has passed;
- *   - every source `.test.ts` or `.spec.ts` file under packages/track/src through
- *     Vitest. The Track suite is separate because it is TypeScript/Vitest rather
+ *   - every source `.test.ts` or `.spec.ts` file under packages/track/src and
+ *     every `.test.ts` file under packages/agent-stats/tests through Vitest.
+ *     Those suites are separate because they are TypeScript/Vitest rather
  *     than Node's built-in test runner.
  *
  * Other workspace packages own their own package-level test commands and are not
@@ -157,6 +158,7 @@ function main() {
 
   const VITEST_SUITES = [
     { name: "Track", dir: "packages/track", config: "vitest.config.ts" },
+    { name: "AgentStats", dir: "packages/agent-stats", testDir: "tests", config: "vitest.config.ts" },
   ];
 
   function discoverVitestTests(dir, relative = "") {
@@ -306,6 +308,10 @@ function main() {
 
   const nodeReport = join(testRoot, "node.json");
   const trackReport = join(testRoot, "track.json");
+  // One JSON evidence report per Vitest suite: every suite uses the same
+  // `--reporter=json --outputFile`, so sharing a single path would let the
+  // second suite overwrite the first one's evidence unnoticed.
+  const vitestReportFor = (suite) => join(testRoot, `${suite.name.toLowerCase()}.json`);
   let exitCode = 0;
   try {
     const nodeStatus = runSuite("Node test suite", process.execPath,
@@ -317,7 +323,7 @@ function main() {
       return runSuite(
         `${suite.name} Vitest suite`,
         process.execPath,
-        [vitestEntrypoint(cwd), "run", ...configArgs, "--reporter=default", "--reporter=json", `--outputFile=${trackReport}`, ...suite.files.map((file) => join(suite.testDir ?? "src", file))],
+        [vitestEntrypoint(cwd), "run", ...configArgs, "--reporter=default", "--reporter=json", `--outputFile=${vitestReportFor(suite)}`, ...suite.files.map((file) => join(suite.testDir ?? "src", file))],
         cwd,
         trackTestEnv,
       );
