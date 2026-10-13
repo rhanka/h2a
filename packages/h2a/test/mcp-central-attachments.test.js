@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn, execFileSync } from "node:child_process";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { once } from "node:events";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
@@ -8,14 +8,16 @@ import { homedir, tmpdir, userInfo } from "node:os";
 import { createInterface } from "node:readline";
 import { PassThrough } from "node:stream";
 import { createServer } from "node:net";
-import { createServer as createHttpServer } from "node:http";
 import test from "node:test";
 import { runCli as runTrackCli } from "@sentropic/track";
 import { startCentralMcpServer } from "../dist/runtime/mcp-central.js";
 import { bridgeCentralMcpStdio } from "../dist/runtime/mcp-central-client.js";
 import { captureCentralAttachment } from "../dist/runtime/mcp-central-context.js";
 import { centralOperator, centralResidueReport, centralPausePath } from "../dist/runtime/mcp-central-operator.js";
-import { authenticatedHttpRequest } from "../dist/runtime/handover/authenticated-http.js";
+import { authenticatedHttpRequest, createAuthenticatedServer } from "../dist/runtime/handover/authenticated-http.js";
+import { ConnectionAuthentication } from "../dist/runtime/handover/authentication.js";
+import { currentIdentity, prepareAuthority } from "../dist/runtime/handover/admission.js";
+import { marker as fixtureMarker } from "./helpers/mh-l0-fixtures.js";
 import { runtimeBase } from "../dist/runtime/mcp-central-discovery.js";
 import { identityKeyPaths } from "../dist/runtime/identity/live.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -99,6 +101,27 @@ async function ready(channel) {
   throw new Error("identity never became ready");
 }
 const bindings = root => readFileSync(join(root, "identity", "bindings.jsonl"), "utf8").trim().split("\n").filter(Boolean);
+
+// Fault-injection backends must speak the MH-L2 signed transport: mint a real
+// v2 authority into the fixture namespace, publish its marker where the bridge
+// reads it, and serve the faulty application logic behind createAuthenticatedServer.
+async function signedFixtureBackend(f, fetch) {
+  const directory = join(f.runtimeBase, "h2a-mcp-central");
+  mkdirSync(directory, { mode: 0o700 });
+  const authority = await prepareAuthority({ directory, root: f.root, physicalPrefix: f.dir, frame: currentIdentity() });
+  const marker = { ...fixtureMarker(), namespaceId: authority.domain.namespaceId, prefixId: authority.domain.prefixId,
+    root: f.root, stateDirectory: authority.stateDirectory, uid: process.getuid(),
+    authKeyReference: authority.authKeyReference, generation: randomUUID() };
+  const auth = new ConnectionAuthentication(marker, authority.rootKey);
+  const server = createAuthenticatedServer(auth, fetch);
+  await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
+  marker.endpoint = `http://127.0.0.1:${server.address().port}/mcp`;
+  writeFileSync(join(directory, "marker.json"), JSON.stringify(marker), { mode: 0o600 });
+  return { server, url: marker.endpoint, marker };
+}
+const jsonResponse = (body, session) => new Response(JSON.stringify(body),
+  { headers: { "content-type": "application/json", ...(session ? { "mcp-session-id": session } : {}) } });
+const sseResponse = () => new Response(": connected\n\n", { headers: { "content-type": "text/event-stream" } });
 
 async function startWakeDaemon(f, env, children, onStderr) {
   const daemon = spawn(process.execPath, [bin, "mcp-central-serve", "--root", f.root], {
@@ -501,30 +524,22 @@ test("a lost mutation reply is outcome_unknown and is never replayed during reco
   const f = fixture();
   let channel;
   let mutationCount = 0;
-  const server = createHttpServer(async (request, response) => {
+  const { server, url } = await signedFixtureBackend(f, async (request) => {
     if (request.method === "GET") {
-      response.writeHead(200, { "content-type": "text/event-stream" });
-      response.write(": connected\n\n");
-      return;
+      if (new URL(request.url).pathname.startsWith("/_h2a-central/lease/")) return jsonResponse({});
+      return sseResponse();
     }
-    if (request.method === "DELETE") { response.writeHead(204).end(); return; }
-    let body = "";
-    for await (const chunk of request) body += chunk;
-    const rpc = JSON.parse(body);
+    if (request.method === "DELETE") return new Response(null, { status: 204 });
+    const rpc = await request.json();
     if (rpc.params?.name === "fixture_mutation") {
       mutationCount++;
-      request.socket.destroy(); // The effect happened before its reply was lost.
-      return;
+      // The effect happened before its reply was lost: under the signed
+      // transport a reply the bridge cannot decode carries an unknown outcome.
+      return new Response("{{lost-reply", { headers: { "content-type": "application/json", "mcp-session-id": "fixture-session" } });
     }
-    response.writeHead(200, { "content-type": "application/json", "mcp-session-id": "fixture-session" });
-    response.end(JSON.stringify({ jsonrpc: "2.0", id: rpc.id, result: { tools: [] } }));
-  }).listen(0, "127.0.0.1");
+    return jsonResponse({ jsonrpc: "2.0", id: rpc.id, result: { tools: [] } }, "fixture-session");
+  });
   try {
-    await once(server, "listening");
-    const url = `http://127.0.0.1:${server.address().port}/mcp`;
-    const directory = join(f.runtimeBase, "h2a-mcp-central");
-    mkdirSync(directory, { mode: 0o700 });
-    writeFileSync(join(directory, "marker.json"), JSON.stringify({ endpoint: url, generation: "fixture", pid: process.pid, startedAt: new Date().toISOString(), token: "fixture-secret", root: f.root, protocol: 2 }), { mode: 0o600 });
     channel = connect(f, url, join(f.dir, "repo-a"), "lost-mutation-reply");
     await channel.call("initialize");
     const lost = await channel.call("tools/call", { name: "fixture_mutation", arguments: {} });
@@ -708,49 +723,33 @@ test("a network cutoff during initialize recovers cleanly and returns the handsh
   let channel;
   let initializeAttempts = 0;
   const initializedSessions = new Set();
-  const server = createHttpServer(async (request, response) => {
+  const { server, url } = await signedFixtureBackend(f, async (request) => {
     if (request.method === "GET") {
-      response.writeHead(200, { "content-type": "text/event-stream" });
-      response.write(": connected\n\n");
-      return;
+      if (new URL(request.url).pathname.startsWith("/_h2a-central/lease/")) return jsonResponse({});
+      return sseResponse();
     }
-    if (request.method === "DELETE") { response.writeHead(204).end(); return; }
-    let body = "";
-    for await (const chunk of request) body += chunk;
-    const rpc = JSON.parse(body);
+    if (request.method === "DELETE") return new Response(null, { status: 204 });
+    const rpc = await request.json();
     if (rpc.method === "initialize") {
       initializeAttempts++;
-      if (initializeAttempts === 1) {
-        request.socket.destroy();
-        return;
-      }
-      const existingSession = request.headers["mcp-session-id"];
+      // The first handshake never completes: under the signed transport a
+      // reply the bridge cannot decode forces a clean retry, never an error.
+      if (initializeAttempts === 1) return new Response("{{cutoff", { headers: { "content-type": "application/json" } });
+      const existingSession = request.headers.get("mcp-session-id");
       if (existingSession && initializedSessions.has(existingSession)) {
-        response.writeHead(400, { "content-type": "application/json" });
-        response.end(JSON.stringify({ jsonrpc: "2.0", id: rpc.id, error: { code: -32600, message: "Server already initialized" } }));
-        return;
+        return jsonResponse({ jsonrpc: "2.0", id: rpc.id, error: { code: -32600, message: "Server already initialized" } });
       }
       const newSession = `session-${initializeAttempts}`;
       initializedSessions.add(newSession);
-      response.writeHead(200, { "content-type": "application/json", "mcp-session-id": newSession });
-      response.end(JSON.stringify({ jsonrpc: "2.0", id: rpc.id, result: { protocolVersion: "2024-11-05", capabilities: {}, serverInfo: { name: "test-server", version: "1" } } }));
-      return;
+      return jsonResponse({ jsonrpc: "2.0", id: rpc.id, result: { protocolVersion: "2024-11-05", capabilities: {}, serverInfo: { name: "test-server", version: "1" } } }, newSession);
     }
     if (rpc.method === "notifications/initialized") {
-      response.writeHead(202, { "content-type": "application/json" });
-      response.end("null");
-      return;
+      return new Response("null", { status: 202, headers: { "content-type": "application/json" } });
     }
-    response.writeHead(200, { "content-type": "application/json" });
-    response.end(JSON.stringify({ jsonrpc: "2.0", id: rpc.id, result: { tools: [] } }));
-  }).listen(0, "127.0.0.1");
+    return jsonResponse({ jsonrpc: "2.0", id: rpc.id, result: { tools: [] } });
+  });
 
   try {
-    await once(server, "listening");
-    const url = `http://127.0.0.1:${server.address().port}/mcp`;
-    const directory = join(f.runtimeBase, "h2a-mcp-central");
-    mkdirSync(directory, { mode: 0o700 });
-    writeFileSync(join(directory, "marker.json"), JSON.stringify({ endpoint: url, generation: "fixture", pid: process.pid, startedAt: new Date().toISOString(), token: "fixture-secret", root: f.root, protocol: 2 }), { mode: 0o600 });
     channel = connect(f, url, join(f.dir, "repo-a"), "cutoff-initialize-test");
     const initResponse = await channel.call("initialize");
     assert.equal(initResponse.error, undefined, "initialize must not return error");
