@@ -33,27 +33,11 @@ function createMockChild() {
 
 const RUNNER_SCRATCH = join(tmpdir(), `h2a-claude-runner-test-${Date.now()}-${process.pid}`);
 
-/**
- * Host-independent netns observations (c-m1): the verdict logic is
- * runner-owned, only the link content is injected. Isolated: self/child
- * differ from init. Host: everything equals init.
- */
-const ISOLATED_NETNS_READER = (procPath: string): string =>
-  procPath === "/proc/1/ns/net" ? "net:[4026531836]" : "net:[4026532444]";
-const HOST_NETNS_READER = (_procPath: string): string => "net:[4026531836]";
-const CHILD_ESCAPE_NETNS_READER = (procPath: string): string => {
-  if (procPath === "/proc/1/ns/net") return "net:[4026531836]";
-  if (procPath === "/proc/99999999/ns/net") return "net:[4026531836]";
-  return "net:[4026532444]";
-};
-
 beforeEach(() => {
   mkdirSync(RUNNER_SCRATCH, { recursive: true });
-  process.env.H2A_CLAUDE_EGRESS_ENFORCED = "1";
 });
 
 afterEach(() => {
-  delete process.env.H2A_CLAUDE_EGRESS_ENFORCED;
   rmSync(RUNNER_SCRATCH, { recursive: true, force: true });
 });
 
@@ -89,12 +73,6 @@ describe("claude-code-cli-runner (protocol)", () => {
     expectedDigest: PINNED_TEST_DIGEST,
     capabilities: validCaps,
     sandboxRootDir: RUNNER_SCRATCH,
-    egressEnforcement: {
-      mechanism: "netns",
-      inferenceHost: "api.anthropic.com",
-    },
-    managedSettingsPaths: [] as readonly string[],
-    egressNetnsReader: ISOLATED_NETNS_READER,
     killProcessTreeFn: defaultKillProcessTree,
     reapProcessTreeFn: defaultReapProcessTree,
   };
@@ -165,116 +143,6 @@ describe("claude-code-cli-runner (protocol)", () => {
     await expect(
       runOnce({ expectedDigest: "0".repeat(64) }),
     ).rejects.toThrow("binary digest mismatch");
-
-    expect(spawnFn).not.toHaveBeenCalled();
-  });
-
-  it("refuses spawn while inference-only egress is not enforced", async () => {
-    const spawnFn = vi.fn(() => createMockChild());
-    const runOnce = (options: Record<string, unknown>) => {
-      const runner = new OfficialClaudeCodeCliRunner({
-        ...qualifiedOptions,
-        spawnFn: spawnFn as any,
-        ...options,
-      });
-      return runner
-        .run({
-          access: fakeAccess,
-          request: fakeRequest,
-          signal: new AbortController().signal,
-        })[Symbol.asyncIterator]()
-        .next();
-    };
-
-    const saved = process.env.H2A_CLAUDE_EGRESS_ENFORCED;
-    try {
-      // No out-of-band switch, even with an attestation: refuse.
-      delete process.env.H2A_CLAUDE_EGRESS_ENFORCED;
-      await expect(runOnce({})).rejects.toThrow("egress not enforced");
-
-      process.env.H2A_CLAUDE_EGRESS_ENFORCED = "1";
-      // No attestation, even with the switch: refuse.
-      await expect(runOnce({ egressEnforcement: undefined })).rejects.toThrow(
-        "egress not enforced",
-      );
-      // Empty mechanism: refuse.
-      await expect(
-        runOnce({ egressEnforcement: { mechanism: "  ", inferenceHost: "api.anthropic.com" } }),
-      ).rejects.toThrow("egress not enforced");
-      // Wrong inference host: refuse.
-      await expect(
-        runOnce({ egressEnforcement: { mechanism: "netns", inferenceHost: "evil.example" } }),
-      ).rejects.toThrow("egress not enforced");
-      // Caller-supplied callbacks change nothing: every non-netns mechanism
-      // is refused even with an arbitrary `() => true` probe, sandbox
-      // callback, path, or proxy URL attached. test-host-firewall has no
-      // production path at all: it is simply not runner-observable.
-      for (const mechanism of [
-        "callback",
-        "caller-callback",
-        "none",
-        "unspecified",
-        "unverified",
-        "declaration",
-        "test-host-firewall",
-        "proxy",
-        "iptables",
-        "nftables",
-        "ebpf",
-        "landlock",
-      ]) {
-        await expect(
-          runOnce({
-            egressEnforcement: {
-              mechanism,
-              inferenceHost: "api.anthropic.com",
-              observableProbe: () => true,
-              verifySandbox: () => true,
-              netnsPath: "/",
-              proxyUrl: "http://proxy.example:8080",
-            } as never,
-          }),
-        ).rejects.toThrow("is not runner-observable");
-      }
-
-      // netns while the runner itself is in the host namespace: refuse,
-      // even with caller-supplied callbacks attached.
-      await expect(
-        runOnce({
-          egressNetnsReader: HOST_NETNS_READER,
-          egressEnforcement: {
-            mechanism: "netns",
-            inferenceHost: "api.anthropic.com",
-            observableProbe: () => true,
-            verifySandbox: () => true,
-          } as never,
-        }),
-      ).rejects.toThrow("host root network namespace");
-
-      // Child outside the runner-observed namespace: refuse and kill it
-      // before any streaming.
-      const escapeChild = createMockChild();
-      const escapeSpawn = vi.fn(() => escapeChild);
-      const escapeRunner = new OfficialClaudeCodeCliRunner({
-        ...qualifiedOptions,
-        spawnFn: escapeSpawn as any,
-        egressNetnsReader: CHILD_ESCAPE_NETNS_READER,
-      });
-      await expect(
-        escapeRunner
-          .run({
-            access: fakeAccess,
-            request: fakeRequest,
-            signal: new AbortController().signal,
-          })[Symbol.asyncIterator]()
-          .next(),
-      ).rejects.toThrow("child is not in the runner-observed isolated network namespace");
-      expect(escapeSpawn).toHaveBeenCalledTimes(1);
-      expect(escapeChild.kill).toHaveBeenCalledWith("SIGKILL");
-    } finally {
-      if (saved === undefined) delete process.env.H2A_CLAUDE_EGRESS_ENFORCED;
-      else process.env.H2A_CLAUDE_EGRESS_ENFORCED = saved;
-    }
 
     expect(spawnFn).not.toHaveBeenCalled();
   });
@@ -768,29 +636,6 @@ describe("claude-code-cli-runner (protocol)", () => {
     expect(events).toEqual([{ type: "error" }]);
   });
 
-  it("refuses spawn while managed configuration prevents isolation", async () => {
-    const managedFile = join(RUNNER_SCRATCH, "managed-settings.json");
-    writeFileSync(managedFile, "{}");
-    const mockChild = createMockChild();
-    const spawnFn = vi.fn(() => mockChild);
-    const runner = new OfficialClaudeCodeCliRunner({
-      ...qualifiedOptions,
-      spawnFn: spawnFn as any,
-      managedSettingsPaths: [managedFile],
-    });
-
-    await expect(
-      runner
-        .run({
-          access: fakeAccess,
-          request: fakeRequest,
-          signal: new AbortController().signal,
-        })[Symbol.asyncIterator]()
-        .next(),
-    ).rejects.toThrow("managed configuration prevents isolation");
-    expect(spawnFn).not.toHaveBeenCalled();
-  });
-
   it("refuses caller abort before spawn and never creates child process", async () => {
     const mockChild = createMockChild();
     const spawnFn = vi.fn(() => mockChild);
@@ -799,37 +644,6 @@ describe("claude-code-cli-runner (protocol)", () => {
 
     const runner = new OfficialClaudeCodeCliRunner({
       ...qualifiedOptions,
-      spawnFn: spawnFn as any,
-    });
-
-    const events = [];
-    for await (const event of runner.run({
-      access: fakeAccess,
-      request: fakeRequest,
-      signal: controller.signal,
-    })) {
-      events.push(event);
-    }
-
-    expect(events).toEqual([{ type: "error" }]);
-    expect(spawnFn).not.toHaveBeenCalled();
-  });
-
-  it("caller abort during pre-spawn verification yields error and never creates child process", async () => {
-    const mockChild = createMockChild();
-    const spawnFn = vi.fn(() => mockChild);
-    const controller = new AbortController();
-
-    const runner = new OfficialClaudeCodeCliRunner({
-      ...qualifiedOptions,
-      egressEnforcement: {
-        mechanism: "netns",
-        inferenceHost: "api.anthropic.com",
-      },
-      egressNetnsReader: ((procPath: string) => {
-        controller.abort();
-        return ISOLATED_NETNS_READER(procPath);
-      }) as never,
       spawnFn: spawnFn as any,
     });
 
@@ -1031,11 +845,6 @@ wait
       capabilities: { ...validCaps, qualificationRef: buildClaudeQualificationRef(digest) },
       spawnFn,
       sandboxRootDir: RUNNER_SCRATCH,
-      egressEnforcement: {
-        mechanism: "netns",
-        inferenceHost: "api.anthropic.com",
-      },
-      egressNetnsReader: ISOLATED_NETNS_READER,
       timeoutMs: 30_000,
     });
 

@@ -4,17 +4,9 @@ import { homedir, tmpdir, userInfo } from "node:os";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   ALLOWED_ENV_VARS,
-  BLOCKED_AUTH_HOSTS,
-  DEFAULT_INFERENCE_HOST,
-  assertManagedConfigIsolation,
   buildIsolatedEnvironment,
-  checkEgressAllowed,
-  checkWindowsManagedRegistry,
   cleanClaudeRunSandbox,
   createClaudeRunSandbox,
-  defaultManagedConfigPaths,
-  getClaudeSeatOrgProofHandoff,
-  isWsl,
   resolvePrivateRuntimeRoot,
   recordChildPidInSandbox,
   verifyCredentialNotRewritten,
@@ -190,37 +182,7 @@ describe("claude-code-cli-isolation", () => {
     }
   });
 
-  it("refuses managed configuration and scopes PATH to the binary directory", () => {
-    // 1. managed-settings.json file
-    const managedFile = join(TEST_SCRATCH, "managed-settings.json");
-    writeFileSync(managedFile, "{}");
-    expect(() => assertManagedConfigIsolation([managedFile])).toThrow(
-      "managed configuration prevents isolation",
-    );
-
-    // 2. managed-settings.d drop-ins directory
-    const managedDir = join(TEST_SCRATCH, "managed-settings.d");
-    mkdirSync(managedDir);
-    expect(() => assertManagedConfigIsolation([managedDir])).toThrow(
-      "managed configuration prevents isolation",
-    );
-
-    // 3. managed-mcp.json file
-    const managedMcp = join(TEST_SCRATCH, "managed-mcp.json");
-    writeFileSync(managedMcp, "{}");
-    expect(() => assertManagedConfigIsolation([managedMcp])).toThrow(
-      "managed configuration prevents isolation",
-    );
-
-    // Absent paths do not throw
-    expect(() =>
-      assertManagedConfigIsolation([
-        join(TEST_SCRATCH, "absent-settings.json"),
-        join(TEST_SCRATCH, "absent-settings.d"),
-        join(TEST_SCRATCH, "absent-mcp.json"),
-      ]),
-    ).not.toThrow();
-
+  it("scopes PATH to the binary directory and never inherits the parent PATH", () => {
     const sandbox = createClaudeRunSandbox({ access: fakeAccess, rootDir: TEST_SCRATCH });
     try {
       const withBinary = buildIsolatedEnvironment(
@@ -233,115 +195,6 @@ describe("claude-code-cli-isolation", () => {
     } finally {
       cleanClaudeRunSandbox(sandbox);
     }
-  });
-
-  it("resolves defaultManagedConfigPaths per platform including conservative unverified macOS plist candidates", () => {
-    const winPaths = defaultManagedConfigPaths("win32");
-    expect(winPaths).toContain("C:\\Program Files\\ClaudeCode\\managed-settings.json");
-    expect(winPaths).toContain("C:\\Program Files\\ClaudeCode\\managed-settings.d");
-    expect(winPaths).toContain("C:\\Program Files\\ClaudeCode\\managed-mcp.json");
-
-    const macPaths = defaultManagedConfigPaths("darwin");
-    expect(macPaths).toContain("/Library/Application Support/ClaudeCode/managed-settings.json");
-    expect(macPaths).toContain("/Library/Application Support/ClaudeCode/managed-settings.d");
-    expect(macPaths).toContain("/Library/Application Support/ClaudeCode/managed-mcp.json");
-    expect(macPaths).toContain("/Library/Managed Preferences/com.anthropic.claude-code.plist");
-    expect(macPaths).toContain("/Library/Preferences/com.anthropic.claude-code.plist");
-    expect(macPaths).toContain("/Library/Managed Preferences/com.anthropic.claudecode.plist");
-
-    const linuxPaths = defaultManagedConfigPaths("linux");
-    expect(linuxPaths).toContain("/etc/claude-code/managed-settings.json");
-    expect(linuxPaths).toContain("/etc/claude-code/managed-settings.d");
-    expect(linuxPaths).toContain("/etc/claude-code/managed-mcp.json");
-
-    const wslPaths = defaultManagedConfigPaths("wsl");
-    expect(wslPaths).toContain("/etc/claude-code/managed-settings.json");
-    expect(wslPaths).toContain("/mnt/c/Program Files/ClaudeCode/managed-settings.json");
-    expect(wslPaths).toContain("/mnt/c/Program Files/ClaudeCode/managed-settings.d");
-    expect(wslPaths).toContain("/mnt/c/Program Files/ClaudeCode/managed-mcp.json");
-  });
-
-  it("detects WSL environment from environment variables or proc version", () => {
-    const saved = process.env.WSL_DISTRO_NAME;
-    try {
-      process.env.WSL_DISTRO_NAME = "Ubuntu";
-      expect(isWsl()).toBe(true);
-      delete process.env.WSL_DISTRO_NAME;
-      expect(typeof isWsl()).toBe("boolean");
-    } finally {
-      if (saved !== undefined) process.env.WSL_DISTRO_NAME = saved;
-      else delete process.env.WSL_DISTRO_NAME;
-    }
-  });
-
-  it("fails closed on reg.exe failure, error, or unexpected exit code and detects HKLM/HKCU policies", () => {
-    // 1. Success on HKLM policy found (exit code 0)
-    const mockSpawnHklm = (_cmd: string, args: readonly string[]) => {
-      if (args[1] === "HKLM\\SOFTWARE\\Policies\\ClaudeCode") {
-        return { status: 0, stdout: Buffer.from(""), stderr: Buffer.from(""), error: undefined } as any;
-      }
-      return { status: 1, stdout: Buffer.from(""), stderr: Buffer.from(""), error: undefined } as any;
-    };
-    expect(checkWindowsManagedRegistry({ spawnSyncFn: mockSpawnHklm as any, regExePath: "reg.exe" })).toBe(true);
-
-    // 2. Success on HKCU policy found (exit code 0 on HKCU, 1 on HKLM)
-    const queriedKeys: string[] = [];
-    const mockSpawnHkcu = (_cmd: string, args: readonly string[]) => {
-      queriedKeys.push(args[1]!);
-      if (args[1] === "HKCU\\SOFTWARE\\Policies\\ClaudeCode") {
-        return { status: 0, stdout: Buffer.from(""), stderr: Buffer.from(""), error: undefined } as any;
-      }
-      return { status: 1, stdout: Buffer.from(""), stderr: Buffer.from(""), error: undefined } as any;
-    };
-    expect(checkWindowsManagedRegistry({ spawnSyncFn: mockSpawnHkcu as any, regExePath: "reg.exe" })).toBe(true);
-    expect(queriedKeys).toEqual([
-      "HKLM\\SOFTWARE\\Policies\\ClaudeCode",
-      "HKCU\\SOFTWARE\\Policies\\ClaudeCode",
-    ]);
-
-    // 3. Clean environment: both return 1 (key not found)
-    const mockClean = () => ({ status: 1, stdout: Buffer.from(""), stderr: Buffer.from(""), error: undefined } as any);
-    expect(checkWindowsManagedRegistry({ spawnSyncFn: mockClean as any, regExePath: "reg.exe" })).toBe(false);
-
-    // 4. Fail-closed: reg.exe exits with error status (e.g. status 2)
-    const mockExit2 = () => ({ status: 2, stdout: Buffer.from(""), stderr: Buffer.from("Access denied"), error: undefined } as any);
-    expect(() => checkWindowsManagedRegistry({ spawnSyncFn: mockExit2 as any, regExePath: "reg.exe" })).toThrow(
-      "reg.exe query returned exit code 2",
-    );
-
-    // 5. Fail-closed: spawn returns error (e.g. ENOENT)
-    const mockSpawnError = () => ({ status: null, stdout: Buffer.from(""), stderr: Buffer.from(""), error: new Error("spawn ENOENT") } as any);
-    expect(() => checkWindowsManagedRegistry({ spawnSyncFn: mockSpawnError as any, regExePath: "reg.exe" })).toThrow(
-      "reg.exe execution failed",
-    );
-
-    // 6. Fail-closed: spawnSync throws exception
-    const mockThrow = () => { throw new Error("Permission denied"); };
-    expect(() => checkWindowsManagedRegistry({ spawnSyncFn: mockThrow as any, regExePath: "reg.exe" })).toThrow(
-      "reg.exe execution failed",
-    );
-  });
-
-  it("refuses managed configuration via files or registry, and reports org proof blocked", () => {
-    // 1. Windows registry check seam: detected policy refuses.
-    expect(() =>
-      assertManagedConfigIsolation([], { checkRegistry: () => true }),
-    ).toThrow("Windows registry policy detected");
-
-    // 2. Clean registry seam with no managed paths: passes.
-    expect(() =>
-      assertManagedConfigIsolation([], { checkRegistry: () => false }),
-    ).not.toThrow();
-
-    // 3. Organization proof is a blocked mesh seam, not an access read:
-    //    the 0.25.0 projection carries no account-type field, so no
-    //    access-based organization refusal is claimed.
-    expect(getClaudeSeatOrgProofHandoff()).toEqual({
-      status: "blocked_pending_mesh_seam",
-      pinnedBaseline: "0.25.0",
-      requiredSeam: "individual-vs-organization account-type field on ClaudeCodeAccessProjection",
-      rationale: expect.stringContaining("only accessToken/expiresAt/scopes"),
-    });
   });
 
   it("refuses symlink, file, and foreign-owned roots and tightens reused roots", () => {
@@ -440,43 +293,6 @@ describe("claude-code-cli-isolation", () => {
       cleanClaudeRunSandbox(sandbox);
       expect(existsSync(sandbox.runDir)).toBe(false);
     }
-  });
-
-  it("classifies URL destinations for default-deny inference-only egress policy", () => {
-    // Inference endpoint is permitted
-    expect(checkEgressAllowed("https://api.anthropic.com/v1/messages")).toEqual({
-      allowed: true,
-    });
-
-    // OAuth token and auth endpoints are DENIED
-    for (const host of BLOCKED_AUTH_HOSTS) {
-      expect(checkEgressAllowed(`https://${host}/v1/oauth/token`)).toEqual({
-        allowed: false,
-        reason: "oauth_auth_egress_denied",
-      });
-    }
-
-    // IP address literals are DENIED
-    expect(checkEgressAllowed("https://160.79.104.10/")).toEqual({
-      allowed: false,
-      reason: "ip_literal_egress_denied",
-    });
-    expect(checkEgressAllowed("https://[2607:f8b0:4004:800::200e]/")).toEqual({
-      allowed: false,
-      reason: "ip_literal_egress_denied",
-    });
-
-    // Non-HTTPS is DENIED
-    expect(checkEgressAllowed("http://api.anthropic.com/")).toEqual({
-      allowed: false,
-      reason: "non_https_egress_denied",
-    });
-
-    // Other third-party destinations are DENIED
-    expect(checkEgressAllowed("https://example.com/api")).toEqual({
-      allowed: false,
-      reason: "unauthorized_destination_denied",
-    });
   });
 
   it("guards tests to run ONLY with temporary HOME, XDG_RUNTIME_DIR and H2A_ROOT", () => {

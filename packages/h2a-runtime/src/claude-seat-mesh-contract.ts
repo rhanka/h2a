@@ -15,10 +15,9 @@
  *
  * Identical to mesh 0.25.0 `transport/claude-code-runtime-client.ts`: only
  * accessToken/expiresAt/scopes exist upstream. No account-type or
- * organization field is available, so individuality is unprovable from real
- * fields (see `getClaudeSeatOrgProofHandoff` in
- * claude-code-cli-isolation.js); invented optional fields must not be added
- * back here.
+ * organization field exists upstream, and no access-based refusal is claimed
+ * here (common seat model: the mesh directory owns account selection);
+ * invented optional fields must not be added back here.
  */
 export interface ClaudeCodeAccessProjection {
   readonly accessToken: string;
@@ -91,10 +90,4 @@ export interface ClaudeCodeCliCapabilities {
   readonly qualificationRef: string;
   readonly history?: string;
   readonly tools?: string;
-}
-
-/** Structural facade surface the seat gate probes (pre-acquire seam only). */
-export interface ClaudeSeatFacadeLike {
-  readonly createPreAcquireRoutePlanner?: unknown;
-  readonly setPreAcquireAttemptHook?: unknown;
 }
