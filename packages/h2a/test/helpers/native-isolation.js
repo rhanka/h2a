@@ -205,7 +205,7 @@ function installProcessViewVariables(env) {
     if (env[key] !== undefined) process.env[key] = env[key];
 }
 
-function registerPrivateProcess(pid, env, replace = false) {
+function registerPrivateProcess(pid, env, replace = false, survivor = false) {
   if (process.platform !== "linux" || !pid || !env.H2A_TEST_PROC_ROOT
     || env.H2A_TEST_PROC_ROOT !== env.H2A_TEST_OWNED_PROC_ROOT) return () => {};
   const root = env.H2A_TEST_PROC_ROOT;
@@ -215,28 +215,66 @@ function registerPrivateProcess(pid, env, replace = false) {
   // preload replaces its parent's pin with its own before the parent exits.
   const fd = openSync(`/proc/${pid}`, constants.O_RDONLY | constants.O_DIRECTORY);
   const target = `/proc/${process.pid}/fd/${fd}`;
+  const pin = entry + ".pin";
+  let published = target;
+  let pinned = false;
   try {
+    // Explicit pins belong to the surviving test process. A late child preload
+    // cannot retire this anchor, even if it races publication of the PID entry.
+    if (survivor) { symlinkSync(target, pin); pinned = true; }
+    else if (replace) {
+      try { published = readlinkSync(pin); }
+      catch (error) { if (error.code !== "ENOENT") throw error; }
+    }
     if (replace) { try { unlinkSync(entry); } catch (error) { if (error.code !== "ENOENT") throw error; } }
-    symlinkSync(target, entry);
+    symlinkSync(published, entry);
   } catch (error) {
+    if (pinned) unlinkSync(pin);
     closeSync(fd);
     if (error.code === "EEXIST") return () => {};
     throw error;
   }
   return () => {
-    try { unlinkSync(entry); } catch (error) { if (error.code !== "ENOENT") throw error; }
+    // An old child's exit hook must never unlink a newer parent's pin.
+    try { if (readlinkSync(entry) === target) unlinkSync(entry); }
+    catch (error) { if (error.code !== "ENOENT") throw error; }
+    if (survivor) {
+      try { if (readlinkSync(pin) === target) unlinkSync(pin); }
+      catch (error) { if (error.code !== "ENOENT") throw error; }
+    }
     closeSync(fd);
   };
 }
 
 // For children launched outside node:child_process (PTYs/tmux), the test must
 // call this with the PID returned by its own launcher, after the child is ready.
+// The Linux PTY crash-containment wrapper has a real command child: pin the
+// owned descendants too, by walking only this launcher's pinned task children.
 // Keep the pin in the surviving test process: a SIGKILL cannot run the child's
 // exit hook, and its self-held /proc descriptor becomes inaccessible at death.
 // Release only after waitForPrivateNativeProcesses proves the pinned child dead.
 export function pinPrivateNativeProcess(pid, env = process.env) {
   assertIsolatedEnvironment(env);
-  return registerPrivateProcess(pid, privateProcessEnvironment(env), true);
+  const prepared = privateProcessEnvironment(env);
+  if (process.platform !== "linux") return registerPrivateProcess(pid, prepared, true, true);
+  const releases = [], queue = [pid], seen = new Set();
+  try {
+    for (const child of queue) {
+      if (seen.has(child)) continue;
+      seen.add(child);
+      assert.ok(seen.size <= 64, "private fixture process tree exceeds 64 children");
+      releases.push(registerPrivateProcess(child, prepared, true, true));
+      let children;
+      try {
+        children = fs.readFileSync(join(prepared.H2A_TEST_OWNED_PROC_ROOT, child + ".pin", "task", String(child), "children"), "utf8");
+      } catch (error) { if (["ENOENT", "ESRCH"].includes(error.code)) continue; throw error; }
+      for (const entry of children.trim().split(/\s+/).filter(Boolean)) {
+        assert.match(entry, /^[1-9]\d*$/);
+        queue.push(Number(entry));
+      }
+    }
+  } catch (error) { for (const release of releases.reverse()) release(); throw error; }
+  return () => { for (const release of releases.reverse()) release(); };
 }
 
 export function installNativeTestSpawnGuard() {
@@ -322,7 +360,13 @@ export async function waitForPrivateNativeProcesses(env) {
     try { entries = fs.readdirSync(root); }
     catch (error) { if (error.code === "ENOENT") return; throw error; }
     const alive = entries.filter(entry => /^\d+$/.test(entry) && Number(entry) !== process.pid).filter(entry => {
-      try { return !/\) [ZX] /.test(fs.readFileSync(join(root, entry, "stat"), "utf8")); }
+      try {
+        // Prefer the survivor anchor over the shared PID publication.
+        let path = join(root, entry);
+        try { readlinkSync(path + ".pin"); path += ".pin"; }
+        catch (error) { if (error.code !== "ENOENT") throw error; }
+        return !/\) [ZX] /.test(fs.readFileSync(join(path, "stat"), "utf8"));
+      }
       catch (error) { if (error.code === "ENOENT" || error.code === "ESRCH") return false; throw error; }
     });
     if (alive.length === 0) return;

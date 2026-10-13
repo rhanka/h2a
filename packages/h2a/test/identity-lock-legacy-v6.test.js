@@ -61,7 +61,7 @@ for(const kind of ['live','o-excl','exhausted'])test(`B6: ${kind} succession blo
    const count=kind==='exhausted'?8:1;
    for(let i=0;i<count;i++){const token=String(i+1).padStart(32,'0');const pid=kind==='live'?process.pid:spawnSync(process.execPath,['-e','process.exit(0)']).pid;
      fs.writeFileSync(x.lock+'.succ.'+predecessor,JSON.stringify({recordVersion:2,protocol:'identity-binding-fence-v1',platform:'linux',publication:kind==='o-excl'?'o-excl':'link',...identitySelf(),pid,token,fenceEpoch:token,target:generation,at:Date.now()}));predecessor=token;}
-   await assert.rejects(()=>withIdentityFence(x.lock,()=>assert.fail('blocked succession'),{timeoutMs:150,pollMs:10}),e=>{assert.equal(e.diagnostic.blockerType,'SUCC');assert.equal(e.diagnostic.reasonCode,kind==='live'?'holder-live':kind==='o-excl'?'publication-o-excl':'succ-chain-exhausted');return true;});
+   await assert.rejects(()=>withIdentityFence(x.lock,()=>assert.fail('blocked succession'),{timeoutMs:150,pollMs:10}),e=>{assert.equal(e.diagnostic.blockerType,'SUCC',JSON.stringify(e.diagnostic));assert.equal(e.diagnostic.reasonCode,kind==='live'?'holder-live':kind==='o-excl'?'publication-o-excl':'succ-chain-exhausted');return true;});
    assert.deepEqual(fs.readFileSync(x.lock),original);assert.equal(fs.readdirSync(join(x.root,'identity')).filter(n=>n.includes('.succ.')).length,count);
  }finally{restore();fs.rmSync(x.dir,{recursive:true,force:true});}});
 test('B5: a real live legacy writer with its lock FD closed is retained, then normal release permits acquisition',async()=>{
@@ -74,4 +74,16 @@ test('B5: a real live legacy writer with its lock FD closed is retained, then no
    const result=await withIdentityFence(x.lock,lease=>lease.recovered,{timeoutMs:1000,pollMs:10,onBlocker:info=>{observations.push(info.reasonCode);}});
    assert.ok(observations.includes('legacy-pid-present'));assert.equal(result,false);
  }finally{clearTimeout(timer);restore();if(child?.exitCode===null)child.kill('SIGKILL');fs.rmSync(x.dir,{recursive:true,force:true});}
+});
+
+test('B5: simulated boot sources stay coherent while succession workers start under load', async()=>{
+ const x=setup();const realNow=Date.now;let delay=0;let restore=()=>{};
+ try {
+   legacy(x);
+   Date.now=()=>realNow()+delay;
+   restore=simulatedReboot(x.dir);
+   delay=5000;
+   assert.equal(await withIdentityFence(x.lock,lease=>lease.recovered,{timeoutMs:1000}),true);
+   assert.equal(fs.existsSync(x.lock),false);
+ }finally{restore();Date.now=realNow;fs.rmSync(x.dir,{recursive:true,force:true});}
 });
