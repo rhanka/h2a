@@ -96,9 +96,9 @@ test('R8: a previous-boot record with a live PID is recovered without a targeted
    assert.equal(withIdentityFenceSync(x.lock,lease=>lease.recovered,{timeoutMs:500}),true);assert.equal(probes,0);
  }finally{process.kill=kill;fs.readFileSync=read;syncBuiltinESMExports();child.kill('SIGKILL');clean(x);}
 });
-for(const mutation of [
+for(const [caseIndex, mutation] of [
  r=>({...r,recordVersion:3}),r=>({...r,protocol:'future'}),r=>({...r,extra:true}),r=>({...r,pid:Number.MAX_SAFE_INTEGER+1})
-])test('R2: v2 invalid discriminator/field never falls back',()=>{const x=setup('forms');try{writeLock(x.lock,mutation(rec()));const result=readIdentityLock(x.lock);assert.ok(result==='unknown'||result==='corrupt');}finally{clean(x);}});
+].entries())test(`R2: v2 invalid discriminator/field case ${caseIndex+1} never falls back`,()=>{const x=setup('forms');try{writeLock(x.lock,mutation(rec()));const result=readIdentityLock(x.lock);assert.ok(result==='unknown'||result==='corrupt');}finally{clean(x);}});
 test('R5: a durable slot survives a real child exit and its winner is recovered without another mint',()=>{
  const x=setup('slot-crash');try{fixtureIdentity(x.root,'claude:winner:id','winner');
    const url=pathToFileURL(join(import.meta.dirname,'../dist/runtime/identity/bindings.js')).href;

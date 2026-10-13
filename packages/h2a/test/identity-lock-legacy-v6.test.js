@@ -41,19 +41,19 @@ for(const [name,options,reason] of [
    await assert.rejects(()=>withIdentityFence(x.lock,()=>assert.fail('must not enter'),{timeoutMs:150,pollMs:10}),e=>{assert.equal(e.diagnostic.reasonCode,reason);assert.equal(e.diagnostic.bootClass,'unknown');return true;});assert.deepEqual(fs.readFileSync(x.lock),before);
  }finally{restore();fs.rmSync(x.dir,{recursive:true,force:true});}
 });
-for(const mutation of [
+for(const [caseIndex, mutation] of [
  r=>({...r,pid:0}),r=>({...r,pid:4194305}),r=>({...r,startedAt:'2026-02-30T00:00:00.000Z'}),
  r=>({...r,fenceEpoch:r.fenceEpoch.toUpperCase()}),r=>({...r,fenceEpoch:'00000000-0000-1000-8000-000000000001'}),
  r=>({...r,extra:true}),r=>({...r,recordVersion:2}),r=>({...r,protocol:'unknown'})
-])test('B2: malformed complete legacy never falls back to an incomplete legacy or adapter',()=>{const x=setup();try{const r={pid:123,hostname:hostname(),startedAt:'2026-01-01T00:00:00.000Z',protocol:'identity-binding-fence-v1',fenceEpoch:'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'};
+].entries())test(`B2: malformed complete legacy case ${caseIndex+1} never falls back to an incomplete legacy or adapter`,()=>{const x=setup();try{const r={pid:123,hostname:hostname(),startedAt:'2026-01-01T00:00:00.000Z',protocol:'identity-binding-fence-v1',fenceEpoch:'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'};
  fs.writeFileSync(x.lock,JSON.stringify(mutation(r)));const result=readIdentityLock(x.lock);assert.ok(result==='unknown'||result==='corrupt');
  }finally{fs.rmSync(x.dir,{recursive:true,force:true});}});
-for(const rewrite of [s=>s+'\n',s=>s+' ',s=>s.replace('"pid":123','"pid":1,"pid":123'),s=>JSON.stringify(Object.fromEntries(Object.entries(JSON.parse(s)).reverse()))])
- test('B2: noncanonical bytes are never automatically eligible',()=>{const x=setup();try{const r={pid:123,hostname:hostname(),startedAt:'2026-01-01T00:00:00.000Z',protocol:'identity-binding-fence-v1',fenceEpoch:'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'};
+for(const [caseIndex, rewrite] of [s=>s+'\n',s=>s+' ',s=>s.replace('"pid":123','"pid":1,"pid":123'),s=>JSON.stringify(Object.fromEntries(Object.entries(JSON.parse(s)).reverse()))].entries())
+ test(`B2: noncanonical byte case ${caseIndex+1} is never automatically eligible`,()=>{const x=setup();try{const r={pid:123,hostname:hostname(),startedAt:'2026-01-01T00:00:00.000Z',protocol:'identity-binding-fence-v1',fenceEpoch:'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'};
  fs.writeFileSync(x.lock,rewrite(JSON.stringify(r)));const result=readIdentityLock(x.lock);assert.ok(result==='corrupt'||result==='unknown'||result.eligible===false);
  }finally{fs.rmSync(x.dir,{recursive:true,force:true});}});
-for(const options of [{mount:'2 1 0:2 / /proc/sys/fs/binfmt_misc rw - binfmt_misc binfmt_misc rw\n'}, {entries:[String(process.pid),'4194000']}])
- test('B5: harmless binfmt_misc and vanished process entries do not prevent a complete proof',async()=>{const x=setup();let restore=()=>{};try{legacy(x);restore=simulatedReboot(x.dir,options);
+for(const [caseIndex, options] of [{mount:'2 1 0:2 / /proc/sys/fs/binfmt_misc rw - binfmt_misc binfmt_misc rw\n'}, {entries:[String(process.pid),'4194000']}].entries())
+ test(`B5: harmless proc entry case ${caseIndex+1} does not prevent a complete proof`,async()=>{const x=setup();let restore=()=>{};try{legacy(x);restore=simulatedReboot(x.dir,options);
    assert.equal(await withIdentityFence(x.lock,lease=>lease.recovered,{timeoutMs:1000}),true);
  }finally{restore();fs.rmSync(x.dir,{recursive:true,force:true});}});
 for(const kind of ['live','o-excl','exhausted'])test(`B6: ${kind} succession blocks legacy recovery without removing any generation`,async()=>{
