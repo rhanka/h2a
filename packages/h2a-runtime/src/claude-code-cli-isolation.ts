@@ -1,6 +1,6 @@
 /**
  * Claude Code CLI isolation: private filesystem root, clean environment,
- * exclusive credential creation, and default-deny inference-only egress.
+ * exclusive credential creation, and URL destination classification.
  */
 import {
   chmodSync,
@@ -95,6 +95,22 @@ function ensurePrivateDir(dir: string): string {
   return dir;
 }
 
+function verifyUserBaseDir(dir: string): void {
+  let current;
+  try {
+    current = lstatSync(dir);
+  } catch {
+    throw new Error("Claude private runtime root refused");
+  }
+  if (current.isSymbolicLink() || !current.isDirectory()) {
+    throw new Error("Claude private runtime root refused");
+  }
+  const euid = process.geteuid?.();
+  if (typeof euid === "number" && current.uid !== euid) {
+    throw new Error("Claude private runtime root refused: foreign owner");
+  }
+}
+
 /**
  * Resolve the dedicated private runtime root outside workspaces and backups.
  * Only per-user bases are candidates (XDG_RUNTIME_DIR, then /run/user/<euid>
@@ -108,7 +124,7 @@ export function resolvePrivateRuntimeRoot(customRoot?: string): string {
   const xdgBase = process.env.XDG_RUNTIME_DIR;
   if (xdgBase) {
     try {
-      ensurePrivateDir(xdgBase);
+      verifyUserBaseDir(xdgBase);
       return ensurePrivateDir(join(xdgBase, "h2a-claude-runtime"));
     } catch {
       // Fall through to the next per-user candidate.
@@ -119,7 +135,7 @@ export function resolvePrivateRuntimeRoot(customRoot?: string): string {
     if (typeof euid === "number") {
       try {
         const userBase = `/run/user/${euid}`;
-        ensurePrivateDir(userBase);
+        verifyUserBaseDir(userBase);
         return ensurePrivateDir(join(userBase, "h2a-claude-runtime"));
       } catch {
         // Fall through to fail-closed.
@@ -216,26 +232,62 @@ export function createClaudeRunSandbox(options: {
 }
 
 /**
- * Managed (admin-policy) settings locations the CLI still honors on top of
- * --settings/--setting-sources. Their presence makes configuration isolation
- * escapable, so spawn is refused while any of them exists.
+ * Managed (admin-policy) settings and MCP locations the CLI still honors on
+ * top of --settings/--setting-sources and --strict-mcp-config. Their presence
+ * gives enterprise policy exclusive control or injects drop-ins, making
+ * configuration isolation escapable, so spawn is refused while any of them exists.
  */
-function defaultManagedSettingsPaths(): string[] {
+export function defaultManagedConfigPaths(): string[] {
   if (process.platform === "darwin") {
-    return ["/Library/Application Support/ClaudeCode/managed-settings.json"];
+    const base = "/Library/Application Support/ClaudeCode";
+    return [
+      join(base, "managed-settings.json"),
+      join(base, "managed-settings.d"),
+      join(base, "managed-mcp.json"),
+    ];
   }
   if (process.platform === "win32") {
     const base = process.env.PROGRAMDATA ?? "C:\\ProgramData";
-    return [join(base, "ClaudeCode", "managed-settings.json")];
+    const dir = join(base, "ClaudeCode");
+    return [
+      join(dir, "managed-settings.json"),
+      join(dir, "managed-settings.d"),
+      join(dir, "managed-mcp.json"),
+    ];
   }
-  return ["/etc/claude-code/managed-settings.json"];
+  return [
+    "/etc/claude-code/managed-settings.json",
+    "/etc/claude-code/managed-settings.d",
+    "/etc/claude-code/managed-mcp.json",
+  ];
 }
 
+export const defaultManagedSettingsPaths = defaultManagedConfigPaths;
+
 export function assertManagedConfigIsolation(
-  paths: readonly string[] = defaultManagedSettingsPaths(),
+  paths: readonly string[] = defaultManagedConfigPaths(),
 ): void {
   if (paths.some((candidate) => existsSync(candidate))) {
     throw new Error("Claude seat spawn refused: managed configuration prevents isolation");
+  }
+}
+
+/**
+ * Record child PID and start time in the run's run-meta.json so orphan sweeps
+ * can identify and reap detached child process trees.
+ */
+export function recordChildPidInSandbox(sandbox: ClaudeRunSandbox, childPid: number): void {
+  const metaPath = join(sandbox.runDir, "run-meta.json");
+  try {
+    const existing = JSON.parse(readFileSync(metaPath, "utf8"));
+    const updated = {
+      ...existing,
+      childPid,
+      childStartTime: readProcessStartTime(childPid) ?? null,
+    };
+    writeFileSync(metaPath, JSON.stringify(updated), { mode: 0o600 });
+  } catch {
+    // Best effort
   }
 }
 
@@ -319,8 +371,9 @@ export function cleanClaudeRunSandbox(sandbox: ClaudeRunSandbox): void {
 }
 
 /**
- * Enforce default-deny egress: permits ONLY candidate-qualified inference endpoint.
- * Denies OAuth token endpoint, alternate auth origins, IP literals, and proxies.
+ * Classify URL destination for default-deny egress policy: permits ONLY
+ * candidate-qualified inference endpoint. Denies OAuth token endpoint,
+ * alternate auth origins, IP literals, and proxies.
  */
 export function checkEgressAllowed(
   destinationUrl: string,

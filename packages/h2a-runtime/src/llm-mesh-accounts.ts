@@ -148,9 +148,14 @@ export function llmMeshOwnerScopeRef(): string {
 
 function openEnrollmentBrowser(url: string): void {
   // Owner opt-out: skip the argv exposure entirely (the URL is visible in
-  // /proc/*/cmdline while the opener runs); the masked code prompt below
-  // still completes the flow manually.
-  if (process.env.H2A_NO_BROWSER === "1") return;
+  // /proc/*/cmdline while the opener runs); print the URL directly to the
+  // terminal so the user can complete authorization manually without argv exposure.
+  if (process.env.H2A_NO_BROWSER === "1") {
+    process.stdout.write(
+      `[h2a] llm-mesh: browser launch skipped (H2A_NO_BROWSER=1). Open this URL to authorize:\n${url}\n`,
+    );
+    return;
+  }
   const command = process.platform === "darwin"
     ? "open"
     : process.platform === "win32"
@@ -263,9 +268,11 @@ export async function enrollViaFacade(
       throw new Error("Claude enrollment did not return an authorization URL");
     }
 
-    process.stdout.write(
-      `[h2a] llm-mesh: opening Claude authorization in your browser; authorize and paste the returned code\n`,
-    );
+    if (process.env.H2A_NO_BROWSER !== "1") {
+      process.stdout.write(
+        `[h2a] llm-mesh: opening Claude authorization in your browser; authorize and paste the returned code\n`,
+      );
+    }
     try {
       (options.openBrowser ?? openEnrollmentBrowser)(session.url);
     } catch {

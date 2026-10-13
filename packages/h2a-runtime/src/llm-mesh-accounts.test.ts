@@ -907,9 +907,14 @@ describe("claude browser opener", () => {
       cancel: vi.fn().mockResolvedValue(undefined),
     }) as unknown as LlmMeshFacade;
 
-  it("skips the argv exposure with H2A_NO_BROWSER and still completes", async () => {
+  it("skips the argv exposure with H2A_NO_BROWSER, prints URL, and still completes", async () => {
     vi.mocked(spawn).mockClear();
     vi.stubEnv("H2A_NO_BROWSER", "1");
+    let stdoutOutput = "";
+    const stdoutSpy = vi.spyOn(process.stdout, "write").mockImplementation((str) => {
+      stdoutOutput += String(str);
+      return true;
+    });
     try {
       const result = await enrollViaFacade("claude-code", {
         facade: claudeFacade(),
@@ -918,7 +923,10 @@ describe("claude browser opener", () => {
       });
       expect(result.accountId).toBe("acct_claude_browser");
       expect(vi.mocked(spawn)).not.toHaveBeenCalled();
+      expect(stdoutOutput).toContain(authUrl);
+      expect(stdoutOutput).toContain("browser launch skipped (H2A_NO_BROWSER=1)");
     } finally {
+      stdoutSpy.mockRestore();
       vi.unstubAllEnvs();
     }
   });

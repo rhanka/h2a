@@ -12,16 +12,35 @@ import {
   cleanClaudeRunSandbox,
   createClaudeRunSandbox,
   resolvePrivateRuntimeRoot,
+  recordChildPidInSandbox,
   verifyCredentialNotRewritten,
 } from "./claude-code-cli-isolation.js";
 
 const TEST_SCRATCH = join(tmpdir(), "h2a-claude-isolation-test-" + Date.now());
 
+let savedXdgRuntime: string | undefined;
+let savedHome: string | undefined;
+let savedH2aRoot: string | undefined;
+
 beforeEach(() => {
   mkdirSync(TEST_SCRATCH, { recursive: true });
+  savedXdgRuntime = process.env.XDG_RUNTIME_DIR;
+  savedHome = process.env.HOME;
+  savedH2aRoot = process.env.H2A_ROOT;
+  const tempRuntime = join(TEST_SCRATCH, "run");
+  mkdirSync(tempRuntime, { recursive: true, mode: 0o700 });
+  process.env.XDG_RUNTIME_DIR = tempRuntime;
+  process.env.HOME = join(TEST_SCRATCH, "home");
+  process.env.H2A_ROOT = join(TEST_SCRATCH, "h2a-root");
 });
 
 afterEach(() => {
+  if (savedXdgRuntime === undefined) delete process.env.XDG_RUNTIME_DIR;
+  else process.env.XDG_RUNTIME_DIR = savedXdgRuntime;
+  if (savedHome === undefined) delete process.env.HOME;
+  else process.env.HOME = savedHome;
+  if (savedH2aRoot === undefined) delete process.env.H2A_ROOT;
+  else process.env.H2A_ROOT = savedH2aRoot;
   rmSync(TEST_SCRATCH, { recursive: true, force: true });
 });
 
@@ -168,13 +187,34 @@ describe("claude-code-cli-isolation", () => {
   });
 
   it("refuses managed configuration and scopes PATH to the binary directory", () => {
+    // 1. managed-settings.json file
     const managedFile = join(TEST_SCRATCH, "managed-settings.json");
     writeFileSync(managedFile, "{}");
     expect(() => assertManagedConfigIsolation([managedFile])).toThrow(
       "managed configuration prevents isolation",
     );
+
+    // 2. managed-settings.d drop-ins directory
+    const managedDir = join(TEST_SCRATCH, "managed-settings.d");
+    mkdirSync(managedDir);
+    expect(() => assertManagedConfigIsolation([managedDir])).toThrow(
+      "managed configuration prevents isolation",
+    );
+
+    // 3. managed-mcp.json file
+    const managedMcp = join(TEST_SCRATCH, "managed-mcp.json");
+    writeFileSync(managedMcp, "{}");
+    expect(() => assertManagedConfigIsolation([managedMcp])).toThrow(
+      "managed configuration prevents isolation",
+    );
+
+    // Absent paths do not throw
     expect(() =>
-      assertManagedConfigIsolation([join(TEST_SCRATCH, "absent-settings.json")]),
+      assertManagedConfigIsolation([
+        join(TEST_SCRATCH, "absent-settings.json"),
+        join(TEST_SCRATCH, "absent-settings.d"),
+        join(TEST_SCRATCH, "absent-mcp.json"),
+      ]),
     ).not.toThrow();
 
     const sandbox = createClaudeRunSandbox({ access: fakeAccess, rootDir: TEST_SCRATCH });
@@ -241,6 +281,34 @@ describe("claude-code-cli-isolation", () => {
     expect(st.mode & 0o777).toBe(0o700);
   });
 
+  it("does not modify permissions of the user's base XDG_RUNTIME_DIR", () => {
+    const userRuntime = join(TEST_SCRATCH, "user-runtime");
+    mkdirSync(userRuntime, { recursive: true, mode: 0o755 });
+    process.env.XDG_RUNTIME_DIR = userRuntime;
+
+    const resolved = resolvePrivateRuntimeRoot();
+    expect(resolved).toBe(join(userRuntime, "h2a-claude-runtime"));
+    expect(statSync(resolved).mode & 0o777).toBe(0o700);
+    // User base directory mode must remain untouched (0755), not chmodded by h2a
+    expect(statSync(userRuntime).mode & 0o777).toBe(0o755);
+  });
+
+  it("records child PID in run-meta.json for orphan reaping", () => {
+    const sandbox = createClaudeRunSandbox({ access: fakeAccess, rootDir: TEST_SCRATCH });
+    try {
+      const initialMeta = JSON.parse(readFileSync(join(sandbox.runDir, "run-meta.json"), "utf8"));
+      expect(initialMeta.pid).toBe(process.pid);
+      expect(initialMeta.childPid).toBeUndefined();
+
+      recordChildPidInSandbox(sandbox, 99999);
+      const updatedMeta = JSON.parse(readFileSync(join(sandbox.runDir, "run-meta.json"), "utf8"));
+      expect(updatedMeta.childPid).toBe(99999);
+      expect(updatedMeta.pid).toBe(process.pid);
+    } finally {
+      cleanClaudeRunSandbox(sandbox);
+    }
+  });
+
   it("surfaces sandbox cleanup failure instead of swallowing it", () => {
     if (process.geteuid?.() === 0) return; // root bypasses permission bits; failure not inducible
     const sandbox = createClaudeRunSandbox({
@@ -261,7 +329,7 @@ describe("claude-code-cli-isolation", () => {
     }
   });
 
-  it("enforces inference-only default-deny egress policy", () => {
+  it("classifies URL destinations for default-deny inference-only egress policy", () => {
     // Inference endpoint is permitted
     expect(checkEgressAllowed("https://api.anthropic.com/v1/messages")).toEqual({
       allowed: true,
@@ -296,5 +364,25 @@ describe("claude-code-cli-isolation", () => {
       allowed: false,
       reason: "unauthorized_destination_denied",
     });
+  });
+
+  it("guards tests to run ONLY with temporary HOME, XDG_RUNTIME_DIR and H2A_ROOT", () => {
+    const forbiddenOwnerPaths = [
+      "/home/antoinefa/.config/sentropic/h2a",
+      "/home/antoinefa/h2a-workspace",
+      "/run/user/1000",
+      "/home/antoinefa/.config",
+      "/home/antoinefa/.local/state",
+    ];
+
+    expect(process.env.HOME).not.toBe("/home/antoinefa");
+    expect(process.env.XDG_RUNTIME_DIR).not.toBe("/run/user/1000");
+
+    for (const forbidden of forbiddenOwnerPaths) {
+      for (const envVar of [process.env.HOME, process.env.XDG_RUNTIME_DIR, process.env.H2A_ROOT]) {
+        if (!envVar) continue;
+        expect(envVar === forbidden || envVar.startsWith(`${forbidden}/`)).toBe(false);
+      }
+    }
   });
 });
