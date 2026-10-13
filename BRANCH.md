@@ -1846,3 +1846,9 @@ Attendre la fin du build release/v0.97.12 et vérifier avec `ps` qu’aucun
 suite complète. La suite externe bpmn-canvas (groupe 933523) est exclue de
 cette contrainte et reste intacte. Exécuter les deux branches en séquence.
 La synchronisation finale intègre `origin/main` à `8c1912d7` par avance rapide.
+
+- [x] No v0.98.6 tag locally: integrate current owner-mandated L0 base; byte freeze against final .6 remains release gate.
+- [x] L0 R2 closed now at owner's request: four non-ACTIVE authority vectors kill the missing-guard mutation (r2-red/r2-green logs).
+- [ ] Review R3 QF/QC awaiting explicit owner arbitration; R4–R6 awaiting owner decision on release gates versus L1 fusion verdict (docs/plan/mh-l1/reserve-closure.md).
+- [x] Initial shared node_modules lacked workspace-local dependencies: npm ci --ignore-scripts creates checkout-local lockfile dependencies.
+- [x] Harness recorders/Track imports are not invoked because they would use installed h2a or shared Track state.
