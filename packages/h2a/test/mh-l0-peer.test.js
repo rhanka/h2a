@@ -39,6 +39,11 @@ test('L0 network pair: valid future verdict, negative provenance, CAS and lost A
       authorization: e.authorization };
     const options = { rootKey, context, expected, delegation, report, now: 1500, challengeNonce: e.challengeNonce };
     assert.equal(readCompatibilityEvidence(proof, options).verifier.buildId, 'unknown-future-build');
+    for (const controllerAuthorityState of ['REVOKED', 'INACTIVE', 'DELEGATING', undefined]) {
+      assert.throws(() => readCompatibilityEvidence(proof, {
+        ...options, delegation: { ...delegation, controllerAuthorityState }
+      }), /evidence_controller_unauthorized/);
+    }
     for (const changed of [{ ...options, now: 2000 }, { ...options, delegation: null },
       { ...options, challengeNonce: 'wrong' }, { ...options, delegation: { ...delegation, controllerEpoch: 99 } },
       { ...options, delegation: { ...delegation, controllerIdentity: { ...delegation.controllerIdentity, pid: 999 } } },
