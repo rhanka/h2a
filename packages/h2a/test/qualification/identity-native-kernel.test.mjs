@@ -23,7 +23,7 @@ test('B9 native: real initial namespace anchors and current-boot legacy admissio
 });
 
 test('B9 native: private PID namespace availability is recorded without a skip',()=>{
- const probe=spawnSync('unshare',['--user','--map-root-user','--pid','--fork',process.execPath,'-e','process.stdout.write(String(process.pid))'],{encoding:'utf8',timeout:5000});
+ const probe=spawnSync('unshare',['--user','--map-root-user','--pid','--fork',process.execPath,'-e','process.stdout.write(String(process.pid))'],{encoding:'utf8',timeout:5000,env:{...process.env,LC_ALL:'C',LANG:'C'}});
  console.log(JSON.stringify({privatePidNamespace:probe.status===0?'available':'BLOCKED_ENVIRONMENT',exit:probe.status,stderr:probe.stderr.trim(),pid:probe.stdout.trim(),realPidReuseQualification:probe.status===0?'requires private procfs qualification':'NOT CLOSABLE HERE: namespace creation denied; no global PID allocator changes authorized'}));
  if(probe.status===0)assert.equal(probe.stdout,'1');else assert.match(probe.stderr,/not permitted|Operation not permitted/);
 });
