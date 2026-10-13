@@ -74,6 +74,7 @@ export interface RunMcpStdioOptions {
   root: string;
   /** Shared daemon store; sessions, identity and notification state stay per attachment. */
   store?: ReturnType<typeof createLocalStore>;
+  participant?: import('../handover/participants.js').AttachmentParticipant;
   /** Captured launch environment, never the daemon's environment. */
   sessionEnv?: NodeJS.ProcessEnv;
   /** Internal transport adapter seam; does not change the MCP tool contract. */
@@ -384,10 +385,11 @@ export function runMcpStdio(options: RunMcpStdioOptions): Promise<void> {
   // the real emitter is always assigned before the first tick fires.
   let emitNotification: (
     notification: unknown,
-    meta: { method: string; topic?: string | undefined }
+    meta: { method: string; topic?: string | undefined; sequence?: number }
   ) => { accepted: boolean } = () => ({ accepted: false });
   const server = createMcpServer({
     ...(options.store ? { store: options.store } : {}),
+    ...(options.participant ? { participant: options.participant } : {}),
     root,
     workspaceRoot: options.workspaceRoot ?? process.cwd(),
     ...(options.runExecutor ? { runExecutor: options.runExecutor } : {}),
@@ -411,9 +413,10 @@ export function runMcpStdio(options: RunMcpStdioOptions): Promise<void> {
     },
     notifications: {
       ...(notifyIntervalMs !== undefined ? { intervalMs: notifyIntervalMs } : {}),
-      sink: (notification) =>
+      sink: (notification, sequence) =>
         emitNotification(notification, {
           method: notification.method,
+          sequence,
           topic:
             typeof notification.params?.topic === "string"
               ? notification.params.topic
@@ -440,18 +443,14 @@ export function runMcpStdio(options: RunMcpStdioOptions): Promise<void> {
   const MAX_QUEUE_BYTES = 8 * 1024 * 1024;
   let writeChain: Promise<void> = Promise.resolve();
   let queuedBytes = 0;
-  function enqueueLine(line: string): void {
+  function enqueueLine(line: string): Promise<void> {
     const bytes = Buffer.byteLength(line, "utf8");
     queuedBytes += bytes;
     writeChain = writeChain
       .then(
         () =>
           new Promise<void>((resolve, reject) => {
-            const flushed = stdout.write(line, (err) => {
-              if (err) reject(err);
-            });
-            if (flushed) resolve();
-            else stdout.once("drain", resolve);
+            stdout.write(line, (err) => err ? reject(err) : resolve());
           })
       )
       .then(
@@ -471,6 +470,7 @@ export function runMcpStdio(options: RunMcpStdioOptions): Promise<void> {
         /* stderr is diagnostic-only; a broken diagnostic sink is not fatal */
       }
     });
+    return writeChain;
   }
   /** Bound and enqueue a JSON-RPC response; returns the frame ACTUALLY emitted. */
   function emitResponse(id: JsonRpcId, responseObject: unknown): EncodedFrame {
@@ -498,7 +498,13 @@ export function runMcpStdio(options: RunMcpStdioOptions): Promise<void> {
       }
       return { accepted: false };
     }
-    enqueueLine(outcome.frame.line);
+    const callback = options.participant?.begin('callback');
+    void enqueueLine(outcome.frame.line).then(() => {
+      if (meta.sequence !== undefined) server.notifications.markDelivered(meta.sequence);
+      if (callback) options.participant!.finish(callback, { delivered: true });
+    }, error => {
+      if (callback) options.participant!.finish(callback, { state: 'unknown', error: String(error) }, true);
+    });
     return { accepted: outcome.accepted };
   };
 
@@ -602,6 +608,7 @@ export function runMcpStdio(options: RunMcpStdioOptions): Promise<void> {
       readInbox: () => wakeStore.readInbox(wakeInstance),
       privateKeyPem: wakeCfg.privateKeyPem,
       driver: wakeCfg.driver,
+      ...(options.participant ? { journal: options.participant.wake } : {}),
       ...(cfg.host !== undefined ? { host: cfg.host } : {}),
       // Self-wake targets THIS process's OWN tmux pane (inherited $TMUX_PANE).
       resolveLaunchContext: () =>
@@ -615,8 +622,14 @@ export function runMcpStdio(options: RunMcpStdioOptions): Promise<void> {
         : {}),
       log: (line) => stderr.write(`h2a mcp-serve: ${line}\n`)
     });
+    if (options.participant) {
+      options.participant.wakeHandler = wake;
+      options.participant.terminalReferences = [{ instance: cfg.instance,
+        ...(wakeCfg.nativeSessionId ? { nativeSessionId: wakeCfg.nativeSessionId } : {}) }];
+      options.participant.delegationReferences = delegation ? [delegation] : [];
+    }
     server.notifications.setOnInboxArrival((instance) => {
-      if (instance === wakeInstance) void wake();
+      if (instance === wakeInstance) void wake().catch(error => stderr.write(`h2a mcp-serve: wake blocked: ${String(error)}\n`));
     });
     stderr.write(`h2a mcp-serve: inbox-wake armed for ${wakeInstance}\n`);
   }

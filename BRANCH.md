@@ -11,7 +11,7 @@
 - [x] No installed h2a/dist, operator state, unrelated process, Python, version bump or publication.
 
 ## Branch Scope Boundaries
-- [x] Allowed: runtime/handover/**; local-files/{store,presence,launch-index}.ts; mcp/{notifications,sessions,server,stdio,agent-launch,payload-store}.ts; mirror/serve.ts (audited mirror-seq writer); drive/inbox-wake.ts; blockage/registry.ts; identity/{bindings,live,migration}.ts; mcp-central{,-attachment}.ts; cli.ts internal seam; MH-L4 tests/scripts/docs; BRANCH.md.
+- [x] Allowed: runtime/handover/**; local-files/{store,presence,launch-index}.ts; mcp/{notifications,sessions,server,stdio,agent-launch,payload-store}.ts; mirror/serve.ts (audited mirror-seq writer); drive/inbox-wake.ts; blockage/registry.ts; identity/{bindings,live,migration}.ts; mcp-central{,-attachment}.ts; cli.ts internal seam; MH-L4 tests/scripts/docs; docs/plan/mh-l0/schemas.json ($defs regenerated, old definitions unchanged); BRANCH.md.
 - [x] Conditional: additional business writers only when the audit proves fencing necessary; no native-terminal implementation.
 - [x] Forbidden: main, .track, full suite, H4/live coordinator, MH-L3 shim/replay/catalogue work, gateway, package metadata.
 - [x] BR-L4-EX1: cohesive protocol/test changes and evidence archives may exceed 150 lines / 15 files; selective staging; rollback by git revert.
@@ -23,14 +23,14 @@
 - [x] Gate: mh-l4-ownership.test.js and mh-l4-writers.test.js red/green.
 
 ## Lot 2 — Checkpoints, notifications and wake
-- [ ] Complete immutable checkpoints, lost ACK, producer/delivery/application receipt separation.
-- [ ] Wake intent before injection, serialized wakes, no automatic unknown replay.
-- [ ] Gate: mh-l4-checkpoint.test.js and mh-l4-wake.test.js red/green.
+- [x] Complete immutable checkpoints, lost ACK, producer/delivery/application receipt separation.
+- [x] Wake intent before injection, serialized wakes, no automatic unknown replay.
+- [x] Gate: mh-l4-checkpoint.test.js and mh-l4-wake.test.js red/green.
 
 ## Lot 3 — Launch receipts and drain
-- [ ] Atomic attachment/name reservation, argument conflict, token-bound receipts, no duplicate spawn/brief.
-- [ ] Drain children/briefs/callbacks/effects after launching reply; durable owner-directed completion.
-- [ ] Gate: mh-l4-launch.test.js and mh-l4-integration.test.js red/green.
+- [x] Atomic attachment/name reservation, argument conflict, token-bound receipts, no duplicate spawn/brief.
+- [x] Drain children/briefs/callbacks/effects after launching reply; durable owner-directed completion.
+- [x] Gate: mh-l4-launch.test.js and mh-l4-integration.test.js red/green.
 
 ## Lot 4 — Verification and delivery
 - [ ] Mutation proofs and explicit files on Node 22 and 24.
