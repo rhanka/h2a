@@ -38,13 +38,22 @@
           "type": "string",
           "minLength": 1,
           "format": "absolute-path"
+        },
+        "delegation": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {}
+          ]
         }
       },
       "required": [
         "schemaVersion",
         "launchId",
         "attachmentId",
-        "workspaceRoot"
+        "workspaceRoot",
+        "delegation"
       ],
       "additionalProperties": false
     },

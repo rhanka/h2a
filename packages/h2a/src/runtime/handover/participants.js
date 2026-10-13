@@ -183,10 +183,8 @@ export class AttachmentParticipant {
   completeLaunch(request, result, record) {
     if (!request.delegation) return;
     const memo = this.launches.memos().find(m => m.launchName === request.name);
-    const operation = memo && this.launches.operation(memo, 'child');
-    if (!operation) throw new Error('operation_fenced');
-    const eventId = this.manager.ledger.publishEffect(operation, { type: 'launch-delegation', launchId: memo.launchId,
-      delegation: request.delegation, terminalResult: result });
+    if (!memo) throw new Error('operation_fenced');
+    const eventId = this.launches.publishDelegation(memo, result);
     try {
       this.manager.registry.withLock(() => {
         this.manager.registry.assertOwner(this.token);

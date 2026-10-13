@@ -86,6 +86,8 @@ export function withWriterMutation(root, domain, fn) {
 /** Presence ownership is per target, not merely per process or store root. */
 export function withPresenceMutation(root, sessionId, instance, fn) {
   return withWriterMutation(root, 'presence', () => {
+    // Existing-row identity must be read after taking the writer lock.
+    if (typeof instance === 'function') instance = instance();
     const authority = execution.getStore();
     if (authority?.root === resolve(root)) {
       const owner = authority.registry.assertOwner(authority.token, authority.cleanup ? ['ACTIVE', 'FROZEN'] : ['ACTIVE']).value;
