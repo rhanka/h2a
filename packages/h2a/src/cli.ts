@@ -1977,6 +1977,7 @@ export async function runMcpServe(
     signal?: AbortSignal;
     /** Internal central attachment adapter. */
     sharedStore?: ReturnType<typeof createLocalStore>;
+    participant?: import('./runtime/handover/participants.js').AttachmentParticipant;
     onServer?: RunMcpStdioOptions["onServer"];
     reclaimOnly?: boolean;
     expectedInstance?: string;
@@ -2216,6 +2217,7 @@ export async function runMcpServe(
       workspaceRoot: cwd(),
       sessionEnv: readinessEnv,
       ...(io.sharedStore ? { store: io.sharedStore } : {}),
+      ...(io.participant ? { participant: io.participant } : {}),
       ...(io.onServer ? { onServer: io.onServer } : {}),
       ...(io.runExecutor ? { runExecutor: io.runExecutor } : io.centralAttachment ? {
         runExecutor: request => executeH2aRunWithAsyncSpawn(request, spawn, undefined, readinessEnv)
