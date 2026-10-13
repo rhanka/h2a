@@ -1,4 +1,6 @@
-import { centralHttpRequest } from "./mcp-central-http.js";
+import { authenticatedHttpRequest, readAuthenticationKey } from "./handover/authenticated-http.js";
+import { FrameVerifier } from "./handover/authentication.js";
+import { randomUUID } from "node:crypto";
 /** Stdio bridge with in-place recovery. This module must stay independent of the CLI/store. */
 import { createInterface } from "node:readline";
 import type { Readable, Writable } from "node:stream";
@@ -47,6 +49,17 @@ function replayable(message: Rpc): boolean {
 export async function bridgeCentralMcpStdio(options: CentralMcpStdioBridgeOptions): Promise<void> {
   let marker = readCentralClientMarker(centralMcpMarkerPath(options));
   if (marker.endpoint !== parseCentralMcpEndpoint(options.endpoint)) throw new Error("central MCP marker does not match requested endpoint");
+  const attachmentId = randomUUID();
+  let verifiedGeneration = marker.generation;
+  let notificationVerifier = new FrameVerifier(marker, readAuthenticationKey(centralMcpMarkerPath(options), marker));
+  const centralHttpRequest = (url: string | URL, request: { method?: string; headers?: Record<string, string>; body?: string; signal?: AbortSignal } = {}) => {
+    if (verifiedGeneration !== marker.generation) {
+      notificationVerifier = new FrameVerifier(marker, readAuthenticationKey(centralMcpMarkerPath(options), marker));
+      verifiedGeneration = marker.generation;
+    }
+    return authenticatedHttpRequest(centralMcpMarkerPath(options), marker, url, { ...request, attachmentId,
+      transportEpoch: 1, notificationVerifier });
+  };
   let sessionId: string | undefined;
   let initialize: Rpc | undefined;
   let initializing: Promise<void> | undefined;
@@ -76,7 +89,7 @@ export async function bridgeCentralMcpStdio(options: CentralMcpStdioBridgeOption
     } } : message;
     const response = await centralHttpRequest(current.endpoint, {
       method: "POST",
-      headers: { authorization: `Bearer ${current.token}`, "content-type": "application/json", accept: "application/json, text/event-stream", "x-h2a-workspace": encodeURIComponent(options.workspaceRoot ?? process.cwd()), ...(options.attachment ? { "x-h2a-attachment": Buffer.from(JSON.stringify(options.attachment)).toString("base64url") } : {}), ...(sessionId ? { "mcp-session-id": sessionId } : {}) },
+      headers: { "content-type": "application/json", accept: "application/json, text/event-stream", "x-h2a-workspace": encodeURIComponent(options.workspaceRoot ?? process.cwd()), ...(options.attachment ? { "x-h2a-attachment": Buffer.from(JSON.stringify(options.attachment)).toString("base64url") } : {}), ...(sessionId ? { "mcp-session-id": sessionId } : {}) },
       body: JSON.stringify(outgoing),
       signal: AbortSignal.any([controller.signal, AbortSignal.timeout(55_000)])
     });
@@ -101,7 +114,7 @@ export async function bridgeCentralMcpStdio(options: CentralMcpStdioBridgeOption
     const currentSession = sessionId;
     const signal = AbortSignal.any([controller.signal, eventController.signal]);
     void (async () => {
-      const response = await centralHttpRequest(current.endpoint, { headers: { authorization: `Bearer ${current.token}`, accept: "text/event-stream", "mcp-session-id": currentSession }, signal });
+      const response = await centralHttpRequest(current.endpoint, { headers: { accept: "text/event-stream", "mcp-session-id": currentSession }, signal });
       if (!response.ok) { await response.text(); throw new Error("central notification stream unavailable"); }
       let buffer = "";
       const decoder = new TextDecoder();
@@ -166,7 +179,7 @@ export async function bridgeCentralMcpStdio(options: CentralMcpStdioBridgeOption
     void (async () => {
       if (broken) { await recover(); return; }
       const response = await centralHttpRequest(new URL(`/_h2a-central/lease/${sessionId}`, marker.endpoint), {
-        headers: { authorization: `Bearer ${marker.token}` }, signal: AbortSignal.any([controller.signal, AbortSignal.timeout(2000)])
+        headers: {}, signal: AbortSignal.any([controller.signal, AbortSignal.timeout(2000)])
       });
       if (!response.ok) { await response.text(); throw new Error("central attachment lease unavailable"); }
       const status = await response.json() as { state?: string; instance?: string };
@@ -207,6 +220,6 @@ export async function bridgeCentralMcpStdio(options: CentralMcpStdioBridgeOption
   options.signal?.removeEventListener("abort", onAbort);
   await writer.catch(() => {});
   if (sessionId) {
-    try { const response = await centralHttpRequest(marker.endpoint, { method: "DELETE", headers: { authorization: `Bearer ${marker.token}`, "mcp-session-id": sessionId }, signal: AbortSignal.timeout(1000) }); await response.text(); } catch { /* lease expiry handles a dead owner */ }
+    try { const response = await centralHttpRequest(marker.endpoint, { method: "DELETE", headers: { "mcp-session-id": sessionId }, signal: AbortSignal.timeout(1000) }); await response.text(); } catch { /* lease expiry handles a dead owner */ }
   }
 }
