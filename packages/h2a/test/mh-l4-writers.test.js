@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { establishWriterControl, updateWriterControl, withExecution, writerDirectory } from '../dist/runtime/handover/mutation.js';
+import { MUTATION_FLOCK_TOOLS, establishWriterControl, resolveMutationFlock, updateWriterControl, withExecution, writerDirectory } from '../dist/runtime/handover/mutation.js';
 import { OwnershipRegistry, OperationLedger } from '../dist/runtime/handover/ownership.js';
 import { createLocalStore } from '../dist/runtime/local-files/store.js';
 import { writePresence, readPresence, reapAllDeadPresence, listPresence } from '../dist/runtime/local-files/presence.js';
@@ -64,4 +64,37 @@ test('should keep preparatory readOnly opens pure and reject every mutating meth
     assert.throws(()=>store.putInboxMessage('i',{}),/storage_readonly/);
     assert.deepEqual(fs.readdirSync(root),[]);
   } finally { fs.rmSync(root,{recursive:true,force:true}); }
+});
+
+test('should resolve flock from the fixed allow-list and never from PATH', () => {
+  assert.deepEqual([...MUTATION_FLOCK_TOOLS],['/usr/bin/flock','/bin/flock']);
+  const source=fs.readFileSync(new URL('../dist/runtime/handover/mutation.js',import.meta.url),'utf8');
+  assert.ok(!source.includes('process.env.PATH'));
+  const system=resolveMutationFlock();
+  assert.ok(MUTATION_FLOCK_TOOLS.includes(system));
+  assert.ok(fs.existsSync(system));
+  const directory=fs.mkdtempSync(join(tmpdir(),'mh-l4-flock-'));
+  try {
+    const fake=join(directory,'flock');
+    fs.writeFileSync(fake,'#!/bin/sh\nexit 0\n',{mode:0o755});
+    const previous=process.env.PATH;
+    process.env.PATH=directory+':'+previous;
+    try {
+      assert.equal(resolveMutationFlock(),system);
+    } finally { process.env.PATH=previous; }
+    const missing=join(directory,'absent');
+    assert.equal(resolveMutationFlock([missing,system]),system);
+    assert.equal(resolveMutationFlock([system,missing]),system);
+    assert.equal(resolveMutationFlock([fake,system]),system);
+  } finally { fs.rmSync(directory,{recursive:true,force:true}); }
+});
+
+test('should fail closed naming util-linux when no flock candidate qualifies', () => {
+  const directory=fs.mkdtempSync(join(tmpdir(),'mh-l4-flock-'));
+  try {
+    const fake=join(directory,'flock');
+    fs.writeFileSync(fake,'#!/bin/sh\nexit 0\n',{mode:0o755});
+    assert.throws(()=>resolveMutationFlock([join(directory,'absent'),fake]),/mutation_lock_unqualified.*util-linux/);
+    assert.throws(()=>resolveMutationFlock([]),/mutation_lock_unqualified.*util-linux/);
+  } finally { fs.rmSync(directory,{recursive:true,force:true}); }
 });
