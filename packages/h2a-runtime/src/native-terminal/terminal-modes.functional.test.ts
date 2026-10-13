@@ -81,7 +81,7 @@ async function fixture(replayBytes = 4096, command?: { command: string; args: st
   supervisors.add(supervisor);
   const client = await supervisor.client();
   const id = "mode-fixture";
-  await client.create({
+  const created = await client.create({
     id, command: command?.command ?? process.execPath,
     args: command?.args ?? ["-e", `process.stdin.setRawMode(true); process.stdin.resume();
       process.stdout.write(${JSON.stringify(ENABLE)} + 'ready');
@@ -137,9 +137,13 @@ async function fixture(replayBytes = 4096, command?: { command: string; args: st
     terminal.onData((data) => { output += data; });
     terminal.onExit(() => { ended = true; terminals.delete(terminal); });
     return { terminal, output: () => output, ended: () => ended,
-      pin: () => { processPins.add(pinPrivateNativeProcess(terminal.pid, env)); } };
+      pin: () => {
+        // Both PTYs need a descriptor held by the surviving test process.
+        processPins.add(pinPrivateNativeProcess(created.pid, env));
+        processPins.add(pinPrivateNativeProcess(terminal.pid, env));
+      } };
   };
-  return { host, client, id, attach, crashTrigger,
+  return { host, client, id, attach, crashTrigger, innerPid: created.pid, procRoot: env.H2A_TEST_OWNED_PROC_ROOT!,
     pinChild: (pid: number) => { processPins.add(pinPrivateNativeProcess(pid, env)); } };
 }
 
@@ -165,6 +169,31 @@ describe.skipIf(process.platform !== "linux")("native attach terminal modes on r
       clean(outer.output());
     }, 10_000,
   );
+
+  it("should inspect a killed inner PTY while its stopped host cannot reap it", async () => {
+    const f = await fixture();
+    const outer = f.attach();
+    await until(() => outer.output().includes("ready"));
+    outer.pin();
+    f.host.kill("SIGSTOP");
+    try {
+      const deadline = Date.now() + 4_000;
+      while (!/\) [Tt] /.test(await readFile(`/proc/${f.host.pid}/stat`, "utf8"))) {
+        expect(Date.now()).toBeLessThan(deadline);
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      process.kill(f.innerPid, "SIGKILL");
+      let stat = "";
+      while (!/\) [ZX] /.test(stat)) {
+        stat = await readFile(join(f.procRoot, String(f.innerPid), "stat"), "utf8");
+        expect(Date.now()).toBeLessThan(deadline);
+        if (!/\) [ZX] /.test(stat)) await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      expect(stat).toMatch(/\) [ZX] /);
+    } finally {
+      f.host.kill("SIGCONT");
+    }
+  }, 10_000);
 
   it("should clean detach and re-establish inner modes even after replay eviction", async () => {
     const f = await fixture(128);
