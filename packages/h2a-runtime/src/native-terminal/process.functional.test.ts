@@ -8,7 +8,7 @@ import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, afterEach, describe, expect, it } from "vitest";
 // @ts-ignore Shared JS qualification helper; tests are outside the production build.
-import { isolatedNativeTestEnvironment, spawnIsolatedNative as spawn, spawnSyncIsolatedNative as spawnSync, setupNativeTestEnvironment, waitForPrivateNativeProcesses } from "../../../h2a/test/helpers/native-isolation.js";
+import { isolatedNativeTestEnvironment, pinPrivateNativeProcess, spawnIsolatedNative as spawn, spawnSyncIsolatedNative as spawnSync, setupNativeTestEnvironment, waitForPrivateNativeProcesses } from "../../../h2a/test/helpers/native-isolation.js";
 
 setupNativeTestEnvironment(afterAll);
 
@@ -41,6 +41,7 @@ const directories = new Set<string>();
 // suite — not the production reaper — owns its cleanup, including when an
 // assertion aborts the test before its own teardown.
 const processGroups = new Set<number>();
+const processPins = new Set<() => void>();
 /**
  * PIDs this test may OBSERVE in /proc: every process it started itself, plus
  * processes discovered only by walking an already-owned process's own
@@ -80,6 +81,8 @@ afterEach(async () => {
     }
   }
   processGroups.clear();
+  try { await waitForPrivateNativeProcesses(process.env); }
+  finally { for (const release of processPins) release(); processPins.clear(); }
   for (const directory of directories) await rm(directory, { recursive: true, force: true });
   directories.clear();
 });
@@ -350,6 +353,7 @@ async function createStubbornWorkload(
   // The PTY session process is a child of the fixture host: owned from the
   // moment the host (itself adopted) created it for this test.
   ownedPids.add(session.pid);
+  processGroups.add(session.pid);
   const output = await eventually(
     () => client.readOutput(id, 0),
     (replay) => replay.chunks.some((chunk) =>
@@ -364,6 +368,15 @@ async function createStubbornWorkload(
     () => directChildren(session.pid),
     (pids) => pids.length === 1,
   );
+  // The shells do not run the Node preload. Publish parent-held pins before
+  // their host can die, so a later private census retains their membership.
+  processPins.add(pinPrivateNativeProcess(session.pid, isolatedNativeTestEnvironment(process.env)));
+  const persisted = readNativeTerminalPgid(id, join(directory, "registry.json"));
+  expect(persisted.status).toBe("resolved");
+  if (persisted.status !== "resolved" || persisted.groupToken === undefined) throw new Error("stubborn group has no durable token");
+  const procRoot = process.env.H2A_TEST_OWNED_PROC_ROOT;
+  if (!procRoot) throw new Error("stubborn workload has no private process view");
+  expect(groupCarriesSessionToken(session.pid, persisted.groupToken, procRoot)).toBe(true);
   return [session.pid, targetChildren[0]!, Number(match[1])];
 }
 
@@ -741,7 +754,10 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
     // takeover of this health-checked, known-dead host as containment work:
     // client() returns only after the durable pgid has been reaped (or it
     // fails rather than starting a replacement over live descendants).
-    const replacement = await clientAfterFirstRestartBackoff(supervisor);
+    const replacement = await clientAfterFirstRestartBackoff(supervisor).catch(error => {
+      console.error("REAP_DIAGNOSTIC " + JSON.stringify({error:String(error),cause:error.refusalCause,logs:reconcileLogs,procRoot:process.env.H2A_TEST_OWNED_PROC_ROOT}));
+      throw error;
+    });
     expect(await processGroupMemberPids(hardCrashPgid, hardCrashPids)).toEqual([]);
     expectProcessGroupEmpty(hardCrashPgid);
     const hardCrashStates = await Promise.all(hardCrashPids.map(processObservation));

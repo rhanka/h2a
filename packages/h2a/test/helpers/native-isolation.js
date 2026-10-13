@@ -105,7 +105,7 @@ export function assertIsolatedNativeOperation(env, root = nativeQualificationRoo
 // A complete child fixture never inherits owner configuration or socket overrides.
 export function nativeTestEnvironment(root, overrides = {}) {
   assertPrivateQualificationPath(root, nativeQualificationRoot);
-  const env = { H2A_TEST_QUALIFICATION_ROOT: nativeQualificationRoot.startsWith("/tmp/") ? nativeQualificationRoot : undefined, PATH: "/usr/bin:/bin", TERM: "xterm-256color", HOME: join(root, "home"),
+  const env = { ...(nativeQualificationRoot.startsWith("/tmp/") ? { H2A_TEST_QUALIFICATION_ROOT: nativeQualificationRoot } : {}), PATH: "/usr/bin:/bin", TERM: "xterm-256color", HOME: join(root, "home"),
     XDG_RUNTIME_DIR: root, XDG_STATE_HOME: join(root, "state"), XDG_CONFIG_HOME: join(root, "config"),
     H2A_NATIVE_SOCKET: join(root, "host.sock"), REMOTE_CLI_CONFIG_HOME: join(root, "config"),
     TMPDIR: join(root, "tmp"), TMUX_TMPDIR: root, H2A_ROOT: join(root, "store"), ...overrides };
