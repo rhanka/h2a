@@ -1,14 +1,14 @@
 command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node --test packages/h2a/test/identity-migration.test.js
 node: v24.21.0
-private test root: /tmp/mh-l4-test-jwuOFk
-✔ empty / no sets → [] (0.808061ms)
-✔ single set passes through, sorted by id (0.168267ms)
-✔ dedup by id across sets — current (first) set wins on collision (0.104948ms)
-✔ legacy-only ids are surfaced (transparent dual-read) (0.081954ms)
-✔ entries without a string id are skipped, never throw (0.088847ms)
-✔ decideLegacyAdoption: first to prove possession inherits the legacy keyring (0.064582ms)
-✔ decideLegacyAdoption: de-collided peer (already adopted) mints net-new keys (0.046487ms)
-✔ decideLegacyAdoption: no proof of possession → never inherits, mints net-new (0.057638ms)
+private test root: /tmp/mh-l4-test-nmMvcf
+✔ empty / no sets → [] (0.946782ms)
+✔ single set passes through, sorted by id (0.319261ms)
+✔ dedup by id across sets — current (first) set wins on collision (0.201339ms)
+✔ legacy-only ids are surfaced (transparent dual-read) (0.146606ms)
+✔ entries without a string id are skipped, never throw (0.139002ms)
+✔ decideLegacyAdoption: first to prove possession inherits the legacy keyring (0.112462ms)
+✔ decideLegacyAdoption: de-collided peer (already adopted) mints net-new keys (0.077065ms)
+✔ decideLegacyAdoption: no proof of possession → never inherits, mints net-new (0.1008ms)
 ℹ tests 8
 ℹ suites 0
 ℹ pass 8
@@ -16,6 +16,6 @@ private test root: /tmp/mh-l4-test-jwuOFk
 ℹ cancelled 0
 ℹ skipped 0
 ℹ todo 0
-ℹ duration_ms 189.136079
+ℹ duration_ms 222.71563
 
-receipt: {"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","--test","packages/h2a/test/identity-migration.test.js"],"code":0,"signal":null,"elapsedMs":213}
+receipt: {"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","--test","packages/h2a/test/identity-migration.test.js"],"code":0,"signal":null,"elapsedMs":248}
