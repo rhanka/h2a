@@ -15,6 +15,11 @@ export interface ClaudeCodeAccessProjection {
   readonly accessToken: string;
   readonly expiresAt: number;
   readonly scopes: readonly string[];
+  readonly accountType?: "individual" | "organization" | string;
+  readonly organizationId?: string;
+  readonly orgId?: string;
+  readonly organization?: string;
+  readonly isIndividual?: boolean;
 }
 
 export type ClaudeCodeCliContent = {

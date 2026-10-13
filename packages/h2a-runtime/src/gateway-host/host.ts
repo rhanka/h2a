@@ -233,7 +233,18 @@ export function createGatewayHost(options: LocalGatewayAppOptions = {}): { app: 
     // client there is nothing to sweep and no runtime directory to create.
     if (options.claudeClient) {
       try {
-        await sweepOrphanSandboxes();
+        const sweepResult = await sweepOrphanSandboxes(undefined, {
+          onUnprovenChild: (unproven) => {
+            process.stderr.write(
+              `[claude-orphan-sweep] unproven child ${unproven.childPid} in ${unproven.runDir} skipped: ${unproven.reason}\n`,
+            );
+          },
+        });
+        if (sweepResult.skippedUnprovenChild) {
+          process.stderr.write(
+            `[claude-orphan-sweep] skipped ${sweepResult.skippedUnprovenChild} unproven child process(es)\n`,
+          );
+        }
       } catch {
         // Best-effort startup sweep
       }

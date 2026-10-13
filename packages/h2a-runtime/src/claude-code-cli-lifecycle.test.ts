@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   acquireClaudeAccountLease,
   checkTokenTtlAdmission,
+  isRecordedChildProvenTarget,
   reapProcessTree,
   sweepOrphanSandboxes,
 } from "./claude-code-cli-lifecycle.js";
@@ -373,88 +374,198 @@ describe("claude-code-cli-lifecycle", () => {
       }
     });
 
-    it("proves child process identity before signalling: throwaway process with unrecorded or mismatched start time is never signalled and survives sweep", async () => {
-      const rootDir = join(TEST_SCRATCH, "child-prove-root");
-      mkdirSync(rootDir, { recursive: true });
+    it.runIf(process.platform === "linux")(
+      "proves child process identity before signalling: throwaway process with unrecorded, mismatched start time, bootId or namespace is never signalled and survives sweep",
+      async () => {
+        const rootDir = join(TEST_SCRATCH, "child-prove-root");
+        mkdirSync(rootDir, { recursive: true });
 
-      // Spawn a real throwaway child process that stays alive
-      const throwaway = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], {
-        detached: true,
-        stdio: "ignore",
-      });
-      const throwawayPid = throwaway.pid!;
-      expect(throwawayPid).toBeGreaterThan(0);
-      expect(() => process.kill(throwawayPid, 0)).not.toThrow();
+        // Spawn a real throwaway child process that stays alive
+        const throwaway = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], {
+          detached: true,
+          stdio: "ignore",
+        });
+        const throwawayPid = throwaway.pid!;
+        expect(throwawayPid).toBeGreaterThan(0);
+        expect(() => process.kill(throwawayPid, 0)).not.toThrow();
 
+        const reapSpy = vi.fn().mockResolvedValue(undefined);
+
+        const isZombie = (pid: number) => {
+          try {
+            const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
+            return /\) [ZX] /.test(stat);
+          } catch {
+            return false;
+          }
+        };
+
+        try {
+          const actualStartTime = readProcessStartTime(throwawayPid);
+          const liveBoot = readBootId();
+          const liveNs = readPidNamespaceId();
+
+          // Case 1: childStartTime is unrecorded (absent / null)
+          const unrecordedDir = join(rootDir, "run-unrecorded");
+          mkdirSync(unrecordedDir, { recursive: true });
+          writeFileSync(
+            join(unrecordedDir, "run-meta.json"),
+            JSON.stringify({
+              pid: 99999999,
+              bootId: liveBoot,
+              pidNamespace: liveNs,
+              childPid: throwawayPid,
+              // childStartTime intentionally omitted
+              createdAt: Date.now() - 600_000,
+            }),
+          );
+
+          let unprovenReports: Array<{ runDir: string; childPid: number; reason: string }> = [];
+          const result1 = await sweepOrphanSandboxes(rootDir, {
+            maxAgeMs: 300_000,
+            onUnprovenChild: (report) => unprovenReports.push(report),
+            reapProcessTreeFn: reapSpy,
+          });
+
+          // The throwaway process MUST NOT have been signalled (reapSpy not called) and MUST be alive!
+          expect(reapSpy).not.toHaveBeenCalled();
+          expect(() => process.kill(throwawayPid, 0)).not.toThrow();
+          expect(isZombie(throwawayPid)).toBe(false);
+          expect(unprovenReports.length).toBe(1);
+          expect(unprovenReports[0]?.childPid).toBe(throwawayPid);
+          expect(unprovenReports[0]?.reason).toBe("child_start_time_unrecorded");
+          // Because start time is unrecorded, child might still be running: sandbox is retained
+          expect(result1.retained).toBe(1);
+          expect(existsSync(unrecordedDir)).toBe(true);
+
+          // Clean up for next case
+          rmSync(unrecordedDir, { recursive: true, force: true });
+          unprovenReports = [];
+          reapSpy.mockClear();
+
+          // Case 2: childStartTime is mismatched (different start-time = PID reuse!)
+          const mismatchedDir = join(rootDir, "run-mismatched");
+          mkdirSync(mismatchedDir, { recursive: true });
+          writeFileSync(
+            join(mismatchedDir, "run-meta.json"),
+            JSON.stringify({
+              pid: 99999999,
+              bootId: liveBoot,
+              pidNamespace: liveNs,
+              childPid: throwawayPid,
+              childStartTime: (actualStartTime ?? 12345) + 999999, // Mismatched!
+              createdAt: Date.now() - 600_000,
+            }),
+          );
+
+          const result2 = await sweepOrphanSandboxes(rootDir, {
+            maxAgeMs: 300_000,
+            onUnprovenChild: (report) => unprovenReports.push(report),
+            reapProcessTreeFn: reapSpy,
+          });
+
+          // reapSpy MUST NOT be called!
+          expect(reapSpy).not.toHaveBeenCalled();
+          expect(() => process.kill(throwawayPid, 0)).not.toThrow();
+          expect(isZombie(throwawayPid)).toBe(false);
+          expect(unprovenReports.length).toBe(1);
+          expect(unprovenReports[0]?.childPid).toBe(throwawayPid);
+          expect(unprovenReports[0]?.reason).toBe("child_start_time_mismatched");
+          // Start time was mismatched => original child is definitely gone, PID was reused
+          expect(result2.swept).toBe(1);
+          expect(existsSync(mismatchedDir)).toBe(false);
+
+          // Clean up for next case
+          unprovenReports = [];
+          reapSpy.mockClear();
+
+          // Case 3: bootId is divergent (system rebooted, PID is from new boot)
+          const divergentBootDir = join(rootDir, "run-boot-mismatch");
+          mkdirSync(divergentBootDir, { recursive: true });
+          writeFileSync(
+            join(divergentBootDir, "run-meta.json"),
+            JSON.stringify({
+              pid: 99999999,
+              bootId: "different-boot-uuid-from-past",
+              pidNamespace: liveNs,
+              childPid: throwawayPid,
+              childStartTime: actualStartTime,
+              createdAt: Date.now() - 600_000,
+            }),
+          );
+
+          const result3 = await sweepOrphanSandboxes(rootDir, {
+            maxAgeMs: 300_000,
+            onUnprovenChild: (report) => unprovenReports.push(report),
+            reapProcessTreeFn: reapSpy,
+          });
+
+          expect(reapSpy).not.toHaveBeenCalled();
+          expect(() => process.kill(throwawayPid, 0)).not.toThrow();
+          expect(isZombie(throwawayPid)).toBe(false);
+          expect(unprovenReports.length).toBe(1);
+          expect(unprovenReports[0]?.reason).toBe("boot_id_mismatch_or_unrecorded");
+          // Divergent boot means process is from previous boot: original child is gone
+          expect(result3.swept).toBe(1);
+          expect(existsSync(divergentBootDir)).toBe(false);
+
+          // Clean up for next case
+          unprovenReports = [];
+          reapSpy.mockClear();
+
+          // Case 4: pidNamespace is divergent
+          const divergentNsDir = join(rootDir, "run-ns-mismatch");
+          mkdirSync(divergentNsDir, { recursive: true });
+          writeFileSync(
+            join(divergentNsDir, "run-meta.json"),
+            JSON.stringify({
+              pid: 99999999,
+              bootId: liveBoot,
+              pidNamespace: liveNs,
+              childPid: throwawayPid,
+              childStartTime: actualStartTime,
+              childPidNamespace: "different-namespace-id-9999",
+              createdAt: Date.now() - 600_000,
+            }),
+          );
+
+          const result4 = await sweepOrphanSandboxes(rootDir, {
+            maxAgeMs: 300_000,
+            onUnprovenChild: (report) => unprovenReports.push(report),
+            reapProcessTreeFn: reapSpy,
+          });
+
+          expect(reapSpy).not.toHaveBeenCalled();
+          expect(() => process.kill(throwawayPid, 0)).not.toThrow();
+          expect(isZombie(throwawayPid)).toBe(false);
+          expect(unprovenReports.length).toBe(1);
+          expect(unprovenReports[0]?.reason).toBe("pid_namespace_mismatch_or_unrecorded");
+          // Divergent namespace: child might be running in another namespace, retain sandbox
+          expect(result4.retained).toBe(1);
+          expect(existsSync(divergentNsDir)).toBe(true);
+          rmSync(divergentNsDir, { recursive: true, force: true });
+        } finally {
+          // Always clean up throwaway process
+          try { process.kill(throwawayPid, "SIGKILL"); } catch {}
+        }
+      },
+    );
+
+    it("fails closed on non-Linux platforms: child process identity is unprovable, never signalled, and sandbox retained", () => {
+      // Direct unit test of isRecordedChildProvenTarget when non-Linux
+      const origPlatform = process.platform;
       try {
-        const actualStartTime = readProcessStartTime(throwawayPid);
-
-        // Case 1: childStartTime is unrecorded (absent / null)
-        const unrecordedDir = join(rootDir, "run-unrecorded");
-        mkdirSync(unrecordedDir, { recursive: true });
-        writeFileSync(
-          join(unrecordedDir, "run-meta.json"),
-          JSON.stringify({
-            pid: 99999999,
-            bootId: readBootId() ?? "test-boot",
-            pidNamespace: readPidNamespaceId() ?? "test-ns",
-            childPid: throwawayPid,
-            // childStartTime intentionally omitted
-            createdAt: Date.now() - 600_000,
-          }),
+        Object.defineProperty(process, "platform", { value: "darwin" });
+        const proof = isRecordedChildProvenTarget(
+          process.pid,
+          { childStartTime: 100 },
+          { bootId: "boot-1", pidNamespace: "ns-1" },
+          "/tmp/test-run",
         );
-
-        let unprovenReports: Array<{ runDir: string; childPid: number; reason: string }> = [];
-        const result1 = await sweepOrphanSandboxes(rootDir, {
-          maxAgeMs: 300_000,
-          onUnprovenChild: (report) => unprovenReports.push(report),
-        });
-
-        // The throwaway process MUST NOT have been signalled and MUST be alive!
-        expect(() => process.kill(throwawayPid, 0)).not.toThrow();
-        expect(unprovenReports.length).toBe(1);
-        expect(unprovenReports[0]?.childPid).toBe(throwawayPid);
-        expect(unprovenReports[0]?.reason).toBe("child_start_time_unrecorded");
-        // Because start time is unrecorded, the child might still be running in this sandbox: sandbox is retained
-        expect(result1.retained).toBe(1);
-        expect(existsSync(unrecordedDir)).toBe(true);
-
-        // Clean up unrecorded dir for next case
-        rmSync(unrecordedDir, { recursive: true, force: true });
-        unprovenReports = [];
-
-        // Case 2: childStartTime is mismatched (different start-time = PID reuse!)
-        const mismatchedDir = join(rootDir, "run-mismatched");
-        mkdirSync(mismatchedDir, { recursive: true });
-        writeFileSync(
-          join(mismatchedDir, "run-meta.json"),
-          JSON.stringify({
-            pid: 99999999,
-            bootId: readBootId() ?? "test-boot",
-            pidNamespace: readPidNamespaceId() ?? "test-ns",
-            childPid: throwawayPid,
-            childStartTime: (actualStartTime ?? 12345) + 999999, // Mismatched!
-            createdAt: Date.now() - 600_000,
-          }),
-        );
-
-        const result2 = await sweepOrphanSandboxes(rootDir, {
-          maxAgeMs: 300_000,
-          onUnprovenChild: (report) => unprovenReports.push(report),
-        });
-
-        // The throwaway process MUST NOT have been signalled and MUST be alive!
-        expect(() => process.kill(throwawayPid, 0)).not.toThrow();
-        expect(unprovenReports.length).toBe(1);
-        expect(unprovenReports[0]?.childPid).toBe(throwawayPid);
-        expect(unprovenReports[0]?.reason).toBe("child_start_time_mismatched");
-        // Because start time was mismatched, original child is dead and current PID is an innocent process:
-        // sandbox is safely swept without signalling the innocent process!
-        expect(result2.swept).toBe(1);
-        expect(existsSync(mismatchedDir)).toBe(false);
+        expect(proof.proven).toBe(false);
+        expect(proof.reason).toBe("non_linux_process_identity_unprovable");
       } finally {
-        // Always clean up throwaway process
-        try { process.kill(throwawayPid, "SIGKILL"); } catch {}
+        Object.defineProperty(process, "platform", { value: origPlatform });
       }
     });
   });

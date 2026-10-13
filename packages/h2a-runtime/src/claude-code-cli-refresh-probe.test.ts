@@ -73,6 +73,7 @@ function qualifiedRunnerFor(scriptPath: string) {
     sandboxRootDir: TEST_SCRATCH,
     egressEnforcement: EGRESS,
     managedSettingsPaths: [],
+    allowTestEgressMechanism: true,
     timeoutMs: 10_000,
   });
 }
@@ -197,6 +198,7 @@ describe("claude-code-cli-refresh-probe (no child refresh, real children)", () =
       sandboxRootDir: TEST_SCRATCH,
       egressEnforcement: EGRESS,
       managedSettingsPaths: [],
+      allowTestEgressMechanism: true,
       timeoutMs: 10_000,
     });
     const now = Date.now();
@@ -247,6 +249,7 @@ describe("claude-code-cli-refresh-probe (no child refresh, real children)", () =
       sandboxRootDir: TEST_SCRATCH,
       egressEnforcement: EGRESS,
       managedSettingsPaths: [],
+      allowTestEgressMechanism: true,
       timeoutMs: 10_000,
     });
     const access = {
