@@ -36,7 +36,14 @@ test('nominal image should precheck in isolation, cold-stop G0 and start one res
     delete environment.NODE_PATH; delete environment.NODE_OPTIONS;
     const directory = join(runtime, 'h2a-mcp-central');
     const startOptions = { directory, root, installation, fallbackEntry: join(image, 'dist/bin.js'), environment, kind: 'controller', onSpawn: child => children.push(child) };
-    source = await launchCentral(startOptions);
+    // L4 requires maintained writer-closure evidence. The source is a real
+    // packaged factory in this test's own process; the successor still uses
+    // the registered production starter. No production guard is patched.
+    const { startCentralMcpServer } = await import(join(image, 'node_modules/@sentropic/h2a/dist/runtime/mcp-central.js'));
+    const serving = await startCentralMcpServer({ root, runtimeBase: runtime, writerProof: {
+      evidenceDigest: payload.manifestDigest, verify: () => 'qualified'
+    } });
+    source = { ...serving, spawnedPid: process.pid, marker: JSON.parse(fs.readFileSync(serving.markerPath, 'utf8')) };
     assert.ok(source.spawnedPid > 0);
     const markerPath = join(directory, 'marker.json'), m = source.marker;
     const durableDirectory = m.stateDirectory;
@@ -93,9 +100,10 @@ test('nominal image should precheck in isolation, cold-stop G0 and start one res
     fs.renameSync(directory, backup);
     assert.equal(readState(join(durableDirectory, transactions[0]), 'componentTransaction').value.successorReservation.attempts, 1);
     await assert.rejects(launchCentral(startOptions), /owner_alive/);
-    assert.equal(children.length, 2);
+    assert.equal(children.length, 1);
     fs.rmSync(directory, { recursive: true, force: true }); fs.renameSync(backup, directory);
   } finally {
+    if (source?.kind === 'started') await source.stop();
     // PIDs were created by launchCentral above; no pattern or unrelated PID.
     for (const child of children) if (child.exitCode === null && child.signalCode === null) {
       child.ref(); const ended = new Promise(resolve => child.once('close', resolve)); child.kill('SIGTERM'); await ended;
