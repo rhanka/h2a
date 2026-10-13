@@ -109,7 +109,7 @@ async function centralToolResult(server: McpServer, name: string, args: Record<s
   }) as CallToolResult;
 }
 
-function createCentralProtocolServer(mcp: McpServer): Server {
+function createCentralProtocolServer(mcp: McpServer, participant: import('./handover/participants.js').AttachmentParticipant): Server {
   const server = new Server(
     { name: "@sentropic/h2a", version: currentCliVersion() },
     { capabilities: { tools: {} } }
@@ -117,10 +117,10 @@ function createCentralProtocolServer(mcp: McpServer): Server {
   server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: mcp.listTools() }));
   server.setRequestHandler(
     CallToolRequestSchema,
-    async (request): Promise<CallToolResult> => {
+    async (request): Promise<CallToolResult> => participant.call(async () => {
       for (const session of mcp.sessions.list()) mcp.sessions.markActivity(session.sessionId);
       return centralToolResult(mcp, request.params.name, request.params.arguments ?? {});
-    }
+    })
   );
   return server;
 }
@@ -276,7 +276,7 @@ function createCentralApp(
           finally { callbacks--; drainRevision++; }
         }
       }, runExecutor, participant));
-      protocol = createCentralProtocolServer(handle.mcp);
+      protocol = createCentralProtocolServer(handle.mcp, participant);
       attachment = created = { participant, transport, handle, touched: Date.now() };
       try { await protocol.connect(transport); }
       catch (error) { await participant.close(() => handle.close()); await transport.close(); throw error; }
