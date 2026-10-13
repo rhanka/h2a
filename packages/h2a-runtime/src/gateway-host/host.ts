@@ -35,7 +35,7 @@ import {
   createCliLlmMeshFacade,
   llmMeshOwnerScopeRef,
 } from "../llm-mesh-accounts.js";
-import { createClaudeSeatClientFromEnv } from "./claude-seat-client.js";
+import { createClaudeSeatClient } from "./claude-seat-client.js";
 import {
   parseLlmMeshRoutingConfig,
   routingProfiles,
@@ -73,13 +73,13 @@ const routingConfigFromEnvironment = (): LlmMeshRoutingConfig | undefined => {
   return raw ? parseLlmMeshRoutingConfig(raw) : undefined;
 };
 
-const runtimeMesh = (claudeClient?: AnthropicAdapterClient) => createLlmMesh({
+const runtimeMesh = (claudeClient: AnthropicAdapterClient) => createLlmMesh({
   registry: createProviderRegistry([
     new OpenAIAdapter({ client: new CodexRuntimeClient() }),
     new GeminiAdapter({ client: new CloudCodeRuntimeClient() }),
     new MistralAdapter({ client: new MistralRuntimeClient() }),
     new MuseAdapter({ client: new MuseRuntimeClient() }),
-    ...(claudeClient ? [new AnthropicAdapter({ client: claudeClient })] : []),
+    new AnthropicAdapter({ client: claudeClient }),
   ]),
 });
 
@@ -115,9 +115,7 @@ export interface LocalGatewayAppOptions {
   readonly prepareNamespace?: typeof createGatewayNamespaceModule;
   /**
    * Explicit Claude seat client override (test seam). When absent, the host
-   * composes the seat from `H2A_CLAUDE_BINARY_PATH` /
-   * `H2A_CLAUDE_BINARY_DIGEST` like every other seat in the registry — and
-   * composes nothing when the seat is unconfigured.
+   * composes the PATH-resolved seat like every other seat in the registry.
    */
   readonly claudeClient?: AnthropicAdapterClient;
 }
@@ -149,8 +147,8 @@ export function createGatewayHost(options: LocalGatewayAppOptions = {}): { app: 
   let composed = false;
   const readiness = { async isReady() { return composed; } };
   // Claude seat like every other seat: an explicit override wins (test seam),
-  // otherwise compose from the environment; unconfigured composes nothing.
-  const claudeClient = options.claudeClient ?? createClaudeSeatClientFromEnv();
+  // otherwise compose the PATH-resolved seat unconditionally.
+  const claudeClient = options.claudeClient ?? createClaudeSeatClient();
   const routing = options.routing ?? routingConfigFromEnvironment();
   const currentRouting = (): LlmMeshRoutingConfig | undefined => {
     if (options.routing) return options.routing;
@@ -238,25 +236,23 @@ export function createGatewayHost(options: LocalGatewayAppOptions = {}): { app: 
     ? gatewayPlugin.fetch(c.req.raw, c.env)
     : c.json({ error: "gateway composition incomplete" }, 503));
   const ready = (async () => {
-    // Orphan sweeps only concern Claude sandboxes: without a composed Claude
-    // seat client there is nothing to sweep and no runtime directory to create.
-    if (claudeClient) {
-      try {
-        const sweepResult = await sweepOrphanSandboxes(undefined, {
-          onUnprovenChild: (unproven) => {
-            process.stderr.write(
-              `[claude-orphan-sweep] unproven child ${unproven.childPid} in ${unproven.runDir} skipped: ${unproven.reason}\n`,
-            );
-          },
-        });
-        if (sweepResult.skippedUnprovenChild) {
+    // The Claude seat is always composed, so its startup orphan sweep
+    // always runs (best-effort hygiene over the private runtime root).
+    try {
+      const sweepResult = await sweepOrphanSandboxes(undefined, {
+        onUnprovenChild: (unproven) => {
           process.stderr.write(
-            `[claude-orphan-sweep] skipped ${sweepResult.skippedUnprovenChild} unproven child process(es)\n`,
+            `[claude-orphan-sweep] unproven child ${unproven.childPid} in ${unproven.runDir} skipped: ${unproven.reason}\n`,
           );
-        }
-      } catch {
-        // Best-effort startup sweep
+        },
+      });
+      if (sweepResult.skippedUnprovenChild) {
+        process.stderr.write(
+          `[claude-orphan-sweep] skipped ${sweepResult.skippedUnprovenChild} unproven child process(es)\n`,
+        );
       }
+    } catch {
+      // Best-effort startup sweep
     }
     const modules = createClusterMeshModules();
     const namespace = await (options.prepareNamespace ?? createGatewayNamespaceModule)(modules, {
