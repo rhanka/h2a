@@ -1,3 +1,4 @@
+import { proofDeps } from './helpers/identity-proof-fixture.mjs';
 import assert from "node:assert/strict";
 import { generateKeyPairSync } from "node:crypto";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
@@ -7,11 +8,13 @@ import test from "node:test";
 
 import { signCanonical } from "@sentropic/h2a";
 import {
-  reclaimOrMint,
+  reclaimOrMint as rawReclaimOrMint,
   findBinding,
   listBindings,
   verifyReclaimProof
 } from "../dist/index.js";
+
+function reclaimOrMint(root,key,deps,...options){return rawReclaimOrMint(root,key,proofDeps(root,deps),...options);}
 
 function freshRoot() {
   const dir = mkdtempSync(join(tmpdir(), "h2a-bind-"));
@@ -54,10 +57,9 @@ test("binding writer carries the canonical fence epoch for its entire append tra
     reclaimOrMint(root, KEY, {
       verifyProof: () => false,
       mint: () => {
-        observedFence = JSON.parse(readFileSync(join(root, "identity", ".lock"), "utf8"));
         return { instance: "claude:lbl:fenced", agentUuid: "uuid-fenced" };
       },
-      now: () => fixed
+      now: () => { observedFence = JSON.parse(readFileSync(join(root,"identity",".lock"),"utf8")); return fixed; }
     });
     assert.equal(observedFence.protocol, "identity-binding-fence-v1");
     assert.equal(typeof observedFence.fenceEpoch, "string");
