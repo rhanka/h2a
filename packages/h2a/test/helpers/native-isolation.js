@@ -25,13 +25,9 @@ const ownerUid = os.userInfo?.()?.uid;
 const ownerRun = ownerUid !== undefined ? `/run/user/${ownerUid}` : undefined;
 
 function rejectOwnerPath(path) {
-  const exactForbidden = [ownerHome, "/home/antoinefa"].filter(Boolean);
+  const exactForbidden = [ownerHome].filter(Boolean);
   const prefixForbidden = [
-    "/run/user/1000",
     ownerRun,
-    "/home/antoinefa/.local/state",
-    "/home/antoinefa/.config",
-    "/home/antoinefa/h2a-workspace",
     ownerHome ? join(ownerHome, ".local/state") : undefined,
     ownerHome ? join(ownerHome, ".config") : undefined,
     ownerHome ? join(ownerHome, "h2a-workspace") : undefined,
@@ -40,7 +36,6 @@ function rejectOwnerPath(path) {
   assert.ok(
     !exactForbidden.includes(path) &&
     !prefixForbidden.some(root => path === root || path.startsWith(`${root}/`)) &&
-    !path.startsWith("/home/antoinefa/.cache-tmp/h2a-") &&
     (!ownerHome || !path.startsWith(join(ownerHome, ".cache-tmp/h2a-"))),
     `REFUSING owner path before filesystem access: ${path}`);
 }

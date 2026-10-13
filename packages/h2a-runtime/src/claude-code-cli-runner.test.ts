@@ -81,6 +81,7 @@ describe("claude-code-cli-runner (protocol)", () => {
       verifySandbox: vi.fn().mockResolvedValue(true),
     },
     managedSettingsPaths: [] as readonly string[],
+    allowTestEgressMechanism: true,
     killProcessTreeFn: defaultKillProcessTree,
     reapProcessTreeFn: defaultReapProcessTree,
   };
@@ -241,6 +242,79 @@ describe("claude-code-cli-runner (protocol)", () => {
           },
         }),
       ).rejects.toThrow("egress verification cannot be only a caller callback without an enforcing mechanism");
+
+      // test-host-firewall is refused if allowTestEgressMechanism is false/omitted
+      await expect(
+        runOnce({
+          allowTestEgressMechanism: false,
+          egressEnforcement: {
+            mechanism: "test-host-firewall",
+            inferenceHost: "api.anthropic.com",
+            verifySandbox: () => true,
+          },
+        }),
+      ).rejects.toThrow("test-host-firewall is not permitted in production builds");
+
+      // test-host-firewall is refused unconditionally in production
+      const savedNodeEnv = process.env.NODE_ENV;
+      try {
+        process.env.NODE_ENV = "production";
+        await expect(
+          runOnce({
+            allowTestEgressMechanism: true,
+            egressEnforcement: {
+              mechanism: "test-host-firewall",
+              inferenceHost: "api.anthropic.com",
+              verifySandbox: () => true,
+            },
+          }),
+        ).rejects.toThrow("test-host-firewall is not permitted in production builds");
+      } finally {
+        if (savedNodeEnv === undefined) delete process.env.NODE_ENV;
+        else process.env.NODE_ENV = savedNodeEnv;
+      }
+
+      // netns mechanism without isolation throws
+      await expect(
+        runOnce({
+          egressEnforcement: {
+            mechanism: "netns",
+            inferenceHost: "api.anthropic.com",
+            verifySandbox: () => true,
+          },
+        }),
+      ).rejects.toThrow("process is in host root network namespace and no netns path provided");
+
+      // proxy mechanism without proxy configuration throws
+      const savedHttpsProxy = process.env.HTTPS_PROXY;
+      delete process.env.HTTPS_PROXY;
+      delete process.env.https_proxy;
+      delete process.env.ALL_PROXY;
+      delete process.env.all_proxy;
+      try {
+        await expect(
+          runOnce({
+            egressEnforcement: {
+              mechanism: "proxy",
+              inferenceHost: "api.anthropic.com",
+              verifySandbox: () => true,
+            },
+          }),
+        ).rejects.toThrow("egress mechanism 'proxy' is not enforcing (no HTTPS_PROXY or proxyUrl configured)");
+      } finally {
+        if (savedHttpsProxy !== undefined) process.env.HTTPS_PROXY = savedHttpsProxy;
+      }
+
+      // iptables mechanism requires observableProbe
+      await expect(
+        runOnce({
+          egressEnforcement: {
+            mechanism: "iptables",
+            inferenceHost: "api.anthropic.com",
+            verifySandbox: () => true,
+          },
+        }),
+      ).rejects.toThrow("requires an observable verification probe (caller-supplied callback alone is insufficient)");
     } finally {
       if (saved === undefined) delete process.env.H2A_CLAUDE_EGRESS_ENFORCED;
       else process.env.H2A_CLAUDE_EGRESS_ENFORCED = saved;
@@ -1005,6 +1079,7 @@ wait
         inferenceHost: "api.anthropic.com",
         verifySandbox: () => true,
       },
+      allowTestEgressMechanism: true,
       timeoutMs: 30_000,
     });
 

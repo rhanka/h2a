@@ -67,6 +67,7 @@ describe("claude-code-cli-tools", () => {
       verifySandbox: vi.fn().mockResolvedValue(true),
     },
     managedSettingsPaths: [] as readonly string[],
+    allowTestEgressMechanism: true,
     killProcessTreeFn: vi.fn(),
     reapProcessTreeFn: vi.fn().mockResolvedValue(undefined),
   };
