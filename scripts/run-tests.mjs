@@ -10,8 +10,9 @@
  * It runs the test trees explicitly owned by the root `npm test` gate:
  *   - top-level `*.test.js` files in packages/h2a/test and
  *     packages/focus-interactive/test through `node --test`;
- *   - every source `.test.ts` or `.spec.ts` file under packages/track/src through
- *     Vitest. The Track suite is separate because it is TypeScript/Vitest rather
+ *   - every source `.test.ts` or `.spec.ts` file under packages/track/src and
+ *     every `.test.ts` file under packages/agent-stats/tests through Vitest.
+ *     Those suites are separate because they are TypeScript/Vitest rather
  *     than Node's built-in test runner.
  *
  * Other workspace packages own their own package-level test commands and are not
@@ -31,6 +32,7 @@ const REPO_ROOT = resolve(HERE, "..");
 const NODE_TEST_DIRS = ["packages/h2a/test", "packages/focus-interactive/test"];
 const VITEST_SUITES = [
   { name: "Track", dir: "packages/track", config: "vitest.config.ts" },
+  { name: "AgentStats", dir: "packages/agent-stats", testDir: "tests", config: "vitest.config.ts" },
 ];
 
 const nodeTestFiles = [];
