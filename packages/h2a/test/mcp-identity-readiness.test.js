@@ -283,10 +283,10 @@ maybe(
   { timeout: 60_000 },
   async () => {
     const root = labRoot(SEED);
-    // Hold the IDENTITY lock (bindings lock, reclaimStale:false — a dead holder is NOT auto-reclaimed,
-    // unlike the registry lock), then SIGKILL the holder: the sentinel survives owned by a now-dead pid
-    // → identity readiness times out (transient). This is the exact incident (a dead-process-held
-    // identity lock). mkdir the identity dir first so the holder can create the sentinel.
+    // The historical incomplete identity sentinel is structurally ineligible for
+    // automatic recovery. Killing its fixture holder leaves a bounded, transient
+    // refusal until that exact blocker is removed. Complete eligible legacy
+    // recovery has separate previous-boot tests.
     mkdirSync(join(root, "identity"), { recursive: true });
     const holder = startLiveHolder({ root, lock: "identity" });
     await holder.ready;
@@ -308,7 +308,16 @@ maybe(
 
       // Free the dead holder's lock, then a NEW tool call re-attempts — WITHOUT restarting the process.
       unlinkSync(lockPath);
-      const send = parseToolJson(await callTool(h, "h2a_send", { to: "claude:peer", message: "hi" }));
+      // The blocker-change check uses bounded asynchronous file reads. Drive
+      // another tool call after that check, within the existing attempt budget.
+      const retryDeadline = Date.now() + 2_000;
+      let send;
+      do {
+        send = parseToolJson(await callTool(h, "h2a_send", { to: "claude:peer", message: "hi" }));
+        if (send.error !== "identity_failed") break;
+        assert.ok(Date.now() < retryDeadline, "blocker withdrawal must authorize retry within two seconds");
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      } while (true);
       assert.equal(send.error, "identity_pending", "the gated tool call kicked a fresh attempt, not the memoized failure");
 
       const ready = await waitForIdentity(h, (s) => s.state === "identity_ready" || s.state === "identity_failed", {
