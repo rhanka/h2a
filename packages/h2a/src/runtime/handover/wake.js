@@ -32,9 +32,9 @@ export class WakeJournal {
       // Commit the possible effect before invoking the driver. A lost receipt
       // remains UNKNOWN even when a restart sees that no outcome was written.
       const operation = this.ledger.begin(this.token, `wake:${key}:${old.value.revision}`, 'wake');
-      const started = replaceState(path, { ...old.value, revision: old.value.revision + 1, state: 'unknown', result: null }, 'wakeIntent', old);
+      const started = replaceState(path, { ...old.value, instructionLine, revision: old.value.revision + 1, state: 'unknown', result: null }, 'wakeIntent', old);
       this.registry.bump();
-      return { path, started, operation, instructionLine: old.value.instructionLine };
+      return { path, started, operation, instructionLine: started.value.instructionLine };
     });
     if (!ticket) return false;
     let result;
