@@ -68,23 +68,73 @@ function adopt(child: ChildProcess): void {
 }
 
 afterEach(async () => {
-  for (const child of children) {
-    if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
-    if (child.exitCode === null && child.signalCode === null) await once(child, "exit");
+  // Discover and pin descendants while their owning host still exists. This
+  // also catches a create request whose response was preempted by test timeout.
+  const queue = [...children].flatMap(child => child.pid === undefined ? [] : [child.pid]);
+  for (const pid of queue) ownedPids.add(pid);
+  const seen = new Set<number>();
+  const errors: unknown[] = [];
+  for (const pid of queue) {
+    if (seen.has(pid)) continue;
+    seen.add(pid);
+    try {
+      const observation = await processObservation(pid);
+      if (observation.processGroup === pid && observation.session === pid) {
+        processGroups.add(pid);
+        processPins.add(pinPrivateNativeProcess(pid, isolatedNativeTestEnvironment(process.env)));
+      }
+      queue.push(...await directChildren(pid));
+    } catch (error) {
+      if (!["ENOENT", "ESRCH"].includes((error as NodeJS.ErrnoException).code ?? "")) errors.push(error);
+    }
   }
-  children.clear();
+  // Kill the complete PTY group before its host: TERM/HUP-resistant shells
+  // otherwise survive the host and keep both the test scope and its pipes open.
   for (const pgid of processGroups) {
     try {
       process.kill(-pgid, "SIGKILL");
-    } catch {
-      // Already empty; nothing of this test's making is left to collect.
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ESRCH") errors.push(error);
     }
   }
-  processGroups.clear();
-  try { await waitForPrivateNativeProcesses(process.env); }
-  finally { for (const release of processPins) release(); processPins.clear(); }
-  for (const directory of directories) await rm(directory, { recursive: true, force: true });
-  directories.clear();
+  try {
+    for (const child of children) {
+      if (child.exitCode === null && child.signalCode === null) {
+        const exited = once(child, "exit");
+        child.kill("SIGKILL");
+        await exited;
+      }
+    }
+    await waitForPrivateNativeProcesses(process.env);
+    const procView = processGroups.size === 0 ? undefined : createOwnedProcView(process.env.TMPDIR!, seen);
+    // A zombie has already died; the private process proof must find no live
+    // descendant even when the test aborted before normal production reaping.
+    for (const pgid of processGroups) {
+      let empty = false;
+      try { process.kill(-pgid, 0); }
+      catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
+        empty = true;
+      }
+      expect(empty || groupIsOnlyZombies(pgid, procView),
+        `teardown left a live descendant in process group ${pgid}`).toBe(true);
+    }
+  } finally {
+    for (const child of children) {
+      if (child.exitCode === null && child.signalCode === null) {
+        const exited = once(child, "exit");
+        child.kill("SIGKILL");
+        await exited;
+      }
+    }
+    children.clear();
+    for (const release of processPins) release();
+    processPins.clear();
+    processGroups.clear();
+    for (const directory of directories) await rm(directory, { recursive: true, force: true });
+    directories.clear();
+  }
+  if (errors.length) throw new AggregateError(errors, "fixture tree discovery or group kill failed");
 });
 
 async function eventually<T>(read: () => Promise<T> | T, accept: (value: T) => boolean): Promise<T> {
@@ -95,6 +145,20 @@ async function eventually<T>(read: () => Promise<T> | T, accept: (value: T) => b
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
   throw new Error(`condition did not become true; last value: ${JSON.stringify(last)}`);
+}
+
+async function sessionExited(client: NativeTerminalClient, id: string): Promise<void> {
+  // Poll the host's actual PTY-exit observation. Its force-stop deadline is
+  // the product bound; a fixed number of timer ticks is not an exit proof.
+  const deadline = performance.now() + NATIVE_TERMINAL_FORCE_KILL_TIMEOUT_MS;
+  for (;;) {
+    const state = await client.state(id);
+    if (state.status === "exited") return;
+    if (performance.now() >= deadline) {
+      throw new Error(`terminal ${id} missed the product stop deadline: ${JSON.stringify(state)}`);
+    }
+    await new Promise(resolve => setTimeout(resolve, 10));
+  }
 }
 
 async function clientAfterFirstRestartBackoff(
@@ -1814,10 +1878,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
       "same-controller",
     );
     await staleClient.stop(staleLease, "SIGTERM");
-    await eventually(
-      () => staleClient.state("recycled"),
-      (state) => state.status === "exited",
-    );
+    await sessionExited(staleClient, "recycled");
 
     const replacement = await currentClient.create(shell("replacement"));
     const currentLease = await currentClient.acquireController(
@@ -1857,9 +1918,10 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
       (output) => output.chunks.some((chunk) => chunk.data.includes("replacement:current-write")),
     );
     await currentClient.stop(currentLease, "SIGTERM");
-    await eventually(() => running(replacement.pid), (alive) => !alive);
+    await sessionExited(currentClient, "recycled");
+    expect(running(replacement.pid)).toBe(false);
     currentClient.close();
-  });
+  }, HOST_STARTUP_BUDGET_MS + CLIENT_OVERRUN_BUDGET_MS + 2 * NATIVE_TERMINAL_FORCE_KILL_TIMEOUT_MS);
 
   it("should drop a slow pipelined client without affecting another real PTY", async () => {
     const directory = await mkdtemp(join(tmpdir(), "n-"));
