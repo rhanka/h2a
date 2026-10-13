@@ -1,18 +1,18 @@
 command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node --test packages/h2a/test/mcp-run-async.test.js
 node: v24.21.0
-private test root: /tmp/mh-l4-test-tYhKwB
-{"event":"drive-consent.full-verification","durationMs":0.021871000000004415,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
-✔ should propagate a proven pre-create failure through the asynchronous launcher and remember the same name (5.126471ms)
-✔ should accept the typed pre-create refusal through the synchronous CLI bridge (0.303091ms)
-✔ should preserve certified fleet admission refusals and reject any post-create certificate (0.441211ms)
-✔ should not reclassify a timed-out runtime from an unfinished failure payload (0.269557ms)
-✔ should retain unknown for unproved, malformed, cross-name or post-create capability failures (0.982108ms)
-✔ should expose the typed refusal unchanged through MCP tools/call (4.886068ms)
-✔ should keep the event loop responsive while the runtime runs (11.649189ms)
-{"event":"drive-consent.full-verification","durationMs":0.022732999999988124,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
-✔ should return launching within the response budget and deliver once after a caller disconnects (20.174798ms)
-✔ should cap the production MCP wait at 49 seconds while keeping the launch alive (0.856422ms)
-✔ should finish one runtime and one brief after MCP client cancellation and transport close (182.320288ms)
+private test root: /tmp/mh-l4-test-YGLyqS
+{"event":"drive-consent.full-verification","durationMs":0.01614000000000715,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+✔ should propagate a proven pre-create failure through the asynchronous launcher and remember the same name (4.883263ms)
+✔ should accept the typed pre-create refusal through the synchronous CLI bridge (0.251123ms)
+✔ should preserve certified fleet admission refusals and reject any post-create certificate (0.417776ms)
+✔ should not reclassify a timed-out runtime from an unfinished failure payload (0.241885ms)
+✔ should retain unknown for unproved, malformed, cross-name or post-create capability failures (0.848186ms)
+✔ should expose the typed refusal unchanged through MCP tools/call (4.26584ms)
+✔ should keep the event loop responsive while the runtime runs (11.403566ms)
+{"event":"drive-consent.full-verification","durationMs":0.016390999999998712,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+✔ should return launching within the response budget and deliver once after a caller disconnects (21.195208ms)
+✔ should cap the production MCP wait at 49 seconds while keeping the launch alive (0.762725ms)
+✔ should finish one runtime and one brief after MCP client cancellation and transport close (174.164127ms)
 ℹ tests 10
 ℹ suites 0
 ℹ pass 10
@@ -20,6 +20,6 @@ private test root: /tmp/mh-l4-test-tYhKwB
 ℹ cancelled 0
 ℹ skipped 0
 ℹ todo 0
-ℹ duration_ms 421.495813
+ℹ duration_ms 397.738974
 
-receipt: {"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","--test","packages/h2a/test/mcp-run-async.test.js"],"code":0,"signal":null,"elapsedMs":447}
+receipt: {"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","--test","packages/h2a/test/mcp-run-async.test.js"],"code":0,"signal":null,"elapsedMs":420}
