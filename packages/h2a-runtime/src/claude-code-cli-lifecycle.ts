@@ -11,6 +11,7 @@ import {
   readdirSync,
   readFileSync,
   readlinkSync,
+  renameSync,
   rmSync,
   unlinkSync,
   writeFileSync,
@@ -212,6 +213,109 @@ export function isRecordedChildProvenTarget(
   return { proven: true };
 }
 
+function claimTokenOf(holder: ClaudeLockHolderRecord): unknown {
+  return holder.token ?? holder.claimToken;
+}
+
+/**
+ * Atomically reclaim a lock file holding a dead claim (c-m6): rename the
+ * file aside to a unique path first, so a concurrent claimant's live lock
+ * can never be deleted by this waiter. Only the renamed copy is inspected
+ * and deleted, and only while it is still the identical dead claim. A live
+ * or foreign claim is moved back through an exclusive-create guard — never
+ * overwritten, never deleted — and a successor that already claimed the
+ * path keeps it (only the stale aside copy is dropped). Never throws;
+ * returns true when the path is free to retry.
+ */
+export function reclaimDeadAccountLock(
+  lockFile: string,
+  expectedHolder: ClaudeLockHolderRecord,
+): boolean {
+  const aside = `${lockFile}.reclaim.${process.pid}.${randomUUID()}`;
+  try {
+    renameSync(lockFile, aside);
+  } catch {
+    return false; // Lost the race or unreadable; caller re-reads.
+  }
+  let moved: ClaudeLockHolderRecord | null = null;
+  try {
+    const parsed: unknown = JSON.parse(readFileSync(aside, "utf8"));
+    if (parsed && typeof parsed === "object") moved = parsed as ClaudeLockHolderRecord;
+  } catch {
+    moved = null;
+  }
+  if (
+    moved &&
+    claimTokenOf(moved) === claimTokenOf(expectedHolder) &&
+    isRecordedHolderProvenDead(moved)
+  ) {
+    try {
+      unlinkSync(aside);
+    } catch {
+      return false;
+    }
+    return true;
+  }
+  // Not the identical dead claim: move it back without ever deleting a
+  // successor's live lock. Claim the path with an exclusive marker, verify
+  // the marker is still ours, then move the aside copy back over it.
+  const marker = `reclaim-guard:${randomUUID()}`;
+  let guardFd: number | null = null;
+  try {
+    guardFd = openSync(lockFile, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY, 0o600);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "EEXIST") {
+      // A successor already owns the path: drop only our stale aside copy.
+      try {
+        unlinkSync(aside);
+      } catch {
+        // Best effort
+      }
+    }
+    return false;
+  }
+  try {
+    if (guardFd !== null) writeFileSync(guardFd, marker);
+  } catch {
+    // Best effort
+  }
+  try {
+    if (guardFd !== null) closeSync(guardFd);
+    guardFd = null;
+  } catch {
+    // Best effort
+  }
+  try {
+    const guardBack = readFileSync(lockFile, "utf8");
+    if (guardBack === marker) {
+      renameSync(aside, lockFile);
+    } else {
+      // Our guard was replaced: keep the successor's file, drop ours.
+      try {
+        unlinkSync(aside);
+      } catch {
+        // Best effort
+      }
+    }
+  } catch {
+    // Last-instant race: if the current path holds a live claim it owns the
+    // lease — drop only our stale aside copy, else leave it for next cycle.
+    try {
+      const current: unknown = JSON.parse(readFileSync(lockFile, "utf8"));
+      if (
+        current &&
+        typeof current === "object" &&
+        !isRecordedHolderProvenDead(current as ClaudeLockHolderRecord)
+      ) {
+        unlinkSync(aside);
+      }
+    } catch {
+      // Leave the aside copy for the next cycle; never delete blindly.
+    }
+  }
+  return false;
+}
+
 /**
  * Acquire exclusive in-process and cross-process lock for ownerScope:accountId.
  * Timeout after 30 seconds with a static busy error if cannot be acquired.
@@ -337,25 +441,13 @@ export async function acquireClaudeAccountLease(
       if (code === "EEXIST") {
         const holder = readHolder();
         if (holder && isRecordedHolderProvenDead(holder)) {
-          // Re-verify before unlinking: only remove if current holder is still
-          // the identical dead claim. Never rename or remove a live holder's lock.
+          // Atomic reclaim: rename aside first, so a concurrent claimant's
+          // live lock can never be deleted by this waiter (c-m6). The path
+          // itself is never unlinked here.
           try {
-            const currentHolder = readHolder();
-            if (
-              currentHolder &&
-              (currentHolder.token ?? currentHolder.claimToken) === (holder.token ?? holder.claimToken) &&
-              isRecordedHolderProvenDead(currentHolder)
-            ) {
-              try {
-                unlinkSync(lockFile);
-              } catch (unlinkErr) {
-                if ((unlinkErr as NodeJS.ErrnoException).code !== "ENOENT") {
-                  throw unlinkErr;
-                }
-              }
-            }
+            reclaimDeadAccountLock(lockFile, holder);
           } catch {
-            // Lock was replaced or unreadable; loop will re-check
+            // Best effort; the loop re-reads.
           }
           continue;
         }
