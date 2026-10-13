@@ -237,20 +237,42 @@ test('RC 0.98.6 declared non-tests accept only exact identities and report lifec
   } finally { fs.rmSync(lab, { recursive: true, force: true }) }
 })
 
-test('RC 0.98.6 production policy is a versioned list of exactly 38 named non-tests', () => {
+test('RC 0.98.6 production policy is a versioned list of 38 Node and 4 runtime non-tests', () => {
   const manifest = JSON.parse(fs.readFileSync(join(repo, 'scripts/test-non-tests-0986.json'), 'utf8'))
   assert.equal(manifest.schemaVersion, 1)
   assert.equal(manifest.release, '0.98.6')
   assert.equal(manifest.ownerDecision, "s'ils sont désactivés ce n'est pas un pb ce ne sont pas encore des tests")
-  assert.equal(manifest.entries.length, 38)
-  assert.equal(manifest.entries.filter(e => e.status === 'skipped').length, 17)
-  assert.equal(manifest.entries.filter(e => e.status === 'todo').length, 21)
-  assert.equal(new Set(manifest.entries.map(e => e.file + ' :: ' + e.fullName)).size, 38)
+  assert.equal(manifest.entries.length, 42)
+  assert.equal(manifest.entries.filter(e => e.status === 'skipped').length, 19)
+  assert.equal(manifest.entries.filter(e => e.status === 'todo').length, 23)
+  assert.equal(new Set(manifest.entries.map(e => e.file + ' :: ' + e.fullName)).size, 42)
   for (const entry of manifest.entries) assert.ok(entry.file && entry.fullName && entry.reason.trim())
   const node = policyFor(repo, readInventory(repo), 'node')
   assert.equal(node.declaredNonTests.length, 38)
-  assert.deepEqual(policyFor(repo, readInventory(repo), 'runtime').declaredNonTests, [])
+  assert.equal(policyFor(repo, readInventory(repo), 'runtime').declaredNonTests.length, 4)
 })
+
+test('RC 0.98.6 runtime debt lifecycle: every declared debt rejects disappearance, activation, and unlisted skips',()=>{
+  const production=policyFor(repo,readInventory(repo),'runtime');
+  const debts=production.declaredNonTests;
+  assert.equal(debts.length,4);
+  for(const entry of debts) {
+    const file=entry.file,original=report(file);
+    original.testResults[0].assertionResults.push({fullName:entry.fullName,status:entry.status});
+    original.numTotalTests++;original[entry.status==='todo'?'numTodoTests':'numPendingTests']++;
+    const policy={declaredNonTests:[entry],allowedSkips:production.allowedSkips};
+    assert.deepEqual(verifyExecutionReport(original,[file],policy),[]);
+    for(const status of ['passed','failed','skipped','todo'].filter(s=>s!==entry.status)) {
+      const mutated=structuredClone(original);mutated.testResults[0].assertionResults[1].status=status;
+      mutated[entry.status==='todo'?'numTodoTests':'numPendingTests']--;
+      mutated[{passed:'numPassedTests',failed:'numFailedTests',skipped:'numPendingTests',todo:'numTodoTests'}[status]]++;
+      assert.ok(verifyExecutionReport(mutated,[file],policy).some(f=>f.includes('declared non-test changed status')),entry.fullName+' '+status);
+    }
+    assert.ok(verifyExecutionReport(report(file),[file],policy).some(f=>f.includes('declared non-test disappeared')),entry.fullName);
+    const unrelated=structuredClone(original);unrelated.testResults[0].assertionResults[1].fullName+=' unlisted';
+    assert.ok(verifyExecutionReport(unrelated,[file],policy).some(f=>f.includes('not an authorized test result')),entry.fullName);
+  }
+});
 
 test('RC 0.98.6 invalid or duplicate non-test declarations fail closed', () => {
   const lab = fs.mkdtempSync(join(tmpdir(), 'non-test-manifest-'))
