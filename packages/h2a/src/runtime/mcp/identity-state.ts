@@ -20,6 +20,9 @@
  */
 
 import { fork, type ChildProcess } from "node:child_process";
+import { randomBytes } from "node:crypto";
+import { identityBlockerSnapshot } from './identity-blocker-snapshot.js';
+import { diagnosticMessage, type IdentityBlockerInfo, type IdentityLockDiagnostic } from '../local-files/identity-fence.js';
 
 import type { H2ASendSigner } from "../send.js";
 import { identityKeyPaths } from "../identity/live.js";
@@ -58,7 +61,7 @@ const TRANSIENT_FAILURE_CAUSES: ReadonlySet<IdentityFailureCode> = new Set(["ide
 
 export type McpIdentityStatus =
   | { state: "identity_disabled" }
-  | { state: "identity_pending"; attemptId: string; elapsedMs: number; timeoutMs: 20000 }
+  | { state: "identity_pending"; attemptId: string; elapsedMs: number; timeoutMs: 20000; lastFailure?: unknown }
   | {
       state: "identity_ready";
       attemptId: string;
@@ -75,6 +78,9 @@ export type McpIdentityStatus =
       // (bounded by MCP_IDENTITY_RETRY_MIN_MS). false for a PERMANENT cause: terminal.
       retryable: boolean;
       elapsedMs: number;
+      diagnostic?: IdentityLockDiagnostic;
+      retryCondition?: 'interval' | 'blocker-change';
+      retryAfterMs?: number;
     };
 
 export interface McpIdentityController {
@@ -144,7 +150,7 @@ export interface CreateIdentityControllerOptions<P = unknown> {
   /** Diagnostic sink (stderr). Never protocol traffic. */
   readonly log?: (line: string) => void;
   /** Test seam: fork a worker child. Production uses the real fork below. */
-  readonly spawnWorker?: (request: McpIdentityRequest, budgetMs: number) => IdentityWorkerHandle;
+  readonly spawnWorker?: (request: McpIdentityRequest, budgetMs: number, context?: IdentityWorkerContext) => IdentityWorkerHandle;
   /** Test seam: monotonic clock in ns. Defaults to process.hrtime.bigint. */
   readonly nowNs?: () => bigint;
   /** Test seam: deadline in ms. Defaults to MCP_IDENTITY_TIMEOUT_MS. */
@@ -158,12 +164,15 @@ export interface CreateIdentityControllerOptions<P = unknown> {
 
 /** Minimal handle over the identity worker child (real fork or test double). */
 export interface IdentityWorkerHandle {
+  onObservation?(cb: (observation: IdentityContentionObservation) => void): void;
   onResolved(cb: (identity: ResolvedIdentityMessage) => void): void;
-  onError(cb: (cause: IdentityFailureCode, message: string) => void): void;
+  onError(cb: (cause: IdentityFailureCode, message: string, diagnostic?: IdentityLockDiagnostic) => void): void;
   /** Fires when the child exits WITHOUT having produced a result. */
   onExitWithoutResult(cb: () => void): void;
   cancel(reason: string): void;
 }
+export interface IdentityWorkerContext { attemptId: string; diagnosticKey: string; deadlineNs?:string; }
+export interface IdentityContentionObservation { attemptId: string; sequence: number; diagnostic: IdentityBlockerInfo; stabilityKey: string; }
 
 function randomAttemptId(): string {
   // A short, non-secret correlation id for the attempt (never a nonce/key).
@@ -179,12 +188,14 @@ function randomAttemptId(): string {
 export function forkIdentityWorker(
   request: McpIdentityRequest,
   budgetMs: number,
-  log?: (line: string) => void
+  log?: (line: string) => void,
+  context?: IdentityWorkerContext
 ): IdentityWorkerHandle {
   const capturedEnv: NodeJS.ProcessEnv = { ...process.env, ...(request.providerEnv ?? {}) };
   let child: ChildProcess | undefined;
   let resolvedCb: ((identity: ResolvedIdentityMessage) => void) | undefined;
-  let errorCb: ((cause: IdentityFailureCode, message: string) => void) | undefined;
+  let errorCb: ((cause: IdentityFailureCode, message: string, diagnostic?: IdentityLockDiagnostic) => void) | undefined;
+  let observationCb: ((observation: IdentityContentionObservation) => void) | undefined;
   let exitCb: (() => void) | undefined;
   let sawResult = false;
   let started = false;
@@ -227,10 +238,12 @@ export function forkIdentityWorker(
       if (m.kind === "identity_resolved") {
         sawResult = true;
         resolvedCb?.((m as { identity: ResolvedIdentityMessage }).identity);
+      } else if (m.kind === 'identity_observation') {
+        observationCb?.(m as unknown as IdentityContentionObservation);
       } else if (m.kind === "identity_error") {
         sawResult = true;
-        const e = m as { cause?: IdentityFailureCode; message?: string };
-        errorCb?.(e.cause ?? "identity_worker_failed", e.message ?? "identity worker error");
+        const e = m as { cause?: IdentityFailureCode; message?: string; diagnostic?: IdentityLockDiagnostic };
+        errorCb?.(e.cause ?? "identity_worker_failed", e.message ?? "identity worker error", e.diagnostic);
       }
       // A `cancel_ack` needs no parent action beyond letting the child exit.
     });
@@ -251,6 +264,7 @@ export function forkIdentityWorker(
         v: 1,
         request,
         budgetMs,
+        ...context,
         ...(traceAttemptId !== undefined ? { traceAttemptId } : {})
       });
     } catch (err) {
@@ -259,6 +273,7 @@ export function forkIdentityWorker(
   };
 
   return {
+    onObservation(cb) { observationCb = cb; },
     onResolved(cb) {
       resolvedCb = cb;
       ensureStarted();
@@ -295,7 +310,17 @@ export function createIdentityController<P = unknown>(
   const nowNs = options.nowNs ?? process.hrtime.bigint;
   const spawnWorker =
     options.spawnWorker ??
-    ((req, budget) => forkIdentityWorker(req, budget, options.log));
+    ((req, budget, context) => forkIdentityWorker(req, budget, options.log, context));
+  const diagnosticKey = randomBytes(32).toString('hex');
+  let lastObservation: IdentityContentionObservation | undefined;
+  let observationStable = true;
+  let observationCount = 0;
+  let lastObservedNs = 0n;
+  let lastFailure: Extract<McpIdentityStatus, {state:'identity_failed'}> | undefined;
+  let failedBlockerBytes: string | undefined;
+  let changeCheckPending = false;
+  let blockerChanged = false;
+  let nextChangeCheckNs=0n;
 
   let state: McpIdentityStatus = { state: "identity_disabled" };
   let attemptId = "";
@@ -319,12 +344,19 @@ export function createIdentityController<P = unknown>(
     }
   };
 
-  const fail = (cause: IdentityFailureCode, message: string): void => {
+  const fail = (cause: IdentityFailureCode, message: string, reported?: IdentityLockDiagnostic): void => {
     if (terminal || cancelled) return;
     terminal = true;
     preparation.abort();
     clearTimer();
     failedAtNs = nowNs();
+    const recent = Number((nowNs()-lastObservedNs)/1_000_000n) <= 250;
+    const diagnostic: IdentityLockDiagnostic | undefined = cause === 'identity_timeout' && lastObservation ? {
+      ...lastObservation.diagnostic, elapsedMs:elapsedMs(),budgetMs:timeoutMs,lock:'identity/.lock',
+      stable:observationStable && observationCount >= 2 && recent,
+      retryCondition: observationStable && observationCount >= 2 && recent ? lastObservation.diagnostic.retryCondition : 'interval'
+    } : reported;
+    if (diagnostic) message=diagnosticMessage(diagnostic);
     state = {
       state: "identity_failed",
       attemptId,
@@ -333,7 +365,10 @@ export function createIdentityController<P = unknown>(
       // Transient (identity_timeout) ⇒ a later tool call re-attempts; permanent ⇒ terminal.
       retryable: TRANSIENT_FAILURE_CAUSES.has(cause),
       elapsedMs: elapsedMs()
+      ,...(cause==='identity_timeout' ? {retryCondition:diagnostic?.retryCondition ?? 'interval'} : {}),
+      ...(diagnostic ? {diagnostic} : {})
     };
+    lastFailure=state;
     liveSigner = undefined;
     // L0 trace reuse: the identity lifecycle on the PARENT (the deep provider /
     // registry / lock spans now run in the child, off this event loop).
@@ -445,22 +480,35 @@ export function createIdentityController<P = unknown>(
   // Every callback and the deadline are gated on the attemptId captured here, so a late
   // callback from a superseded attempt (after a retry) can never act on the current one.
   const beginAttempt = (): void => {
+    lastObservation=undefined;observationStable=true;observationCount=0;
+    failedBlockerBytes=undefined;blockerChanged=false;
     terminal = false;
     resolving = false;
     preparation = new AbortController();
     attemptId = randomAttemptId();
     const thisAttempt = attemptId;
     startedNs = nowNs();
-    state = { state: "identity_pending", attemptId, elapsedMs: 0, timeoutMs: 20000 };
+    state = { state: "identity_pending", attemptId, elapsedMs: 0, timeoutMs: 20000, ...(lastFailure ? {lastFailure} : {}) };
     getActiveMcpTrace()?.phase("identity_pending");
     deadlineTimer = setTimeout(() => {
       if (attemptId !== thisAttempt) return;
       fail("identity_timeout", `identity did not become ready within ${timeoutMs}ms`);
     }, timeoutMs);
     deadlineTimer.unref?.();
-    worker = spawnWorker(options.request, timeoutMs);
-    worker.onError((cause, message) => {
-      if (attemptId === thisAttempt) fail(cause, message);
+    worker = spawnWorker(options.request, Math.max(0,timeoutMs-elapsedMs()), {attemptId,diagnosticKey,deadlineNs:(startedNs+BigInt(Math.floor(timeoutMs))*1_000_000n).toString()});
+    worker.onObservation?.(observation => {
+      if (terminal || cancelled || attemptId !== thisAttempt || observation.attemptId !== thisAttempt || !Number.isSafeInteger(observation.sequence)
+        || observation.sequence <= (lastObservation?.sequence ?? 0)) return;
+      if (lastObservation && (lastObservation.stabilityKey !== observation.stabilityKey || lastObservation.diagnostic.reasonCode !== observation.diagnostic.reasonCode)) observationStable=false;
+      lastObservation=observation;lastObservedNs=nowNs();observationCount++;
+      if(!changeCheckPending && failedBlockerBytes===undefined) {
+        changeCheckPending=true;
+        void identityBlockerSnapshot(options.request.root,diagnosticKey,observation.diagnostic.reason.includes('process count limit')).then(snapshot=>{if(attemptId===thisAttempt)failedBlockerBytes=snapshot;})
+          .finally(()=>{changeCheckPending=false;});
+      }
+    });
+    worker.onError((cause, message, diagnostic) => {
+      if (attemptId === thisAttempt) fail(cause, message, diagnostic);
     });
     worker.onExitWithoutResult(() => {
       if (attemptId === thisAttempt) {
@@ -475,8 +523,9 @@ export function createIdentityController<P = unknown>(
   return {
     status(): McpIdentityStatus {
       if (state.state === "identity_pending") {
-        return { state: "identity_pending", attemptId, elapsedMs: elapsedMs(), timeoutMs: 20000 };
+        return { ...state, elapsedMs: elapsedMs() };
       }
+      if (state.state === 'identity_failed' && state.retryCondition === 'interval') return {...state,retryAfterMs:Math.max(0,retryMinIntervalMs-Number((nowNs()-failedAtNs)/1_000_000n))};
       return state;
     },
     start(): void {
@@ -491,6 +540,22 @@ export function createIdentityController<P = unknown>(
       // never re-attempt here.
       if (state.state !== "identity_failed") return false;
       if (!TRANSIENT_FAILURE_CAUSES.has(state.cause)) return false;
+      if (state.retryCondition === 'blocker-change') {
+        if (!blockerChanged) {
+          if (!changeCheckPending && nowNs()>=nextChangeCheckNs) {
+            changeCheckPending=true;
+            nextChangeCheckNs=nowNs()+500_000_000n;
+            const checkAttempt=attemptId;
+            void identityBlockerSnapshot(options.request.root,diagnosticKey,state.diagnostic?.reason.includes('process count limit')).then(key=>{
+              if(checkAttempt!==attemptId)return;
+              if(key===undefined)return;
+              if(failedBlockerBytes===undefined)blockerChanged=true;else if(failedBlockerBytes!==key)blockerChanged=true;
+            },()=>{if(checkAttempt===attemptId)blockerChanged=true;}).finally(()=>{changeCheckPending=false;});
+          }
+          return false;
+        }
+        blockerChanged=false;failedBlockerBytes=undefined;
+      }
       // At most one attempt per interval, so a hot-looping caller cannot spawn a worker per
       // call; within the interval the memoized failure is kept (returned by status()).
       if (Number((nowNs() - failedAtNs) / 1_000_000n) < retryMinIntervalMs) return false;
