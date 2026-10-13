@@ -1,12 +1,12 @@
 command: /usr/bin/node --test packages/h2a/test/mh-l4-central.test.js
 node: v22.22.1
-private test root: /tmp/mh-l4-test-Zqv6yH
+private test root: /tmp/mh-l4-test-matN0n
 TAP version 13
-# {"event":"drive-consent.full-verification","durationMs":0.007875000000240107,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# {"event":"drive-consent.full-verification","durationMs":0.0045780000000377186,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
 # Subtest: should checkpoint a real source attachment and reject a cancellation string inside new tool arguments
 ok 1 - should checkpoint a real source attachment and reject a cancellation string inside new tool arguments
   ---
-  duration_ms: 13037.791835
+  duration_ms: 8467.598118
   type: 'test'
   ...
 1..1
@@ -17,6 +17,6 @@ ok 1 - should checkpoint a real source attachment and reject a cancellation stri
 # cancelled 0
 # skipped 0
 # todo 0
-# duration_ms 13210.309461
+# duration_ms 8617.026713
 
-receipt: {"command":["/usr/bin/node","--test","packages/h2a/test/mh-l4-central.test.js"],"code":0,"signal":null,"elapsedMs":13317}
+receipt: {"command":["/usr/bin/node","--test","packages/h2a/test/mh-l4-central.test.js"],"code":0,"signal":null,"elapsedMs":8705}

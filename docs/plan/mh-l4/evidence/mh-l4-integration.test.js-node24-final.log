@@ -1,11 +1,11 @@
 command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node --test packages/h2a/test/mh-l4-integration.test.js
 node: v24.21.0
-private test root: /tmp/mh-l4-test-2KeFDs
-{"event":"drive-consent.full-verification","durationMs":0.018054000000006454,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
-{"event":"drive-consent.full-verification","durationMs":0.01777399999997442,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
-✔ should refuse unknown/legacy writers before freeze and recover eligibility only from maintained closure proof (30.716823ms)
-✔ should export a complete source checkpoint and wait for admitted callbacks before freezing (123.74825ms)
-✔ should serialize administrative barrier/freeze/abort with conforming writers and a fresh inventory (84.847652ms)
+private test root: /tmp/mh-l4-test-7kYfxk
+{"event":"drive-consent.full-verification","durationMs":0.024416000000030635,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+{"event":"drive-consent.full-verification","durationMs":0.016952000000060252,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+✔ should refuse unknown/legacy writers before freeze and recover eligibility only from maintained closure proof (155.927267ms)
+✔ should export a complete source checkpoint and wait for admitted callbacks before freezing (261.764426ms)
+✔ should serialize administrative barrier/freeze/abort with conforming writers and a fresh inventory (66.411152ms)
 ℹ tests 3
 ℹ suites 0
 ℹ pass 3
@@ -13,6 +13,6 @@ private test root: /tmp/mh-l4-test-2KeFDs
 ℹ cancelled 0
 ℹ skipped 0
 ℹ todo 0
-ℹ duration_ms 484.581019
+ℹ duration_ms 691.233779
 
-receipt: {"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","--test","packages/h2a/test/mh-l4-integration.test.js"],"code":0,"signal":null,"elapsedMs":519}
+receipt: {"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","--test","packages/h2a/test/mh-l4-integration.test.js"],"code":0,"signal":null,"elapsedMs":718}
