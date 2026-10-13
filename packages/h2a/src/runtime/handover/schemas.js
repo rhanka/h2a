@@ -35,6 +35,18 @@ const authorization = object({ upgradeId: text, handoverId: text, transactionEpo
 const mac = { ...text, pattern: '^[0-9a-f]{64}$' };
 const mode = choice('cold-stop', 'live-transfer', 'catalogue');
 export const schemas = {
+  participantRevision: versioned({ revision: positive }),
+  launchLocation: versioned({ launchId: text, attachmentId: text, workspaceRoot: absolute }),
+  writerControl: versioned({ revision: positive, root: absolute, stateDirectory: absolute,
+    gate: choice('OPEN', 'BARRIER', 'CLOSED'), handoverId: nullable(text),
+    restriction: choice('qualified', 'legacy_writer_unfenced', 'store_writer_set_unknown'),
+    closureEvidenceDigest: nullable(hash) }),
+  admittedOperation: versioned({ revision: positive, operationId: text, attachmentId: text,
+    ownerGeneration: uuid, executionOwner: identity, kind: choice('call', 'child', 'brief', 'callback', 'wake'),
+    state: choice('pending', 'unknown', 'completed'), result: nullable(json) }),
+  ownerEffect: versioned({ operationId: text, attachmentId: text, destination: literal('current-owner'), result: json }),
+  wakeIntent: versioned({ revision: positive, attachmentId: text, key: hash, envelopeIds: list(text),
+    instructionLine: text, state: choice('intent', 'unknown', 'delivered', 'deferred'), result: nullable(boolean) }),
   secret: versioned({ authorityBinding: hash, purpose: choice('lock', 'authentication'), key: { ...text, pattern: '^[0-9a-f]{64}$' } }),
   epochs: versioned({ revision: positive, bootId: uuid, counter: integer }),
   pause: versioned({ revision: positive, paused: boolean, requestedAt: integer, generation: nullable(uuid) }),
