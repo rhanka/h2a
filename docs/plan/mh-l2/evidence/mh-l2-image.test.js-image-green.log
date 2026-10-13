@@ -11,10 +11,10 @@ not ok 1 - nominal image should precheck in isolation, cold-stop G0 and start on
   error: |-
     Expected values to be strictly equal:
     + actual - expected
-    
+
     + 'STARTING'
     - 'READY'
-    
+
   code: 'ERR_ASSERTION'
   name: 'AssertionError'
   expected: 'READY'
