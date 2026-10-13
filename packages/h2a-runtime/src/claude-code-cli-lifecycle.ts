@@ -6,10 +6,12 @@ import {
   closeSync,
   constants,
   existsSync,
+  linkSync,
   mkdirSync,
   openSync,
   readdirSync,
   readFileSync,
+  readlinkSync,
   renameSync,
   rmSync,
   unlinkSync,
@@ -106,6 +108,95 @@ function isRecordedHolderProvenDead(holder: ClaudeLockHolderRecord): boolean {
     return true;
   }
   return false;
+}
+
+/**
+ * Positively prove that a live child process is the exact process spawned by this sandbox.
+ * Fails closed: never signals on PID presence alone, across reboot, across PID namespace
+ * boundary, across PID reuse, or when start-time was unrecorded or mismatched.
+ */
+export function isRecordedChildProvenTarget(
+  childPid: number,
+  rawMeta: {
+    readonly childStartTime?: unknown;
+    readonly childCwd?: unknown;
+    readonly runId?: unknown;
+  },
+  parentMeta: ClaudeLockHolderRecord,
+  runDir: string,
+): { proven: boolean; reason?: string } {
+  if (typeof childPid !== "number" || !Number.isInteger(childPid) || childPid <= 0) {
+    return { proven: false, reason: "invalid_pid" };
+  }
+
+  // Must be alive to prove
+  try {
+    process.kill(childPid, 0);
+  } catch {
+    return { proven: false, reason: "process_dead" };
+  }
+
+  // Linux-specific identity proofs: start-time, boot-id, pid-namespace
+  if (process.platform === "linux") {
+    const liveBootId = readBootId();
+    if (
+      typeof parentMeta.bootId !== "string" ||
+      !parentMeta.bootId ||
+      liveBootId === undefined ||
+      liveBootId !== parentMeta.bootId
+    ) {
+      return { proven: false, reason: "boot_id_mismatch_or_unrecorded" };
+    }
+
+    const liveNamespace = readPidNamespaceId();
+    if (
+      typeof parentMeta.pidNamespace !== "string" ||
+      !parentMeta.pidNamespace ||
+      liveNamespace === undefined ||
+      liveNamespace !== parentMeta.pidNamespace
+    ) {
+      return { proven: false, reason: "pid_namespace_mismatch_or_unrecorded" };
+    }
+
+    const liveMachine = readMachineId();
+    if (
+      typeof parentMeta.machineId === "string" &&
+      (liveMachine === undefined || liveMachine !== parentMeta.machineId)
+    ) {
+      return { proven: false, reason: "machine_id_mismatch" };
+    }
+
+    if (
+      typeof rawMeta.childStartTime !== "number" ||
+      !Number.isFinite(rawMeta.childStartTime) ||
+      rawMeta.childStartTime <= 0
+    ) {
+      return { proven: false, reason: "child_start_time_unrecorded" };
+    }
+
+    const liveStartTime = readProcessStartTime(childPid);
+    if (liveStartTime === undefined || liveStartTime !== rawMeta.childStartTime) {
+      return { proven: false, reason: "child_start_time_mismatched" };
+    }
+
+    // Optional cwd/marker ownership check if recorded
+    if (typeof rawMeta.childCwd === "string") {
+      try {
+        const liveCwd = readlinkSync(`/proc/${childPid}/cwd`);
+        if (liveCwd !== rawMeta.childCwd && !liveCwd.startsWith(runDir)) {
+          return { proven: false, reason: "child_cwd_mismatched" };
+        }
+      } catch {
+        // If readlink fails, start-time + bootId + namespace already uniquely identify
+      }
+    }
+  } else {
+    // Non-Linux platforms: without /proc start-time and boot-id, cannot positively
+    // prove process identity to avoid PID reuse hazard. Fail closed: never signal.
+    return { proven: false, reason: "non_linux_process_identity_unprovable" };
+  }
+
+  return { proven: true };
 }
 
 /**
@@ -245,7 +336,15 @@ export async function acquireClaudeAccountLease(
               if (isRecordedHolderProvenDead(retiredHolder)) {
                 unlinkSync(retirePath);
               } else {
-                try { renameSync(retirePath, lockFile); } catch {}
+                // Never overwrite with renameSync: linkSync fails with EEXIST
+                // if a new lock was created in the gap, preventing double ownership.
+                try {
+                  linkSync(retirePath, lockFile);
+                  unlinkSync(retirePath);
+                } catch {
+                  // Another waiter or lockholder stepped in; drop the retired file
+                  try { unlinkSync(retirePath); } catch {}
+                }
               }
             } catch {
               try { unlinkSync(retirePath); } catch {}
@@ -366,6 +465,14 @@ export interface SweepResult {
   readonly swept: number;
   readonly retained: number;
   readonly skippedAlive: number;
+  readonly skippedUnprovenChild?: number;
+}
+
+export interface SweepOrphanSandboxesOptions {
+  readonly maxAgeMs?: number;
+  readonly now?: () => number;
+  readonly reapProcessTreeFn?: (pid: number, signal?: NodeJS.Signals, gracePeriodMs?: number) => Promise<void>;
+  readonly onUnprovenChild?: (info: { runDir: string; childPid: number; reason: string }) => void;
 }
 
 /** Sweep mutual-exclusion file inside the runtime root. */
@@ -381,10 +488,7 @@ export const CLAUDE_SWEEP_LOCK_FILENAME = ".sweep.lock";
  */
 export async function sweepOrphanSandboxes(
   rootDir?: string,
-  options: {
-    readonly maxAgeMs?: number;
-    readonly now?: () => number;
-  } = {},
+  options: SweepOrphanSandboxesOptions = {},
 ): Promise<SweepResult> {
   const root = resolvePrivateRuntimeRoot(rootDir);
   const maxAgeMs = options.maxAgeMs ?? DEFAULT_ORPHAN_STALE_AFTER_MS;
@@ -393,6 +497,7 @@ export async function sweepOrphanSandboxes(
   let swept = 0;
   let retained = 0;
   let skippedAlive = 0;
+  let skippedUnprovenChild = 0;
 
   if (!existsSync(root)) {
     return { swept, retained, skippedAlive };
@@ -484,20 +589,45 @@ export async function sweepOrphanSandboxes(
         continue;
       }
 
-      // Holder proven dead and age > maxAgeMs: reap detached child if recorded, then delete
-      const rawMeta = meta as { childPid?: unknown; childStartTime?: unknown };
+      // Holder proven dead and age > maxAgeMs: reap detached child ONLY if positive identity is proven, then delete
+      const rawMeta = meta as {
+        childPid?: unknown;
+        childStartTime?: unknown;
+        childCwd?: unknown;
+        runId?: unknown;
+      };
       if (typeof rawMeta.childPid === "number" && rawMeta.childPid > 0) {
-        const childRecord: ClaudeLockHolderRecord = {
-          pid: rawMeta.childPid,
-          startTime: typeof rawMeta.childStartTime === "number" ? rawMeta.childStartTime : null,
-          bootId: meta.bootId,
-          pidNamespace: meta.pidNamespace,
-        };
-        if (!isRecordedHolderProvenDead(childRecord)) {
-          try {
-            await reapProcessTree(rawMeta.childPid, "SIGKILL", 50);
-          } catch {
-            // Best effort
+        let childAlive = false;
+        try {
+          process.kill(rawMeta.childPid, 0);
+          childAlive = true;
+        } catch {
+          childAlive = false;
+        }
+
+        if (childAlive) {
+          const proof = isRecordedChildProvenTarget(rawMeta.childPid, rawMeta, meta, runDir);
+          if (proof.proven) {
+            try {
+              const reaper = options.reapProcessTreeFn ?? reapProcessTree;
+              await reaper(rawMeta.childPid, "SIGKILL", 50);
+            } catch {
+              // Best effort
+            }
+          } else {
+            // Identity not positively proven: NEVER signal! Skip child reap and report.
+            skippedUnprovenChild++;
+            if (options.onUnprovenChild) {
+              options.onUnprovenChild({
+                runDir,
+                childPid: rawMeta.childPid,
+                reason: proof.reason ?? "unproven_identity",
+              });
+            }
+            if (proof.reason === "child_start_time_unrecorded") {
+              retained++;
+              continue;
+            }
           }
         }
       }
@@ -528,5 +658,7 @@ export async function sweepOrphanSandboxes(
     }
   }
 
-  return { swept, retained, skippedAlive };
+  return skippedUnprovenChild > 0
+    ? { swept, retained, skippedAlive, skippedUnprovenChild }
+    : { swept, retained, skippedAlive };
 }
