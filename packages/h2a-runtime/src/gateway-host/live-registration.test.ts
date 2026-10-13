@@ -31,6 +31,22 @@ import {
   type LiveAuthority,
   type LiveWorkController,
 } from "./live-registration.js";
+// L6a realignment: H consumes the frozen neutral contract
+// (@sentropic/engram-live 0.1.0 @70ebdfee, digest-pinned vendor tarball —
+// see the GUARD test below), never a silent copy of its derivations.
+import {
+  INITIAL_BINDING_REVISION,
+  POLICY_VERSION,
+  validateDeclarationRevocation,
+  validateWorkspaceDeclaration,
+} from "@sentropic/engram-live/contracts";
+import {
+  deriveCloneIdentity,
+  deriveDeclarationIdentity,
+  deriveWorktreeIdentity,
+} from "@sentropic/engram-live/integration";
+import { createHash } from "node:crypto";
+import * as liveRegistrationModule from "./live-registration.js";
 // Data-pure core DTOs are mirrored (not imported) by the runtime per the
 // core/runtime boundary; this cross-check pins the two derivations together
 // so they cannot drift while the neutral engram contract is still moving.
@@ -175,7 +191,7 @@ describe("gateway-host live registration (L6a H)", () => {
 
       const registration = createLiveRegistration({
         root: h2aRoot,
-        hostScope: "local:test-owner",
+        tenant: "local:test-owner",
         authority: allowAllAuthority,
       });
       const activatedA = registration.activate({ path: cloneA });
@@ -184,48 +200,38 @@ describe("gateway-host live registration (L6a H)", () => {
 
       // Two clones with equal fingerprints: distinct clones, distinct
       // declarations. Never a fingerprint/URL-only merge.
-      expect(activatedA.declaration.clone.cloneId).not.toBe(
-        activatedB.declaration.clone.cloneId,
+      expect(activatedA.declaration.declaration.cloneId).not.toBe(
+        activatedB.declaration.declaration.cloneId,
       );
-      expect(activatedA.declaration.declarationId).not.toBe(
-        activatedB.declaration.declarationId,
+      expect(activatedA.declaration.declaration.declarationId).not.toBe(
+        activatedB.declaration.declaration.declarationId,
       );
-      expect(activatedA.declaration.worktree.workspaceFingerprint).toBe(
-        activatedB.declaration.worktree.workspaceFingerprint,
+      expect(activatedA.declaration.declaration.hostFingerprint).toBe(
+        activatedB.declaration.declaration.hostFingerprint,
       );
 
       // Linked worktree shares exactly one common-dir clone with its clone.
-      expect(activatedLinked.declaration.clone.cloneId).toBe(
-        activatedA.declaration.clone.cloneId,
+      expect(activatedLinked.declaration.declaration.cloneId).toBe(
+        activatedA.declaration.declaration.cloneId,
       );
-      expect(activatedLinked.declaration.declarationId).not.toBe(
-        activatedA.declaration.declarationId,
+      expect(activatedLinked.declaration.declaration.declarationId).not.toBe(
+        activatedA.declaration.declaration.declarationId,
       );
-      expect(activatedLinked.declaration.worktree.workspaceFingerprint).not.toBe(
-        activatedA.declaration.worktree.workspaceFingerprint,
+      expect(activatedLinked.declaration.declaration.hostFingerprint).not.toBe(
+        activatedA.declaration.declaration.hostFingerprint,
       );
 
       const listed = registration.list();
       expect(listed).toHaveLength(3);
-      const cloneIds = new Set(listed.map((d) => d.clone.cloneId));
+      const cloneIds = new Set(listed.map((d) => d.declaration.cloneId));
       expect(cloneIds).toHaveLength(2);
 
-      // The runtime derivation must stay byte-identical to the data-pure
-      // core contract (they mirror each other across the core/runtime
-      // boundary until the neutral engram contract lands).
-      const coreA = coreLiveContracts.deriveLiveCloneIdentity({
-        hostScope: "local:test-owner",
-        commonDirRealpath: probeA!.commonDirRealpath,
-        ...(probeA!.projectFingerprint !== undefined
-          ? { projectFingerprint: probeA!.projectFingerprint }
-          : {}),
-      });
-      expect(coreA.cloneId).toBe(activatedA.declaration.clone.cloneId);
-      expect(coreLiveContracts.LIVE_DECLARATION_KIND).toBe(
-        activatedA.declaration.kind,
-      );
-      expect(coreLiveContracts.validateLiveDeclaration(activatedA.declaration))
-        .toBeUndefined();
+      // Every stored declaration is a valid neutral DTO; the envelope keeps
+      // the H kind marker and the activation timestamp.
+      for (const record of listed) {
+        expect(validateWorkspaceDeclaration(record.declaration).ok).toBe(true);
+        expect(record.kind).toBe("h2a-live-declaration");
+      }
     } finally {
       rmSync(base, { recursive: true, force: true });
       rmSync(h2aRoot, { recursive: true, force: true });
@@ -240,7 +246,7 @@ describe("gateway-host live registration (L6a H)", () => {
       const controller = recordingController();
       const registration = createLiveRegistration({
         root: h2aRoot,
-        hostScope: "local:test-owner",
+        tenant: "local:test-owner",
         authority: allowAllAuthority,
         workController: controller,
       });
@@ -288,8 +294,8 @@ describe("gateway-host live registration (L6a H)", () => {
       expect(readFileSync(liveDeclarationsPath(h2aRoot), "utf8")).toBe(before);
       expect(registration.list()).toHaveLength(1);
       const after = registration.status(repo);
-      expect(after?.declarationId).toBe(declaration.declarationId);
-      expect(after?.revision).toBe(declaration.revision);
+      expect(after?.declaration.declarationId).toBe(declaration.declaration.declarationId);
+      expect(after?.declaration.declarationRevision).toBe(declaration.declaration.declarationRevision);
       expect(after?.activatedAt).toBe(declaration.activatedAt);
       expect(controller.calls).toEqual([]);
     } finally {
@@ -305,7 +311,7 @@ describe("gateway-host live registration (L6a H)", () => {
       const repo = makeRepo(join(base, "repo"));
       const registration = createLiveRegistration({
         root: h2aRoot,
-        hostScope: "local:test-owner",
+        tenant: "local:test-owner",
         authority: allowAllAuthority,
       });
       const first = registration.activate({ path: repo });
@@ -321,7 +327,7 @@ describe("gateway-host live registration (L6a H)", () => {
       expect(store2.list()).toHaveLength(1);
       const registration2 = createLiveRegistration({
         root: h2aRoot,
-        hostScope: "local:test-owner",
+        tenant: "local:test-owner",
         authority: allowAllAuthority,
       });
       const replayed = registration2.replay();
@@ -335,8 +341,8 @@ describe("gateway-host live registration (L6a H)", () => {
       // Path resolution seam: a path inside the authorized root resolves to
       // the declaration with its relative path.
       const resolved = registration2.resolvePath(join(repo, "src", "main.ts"));
-      expect(resolved?.declaration.declarationId).toBe(
-        first.declaration.declarationId,
+      expect(resolved?.declaration.declaration.declarationId).toBe(
+        first.declaration.declaration.declarationId,
       );
       expect(resolved?.relativePath).toBe("src/main.ts");
       expect(registration2.resolvePath(join(base, "elsewhere"))).toBeUndefined();
@@ -354,7 +360,7 @@ describe("gateway-host live registration (L6a H)", () => {
       // Default authority is the L7a placeholder: deny everything, explicitly.
       const registration = createLiveRegistration({
         root: h2aRoot,
-        hostScope: "local:test-owner",
+        tenant: "local:test-owner",
       });
       expect(registration.authority).toBe(unverifiedLocalLiveAuthority);
       expect(() => registration.activate({ path: repo })).toThrow(
@@ -364,7 +370,7 @@ describe("gateway-host live registration (L6a H)", () => {
       expect(() => registration.status(repo)).toThrow(
         /local_authority_unavailable/,
       );
-      expect(() => registration.remove({ path: repo })).toThrow(
+      expect(() => registration.remove({ path: repo, reason: "workspace-remove" })).toThrow(
         /local_authority_unavailable/,
       );
       // Nothing was persisted by the refused operations.
@@ -374,7 +380,7 @@ describe("gateway-host live registration (L6a H)", () => {
       // no silent skip, no empty declaration.
       const authorized = createLiveRegistration({
         root: h2aRoot,
-        hostScope: "local:test-owner",
+        tenant: "local:test-owner",
         authority: allowAllAuthority,
       });
       const plain = join(base, "plain");
@@ -398,19 +404,21 @@ describe("gateway-host live registration (L6a H)", () => {
       const controller = recordingController();
       const registration = createLiveRegistration({
         root: h2aRoot,
-        hostScope: "local:test-owner",
+        tenant: "local:test-owner",
         authority: allowAllAuthority,
         workController: controller,
       });
       const { declaration } = registration.activate({ path: repo });
 
-      const removal = registration.remove({ path: repo });
+      const removal = registration.remove({ path: repo, reason: "workspace-remove" });
       expect(removal.removed).toBe(true);
       expect(removal.canceledWork).toBe(true);
       expect(removal.purgeRequested).toBe(true);
+      expect(removal.revocation?.declarationId).toBe(declaration.declaration.declarationId);
+      expect(removal.revocation?.reason).toBe("workspace-remove");
       expect(controller.calls).toEqual([
-        { op: "cancel", declarationId: declaration.declarationId, cloneId: declaration.clone.cloneId },
-        { op: "purge", declarationId: declaration.declarationId, cloneId: declaration.clone.cloneId },
+        { op: "cancel", declarationId: declaration.declaration.declarationId, cloneId: declaration.declaration.cloneId },
+        { op: "purge", declarationId: declaration.declaration.declarationId, cloneId: declaration.declaration.cloneId },
       ]);
       expect(registration.list()).toEqual([]);
       expect(registration.status(repo)).toBeUndefined();
@@ -422,7 +430,7 @@ describe("gateway-host live registration (L6a H)", () => {
       expect(existsSync(join(repo, ".git"))).toBe(true);
 
       // Removing again is not an error, but re-registers nothing.
-      const secondRemoval = registration.remove({ path: repo });
+      const secondRemoval = registration.remove({ path: repo, reason: "workspace-remove" });
       expect(secondRemoval.removed).toBe(false);
       expect(secondRemoval.canceledWork).toBe(false);
     } finally {
@@ -440,24 +448,24 @@ describe("gateway-host live registration (L6a H)", () => {
       const busyController = recordingController(true);
       const registration = createLiveRegistration({
         root: h2aRoot,
-        hostScope: "local:test-owner",
+        tenant: "local:test-owner",
         authority: allowAllAuthority,
         workController: idleController,
       });
       const { declaration } = registration.activate({ path: repo });
-      expect(declaration.binding).toBeUndefined();
+      expect(declaration.declaration.bindingRevision).toBeUndefined();
 
       const rebound = registration.rebind({
         path: repo,
         sentropicWorkspaceId: "sws-4711",
         issuer: "https://auth.sentropic.example.invalid",
       });
-      expect(rebound.binding).toEqual({
-        sentropicWorkspaceId: "sws-4711",
-        issuer: "https://auth.sentropic.example.invalid",
-        bindingRevision: 1,
-      });
-      expect(rebound.revision).toBe(declaration.revision + 1);
+      expect(rebound.declaration.serverWorkspaceId).toBe("sws-4711");
+      expect(rebound.declaration.serverIssuer).toBe("https://auth.sentropic.example.invalid");
+      expect(rebound.declaration.bindingRevision).toBe(1);
+      expect(rebound.declaration.declarationRevision).toBe(
+        declaration.declaration.declarationRevision + 1,
+      );
       expect(rebound.activatedAt).toBe(declaration.activatedAt);
 
       const reboundAgain = registration.rebind({
@@ -465,8 +473,10 @@ describe("gateway-host live registration (L6a H)", () => {
         sentropicWorkspaceId: "sws-4712",
         issuer: "https://auth.sentropic.example.invalid",
       });
-      expect(reboundAgain.binding?.bindingRevision).toBe(2);
-      expect(reboundAgain.revision).toBe(rebound.revision + 1);
+      expect(reboundAgain.declaration.bindingRevision).toBe(2);
+      expect(reboundAgain.declaration.declarationRevision).toBe(
+        rebound.declaration.declarationRevision + 1,
+      );
 
       // Revalidation is required: without a fresh authorization decision the
       // rebind is refused, never silently applied.
@@ -478,7 +488,7 @@ describe("gateway-host live registration (L6a H)", () => {
       };
       const strict = createLiveRegistration({
         root: h2aRoot,
-        hostScope: "local:test-owner",
+        tenant: "local:test-owner",
         authority: onceOnly,
         workController: idleController,
       });
@@ -493,7 +503,7 @@ describe("gateway-host live registration (L6a H)", () => {
       // In-flight collection cannot be redirected by a rebind.
       const busy = createLiveRegistration({
         root: h2aRoot,
-        hostScope: "local:test-owner",
+        tenant: "local:test-owner",
         authority: allowAllAuthority,
         workController: busyController,
       });
@@ -504,7 +514,7 @@ describe("gateway-host live registration (L6a H)", () => {
           issuer: "https://auth.sentropic.example.invalid",
         }),
       ).toThrow(/in_flight/);
-      expect(busy.status(repo)?.binding?.sentropicWorkspaceId).toBe("sws-4712");
+      expect(busy.status(repo)?.declaration.serverWorkspaceId).toBe("sws-4712");
     } finally {
       rmSync(base, { recursive: true, force: true });
       rmSync(h2aRoot, { recursive: true, force: true });
@@ -518,33 +528,49 @@ describe("gateway-host live registration (L6a H)", () => {
       const repo = makeRepo(join(base, "repo"));
       const registration = createLiveRegistration({
         root: h2aRoot,
-        hostScope: "local:test-owner",
+        tenant: "local:test-owner",
         authority: allowAllAuthority,
       });
       const { declaration } = registration.activate({ path: repo });
       const store = createLiveDeclarationStore(h2aRoot);
 
       const first = store.update(
-        declaration.declarationId,
-        declaration.revision,
-        (record) => ({ ...record, updatedAt: "2026-10-12T00:00:00.000Z" }),
+        declaration.declaration.declarationId,
+        declaration.declaration.declarationRevision,
+        (record) => ({
+          ...record,
+          declaration: {
+            ...record.declaration,
+            declarationRevision: record.declaration.declarationRevision + 1,
+          },
+          updatedAt: "2026-10-12T00:00:00.000Z",
+        }),
       );
-      expect(first.revision).toBe(declaration.revision + 1);
+      expect(first.declaration.declarationRevision).toBe(
+        declaration.declaration.declarationRevision + 1,
+      );
 
       // A stale writer holding the pre-update revision is refused explicitly.
       expect(() =>
         store.update(
-          declaration.declarationId,
-          declaration.revision,
-          (record) => ({ ...record, updatedAt: "2026-01-01T00:00:00.000Z" }),
+          declaration.declaration.declarationId,
+          declaration.declaration.declarationRevision,
+          (record) => ({
+            ...record,
+            declaration: {
+              ...record.declaration,
+              declarationRevision: record.declaration.declarationRevision + 1,
+            },
+            updatedAt: "2026-01-01T00:00:00.000Z",
+          }),
         ),
       ).toThrow(/revision_conflict/);
 
       // The refusal clobbered nothing.
       const store2 = createLiveDeclarationStore(h2aRoot);
-      expect(store2.get(declaration.declarationId)).toEqual(first);
-      expect(store2.get(declaration.declarationId)?.revision).toBe(
-        declaration.revision + 1,
+      expect(store2.get(declaration.declaration.declarationId)).toEqual(first);
+      expect(store2.get(declaration.declaration.declarationId)?.declaration.declarationRevision).toBe(
+        declaration.declaration.declarationRevision + 1,
       );
     } finally {
       rmSync(base, { recursive: true, force: true });
@@ -571,30 +597,28 @@ describe("gateway-host live registration (L6a H)", () => {
 
       const registration = createLiveRegistration({
         root: h2aRoot,
-        hostScope: "local:test-owner",
+        tenant: "local:test-owner",
         authority: allowAllAuthority,
       });
       const activatedEmptyA = registration.activate({ path: emptyA });
       expect(
-        activatedEmptyA.declaration.worktree.workspaceFingerprint,
+        activatedEmptyA.declaration.declaration.hostFingerprint,
       ).toBeUndefined();
       expect(activatedEmptyA.declaration.clone.identityUncertainty).toContain(
         "missing_history",
       );
       expect(
-        coreLiveContracts.validateLiveDeclaration(
-          activatedEmptyA.declaration,
-        ),
-      ).toBeUndefined();
+        validateWorkspaceDeclaration(activatedEmptyA.declaration.declaration).ok,
+      ).toBe(true);
 
       // Missing fingerprints never merge clones: two empty repos stay
       // distinct (realpath-bound, not URL/fingerprint-bound).
       const activatedEmptyB = registration.activate({ path: emptyB });
-      expect(activatedEmptyB.declaration.declarationId).not.toBe(
-        activatedEmptyA.declaration.declarationId,
+      expect(activatedEmptyB.declaration.declaration.declarationId).not.toBe(
+        activatedEmptyA.declaration.declaration.declarationId,
       );
-      expect(activatedEmptyB.declaration.clone.cloneId).not.toBe(
-        activatedEmptyA.declaration.clone.cloneId,
+      expect(activatedEmptyB.declaration.declaration.cloneId).not.toBe(
+        activatedEmptyA.declaration.declaration.cloneId,
       );
 
       // Shallow clone: fingerprint exists (from grafted roots) but carries
@@ -656,7 +680,7 @@ describe("gateway-host live registration (L6a H)", () => {
 
       const registration = createLiveRegistration({
         root: h2aRoot,
-        hostScope: "local:test-owner",
+        tenant: "local:test-owner",
         authority: allowAllAuthority,
       });
       registration.activate({ path: repo });
@@ -677,5 +701,282 @@ describe("gateway-host live registration (L6a H)", () => {
       rmSync(base, { recursive: true, force: true });
       rmSync(h2aRoot, { recursive: true, force: true });
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// L6a realignment RED: H must match the frozen engram-live contract
+// (gaps L6a-h2a-gaps.md §1–4). Each test below fails until the service mints
+// identities through the canonical derivation, speaks the contract
+// vocabulary and refuses unverified principals.
+// ---------------------------------------------------------------------------
+
+/** Pinned integrity of the consumed prerelease (spec §11: digest-pinned packed prerelease). */
+const ENGRAM_LIVE_PRERELEASE_INTEGRITY =
+  "sha512-SpNpd9iDWi0x9lySvYd+HtUtWDyEPncW6pAdMS3YjaCiWF1C3aaIEMbxc6TbkPNwlBGxNpHdwf+Zc8ntMPq2iw==";
+
+const noPrincipalAuthority: LiveAuthority = {
+  authorize: () => ({ ok: true }),
+};
+
+describe("gateway-host live registration L6a realignment", () => {
+  it("GUARD: consumes the digest-pinned engram-live prerelease, never a silent copy", async () => {
+    const repoRoot = new URL("../../../..", import.meta.url);
+    const tarball = new URL("vendor/sentropic-engram-live-0.1.0.tgz", repoRoot);
+    const bytes = readFileSync(tarball);
+    expect(`sha512-${createHash("sha512").update(bytes).digest("base64")}`).toBe(
+      ENGRAM_LIVE_PRERELEASE_INTEGRITY,
+    );
+    const contracts = await import("@sentropic/engram-live/contracts");
+    expect(contracts.CONTRACT_NAME).toBe("@sentropic/engram-live/contracts");
+    expect(contracts.CONTRACT_VERSION).toBe(1);
+    expect(contracts.POLICY_VERSION).toBe("live-git-indexing/1");
+  });
+
+  it("gap1: declaration carries the flat identity triangle and removal returns a contract-valid revocation", () => {
+    const h2aRoot = mkdtempSync(join(tmpdir(), "h2a-live-l6a-r1-root-"));
+    const base = mkdtempSync(join(tmpdir(), "h2a-live-l6a-r1-base-"));
+    try {
+      const repo = makeRepo(join(base, "repo"));
+      const registration = createLiveRegistration({
+        root: h2aRoot,
+        tenant: "local:test-owner",
+        authority: allowAllAuthority,
+      });
+      const { declaration } = registration.activate({ path: repo });
+      const dto = declaration.declaration;
+      expect(dto?.declarationId).toMatch(/^decl:/);
+      expect(dto?.cloneId).toMatch(/^clone:/);
+      expect(dto?.worktreeId).toMatch(/^wt:/);
+      expect(dto?.tenant).toBe("local:test-owner");
+      expect(dto?.liveCapability).toBe("live");
+      expect(dto?.policyVersion).toBe(POLICY_VERSION);
+      expect(dto?.declarationRevision).toBe(1);
+      expect(validateWorkspaceDeclaration(dto).ok).toBe(true);
+
+      const removal = registration.remove({ path: repo, reason: "workspace-remove" });
+      expect(removal.removed).toBe(true);
+      expect(validateDeclarationRevocation(removal.revocation).ok).toBe(true);
+      expect(removal.revocation).toMatchObject({
+        declarationId: dto?.declarationId,
+        tenant: "local:test-owner",
+        cloneId: dto?.cloneId,
+        worktreeId: dto?.worktreeId,
+        declarationRevision: dto?.declarationRevision,
+        reason: "workspace-remove",
+        requestPrivatePurge: {
+          purgePrivateSnapshots: true,
+          purgeDerivedIndexes: true,
+          revokeDecryptability: true,
+          preserveCommittedHistory: true,
+        },
+      });
+      expect(registration.list()).toEqual([]);
+    } finally {
+      rmSync(base, { recursive: true, force: true });
+      rmSync(h2aRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("gap1: withdrawing a clone revokes each of its declarations", () => {
+    const h2aRoot = mkdtempSync(join(tmpdir(), "h2a-live-l6a-r1b-root-"));
+    const base = mkdtempSync(join(tmpdir(), "h2a-live-l6a-r1b-base-"));
+    try {
+      const origin = makeRepo(join(base, "origin"));
+      const cloneA = join(base, "clone-a");
+      git(base, ["clone", "-q", origin, cloneA]);
+      const linked = join(base, "clone-a-wt");
+      git(cloneA, ["worktree", "add", "-q", "-b", "feature-x", linked]);
+      const registration = createLiveRegistration({
+        root: h2aRoot,
+        tenant: "local:test-owner",
+        authority: allowAllAuthority,
+      });
+      const activatedA = registration.activate({ path: cloneA });
+      const activatedLinked = registration.activate({ path: linked });
+      const cloneId = activatedA.declaration.declaration.cloneId;
+      expect(activatedLinked.declaration.declaration.cloneId).toBe(cloneId);
+
+      expect(typeof registration.removeClone).toBe("function");
+      const outcome = registration.removeClone({ cloneId, reason: "owner-request" });
+      expect(outcome.revocations).toHaveLength(2);
+      const revokedIds = outcome.revocations.map((revocation) => revocation.declarationId).sort();
+      expect(revokedIds).toEqual(
+        [
+          activatedA.declaration.declaration.declarationId,
+          activatedLinked.declaration.declaration.declarationId,
+        ].sort(),
+      );
+      for (const revocation of outcome.revocations) {
+        expect(validateDeclarationRevocation(revocation).ok).toBe(true);
+        expect(revocation.reason).toBe("owner-request");
+      }
+      expect(registration.list()).toEqual([]);
+    } finally {
+      rmSync(base, { recursive: true, force: true });
+      rmSync(h2aRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("gap2: contract vocabulary with a flat product binding", () => {
+    const h2aRoot = mkdtempSync(join(tmpdir(), "h2a-live-l6a-r2-root-"));
+    const base = mkdtempSync(join(tmpdir(), "h2a-live-l6a-r2-base-"));
+    try {
+      const repo = makeRepo(join(base, "repo"));
+      const registration = createLiveRegistration({
+        root: h2aRoot,
+        tenant: "local:test-owner",
+        authority: allowAllAuthority,
+      });
+      const { declaration } = registration.activate({ path: repo });
+      const rebound = registration.rebind({
+        path: repo,
+        sentropicWorkspaceId: "sws-4711",
+        issuer: "https://auth.sentropic.example.invalid",
+      });
+      const dto = rebound.declaration;
+      expect(dto?.tenant).toBe("local:test-owner");
+      expect(dto?.hostFingerprint).toMatch(/^ws:/);
+      expect(dto?.serverWorkspaceId).toBe("sws-4711");
+      expect(dto?.serverIssuer).toBe("https://auth.sentropic.example.invalid");
+      expect(dto?.bindingRevision).toBe(INITIAL_BINDING_REVISION);
+      expect(validateWorkspaceDeclaration(dto).ok).toBe(true);
+      // Retired H vocabulary is gone from the neutral DTO.
+      for (const retired of ["hostScope", "capability", "revision", "workspaceFingerprint", "binding"]) {
+        expect(dto !== undefined && retired in (dto as unknown as Record<string, unknown>)).toBe(false);
+      }
+      expect(declaration.declaration?.bindingRevision).toBeUndefined();
+    } finally {
+      rmSync(base, { recursive: true, force: true });
+      rmSync(h2aRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("gap3: identities are byte-identical to the canonical engram derivation", () => {
+    const h2aRoot = mkdtempSync(join(tmpdir(), "h2a-live-l6a-r3-root-"));
+    const base = mkdtempSync(join(tmpdir(), "h2a-live-l6a-r3-base-"));
+    try {
+      const repo = makeRepo(join(base, "repo"));
+      const probe = probeLiveWorkspace(repo)!;
+      expect(probe.oidAlgorithm).toMatch(/^(sha1|sha256)$/);
+      const tenant = "local:test-owner";
+      const clone = deriveCloneIdentity({
+        hostScope: tenant,
+        commonDirRealpath: probe.commonDirRealpath,
+        ...(probe.projectFingerprint !== undefined
+          ? { commonDirProjectFingerprint: probe.projectFingerprint }
+          : {}),
+        identityUncertainty: [...probe.identityUncertainty] as never,
+        oidAlgorithm: probe.oidAlgorithm as "sha1" | "sha256",
+      });
+      const worktree = deriveWorktreeIdentity({
+        hostScope: tenant,
+        clone: { cloneId: clone.cloneId },
+        worktreePath: probe.worktreeRealpath,
+        gitDir: probe.gitDir,
+        ...(probe.workspaceFingerprint !== undefined
+          ? { worktreeFingerprint: probe.workspaceFingerprint }
+          : {}),
+        identityUncertainty: [...probe.identityUncertainty] as never,
+      });
+      const identity = deriveDeclarationIdentity({
+        hostScope: tenant,
+        clone: { cloneId: clone.cloneId },
+        worktree: { worktreeId: worktree.worktreeId },
+      });
+
+      const registration = createLiveRegistration({
+        root: h2aRoot,
+        tenant,
+        authority: allowAllAuthority,
+      });
+      const { declaration } = registration.activate({ path: repo });
+      expect(declaration.declaration?.cloneId).toBe(clone.cloneId);
+      expect(declaration.declaration?.worktreeId).toBe(worktree.worktreeId);
+      expect(declaration.declaration?.declarationId).toBe(identity.declarationId);
+
+      // The retired newline-joined scheme must not come back.
+      const legacyCloneId =
+        "clone:" +
+        createHash("sha256")
+          .update(`${tenant}\n${probe.commonDirRealpath}\n${probe.projectFingerprint ?? ""}`, "utf8")
+          .digest("hex");
+      expect(declaration.declaration?.cloneId).not.toBe(legacyCloneId);
+    } finally {
+      rmSync(base, { recursive: true, force: true });
+      rmSync(h2aRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("gap4: a positive authorization without a verified principal is refused", () => {
+    const h2aRoot = mkdtempSync(join(tmpdir(), "h2a-live-l6a-r4-root-"));
+    const base = mkdtempSync(join(tmpdir(), "h2a-live-l6a-r4-base-"));
+    try {
+      const repo = makeRepo(join(base, "repo"));
+      const registration = createLiveRegistration({
+        root: h2aRoot,
+        tenant: "local:test-owner",
+        authority: noPrincipalAuthority,
+      });
+      // No neutral DTO is ever built from an unverified principal — reads
+      // included (spec §12); the stable owner scope stays L7a work.
+      expect(() => registration.activate({ path: repo })).toThrow(/verified_principal_required/);
+      expect(() => registration.list()).toThrow(/verified_principal_required/);
+      expect(() => registration.status(repo)).toThrow(/verified_principal_required/);
+      expect(() => registration.resolvePath(repo)).toThrow(/verified_principal_required/);
+      expect(() => registration.remove({ path: repo, reason: "workspace-remove" })).toThrow(
+        /verified_principal_required/,
+      );
+      expect(() =>
+        registration.rebind({
+          path: repo,
+          sentropicWorkspaceId: "sws-1",
+          issuer: "https://auth.sentropic.example.invalid",
+        }),
+      ).toThrow(/verified_principal_required/);
+      expect(() => registration.replay()).toThrow(/verified_principal_required/);
+      expect(existsSync(liveDeclarationsPath(h2aRoot))).toBe(false);
+    } finally {
+      rmSync(base, { recursive: true, force: true });
+      rmSync(h2aRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("core contract surface re-exports the frozen neutral surface without copies", async () => {
+    const engramContracts = await import("@sentropic/engram-live/contracts");
+    expect(coreLiveContracts.POLICY_VERSION).toBe(engramContracts.POLICY_VERSION);
+    expect(coreLiveContracts.EXPLICIT_LIVE_CAPABILITY).toBe("live");
+    expect(coreLiveContracts.INITIAL_DECLARATION_REVISION).toBe(1);
+    expect(coreLiveContracts.INITIAL_BINDING_REVISION).toBe(1);
+    expect(coreLiveContracts.validateWorkspaceDeclaration).toBe(
+      engramContracts.validateWorkspaceDeclaration,
+    );
+    expect(coreLiveContracts.validateCloneIdentity).toBe(engramContracts.validateCloneIdentity);
+    expect(coreLiveContracts.validateWorktreeIdentity).toBe(
+      engramContracts.validateWorktreeIdentity,
+    );
+    expect(coreLiveContracts.validateDeclarationRevocation).toBe(
+      engramContracts.validateDeclarationRevocation,
+    );
+    expect(coreLiveContracts.validatePrivatePurgeRequest).toBe(
+      engramContracts.validatePrivatePurgeRequest,
+    );
+    expect(coreLiveContracts.isLocalLiveTenant("local:test-owner")).toBe(true);
+    for (const bad of ["", "local:", "sentropic:abc", "ws:deadbeef", "local:a\0b", undefined, 42]) {
+      expect(coreLiveContracts.isLocalLiveTenant(bad)).toBe(false);
+    }
+  });
+
+  it("gap3: non-activating lifecycle kinds never change activation", () => {
+    const classify = (
+      liveRegistrationModule as unknown as {
+        classifyLifecycleEvent?: (kind: string) => string;
+      }
+    ).classifyLifecycleEvent;
+    expect(typeof classify).toBe("function");
+    for (const kind of ["bind", "upload", "code-workspace-create", "session-open", "session-end"]) {
+      expect(classify!(kind)).toBe("no-activation-change");
+    }
+    expect(() => classify!("activate")).toThrow();
   });
 });
