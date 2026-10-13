@@ -1,19 +1,26 @@
-import { centralHttpRequest } from "./mcp-central-http.js";
+import { authenticatedHttpRequest } from "./handover/authenticated-http.js";
+import { readState, publishState, replaceState } from "./handover/state.js";
 /** Operator control uses the authenticated owner, never a marker PID signal. */
 import { existsSync, lstatSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { spawnSync } from "node:child_process";
-import { centralMcpMarkerPath, markerDirectory, readCentralClientMarker, type CentralMcpPathsOptions } from "./mcp-central-discovery.js";
+import { centralMcpMarkerPath, markerDirectory, centralStateDirectory, readCentralClientMarker, type CentralMcpPathsOptions } from "./mcp-central-discovery.js";
 
-export function centralPausePath(paths: CentralMcpPathsOptions = {}): string { return join(markerDirectory(paths), "operator-stop.json"); }
+export function centralPausePath(paths: CentralMcpPathsOptions = {}): string { return join(centralStateDirectory(paths), "operator-stop.json"); }
 
 export async function centralOperator(action: "status" | "stop", paths: CentralMcpPathsOptions = {}): Promise<unknown> {
   const pausePath = centralPausePath(paths);
-  const writePause = (generation?: string) => {
-    mkdirSync(markerDirectory(paths), { recursive: true, mode: 0o700 });
-    if (existsSync(pausePath) && !lstatSync(pausePath).isFile()) throw new Error("central operator stop marker must be a regular file");
-    writeFileSync(pausePath, JSON.stringify({ ...(generation ? { generation } : {}), at: new Date().toISOString() }) + "\n", { mode: 0o600 });
+  const paused = () => {
+    try { return readState(pausePath, "pause")?.value.paused ?? false; }
+    catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return false; throw error; }
+  };
+  const writePause = (generation: string | null = null) => {
+    mkdirSync(centralStateDirectory(paths), { recursive: true, mode: 0o700 });
+    const previous = readState(pausePath, "pause");
+    const value = { schemaVersion: 1, revision: (previous?.value.revision ?? 0) + 1,
+      paused: true, requestedAt: Date.now(), generation };
+    if (previous) replaceState(pausePath, value, "pause", previous); else publishState(pausePath, value, "pause");
   };
   let marker;
   try {
@@ -22,9 +29,9 @@ export async function centralOperator(action: "status" | "stop", paths: CentralM
     if ((error as NodeJS.ErrnoException).code === "ENOENT") {
       if (action === "stop") {
         writePause();
-        return { running: false, paused: true };
+        return { running: "unverified", paused: true, stopped: false, state: "pause_active_stop_deferred" };
       }
-      return { running: false, paused: existsSync(pausePath) };
+      return { running: false, paused: paused() };
     }
     throw error;
   }
@@ -34,16 +41,35 @@ export async function centralOperator(action: "status" | "stop", paths: CentralM
     writePause(marker.generation);
   }
   try {
-    const response = await centralHttpRequest(new URL(`/_h2a-central/${action}`, marker.endpoint), {
+    const response = await authenticatedHttpRequest(centralMcpMarkerPath(paths), marker, new URL(`/_h2a-central/${action}`, marker.endpoint), {
       method: action === "stop" ? "POST" : "GET",
-      headers: { authorization: `Bearer ${marker.token}` }, signal: AbortSignal.timeout(2000)
+      headers: {}, signal: AbortSignal.timeout(2000)
     });
     if (!response.ok) { await response.text(); throw new Error(`central ${action}: HTTP ${response.status}`); }
-    return { running: action !== "stop", paused: existsSync(pausePath), ...await response.json() as object };
+    const result = await response.json() as { state?: string; stopped?: boolean };
+    if (action === "stop") {
+      const deadline = Date.now() + 2000;
+      while (Date.now() < deadline) {
+        const control = readState(join(centralStateDirectory(paths), "component-control.json"), "componentControl");
+        if (control?.value.sourceGeneration === marker.generation && control.value.operatorStopped)
+          return { running: false, paused: paused(), stopped: true, state: "stopped", generation: marker.generation };
+        await new Promise(resolve => setTimeout(resolve, 25));
+      }
+      return { running: "unverified", paused: paused(), stopped: false, state: "pause_active_stop_deferred", generation: marker.generation };
+    }
+    return { running: action === "status" || result.state === "pause_active_stop_deferred", paused: paused(), ...result };
   } catch (error) {
     if (action === "stop") return { running: "unverified", paused: true, error: (error as Error).message };
-    return { running: false, paused: existsSync(pausePath), error: (error as Error).message };
+    return { running: false, paused: paused(), error: (error as Error).message };
   }
+}
+
+export function centralOperatorExitCode(result: unknown): number {
+  return result && typeof result === "object" && "error" in result ? 2 : 0;
+}
+export function centralFailureExitCode(error: unknown): number {
+  const code = (error as NodeJS.ErrnoException)?.code;
+  return code && ["EACCES", "EPERM", "EROFS", "ENOSPC", "EIO"].includes(code) ? 3 : 2;
 }
 
 import { writeHostMcpEntry } from "../hosts/config-writer.js";
