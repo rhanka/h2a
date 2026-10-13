@@ -55,7 +55,7 @@ function compile(root) {
     }
   }
 }
-for (const label of ['candidate', 'base']) {
+for (const label of (process.env.IDLOCK_BUILD_ONLY==='1' ? ['candidate'] : ['candidate', 'base'])) {
   const dest = join(lane, label);
   fs.mkdirSync(dest);
   if (label === 'base' || process.env.IDLOCK_CANDIDATE_REF) {
@@ -80,6 +80,11 @@ const env = { ...process.env, TMPDIR: join(lane, 'tmp'),
   H2A_ROOT: join(lane, 'state', 'store'), IDLOCK_LANE: lane, NODE_OPTIONS: '--import '+join(repo,'packages/h2a/test/helpers/identity-isolation-guard.mjs') };
 fs.writeFileSync(join(lane, 'environment.json'), JSON.stringify(Object.fromEntries(['TMPDIR','XDG_RUNTIME_DIR','XDG_CONFIG_HOME','XDG_STATE_HOME','H2A_ROOT','IDLOCK_LANE'].map(k=>[k,env[k]])), null, 2));
 const files = process.argv.slice(2);
+if(process.env.IDLOCK_BUILD_ONLY==='1') {
+  process.stdout.write(`LANE=${lane}\n`);
+  process.exit(0);
+}
+if(files.length===0)throw new Error('named test files required; use IDLOCK_BUILD_ONLY=1 for a source-only build');
 const output = spawnSync(process.execPath, ['--import', join(repo, 'packages/h2a/test/helpers/identity-isolation-guard.mjs'), '--test', ...files], {
   cwd: join(lane, 'candidate'), env, encoding: 'utf8', maxBuffer: 20 * 1024 * 1024
 });
