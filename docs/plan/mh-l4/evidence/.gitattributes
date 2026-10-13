@@ -1,0 +1,2 @@
+# Raw node:test transcripts retain TAP indentation and original bytes.
+*.log -whitespace

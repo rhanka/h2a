@@ -1,0 +1,43 @@
+command: /usr/bin/node --test packages/h2a/test/mh-l4-wake.test.js
+node: v22.22.1
+private test root: /tmp/mh-l4-test-TSpyYB
+TAP version 13
+# Subtest: should serialize wakes, persist intent before injection and suppress unknown envelopes after restart
+ok 1 - should serialize wakes, persist intent before injection and suppress unknown envelopes after restart
+  ---
+  duration_ms: 57.285847
+  type: 'test'
+  ...
+# Subtest: should retry a proven deferred wake but never inject from a frozen owner
+not ok 2 - should retry a proven deferred wake but never inject from a frozen owner
+  ---
+  duration_ms: 43.228235
+  type: 'test'
+  location: '/home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/test/mh-l4-wake.test.js:33:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    
+    false !== true
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: true
+  actual: false
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/test/mh-l4-wake.test.js:39:10)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+1..2
+# tests 2
+# suites 0
+# pass 1
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 382.938212
+
+receipt: {"command":["/usr/bin/node","--test","packages/h2a/test/mh-l4-wake.test.js"],"code":1,"signal":null,"elapsedMs":461}
