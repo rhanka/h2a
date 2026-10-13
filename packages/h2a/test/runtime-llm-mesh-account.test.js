@@ -39,22 +39,48 @@ test(
     assert.match(canonical.output, /Usage: h2a llm-mesh account enroll/);
     assert.match(canonical.output, /cloud-code, codex, muse/);
     assert.match(canonical.output, /claude-code/);
-    assert.match(canonical.output, /--credential-import/);
+    assert.match(canonical.output, /--from oauth\|cli\|token/);
+    assert.match(canonical.output, /--token/);
+    assert.doesNotMatch(canonical.output, /--credential-import/);
     assert.match(canonical.output, /muse\s+OAuth device flow/);
     assert.match(canonical.output, /--cli/);
     assert.doesNotMatch(canonical.output, /muse-code device flow/);
 
-    const badCli = run("llm-mesh", "account", "enroll", "claude-code", "--cli");
+    const badCli = run("llm-mesh", "account", "enroll", "codex", "--cli");
     assert.notEqual(badCli.status, 0, badCli.output);
-    assert.match(badCli.output, /--cli is only valid for providers with a local CLI import \(muse\)/);
+    assert.match(badCli.output, /--cli\/--from cli is only valid for providers with a local CLI import \(muse, claude-code\)/);
 
-    const badImport = run("llm-mesh", "account", "enroll", "codex", "--credential-import");
+    const claudeCliHome = mkdtempSync(join(tmpdir(), "h2a-account-cli-"));
+    try {
+      const claudeCliNoStore = runWithEnv(
+        ["llm-mesh", "account", "enroll", "claude-code", "--cli"],
+        { HOME: claudeCliHome },
+      );
+      assert.notEqual(claudeCliNoStore.status, 0, claudeCliNoStore.output);
+      assert.match(claudeCliNoStore.output, /Claude CLI store not found/);
+    } finally {
+      rmSync(claudeCliHome, { recursive: true, force: true });
+    }
+
+    const badImport = run("llm-mesh", "account", "enroll", "codex", "--token");
     assert.notEqual(badImport.status, 0, badImport.output);
-    assert.match(badImport.output, /--credential-import is only valid for claude-code/);
+    assert.match(badImport.output, /--token\/--from token is only valid for claude-code/);
 
-    const badBoth = run("llm-mesh", "account", "enroll", "claude-code", "--cli", "--credential-import");
+    const badBoth = run("llm-mesh", "account", "enroll", "claude-code", "--cli", "--token");
     assert.notEqual(badBoth.status, 0, badBoth.output);
-    assert.match(badBoth.output, /--cli and --credential-import cannot be combined/);
+    assert.match(badBoth.output, /--cli and --token cannot be combined/);
+
+    const badFrom = run("llm-mesh", "account", "enroll", "claude-code", "--from", "bogus");
+    assert.notEqual(badFrom.status, 0, badFrom.output);
+    assert.match(badFrom.output, /--from must be one of oauth, cli, token/);
+
+    const badFromCombo = run("llm-mesh", "account", "enroll", "claude-code", "--from", "cli", "--cli");
+    assert.notEqual(badFromCombo.status, 0, badFromCombo.output);
+    assert.match(badFromCombo.output, /--from cannot be combined with --cli or --token/);
+
+    const badFromProvider = run("llm-mesh", "account", "enroll", "codex", "--from", "token");
+    assert.notEqual(badFromProvider.status, 0, badFromProvider.output);
+    assert.match(badFromProvider.output, /--token\/--from token is only valid for claude-code/);
 
     for (const command of ["list", "ls"]) {
       const help = run("llm-mesh", "account", command, "--help");

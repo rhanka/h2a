@@ -26,7 +26,9 @@ import {
   formatLlmMeshAccountList,
   formatLlmMeshAccountError,
   listAccountsViaFacade,
+  readClaudeCliStoreCredential,
   removeAccountViaFacade,
+  resolveEnrollmentMode,
   sanitizeClaudeEnrollmentError,
 } from "./llm-mesh-accounts.js";
 
@@ -767,12 +769,20 @@ describe("claude-code enrollment", () => {
     } as unknown as LlmMeshFacade;
 
     await expect(
-      enrollViaFacade("claude-code", { facade, cliImport: true }),
-    ).rejects.toThrow(/claude-code.*no CLI-store import.*--cli.*muse/);
+      enrollViaFacade("codex", { facade, cliImport: true }),
+    ).rejects.toThrow(/codex.*no CLI-store import.*muse, claude-code/);
 
     await expect(
       enrollViaFacade("muse", { facade, credentialImport: true }),
-    ).rejects.toThrow(/--credential-import is only valid for claude-code/);
+    ).rejects.toThrow(/--token\/--from token is only valid for claude-code/);
+
+    await expect(
+      enrollViaFacade("muse", { facade, tokenImport: true }),
+    ).rejects.toThrow(/--token\/--from token is only valid for claude-code/);
+
+    await expect(
+      enrollViaFacade("codex", { facade, from: "token" }),
+    ).rejects.toThrow(/--token\/--from token is only valid for claude-code/);
 
     await expect(
       enrollViaFacade("claude-code", {
@@ -780,7 +790,46 @@ describe("claude-code enrollment", () => {
         cliImport: true,
         credentialImport: true,
       }),
-    ).rejects.toThrow(/--cli and --credential-import cannot be combined/);
+    ).rejects.toThrow(/--cli and --token cannot be combined/);
+
+    await expect(
+      enrollViaFacade("claude-code", {
+        facade,
+        cliImport: true,
+        tokenImport: true,
+      }),
+    ).rejects.toThrow(/--cli and --token cannot be combined/);
+
+    await expect(
+      enrollViaFacade("claude-code", { facade, from: "cli", cliImport: true }),
+    ).rejects.toThrow(/--from cannot be combined with --cli/);
+
+    await expect(
+      enrollViaFacade("claude-code", {
+        facade,
+        from: "bogus" as never,
+      }),
+    ).rejects.toThrow(/--from must be one of oauth, cli, token/);
+  });
+
+  it("resolves the canonical --from selector and legacy booleans to one mode", () => {
+    expect(resolveEnrollmentMode({})).toBe("oauth");
+    expect(resolveEnrollmentMode({ from: "oauth" })).toBe("oauth");
+    expect(resolveEnrollmentMode({ from: "cli" })).toBe("cli");
+    expect(resolveEnrollmentMode({ from: "token" })).toBe("token");
+    expect(resolveEnrollmentMode({ cliImport: true })).toBe("cli");
+    expect(resolveEnrollmentMode({ credentialImport: true })).toBe("token");
+    expect(resolveEnrollmentMode({ tokenImport: true })).toBe("token");
+    // Legacy token spellings agree with each other (same mode, no conflict).
+    expect(
+      resolveEnrollmentMode({ credentialImport: true, tokenImport: true }),
+    ).toBe("token");
+    expect(() =>
+      resolveEnrollmentMode({ from: "cli", tokenImport: true }),
+    ).toThrow(/--from cannot be combined/);
+    expect(() =>
+      resolveEnrollmentMode({ cliImport: true, tokenImport: true }),
+    ).toThrow(/--cli and --token cannot be combined/);
   });
 
   it("validates H2A_LLM_MESH_CONFIG_JSON for claude-code and refuses malformed JSON", async () => {
@@ -891,6 +940,212 @@ describe("claude-code enrollment", () => {
   });
 });
 
+describe("claude-code import modes (--from cli|token)", () => {
+  const CANARY_ACCESS = "canary-access-token-9f8e7d";
+  const CANARY_REFRESH = "canary-refresh-token-1a2b3c";
+
+  function writeStore(home: string, content: string): void {
+    const dir = join(home, ".claude");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, ".credentials.json"), content);
+  }
+
+  function storeHome(name: string): string {
+    const home = join(SCRATCH, name);
+    mkdirSync(home, { recursive: true });
+    return home;
+  }
+
+  function credentialImportFacade() {
+    return {
+      completeClaudeCredentialImport: vi.fn().mockResolvedValue({
+        accountId: "acct_claude_import_2",
+        label: "Claude (imported)",
+      }),
+      enroll: vi.fn(),
+    } as unknown as LlmMeshFacade;
+  }
+
+  it("imports from the official CLI store without browser or prompt (--from cli)", async () => {
+    const home = storeHome("cli-home");
+    const stored = JSON.stringify({
+      claudeAiOauth: {
+        accessToken: CANARY_ACCESS,
+        refreshToken: CANARY_REFRESH,
+        expiresAt: 1800000000000,
+        scopes: ["user:inference"],
+      },
+    });
+    writeStore(home, stored);
+    const facade = credentialImportFacade();
+    const readInput = vi.fn();
+
+    const result = await enrollViaFacade("claude-code", {
+      facade,
+      from: "cli",
+      cliStoreHome: home,
+      readInput,
+      ownerScope: "cli:test-host",
+    });
+
+    expect(result).toEqual({
+      accountId: "acct_claude_import_2",
+      provider: "claude-code",
+      label: "Claude (imported)",
+    });
+    expect(facade.enroll).not.toHaveBeenCalled();
+    expect(readInput).not.toHaveBeenCalled();
+    expect(facade.completeClaudeCredentialImport).toHaveBeenCalledWith(
+      stored,
+      "cli:test-host",
+    );
+  });
+
+  it("treats legacy --cli as --from cli for claude-code", async () => {
+    const home = storeHome("cli-legacy-home");
+    const stored = JSON.stringify({
+      accessToken: CANARY_ACCESS,
+      refreshToken: CANARY_REFRESH,
+      expiresAt: 1800000000000,
+      scopes: ["user:inference"],
+    });
+    writeStore(home, stored);
+    const facade = credentialImportFacade();
+
+    const result = await enrollViaFacade("claude-code", {
+      facade,
+      cliImport: true,
+      cliStoreHome: home,
+      ownerScope: "cli:test-host",
+    });
+
+    expect(result.provider).toBe("claude-code");
+    expect(facade.completeClaudeCredentialImport).toHaveBeenCalledWith(
+      stored,
+      "cli:test-host",
+    );
+  });
+
+  it("treats --from token and legacy --token as the token import leg", async () => {
+    for (const options of [
+      { from: "token" as const },
+      { tokenImport: true },
+      { credentialImport: true },
+    ]) {
+      const facade = credentialImportFacade();
+      const fakeJson = JSON.stringify({
+        claudeAiOauth: {
+          accessToken: CANARY_ACCESS,
+          refreshToken: CANARY_REFRESH,
+          expiresAt: 1800000000000,
+          scopes: ["user:inference"],
+        },
+      });
+      const result = await enrollViaFacade("claude-code", {
+        facade,
+        ...options,
+        readInput: vi.fn().mockResolvedValue(fakeJson),
+        ownerScope: "cli:test-host",
+      });
+      expect(result.provider).toBe("claude-code");
+      expect(facade.completeClaudeCredentialImport).toHaveBeenCalledWith(
+        fakeJson,
+        "cli:test-host",
+      );
+    }
+  });
+
+  it("fails closed on a missing store without leaking anything", async () => {
+    const home = storeHome("cli-missing-home");
+    const facade = credentialImportFacade();
+
+    await expect(
+      enrollViaFacade("claude-code", {
+        facade,
+        from: "cli",
+        cliStoreHome: home,
+        ownerScope: "cli:test-host",
+      }),
+    ).rejects.toThrow(/Claude CLI store not found/);
+    expect(facade.completeClaudeCredentialImport).not.toHaveBeenCalled();
+    expect(facade.enroll).not.toHaveBeenCalled();
+  });
+
+  it("refuses non-renewable or malformed store documents with static errors", async () => {
+    const facade = credentialImportFacade();
+    const cases: Array<[string, string]> = [
+      ["garbage", "not json at all {{{"],
+      ["access-only", JSON.stringify({ claudeAiOauth: { accessToken: CANARY_ACCESS } })],
+      ["empty", "   \n  "],
+    ];
+    for (const [name, content] of cases) {
+      const home = storeHome(`cli-bad-${name}`);
+      writeStore(home, content);
+      await expect(
+        enrollViaFacade("claude-code", {
+          facade,
+          from: "cli",
+          cliStoreHome: home,
+          ownerScope: "cli:test-host",
+        }),
+        name,
+      ).rejects.toThrow(/Claude CLI store holds no renewable credential/);
+    }
+    expect(facade.completeClaudeCredentialImport).not.toHaveBeenCalled();
+  });
+
+  it("reads the store shape directly and never surfaces canary material", async () => {
+    const home = storeHome("cli-shape-home");
+    const stored = JSON.stringify({
+      claudeAiOauth: {
+        accessToken: CANARY_ACCESS,
+        refreshToken: CANARY_REFRESH,
+        expiresAt: 1800000000000,
+        scopes: ["user:inference"],
+        extraField: "ignored",
+      },
+    });
+    writeStore(home, stored);
+    expect(await readClaudeCliStoreCredential(home)).toBe(stored);
+
+    const missing = await readClaudeCliStoreCredential(
+      join(SCRATCH, "definitely-absent-home"),
+    ).catch((err: unknown) => String(err));
+    expect(missing).toContain("Claude CLI store not found");
+    expect(missing).not.toContain(CANARY_ACCESS);
+    expect(missing).not.toContain(CANARY_REFRESH);
+  });
+
+  it("selects the muse CLI-store leg through --from cli like --cli", async () => {
+    const facade = {
+      enroll: vi.fn().mockResolvedValue({
+        kind: "local-import",
+        enrollmentId: "enroll-muse-from",
+        source: "muse-cli-auth-file",
+        expiresAt: "2026-08-07T01:00:00.000Z",
+      }),
+      completeMuseImport: vi.fn().mockResolvedValue({
+        accountId: "acct_muse_from",
+        label: "Muse (owner@example.com)",
+      }),
+    } as unknown as LlmMeshFacade;
+    vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+
+    await expect(
+      enrollViaFacade("muse", {
+        facade,
+        ownerScope: "cli:test-host",
+        from: "cli",
+      }),
+    ).resolves.toEqual({
+      accountId: "acct_muse_from",
+      provider: "muse",
+      label: "Muse (owner@example.com)",
+    });
+    expect(facade.completeMuseImport).toHaveBeenCalled();
+  });
+});
+
 describe("claude browser opener", () => {
   const authUrl = "https://claude.com/cai/oauth/authorize?state=secret-state";
   const claudeFacade = () =>
@@ -970,6 +1225,25 @@ describe("claude enrollment error boundary", () => {
     expect(sanitized.message).toBe("Claude enrollment failed");
     expect(sanitized.message).not.toContain("sk-ant-canary");
     expect(sanitized.message).not.toContain("auth.example");
+  });
+
+  it("keeps the import-mode static errors and collapses store-shaped leaks", () => {
+    expect(
+      sanitizeClaudeEnrollmentError(
+        new Error("Claude CLI store not found at /tmp/home/.claude/.credentials.json (run the official Claude CLI login first, or enroll with OAuth)"),
+      ).message,
+    ).toContain("Claude CLI store not found");
+    expect(
+      sanitizeClaudeEnrollmentError(
+        new Error("Claude token entry received empty input"),
+      ).message,
+    ).toBe("Claude token entry received empty input");
+    const leaked = new Error(
+      'import failed: {"claudeAiOauth":{"accessToken":"sk-ant-canary-store"}}',
+    );
+    const sanitized = sanitizeClaudeEnrollmentError(leaked);
+    expect(sanitized.message).toBe("Claude enrollment failed");
+    expect(sanitized.message).not.toContain("sk-ant-canary-store");
   });
 });
 
