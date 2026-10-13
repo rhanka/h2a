@@ -16,8 +16,8 @@
  *    runtime keeps no mirror of the contract, it imports
  *    @sentropic/engram-live/contracts (digest-pinned prerelease, see the
  *    core live/contracts.ts header).
- *  - Writes are atomic (0600, tmp+rename) through the gateway-host private
- *    metadata writer; a corrupt store fails EXPLICITLY, it never silently
+ *  - Writes are atomic (0600, tmp+rename) through a token-owned staging
+ *    file; a corrupt store fails EXPLICITLY, it never silently
  *    restarts empty (that would erase desired live registrations). A
  *    pre-realignment (nested, `live-git-1`) store file is rejected
  *    EXPLICITLY as unsupported — never silently migrated, never silently
@@ -38,10 +38,14 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
+  readdirSync,
+  renameSync,
+  rmdirSync,
   rmSync,
   statSync,
   writeFileSync,
 } from "node:fs";
+import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 
 import {
@@ -55,8 +59,6 @@ import type {
   WorkspaceDeclarationDto,
   WorktreeIdentityDto,
 } from "@sentropic/engram-live/contracts";
-
-import { writePrivateMetadata } from "./config-file.js";
 
 export const LIVE_DECLARATION_KIND = "h2a-live-declaration";
 export const LIVE_DECLARATION_SCHEMA_VERSION = 1;
@@ -103,7 +105,10 @@ export class LiveRevisionConflict extends Error {
 // (never silently proceeding unlocked). Re-entry by the SAME process only
 // bumps a counter: the pre-persist re-verification inside update() still
 // rejects a same-process interleaving, so re-entrancy never hides a
-// conflict. Reads stay lock-free: the tmp+rename persistence is atomic,
+// conflict. Each acquisition has a unique token directory: takeover removes
+// that generation, including its staged writes. Even a holder suspended
+// after its final fence check cannot rename a removed source into the store.
+// Reads stay lock-free: the tmp+rename persistence is atomic,
 // so readers always observe one whole committed file.
 
 const STORE_LOCK_DIRNAME = ".declarations.lock";
@@ -111,8 +116,13 @@ const STORE_LOCK_TIMEOUT_MS = 5_000;
 const STORE_LOCK_STALE_MS = 10_000;
 const STORE_LOCK_POLL_MS = 5;
 
-/** Lock re-entry counters for this process, keyed by lock directory. */
-const storeLocksHeld = new Map<string, number>();
+interface StoreLock {
+  readonly token: string;
+  depth: number;
+}
+
+/** Re-entry shares the SAME generation, never a successor's token. */
+const storeLocksHeld = new Map<string, StoreLock>();
 
 const lockDirFor = (root: string): string => join(root, "live", STORE_LOCK_DIRNAME);
 
@@ -120,29 +130,47 @@ const sleepSync = (ms: number): void => {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 };
 
-function acquireStoreLock(root: string): void {
+/** Remove only the observed generation; never recursively delete a successor. */
+function removeStoreLockGeneration(dir: string, token: string): void {
+  rmSync(join(dir, token), { recursive: true, force: true });
+  try {
+    rmdirSync(dir);
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code !== "ENOENT" && code !== "ENOTEMPTY" && code !== "EEXIST") throw error;
+  }
+}
+
+function acquireStoreLock(root: string): StoreLock {
   const dir = lockDirFor(root);
   mkdirSync(join(root, "live"), { recursive: true });
-  const held = storeLocksHeld.get(dir) ?? 0;
-  if (held > 0) {
-    storeLocksHeld.set(dir, held + 1);
-    return;
+  const held = storeLocksHeld.get(dir);
+  if (held !== undefined) {
+    held.depth += 1;
+    return held;
   }
   const deadline = Date.now() + STORE_LOCK_TIMEOUT_MS;
   for (;;) {
     try {
       mkdirSync(dir);
-      writeFileSync(join(dir, "pid"), `${process.pid}\n`, { mode: 0o600 });
-      storeLocksHeld.set(dir, 1);
-      return;
+      const lock = { token: randomUUID(), depth: 1 };
+      // No recursive mkdir: if takeover removed our parent in this window,
+      // acquisition must retry, never recreate a dispossessed generation.
+      mkdirSync(join(dir, lock.token));
+      storeLocksHeld.set(dir, lock);
+      return lock;
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code !== "EEXIST" && code !== "ENOENT") throw error;
     }
-    // A lock older than the stale threshold belongs to a crashed holder
-    // (critical sections are milliseconds): clear it and retry.
+    // Age permits takeover, but does NOT prove the holder stopped. Invalidate
+    // only the generation observed before the age check. A competing cleanup
+    // cannot erase a newly acquired token or its staged write.
     try {
+      const tokens = readdirSync(dir);
       if (Date.now() - statSync(dir).mtimeMs > STORE_LOCK_STALE_MS) {
-        rmSync(dir, { recursive: true, force: true });
+        for (const token of tokens) removeStoreLockGeneration(dir, token);
+        if (tokens.length === 0) rmdirSync(dir);
       }
     } catch {
       // The directory vanished under us; the next iteration retries.
@@ -156,19 +184,20 @@ function acquireStoreLock(root: string): void {
 
 function releaseStoreLock(root: string): void {
   const dir = lockDirFor(root);
-  const held = storeLocksHeld.get(dir) ?? 0;
-  if (held > 1) {
-    storeLocksHeld.set(dir, held - 1);
+  const held = storeLocksHeld.get(dir);
+  if (held === undefined) return;
+  if (held.depth > 1) {
+    held.depth -= 1;
     return;
   }
   storeLocksHeld.delete(dir);
-  rmSync(dir, { recursive: true, force: true });
+  removeStoreLockGeneration(dir, held.token);
 }
 
-function withStoreLock<T>(root: string, fn: () => T): T {
-  acquireStoreLock(root);
+function withStoreLock<T>(root: string, fn: (lock: StoreLock) => T): T {
+  const lock = acquireStoreLock(root);
   try {
-    return fn();
+    return fn(lock);
   } finally {
     releaseStoreLock(root);
   }
@@ -300,10 +329,6 @@ const readStoreFile = (root: string): LiveDeclarationsFile => {
   return file;
 };
 
-const writeStoreFile = (root: string, file: LiveDeclarationsFile): void => {
-  writePrivateMetadata(liveDeclarationsPath(root), file);
-};
-
 export interface LiveDeclarationStore {
   /** All durable declarations, deterministically ordered. */
   list(): readonly LiveDeclarationRecord[];
@@ -335,12 +360,47 @@ export interface LiveDeclarationStore {
  */
 export function createLiveDeclarationStore(root: string): LiveDeclarationStore {
   const load = (): LiveDeclarationRecord[] => readStoreFile(root).declarations;
-  const persist = (declarations: readonly LiveDeclarationRecord[]): void => {
-    writeStoreFile(root, {
+  const persist = (
+    lock: StoreLock,
+    expected: readonly LiveDeclarationRecord[],
+    declarations: readonly LiveDeclarationRecord[],
+    declarationId: string,
+    expectedRevision: number,
+  ): void => {
+    const generation = join(lockDirFor(root), lock.token);
+    const tmp = join(generation, `${randomUUID()}.tmp`);
+    const conflict = (): LiveRevisionConflict => new LiveRevisionConflict(
+      declarationId,
+      expectedRevision,
+      load().find((record) => record.declaration.declarationId === declarationId)
+        ?.declaration.declarationRevision,
+    );
+    const file: LiveDeclarationsFile = {
       kind: "h2a-live-declarations",
       version: 1,
       declarations: [...declarations],
-    });
+    };
+    try {
+      if (!existsSync(generation)) throw conflict();
+      // The source belongs to this unique token and cannot survive takeover.
+      // Never mkdir here: a dispossessed holder must not recreate its source.
+      writeFileSync(tmp, JSON.stringify(file, null, 2) + "\n", { mode: 0o600, flag: "wx" });
+      const fresh = load();
+      if (!existsSync(generation) || JSON.stringify(fresh) !== JSON.stringify(expected)) {
+        throw conflict();
+      }
+      // Atomic rename is the commit point. A suspension AFTER the checks
+      // above is fenced by takeover removing this generation's source file.
+      renameSync(tmp, liveDeclarationsPath(root));
+    } catch (error) {
+      // Cleanup can unlink the source before removing its directory.
+      if ((error as NodeJS.ErrnoException).code === "ENOENT" || !existsSync(generation)) {
+        throw conflict();
+      }
+      throw error;
+    } finally {
+      rmSync(tmp, { force: true });
+    }
   };
   return {
     list() {
@@ -363,7 +423,7 @@ export function createLiveDeclarationStore(root: string): LiveDeclarationStore {
       if (problem !== undefined) {
         throw new Error(`invalid live declaration record: ${problem}`);
       }
-      withStoreLock(root, () => {
+      withStoreLock(root, (lock) => {
         const declarations = load();
         if (
           declarations.some(
@@ -374,11 +434,14 @@ export function createLiveDeclarationStore(root: string): LiveDeclarationStore {
             `live declaration already exists: ${record.declaration.declarationId}`,
           );
         }
-        persist([...declarations, record]);
+        persist(
+          lock, declarations, [...declarations, record],
+          record.declaration.declarationId, record.declaration.declarationRevision,
+        );
       });
     },
     update(declarationId, expectedDeclarationRevision, mutate) {
-      return withStoreLock(root, () => {
+      return withStoreLock(root, (lock) => {
         const declarations = load();
         const index = declarations.findIndex(
           (record) => record.declaration.declarationId === declarationId,
@@ -479,21 +542,29 @@ export function createLiveDeclarationStore(root: string): LiveDeclarationStore {
           );
         }
         persist(
+          lock,
+          fresh,
           fresh.map((record) =>
             record.declaration.declarationId === declarationId ? next : record,
           ),
+          declarationId,
+          expectedDeclarationRevision,
         );
         return next;
       });
     },
     remove(declarationId) {
-      return withStoreLock(root, () => {
+      return withStoreLock(root, (lock) => {
         const declarations = load();
         const remaining = declarations.filter(
           (record) => record.declaration.declarationId !== declarationId,
         );
         if (remaining.length === declarations.length) return false;
-        persist(remaining);
+        persist(
+          lock, declarations, remaining, declarationId,
+          declarations.find((record) => record.declaration.declarationId === declarationId)!
+            .declaration.declarationRevision,
+        );
         return true;
       });
     },
