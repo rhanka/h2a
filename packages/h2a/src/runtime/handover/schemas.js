@@ -36,7 +36,7 @@ const mac = { ...text, pattern: '^[0-9a-f]{64}$' };
 const mode = choice('cold-stop', 'live-transfer', 'catalogue');
 export const schemas = {
   participantRevision: versioned({ revision: positive }),
-  launchLocation: versioned({ launchId: text, attachmentId: text, workspaceRoot: absolute }),
+  launchLocation: versioned({ launchId: text, attachmentId: text, workspaceRoot: absolute, delegation: nullable(json) }),
   writerControl: versioned({ revision: positive, root: absolute, stateDirectory: absolute,
     gate: choice('OPEN', 'BARRIER', 'CLOSED'), handoverId: nullable(text),
     restriction: choice('qualified', 'legacy_writer_unfenced', 'store_writer_set_unknown'),

@@ -31,7 +31,7 @@ export class LaunchJournal {
         initialArgumentsDigest, state: 'reserved', executionOwner: this.token.ownerProcessIdentity,
         childProcessIdentity: null, launchReceiptReference, launchTokenBinding: digest(secret), briefReceipt: null, terminalResult: null, retrySafe: false };
       publishState(join(this.registry.directory, `launch-location-${launchId}.json`), { schemaVersion: 1, launchId,
-        attachmentId: this.token.attachmentId, workspaceRoot: resolve(this.root) }, 'launchLocation');
+        attachmentId: this.token.attachmentId, workspaceRoot: resolve(this.root), delegation: request.delegation ?? null }, 'launchLocation');
       publishState(path, memo, 'launchMemo'); this.registry.bump();
       const child = this.ledger.begin(this.token, `${launchId}:child`, 'child');
       const brief = this.ledger.begin(this.token, `${launchId}:brief`, 'brief');
@@ -54,6 +54,7 @@ export class LaunchJournal {
         retrySafe: terminal.state === 'not-started' && terminal.retrySafe === true };
       // Persist the final reply before the HTTP/MCP response can be lost.
       replaceState(reserved.path, memo, 'launchMemo', old); this.registry.bump();
+      this.publishDelegation(memo, terminal);
       this.ledger.finish(reserved.child, terminal, !complete);
       this.ledger.finish(reserved.brief, memo.briefReceipt ?? terminal, !complete || !briefKnown);
       return terminal;
@@ -90,20 +91,34 @@ export class LaunchJournal {
       if (typeof receipt.token !== 'string' || digest(receipt.token) !== old.value.launchTokenBinding) return old.value;
       if (!['started', 'stopped'].includes(receipt.state)) return old.value;
       const child = this.operation(old.value, 'child');
-      if (child && child.state !== 'completed') this.ledger.finish(child, { state: receipt.state, receipt: old.value.launchReceiptReference });
-      if (receipt.state === 'started') return old.value; // Existing guard does not attest brief delivery.
+      if (receipt.state === 'started') {
+        if (child && child.state !== 'completed') this.ledger.finish(child, { state: receipt.state, receipt: old.value.launchReceiptReference });
+        return old.value; // Existing guard does not attest brief delivery.
+      }
       const result = { state: 'stopped', launchId: old.value.launchId, retrySafe: false };
       replaceState(path, { ...old.value, state: 'completed', terminalResult: result, retrySafe: false }, 'launchMemo', old); this.registry.bump();
+      this.publishDelegation(old.value, result);
+      if (child && child.state !== 'completed') this.ledger.finish(child, result);
       const brief = this.operation(old.value, 'brief');
       if (brief && brief.state !== 'completed') this.ledger.finish(brief, result);
       return { ...old.value, state: 'completed', terminalResult: result, retrySafe: false };
   }
   settleCompleted(memo) {
+    this.publishDelegation(memo, memo.terminalResult);
     for (const kind of ['child', 'brief']) {
       const operation = this.operation(memo, kind);
       if (operation && operation.state !== 'completed') this.ledger.finish(operation,
         kind === 'brief' ? memo.briefReceipt ?? memo.terminalResult : memo.terminalResult);
     }
+  }
+  publishDelegation(memo, result) {
+    const location = readState(join(this.registry.directory, `launch-location-${memo.launchId}.json`), 'launchLocation')?.value;
+    if (!location || location.attachmentId !== memo.attachmentId) throw new Error('launch_location_missing');
+    if (location.delegation === null) return undefined;
+    const operation = this.operation(memo, 'child');
+    if (!operation) throw new Error('operation_fenced');
+    return this.ledger.publishEffect(operation, { type: 'launch-delegation', launchId: memo.launchId,
+      delegation: location.delegation, terminalResult: result });
   }
   static reconcileAll(registry, ledger) {
     for (const name of fs.readdirSync(registry.directory).filter(p => /^launch-[a-f0-9]+\.json$/.test(p))) {
