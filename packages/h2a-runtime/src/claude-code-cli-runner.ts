@@ -1,17 +1,13 @@
 /**
- * Claude Code CLI Runner: executes pinned official binary with NDJSON streaming,
- * strict isolation, process reaping, credential read-back, and static error handling.
+ * Claude Code CLI Runner: executes the official `claude` CLI (resolved
+ * from `PATH` at each attempt) with NDJSON streaming, strict isolation,
+ * process reaping, credential read-back, and static error handling.
+ * No version pin, no digest fingerprint, no attestation: no other seat
+ * carries such machinery, and none is claimed here.
  */
 import { spawn } from "node:child_process";
-import { isAbsolute } from "node:path";
-import { createHash } from "node:crypto";
-import {
-  closeSync,
-  existsSync,
-  openSync,
-  readFileSync,
-  readSync,
-} from "node:fs";
+import { delimiter, isAbsolute, join } from "node:path";
+import { existsSync } from "node:fs";
 import type {
   ClaudeCodeAccessProjection,
   ClaudeCodeCliCapabilities,
@@ -33,24 +29,32 @@ import {
   sweepOrphanSandboxes,
 } from "./claude-code-cli-lifecycle.js";
 
-export const DEFAULT_PINNED_CLI_VERSION = "2.1.296";
-
 /**
- * Build the only accepted qualification reference for a pinned binary:
- * an attestation binding the sha256 fingerprint to the pinned version.
- * A nonempty invented reference is not qualification and is refused.
+ * Resolve the official `claude` CLI from `PATH` (POSIX and Windows
+ * layouts). Returns the first absolute executable candidate, or undefined
+ * when none is found. Never throws, never executes anything.
  */
-export function buildClaudeQualificationRef(
-  digest: string,
-  version: string = DEFAULT_PINNED_CLI_VERSION,
-): string {
-  return `attest:sha256:${digest}@${version}`;
-}
-export function buildClaudeToolsQualificationRef(
-  digest: string,
-  version: string = DEFAULT_PINNED_CLI_VERSION,
-): string {
-  return `${buildClaudeQualificationRef(digest, version)}:tools`;
+export function resolveClaudeBinaryFromPath(
+  env: NodeJS.ProcessEnv = process.env,
+): string | undefined {
+  const pathValue = env.PATH ?? "";
+  if (!pathValue) return undefined;
+  const extensions =
+    process.platform === "win32"
+      ? ["", ".exe", ".cmd", ".bat"]
+      : [""];
+  for (const dir of pathValue.split(delimiter)) {
+    if (!dir || !isAbsolute(dir)) continue;
+    for (const extension of extensions) {
+      const candidate = join(dir, `claude${extension}`);
+      try {
+        if (existsSync(candidate)) return candidate;
+      } catch {
+        // Unreadable directory entry: try the next candidate.
+      }
+    }
+  }
+  return undefined;
 }
 
 export const DEFAULT_MAX_FRAME_BYTES = 65536; // 64 KiB
@@ -86,7 +90,7 @@ export const BUILTIN_CLI_TOOLS = new Set([
 ]);
 
 /**
- * Top-level NDJSON frame types emitted by the official CLI 2.1.296 stream-json
+ * Top-level NDJSON frame types emitted by the official CLI stream-json
  * output that are known transport or lifecycle events and should not be failed as unknown.
  */
 export const KNOWN_IGNORED_TOP_LEVEL_TYPES = new Set([
@@ -99,120 +103,12 @@ export const KNOWN_IGNORED_TOP_LEVEL_TYPES = new Set([
   "control_request",
 ]);
 
-export interface ClaudeBinaryProbeResult {
-  readonly stage: string;
-  readonly status: "qualified" | "not-qualified";
-  readonly reason?: string;
-  readonly digestReceipt?: {
-    readonly stage: string;
-    readonly kind: "digest";
-    readonly path: string;
-    readonly sha256: string;
-    readonly bytes: number;
-  };
-  readonly versionReceipt?: {
-    readonly stage: string;
-    readonly kind: "version";
-    readonly path: string;
-    readonly pinnedVersion: string;
-    readonly versionStringPresent: boolean;
-  };
-}
-
-/**
- * Pinned binary probe: reads real binary bytes into separate receipts without executing.
- * Reads in streaming chunks to avoid loading 245+ MiB into memory.
- */
-export function probeClaudeBinary(
-  binaryPath: string,
-  pinnedVersion = DEFAULT_PINNED_CLI_VERSION,
-  pinnedDigest?: string,
-): ClaudeBinaryProbeResult {
-  if (!existsSync(binaryPath)) {
-    return {
-      stage: "M5-probe",
-      status: "not-qualified",
-      reason: "pinned_binary_probe_unconfigured_or_binary_absent",
-    };
-  }
-
-  try {
-    const hash = createHash("sha256");
-    const versionNeedle = Buffer.from(pinnedVersion, "utf8");
-    let versionStringPresent = false;
-    let totalBytes = 0;
-
-    const fd = openSync(binaryPath, "r");
-    const chunkSize = 65536;
-    const buf = Buffer.alloc(chunkSize);
-    let overlap = Buffer.alloc(0);
-
-    try {
-      let bytesRead: number;
-      while ((bytesRead = readSync(fd, buf, 0, chunkSize, null)) > 0) {
-        totalBytes += bytesRead;
-        const currentChunk = buf.subarray(0, bytesRead);
-        hash.update(currentChunk);
-
-        if (!versionStringPresent) {
-          const combined = overlap.length > 0 ? Buffer.concat([overlap, currentChunk]) : currentChunk;
-          if (combined.includes(versionNeedle)) {
-            versionStringPresent = true;
-            overlap = Buffer.alloc(0);
-          } else {
-            const keep = Math.min(combined.length, versionNeedle.length - 1);
-            overlap = Buffer.from(combined.subarray(combined.length - keep));
-          }
-        }
-      }
-    } finally {
-      closeSync(fd);
-    }
-
-    const digest = hash.digest("hex");
-    const digestMatches = pinnedDigest ? digest === pinnedDigest : false;
-    const isQualified = versionStringPresent && digestMatches;
-    let failureReason: string | undefined;
-    if (!versionStringPresent) {
-      failureReason = "version_string_absent";
-    } else if (!pinnedDigest) {
-      failureReason = "digest_unpinned";
-    } else if (!digestMatches) {
-      failureReason = "digest_mismatch";
-    }
-
-    return {
-      stage: "M5-probe",
-      status: isQualified ? "qualified" : "not-qualified",
-      ...(failureReason ? { reason: failureReason } : {}),
-      digestReceipt: {
-        stage: "M5-probe",
-        kind: "digest",
-        path: binaryPath,
-        sha256: digest,
-        bytes: totalBytes,
-      },
-      versionReceipt: {
-        stage: "M5-probe",
-        kind: "version",
-        path: binaryPath,
-        pinnedVersion,
-        versionStringPresent,
-      },
-    };
-  } catch (err) {
-    return {
-      stage: "M5-probe",
-      status: "not-qualified",
-      reason: `probe_read_failed: ${(err as Error)?.message || err}`,
-    };
-  }
-}
-
 export interface OfficialClaudeCodeCliRunnerOptions {
+  /**
+   * Explicit binary path override (test seam). When absent, the runner
+   * resolves `claude` from `PATH` at each attempt.
+   */
   readonly binaryPath?: string;
-  readonly expectedVersion?: string;
-  readonly expectedDigest?: string;
   readonly capabilities?: ClaudeCodeCliCapabilities;
   readonly maxFrameBytes?: number;
   readonly maxTotalBytes?: number;
@@ -231,8 +127,6 @@ export interface OfficialClaudeCodeCliRunnerOptions {
 
 export class OfficialClaudeCodeCliRunner implements ClaudeCodeCliRunner {
   private readonly binaryPath: string;
-  private readonly expectedVersion: string;
-  private readonly expectedDigest: string | undefined;
   private readonly capabilities: ClaudeCodeCliCapabilities | undefined;
   private readonly maxFrameBytes: number;
   private readonly maxTotalBytes: number;
@@ -248,8 +142,6 @@ export class OfficialClaudeCodeCliRunner implements ClaudeCodeCliRunner {
 
   constructor(options: OfficialClaudeCodeCliRunnerOptions = {}) {
     this.binaryPath = options.binaryPath ?? "";
-    this.expectedVersion = options.expectedVersion ?? DEFAULT_PINNED_CLI_VERSION;
-    this.expectedDigest = options.expectedDigest;
     this.capabilities = options.capabilities;
     this.maxFrameBytes = options.maxFrameBytes ?? DEFAULT_MAX_FRAME_BYTES;
     this.maxTotalBytes = options.maxTotalBytes ?? DEFAULT_MAX_TOTAL_BYTES;
@@ -263,39 +155,31 @@ export class OfficialClaudeCodeCliRunner implements ClaudeCodeCliRunner {
   }
 
   /**
-   * Validate that the candidate binary is absolute, exists, matches the
-   * pinned version, and carries a mandatory fingerprint plus a digest-bound
-   * qualification attestation. Anything less is refused before spawn.
+   * Resolve the spawn candidate: the explicit override when set,
+   * otherwise the official `claude` CLI from `PATH` (re-resolved at each
+   * attempt, so a later CLI install is picked up without a restart).
+   * Generic spawn safety only — absolute resolved path, exists, supported
+   * protocol. No version pin, no fingerprint, no attestation.
    */
-  private qualifyBinary(): void {
-    if (!this.binaryPath || !isAbsolute(this.binaryPath)) {
-      throw new Error("Claude CLI candidate unqualified: absolute binary path required");
+  private resolveBinary(): string {
+    const candidate = this.binaryPath || resolveClaudeBinaryFromPath() || "";
+    if (!candidate || !isAbsolute(candidate)) {
+      throw new Error("Claude CLI candidate unqualified: official claude CLI not found on PATH");
     }
-    if (!existsSync(this.binaryPath)) {
+    if (!existsSync(candidate)) {
       throw new Error("Claude CLI candidate unqualified: binary does not exist");
     }
+    return candidate;
+  }
+
+  /**
+   * Refuse to spawn unless the candidate resolves and the mesh protocol
+   * matches. Anything less is refused before spawn.
+   */
+  private qualifyBinary(): void {
+    this.resolveBinary();
     if (!this.capabilities || this.capabilities.protocol !== "claude-code-stream-json-v1") {
       throw new Error("Claude CLI candidate unqualified: unsupported protocol");
-    }
-    if (this.expectedVersion !== DEFAULT_PINNED_CLI_VERSION) {
-      throw new Error("Claude CLI candidate unqualified: version pin mismatch (2.1.296 required)");
-    }
-    if (this.capabilities.cliVersion !== DEFAULT_PINNED_CLI_VERSION) {
-      throw new Error("Claude CLI candidate unqualified: CLI version attestation mismatch");
-    }
-    if (!this.expectedDigest || !/^[0-9a-f]{64}$/.test(this.expectedDigest)) {
-      throw new Error("Claude CLI candidate unqualified: binary fingerprint required");
-    }
-    const bytes = readFileSync(this.binaryPath);
-    const actualDigest = createHash("sha256").update(bytes).digest("hex");
-    if (actualDigest !== this.expectedDigest) {
-      throw new Error("Claude CLI candidate unqualified: binary digest mismatch");
-    }
-    if (
-      this.capabilities.qualificationRef !==
-      buildClaudeQualificationRef(this.expectedDigest, DEFAULT_PINNED_CLI_VERSION)
-    ) {
-      throw new Error("Claude CLI candidate unqualified: qualification attestation required");
     }
   }
 
@@ -391,12 +275,13 @@ export class OfficialClaudeCodeCliRunner implements ClaudeCodeCliRunner {
     }
 
     // 3. Create isolated sandbox
+    const binaryPath = this.resolveBinary();
     const sandbox = createClaudeRunSandbox({
       access: input.access,
       ...(this.sandboxRootDir ? { rootDir: this.sandboxRootDir } : {}),
     });
     const env = buildIsolatedEnvironment(sandbox, process.env, {
-      binaryPath: this.binaryPath,
+      binaryPath,
     });
 
     // 4. Construct candidate arguments. No --include-partial-messages:
@@ -448,7 +333,7 @@ export class OfficialClaudeCodeCliRunner implements ClaudeCodeCliRunner {
     }
 
     try {
-      const child = this.spawnFn(this.binaryPath, args, {
+      const child = this.spawnFn(binaryPath, args, {
         cwd: sandbox.cwdDir,
         env,
         stdio: ["pipe", "pipe", "pipe"],
@@ -546,7 +431,7 @@ export class OfficialClaudeCodeCliRunner implements ClaudeCodeCliRunner {
       const partialToolInputs = new Map<number, { id: string; name: string; json: string }>();
       const blockKinds = new Map<number, string>();
 
-      // Frame shapes of the pinned CLI 2.1.296 --output-format stream-json
+      // Frame shapes of the official CLI --output-format stream-json
       // (verified statically against the local binary: stream_event x72 with
       // content_block_start/delta/stop and message_start/delta/stop inner
       // events, assistant frames carrying message.content[], result frames
