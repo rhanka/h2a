@@ -368,10 +368,6 @@ export interface OfficialClaudeCodeCliRunnerOptions {
   readonly reapProcessTreeFn?: (pid: number, signal?: NodeJS.Signals, gracePeriodMs?: number) => Promise<void>;
   /** Test seam replacing the /proc netns observation (verdict logic stays runner-owned). */
   readonly egressNetnsReader?: EgressNetnsLinkReader;
-  /** Test seam or external signal indicating MDM presence. */
-  readonly mdmDetected?: boolean;
-  /** Test seam or external signal indicating server-managed settings. */
-  readonly serverManagedDetected?: boolean;
 }
 
 export class OfficialClaudeCodeCliRunner implements ClaudeCodeCliRunner {
@@ -393,8 +389,6 @@ export class OfficialClaudeCodeCliRunner implements ClaudeCodeCliRunner {
     | ((pid: number, signal?: NodeJS.Signals, gracePeriodMs?: number) => Promise<void>)
     | undefined;
   private readonly egressNetnsReader: EgressNetnsLinkReader | undefined;
-  private readonly mdmDetected: boolean | undefined;
-  private readonly serverManagedDetected: boolean | undefined;
 
   constructor(options: OfficialClaudeCodeCliRunnerOptions = {}) {
     this.binaryPath = options.binaryPath ?? "";
@@ -413,8 +407,6 @@ export class OfficialClaudeCodeCliRunner implements ClaudeCodeCliRunner {
     this.killProcessTreeFn = options.killProcessTreeFn;
     this.reapProcessTreeFn = options.reapProcessTreeFn;
     this.egressNetnsReader = options.egressNetnsReader;
-    this.mdmDetected = options.mdmDetected;
-    this.serverManagedDetected = options.serverManagedDetected;
   }
 
   /**
@@ -513,13 +505,10 @@ export class OfficialClaudeCodeCliRunner implements ClaudeCodeCliRunner {
       netnsReader: this.egressNetnsReader,
     });
 
-    // Managed admin settings and MDM/server policy would survive --setting-sources isolation:
-    // refuse while they exist.
-    assertManagedConfigIsolation(this.managedSettingsPaths, {
-      access: input.access,
-      mdmDetected: this.mdmDetected,
-      serverManagedDetected: this.serverManagedDetected,
-    });
+    // Managed admin settings would survive --setting-sources isolation:
+    // refuse while they exist. Organization proof is a blocked mesh seam
+    // (getClaudeSeatOrgProofHandoff): nothing access-based is claimed here.
+    assertManagedConfigIsolation(this.managedSettingsPaths);
 
     // Tool preflight: requests with tools are refused because caller tools would be silently
     // ignored without client-side tool transport (local MCP qualification).
