@@ -13,10 +13,10 @@ not ok 1 - operator stop should wait for an attachment admitted before its async
   error: |-
     Expected values to be strictly equal:
     + actual - expected
-    
+
     + 'STOP_COMMITTED'
     - 'pause_active_stop_deferred'
-    
+
   code: 'ERR_ASSERTION'
   name: 'AssertionError'
   expected: 'pause_active_stop_deferred'
