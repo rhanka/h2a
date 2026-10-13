@@ -67,3 +67,15 @@ test('should close ownership admissions after publication fsync uncertainty unti
   assert.throws(()=>registry.assertOwner(token),/ownership_fenced/);
  }finally{t.mock.restoreAll();fs.rmSync(directory,{recursive:true,force:true});}
 });
+
+
+test('should refuse only the stale ownership epoch even when generation and process stay identical',()=>{
+ const directory=fs.mkdtempSync(join(tmpdir(),'mh-l4-epoch-'));
+ try{
+ const registry=new OwnershipRegistry({directory,generation:marker().generation,processIdentity:identity});
+ const token=registry.claim({attachmentId:'a',presenceSessionId:'s',expectedInstance:'i'}),path=registry.ownerPath('a'),old=readState(path,'ownership');
+ registry.withLock(()=>replaceState(path,{...old.value,ownershipEpoch:2},'ownership',old));
+ assert.throws(()=>registry.assertOwner(token),/ownership_fenced/);
+ assert.doesNotThrow(()=>registry.assertOwner(registry.token(readState(path,'ownership').value)));
+ }finally{fs.rmSync(directory,{recursive:true,force:true});}
+});
