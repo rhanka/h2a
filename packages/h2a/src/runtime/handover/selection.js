@@ -21,6 +21,12 @@ export function installationForEntry(entry) {
     installation.prefixId !== digest({ canonicalPrefix: prefix, uid: process.getuid() })) throw new Error('foreign_installation_authority');
   return installation;
 }
+export function physicalPrefixForEntry(entry) {
+  const absolute = fs.realpathSync(entry);
+  const match = absolute.match(/^(.*)\/lib\/node_modules\/@sentropic\/h2a\/dist\/bin\.js$/) ??
+    absolute.match(/^(.*)\/h2a-managed\/(\d+)\/images\/[0-9a-f]{64}\//);
+  return match ? fs.realpathSync(match[1]) : undefined;
+}
 export function resolveSelectedEntry(installation) {
   if (installation.uid !== process.getuid() || fs.realpathSync(installation.canonicalPrefix) !== installation.canonicalPrefix ||
     installation.prefixId !== digest({ canonicalPrefix: installation.canonicalPrefix, uid: installation.uid })) throw new Error('foreign_installation_authority');
