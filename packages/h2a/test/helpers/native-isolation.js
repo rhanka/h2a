@@ -22,6 +22,7 @@ export const nativeQualificationRoot = shortQualificationRoot ?? resolve(import.
 function rejectOwnerPath(path) {
   assert.ok(path !== "/home/antoinefa" && ![
     "/run/user/1000", "/home/antoinefa/.local/state", "/home/antoinefa/.config",
+    "/home/antoinefa/h2a-workspace",
   ].some(root => path === root || path.startsWith(`${root}/`))
     && !path.startsWith("/home/antoinefa/.cache-tmp/h2a-"),
   `REFUSING owner path before filesystem access: ${path}`);
