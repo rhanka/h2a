@@ -79,10 +79,12 @@ import { PAYLOAD_MAX_READ_BYTES } from "./payload-store.js";
 import { H2A_CLI_MCP_TOOL_NAMES } from "../../mcp.js";
 import { MCP_IDENTITY_RETRY_MIN_MS } from "./identity-state.js";
 import type { McpIdentityController, McpIdentityStatus } from "./identity-state.js";
+import type { AttachmentParticipant } from "../handover/participants.js";
 
 export interface CreateMcpServerOptions {
   /** In-memory notices captured/refreshed outside request handling. */
   operatorNotices?: () => readonly string[];
+  participant?: AttachmentParticipant;
   /** Filesystem root for the backing local-files store. */
   root: string;
   /** Workspace boundary captured when the local MCP server starts. */
@@ -341,10 +343,12 @@ export function createMcpServer(options: CreateMcpServerOptions): McpServer {
     return identityFailedError(st.cause, false,undefined,st);
   }
 
-  const launch = createH2aRunLauncher(options.runExecutor ?? executeH2aRun, 49_000, (request, result) =>
+  const executor = options.runExecutor ?? executeH2aRun;
+  const launch = createH2aRunLauncher(options.participant
+    ? request => options.participant!.executeLaunch(request, executor) : executor, 49_000, (request, result) =>
     recordMcpRunDelegation(store.paths.root, result, request.delegation));
 
-  function callTool(
+  function callToolUnfenced(
     name: string,
     args: Record<string, unknown> | undefined,
     _context?: McpCallContext
@@ -485,6 +489,11 @@ export function createMcpServer(options: CreateMcpServerOptions): McpServer {
       default:
         return { error: `unknown tool: ${name}` };
     }
+  }
+
+  function callTool(name: string, args: Record<string, unknown> | undefined, context?: McpCallContext): ReturnType<McpServer['callTool']> {
+    if (!options.participant || name === 'h2a_identity_status') return callToolUnfenced(name, args, context);
+    return options.participant.call(() => callToolUnfenced(name, args, context));
   }
 
   return {
