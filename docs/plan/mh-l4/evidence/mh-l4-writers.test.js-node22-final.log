@@ -1,33 +1,45 @@
 command: /usr/bin/node --test packages/h2a/test/mh-l4-writers.test.js
 node: v22.22.1
-private test root: /tmp/mh-l4-test-KKt7BZ
+private test root: /tmp/mh-l4-test-Zhlw1v
 TAP version 13
 # Subtest: should revalidate registry, inbox, presence, blockage and payload writes at the barrier
 ok 1 - should revalidate registry, inbox, presence, blockage and payload writes at the barrier
   ---
-  duration_ms: 98.299403
+  duration_ms: 60.356074
   type: 'test'
   ...
 # Subtest: should refuse janitor cleanup when a snapshot has been replaced during liveness proof
 ok 2 - should refuse janitor cleanup when a snapshot has been replaced during liveness proof
   ---
-  duration_ms: 1.179801
+  duration_ms: 0.732108
   type: 'test'
   ...
 # Subtest: should keep preparatory readOnly opens pure and reject every mutating method
 ok 3 - should keep preparatory readOnly opens pure and reject every mutating method
   ---
-  duration_ms: 0.615489
+  duration_ms: 0.491084
   type: 'test'
   ...
-1..3
-# tests 3
+# Subtest: should resolve flock from the fixed allow-list and never from PATH
+ok 4 - should resolve flock from the fixed allow-list and never from PATH
+  ---
+  duration_ms: 0.463923
+  type: 'test'
+  ...
+# Subtest: should fail closed naming util-linux when no flock candidate qualifies
+ok 5 - should fail closed naming util-linux when no flock candidate qualifies
+  ---
+  duration_ms: 0.501424
+  type: 'test'
+  ...
+1..5
+# tests 5
 # suites 0
-# pass 3
+# pass 5
 # fail 0
 # cancelled 0
 # skipped 0
 # todo 0
-# duration_ms 430.193227
+# duration_ms 359.513248
 
-receipt: {"command":["/usr/bin/node","--test","packages/h2a/test/mh-l4-writers.test.js"],"code":0,"signal":null,"elapsedMs":510}
+receipt: {"command":["/usr/bin/node","--test","packages/h2a/test/mh-l4-writers.test.js"],"code":0,"signal":null,"elapsedMs":445}

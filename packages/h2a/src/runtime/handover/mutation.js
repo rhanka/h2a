@@ -1,5 +1,5 @@
 import fs from 'node:fs';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { privateDirectory, readState, publishState, replaceState } from './state.js';
@@ -9,7 +9,32 @@ const execution = new AsyncLocalStorage();
 
 // Linux OFD flock: inherited fd 3 shares the parent's open description. The
 // kernel releases the exclusion on crash. No PID scan or stale-file deletion.
-// util-linux flock is a profile prerequisite; refusal has no PID-lock fallback.
+// The flock binary is resolved from a fixed allow-list of trusted absolute
+// system paths, never from PATH. util-linux flock is a profile prerequisite;
+// refusal has no PID-lock fallback.
+export const MUTATION_FLOCK_TOOLS = Object.freeze(['/usr/bin/flock', '/bin/flock']);
+
+function isQualifiedFlockTool(candidate) {
+  let tool, parent;
+  try {
+    tool = fs.statSync(candidate);
+    parent = fs.statSync(dirname(candidate));
+  } catch {
+    return false;
+  }
+  // System files can be UID-mapped to nobody inside the lab. Require that
+  // this UID cannot replace the executable through its file or directory.
+  return tool.uid !== process.getuid() && parent.uid !== process.getuid() &&
+    !(tool.mode & 0o022) && !(parent.mode & 0o022);
+}
+
+export function resolveMutationFlock(candidates = MUTATION_FLOCK_TOOLS) {
+  for (const candidate of candidates) {
+    if (isQualifiedFlockTool(candidate)) return candidate;
+  }
+  throw new Error(`mutation_lock_unqualified: no qualified util-linux flock at ${[...candidates].join(', ') || 'no candidates'}; install util-linux and ensure the flock binary and its directory are owned by root and not writable by this UID, group, or others. flock is never resolved from PATH and there is no PID-file fallback by design.`);
+}
+
 export function mutationLock(directory, fn) {
   privateDirectory(directory);
   const path = join(directory, '.mutation.lock');
@@ -18,13 +43,8 @@ export function mutationLock(directory, fn) {
   try {
     const info = fs.fstatSync(fd);
     if (!info.isFile() || info.uid !== process.getuid() || (info.mode & 0o777) !== 0o600) throw new Error('private_lock_required');
-    const tool = fs.statSync('/usr/bin/flock');
-    // System files can be UID-mapped to nobody inside the lab. Require that
-    // this UID cannot replace the executable through its file or directory.
-    const parent = fs.statSync('/usr/bin');
-    if (tool.uid === process.getuid() || parent.uid === process.getuid() ||
-        (tool.mode & 0o022) || (parent.mode & 0o022)) throw new Error('mutation_lock_unqualified');
-    const result = spawnSync('/usr/bin/flock', ['--exclusive', '--timeout', '5', '3'],
+    const tool = resolveMutationFlock();
+    const result = spawnSync(tool, ['--exclusive', '--timeout', '5', '3'],
       { stdio: ['ignore', 'pipe', 'pipe', fd], env: {} });
     if (result.status !== 0) throw new Error('mutation_lock_unavailable', { cause: result.error });
     held.add(path);

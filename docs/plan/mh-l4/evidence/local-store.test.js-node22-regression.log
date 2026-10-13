@@ -1,47 +1,47 @@
 command: /usr/bin/node --test packages/h2a/test/local-store.test.js
 node: v22.22.1
-private test root: /tmp/mh-l4-test-eX7gnj
+private test root: /tmp/mh-l4-test-uNWLsV
 TAP version 13
 # Subtest: localStorePaths derives the canonical layout from a root
 ok 1 - localStorePaths derives the canonical layout from a root
   ---
-  duration_ms: 0.97199
+  duration_ms: 1.01483
   type: 'test'
   ...
 # Subtest: createLocalStore initializes the directory layout idempotently
 ok 2 - createLocalStore initializes the directory layout idempotently
   ---
-  duration_ms: 3.044091
+  duration_ms: 2.998194
   type: 'test'
   ...
 # Subtest: registerInstance appends to registry/instances.jsonl once across repeated calls
 ok 3 - registerInstance appends to registry/instances.jsonl once across repeated calls
   ---
-  duration_ms: 1.486268
+  duration_ms: 1.633154
   type: 'test'
   ...
 # Subtest: listInstances and findInstance read the registry
 ok 4 - listInstances and findInstance read the registry
   ---
-  duration_ms: 1.578581
+  duration_ms: 1.608638
   type: 'test'
   ...
 # Subtest: appendNegotiationEvent chains entries and grows the journal
 ok 5 - appendNegotiationEvent chains entries and grows the journal
   ---
-  duration_ms: 1.778318
+  duration_ms: 1.824314
   type: 'test'
   ...
 # Subtest: readNegotiationJournal returns [] for an unknown negotiation
 ok 6 - readNegotiationJournal returns [] for an unknown negotiation
   ---
-  duration_ms: 0.598036
+  duration_ms: 0.593066
   type: 'test'
   ...
 # Subtest: readNegotiationJournal throws on a tampered file
 ok 7 - readNegotiationJournal throws on a tampered file
   ---
-  duration_ms: 1.178549
+  duration_ms: 1.112304
   type: 'test'
   ...
 1..7
@@ -52,6 +52,6 @@ ok 7 - readNegotiationJournal throws on a tampered file
 # cancelled 0
 # skipped 0
 # todo 0
-# duration_ms 313.271708
+# duration_ms 310.963408
 
-receipt: {"command":["/usr/bin/node","--test","packages/h2a/test/local-store.test.js"],"code":0,"signal":null,"elapsedMs":405}
+receipt: {"command":["/usr/bin/node","--test","packages/h2a/test/local-store.test.js"],"code":0,"signal":null,"elapsedMs":393}
