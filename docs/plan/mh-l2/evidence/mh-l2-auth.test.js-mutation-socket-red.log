@@ -10,9 +10,9 @@ not ok 1 - M18c should never send an application body when a challenged TCP sock
   failureType: 'testCodeFailure'
   error: |-
     The input did not match the regular expression /challenge_connection_lost/. Input:
-    
+
     'Error: frame_invalid'
-    
+
   code: 'ERR_ASSERTION'
   name: 'AssertionError'
   expected:
