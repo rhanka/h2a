@@ -240,6 +240,12 @@ export function resolveEnrollmentMode(
  * accepts the store shape: `{claudeAiOauth: {...}}` or the inner renewable
  * grant with access + refresh tokens). Only the static store PATH ever
  * appears in errors — file content never does.
+ *
+ * Platform scope: only the Linux file path below is read. Where the
+ * official CLI keeps credentials outside that file (for example the
+ * macOS keychain, unverified here), `--from cli` fails closed with
+ * "store not found" — re-authenticate the official CLI or enroll with
+ * OAuth instead.
  */
 export async function readClaudeCliStoreCredential(homeDir?: string): Promise<string> {
   const storePath = join(homeDir ?? homedir(), ".claude", ".credentials.json");
@@ -311,11 +317,22 @@ function defaultTokenReader(
  * survives only as the mesh-side provider id for the device flow.
  *
  * Import semantics (owner decision 2026-10-13): `--from cli` imports from
- * the provider's official CLI store (muse via the mesh CLI-store leg,
- * claude-code by reading the official store into the credential-import
- * leg); `--from token` imports a serialized credential from a secret
- * manager (claude-code only — other seats record the gap, they are not
- * changed here).
+ * the provider's official CLI store; `--from token` imports a serialized
+ * credential from a secret manager (claude-code only — other seats record
+ * the gap, they are not changed here).
+ *
+ * Lifecycle note (differs from muse, mesh 0.25.0): muse lets the mesh
+ * read its CLI store at enroll AND at each refresh, so the official CLI
+ * stays the sole writer. The mesh ships no such store leg for Claude, so
+ * h2a reads the official store once into the mesh credential-import leg:
+ * a point-in-time COPY. The mesh never writes the official store file —
+ * the official CLI stays its sole writer — but the mesh copy refreshes
+ * independently through the token endpoint afterwards. If the provider
+ * rotates the refresh grant, the side that refreshes second loses it:
+ * re-run `--from cli` (re-authenticate the official CLI first when its
+ * own copy lapsed). A mesh-side Claude store leg (mesh re-reads the
+ * official file at each refresh, never writes it) is a recorded
+ * follow-up, not built here.
  */
 export async function enrollViaFacade(
   provider: "cloud-code" | "codex" | "muse" | "mistral-vibe" | "claude-code",
