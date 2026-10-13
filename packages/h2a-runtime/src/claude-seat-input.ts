@@ -1,7 +1,9 @@
 /**
- * Trusted local masked terminal input boundary for Claude seat credentials.
- * Disables echo, history and external capture; restores terminal state on exit.
+ * Trusted local input boundary for Claude seat credentials: masked TTY
+ * entry (echo, history and external capture disabled; terminal state
+ * restored on exit), or a non-TTY pipe carrying secret-manager output.
  * No secret-bearing argv/env/MCP interfaces or filesystem discovery.
+ * Nothing here ever logs or prints the entered secret value.
  */
 import type { Readable, Writable } from "node:stream";
 
@@ -274,6 +276,112 @@ export async function readMaskedInput(
       );
     };
 
+    stdin.on("data", onData);
+    stdin.on("end", onEnd);
+    stdin.on("error", onError);
+  });
+}
+
+export interface ClaudeSeatPipedInputOptions {
+  readonly stdin?: Readable & {
+    isTTY?: boolean;
+  };
+  readonly timeoutMs?: number;
+  readonly maxBytes?: number;
+}
+
+/**
+ * Read a serialized credential piped on stdin (secret-manager output
+ * redirected into the enroll command). The pipe must already be non-TTY:
+ * a TTY stdin means an interactive owner is present and the masked prompt
+ * applies instead. Content is bounded, never echoed, never logged; only
+ * static errors leave this function.
+ */
+export async function readPipedCredentialInput(
+  options: ClaudeSeatPipedInputOptions = {},
+): Promise<string> {
+  const stdin = (options.stdin ?? process.stdin) as Readable & {
+    isTTY?: boolean;
+  };
+  if (stdin.isTTY) {
+    throw new ClaudeSeatInputError(
+      "piped input required for Claude token entry (redirect secret-manager output; interactive entry uses the masked prompt)",
+      "tty_pipe",
+    );
+  }
+  const timeoutMs = options.timeoutMs ?? DEFAULT_CLAUDE_INPUT_TIMEOUT_MS;
+  const maxBytes = options.maxBytes ?? MAX_CLAUDE_INPUT_BYTES;
+  return new Promise<string>((resolve, reject) => {
+    let resolved = false;
+    let timer: NodeJS.Timeout | null = null;
+    let totalBytes = 0;
+    const chunks: Buffer[] = [];
+    const cleanup = () => {
+      if (timer) {
+        clearTimeout(timer);
+        timer = null;
+      }
+      stdin.removeListener("data", onData);
+      stdin.removeListener("end", onEnd);
+      stdin.removeListener("error", onError);
+    };
+    const finish = (value: string) => {
+      if (resolved) return;
+      resolved = true;
+      cleanup();
+      resolve(value);
+    };
+    const fail = (error: Error) => {
+      if (resolved) return;
+      resolved = true;
+      cleanup();
+      reject(error);
+    };
+    if (timeoutMs > 0 && Number.isFinite(timeoutMs)) {
+      timer = setTimeout(() => {
+        fail(
+          new ClaudeSeatInputError(
+            "Claude token entry timed out",
+            "timeout",
+          ),
+        );
+      }, timeoutMs);
+    }
+    const onData = (chunk: Buffer | string) => {
+      const buf = typeof chunk === "string" ? Buffer.from(chunk, "utf8") : chunk;
+      totalBytes += buf.length;
+      if (totalBytes > maxBytes) {
+        fail(
+          new ClaudeSeatInputError(
+            `Claude token input exceeded maximum allowed size (${Math.round(maxBytes / 1024)} KiB)`,
+            "oversized",
+          ),
+        );
+        return;
+      }
+      chunks.push(buf);
+    };
+    const onEnd = () => {
+      const content = Buffer.concat(chunks).toString("utf8").trim();
+      if (!content) {
+        fail(
+          new ClaudeSeatInputError(
+            "Claude token entry received empty input",
+            "empty",
+          ),
+        );
+        return;
+      }
+      finish(content);
+    };
+    const onError = () => {
+      fail(
+        new ClaudeSeatInputError(
+          "Claude token entry input stream error",
+          "stream_error",
+        ),
+      );
+    };
     stdin.on("data", onData);
     stdin.on("end", onEnd);
     stdin.on("error", onError);

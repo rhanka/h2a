@@ -100,21 +100,29 @@ Claude subscription accounts are supported as owner-scoped `llm-mesh` seats.
 
 ### Enrollment and credential import
 
-Enrollment is available through two canonical CLI paths:
+Enrollment is available through three modes (owner decision 2026-10-13, DEC-119): OAuth by default, `--cli` (official CLI store), `--token` (secret-manager credential). The canonical selector is `--from oauth|cli|token` (default `oauth`); `--cli` / `--token` booleans are the same modes and cannot be combined with `--from`.
 
-1. **Browser OAuth flow (canonical default):**
+1. **Browser OAuth flow (default):**
    ```sh
    h2a llm-mesh account enroll claude-code
+   h2a llm-mesh account enroll claude-code --from oauth
    ```
    Opens the Claude authorization URL in the local browser. The returned `<code>#<state>` string is entered via a trusted masked local terminal prompt that disables echo. Set `H2A_NO_BROWSER=1` to skip the browser opener entirely (no authorization URL in process arguments) and complete the flow at the prompt.
 
-2. **Renewable credential import:**
+2. **Official CLI-store import (`--from cli`):**
    ```sh
-   h2a llm-mesh account enroll claude-code --credential-import
+   h2a llm-mesh account enroll claude-code --from cli
    ```
-   Accepts a renewable credential JSON document containing `claudeAiOauth` via a trusted masked multiline prompt. No secret value argument is accepted on argv.
+   Reads the already-logged-in official CLI store (`~/.claude/.credentials.json`, which must hold a renewable grant with access + refresh tokens) directly into the credential-import leg — no browser, no prompt. Same shape as `enroll muse --cli`. Fails closed with a static error when the store is absent or holds no renewable credential.
 
-Both paths persist credentials exclusively through the existing mesh-managed encrypted file keyring. No tokens or secrets are stored in h2a configurations or process arguments.
+3. **Secret-manager token import (`--from token`):**
+   ```sh
+   h2a llm-mesh account enroll claude-code --from token
+   secret-manager read ... | h2a llm-mesh account enroll claude-code --from token
+   ```
+   Accepts a renewable credential JSON document containing `claudeAiOauth` (or the inner grant). Interactive shells get the trusted masked multiline prompt; piped stdin (non-TTY) is read as the secret-manager output — the shape the future shared re-enrollment circuit will use. No secret value argument is accepted on argv, and nothing secret is ever logged.
+
+All paths persist credentials exclusively through the existing mesh-managed encrypted file keyring. No tokens or secrets are stored in h2a configurations or process arguments. Muse keeps its own `--from cli` (CLI-store leg); `--from token` is refused for every provider except `claude-code` (gap recorded in the realign report — other seats are not changed here).
 
 ### Secret boundary and owner isolation
 

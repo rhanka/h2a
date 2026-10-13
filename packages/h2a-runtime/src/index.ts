@@ -10667,25 +10667,31 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
     .description(
       "Enroll through the sentropic-owned OAuth state machine " +
         "(cloud-code, codex, muse OAuth device flow, mistral-vibe browser sign-in — alias: vibe, or claude-code). " +
-        "--cli imports credentials from the provider's local CLI store instead (muse only). " +
-        "--credential-import imports a renewable credential JSON into llm-mesh (claude-code only)",
+        "--from oauth|cli|token selects the source (default oauth): cli imports from the provider's official CLI store (muse, claude-code), " +
+        "token imports a serialized credential from a secret manager via stdin pipe or masked prompt (claude-code only). " +
+        "--cli / --token are the same modes as booleans",
     )
     .option("--config-ref <ref>", "sentropic configuration reference for OAuth")
     .option(
-      "--cli",
-      "import credentials from the provider's local CLI store (muse only) instead of the OAuth flow",
+      "--from <mode>",
+      "enrollment source: oauth (default), cli (provider official CLI store) or token (secret-manager credential)",
     )
     .option(
-      "--credential-import",
-      "import a renewable credential JSON into llm-mesh (claude-code only) instead of the OAuth flow",
+      "--cli",
+      "import credentials from the provider's local CLI store (muse, claude-code) instead of the OAuth flow",
+    )
+    .option(
+      "--token",
+      "import a serialized credential from a secret manager into llm-mesh (claude-code only): pipe it on stdin, or enter it at the masked prompt. Never argv, never logged",
     )
     .action(
       async (
         provider: string,
         opts: {
           configRef?: string;
+          from?: string;
           cli?: boolean;
-          credentialImport?: boolean;
+          token?: boolean;
         },
       ) => {
         // "vibe" is the CLI-friendly alias of the mistral-vibe transport.
@@ -10701,24 +10707,38 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           process.exitCode = 1;
           return;
         }
-        if (opts.cli && opts.credentialImport) {
+        if (opts.from !== undefined && opts.from !== "oauth" && opts.from !== "cli" && opts.from !== "token") {
           process.stderr.write(
-            "[h2a] llm-mesh account: --cli and --credential-import cannot be combined\n",
+            `[h2a] llm-mesh account: --from must be one of oauth, cli, token (received "${opts.from}")\n`,
           );
           process.exitCode = 1;
           return;
         }
-        if (opts.cli && normalized !== "muse") {
+        if (opts.from !== undefined && (opts.cli || opts.token)) {
+          process.stderr.write(
+            "[h2a] llm-mesh account: --from cannot be combined with --cli or --token\n",
+          );
+          process.exitCode = 1;
+          return;
+        }
+        if (opts.cli && opts.token) {
+          process.stderr.write(
+            "[h2a] llm-mesh account: --cli and --token cannot be combined\n",
+          );
+          process.exitCode = 1;
+          return;
+        }
+        if ((opts.cli || opts.from === "cli") && normalized !== "muse" && normalized !== "claude-code") {
           process.stderr.write(
             `[h2a] llm-mesh account: provider "${provider}" has no CLI-store import; ` +
-              "--cli is only valid for providers with a local CLI import (muse)\n",
+              "--cli/--from cli is only valid for providers with a local CLI import (muse, claude-code)\n",
           );
           process.exitCode = 1;
           return;
         }
-        if (opts.credentialImport && normalized !== "claude-code") {
+        if ((opts.token || opts.from === "token") && normalized !== "claude-code") {
           process.stderr.write(
-            `[h2a] llm-mesh account: --credential-import is only valid for claude-code\n`,
+            `[h2a] llm-mesh account: --token/--from token is only valid for claude-code\n`,
           );
           process.exitCode = 1;
           return;
@@ -10732,7 +10752,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         ) {
           process.stderr.write(
             `[h2a] llm-mesh account: unsupported provider "${provider}". ` +
-              "Supported: cloud-code, codex, muse (OAuth; --cli imports the CLI store), mistral-vibe (alias: vibe), claude-code (OAuth; --credential-import)\n",
+              "Supported: cloud-code, codex, muse (OAuth; --cli imports the CLI store), mistral-vibe (alias: vibe), claude-code (OAuth; --cli imports the CLI store; --token imports a secret-manager credential)\n",
           );
           process.exitCode = 1;
           return;
@@ -10740,8 +10760,9 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         try {
           const account = await enrollViaFacade(normalized, {
             ...(opts.configRef ? { configRef: opts.configRef } : {}),
+            ...(opts.from ? { from: opts.from as "oauth" | "cli" | "token" } : {}),
             ...(opts.cli ? { cliImport: true } : {}),
-            ...(opts.credentialImport ? { credentialImport: true } : {}),
+            ...(opts.token ? { tokenImport: true } : {}),
           });
           process.stdout.write(
             `[h2a] llm-mesh account: enrolled ${account.provider}; ` +

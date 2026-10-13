@@ -1,10 +1,17 @@
 /** Account enrollment and public CLI presentation through cluster-mesh. */
-import { hostname } from "node:os";
+import { homedir, hostname } from "node:os";
 import { spawn } from "node:child_process";
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import { createLlmMeshFacade, type LlmMeshAdministrativeFacade, type LlmMeshFacade } from "@sentropic/cluster-mesh/llm-mesh/facade";
 import type { AccountPublic } from "@sentropic/cluster-mesh/llm-mesh/enrollment";
 
-import { readMaskedInput, ClaudeSeatInputError } from "./claude-seat-input.js";
+import {
+  MAX_CLAUDE_INPUT_BYTES,
+  readMaskedInput,
+  readPipedCredentialInput,
+  ClaudeSeatInputError,
+} from "./claude-seat-input.js";
 
 export interface LlmMeshEnrollmentAccount {
   accountId: string;
@@ -32,23 +39,47 @@ export interface LlmMeshFacadeWithMuseImport extends LlmMeshFacade {
   ): Promise<{ accountId: string; label: string }>;
 }
 
+/**
+ * Enrollment source (owner decision 2026-10-13): OAuth by default, `cli`
+ * imports from the provider's official CLI store, `token` imports a
+ * serialized credential from a secret manager. Exposed on the CLI as
+ * `--from oauth|cli|token` (canonical) with `--cli` / `--token` booleans
+ * kept for convention fit.
+ */
+export type LlmMeshEnrollmentMode = "oauth" | "cli" | "token";
+
 export interface FacadeEnrollmentOptions {
   configRef?: string;
   ownerScope?: string;
   redirectUri?: string;
+  /** Canonical source selector; legacy booleans below map onto it. */
+  from?: LlmMeshEnrollmentMode;
   /**
    * Select the provider's local CLI-store import instead of the OAuth flow.
    * Owner decision 2026-10-10: OAuth is the default enrollment for every
    * provider; importing credentials from an already-logged-in CLI is an
-   * explicit opt-in (`h2a llm-mesh account enroll <provider> --cli`) and only
-   * exists for providers that actually keep a local CLI store (muse today).
+   * explicit opt-in (`--cli` / `--from cli`) and only exists for providers
+   * that actually keep a local CLI store (muse, claude-code).
    */
   cliImport?: boolean;
   /**
-   * Explicit sessionless renewable credential import mode for Claude.
-   * Accepts no secret value argument on CLI; prompt is masked in-process.
+   * Legacy spelling of the token import mode for Claude (use `tokenImport`
+   * / `--from token`). Accepts no secret value argument on CLI; TTY prompt
+   * is masked in-process, non-TTY stdin is read as a pipe.
    */
   credentialImport?: boolean;
+  /**
+   * Serialized token import mode for Claude (`--token` / `--from token`):
+   * a renewable credential JSON from a secret manager. Never argv, never
+   * logged: piped stdin when stdin is not a TTY, masked prompt otherwise.
+   */
+  tokenImport?: boolean;
+  /**
+   * HOME the Claude CLI-store import reads
+   * (`<home>/.claude/.credentials.json`). Injection seam for tests;
+   * production uses the real home directory.
+   */
+  cliStoreHome?: string;
   /** Injection seam for CLI tests; production uses the opaque facade. */
   facade?: LlmMeshFacade;
   /** Injection seam that keeps enrollment tests from opening a real browser. */
@@ -114,12 +145,24 @@ export function sanitizeClaudeEnrollmentError(error: unknown): Error {
     "Claude credential entry received EOF",
     "Claude credential entry received empty input",
     "Claude credential input exceeded maximum allowed size",
+    "Claude token entry timed out",
+    "Claude token entry received EOF",
+    "Claude token entry received empty input",
+    "Claude token entry input stream error",
+    "Claude token input exceeded maximum allowed size",
+    "Claude CLI store not found",
+    "Claude CLI store unreadable",
+    "Claude CLI store holds no renewable credential",
     "trusted local terminal required for Claude credential entry",
+    "trusted local input required for Claude token entry",
+    "piped input required for Claude token entry",
     "ownerScope is required and cannot be blank",
     "Invalid H2A_LLM_MESH_CONFIG_JSON",
     "provider \"claude-code\" has no CLI-store import",
-    "--credential-import is only valid for claude-code",
-    "--cli and --credential-import cannot be combined",
+    "--token is only valid for claude-code",
+    "--from token is only valid for claude-code",
+    "--cli and --token cannot be combined",
+    "--from cannot be combined with --cli",
   ];
   for (const prefix of allowedPrefixes) {
     if (message.startsWith(prefix)) {
@@ -173,6 +216,102 @@ function openEnrollmentBrowser(url: string): void {
   }
 }
 
+const ENROLLMENT_MODES: readonly string[] = ["oauth", "cli", "token"];
+
+/**
+ * Resolve the effective enrollment source from the canonical `--from`
+ * selector and the legacy `--cli` / `--credential-import` / `--token`
+ * booleans. Static errors only; nothing secret-adjacent is echoed.
+ */
+export function resolveEnrollmentMode(
+  options: Pick<
+    FacadeEnrollmentOptions,
+    "from" | "cliImport" | "credentialImport" | "tokenImport"
+  >,
+): LlmMeshEnrollmentMode {
+  const legacy: LlmMeshEnrollmentMode[] = [
+    ...(options.cliImport ? (["cli"] as const) : []),
+    ...((options.credentialImport || options.tokenImport) ? (["token"] as const) : []),
+  ];
+  if (options.from !== undefined && legacy.length > 0) {
+    throw new Error("--from cannot be combined with --cli, --credential-import or --token");
+  }
+  if (legacy.length > 1) {
+    throw new Error("--cli and --token cannot be combined");
+  }
+  const mode = options.from ?? legacy[0] ?? "oauth";
+  if (!ENROLLMENT_MODES.includes(mode)) {
+    throw new Error(`--from must be one of oauth, cli, token (received "${options.from}")`);
+  }
+  return mode;
+}
+
+/**
+ * Read the official Claude CLI store credential for `--from cli`.
+ * Returns the raw store document for the credential-import leg (the mesh
+ * accepts the store shape: `{claudeAiOauth: {...}}` or the inner renewable
+ * grant with access + refresh tokens). Only the static store PATH ever
+ * appears in errors — file content never does.
+ */
+export async function readClaudeCliStoreCredential(homeDir?: string): Promise<string> {
+  const storePath = join(homeDir ?? homedir(), ".claude", ".credentials.json");
+  let raw: string;
+  try {
+    raw = await readFile(storePath, "utf8");
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException)?.code === "ENOENT") {
+      throw new Error(
+        `Claude CLI store not found at ${storePath} (run the official Claude CLI login first, or enroll with OAuth)`,
+      );
+    }
+    throw new Error(
+      `Claude CLI store unreadable at ${storePath} (check permissions on the official CLI store)`,
+    );
+  }
+  if (Buffer.byteLength(raw, "utf8") > MAX_CLAUDE_INPUT_BYTES) {
+    throw new Error(
+      `Claude token input exceeded maximum allowed size (${Math.round(MAX_CLAUDE_INPUT_BYTES / 1024)} KiB)`,
+    );
+  }
+  const trimmed = raw.trim();
+  let grant: unknown;
+  try {
+    const parsed: unknown = trimmed ? JSON.parse(trimmed) : undefined;
+    grant =
+      parsed && typeof parsed === "object"
+        ? ((parsed as Record<string, unknown>).claudeAiOauth ?? parsed)
+        : undefined;
+  } catch {
+    grant = undefined;
+  }
+  const renewable =
+    grant !== null &&
+    typeof grant === "object" &&
+    typeof (grant as Record<string, unknown>).accessToken === "string" &&
+    typeof (grant as Record<string, unknown>).refreshToken === "string";
+  if (!renewable) {
+    throw new Error(
+      "Claude CLI store holds no renewable credential (reauthenticate the official CLI, or enroll with OAuth)",
+    );
+  }
+  return trimmed;
+}
+
+/**
+ * Default token-mode reader: masked TTY prompt for an interactive owner,
+ * piped stdin for secret-manager output redirected into the command.
+ * No secret-bearing argv; nothing is logged.
+ */
+function defaultTokenReader(
+  prompt: string,
+  _options?: { multiline?: boolean },
+): Promise<string> {
+  if (process.stdin.isTTY) {
+    return readMaskedInput(prompt, { multiline: true });
+  }
+  return readPipedCredentialInput();
+}
+
 /**
  * Enroll through the sentropic-owned OAuth state machine. H2A never receives
  * an authorization code or a provider token. Account records remain owned by
@@ -182,6 +321,13 @@ function openEnrollmentBrowser(url: string): void {
  * native Meta OAuth device flow by default; passing cliImport selects the
  * Muse CLI-store import instead. "muse-code" is no longer a user entry — it
  * survives only as the mesh-side provider id for the device flow.
+ *
+ * Import semantics (owner decision 2026-10-13): `--from cli` imports from
+ * the provider's official CLI store (muse via the mesh CLI-store leg,
+ * claude-code by reading the official store into the credential-import
+ * leg); `--from token` imports a serialized credential from a secret
+ * manager (claude-code only — other seats record the gap, they are not
+ * changed here).
  */
 export async function enrollViaFacade(
   provider: "cloud-code" | "codex" | "muse" | "mistral-vibe" | "claude-code",
@@ -192,17 +338,15 @@ export async function enrollViaFacade(
   if (!ownerScope) {
     throw new Error("ownerScope is required and cannot be blank");
   }
-  if (options.cliImport && options.credentialImport) {
-    throw new Error("--cli and --credential-import cannot be combined");
-  }
-  if (options.cliImport && provider !== "muse") {
+  const mode = resolveEnrollmentMode(options);
+  if (mode === "cli" && provider !== "muse" && provider !== "claude-code") {
     throw new Error(
-      `provider "${provider}" has no CLI-store import; --cli is only valid for providers with a local CLI import (muse)`,
+      `provider "${provider}" has no CLI-store import; --cli/--from cli is only valid for providers with a local CLI import (muse, claude-code)`,
     );
   }
-  if (options.credentialImport && provider !== "claude-code") {
+  if (mode === "token" && provider !== "claude-code") {
     throw new Error(
-      `--credential-import is only valid for claude-code`,
+      `--token/--from token is only valid for claude-code`,
     );
   }
 
@@ -210,20 +354,48 @@ export async function enrollViaFacade(
     validateClaudeConfigJson();
     const facade = options.facade ?? createCliLlmMeshFacade();
 
-    if (options.credentialImport) {
+    if (mode === "token") {
       if (typeof facade.completeClaudeCredentialImport !== "function") {
         throw new Error(
           "Claude credential import requires facade.completeClaudeCredentialImport — upgrade @sentropic/cluster-mesh/llm-mesh " +
           "to a version with Claude support",
         );
       }
-      const readInput = options.readInput ?? ((prompt) => readMaskedInput(prompt, { multiline: true }));
+      const readInput = options.readInput ?? defaultTokenReader;
       let credentialJson: string;
       try {
         credentialJson = await readInput(
-          "[h2a] llm-mesh: paste renewable credential JSON: ",
+          "[h2a] llm-mesh: paste renewable credential JSON (or pipe secret-manager output): ",
           { multiline: true },
         );
+      } catch (err) {
+        throw sanitizeClaudeEnrollmentError(err);
+      }
+      try {
+        const completed = await facade.completeClaudeCredentialImport(
+          credentialJson,
+          ownerScope,
+        );
+        return {
+          accountId: completed.accountId,
+          provider: "claude-code",
+          label: completed.label,
+        };
+      } catch (err) {
+        throw sanitizeClaudeEnrollmentError(err);
+      }
+    }
+
+    if (mode === "cli") {
+      if (typeof facade.completeClaudeCredentialImport !== "function") {
+        throw new Error(
+          "Claude credential import requires facade.completeClaudeCredentialImport — upgrade @sentropic/cluster-mesh/llm-mesh " +
+          "to a version with Claude support",
+        );
+      }
+      let credentialJson: string;
+      try {
+        credentialJson = await readClaudeCliStoreCredential(options.cliStoreHome);
       } catch (err) {
         throw sanitizeClaudeEnrollmentError(err);
       }
@@ -310,7 +482,8 @@ export async function enrollViaFacade(
 
   const facade = options.facade ?? createCliLlmMeshFacade();
   // The facade knows the device flow under its historical mesh-side id.
-  const facadeProvider = provider === "muse" && !options.cliImport ? "muse-code" : provider;
+  const museCli = provider === "muse" && mode === "cli";
+  const facadeProvider = provider === "muse" && !museCli ? "muse-code" : provider;
   // The installed @sentropic/cluster-mesh/llm-mesh types predate the muse provider, but
   // enroll passes the id through opaquely — a muse-capable facade resolves
   // it, an older one fails with its own unknown-provider error. Cast is
@@ -322,7 +495,7 @@ export async function enrollViaFacade(
     ownerScope,
   });
 
-  if (provider === "muse" && options.cliImport) {
+  if (museCli) {
     // Muse CLI-store import (BR75): no browser or device round-trip — the
     // owner act was the muse login itself. The ownerScope binds the enrolling
     // owner explicitly (never inferred); it doubles as the completion code

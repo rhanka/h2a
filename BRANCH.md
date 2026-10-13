@@ -20,11 +20,12 @@ guard (`egressNetnsReader`, `H2A_CLAUDE_EGRESS_ENFORCED`, `/proc` netns
 checks), org-proof handoff, managed-config + registry/MDM guards, h2a-side
 account lease lock, seam-gate attempt binding.
 
-Kept: facade enrollment (OAuth + `--credential-import`), mesh keyring
+Kept: facade enrollment (OAuth default + `--from cli` official store +
+`--from token` secret-manager pipe, DEC-119), mesh keyring
 storage/refresh, pinned-CLI qualification per attempt (absolute path,
 2.1.296, digest match, attestation), sandbox transport, identity-proven
 reaping/sweeps, cleanup blocking the result, static error boundary, masked
-TTY input.
+TTY input / piped-token boundary (never argv, never logged).
 
 Validation: `tsc -b` clean; seat suites green
 (`claude-code-cli-*`, `claude-seat-input`, `llm-mesh-accounts`,
