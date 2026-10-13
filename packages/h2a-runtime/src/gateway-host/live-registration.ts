@@ -182,9 +182,33 @@ export function probeLiveWorkspace(cwd: string): LiveWorkspaceProbe | undefined 
   const oidAlgorithm: OidAlgorithm | undefined =
     objectFormat === "sha1" || objectFormat === "sha256" ? objectFormat : undefined;
 
-  // --- root commits (absent on unborn HEAD) ---
+  // --- root commits of this worktree's HEAD (absent on unborn HEAD) ---
+  // HEAD-bound by design: this feeds the public per-worktree `ws:`
+  // fingerprint only, never the clone key.
   const rootCommitLines = run(["rev-list", "--max-parents=0", "HEAD"]);
   const rootCommits = rootCommitLines === undefined ? undefined : normalizeRootCommits(rootCommitLines.split(/\r?\n/));
+
+  // --- common-dir history roots (HEAD-independent clone key, spec §12) ---
+  // The union of root commits over every ref in the shared common-dir,
+  // identical from every worktree of the clone whatever its HEAD (an
+  // orphan branch checked out in one worktree must not fork the clone).
+  // HEAD itself is deliberately excluded: it is per-worktree state.
+  const refTipLines = run(["for-each-ref", "--format=%(objectname)"]);
+  const refTips =
+    refTipLines === undefined
+      ? []
+      : refTipLines
+          .split(/\r?\n/)
+          .map((tip) => tip.trim())
+          .filter((tip) => tip.length > 0);
+  let cloneRootCommits: string | undefined;
+  if (refTips.length > 0) {
+    const cloneRootLines = run(["rev-list", "--max-parents=0", ...refTips]);
+    cloneRootCommits =
+      cloneRootLines === undefined
+        ? undefined
+        : normalizeRootCommits(cloneRootLines.split(/\r?\n/));
+  }
 
   const shallow = existsSync(
     resolve(commonDirRealpath.startsWith("/") ? commonDirRealpath : resolveWithin(worktreeRealpath, commonDirRealpath), "shallow"),
@@ -192,6 +216,13 @@ export function probeLiveWorkspace(cwd: string): LiveWorkspaceProbe | undefined 
 
   const identityUncertainty: IdentityUncertaintyState[] = [];
   if (rootCommits === undefined) {
+    identityUncertainty.push("missing_history");
+  }
+  // The clone fingerprint may be absent only under explicit
+  // missing_history uncertainty (engram contract): when the common-dir
+  // holds no ref history at all, say so even if this worktree's HEAD
+  // somehow resolves.
+  if (cloneRootCommits === undefined && !identityUncertainty.includes("missing_history")) {
     identityUncertainty.push("missing_history");
   }
   if (shallow) {
@@ -208,8 +239,8 @@ export function probeLiveWorkspace(cwd: string): LiveWorkspaceProbe | undefined 
     ...(rootCommits !== undefined
       ? { workspaceFingerprint: computeDurableWorkspaceId(rootCommits, worktreeName) }
       : {}),
-    ...(rootCommits !== undefined
-      ? { projectFingerprint: computeDurableWorkspaceId(rootCommits, "") }
+    ...(cloneRootCommits !== undefined
+      ? { projectFingerprint: computeDurableWorkspaceId(cloneRootCommits, "") }
       : {}),
     shallow,
     identityUncertainty,
@@ -561,12 +592,14 @@ export function createLiveRegistration(
       authorize("resolve", { path });
       const resolved = resolveInputPath(path);
       let best: ResolvedLivePath | undefined;
+      let bestMatchedLength = -1;
       for (const record of store.list()) {
         for (const rootPath of record.declaration.authorizedRoots) {
           if (resolved !== rootPath && !resolved.startsWith(rootPath + "/")) continue;
           const relativePath = resolved === rootPath ? "" : resolved.slice(rootPath.length + 1);
-          if (best === undefined || rootPath.length > best.declaration.declaration.authorizedRoots[0]!.length) {
+          if (best === undefined || rootPath.length > bestMatchedLength) {
             best = { declaration: record, relativePath };
+            bestMatchedLength = rootPath.length;
           }
         }
       }

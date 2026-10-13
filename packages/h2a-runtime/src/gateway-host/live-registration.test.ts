@@ -23,6 +23,7 @@ import { resetSessions, acquireSession } from "./sessions.js";
 import {
   createLiveDeclarationStore,
   liveDeclarationsPath,
+  type LiveDeclarationRecord,
 } from "./live-declarations.js";
 import {
   createLiveRegistration,
@@ -978,5 +979,306 @@ describe("gateway-host live registration L6a realignment", () => {
       expect(classify!(kind)).toBe("no-activation-change");
     }
     expect(() => classify!("activate")).toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// L6a fix round 2 (Sol co-review rejection of eb463c52): the clone key must
+// not depend on the worktree HEAD, the revision guard and the persistence
+// must be atomic, and the gap-5 binding guards need discriminant tests.
+// ---------------------------------------------------------------------------
+
+describe("gateway-host live registration L6a fix2", () => {
+  it("two worktrees of one clone at different heads share one cloneId and withdraw together", () => {
+    const h2aRoot = mkdtempSync(join(tmpdir(), "h2a-live-l6a-f2-root-"));
+    const base = mkdtempSync(join(tmpdir(), "h2a-live-l6a-f2-base-"));
+    try {
+      const origin = makeRepo(join(base, "origin"));
+      const clone = join(base, "clone");
+      git(base, ["clone", "-q", origin, clone]);
+      const mainBranch = git(clone, ["branch", "--show-current"]);
+      // Orphan history beside main: the two worktrees below sit on
+      // different heads with disjoint HEAD root commits.
+      git(clone, ["checkout", "-q", "--orphan", "orphan"]);
+      git(clone, [
+        "-c",
+        "user.name=h2a-test",
+        "-c",
+        "user.email=h2a-test@example.invalid",
+        "-c",
+        "commit.gpgsign=false",
+        "commit",
+        "-q",
+        "--allow-empty",
+        "-m",
+        "orphan-1",
+      ]);
+      const linked = join(base, "clone-wt-main");
+      git(clone, ["worktree", "add", "-q", linked, mainBranch]);
+
+      const probeOrphan = probeLiveWorkspace(clone)!;
+      const probeMain = probeLiveWorkspace(linked)!;
+      expect(probeOrphan.commonDirRealpath).toBe(probeMain.commonDirRealpath);
+      // The public per-worktree ws: fingerprint stays HEAD-bound (distinct).
+      expect(probeOrphan.workspaceFingerprint).toMatch(/^ws:/);
+      expect(probeMain.workspaceFingerprint).toMatch(/^ws:/);
+      expect(probeMain.workspaceFingerprint).not.toBe(probeOrphan.workspaceFingerprint);
+      // The clone-level project fingerprint is HEAD-independent (common-dir
+      // history, spec §12): identical from both worktrees.
+      expect(probeMain.projectFingerprint).toBe(probeOrphan.projectFingerprint);
+
+      const registration = createLiveRegistration({
+        root: h2aRoot,
+        tenant: "local:test-owner",
+        authority: allowAllAuthority,
+      });
+      const activatedOrphan = registration.activate({ path: clone });
+      const activatedMain = registration.activate({ path: linked });
+      expect(activatedMain.declaration.declaration.cloneId).toBe(
+        activatedOrphan.declaration.declaration.cloneId,
+      );
+      expect(activatedMain.declaration.declaration.declarationId).not.toBe(
+        activatedOrphan.declaration.declaration.declarationId,
+      );
+
+      // Withdrawing the shared clone revokes BOTH declarations.
+      const outcome = registration.removeClone({
+        cloneId: activatedOrphan.declaration.declaration.cloneId,
+        reason: "owner-request",
+      });
+      expect(outcome.removed).toBe(2);
+      expect(outcome.revocations).toHaveLength(2);
+      expect(registration.list()).toEqual([]);
+    } finally {
+      rmSync(base, { recursive: true, force: true });
+      rmSync(h2aRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("concurrent writers from one base revision: one wins, the other gets a typed revision conflict", () => {
+    const h2aRoot = mkdtempSync(join(tmpdir(), "h2a-live-l6a-f2w-root-"));
+    const base = mkdtempSync(join(tmpdir(), "h2a-live-l6a-f2w-base-"));
+    try {
+      const repo = makeRepo(join(base, "repo"));
+      createLiveRegistration({
+        root: h2aRoot,
+        tenant: "local:test-owner",
+        authority: allowAllAuthority,
+      }).activate({ path: repo });
+      const storeA = createLiveDeclarationStore(h2aRoot);
+      const storeB = createLiveDeclarationStore(h2aRoot);
+      const id = storeA.list()[0]!.declaration.declarationId;
+      const baseRevision = storeA.list()[0]!.declaration.declarationRevision;
+
+      const bump = (tag: string) => (record: LiveDeclarationRecord) => ({
+        ...record,
+        declaration: {
+          ...record.declaration,
+          declarationRevision: record.declaration.declarationRevision + 1,
+        },
+        updatedAt: tag,
+      });
+
+      // The interleaved writer commits first; the outer writer must then
+      // fail with a typed conflict instead of silently clobbering it.
+      let conflict: unknown;
+      try {
+        storeA.update(id, baseRevision, (record) => {
+          storeB.update(id, baseRevision, bump("2026-10-12T00:00:01.000Z"));
+          return bump("2026-10-12T00:00:02.000Z")(record);
+        });
+      } catch (error) {
+        conflict = error;
+      }
+      expect(conflict).toBeInstanceOf(Error);
+      expect((conflict as Error).message).toMatch(/revision_conflict/);
+      expect((conflict as Error).name).toBe("LiveRevisionConflict");
+
+      // Exactly one writer won; the winner's record is intact.
+      const fresh = createLiveDeclarationStore(h2aRoot);
+      expect(fresh.get(id)?.declaration.declarationRevision).toBe(baseRevision + 1);
+      expect(fresh.get(id)?.updatedAt).toBe("2026-10-12T00:00:01.000Z");
+    } finally {
+      rmSync(base, { recursive: true, force: true });
+      rmSync(h2aRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("a removal interleaved before persistence is never resurrected by a stale writer", () => {
+    const h2aRoot = mkdtempSync(join(tmpdir(), "h2a-live-l6a-f2r-root-"));
+    const base = mkdtempSync(join(tmpdir(), "h2a-live-l6a-f2r-base-"));
+    try {
+      const repo = makeRepo(join(base, "repo"));
+      const registration = createLiveRegistration({
+        root: h2aRoot,
+        tenant: "local:test-owner",
+        authority: allowAllAuthority,
+      });
+      registration.activate({ path: repo });
+      const storeA = createLiveDeclarationStore(h2aRoot);
+      const storeB = createLiveDeclarationStore(h2aRoot);
+      const id = storeA.list()[0]!.declaration.declarationId;
+      const baseRevision = storeA.list()[0]!.declaration.declarationRevision;
+
+      let conflict: unknown;
+      try {
+        storeA.update(id, baseRevision, (record) => {
+          expect(storeB.remove(id)).toBe(true);
+          return {
+            ...record,
+            declaration: {
+              ...record.declaration,
+              declarationRevision: record.declaration.declarationRevision + 1,
+            },
+            updatedAt: "2026-10-12T00:00:03.000Z",
+          };
+        });
+      } catch (error) {
+        conflict = error;
+      }
+      expect(conflict).toBeInstanceOf(Error);
+      expect((conflict as Error).message).toMatch(/revision_conflict/);
+
+      // The revoked declaration stays gone through every read path.
+      expect(storeA.list()).toEqual([]);
+      expect(registration.replay()).toEqual([]);
+    } finally {
+      rmSync(base, { recursive: true, force: true });
+      rmSync(h2aRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("gap5: a roots-only revision preserves the binding", () => {
+    const h2aRoot = mkdtempSync(join(tmpdir(), "h2a-live-l6a-f2b-root-"));
+    const base = mkdtempSync(join(tmpdir(), "h2a-live-l6a-f2b-base-"));
+    try {
+      const repo = makeRepo(join(base, "repo"));
+      const registration = createLiveRegistration({
+        root: h2aRoot,
+        tenant: "local:test-owner",
+        authority: allowAllAuthority,
+      });
+      registration.activate({ path: repo });
+      const rebound = registration.rebind({
+        path: repo,
+        sentropicWorkspaceId: "sws-4711",
+        issuer: "https://auth.sentropic.example.invalid",
+      });
+      const store = createLiveDeclarationStore(h2aRoot);
+      const moved = store.update(
+        rebound.declaration.declarationId,
+        rebound.declaration.declarationRevision,
+        (record) => ({
+          ...record,
+          declaration: {
+            ...record.declaration,
+            authorizedRoots: [join(base, "repo-moved")],
+            declarationRevision: record.declaration.declarationRevision + 1,
+          },
+          updatedAt: "2026-10-12T00:00:04.000Z",
+        }),
+      );
+      expect(moved.declaration.serverWorkspaceId).toBe("sws-4711");
+      expect(moved.declaration.serverIssuer).toBe("https://auth.sentropic.example.invalid");
+      expect(moved.declaration.bindingRevision).toBe(1);
+      expect(moved.declaration.authorizedRoots).toEqual([join(base, "repo-moved")]);
+    } finally {
+      rmSync(base, { recursive: true, force: true });
+      rmSync(h2aRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("gap5: identical, decreasing and first-too-high binding revisions are refused", () => {
+    const h2aRoot = mkdtempSync(join(tmpdir(), "h2a-live-l6a-f2c-root-"));
+    const base = mkdtempSync(join(tmpdir(), "h2a-live-l6a-f2c-base-"));
+    try {
+      const repo = makeRepo(join(base, "repo"));
+      const registration = createLiveRegistration({
+        root: h2aRoot,
+        tenant: "local:test-owner",
+        authority: allowAllAuthority,
+      });
+      const { declaration } = registration.activate({ path: repo });
+      const store = createLiveDeclarationStore(h2aRoot);
+      const id = declaration.declaration.declarationId;
+      const rev = declaration.declaration.declarationRevision;
+
+      // First binding above INITIAL_BINDING_REVISION is refused.
+      expect(() =>
+        store.update(id, rev, (record) => ({
+          ...record,
+          declaration: {
+            ...record.declaration,
+            serverWorkspaceId: "sws-9",
+            serverIssuer: "https://auth.sentropic.example.invalid",
+            bindingRevision: INITIAL_BINDING_REVISION + 1,
+            declarationRevision: record.declaration.declarationRevision + 1,
+          },
+          updatedAt: "2026-10-12T00:00:05.000Z",
+        })),
+      ).toThrow(/first product binding/);
+
+      const rebound = registration.rebind({
+        path: repo,
+        sentropicWorkspaceId: "sws-4711",
+        issuer: "https://auth.sentropic.example.invalid",
+      });
+      // Identical binding revision is refused (strictly increasing only).
+      expect(() =>
+        store.update(
+          id,
+          rebound.declaration.declarationRevision,
+          (record) => ({
+            ...record,
+            declaration: {
+              ...record.declaration,
+              serverWorkspaceId: "sws-4712",
+              serverIssuer: "https://auth.sentropic.example.invalid",
+              bindingRevision: rebound.declaration.bindingRevision,
+              declarationRevision: record.declaration.declarationRevision + 1,
+            },
+            updatedAt: "2026-10-12T00:00:06.000Z",
+          }),
+        ),
+      ).toThrow(/strictly increasing/);
+      // Decreasing binding revision is refused.
+      expect(() =>
+        store.update(
+          id,
+          rebound.declaration.declarationRevision,
+          (record) => ({
+            ...record,
+            declaration: {
+              ...record.declaration,
+              serverWorkspaceId: "sws-4713",
+              serverIssuer: "https://auth.sentropic.example.invalid",
+              bindingRevision: (rebound.declaration.bindingRevision ?? 1) - 1,
+              declarationRevision: record.declaration.declarationRevision + 1,
+            },
+            updatedAt: "2026-10-12T00:00:07.000Z",
+          }),
+        ),
+      ).toThrow(/strictly increasing/);
+      // Partial triplet (workspace change without a fresh revision) is refused.
+      expect(() =>
+        store.update(
+          id,
+          rebound.declaration.declarationRevision,
+          (record) => ({
+            ...record,
+            declaration: {
+              ...record.declaration,
+              serverWorkspaceId: "sws-4714",
+              bindingRevision: undefined,
+              declarationRevision: record.declaration.declarationRevision + 1,
+            },
+            updatedAt: "2026-10-12T00:00:08.000Z",
+          }),
+        ),
+      ).toThrow(/complete.*triplet/);
+    } finally {
+      rmSync(base, { recursive: true, force: true });
+      rmSync(h2aRoot, { recursive: true, force: true });
+    }
   });
 });
