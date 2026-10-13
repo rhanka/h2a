@@ -1,0 +1,20 @@
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node --test packages/h2a/test/local-store.test.js
+node: v24.21.0
+private test root: /tmp/mh-l4-test-DbC1YK
+✔ localStorePaths derives the canonical layout from a root (1.061358ms)
+✔ createLocalStore initializes the directory layout idempotently (3.589457ms)
+✔ registerInstance appends to registry/instances.jsonl once across repeated calls (2.371925ms)
+✔ listInstances and findInstance read the registry (2.074525ms)
+✔ appendNegotiationEvent chains entries and grows the journal (2.535954ms)
+✔ readNegotiationJournal returns [] for an unknown negotiation (0.854879ms)
+✔ readNegotiationJournal throws on a tampered file (1.481178ms)
+ℹ tests 7
+ℹ suites 0
+ℹ pass 7
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 219.86284
+
+receipt: {"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","--test","packages/h2a/test/local-store.test.js"],"code":0,"signal":null,"elapsedMs":246}
