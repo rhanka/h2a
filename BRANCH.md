@@ -63,3 +63,11 @@ changes, dependency version changes, Python, merge, tag or publication.
 The external round-6 report preserves every command/output, mutant and failed
 experiment. Final qualification, pushed commits and remaining B9 limitations are
 recorded there; no merge is authorized while a reserve remains.
+
+The second full integration exposed a deterministic supervisor election race:
+a contender can exit with the live-owner publication refusal before the winning
+host answers health. Continue the existing readiness loop under its original
+deadline for that exact refusal; never respawn or bypass the health/containment
+gate. The regression also checks unrelated startup errors, no healthy winner,
+and backoff. The owner's two-full limit is exhausted; another full requires an
+explicit extension. No final-green claim is made without that additional run.
