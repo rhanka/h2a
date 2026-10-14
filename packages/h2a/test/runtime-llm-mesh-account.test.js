@@ -203,11 +203,12 @@ test(
   "enroll root error boundary never echoes argv secrets in any form",
   { skip: runtimeBuilt ? false : "packages/h2a-runtime/dist absent (run npx tsc -b)" },
   () => {
-    // Property-style canary: one random secret injected in EVERY argv
-    // position/form across the enroll command tree (multi-line values,
-    // parent-placed options, attached short options, --opt=<v>, positionals,
-    // unknown options, unknown commands). No run may print it on stdout or
-    // stderr; every run must refuse without enrolling.
+    // Property-style canary: one random secret injected in 22 fixed argv
+    // forms across the enroll command tree (multi-line values,
+    // parent-placed options, attached short options, --opt=<v>,
+    // attached with no `=`/` `, bare long/short flags at enroll and root
+    // level, positionals, unknown options, unknown commands). No run may
+    // print it on stdout or stderr; every run must refuse without enrolling.
     const isoBase = mkdtempSync(join(tmpdir(), "h2a-account-canary-"));
     const isoEnv = {
       HOME: isoBase,
@@ -225,6 +226,12 @@ test(
       ["llm-mesh", "account", `--token=${secret}`, "enroll", "claude-code"],
       ["llm-mesh", "account", "enroll", "claude-code", `-t${secret}`],
       ["llm-mesh", "account", "enroll", "claude-code", `-${secret}`],
+      // r12 m1: attached with no `=` (a missing-separator typo) and bare
+      // long flags keep no user text — the name is kept only when declared.
+      ["llm-mesh", "account", "enroll", "claude-code", `--token${secret}`],
+      ["llm-mesh", "account", "enroll", "claude-code", `--${secret}`],
+      [`--${secret}`, "llm-mesh", "account", "enroll", "claude-code"],
+      [`-${secret}`],
       ["llm-mesh", "account", "enroll", "claude-code", `--tokn=${secret}`],
       ["llm-mesh", "account", "enroll", secret],
       ["llm-mesh", "account", "enroll", "claude-code", "--from", "token", secret],
