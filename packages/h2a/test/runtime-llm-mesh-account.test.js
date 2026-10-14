@@ -203,7 +203,7 @@ test(
   "enroll root error boundary never echoes argv secrets in any form",
   { skip: runtimeBuilt ? false : "packages/h2a-runtime/dist absent (run npx tsc -b)" },
   () => {
-    // Property-style canary: one random secret injected in 22 fixed argv
+    // Property-style canary: one random secret injected in 24 fixed argv
     // forms across the enroll command tree (multi-line values,
     // parent-placed options, attached short options, --opt=<v>,
     // attached with no `=`/` `, bare long/short flags at enroll and root
@@ -239,6 +239,10 @@ test(
       ["llm-mesh", "account", "enroll", "claude-code", "--cli", secret],
       ["llm-mesh", "account", "enroll", "claude-code", `--from=${secret}`],
       ["llm-mesh", "account", secret],
+      // r12 m2: unknown commands carrying values (an `error: `-bearing
+      // value, a quote-bearing value) are static, never echoed.
+      ["llm-mesh", "account", `x error: ${secret}`],
+      ["llm-mesh", "account", `it's ${secret}`],
       ["llm-mesh", secret, "account", "enroll", "claude-code"],
       [secret],
     ];
