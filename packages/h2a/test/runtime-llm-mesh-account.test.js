@@ -114,8 +114,8 @@ test(
       assert.match(badCliValue.output, /too many arguments \(expected provider only; never pass secrets in argv\)/);
       assert.doesNotMatch(badCliValue.output, new RegExp(cliCanary));
 
-      // m1: --token=<v> and --cli=<v> unknown-option sanitization ensures
-      // option values are never echoed on stderr.
+      // m1: --token=<v> and --cli=<v> are unknown options; the static
+      // per-code boundary ensures option values are never echoed on stderr.
       const tokenEqCanary = "canary-token-eq-3b5c7d9e1f2a";
       const badTokenEq = runIso("llm-mesh", "account", "enroll", "claude-code", `--token=${tokenEqCanary}`);
       assert.notEqual(badTokenEq.status, 0, badTokenEq.output);
@@ -166,8 +166,13 @@ test(
       // the muse CLI-store import (provider recognized, not swallowed as a
       // --cli value). In the isolated temp HOME the store is absent, so the
       // failure is the static store error, never a missing provider argument.
+      // The negative marker has no `'provider'` suffix on purpose: the static
+      // commander message is the bare `error: missing required argument`, so
+      // a regression swallowing `muse` as the --cli value fails this line.
       const optionFirst = runIso("llm-mesh", "account", "enroll", "--cli", "muse");
-      assert.doesNotMatch(optionFirst.output, /missing required argument 'provider'/);
+      assert.notEqual(optionFirst.status, 0, optionFirst.output);
+      assert.doesNotMatch(optionFirst.output, /missing required argument/);
+      assert.match(optionFirst.output, /Muse CLI auth file is not readable/);
       assert.doesNotMatch(optionFirst.output, /\[value\]/);
       // Help invites no argv value for --cli/--token (booleans, stdin only).
       assert.doesNotMatch(canonical.output, /--cli \[value\]/);
@@ -263,16 +268,20 @@ test(
       [`a'\n${secret}`, "x"],
       ["llm-mesh", "account", "remove", "x", `line one.\n${secret}`],
     ];
-    // Static shape asserted for EVERY form, in order: commander errors are
-    // fully static per code (no declared name kept); provider errors are the
-    // static `[h2a]` messages below.
-    const UNKNOWN_OPTION = /error: unknown option(\n|$)/;
-    const UNKNOWN_COMMAND = /error: unknown command(\n|$)/;
-    const TOO_MANY = /error: too many arguments(\n|$)/;
-    const UNSUPPORTED = /unsupported provider/;
-    const EXCESS_PROVIDER = /too many arguments \(expected provider only; never pass secrets in argv\)/;
-    const FROM_ENUM = /--from must be one of oauth, cli, token/;
-    const expectedShapes = [
+    // Exact static output asserted for EVERY form, in order: commander errors
+    // are the bare per-code messages (no declared name kept, stdout empty);
+    // provider errors are the static `[h2a]` messages below. `assert.equal`
+    // (not `match`) so any text added before or after the static message —
+    // including a transformed fragment of the secret — fails the form.
+    const UNKNOWN_OPTION = "error: unknown option\n";
+    const UNKNOWN_COMMAND = "error: unknown command\n";
+    const TOO_MANY = "error: too many arguments\n";
+    const UNSUPPORTED =
+      "[h2a] llm-mesh account: unsupported provider. Supported: cloud-code, codex, muse (OAuth; --cli imports the CLI store), mistral-vibe (alias: vibe), claude-code (OAuth; --cli imports the CLI store; --token imports a secret-manager credential)\n";
+    const EXCESS_PROVIDER =
+      "[h2a] llm-mesh account: too many arguments (expected provider only; never pass secrets in argv)\n";
+    const FROM_ENUM = "[h2a] llm-mesh account: --from must be one of oauth, cli, token\n";
+    const expectedOutputs = [
       UNKNOWN_OPTION, UNKNOWN_OPTION, UNKNOWN_OPTION, UNKNOWN_OPTION,
       UNKNOWN_OPTION, UNKNOWN_OPTION, UNKNOWN_OPTION, UNKNOWN_OPTION,
       UNKNOWN_OPTION, UNKNOWN_OPTION, UNKNOWN_OPTION, UNKNOWN_OPTION,
@@ -283,15 +292,15 @@ test(
       UNKNOWN_OPTION, UNKNOWN_OPTION, UNKNOWN_OPTION, UNKNOWN_COMMAND,
       UNKNOWN_COMMAND, TOO_MANY,
     ];
-    assert.equal(forms.length, expectedShapes.length, "canary forms and shapes out of sync");
+    assert.equal(forms.length, expectedOutputs.length, "canary forms and outputs out of sync");
     try {
       for (let i = 0; i < forms.length; i++) {
         const args = forms[i];
-        const shape = expectedShapes[i];
+        const expected = expectedOutputs[i];
         const result = runWithEnv(args, isoEnv);
         assert.notEqual(result.status, 0, `expected refusal for ${JSON.stringify(args)}: ${result.output}`);
         assert.doesNotMatch(result.output, new RegExp(secret), `secret echoed for ${JSON.stringify(args)}: ${result.output}`);
-        assert.match(result.output, shape, `not static for ${JSON.stringify(args)}: ${result.output}`);
+        assert.equal(result.output, expected, `not exact static for ${JSON.stringify(args)}: ${result.output}`);
       }
     } finally {
       rmSync(isoBase, { recursive: true, force: true });
