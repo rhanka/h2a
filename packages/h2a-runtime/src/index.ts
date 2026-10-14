@@ -2802,63 +2802,6 @@ function sanitizeUnknownCommandErrors(text: string): string {
   return result;
 }
 
-function sanitizeH2aCommanderErrorOutput(raw: string, program: Command): string {
-  if (!raw.includes("error: ")) return raw;
-  // Order matters: the too-many pass runs first so its whole line —
-  // including any embedded `error: ` marker smuggled in a received value —
-  // is consumed before the option/command passes could match the smuggled
-  // marker. Every pass fails closed to a static message.
-  let out = raw;
-  // Excess-argument details list the received values: drop them, keep the
-  // static prefix and counts. Strict covers single-line details; anything
-  // else (multi-line or marker-bearing values) falls back to a greedy drop
-  // to the last end-of-line dot. Both require the `:` + terminal dot of a
-  // genuine message, so already-sanitized output is left untouched.
-  out = out.replace(
-    /(error: too many arguments(?: for '[A-Za-z0-9_@.\-/:]+')?\. Expected \d+ arguments? but got \d+):[^\n]*(\.(?=\n|$))/g,
-    "$1$2",
-  );
-  out = out.replace(
-    /(error: too many arguments(?: for '[^\n']*')?\. Expected \d+ arguments? but got \d+):[\s\S]*(\.(?=\n|$))/g,
-    "$1$2",
-  );
-  if (out.includes("error: unknown option")) {
-    out = sanitizeUnknownOptionErrors(out, collectDeclaredOptionFlags(program));
-  }
-  out = sanitizeUnknownCommandErrors(out);
-  // Rejected option/argument values would echo user input; the declared
-  // flags and names are kept and every value is dropped. Strict covers
-  // single-line values; anything else fails closed greedily. (No custom
-  // validators are registered today; the shapes stay closed regardless.
-  // The command-argument shape matches commander's real format, which
-  // carries no parentheses around the argument name.)
-  out = out.replace(
-    /(error: option '[^\n']*') argument '[^\n]*' is invalid\./g,
-    "$1 argument is invalid.",
-  );
-  out = out.replace(
-    /(error: option '[^\n']*') argument '[\s\S]*$/g,
-    "$1 argument is invalid.",
-  );
-  out = out.replace(
-    /(error: option '[^\n']*') value '[^\n]*' from env '[^\n']*' is invalid\./g,
-    "$1 value from env is invalid.",
-  );
-  out = out.replace(
-    /(error: option '[^\n']*') value '[\s\S]*$/g,
-    "$1 value from env is invalid.",
-  );
-  out = out.replace(
-    /(error: command-argument value) '[^\n]*'( is invalid for argument '[^\n']*'\.)/g,
-    "$1$2",
-  );
-  out = out.replace(
-    /(error: command-argument value) '[\s\S]*$/g,
-    "$1 is invalid.",
-  );
-  return out;
-}
-
 export async function main(argv: ReadonlyArray<string>): Promise<number> {
   // Passive fatal-path witness on the real entry path (see
   // installCliWitnessOnce): observes via uncaughtExceptionMonitor, so the
