@@ -14,6 +14,12 @@ import {
   setupNativeTestEnvironment,
 } from "../../../h2a/test/helpers/native-isolation.js";
 
+// Keep the build toolchain selected by setup-node before installing the
+// private runtime environment (whose PATH deliberately contains no host CLI).
+const npmCli = process.env.npm_execpath;
+const npmCommand = npmCli ? process.execPath : "npm";
+const npmArgs = (args: string[]) => npmCli ? [npmCli, ...args] : args;
+const buildToolPath = process.env.PATH ?? "/usr/bin:/bin";
 setupNativeTestEnvironment(afterAll);
 
 import { readNativeTerminalPgid } from "../registry.js";
@@ -115,7 +121,7 @@ async function spawnHostProcess(options: {
 }
 
 async function npmInstall(args: string[], prefix: string, cache: string): Promise<void> {
-  const install = spawn("/usr/bin/npm", [
+  const install = spawn(npmCommand, npmArgs([
     "install",
     "--prefix",
     prefix,
@@ -124,7 +130,7 @@ async function npmInstall(args: string[], prefix: string, cache: string): Promis
     cache,
     "--no-audit",
     "--no-fund",
-  ], { env: process.env, stdio: ["ignore", "ignore", "pipe"] });
+  ]), { env: { ...process.env, PATH: buildToolPath }, stdio: ["ignore", "ignore", "pipe"] });
   children.add(install);
   const output = captureOutput(install);
   const [code] = await once(install, "exit");
@@ -335,9 +341,9 @@ describe.skipIf(process.platform !== "linux")("native terminal upgrade (scenario
     // failed qualification, never a skip.
     const packDir = createPrivateTestDirectory("upgrade-pack-");
     prefixes.add(packDir);
-    const pack = spawn("/usr/bin/npm", ["pack", "--pack-destination", packDir], {
+    const pack = spawn(npmCommand, npmArgs(["pack", "--pack-destination", packDir]), {
       cwd: workspacePackageDir,
-      env: process.env,
+      env: { ...process.env, PATH: buildToolPath },
       stdio: ["ignore", "pipe", "pipe"],
     });
     children.add(pack);

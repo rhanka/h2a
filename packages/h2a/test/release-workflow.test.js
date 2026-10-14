@@ -50,21 +50,21 @@ test("R8.4 gel total: verify has no event filter — every publication path is g
   assert.equal(verify.if, undefined, "verify must run for tag pushes AND backfill dispatches; an `if` here reopens the ungated backfill hole");
 });
 
-test("R8.1: verify keeps the Node 20+22 matrix — both legs EFFECTIVE", () => {
+test("R8.1: verify keeps the Node 22+24 matrix — both legs EFFECTIVE", () => {
   const verify = job("verify");
   const matrix = verify.strategy?.matrix;
-  assert.deepEqual(matrix?.node, ["20", "22"], "the matrix is pinned by the spec; dropping a leg narrows what a green proves");
+  assert.deepEqual(matrix?.node, ["22", "24"], "the matrix is pinned by the spec; dropping a leg narrows what a green proves");
   assert.deepEqual(matrix?.os, ["ubuntu-latest"]);
-  // Round-5 review finding H02: adding `exclude: [{node: "20"}]` kept this
+  // Round-5 review finding H02: adding `exclude: [{node: "22"}]` kept this
   // test green — matrix.node still listed both legs — while GitHub Actions
-  // ran Node 22 ONLY. A pinned list is not a pinned matrix: what the runner
+  // ran Node 24 ONLY. A pinned list is not a pinned matrix: what the runner
   // executes is the list AFTER include/exclude are applied, so no exclude
   // entry may exist and the matrix may carry no key beyond the pinned
   // os/node arrays (an exclude on os alone would remove EVERY leg).
   assert.equal(
     matrix?.exclude,
     undefined,
-    "matrix.exclude removes legs the listed matrix still claims (round-5 finding H02: excluding Node 20 left the qualification green while only Node 22 ran)",
+    "matrix.exclude removes legs the listed matrix still claims (round-5 finding H02: an excluded leg left the qualification green)",
   );
   assert.deepEqual(
     Object.keys(matrix ?? {}).sort(),
@@ -76,9 +76,9 @@ test("R8.1: verify keeps the Node 20+22 matrix — both legs EFFECTIVE", () => {
 test("R8.1: the matrix legs are EFFECTIVE — verify's setup-node must run exactly ${{ matrix.node }}", () => {
   // Round-6 review finding P2: pinning verify's setup-node to a fixed
   // `node-version: "22"` kept every assertion above green — matrix.node still
-  // listed ["20", "22"], no exclude existed, the matrix keys were exactly
+  // listed ["22", "24"], no exclude existed, the matrix keys were exactly
   // os/node — while GitHub Actions ran BOTH legs on Node 22 and nothing
-  // verified Node 20 anymore. A listed matrix leg is not a tested Node
+  // verified the other matrix leg anymore. A listed matrix leg is not a tested Node
   // version: the leg's steps decide which node actually runs, so the link
   // between matrix.node and the installed node is pinned here, in execution
   // shape: exactly ONE setup-node in verify, its inputs pinned (a
@@ -522,7 +522,7 @@ test("R8.1/R8.3/R8.4: the mandatory verify steps are UNCONDITIONAL — a disable
 test("R8/R8.4: EVERY step of the workflow is UNCONDITIONAL — the only sanctioned `if` is the single-leg upload", () => {
   // Round-7 review finding P2: `if: false` on verify's setup-node kept every
   // assertion above green — both legs then ran the runner's default Node
-  // while the matrix still claimed 20+22. The round-3 mandatory pin covered
+  // while the matrix still claimed both legs. The round-3 mandatory pin covered
   // run-steps only; a `uses:` step (checkout, setup-node) or any other
   // dependency (npm ci, the pack/checksums step) could be disabled with one
   // `if:` line while the workflow kept reading green. The invariant is

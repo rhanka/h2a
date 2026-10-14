@@ -272,15 +272,22 @@ describe("native host life journal", () => {
         else symlinkSync(kind === "external-symlink" ? target : fileURLToPath(new URL("./journal.ts", import.meta.url)), alias);
         path = alias;
       }
+      // This fixture tests canonicalization, independently of ambient CI
+      // secrets (GITHUB_WORKSPACE can redact the entire checkout path).
+      // The separate redaction tests keep exercising secret removal.
+      const verifiedPath = fileURLToPath(new URL("./journal.ts", import.meta.url));
+      const overlappingEnv = Object.entries(process.env).filter(([, value]) => value && value.length >= 4 && verifiedPath.includes(value));
+      for (const [key] of overlappingEnv) delete process.env[key];
       try {
         appendHostJournal({ event: "uncaughtException", pid: process.pid, startTime: 1,
           generation: "stack-test", error: "untrusted diagnostic", stack: `Error\n    at forged (${path}:4:2)`, codePath: entry }, f.log);
         const row = readHostJournal(f.log)[0] as any;
         expect(readFileSync(f.log, "utf8")).not.toContain(sentinel);
-        const verifiedPath = fileURLToPath(new URL("./journal.ts", import.meta.url))
-          .replace(/^\/home\/[^/]+/, "/home/[REDACTED]");
         expect(row.stack).toBe(kind === "internal-symlink" ? `at ${verifiedPath}:4:2` : "[REDACTED]");
-      } finally { if (kind !== "traversal") rmSync(alias, { recursive: true, force: true }); }
+      } finally {
+        for (const [key, value] of overlappingEnv) process.env[key] = value;
+        if (kind !== "traversal") rmSync(alias, { recursive: true, force: true });
+      }
     });
   }
   it("should never wait for or reclaim a live writer lock including an old lock", () => {

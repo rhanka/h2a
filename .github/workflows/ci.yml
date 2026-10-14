@@ -109,7 +109,8 @@ jobs:
         # What this stops proving: that the code works on macOS or Windows at all.
         # `smoke-install` still exercises the PUBLISHED package on all three after release.
         os: [ubuntu-latest]
-        node: ["20", "22"]
+        # Owner decision 2026-10-12: minimum Node 22; qualify 22 and 24.
+        node: ["22", "24"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

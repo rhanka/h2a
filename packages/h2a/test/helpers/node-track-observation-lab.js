@@ -29,7 +29,7 @@ export function observeNodeTrackEntry(source, repoRoot) {
     writeFileSync(join(root, 'legacy', legacyEntry), '')
     const markers = join(root, 'observed.json')
     let copy = source
-    for (const module of ['test-execution-evidence', 'test-inventory']) copy = copy.replace(`"./${module}.mjs"`, JSON.stringify(pathToFileURL(resolve(repoRoot, `scripts/${module}.mjs`)).href))
+    for (const module of ['test-execution-evidence', 'test-inventory', 'historical-test-ref']) copy = copy.replace(`"./${module}.mjs"`, JSON.stringify(pathToFileURL(resolve(repoRoot, `scripts/${module}.mjs`)).href))
     writeFileSync(join(root, 'scripts/run-tests.mjs'), copy)
     // Substitute the child-process boundary, preserving production discovery,
     // entry, commands, loop, evidence validation and exit aggregation.

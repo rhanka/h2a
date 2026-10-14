@@ -34,6 +34,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { discoverSuites, readInventory, verifyExecutionReport, inventoryFailures } from "./test-execution-evidence.mjs";
 import { policyFor, readDeclaredNonTests } from "./test-inventory.mjs";
+import { ensureHistoricalGitRef, LEGACY_HOST_REF } from "./historical-test-ref.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 export const REPO_ROOT = resolve(HERE, "..");
@@ -253,20 +254,7 @@ function main() {
   // Transpile-only, no typecheck, no install: the same trick as the identity
   // lane's compile(), with the worktree's node_modules symlinked so the
   // legacy host loads the current native bindings (node-pty).
-  const LEGACY_HOST_REF = "89bbd9af^";
   const LEGACY_HOST_ENTRY = join("packages", "h2a-runtime", "dist", "native-terminal", "process.js");
-  function gitRefPresent(ref) {
-    return spawnSync("git", ["cat-file", "-e", ref], { cwd: REPO_ROOT, stdio: "ignore" }).status === 0;
-  }
-  function ensureGitRef(ref) {
-    if (gitRefPresent(ref)) return;
-    // Shallow clones (CI checks out depth 1) lack history: fetch the one ref.
-    const sha = ref.endsWith("^") ? ref.slice(0, -1) : ref;
-    const fetched = spawnSync("git", ["fetch", "origin", sha], { cwd: REPO_ROOT, stdio: "inherit" });
-    if (fetched.status !== 0 || !gitRefPresent(ref)) {
-      throw new Error(`run-tests: cannot provide historical ref ${ref}; fetch origin ${sha} first`);
-    }
-  }
   function transpilePackage(root, pkg) {
     // Resolve the transpiler from the worktree, not from the provisioned
     // tree: its node_modules symlink is only created after transpiling.
@@ -292,7 +280,7 @@ function main() {
   function provisionLegacyHostDir() {
     const preset = process.env.H2A_TEST_LEGACY_HOST_DIR;
     if (preset && existsSync(join(preset, LEGACY_HOST_ENTRY))) return { dir: preset, owned: false };
-    ensureGitRef(LEGACY_HOST_REF);
+    ensureHistoricalGitRef(REPO_ROOT, LEGACY_HOST_REF);
     const dir = mkdtempSync(join(tmpdir(), "h2a-legacy-host-"));
     const archive = spawnSync("git", ["archive", LEGACY_HOST_REF], { cwd: REPO_ROOT, encoding: "buffer", maxBuffer: 200 * 1024 * 1024 });
     if (archive.status !== 0 || !archive.stdout) throw new Error(`run-tests: git archive ${LEGACY_HOST_REF} failed`);
