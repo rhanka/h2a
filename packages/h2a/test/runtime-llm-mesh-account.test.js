@@ -92,17 +92,37 @@ test(
       assert.match(badFromCanary.output, /--from must be one of oauth, cli, token/);
       assert.doesNotMatch(badFromCanary.output, new RegExp(fromCanary));
 
+      // m1 (r8): a token value passed as an excess positional (the likely
+      // cron shape `--from token "$SECRET"`) is refused statically without
+      // echoing the value. Token material travels on stdin only, never argv.
+      const excessCanary = "canary-excess-4d2e6a8c0b1f";
+      const badExcess = runIso("llm-mesh", "account", "enroll", "claude-code", "--from", "token", excessCanary);
+      assert.notEqual(badExcess.status, 0, badExcess.output);
+      assert.match(badExcess.output, /too many arguments \(expected provider only; never pass secrets in argv\)/);
+      assert.doesNotMatch(badExcess.output, new RegExp(excessCanary));
+
       const tokenCanary = "canary-token-1a2b3c4d5e6f";
       const badTokenValue = runIso("llm-mesh", "account", "enroll", "claude-code", "--token", tokenCanary);
       assert.notEqual(badTokenValue.status, 0, badTokenValue.output);
-      assert.match(badTokenValue.output, /--cli and --token take no value/);
+      assert.match(badTokenValue.output, /too many arguments \(expected provider only; never pass secrets in argv\)/);
       assert.doesNotMatch(badTokenValue.output, new RegExp(tokenCanary));
 
       const cliCanary = "canary-cli-7a8b9c0d1e2f";
       const badCliValue = runIso("llm-mesh", "account", "enroll", "claude-code", "--cli", cliCanary);
       assert.notEqual(badCliValue.status, 0, badCliValue.output);
-      assert.match(badCliValue.output, /--cli and --token take no value/);
+      assert.match(badCliValue.output, /too many arguments \(expected provider only; never pass secrets in argv\)/);
       assert.doesNotMatch(badCliValue.output, new RegExp(cliCanary));
+
+      // m2 (r8): option-first ordering keeps working — `--cli muse` selects
+      // the muse CLI-store import (provider recognized, not swallowed as a
+      // --cli value). In the isolated temp HOME the store is absent, so the
+      // failure is the static store error, never a missing provider argument.
+      const optionFirst = runIso("llm-mesh", "account", "enroll", "--cli", "muse");
+      assert.doesNotMatch(optionFirst.output, /missing required argument 'provider'/);
+      assert.doesNotMatch(optionFirst.output, /\[value\]/);
+      // Help invites no argv value for --cli/--token (booleans, stdin only).
+      assert.doesNotMatch(canonical.output, /--cli \[value\]/);
+      assert.doesNotMatch(canonical.output, /--token \[value\]/);
 
       for (const command of ["list", "ls"]) {
         const help = runIso("llm-mesh", "account", command, "--help");
