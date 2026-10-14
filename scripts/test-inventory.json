@@ -597,7 +597,7 @@
   "packages/h2a/test/release-workflow-publish-order.test.js": [],
   "packages/h2a/test/release-workflow.test.js": [
     "R8.4 gel total: verify has no event filter — every publication path is gated",
-    "R8.1: verify keeps the Node 20+22 matrix — both legs EFFECTIVE",
+    "R8.1: verify keeps the Node 22+24 matrix — both legs EFFECTIVE",
     "R8.1: the matrix legs are EFFECTIVE — verify's setup-node must run exactly ${{ matrix.node }}",
     "R8.2 (1): publish proceeds only on an observed verify success, never a skip",
     "R8.2/R8.4: no publish step may disable itself, and the integrity checks run before the first npm publish",

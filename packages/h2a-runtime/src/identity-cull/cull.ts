@@ -6,7 +6,7 @@
  * CAS needed by a future, separately owner-authorized executor.
  */
 
-import { withIdentityFenceSync } from "@sentropic/h2a";
+import { withIdentityFenceSync, type IdentityFenceLease } from "@sentropic/h2a";
 import { createHash, randomUUID } from "node:crypto";
 import {
   closeSync,
@@ -1030,7 +1030,7 @@ export function verifyHeldDescriptorCas(input: HeldDescriptorCasInput): HeldDesc
   }
   const canonicalBindingPath = realpathSync(input.bindingPath);
   try {
-    return withIdentityFenceSync(join(dirname(canonicalBindingPath), ".lock"), fence => {
+    return withIdentityFenceSync(join(dirname(canonicalBindingPath), ".lock"), (fence: IdentityFenceLease) => {
     if (!fence.stillHeld()) return { state: "ABORTED", reason: "CANONICAL_BINDING_FENCE_LOST" };
     const fd = openSync(canonicalBindingPath, constants.O_RDONLY | constants.O_NOFOLLOW);
     try {

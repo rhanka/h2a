@@ -23,6 +23,6 @@ jobs:
           node-version: '22'
           cache: npm
       - run: npm ci
-      - run: node_modules/.bin/tsc -b packages/h2a-runtime
+      - run: npm run build
       - name: Qualify real PID and network namespace boundaries (T10)
         run: sudo env "PATH=$PATH" node scripts/run-namespace-qualification.mjs
