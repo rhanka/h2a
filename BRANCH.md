@@ -27,10 +27,12 @@ Kept: facade enrollment (OAuth default + `--from cli` official store +
 `--from token` secret-manager pipe, DEC-119), mesh keyring
 storage/refresh, transport-specific hygiene of the CLI seat
 (identity-proven sweep, sandbox transport, cleanup blocking the result,
-root-level static error boundary (inherited by every subcommand —
-never echoes values across any enroll argument form: `--token=<v>`,
-multi-line values, parent-placed options, attached short options,
-positionals, unknown options/commands, proven by property canary),
+root-level static error boundary (inherited by every subcommand — a
+declared long name is kept without its value, everything else is static:
+attached with no separator, bare `--<v>`, multi-line/quote-bearing/`error:
+`-bearing values, shorts, unknown commands carrying values, extra `remove`
+positionals; proven by a 28-form property canary with per-form static-shape
+asserts),
 masked TTY input / piped-token boundary (never
 argv, never logged). The startup sweep runs at every gateway
 composition even with no Claude account enrolled.
