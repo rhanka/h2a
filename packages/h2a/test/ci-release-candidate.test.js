@@ -24,4 +24,3 @@ test("should build the native namespace candidate in workspace dependency order"
   assert.ok(build >= 0 && build < qualify, "the normal workspace build must precede native qualification");
   assert.equal(steps[build].if, undefined);
 });
-
