@@ -2733,6 +2733,13 @@ function sanitizeUnknownOptionErrors(text: string, declared: Set<string>): strin
 
 function sanitizeUnknownCommandErrors(text: string): string {
   const prefix = "error: unknown command '";
+  // The name is always dropped (an unknown command is never declared);
+  // only a strictly shaped suggestion tail is kept. Strict means a
+  // single-line quoteless name, then the closing quote, then the tail and
+  // end of line/input — a forged tail would need a newline inside the
+  // name, so a tail found here is commander-generated. Anything else fails
+  // closed to the static message (never the raw slice).
+  const strict = new RegExp(`^[^'\\n]*'(${SUGGESTION_TAIL.source})?(?=\\n|$)`);
   let result = "";
   let cursor = 0;
   for (;;) {
@@ -2742,27 +2749,14 @@ function sanitizeUnknownCommandErrors(text: string): string {
       break;
     }
     result += text.slice(cursor, start);
-    const nameStart = start + prefix.length;
-    const rest = text.slice(nameStart);
-    const suggestion = rest.match(SUGGESTION_TAIL);
-    if (suggestion?.index !== undefined) {
-      const marker = nameStart + suggestion.index;
-      if (text[marker - 1] === "'") {
-        const tailEnd = marker + suggestion[0].length;
-        result += "error: unknown command";
-        result += text.slice(marker, tailEnd);
-        cursor = tailEnd;
-        continue;
-      }
+    const match = strict.exec(text.slice(start + prefix.length));
+    if (match) {
+      result += `error: unknown command${match[1] ?? ""}`;
+      cursor = start + prefix.length + match[0].length;
+      continue;
     }
-    const bound = (() => {
-      const next = text.indexOf("error: ", nameStart);
-      return next === -1 ? text.length : next;
-    })();
-    const windowText = text.slice(nameStart, bound);
-    const closeRelative = windowText.lastIndexOf("'");
-    cursor = closeRelative === -1 ? bound : nameStart + closeRelative + 1;
     result += "error: unknown command";
+    break;
   }
   return result;
 }
