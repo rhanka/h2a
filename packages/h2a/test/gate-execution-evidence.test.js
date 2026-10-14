@@ -66,7 +66,7 @@ for (const source of ['// test("required", () => {})', 'test("renamed", () => {}
 for (const [name, mutate] of [
   ['inert entry', (s) => s.replace('if (invokedDirectly) {\n  main();', 'if (false) {\n  main();')],
   ['filtered Node names', (s) => s.replace('"--test",', '"--test", "--test-name-pattern=ABSENT",')],
-  ['omitted native suite', (s) => s.replace('!== RUNNER_TEST_FILE)', '!== RUNNER_TEST_FILE && !file.endsWith("native-inventory-absence.test.js"))')],
+  ['omitted native suite', (s) => s.replace('!LANE_TEST_FILES.includes(normalized)', 'normalized.endsWith("native-inventory-absence.test.js")')],
   ['omitted Track execution', (s) => s.replace('const vitestStatuses = vitestSuites.map((suite) => {', 'const vitestStatuses = [].map((suite) => {')],
 ]) test(`A04: production entry rejects ${name}`, () => {
   const mutant = mutate(nodeTrack); assert.notEqual(mutant, nodeTrack, 'mutation must apply')
@@ -237,18 +237,21 @@ test('RC 0.98.6 declared non-tests accept only exact identities and report lifec
   } finally { fs.rmSync(lab, { recursive: true, force: true }) }
 })
 
-test('RC 0.98.6 production policy is a versioned list of 38 Node and 4 runtime non-tests', () => {
+test('RC 0.98.6 production policy is a versioned list of 23 Node and 4 runtime non-tests', () => {
   const manifest = JSON.parse(fs.readFileSync(join(repo, 'scripts/test-non-tests-0986.json'), 'utf8'))
   assert.equal(manifest.schemaVersion, 1)
   assert.equal(manifest.release, '0.98.6')
   assert.equal(manifest.ownerDecision, "s'ils sont désactivés ce n'est pas un pb ce ne sont pas encore des tests")
-  assert.equal(manifest.entries.length, 42)
-  assert.equal(manifest.entries.filter(e => e.status === 'skipped').length, 19)
+  // 42 at RC cut; minus the 15 CLI happy-path placeholders DEC-034 reactivated
+  // (PR #328) — they pass now, so the versioned declaration drops them and the
+  // execution proof holds them to passing like any other test.
+  assert.equal(manifest.entries.length, 27)
+  assert.equal(manifest.entries.filter(e => e.status === 'skipped').length, 4)
   assert.equal(manifest.entries.filter(e => e.status === 'todo').length, 23)
-  assert.equal(new Set(manifest.entries.map(e => e.file + ' :: ' + e.fullName)).size, 42)
+  assert.equal(new Set(manifest.entries.map(e => e.file + ' :: ' + e.fullName)).size, 27)
   for (const entry of manifest.entries) assert.ok(entry.file && entry.fullName && entry.reason.trim())
   const node = policyFor(repo, readInventory(repo), 'node')
-  assert.equal(node.declaredNonTests.length, 38)
+  assert.equal(node.declaredNonTests.length, 23)
   assert.equal(policyFor(repo, readInventory(repo), 'runtime').declaredNonTests.length, 4)
 })
 

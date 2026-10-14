@@ -16,14 +16,18 @@
  *   - every source `.test.ts` or `.spec.ts` file under packages/track/src and
  *     every `.test.ts` file under packages/agent-stats/tests through Vitest.
  *     Those suites are separate because they are TypeScript/Vitest rather
- *     than Node's built-in test runner.
+ *     than Node's built-in test runner;
+ *   - the four lane-scoped identity-lock suites (LANE_TEST_FILES below) through
+ *     packages/h2a/test/helpers/identity-isolated-run.mjs, which builds an
+ *     isolated lane (previous-release bindings + lane TMPDIR) they require.
  *
  * Other workspace packages own their own package-level test commands and are not
  * represented by this root gate. Do not quote this runner as a whole-monorepo
  * test count.
  */
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -40,6 +44,22 @@ export const TEST_DIRS = ["packages/h2a/test", "packages/focus-interactive/test"
 // This test must run outside scripts/run-test-gates.mjs. See CI's dedicated
 // `npm-test-trust-root` job.
 export const RUNNER_TEST_FILE = "packages/h2a/test/run-test-gates.test.js";
+
+// Lane-scoped identity-lock suites. They mount the previous release's real
+// bindings (lane/base) and confine every simulation root inside an isolated
+// lane (IDLOCK_LANE + lane TMPDIR, enforced by legacy-reboot-loader). Under a
+// plain `node --test` run there is no lane, so discovery here must skip them —
+// exactly like RUNNER_TEST_FILE above — and main() runs them through
+// packages/h2a/test/helpers/identity-isolated-run.mjs instead, where the lane
+// exists. LANE_TEST_FILES is the single source: discovery excludes these names
+// and the lane invocation below passes them, so a rename cannot silently drop
+// a suite from both. See packages/h2a/test/lane-test-scope.test.js.
+export const LANE_TEST_FILES = [
+  "packages/h2a/test/identity-lock-incident.test.js",
+  "packages/h2a/test/identity-lock-legacy-v6.test.js",
+  "packages/h2a/test/identity-lock-stdio-v6.test.js",
+  "packages/h2a/test/identity-lock-v6.test.js",
+];
 
 /**
  * Floor on the number of discovered test files.
@@ -79,7 +99,8 @@ export function discoverTestFiles() {
     for (const entry of entries) {
       if (entry.endsWith(".test.js")) {
         const file = join(rel, entry);
-        if (file.split("\\").join("/") !== RUNNER_TEST_FILE) {
+        const normalized = file.split("\\").join("/");
+        if (normalized !== RUNNER_TEST_FILE && !LANE_TEST_FILES.includes(normalized)) {
           files.push(file);
         }
       }
@@ -195,7 +216,8 @@ function main() {
   const vitestFileCount = vitestSuites.reduce((count, suite) => count + suite.files.length, 0);
   process.stderr.write(
     `run-tests: discovered ${nodeTestFiles.length} Node test files and ${vitestFileCount} Vitest files ` +
-      `(${vitestSuites.map((suite) => `${suite.name}: ${suite.files.length}`).join("; ")})\n`,
+      `(${vitestSuites.map((suite) => `${suite.name}: ${suite.files.length}`).join("; ")}) ` +
+      `and ${LANE_TEST_FILES.length} lane files (identity-isolated-run)\n`,
   )
 
   // Wall-clock backstop. A single hanging test (e.g. a spawned mcp-serve child
@@ -223,6 +245,66 @@ function main() {
 
   mkdirSync(join(testRoot, "home"), { recursive: true });
   mkdirSync(join(testRoot, "run"), { mode: 0o700 });
+
+  // Historical PTY host the pre-upgrade suites qualify against. The inventory
+  // REQUIRES native-inventory-absence's legacy test passed, and the
+  // native-host-generations suites run (instead of skipping) once this build
+  // exists — so the runner provisions it instead of letting the suites skip.
+  // Transpile-only, no typecheck, no install: the same trick as the identity
+  // lane's compile(), with the worktree's node_modules symlinked so the
+  // legacy host loads the current native bindings (node-pty).
+  const LEGACY_HOST_REF = "89bbd9af^";
+  const LEGACY_HOST_ENTRY = join("packages", "h2a-runtime", "dist", "native-terminal", "process.js");
+  function gitRefPresent(ref) {
+    return spawnSync("git", ["cat-file", "-e", ref], { cwd: REPO_ROOT, stdio: "ignore" }).status === 0;
+  }
+  function ensureGitRef(ref) {
+    if (gitRefPresent(ref)) return;
+    // Shallow clones (CI checks out depth 1) lack history: fetch the one ref.
+    const sha = ref.endsWith("^") ? ref.slice(0, -1) : ref;
+    const fetched = spawnSync("git", ["fetch", "origin", sha], { cwd: REPO_ROOT, stdio: "inherit" });
+    if (fetched.status !== 0 || !gitRefPresent(ref)) {
+      throw new Error(`run-tests: cannot provide historical ref ${ref}; fetch origin ${sha} first`);
+    }
+  }
+  function transpilePackage(root, pkg) {
+    // Resolve the transpiler from the worktree, not from the provisioned
+    // tree: its node_modules symlink is only created after transpiling.
+    const ts = createRequire(join(REPO_ROOT, "package.json"))("typescript");
+    const base = join(root, "packages", pkg, "src");
+    const walk = (dir) => {
+      for (const ent of readdirSync(dir, { withFileTypes: true })) {
+        const path = join(dir, ent.name);
+        if (ent.isDirectory()) walk(path);
+        else {
+          const dest = path.replace("/src/", "/dist/").replace(/\.ts$/, ".js");
+          mkdirSync(resolve(dest, ".."), { recursive: true });
+          if (ent.name.endsWith(".d.ts")) continue;
+          const src = readFileSync(path);
+          writeFileSync(dest, ent.name.endsWith(".ts") ? ts.transpileModule(src.toString(), {
+            compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 }
+          }).outputText : src);
+        }
+      }
+    };
+    walk(base);
+  }
+  function provisionLegacyHostDir() {
+    const preset = process.env.H2A_TEST_LEGACY_HOST_DIR;
+    if (preset && existsSync(join(preset, LEGACY_HOST_ENTRY))) return { dir: preset, owned: false };
+    ensureGitRef(LEGACY_HOST_REF);
+    const dir = mkdtempSync(join(tmpdir(), "h2a-legacy-host-"));
+    const archive = spawnSync("git", ["archive", LEGACY_HOST_REF], { cwd: REPO_ROOT, encoding: "buffer", maxBuffer: 200 * 1024 * 1024 });
+    if (archive.status !== 0 || !archive.stdout) throw new Error(`run-tests: git archive ${LEGACY_HOST_REF} failed`);
+    const extract = spawnSync("tar", ["-x", "-C", dir], { input: archive.stdout });
+    if (extract.status !== 0) throw new Error(`run-tests: extracting ${LEGACY_HOST_REF} failed`);
+    transpilePackage(dir, "h2a-runtime");
+    if (!existsSync(join(dir, "node_modules"))) symlinkSync(join(REPO_ROOT, "node_modules"), join(dir, "node_modules"));
+    if (!existsSync(join(dir, LEGACY_HOST_ENTRY))) throw new Error(`run-tests: legacy host entry missing after provisioning ${LEGACY_HOST_REF}`);
+    return { dir, owned: true };
+  }
+  const legacyHost = provisionLegacyHostDir();
+
   const testEnv = {
     ...process.env,
     HOME: join(testRoot, "home"),
@@ -230,7 +312,13 @@ function main() {
     XDG_CONFIG_HOME: join(testRoot, "home/.config"),
     XDG_STATE_HOME: join(testRoot, "home/.local/state"),
     H2A_ROOT: join(testRoot, ".h2a"),
-    H2A_TEST_DURABLE_ROOT: durableRoot
+    H2A_TEST_DURABLE_ROOT: durableRoot,
+    H2A_TEST_LEGACY_HOST_DIR: legacyHost.dir,
+    // Opt-in gates that are cheap and deterministic here: the full-stack
+    // example (~1s) and the lock-stress race (~30s). Running them keeps the
+    // execution proof complete instead of declaring `skipped`.
+    H2A_RUN_EXAMPLE: "1",
+    H2A_LOCK_STRESS: "1"
   };
 
   // Track's no-store fixtures intentionally walk to the filesystem root.
@@ -312,6 +400,10 @@ function main() {
   // `--reporter=json --outputFile`, so sharing a single path would let the
   // second suite overwrite the first one's evidence unnoticed.
   const vitestReportFor = (suite) => join(testRoot, `${suite.name.toLowerCase()}.json`);
+  // Lane pointer before this run (see cleanup in finally): the lane helper
+  // overwrites tmp/idlock-build2-lane.txt on every full run.
+  let lanePointerBefore = null;
+  try { lanePointerBefore = readFileSync(join(REPO_ROOT, "tmp", "idlock-build2-lane.txt"), "utf8"); } catch {}
   let exitCode = 0;
   try {
     const nodeStatus = runSuite("Node test suite", process.execPath,
@@ -328,6 +420,13 @@ function main() {
         trackTestEnv,
       );
     });
+    // Lane-scoped identity-lock suites (LANE_TEST_FILES): the isolated lane
+    // they require exists only inside identity-isolated-run.mjs, which builds
+    // it (previous-release bindings + lane TMPDIR) and runs exactly these
+    // files under the lane guard. Gated on exit status like the Vitest suites.
+    const laneStatus = runSuite("Identity lane suite", process.execPath,
+      [join(REPO_ROOT, "packages/h2a/test/helpers/identity-isolated-run.mjs"), ...LANE_TEST_FILES],
+      REPO_ROOT, trackFixtureEnv);
     let reports;
     try { reports = [nodeReport, trackReport].map((path) => JSON.parse(readFileSync(path, "utf8"))); }
     catch { reports = []; }
@@ -344,8 +443,31 @@ function main() {
     const reportPath = process.env.H2A_TEST_REPORT_PATH ?? NODE_TRACK_EXECUTION_REPORT;
     mkdirSync(dirname(reportPath), { recursive: true });
     writeFileSync(reportPath, JSON.stringify(combined));
-    exitCode = holes.length ? 1 : [nodeStatus, ...vitestStatuses].every((status) => status === 0) ? 0 : Math.max(nodeStatus, ...vitestStatuses);
+    exitCode = holes.length ? 1 : [nodeStatus, ...vitestStatuses, laneStatus].every((status) => status === 0) ? 0 : Math.max(nodeStatus, ...vitestStatuses, laneStatus);
   } finally {
+    // Best-effort cleanup of what this run provisioned. A preset legacy dir
+    // (owner-provided) is never ours to delete. The lane helper records the
+    // lane it built in tmp/idlock-build2-lane.txt: remove that lane — and the
+    // pointer, when it still names it — so OS tmp does not accumulate one lane
+    // per run. Cleanup warnings never mask the suite verdict.
+    try {
+      if (legacyHost.owned) rmSync(legacyHost.dir, { recursive: true, force: true });
+    } catch (error) {
+      process.stderr.write(`run-tests: warning: legacy host cleanup failed (${(error && error.message) || error})\n`);
+    }
+    try {
+      const pointer = join(REPO_ROOT, "tmp", "idlock-build2-lane.txt");
+      let after = null;
+      try { after = readFileSync(pointer, "utf8"); } catch {}
+      if (after && after !== lanePointerBefore) {
+        rmSync(after, { recursive: true, force: true });
+        try {
+          if (readFileSync(pointer, "utf8") === after) rmSync(pointer, { force: true });
+        } catch {}
+      }
+    } catch (error) {
+      process.stderr.write(`run-tests: warning: lane cleanup failed (${(error && error.message) || error})\n`);
+    }
     try {
       rmSync(testRoot, { recursive: true, force: true });
     } finally {
