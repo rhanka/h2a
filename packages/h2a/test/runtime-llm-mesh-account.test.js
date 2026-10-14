@@ -119,19 +119,19 @@ test(
       const tokenEqCanary = "canary-token-eq-3b5c7d9e1f2a";
       const badTokenEq = runIso("llm-mesh", "account", "enroll", "claude-code", `--token=${tokenEqCanary}`);
       assert.notEqual(badTokenEq.status, 0, badTokenEq.output);
-      assert.match(badTokenEq.output, /unknown option '--token'/);
+      assert.match(badTokenEq.output, /error: unknown option/);
       assert.doesNotMatch(badTokenEq.output, new RegExp(tokenEqCanary));
 
       const cliEqCanary = "canary-cli-eq-8a6b4c2d0e1f";
       const badCliEq = runIso("llm-mesh", "account", "enroll", "claude-code", `--cli=${cliEqCanary}`);
       assert.notEqual(badCliEq.status, 0, badCliEq.output);
-      assert.match(badCliEq.output, /unknown option '--cli'/);
+      assert.match(badCliEq.output, /error: unknown option/);
       assert.doesNotMatch(badCliEq.output, new RegExp(cliEqCanary));
 
       const tokenEqFirstCanary = "canary-token-eqfirst-1c3e5a7b9d";
       const badTokenEqFirst = runIso("llm-mesh", "account", "enroll", `--token=${tokenEqFirstCanary}`, "claude-code");
       assert.notEqual(badTokenEqFirst.status, 0, badTokenEqFirst.output);
-      assert.match(badTokenEqFirst.output, /unknown option '--token'/);
+      assert.match(badTokenEqFirst.output, /error: unknown option/);
       assert.doesNotMatch(badTokenEqFirst.output, new RegExp(tokenEqFirstCanary));
 
       // m1: option-first without provider (--cli <v> or --from cli <v>): provider
@@ -262,11 +262,11 @@ test(
       [`-t${secret}`, /error: unknown option(\n|$)/],
       [`--token=${secret}\n`, /error: unknown option(\n|$)/],
       [`"accessToken": "${secret}"`, /error: unknown option(\n|$)/],
-      [`--token=X error: ${secret}`, /unknown option '--token'/],
+      [`--token=X error: ${secret}`, /error: unknown option(\n|$)/],
       [`"e": "error: no"`, /error: unknown option(\n|$)/],
       [`x error: ${secret}`, /error: unknown command(\n|$)/],
       [`it's ${secret}`, /error: unknown command(\n|$)/],
-      [`a error: ${secret}`, /too many arguments for 'remove'\. Expected 1 argument but got 2\./],
+      [`a error: ${secret}`, /error: too many arguments(\n|$)/],
     ];
     try {
       for (const args of forms) {
