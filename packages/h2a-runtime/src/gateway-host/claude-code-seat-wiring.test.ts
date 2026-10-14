@@ -31,7 +31,7 @@ afterEach(() => {
 });
 
 describe("claude-seat-client (gateway host composition, common seat model)", () => {
-  it("exposes honest unpinned descriptors, never attestation", () => {
+  it("exposes static unpinned descriptors, never attestation", () => {
     expect(CLAUDE_SEAT_CAPABILITIES.protocol).toBe("claude-code-stream-json-v1");
     expect(Object.values(CLAUDE_SEAT_CAPABILITIES).every((value) => value.length > 0)).toBe(true);
   });
