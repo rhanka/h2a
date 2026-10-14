@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import { randomBytes } from "node:crypto";
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -184,13 +185,62 @@ test(
         assert.match(help.output, /<account-id>/);
       }
 
+      // Root error boundary: unknown commands are static, never echoed.
       const flat = runIso("llm-mesh", "enroll", "codex");
       assert.notEqual(flat.status, 0, flat.output);
-      assert.match(flat.output, /unknown command ['"]enroll['"]/i);
+      assert.match(flat.output, /error: unknown command/i);
 
       const legacy = runIso("account", "ls");
       assert.notEqual(legacy.status, 0, legacy.output);
-      assert.match(legacy.output, /unknown command ['"]account['"]/i);
+      assert.match(legacy.output, /error: unknown command/i);
+    } finally {
+      rmSync(isoBase, { recursive: true, force: true });
+    }
+  },
+);
+
+test(
+  "enroll root error boundary never echoes argv secrets in any form",
+  { skip: runtimeBuilt ? false : "packages/h2a-runtime/dist absent (run npx tsc -b)" },
+  () => {
+    // Property-style canary: one random secret injected in EVERY argv
+    // position/form across the enroll command tree (multi-line values,
+    // parent-placed options, attached short options, --opt=<v>, positionals,
+    // unknown options, unknown commands). No run may print it on stdout or
+    // stderr; every run must refuse without enrolling.
+    const isoBase = mkdtempSync(join(tmpdir(), "h2a-account-canary-"));
+    const isoEnv = {
+      HOME: isoBase,
+      XDG_RUNTIME_DIR: join(isoBase, "run"),
+      H2A_ROOT: join(isoBase, "h2a-root"),
+    };
+    const secret = `pz${randomBytes(18).toString("hex")}`;
+    const forms = [
+      ["llm-mesh", "account", "enroll", "claude-code", `--token=${secret}`],
+      ["llm-mesh", "account", "enroll", "claude-code", `--cli=${secret}`],
+      ["llm-mesh", "account", "enroll", "claude-code", `--token={\n  "accessToken": "${secret}"\n}`],
+      ["llm-mesh", "account", "enroll", "claude-code", `--token=${secret}\n`],
+      [`--token=${secret}`, "llm-mesh", "account", "enroll", "claude-code"],
+      ["llm-mesh", `--token=${secret}`, "account", "enroll", "claude-code"],
+      ["llm-mesh", "account", `--token=${secret}`, "enroll", "claude-code"],
+      ["llm-mesh", "account", "enroll", "claude-code", `-t${secret}`],
+      ["llm-mesh", "account", "enroll", "claude-code", `-${secret}`],
+      ["llm-mesh", "account", "enroll", "claude-code", `--tokn=${secret}`],
+      ["llm-mesh", "account", "enroll", secret],
+      ["llm-mesh", "account", "enroll", "claude-code", "--from", "token", secret],
+      ["llm-mesh", "account", "enroll", "claude-code", "--token", secret],
+      ["llm-mesh", "account", "enroll", "claude-code", "--cli", secret],
+      ["llm-mesh", "account", "enroll", "claude-code", `--from=${secret}`],
+      ["llm-mesh", "account", secret],
+      ["llm-mesh", secret, "account", "enroll", "claude-code"],
+      [secret],
+    ];
+    try {
+      for (const args of forms) {
+        const result = runWithEnv(args, isoEnv);
+        assert.notEqual(result.status, 0, `expected refusal for ${JSON.stringify(args)}: ${result.output}`);
+        assert.doesNotMatch(result.output, new RegExp(secret), `secret echoed for ${JSON.stringify(args)}: ${result.output}`);
+      }
     } finally {
       rmSync(isoBase, { recursive: true, force: true });
     }
