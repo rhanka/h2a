@@ -10677,23 +10677,37 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
       "enrollment source: oauth (default), cli (provider official CLI store) or token (secret-manager credential)",
     )
     .option(
-      "--cli [value]",
+      "--cli",
       "import credentials from the provider's local CLI store (muse, claude-code) instead of the OAuth flow. Takes no value",
     )
     .option(
-      "--token [value]",
+      "--token",
       "import a serialized credential from a secret manager into llm-mesh (claude-code only): pipe it on stdin, or enter it at the masked prompt. Takes no value; never argv, never logged",
     )
+    .allowExcessArguments(true)
     .action(
       async (
         provider: string,
         opts: {
           configRef?: string;
           from?: string;
-          cli?: boolean | string;
-          token?: boolean | string;
+          cli?: boolean;
+          token?: boolean;
         },
+        command: { args?: unknown },
       ) => {
+        // Static excess-argument refusal (m1): commander would otherwise echo
+        // every positional value (including a secret) on stderr before the
+        // action runs. Excess positionals are refused here without echoing
+        // any value. Token material travels on stdin only, never argv.
+        const positionalCount = Array.isArray(command?.args) ? command.args.length : 1;
+        if (positionalCount > 1) {
+          process.stderr.write(
+            "[h2a] llm-mesh account: too many arguments (expected provider only; never pass secrets in argv)\n",
+          );
+          process.exitCode = 1;
+          return;
+        }
         // "vibe" is the CLI-friendly alias of the mistral-vibe transport.
         const normalized = provider === "vibe" ? "mistral-vibe" : provider;
         if (normalized === "muse-code") {
@@ -10703,13 +10717,6 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           process.stderr.write(
             "[h2a] llm-mesh account: muse-code was removed; use " +
               "'h2a llm-mesh account enroll muse' (OAuth) or add --cli (CLI-store import)\n",
-          );
-          process.exitCode = 1;
-          return;
-        }
-        if (typeof opts.cli === "string" || typeof opts.token === "string") {
-          process.stderr.write(
-            "[h2a] llm-mesh account: --cli and --token take no value (pipe the credential on stdin or use the masked prompt; never argv)\n",
           );
           process.exitCode = 1;
           return;
