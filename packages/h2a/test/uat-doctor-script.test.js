@@ -326,8 +326,18 @@ exit 0
     UAT_FAKE_CANDIDATE_SOURCE: candidate,
     UAT_INTERRUPT_READY: ready,
     UAT_GIT_TRACE: join(fixture.root, "git-trace"),
+    UAT_GH_TRACE: join(fixture.root, "gh-trace"),
     UAT_TEST_TAR: commandPath("tar")
   };
+  writeFileSync(env.UAT_GH_TRACE, "");
+  writeExecutable(
+    join(fixture.fakeBin, "gh"),
+    `#!/bin/sh
+[ -z "\${UAT_GH_TRACE-}" ] || printf '%s\n' "$*" >> "$UAT_GH_TRACE"
+printf '%s\n' "unexpected gh invocation: $*" >&2
+exit 127
+`
+  );
   delete env.CODEX_HOME;
   delete env.CLAUDE_CONFIG_DIR;
   delete env.UAT_SOURCE_DIR;
@@ -701,7 +711,9 @@ test("uat-doctor should resolve checkout HEAD without invoking gh", async () => 
     assert.deepEqual(result, { code: 130, signal: null }, `stdout:\n${stdout}\nstderr:\n${stderr}`);
     assert.match(stdout, /candidat \.\.\.\.\.\.\.\.\.\.\.\. 0123456789ab \(version 0\.99\.0-uat\)/);
     assert.match(stdout, /provenance \.\.\.\.\.\.\.\.\.\. HEAD du checkout/);
-    assert.doesNotMatch(stderr, /gh/);
+    assert.equal(readFileSync(env.UAT_GH_TRACE, "utf8"), "", `gh was invoked during candidate resolution, stderr:\n${stderr}`);
+    assert.doesNotMatch(stderr, /gh: command not found/);
+    assert.doesNotMatch(stderr, /unexpected gh invocation/);
     assert.match(readFileSync(env.UAT_GIT_TRACE, "utf8"), /rev-parse --verify --end-of-options HEAD\^\{commit\}/);
   } finally {
     if (child && child.exitCode === null && child.signalCode === null) {
@@ -741,7 +753,9 @@ test("uat-doctor should use an explicit release tag without invoking gh", async 
     assert.deepEqual(result, { code: 130, signal: null }, `stdout:\n${stdout}\nstderr:\n${stderr}`);
     assert.match(stdout, /candidat \.\.\.\.\.\.\.\.\.\.\.\. 0123456789ab \(version 0\.99\.0-uat\)/);
     assert.match(stdout, /provenance \.\.\.\.\.\.\.\.\.\. H2A_UAT_SHA fourni \(release-0\.99\.0\)/);
-    assert.doesNotMatch(stderr, /gh/);
+    assert.equal(readFileSync(env.UAT_GH_TRACE, "utf8"), "", `gh was invoked during candidate resolution, stderr:\n${stderr}`);
+    assert.doesNotMatch(stderr, /gh: command not found/);
+    assert.doesNotMatch(stderr, /unexpected gh invocation/);
     assert.match(readFileSync(env.UAT_GIT_TRACE, "utf8"), /rev-parse --verify --end-of-options release-0\.99\.0\^\{commit\}/);
   } finally {
     if (child && child.exitCode === null && child.signalCode === null) {
