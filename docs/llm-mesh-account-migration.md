@@ -128,7 +128,7 @@ All paths persist credentials exclusively through the existing mesh-managed encr
 
 ### Secret boundary and owner isolation
 
-- Interactive terminal (TTY) is required for credential entry; non-interactive captures fail closed.
+- Masked TTY prompts cover OAuth and interactive `--from token` entry; nothing secret travels in argv and nothing secret is logged. `--from token` with piped stdin (non-TTY) reads the secret-manager output; `--from cli` reads no input (official CLI store file only).
 - The owner scope is bound to trusted host identity (`H2A_LLM_MESH_OWNER_SCOPE`, defaulting to `cli:<hostname>`). Foreign owners cannot inspect, acquire or remove the account.
 - The running gateway loads accounts at boot time only. After enrollment or import, restart the local gateway:
   ```sh
