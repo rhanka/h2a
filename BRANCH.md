@@ -27,8 +27,11 @@ Kept: facade enrollment (OAuth default + `--from cli` official store +
 `--from token` secret-manager pipe, DEC-119), mesh keyring
 storage/refresh, transport-specific hygiene of the CLI seat
 (identity-proven sweep, sandbox transport, cleanup blocking the result,
-static and sanitized error boundary — never echoes values across any
-enroll argument form), masked TTY input / piped-token boundary (never
+root-level static error boundary (inherited by every subcommand —
+never echoes values across any enroll argument form: `--token=<v>`,
+multi-line values, parent-placed options, attached short options,
+positionals, unknown options/commands, proven by property canary),
+masked TTY input / piped-token boundary (never
 argv, never logged). The startup sweep runs at every gateway
 composition even with no Claude account enrolled.
 
