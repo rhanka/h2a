@@ -1,4 +1,4 @@
-import { createPrivateTestDirectory, nativeTestEnvironment, spawnIsolatedNative as spawn, setupNativeTestEnvironment } from "./helpers/native-isolation.js";
+import { createPrivateTestDirectory, nativeTestEnvironment, spawnIsolatedNative as spawn, setupNativeTestEnvironment, stopPrivateNativeProcesses } from "./helpers/native-isolation.js";
 import assert from "node:assert/strict";
 import { once } from "node:events";
 import { createHash, randomUUID } from "node:crypto";
@@ -29,23 +29,39 @@ async function stop(started) {
   }
   await started.closed;
 }
-async function ready(started) {
-  if (started.output().stdout.includes("ready")) return;
-  await Promise.race([once(started.process.stdout, "data"), started.exited.then(() => { throw new Error(started.output().stderr); })]);
+async function ready(started, marker = "ready") {
+  while (!started.output().stdout.includes(marker)) {
+    await Promise.race([once(started.process.stdout, "data"), started.exited.then(() => { throw new Error(started.output().stderr); })]);
+  }
 }
 
-test("should bound cross-process publication lock contention at 5 seconds and release only its own resources", { timeout: 9_000 }, async () => {
+function fixtureCleanup(t, f, children) {
+  let cleanup;
+  const run = () => cleanup ??= (async () => {
+    // Pin descendants before host death and reap even if Node cancels the test.
+    try { await stopPrivateNativeProcesses(f.env); }
+    finally { for (const started of children) await stop(started); }
+    rmSync(f.root, { recursive: true, force: true });
+  })();
+  t.after(run);
+  return run;
+}
+
+test("should bound cross-process publication lock contention at 5 seconds and release only its own resources", { timeout: 9_000 }, async (t) => {
   const f = fixture(), secret = randomUUID();
+  const children = [], cleanup = fixtureCleanup(t, f, children);
   const identity = join(f.root, ".h2a-native-terminal.lock-id");
   writeFileSync(identity, `${secret}\n`, { mode: 0o600 });
   const address = "\0h2a-terminal-lock-" + createHash("sha256").update(`${process.getuid()}:${f.path}:${secret}`).digest("hex");
   const holder = child(process.execPath, ["--input-type=module", "-e", `import {createServer} from 'node:net';
     const server=createServer();server.listen(${JSON.stringify(address)},()=>console.log('ready'));`], f.env);
+  children.push(holder);
   let contender;
   try {
     await ready(holder);
     const begun = Date.now();
     contender = child(process.execPath, [entry, "--socket", f.path, "--registry-path", join(f.root, "registry.json")], f.env);
+    children.push(contender);
     const [status] = await contender.closed;
     assert.equal(status, 3, contender.output().stderr);
     assert.match(contender.output().stderr, /H2A_SOCKET_PUBLICATION_TIMEOUT/);
@@ -55,11 +71,12 @@ test("should bound cross-process publication lock contention at 5 seconds and re
     assert.equal(readFileSync(identity, "utf8").trim(), secret);
     assert.equal(existsSync(f.path), false);
     assert.match(readFileSync(join(f.env.XDG_STATE_HOME, "h2a", "native-host.log"), "utf8"), /"event":"startupError"/);
-  } finally { if (contender) await stop(contender); await stop(holder); rmSync(f.root, { recursive: true, force: true }); }
+  } finally { await cleanup(); }
 });
 
-test("should admit only one owning host under simultaneous cross-process publication", { timeout: 8_000 }, async () => {
+test("should admit only one owning host under simultaneous cross-process publication", { timeout: 8_000 }, async (t) => {
   const f = fixture(), children = [];
+  const cleanup = fixtureCleanup(t, f, children);
   let client;
   try {
     for (let i = 0; i < 2; i++) children.push(child(process.execPath, [entry, "--socket", f.path, "--generation", `publisher-${i}`,
@@ -72,8 +89,9 @@ test("should admit only one owning host under simultaneous cross-process publica
     assert.match(loser.output().stderr, /endpoint owned by a live older host/);
     const winner = children.find(c => c !== loser);
     assert.equal(winner.process.exitCode, null);
+    await ready(winner, '"kind":"h2a.native-terminal.ready"');
     client = await NativeTerminalClient.connect(f.path);
     assert.equal((await client.ping()).hostPid, winner.process.pid);
     assert.equal((await client.ping()).generation, `publisher-${children.indexOf(winner)}`);
-  } finally { client?.close(); for (const c of children) await stop(c); rmSync(f.root, { recursive: true, force: true }); }
+  } finally { client?.close(); await cleanup(); }
 });

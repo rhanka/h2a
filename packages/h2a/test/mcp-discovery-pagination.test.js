@@ -146,7 +146,12 @@ test("T6: invalid limit and cursor are typed errors", async (t) => {
 
   // Tamper a valid cursor's MAC.
   const good = await discover(mcp, { limit: 3 });
-  const tampered = `${good.body.nextCursor.slice(0, -2)}xx`;
+  const [body, encodedMac] = good.body.nextCursor.split(".");
+  const mac = Buffer.from(encodedMac, "base64url");
+  // Changing trailing base64url padding bits can leave the decoded MAC intact.
+  // Flip an authenticated byte, so every random server secret is exercised.
+  mac[0] ^= 1;
+  const tampered = `${body}.${mac.toString("base64url")}`;
   const t2 = await discover(mcp, { cursor: tampered });
   assert.equal(t2.isError, true);
   assert.equal(t2.body.code, "invalid_cursor");

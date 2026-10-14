@@ -109,15 +109,23 @@ afterEach(async () => {
     const procView = processGroups.size === 0 ? undefined : createOwnedProcView(process.env.TMPDIR!, seen);
     // A zombie has already died; the private process proof must find no live
     // descendant even when the test aborted before normal production reaping.
+    const reapDeadline = performance.now() + 1_000;
     for (const pgid of processGroups) {
-      let empty = false;
-      try { process.kill(-pgid, 0); }
-      catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
-        empty = true;
+      for (;;) {
+        let empty = false;
+        try { process.kill(-pgid, 0); }
+        catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
+          empty = true;
+        }
+        // The group can disappear between the existence probe and either
+        // zombie census. A changing census is a refusal, so repeat the proof
+        // until ESRCH or two stable zombie censuses, never assume it is dead.
+        if (empty || groupIsOnlyZombies(pgid, procView)) break;
+        expect(performance.now(),
+          `teardown left a live descendant in process group ${pgid}`).toBeLessThan(reapDeadline);
+        await new Promise(resolve => setTimeout(resolve, 10));
       }
-      expect(empty || groupIsOnlyZombies(pgid, procView),
-        `teardown left a live descendant in process group ${pgid}`).toBe(true);
     }
   } finally {
     for (const child of children) {
