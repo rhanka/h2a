@@ -2,8 +2,8 @@
 import { createPrivateTestDirectory, nativeTestEnvironment, setupNativeTestEnvironment, spawnIsolatedNative as spawn } from "../../h2a/test/helpers/native-isolation.js";
 import { afterAll, expect, it, vi } from "vitest";
 import { once } from "node:events";
-import { readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { readProcessFrame } from "../src/proc-identity.js";
 import { resolveRegistryPath } from "../src/registry.js";
@@ -17,6 +17,7 @@ it("should forbid kill(-pgid) and unlink across real PID and network namespaces"
   const root = createPrivateTestDirectory("ns");
   const socketPath = join(root, "h");
   const registryPath = resolveRegistryPath();
+  mkdirSync(dirname(registryPath), { recursive: true, mode: 0o700 });
   const runtime = fileURLToPath(new URL("../dist/", import.meta.url));
   const script = join(root, "namespace-owner.mjs");
   writeFileSync(script, `
