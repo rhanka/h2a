@@ -15,7 +15,7 @@ import { ClaudeCodeRuntimeClient } from "@sentropic/cluster-mesh/llm-mesh";
 import { OfficialClaudeCodeCliRunner } from "../claude-code-cli-runner.js";
 
 /**
- * Honest static descriptors. The mesh contract requires non-empty
+ * Static descriptors. The mesh contract requires non-empty
  * `cliVersion` / `source` / `qualificationRef` strings; these name the
  * resolution mechanism and claim no verification.
  */
