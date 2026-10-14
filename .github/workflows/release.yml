@@ -119,6 +119,9 @@ jobs:
         shell: bash
       - run: npm run typecheck
         shell: bash
+      - name: Install the mandatory configuration oracles
+        shell: bash
+        run: npm install --global @openai/codex@0.145.0 @anthropic-ai/claude-code@2.1.296
       # SPEC 0.98.5 R8.1: the trust root runs BEFORE npm test, at this same
       # SHA, so the gate runner cannot grade its own exam and no publication
       # can escape it even if ci.yml is blind.

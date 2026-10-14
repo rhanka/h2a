@@ -438,6 +438,7 @@ test('CI exposes an independent, stable npm-test-trust-root job', () => {
     commands,
     [
       'npm ci',
+      'npm install --global @openai/codex@0.145.0 @anthropic-ai/claude-code@2.1.296',
       'node --test packages/h2a/test/run-test-gates.test.js',
       'node scripts/run-test-gates.mjs',
     ],

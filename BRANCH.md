@@ -79,3 +79,11 @@ fixtures in shallow checkouts, build native qualification in workspace order,
 and prove fixture host/journal teardown on success, failure and timeout.
 The owner abolished the out-of-gate native kernel qualification and authorized
 one final full integration run for this repair. No merge or release is authorized.
+
+CI exposed additional blocking fixtures after the historical builds ran:
+the namespace registry parent was absent, the reaper probed a group before
+checking its frame, mandatory host configuration oracles were not installed,
+the 30x24 lock stress reloaded the full API per worker, and Node 24 selected
+the spec reporter for a nested timeout proof. Targeted checks cover the fixes;
+the stress load and 120-second deadline stay unchanged. The single local full
+run passed before these CI follow-ups; final acceptance belongs to head CI.
