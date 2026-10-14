@@ -2652,27 +2652,45 @@ function setAndReportDefaultRemote(url: string): void {
 }
 
 // Root commander error sanitizer (DEC-119): commander echoes user-supplied
-// argv text in unknown-option flags (`--opt=<value>`, attached short
-// `-x<value>`, both possibly multi-line), unknown-command names, and
-// excess-argument details. Only the option/command kind is kept; values
-// never print. Configured on the ROOT program before any `.command()`
-// registration, so every subcommand inherits it via `copyInheritedSettings`
-// — including options placed on parent commands.
-function optionNameOfFlag(flag: string): string {
-  if (flag.startsWith("--")) {
-    const cut = flag.search(/[\s=]/);
-    const name = cut === -1 ? flag : flag.slice(0, cut);
-    return name.length >= 3 ? name : "--";
-  }
-  return flag.slice(0, 2);
+// argv text in unknown-option flags (`--opt<value>`, `--opt=<value>`,
+// attached short `-x<value>`, all possibly multi-line, quote-bearing, or
+// containing `error: `), unknown-command names, and excess-argument
+// details. Only DECLARED option names are ever kept; every other error is a
+// static message. Anything unclassifiable falls back to the static message
+// (fail closed): user-typed text is never parsed and forwarded. Configured
+// on the ROOT program before any `.command()` registration, so every
+// subcommand inherits it via `copyInheritedSettings` — including options
+// placed on parent commands.
+function collectDeclaredOptionFlags(program: Command): Set<string> {
+  // Seed with the implicit flags commander adds to every command.
+  const declared = new Set(["-h", "--help", "-V", "--version"]);
+  const visit = (command: Command): void => {
+    for (const option of command.options) {
+      if (option.short) declared.add(option.short);
+      if (option.long) declared.add(option.long);
+    }
+    for (const child of command.commands) visit(child);
+  };
+  visit(program);
+  return declared;
 }
 
 // Suggestion tails name only known commands/options, so a strictly shaped
 // tail is safe to keep; anything else is treated as part of the value.
 const SUGGESTION_TAIL = /\n\(Did you mean [A-Za-z0-9_, \-]*\?\)/;
 
-function sanitizeUnknownOptionErrors(text: string): string {
+function sanitizeUnknownOptionErrors(text: string, declared: Set<string>): string {
   const prefix = "error: unknown option '";
+  // Strict shape only: a single-line quoteless flag, then the closing
+  // quote, then an optional suggestion tail and end of line/input. The
+  // value (after `=` or attached to a short) is always dropped; a long
+  // name is kept only when declared, a short never (see below). A forged
+  // tail cannot hide in the flag: it would need the newline the flag
+  // charset excludes, so a tail found here is commander-generated
+  // (declared names only).
+  const tail = `(${SUGGESTION_TAIL.source})?`;
+  const longStrict = new RegExp(`^--([^=\\s'"\x60\\n]+)(=[^\\n']*)?'` + tail + `(?=\\n|$)`);
+  const shortStrict = new RegExp(`^-([A-Za-z0-9?])([^\\n']*)?'` + tail + `(?=\\n|$)`);
   let result = "";
   let cursor = 0;
   for (;;) {
@@ -2682,33 +2700,33 @@ function sanitizeUnknownOptionErrors(text: string): string {
       break;
     }
     result += text.slice(cursor, start);
-    const flagStart = start + prefix.length;
-    const rest = text.slice(flagStart);
-    const suggestion = rest.match(SUGGESTION_TAIL);
-    if (suggestion?.index !== undefined) {
-      const marker = flagStart + suggestion.index;
-      if (text[marker - 1] === "'") {
-        const flag = text.slice(flagStart, marker - 1);
-        const tailEnd = marker + suggestion[0].length;
-        result += `${prefix}${optionNameOfFlag(flag)}'${text.slice(marker, tailEnd)}`;
-        cursor = tailEnd;
-        continue;
-      }
-    }
-    const bound = (() => {
-      const next = text.indexOf("error: ", flagStart);
-      return next === -1 ? text.length : next;
-    })();
-    const windowText = text.slice(flagStart, bound);
-    const closeRelative = windowText.lastIndexOf("'");
-    if (closeRelative === -1) {
-      result += text.slice(start, bound);
-      cursor = bound;
+    const rest = text.slice(start + prefix.length);
+    const longMatch = longStrict.exec(rest);
+    if (longMatch) {
+      const name = `--${longMatch[1]}`;
+      const suggestion = longMatch[3] ?? "";
+      result += declared.has(name)
+        ? `${prefix}${name}'${suggestion}`
+        : `error: unknown option${suggestion}`;
+      cursor = start + prefix.length + longMatch[0].length;
       continue;
     }
-    const flag = windowText.slice(0, closeRelative);
-    result += `${prefix}${optionNameOfFlag(flag)}'`;
-    cursor = flagStart + closeRelative + 1;
+    const shortMatch = shortStrict.exec(rest);
+    if (shortMatch) {
+      // Shorts never keep a name: the kept prefix would end inside the
+      // attached value, so the kept-or-static decision itself would depend
+      // on the secret's first character. Static closes that oracle; the
+      // kept text is then secret-independent. (Commander only suggests
+      // long options, so the tail is empty for shorts in practice.)
+      const suggestion = shortMatch[3] ?? "";
+      result += `error: unknown option${suggestion}`;
+      cursor = start + prefix.length + shortMatch[0].length;
+      continue;
+    }
+    // Unclassifiable (multi-line, quote-bearing, or otherwise shaped):
+    // fail closed — drop the marker and everything after it.
+    result += "error: unknown option";
+    break;
   }
   return result;
 }
@@ -2749,9 +2767,12 @@ function sanitizeUnknownCommandErrors(text: string): string {
   return result;
 }
 
-function sanitizeH2aCommanderErrorOutput(raw: string): string {
+function sanitizeH2aCommanderErrorOutput(raw: string, program: Command): string {
   if (!raw.includes("error: ")) return raw;
-  let out = sanitizeUnknownOptionErrors(raw);
+  let out = raw;
+  if (out.includes("error: unknown option")) {
+    out = sanitizeUnknownOptionErrors(out, collectDeclaredOptionFlags(program));
+  }
   out = sanitizeUnknownCommandErrors(out);
   // Excess-argument details list the received values: drop them, keep counts.
   out = out.replace(
@@ -2846,10 +2867,10 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
   // the error line itself; `writeErr` covers any other stderr error text.
   program.configureOutput({
     writeErr: (str) => {
-      process.stderr.write(sanitizeH2aCommanderErrorOutput(str));
+      process.stderr.write(sanitizeH2aCommanderErrorOutput(str, program));
     },
     outputError: (str, write) => {
-      write(sanitizeH2aCommanderErrorOutput(str));
+      write(sanitizeH2aCommanderErrorOutput(str, program));
     },
   });
 
