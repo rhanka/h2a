@@ -86,6 +86,29 @@ describe("claude-code-cli-runner (protocol)", () => {
     expect(resolveClaudeBinaryFromPath({ PATH: "" })).toBeUndefined();
     expect(resolveClaudeBinaryFromPath({ PATH: "/nonexistent-dir" })).toBeUndefined();
 
+    // m3 (r8): a directory or a non-executable file named `claude` earlier
+    // on PATH never masks the real CLI — only a regular executable file
+    // resolves.
+    const maskDir = join(RUNNER_SCRATCH, "path-mask");
+    const realDir = join(RUNNER_SCRATCH, "path-real");
+    mkdirSync(maskDir, { recursive: true });
+    mkdirSync(realDir, { recursive: true });
+    mkdirSync(join(maskDir, "claude"), { recursive: true });
+    const maskedFile = join(RUNNER_SCRATCH, "path-mask-file");
+    mkdirSync(maskedFile, { recursive: true });
+    const nonExec = join(maskedFile, "claude");
+    writeFileSync(nonExec, "#!/bin/sh\nexit 1\n");
+    chmodSync(nonExec, 0o644);
+    const realClaude = join(realDir, "claude");
+    writeFileSync(realClaude, "#!/bin/sh\nexit 1\n");
+    chmodSync(realClaude, 0o755);
+    expect(
+      resolveClaudeBinaryFromPath({ PATH: `${maskDir}${delimiter}${maskedFile}${delimiter}${realDir}` }),
+    ).toBe(realClaude);
+    expect(
+      resolveClaudeBinaryFromPath({ PATH: `${maskDir}${delimiter}${maskedFile}` }),
+    ).toBeUndefined();
+
     // Deterministic regardless of the ambient PATH: no candidate exists.
     const savedPath = process.env.PATH;
     try {
@@ -130,6 +153,12 @@ describe("claude-code-cli-runner (protocol)", () => {
     await expect(
       runOnce({ binaryPath: "/nonexistent-dir-named-h2a/claude" }),
     ).rejects.toThrow("binary does not exist");
+    if (process.geteuid?.() !== 0) {
+      const nonExecPath = join(RUNNER_SCRATCH, "non-exec-claude");
+      writeFileSync(nonExecPath, "#!/bin/sh\nexit 1\n");
+      chmodSync(nonExecPath, 0o644);
+      await expect(runOnce({ binaryPath: nonExecPath })).rejects.toThrow("binary not executable");
+    }
     await expect(
       runOnce({ capabilities: { ...validCaps, protocol: "other-protocol" } }),
     ).rejects.toThrow("unsupported protocol");
