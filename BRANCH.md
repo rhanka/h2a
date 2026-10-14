@@ -31,7 +31,8 @@ root-level static error boundary (inherited by every subcommand —
 commander never prints its own text: `outputError` is a no-op,
 `exitOverride` writes a static message chosen ONLY from `err.code`
 (unknown option, unknown command, too many arguments, missing argument,
-invalid value, fallback); no declared name kept, no counts, no suggestion;
+option argument missing, required option not specified, conflicting option,
+invalid argument, fallback); no declared name kept, no counts, no suggestion;
 multi-line values ending a line with `'` or `.`, unknown commands with
 newline, `remove` with a dotted first line all static; proven by a 34-form
 property canary with exact static-shape asserts for every form),
