@@ -11,18 +11,16 @@
 import { randomBytes } from "node:crypto";
 import { createServer, type Server } from "node:http";
 
-import {
-  H2A_AUTHORITY_MATRIX,
-  canSignArtifactKind,
-  createReplayGuard,
-  signCanonical,
-  verifyCanonical,
-  type H2AActorRegistration,
-  type H2AEnvelope,
-  type H2ALaunchContext,
-  type H2AReplayGuard,
-  type H2ASignature
+import type {
+  H2AActorRegistration,
+  H2AEnvelope,
+  H2ALaunchContext,
+  H2AReplayGuard,
+  H2ASignature
 } from "@sentropic/h2a";
+import { H2A_AUTHORITY_MATRIX, canSignArtifactKind } from "../../authority.js";
+import { createReplayGuard } from "../../replay.js";
+import { signCanonical, verifyCanonical } from "../../signature.js";
 
 import type { ConsentReason, ConsentDecision } from "./consent.js";
 import type { LocalStore } from "../local-files/store.js";

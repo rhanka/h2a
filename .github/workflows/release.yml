@@ -20,12 +20,55 @@ permissions:
   packages: write
 
 jobs:
+  # SPEC 0.98.5 R8.2: the release SHA is resolved ONCE, HERE, before any
+  # matrix leg exists. The review reproduced the race this job removes: with
+  # each verify leg resolving the (mutable) tag by itself, two legs could
+  # gate two different commits while the artifacts came from only one of
+  # them, and the shared output could describe the other leg's SHA.
+  resolve-release-sha:
+    runs-on: ubuntu-latest
+    outputs:
+      release-sha: ${{ steps.resolve.outputs.sha }}
+    steps:
+      # Resolve the EXACT release SHA BEFORE any checkout. For a tag push
+      # GITHUB_SHA is already the peeled commit; for a backfill dispatch the
+      # tag is peeled here — once for the whole run.
+      - name: Resolve the exact release SHA (once, before any checkout)
+        id: resolve
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            tag="v${{ inputs.backfill-version }}"
+            remote="https://github.com/${GITHUB_REPOSITORY}.git"
+            sha="$(git ls-remote "$remote" "refs/tags/${tag}^{}" | cut -f1)"
+            if [ -z "$sha" ]; then
+              sha="$(git ls-remote "$remote" "refs/tags/${tag}" | cut -f1)"
+            fi
+            if [ -z "$sha" ]; then
+              echo "::error::Tag ${tag} does not exist on the remote; refusing to gate or publish it." >&2
+              exit 1
+            fi
+          else
+            sha="${GITHUB_SHA}"
+          fi
+          echo "sha=${sha}" >> "$GITHUB_OUTPUT"
+          echo "Resolved release SHA: ${sha}"
+
   verify:
-    # The verify gate only runs for real tag pushes: a backfill dispatch
-    # targets a version that the original tag run already gated.
-    if: github.event_name == 'push'
+    # SPEC 0.98.5 R8.4 (gel total): verify runs for EVERY publication path —
+    # tag pushes AND backfill dispatches. The old `if: github.event_name == 'push'`
+    # let a backfill publish with zero tests on the same workflow.
+    needs: resolve-release-sha
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 15
+    # SPEC 0.98.5 R8: verify now also runs the runtime TypeScript suites
+    # (npm test) and the packaged-artifact smoke; 15 minutes no longer fits.
+    timeout-minutes: 30
+    outputs:
+      # The exact commit verify gated: the ONE SHA resolved by
+      # resolve-release-sha. publish MUST consume this SHA and never
+      # re-resolve a mutable tag (TOCTOU).
+      release-sha: ${{ needs.resolve-release-sha.outputs.release-sha }}
     strategy:
       fail-fast: false
       matrix:
@@ -37,17 +80,23 @@ jobs:
         # What this gate no longer proves: that the released code works on macOS or Windows.
         # `smoke-install` on push-to-main still exercises the PUBLISHED package on all three.
         os: [ubuntu-latest]
-        node: ["20", "22"]
+        node: ["22", "24"]
     steps:
+      # SPEC 0.98.5 R8.2: verify NEVER resolves the SHA itself — the ONE
+      # resolution happened in resolve-release-sha before this matrix
+      # existed. Per-leg resolution is the review's race: two legs could
+      # gate two different commits while the artifacts came from one.
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.resolve-release-sha.outputs.release-sha }}
 
       - name: Ensure release tag is on main
         shell: bash
         run: |
           set -euo pipefail
           git fetch origin main
-          if ! git merge-base --is-ancestor "${GITHUB_SHA}" origin/main; then
-            echo "::error::Refusing release: ${GITHUB_REF} points to ${GITHUB_SHA}, which is not on origin/main."
+          if ! git merge-base --is-ancestor "${{ needs.resolve-release-sha.outputs.release-sha }}" origin/main; then
+            echo "::error::Refusing release: the release commit ${{ needs.resolve-release-sha.outputs.release-sha }} is not on origin/main."
             echo "::error::Create the tag only after the version commit is merged into main."
             exit 1
           fi
@@ -57,41 +106,112 @@ jobs:
           node-version: ${{ matrix.node }}
           cache: npm
 
+      - name: Prove effective Node version and release checkout
+        shell: bash
+        run: |
+          set -euo pipefail
+          node -e 'if (process.versions.node.split(".")[0] !== process.argv[1]) process.exit(1)' "${{ matrix.node }}"
+          test "$(git rev-parse HEAD)" = "${{ needs.resolve-release-sha.outputs.release-sha }}"
+
       - run: npm ci
+        shell: bash
       - run: npm run audit:security
+        shell: bash
       - run: npm run typecheck
+        shell: bash
+      - name: Install the mandatory configuration oracles
+        shell: bash
+        run: npm install --global @openai/codex@0.145.0 @anthropic-ai/claude-code@2.1.296
+      # SPEC 0.98.5 R8.1: the trust root runs BEFORE npm test, at this same
+      # SHA, so the gate runner cannot grade its own exam and no publication
+      # can escape it even if ci.yml is blind.
+      - name: Test npm test gate runner directly (trust root)
+        shell: bash
+        run: node --test packages/h2a/test/run-test-gates.test.js
       - run: npm test
+        shell: bash
+      # Build once, then smoke and upload these same three tarballs.
+      - name: Pack the three lockstep packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist-tarballs
+          for pkg in @sentropic/h2a @sentropic/h2a-runtime @sentropic/h2a-cli; do
+            npm pack --workspace "$pkg" --pack-destination dist-tarballs
+          done
+          (cd dist-tarballs && sha256sum *.tgz > sha256sums.txt && cat sha256sums.txt)
+          # SPEC 0.98.5 R8.2: TIE the artifact manifest to the one resolved
+          # SHA — the manifest travels with the bytes it describes, and
+          # publish re-checks it before any npm publish.
+          echo "${{ needs.resolve-release-sha.outputs.release-sha }}" > dist-tarballs/release-sha.txt
+
+      - name: Smoke the packaged artifact
+        shell: bash
+        run: npm run smoke:artifact -- --tarballs dist-tarballs
+
+      - name: Upload the tarballs as run artifacts
+        # The ONE sanctioned step-level condition (pinned exactly by the
+        # release-workflow test): upload-artifact forbids duplicate artifact
+        # names, and a leg that fails to upload blocks publish's download
+        # fail-closed — the condition cannot silently read green.
+        if: matrix.node == '22'
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-tarballs
+          path: dist-tarballs/
+          if-no-files-found: error
 
   publish:
     needs: verify
-    # On a backfill dispatch the verify job is skipped (the tag run already
-    # gated that version); publish then proceeds on the skipped result.
-    if: ${{ !cancelled() && !failure() && (needs.verify.result == 'success' || needs.verify.result == 'skipped') }}
+    # SPEC 0.98.5 R8.2/R8.4: publish proceeds ONLY on an observed verify
+    # success. The old `|| needs.verify.result == 'skipped'` let a backfill
+    # dispatch publish with zero tests; a skipped verify is now a blocked
+    # publication, by design.
+    if: ${{ !cancelled() && !failure() && needs.verify.result == 'success' }}
     runs-on: ubuntu-latest
     steps:
+      # SPEC 0.98.5 R8.2: publish consumes the SAME SHA verify gated. Never a
+      # tag name: a tag is mutable, the SHA is not.
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event_name == 'workflow_dispatch' && format('v{0}', inputs.backfill-version) || github.ref }}
+          ref: ${{ needs.verify.outputs.release-sha }}
+
+      # SPEC 0.98.5 R8.2: publish downloads the tarballs verify built and
+      # verifies every sha256 BEFORE publishing: the registry receives THESE
+      # bytes or nothing.
+      - name: Download the verify-built tarballs
+        uses: actions/download-artifact@v4
+        with:
+          name: release-tarballs
+          path: dist-tarballs
+
+      - name: Verify the tarball sha256 (publish these exact bytes or none)
+        shell: bash
+        run: |
+          set -euo pipefail
+          (cd dist-tarballs && sha256sum --check --strict sha256sums.txt)
+          # SPEC 0.98.5 R8.2: the manifest is TIED to the gated SHA. If these
+          # bytes were not packed from the exact commit verify gated, refuse.
+          manifest_sha="$(cat dist-tarballs/release-sha.txt)"
+          gated_sha="${{ needs.verify.outputs.release-sha }}"
+          if [ "$manifest_sha" != "$gated_sha" ]; then
+            echo "::error::Artifact manifest SHA ${manifest_sha} != verify-gated SHA ${gated_sha}; refusing to publish bytes of an ungated commit." >&2
+            exit 1
+          fi
 
       - uses: actions/setup-node@v4
         with:
-          # Node 22.22.2 hosted-toolcache npm is currently missing a transitive
-          # npm install dependency; use Node 20 only for the publish bootstrap.
-          node-version: "20"
+          # Owner decision 2026-10-12: minimum Node 22, including publish.
+          node-version: "22"
 
       - name: Use npm with trusted publishing support
+        shell: bash
         run: npm install -g npm@^11.15.0
 
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Typecheck
-        if: github.event_name == 'push'
-        run: npm run typecheck
-
-      - name: Run tests
-        if: github.event_name == 'push'
-        run: npm test
+      # SPEC 0.98.5 R8.2: no re-run of typecheck/tests here. verify already
+      # gated THIS SHA (trust root, npm test, smoke); publish only converts the
+      # verified bytes into registry publications. A second test run would be
+      # a second, weaker source of truth.
 
       - name: Version sanity gate (tag vs package.json)
         shell: bash
@@ -111,9 +231,13 @@ jobs:
             echo "::error::Release tag '$tag' does not match vX.Y.Z (got version='$tag_version')." >&2
             exit 1
           fi
+          # SPEC 0.98.5 R8.2: the pinned release SHA resolved by verify in THIS
+          # run replaces any tag-name resolution here — the tag is mutable, the
+          # SHA is not, and publish must consume exactly what verify gated.
+          release_sha="${{ needs.verify.outputs.release-sha }}"
           git fetch origin main
-          if ! git merge-base --is-ancestor "$(git rev-parse "$tag")" origin/main; then
-            echo "::error::Refusing publish: $tag is not on origin/main." >&2
+          if ! git merge-base --is-ancestor "$release_sha" origin/main; then
+            echo "::error::Refusing publish: release SHA $release_sha is not on origin/main." >&2
             exit 1
           fi
           h2a_version="$(node -p "require('./packages/h2a/package.json').version")"
@@ -161,6 +285,7 @@ jobs:
       # Idempotent: if the lockstep version is already on the registry (token
       # publish), skip; otherwise publish via OIDC (works once trust is re-pointed).
       - name: Publish @sentropic/track (public; token-published out-of-band for now)
+        shell: bash
         run: |
           v="$(node -p "require('./packages/track/package.json').version")"
           if npm view "@sentropic/track@$v" version >/dev/null 2>&1; then
@@ -193,6 +318,7 @@ jobs:
           done
 
       - name: Publish @sentropic/h2a-runtime (trusted publishing, public)
+        shell: bash
         run: |
           v="$(node -p "require('./packages/h2a-runtime/package.json').version")"
           if npm view "@sentropic/h2a-runtime@$v" version >/dev/null 2>&1; then
@@ -207,7 +333,10 @@ jobs:
                 echo "@sentropic/h2a-runtime@$v is below latest ($latest); publishing with $tagArgs so the latest dist-tag stays untouched."
               fi
             fi
-            if ! npm publish --workspace @sentropic/h2a-runtime --access public $tagArgs; then
+            # SPEC 0.98.5 R8.2: publish the VERIFIED tarball bytes that verify
+            # packed from the gated SHA — never a fresh pack of a mutable ref.
+            (cd dist-tarballs && sha256sum --check --strict sha256sums.txt)
+            if ! npm publish "dist-tarballs/sentropic-h2a-runtime-${v}.tgz" --access public $tagArgs; then
               echo "::error::@sentropic/h2a-runtime@$v: npm publish failed (not published)." >&2
               exit 1
             fi
@@ -225,6 +354,7 @@ jobs:
           done
 
       - name: Publish @sentropic/h2a (trusted publishing, public)
+        shell: bash
         run: |
           v="$(node -p "require('./packages/h2a/package.json').version")"
           if npm view "@sentropic/h2a@$v" version >/dev/null 2>&1; then
@@ -239,7 +369,10 @@ jobs:
                 echo "@sentropic/h2a@$v is below latest ($latest); publishing with $tagArgs so the latest dist-tag stays untouched."
               fi
             fi
-            if ! npm publish --workspace @sentropic/h2a --access public $tagArgs; then
+            # SPEC 0.98.5 R8.2: publish the VERIFIED tarball bytes that verify
+            # packed from the gated SHA — never a fresh pack of a mutable ref.
+            (cd dist-tarballs && sha256sum --check --strict sha256sums.txt)
+            if ! npm publish "dist-tarballs/sentropic-h2a-${v}.tgz" --access public $tagArgs; then
               echo "::error::@sentropic/h2a@$v: npm publish failed (not published)." >&2
               exit 1
             fi
@@ -257,6 +390,7 @@ jobs:
           done
 
       - name: Publish @sentropic/h2a-cli (trusted publishing, public)
+        shell: bash
         run: |
           v="$(node -p "require('./packages/h2a-cli/package.json').version")"
           if npm view "@sentropic/h2a-cli@$v" version >/dev/null 2>&1; then
@@ -271,7 +405,10 @@ jobs:
                 echo "@sentropic/h2a-cli@$v is below latest ($latest); publishing with $tagArgs so the latest dist-tag stays untouched."
               fi
             fi
-            if ! npm publish --workspace @sentropic/h2a-cli --access public $tagArgs; then
+            # SPEC 0.98.5 R8.2: publish the VERIFIED tarball bytes that verify
+            # packed from the gated SHA — never a fresh pack of a mutable ref.
+            (cd dist-tarballs && sha256sum --check --strict sha256sums.txt)
+            if ! npm publish "dist-tarballs/sentropic-h2a-cli-${v}.tgz" --access public $tagArgs; then
               echo "::error::@sentropic/h2a-cli@$v: npm publish failed (not published)." >&2
               exit 1
             fi

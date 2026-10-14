@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // ---------------------------------------------------------------------------
 // Module mocks — declared before any `import` of the module under test.
@@ -104,17 +104,10 @@ function stubStream(): NodeJS.WriteStream & { lines: string[] } {
 
 /** Build a temp dir that acts as the cwd for test runs (under the package dir). */
 function makeTempCwd(label: string): string {
-  // Keep under node_modules/../ to stay within the worktree (never /tmp per project rules).
-  // We use os.tmpdir() only as a last resort; prefer a subdir of the package.
-  const base = join(
-    new URL(".", import.meta.url).pathname,
-    "..",
-    ".test-scratch",
-    label,
-  );
-  mkdirSync(base, { recursive: true });
-  return base;
+  return makeTempDir(label);
 }
+
+const temporaryDirectories = new Set<string>();
 
 function makeTempDir(label: string): string {
   const base = join(
@@ -124,8 +117,26 @@ function makeTempDir(label: string): string {
     label,
   );
   mkdirSync(base, { recursive: true });
-  return mkdtempSync(join(base, "dir-"));
+  const directory = mkdtempSync(join(base, "dir-"));
+  temporaryDirectories.add(directory);
+  return directory;
 }
+
+afterEach(() => {
+  for (const directory of temporaryDirectories) rmSync(directory, { recursive: true, force: true });
+  temporaryDirectories.clear();
+});
+
+it("should keep persisted migration state isolated between fixtures with the same label", () => {
+  const first = makeTempCwd("isolation"), second = makeTempCwd("isolation");
+  try {
+    writeFileSync(join(first, "fixture-state"), "first migration");
+    expect(existsSync(join(second, "fixture-state"))).toBe(false);
+  } finally {
+    rmSync(first, { recursive: true, force: true });
+    rmSync(second, { recursive: true, force: true });
+  }
+});
 
 const REMOTE_URL = "http://remote.test:8080";
 const WORKSPACE_ID = "ws-migrate-test";

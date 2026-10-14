@@ -1,5 +1,10 @@
 /** Pair/time consent. The journal, not negotiation status or inboxes, is authority. */
-import { computeHash, verifyCanonical, type H2AJournalEntry, type H2ASignature } from '@sentropic/h2a';
+import type {
+  H2AJournalEntry,
+  H2ASignature
+} from "@sentropic/h2a";
+import { computeHash } from "../../canonical.js";
+import { verifyCanonical } from "../../signature.js";
 import type { LocalStore } from '../local-files/store.js';
 
 export const DRIVE_CONSENT_DEFAULT_ANSWER_MS = 15 * 60 * 1000;

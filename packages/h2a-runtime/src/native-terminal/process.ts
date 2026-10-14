@@ -15,6 +15,7 @@ import {
   NATIVE_TERMINAL_MAX_SESSIONS,
 } from "./protocol.js";
 import { startNativeTerminalHostServer, type NativeTerminalListenerFailure } from "./server.js";
+import { NativeTerminalPublicationRefusal } from "./publication-refusal.js";
 
 type ProcessOptions = {
   socketPath: string;
@@ -271,9 +272,10 @@ function isEntryPoint(): boolean {
 
 if (isEntryPoint()) {
   runNativeTerminalHostProcess(process.argv).catch((error: unknown) => {
-    if (!writeHostLogLine(`fatal: ${error instanceof Error ? error.stack ?? error.message : String(error)}`)) {
+    const refusal = error instanceof NativeTerminalPublicationRefusal ? error : undefined;
+    if (!writeHostLogLine(`fatal${refusal !== undefined ? ` [${refusal.code}]` : ""}: ${error instanceof Error ? error.stack ?? error.message : String(error)}`)) {
       recordHostFault(HOST_FAULT_COUNTERS.processFatalWriteFailed);
     }
-    process.exitCode = 1;
+    process.exitCode = refusal !== undefined ? refusal.exitCode : 1;
   });
 }

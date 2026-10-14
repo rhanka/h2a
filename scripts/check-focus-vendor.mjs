@@ -9,13 +9,38 @@
  *
  *   npm run check:focus-vendor
  *
- * Exit 0 = in phase; exit 1 = drift (prints the exact missing/extra/differing
- * files and the remediation command).
+ * EXIT CODES — a verdict must never be wider than its evidence:
+ *   0  in phase: the vendor matches a fresh build.
+ *   1  DRIFT: the vendor genuinely differs from a fresh build (prints the exact
+ *      missing/extra/differing files and the remediation command).
+ *   2  INCONCLUSIVE: the prerequisite build failed, so no comparison was ever
+ *      made. `buildFocusDist()` first runs `npm run build -w @sentropic/track`
+ *      (focus type-depends on track's declarations); if track does not compile
+ *      there is no fresh `dist/` to compare against. Reporting that as drift
+ *      would accuse the vendor of being stale on evidence that does not exist —
+ *      the vendor may be perfectly in phase. Distinguishing 2 from 1 is the same
+ *      discipline as `skipped-because-build-failed` in run-test-gates.mjs, and
+ *      it exists because this check was itself caught misattributing a broken
+ *      track build as vendor drift.
  */
 import { buildFocusDist, compareTrees, DIST_DIR, VENDOR_DIR, REPO_ROOT } from './focus-vendor-lib.mjs'
 import { relative } from 'node:path'
 
-buildFocusDist()
+export const EXIT_OK = 0
+export const EXIT_DRIFT = 1
+export const EXIT_INCONCLUSIVE = 2
+
+try {
+  buildFocusDist()
+} catch (error) {
+  process.stderr.write(
+    'focus-vendor INCONCLUSIVE: the prerequisite build failed, so the vendor was never compared.\n' +
+      `  cause: ${error instanceof Error ? error.message : String(error)}\n` +
+      '  This is NOT a drift finding. The vendor may be entirely in phase; this run produced\n' +
+      '  no evidence either way. Fix the build, then re-run to obtain a real verdict.\n',
+  )
+  process.exit(EXIT_INCONCLUSIVE)
+}
 
 const rel = (p) => relative(REPO_ROOT, p)
 const { equal, missing, extra, differ } = compareTrees(DIST_DIR, VENDOR_DIR)
@@ -24,7 +49,7 @@ if (equal) {
   process.stdout.write(
     `focus-vendor OK: ${rel(VENDOR_DIR)} is byte-identical to a fresh build of packages/focus\n`,
   )
-  process.exit(0)
+  process.exit(EXIT_OK)
 }
 
 process.stderr.write(`focus-vendor DRIFT: ${rel(VENDOR_DIR)} != fresh build of packages/focus\n`)
@@ -41,4 +66,4 @@ if (differ.length) {
   for (const f of differ) process.stderr.write(`    - ${f}\n`)
 }
 process.stderr.write('  fix: run `npm run vendor:focus` and commit the refreshed vendor\n')
-process.exit(1)
+process.exit(EXIT_DRIFT)

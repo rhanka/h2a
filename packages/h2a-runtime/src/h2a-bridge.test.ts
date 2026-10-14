@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 // Mock child_process at the module boundary so NOTHING here ever runs kubectl.
 const spawnSyncMock = vi.hoisted(() => vi.fn());
@@ -17,11 +17,13 @@ vi.mock("./config.js", () => ({
 import {
   existsSync,
   mkdirSync,
+  mkdtempSync,
   readFileSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
+import { tmpdir } from "node:os";
 
 const {
   bridgeSession,
@@ -31,8 +33,9 @@ const {
   planBridge,
 } = await import("./h2a-bridge.js");
 
-const SCRATCH = join(process.cwd(), ".test-scratch", "h2a-bridge");
+const SCRATCH = mkdtempSync(join(tmpdir(), "h2a-bridge-"));
 const LOCAL_ROOT = join(SCRATCH, "h2a-root");
+afterAll(() => rmSync(SCRATCH, { recursive: true, force: true }));
 
 const ok = (stdout: string) => ({ status: 0, stdout, stderr: "" });
 
@@ -242,6 +245,7 @@ describe("bridgeSession (kubectl mocked, scratch local store)", () => {
   beforeEach(() => {
     spawnSyncMock.mockReset();
     rmSync(SCRATCH, { recursive: true, force: true });
+    mkdirSync(SCRATCH, { mode: 0o700 });
     mkdirSync(LOCAL_ROOT, { recursive: true });
   });
 
