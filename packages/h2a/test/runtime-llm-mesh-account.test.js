@@ -203,12 +203,15 @@ test(
   "enroll root error boundary never echoes argv secrets in any form",
   { skip: runtimeBuilt ? false : "packages/h2a-runtime/dist absent (run npx tsc -b)" },
   () => {
-    // Property-style canary: one random secret injected in 28 fixed argv
-    // forms across the enroll command tree (multi-line values,
-    // parent-placed options, attached short options, --opt=<v>,
-    // attached with no `=`/` `, bare long/short flags at enroll and root
-    // level, positionals, unknown options, unknown commands). No run may
-    // print it on stdout or stderr; every run must refuse without enrolling.
+    // Property-style canary: one random secret injected in 34 fixed argv
+    // forms across the enroll command tree (multi-line values ending a line
+    // with `'` or `.`, parent-placed options, attached short options,
+    // --opt=<v>, attached with no `=`/` `, bare long/short flags at enroll
+    // and root level, positionals, unknown options, unknown commands).
+    // Commander never prints its own text: every commander error is a static
+    // per-code message, so each form below asserts its exact static shape.
+    // No run may print the secret on stdout or stderr; every run must refuse
+    // without enrolling.
     const isoBase = mkdtempSync(join(tmpdir(), "h2a-account-canary-"));
     const isoEnv = {
       HOME: isoBase,
@@ -226,8 +229,8 @@ test(
       ["llm-mesh", "account", `--token=${secret}`, "enroll", "claude-code"],
       ["llm-mesh", "account", "enroll", "claude-code", `-t${secret}`],
       ["llm-mesh", "account", "enroll", "claude-code", `-${secret}`],
-      // r12 m1: attached with no `=` (a missing-separator typo) and bare
-      // long flags keep no user text — the name is kept only when declared.
+      // r13: commander never prints its own text — no declared name is
+      // kept, every commander error is the static per-code message.
       ["llm-mesh", "account", "enroll", "claude-code", `--token${secret}`],
       ["llm-mesh", "account", "enroll", "claude-code", `--${secret}`],
       [`--${secret}`, "llm-mesh", "account", "enroll", "claude-code"],
@@ -251,33 +254,44 @@ test(
       ["llm-mesh", "account", "remove", "x", "y", secret],
       ["llm-mesh", secret, "account", "enroll", "claude-code"],
       [secret],
+      // r13 m1: multi-line values ending a line with `'` or `.`, unknown
+      // commands carrying a newline, `remove` with a dotted first line.
+      ["llm-mesh", "account", "enroll", "claude-code", `--token=x'\n${secret}`],
+      ["llm-mesh", "account", "enroll", "claude-code", `--x'\n${secret}`],
+      ["llm-mesh", "account", "enroll", "claude-code", `-tx'\n${secret}`],
+      ["llm-mesh", "account", `x'\n${secret}`],
+      [`a'\n${secret}`, "x"],
+      ["llm-mesh", "account", "remove", "x", `line one.\n${secret}`],
     ];
-    // Static shapes proven per form: unclassifiable input yields the bare
-    // static message (overlapping fragments below assert the same shape);
-    // a declared `--token` name is kept without its value.
-    const staticShapes = [
-      [`--token${secret}`, /error: unknown option(\n|$)/],
-      [`--${secret}`, /error: unknown option(\n|$)/],
-      [`-${secret}`, /error: unknown option(\n|$)/],
-      [`-t${secret}`, /error: unknown option(\n|$)/],
-      [`--token=${secret}\n`, /error: unknown option(\n|$)/],
-      [`"accessToken": "${secret}"`, /error: unknown option(\n|$)/],
-      [`--token=X error: ${secret}`, /error: unknown option(\n|$)/],
-      [`"e": "error: no"`, /error: unknown option(\n|$)/],
-      [`x error: ${secret}`, /error: unknown command(\n|$)/],
-      [`it's ${secret}`, /error: unknown command(\n|$)/],
-      [`a error: ${secret}`, /error: too many arguments(\n|$)/],
+    // Static shape asserted for EVERY form, in order: commander errors are
+    // fully static per code (no declared name kept); provider errors are the
+    // static `[h2a]` messages below.
+    const UNKNOWN_OPTION = /error: unknown option(\n|$)/;
+    const UNKNOWN_COMMAND = /error: unknown command(\n|$)/;
+    const TOO_MANY = /error: too many arguments(\n|$)/;
+    const UNSUPPORTED = /unsupported provider/;
+    const EXCESS_PROVIDER = /too many arguments \(expected provider only; never pass secrets in argv\)/;
+    const FROM_ENUM = /--from must be one of oauth, cli, token/;
+    const expectedShapes = [
+      UNKNOWN_OPTION, UNKNOWN_OPTION, UNKNOWN_OPTION, UNKNOWN_OPTION,
+      UNKNOWN_OPTION, UNKNOWN_OPTION, UNKNOWN_OPTION, UNKNOWN_OPTION,
+      UNKNOWN_OPTION, UNKNOWN_OPTION, UNKNOWN_OPTION, UNKNOWN_OPTION,
+      UNKNOWN_OPTION, UNKNOWN_OPTION, UNSUPPORTED, EXCESS_PROVIDER,
+      EXCESS_PROVIDER, EXCESS_PROVIDER, FROM_ENUM, UNKNOWN_COMMAND,
+      UNKNOWN_COMMAND, UNKNOWN_COMMAND, UNKNOWN_OPTION, UNKNOWN_OPTION,
+      TOO_MANY, TOO_MANY, UNKNOWN_COMMAND, UNKNOWN_COMMAND,
+      UNKNOWN_OPTION, UNKNOWN_OPTION, UNKNOWN_OPTION, UNKNOWN_COMMAND,
+      UNKNOWN_COMMAND, TOO_MANY,
     ];
+    assert.equal(forms.length, expectedShapes.length, "canary forms and shapes out of sync");
     try {
-      for (const args of forms) {
+      for (let i = 0; i < forms.length; i++) {
+        const args = forms[i];
+        const shape = expectedShapes[i];
         const result = runWithEnv(args, isoEnv);
         assert.notEqual(result.status, 0, `expected refusal for ${JSON.stringify(args)}: ${result.output}`);
         assert.doesNotMatch(result.output, new RegExp(secret), `secret echoed for ${JSON.stringify(args)}: ${result.output}`);
-        for (const [fragment, shape] of staticShapes) {
-          if (args.some((a) => a.includes(fragment))) {
-            assert.match(result.output, shape, `not static for ${JSON.stringify(args)}: ${result.output}`);
-          }
-        }
+        assert.match(result.output, shape, `not static for ${JSON.stringify(args)}: ${result.output}`);
       }
     } finally {
       rmSync(isoBase, { recursive: true, force: true });
