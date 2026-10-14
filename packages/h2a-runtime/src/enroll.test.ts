@@ -178,7 +178,7 @@ describe("handleClaudeHook", () => {
   });
 
   it("claude-start enrolls a local claude session with convId = session_id", () => {
-    expect(handleClaudeHook("claude-start", payload, regPath)).toEqual({ ok: true });
+    expect(handleClaudeHook("claude-start", payload, regPath, { env: { H2A_SESSION_CLASS: "human" } })).toEqual({ ok: true });
     const entries = loadEntries(regPath);
     expect(entries).toHaveLength(1);
     expect(entries[0]).toMatchObject({
@@ -193,12 +193,12 @@ describe("handleClaudeHook", () => {
   });
 
   it("claude-end marks the session ended (enrolling it first if unknown)", () => {
-    handleClaudeHook("claude-start", payload, regPath);
-    expect(handleClaudeHook("claude-end", payload, regPath)).toEqual({ ok: true });
+    handleClaudeHook("claude-start", payload, regPath, { env: { H2A_SESSION_CLASS: "human" } });
+    expect(handleClaudeHook("claude-end", payload, regPath, { env: { H2A_SESSION_CLASS: "human" } })).toEqual({ ok: true });
     expect(loadEntries(regPath)[0]!.endedAt).toBeTruthy();
 
     const other = JSON.stringify({ session_id: "never-started", cwd: "/y" });
-    expect(handleClaudeHook("claude-end", other, regPath)).toEqual({ ok: true });
+    expect(handleClaudeHook("claude-end", other, regPath, { env: { H2A_SESSION_CLASS: "human" } })).toEqual({ ok: true });
     const entry = loadEntries(regPath).find((e) => e.id === "never-started");
     expect(entry?.endedAt).toBeTruthy();
   });
@@ -233,6 +233,7 @@ describe("handleClaudeHook — P3 job.done on claude-end for a delegated job", (
     );
     const emitted: RegistryEntry[] = [];
     const r = handleClaudeHook("claude-end", jobPayload, regPath, {
+      env: { REMOTE_JOB_ID: "claude-job1" },
       emit: (job) => {
         emitted.push(job);
         return { emitted: true, path: "/scratch/x.json", written: true, to: job.callbackTo! };
@@ -274,6 +275,7 @@ describe("handleClaudeHook — P3 job.done on claude-end for a delegated job", (
       JSON.stringify({ session_id: "claude-job2", cwd: "/work" }),
       regPath,
       {
+        env: { REMOTE_JOB_ID: "claude-job2" },
         emit: () => {
           throw new Error("boom");
         },

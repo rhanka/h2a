@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { rmSync } from "node:fs";
+import fs, { mkdirSync, rmSync } from "node:fs";
+import { createRequire } from "node:module";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import test from "node:test";
-import { assertNativeTestSpawnRefused, createPrivateTestDirectory, installNativeTestEnvironment, isolatedNativeTestEnvironment, nativeTestEnvironment } from "./helpers/native-isolation.js";
+import { assertNativeTestSpawnRefused, createPrivateTestDirectory, installNativeTestEnvironment, isolatedNativeTestEnvironment, nativeTestEnvironment, pinPrivateNativeProcess, waitForPrivateNativeProcesses } from "./helpers/native-isolation.js";
 
 const server = pathToFileURL(new URL("../../h2a-runtime/dist/native-terminal/server.js", import.meta.url).pathname).href;
 
@@ -48,8 +49,10 @@ test("should exclude unrelated process sockets before any external metadata acce
 
 test("should retain missing optional variables when installing the in-process fixture view", () => {
   const root = createPrivateTestDirectory("pv");
-  const restoreEnvironment = installNativeTestEnvironment(nativeTestEnvironment(root));
+  const restoreEnvironment = installNativeTestEnvironment({ ...nativeTestEnvironment(root), H2A_TEST_QUALIFICATION_ROOT: undefined });
   try {
+    assert.equal(process.env.H2A_TEST_QUALIFICATION_ROOT, undefined,
+      'an absent optional variable must not become the string "undefined" in child environments');
     delete process.env.H2A_ROOT;
     isolatedNativeTestEnvironment(process.env);
     assert.equal(process.env.H2A_ROOT, undefined);
@@ -63,4 +66,93 @@ test("should reject an external process view before starting any native operatio
     assertNativeTestSpawnRefused(() => spawnSync(process.execPath, [new URL("../../h2a-runtime/dist/native-terminal/op.js", import.meta.url).pathname,
       "probe", "--id", "must-not-run"], { env: { ...env, H2A_TEST_PROC_ROOT: "/tmp/outside-process-view" } }));
   } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("should prove a private PTY child dead after SIGKILL without its exit hook", async () => {
+  const root = createPrivateTestDirectory("pv"), env = nativeTestEnvironment(root);
+  const pty = createRequire(new URL("../../h2a-runtime/package.json", import.meta.url))("node-pty");
+  const terminal = pty.spawn(process.execPath, ["-e", "console.log('pin-ready'); setInterval(() => {}, 1000)"],
+    { cwd: root, env, name: "xterm-256color", cols: 80, rows: 24 });
+  let ended = false;
+  const exited = new Promise(resolve => terminal.onExit(event => { ended = true; resolve(event); }));
+  let release;
+  try {
+    await new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error("private PTY readiness deadline")), 4000);
+      terminal.onData(data => { if (data.includes("pin-ready")) { clearTimeout(timer); resolve(); } });
+    });
+    release = pinPrivateNativeProcess(terminal.pid, env);
+    await assert.rejects(waitForPrivateNativeProcesses(env), /fixture processes still writing/);
+    terminal.kill("SIGKILL");
+    await exited;
+    await waitForPrivateNativeProcesses(env);
+  } finally {
+    if (!ended) terminal.kill("SIGKILL");
+    await exited;
+    release?.();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("should fail private process teardown when stat is unreadable", async () => {
+  const root = createPrivateTestDirectory("pv"), env = nativeTestEnvironment(root);
+  const entry = join(env.H2A_TEST_OWNED_PROC_ROOT, "424242");
+  mkdirSync(entry); // Synthetic identity: never access an external /proc PID.
+  const read = fs.readFileSync;
+  fs.readFileSync = (path, ...args) => {
+    if (path === join(entry, "stat")) throw Object.assign(new Error("private stat denied"), { code: "EACCES" });
+    return read(path, ...args);
+  };
+  try { await assert.rejects(waitForPrivateNativeProcesses(env), { code: "EACCES" }); }
+  finally { fs.readFileSync = read; rmSync(root, { recursive: true, force: true }); }
+});
+
+test("should preserve native realpath in a guarded child with a replaced environment", () => {
+  const root = createPrivateTestDirectory("pv"), env = nativeTestEnvironment(root);
+  try {
+    const child = spawnSync(process.execPath, ["--input-type=module", "-e",
+      "import fs from 'node:fs'; console.log(fs.realpathSync.native(process.cwd()));"],
+      { cwd: root, env, encoding: "utf8" });
+    assert.equal(child.status, 0, child.stderr);
+    assert.equal(child.stdout.trim(), root);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("should retain a surviving parent's PTY pin when a late child preload registers itself", async () => {
+  const root = createPrivateTestDirectory("pv"), env = nativeTestEnvironment(root);
+  const pty = createRequire(new URL("../../h2a-runtime/package.json", import.meta.url))("node-pty");
+  const late = new URL("./helpers/native-isolation.js?late-pin", import.meta.url).href;
+  const terminal = pty.spawn(process.execPath, ["--input-type=module", "-e",
+    `process.stdin.setRawMode(true); process.stdin.resume(); console.log('late-pin-ready');
+      process.stdin.once('data', async () => { await import(${JSON.stringify(late)}); console.log('late-pin-installed'); });`],
+    { cwd: root, env, name: "xterm-256color", cols: 80, rows: 24 });
+  let output = "", ended = false;
+  terminal.onData(data => { output += data; });
+  const exited = new Promise(resolve => terminal.onExit(event => { ended = true; resolve(event); }));
+  const until = async marker => {
+    const deadline = performance.now() + 4000;
+    while (!output.includes(marker)) {
+      assert.ok(performance.now() < deadline, output);
+      await new Promise(resolve => setTimeout(resolve, 10));
+    }
+  };
+  let release;
+  try {
+    await until('late-pin-ready');
+    release = pinPrivateNativeProcess(terminal.pid, env);
+    const entry = join(env.H2A_TEST_OWNED_PROC_ROOT, String(terminal.pid));
+    const pin = fs.readlinkSync(entry);
+    assert.ok(pin.startsWith('/proc/' + process.pid + '/fd/'), pin);
+    terminal.write('x');
+    await until('late-pin-installed');
+    terminal.kill("SIGKILL");
+    await exited;
+    await waitForPrivateNativeProcesses(env);
+    assert.equal(fs.readlinkSync(entry), pin, 'late preload must preserve the surviving parent pin');
+  } finally {
+    if (!ended) terminal.kill("SIGKILL");
+    await exited;
+    release?.();
+    rmSync(root, { recursive: true, force: true });
+  }
 });
