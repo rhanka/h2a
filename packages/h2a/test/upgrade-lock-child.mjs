@@ -5,7 +5,7 @@
 // {acquired} as one JSON line, then HOLDS until SIGTERM so the acquirer count is
 // a true measure of mutual exclusion, not of timing.
 // Usage: node upgrade-lock-child.mjs <prefix> [startAtMs]
-import { defaultUpgradeRuntime } from "../dist/index.js";
+import { defaultUpgradeRuntime } from "../dist/runtime/upgrade/index.js";
 
 const [prefix, startAtRaw] = process.argv.slice(2);
 const startAt = startAtRaw ? Number.parseInt(startAtRaw, 10) : 0;
