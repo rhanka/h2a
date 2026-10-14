@@ -1667,10 +1667,13 @@ describe("NativeTerminalHost", () => {
     host: NativeTerminalHost;
     pgid: number;
     killGroup: ReturnType<typeof fakeReaper>["killGroup"];
+    isGroupAlive: ReturnType<typeof vi.fn>;
     warnings: string[];
   } {
     const { spawner, ptys } = stubSpawner();
     const { reaper, killGroup, alive } = fakeReaper();
+    const isGroupAlive = vi.fn(reaper.isGroupAlive);
+    reaper.isGroupAlive = isGroupAlive;
     const { read, values } = fakeLeaderStartTimeReader(1000);
     const warnings: string[] = [];
     const host = new NativeTerminalHost({
@@ -1687,7 +1690,7 @@ describe("NativeTerminalHost", () => {
     const pgid = ptys.get("alpha")!.pgid;
     alive.add(pgid);
     values.set(pgid, 2000);
-    return { host, pgid, killGroup, warnings };
+    return { host, pgid, killGroup, isGroupAlive, warnings };
   }
 
   /** The frame the writer recorded on the "alpha" row. */
@@ -1723,7 +1726,7 @@ describe("NativeTerminalHost", () => {
       // refuse, blocking, and signal nothing.
       //
       // The REAL reader frame is used: only the row is foreign.
-      const { host, pgid, killGroup, warnings } =
+      const { host, pgid, killGroup, isGroupAlive, warnings } =
         hostOverAnUnrelatedLiveLeader("host-generation-pgid-other-machine");
       patchDurableRow("alpha", (row) => {
         expect(row.pgidPidNamespace).toBeTypeOf("string");
@@ -1738,6 +1741,7 @@ describe("NativeTerminalHost", () => {
         cause: "foreign-frame",
       });
       expect(killGroup).not.toHaveBeenCalled();
+      expect(isGroupAlive).not.toHaveBeenCalled();
       expect(host.pgidGuardCounters).toMatchObject({
         staleBoot: 0,
         foreignFrame: 1,

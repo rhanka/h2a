@@ -7,6 +7,7 @@
 // swap. No npm, no network.
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
+import { once } from "node:events";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -48,21 +49,30 @@ async function waitFile(path, timeoutMs) {
 
 // Seed a REAL v3-format stale lock: a child acquires, is SIGKILL'd while holding
 // (no release runs), leaving a lock file owned by a now-dead pid — the exact incident.
-function seedKilledHolder(prefix) {
-  return new Promise((resolve) => {
-    const p = spawn(process.execPath, [LOCK_CHILD, prefix], { encoding: "utf8" });
-    let out = "";
-    p.stdout.on("data", (c) => {
-      out += c.toString("utf8");
-      if (out.includes("\n")) {
-        let acq = false;
-        try { acq = JSON.parse(out.split("\n")[0]).acquired === true; } catch {}
-        p.kill("SIGKILL");
-        setTimeout(() => resolve(acq && existsSync(lockPath(prefix))), 80);
-      }
-    });
-    p.on("error", () => resolve(false));
-  });
+async function stopLockChildren(procs) {
+  const live = procs.filter(p => p.exitCode === null && p.signalCode === null);
+  const exits = live.map(p => once(p, "close").catch(() => {}));
+  for (const p of live) p.kill("SIGTERM");
+  let timer;
+  try {
+    const closed = await Promise.race([Promise.all(exits).then(() => true), new Promise(resolve => {
+      timer = setTimeout(() => resolve(false), 500);
+    })]);
+    if (!closed) for (const p of live) if (p.exitCode === null && p.signalCode === null) p.kill("SIGKILL");
+    await Promise.all(exits);
+  } finally { clearTimeout(timer); }
+}
+
+async function seedKilledHolder(prefix, context) {
+  const p = spawn(process.execPath, [LOCK_CHILD, prefix], { encoding: "utf8" });
+  context?.after(() => stopLockChildren([p]));
+  const closed = once(p, "close").catch(() => {});
+  try {
+    const acquired = await firstLinePromise(p);
+    p.kill("SIGKILL");
+    await closed; // Reap the killed holder, rather than assume death after 80ms.
+    return acquired && existsSync(lockPath(prefix));
+  } finally { await stopLockChildren([p]); }
 }
 
 const globalPkgDir = (prefix) => join(prefix, "lib", "node_modules", H2A_CLI_PACKAGE);
@@ -78,10 +88,11 @@ function freshPrefix() {
 // they truly race). Each acquirer HOLDS until killed, so the result is load-robust:
 // read each child's first line (acquired true/false), count the acquirers, then
 // SIGTERM every child. Exactly one acquirer is the mutual-exclusion invariant.
-function raceLockChildren(prefix, n) {
+async function raceLockChildren(prefix, n, context) {
   const procs = Array.from({ length: n }, () =>
     spawn(process.execPath, [LOCK_CHILD, prefix], { encoding: "utf8" })
   );
+  context?.after(() => stopLockChildren(procs));
   const firstLine = (p) => new Promise((resolve) => {
     let out = "";
     let done = false;
@@ -97,10 +108,10 @@ function raceLockChildren(prefix, n) {
     p.on("close", () => settle(false));
     p.on("error", () => settle(false));
   });
-  return Promise.all(procs.map(firstLine)).then((results) => {
-    for (const p of procs) { try { p.kill("SIGTERM"); } catch { /* best-effort */ } }
+  try {
+    const results = await Promise.all(procs.map(firstLine));
     return results.filter(Boolean).length;
-  });
+  } finally { await stopLockChildren(procs); }
 }
 // Write a SELF-CONTAINED package dir: its own package.json + nested node_modules,
 // mirroring the real npm global layout.
@@ -269,13 +280,13 @@ test("Lemma C GATE: a LOCK replaced by a live owner during the retire window is 
 // Opt-in LOAD test (statistical, time/load-dependent). Not in the default suite —
 // run with H2A_LOCK_STRESS=1. Establishes frequency under real concurrency; the
 // deterministic gate above is the regression guard.
-test("B3 LOAD (opt-in): N processes racing a killed-holder lock → exactly one reclaims", { skip: !process.env.H2A_LOCK_STRESS, timeout: 120_000 }, async () => {
+test("B3 LOAD (opt-in): N processes racing a killed-holder lock → exactly one reclaims", { skip: !process.env.H2A_LOCK_STRESS, timeout: 120_000 }, async t => {
   for (let i = 0; i < 30; i++) {
     const prefix = freshPrefix();
     try {
       mkdirSync(prefix, { recursive: true });
-      assert.equal(await seedKilledHolder(prefix), true);
-      const acquired = await raceLockChildren(prefix, 24);
+      assert.equal(await seedKilledHolder(prefix, t), true);
+      const acquired = await raceLockChildren(prefix, 24, t);
       assert.equal(acquired, 1, `iter ${i}: exactly one of 24 racers may reclaim (got ${acquired})`);
     } finally {
       rmSync(prefix, { recursive: true, force: true });

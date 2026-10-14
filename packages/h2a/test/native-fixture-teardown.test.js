@@ -56,7 +56,7 @@ for (const mode of ["pass", "failure", "timeout"]) {
         if(${JSON.stringify(mode)}==='failure')throw new Error('injected setup failure');
         if(${JSON.stringify(mode)}==='timeout')await new Promise(()=>{keepalive=setInterval(()=>{},1000);});
       });`);
-    const runner = spawn(process.execPath, ["--test", script], { env, stdio: ["ignore", "pipe", "pipe"] });
+    const runner = spawn(process.execPath, ["--test", "--test-reporter=tap", script], { env, stdio: ["ignore", "pipe", "pipe"] });
     const closed = once(runner, "close");
     let output = "", receipt, release, pinned = [];
     const survivors = () => pinned.filter(({ target }) => {

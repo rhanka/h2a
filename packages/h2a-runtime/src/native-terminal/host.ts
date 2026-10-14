@@ -1605,76 +1605,9 @@ export class NativeTerminalHost {
         alreadyDead?: false;
         cause: "recycled" | "stale-boot" | "foreign-frame" | "membership-unprovable";
       } {
-    // FRAME CHECK, before any pid-based comparison. Every proof below compares a
-    // number persisted earlier with a number read now, and that is meaningful
-    // only while both were taken in the same pid namespace and after the same
-    // boot (see proc-identity.ts). A row that records a frame which does not
-    // match this reader's is unusable in BOTH directions: a start-time mismatch
-    // would be read as "recycled" (pruning the row and releasing the socket on a
-    // proof that does not hold), and a coincidental MATCH would authorize a
-    // group SIGKILL at a group this row never described. Refuse, blocking, which
-    // is the behaviour that predates the `recycled` outcome.
-    //
-    // ONE mismatch is different, and is separated out below: same pid namespace,
-    // different BOOT, same MACHINE. That is not an absence of proof, it is the
-    // strongest proof available — a reboot ends every process of the boot
-    // before it — so it prunes instead of blocking. It is still a refusal:
-    // nothing is signalled, because an unrelated live group may hold the pgid
-    // number by now.
-    const anchoredFrame =
-      frame.pidNamespace !== undefined && frame.bootId !== undefined;
-    if (frame.pidNamespace !== undefined || frame.bootId !== undefined) {
-      const current = this.#readFrame();
-      // The boot proof is admissible only inside ONE pid space, KNOWN on both
-      // sides: a pid resolved in another namespace is a different process, and
-      // an unknown namespace on either side is no statement at all.
-      const sameKnownPidNamespace =
-        frame.pidNamespace !== undefined &&
-        current.pidNamespace !== undefined &&
-        frame.pidNamespace === current.pidNamespace;
-      // ...and only on ONE machine, KNOWN on both sides. The init pid
-      // namespace has the same inode on every kernel and boot ids are random
-      // per boot, so "same namespace, different boot" is ALSO what a row written
-      // by another machine sharing this registry looks like — a machine whose
-      // group may be alive right now. Only the machine id tells the two apart.
-      const sameKnownMachine =
-        frame.machineId !== undefined &&
-        current.machineId !== undefined &&
-        frame.machineId === current.machineId;
-      const differentKnownBoot =
-        frame.bootId !== undefined &&
-        current.bootId !== undefined &&
-        frame.bootId !== current.bootId;
-      if (sameKnownPidNamespace && sameKnownMachine && differentKnownBoot) {
-        // PROOF, not an absence of one: a reboot ends every process of the
-        // boot before it, so every process this row describes has ended. The
-        // pgid NUMBER may be held by an unrelated live group now, which is
-        // exactly why nothing is signalled here and why no diagnostic may
-        // point anyone at it.
-        this.#pgidGuardCounters.staleBoot += 1;
-        this.#log(
-          `NOT signalling process group pgid=${pgid} for session ${sessionId}: this row was written at boot ${String(frame.bootId)} and this reader is at boot ${String(current.bootId)}, in the same pid namespace ${String(current.pidNamespace)} on the same machine ${String(current.machineId)} — the reboot ENDED every process this row describes, so its group is PROVEN gone. The number pgid=${pgid} may belong to an unrelated live group now and must NOT be killed. cause=stale-boot sessionId=${sessionId} pgid=${pgid}`,
-        );
-        return { proceed: false, cause: "stale-boot" };
-      }
-      if (
-        frame.pidNamespace !== current.pidNamespace ||
-        frame.bootId !== current.bootId
-      ) {
-        // Says WHY nothing could be proven, because the two shapes call for
-        // different checks by whoever reads this: a boot change that only lacks
-        // the machine proof is either a reboot of this machine or another
-        // machine; anything else is another (or an unknown) pid space.
-        const why = sameKnownPidNamespace && differentKnownBoot
-          ? `a different boot in the same pid namespace inode is what a previous boot of THIS machine looks like, but also what ANOTHER machine sharing this registry looks like, and the machine ids that would tell them apart are ${frame.machineId === undefined || current.machineId === undefined ? "not known on both sides" : "DIFFERENT"}`
-          : "no pid or start-time on it can be re-proven here";
-        this.#pgidGuardCounters.foreignFrame += 1;
-        this.#log(
-          `REFUSING to act on process group pgid=${pgid} for session ${sessionId}: this row records pid namespace ${String(frame.pidNamespace)}, boot ${String(frame.bootId)} and machine ${String(frame.machineId)}, but this reader is in pid namespace ${String(current.pidNamespace)} at boot ${String(current.bootId)} on machine ${String(current.machineId)} — ${why}. Inspecting pgid=${pgid} HERE proves nothing about this row. PROCESSES MAY SURVIVE UNCOLLECTED. cause=foreign-frame sessionId=${sessionId} pgid=${pgid}`,
-        );
-        return { proceed: false, cause: "foreign-frame" };
-      }
-    }
+    const anchoredFrame = frame.pidNamespace !== undefined && frame.bootId !== undefined;
+    const frameRefusal = this.#verifyGroupFrame(pgid, sessionId, frame);
+    if (frameRefusal) return { proceed: false, cause: frameRefusal };
     const currentStartTime = this.#readLeaderStartTime(pgid);
     if (currentStartTime !== undefined) {
       if (persistedLeaderStartTime === undefined) {
@@ -1754,6 +1687,78 @@ export class NativeTerminalHost {
     return { proceed: false, cause: "membership-unprovable" };
   }
 
+  #verifyGroupFrame(pgid: number, sessionId: string, frame: NativeTerminalProcFrame): "stale-boot" | "foreign-frame" | undefined {
+    // FRAME CHECK, before any pid-based comparison. Every proof below compares a
+    // number persisted earlier with a number read now, and that is meaningful
+    // only while both were taken in the same pid namespace and after the same
+    // boot (see proc-identity.ts). A row that records a frame which does not
+    // match this reader's is unusable in BOTH directions: a start-time mismatch
+    // would be read as "recycled" (pruning the row and releasing the socket on a
+    // proof that does not hold), and a coincidental MATCH would authorize a
+    // group SIGKILL at a group this row never described. Refuse, blocking, which
+    // is the behaviour that predates the `recycled` outcome.
+    //
+    // ONE mismatch is different, and is separated out below: same pid namespace,
+    // different BOOT, same MACHINE. That is not an absence of proof, it is the
+    // strongest proof available — a reboot ends every process of the boot
+    // before it — so it prunes instead of blocking. It is still a refusal:
+    // nothing is signalled, because an unrelated live group may hold the pgid
+    // number by now.
+    if (frame.pidNamespace !== undefined || frame.bootId !== undefined) {
+      const current = this.#readFrame();
+      // The boot proof is admissible only inside ONE pid space, KNOWN on both
+      // sides: a pid resolved in another namespace is a different process, and
+      // an unknown namespace on either side is no statement at all.
+      const sameKnownPidNamespace =
+        frame.pidNamespace !== undefined &&
+        current.pidNamespace !== undefined &&
+        frame.pidNamespace === current.pidNamespace;
+      // ...and only on ONE machine, KNOWN on both sides. The init pid
+      // namespace has the same inode on every kernel and boot ids are random
+      // per boot, so "same namespace, different boot" is ALSO what a row written
+      // by another machine sharing this registry looks like — a machine whose
+      // group may be alive right now. Only the machine id tells the two apart.
+      const sameKnownMachine =
+        frame.machineId !== undefined &&
+        current.machineId !== undefined &&
+        frame.machineId === current.machineId;
+      const differentKnownBoot =
+        frame.bootId !== undefined &&
+        current.bootId !== undefined &&
+        frame.bootId !== current.bootId;
+      if (sameKnownPidNamespace && sameKnownMachine && differentKnownBoot) {
+        // PROOF, not an absence of one: a reboot ends every process of the
+        // boot before it, so every process this row describes has ended. The
+        // pgid NUMBER may be held by an unrelated live group now, which is
+        // exactly why nothing is signalled here and why no diagnostic may
+        // point anyone at it.
+        this.#pgidGuardCounters.staleBoot += 1;
+        this.#log(
+          `NOT signalling process group pgid=${pgid} for session ${sessionId}: this row was written at boot ${String(frame.bootId)} and this reader is at boot ${String(current.bootId)}, in the same pid namespace ${String(current.pidNamespace)} on the same machine ${String(current.machineId)} — the reboot ENDED every process this row describes, so its group is PROVEN gone. The number pgid=${pgid} may belong to an unrelated live group now and must NOT be killed. cause=stale-boot sessionId=${sessionId} pgid=${pgid}`,
+        );
+        return "stale-boot";
+      }
+      if (
+        frame.pidNamespace !== current.pidNamespace ||
+        frame.bootId !== current.bootId
+      ) {
+        // Says WHY nothing could be proven, because the two shapes call for
+        // different checks by whoever reads this: a boot change that only lacks
+        // the machine proof is either a reboot of this machine or another
+        // machine; anything else is another (or an unknown) pid space.
+        const why = sameKnownPidNamespace && differentKnownBoot
+          ? `a different boot in the same pid namespace inode is what a previous boot of THIS machine looks like, but also what ANOTHER machine sharing this registry looks like, and the machine ids that would tell them apart are ${frame.machineId === undefined || current.machineId === undefined ? "not known on both sides" : "DIFFERENT"}`
+          : "no pid or start-time on it can be re-proven here";
+        this.#pgidGuardCounters.foreignFrame += 1;
+        this.#log(
+          `REFUSING to act on process group pgid=${pgid} for session ${sessionId}: this row records pid namespace ${String(frame.pidNamespace)}, boot ${String(frame.bootId)} and machine ${String(frame.machineId)}, but this reader is in pid namespace ${String(current.pidNamespace)} at boot ${String(current.bootId)} on machine ${String(current.machineId)} — ${why}. Inspecting pgid=${pgid} HERE proves nothing about this row. PROCESSES MAY SURVIVE UNCOLLECTED. cause=foreign-frame sessionId=${sessionId} pgid=${pgid}`,
+        );
+        return "foreign-frame";
+      }
+    }
+    return undefined;
+  }
+
   /**
    * Core of both `forceStopAll` and `reapOrphan`: emit the group signal from
    * the parent, then poll `isGroupAlive` (never a fixed sleep-and-hope) until
@@ -1807,6 +1812,12 @@ export class NativeTerminalHost {
         `skipping group-kill proof for pgid=${pgid} (${label}): process groups are not supported on ${process.platform}`,
       );
       return { status: "dead", elapsedMs: 0 };
+    }
+    // A group number has meaning only in the recorded frame. Even a
+    // signal-zero probe in another namespace may inspect an unrelated group.
+    if (verify) {
+      const refusal = this.#verifyGroupFrame(pgid, verify.sessionId, verify.persistedFrame);
+      if (refusal) return { status: "refused", cause: refusal };
     }
     if (!this.#reaper.isGroupAlive(pgid)) {
       // The group-leader-identity guard exists to protect a LIVE process

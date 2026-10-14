@@ -107,6 +107,12 @@
       {
         "shell": "bash",
         "run": [
+          "npm install --global @openai/codex@0.145.0 @anthropic-ai/claude-code@2.1.296"
+        ]
+      },
+      {
+        "shell": "bash",
+        "run": [
           "node --test packages/h2a/test/run-test-gates.test.js"
         ]
       },
