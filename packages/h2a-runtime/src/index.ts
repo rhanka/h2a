@@ -2651,6 +2651,130 @@ function setAndReportDefaultRemote(url: string): void {
   process.stderr.write(`[h2a] default remote set to ${configured}\n`);
 }
 
+// Root commander error sanitizer (DEC-119): commander echoes user-supplied
+// argv text in unknown-option flags (`--opt=<value>`, attached short
+// `-x<value>`, both possibly multi-line), unknown-command names, and
+// excess-argument details. Only the option/command kind is kept; values
+// never print. Configured on the ROOT program before any `.command()`
+// registration, so every subcommand inherits it via `copyInheritedSettings`
+// — including options placed on parent commands.
+function optionNameOfFlag(flag: string): string {
+  if (flag.startsWith("--")) {
+    const cut = flag.search(/[\s=]/);
+    const name = cut === -1 ? flag : flag.slice(0, cut);
+    return name.length >= 3 ? name : "--";
+  }
+  return flag.slice(0, 2);
+}
+
+// Suggestion tails name only known commands/options, so a strictly shaped
+// tail is safe to keep; anything else is treated as part of the value.
+const SUGGESTION_TAIL = /\n\(Did you mean [A-Za-z0-9_, \-]*\?\)/;
+
+function sanitizeUnknownOptionErrors(text: string): string {
+  const prefix = "error: unknown option '";
+  let result = "";
+  let cursor = 0;
+  for (;;) {
+    const start = text.indexOf(prefix, cursor);
+    if (start === -1) {
+      result += text.slice(cursor);
+      break;
+    }
+    result += text.slice(cursor, start);
+    const flagStart = start + prefix.length;
+    const rest = text.slice(flagStart);
+    const suggestion = rest.match(SUGGESTION_TAIL);
+    if (suggestion?.index !== undefined) {
+      const marker = flagStart + suggestion.index;
+      if (text[marker - 1] === "'") {
+        const flag = text.slice(flagStart, marker - 1);
+        const tailEnd = marker + suggestion[0].length;
+        result += `${prefix}${optionNameOfFlag(flag)}'${text.slice(marker, tailEnd)}`;
+        cursor = tailEnd;
+        continue;
+      }
+    }
+    const bound = (() => {
+      const next = text.indexOf("error: ", flagStart);
+      return next === -1 ? text.length : next;
+    })();
+    const windowText = text.slice(flagStart, bound);
+    const closeRelative = windowText.lastIndexOf("'");
+    if (closeRelative === -1) {
+      result += text.slice(start, bound);
+      cursor = bound;
+      continue;
+    }
+    const flag = windowText.slice(0, closeRelative);
+    result += `${prefix}${optionNameOfFlag(flag)}'`;
+    cursor = flagStart + closeRelative + 1;
+  }
+  return result;
+}
+
+function sanitizeUnknownCommandErrors(text: string): string {
+  const prefix = "error: unknown command '";
+  let result = "";
+  let cursor = 0;
+  for (;;) {
+    const start = text.indexOf(prefix, cursor);
+    if (start === -1) {
+      result += text.slice(cursor);
+      break;
+    }
+    result += text.slice(cursor, start);
+    const nameStart = start + prefix.length;
+    const rest = text.slice(nameStart);
+    const suggestion = rest.match(SUGGESTION_TAIL);
+    if (suggestion?.index !== undefined) {
+      const marker = nameStart + suggestion.index;
+      if (text[marker - 1] === "'") {
+        const tailEnd = marker + suggestion[0].length;
+        result += "error: unknown command";
+        result += text.slice(marker, tailEnd);
+        cursor = tailEnd;
+        continue;
+      }
+    }
+    const bound = (() => {
+      const next = text.indexOf("error: ", nameStart);
+      return next === -1 ? text.length : next;
+    })();
+    const windowText = text.slice(nameStart, bound);
+    const closeRelative = windowText.lastIndexOf("'");
+    cursor = closeRelative === -1 ? bound : nameStart + closeRelative + 1;
+    result += "error: unknown command";
+  }
+  return result;
+}
+
+function sanitizeH2aCommanderErrorOutput(raw: string): string {
+  if (!raw.includes("error: ")) return raw;
+  let out = sanitizeUnknownOptionErrors(raw);
+  out = sanitizeUnknownCommandErrors(out);
+  // Excess-argument details list the received values: drop them, keep counts.
+  out = out.replace(
+    /(error: too many arguments(?:(?!error: )[\s\S])*?but got \d+):((?:(?!error: )[\s\S])*)(\.(?=\n|$))/g,
+    "$1$3",
+  );
+  // Custom validators would echo rejected values here; none are registered
+  // today, but the shapes are closed anyway so no future option can leak.
+  out = out.replace(
+    /(error: option '[^']*') argument '((?:(?!error: )[\s\S])*)' is invalid\./g,
+    "$1 argument is invalid.",
+  );
+  out = out.replace(
+    /(error: option '[^']*') value '((?:(?!error: )[\s\S])*)' from env '[^']*' is invalid\./g,
+    "$1 value from env is invalid.",
+  );
+  out = out.replace(
+    /error: command-argument value '((?:(?!error: )[\s\S])*)' is invalid for argument ('[^']*')\./g,
+    "error: command-argument value is invalid for argument $2.",
+  );
+  return out;
+}
+
 export async function main(argv: ReadonlyArray<string>): Promise<number> {
   // Passive fatal-path witness on the real entry path (see
   // installCliWitnessOnce): observes via uncaughtExceptionMonitor, so the
@@ -2715,6 +2839,19 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         "demand. h2a runs and coordinates agents; it is not itself an agent.",
     )
     .version("0.0.0");
+
+  // Root error boundary (DEC-119): sanitize every commander error before it
+  // reaches stderr. Registered here — before any `.command()` — so the whole
+  // tree inherits it through `copyInheritedSettings`. `outputError` covers
+  // the error line itself; `writeErr` covers any other stderr error text.
+  program.configureOutput({
+    writeErr: (str) => {
+      process.stderr.write(sanitizeH2aCommanderErrorOutput(str));
+    },
+    outputError: (str, write) => {
+      write(sanitizeH2aCommanderErrorOutput(str));
+    },
+  });
 
   const identityCommand = program
     .command("identity")
@@ -10685,17 +10822,6 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
       "import a serialized credential from a secret manager into llm-mesh (claude-code only): pipe it on stdin, or enter it at the masked prompt. Takes no value; never argv, never logged",
     )
     .allowExcessArguments(true)
-    .configureOutput({
-      writeErr: (str) => {
-        // Sanitize unknown-option errors (m1): never echo option values
-        // (such as --token=<secret>, --cli=<secret>, or any --opt=<value>) on stderr.
-        const sanitized = str.replace(
-          /^(error: unknown option '-[^\s=]+)=.*('(?:\n|$))/gm,
-          "$1$2",
-        );
-        process.stderr.write(sanitized);
-      },
-    })
     .action(
       async (
         provider: string,
