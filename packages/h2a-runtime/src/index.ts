@@ -2651,6 +2651,47 @@ function setAndReportDefaultRemote(url: string): void {
   process.stderr.write(`[h2a] default remote set to ${configured}\n`);
 }
 
+// Root commander error boundary (DEC-119): commander never prints its own
+// error text. `outputError` is a no-op so the commander-built message (which
+// echoes argv, possibly multi-line) is dropped; `exitOverride` writes a
+// static message chosen ONLY from `err.code` — never `err.message`, never
+// user-typed text. Registered on the ROOT program before any `.command()`
+// so the whole tree inherits it via `copyInheritedSettings`.
+function staticCommanderErrorForCode(code: string): string {
+  switch (code) {
+    case "commander.unknownOption":
+      return "error: unknown option\n";
+    case "commander.unknownCommand":
+      return "error: unknown command\n";
+    case "commander.excessArguments":
+      return "error: too many arguments\n";
+    case "commander.missingArgument":
+      return "error: missing required argument\n";
+    case "commander.optionMissingArgument":
+      return "error: option argument missing\n";
+    case "commander.missingMandatoryOptionValue":
+      return "error: required option not specified\n";
+    case "commander.conflictingOption":
+      return "error: conflicting option\n";
+    case "commander.invalidArgument":
+      return "error: invalid argument\n";
+    default:
+      return "error: command error\n";
+  }
+}
+
+function isCommanderNonErrorCode(code: string): boolean {
+  return (
+    code === "commander.help" ||
+    code === "commander.helpDisplayed" ||
+    code === "commander.version" ||
+    code === "commander.executeSubCommandAsync"
+  );
+}
+
+// Legacy argv-text sanitizer (DEC-119, pre-r13): superseded by the static
+// code-based boundary above. Kept dead until removal to keep this commit
+// small; no longer called by `configureOutput`/`exitOverride`.
 // Root commander error sanitizer (DEC-119): commander echoes user-supplied
 // argv text in unknown-option flags (`--opt<value>`, `--opt=<value>`,
 // attached short `-x<value>`, all possibly multi-line, quote-bearing, or
@@ -2883,17 +2924,23 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
     )
     .version("0.0.0");
 
-  // Root error boundary (DEC-119): sanitize every commander error before it
-  // reaches stderr. Registered here — before any `.command()` — so the whole
-  // tree inherits it through `copyInheritedSettings`. `outputError` covers
-  // the error line itself; `writeErr` covers any other stderr error text.
+  // Root error boundary (DEC-119): commander never prints its own error
+  // text. `outputError` is a no-op (commander message dropped);
+  // `exitOverride` writes the static per-code message. Registered here —
+  // before any `.command()` — so the whole tree inherits it through
+  // `copyInheritedSettings`.
   program.configureOutput({
     writeErr: (str) => {
-      process.stderr.write(sanitizeH2aCommanderErrorOutput(str, program));
+      process.stderr.write(str);
     },
-    outputError: (str, write) => {
-      write(sanitizeH2aCommanderErrorOutput(str, program));
-    },
+    outputError: () => {},
+  });
+  program.showHelpAfterError(false);
+  program.showSuggestionAfterError(false);
+  program.exitOverride((err) => {
+    if (isCommanderNonErrorCode(err.code)) throw err;
+    process.stderr.write(staticCommanderErrorForCode(err.code));
+    throw err;
   });
 
   const identityCommand = program
@@ -11371,7 +11418,26 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
     "\nGrouped map of every h2a command (core + runtime): h2a explain\n",
   );
 
-  await program.parseAsync([...argv]);
+  try {
+    await program.parseAsync([...argv]);
+  } catch (err) {
+    // Commander errors already wrote their static per-code message in
+    // `exitOverride`; only set the exit code here, never `err.message`.
+    if (
+      err !== null &&
+      typeof err === "object" &&
+      "code" in err &&
+      typeof (err as { code: unknown }).code === "string"
+    ) {
+      const code = (err as { code: string }).code;
+      if (code.startsWith("commander.")) {
+        const exitCode = (err as { exitCode?: unknown }).exitCode;
+        process.exitCode = typeof exitCode === "number" ? exitCode : 1;
+        return process.exitCode;
+      }
+    }
+    throw err;
+  }
   const code = process.exitCode;
   return typeof code === "number" ? code : 0;
 }
