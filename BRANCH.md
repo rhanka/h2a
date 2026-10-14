@@ -27,9 +27,10 @@ Kept: facade enrollment (OAuth default + `--from cli` official store +
 `--from token` secret-manager pipe, DEC-119), mesh keyring
 storage/refresh, transport-specific hygiene of the CLI seat
 (identity-proven sweep, sandbox transport, cleanup blocking the result,
-static error boundary — never echoes values), masked TTY input /
-piped-token boundary (never argv, never logged). The startup sweep runs
-at every gateway composition even with no Claude account enrolled.
+static and sanitized error boundary — never echoes values across any
+enroll argument form), masked TTY input / piped-token boundary (never
+argv, never logged). The startup sweep runs at every gateway
+composition even with no Claude account enrolled.
 
 Import note (differs from muse by mesh limitation 0.25.0): `--from cli`
 is a point-in-time COPY — the mesh never writes the official store file,
