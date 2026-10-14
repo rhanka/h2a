@@ -1,3 +1,6 @@
+import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createGatewayNamespaceModule } from "@sentropic/cluster-mesh/compose/gateway";
 import { createGatewayHost, createLocalGatewayApp, LEGACY_PORTS_INERT, startServer } from "./host.js";
@@ -14,15 +17,28 @@ vi.mock("../claude-code-cli-lifecycle.js", async (importOriginal) => {
   };
 });
 
+let tempBase = "";
+
 beforeEach(() => {
+  // m4 (r8): every gateway composition runs in temp HOME/XDG/H2A_ROOT with
+  // an empty temp PATH — never the owner's real mesh store or real `claude`.
+  tempBase = mkdtempSync(join(tmpdir(), "h2a-gateway-host-"));
+  const emptyBin = join(tempBase, "bin");
+  mkdirSync(emptyBin, { recursive: true });
   vi.stubEnv("NODE_ENV", "test");
   vi.stubEnv("H2A_LLM_MESH_OWNER_SCOPE", "cli:test-owner");
+  vi.stubEnv("HOME", join(tempBase, "home"));
+  vi.stubEnv("XDG_RUNTIME_DIR", join(tempBase, "run"));
+  vi.stubEnv("H2A_ROOT", join(tempBase, "h2a-root"));
+  vi.stubEnv("PATH", emptyBin);
   resetSessions();
   resetSessionLedger();
 });
 
 afterEach(() => {
   vi.unstubAllEnvs();
+  if (tempBase) rmSync(tempBase, { recursive: true, force: true });
+  tempBase = "";
 });
 
 describe("embedded consumer-neutral gateway host", () => {
