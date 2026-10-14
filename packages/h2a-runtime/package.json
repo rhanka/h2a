@@ -1,6 +1,6 @@
 {
   "name": "@sentropic/h2a-runtime",
-  "version": "0.98.5",
+  "version": "0.98.6",
   "type": "module",
   "exports": {
     ".": {
@@ -10,7 +10,8 @@
     "./status": {
       "types": "./dist/status-projection.d.ts",
       "import": "./dist/status-projection.js"
-    }
+    },
+    "./package.json": "./package.json"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1075.0",

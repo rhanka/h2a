@@ -597,6 +597,15 @@ export class NativeTerminalHostSupervisor {
           return this.#connectOrStart();
         }
         const diagnostic = this.#spawnDiagnostic.trim();
+        if (this.#spawned?.exitCode === 3 && diagnostic.includes("[H2A_ENDPOINT_LIVE_OWNER]")) {
+          // A contender can lose publication while the winning host is still
+          // completing readiness. Its exit proves no startup failure: keep
+          // probing the winner within THIS call's original deadline, without
+          // spawning again. Adoption still requires a healthy handshake and
+          // the same containment proof as every other connection.
+          await delay(25);
+          continue;
+        }
         const error = new Error(
           `native terminal host exited before accepting connections (${this.#spawned?.exitCode ?? this.#spawned?.signalCode ?? "unknown"})${diagnostic ? `: ${diagnostic}` : ""}`,
         );
