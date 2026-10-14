@@ -283,6 +283,8 @@ describe("registry", () => {
       const live = listLive({
         path: regPath,
         pidAlive: (pid) => pid === 1234,
+        // Both probes are synthetic; never inspect an unrelated OS PID.
+        processCmdline: (pid) => pid === 1234 ? "codex" : undefined,
         bootTimeMs: 0, // boot at epoch → entries (seen now) are post-boot
       });
       // no-pid local entries are trusted until SessionEnd/prune
