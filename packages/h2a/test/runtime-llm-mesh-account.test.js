@@ -203,7 +203,7 @@ test(
   "enroll root error boundary never echoes argv secrets in any form",
   { skip: runtimeBuilt ? false : "packages/h2a-runtime/dist absent (run npx tsc -b)" },
   () => {
-    // Property-style canary: one random secret injected in 24 fixed argv
+    // Property-style canary: one random secret injected in 28 fixed argv
     // forms across the enroll command tree (multi-line values,
     // parent-placed options, attached short options, --opt=<v>,
     // attached with no `=`/` `, bare long/short flags at enroll and root
@@ -243,14 +243,41 @@ test(
       // value, a quote-bearing value) are static, never echoed.
       ["llm-mesh", "account", `x error: ${secret}`],
       ["llm-mesh", "account", `it's ${secret}`],
+      // r12 m2: values containing `error: ` (single-line and multi-line
+      // JSON) and extra `remove` positionals are static, never echoed.
+      ["llm-mesh", "account", "enroll", "claude-code", `--token=X error: ${secret}`],
+      ["llm-mesh", "account", "enroll", "claude-code", `--token={\n "a": "${secret}",\n "e": "error: no"\n}`],
+      ["llm-mesh", "account", "remove", "x", `a error: ${secret}`],
+      ["llm-mesh", "account", "remove", "x", "y", secret],
       ["llm-mesh", secret, "account", "enroll", "claude-code"],
       [secret],
+    ];
+    // Static shapes proven per form: unclassifiable input yields the bare
+    // static message (overlapping fragments below assert the same shape);
+    // a declared `--token` name is kept without its value.
+    const staticShapes = [
+      [`--token${secret}`, /error: unknown option(\n|$)/],
+      [`--${secret}`, /error: unknown option(\n|$)/],
+      [`-${secret}`, /error: unknown option(\n|$)/],
+      [`-t${secret}`, /error: unknown option(\n|$)/],
+      [`--token=${secret}\n`, /error: unknown option(\n|$)/],
+      [`"accessToken": "${secret}"`, /error: unknown option(\n|$)/],
+      [`--token=X error: ${secret}`, /unknown option '--token'/],
+      [`"e": "error: no"`, /error: unknown option(\n|$)/],
+      [`x error: ${secret}`, /error: unknown command(\n|$)/],
+      [`it's ${secret}`, /error: unknown command(\n|$)/],
+      [`a error: ${secret}`, /too many arguments for 'remove'\. Expected 1 argument but got 2\./],
     ];
     try {
       for (const args of forms) {
         const result = runWithEnv(args, isoEnv);
         assert.notEqual(result.status, 0, `expected refusal for ${JSON.stringify(args)}: ${result.output}`);
         assert.doesNotMatch(result.output, new RegExp(secret), `secret echoed for ${JSON.stringify(args)}: ${result.output}`);
+        for (const [fragment, shape] of staticShapes) {
+          if (args.some((a) => a.includes(fragment))) {
+            assert.match(result.output, shape, `not static for ${JSON.stringify(args)}: ${result.output}`);
+          }
+        }
       }
     } finally {
       rmSync(isoBase, { recursive: true, force: true });
