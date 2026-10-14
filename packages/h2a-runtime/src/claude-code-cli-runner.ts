@@ -7,7 +7,7 @@
  */
 import { spawn } from "node:child_process";
 import { delimiter, isAbsolute, join } from "node:path";
-import { existsSync } from "node:fs";
+import { accessSync, constants, existsSync, statSync } from "node:fs";
 import type {
   ClaudeCodeAccessProjection,
   ClaudeCodeCliCapabilities,
@@ -30,25 +30,38 @@ import {
 } from "./claude-code-cli-lifecycle.js";
 
 /**
- * Resolve the official `claude` CLI from `PATH` (POSIX and Windows
- * layouts). Returns the first absolute executable candidate, or undefined
- * when none is found. Never throws, never executes anything.
+ * Returns true for a regular file with the execute bit set. A directory or
+ * a non-executable file named `claude` earlier on PATH must never mask the
+ * real CLI (the failure would otherwise surface only at spawn).
+ */
+function isExecutableRegularFile(candidate: string): boolean {
+  try {
+    accessSync(candidate, constants.X_OK);
+    return statSync(candidate).isFile();
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Resolve the official `claude` CLI from `PATH` (Linux-first; Windows
+ * resolves `claude` and `claude.exe` only — `.cmd`/`.bat` shims are
+ * excluded because spawn launches without a shell). Returns the first
+ * absolute regular executable candidate, or undefined when none is found.
+ * Never throws, never executes anything.
  */
 export function resolveClaudeBinaryFromPath(
   env: NodeJS.ProcessEnv = process.env,
 ): string | undefined {
   const pathValue = env.PATH ?? "";
   if (!pathValue) return undefined;
-  const extensions =
-    process.platform === "win32"
-      ? ["", ".exe", ".cmd", ".bat"]
-      : [""];
+  const extensions = process.platform === "win32" ? ["", ".exe"] : [""];
   for (const dir of pathValue.split(delimiter)) {
     if (!dir || !isAbsolute(dir)) continue;
     for (const extension of extensions) {
       const candidate = join(dir, `claude${extension}`);
       try {
-        if (existsSync(candidate)) return candidate;
+        if (isExecutableRegularFile(candidate)) return candidate;
       } catch {
         // Unreadable directory entry: try the next candidate.
       }
@@ -158,8 +171,8 @@ export class OfficialClaudeCodeCliRunner implements ClaudeCodeCliRunner {
    * Resolve the spawn candidate: the explicit override when set,
    * otherwise the official `claude` CLI from `PATH` (re-resolved at each
    * attempt, so a later CLI install is picked up without a restart).
-   * Generic spawn safety only — absolute resolved path, exists, supported
-   * protocol. No version pin, no fingerprint, no attestation.
+   * Generic spawn safety only — absolute resolved path, regular executable
+   * file, supported protocol. No version pin, no fingerprint, no attestation.
    */
   private resolveBinary(): string {
     const candidate = this.binaryPath || resolveClaudeBinaryFromPath() || "";
@@ -168,6 +181,9 @@ export class OfficialClaudeCodeCliRunner implements ClaudeCodeCliRunner {
     }
     if (!existsSync(candidate)) {
       throw new Error("Claude CLI candidate unqualified: binary does not exist");
+    }
+    if (!isExecutableRegularFile(candidate)) {
+      throw new Error("Claude CLI candidate unqualified: binary not executable");
     }
     return candidate;
   }
