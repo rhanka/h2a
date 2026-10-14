@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import childProcess, { spawn, spawnSync } from "node:child_process";
 import { syncBuiltinESMExports } from "node:module";
 import { isMainThread } from "node:worker_threads";
+import { once } from "node:events";
 import fs, { closeSync, constants, lstatSync, mkdirSync, mkdtempSync, openSync, readlinkSync, rmSync, symlinkSync, unlinkSync } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 
@@ -138,6 +139,7 @@ export function setupNativeTestEnvironment(registerCleanup) {
   const restoreEnvironment = installNativeTestEnvironment(env);
   registerCleanup(async () => {
     try {
+      await stopPrivateNativeProcesses(env);
       await waitForPrivateNativeProcesses(env);
       rmSync(root, { recursive: true, force: true });
       privateProcessRoots.delete(root);
@@ -160,6 +162,9 @@ const guardInstalled = Symbol.for("h2a.test.nativeSpawnGuard");
 const preload = `--import=${import.meta.url}`;
 const nativeEntry = /(?:^|[/\\\s"'])(?:op|process)\.[jt]s(?:$|[\s"'])/;
 const privateProcessRoots = childProcess.ChildProcess.prototype[guardInstalled]?.processRoots ?? new Map();
+const privateChildren = childProcess.ChildProcess.prototype[guardInstalled]?.children ?? new Map();
+const privatePins = childProcess.ChildProcess.prototype[guardInstalled]?.pins ?? new Map();
+const closedProcessRoots = childProcess.ChildProcess.prototype[guardInstalled]?.closedRoots ?? new Set();
 
 function isNode(command) {
   return command === process.execPath || /(?:^|[/\\])node(?:js|\.exe)?$/.test(command);
@@ -175,11 +180,14 @@ function guardedEnvironment(command, args, env, cwd = process.cwd()) {
       throw error;
     }
   }
+  assert.ok(!closedProcessRoots.has(env.H2A_TEST_OWNED_PROC_ROOT), "REFUSING spawn after native fixture teardown");
   if (!isNode(command)) return env;
   // Carry the boundary through CLI/worker children even with a minimal env.
   const options = env.NODE_OPTIONS ?? "";
-  return privateProcessEnvironment({ ...env,
+  const prepared = privateProcessEnvironment({ ...env,
     NODE_OPTIONS: options.includes(preload) ? options : `${options} ${preload}`.trim() });
+  assert.ok(!closedProcessRoots.has(prepared.H2A_TEST_OWNED_PROC_ROOT), "REFUSING spawn after native fixture teardown");
+  return prepared;
 }
 
 function privateProcessEnvironment(env) {
@@ -234,6 +242,10 @@ function registerPrivateProcess(pid, env, replace = false, survivor = false) {
     if (error.code === "EEXIST") return () => {};
     throw error;
   }
+  if (survivor) {
+    if (!privatePins.has(root)) privatePins.set(root, new Set());
+    privatePins.get(root).add(pid);
+  }
   return () => {
     // An old child's exit hook must never unlink a newer parent's pin.
     try { if (readlinkSync(entry) === target) unlinkSync(entry); }
@@ -241,6 +253,7 @@ function registerPrivateProcess(pid, env, replace = false, survivor = false) {
     if (survivor) {
       try { if (readlinkSync(pin) === target) unlinkSync(pin); }
       catch (error) { if (error.code !== "ENOENT") throw error; }
+      privatePins.get(root)?.delete(pid);
     }
     closeSync(fd);
   };
@@ -274,7 +287,9 @@ export function pinPrivateNativeProcess(pid, env = process.env) {
       }
     }
   } catch (error) { for (const release of releases.reverse()) release(); throw error; }
-  return () => { for (const release of releases.reverse()) release(); };
+  const release = () => { for (const release of releases.reverse()) release(); };
+  release.pids = [...seen];
+  return release;
 }
 
 export function installNativeTestSpawnGuard() {
@@ -290,7 +305,15 @@ export function installNativeTestSpawnGuard() {
     const guarded = guardedEnvironment(options.file, options.args, env, options.cwd ?? process.cwd());
     const result = actualSpawn.call(this, { ...options,
       envPairs: Object.entries(guarded).map(([key, value]) => `${key}=${value}`) });
-    if (this.pid) this.once("exit", registerPrivateProcess(this.pid, guarded));
+    if (this.pid) {
+      const release = registerPrivateProcess(this.pid, guarded);
+      const root = guarded.H2A_TEST_OWNED_PROC_ROOT;
+      if (root && root === guarded.H2A_TEST_PROC_ROOT) {
+        if (!privateChildren.has(root)) privateChildren.set(root, new Set());
+        privateChildren.get(root).add(this);
+      }
+      this.once("exit", () => { privateChildren.get(root)?.delete(this); release(); });
+    }
     return result;
   };
   childProcess.spawnSync = function (command, args, options) {
@@ -310,6 +333,9 @@ export function installNativeTestSpawnGuard() {
   };
   const state = { violations: [], expectedRefusals: 0 };
   state.processRoots = privateProcessRoots;
+  state.children = privateChildren;
+  state.pins = privatePins;
+  state.closedRoots = closedProcessRoots;
   Object.defineProperty(prototype, guardInstalled, { value: state });
   const failUnexpected = () => {
     if (state.violations.length) {
@@ -348,6 +374,67 @@ export function assertNativeTestSpawnRefused(operation) {
 export function assertNoNativeTestSpawnViolations() {
   assert.deepEqual(childProcess.ChildProcess.prototype[guardInstalled].violations, [],
     "no caught unsafe native launch may pass qualification");
+}
+
+// Stop only handles this test spawned and descendants discovered through
+// their pinned task/children views. A synthetic row or socket sidecar never
+// authorizes a signal. Pin before host death so its journal stays observable.
+export async function stopPrivateNativeProcesses(env) {
+  const root = env.H2A_TEST_OWNED_PROC_ROOT ?? privateProcessRoots.get(env.XDG_RUNTIME_DIR);
+  if (!root) return;
+  assertPrivateQualificationPath(root, nativeQualificationRoot);
+  closedProcessRoots.add(root);
+  const children = [...(privateChildren.get(root) ?? [])];
+  const releases = [];
+  const known = new Set(privatePins.get(root) ?? []);
+  const errors = [];
+  const exited = children.map(child => child.exitCode === null && child.signalCode === null
+    ? once(child, "exit") : Promise.resolve());
+  const prepared = { ...env, H2A_TEST_PROC_ROOT: root, H2A_TEST_OWNED_PROC_ROOT: root };
+  const live = pid => {
+    try { return !/\) [ZX] /.test(fs.readFileSync(join(root, pid + ".pin", "stat"), "utf8")); }
+    catch (error) { if (["ENOENT", "ESRCH"].includes(error.code)) return false; throw error; }
+  };
+  const signal = (pid, name) => {
+    try { if (live(pid)) process.kill(pid, name); }
+    catch (error) { if (error.code !== "ESRCH") errors.push(error); }
+  };
+  try {
+    for (const child of children) {
+      try {
+        const release = pinPrivateNativeProcess(child.pid, prepared);
+        releases.push(release);
+        for (const pid of release.pids ?? [child.pid]) known.add(pid);
+      }
+      catch (error) { if (!["ENOENT", "ESRCH"].includes(error.code)) errors.push(error); }
+    }
+    const owned = () => [...known].filter(pid => pid !== process.pid);
+    for (const pid of owned()) { signal(pid, "SIGCONT"); signal(pid, "SIGTERM"); }
+    const deadline = performance.now() + 500;
+    while (owned().some(live) && performance.now() < deadline) await new Promise(resolve => setTimeout(resolve, 10));
+    // Revisit descendants before escalation, including a partially completed
+    // PTY create. Kill descendants before their parent can abandon them.
+    for (const pid of owned().filter(live)) {
+      try {
+        const release = pinPrivateNativeProcess(pid, prepared);
+        releases.push(release);
+        for (const pid of release.pids ?? [pid]) known.add(pid);
+      }
+      catch (error) { if (!["ENOENT", "ESRCH"].includes(error.code)) errors.push(error); }
+    }
+    for (const pid of owned().reverse()) signal(pid, "SIGKILL");
+    let timer;
+    try {
+      await Promise.race([Promise.all(exited), new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error("fixture child exit was not reaped within 1000ms")), 1000);
+      })]);
+    } finally { clearTimeout(timer); }
+    await waitForPrivateNativeProcesses(prepared);
+    if (errors.length) throw new AggregateError(errors, "private fixture process teardown failed");
+  } finally {
+    for (const release of releases.reverse()) release();
+    privateChildren.delete(root);
+  }
 }
 
 export async function waitForPrivateNativeProcesses(env) {

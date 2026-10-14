@@ -31,7 +31,7 @@ The conductor owns the full integration suite and release cut.
 ## Release gates still external
 
 Native B qualification on an isolated initial-namespace CI host/KVM lab,
-power-loss images reconstructed from synchronized writes, full R8+B9 matrix,
+power-loss images reconstructed from synchronized writes, full R8 matrix,
 Darwin/Windows native qualification, and independent final re-review are not
 inferred from scoped green tests. The build report records exact commands,
 outputs, simulations and remaining qualification gaps. A+B has no release GO
@@ -61,7 +61,7 @@ changes, dependency version changes, Python, merge, tag or publication.
   loss remain outside this confinement; B10 is not inferred from partial evidence.
 
 The external round-6 report preserves every command/output, mutant and failed
-experiment. Final qualification, pushed commits and remaining B9 limitations are
+experiment. Final qualification, pushed commits and remaining limitations are
 recorded there; no merge is authorized while a reserve remains.
 
 The second full integration exposed a deterministic supervisor election race:
@@ -71,3 +71,11 @@ deadline for that exact refusal; never respawn or bypass the health/containment
 gate. The regression also checks unrelated startup errors, no healthy winner,
 and backoff. The owner's two-full limit is exhausted; another full requires an
 explicit extension. No final-green claim is made without that additional run.
+
+## Release candidate CI repair
+
+Owner scope 2026-10-13: repair PR #330 CI on Node 22/24, provision historical
+fixtures in shallow checkouts, build native qualification in workspace order,
+and prove fixture host/journal teardown on success, failure and timeout.
+The owner abolished the out-of-gate native kernel qualification and authorized
+one final full integration run for this repair. No merge or release is authorized.

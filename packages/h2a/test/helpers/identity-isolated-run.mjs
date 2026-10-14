@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
+import { ensureHistoricalGitRef, IDENTITY_BASE_REF } from '../../../../scripts/historical-test-ref.mjs';
 const repo = resolve(import.meta.dirname, '../../../..');
 const require = createRequire(join(repo, 'package.json'));
 const ts = require('typescript');
@@ -55,20 +56,12 @@ function compile(root) {
     }
   }
 }
-function ensureGitRef(ref) {
-  if (spawnSync('git', ['cat-file', '-e', ref], { cwd: repo, stdio: 'ignore' }).status === 0) return;
-  // Shallow clones (CI checks out depth 1) lack history: fetch the one ref.
-  const fetched = spawnSync('git', ['fetch', 'origin', ref], { cwd: repo, stdio: 'inherit' });
-  if (fetched.status !== 0 || spawnSync('git', ['cat-file', '-e', ref], { cwd: repo, stdio: 'ignore' }).status !== 0) {
-    throw new Error(`identity-isolated-run: cannot provide historical ref ${ref}; fetch origin ${ref} first`);
-  }
-}
 for (const label of (process.env.IDLOCK_BUILD_ONLY==='1' ? ['candidate'] : ['candidate', 'base'])) {
   const dest = join(lane, label);
   fs.mkdirSync(dest);
   if (label === 'base' || process.env.IDLOCK_CANDIDATE_REF) {
-    const ref = label==='base'?'e3fc1a52':process.env.IDLOCK_CANDIDATE_REF;
-    ensureGitRef(ref);
+    const ref = label==='base'?IDENTITY_BASE_REF:process.env.IDLOCK_CANDIDATE_REF;
+    ensureHistoricalGitRef(repo, ref);
     const archive = spawnSync('git', ['archive', ref], { cwd: repo, maxBuffer: 100 * 1024 * 1024 });
     if (archive.status !== 0) throw new Error(archive.stderr.toString());
     const extract = spawnSync('tar', ['-x', '-C', dest], { input: archive.stdout });
