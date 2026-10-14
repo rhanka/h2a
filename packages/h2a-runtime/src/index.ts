@@ -10685,6 +10685,17 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
       "import a serialized credential from a secret manager into llm-mesh (claude-code only): pipe it on stdin, or enter it at the masked prompt. Takes no value; never argv, never logged",
     )
     .allowExcessArguments(true)
+    .configureOutput({
+      writeErr: (str) => {
+        // Sanitize unknown-option errors (m1): never echo option values
+        // (such as --token=<secret>, --cli=<secret>, or any --opt=<value>) on stderr.
+        const sanitized = str.replace(
+          /^(error: unknown option '-[^\s=]+)=.*('(?:\n|$))/gm,
+          "$1$2",
+        );
+        process.stderr.write(sanitized);
+      },
+    })
     .action(
       async (
         provider: string,
@@ -10744,7 +10755,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         }
         if ((opts.cli || opts.from === "cli") && normalized !== "muse" && normalized !== "claude-code") {
           process.stderr.write(
-            `[h2a] llm-mesh account: provider "${provider}" has no CLI-store import; ` +
+            "[h2a] llm-mesh account: provider has no CLI-store import; " +
               "--cli/--from cli is only valid for providers with a local CLI import (muse, claude-code)\n",
           );
           process.exitCode = 1;
@@ -10765,7 +10776,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           normalized !== "claude-code"
         ) {
           process.stderr.write(
-            `[h2a] llm-mesh account: unsupported provider "${provider}". ` +
+            "[h2a] llm-mesh account: unsupported provider. " +
               "Supported: cloud-code, codex, muse (OAuth; --cli imports the CLI store), mistral-vibe (alias: vibe), claude-code (OAuth; --cli imports the CLI store; --token imports a secret-manager credential)\n",
           );
           process.exitCode = 1;

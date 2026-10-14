@@ -113,6 +113,54 @@ test(
       assert.match(badCliValue.output, /too many arguments \(expected provider only; never pass secrets in argv\)/);
       assert.doesNotMatch(badCliValue.output, new RegExp(cliCanary));
 
+      // m1: --token=<v> and --cli=<v> unknown-option sanitization ensures
+      // option values are never echoed on stderr.
+      const tokenEqCanary = "canary-token-eq-3b5c7d9e1f2a";
+      const badTokenEq = runIso("llm-mesh", "account", "enroll", "claude-code", `--token=${tokenEqCanary}`);
+      assert.notEqual(badTokenEq.status, 0, badTokenEq.output);
+      assert.match(badTokenEq.output, /unknown option '--token'/);
+      assert.doesNotMatch(badTokenEq.output, new RegExp(tokenEqCanary));
+
+      const cliEqCanary = "canary-cli-eq-8a6b4c2d0e1f";
+      const badCliEq = runIso("llm-mesh", "account", "enroll", "claude-code", `--cli=${cliEqCanary}`);
+      assert.notEqual(badCliEq.status, 0, badCliEq.output);
+      assert.match(badCliEq.output, /unknown option '--cli'/);
+      assert.doesNotMatch(badCliEq.output, new RegExp(cliEqCanary));
+
+      const tokenEqFirstCanary = "canary-token-eqfirst-1c3e5a7b9d";
+      const badTokenEqFirst = runIso("llm-mesh", "account", "enroll", `--token=${tokenEqFirstCanary}`, "claude-code");
+      assert.notEqual(badTokenEqFirst.status, 0, badTokenEqFirst.output);
+      assert.match(badTokenEqFirst.output, /unknown option '--token'/);
+      assert.doesNotMatch(badTokenEqFirst.output, new RegExp(tokenEqFirstCanary));
+
+      // m1: option-first without provider (--cli <v> or --from cli <v>): provider
+      // error is static, never echoing the value on stderr.
+      const cliFirstCanary = "canary-cli-first-9e8d7c6b5a4f";
+      const badCliFirst = runIso("llm-mesh", "account", "enroll", "--cli", cliFirstCanary);
+      assert.notEqual(badCliFirst.status, 0, badCliFirst.output);
+      assert.match(badCliFirst.output, /provider has no CLI-store import/);
+      assert.doesNotMatch(badCliFirst.output, new RegExp(cliFirstCanary));
+
+      const fromCliCanary = "canary-from-cli-6a5b4c3d2e1f";
+      const badFromCli = runIso("llm-mesh", "account", "enroll", "--from", "cli", fromCliCanary);
+      assert.notEqual(badFromCli.status, 0, badFromCli.output);
+      assert.match(badFromCli.output, /provider has no CLI-store import/);
+      assert.doesNotMatch(badFromCli.output, new RegExp(fromCliCanary));
+
+      // m1: unsupported provider positional value is refused with a static message,
+      // never echoing the value.
+      const unsupportedCanary = "canary-unsupported-2d4f6a8c0e1b";
+      const badUnsupported = runIso("llm-mesh", "account", "enroll", unsupportedCanary);
+      assert.notEqual(badUnsupported.status, 0, badUnsupported.output);
+      assert.match(badUnsupported.output, /unsupported provider/);
+      assert.doesNotMatch(badUnsupported.output, new RegExp(unsupportedCanary));
+
+      const tokenFirstCanary = "canary-token-first-7c8b9d0e1f2a";
+      const badTokenFirst = runIso("llm-mesh", "account", "enroll", "--token", tokenFirstCanary);
+      assert.notEqual(badTokenFirst.status, 0, badTokenFirst.output);
+      assert.match(badTokenFirst.output, /--token\/--from token is only valid for claude-code/);
+      assert.doesNotMatch(badTokenFirst.output, new RegExp(tokenFirstCanary));
+
       // m2 (r8): option-first ordering keeps working — `--cli muse` selects
       // the muse CLI-store import (provider recognized, not swallowed as a
       // --cli value). In the isolated temp HOME the store is absent, so the
