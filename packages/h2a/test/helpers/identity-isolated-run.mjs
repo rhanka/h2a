@@ -55,11 +55,21 @@ function compile(root) {
     }
   }
 }
+function ensureGitRef(ref) {
+  if (spawnSync('git', ['cat-file', '-e', ref], { cwd: repo, stdio: 'ignore' }).status === 0) return;
+  // Shallow clones (CI checks out depth 1) lack history: fetch the one ref.
+  const fetched = spawnSync('git', ['fetch', 'origin', ref], { cwd: repo, stdio: 'inherit' });
+  if (fetched.status !== 0 || spawnSync('git', ['cat-file', '-e', ref], { cwd: repo, stdio: 'ignore' }).status !== 0) {
+    throw new Error(`identity-isolated-run: cannot provide historical ref ${ref}; fetch origin ${ref} first`);
+  }
+}
 for (const label of (process.env.IDLOCK_BUILD_ONLY==='1' ? ['candidate'] : ['candidate', 'base'])) {
   const dest = join(lane, label);
   fs.mkdirSync(dest);
   if (label === 'base' || process.env.IDLOCK_CANDIDATE_REF) {
-    const archive = spawnSync('git', ['archive', label==='base'?'e3fc1a52':process.env.IDLOCK_CANDIDATE_REF], { cwd: repo, maxBuffer: 100 * 1024 * 1024 });
+    const ref = label==='base'?'e3fc1a52':process.env.IDLOCK_CANDIDATE_REF;
+    ensureGitRef(ref);
+    const archive = spawnSync('git', ['archive', ref], { cwd: repo, maxBuffer: 100 * 1024 * 1024 });
     if (archive.status !== 0) throw new Error(archive.stderr.toString());
     const extract = spawnSync('tar', ['-x', '-C', dest], { input: archive.stdout });
     if (extract.status !== 0) throw new Error(extract.stderr.toString());

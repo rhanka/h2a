@@ -169,9 +169,10 @@ export const STEPS = [
     command: process.execPath,
     args: ['scripts/run-tests.mjs'],
     requiresBuild: true,
-    // Node and Track run sequentially, each with a ten-minute deadline in
-    // run-tests.mjs. Allow both runs plus report verification; the integrated
-    // inventory alone exceeds the former four-minute outer budget.
+    // Node, Track, AgentStats and the identity lane run sequentially, each
+    // with a ten-minute deadline in run-tests.mjs. Allow all runs plus report
+    // verification; the integrated inventory alone exceeds the former
+    // four-minute outer budget.
     timeoutMs: 21 * MINUTE_MS,
     reportPath: NODE_TRACK_EXECUTION_REPORT,
     requiredFiles: listNodeTrackSuiteFiles,
@@ -281,6 +282,7 @@ function countTestTsFiles(root) {
   let total = 0
   let underRuntimeSrc = 0
   let underTrackSrc = 0
+  let underAgentStatsTests = 0
   const walk = (dir, rel) => {
     let entries
     try {
@@ -296,11 +298,12 @@ function countTestTsFiles(root) {
         total += 1
         if (rel.startsWith('packages/h2a-runtime/src/')) underRuntimeSrc += 1
         if (rel.startsWith('packages/track/src/')) underTrackSrc += 1
+        if (rel.startsWith('packages/agent-stats/tests/')) underAgentStatsTests += 1
       }
     }
   }
   walk(root, '')
-  return { total, underRuntimeSrc, underTrackSrc }
+  return { total, underRuntimeSrc, underTrackSrc, underAgentStatsTests }
 }
 
 /**
@@ -309,8 +312,8 @@ function countTestTsFiles(root) {
  * An unquantified hedge next to a confident green reads as boilerplate: "not every
  * test file" is equally true of 99% coverage. So state the actual numbers, name the
  * directories discovery looks in, and say plainly what remains outside every gate:
- * *.test.ts files outside h2a-runtime and track are not even type-checked —
- * otherwise a reader may reasonably assume `tsc` at least sees them.
+ * *.test.ts files outside h2a-runtime, track and agent-stats/tests are not even
+ * type-checked — otherwise a reader may reasonably assume `tsc` at least sees them.
  */
 export function describeScope() {
   let ran
@@ -319,14 +322,15 @@ export function describeScope() {
   } catch {
     ran = 0
   }
-  const { total, underRuntimeSrc, underTrackSrc } = countTestTsFiles(REPO_ROOT)
-  const notRun = Math.max(total - underRuntimeSrc - underTrackSrc, 0)
+  const { total, underRuntimeSrc, underTrackSrc, underAgentStatsTests } = countTestTsFiles(REPO_ROOT)
+  const notRun = Math.max(total - underRuntimeSrc - underTrackSrc - underAgentStatsTests, 0)
   return (
     '\n  scope of this run (counted now, not hard-coded):\n' +
     `    ran         ${ran} *.test.js files, discovered in ${TEST_DIRS.join(' and ')}\n` +
     '    ran         ' +
     `${underRuntimeSrc} *.test.ts files under packages/h2a-runtime/src, via the h2a-runtime step\n` +
     `    ran         ${underTrackSrc} *.test.ts files under packages/track/src, via the Track vitest suite\n` +
+    `    ran         ${underAgentStatsTests} *.test.ts files under packages/agent-stats/tests, via the AgentStats vitest suite\n` +
     `    NOT run     ${notRun} *.test.ts files elsewhere in the tree\n` +
     '    h2a-runtime tsconfig still excludes every *.test.ts from type-checking;\n' +
     '    the h2a-runtime step EXECUTES them but proves no type-level property.\n'
