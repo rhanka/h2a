@@ -1877,6 +1877,13 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
       "recycled",
       "same-controller",
     );
+    // Qualify a running original command before testing its reincarnation.
+    // create() returns the guardian PID before its shell has necessarily
+    // started; TERM delivered in that interval can precede the shell itself.
+    await eventually(
+      () => staleClient.readOutput("recycled", 0),
+      output => output.chunks.some(chunk => chunk.data.includes("original-ready")),
+    );
     await staleClient.stop(staleLease, "SIGTERM");
     await sessionExited(staleClient, "recycled");
 
