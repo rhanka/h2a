@@ -244,20 +244,34 @@ test("bumpSmokeArtifactPinContent validates the new version through parseVersion
 test("bumpSmokeArtifactPinContent refuses a script without the pin declaration", () => {
   assert.throws(
     () => bumpSmokeArtifactPinContent("const VERSION = '0.98.5'\n", "0.98.6"),
-    /PINNED_RUNTIME_VERSION/
+    /expected exactly one.*found 0/
+  );
+});
+
+test("bumpSmokeArtifactPinContent refuses a script with the pin declared twice", () => {
+  const duplicated = [
+    "const PINNED_RUNTIME_VERSION = '0.98.6'",
+    "const PINNED_RUNTIME_VERSION = '0.98.6'",
+    "",
+  ].join("\n");
+  assert.throws(
+    () => bumpSmokeArtifactPinContent(duplicated, "0.98.7"),
+    /expected exactly one.*found 2/
   );
 });
 
 test("bumpSmokeArtifactPinContent round-trips the real smoke script pin", () => {
   const real = readFileSync(SMOKE_SCRIPT, "utf8");
+  const pinned = /^const PINNED_RUNTIME_VERSION = '([^']+)'$/m.exec(real)?.[1];
+  assert.ok(pinned, "the real smoke script must declare the pin");
   assert.match(real, /^const PINNED_RUNTIME_VERSION = '[^']+'$/m);
   const bumped = bumpSmokeArtifactPinContent(real, "9.9.9");
   assert.match(bumped, /^const PINNED_RUNTIME_VERSION = '9\.9\.9'$/m);
   // The SPEC identifier survives even a synthetic bump.
   assert.ok(bumped.includes("SPEC 0.98.5 R8.3"));
   // And back: the helper restores the exact current bytes.
-  const back = bumpSmokeArtifactPinContent(bumped, "0.98.6");
-  assert.ok(back.includes("const PINNED_RUNTIME_VERSION = '0.98.6'"));
+  const back = bumpSmokeArtifactPinContent(bumped, pinned);
+  assert.ok(back.includes(`const PINNED_RUNTIME_VERSION = '${pinned}'`));
 });
 
 test("gitStatusIsClean accepts empty porcelain output only", () => {

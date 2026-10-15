@@ -88,7 +88,7 @@ const runtimeVersion = JSON.parse(
 ).version
 if (runtimeVersion !== PINNED_RUNTIME_VERSION) {
   fail(
-    `the candidate tree is @sentropic/h2a-runtime@${runtimeVersion}, but the smoke proves the 0.98.6 train: ` +
+    `the candidate tree is @sentropic/h2a-runtime@${runtimeVersion}, but the smoke proves the ${PINNED_RUNTIME_VERSION} train: ` +
       `bump the lockstep version (npm run release -- --version ${PINNED_RUNTIME_VERSION}) before tagging`,
   )
 }
