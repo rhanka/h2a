@@ -16,10 +16,11 @@ export async function observeSmoke(source, scriptPath, options = {}) {
   const prebuilt = join(root, 'candidate-tarballs')
   if (options.prebuilt) {
     fs.mkdirSync(prebuilt)
-    for (const name of ['h2a', 'h2a-runtime', 'h2a-cli']) fs.writeFileSync(join(prebuilt, `sentropic-${name}-0.98.5.tgz`), `prebuilt candidate ${name}`)
+    for (const name of ['h2a', 'h2a-runtime', 'h2a-cli', 'track']) fs.writeFileSync(join(prebuilt, `sentropic-${name}-0.98.6.tgz`), `prebuilt candidate ${name}`)
   }
   const nodeRequire = createRequire(import.meta.url)
   let resolvedManifest
+  let resolvedTrackManifest
   let polls = 0
   const fakeProcess = { ...process, argv: ['node', scriptPath, ...(options.prebuilt ? ['--tarballs', prebuilt] : [])], execPath: process.execPath,
     env: { HOME: root, XDG_RUNTIME_DIR: root }, exit: (code) => { throw new Error(`premature exit ${code}`) } }
@@ -27,7 +28,7 @@ export async function observeSmoke(source, scriptPath, options = {}) {
     if (command === 'npm' && args[0] === 'pack') {
       const pkg = args[2], staging = args[4]
       observations.packed.push(pkg)
-      fs.writeFileSync(join(staging, pkg.replace('@', '').replace('/', '-') + '-0.98.5.tgz'), pkg)
+      fs.writeFileSync(join(staging, pkg.replace('@', '').replace('/', '-') + '-0.98.6.tgz'), pkg)
     } else if (command === 'npm' && args[0] === 'install') {
       const prefix = args[2]
       observations.installed = args.slice(5)
@@ -35,8 +36,16 @@ export async function observeSmoke(source, scriptPath, options = {}) {
       fs.mkdirSync(join(dist, 'native-terminal'), { recursive: true })
       for (const name of ['process.js', 'client.js', 'op.js']) fs.writeFileSync(join(dist, 'native-terminal', name), '')
       resolvedManifest = join(dirname(dist), 'package.json')
-      fs.writeFileSync(resolvedManifest, JSON.stringify({ version: options.loadedVersion ?? '0.98.5' }))
-    } else if (args[0] === '-p') return { status: 0, stdout: resolvedManifest, stderr: '' }
+      fs.writeFileSync(resolvedManifest, JSON.stringify({ version: options.loadedVersion ?? '0.98.6' }))
+      const trackDir = join(prefix, 'node_modules/@sentropic/track')
+      fs.mkdirSync(trackDir, { recursive: true })
+      resolvedTrackManifest = join(trackDir, 'package.json')
+      fs.writeFileSync(resolvedTrackManifest, JSON.stringify({ version: options.loadedTrackVersion ?? '0.98.6' }))
+    } else if (args[0] === '-p') {
+      const query = args[1] ?? ''
+      const target = query.includes('@sentropic/track') ? resolvedTrackManifest : resolvedManifest
+      return { status: 0, stdout: target, stderr: '' }
+    }
     else if (args[1] === 'host-stop') {
       const child = children.get(args[3])
       child.exitCode = 0
@@ -106,7 +115,7 @@ export async function observeSmoke(source, scriptPath, options = {}) {
     throw new Error(`unexpected module ${url}`)
   }
   const readFileSync = (path, encoding) => {
-    if (String(path).endsWith('/packages/h2a-runtime/package.json')) return JSON.stringify({ version: '0.98.5' })
+    if (String(path).endsWith('/packages/h2a-runtime/package.json')) return JSON.stringify({ version: '0.98.6' })
     if (path === '/proc/sys/kernel/random/boot_id') return 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
     if (path === '/etc/machine-id') return 'a'.repeat(32)
     return fs.readFileSync(path, encoding)
@@ -139,11 +148,11 @@ export async function observeSmoke(source, scriptPath, options = {}) {
     process: fakeProcess, loadModule, setTimeout: timer, clearTimeout, console: { log: () => {} } }
   try {
     await new AsyncFunction(...Object.keys(deps), code)(...Object.values(deps))
-    assert.deepEqual(observations.packed.sort(), options.prebuilt ? [] : ['@sentropic/h2a', '@sentropic/h2a-cli', '@sentropic/h2a-runtime'])
-    assert.equal(observations.installed.length, 3)
-    for (const name of ['h2a', 'h2a-runtime', 'h2a-cli']) assert.ok(observations.installed.some((path) => path.startsWith(root + '/') && path.endsWith(`sentropic-${name}-0.98.5.tgz`)), `candidate ${name} must be installed from its local tarball`)
-    if (options.prebuilt) for (const name of ['h2a', 'h2a-runtime', 'h2a-cli']) {
-      const path = join(prebuilt, `sentropic-${name}-0.98.5.tgz`)
+    assert.deepEqual(observations.packed.sort(), options.prebuilt ? [] : ['@sentropic/h2a', '@sentropic/h2a-cli', '@sentropic/h2a-runtime', '@sentropic/track'])
+    assert.equal(observations.installed.length, 4)
+    for (const name of ['h2a', 'h2a-runtime', 'h2a-cli', 'track']) assert.ok(observations.installed.some((path) => path.startsWith(root + '/') && path.endsWith(`sentropic-${name}-0.98.6.tgz`)), `candidate ${name} must be installed from its local tarball`)
+    if (options.prebuilt) for (const name of ['h2a', 'h2a-runtime', 'h2a-cli', 'track']) {
+      const path = join(prebuilt, `sentropic-${name}-0.98.6.tgz`)
       assert.ok(observations.installed.includes(path), 'smoke must install the workflow-built bytes')
       assert.equal(fs.readFileSync(path, 'utf8'), `prebuilt candidate ${name}`, 'the provided tarballs must be preserved')
     }
