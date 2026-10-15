@@ -144,7 +144,7 @@ test("R8.3: the smoke stores the pid namespace as the production reader does —
   );
 });
 
-test(`R8.3: the smoke proves the pinned literal version ${PINNED}, never 'whatever the candidate is'`, () => {
+test("R8.3: the smoke proves the pinned literal version 0.98.6, never 'whatever the candidate is'", () => {
   const escaped = PINNED.replace(/\./g, "\\.");
   assert.match(
     SMOKE_SOURCE,
