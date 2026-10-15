@@ -35,6 +35,7 @@
   },
   "exports": {
     ".": "./dist/index.js",
+    "./package.json": "./package.json",
     "./read": "./dist/read/index.js",
     "./ingest": "./dist/ingest/index.js",
     "./seam": "./dist/ingest/seam-schema.js",
