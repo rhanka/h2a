@@ -12,7 +12,7 @@
  *     (readPidNamespaceId) returns the bare numeric inode — a malformed store
  *     value, foreign-frame under R1, refusing the very cold boot it seeds;
  *   - the smoke compared the loaded version to the CANDIDATE version instead
- *     of the pinned literal 0.98.5 (R8.3(4) pins the literal);
+ *     of the pinned literal 0.98.6 (R8.3(4) pins the literal);
  *   - scenario 7 destroyed the stderr reader AFTER a prune that ran at delay
  *     zero — no write-after-close was exercised — and scenario 8 proved only
  *     a ping after the fault.
@@ -64,6 +64,10 @@ test("C9 A10: smoke must fail when the installed runtime has a different version
   await assert.rejects(observeSmoke(SMOKE_SOURCE, SMOKE_PATH, { loadedVersion: "0.98.4" }), /runtime version/);
 });
 
+test("C9 A10: smoke must fail when the installed track has a different version", async () => {
+  await assert.rejects(observeSmoke(SMOKE_SOURCE, SMOKE_PATH, { loadedTrackVersion: "0.98.4" }), /track version/);
+});
+
 test("C9 A11: a failed fault connection proves no injection", async () => {
   await assert.rejects(observeSmoke(SMOKE_SOURCE, SMOKE_PATH, { failConnect: true }), /fault connection/);
 });
@@ -81,6 +85,27 @@ test("R8.3: the runtime manifest must let the smoke prove the loaded path (./pac
     assert.doesNotThrow(
       () => fromPrefix.resolve("@sentropic/h2a-runtime/package.json"),
       "the smoke path proof requires the ./package.json subpath export; without it the proof step is red and the smoke fails",
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("R8.3: the track manifest must let the smoke prove the loaded path (./package.json subpath export)", () => {
+  // Same proof as the runtime: resolution from an INSTALLED prefix requires
+  // the ./package.json subpath export, or the track path proof is red.
+  const trackManifest = JSON.parse(
+    readFileSync(resolve(REPO_ROOT, "packages", "track", "package.json"), "utf8"),
+  );
+  const root = mkdtempSync(join(tmpdir(), "h2a-smoke-track-manifest-"));
+  try {
+    const packageDir = join(root, "node_modules", "@sentropic", "track");
+    mkdirSync(packageDir, { recursive: true });
+    writeFileSync(join(packageDir, "package.json"), JSON.stringify(trackManifest));
+    const fromPrefix = createRequire(join(root, "probe.cjs"));
+    assert.doesNotThrow(
+      () => fromPrefix.resolve("@sentropic/track/package.json"),
+      "the smoke track proof requires the ./package.json subpath export; without it the proof step is red and the smoke fails",
     );
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -107,19 +132,38 @@ test("R8.3: the smoke stores the pid namespace as the production reader does —
   );
 });
 
-test("R8.3: the smoke proves the pinned literal version 0.98.5, never 'whatever the candidate is'", () => {
+test("R8.3: the smoke proves the pinned literal version 0.98.6, never 'whatever the candidate is'", () => {
   assert.match(
     SMOKE_SOURCE,
-    /const PINNED_RUNTIME_VERSION = '0\.98\.5'/,
-    "R8.3(4) pins the literal: version === 0.98.5",
+    /const PINNED_RUNTIME_VERSION = '0\.98\.6'/,
+    "R8.3(4) pins the literal: version === 0.98.6",
   );
   assert.ok(
     SMOKE_SOURCE.includes("loadedVersion !== PINNED_RUNTIME_VERSION"),
     "the loaded version must be compared to the pinned literal",
   );
   assert.ok(
+    SMOKE_SOURCE.includes("loadedTrackVersion !== PINNED_RUNTIME_VERSION"),
+    "the loaded track version must be compared to the same pinned literal (lockstep train)",
+  );
+  assert.ok(
     !SMOKE_SOURCE.includes("loadedVersion !== runtimeVersion"),
     "comparing to the candidate version reopens the hole: a registry fallback to a previously published version of the same range would pass",
+  );
+});
+
+test("R8.3: the smoke packs and installs the candidate track tarball, never the registry", () => {
+  assert.ok(
+    SMOKE_SOURCE.includes("'@sentropic/track'") || SMOKE_SOURCE.includes('"@sentropic/track"'),
+    "the smoke must pack @sentropic/track with the candidate (verify runs before publish, so the lockstep track is never on the registry)",
+  );
+  assert.ok(
+    SMOKE_SOURCE.includes("require.resolve('@sentropic/track/package.json')"),
+    "the smoke must prove the track path resolves from the installed prefix",
+  );
+  assert.ok(
+    SMOKE_SOURCE.includes("@sentropic/track resolved OUTSIDE the candidate prefix"),
+    "the track path proof must fail closed outside the prefix",
   );
 });
 
