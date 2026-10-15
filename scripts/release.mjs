@@ -231,13 +231,17 @@ export function bumpPackageLockContent(jsonContent, newVersion) {
  */
 export function bumpSmokeArtifactPinContent(jsContent, newVersion) {
   parseVersion(newVersion); // validate
-  const pattern = /^const PINNED_RUNTIME_VERSION = '[^']*'$/m;
-  if (!pattern.test(jsContent)) {
+  const matches = jsContent.match(/^const PINNED_RUNTIME_VERSION = '[^']*'$/gm);
+  const count = matches ? matches.length : 0;
+  if (count !== 1) {
     throw new Error(
-      "bumpSmokeArtifactPinContent: no `const PINNED_RUNTIME_VERSION = 'X.Y.Z'` declaration found — the smoke script moved its pin."
+      `bumpSmokeArtifactPinContent: expected exactly one \`const PINNED_RUNTIME_VERSION = 'X.Y.Z'\` declaration, found ${count} — the smoke script moved its pin.`
     );
   }
-  return jsContent.replace(pattern, `const PINNED_RUNTIME_VERSION = '${newVersion}'`);
+  return jsContent.replace(
+    /^const PINNED_RUNTIME_VERSION = '[^']*'$/m,
+    `const PINNED_RUNTIME_VERSION = '${newVersion}'`
+  );
 }
 
 /** @param {string} porcelainOutput */

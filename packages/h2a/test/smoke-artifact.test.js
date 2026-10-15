@@ -12,7 +12,7 @@
  *     (readPidNamespaceId) returns the bare numeric inode — a malformed store
  *     value, foreign-frame under R1, refusing the very cold boot it seeds;
  *   - the smoke compared the loaded version to the CANDIDATE version instead
- *     of the pinned literal 0.98.6 (R8.3(4) pins the literal);
+ *     of the pinned literal (R8.3(4) pins the literal);
  *   - scenario 7 destroyed the stderr reader AFTER a prune that ran at delay
  *     zero — no write-after-close was exercised — and scenario 8 proved only
  *     a ping after the fault.
@@ -42,6 +42,16 @@ try {
   assert.fail(`the smoke script and the runtime manifest must exist and be readable: ${error.message}`);
 }
 
+// The expected train follows the script's pinned literal: no hard-coded
+// version below, so the next `release.mjs` bump cannot desynchronize the
+// gate. Strength is kept by anchoring the pin to the workspace manifests
+// (pin === train) instead of to a literal in this file.
+const PINNED = /^const PINNED_RUNTIME_VERSION = '([^']+)'$/m.exec(SMOKE_SOURCE)?.[1];
+assert.ok(PINNED, "the smoke must declare exactly one `const PINNED_RUNTIME_VERSION = 'X.Y.Z'` literal");
+assert.match(PINNED, /^\d+\.\d+\.\d+$/, "the pinned literal must be a strict X.Y.Z train");
+const PINNED_DECL_COUNT = (SMOKE_SOURCE.match(/^const PINNED_RUNTIME_VERSION = '[^']*'$/gm) ?? []).length;
+assert.equal(PINNED_DECL_COUNT, 1, "the smoke must declare the pin exactly once");
+
 test("C9 A10/A11: execute smoke orchestration and observe seed, install, faults, identity, prune and PTYs", async () => {
   await observeSmoke(SMOKE_SOURCE, SMOKE_PATH);
 });
@@ -61,10 +71,12 @@ for (const changedIdentity of ["client", "stderr"]) {
   });
 }
 test("C9 A10: smoke must fail when the installed runtime has a different version", async () => {
+  assert.notEqual("0.98.4", PINNED, "the mismatch fixture must differ from the pinned train");
   await assert.rejects(observeSmoke(SMOKE_SOURCE, SMOKE_PATH, { loadedVersion: "0.98.4" }), /runtime version/);
 });
 
 test("C9 A10: smoke must fail when the installed track has a different version", async () => {
+  assert.notEqual("0.98.4", PINNED, "the mismatch fixture must differ from the pinned train");
   await assert.rejects(observeSmoke(SMOKE_SOURCE, SMOKE_PATH, { loadedTrackVersion: "0.98.4" }), /track version/);
 });
 
@@ -132,11 +144,25 @@ test("R8.3: the smoke stores the pid namespace as the production reader does —
   );
 });
 
-test("R8.3: the smoke proves the pinned literal version 0.98.6, never 'whatever the candidate is'", () => {
+test(`R8.3: the smoke proves the pinned literal version ${PINNED}, never 'whatever the candidate is'`, () => {
+  const escaped = PINNED.replace(/\./g, "\\.");
   assert.match(
     SMOKE_SOURCE,
-    /const PINNED_RUNTIME_VERSION = '0\.98\.6'/,
-    "R8.3(4) pins the literal: version === 0.98.6",
+    new RegExp(`^const PINNED_RUNTIME_VERSION = '${escaped}'$`, "m"),
+    `R8.3(4) pins the literal: version === ${PINNED}`,
+  );
+  assert.equal(
+    PINNED,
+    MANIFEST.version,
+    "the pinned literal tracks the lockstep train: it must equal the runtime manifest version, otherwise the next bump desynchronizes the gate",
+  );
+  const trackManifest = JSON.parse(
+    readFileSync(resolve(REPO_ROOT, "packages", "track", "package.json"), "utf8"),
+  );
+  assert.equal(
+    PINNED,
+    trackManifest.version,
+    "the lockstep train ships runtime and track at one version: the pin must equal the track manifest too",
   );
   assert.ok(
     SMOKE_SOURCE.includes("loadedVersion !== PINNED_RUNTIME_VERSION"),
@@ -149,6 +175,10 @@ test("R8.3: the smoke proves the pinned literal version 0.98.6, never 'whatever 
   assert.ok(
     !SMOKE_SOURCE.includes("loadedVersion !== runtimeVersion"),
     "comparing to the candidate version reopens the hole: a registry fallback to a previously published version of the same range would pass",
+  );
+  assert.ok(
+    SMOKE_SOURCE.includes("proves the ${PINNED_RUNTIME_VERSION} train"),
+    "the candidate-tree message must interpolate the pin: a hard-coded train freezes on the next bump",
   );
 });
 
@@ -165,6 +195,26 @@ test("R8.3: the smoke packs and installs the candidate track tarball, never the 
     SMOKE_SOURCE.includes("@sentropic/track resolved OUTSIDE the candidate prefix"),
     "the track path proof must fail closed outside the prefix",
   );
+  assert.ok(
+    SMOKE_SOURCE.includes("loadedTrackVersion !== PINNED_RUNTIME_VERSION"),
+    "the track proof must compare to the same pinned literal, never to the candidate version",
+  );
+});
+
+test(`R8.3: the smoke installs all four candidate tarballs including track at ${PINNED}`, async () => {
+  const observations = await observeSmoke(SMOKE_SOURCE, SMOKE_PATH);
+  assert.deepEqual(
+    observations.packed.sort(),
+    ["@sentropic/h2a", "@sentropic/h2a-cli", "@sentropic/h2a-runtime", "@sentropic/track"],
+    "the smoke must pack all four lockstep packages",
+  );
+  assert.equal(observations.installed.length, 4, "the prefix install must take exactly the four candidate tarballs");
+  for (const name of ["h2a", "h2a-runtime", "h2a-cli", "track"]) {
+    assert.ok(
+      observations.installed.some((path) => path.endsWith(`sentropic-${name}-${PINNED}.tgz`)),
+      `candidate ${name} must be installed from its local ${PINNED} tarball, never the registry`,
+    );
+  }
 });
 
 test("R8.3: scenario 7 closes the stderr reader BEFORE the deferred prune, and every fault is followed by a PTY proof", () => {
