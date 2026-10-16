@@ -1,0 +1,43 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-entry.test.js
+node: v22.22.1
+private root: /tmp/mh-l6-test-cr2tf3
+case: all cases in explicit file
+TAP version 13
+# Subtest: U04 should preserve the exact selected argv entry and PID when the real npm router imports it
+not ok 1 - U04 should preserve the exact selected argv entry and PID when the real npm router imports it
+  ---
+  duration_ms: 4536.547022
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-entry.test.js:10:84'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    + actual - expected
+    
+    + '/tmp/mh-l6-test-cr2tf3/tmpdir/mh-l5-image-KEkd1S/lib/node_modules/@sentropic/h2a/dist/bin.js'
+    - '/tmp/mh-l6-test-cr2tf3/tmpdir/mh-l5-image-KEkd1S/h2a-managed/1000/images/efee774459efd8868baa5682c33698b798a7176ab6722424a1933aa1011d846a/dist/bin.js'
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: '/tmp/mh-l6-test-cr2tf3/tmpdir/mh-l5-image-KEkd1S/h2a-managed/1000/images/efee774459efd8868baa5682c33698b798a7176ab6722424a1933aa1011d846a/dist/bin.js'
+  actual: '/tmp/mh-l6-test-cr2tf3/tmpdir/mh-l5-image-KEkd1S/lib/node_modules/@sentropic/h2a/dist/bin.js'
+  operator: 'strictEqual'
+  stack: |-
+    file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-entry.test.js:70:151
+    descriptor (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-entry.test.js:35:9)
+    TestContext.<anonymous> (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-entry.test.js:70:8)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 0
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 5343.801832
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-entry.test.js"],"code":1,"signal":null,"tests":1,"invalid":false,"spawned":2,"leftovers":[]}

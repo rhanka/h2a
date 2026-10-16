@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { buildNativePrototype } from './mh-l0-native-prototype.mjs';
 import { createManifest } from '../packages/h2a/src/runtime/handover/image.js';
 import { digest } from '../packages/h2a/src/runtime/handover/wire.js';
+import { buildManagedLauncher } from './build-managed-launcher.mjs';
 
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const json = path => JSON.parse(readFileSync(path, 'utf8'));
@@ -27,7 +28,7 @@ function dependencyDirectory(name, requester) {
   }
 }
 
-export async function buildPackagingPrototype(root, { buildId } = {}) {
+export async function buildPackagingPrototype(root, { buildId, managedRoot } = {}) {
   root = resolve(root);
   if (!buildId || Number(process.versions.node.split('.')[0]) < 22 || process.platform !== 'linux' ||
       process.arch !== 'x64' || !process.report.getReport().header.glibcVersionRuntime) {
@@ -139,6 +140,12 @@ export async function buildPackagingPrototype(root, { buildId } = {}) {
       symlinkSync(relative(directory, join(root, path, bin)), join(directory, name));
     }
   }
+  const execution = (await buildManagedLauncher()).loader;
+  write(join(root, 'execution.json'), { schemaVersion: 1, loaderDigest: execution.digest });
+  if (managedRoot) {
+    mkdirSync(join(managedRoot, 'bootstrap'), { recursive: true, mode: 0o700 });
+    writeFileSync(join(managedRoot, 'bootstrap', execution.filename), execution.code, { mode: 0o700 });
+  }
   const manifest = createManifest(root, { packageVersion: version, buildId,
     profile: { platform: 'linux', arch: process.arch, libc: 'glibc', nodeMajor: Number(process.versions.node.split('.')[0]), nodeAbi: process.versions.modules },
     entrypoints: { shim: 'dist/bin.js', core: `${corePath}/dist/index.js`, runtime: `${runtimePath}/dist/index.js` },
@@ -147,5 +154,5 @@ export async function buildPackagingPrototype(root, { buildId } = {}) {
       nodeAbi: process.versions.modules, arch: process.arch, libc: 'glibc', toolchainDigest: native.toolchainDigest, probePath: nativeRelative }]
   });
   write(join(root, 'manifest.json'), manifest);
-  return { root, manifest, manifestDigest: digest(manifest), native, coreVersion, runtimeVersion };
+  return { root, manifest, manifestDigest: digest(manifest), native, coreVersion, runtimeVersion, execution };
 }
