@@ -1,0 +1,22 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-launcher.test.js
+node: v22.22.1
+private root: /tmp/mh-l6-test-gqVjQ4
+case: all cases in explicit file
+TAP version 13
+# Subtest: U10 should refuse a runtime outside the qualified glibc profile before importing any image
+ok 1 - U10 should refuse a runtime outside the qualified glibc profile before importing any image
+  ---
+  duration_ms: 102.757101
+  type: 'test'
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 1
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 229.320261
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-launcher.test.js"],"code":0,"signal":null,"tests":1,"invalid":false,"spawned":2,"leftovers":[]}

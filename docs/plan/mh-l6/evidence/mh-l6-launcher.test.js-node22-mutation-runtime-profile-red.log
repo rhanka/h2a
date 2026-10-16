@@ -1,0 +1,35 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-launcher.test.js
+node: v22.22.1
+private root: /tmp/mh-l6-test-BktI2b
+case: all cases in explicit file
+TAP version 13
+# {"selected":true,"pid":24933,"entry":"/tmp/mh-l6-test-BktI2b/tmpdir/mh-l6-installation-oDBrPA/h2a-managed/1000/images/87c525cc9b7ee84e359987e8b19f193a6e74524674a8a5a2a3631855a7c5896a/entry.mjs","nodePath":null}
+# Subtest: U10 should refuse a runtime outside the qualified glibc profile before importing any image
+not ok 1 - U10 should refuse a runtime outside the qualified glibc profile before importing any image
+  ---
+  duration_ms: 114.154424
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-launcher.test.js:13:94'
+  failureType: 'testCodeFailure'
+  error: 'Missing expected rejection.'
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected:
+  operator: 'rejects'
+  stack: |-
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async TestContext.<anonymous> (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-launcher.test.js:137:3)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 0
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 252.354298
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-launcher.test.js"],"code":1,"signal":null,"tests":1,"invalid":false,"spawned":2,"leftovers":[]}

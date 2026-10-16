@@ -1,0 +1,64 @@
+command: /tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-launcher.test.js
+node: v24.21.0
+private root: /tmp/mh-l6-test-RM4Sc0
+case: all cases in explicit file
+TAP version 13
+# Subtest: U06 should reject a corrupt history payload as a diagnostic recovery candidate
+not ok 1 - U06 should reject a corrupt history payload as a diagnostic recovery candidate
+  ---
+  duration_ms: 112.051997
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-launcher.test.js:13:94'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    + actual - expected
+    
+    + {
+    +   buildId: 'launcher-selected',
+    +   canonicalPrefix: '/tmp/mh-l6-test-RM4Sc0/tmpdir/mh-l6-installation-drczGo',
+    +   entrypoint: 'entry.mjs',
+    +   manifestDigest: 'sha256:5ce9eb8c5a23c39641b63e3a0af1b209fe85b56ba8b523a0601a6c035ef8847d',
+    +   packageVersion: '0.98.7',
+    +   prefixId: 'sha256:67b20b29f2de3769ec290043f46f195e4ae29ddbc874ed9ae54041a4c9f09e6b',
+    +   previousSelectionReference: null,
+    +   schemaVersion: 1,
+    +   selectionEpoch: 1,
+    +   uid: 1000,
+    +   upgradeId: 'one'
+    + }
+    - null
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: ~
+  actual:
+    buildId: 'launcher-selected'
+    canonicalPrefix: '/tmp/mh-l6-test-RM4Sc0/tmpdir/mh-l6-installation-drczGo'
+    entrypoint: 'entry.mjs'
+    manifestDigest: 'sha256:5ce9eb8c5a23c39641b63e3a0af1b209fe85b56ba8b523a0601a6c035ef8847d'
+    packageVersion: '0.98.7'
+    prefixId: 'sha256:67b20b29f2de3769ec290043f46f195e4ae29ddbc874ed9ae54041a4c9f09e6b'
+    previousSelectionReference: ~
+    schemaVersion: 1
+    selectionEpoch: 1
+    uid: 1000
+    upgradeId: 'one'
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-launcher.test.js:108:10)
+    process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    async Test.run (node:internal/test_runner/test:1409:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3)
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 0
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 165.443145
+
+receipt: {"command":["/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-launcher.test.js"],"code":1,"signal":null,"tests":1,"invalid":false,"spawned":2,"leftovers":[]}
