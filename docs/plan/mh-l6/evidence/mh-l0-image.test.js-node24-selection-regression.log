@@ -1,0 +1,46 @@
+command: /tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node --test --test-reporter=tap packages/h2a/test/mh-l0-image.test.js
+node: v24.21.0
+private root: /tmp/mh-l6-test-3ErALE
+case: all cases in explicit file
+TAP version 13
+# Subtest: U10/U12 foundations: deterministic complete manifest, no hardlink or outgoing symlink
+ok 1 - U10/U12 foundations: deterministic complete manifest, no hardlink or outgoing symlink
+  ---
+  duration_ms: 10.276023
+  type: 'test'
+  ...
+# Subtest: U12 foundation: parent/HOME/NODE_PATH decoys cannot satisfy a missing internal dependency
+ok 2 - U12 foundation: parent/HOME/NODE_PATH decoys cannot satisfy a missing internal dependency
+  ---
+  duration_ms: 2.269201
+  type: 'test'
+  ...
+# Subtest: native manifest refuses a wrong ABI and absent binary before selection
+ok 3 - native manifest refuses a wrong ABI and absent binary before selection
+  ---
+  duration_ms: 0.591914
+  type: 'test'
+  ...
+# Subtest: R1 should refuse a native digest divergent from the payload even when the rest of the manifest is valid
+ok 4 - R1 should refuse a native digest divergent from the payload even when the rest of the manifest is valid
+  ---
+  duration_ms: 0.947473
+  type: 'test'
+  ...
+# Subtest: owner Node 22 minimum should reject Node 20 payloads and recognize the Node 24 ABI
+ok 5 - owner Node 22 minimum should reject Node 20 payloads and recognize the Node 24 ABI
+  ---
+  duration_ms: 0.545767
+  type: 'test'
+  ...
+1..5
+# tests 5
+# suites 0
+# pass 5
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 247.187984
+
+receipt: {"command":["/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l0-image.test.js"],"code":0,"signal":null,"tests":5,"invalid":false,"spawned":1,"leftovers":[]}
