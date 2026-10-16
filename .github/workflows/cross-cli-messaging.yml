@@ -70,6 +70,8 @@ jobs:
         run: node scripts/xcli-in-pid-namespace.mjs scripts/xcli-runtime-tests.mjs
       - name: Run cross-package source consumers in the same isolated PID domain
         if: ${{ !cancelled() }}
+        env:
+          XCLI_SOURCE_TMP_PARENT: ${{ runner.temp }}
         run: >-
           node scripts/xcli-in-pid-namespace.mjs scripts/xcli-source-tests.mjs
           packages/h2a/test/runtime-llm-mesh-account.test.js
