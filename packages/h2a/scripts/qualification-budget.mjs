@@ -28,6 +28,19 @@ export class QualificationBudget {
     const spec = this.plan.find(e => e.id === id); if (!spec) throw new Error('unbudgeted execution');
     this.executions.set(id, { ...spec, started: this.now(), iterations: 0, price: 0 }); return spec;
   }
+  restorePhase1(entries, elapsed) {
+    if (!Array.isArray(entries) || !Number.isFinite(elapsed) || elapsed < 0 || elapsed >= 450_000) throw new Error('invalid prior accounting');
+    const restored = new Map();
+    for (const entry of entries) {
+      const spec = this.plan.find(e => e.phase === 1 && e.id === entry.id);
+      if (!spec || restored.has(entry.id) || !Number.isInteger(entry.iterations) || entry.iterations < 0 || entry.iterations > spec.maxIterations ||
+        !Number.isFinite(entry.price) || entry.price < 0 || entry.price > spec.maxPrice + 1e-9) throw new Error('invalid prior accounting');
+      restored.set(entry.id, { ...spec, iterations: entry.iterations, price: entry.price, started: this.now() - elapsed });
+    }
+    if (restored.size !== this.plan.filter(e => e.phase === 1).length) throw new Error('incomplete prior accounting');
+    this.executions = restored; this.start = this.now() - elapsed;
+  }
+  remaining() { return Math.max(0, 450_000 - (this.now() - this.start)); }
   account(id, { modelCalls, price }) {
     if (!Number.isInteger(modelCalls) || modelCalls < 0 || !Number.isFinite(price) || price < 0) throw new Error('native accounting unavailable');
     const e = this.executions.get(id); if (!e) throw new Error('unknown execution');
