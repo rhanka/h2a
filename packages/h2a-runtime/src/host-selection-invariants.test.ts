@@ -236,15 +236,15 @@ describe("F1 — resume host precedence", () => {
     expect(row?.kind).toBe("local-native");
   });
 
-  it("RECORDED_NATIVE_ATTACH_DISPATCHES_TO_THE_NATIVE_BRIDGE", async () => {
+  it.each([false, true])("RECORDED_NATIVE_ATTACH_DISPATCHES_TO_THE_NATIVE_BRIDGE (takeover=%s)", async (takeover) => {
     const slug = `f1-native-attach-${process.pid}`;
     writeRegistry([nativeRow(slug)]);
     nativeSessionLiveness.mockReturnValue(true);
 
-    const code = await main(["node", "h2a", "attach", slug]);
+    const code = await main(["node", "h2a", "attach", slug, ...(takeover ? ["--takeover"] : [])]);
 
     expect(code).toBe(0);
-    expect(attachNativeSession).toHaveBeenCalledWith(`h2a-${slug}`);
+    expect(attachNativeSession).toHaveBeenCalledExactlyOnceWith(`h2a-${slug}`, undefined, { takeover });
     expect(attachLocalSession).not.toHaveBeenCalled();
   });
 });
