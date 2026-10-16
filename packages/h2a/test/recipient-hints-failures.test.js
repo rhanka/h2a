@@ -151,7 +151,7 @@ for (const [operation, code] of [['openSync', 'EIO'], ['mkdirSync', 'ENOSPC'], [
       assert.ok(hits() >= 3, 'persistent fault exercised at open, heartbeat and close');
     } finally { restore(t); sessions.closeAll(); }
     const dir = join(root, 'recipient-hints');
-    if (fs.existsSync(dir)) assert.deepEqual(fs.readdirSync(dir).filter(name => name.includes('.tmp-')), []);
+    if (fs.existsSync(dir)) assert.deepEqual(fs.readdirSync(dir), [], 'failed writes release their empty reservations and temporary files');
   });
 }
 
@@ -202,6 +202,7 @@ test('oversized corrupt history is ignored and repaired without changing presenc
   assert.deepEqual(listRecipientHints(root), [], 'history entries larger than 16 KiB are not read as evidence');
   rememberRecipient(root, hint);
   assert.deepEqual(listRecipientHints(root), [hint]);
+  assert.ok(fs.statSync(hintFile(root, hint)).size <= 16 * 1024, 'oversized legacy storage is repaired in place');
 });
 
 test('history traversal and new hints are bounded at capacity without blocking sessions', t => {
