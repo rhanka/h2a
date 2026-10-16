@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join, relative, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 
 export const CLIS = Object.freeze(['claude', 'codex', 'agy', 'gemini', 'muse', 'vibe']);
 export const PROBE = 'H2A_XCLI_PROBE_20261015';
@@ -19,7 +20,7 @@ export function inside(root, path) {
 export function environment(root, bin = join(root, 'bin')) {
   const env = {
     PATH: `${bin}:/usr/bin:/bin`, TERM: 'xterm-256color', LANG: 'C.UTF-8',
-    HOME: join(root, 'home'), XDG_CONFIG_HOME: join(root, 'config'),
+    HOME: join(root, 'home'), XDG_CONFIG_HOME: join(root, 'home/.config'),
     XDG_STATE_HOME: join(root, 'state'), XDG_CACHE_HOME: join(root, 'cache'),
     XDG_DATA_HOME: join(root, 'data'), XDG_RUNTIME_DIR: join(root, 'run'),
     TMPDIR: join(root, 'tmp'), TMUX_TMPDIR: join(root, 'run'),
@@ -42,19 +43,21 @@ export function sourceBuild(root) {
   const require = createRequire(join(repo, 'package.json'));
   const ts = require('typescript');
   const dest = join(root, 'build');
+  const sourceHash = createHash('sha256');
   const packages = ['h2a', 'h2a-runtime', 'track', 'remote-protocol'];
   for (const pkg of packages) {
     const from = join(repo, 'packages', pkg), to = join(dest, 'packages', pkg);
     fs.mkdirSync(to, { recursive: true });
     fs.copyFileSync(join(from, 'package.json'), join(to, 'package.json'));
     function compile(dir, sub = '') {
-      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
         const rel = join(sub, entry.name), src = join(dir, entry.name);
         if (entry.isDirectory()) { compile(src, rel); continue; }
         if (entry.name.endsWith('.d.ts')) continue;
         const out = join(to, 'dist', rel.replace(/\.ts$/, '.js'));
         fs.mkdirSync(dirname(out), { recursive: true });
         const bytes = fs.readFileSync(src);
+        sourceHash.update(`${pkg}/${rel}\0`).update(bytes).update('\0');
         fs.writeFileSync(out, entry.name.endsWith('.ts') ? ts.transpileModule(bytes.toString(), {
           compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
         }).outputText : bytes);
@@ -76,6 +79,21 @@ export function sourceBuild(root) {
     fs.symlinkSync(packages.includes(entry) ? join(dest, 'packages', entry) :
       join(repo, 'node_modules/@sentropic', entry), join(modules, '@sentropic', entry));
   }
+  for (const pkg of packages) {
+    const nested = join(repo, 'packages', pkg, 'node_modules');
+    if (!fs.existsSync(nested)) continue;
+    const target = join(dest, 'packages', pkg, 'node_modules');
+    fs.mkdirSync(target, { recursive: true });
+    for (const name of fs.readdirSync(nested)) {
+      if (name.startsWith('@')) {
+        fs.mkdirSync(join(target, name), { recursive: true });
+        for (const entry of fs.readdirSync(join(nested, name))) {
+          if (name === '@sentropic' && packages.includes(entry)) continue;
+          fs.symlinkSync(join(nested, name, entry), join(target, name, entry));
+        }
+      } else fs.symlinkSync(join(nested, name), join(target, name));
+    }
+  }
   // node-pty on Linux normally invokes node-gyp/Python. Compile its unchanged
   // N-API source directly in this disposable build; never run install scripts.
   const pty = join(modules, 'node-pty');
@@ -83,11 +101,11 @@ export function sourceBuild(root) {
   const native = join(pty, 'build/Release');
   fs.mkdirSync(native, { recursive: true });
   const command = ['/usr/bin/g++', '-std=c++17', '-shared', '-fPIC', '-O2', '-pthread',
-    '-DNAPI_CPP_EXCEPTIONS', '-I/usr/include/node', `-I${join(repo, 'node_modules/node-addon-api')}`,
+    '-DNAPI_CPP_EXCEPTIONS', `-I${process.env.XCLI_NODE_HEADERS ?? '/usr/include/node'}`, `-I${join(repo, 'node_modules/node-addon-api')}`,
     join(pty, 'src/unix/pty.cc'), '-o', join(native, 'pty.node'), '-lutil'];
-  const result = spawnSync(command[0], command.slice(1), { env: environment(join(root, 'compiler')), encoding: 'utf8' });
+  const result = spawnSync(command[0], command.slice(1), { env: environment(join(root, 'compiler')), encoding: 'utf8', timeout: 30000 });
   assert.equal(result.status, 0, 'private node-pty compilation failed (requires Linux, g++, Node headers)');
-  return { path: dest, nativeBuild: { command, exitCode: result.status } };
+  return { path: dest, sourceDigest: sourceHash.digest('hex'), nativeBuild: { command, exitCode: result.status } };
 }
 
 // These are the documented auth-only files, not the product's broad remote
@@ -113,6 +131,19 @@ export function copyLogin(cli, authHome, target, env) {
     fs.copyFileSync(src, out);
     fs.chmodSync(out, 0o600);
     copied.push(name);
+  }
+  if (cli === 'claude') {
+    try {
+      const source = JSON.parse(fs.readFileSync(join(authHome, '.claude.json'), 'utf8'));
+      const login = {};
+      if (source.oauthAccount && typeof source.oauthAccount === 'object') login.oauthAccount = source.oauthAccount;
+      if (typeof source.hasCompletedOnboarding === 'boolean') login.hasCompletedOnboarding = source.hasCompletedOnboarding;
+      if (typeof source.lastOnboardingVersion === 'string' && /^\d+\.\d+\.\d+$/.test(source.lastOnboardingVersion)) login.lastOnboardingVersion = source.lastOnboardingVersion;
+      if (Object.keys(login).length) {
+        fs.writeFileSync(inside(target, join(env.CLAUDE_CONFIG_DIR, '.claude.json')), JSON.stringify(login), { mode: 0o600 });
+        copied.push('.claude.json:login-metadata-only');
+      }
+    } catch (error) { if (error.code !== 'ENOENT') throw error; }
   }
   return copied;
 }
