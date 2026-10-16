@@ -116,7 +116,7 @@ export class PassiveLiveSource {
   }
   verifyAuthority(tx) {
     if (!tx || tx.mode !== 'live-transfer' || this.sourcePublished(tx)) return false;
-    const publication = Object.values(tx.stepResults).map(s => s.result).find(r => r?.state === 'PUBLISHED');
+    const publication = Object.values(tx.stepResults).map(s => s.result).find(r => r?.publicationDigest && ['PUBLISHED', 'RETIRED'].includes(r.state));
     if (publication) this.publication(tx, publication.publicationDigest, false);
     else if (digest(readState(this.markerPath, 'marker')?.value ?? null) !== digest(this.reservation(tx).value.targetPublication)) throw new Error('live_publication_mismatch');
     return true;
