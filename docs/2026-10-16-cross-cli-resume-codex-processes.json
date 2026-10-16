@@ -1,0 +1,143 @@
+{
+  "version": 1,
+  "mode": "real-cli",
+  "sha": "8b9c0fbb5cf0cb0c64dfe1438adb75f62e635295",
+  "node": "v22.22.1",
+  "command": "node scripts/qualify-cross-cli.mjs --pair codex:codex --timeout-ms 30000 --auth-home /home/antoinefa --output docs/2026-10-16-cross-cli-resume-codex-processes.json",
+  "root": "/tmp/h2a-qual-qs70nw",
+  "build": {
+    "path": "/tmp/h2a-qual-qs70nw/build",
+    "sourceDigest": "3269437cae6d64c8883fd34768d7b47c6bf5d9f62657d5b63f044b77ba836993",
+    "nativeBuild": {
+      "command": [
+        "/usr/bin/g++",
+        "-std=c++17",
+        "-shared",
+        "-fPIC",
+        "-O2",
+        "-pthread",
+        "-DNAPI_CPP_EXCEPTIONS",
+        "-I/usr/include/node",
+        "-I/home/antoinefa/src/h2a/tmp/worktrees/xcli/node_modules/node-addon-api",
+        "/tmp/h2a-qual-qs70nw/build/node_modules/node-pty/src/unix/pty.cc",
+        "-o",
+        "/tmp/h2a-qual-qs70nw/build/node_modules/node-pty/build/Release/pty.node",
+        "-lutil"
+      ],
+      "exitCode": 0
+    }
+  },
+  "harnessDigests": {
+    "qualify-cross-cli.mjs": "5e5b73bf42318f92a5d2f2f0f6174f8ecaf831f5d10b46b3399ef2d16df09ac4",
+    "xcli-lab.mjs": "5cf366d1b38942668815a25d2f3d0dd41b43274958a5ed38c56a5d509bff78eb",
+    "xcli-proxy.mjs": "28354e7d0621bdae045f531f39a78941248fdde9e9d6ceaea41cd096b0a013a4",
+    "xcli-simulated-model.mjs": "3c56bd6aae926cf9f31674c9002a8d8ce88d4c9982f1b994c2acc625f9deb2c3"
+  },
+  "cells": [
+    {
+      "sender": "codex",
+      "receiver": "codex",
+      "status": "measured-KO",
+      "senderMcp": null,
+      "receiverMcp": false,
+      "sent": null,
+      "delivered": null,
+      "received": null,
+      "woke": null,
+      "replied": null,
+      "replyDelivered": null,
+      "evidence": [
+        {
+          "event": "host-setup",
+          "role": "receiver",
+          "exitCode": 2
+        },
+        {
+          "event": "session-created",
+          "role": "receiver",
+          "pid": 8000,
+          "id": "h2a-receiver"
+        },
+        {
+          "event": "startup-terminal-response",
+          "role": "receiver",
+          "count": 2,
+          "at": 1792152782511
+        },
+        {
+          "event": "startup-screen-facts",
+          "role": "receiver",
+          "facts": {
+            "matched": [
+              "permissions",
+              "Press",
+              "continue",
+              "MCP"
+            ],
+            "choices": [],
+            "qualificationDraft": true,
+            "wakeDraft": false,
+            "emptyComposer": false,
+            "interruptVisible": false,
+            "signedWakeVisible": false,
+            "inboxWakeVisible": false,
+            "toolApproval": false
+          }
+        },
+        {
+          "event": "readiness-deadline",
+          "role": "receiver",
+          "modelToolCallObserved": false,
+          "composerReady": true,
+          "mcpLoaded": false,
+          "wakeArmed": false
+        },
+        {
+          "event": "screen-signals",
+          "role": "receiver",
+          "signals": [
+            "permission",
+            "cursorQuery"
+          ]
+        },
+        {
+          "event": "owned-process-states",
+          "role": "receiver",
+          "states": [
+            {
+              "pid": 8000,
+              "state": "S"
+            },
+            {
+              "pid": 8002,
+              "state": "S"
+            },
+            {
+              "pid": 8009,
+              "state": "S"
+            }
+          ]
+        },
+        {
+          "event": "cleanup-complete",
+          "ownedProcessesStopped": true,
+          "privateStateRemoved": true
+        }
+      ],
+      "startedAt": "2026-10-16T12:13:00.916Z",
+      "credentialsCopied": {
+        "receiver": [
+          ".codex/auth.json"
+        ]
+      },
+      "noPostSendHarnessInput": true,
+      "failure": "mcp-not-loaded-before-deadline",
+      "elapsedMs": 31535
+    }
+  ],
+  "counts": {
+    "measured-OK": 0,
+    "measured-KO": 1,
+    "blocked": 0
+  }
+}
