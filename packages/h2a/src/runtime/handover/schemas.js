@@ -40,7 +40,7 @@ export const schemas = {
   liveSourceAuthorization: versioned({ purpose: literal('live-source-authorization'),
     source: json, targetPublication: json, target: object({ ...image, entrypoint: absolute }),
     authorization, inventoryRevision: positive, selectionEpoch: positive,
-    issuedAt: integer, expiresAt: positive, mac }),
+    issuedAt: integer, expiresAt: positive, ticketMac: mac, mac }),
   liveSourcePublication: versioned({ purpose: literal('live-source-publication'), authorizationDigest: hash,
     markerDigest: hash, checkpointReferences: list(relative), mac }),
   participantRevision: versioned({ revision: positive }),
