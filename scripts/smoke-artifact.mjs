@@ -6,14 +6,18 @@
  * gate tested only the WORKSPACE tree; the bytes on npm were never exercised
  * once between `npm pack` and `npm publish`. The pinned steps:
  *
- *   (1) `npm pack` the three lockstep packages of the candidate
- *       (@sentropic/h2a, @sentropic/h2a-runtime, @sentropic/h2a-cli);
+ *   (1) `npm pack` the four lockstep packages of the candidate
+ *       (@sentropic/h2a, @sentropic/h2a-runtime, @sentropic/h2a-cli,
+ *       @sentropic/track);
  *   (2) `mkdtemp` a clean prefix;
- *   (3) install FROM the candidate tarballs — @sentropic/h2a-runtime resolved
- *       from the candidate tarball, never from the registry;
+ *   (3) install FROM the candidate tarballs — @sentropic/h2a-runtime and
+ *       @sentropic/track resolved from the candidate tarballs, never from
+ *       the registry (verify runs BEFORE publish, so the lockstep track
+ *       X.Y.Z is never on the registry at smoke time);
  *   (4) prove the loaded path/version: `node -p
- *       "require.resolve('@sentropic/h2a-runtime/package.json')"` points
- *       INSIDE the prefix and the version is exactly the pinned 0.98.5
+ *       "require.resolve('@sentropic/h2a-runtime/package.json')"` and
+ *       `node -p "require.resolve('@sentropic/track/package.json')"` point
+ *       INSIDE the prefix and the versions are exactly the pinned 0.98.6
  *       (R8.3(4) pins the literal — never "whatever the candidate is");
  *   (5) drive the PACKAGED host binary through a cold-boot (registry seeded
  *       with previous-boot rows + an empty runtime directory), the handshake
@@ -48,7 +52,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const REPO_ROOT = resolve(HERE, '..')
-const PACKAGES = ['@sentropic/h2a', '@sentropic/h2a-runtime', '@sentropic/h2a-cli']
+const PACKAGES = ['@sentropic/h2a', '@sentropic/h2a-runtime', '@sentropic/h2a-cli', '@sentropic/track']
 
 function fail(message) {
   throw new Error(`smoke-artifact: FAIL — ${message}`)
@@ -71,20 +75,20 @@ function runSync(command, args, options = {}) {
 }
 
 // ---------------------------------------------------------------------------
-// (1) pack the three lockstep packages of the candidate
+// (1) pack the four lockstep packages of the candidate
 // ---------------------------------------------------------------------------
-// SPEC 0.98.5 R8.3(4) pins the LITERAL: the proof is "version === 0.98.5", not
+// SPEC 0.98.5 R8.3(4) pins the LITERAL: the proof is "version === 0.98.6", not
 // "version === whatever this tree happens to be". Comparing to the candidate
 // version would pass even when the clean prefix silently fell back to a
 // previously published version in the same range — the exact hole this step
 // exists to close.
-const PINNED_RUNTIME_VERSION = '0.98.5'
+const PINNED_RUNTIME_VERSION = '0.98.6'
 const runtimeVersion = JSON.parse(
   readFileSync(join(REPO_ROOT, 'packages', 'h2a-runtime', 'package.json'), 'utf8'),
 ).version
 if (runtimeVersion !== PINNED_RUNTIME_VERSION) {
   fail(
-    `the candidate tree is @sentropic/h2a-runtime@${runtimeVersion}, but the smoke proves the 0.98.5 train: ` +
+    `the candidate tree is @sentropic/h2a-runtime@${runtimeVersion}, but the smoke proves the ${PINNED_RUNTIME_VERSION} train: ` +
       `bump the lockstep version (npm run release -- --version ${PINNED_RUNTIME_VERSION}) before tagging`,
   )
 }
@@ -134,6 +138,26 @@ try {
     )
   }
   console.log(`smoke-artifact: runtime resolved from the candidate prefix at version ${loadedVersion}`)
+  // The same proof for @sentropic/track, against the SAME pinned literal:
+  // the lockstep train ships all four packages at one version, so the track
+  // proof is "version === 0.98.6", never "whatever the candidate is". Without
+  // this, the prefix install falls back to the registry for track — and
+  // verify runs BEFORE publish, so the lockstep track X.Y.Z is never there
+  // yet (ETARGET on every lockstep release).
+  const resolvedTrack = runSync(process.execPath, ['-p', "require.resolve('@sentropic/track/package.json')"], {
+    cwd: prefix,
+  }).trim()
+  if (!resolve(resolvedTrack).startsWith(prefix + '/')) {
+    fail(`@sentropic/track resolved OUTSIDE the candidate prefix: ${resolvedTrack}`)
+  }
+  const loadedTrackVersion = JSON.parse(readFileSync(resolvedTrack, 'utf8')).version
+  if (loadedTrackVersion !== PINNED_RUNTIME_VERSION) {
+    fail(
+      `packaged track version is ${loadedTrackVersion}, expected the pinned ${PINNED_RUNTIME_VERSION} ` +
+        '(a registry fallback would load a previously published version — this is exactly the hole the proof closes)',
+    )
+  }
+  console.log(`smoke-artifact: track resolved from the candidate prefix at version ${loadedTrackVersion}`)
 
   // -------------------------------------------------------------------------
   // (5) drive the PACKAGED host binary
