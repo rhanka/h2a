@@ -1,0 +1,81 @@
+{
+  "node": "v24.21.0",
+  "results": [
+    {
+      "name": "backend-batch-lock",
+      "red": "docs/plan/mh-l5/evidence/mh-l5-concurrency-oracles.test.js-node24-mutation-backend-batch-lock-red.log",
+      "green": "docs/plan/mh-l5/evidence/mh-l5-concurrency-oracles.test.js-node24-mutation-backend-batch-lock-green.log",
+      "restored": true,
+      "files": [
+        {
+          "path": "packages/h2a/test/helpers/mh-l5-writer.mjs",
+          "sha256": "05afeba64542f0821be8824f2da7d37929988c4a78909c0fc3c6248d76e767f9"
+        }
+      ]
+    },
+    {
+      "name": "legacy-loss-classification",
+      "red": "docs/plan/mh-l5/evidence/mh-l5-shim-recovery.test.js-node24-mutation-legacy-loss-classification-red.log",
+      "green": "docs/plan/mh-l5/evidence/mh-l5-shim-recovery.test.js-node24-mutation-legacy-loss-classification-green.log",
+      "restored": true,
+      "files": [
+        {
+          "path": "packages/h2a/src/runtime/handover/shim-bridge.js",
+          "sha256": "4e7c3cb301d9a267d84869d61addd570343b5a381b2fdff68cc88d321db65925"
+        },
+        {
+          "path": "packages/h2a/dist/runtime/handover/shim-bridge.js",
+          "sha256": "f60328c7f6d954420aa1950fe6ee0b16efbb6c79d1eb975110fc9df8b5b7c493"
+        }
+      ]
+    },
+    {
+      "name": "legacy-supervision-classification",
+      "red": "docs/plan/mh-l5/evidence/mh-l5-shim-recovery.test.js-node24-mutation-legacy-supervision-classification-red.log",
+      "green": "docs/plan/mh-l5/evidence/mh-l5-shim-recovery.test.js-node24-mutation-legacy-supervision-classification-green.log",
+      "restored": true,
+      "files": [
+        {
+          "path": "packages/h2a/src/runtime/handover/shim-bridge.js",
+          "sha256": "4e7c3cb301d9a267d84869d61addd570343b5a381b2fdff68cc88d321db65925"
+        },
+        {
+          "path": "packages/h2a/dist/runtime/handover/shim-bridge.js",
+          "sha256": "f60328c7f6d954420aa1950fe6ee0b16efbb6c79d1eb975110fc9df8b5b7c493"
+        }
+      ]
+    },
+    {
+      "name": "legacy-transient-overwrite",
+      "red": "docs/plan/mh-l5/evidence/mh-l5-shim-recovery.test.js-node24-mutation-legacy-transient-overwrite-red.log",
+      "green": "docs/plan/mh-l5/evidence/mh-l5-shim-recovery.test.js-node24-mutation-legacy-transient-overwrite-green.log",
+      "restored": true,
+      "files": [
+        {
+          "path": "packages/h2a/src/runtime/handover/shim-bridge.js",
+          "sha256": "4e7c3cb301d9a267d84869d61addd570343b5a381b2fdff68cc88d321db65925"
+        },
+        {
+          "path": "packages/h2a/dist/runtime/handover/shim-bridge.js",
+          "sha256": "f60328c7f6d954420aa1950fe6ee0b16efbb6c79d1eb975110fc9df8b5b7c493"
+        }
+      ]
+    },
+    {
+      "name": "legacy-success-reset",
+      "red": "docs/plan/mh-l5/evidence/mh-l5-shim-recovery.test.js-node24-mutation-legacy-success-reset-red.log",
+      "green": "docs/plan/mh-l5/evidence/mh-l5-shim-recovery.test.js-node24-mutation-legacy-success-reset-green.log",
+      "restored": true,
+      "files": [
+        {
+          "path": "packages/h2a/src/runtime/handover/shim-bridge.js",
+          "sha256": "4e7c3cb301d9a267d84869d61addd570343b5a381b2fdff68cc88d321db65925"
+        },
+        {
+          "path": "packages/h2a/dist/runtime/handover/shim-bridge.js",
+          "sha256": "f60328c7f6d954420aa1950fe6ee0b16efbb6c79d1eb975110fc9df8b5b7c493"
+        }
+      ]
+    }
+  ]
+}
