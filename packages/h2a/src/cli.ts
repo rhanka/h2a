@@ -77,6 +77,7 @@ import { runHarnessCli, HARNESS_SKILLS } from "./vendor/harness/index.js";
 import { buildLaunchIndex } from "./runtime/local-files/launch-index.js";
 import { renderCommandMap } from "./cli-command-map.js";
 import { resolveHostConfigRoot } from "./runtime/host-config-root.js";
+import { isNativeHost, REGISTRY_WAITING } from "./hosts/native-paths.js";
 
 import {
   H2A_ATTESTER_COMPREHENSION_RIGHT,
@@ -4458,9 +4459,15 @@ function cmdHostSetup(
   const targetPath = flags.write;
   const printMode = flags.print === "true" || !targetPath;
 
+  if (host === "vibe" && targetPath) {
+    streams.stderr.write(`h2a host setup: --write is unavailable for Vibe MCP, including JSON/--force; ${REGISTRY_WAITING}.\n`);
+    return 1;
+  }
+
   if (printMode && !targetPath) {
-    streams.stdout.write(`${JSON.stringify(snippet.config, null, 2)}\n`);
+    streams.stdout.write(`${JSON.stringify(isNativeHost(host) ? { ...snippet.config, migration: REGISTRY_WAITING, hint: snippet.path.hint } : snippet.config, null, 2)}\n`);
     streams.stderr.write(
+      isNativeHost(host) ? `# ${host}: rendu historique non recommandé; ${REGISTRY_WAITING}.\n# ${snippet.path.hint}\n` :
       `# ${host} — selected ${endpoint} h2a endpoint; paste this snippet under \`mcpServers\` in:\n# ${snippet.path.hint}\n# example path: ${snippet.path.example}\n`
     );
     return reportHostSetupCoherence(host, streams, options) ? 0 : 2;
@@ -4576,6 +4583,7 @@ function cmdHostSetup(
         replacedH2a,
         removedH2aMcpServers,
         removedTrackMcpServers,
+        ...(isNativeHost(host) ? { migration: "voie directe — non migrée" } : {}),
         ...(coherent ? {} : { next: "h2a doctor --repair" })
       },
       null,
@@ -6480,6 +6488,7 @@ function cmdConnect(
   const followUp = [
     flags.host === "remote"
       ? "Use the bridge-provided environment in the remote session Pod"
+      : isNativeHost(flags.host) ? `Rendu historique non recommandé — ${REGISTRY_WAITING}; installation et activation par l’intégrateur registre.`
       : `Merge the snippet above under \`mcpServers\` in ${steps[1].pathExample}`,
     identity.privateKeyPath
       ? `keypair ready: ${identity.privateKeyPath}`
