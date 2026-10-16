@@ -29,7 +29,7 @@ for await(const line of readline.createInterface({input:process.stdin})){
  if(m.method==='initialize')result={serverInfo:{version:'2.26.1'}};
  if(m.method==='session/start'){const id='session-'+(++next);sessions.set(id,{id,cwd:p.agentConfig.cwd,parentSessionId:null});result={state:{session:sessions.get(id)}};}
  if(m.method==='skills/list')result={skills:[{name:'h2a',enabled:true,source:'local'},{name:'track-operation',enabled:true,source:'local'}]};
- if(m.method==='runtime/read')result={runtime:{tools:[{name:'read_file'},{name:'h2a_identity_status'}]}};
+ if(m.method==='runtime/read'){result={runtime:{tools:[{name:'read_file'},{name:'h2a_identity_status'}]}};out({id:'server-'+p.sessionId,method:'callback/call',params:{callback:{sessionId:p.sessionId,callbackId:'write-'+p.sessionId,detail:{kind:'approval',effect:{kind:'file_write',toolName:'write_file',input:{path:resources[0].path}}}}}});}
  if(m.method==='turn/start'){
   result={turn:{id:'turn-'+p.sessionId}};const sid=p.sessionId,cwd=sessions.get(sid).cwd;
   const entries=[{id:'resource',type:'effect',sessionId:sid,detail:{input:{path:resources[0].path}},state:{status:'running'}},
@@ -52,6 +52,8 @@ for await(const line of readline.createInterface({input:process.stdin})){
   assert.equal(budget.executions.get('phase1-a').iterations, 2);
   const calls = fs.readFileSync(log,'utf8').trim().split('\n').map(JSON.parse);
   assert.equal(calls.filter(c => c.method==='session/start').length, 2);
+  const approvals=calls.filter(c=>c.method==='callback/respond');assert.equal(approvals.length,2);
+  assert.ok(approvals.every(c=>c.params.output.decision.type==='deny'),'a write to a required resource must never inherit read approval');
   assert.ok(calls.filter(c => c.method==='session/delete').every(c => cleanup.sessions.includes(c.params.sessionId)));
 });
 test('failed CLI probe captures emitted session IDs and retains unknown cleanup', async t => {

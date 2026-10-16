@@ -53,9 +53,12 @@ export async function qualifyVibe({ command = 'vibe-app-server', args = [], env,
   rpc = openQualificationRpc(command, args, { cwd: workspaces[0], env, signal, observe: onEvent,
     serverRequest: async message => {
       if (message.method !== 'callback/call') throw new Error('unexpected server request');
-      const cb = message.params.callback, command = cb.detail?.effect?.input?.command;
-      const resourceRead = requiredResources.some(r => [cb.detail?.effect?.input?.path, cb.detail?.effect?.input?.filePath].includes(r.path));
-      const allowed = cb.detail?.kind === 'approval' && (['printf vibe-guard-ok', 'h2a --version'].includes(command) || resourceRead) && sessions.has(cb.sessionId);
+      const cb = message.params.callback, effect = cb.detail?.effect, command = effect?.input?.command;
+      const resourceRead = effect?.kind === 'file_read' && ['read_file', 'file_system.read_file', 'file_read'].includes(effect.toolName) &&
+        requiredResources.some(r => [effect.input?.path, effect.input?.filePath].includes(r.path));
+      const expectedCommand = ['shell', 'process'].includes(effect?.kind) && ['bash', 'file_system.bash', 'process_start', 'process.start'].includes(effect.toolName) &&
+        ['printf vibe-guard-ok', 'h2a --version'].includes(command);
+      const allowed = cb.detail?.kind === 'approval' && (expectedCommand || resourceRead) && sessions.has(cb.sessionId);
       queueMicrotask(() => rpc.request('callback/respond', { sessionId: cb.sessionId, callbackId: cb.callbackId,
         output: { type: 'approval', decision: { type: allowed ? 'approve' : 'deny' } } }).catch(() => {}));
       evidence.push({ method: 'qualification/approval', sessionId: cb.sessionId, allowed, sha256: sha(cb.detail) });
