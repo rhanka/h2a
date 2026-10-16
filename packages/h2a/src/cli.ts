@@ -80,6 +80,7 @@ import { resolveHostConfigRoot } from "./runtime/host-config-root.js";
 import { isNativeHost, NATIVE_HOSTS, REGISTRY_WAITING, vibeHome } from "./hosts/native-paths.js";
 import { convergeNativeHost } from "./hosts/native-convergence.js";
 import { convergeAfterExplicitUpgrade } from "./hosts/upgrade-equipment.js";
+import { captureHostOperatorNotices } from "./hosts/operator-notices.js";
 
 import {
   H2A_ATTESTER_COMPREHENSION_RIGHT,
@@ -4707,7 +4708,8 @@ function cmdHostPlugin(flags: Record<string, string>, streams: H2ACliStreams): n
       if (flags.instance === 'auto') throw new Error('non disponible — interface B non livrée');
       if (flags.write && resolvePath(flags.write) !== join(vibeHome(), 'hooks.toml')) throw new Error('Vibe lifecycle writes only the effective <VIBE_HOME>/hooks.toml');
       const result = nativeHostReport('vibe', flags, !!flags.write);
-      streams.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+      streams.stdout.write(`${JSON.stringify({ ...result, push: true, mechanism: 'vibe-hooks', record: 'rendered' in result ? result.rendered : '',
+        receive: 'N-A', hint: 'post_agent in <VIBE_HOME>/hooks.toml; ' + ('lifecycleScope' in result ? result.lifecycleScope : 'hôte absent') }, null, 2)}\n`);
       return result.ok ? 0 : 2;
     } catch (error) { streams.stderr.write(`h2a host plugin: ${(error as Error).message}\n`); return 2; }
   }
@@ -7016,6 +7018,8 @@ function cmdInstallSkills(
     try {
       const result = nativeHostReport(host, flags, true, true, dirname(targetBase));
       streams.stdout.write(`${JSON.stringify({ ...result, scope, targetBase, installed: 'changed' in result ? result.changed : [], sources: collection.sources,
+        ...(host === 'muse' ? { verifyHint: 'muse skills list   # project scope requires workspace trust' } : {}),
+        ...(host === 'vibe' ? { verifyHint: 'vibe   # skills load at session open; nouvelle session ou reprise propre' } : {}),
         ...(host === 'agy' ? { importHint: 'agy plugin import gemini   # then: agy plugin enable h2a' } : {}) }, null, 2)}\n`);
       return result.ok ? 0 : 2;
     } catch (error) { streams.stderr.write(`h2a install-skills: ${(error as Error).message}\n`); return 3; }
@@ -7539,6 +7543,10 @@ export function runCli(
   options: H2ACliOptions = {}
 ): number | Promise<number> {
   const { command, flags } = parseFlags(argv);
+
+  if (streams.stderr === process.stderr && process.stderr.isTTY) {
+    for (const notice of captureHostOperatorNotices()) streams.stderr.write(`${notice}\n`);
+  }
 
   if (command && TRACK_FACADE_VERBS.has(command)) {
     // ④: read-only + sync-write verbs run in-process; `focus` (async) keeps

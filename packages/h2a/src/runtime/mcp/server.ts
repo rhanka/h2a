@@ -80,6 +80,8 @@ import { MCP_IDENTITY_RETRY_MIN_MS } from "./identity-state.js";
 import type { McpIdentityController, McpIdentityStatus } from "./identity-state.js";
 
 export interface CreateMcpServerOptions {
+  /** In-memory notices captured/refreshed outside request handling. */
+  operatorNotices?: () => readonly string[];
   /** Filesystem root for the backing local-files store. */
   root: string;
   /** Workspace boundary captured when the local MCP server starts. */
@@ -345,7 +347,8 @@ export function createMcpServer(options: CreateMcpServerOptions): McpServer {
     _context?: McpCallContext
   ): ReturnType<McpServer["callTool"]> {
     if (name === "h2a_identity_status") {
-      return { content: [{ type: "text", text: JSON.stringify(identityStatus()) }] };
+      const notices = options.operatorNotices?.() ?? [];
+      return { content: [{ type: "text", text: JSON.stringify({ ...identityStatus(), ...(notices.length ? { operator_notices: notices } : {}) }) }] };
     }
     const guard = guardIdentity(name, args);
     if (guard) return guard;
@@ -410,7 +413,7 @@ export function createMcpServer(options: CreateMcpServerOptions): McpServer {
       case "h2a_escalate":
         return handleEscalate(store, args as never);
       case "h2a_session_open":
-        return handleSessionOpen(sessions, args as never);
+        return { ...handleSessionOpen(sessions, args as never), ...((options.operatorNotices?.().length ?? 0) ? { operator_notices: options.operatorNotices!() } : {}) };
       case "h2a_session_close":
         return handleSessionClose(sessions, args as never);
       case "h2a_discover_sessions":
