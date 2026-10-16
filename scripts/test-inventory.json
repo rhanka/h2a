@@ -843,7 +843,8 @@
     "Gemini and agy update the same authoritative relative shared-owner manifest and clean old resources",
     "repair reports qualification of the installed bytes after restoring a missing skill",
     "skill proof becomes obsolete when project discovery gains a collision",
-    "an already enabled guard suspends when a project hook masks it"
+    "an already enabled guard suspends when a project hook masks it",
+    "an incomplete source inventory reports failure without retiring previously installed skills"
   ],
   "packages/h2a/test/native-host-pilot-report.test.js": [
     "pilot CLI reports success only for all requested observed components and completed cleanup"

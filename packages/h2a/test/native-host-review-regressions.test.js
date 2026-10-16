@@ -68,6 +68,15 @@ test('obsolete managed artifacts are removed only at their known hash, with back
   assert.ok(result.changes.conflicts.includes(artifact('custom').path));
   assert.ok(fs.readdirSync(join(state, 'backups')).some(name => fs.readFileSync(join(state, 'backups', name), 'utf8') === 'known'));
 });
+test('an incomplete source inventory reports failure without retiring previously installed skills', t => {
+  const { home } = lane(t), root = join(home, '.config/muse'), resourceDir = join(home, 'source'); fs.mkdirSync(resourceDir);
+  const skill = { installName: 'keep', raw: 'installed skill', source: 'h2a', resourceDir, parsed: { name: 'keep', description: 'keep', body: 'installed skill' } };
+  const options = { host: 'muse', root, explicitInstall: true, repair: true, renderGemini: () => '' };
+  assert.equal(convergeNativeHost({ ...options, version: '1', skills: [skill], sourcesComplete: true }).ok, true);
+  const result = convergeNativeHost({ ...options, version: '2', skills: [], sourcesComplete: false });
+  assert.equal(result.ok, false); assert.equal(result.missingSources, true);
+  assert.equal(fs.readFileSync(join(root, 'skills/keep/SKILL.md'), 'utf8'), 'installed skill');
+});
 test('relative manifest entries survive relocation and reject escaping paths', t => {
   const { home } = lane(t), root = join(home, 'before'), state = join(root, '.h2a-install');
   convergeArtifacts({ root, state, host: 'vibe', version: '1', repair: true, artifacts: [{ path: join(root, 'skills/a/SKILL.md'), bytes: 'a', source: 'h2a@1/a' }] });

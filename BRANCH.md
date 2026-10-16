@@ -51,7 +51,8 @@
 - [x] Historical overwrite test restored for Gemini and extended to Vibe/Muse/agy; independent user-scope managed/unknown-provenance assertions retained.
 - [x] CI trust-root integration: versioned inventory follows the two corrected test names and requires the new regressions; run-test-gates.test.js reproduced 37/38 then passed 38/38 on Node 22 and 24 in temporary source/HOME copies.
 - [x] Direct CI blocker, bounded scope extension: gateway-host/live-registration.test.ts fixtures disable automatic Git maintenance/GC. TRACE2 reproduced two detached maintenance children before the fix (22/23); targeted file passes 23/23 on Node 22 and 24 after the fix. The strict inventory of every observed repository/Git file is retained; no production behavior changed.
-- [x] Named source-consumer regression campaign: 22 files, 134 passed / 0 failed / 0 skipped on Node 22 and 24; targeted MCP compatibility: 16 passed / 0 failed / 0 skipped.
+- [x] Named source-consumer regression campaign: 22 files, 135 passed / 0 failed / 0 skipped on Node 22 and 24; targeted MCP compatibility: 16 passed / 0 failed / 0 skipped.
+- [x] Obsolete-file cleanup requires a complete source inventory: missing packages report failure and preserve previously managed skills (red 16/17, then 17/17); versioned inventory, 22-file matrix and four package typechecks reverified.
 - [x] Fetch/merge origin/main: already contained by the normal two-parent merge 53cfa83f; Track tree still identical to origin/main. No Track writes or consolidation by this worker.
 - [ ] Real equipment: A/E distributes skills/resources/hooks; B (C contract §§8–11, R5/R7 bootstrap/attachment) delivers the actual MCP route; C/spec §§11–12 qualifies the target post. The owner's skills + MCP demand remains open until B and the genuine Vibe recipe pass.
 - [ ] Harness consensus: exact author model/effort unavailable and installed MCP dispatch forbidden; selection-failed, no consensus claimed.
