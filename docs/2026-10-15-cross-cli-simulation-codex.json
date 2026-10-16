@@ -1,0 +1,277 @@
+{
+  "version": 1,
+  "mode": "simulated-model",
+  "sha": "575dd129deb50f6c668ea8b0242ca11aa564eb6a",
+  "node": "v22.22.1",
+  "command": "node scripts/qualify-cross-cli.mjs --simulated --pair codex:codex --timeout-ms 15000 --output docs/2026-10-15-cross-cli-simulation-codex.json",
+  "root": "/tmp/h2a-qual-DWoqPh",
+  "build": {
+    "path": "/tmp/h2a-qual-DWoqPh/build",
+    "nativeBuild": {
+      "command": [
+        "/usr/bin/g++",
+        "-std=c++17",
+        "-shared",
+        "-fPIC",
+        "-O2",
+        "-pthread",
+        "-DNAPI_CPP_EXCEPTIONS",
+        "-I/usr/include/node",
+        "-I/home/antoinefa/src/h2a/tmp/worktrees/xcli/node_modules/node-addon-api",
+        "/tmp/h2a-qual-DWoqPh/build/node_modules/node-pty/src/unix/pty.cc",
+        "-o",
+        "/tmp/h2a-qual-DWoqPh/build/node_modules/node-pty/build/Release/pty.node",
+        "-lutil"
+      ],
+      "exitCode": 0
+    }
+  },
+  "cells": [
+    {
+      "sender": "codex",
+      "receiver": "codex",
+      "status": "simulated-OK",
+      "senderMcp": true,
+      "receiverMcp": true,
+      "sent": true,
+      "delivered": true,
+      "received": true,
+      "woke": true,
+      "replied": true,
+      "replyDelivered": true,
+      "evidence": [
+        {
+          "event": "host-setup",
+          "role": "receiver",
+          "exitCode": 2
+        },
+        {
+          "event": "session-created",
+          "role": "receiver",
+          "pid": 7724,
+          "id": "h2a-receiver"
+        },
+        {
+          "event": "receiver-idle-barrier",
+          "at": 1792121678277,
+          "instance": "codex:workspace:9fa0f105e8fd"
+        },
+        {
+          "event": "host-setup",
+          "role": "sender",
+          "exitCode": 2
+        },
+        {
+          "event": "session-created",
+          "role": "sender",
+          "pid": 7773,
+          "id": "h2a-sender"
+        },
+        {
+          "role": "receiver",
+          "at": 1792121673663,
+          "event": "proxy-start",
+          "pid": 7733,
+          "childPid": 7740
+        },
+        {
+          "role": "receiver",
+          "at": 1792121673941,
+          "event": "initialize",
+          "ok": true
+        },
+        {
+          "role": "receiver",
+          "at": 1792121673945,
+          "event": "tools",
+          "ok": true,
+          "messaging": true
+        },
+        {
+          "role": "receiver",
+          "at": 1792121673948,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "receiver",
+          "at": 1792121674000,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "receiver",
+          "at": 1792121674052,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "receiver",
+          "at": 1792121674104,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "receiver",
+          "at": 1792121674156,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "receiver",
+          "at": 1792121674186,
+          "event": "wake-armed"
+        },
+        {
+          "role": "receiver",
+          "at": 1792121674209,
+          "event": "identity",
+          "ok": true,
+          "ready": true,
+          "instance": "codex:workspace:9fa0f105e8fd"
+        },
+        {
+          "role": "receiver",
+          "at": 1792121684071,
+          "event": "inbox",
+          "ok": true,
+          "instance": "codex:workspace:9fa0f105e8fd",
+          "envelopes": [
+            {
+              "id": "env:send:f1d8329e-20d0-4e65-9ff8-9e68b1c73d6b",
+              "from": "codex:workspace:993f7c04c04e",
+              "to": "codex:workspace:9fa0f105e8fd",
+              "kind": "probe"
+            }
+          ]
+        },
+        {
+          "role": "receiver",
+          "at": 1792121684074,
+          "event": "send",
+          "ok": true,
+          "kind": "reply",
+          "envelopeId": "env:send:eea5c77d-3cea-4754-82f7-af01bd4634e7",
+          "from": "codex:workspace:9fa0f105e8fd",
+          "to": "codex:workspace:993f7c04c04e"
+        },
+        {
+          "role": "sender",
+          "at": 1792121678887,
+          "event": "proxy-start",
+          "pid": 7782,
+          "childPid": 7789
+        },
+        {
+          "role": "sender",
+          "at": 1792121679194,
+          "event": "initialize",
+          "ok": true
+        },
+        {
+          "role": "sender",
+          "at": 1792121679197,
+          "event": "tools",
+          "ok": true,
+          "messaging": true
+        },
+        {
+          "role": "sender",
+          "at": 1792121679199,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "sender",
+          "at": 1792121679251,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "sender",
+          "at": 1792121679302,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "sender",
+          "at": 1792121679354,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "sender",
+          "at": 1792121679405,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "sender",
+          "at": 1792121679457,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "sender",
+          "at": 1792121679509,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "sender",
+          "at": 1792121679561,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "sender",
+          "at": 1792121679599,
+          "event": "wake-armed"
+        },
+        {
+          "role": "sender",
+          "at": 1792121679613,
+          "event": "identity",
+          "ok": true,
+          "ready": true,
+          "instance": "codex:workspace:993f7c04c04e"
+        },
+        {
+          "role": "sender",
+          "at": 1792121679618,
+          "event": "send",
+          "ok": true,
+          "kind": "probe",
+          "envelopeId": "env:send:f1d8329e-20d0-4e65-9ff8-9e68b1c73d6b",
+          "from": "codex:workspace:993f7c04c04e",
+          "to": "codex:workspace:9fa0f105e8fd"
+        }
+      ],
+      "startedAt": "2026-10-16T03:34:31.872Z",
+      "credentialsCopied": {
+        "receiver": [],
+        "sender": []
+      },
+      "noPostSendHarnessInput": true,
+      "elapsedMs": 12282
+    }
+  ],
+  "counts": {
+    "simulated-OK": 1,
+    "simulated-KO": 0,
+    "blocked": 0
+  }
+}
