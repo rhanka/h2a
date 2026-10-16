@@ -12,12 +12,14 @@ assert.ok(['scripts/xcli-runtime-tests.mjs', 'scripts/xcli-source-tests.mjs'].in
 const args = process.argv.slice(3);
 if (args.includes('packages/h2a/test/native-inventory-absence.test.js')) ensureHistoricalGitRef(repo, LEGACY_HOST_REF);
 const root = mkdtempSync('/tmp/xcli-pid-init-');
+const evidence = mkdtempSync('/tmp/xcli-evidence-');
 const init = join(root, 'init');
 const compiled = spawnSync('/usr/bin/g++', ['-std=c++17', '-O2', resolve(repo, 'scripts/xcli-pid-init.cc'), '-o', init], { stdio: 'inherit' });
 assert.equal(compiled.status, 0, 'private PID namespace init must compile');
 const child = spawn('/usr/bin/sudo', ['-n', '/usr/bin/env',
   `XCLI_PARENT_PID_NS=${readlinkSync('/proc/self/ns/pid')}`,
   `XCLI_NODE_HEADERS=${process.env.XCLI_NODE_HEADERS ?? '/usr/include/node'}`,
+  `XCLI_EVIDENCE_EXPORT_DIR=${evidence}`,
   ...(process.env.XCLI_SOURCE_TMP_PARENT ? [`XCLI_SOURCE_TMP_PARENT=${process.env.XCLI_SOURCE_TMP_PARENT}`] : []),
   `PATH=${process.env.PATH ?? '/usr/bin:/bin'}`,
   'GIT_CONFIG_COUNT=1', 'GIT_CONFIG_KEY_0=safe.directory', `GIT_CONFIG_VALUE_0=${repo}`,

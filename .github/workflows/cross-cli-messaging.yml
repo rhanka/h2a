@@ -35,6 +35,7 @@ jobs:
           scripts/xcli-pid-namespace.test.mjs
           scripts/xcli-terminal.test.mjs
           scripts/xcli-startup.test.mjs
+          scripts/xcli-evidence.test.mjs
       - name: Exercise all 36 ordered pairs with simulated models
         run: >-
           node scripts/qualify-cross-cli.mjs --simulated --timeout-ms 30000
@@ -74,7 +75,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: xcli-runtime-node-${{ matrix.node }}
-          path: /tmp/h2a-qual-*/receipt.json
+          path: /tmp/xcli-evidence-*/receipt.json
           if-no-files-found: error
 
   # The runtime and source consumers are independent checks. Serializing both
@@ -137,6 +138,6 @@ jobs:
         with:
           name: xcli-source-${{ matrix.scope }}-node-${{ matrix.node }}
           path: |
-            ${{ runner.temp }}/xcli-*/receipt.json
-            ${{ runner.temp }}/xcli-*/execution.json
+            /tmp/xcli-evidence-*/receipt.json
+            /tmp/xcli-evidence-*/execution.json
           if-no-files-found: error

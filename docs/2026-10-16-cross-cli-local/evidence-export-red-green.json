@@ -1,0 +1,36 @@
+{
+  "red": {
+    "command": [
+      "node",
+      "--test",
+      "scripts/xcli-evidence.test.mjs"
+    ],
+    "observedOutput": [
+      "# tests 1",
+      "# pass 0",
+      "# fail 1",
+      "# skipped 0"
+    ],
+    "actualFiles": [],
+    "expectedFiles": [
+      "execution.json",
+      "receipt.json"
+    ],
+    "exitCode": 1
+  },
+  "green": {
+    "command": [
+      "node",
+      "--test",
+      "scripts/xcli-evidence.test.mjs",
+      "scripts/xcli-pid-namespace.test.mjs"
+    ],
+    "observedOutput": [
+      "# tests 4",
+      "# pass 4",
+      "# fail 0",
+      "# skipped 0"
+    ],
+    "exitCode": 0
+  }
+}
