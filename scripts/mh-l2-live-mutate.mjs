@@ -62,6 +62,10 @@ add('source-unknown-work', 'ownership.js', "        if (op.state === 'completed'
 add('source-memo-scope', 'participants.js', '        if (scope && digest(memo.executionOwner) !== digest(scope.processIdentity)) continue;', '', 'passive source should neither reconcile nor count new G1 launch memos');
 add('source-reconcile-scope', 'launch-memo.js', '      if (scope && digest(memo.executionOwner) !== digest(scope.processIdentity)) continue;', '', 'passive source should neither reconcile nor count new G1 launch memos');
 add('reconcile-uncertain-fence', 'live-source.js', '    if (publication) this.publication(tx, publication.publicationDigest, false, false);', '    if (publication) this.publication(tx, publication.publicationDigest, false);', 'passive source should reconcile an uncertain ownership fence before checking participants again');
+for (const [name, before] of [['target', '        this.options.authorizeTarget(tx.target, tx.successorReservation.selectionEpoch);'],
+  ['entry', "        this.options.verifyEntry?.('commit-stop');"], ['precheck', '        this.options.verifyPrecheck(tx.precheckEvidenceDigest, tx.target);']]) {
+  add('publication-' + name + '-revalidation', 'administration.js', before, '', 'passive source should revalidate selection, entry and precheck before publication commitment');
+}
 
 const selected = process.argv.slice(2), chosen = selected.length ? cases.filter(c => selected.includes(c.name)) : cases;
 if (!chosen.length || selected.some(name => !cases.some(c => c.name === name))) throw new Error('unknown_mutation');

@@ -141,6 +141,10 @@ Authority verification during reconciliation is a pure read of the authenticated
 publication tuple. An indeterminate participant registry is fsynced/reconciled
 before participant validation/fencing runs again. Every mutation path retains
 the checkpoint and exact owner checks; no wire flag disables them.
+Immediately before PUBLISHED is persisted, the source also repeats target
+selection/image verification, the existing irreversible-commit physical-entry
+guard, isolated precheck evidence and writer eligibility. These are checks only;
+they do not initiate a stop or a switch.
 
 Publication, including a concordant marker observed before its receipt can be
 reconciled, prohibits abort/expiration/operator-stop from reopening G0. A
