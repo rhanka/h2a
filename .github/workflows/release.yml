@@ -272,19 +272,12 @@ jobs:
       # @sentropic/h2a, so its lockstep version must exist on the registry
       # before h2a@X.Y.Z (which now pins @sentropic/track@^X.Y.Z) is installed.
       #
-      # ⚠️ OIDC WALL: npm Trusted Publishing for @sentropic/track is still
-      # configured against the OLD repo (rhanka/track), NOT rhanka/h2a. Until
-      # the trusted publisher is re-pointed at rhanka/h2a + release.yml (a
-      # creds gesture on npmjs.com — see docs/release.md), this step will fail
-      # with an OIDC-mismatch error. Fallback: set NODE_AUTH_TOKEN from an npm
-      # automation token with publish rights and drop the trusted-publishing
-      # reliance for this package only.
-      # @sentropic/track is currently published out-of-band with an npm automation
-      # token (OIDC Trusted Publishing for this package is still pinned to the old
-      # rhanka/track repo and re-pointing it requires a 2FA gesture on npmjs.com).
-      # Idempotent: if the lockstep version is already on the registry (token
-      # publish), skip; otherwise publish via OIDC (works once trust is re-pointed).
-      - name: Publish @sentropic/track (public; token-published out-of-band for now)
+      # SPEC 0.98.5 R8.2: like the three lockstep packages below, track
+      # publishes the VERIFIED tarball bytes verify packed from the gated
+      # SHA via npm Trusted Publishing (trust re-pointed at rhanka/h2a +
+      # release.yml) — never a fresh workspace pack of a mutable ref.
+      # Idempotent: if the lockstep version is already on the registry, skip.
+      - name: Publish @sentropic/track (trusted publishing, public)
         shell: bash
         run: |
           v="$(node -p "require('./packages/track/package.json').version")"
@@ -300,7 +293,10 @@ jobs:
                 echo "@sentropic/track@$v is below latest ($latest); publishing with $tagArgs so the latest dist-tag stays untouched."
               fi
             fi
-            if ! npm publish --workspace @sentropic/track --access public $tagArgs; then
+            # SPEC 0.98.5 R8.2: publish the VERIFIED tarball bytes that verify
+            # packed from the gated SHA — never a fresh pack of a mutable ref.
+            (cd dist-tarballs && sha256sum --check --strict sha256sums.txt)
+            if ! npm publish "dist-tarballs/sentropic-track-${v}.tgz" --access public $tagArgs; then
               echo "::error::@sentropic/track@$v: npm publish failed (not published)." >&2
               exit 1
             fi
