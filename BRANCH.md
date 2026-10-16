@@ -898,6 +898,7 @@ Branch: `fix/presence-identity-liveness`. Base: `58f111b3` (origin/main at check
 - [x] Lot C: eight conforming processes, seven domains and at least 10,000 mutations per domain; external acknowledgment reconciliation, stale janitor and inherited writer refusal.
 - [ ] Lot gate: explicit files only under temporary HOME/XDG/TMPDIR, Node 22/24, zero skips/cancellations/own children; retain every failed diagnostic and killed/restored mutation command/output.
 - [x] Cold/G0-G1 implementation checkpoint: real source/shim M21, process-cut kernel, real fsync/ACK faults, independent controller death and actual compensated generation pass their targeted Node 22/24 files.
+- [x] Concurrency checkpoint: Node 22/24 each reconcile 10,000 mutations per six domains and 20,000 payload mutations; 10,000 external acknowledgements, verified contentHash/chains, zero duplicate/skip/cancel/own child. All 21 mutation pairs per profile killed/restored.
 - [ ] Review every diff hunk, audit exact qualified source/compiled bytes, conventional English commits without trailers, fast-forward push only own branch.
 - [ ] Deliver French report to owner scratchpad with coverage, deviations, remaining agent-hours and review rounds.
 
