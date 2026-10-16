@@ -2,6 +2,7 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { assertNativePath } from './native-files.js';
 import type { NativeArtifact } from './native-artifacts.js';
+import { parseNativeToml } from './native-toml.js';
 export interface NativeSkill {
   installName: string; raw: string; source: string; resourceDir: string;
   parsed: { name: string; description: string; body: string };
@@ -36,7 +37,20 @@ export function nativeSkillArtifacts(options: {
     walk(skill.resourceDir);
     let parsed = skill.parsed;
     if (gemini) parsed = { ...parsed, body: parsed.body.replace(/\bassets\//g, `${resources}/assets/`) };
-    result.push({ path: target, bytes: gemini ? options.renderGemini(parsed) : skill.raw, source: `${skill.source}@${options.version}/${skill.installName}`, selected, historical: options.historicalHashes(options.host, skill.installName) });
+    let rendered = gemini ? options.renderGemini(parsed) : skill.raw;
+    if (gemini) {
+      const expected = `You are the ${parsed.name} custom command for Gemini CLI.\n\n${parsed.body}`;
+      try {
+        const value = parseNativeToml(rendered);
+        if (Object.keys(value).sort().join(',') !== 'description,prompt' || value.description !== parsed.description || value.prompt?.trimEnd() !== expected.trimEnd()) throw new Error('unsafe literal');
+      } catch {
+        // Native resource paths can contain triple apostrophes. Keep the
+        // historical renderer/catalog intact; use a validated basic string.
+        rendered = `description = ${JSON.stringify(parsed.description)}\nprompt = ${JSON.stringify(expected)}\n`;
+        parseNativeToml(rendered);
+      }
+    }
+    result.push({ path: target, bytes: rendered, source: `${skill.source}@${options.version}/${skill.installName}`, selected, historical: options.historicalHashes(options.host, skill.installName) });
   }
   return result;
 }

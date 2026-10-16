@@ -1,6 +1,6 @@
 import { accessSync, constants, lstatSync, statSync } from 'node:fs';
 import { delimiter, join } from 'node:path';
-import { snapshot } from './native-files.js';
+import { digest, snapshot } from './native-files.js';
 import { parseNativeToml } from './native-toml.js';
 import { MISSING_VIBE_MCP, nativeRoot, REGISTRY_WAITING, stateRoot, VIBE_LIFECYCLE_SCOPE, VIBE_RESTART } from './native-paths.js';
 import type { NativeHost } from './native-paths.js';
@@ -26,6 +26,14 @@ export function inspectNativeHost(host: NativeHost, root = nativeRoot(host)) {
   const disabled = config.disabled_tools ?? [];
   const hidden = Array.isArray(disabled) && disabled.some(name => ['*', 'h2a_*', 'mcp_h2a_*'].includes(name));
   const mcpAvailable = h2aServers.length > 0 && !hidden;
+  let importStatus = 'pending';
+  if (host === 'agy') {
+    try {
+      const observed = JSON.parse(snapshot(join(stateRoot(host, root), 'import-observation.json'))?.bytes.toString() ?? '{}');
+      const shared = snapshot(join(root, '.h2a-install/commands-manifest.json'));
+      if (observed.schema === 1 && observed.root === root && shared && observed.sharedManifestHash === digest(shared.bytes) && ['observed-success', 'failed'].includes(observed.status)) importStatus = observed.status;
+    } catch { /* A malformed observation is never proof of import. */ }
+  }
   return {
     host, root, state: stateRoot(host, root), detected, configPath, config, h2aServers, mcpAvailable,
     migration: h2aServers.length ? 'voie directe — non migrée' : REGISTRY_WAITING,
@@ -34,7 +42,7 @@ export function inspectNativeHost(host: NativeHost, root = nativeRoot(host)) {
     installationRoute: host === 'vibe' && !mcpAvailable ? 'Vibe est le seul hôte sans voie d’installation MCP h2a, même non recommandée; bootstrap B attendu.' : undefined,
     restart: host === 'vibe' ? VIBE_RESTART : 'Restart the host after changing its native components.',
     lifecycleScope: host === 'vibe' ? VIBE_LIFECYCLE_SCOPE : 'Aucune surface native de hooks vérifiée; M-B reste le critère de clôture.',
-    import: host === 'agy' ? { status: 'pending', commands: ['agy plugin import gemini', 'agy plugin enable h2a'], sharedGeminiEffect: true } : undefined,
+    import: host === 'agy' ? { status: importStatus, commands: ['agy plugin import gemini', 'agy plugin enable h2a'], sharedGeminiEffect: true } : undefined,
     filters: { enabled: config.enabled_skills ?? [], disabled: config.disabled_skills ?? [], skillPaths: config.skill_paths ?? [], disabledTools: disabled }
   };
 }
