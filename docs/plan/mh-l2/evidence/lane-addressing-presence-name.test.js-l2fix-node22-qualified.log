@@ -1,0 +1,232 @@
+command: /usr/bin/node --test packages/h2a/test/lane-addressing-presence-name.test.js
+node: v22.22.1
+private test root: /tmp/mh-l2-test-EKn0wX
+Claude config: temporary HOME / injected homedir fallback
+TAP version 13
+# Subtest: default host name reader follows CODEX_HOME
+ok 1 - default host name reader follows CODEX_HOME
+  ---
+  duration_ms: 4.567733
+  type: 'test'
+  ...
+# Subtest: reader: the LAST customTitle wins (a rename appends to the transcript)
+ok 2 - reader: the LAST customTitle wins (a rename appends to the transcript)
+  ---
+  duration_ms: 1.661285
+  type: 'test'
+  ...
+# Subtest: reader: customTitle beats agentName even when agentName is newer
+ok 3 - reader: customTitle beats agentName even when agentName is newer
+  ---
+  duration_ms: 0.829701
+  type: 'test'
+  ...
+# Subtest: reader: falls back to the first agentName when no customTitle exists
+ok 4 - reader: falls back to the first agentName when no customTitle exists
+  ---
+  duration_ms: 0.779566
+  type: 'test'
+  ...
+# Subtest: reader: aiTitle is never returned, even as a last resort
+ok 5 - reader: aiTitle is never returned, even as a last resort
+  ---
+  duration_ms: 0.59018
+  type: 'test'
+  ...
+# Subtest: reader: finds a rename that sits far beyond the old 40-line head window
+ok 6 - reader: finds a rename that sits far beyond the old 40-line head window
+  ---
+  duration_ms: 0.950538
+  type: 'test'
+  ...
+# Subtest: reader: a title older than the tail window yields undefined (not a wrong name)
+ok 7 - reader: a title older than the tail window yields undefined (not a wrong name)
+  ---
+  duration_ms: 3.823843
+  type: 'test'
+  ...
+# Subtest: reader: a file smaller than the tail window keeps its very first record
+ok 8 - reader: a file smaller than the tail window keeps its very first record
+  ---
+  duration_ms: 1.470537
+  type: 'test'
+  ...
+# Subtest: reader: a truncated leading record in the tail window is ignored
+ok 9 - reader: a truncated leading record in the tail window is ignored
+  ---
+  duration_ms: 1.454557
+  type: 'test'
+  ...
+# Subtest: reader: codex thread_name still resolves last-match-wins
+ok 10 - reader: codex thread_name still resolves last-match-wins
+  ---
+  duration_ms: 0.921634
+  type: 'test'
+  ...
+# Subtest: updatePresence({ name }) writes the new name and preserves every other field
+ok 11 - updatePresence({ name }) writes the new name and preserves every other field
+  ---
+  duration_ms: 7.644761
+  type: 'test'
+  ...
+# Subtest: updatePresence ignores an empty name rather than blanking a good one
+ok 12 - updatePresence ignores an empty name rather than blanking a good one
+  ---
+  duration_ms: 2.384646
+  type: 'test'
+  ...
+# Subtest: touch(): writes the new display name when the host title changed
+ok 13 - touch(): writes the new display name when the host title changed
+  ---
+  duration_ms: 3.5401
+  type: 'test'
+  ...
+# Subtest: touch(): leaves the name alone when the resolver reports no change
+ok 14 - touch(): leaves the name alone when the resolver reports no change
+  ---
+  duration_ms: 1.634444
+  type: 'test'
+  ...
+# Subtest: touch(): keeps the previous name when the title is unreadable
+ok 15 - touch(): keeps the previous name when the title is unreadable
+  ---
+  duration_ms: 1.42973
+  type: 'test'
+  ...
+# Subtest: touch(): a throwing resolver keeps the name and still advances the heartbeat
+ok 16 - touch(): a throwing resolver keeps the name and still advances the heartbeat
+  ---
+  duration_ms: 1.666836
+  type: 'test'
+  ...
+# Subtest: touch(): with no resolver installed the name is frozen (explicit --name)
+ok 17 - touch(): with no resolver installed the name is frozen (explicit --name)
+  ---
+  duration_ms: 1.336344
+  type: 'test'
+  ...
+# Subtest: end-to-end: a cwd-basename name converges to the host title and becomes findable
+ok 18 - end-to-end: a cwd-basename name converges to the host title and becomes findable
+  ---
+  duration_ms: 2.479404
+  type: 'test'
+  ...
+# Subtest: defaultHostNameReaders.readTailLines: drops the truncated leading record
+ok 19 - defaultHostNameReaders.readTailLines: drops the truncated leading record
+  ---
+  duration_ms: 0.494771
+  type: 'test'
+  ...
+# Subtest: defaultHostNameReaders.readTailLines: keeps the first record of a small file
+ok 20 - defaultHostNameReaders.readTailLines: keeps the first record of a small file
+  ---
+  duration_ms: 0.306016
+  type: 'test'
+  ...
+# Subtest: defaultHostNameReaders.readTailLines: returns [] for a missing file
+ok 21 - defaultHostNameReaders.readTailLines: returns [] for a missing file
+  ---
+  duration_ms: 0.111159
+  type: 'test'
+  ...
+# Subtest: refresher: a repeated MISS does not re-walk the filesystem
+ok 22 - refresher: a repeated MISS does not re-walk the filesystem
+  ---
+  duration_ms: 0.309742
+  type: 'test'
+  ...
+# Subtest: refresher: the negative cache expires, so a late transcript is still found
+ok 23 - refresher: the negative cache expires, so a late transcript is still found
+  ---
+  duration_ms: 0.115207
+  type: 'test'
+  ...
+# Subtest: refresher: a HIT is memoized — the walk happens once, not per heartbeat
+ok 24 - refresher: a HIT is memoized — the walk happens once, not per heartbeat
+  ---
+  duration_ms: 0.472359
+  type: 'test'
+  ...
+# Subtest: reader: a customTitle on a non-rename record is IGNORED (policy matches restore.ts)
+ok 25 - reader: a customTitle on a non-rename record is IGNORED (policy matches restore.ts)
+  ---
+  duration_ms: 0.445779
+  type: 'test'
+  ...
+# Subtest: reader: agentName is NOT subject to the custom-title type check
+ok 26 - reader: agentName is NOT subject to the custom-title type check
+  ---
+  duration_ms: 0.379995
+  type: 'test'
+  ...
+# Subtest: reader: a whitespace-only title is rejected, not written verbatim
+ok 27 - reader: a whitespace-only title is rejected, not written verbatim
+  ---
+  duration_ms: 0.381057
+  type: 'test'
+  ...
+# Subtest: reader: titles are trimmed and length-capped before reaching presence
+ok 28 - reader: titles are trimmed and length-capped before reaching presence
+  ---
+  duration_ms: 0.413037
+  type: 'test'
+  ...
+# Subtest: resolveAutoOpen: installs a title refresher only when --name was NOT given
+ok 29 - resolveAutoOpen: installs a title refresher only when --name was NOT given
+  ---
+  duration_ms: 20.782645
+  type: 'test'
+  ...
+# Subtest: refresher: a transcript that appears LATE resolves to its title (absent -> present)
+ok 30 - refresher: a transcript that appears LATE resolves to its title (absent -> present)
+  ---
+  duration_ms: 0.565233
+  type: 'test'
+  ...
+# Subtest: refresher: a rename A -> B -> A is followed each way
+ok 31 - refresher: a rename A -> B -> A is followed each way
+  ---
+  duration_ms: 1.298953
+  type: 'test'
+  ...
+# Subtest: resolveAutoOpen: no refresher is installed when --host is omitted
+ok 32 - resolveAutoOpen: no refresher is installed when --host is omitted
+  ---
+  duration_ms: 8.081733
+  type: 'test'
+  ...
+# Subtest: resolveAutoOpen: host 'remote' resolves a session id but installs NO refresher
+ok 33 - resolveAutoOpen: host 'remote' resolves a session id but installs NO refresher
+  ---
+  duration_ms: 6.771168
+  type: 'test'
+  ...
+# Subtest: reader: a Codex thread_name is trimmed, whitespace-rejected and length-capped
+ok 34 - reader: a Codex thread_name is trimmed, whitespace-rejected and length-capped
+  ---
+  duration_ms: 0.570293
+  type: 'test'
+  ...
+# Subtest: reader: control and bidi characters are stripped from a Claude display name
+ok 35 - reader: control and bidi characters are stripped from a Claude display name
+  ---
+  duration_ms: 1.345561
+  type: 'test'
+  ...
+# Subtest: reader: a Codex thread_name is also stripped of control/bidi characters
+ok 36 - reader: a Codex thread_name is also stripped of control/bidi characters
+  ---
+  duration_ms: 0.381017
+  type: 'test'
+  ...
+1..36
+# tests 36
+# suites 0
+# pass 36
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 452.749859
+
+receipt: {"command":["/usr/bin/node","--test","packages/h2a/test/lane-addressing-presence-name.test.js"],"code":0,"signal":null,"elapsedMs":554}

@@ -1,0 +1,22 @@
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node --test --test-reporter=tap packages/h2a/test/mh-l2-live.test.js
+node: v24.21.0
+explicit oracle: passive source should drain only G0 while independently admitted G1 calls remain pending
+private root: /tmp/mh-l2-live-mutation-S3cbBk
+TAP version 13
+# Subtest: passive source should drain only G0 while independently admitted G1 calls remain pending
+ok 1 - passive source should drain only G0 while independently admitted G1 calls remain pending
+  ---
+  duration_ms: 605.21437
+  type: 'test'
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 1
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 664.016958
+
+receipt: {"code":0,"signal":null}

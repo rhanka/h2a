@@ -1,0 +1,18 @@
+command: /usr/bin/node scripts/mh-l2-live-mutate.mjs operator-reopen step-id-recovery step-conflict owner-process acquired-writer-gate acquired-writer-authority source-drain-scope source-unknown-work source-memo-scope source-reconcile-scope reconcile-uncertain-fence publication-target-revalidation publication-entry-revalidation publication-precheck-revalidation
+node22 operator-reopen: mutant=1 (assertion), restored=0; oracle=uncommitted publication should prevent operator stop from aborting before reconciliation
+node22 step-id-recovery: mutant=1 (assertion), restored=0; oracle=passive retirement should accept every valid stepId and resume its own durable publication after a lost ACK
+node22 step-conflict: mutant=1 (assertion), restored=0; oracle=passive retirement should accept every valid stepId and resume its own durable publication after a lost ACK
+node22 owner-process: mutant=1 (assertion), restored=0; oracle=passive source should preserve exact acquired G1 ownership and reject foreign generation, epoch or process
+node22 acquired-writer-gate: mutant=1 (assertion), restored=0; oracle=passive source should retire after the authenticated acquired G1 opens its writer gate
+node22 acquired-writer-authority: mutant=1 (assertion), restored=0; oracle=passive source should refuse an opened gate without the exact acquired target authority
+node22 source-drain-scope: mutant=1 (assertion), restored=0; oracle=passive source should drain only G0 while independently admitted G1 calls remain pending
+node22 source-unknown-work: mutant=1 (assertion), restored=0; oracle=passive source should drain only G0 while independently admitted G1 calls remain pending
+node22 source-memo-scope: mutant=1 (assertion), restored=0; oracle=passive source should neither reconcile nor count new G1 launch memos
+node22 source-reconcile-scope: mutant=1 (assertion), restored=0; oracle=passive source should neither reconcile nor count new G1 launch memos
+node22 reconcile-uncertain-fence: mutant=1 (assertion), restored=0; oracle=passive source should reconcile an uncertain ownership fence before checking participants again
+node22 publication-target-revalidation: mutant=1 (assertion), restored=0; oracle=passive source should revalidate selection, entry and precheck before publication commitment
+node22 publication-entry-revalidation: mutant=1 (assertion), restored=0; oracle=passive source should revalidate selection, entry and precheck before publication commitment
+node22 publication-precheck-revalidation: mutant=1 (assertion), restored=0; oracle=passive source should revalidate selection, entry and precheck before publication commitment
+node22: 14/14 mutations killed and restored; no skipped/zero-test oracle
+
+exit: 0

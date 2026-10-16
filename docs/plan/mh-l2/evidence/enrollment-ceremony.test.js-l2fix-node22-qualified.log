@@ -1,0 +1,279 @@
+command: /usr/bin/node --test packages/h2a/test/enrollment-ceremony.test.js
+node: v22.22.1
+private test root: /tmp/mh-l2-test-VOg9UT
+TAP version 13
+# Subtest: a well-formed challenge yields a proof the gateway's verifier accepts
+ok 1 - a well-formed challenge yields a proof the gateway's verifier accepts
+  ---
+  duration_ms: 4.425786
+  type: 'test'
+  ...
+# Subtest: the proof carries EXACTLY the fields of Part B step 4, as amended
+ok 2 - the proof carries EXACTLY the fields of Part B step 4, as amended
+  ---
+  duration_ms: 1.481577
+  type: 'test'
+  ...
+# Subtest: the proof carries a VERSIONED type tag, and it is INSIDE the signed payload
+ok 3 - the proof carries a VERSIONED type tag, and it is INSIDE the signed payload
+  ---
+  duration_ms: 0.643851
+  type: 'test'
+  ...
+# Subtest: rewriting the type tag breaks verification
+ok 4 - rewriting the type tag breaks verification
+  ---
+  duration_ms: 0.558391
+  type: 'test'
+  ...
+# Subtest: a VALIDLY SIGNED v2 proof is refused by the v1 verifier
+ok 5 - a VALIDLY SIGNED v2 proof is refused by the v1 verifier
+  ---
+  duration_ms: 0.459534
+  type: 'test'
+  ...
+# Subtest: the signature covers EVERY field the proof carries except itself
+ok 6 - the signature covers EVERY field the proof carries except itself
+  ---
+  duration_ms: 0.45714
+  type: 'test'
+  ...
+# Subtest: STRUCTURAL: an unsigned extra field on a proof cannot be made to verify
+ok 7 - STRUCTURAL: an unsigned extra field on a proof cannot be made to verify
+  ---
+  duration_ms: 0.63816
+  type: 'test'
+  ...
+# Subtest: the signed payload strips the signature and NOTHING else
+ok 8 - the signed payload strips the signature and NOTHING else
+  ---
+  duration_ms: 0.507885
+  type: 'test'
+  ...
+# Subtest: each signed field is cryptographically covered — tampering ANY of them fails
+ok 9 - each signed field is cryptographically covered — tampering ANY of them fails
+  ---
+  duration_ms: 1.267895
+  type: 'test'
+  ...
+# Subtest: a TAMPERED NONCE fails verification
+ok 10 - a TAMPERED NONCE fails verification
+  ---
+  duration_ms: 0.812789
+  type: 'test'
+  ...
+# Subtest: a TAMPERED PAYLOAD (signature value) fails verification
+ok 11 - a TAMPERED PAYLOAD (signature value) fails verification
+  ---
+  duration_ms: 0.556657
+  type: 'test'
+  ...
+# Subtest: a MISMATCHED KEY fails verification
+ok 12 - a MISMATCHED KEY fails verification
+  ---
+  duration_ms: 0.468371
+  type: 'test'
+  ...
+# Subtest: the ceremony refuses to emit a proof it cannot verify itself
+ok 13 - the ceremony refuses to emit a proof it cannot verify itself
+  ---
+  duration_ms: 0.644603
+  type: 'test'
+  ...
+# Subtest: REGRESSION: an enrollment signature can never satisfy verifyReclaimProof
+ok 14 - REGRESSION: an enrollment signature can never satisfy verifyReclaimProof
+  ---
+  duration_ms: 0.883052
+  type: 'test'
+  ...
+# Subtest: an empty or missing nonce is refused
+ok 15 - an empty or missing nonce is refused
+  ---
+  duration_ms: 0.108955
+  type: 'test'
+  ...
+# Subtest: the nonce is accepted by POSITIVE SHAPE, not by being under a bound
+ok 16 - the nonce is accepted by POSITIVE SHAPE, not by being under a bound
+  ---
+  duration_ms: 0.151364
+  type: 'test'
+  ...
+# Subtest: THE BRACKET: a floor that protects strength, a ceiling that does not claim to
+ok 17 - THE BRACKET: a floor that protects strength, a ceiling that does not claim to
+  ---
+  duration_ms: 0.266321
+  type: 'test'
+  ...
+# Subtest: the byte cap is a pre-parse guard, and is separate from the shape
+ok 18 - the byte cap is a pre-parse guard, and is separate from the shape
+  ---
+  duration_ms: 0.07982
+  type: 'test'
+  ...
+# Subtest: an EXPIRED challenge is refused; a live one is accepted
+ok 19 - an EXPIRED challenge is refused; a live one is accepted
+  ---
+  duration_ms: 0.487747
+  type: 'test'
+  ...
+# Subtest: a non-ISO expiresAt is refused, not ignored
+ok 20 - a non-ISO expiresAt is refused, not ignored
+  ---
+  duration_ms: 0.077516
+  type: 'test'
+  ...
+# Subtest: the challenge is an ALLOWLIST: only nonce and expiresAt may appear
+ok 21 - the challenge is an ALLOWLIST: only nonce and expiresAt may appear
+  ---
+  duration_ms: 0.195407
+  type: 'test'
+  ...
+# Subtest: a challenge carrying a TOP-LEVEL principalSub is REFUSED at receipt
+ok 22 - a challenge carrying a TOP-LEVEL principalSub is REFUSED at receipt
+  ---
+  duration_ms: 2.101263
+  type: 'test'
+  ...
+# Subtest: a NESTED principalSub is REFUSED — the harm is a principal id reaching the agent
+ok 23 - a NESTED principalSub is REFUSED — the harm is a principal id reaching the agent
+  ---
+  duration_ms: 0.534225
+  type: 'test'
+  ...
+# Subtest: a __proto__-nested principalSub is REFUSED
+ok 24 - a __proto__-nested principalSub is REFUSED
+  ---
+  duration_ms: 0.391056
+  type: 'test'
+  ...
+# Subtest: a non-string expiresAt is refused — no place for structure to hide
+ok 25 - a non-string expiresAt is refused — no place for structure to hide
+  ---
+  duration_ms: 0.335541
+  type: 'test'
+  ...
+# Subtest: a nonce that is not a string is refused, so it cannot smuggle structure
+ok 26 - a nonce that is not a string is refused, so it cannot smuggle structure
+  ---
+  duration_ms: 0.094067
+  type: 'test'
+  ...
+# Subtest: the allowlist uses OWN KEYS, not `in`, so an inherited name is not mistaken for a field
+ok 27 - the allowlist uses OWN KEYS, not `in`, so an inherited name is not mistaken for a field
+  ---
+  duration_ms: 0.084088
+  type: 'test'
+  ...
+# Subtest: an INHERITED expiresAt is not a carried field either — the same rule, generalised
+ok 28 - an INHERITED expiresAt is not a carried field either — the same rule, generalised
+  ---
+  duration_ms: 0.179007
+  type: 'test'
+  ...
+# Subtest: the SIGNED nonce is read off the sanitized copy, not off the caller's object
+ok 29 - the SIGNED nonce is read off the sanitized copy, not off the caller's object
+  ---
+  duration_ms: 0.636677
+  type: 'test'
+  ...
+# Subtest: VALIDATE-THEN-REREAD is a TOCTOU: the nonce is read ONCE and the read value is signed
+ok 30 - VALIDATE-THEN-REREAD is a TOCTOU: the nonce is read ONCE and the read value is signed
+  ---
+  duration_ms: 0.529466
+  type: 'test'
+  ...
+# Subtest: sanitizeEnrollmentChallenge returns a FRESH null-prototype object
+ok 31 - sanitizeEnrollmentChallenge returns a FRESH null-prototype object
+  ---
+  duration_ms: 0.145724
+  type: 'test'
+  ...
+# Subtest: a well-formed challenge document is accepted and its proof verifies
+ok 32 - a well-formed challenge document is accepted and its proof verifies
+  ---
+  duration_ms: 11.792794
+  type: 'test'
+  ...
+# Subtest: the serialized proof carries no private key material and no filesystem path
+ok 33 - the serialized proof carries no private key material and no filesystem path
+  ---
+  duration_ms: 6.26256
+  type: 'test'
+  ...
+# Subtest: DOCUMENTED LIMIT: the instance id carries the workspace LABEL, never a path
+ok 34 - DOCUMENTED LIMIT: the instance id carries the workspace LABEL, never a path
+  ---
+  duration_ms: 7.163044
+  type: 'test'
+  ...
+# Subtest: the CLI STDOUT envelope is path-free — it exists to be pasted into a browser
+ok 35 - the CLI STDOUT envelope is path-free — it exists to be pasted into a browser
+  ---
+  duration_ms: 7.181699
+  type: 'test'
+  ...
+# Subtest: after a re-anchor the ceremony proves the CURRENT key, not the recorded one
+ok 36 - after a re-anchor the ceremony proves the CURRENT key, not the recorded one
+  ---
+  duration_ms: 12.721772
+  type: 'test'
+  ...
+# Subtest: the ceremony surface has NO instance input — a recorded id cannot be passed in
+ok 37 - the ceremony surface has NO instance input — a recorded id cannot be passed in
+  ---
+  duration_ms: 0.474533
+  type: 'test'
+  ...
+# Subtest: a locally revoked key is NEVER the key proved — the ceremony re-anchors instead
+ok 38 - a locally revoked key is NEVER the key proved — the ceremony re-anchors instead
+  ---
+  duration_ms: 11.670183
+  type: 'test'
+  ...
+# Subtest: OBSERVED BEHAVIOUR: a CORRUPTED private key mints a new identity, exit 0
+ok 39 - OBSERVED BEHAVIOUR: a CORRUPTED private key mints a new identity, exit 0
+  ---
+  duration_ms: 12.968265
+  type: 'test'
+  ...
+# Subtest: listUnusablePrivateKeys reports nothing on a healthy or absent store
+ok 40 - listUnusablePrivateKeys reports nothing on a healthy or absent store
+  ---
+  duration_ms: 5.787226
+  type: 'test'
+  ...
+# Subtest: assertKeyIsLocallyActive refuses an empty keyring and a non-member key
+ok 41 - assertKeyIsLocallyActive refuses an empty keyring and a non-member key
+  ---
+  duration_ms: 0.405303
+  type: 'test'
+  ...
+# Subtest: with no injected transport the ceremony sends nothing, and says so
+ok 42 - with no injected transport the ceremony sends nothing, and says so
+  ---
+  duration_ms: 0.575503
+  type: 'test'
+  ...
+# Subtest: the transport is an INJECTED seam and receives the proof unchanged
+ok 43 - the transport is an INJECTED seam and receives the proof unchanged
+  ---
+  duration_ms: 0.542361
+  type: 'test'
+  ...
+# Subtest: the ceremony writes NO binding record anywhere under the root
+ok 44 - the ceremony writes NO binding record anywhere under the root
+  ---
+  duration_ms: 6.292077
+  type: 'test'
+  ...
+1..44
+# tests 44
+# suites 0
+# pass 44
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 431.228403
+
+receipt: {"command":["/usr/bin/node","--test","packages/h2a/test/enrollment-ceremony.test.js"],"code":0,"signal":null,"elapsedMs":521}

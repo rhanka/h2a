@@ -1,0 +1,33 @@
+command: /usr/bin/node --test packages/h2a/test/identity-readers.test.js
+node: v22.22.1
+private test root: /tmp/mh-l2-test-5iFqBQ
+TAP version 13
+# Subtest: should resolve Codex identity without reading the growing transcript body
+ok 1 - should resolve Codex identity without reading the growing transcript body
+  ---
+  duration_ms: 3.598138
+  type: 'test'
+  ...
+# Subtest: should preserve a UTF-8 header across short reads and EOF without a newline
+ok 2 - should preserve a UTF-8 header across short reads and EOF without a newline
+  ---
+  duration_ms: 1.155354
+  type: 'test'
+  ...
+# Subtest: should bound reads and release the descriptor for an oversized first record
+ok 3 - should bound reads and release the descriptor for an oversized first record
+  ---
+  duration_ms: 4.471331
+  type: 'test'
+  ...
+1..3
+# tests 3
+# suites 0
+# pass 3
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 119.72472
+
+receipt: {"command":["/usr/bin/node","--test","packages/h2a/test/identity-readers.test.js"],"code":0,"signal":null,"elapsedMs":210}

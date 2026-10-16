@@ -1,0 +1,130 @@
+command: /usr/bin/node --test packages/h2a/test/wp6-host-session-name.test.js
+node: v22.22.1
+private test root: /tmp/mh-l2-test-tGhaZR
+TAP version 13
+# Subtest: readHostSessionName: claude returns customTitle (preferred over agentName and aiTitle)
+not ok 1 - readHostSessionName: claude returns customTitle (preferred over agentName and aiTitle)
+  ---
+  duration_ms: 3.388223
+  type: 'test'
+  location: '/tmp/mh-l2fix-qual-06K2z1/source/packages/h2a/test/wp6-host-session-name.test.js:90:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    expected "My Custom Title", got undefined
+    + actual - expected
+    
+    + undefined
+    - 'My Custom Title'
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 'My Custom Title'
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/mh-l2fix-qual-06K2z1/source/packages/h2a/test/wp6-host-session-name.test.js:108:12)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.start (node:internal/test_runner/test:944:17)
+    startSubtestAfterBootstrap (node:internal/test_runner/harness:296:17)
+  ...
+# Subtest: readHostSessionName: claude falls back to agentName when no customTitle
+not ok 2 - readHostSessionName: claude falls back to agentName when no customTitle
+  ---
+  duration_ms: 0.628923
+  type: 'test'
+  location: '/tmp/mh-l2fix-qual-06K2z1/source/packages/h2a/test/wp6-host-session-name.test.js:116:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    expected "MyAgentName", got undefined
+    + actual - expected
+    
+    + undefined
+    - 'MyAgentName'
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 'MyAgentName'
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/mh-l2fix-qual-06K2z1/source/packages/h2a/test/wp6-host-session-name.test.js:127:12)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+  ...
+# Subtest: readHostSessionName: claude never returns aiTitle (returns undefined)
+ok 3 - readHostSessionName: claude never returns aiTitle (returns undefined)
+  ---
+  duration_ms: 0.468702
+  type: 'test'
+  ...
+# Subtest: readHostSessionName: claude takes the LAST customTitle (a rename appends)
+not ok 4 - readHostSessionName: claude takes the LAST customTitle (a rename appends)
+  ---
+  duration_ms: 0.474883
+  type: 'test'
+  location: '/tmp/mh-l2fix-qual-06K2z1/source/packages/h2a/test/wp6-host-session-name.test.js:167:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    expected "SecondTitle", got undefined
+    + actual - expected
+    
+    + undefined
+    - 'SecondTitle'
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 'SecondTitle'
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/mh-l2fix-qual-06K2z1/source/packages/h2a/test/wp6-host-session-name.test.js:181:12)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: readHostSessionName: codex returns thread_name, last-match wins
+ok 5 - readHostSessionName: codex returns thread_name, last-match wins
+  ---
+  duration_ms: 0.264007
+  type: 'test'
+  ...
+# Subtest: readHostSessionName: codex returns undefined when sessionId not in index
+ok 6 - readHostSessionName: codex returns undefined when sessionId not in index
+  ---
+  duration_ms: 0.090901
+  type: 'test'
+  ...
+# Subtest: readHostSessionName: unknown host returns undefined
+ok 7 - readHostSessionName: unknown host returns undefined
+  ---
+  duration_ms: 0.119024
+  type: 'test'
+  ...
+# Subtest: readHostSessionName: returns undefined when sessionId is undefined
+ok 8 - readHostSessionName: returns undefined when sessionId is undefined
+  ---
+  duration_ms: 0.057939
+  type: 'test'
+  ...
+# Subtest: sessions --name finds a session whose presence.name is set from host naming
+ok 9 - sessions --name finds a session whose presence.name is set from host naming
+  ---
+  duration_ms: 3.58299
+  type: 'test'
+  ...
+1..9
+# tests 9
+# suites 0
+# pass 6
+# fail 3
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 321.540795
+
+receipt: {"command":["/usr/bin/node","--test","packages/h2a/test/wp6-host-session-name.test.js"],"code":1,"signal":null,"elapsedMs":408}

@@ -1,0 +1,45 @@
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node --test --test-reporter=tap packages/h2a/test/mh-l2-identity-contention.test.js
+node: v24.21.0
+private root: /tmp/mh-l2-amendment-9BuZpI
+env selection: {"MH_L2_IDENTITY_CASE":"identity should generate Ed25519 keys outside the global writer lock and recheck the gate before publishing"}; unset: 
+TAP version 13
+# Subtest: identity should generate Ed25519 keys outside the global writer lock and recheck the gate before publishing
+not ok 1 - identity should generate Ed25519 keys outside the global writer lock and recheck the gate before publishing
+  ---
+  duration_ms: 3519.794852
+  type: 'test'
+  location: '/tmp/mh-l2fix-qual-06K2z1/source/packages/h2a/test/mh-l2-identity-contention.test.js:15:85'
+  failureType: 'testCodeFailure'
+  error: |-
+    key generation must not hold the global writer lock
+    
+    1 !== 0
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 0
+  actual: 1
+  operator: 'strictEqual'
+  stack: |-
+    file:///tmp/mh-l2fix-qual-06K2z1/source/packages/h2a/test/mh-l2-identity-contention.test.js:33:16
+    Object.apply (node:internal/test_runner/mock/mock:805:20)
+    generateKeypair (file:///tmp/mh-l2fix-qual-06K2z1/source/packages/h2a/dist/runtime/identity/live.js:119:39)
+    file:///tmp/mh-l2fix-qual-06K2z1/source/packages/h2a/dist/runtime/identity/live.js:139:83
+    file:///tmp/mh-l2fix-qual-06K2z1/source/packages/h2a/dist/runtime/handover/mutation.js:110:16
+    mutationLock (file:///tmp/mh-l2fix-qual-06K2z1/source/packages/h2a/dist/runtime/handover/mutation.js:50:23)
+    withWriterMutation (file:///tmp/mh-l2fix-qual-06K2z1/source/packages/h2a/dist/runtime/handover/mutation.js:94:12)
+    ensureKeypair (file:///tmp/mh-l2fix-qual-06K2z1/source/packages/h2a/dist/runtime/identity/live.js:138:22)
+    file:///tmp/mh-l2fix-qual-06K2z1/source/packages/h2a/dist/runtime/identity/live.js:480:53
+    step (file:///tmp/mh-l2fix-qual-06K2z1/source/packages/h2a/dist/runtime/identity/live.js:410:64)
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 0
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 3706.47306
+
+receipt: {"code":1,"signal":null}
