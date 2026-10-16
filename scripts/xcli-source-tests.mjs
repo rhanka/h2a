@@ -15,6 +15,12 @@ assert.ok(files.length, 'explicit test files required');
 for (const file of files) assert.match(file, /^packages\/h2a\/test\/[a-z0-9-]+\.test\.js$/);
 const root = fs.mkdtempSync('/tmp/h2a-qual-');
 const built = sourceBuild(root);
+// Some source-consumer suites verify the shipped documentation and literal
+// source citations. Preserve those fixtures in the same private build tree.
+for (const name of ['h2a', 'h2a-runtime', 'track', 'remote-protocol']) {
+  fs.cpSync(join(repo, 'packages', name, 'src'), join(built.path, 'packages', name, 'src'), { recursive: true });
+}
+fs.cpSync(join(repo, 'docs'), join(built.path, 'docs'), { recursive: true });
 fs.cpSync(join(repo, 'packages/h2a/test'), join(built.path, 'packages/h2a/test'), { recursive: true });
 const env = { ...environment(join(root, 'runner')), H2A_TEST_QUALIFICATION_ROOT: root };
 if (files.includes('packages/h2a/test/native-inventory-absence.test.js')) {
