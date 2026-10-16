@@ -4,7 +4,11 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { createRequire } from 'node:module';
 import { sourceBuild, environment, repo } from './xcli-lab.mjs';
+import { verifyExecutionReport } from './test-execution-evidence.mjs';
+import { ensureHistoricalGitRef, LEGACY_HOST_REF } from './historical-test-ref.mjs';
+import { assertPrivatePidNamespace } from '../packages/h2a/test/helpers/private-pid-namespace.mjs';
 
 const files = process.argv.slice(2);
 assert.ok(files.length, 'explicit test files required');
@@ -13,8 +17,43 @@ const root = fs.mkdtempSync('/tmp/h2a-qual-');
 const built = sourceBuild(root);
 fs.cpSync(join(repo, 'packages/h2a/test'), join(built.path, 'packages/h2a/test'), { recursive: true });
 const env = { ...environment(join(root, 'runner')), H2A_TEST_QUALIFICATION_ROOT: root };
+if (files.includes('packages/h2a/test/native-inventory-absence.test.js')) {
+  env.H2A_TEST_REQUIRE_LEGACY_HOST = '1';
+  try {
+    assertPrivatePidNamespace();
+    ensureHistoricalGitRef(repo, LEGACY_HOST_REF);
+    const legacy = join(root, 'legacy');
+    fs.mkdirSync(legacy);
+    const archive = spawnSync('git', ['archive', LEGACY_HOST_REF], { cwd: repo, maxBuffer: 200 * 1024 * 1024 });
+    assert.equal(archive.status, 0, 'historical source archive required');
+    assert.equal(spawnSync('/usr/bin/tar', ['-x', '-C', legacy], { input: archive.stdout }).status, 0);
+    const ts = createRequire(join(repo, 'package.json'))('typescript');
+    function compile(dir) {
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        const path = join(dir, entry.name);
+        if (entry.isDirectory()) { compile(path); continue; }
+        if (entry.name.endsWith('.d.ts')) continue;
+        const dest = path.replace('/src/', '/dist/').replace(/\.ts$/, '.js');
+        fs.mkdirSync(join(dest, '..'), { recursive: true });
+        const bytes = fs.readFileSync(path);
+        fs.writeFileSync(dest, entry.name.endsWith('.ts') ? ts.transpileModule(bytes.toString(), {
+          compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
+        }).outputText : bytes);
+      }
+    }
+    compile(join(legacy, 'packages/h2a-runtime/src'));
+    fs.symlinkSync(join(built.path, 'node_modules'), join(legacy, 'node_modules'));
+    env.H2A_TEST_LEGACY_HOST_DIR = legacy;
+  } catch (error) {
+    if (error.code !== 'ERR_ASSERTION') throw error;
+    console.log('BLOCKED: historical procfs readers require the private PID namespace launcher; the required case must fail, never skip.');
+  }
+}
+const executionReport = join(root, 'execution.json');
 const args = ['--import', join(built.path, 'packages/h2a/test/helpers/native-isolation.js'),
-  '--test', '--test-reporter=tap', '--test-concurrency=1', ...files];
+  '--test', '--test-reporter=tap', '--test-reporter-destination=stdout',
+  `--test-reporter=${join(repo, 'scripts/node-evidence-reporter.mjs')}`,
+  `--test-reporter-destination=${executionReport}`, '--test-concurrency=1', ...files];
 const result = spawnSync(process.execPath, args, { cwd: built.path, env, encoding: 'utf8', maxBuffer: 20 * 1024 * 1024 });
 const output = (result.stdout ?? '') + (result.stderr ?? '');
 fs.writeFileSync(join(root, 'tests.tap'), output);
@@ -23,4 +62,9 @@ const counts = Object.fromEntries(['tests', 'pass', 'fail', 'cancelled', 'skippe
 fs.writeFileSync(join(root, 'receipt.json'), JSON.stringify({ command: ['node', ...args], counts,
   exitCode: result.status, sourceBuild: built }, null, 2) + '\n');
 process.stdout.write(output + `Evidence: ${root}\n`);
-process.exitCode = result.status === 0 && counts.tests > 0 && counts.skipped === 0 && counts.todo === 0 && counts.cancelled === 0 ? 0 : 1;
+const declared = JSON.parse(fs.readFileSync(join(repo, 'scripts/test-non-tests-0986.json'), 'utf8')).entries
+  .map(entry => ({ ...entry, file: join(built.path, entry.file) }));
+const failures = verifyExecutionReport(JSON.parse(fs.readFileSync(executionReport, 'utf8')),
+  files.map(file => join(built.path, file)), { declaredNonTests: declared });
+for (const failure of failures) console.log(`FAILED EVIDENCE: ${failure}`);
+process.exitCode = result.status === 0 && counts.tests > 0 && counts.cancelled === 0 && failures.length === 0 ? 0 : 1;

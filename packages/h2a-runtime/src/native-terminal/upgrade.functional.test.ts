@@ -26,6 +26,8 @@ setupNativeTestEnvironment(afterAll);
 
 import { readNativeTerminalPgid } from "../registry.js";
 import { NativeTerminalClient } from "./client.js";
+// @ts-ignore Shared test-only boundary for published pre-owned-proc hosts.
+import { assertPrivatePidNamespace } from "../../../h2a/test/helpers/private-pid-namespace.mjs";
 
 // Scenario 9 (CONTRAT v5): the published 0.98.4 dist against the 0.98.5
 // candidate. R5 requires BOTH dists to be qualified as installed dists: the
@@ -341,6 +343,7 @@ function sessionEnv(): Record<string, string> {
 
 describe.skipIf(process.platform !== "linux")("native terminal upgrade (scenario 9)", () => {
   beforeAll(async () => {
+    assertPrivatePidNamespace();
     // The PUBLISHED 0.98.4 dist, installed into a throwaway prefix.
     const cache = createPrivateTestDirectory("upgrade-cache-");
     prefixes.add(cache);
