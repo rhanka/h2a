@@ -1,0 +1,22 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l2-live.test.js
+node: v22.22.1
+private root: /tmp/mh-l2-amendment-6nmkBd
+env selection: {"MH_L2_LIVE_CASE":"aborted live authorization should never authorize a successor marker"}; unset: 
+TAP version 13
+# Subtest: aborted live authorization should never authorize a successor marker
+ok 1 - aborted live authorization should never authorize a successor marker
+  ---
+  duration_ms: 76.487494
+  type: 'test'
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 1
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 209.940569
+
+receipt: {"code":0,"signal":null}
