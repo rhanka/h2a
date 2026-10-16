@@ -331,6 +331,7 @@ test("R8.2: the pack step is pinned COMMAND BY COMMAND — a manifest that stops
   assert.equal(pack["working-directory"], undefined, "a working-directory on the pack step silently relocates the paths the pinned commands address");
   assert.deepEqual(effectiveScript(pack.run), [
     "set -euo pipefail",
+    "node scripts/check-lockstep-versions.mjs",
     "mkdir -p dist-tarballs",
     "for pkg in @sentropic/h2a @sentropic/h2a-runtime @sentropic/h2a-cli @sentropic/track; do",
     'npm pack --workspace "$pkg" --pack-destination dist-tarballs',
@@ -367,6 +368,13 @@ test("R8.2: the sha256 manifest covers the FOUR lockstep tarballs — generation
   };
   mkdirSync(join(lab, "run"));
   try {
+    // Run the real version gate too: the lab contains a coherent package set.
+    mkdirSync(join(lab, 'scripts'));
+    writeFileSync(join(lab, 'scripts/check-lockstep-versions.mjs'), readFileSync(join(REPO_ROOT, 'scripts/check-lockstep-versions.mjs')));
+    for (const name of ['h2a', 'h2a-cli', 'h2a-runtime', 'track']) {
+      const base=join(lab, 'packages', name);mkdirSync(base, {recursive:true});
+      writeFileSync(join(base, 'package.json'), readFileSync(join(REPO_ROOT, 'packages', name, 'package.json')));
+    }
     // A fake npm producing the four tarballs `npm pack` would: purely local
     // file writes inside the lab, no network and no real npm involved.
     const bin = join(lab, "bin");
@@ -680,4 +688,14 @@ test("C9 A09: a comment-shaped line inside a quoted script cannot hide another p
   doctor.run = doctor.run.replace("node -e '\n", "node -e '\n#' || npm publish --workspace @sentropic/h2a\n");
   assert.notEqual(doctor.run, original, "the quoting mutation must apply");
   assert.ok(releaseContractFailures(mutant).length > 0, "script lines inside quotes are executable data, even when they start with #");
+});
+
+
+test('release validates exact internal versions before packing and before publishing', () => {
+  for (const [id, marker] of [['verify', 'npm pack --workspace'], ['publish', 'npm publish']]) {
+    const script = job(id).steps.map(step => step.run ?? '').join('\n');
+    const gate = script.indexOf('node scripts/check-lockstep-versions.mjs');
+    const action = script.indexOf(marker);
+    assert.ok(gate >= 0 && gate < action, id + ' must reject mixed package versions before producing or publishing bytes');
+  }
 });
