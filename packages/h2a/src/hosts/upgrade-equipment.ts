@@ -4,7 +4,6 @@ import type { AutoUpgradeResult } from '../runtime/upgrade/index.js';
 import { snapshot } from './native-files.js';
 import { h2aPackageRoot } from './vibe-equipment.js';
 import { NATIVE_HOSTS } from './native-paths.js';
-export const HOST_UPDATE_NOTICE = 'Composants d’hôtes à actualiser : h2a doctor --repair';
 export function convergeAfterExplicitUpgrade(result: AutoUpgradeResult, flags: Record<string, string>, run = spawnSync) {
   if (flags['skip-hosts'] === 'true') return { skipped: true, reason: '--skip-hosts' };
   if (!['upgraded', 'already-current', 'deferred-propagation'].includes(result.outcome)) return { skipped: true, reason: result.outcome, next: 'After verifying a coherent installation and releasing the upgrade lock: h2a doctor --repair' };
