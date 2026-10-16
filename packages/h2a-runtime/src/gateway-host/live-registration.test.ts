@@ -733,27 +733,21 @@ describe("gateway-host live registration (L6a H)", () => {
 // ---------------------------------------------------------------------------
 
 /**
- * Pinned integrity of the vendored neutral surface (spec §11). The entries
- * were extracted byte-identical from vendor/sentropic-engram-live-0.1.0.tgz
- * (graphify@70ebdfee, PR rhanka/engram#359), whose own sha512 was
- * sha512-SpNpd9iDWi0x9lySvYd+HtUtWDyEPncW6pAdMS3YjaCiWF1C3aaIEMbxc6TbkPNwlBGxNpHdwf+Zc8ntMPq2iw==;
- * the tarball is removed after vendoring because its os-bounded (linux)
- * `file:` consumption breaks cross-platform install and packed
- * redistribution. Re-vendor from that commit and compare digests to rotate.
+ * Pinned neutral entries compiled from engram origin/main @545a57b8
+ * (includes PR #366 @e432240f) with TypeScript 5.9.3, ES2022/NodeNext,
+ * strict/skipLibCheck/declaration. No runtime cross-checkout import.
+ * Contracts are mirrored byte-identically into core and runtime.
+ * Source checkout is read-only; all build products stayed in this worktree.
  */
 const ENGRAM_LIVE_VENDORED_INTEGRITY = {
-  "contracts.d.ts":
-    "sha512-ZY8jaPcnjbKt5R8a/QA759l0038fiL9u1GHC6HV7FfqWAs+nVrMx16Zi1yIVFYVEH1FaYRxYQWwiibKuEEKP/w==",
-  "contracts.js":
-    "sha512-Jg0HTAjImE5IhPY1jqygRui7F16GeZ85RgGgJWSsIzv1JDnWtwZl23Z6DXLQvOG7Kg60c5cMfcThKusKU6jfzQ==",
-  "registration.js":
-    "sha512-v/0LGM651f3nVcP+R99oz2kRyC5ZKVhUO5UJ8dIeYrdLbdoayA5VOheZpIqF/fwRPQOxEfGP38QEg+cLvJoz7Q==",
-  "registration.d.ts":
-    "sha512-nRHZITOtLNND2lu0A59JbGrop8r9qb5Z75qGQ5FhycjeTCjqyygFsTrUSFEKEiDws6J5uoqGYx9ZttrflqTw2Q==",
-  "integration.js":
-    "sha512-cLQpW8pZl2NmP/41aX2DWqVNkQXqImd+To7XCx09PRR4dbT09OkR7qPmrf0uVpdIpjcNB/ynhzxRIVca3eHGFw==",
-  "integration.d.ts":
-    "sha512-mm7CIOP4c1VwvJhqHCIjE05KARUVVquxZo/xQ/Zj7L87Qvu/ltaz2Bb2wWBU0amir88KOOU9pTuPnTNu3goB5A==",
+  "contracts.d.ts": "sha512-oy8eQku6kO55gb3V8Y97eLkUCXS2yta5cQQaU96PxQvJFpyDwbFcefSKDba3KoIYcthb1i+IQc7JyUpEOTtaNA==",
+  "contracts.js": "sha512-NmiZBfmmfj9atMMtNi2lnKgk+tipiy6kHCJ0wdYoXeZhsmp0a2FPsBftUiNylsPyO7blQZGkHMlmxgFHBnhcdA==",
+  "integration.d.ts": "sha512-Re0pphHIOfsP+Me7WASOQehWDCzHUwN5lXwIh5h+OfHtllgGvo0WruDmgTJD3XSidP5vzsLk7OOpms7JBzyGrA==",
+  "integration.js": "sha512-iNAltIBzcdbfalxWtfAJtfG+842RTjY2QOyKIeguFcWqRc8BUzPULK60BAFXG9WlSaLw7hwuVn2d4I0amnb2dw==",
+  "pr-sync.d.ts": "sha512-11QKxeJI2VXkqjTkpPDRhiDkBGupJQ717wvxVBYPukIhVe+xGuS2OXmHx/cniLqXO4blsDqn9ufkX01wcA2+GA==",
+  "pr-sync.js": "sha512-MHVYEY4Pr/jF+uzJhOkQ46towYXRBd6LlCqLpgT8n4iRWKpCU/R8hadvfTJCLxspW6U3ssimhzOm7hza2B31+Q==",
+  "registration.d.ts": "sha512-1Ae09+xHe/2aJkdkv/0+ZqXFBx+Yjaf5MGDShtd2YaVr4BiWndO2ahKHictTE1eoYkuvMk9wiYuMqrfGVhYSmA==",
+  "registration.js": "sha512-fIp+0p5FJZ9m0yRFId5mZD47wu1EZEYQYNmqrMg7WY5telZeskCXobO3QNiABg3HoHUbiDrUiY8RR6prbtUpAA=="
 };
 
 const noPrincipalAuthority: LiveAuthority = {
