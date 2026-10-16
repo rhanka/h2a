@@ -7,8 +7,9 @@ import { ColdAdministration } from '../src/runtime/handover/administration.js';
 import { marker, identity, hash } from './helpers/mh-l0-fixtures.js';
 import { digest } from '../src/runtime/handover/wire.js';
 import { liveFixture } from './helpers/mh-l2-live.js';
-import { readState, replaceState } from '../src/runtime/handover/state.js';
-import { withWriterMutation, withExecution } from '../src/runtime/handover/mutation.js';
+import { readState, replaceState, publishState } from '../src/runtime/handover/state.js';
+import { withWriterMutation, withExecution, updateWriterControl } from '../src/runtime/handover/mutation.js';
+import { OwnershipRegistry, OperationLedger } from '../src/runtime/handover/ownership.js';
 
 // Mutation campaign selects one explicitly named oracle without registering
 // skipped tests. The campaign refuses a zero-test or skipped-test result.
@@ -360,4 +361,118 @@ test('passive retirement should accept every valid stepId and resume its own dur
     assert.throws(() => f.step('retire', { publicationDigest: hash }, changes), /step_conflict/);
   } finally { f.close(); }
   }
+});
+
+function acquirePeer(f) {
+  const ownerPath = f.p.registry.ownerPath('a'), owner = readState(ownerPath, 'ownership');
+  const acquired = { ...owner.value, state: 'ACTIVE', ownerGeneration: f.next.generation,
+    ownerProcessIdentity: f.next.processIdentity, ownershipEpoch: owner.value.ownershipEpoch + 1 };
+  const controlPath = join(f.stateDirectory, 'component-control.json'), control = readState(controlPath, 'componentControl');
+  f.p.registry.withLock(() => {
+    replaceState(ownerPath, acquired, 'ownership', owner);
+    replaceState(controlPath, { ...control.value, revision: control.value.revision + 1, sourceGeneration: f.next.generation,
+      ownerIdentity: f.next.processIdentity, ownerState: 'ACTIVE' }, 'componentControl', control);
+    updateWriterControl(f.root, { gate: 'OPEN', handoverId: null });
+  });
+  const registry = new OwnershipRegistry({ directory: f.stateDirectory, generation: f.next.generation,
+    processIdentity: f.next.processIdentity, lockDirectory: f.p.registry.lockDirectory });
+  return { registry, ledger: new OperationLedger(registry), token: registry.token(acquired) };
+}
+
+test('passive source should retire after the authenticated acquired G1 opens its writer gate', () => {
+  const f = liveFixture();
+  try {
+    const oldCall = f.a.begin('call'); f.freeze(); const publicationDigest = f.publication(); f.publish();
+    assert.throws(() => f.step('retire', { publicationDigest }), /drain_blocked/);
+    acquirePeer(f); f.a.finish(oldCall, { ok: true });
+    let result;
+    assert.doesNotThrow(() => { result = f.step('retire', { publicationDigest }); });
+    assert.equal(result.state, 'RETIRED'); assert.equal(f.closes(), 1);
+    assert.equal(f.p.writerControl().gate, 'OPEN');
+  } finally { f.close(); }
+});
+
+test('passive source should drain only G0 while independently admitted G1 calls remain pending', () => {
+  const f = liveFixture();
+  try {
+    const oldCall = f.a.begin('call'); f.freeze(); const publicationDigest = f.publication(); f.publish();
+    assert.throws(() => f.step('retire', { publicationDigest }), /drain_blocked/);
+    const peer = acquirePeer(f), newCall = peer.ledger.begin(peer.token, 'g1-call', 'call');
+    withExecution({ root: f.root, registry: peer.registry, ledger: peer.ledger, token: peer.token, operation: newCall },
+      () => withWriterMutation(f.root, 'registry', () => fs.writeFileSync(join(f.root, 'g1-work'), 'admitted')));
+    assert.equal(f.p.drain().calls, 1, 'G0 drain must count its old call, not the new G1 call');
+    assert.throws(() => f.a.runOwner(() => withWriterMutation(f.root, 'presence', () => {})), /ownership_fenced/);
+    f.a.finish(oldCall, { outcome: 'unknown' }, true);
+    assert.equal(f.p.drain().calls, 1); assert.equal(f.p.drain().effects, 1);
+    assert.throws(() => f.step('retire', { publicationDigest }), /drain_blocked/);
+    f.a.finish(oldCall, { ok: true });
+    assert.equal(f.p.drain().complete, true);
+    assert.equal(f.step('retire', { publicationDigest }).state, 'RETIRED');
+    assert.doesNotThrow(() => peer.ledger.assertOperation(newCall));
+    peer.ledger.finish(newCall, { ok: true });
+  } finally { f.close(); }
+});
+
+test('passive source should neither reconcile nor count new G1 launch memos', () => {
+  for (const receiptPresent of [false, true]) {
+    const f = liveFixture();
+    try {
+      const oldCall = f.a.begin('call'); f.freeze(); const publicationDigest = f.publication(); f.publish();
+      assert.throws(() => f.step('retire', { publicationDigest }), /drain_blocked/);
+      acquirePeer(f); f.a.finish(oldCall, { ok: true });
+      const memo = { schemaVersion: 1, attachmentId: 'a', launchName: 'g1-next', launchId: 'g1-launch',
+        initialArgumentsDigest: hash, state: 'launching', executionOwner: f.next.processIdentity,
+        childProcessIdentity: null, launchReceiptReference: 'g1-receipt.json', launchTokenBinding: digest('g1-token'),
+        briefReceipt: null, terminalResult: null, retrySafe: false };
+      const path = join(f.stateDirectory, `launch-${digest({ attachmentId: 'a', launchName: 'g1-next' }).slice(7)}.json`);
+      publishState(path, memo, 'launchMemo');
+      publishState(join(f.stateDirectory, 'launch-location-g1-launch.json'), { schemaVersion: 1, launchId: 'g1-launch',
+        attachmentId: 'a', workspaceRoot: f.directory, delegation: null }, 'launchLocation');
+      if (receiptPresent) fs.writeFileSync(join(f.directory, 'g1-receipt.json'), JSON.stringify({ token: 'g1-token', state: 'stopped' }));
+      const before = fs.readFileSync(path);
+      assert.equal(f.p.drain().complete, true);
+      assert.deepEqual(fs.readFileSync(path), before, 'G0 must not mutate the new G1 launch during its source drain');
+      assert.equal(f.step('retire', { publicationDigest }).state, 'RETIRED');
+    } finally { f.close(); }
+  }
+});
+
+test('passive source should refuse an opened gate without the exact acquired target authority', () => {
+  for (const variant of ['generation', 'identity', 'state', 'handover']) {
+    const f = liveFixture();
+    try {
+      const oldCall = f.a.begin('call'); f.freeze(); const publicationDigest = f.publication(); f.publish();
+      assert.throws(() => f.step('retire', { publicationDigest }), /drain_blocked/);
+      acquirePeer(f); f.a.finish(oldCall, { ok: true });
+      const path = join(f.stateDirectory, 'component-control.json'), old = readState(path, 'componentControl');
+      const changes = variant === 'generation' ? { sourceGeneration: f.m.generation }
+        : variant === 'identity' ? { ownerIdentity: f.m.processIdentity } : variant === 'state' ? { ownerState: 'CLOSED' } : {};
+      replaceState(path, { ...old.value, ...changes, revision: old.value.revision + 1 }, 'componentControl', old);
+      if (variant === 'handover') updateWriterControl(f.root, { handoverId: 'foreign' });
+      assert.throws(() => f.step('retire', { publicationDigest }), /barrier_required/);
+      assert.equal(f.closes(), 0); assert.equal(f.admin.admissionsOpen(), false);
+    } finally { f.close(); }
+  }
+});
+
+test('passive source should reconcile an uncertain ownership fence before checking participants again', t => {
+  const f = liveFixture();
+  try {
+    f.admin.options.verifyAuthority = (_operation, tx) => f.live.verifyAuthority(tx);
+    const oldCall = f.a.begin('call'); f.freeze(); const publicationDigest = f.publication(); f.publish();
+    const fsync = fs.fsyncSync; let directories = 0;
+    t.mock.method(fs, 'fsyncSync', fd => {
+      if (fs.fstatSync(fd).isDirectory() && ++directories === 2) throw new Error('injected_fence_fsync');
+      return fsync(fd);
+    });
+    assert.throws(() => f.step('retire', { publicationDigest }), /persistence_indeterminate/);
+    t.mock.restoreAll();
+    assert.equal(f.admin.status().state, 'PUBLISHED'); assert.equal(f.p.registry.indeterminate, true);
+    assert.equal(f.closes(), 0); assert.equal(f.admin.admissionsOpen(), false);
+    assert.doesNotThrow(() => f.admin.reconcile());
+    assert.equal(f.p.registry.indeterminate, false);
+    assert.equal(f.p.registry.owners()[0].state, 'TRANSFERRING');
+    f.a.finish(oldCall, { ok: true });
+    assert.equal(f.step('retire', { publicationDigest }).state, 'RETIRED');
+  } finally { t.mock.restoreAll(); f.close(); }
 });

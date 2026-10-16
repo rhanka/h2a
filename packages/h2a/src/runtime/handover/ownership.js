@@ -215,11 +215,13 @@ export class OperationLedger {
       return digest(event);
     });
   }
-  drain() {
+  /** @param {{generation: string, processIdentity: object} | undefined} [scope] */
+  drain(scope = undefined) {
     return this.registry.withLock(() => {
       const value = { revision: this.registry.revision(), calls: 0, children: 0, briefs: 0, callbacks: 0, effects: 0 };
       const keys = { call: 'calls', child: 'children', brief: 'briefs', callback: 'callbacks', wake: 'effects' };
       for (const op of this.operations()) {
+        if (scope && (op.ownerGeneration !== scope.generation || digest(op.executionOwner) !== digest(scope.processIdentity))) continue;
         if (op.state === 'completed') continue;
         value[keys[op.kind]]++;
         if (op.state === 'unknown' && op.kind !== 'wake') value.effects++;
