@@ -35,6 +35,9 @@ const authorization = object({ upgradeId: text, handoverId: text, transactionEpo
 const mac = { ...text, pattern: '^[0-9a-f]{64}$' };
 const mode = choice('cold-stop', 'live-transfer', 'catalogue');
 export const schemas = {
+  processIdentity: identity,
+  generationEnd: versioned({ purpose: literal('generation-ended'), generation: uuid, source: json, markerDigest: hash, endedAt: integer, mac }),
+  shimAcceptance: versioned({ sourceGeneration: uuid, sourceMarkerDigest: hash, receipt: json, mac }),
   delegationReceipt: versioned({ upgradeId: text, controllerEpoch: positive, previousRevision: positive,
     delegatedControllerIdentity: identity, delegatedBuildId: text, targetManifestDigest: hash, ticketDigest: hash }),
   liveSourceAuthorization: versioned({ purpose: literal('live-source-authorization'),
@@ -166,4 +169,6 @@ function freeze(value) {
   for (const child of Object.values(value)) freeze(child);
   Object.freeze(value);
 }
+// Registration and inventory share the same closed vocabulary.
+schemas.shimInventoryItem = schemas.inventory.properties.shims.items;
 freeze(schemas);

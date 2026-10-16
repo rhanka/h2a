@@ -78,6 +78,15 @@ export class OwnershipRegistry {
     return Object.freeze({ attachmentId: value.attachmentId, ownerGeneration: value.ownerGeneration,
       ownershipEpoch: value.ownershipEpoch, ownerProcessIdentity: value.ownerProcessIdentity });
   }
+  rebaseline(input, proveEnded) {
+    return this.withLock(() => {
+      const path = this.ownerPath(input.attachmentId), old = readState(path, 'ownership');
+      if (!old || old.value.ownerGeneration === this.generation || !proveEnded(old.value)) throw new Error('ownership_exists');
+      const value = { ...old.value, ...input, ownerGeneration: this.generation, ownershipEpoch: old.value.ownershipEpoch + 1,
+        ownerProcessIdentity: this.processIdentity, state: 'ACTIVE', handoverId: null, checkpointVersion: 1, checkpointHash: null };
+      replaceState(path, value, 'ownership', old); this.bump(); return this.token(value);
+    });
+  }
   assertOwner(token, states = ['ACTIVE']) {
     if (this.indeterminate) throw new Error('reconciliation_required');
     const observed = readState(this.ownerPath(token.attachmentId), 'ownership');
