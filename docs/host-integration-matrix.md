@@ -19,7 +19,7 @@ Status vocabulary:
 | agy | Historical direct rendering, nonrecommended and non migrated; explicit existing JSON writer retained until migration | Registry bootstrap/receipt pending | Safe shared Gemini command/resource owner; native `agy plugin import gemini` then `agy plugin enable h2a`; polling has no hook equivalence | Isolated artifact/import-observation tests; genuine agy MCP/context and M-B guard/lifecycle remain unqualified |
 | Hermes | shipped/rendered (`h2a host setup --host hermes`) | shipped if Hermes loads MCP config | shipped/rendered (`install-skills --host hermes`, `host plugin --host hermes`) | automated render tests; live Hermes hook/plugin E2E pending |
 | OpenCode | shipped/rendered (`h2a host setup --host opencode`) | shipped if OpenCode loads MCP config | shipped/rendered (`install-skills --host opencode`, `host plugin --host opencode`) | automated render tests; live OpenCode binary/plugin E2E pending |
-| Vibe | Historical direct rendering, nonrecommended and non migrated; every MCP `--write` refused, including JSON/force; bootstrap registry expected | Missing MCP reports “Skills installées, outils MCP absents — bootstrap registre attendu” | Complete skills/resources under `VIBE_HOME`; strict owned TOML hooks; guard needs current native MCP proof; lifecycle explicit parent only | Isolated tests and bounded opt-in Node pilot; genuine Vibe parity/R7 and target-post qualification remain pending |
+| Vibe | shipped/rendered — historical direct rendering, nonrecommended and non migrated; every MCP `--write` refused, including JSON/force; bootstrap registry expected | Missing MCP reports “Skills installées, outils MCP absents — bootstrap registre attendu” | Complete skills/resources under `VIBE_HOME`; strict owned TOML pre_tool/post_agent hooks; guard needs current native MCP proof; lifecycle explicit parent only | Isolated tests and bounded opt-in Node pilot; genuine Vibe parity/R7 and target-post qualification remain pending |
 | Muse | Historical direct rendering, nonrecommended and non migrated; explicit existing JSON writer retained until migration | Registry bootstrap/receipt pending | Complete skills/resources under native root, default `~/.config/muse/skills` | Isolated artifact tests; genuine Muse MCP/context and M-B guard/lifecycle remain unqualified |
 
 For Vibe/Muse/agy, rendered means historical output tested, not MCP installed.
@@ -41,7 +41,8 @@ contract](specs/2026-07-23-host-operator-capability-contract.md) and the
 | Codex | gap | marketplace lifecycle hooks do not evidence pre-shell interception |
 | Hermes | gap | MCP/skill integration is not a pre-shell guard |
 | OpenCode | gap | MCP/skill integration is not a pre-shell guard |
-| agy / Muse | gap | no verified native hook surface; M-B remains required |
+| agy | gap | no verified native hook surface; M-B remains required |
+| Muse | gap | no verified native hook surface; M-B remains required |
 | Vibe | implemented, native qualification pending | packaged fail-open `pre_tool` guard; activation gated by current native MCP proof; fixture tests never qualify the post |
 
 ## Publication gate

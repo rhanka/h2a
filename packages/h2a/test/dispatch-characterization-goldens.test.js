@@ -38,7 +38,9 @@ const BIN = join(REPO_ROOT, "packages", "h2a", "dist", "bin.js");
 // records via a post_agent hook in ~/.vibe/hooks.toml and only agy and muse stay poll-only
 // (+52 bytes, cli.ts renderCliHelp only). Removing the vibe insertions recovers the
 // launch-index-era 13,649-byte stream and its SHA-256.
-const CORE_HELP_SHA256 = "346d44703534030378e9db27e94c7a3258119c21cce7d5bf50b4d1f234aa61b7";
+// Native equipment adds the registry transition, strict Vibe write policy and
+// doctor host/skip/guard/lifecycle flags (+134 bytes); all routing checks stay exact.
+const CORE_HELP_SHA256 = "63e46708775f6f7865a4f0ef5150d3a09c2b52f7ae29bf43be30dbcc1374065e";
 const RUNTIME_MISSING =
   "ce verbe requiert le runtime h2a (sessions / k8s / tunnel).\n" +
   "  Répare l'installation lockstep : npm i -g @sentropic/h2a@latest\n";
@@ -135,7 +137,7 @@ function assertCoreHelp(result) {
   // + 90 for the explicit launch-index maintenance wording,
   // + 32 for the vibe host (four `|vibe` usage alternatives, poll-only note, Hosts line),
   // + 52 for the vibe plugin surface (post_agent hook note replacing the poll-only listing).
-  assert.equal(Buffer.byteLength(result.stdout), 13733);
+  assert.equal(Buffer.byteLength(result.stdout), 13867);
 }
 
 function assertMissingRuntime(result, firstToken) {

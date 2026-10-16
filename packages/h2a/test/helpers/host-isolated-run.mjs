@@ -14,6 +14,12 @@ if (!files.length || files.some(f => !/^packages\/h2a\/test\/[\w-]+\.test\.js$/.
   throw new Error('explicit named h2a test files required');
 for (const name of ['home', 'runtime', 'config', 'state', 'tmp', 'bin']) fs.mkdirSync(join(lane, name), { mode: 0o700 });
 fs.symlinkSync(process.execPath, join(lane, 'bin/node'));
+if (files.includes('packages/h2a/test/focus-serve.test.js')) {
+  for (const name of ['tar', 'gzip']) fs.symlinkSync('/usr/bin/' + name, join(lane, 'bin', name));
+  if (!npmCli) throw new Error('npm required for Focus artifact consumer');
+  fs.symlinkSync(fs.realpathSync(npmCli), join(lane, 'bin/npm'));
+}
+if (files.includes('packages/h2a/test/gateway-host-docs.test.js')) fs.cpSync(join(repo, 'docs'), join(root, 'docs'), { recursive: true });
 for (const pkg of ['h2a', 'h2a-runtime', 'track', 'remote-protocol']) {
   const from = join(repo, 'packages', pkg), dest = join(root, 'packages', pkg);
   fs.cpSync(from, dest, { recursive: true, filter: p => !/\/(node_modules|dist)(\/|$)/.test(p) });
