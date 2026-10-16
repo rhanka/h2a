@@ -32,7 +32,7 @@ export function planVibeEquipment(options: VibeEquipmentOptions) {
   if (options.guard === 'on' && manifest.guard !== 'on' && !qualification.guardEligible)
     throw new Error('First guard activation requires a current native MCP qualification; configuration, fixture and manual observation are insufficient.');
   const guard = options.guard ?? manifest.guard;
-  const lifecycle = options.instance ? { enabled: true, instance: options.instance, ...(options.busRoot ? { root: options.busRoot } : {}), ...(options.status ? { status: options.status } : {}) } : manifest.lifecycle;
+  const lifecycle = options.instance ? { enabled: true, instance: options.instance, ...(options.busRoot ? { root: options.busRoot } : {}), ...(options.status ? { status: options.status } : {}) } : manifest.lifecycle ? { ...manifest.lifecycle } : undefined;
   if (options.lifecycle === 'on' && !lifecycle) throw new Error('Run h2a host plugin --host vibe --instance <id> --write <hooks.toml> first.');
   if (lifecycle && options.lifecycle) lifecycle.enabled = options.lifecycle === 'on';
   const hooks: VibeHook[] = [];
