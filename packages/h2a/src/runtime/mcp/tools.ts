@@ -282,7 +282,7 @@ const H2A_COORDINATION_TOOL_DESCRIPTORS: McpToolDescriptor[] = [
   {
     name: "h2a_send",
     description:
-      "Send one signed message to an exact peer instance or unique peer display name through the local inbox (default) or the configured cluster-mesh backend.",
+      "Send one signed message to a peer with fresh live presence, by exact instance or unique display name, through the local inbox (default) or configured cluster-mesh backend. Local presence also requires an existing owner PID; mirrored presence uses remote heartbeat freshness. Returns recipient_not_live when no qualifying presence exists, or send_timeout if the mesh backend has not acknowledged within 10 seconds (delivery then remains unconfirmed).",
     inputSchema: {
       type: "object",
       properties: {
