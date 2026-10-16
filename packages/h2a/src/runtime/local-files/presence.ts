@@ -75,7 +75,7 @@ export function writePresence(
     }
     renameSync(tmpPath, finalPath);
     // Keep addressing evidence independently of TTL, explicit close and reap.
-    // A failure is retried with the next heartbeat; hints never grant admission.
+    // Best-effort only: a failed hint must not prevent activation or heartbeat.
     rememberRecipient(root, session);
   } finally {
     // Includes serialization, write, close and rename failures. Never leave
