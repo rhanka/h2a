@@ -1,0 +1,9 @@
+{
+  "pid": 42721,
+  "expectedParent": 42715,
+  "expectedStartTime": "2497552",
+  "observedAt": "2026-10-16T04:22:30.671Z",
+  "state": "D",
+  "wchan": "jbd2_log_wait_commit",
+  "io": "rchar: 7200775\nwchar: 1043119\nsyscr: 16736\nsyscw: 3642\nread_bytes: 8192\nwrite_bytes: 4993024\ncancelled_write_bytes: 4096\n"
+}
