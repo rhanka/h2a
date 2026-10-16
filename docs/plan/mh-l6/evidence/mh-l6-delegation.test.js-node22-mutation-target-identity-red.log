@@ -1,0 +1,39 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-delegation.test.js
+node: v22.22.1
+private root: /tmp/mh-l6-test-X8e1vH
+case: all cases in explicit file
+TAP version 13
+# Subtest: T5 should refuse every altered ticket binding and a second controller before granting authority
+not ok 1 - T5 should refuse every altered ticket binding and a second controller before granting authority
+  ---
+  duration_ms: 382.641428
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-delegation.test.js:11:94'
+  failureType: 'testCodeFailure'
+  error: |-
+    The input did not match the regular expression /delegation_identity_mismatch/. Input:
+    
+    ''
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected:
+  actual: ''
+  operator: 'match'
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-delegation.test.js:80:10)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 0
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 499.512586
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-delegation.test.js"],"code":1,"signal":null,"tests":1,"invalid":false,"spawned":5,"leftovers":[]}

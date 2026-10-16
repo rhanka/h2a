@@ -1,0 +1,111 @@
+{
+  "node": "v22.22.1",
+  "files": [
+    {
+      "path": "packages/h2a/src/runtime/upgrade/h4-store.js",
+      "sha256": "06d6bb515be9e9b0178e9225de47334eca53bd332b7b5253fda2eec4e44ac39a"
+    },
+    {
+      "path": "packages/h2a/dist/runtime/upgrade/h4-store.js",
+      "sha256": "400c7f6f20d1b03fc6300844884f6f02c756eb4992ffb3c831450bf6523b88cf"
+    }
+  ],
+  "results": [
+    {
+      "name": "recovery-revision",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-delegation.test.js-node22-mutation-recovery-revision-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-delegation.test.js-node22-mutation-recovery-revision-green.log",
+      "restored": true
+    },
+    {
+      "name": "live-delegate-fencing",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-delegation.test.js-node22-mutation-live-delegate-fencing-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-delegation.test.js-node22-mutation-live-delegate-fencing-green.log",
+      "restored": true
+    },
+    {
+      "name": "unknown-delegate-fencing",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-delegation.test.js-node22-mutation-unknown-delegate-fencing-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-delegation.test.js-node22-mutation-unknown-delegate-fencing-green.log",
+      "restored": true
+    },
+    {
+      "name": "source-revocation",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-delegation.test.js-node22-mutation-source-revocation-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-delegation.test.js-node22-mutation-source-revocation-green.log",
+      "restored": true
+    },
+    {
+      "name": "source-authority",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-delegation.test.js-node22-mutation-source-authority-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-delegation.test.js-node22-mutation-source-authority-green.log",
+      "restored": true
+    },
+    {
+      "name": "private-ticket",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-delegation.test.js-node22-mutation-private-ticket-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-delegation.test.js-node22-mutation-private-ticket-green.log",
+      "restored": true
+    },
+    {
+      "name": "target-identity",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-delegation.test.js-node22-mutation-target-identity-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-delegation.test.js-node22-mutation-target-identity-green.log",
+      "restored": true
+    },
+    {
+      "name": "absolute-controller-entry",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-delegation.test.js-node22-mutation-absolute-controller-entry-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-delegation.test.js-node22-mutation-absolute-controller-entry-green.log",
+      "restored": true
+    },
+    {
+      "name": "ticket-expiry",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-delegation.test.js-node22-mutation-ticket-expiry-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-delegation.test.js-node22-mutation-ticket-expiry-green.log",
+      "restored": true
+    },
+    {
+      "name": "revocation-revision",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-delegation.test.js-node22-mutation-revocation-revision-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-delegation.test.js-node22-mutation-revocation-revision-green.log",
+      "restored": true
+    },
+    {
+      "name": "receipt-binding",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-delegation.test.js-node22-mutation-receipt-binding-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-delegation.test.js-node22-mutation-receipt-binding-green.log",
+      "restored": true
+    },
+    {
+      "name": "receipt-recovery-sync",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-delegation.test.js-node22-mutation-receipt-recovery-sync-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-delegation.test.js-node22-mutation-receipt-recovery-sync-green.log",
+      "restored": true
+    },
+    {
+      "name": "uncertain-authority-sync",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-delegation.test.js-node22-mutation-uncertain-authority-sync-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-delegation.test.js-node22-mutation-uncertain-authority-sync-green.log",
+      "restored": true
+    },
+    {
+      "name": "guardian-bypass",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-delegation.test.js-node22-mutation-guardian-bypass-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-delegation.test.js-node22-mutation-guardian-bypass-green.log",
+      "restored": true
+    },
+    {
+      "name": "ticket-persistence",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-delegation.test.js-node22-mutation-ticket-persistence-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-delegation.test.js-node22-mutation-ticket-persistence-green.log",
+      "restored": true
+    },
+    {
+      "name": "receipt-persistence",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-delegation.test.js-node22-mutation-receipt-persistence-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-delegation.test.js-node22-mutation-receipt-persistence-green.log",
+      "restored": true
+    }
+  ]
+}

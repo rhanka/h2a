@@ -1,12 +1,12 @@
 command: /tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-selection.test.js
 node: v24.21.0
-private root: /tmp/mh-l6-test-CoMqvx
+private root: /tmp/mh-l6-test-iwecSK
 case: all cases in explicit file
 TAP version 13
 # Subtest: U05 should select once with canonical journal, history and pins across HOME changes
 ok 1 - U05 should select once with canonical journal, history and pins across HOME changes
   ---
-  duration_ms: 82.443113
+  duration_ms: 63.887125
   type: 'test'
   ...
 1..1
@@ -17,6 +17,6 @@ ok 1 - U05 should select once with canonical journal, history and pins across HO
 # cancelled 0
 # skipped 0
 # todo 0
-# duration_ms 147.048801
+# duration_ms 114.873327
 
 receipt: {"command":["/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-selection.test.js"],"code":0,"signal":null,"tests":1,"invalid":false,"spawned":1,"leftovers":[]}

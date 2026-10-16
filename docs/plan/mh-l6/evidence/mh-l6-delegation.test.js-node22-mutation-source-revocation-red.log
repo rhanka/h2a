@@ -1,0 +1,48 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-delegation.test.js
+node: v22.22.1
+private root: /tmp/mh-l6-test-VgMonh
+case: all cases in explicit file
+TAP version 13
+# Subtest: T5 should revoke the source before the exact future controller acquires and acknowledges once
+not ok 1 - T5 should revoke the source before the exact future controller acquires and acknowledges once
+  ---
+  duration_ms: 180.792697
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-delegation.test.js:11:94'
+  failureType: 'testCodeFailure'
+  error: |-
+    Got unwanted exception.
+    Actual message: "contradictory_delegation"
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  actual:
+  error: 'contradictory_delegation'
+  stack: |-
+    validate (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/dist/runtime/handover/formats.js:82:15)
+    write (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/dist/runtime/handover/state.js:55:5)
+    replaceState (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/dist/runtime/handover/state.js:117:12)
+    #write (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/dist/runtime/upgrade/h4-store.js:84:16)
+    #handoff (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/dist/runtime/upgrade/h4-store.js:325:40)
+    file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/dist/runtime/upgrade/h4-store.js:302:33
+    file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/dist/runtime/upgrade/h4-store.js:75:24
+    mutationLock (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/dist/runtime/handover/mutation.js:50:23)
+    #locked (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/dist/runtime/upgrade/h4-store.js:71:20)
+    UpgradeStore.delegate (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/dist/runtime/upgrade/h4-store.js:282:28)
+  operator: 'doesNotThrow'
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-delegation.test.js:46:23)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 0
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 291.228932
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-delegation.test.js"],"code":1,"signal":null,"tests":1,"invalid":false,"spawned":3,"leftovers":[]}

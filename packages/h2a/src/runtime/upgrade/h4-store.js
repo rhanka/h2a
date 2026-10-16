@@ -1,8 +1,9 @@
 import fs from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { randomBytes } from 'node:crypto';
 import { acquirePrefixLock } from '../local-files/succession-lock.js';
 import { prefixLayout } from '../handover/authority.js';
-import { currentIdentity } from '../handover/admission.js';
+import { currentIdentity, ownerLiveness } from '../handover/admission.js';
 import { validate } from '../handover/formats.js';
 import { digest } from '../handover/wire.js';
 import { privateDirectory, readState, publishState, replaceState } from '../handover/state.js';
@@ -206,6 +207,138 @@ export class UpgradeStore {
       if (record.value.installationState === 'ABORTED') return record.value;
       if (!['PREPARING', 'PREPARED'].includes(record.value.installationState)) throw new Error('selection_irreversible');
       return this.#write(record, { installationState: 'ABORTED' }, held).value;
+    });
+  }
+  #ticket(record) {
+    const tx = record.value;
+    if (tx.privateTicketReference !== `private/delegation-${id(tx.upgradeId)}-${tx.controllerEpoch}.json`) throw new Error('delegation_ticket_mismatch');
+    const ticket = readState(join(this.state, 'upgrade', tx.privateTicketReference), 'delegationTicket');
+    if (!ticket || ticket.value.upgradeId !== tx.upgradeId || ticket.value.controllerEpoch !== tx.controllerEpoch ||
+      ticket.value.delegatedBuildId !== tx.delegatedBuildId || ticket.value.targetManifestDigest !== tx.targetManifestDigest) {
+      throw new Error('delegation_ticket_mismatch');
+    }
+    return ticket.value;
+  }
+  #loaded(tx) {
+    const intent = tx.observations.selectionIntent;
+    this.#target(intent);
+    const entry = join(this.installation.managedRoot, 'images', intent.manifestDigest.slice(7), intent.entrypoint);
+    if (!process.argv[1] || fs.realpathSync(process.argv[1]) !== fs.realpathSync(entry)) throw new Error('controller_entrypoint_mismatch');
+  }
+  delegate(upgradeId, candidateIdentity) {
+    validate('processIdentity', candidateIdentity);
+    return this.#locked(held => {
+      const record = this.#read(upgradeId), tx = record.value;
+      // A lost ACK may replay the handoff, but never reactivates its source.
+      if (tx.installationState === 'DELEGATING' && tx.controllerAuthorityState === 'REVOKED' &&
+        digest(tx.controllerIdentity) === digest(currentIdentity())) {
+        const ticket = this.#ticket(record);
+        if (digest(ticket.delegatedControllerIdentity) !== digest(candidateIdentity) || ticket.expectedRevision !== tx.revision) throw new Error('delegation_ticket_mismatch');
+        held(); syncDirectory(this.transactions); syncDirectory(join(this.state, 'upgrade/private'));
+        return { transaction: tx, ticket };
+      }
+      this.#assertController(tx);
+      if (tx.installationState !== 'SELECTED') throw new Error('upgrade_phase_invalid');
+      // SELECTED is checked without repairing anything before revocation.
+      if (this.#selection()?.digest !== digest(tx.observations.selectionIntent)) throw new Error('RECOVERY_BLOCKED:selection');
+      this.#target(tx.observations.selectionIntent);
+      return this.#handoff(record, candidateIdentity, held);
+    });
+  }
+  #handoff(record, candidateIdentity, held) {
+    const tx = record.value, upgradeId = tx.upgradeId;
+    const reference = `private/delegation-${id(upgradeId)}-${tx.controllerEpoch + 1}.json`;
+    const path = join(this.state, 'upgrade', reference);
+    let ticket = readState(path, 'delegationTicket')?.value;
+    const binding = { schemaVersion: 1, upgradeId, controllerEpoch: tx.controllerEpoch + 1,
+      expectedRevision: tx.revision + 1, delegatedBuildId: tx.observations.selectionIntent.buildId,
+      targetManifestDigest: tx.targetManifestDigest, delegatedControllerIdentity: candidateIdentity };
+    if (ticket) {
+      for (const [key, value] of Object.entries(binding)) if (digest(ticket[key]) !== digest(value)) throw new Error('delegation_ticket_mismatch');
+      held(); syncDirectory(dirname(path));
+    } else {
+      ticket = { ...binding, ticketNonce: randomBytes(32).toString('hex'), expiresAt: Date.now() + 15 * 60_000 };
+      held(); publishState(path, ticket, 'delegationTicket');
+    }
+    const transaction = this.#write(record, { installationState: 'DELEGATING', controllerAuthorityState: 'REVOKED',
+      delegationState: 'DELEGATING', controllerEpoch: ticket.controllerEpoch, delegationReceiptDigest: null,
+      delegatedBuildId: ticket.delegatedBuildId, privateTicketReference: reference }, held).value;
+    return { transaction, ticket };
+  }
+  recoverDelegation(upgradeId, candidateIdentity) {
+    validate('processIdentity', candidateIdentity);
+    return this.#locked(held => {
+      const record = this.#read(upgradeId), tx = record.value, identity = currentIdentity();
+      if (!['DELEGATING', 'ACTIVATING', 'PARTIAL'].includes(tx.installationState) ||
+        !['DELEGATING', 'DELEGATED'].includes(tx.delegationState)) throw new Error('upgrade_phase_invalid');
+      if (digest(tx.controllerIdentity) !== digest(identity) || tx.delegationState === 'DELEGATED') {
+        this.#loaded(tx);
+        if (digest(candidateIdentity) !== digest(identity)) throw new Error('delegation_identity_mismatch');
+      }
+      const ticket = this.#ticket(record);
+      if (tx.delegationState === 'DELEGATED') this.#receipt(tx, ticket);
+      if (tx.delegationState === 'DELEGATING' && ticket.expectedRevision !== tx.revision) throw new Error('delegation_revision_mismatch');
+      if (this.#selection()?.digest !== digest(tx.observations.selectionIntent)) throw new Error('RECOVERY_BLOCKED:selection');
+      this.#target(tx.observations.selectionIntent);
+      if (digest(ticket.delegatedControllerIdentity) === digest(candidateIdentity)) {
+        if (digest(candidateIdentity) !== digest(identity)) throw new Error('delegation_identity_mismatch');
+        if (tx.delegationState === 'DELEGATED') this.#receipt(tx, ticket);
+        held(); syncDirectory(this.transactions); syncDirectory(join(this.state, 'upgrade/private'));
+        return { transaction: tx, ticket };
+      }
+      if (ownerLiveness({ processIdentity: ticket.delegatedControllerIdentity }, identity) !== 'dead') throw new Error('delegation_owner_not_dead');
+      return this.#handoff(record, candidateIdentity, held);
+    });
+  }
+  acquireDelegation(upgradeId, suppliedTicket) {
+    validate('delegationTicket', suppliedTicket);
+    return this.#locked(held => {
+      const record = this.#read(upgradeId), tx = record.value, ticket = this.#ticket(record);
+      if (digest(suppliedTicket) !== digest(ticket)) throw new Error('delegation_ticket_mismatch');
+      const identity = currentIdentity();
+      if (digest(ticket.delegatedControllerIdentity) !== digest(identity)) throw new Error('delegation_identity_mismatch');
+      this.#loaded(tx);
+      if (this.#selection()?.digest !== digest(tx.observations.selectionIntent)) throw new Error('RECOVERY_BLOCKED:selection');
+      if (tx.delegationState === 'DELEGATED' && tx.controllerAuthorityState === 'ACTIVE') {
+        this.#assertController(tx); this.#receipt(tx, ticket);
+        held(); syncDirectory(this.transactions); syncDirectory(join(this.state, 'upgrade/receipts'));
+        return tx;
+      }
+      if (tx.installationState !== 'DELEGATING' || tx.delegationState !== 'DELEGATING' || tx.controllerAuthorityState !== 'REVOKED' ||
+        ticket.expectedRevision !== tx.revision) throw new Error('delegation_revision_mismatch');
+      if (ticket.expiresAt <= Date.now()) throw new Error('delegation_ticket_expired');
+      const receipt = { schemaVersion: 1, upgradeId, controllerEpoch: ticket.controllerEpoch, previousRevision: tx.revision,
+        delegatedControllerIdentity: identity, delegatedBuildId: ticket.delegatedBuildId,
+        targetManifestDigest: tx.targetManifestDigest, ticketDigest: digest(ticket) };
+      const receiptDigest = digest(receipt), path = join(this.state, 'upgrade/receipts', receiptDigest.slice(7) + '.json');
+      const prior = readState(path, 'delegationReceipt');
+      if (prior && prior.digest !== receiptDigest) throw new Error('RECOVERY_BLOCKED:delegation_receipt');
+      held(); if (!prior) publishState(path, receipt, 'delegationReceipt');
+      if (prior) { held(); syncDirectory(dirname(path)); }
+      return this.#write(record, { installationState: 'ACTIVATING', delegationState: 'DELEGATED', controllerAuthorityState: 'ACTIVE',
+        controllerIdentity: identity, controllerBuildId: ticket.delegatedBuildId, delegationReceiptDigest: receiptDigest }, held).value;
+    });
+  }
+  #receipt(tx, ticket) {
+    if (!tx.delegationReceiptDigest) throw new Error('RECOVERY_BLOCKED:delegation_receipt');
+    const receipt = readState(join(this.state, 'upgrade/receipts', tx.delegationReceiptDigest.slice(7) + '.json'), 'delegationReceipt');
+    if (!receipt || receipt.digest !== tx.delegationReceiptDigest || receipt.value.ticketDigest !== digest(ticket) ||
+      receipt.value.upgradeId !== tx.upgradeId || receipt.value.controllerEpoch !== tx.controllerEpoch ||
+      receipt.value.previousRevision !== ticket.expectedRevision || receipt.value.delegatedBuildId !== tx.controllerBuildId ||
+      receipt.value.targetManifestDigest !== tx.targetManifestDigest || digest(receipt.value.delegatedControllerIdentity) !== digest(tx.controllerIdentity)) {
+      throw new Error('RECOVERY_BLOCKED:delegation_receipt');
+    }
+    return receipt.value;
+  }
+  assertMutationAuthority(upgradeId) {
+    return this.#locked(held => {
+      const record = this.#read(upgradeId), tx = record.value; this.#assertController(tx);
+      if (tx.delegationState === 'DELEGATED') {
+        this.#loaded(tx); this.#receipt(tx, this.#ticket(record));
+        if (this.#selection()?.digest !== digest(tx.observations.selectionIntent)) throw new Error('RECOVERY_BLOCKED:selection');
+        held(); syncDirectory(this.transactions); syncDirectory(join(this.state, 'upgrade/receipts'));
+      }
+      return tx;
     });
   }
 }

@@ -1,0 +1,22 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-delegation.test.js
+node: v22.22.1
+private root: /tmp/mh-l6-test-DNiuuf
+case: all cases in explicit file
+TAP version 13
+# Subtest: T5 should revoke the source before the exact future controller acquires and acknowledges once
+ok 1 - T5 should revoke the source before the exact future controller acquires and acknowledges once
+  ---
+  duration_ms: 273.528034
+  type: 'test'
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 1
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 386.560205
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-delegation.test.js"],"code":0,"signal":null,"tests":1,"invalid":false,"spawned":3,"leftovers":[]}
