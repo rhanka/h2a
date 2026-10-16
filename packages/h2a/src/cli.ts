@@ -79,6 +79,7 @@ import { renderCommandMap } from "./cli-command-map.js";
 import { resolveHostConfigRoot } from "./runtime/host-config-root.js";
 import { isNativeHost, NATIVE_HOSTS, REGISTRY_WAITING, vibeHome } from "./hosts/native-paths.js";
 import { convergeNativeHost } from "./hosts/native-convergence.js";
+import { convergeAfterExplicitUpgrade } from "./hosts/upgrade-equipment.js";
 
 import {
   H2A_ATTESTER_COMPREHENSION_RIGHT,
@@ -1878,15 +1879,16 @@ export function cmdUpgrade(
   // the boot auto-upgrade (bounded — no infinite terminal wait). No cachePath is
   // passed, so it always checks fresh and is never throttled for an explicit run.
   const result = performAutoUpgrade(current, { ...(runtime ? { runtime } : {}) });
+  const hosts = convergeAfterExplicitUpgrade(result, flags);
   if (result.outcome === "upgraded") {
     streams.stdout.write(
-      `${JSON.stringify({ ok: true, current, latest: result.target, upgraded: true, verified: result.verifiedVersion, package: H2A_CLI_PACKAGE, ...(result.logPath ? { log: result.logPath } : {}) }, null, 2)}\n`
+      `${JSON.stringify({ ok: true, current, latest: result.target, upgraded: true, verified: result.verifiedVersion, package: H2A_CLI_PACKAGE, hosts, ...(result.logPath ? { log: result.logPath } : {}) }, null, 2)}\n`
     );
     return 0;
   }
   if (result.outcome === "already-current") {
     streams.stdout.write(
-      `${JSON.stringify({ ok: true, current, latest: result.target ?? current, upgraded: false, reason: "already current or registry unreachable" }, null, 2)}\n`
+      `${JSON.stringify({ ok: true, current, latest: result.target ?? current, upgraded: false, hosts, reason: "already current or registry unreachable" }, null, 2)}\n`
     );
     return 0;
   }
@@ -1895,7 +1897,7 @@ export function cmdUpgrade(
   // the staged path retries on a later run. Nothing was mutated.
   if (result.outcome === "deferred-propagation") {
     streams.stdout.write(
-      `${JSON.stringify({ ok: true, current, latest: result.target, upgraded: false, reason: "update published but not yet installable; retry later", ...(result.logPath ? { log: result.logPath } : {}) }, null, 2)}\n`
+      `${JSON.stringify({ ok: true, current, latest: result.target, upgraded: false, hosts, reason: "update published but not yet installable; retry later", ...(result.logPath ? { log: result.logPath } : {}) }, null, 2)}\n`
     );
     return 0;
   }
