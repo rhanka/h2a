@@ -1,0 +1,4 @@
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node node_modules/typescript/bin/tsc -b packages/h2a packages/h2a-runtime --pretty false
+node: v24.21.0
+
+exitCode: 0
