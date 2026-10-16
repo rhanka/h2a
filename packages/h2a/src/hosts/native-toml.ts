@@ -6,6 +6,7 @@ export function parseNativeToml(text: string): Record<string, any> {
   return getStaticTOMLValue(parseForESLint(text, { tomlVersion: '1.0.0' }).ast) as Record<string, any>;
 }
 const canonical = (value: unknown): string => {
+  if (value instanceof Date) return JSON.stringify(value.toISOString());
   if (Array.isArray(value)) return '[' + value.map(canonical).join(',') + ']';
   if (value && typeof value === 'object') return '{' + Object.entries(value).sort(([a], [b]) => a.localeCompare(b)).map(([k, v]) => JSON.stringify(k) + ':' + canonical(v)).join(',') + '}';
   return JSON.stringify(value);
@@ -15,7 +16,7 @@ export function recoverNativeHooks(manifest: NativeManifest, pending: NativeMani
   const actual = parseNativeToml(text).hooks ?? [];
   for (const hook of actual) if (pending.hooks?.[hook.name] === semanticDigest(hook)) {
     manifest.hooks = { ...manifest.hooks, [hook.name]: pending.hooks[hook.name] };
-    if (hook.name === 'sentropic-h2a-deny-manual-cli') manifest.guard = pending.guard;
+    if (hook.name === 'sentropic-h2a-deny-manual-cli') { manifest.guard = pending.guard; manifest.guardBinding = pending.guardBinding; }
   }
   if (pending.lifecycle) manifest.lifecycle = { ...pending.lifecycle };
 }
