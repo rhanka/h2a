@@ -540,7 +540,8 @@ export function runMcpStdio(options: RunMcpStdioOptions): Promise<void> {
     }
     try {
       server.notifications.stop();
-      server.sessions.closeAll("closed");
+      if (options.participant?.transferred()) server.sessions.suspend();
+      else server.sessions.closeAll("closed");
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       stderr.write(`h2a mcp-serve: shutdown error: ${message}\n`);

@@ -109,6 +109,46 @@ export class Participants {
     });
   }
   commit() { updateWriterControl(this.root, { gate: 'CLOSED' }); }
+  checkTransfer(tx, target) {
+    return this.registry.withLock(() => {
+      if (this.writerControl().handoverId !== tx.handoverId || this.writerControl().gate !== 'BARRIER') throw new Error('barrier_required');
+      if (!this.attachments.size) {
+        if (tx.checkpointReferences.length !== 1) throw new Error('attachment_checkpoint_missing');
+        const reference = tx.checkpointReferences[0];
+        if (!/^checkpoint-[a-f0-9]{64}\.json$/.test(reference)) throw new Error('checkpoint_reference_invalid');
+        const value = readState(join(this.directory, reference), 'emptyCheckpoint')?.value;
+        if (!value || reference !== `checkpoint-${digest(value).slice(7)}.json` || value.generation !== tx.source.generation ||
+            digest(value.publicationEpoch) !== digest(tx.source.publicationEpoch) || value.inventoryRevision !== tx.inventoryRevision) throw new Error('checkpoint_binding_mismatch');
+        return;
+      }
+      const references = [];
+      for (const a of this.attachments.values()) {
+        const owner = readState(this.registry.ownerPath(a.token.attachmentId), 'ownership')?.value;
+        // G1 may already have acquired the exact FROZEN checkpoint. Never
+        // rewrite its ownership while G0's admitted operations drain.
+        if (!owner || owner.handoverId !== tx.handoverId || !owner.checkpointHash ||
+            !['FROZEN', 'TRANSFERRING', 'ACTIVE'].includes(owner.state) ||
+            (owner.ownerGeneration === tx.source.generation && owner.state === 'ACTIVE')) throw new Error('checkpoint_binding_mismatch');
+        if (owner.ownerGeneration === tx.source.generation) this.registry.assertOwner(a.token, ['FROZEN', 'TRANSFERRING']);
+        else if (!target || owner.ownerGeneration !== target.generation || owner.ownershipEpoch !== a.token.ownershipEpoch + 1 ||
+            digest(owner.ownerProcessIdentity) !== digest(target.processIdentity) || owner.state !== 'ACTIVE') throw new Error('ownership_fenced');
+        const reference = `checkpoint-${owner.checkpointHash.slice(7)}.json`;
+        const checkpoint = this.registry.loadCheckpoint(reference, owner.checkpointHash);
+        if (checkpoint.attachmentId !== a.token.attachmentId || checkpoint.ownershipEpoch !== a.token.ownershipEpoch) throw new Error('checkpoint_binding_mismatch');
+        references.push(reference);
+      }
+      if (digest(references) !== digest(tx.checkpointReferences)) throw new Error('checkpoint_binding_mismatch');
+    });
+  }
+  transfer(tx, target) {
+    return this.registry.withLock(() => {
+      this.checkTransfer(tx, target);
+      for (const a of this.attachments.values()) {
+        const owner = readState(this.registry.ownerPath(a.token.attachmentId), 'ownership').value;
+        if (owner.ownerGeneration === tx.source.generation) this.registry.fence(a.token, tx.handoverId, owner.checkpointHash);
+      }
+    });
+  }
   reconcileTransaction(tx) {
     if (this.registry.indeterminate) this.registry.reconcile();
     const control = this.writerControl();
@@ -211,8 +251,17 @@ export class AttachmentParticipant {
     return snapshot;
   }
   async close(fn) {
-    await this.runOwner(fn, true);
-    this.manager.registry.close(this.token);
+    if (this.transferred()) {
+      this.mcp?.notifications.stop(); this.mcp?.sessions.suspend();
+      await fn(); // Transport cleanup sees transferred() and preserves presence.
+    } else {
+      await this.runOwner(fn, true);
+      this.manager.registry.close(this.token);
+    }
     this.manager.attachments.delete(this.token.attachmentId); this.manager.inventoryRevision++;
+  }
+  transferred() {
+    const owner = readState(this.manager.registry.ownerPath(this.token.attachmentId), 'ownership')?.value;
+    return Boolean(owner && (owner.state === 'TRANSFERRING' || owner.ownerGeneration !== this.token.ownerGeneration));
   }
 }

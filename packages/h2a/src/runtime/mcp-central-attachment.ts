@@ -22,7 +22,11 @@ export function openCentralAttachment(
   if (!context) {
     const mcp = createMcpServer({ root, workspaceRoot: workspace, store, ...(participant ? { participant } : {}), ...(runExecutor ? { runExecutor } : {}) });
     participant?.bind(mcp);
-    return { mcp, async close() { mcp.notifications.stop(); mcp.sessions.closeAll("closed"); } };
+    return { mcp, async close() {
+      mcp.notifications.stop();
+      if (participant?.transferred()) mcp.sessions.suspend();
+      else mcp.sessions.closeAll("closed");
+    } };
   }
   const input = new PassThrough();
   const controller = new AbortController();
