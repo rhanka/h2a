@@ -49,7 +49,16 @@ npm i -g @sentropic/h2a@next
 # Only after owner acceptance: tag the EXACT SAME merged commit.
 git tag -a v0.2.0 "$SHA" -m "release: v0.2.0"
 git push origin v0.2.0
+# Wait for the entire stable release.yml run to succeed, including publication
+# and post-publish smoke, then explicitly replace the RC on the owner's machine.
+gh run list --workflow release.yml --branch v0.2.0
+npm i -g @sentropic/h2a@0.2.0
 ```
+
+Install the exact stable version explicitly after successful publication.
+`h2a upgrade` and automatic upgrade reject prerelease versions, so they cannot
+take an installed RC back to stable. Do not rely on `@next` for this step: it
+continues to select a candidate.
 
 Never tag before the merge: a squash or rebase merge rewrites the commit, so a
 pre-merge tag would point outside `main`, and `release.yml` refuses any tag
@@ -63,7 +72,7 @@ that is not reachable from `origin/main`.
 4. Bumps `package.json`, `package-lock.json`, and every workspace manifest (`packages/h2a`, `packages/h2a-cli`, `packages/h2a-runtime`, `packages/track`).
 5. Pins internal dependencies and peers to exact `X.Y.Z`: `@sentropic/h2a-cli` → `@sentropic/h2a`, and `@sentropic/h2a` → `@sentropic/track` / `@sentropic/h2a-runtime`. Release gates reject mixed versions or ranges before packing and publishing.
 6. Commits the version bump as `release: vX.Y.Z` on a branch: from `main` it first creates `release/vX.Y.Z`; from another branch it commits there; a detached HEAD is refused; it never commits on `main`.
-7. Prints the next steps (branch push, PR, green CI, merge, fetch, annotated tag on the merged commit verified on `origin/main` — signed when `git config commit.gpgsign` is `true` — and tag push).
+7. Prints the next steps (branch push, PR, green CI, merge, fetch, annotated RC tag on the merged commit verified on `origin/main` — signed when `git config commit.gpgsign` is `true` — successful RC publication, owner installation and real reboot acceptance, stable tag on the same commit, and explicit stable installation after successful publication).
 
 The script deliberately does **not** create the tag, does **not** publish to npm and does **not** push to GitHub. `--dry-run` prints the planned commands and file bumps without writing files or running git/npm commands.
 

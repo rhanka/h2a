@@ -161,3 +161,18 @@ GitHub metadata inspection is read-only. No installed h2a is invoked locally.
 Native h2a/mesh consensus review is excluded by the owner's confinement;
 review metadata/eligible hosts cannot be established, so no consensus is claimed.
 CI on the PR is the integration authority; machine reboot remains owner UAT.
+
+## RC review reserves — owner scope 2026-10-16
+
+Close both P2 findings from the independent review of PR #345: document the
+explicit exact-version stable installation after publication because upgrade
+rejects prerelease versions, and make generated release instructions follow
+RC publication, attestation and owner reboot acceptance before the stable tag.
+Both tags retain signing and target the same verified merged commit.
+
+The operator-flow regressions failed before the fix (27 passed, 3 failed,
+0 skipped) and passed after it (30 passed, 0 failed/skipped). Merge origin/main
+through a normal merge commit, run named release regression files only, and
+push this branch. No main write, tag push, publication or installed CLI run.
+Evidence and final CI job results are appended under "Réserves Astra" in the
+owner's scratchpad report; physical reboot and real publication remain owner UAT.
