@@ -33,7 +33,7 @@ import {
   type LiveWorkController,
 } from "./live-registration.js";
 // L6a realignment: H consumes the frozen neutral contract
-// (@sentropic/engram-live 0.1.0 @70ebdfee, vendored under
+// (@sentropic/engram-live 0.1.0 @545a57b8911ab108e84fa1778e0f268fe11bf1de, vendored under
 // ../vendor/engram-live — see the GUARD test below), never a silent copy of
 // its derivations.
 import {
