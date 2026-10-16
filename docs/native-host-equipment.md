@@ -23,7 +23,7 @@ absence of native/registry receipts does not downgrade their historic codes.
 
 ## First corrected installation
 
-Starting with 0.98.6, run:
+After the first corrected package is published, run:
 
 ```sh
 h2a upgrade
@@ -31,7 +31,8 @@ h2a --version
 h2a doctor --repair
 ```
 
-The last two invocations must resolve the verified new installation. Otherwise
+The published 0.98.6 predates this correction; no future release number is
+presumed here. The last two invocations must resolve the verified new installation. Otherwise
 use its exact entrypoint. The old upgrade alone does not equip hosts.
 `doctor --repair --host vibe|muse|agy` targets one host. `--skip-hosts` omits the
 new-host extension; inspect-only and `--dry-run` do not mutate these profiles or
