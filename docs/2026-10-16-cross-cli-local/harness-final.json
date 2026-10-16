@@ -1,0 +1,23 @@
+{
+  "command": [
+    "node",
+    "--test",
+    "--test-concurrency=1",
+    "scripts/xcli-lab.test.mjs",
+    "scripts/xcli-proxy.test.mjs",
+    "scripts/xcli-terminal.test.mjs",
+    "scripts/xcli-cleanup.test.mjs",
+    "scripts/xcli-simulation.test.mjs",
+    "scripts/xcli-startup.test.mjs"
+  ],
+  "observedOutput": [
+    "# tests 13",
+    "# pass 13",
+    "# fail 0",
+    "# cancelled 0",
+    "# skipped 0",
+    "# todo 0",
+    "# duration_ms 72663.2849"
+  ],
+  "exitCode": 0
+}
