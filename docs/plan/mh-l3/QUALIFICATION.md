@@ -1,5 +1,8 @@
 # Qualification ciblée MH-L3 — 2026-10-16
 
+Historique de la livraison `c96792f3`. La clôture des réserves Argon, commit
+`413e7b32`, possède sa qualification bornée et ses preuves dans [ARGON.md](ARGON.md).
+
 Implémentation : `b47e9443150d1301c5f6d185c32c80134cfd78a2`, base
 `513312b88766852572f515b3d3a7b71a0fcc2c27`, branche `feat/0.98.7-mh-l3`.
 Le verdict FUSIONNABLE fourni par l'owner concerne l'amendement MH-L2 à la base.
