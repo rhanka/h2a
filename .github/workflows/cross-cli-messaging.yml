@@ -33,6 +33,7 @@ jobs:
           scripts/xcli-simulation.test.mjs scripts/xcli-gemini-registry.test.mjs
           scripts/xcli-cleanup.test.mjs
           scripts/xcli-pid-namespace.test.mjs
+          scripts/xcli-terminal.test.mjs
       - name: Exercise all 36 ordered pairs with simulated models
         run: >-
           node scripts/qualify-cross-cli.mjs --simulated --timeout-ms 30000
