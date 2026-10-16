@@ -1,4 +1,4 @@
-import test from 'node:test';
+import nodeTest from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { join } from 'node:path';
@@ -9,6 +9,12 @@ import { digest } from '../src/runtime/handover/wire.js';
 import { liveFixture } from './helpers/mh-l2-live.js';
 import { readState, replaceState } from '../src/runtime/handover/state.js';
 import { withWriterMutation, withExecution } from '../src/runtime/handover/mutation.js';
+
+// Mutation campaign selects one explicitly named oracle without registering
+// skipped tests. The campaign refuses a zero-test or skipped-test result.
+const test = (name, fn) => {
+  if (!process.env.MH_L2_LIVE_CASE || name === process.env.MH_L2_LIVE_CASE) nodeTest(name, fn);
+};
 
 test('owner A should accept passive live reservation without enabling a product live coordinator', () => {
   const directory = fs.mkdtempSync(join(tmpdir(), 'mh-l2-live-contract-'));
@@ -24,7 +30,9 @@ test('owner A should accept passive live reservation without enabling a product 
     const step = { protocolVersion: 1, mode: 'live-transfer', upgradeId: 'u', handoverId: 'h', transactionEpoch: 1,
       expectedGeneration: m.generation, expectedPublicationEpoch: m.publicationEpoch, inventoryRevision: 1,
       stepId: 'reserve', payloadDigest: digest(payload) };
-    assert.deepEqual(admin.execute('reserve', step, payload, identity), { state: 'RESERVED', handoverId: 'h', authorizationDigest: hash });
+    let result;
+    assert.doesNotThrow(() => { result = admin.execute('reserve', step, payload, identity); });
+    assert.deepEqual(result, { state: 'RESERVED', handoverId: 'h', authorizationDigest: hash });
     assert.equal(authorized, 1);
     assert.equal(admin.execute('describe', { ...step, stepId: 'describe', payloadDigest: digest({}) }, {}, identity).liveCoordinator, false);
   } finally { fs.rmSync(directory, { recursive: true, force: true }); }
@@ -45,6 +53,7 @@ test('passive source should authenticate durable delegation, reserve idempotentl
 
 const invalidAuthorizations = {
   'MAC': (a) => a,
+  'ticket MAC': a => ({ ...a, ticketMac: '0'.repeat(64) }),
   'old generation': a => ({ ...a, source: { ...a.source, generation: '44444444-4444-4444-8444-444444444444' } }),
   'old publication epoch': a => ({ ...a, source: { ...a.source, publicationEpoch: { ...a.source.publicationEpoch, counter: 99 } } }),
   'old process': a => ({ ...a, source: { ...a.source, pid: 999, processIdentity: { ...a.source.processIdentity, pid: 999 } } }),
@@ -201,6 +210,7 @@ test('passive source should require a frozen checkpoint, unchanged inventory and
       const publicationDigest = f.publication(); f.publish();
       assert.throws(() => f.step('retire', { publicationDigest }), /live_|inventory_stale|barrier_expired|checkpoint_binding_mismatch|noncanonical_state/);
       assert.equal(f.closes(), 0);
+      assert.equal(f.admin.status().state, name === 'freeze' ? 'BARRIER' : 'FROZEN');
     } finally { f.close(); }
   }
 });
@@ -236,5 +246,101 @@ test('unpublished live source should abort on expiry and reopen only after durab
     assert.equal(f.admin.admissionsOpen(), true);
     assert.equal(f.p.writerControl().gate, 'OPEN');
     assert.equal(f.p.registry.owners()[0].state, 'ACTIVE');
+  } finally { f.close(); }
+});
+
+test('passive retirement should persist publication before fencing and reconcile uncertain ACK without reopening', t => {
+  const f = liveFixture();
+  try {
+    const operation = f.a.begin('call'); f.freeze(); const publicationDigest = f.publication(); f.publish();
+    const fsync = fs.fsyncSync; let injected = false;
+    t.mock.method(fs, 'fsyncSync', fd => {
+      if (!injected && fs.fstatSync(fd).isDirectory()) { injected = true; throw new Error('injected_publication_fsync'); }
+      return fsync(fd);
+    });
+    assert.throws(() => f.step('retire', { publicationDigest }), /persistence_indeterminate/);
+    t.mock.restoreAll();
+    assert.equal(f.admin.status().state, 'PUBLISHED');
+    assert.equal(f.p.registry.owners()[0].state, 'FROZEN');
+    assert.equal(f.closes(), 0); assert.equal(f.admin.admissionsOpen(), false);
+    f.admin.reconcile();
+    assert.equal(f.p.registry.owners()[0].state, 'TRANSFERRING');
+    assert.throws(() => f.step('abort'), /stop_irreversible/);
+    f.a.finish(operation, { ok: true });
+    assert.equal(f.step('retire', { publicationDigest }).state, 'RETIRED'); assert.equal(f.closes(), 1);
+  } finally { t.mock.restoreAll(); f.close(); }
+});
+
+test('passive source should preserve exact acquired G1 ownership and reject foreign generation, epoch or process', async () => {
+  for (const variant of ['valid', 'generation', 'epoch', 'process']) {
+    const f = liveFixture();
+    try {
+      const operation = f.a.begin('call'); f.freeze(); const publicationDigest = f.publication(); f.publish();
+      assert.throws(() => f.step('retire', { publicationDigest }), /drain_blocked/);
+      const path = f.p.registry.ownerPath('a'), old = readState(path, 'ownership');
+      const next = { ...old.value, state: 'ACTIVE', ownerGeneration: f.next.generation, ownershipEpoch: old.value.ownershipEpoch + 1,
+        ownerProcessIdentity: f.next.processIdentity };
+      if (variant === 'generation') next.ownerGeneration = '44444444-4444-4444-8444-444444444444';
+      if (variant === 'epoch') next.ownershipEpoch++;
+      if (variant === 'process') next.ownerProcessIdentity = { ...next.ownerProcessIdentity, startTime: 999 };
+      f.p.registry.withLock(() => replaceState(path, next, 'ownership', old));
+      f.a.finish(operation, { ok: true });
+      if (variant === 'valid') {
+        assert.equal(f.step('retire', { publicationDigest }).state, 'RETIRED');
+        let detached = 0; await f.a.close(() => { detached++; });
+        assert.equal(detached, 1); assert.deepEqual(readState(path, 'ownership').value, next);
+      } else {
+        assert.throws(() => f.step('retire', { publicationDigest }), /ownership_fenced/);
+        assert.equal(f.closes(), 0);
+      }
+    } finally { f.close(); }
+  }
+});
+
+test('passive source should refuse content changed under its immutable authorization digest', () => {
+  const f = liveFixture();
+  try {
+    const hash = f.save('authorization', f.authorization);
+    const path = join(f.stateDirectory, `live-authorization-${hash.slice(7)}.json`);
+    const different = f.save('authorization', { ...f.authorization, expiresAt: 3001 });
+    fs.copyFileSync(join(f.stateDirectory, `live-authorization-${different.slice(7)}.json`), path);
+    assert.throws(() => f.step('reserve', f.payload(hash)), /live_record_unauthenticated/);
+  } finally { f.close(); }
+});
+
+test('passive source should retire after valid publication and zero drain', () => {
+  const f = liveFixture();
+  try {
+    f.freeze(); const publicationDigest = f.publication(); f.publish();
+    let result;
+    assert.doesNotThrow(() => { result = f.step('retire', { publicationDigest }); });
+    assert.equal(result.state, 'RETIRED');
+    assert.equal(f.p.registry.owners()[0].state, 'TRANSFERRING');
+    assert.equal(f.closes(), 1);
+  } finally { f.close(); }
+});
+
+test('uncommitted publication should prevent expiration before any administrative reconciliation', () => {
+  for (const target of ['concordant', 'foreign', 'missing']) {
+    const f = liveFixture();
+    try {
+      f.freeze();
+      if (target === 'missing') fs.unlinkSync(f.markerPath);
+      else f.publish(target === 'foreign' ? { ...f.next, buildId: 'foreign' } : f.next);
+      f.now(2600); assert.equal(f.admin.expire(), false);
+      assert.equal(f.admin.status().state, 'RECOVERY_BLOCKED');
+      assert.equal(f.admin.admissionsOpen(), false);
+      assert.equal(f.p.writerControl().gate, 'BARRIER');
+    } finally { f.close(); }
+  }
+});
+
+test('uncommitted publication should prevent operator stop from aborting before reconciliation', () => {
+  const f = liveFixture();
+  try {
+    f.freeze(); f.publish();
+    assert.equal(f.admin.operatorStop().state, 'pause_active_stop_deferred');
+    assert.equal(f.admin.status().state, 'FROZEN'); assert.equal(f.closes(), 0);
+    assert.equal(f.p.writerControl().gate, 'BARRIER');
   } finally { f.close(); }
 });
