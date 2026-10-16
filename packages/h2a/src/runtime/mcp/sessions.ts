@@ -50,9 +50,10 @@ export interface SessionRegistryOptions {
   readonly expiryMs?: number;
   /**
    * When true, schedule a setInterval that touches each session's heartbeat
-   * on disk. Disabled by default so unit tests can drive the clock manually.
+   * on disk. Tests can disable it to drive the clock manually.
    */
   readonly autoHeartbeat?: boolean;
+  readonly onHeartbeatError?: (error: unknown) => void;
 }
 
 interface SessionEntry {
@@ -109,6 +110,7 @@ export class SessionRegistry {
   private readonly heartbeatIntervalMs: number;
   private readonly expiryMs: number;
   private readonly autoHeartbeat: boolean;
+  private readonly onHeartbeatError?: (error: unknown) => void;
 
   constructor(
     private readonly root: string,
@@ -118,6 +120,7 @@ export class SessionRegistry {
       options.heartbeatIntervalMs ?? H2A_SESSION_DEFAULT_HEARTBEAT_INTERVAL_MS;
     this.expiryMs = options.expiryMs ?? H2A_SESSION_DEFAULT_EXPIRY_MS;
     this.autoHeartbeat = options.autoHeartbeat ?? true;
+    this.onHeartbeatError = options.onHeartbeatError;
   }
 
   open(request: OpenSessionRequest): H2ASession {
@@ -153,7 +156,15 @@ export class SessionRegistry {
     const entry: SessionEntry = { session, lastActivityAt: now };
     if (this.autoHeartbeat) {
       entry.heartbeatHandle = setInterval(
-        () => this.touch(sessionId),
+        () => {
+          try {
+            this.touch(sessionId);
+          } catch (error) {
+            // A transient disk error must not terminate the MCP attachment.
+            // Keep the last successful heartbeat; the next tick retries it.
+            try { this.onHeartbeatError?.(error); } catch { /* diagnostic only */ }
+          }
+        },
         this.heartbeatIntervalMs
       );
       // Keep the timer from holding the event loop open when stdin closes.

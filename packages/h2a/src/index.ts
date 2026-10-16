@@ -7,6 +7,8 @@ export {
 
 export {
   H2A_SEND_MAX_MESSAGE_BYTES,
+  H2A_SEND_TIMEOUT_MS,
+  H2ASendError,
   sendLocalMessage,
   sendMessage,
   messageBackend,

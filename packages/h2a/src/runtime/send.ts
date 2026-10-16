@@ -19,6 +19,15 @@ import type { LocalStore } from "./local-files/store.js";
 import type { H2aClusterMeshMessaging } from "./cluster-mesh-messaging.js";
 
 export const H2A_SEND_MAX_MESSAGE_BYTES = 64 * 1024;
+export const H2A_SEND_TIMEOUT_MS = 10_000;
+
+export class H2ASendError extends Error {
+  readonly retryable = true;
+  constructor(readonly code: "recipient_not_live" | "send_timeout", message: string) {
+    super(message);
+    this.name = "H2ASendError";
+  }
+}
 
 export interface H2ASendSigner {
   readonly instance: string;
@@ -38,6 +47,8 @@ export interface SendLocalMessageInput {
   readonly signer: H2ASendSigner;
   readonly now?: () => number;
   readonly randomId?: () => string;
+  /** Live MCP discussion refuses dormant recipients before any side effect. */
+  readonly requireLive?: boolean;
 }
 
 export interface SendLocalMessageResult {
@@ -122,6 +133,9 @@ function prepareMessage(input: SendLocalMessageInput): SendLocalMessageResult {
   const liveRecipient = live.filter(
     (session) => canonicalAddress(session.instance) === canonicalAddress(recipient)
   );
+  if (input.requireLive && liveRecipient.length === 0) {
+    throw new H2ASendError("recipient_not_live", `h2a send: '${recipient}' has no live presence`);
+  }
   if (!registeredRecipient && liveRecipient.length === 0) {
     throw new Error(
       `h2a send: '${requestedRecipient}' matches no live or registered agent; resolve the peer first.`
@@ -193,18 +207,33 @@ export function messageBackend(value: unknown = "local"): H2AMessageBackend {
 export function sendMessage(input: SendLocalMessageInput & {
   readonly backend?: H2AMessageBackend;
   readonly clusterMesh?: H2aClusterMeshMessaging;
+  /** Internal deadline override; never a tool argument. */
+  readonly timeoutMs?: number;
 }): SendLocalMessageResult | Promise<SendLocalMessageResult & {
   readonly backend: "cluster-mesh";
   readonly messageId: string;
 }> {
   if (messageBackend(input.backend) === "local") return sendLocalMessage(input);
   const prepared = prepareMessage(input);
-  return (async () => {
+  const timeoutMs = input.timeoutMs ?? H2A_SEND_TIMEOUT_MS;
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) throw new TypeError("h2a send: invalid timeout");
+  let expired = false;
+  let timer: ReturnType<typeof setTimeout>;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      expired = true;
+      reject(new H2ASendError("send_timeout", `h2a send: backend did not acknowledge within ${timeoutMs}ms; delivery is unconfirmed`));
+    }, timeoutMs);
+  });
+  const sending = (async () => {
     const { loadClusterMeshMessaging } = await import("./cluster-mesh-messaging.js");
+    if (expired) throw new H2ASendError("send_timeout", "h2a send: deadline expired before backend initialization");
     const mesh = input.clusterMesh ?? await loadClusterMeshMessaging(input.store, input.signer);
+    if (expired) throw new H2ASendError("send_timeout", "h2a send: deadline expired before dispatch");
     if (mesh.instance !== input.signer.instance) throw new Error("cluster-mesh: sender identity mismatch");
     const sent = await mesh.send(prepared.envelope);
     if (!sent.ok) throw new Error(`h2a send: cluster-mesh rejected message: ${sent.reason}`);
-    return { ...prepared, backend: "cluster-mesh", messageId: sent.messageId };
+    return { ...prepared, backend: "cluster-mesh" as const, messageId: sent.messageId };
   })();
+  return Promise.race([sending, timeout]).finally(() => clearTimeout(timer));
 }
