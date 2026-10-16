@@ -1,0 +1,4 @@
+command: /usr/bin/node node_modules/typescript/bin/tsc -b packages/h2a packages/h2a-runtime --pretty false
+node: v22.22.1
+
+exitCode: 0

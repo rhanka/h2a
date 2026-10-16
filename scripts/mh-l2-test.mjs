@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process';
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { basename, join, resolve } from 'node:path';
 
+process.umask(0o022);
 const [file, label = 'green', runner = 'node', ...extra] = process.argv.slice(2);
 if (!file || !/\.test\.(js|ts)$/.test(file) || !['node', 'vitest'].includes(runner)) {
   throw new Error('usage: mh-l2-test.mjs <test file> <evidence label> [node|vitest] [runner args]');

@@ -1,0 +1,18 @@
+[
+  {
+    "command": [
+      "/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node",
+      "scripts/mh-l2-test.mjs",
+      "packages/h2a/test/mcp-central-attachments.test.js",
+      "owner-A-node24-attachments-repeat"
+    ],
+    "code": 1
+  },
+  {
+    "command": [
+      "/usr/bin/node",
+      "scripts/mh-l2-live-regressions.mjs"
+    ],
+    "code": 1
+  }
+]

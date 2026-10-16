@@ -1,0 +1,88 @@
+{
+  "node": "v22.22.1",
+  "phase": "tests",
+  "commands": [
+    {
+      "command": [
+        "/usr/bin/node",
+        "scripts/mh-l2-live-regressions.mjs"
+      ],
+      "pid": 29493,
+      "code": 1,
+      "signal": null,
+      "elapsedMs": 762494
+    },
+    {
+      "command": [
+        "/usr/bin/node",
+        "scripts/mh-l2-test.mjs",
+        "packages/h2a/test/mh-l2-authority.test.js",
+        "owner-A-node22-lot-regression"
+      ],
+      "pid": 33352,
+      "code": 0,
+      "signal": null,
+      "elapsedMs": 506
+    },
+    {
+      "command": [
+        "/usr/bin/node",
+        "scripts/mh-l2-test.mjs",
+        "packages/h2a/test/mh-l2-auth.test.js",
+        "owner-A-node22-lot-regression"
+      ],
+      "pid": 33379,
+      "code": 0,
+      "signal": null,
+      "elapsedMs": 602
+    },
+    {
+      "command": [
+        "/usr/bin/node",
+        "scripts/mh-l2-test.mjs",
+        "packages/h2a/test/mh-l2-starters.test.js",
+        "owner-A-node22-lot-regression"
+      ],
+      "pid": 33399,
+      "code": 0,
+      "signal": null,
+      "elapsedMs": 494
+    },
+    {
+      "command": [
+        "/usr/bin/node",
+        "scripts/mh-l2-test.mjs",
+        "packages/h2a/test/mh-l2-compensation.test.js",
+        "owner-A-node22-lot-regression"
+      ],
+      "pid": 33419,
+      "code": 0,
+      "signal": null,
+      "elapsedMs": 1372
+    },
+    {
+      "command": [
+        "/usr/bin/node",
+        "scripts/mh-l2-test.mjs",
+        "packages/h2a/test/mh-l4-concurrency.test.js",
+        "owner-A-node22-lot-regression"
+      ],
+      "pid": 33439,
+      "code": 0,
+      "signal": null,
+      "elapsedMs": 3124
+    }
+  ],
+  "failures": [
+    {
+      "command": [
+        "/usr/bin/node",
+        "scripts/mh-l2-live-regressions.mjs"
+      ],
+      "pid": 29493,
+      "code": 1,
+      "signal": null,
+      "elapsedMs": 762494
+    }
+  ]
+}

@@ -1,0 +1,112 @@
+{
+  "command": [
+    "rg",
+    "-l",
+    "-F",
+    "-f",
+    "/tmp/owner-A-touched-filenames.txt",
+    "packages",
+    "apps",
+    "--glob",
+    "*.test.js",
+    "--glob",
+    "*.test.ts",
+    "--glob",
+    "!**/node_modules/**",
+    "--glob",
+    "!**/dist/**",
+    "--glob",
+    "!**/evidence/**"
+  ],
+  "touched": [
+    "BRANCH.md",
+    "docs/plan/mh-l0/schemas.json",
+    "docs/plan/mh-l2/CONTRACT.md",
+    "packages/h2a-runtime/src/central-mcp-0980.test.ts",
+    "packages/h2a/src/runtime/handover/administration.js",
+    "packages/h2a/src/runtime/handover/launch-memo.js",
+    "packages/h2a/src/runtime/handover/live-source.js",
+    "packages/h2a/src/runtime/handover/ownership.js",
+    "packages/h2a/src/runtime/handover/participants.js",
+    "packages/h2a/src/runtime/handover/schemas.js",
+    "packages/h2a/src/runtime/mcp-central-attachment.ts",
+    "packages/h2a/src/runtime/mcp-central.ts",
+    "packages/h2a/src/runtime/mcp/stdio.ts",
+    "packages/h2a/test/helpers/mh-l2-live-peer.mjs",
+    "packages/h2a/test/helpers/mh-l2-live.js",
+    "packages/h2a/test/mh-l2-live-central.test.js",
+    "packages/h2a/test/mh-l2-live.test.js",
+    "scripts/mh-l2-live-central-mutate.mjs",
+    "scripts/mh-l2-live-mutate.mjs",
+    "scripts/mh-l2-live-regressions.mjs"
+  ],
+  "names": [
+    "BRANCH.md",
+    "schemas.json",
+    "CONTRACT.md",
+    "central-mcp-0980.test.ts",
+    "administration.js",
+    "launch-memo.js",
+    "live-source.js",
+    "ownership.js",
+    "participants.js",
+    "schemas.js",
+    "mcp-central-attachment.ts",
+    "mcp-central.ts",
+    "stdio.ts",
+    "mh-l2-live-peer.mjs",
+    "mh-l2-live.js",
+    "mh-l2-live-central.test.js",
+    "mh-l2-live.test.js",
+    "mh-l2-live-central-mutate.mjs",
+    "mh-l2-live-mutate.mjs",
+    "mh-l2-live-regressions.mjs"
+  ],
+  "hits": [
+    "packages/h2a/test/mh-l4-integration.test.js",
+    "packages/h2a/test/mh-l4-writers.test.js",
+    "packages/h2a/test/mh-l0-formats.test.js",
+    "packages/h2a/test/mh-l2-live.test.js",
+    "packages/h2a/test/mh-l4-launch.test.js",
+    "packages/h2a/test/mh-l4-wake.test.js",
+    "packages/h2a/test/mh-l4-ownership.test.js",
+    "packages/h2a/test/mcp-central-attachments.test.js",
+    "packages/h2a/test/mh-l2-cold.test.js",
+    "packages/h2a/test/mh-l2-live-central.test.js",
+    "packages/h2a/test/mh-l4-checkpoint.test.js",
+    "packages/h2a/test/mh-l4-cuts.test.js",
+    "packages/track/src/branch.test.ts",
+    "packages/track/src/read/scope-validate.test.ts",
+    "packages/track/src/read/contract.test.ts",
+    "packages/track/src/cli.test.ts"
+  ],
+  "additional": [
+    "packages/track/src/branch.test.ts",
+    "packages/track/src/read/scope-validate.test.ts",
+    "packages/track/src/read/contract.test.ts",
+    "packages/track/src/cli.test.ts"
+  ],
+  "status": 0,
+  "additionalClassification": [
+    {
+      "file": "packages/track/src/branch.test.ts",
+      "classification": "synthetic BRANCH.md fixture; no read of this branch plan",
+      "requiredAdditionalTest": false
+    },
+    {
+      "file": "packages/track/src/read/scope-validate.test.ts",
+      "classification": "synthetic BRANCH.md fixture; no read of this branch plan",
+      "requiredAdditionalTest": false
+    },
+    {
+      "file": "packages/track/src/read/contract.test.ts",
+      "classification": "synthetic BRANCH.md fixture; no read of this branch plan",
+      "requiredAdditionalTest": false
+    },
+    {
+      "file": "packages/track/src/cli.test.ts",
+      "classification": "synthetic BRANCH.md fixture; no read of this branch plan",
+      "requiredAdditionalTest": false
+    }
+  ]
+}

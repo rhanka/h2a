@@ -1,0 +1,4 @@
+{"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","scripts/mh-l2-live-central-mutate.mjs"],"pid":53714,"code":0,"signal":null,"elapsedMs":144943}
+node24 real source successor-control: mutant=1 (assertion), restored=0
+node24 real source published-source-authority: mutant=1 (assertion), restored=0
+
