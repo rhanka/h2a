@@ -5,7 +5,8 @@ import {
   signEnvelope,
   verifyEnvelopeSignature,
   type H2AEnvelope,
-  type H2ARole
+  type H2ARole,
+  type H2ASession
 } from "@sentropic/h2a";
 
 import {
@@ -15,10 +16,20 @@ import {
   type RecipientResolution
 } from "./local-files/paths.js";
 import { listPresence } from "./local-files/presence.js";
+import { listRecipientHints } from "./local-files/recipient-hints.js";
 import type { LocalStore } from "./local-files/store.js";
 import type { H2aClusterMeshMessaging } from "./cluster-mesh-messaging.js";
 
 export const H2A_SEND_MAX_MESSAGE_BYTES = 64 * 1024;
+export const H2A_SEND_TIMEOUT_MS = 10_000;
+
+export class H2ASendError extends Error {
+  readonly retryable = true;
+  constructor(readonly code: "recipient_not_live" | "send_timeout", message: string) {
+    super(message);
+    this.name = "H2ASendError";
+  }
+}
 
 export interface H2ASendSigner {
   readonly instance: string;
@@ -38,6 +49,8 @@ export interface SendLocalMessageInput {
   readonly signer: H2ASendSigner;
   readonly now?: () => number;
   readonly randomId?: () => string;
+  /** Live MCP discussion refuses dormant recipients before any side effect. */
+  readonly requireLive?: boolean;
 }
 
 export interface SendLocalMessageResult {
@@ -83,6 +96,20 @@ function resolveRegisteredName(
     : { target, resolved: false };
 }
 
+/** Fresh mirrored records carry remote PIDs; only local owners can be probed here. */
+function hasLiveOwner(session: H2ASession): boolean {
+  if (session.mirroredAt !== undefined) return true;
+  const pid = session.pid;
+  if (pid === undefined || !Number.isSafeInteger(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    // EPERM proves existence; ESRCH and unknown failures cannot prove liveness.
+    return (error as NodeJS.ErrnoException).code === "EPERM";
+  }
+}
+
 /**
  * Prepare one authenticated message for either transport. The CLI and MCP
  * adapters share this primitive: resolution, signing and the
@@ -100,13 +127,39 @@ function prepareMessage(input: SendLocalMessageInput): SendLocalMessageResult {
     throw new Error(`h2a send: sender is not registered: ${input.signer.instance}`);
   }
   const registrations = input.store.listInstances();
-  const live = listPresence(input.store.paths.root);
+  const fresh = listPresence(input.store.paths.root);
+  // Resolve live owners first so dead attachments cannot make a live name ambiguous.
+  const live = input.requireLive ? fresh.filter(hasLiveOwner) : fresh;
   const registeredName = resolveRegisteredName(requestedRecipient, registrations);
-  const resolution = resolveRecipient({
+  const target = {
     target: registeredName.target,
-    liveInstances: live,
     registeredInstances: registrations.map((entry) => entry.instance)
-  });
+  };
+  const resolution = resolveRecipient({ ...target, liveInstances: live });
+  if (input.requireLive &&
+      (resolution.kind === "deliver" || resolution.kind === "deliver-dormant" ||
+       (resolution.kind === "refuse" && resolution.candidates === undefined))) {
+    // TTL and session deletion must not erase known addressing evidence.
+    // Legacy publications/registrations also work before any hint was written.
+    const known = resolveRecipient({ ...target, liveInstances: [
+      ...registrations, ...listRecipientHints(input.store.paths.root),
+      ...listPresence(input.store.paths.root, { includeExpired: true, sweep: false })
+    ] });
+    let unavailable: string | undefined;
+    if (known.kind === "deliver-resolved" || known.kind === "deliver-hint") {
+      unavailable = known.kind === "deliver-resolved" ? known.recipient : known.liveCandidate;
+    } else if (known.kind === "refuse" && known.candidates !== undefined) {
+      // Several sessions or evidence sources can describe the same instance.
+      const candidates = [...new Map(known.candidates.map(instance => [canonicalAddress(instance), instance])).values()];
+      if (candidates.length === 1) unavailable = candidates[0];
+      else throw new Error(`'${requestedRecipient}' is ambiguous — known recipients: ${candidates.join(", ")}; address the exact instance.`);
+    }
+    if (unavailable !== undefined) {
+      // Do not promote historical names into admission even if the same instance
+      // now has a living attachment under a different name.
+      throw new H2ASendError("recipient_not_live", `h2a send: '${unavailable}' has no live presence for '${requestedRecipient}'`);
+    }
+  }
   if (resolution.kind === "refuse" || resolution.kind === "list") {
     throw new Error(resolution.reason);
   }
@@ -122,6 +175,9 @@ function prepareMessage(input: SendLocalMessageInput): SendLocalMessageResult {
   const liveRecipient = live.filter(
     (session) => canonicalAddress(session.instance) === canonicalAddress(recipient)
   );
+  if (input.requireLive && liveRecipient.length === 0) {
+    throw new H2ASendError("recipient_not_live", `h2a send: '${recipient}' has no live presence`);
+  }
   if (!registeredRecipient && liveRecipient.length === 0) {
     throw new Error(
       `h2a send: '${requestedRecipient}' matches no live or registered agent; resolve the peer first.`
@@ -193,18 +249,33 @@ export function messageBackend(value: unknown = "local"): H2AMessageBackend {
 export function sendMessage(input: SendLocalMessageInput & {
   readonly backend?: H2AMessageBackend;
   readonly clusterMesh?: H2aClusterMeshMessaging;
+  /** Internal deadline override; never a tool argument. */
+  readonly timeoutMs?: number;
 }): SendLocalMessageResult | Promise<SendLocalMessageResult & {
   readonly backend: "cluster-mesh";
   readonly messageId: string;
 }> {
   if (messageBackend(input.backend) === "local") return sendLocalMessage(input);
   const prepared = prepareMessage(input);
-  return (async () => {
+  const timeoutMs = input.timeoutMs ?? H2A_SEND_TIMEOUT_MS;
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) throw new TypeError("h2a send: invalid timeout");
+  let expired = false;
+  let timer: ReturnType<typeof setTimeout>;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      expired = true;
+      reject(new H2ASendError("send_timeout", `h2a send: backend did not acknowledge within ${timeoutMs}ms; delivery is unconfirmed`));
+    }, timeoutMs);
+  });
+  const sending = (async () => {
     const { loadClusterMeshMessaging } = await import("./cluster-mesh-messaging.js");
+    if (expired) throw new H2ASendError("send_timeout", "h2a send: deadline expired before backend initialization");
     const mesh = input.clusterMesh ?? await loadClusterMeshMessaging(input.store, input.signer);
+    if (expired) throw new H2ASendError("send_timeout", "h2a send: deadline expired before dispatch");
     if (mesh.instance !== input.signer.instance) throw new Error("cluster-mesh: sender identity mismatch");
     const sent = await mesh.send(prepared.envelope);
     if (!sent.ok) throw new Error(`h2a send: cluster-mesh rejected message: ${sent.reason}`);
-    return { ...prepared, backend: "cluster-mesh", messageId: sent.messageId };
+    return { ...prepared, backend: "cluster-mesh" as const, messageId: sent.messageId };
   })();
+  return Promise.race([sending, timeout]).finally(() => clearTimeout(timer));
 }
