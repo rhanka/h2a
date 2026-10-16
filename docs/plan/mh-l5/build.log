@@ -1,0 +1,4 @@
+/usr/bin/node node_modules/typescript/bin/tsc -b --pretty false
+
+exit=0
+changed=["packages/h2a/dist/runtime/handover/shim-bridge.js"]

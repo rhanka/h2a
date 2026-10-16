@@ -1,0 +1,28 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l4-launch.test.js
+node: v22.22.1
+private root: /tmp/mh-l5-test-WzZqmo
+case: all cases in explicit file
+TAP version 13
+# Subtest: should reserve before spawn, conflict on arguments and drain child/brief after a launching reply
+ok 1 - should reserve before spawn, conflict on arguments and drain child/brief after a launching reply
+  ---
+  duration_ms: 88.796282
+  type: 'test'
+  ...
+# Subtest: should reconcile token-bound existing launch.json without a second spawn or brief
+ok 2 - should reconcile token-bound existing launch.json without a second spawn or brief
+  ---
+  duration_ms: 203.185163
+  type: 'test'
+  ...
+1..2
+# tests 2
+# suites 0
+# pass 2
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 407.333749
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l4-launch.test.js"],"code":0,"signal":null,"tests":2,"invalid":false,"spawned":1,"leftovers":[]}

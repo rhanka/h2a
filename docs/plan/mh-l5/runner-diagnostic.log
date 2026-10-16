@@ -1,0 +1,7 @@
+command: MH_L5_ARTIFACTS=/tmp/mh-l5-artifacts-shD7Sf node scripts/mh-l5-mutate.mjs cold
+node: v22.22.1
+exit: 1 before any cold test invocation
+observed: Error: mutation_not_unique:stop-irreversible:packages/h2a/dist/runtime/handover/administration.js
+cause: exact text selector did not allow TypeScript-emitted whitespace
+resolution: whitespace-tolerant selector still requires exactly one match; originals restored in finally; both complete cold campaigns then passed
+This is an initial runner diagnostic, not a regression red/green proof.

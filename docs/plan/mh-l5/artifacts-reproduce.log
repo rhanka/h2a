@@ -1,0 +1,20 @@
+npm ci --ignore-scripts --no-audit --no-fund
+
+added 137 packages in 2s
+npm warn Unknown builtin config "globalignorefile". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+npm notice
+npm notice New minor version of npm available! 11.17.0 -> 11.21.1
+npm notice Changelog: https://github.com/npm/cli/releases/tag/v11.21.1
+npm notice To update run: npm install -g npm@11.21.1
+npm notice
+
+exit=0
+npm ci --ignore-scripts --no-audit --no-fund
+
+added 137 packages in 1s
+npm warn Unknown builtin config "globalignorefile". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+
+exit=0
+tar -xJf /tmp/mh-l5-artifacts-iN0HFd/node24.tar.xz -C /tmp/mh-l5-artifacts-iN0HFd
+
+exit=0

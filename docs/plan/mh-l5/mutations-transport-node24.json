@@ -1,0 +1,145 @@
+{
+  "node": "v24.21.0",
+  "results": [
+    {
+      "name": "legacy-classification",
+      "red": "docs/plan/mh-l5/evidence/mh-l5-v1.test.js-node24-mutation-legacy-classification-red.log",
+      "green": "docs/plan/mh-l5/evidence/mh-l5-v1.test.js-node24-mutation-legacy-classification-green.log",
+      "restored": true,
+      "files": [
+        {
+          "path": "packages/h2a/src/runtime/handover/shim-bridge.js",
+          "sha256": "baf649db3c71953face51bd4a69eb5d7b9509f78366f125a084339a6a0591b2d"
+        },
+        {
+          "path": "packages/h2a/dist/runtime/handover/shim-bridge.js",
+          "sha256": "c4cdea87a739a7288ec10e756ea9cea702d896d470b884373e6ec8016b6b64c2"
+        }
+      ]
+    },
+    {
+      "name": "legacy-backoff",
+      "red": "docs/plan/mh-l5/evidence/mh-l5-v1.test.js-node24-mutation-legacy-backoff-red.log",
+      "green": "docs/plan/mh-l5/evidence/mh-l5-v1.test.js-node24-mutation-legacy-backoff-green.log",
+      "restored": true,
+      "files": [
+        {
+          "path": "packages/h2a/src/runtime/handover/shim-bridge.js",
+          "sha256": "baf649db3c71953face51bd4a69eb5d7b9509f78366f125a084339a6a0591b2d"
+        },
+        {
+          "path": "packages/h2a/dist/runtime/handover/shim-bridge.js",
+          "sha256": "c4cdea87a739a7288ec10e756ea9cea702d896d470b884373e6ec8016b6b64c2"
+        }
+      ]
+    },
+    {
+      "name": "legacy-code",
+      "red": "docs/plan/mh-l5/evidence/mh-l5-v1.test.js-node24-mutation-legacy-code-red.log",
+      "green": "docs/plan/mh-l5/evidence/mh-l5-v1.test.js-node24-mutation-legacy-code-green.log",
+      "restored": true,
+      "files": [
+        {
+          "path": "packages/h2a/src/runtime/handover/shim-bridge.js",
+          "sha256": "baf649db3c71953face51bd4a69eb5d7b9509f78366f125a084339a6a0591b2d"
+        },
+        {
+          "path": "packages/h2a/dist/runtime/handover/shim-bridge.js",
+          "sha256": "c4cdea87a739a7288ec10e756ea9cea702d896d470b884373e6ec8016b6b64c2"
+        }
+      ]
+    },
+    {
+      "name": "decoy-secret",
+      "red": "docs/plan/mh-l5/evidence/mh-l5-v1.test.js-node24-mutation-decoy-secret-red.log",
+      "green": "docs/plan/mh-l5/evidence/mh-l5-v1.test.js-node24-mutation-decoy-secret-green.log",
+      "restored": true,
+      "files": [
+        {
+          "path": "packages/h2a/dist/runtime/mcp-central.js",
+          "sha256": "96a8c41ab27154a3e93522b62786e0c4b534c0d912d7bbcf69ac5e181ab9563b"
+        }
+      ]
+    },
+    {
+      "name": "v1-ping",
+      "red": "docs/plan/mh-l5/evidence/mh-l5-v1.test.js-node24-mutation-v1-ping-red.log",
+      "green": "docs/plan/mh-l5/evidence/mh-l5-v1.test.js-node24-mutation-v1-ping-green.log",
+      "restored": true,
+      "files": [
+        {
+          "path": "packages/h2a/src/runtime/handover/authenticated-http.js",
+          "sha256": "1f9f2bcb2963093a32615e253a828b009ee547e93ac0f1995e749349e08f4a6d"
+        },
+        {
+          "path": "packages/h2a/dist/runtime/handover/authenticated-http.js",
+          "sha256": "89c0454de7a19e79b0b4f7b61422472dfc482b193ee814b3ec83683d47b3e833"
+        }
+      ]
+    },
+    {
+      "name": "typed-id",
+      "red": "docs/plan/mh-l5/evidence/mh-l3-transfer.test.js-node24-mutation-typed-id-red.log",
+      "green": "docs/plan/mh-l5/evidence/mh-l3-transfer.test.js-node24-mutation-typed-id-green.log",
+      "restored": true,
+      "files": [
+        {
+          "path": "packages/h2a/src/runtime/handover/request-mappings.js",
+          "sha256": "1392994e33a71fc876b5a33f5f024ba5d9ce9ba03e2bca66376bd8e7704c4b67"
+        },
+        {
+          "path": "packages/h2a/dist/runtime/handover/request-mappings.js",
+          "sha256": "fe1396db10e720944a5bd3b4152d23d196c9e288d9e7bf406f7672eafdfb8974"
+        }
+      ]
+    },
+    {
+      "name": "g0-progress",
+      "red": "docs/plan/mh-l5/evidence/mh-l3-transfer.test.js-node24-mutation-g0-progress-red.log",
+      "green": "docs/plan/mh-l5/evidence/mh-l3-transfer.test.js-node24-mutation-g0-progress-green.log",
+      "restored": true,
+      "files": [
+        {
+          "path": "packages/h2a/src/runtime/handover/request-mappings.js",
+          "sha256": "1392994e33a71fc876b5a33f5f024ba5d9ce9ba03e2bca66376bd8e7704c4b67"
+        },
+        {
+          "path": "packages/h2a/dist/runtime/handover/request-mappings.js",
+          "sha256": "fe1396db10e720944a5bd3b4152d23d196c9e288d9e7bf406f7672eafdfb8974"
+        }
+      ]
+    },
+    {
+      "name": "g0-cancel-owner",
+      "red": "docs/plan/mh-l5/evidence/mh-l3-transfer.test.js-node24-mutation-g0-cancel-owner-red.log",
+      "green": "docs/plan/mh-l5/evidence/mh-l3-transfer.test.js-node24-mutation-g0-cancel-owner-green.log",
+      "restored": true,
+      "files": [
+        {
+          "path": "packages/h2a/src/runtime/handover/shim-bridge.js",
+          "sha256": "baf649db3c71953face51bd4a69eb5d7b9509f78366f125a084339a6a0591b2d"
+        },
+        {
+          "path": "packages/h2a/dist/runtime/handover/shim-bridge.js",
+          "sha256": "c4cdea87a739a7288ec10e756ea9cea702d896d470b884373e6ec8016b6b64c2"
+        }
+      ]
+    },
+    {
+      "name": "g0-retained-stream",
+      "red": "docs/plan/mh-l5/evidence/mh-l3-transfer.test.js-node24-mutation-g0-retained-stream-red.log",
+      "green": "docs/plan/mh-l5/evidence/mh-l3-transfer.test.js-node24-mutation-g0-retained-stream-green.log",
+      "restored": true,
+      "files": [
+        {
+          "path": "packages/h2a/src/runtime/handover/shim-bridge.js",
+          "sha256": "baf649db3c71953face51bd4a69eb5d7b9509f78366f125a084339a6a0591b2d"
+        },
+        {
+          "path": "packages/h2a/dist/runtime/handover/shim-bridge.js",
+          "sha256": "c4cdea87a739a7288ec10e756ea9cea702d896d470b884373e6ec8016b6b64c2"
+        }
+      ]
+    }
+  ]
+}
