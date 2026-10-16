@@ -344,3 +344,20 @@ test('uncommitted publication should prevent operator stop from aborting before 
     assert.equal(f.p.writerControl().gate, 'BARRIER');
   } finally { f.close(); }
 });
+
+test('passive retirement should accept every valid stepId and resume its own durable publication after a lost ACK', () => {
+  for (const secondStep of [false, true]) {
+  const f = liveFixture();
+  try {
+    const operation = f.a.begin('call'); f.freeze(); const publicationDigest = f.publication(); f.publish();
+    const changes = { stepId: 'live-publication' };
+    assert.throws(() => f.step('retire', { publicationDigest }, changes), /drain_blocked/);
+    f.a.finish(operation, { ok: true });
+    let result;
+    assert.doesNotThrow(() => { result = f.step('retire', { publicationDigest }, secondStep ? { stepId: 'completed-retire' } : changes); });
+    assert.equal(result.state, 'RETIRED'); assert.equal(f.closes(), 1);
+    assert.deepEqual(f.step('retire', { publicationDigest }, changes), result);
+    assert.throws(() => f.step('retire', { publicationDigest: hash }, changes), /step_conflict/);
+  } finally { f.close(); }
+  }
+});
