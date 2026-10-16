@@ -30,7 +30,7 @@ export function planVibeEquipment(options: VibeEquipmentOptions) {
     if (!source) throw new Error(`missing packaged hook: ${name}`);
     return { path: join(options.state, 'hooks', name), bytes: source.bytes.toString(), source: `h2a@${options.version}/hooks/${name}` };
   });
-  const observed = { MCP: mcpFingerprint({ mcp: options.config.mcp_servers ?? [], disabled_tools: options.config.disabled_tools ?? [] }),
+  const observed = { MCP: mcpFingerprint({ mcp: options.config.mcp_servers ?? [], disabled_tools: options.config.disabled_tools ?? [], enabled_tools: options.config.enabled_tools ?? [] }),
     profile: digest(options.root), node: fileFingerprint(process.execPath), entrypoint: fileFingerprint(entrypoint),
     guard: digest(artifacts[0].bytes), lifecycle: digest(artifacts[1].bytes), masking: digest(JSON.stringify(options.maskingHooks ?? [])),
     skills: digest(JSON.stringify(Object.entries(manifest.files).filter(([, e]) => !e.source.includes('/hooks/')).map(([path]) => [path, fileFingerprint(path)]))),
