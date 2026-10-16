@@ -450,8 +450,13 @@ export function nativeCapture(name: string, bytes = 16_384, socketPath?: string)
 
 /** kill-session twin: SIGTERM with SIGKILL escalation inside the op. */
 export function killNativeSession(name: string, socketPath?: string): boolean {
-  const { status } = runOp(["kill", "--id", name], { allowFailure: true, socketPath });
-  return status === 0;
+  try {
+    runOp(["kill", "--id", name], { socketPath });
+    return true;
+  } catch (error) {
+    process.stderr.write(`[h2a] cannot stop native session ${name}: ${error instanceof Error ? error.message : String(error)}\n`);
+    return false;
+  }
 }
 
 /**
@@ -522,7 +527,13 @@ export function driveNativeInstruction(
  */
 export function killNativeSessionTree(name: string): boolean {
   const main = nativeSessionState(name);
-  if (main.state === "unknown") return false;
+  if (main.state === "unknown") {
+    process.stderr.write(`[h2a] cannot stop native session ${name}: ${main.reason}\n`);
+    return false;
+  }
+  if (main.state === "absent") {
+    process.stderr.write(`[h2a] cannot stop native session ${name}: session is absent from the native hosts\n`);
+  }
   const killed = main.state === "found" && killNativeSession(name, main.session.socketPath);
   // Best-effort companion cleanup: only a POSITIVELY-found sidecar is
   // killed; absent needs nothing and unknown proves nothing to act on.
@@ -765,9 +776,9 @@ function nativeReadinessPidMatches(pid: number, ownerPid: number): boolean {
  * Foreground interactive attach on the CURRENT terminal (tmux attach twin).
  * Blocks until the session exits or the user detaches with Ctrl-\.
  */
-export function attachNativeSession(name: string, socketPath?: string): number {
+export function attachNativeSession(name: string, socketPath?: string, options: { takeover?: boolean } = {}): number {
   const r = withAttachTerminalRecovery((env) =>
-    spawnSync(process.execPath, [opEntryPath(), "attach", "--id", name, ...(socketPath ? ["--socket", socketPath] : [])], {
+    spawnSync(process.execPath, [opEntryPath(), "attach", "--id", name, ...(socketPath ? ["--socket", socketPath] : []), ...(options.takeover ? ["--takeover"] : [])], {
       stdio: "inherit", env,
     }));
   return r.status ?? 1;
