@@ -27,10 +27,8 @@ export function renderMcpConfig(
     path: {
       hint:
         "Muse Code reads MCP servers from mcpServers in ~/.config/muse/settings.json " +
-        "(user-global). Merge the snippet under the top-level `mcpServers` key. " +
-        "Caveat: muse documents streamable-HTTP entries there — stdio pickup is " +
-        "unconfirmed; if your muse build refuses the stdio entry, re-run this " +
-        "command with `--endpoint remote` and an HTTP MCP URL.",
+        "(user-global). Rendu historique non recommandé — non migré — bootstrap registre attendu. " +
+        "Stdio pickup remains unconfirmed. The registry integrator supplies installation and activation.",
       example: "~/.config/muse/settings.json"
     }
   };
