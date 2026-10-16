@@ -9,7 +9,7 @@
  *
  * This file pins that the rehearsal CANNOT DRIFT from the real publish: the
  * four per-package publish BODIES are byte-identical to release.yml's publish
- * job except for the single `--dry-run` token, in the same installable order
+ * job except for `--dry-run` and the default prerelease tag, in the same installable order
  * (track, h2a-runtime, h2a, h2a-cli), with the same npm version, the same
  * backfill logic, and no credentials. Two DELIBERATE differences are pinned
  * the other way: the rehearsal has NO idempotent skip (it always dry-runs,
@@ -19,12 +19,15 @@
  * tarball path, lost backfill tag, reordered publish, reintroduced skip or
  * wait) changes one side and fails here.
  *
- * Parse+assert only (same standing choice as release-workflow.test.js): it
- * parses both workflows with a real YAML parser. No network, no registry, no
- * skip: every assertion below either passes or fails.
+ * Parse both workflows with a real YAML parser, then execute their four
+ * rehearsal bodies with a controlled npm fixture. No network, no registry,
+ * no skip: every assertion below either passes or fails.
  */
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readFileSync, mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { dirname, resolve } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
@@ -74,22 +77,24 @@ function publishStepFor(job, tarballPrefix, what) {
   return holders[0];
 }
 
-test("rehearsal triggers on every PR touching the publish path, plus dispatch", () => {
+test("rehearsal triggers on every PR to main, plus dispatch", () => {
   const on = REHEARSAL.on;
   assert.ok(on?.pull_request, "the rehearsal must run on pull_request");
   assert.ok("workflow_dispatch" in (on ?? {}), "the rehearsal must also run on workflow_dispatch");
-  const paths = on.pull_request.paths ?? [];
-  for (const required of [
-    ".github/workflows/release.yml",
-    "scripts/release*.mjs",
-    "scripts/smoke-artifact.mjs",
-    "packages/*/package.json",
-  ]) {
-    assert.ok(
-      paths.includes(required),
-      `the rehearsal pull_request trigger must list ${required} — otherwise the publish path changes without ever rehearsing`,
-    );
-  }
+  assert.deepEqual(on.pull_request.branches, ["main"]);
+  assert.equal(on.pull_request.paths, undefined);
+  assert.equal(on.pull_request["paths-ignore"], undefined);
+});
+
+test("the rehearsal stamps a unique CI version after build and before packing", () => {
+  const steps = REHEARSAL.jobs["rehearse-publish"].steps;
+  const stamp = steps.findIndex((step) => step.run === "node scripts/rehearsal-version.mjs");
+  const build = steps.findIndex((step) => step.run === "npm run build");
+  const pack = steps.findIndex((step) => String(step.run ?? "").includes("npm pack --workspace"));
+  assert.ok(build < stamp && stamp < pack, "stamp must run between build and pack");
+  assert.equal(steps[stamp].if, undefined);
+  assert.equal(steps[stamp]["continue-on-error"], undefined);
+  assert.ok(!JSON.stringify(RELEASE).includes("rehearsal-version"), "release never stamps rehearsal versions");
 });
 
 test("the rehearsal job carries its required-style check name", () => {
@@ -130,10 +135,12 @@ test("the rehearsal publishes the four lockstep packages in installable dependen
   );
 });
 
-test("each rehearsal publish runs the SAME publish body as the publish job, plus only --dry-run", () => {
+test("each rehearsal shares the release publish body except dry-run and the default prerelease tag", () => {
   // The anti-drift core: the rehearsal runs the publish job's inner publish
   // BODY (tag/backfill logic, sha256 re-check, npm publish invocation) line
-  // by line with the single `--dry-run` token added. Two DELIBERATE
+  // by line with `--dry-run` added and an explicit default prerelease tag.
+  // The version stamp runs before packing; packing and verification stay shared.
+  // Two other DELIBERATE
   // differences are excluded from the comparison and pinned separately
   // below: the publish job's outer idempotent skip (`if npm view
   // "<pkg>@$v" version ... already on registry; skipping ... else ... fi`)
@@ -159,6 +166,9 @@ test("each rehearsal publish runs the SAME publish body as the publish job, plus
     );
     const realLines = effectiveScript(real.run);
     const dryLines = effectiveScript(dry.run);
+    assert.equal(dryLines.filter((line) => line === 'tagArgs="--tag rehearsal"').length, 1,
+      "npm requires an explicit tag for the unique prerelease");
+    const comparableDryLines = dryLines.map((line) => line === 'tagArgs="--tag rehearsal"' ? 'tagArgs=""' : line);
     // Deliberate absences first: the rehearsal must neither skip nor wait.
     assert.ok(
       !dryLines.some((line) => line.includes("already on registry; skipping")),
@@ -195,13 +205,13 @@ test("each rehearsal publish runs the SAME publish body as the publish job, plus
       realBody.length,
       `${packageName}: the rehearsal body must have exactly as many effective lines as the publish body (same commands, no more, no fewer)`,
     );
-    const differing = realBody.filter((line, i) => dryLines[i] !== line);
+    const differing = realBody.filter((line, i) => comparableDryLines[i] !== line);
     assert.equal(
       differing.length,
       1,
       `${packageName}: exactly ONE effective body line may differ between rehearsal and publish — the npm publish invocation gaining --dry-run (got ${differing.length})`,
     );
-    const at = realBody.findIndex((line, i) => dryLines[i] !== line);
+    const at = realBody.findIndex((line, i) => comparableDryLines[i] !== line);
     assert.equal(
       dryLines[at],
       realBody[at].replace(" $tagArgs;", " $tagArgs --dry-run;"),
@@ -284,12 +294,15 @@ test("the rehearsal packs the four lockstep tarballs exactly like verify, then s
   // Only the SHA source differs: verify ties the manifest to the resolved
   // release SHA, the rehearsal to its own checkout HEAD (no gated SHA exists
   // on a PR). Every other effective line must match.
-  const onlyShaSourceDiffers = (a, b) =>
-    a.filter((line, i) => b[i] !== line).every((line) => line.includes("release-sha"));
-  assert.ok(
-    onlyShaSourceDiffers(effectiveScript(verifyPack.run), effectiveScript(rehearsalPack.run)),
-    "the rehearsal pack step must match verify's line by line except the release-sha source",
-  );
+  const verifyLines = effectiveScript(verifyPack.run);
+  const rehearsalLines = effectiveScript(rehearsalPack.run);
+  assert.equal(rehearsalLines.length, verifyLines.length, "no extra or missing packing commands");
+  for (const [i, line] of verifyLines.entries()) {
+    assert.equal(rehearsalLines[i], line.replace('${{ needs.resolve-release-sha.outputs.release-sha }}', '$(git rev-parse HEAD)'),
+      `packing command ${i} must match release, except the checkout SHA source`);
+  }
+  const realSmoke = verify.steps.find((step) => step.run === "npm run smoke:artifact -- --tarballs dist-tarballs");
+  assert.ok(realSmoke, "release and rehearsal must run the same artifact smoke command");
   const smoke = (rehearsal.steps ?? []).find(
     (step) => step.run === "npm run smoke:artifact -- --tarballs dist-tarballs",
   );
@@ -445,4 +458,51 @@ test("the rehearsal carries no registry credentials", () => {
       );
     }
   }
+});
+
+test('rehearsal executes all four online dry-runs and propagates failures', () => {
+  const lab = mkdtempSync(resolve(tmpdir(), 'rehearsal-execution-'));
+  const bin = resolve(lab, 'bin'), calls = resolve(lab, 'calls.jsonl');
+  mkdirSync(bin);
+  mkdirSync(resolve(lab, 'dist-tarballs'));
+  try {
+    writeFileSync(resolve(bin, 'npm'), [
+      '#!' + process.execPath,
+      "const fs=require('node:fs'),args=process.argv.slice(2);",
+      "if(args[0]==='view'){console.log(process.env.REHEARSAL_LATEST);process.exit(0);}",
+      "if(args[0]!=='publish'||!args.includes('--dry-run')||args.includes('--offline')||args.includes('--cache'))process.exit(71);",
+      "fs.appendFileSync(process.env.REHEARSAL_CALLS,JSON.stringify(args)+'\\n');",
+      "process.exit(process.env.REHEARSAL_FAIL==='1'?37:0);",
+    ].join('\n'), { mode: 0o700 });
+    const version = '0.98.6-rehearsal.123.1';
+    const manifest = [];
+    for (const [name, prefix] of PACKAGES) {
+      const base = resolve(lab, 'packages', name.slice('@sentropic/'.length));
+      mkdirSync(base, { recursive: true });
+      writeFileSync(resolve(base, 'package.json'), JSON.stringify({ version }));
+      const file = prefix + version + '.tgz', bytes = Buffer.from('verified ' + name);
+      writeFileSync(resolve(lab, 'dist-tarballs', file), bytes);
+      manifest.push(createHash('sha256').update(bytes).digest('hex') + '  ' + file);
+    }
+    writeFileSync(resolve(lab, 'dist-tarballs/sha256sums.txt'), manifest.join('\n') + '\n');
+    const steps = PACKAGES.map(([, prefix]) => publishStepFor(REHEARSAL.jobs['rehearse-publish'], prefix, 'rehearsal'));
+    for (const latest of ['0.98.6', '99.0.0']) {
+      writeFileSync(calls, '');
+      for (const fail of ['0', '1']) for (const step of steps) {
+        const script = resolve(lab, 'step.sh');
+        writeFileSync(script, step.run);
+        const run = spawnSync('bash', ['-e', '-o', 'pipefail', script], {
+          cwd: lab, encoding: 'utf8', env: { ...process.env, PATH: bin + ':' + process.env.PATH,
+            REHEARSAL_CALLS: calls, REHEARSAL_FAIL: fail, REHEARSAL_LATEST: latest },
+        });
+        assert.equal(run.status, fail === '1' ? 1 : 0, run.stdout + run.stderr);
+      }
+      const observed = readFileSync(calls, 'utf8').trim().split('\n').map(line => JSON.parse(line));
+      assert.equal(observed.length, 8, 'all four publishes execute on success and on failure');
+      for (const args of observed) {
+        assert.ok(args[1].startsWith('./dist-tarballs/'));
+        assert.deepEqual(args.slice(2), ['--access', 'public', '--tag', latest === '99.0.0' ? 'backfill' : 'rehearsal', '--dry-run']);
+      }
+    }
+  } finally { rmSync(lab, { recursive: true, force: true }); }
 });
