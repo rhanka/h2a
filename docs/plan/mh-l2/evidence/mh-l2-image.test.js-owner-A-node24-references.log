@@ -1,0 +1,15 @@
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node --test packages/h2a/test/mh-l2-image.test.js
+node: v24.21.0
+private test root: /tmp/mh-l2-test-3FqPPP
+{"event":"drive-consent.full-verification","durationMs":0.0038869999998496496,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+✔ nominal image should precheck in isolation, cold-stop G0 and start one reserved successor (13626.258089ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 1
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 13718.418806
+
+receipt: {"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","--test","packages/h2a/test/mh-l2-image.test.js"],"code":0,"signal":null,"elapsedMs":13748}

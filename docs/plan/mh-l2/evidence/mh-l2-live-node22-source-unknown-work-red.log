@@ -1,0 +1,40 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l2-live.test.js
+node: v22.22.1
+explicit oracle: passive source should drain only G0 while independently admitted G1 calls remain pending
+private root: /tmp/mh-l2-live-mutation-J75oCr
+TAP version 13
+# Subtest: passive source should drain only G0 while independently admitted G1 calls remain pending
+not ok 1 - passive source should drain only G0 while independently admitted G1 calls remain pending
+  ---
+  duration_ms: 2027.951811
+  type: 'test'
+  location: '/tmp/mh-l2-owner-A-final-Tcelt2/source/packages/h2a/test/mh-l2-live.test.js:17:77'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    
+    0 !== 1
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 1
+  actual: 0
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/mh-l2-owner-A-final-Tcelt2/source/packages/h2a/test/mh-l2-live.test.js:406:12)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.start (node:internal/test_runner/test:944:17)
+    startSubtestAfterBootstrap (node:internal/test_runner/harness:296:17)
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 0
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 2147.982462
+
+receipt: {"code":1,"signal":null}

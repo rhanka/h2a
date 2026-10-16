@@ -1,0 +1,271 @@
+command: /usr/bin/node /tmp/mh-l2-owner-A-final-Tcelt2/source/node_modules/vitest/vitest.mjs run packages/h2a-runtime/src/central-mcp-0980.test.ts
+node: v22.22.1
+private test root: /tmp/mh-l2-test-Yjk2nA
+
+[1m[30m[46m RUN [49m[39m[22m [36mv4.1.11 [39m[90m/tmp/mh-l2-owner-A-final-Tcelt2/source[39m
+
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/index.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/runtime/cluster-mesh-messaging.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/runtime/send.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/runtime/local-files/paths.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/identity.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/runtime/local-files/presence.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/session.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/abc.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/types.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/escalation.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/policy-precedence.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/disclosure.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/recourse.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/recurring-obligations.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/jurisdiction.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/runtime/mcp-registry/broker.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/multi-human.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/governance-boundary.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/conflit-interet.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/comprehension-attestation.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/canonical.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/authority.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/signature.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/decision-dossier.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/confiance.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/envelope.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/replay.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/h2a-bridge.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/nhi.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/nhi-export.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/blockage.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/org.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/org-parse.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/value-chain.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/mutualisation.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/drumbeat-decision.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/drumbeat-resume.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/sysml.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/negotiation.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/wake.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/journal.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/artifacts.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/contractual.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/fixtures-index.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/subagents.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/hosts/claude.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/hosts/codex.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/runtime/mcp-central.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/runtime/upgrade/index.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/runtime/local-files/succession-lock.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/runtime/mcp/server.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/runtime/drive/consent-tools.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/runtime/drive/consent.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/runtime/local-files/store.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/runtime/mcp/identity-state.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/runtime/identity/live.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/runtime/mcp/phase-trace.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/runtime/identity/bindings.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/runtime/local-files/index.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/runtime/local-files/migrate.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/runtime/local-files/locks.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/runtime/local-files/lease.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/runtime/local-files/schema.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/runtime/identity/migration.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/runtime/identity/readers.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/runtime/host-config-root.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/runtime/identity/resolver.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/runtime/identity/workspace-id.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/runtime/drive/index.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/runtime/drumbeat/relaunchers.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/runtime/remote/client.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/runtime/mcp/handlers.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/runtime/blockage/registry.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/runtime/governance/conductor.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/runtime/governance/claims.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/runtime/governance/launch-check.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/runtime/governance/spawns.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/runtime/nhi.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/runtime/version/agent-version.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/runtime/loop/index.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/runtime/path-safety.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/runtime/mcp/notifications.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/runtime/mcp/sessions.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/runtime/mcp/tools.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/mcp.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/runtime/mcp/agent-launch.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/runtime/mcp/discovery-pagination.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/runtime/mcp/frame-budget.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/runtime/mcp/payload-store.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/cli.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/vendor/harness/index.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/vendor/harness/artifacts/validate-verification-run.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/vendor/harness/run/work-event.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/vendor/harness/profile/sentropic.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/vendor/harness/profile/stub.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/vendor/harness/branch-md/parse.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/vendor/harness/scope/scope-boundary.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/vendor/harness/checks/branch-check.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/vendor/harness/checks/scope-check.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/vendor/harness/run/emit.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/vendor/harness/skills/manifest.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/vendor/harness/cli/run.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/vendor/harness/cli/args.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/vendor/harness/cli/scope.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/vendor/harness/cli/method-verbs.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/vendor/harness/cli/mechanical-verbs.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/cli-command-map.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/cli-contract.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/hosts/gemini.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/hosts/agy.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/hosts/hermes.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/hosts/opencode.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/hosts/muse.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/hosts/installation-doctor.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/hosts/installation-doctor-contract.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/hosts/plugin.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/runtime/mcp/index.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/runtime/mcp/stdio.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/runtime/drive/inbox-wake.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/runtime/deploy/k8s-sidecar.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/runtime/deploy/k8s-tenant.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/runtime/remote/index.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/runtime/remote/accept.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/runtime/remote/server.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/runtime/remote/serve.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/runtime/mirror/index.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/runtime/mirror/build.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/runtime/mirror/sanitize.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/runtime/mirror/accept.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/runtime/mirror/ingest.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/runtime/mirror/serve.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/runtime/mirror/push-daemon.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/runtime/drumbeat/index.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/runtime/drumbeat/registry.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/runtime/drumbeat/deciders.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/runtime/drumbeat/decisions.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/runtime/drumbeat/scan.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/runtime/drumbeat/watch.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/runtime/drumbeat/inbox-relance.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/runtime/blockage/index.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/runtime/blockage/notifiers.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/runtime/escalation/index.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/runtime/escalation/registry.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/runtime/sysml/index.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/runtime/sysml/client.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/runtime/sysml/verify.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/runtime/sysml/disclosure.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/runtime/identity/index.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/runtime/enrollment/index.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/runtime/enrollment/ceremony.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/runtime/loop/engine/tick.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/runtime/loop/engine/decision.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/runtime/loop/engine/adapters.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/runtime/loop/engine/execute.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/runtime/loop/supervisor.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/runtime/loop/executor-lease.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/runtime/canevas/gather.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/runtime/canevas/aggregate.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/runtime/canevas/serve.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/runtime/canevas/adapter.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/runtime/canevas/answer.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/runtime/canevas/reply.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/runtime/canevas/app.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/runtime/canevas/ui.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/runtime/reporting/index.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/runtime/reporting/context.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/runtime/drive/pty-actuator.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/runtime/governance/index.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/runtime/mcp-http/index.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/runtime/mcp-http/readonly-allowlist.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/runtime/mcp-http/hosted-mcp-server.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/runtime/mcp-http/app.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/runtime/mcp-http/oauth/broker-routes.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/runtime/mcp-http/oauth/config.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/runtime/mcp-http/oauth/hono-oauth-router.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/runtime/mcp-http/oauth/tenancy.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/runtime/mcp-http/serve.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/runtime/mcp-http/oauth/broker-login.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/runtime/mcp-http/oauth/oidc-rp.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/runtime/mcp-http/oauth/crypto.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/runtime/mcp-http/oauth/file-store.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/runtime/mcp-http/oauth/single-tenant-provider.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/runtime/mcp-http/oauth/redirect-uri.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/runtime/feed/index.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/runtime/feed/descriptors.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/core/package/dist/runtime/feed/local.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/runtime/package/dist/central-mcp.js" points to missing source files
+Sourcemap for "/tmp/mh-l2-owner-A-final-Tcelt2/source/.qual-tmp/central-0980-uQpR0m/runtime/package/dist/config.js" points to missing source files
+[90mstdout[2m | packages/h2a-runtime/src/central-mcp-0980.test.ts
+[22m[39mR6 exact input: bytes=346 sha256=984069aaed26cd2ce888dc692a4400f9c9c1cbb5add9c86fedbed3fc6b3d5470 source=airbus-genair-d2d@3508b24:HEAD:.mcp.json
+
+[90mstdout[2m | packages/h2a-runtime/src/central-mcp-0980.test.ts[2m > [22m[2mR6 published 0.98.0 restore preparation alone leaves the exact incident file untouched
+[22m[39mR6 0.98.0 restore-only: projectWrites=0 bytesEqual=true graphifyDestroyed=false
+
+[90mstdout[2m | packages/h2a-runtime/src/central-mcp-0980.test.ts[2m > [22m[2mR6 published 0.98.0 run modifies the exact tracked incident file but does not destroy graphify-ts
+[22m[39mR6 0.98.0 run: projectWrites=2 bytesEqual=false mode=600 backups=0 servers=["graphify-ts","h2a"] graphifyDestroyed=false
+diff --git a/.mcp.json b/.mcp.json
+index 0d7a324..80d73d6 100644
+--- a/.mcp.json
++++ b/.mcp.json
+@@ -12,6 +12,16 @@
+       "env": {
+         "GRAPHIFY_TOOL_PROFILE": "core"
+       }
++    },
++    "h2a": {
++      "command": "h2a",
++      "args": [
++        "mcp-central-connect",
++        "--endpoint",
++        "http://127.0.0.1:48000/mcp",
++        "--runtime-base",
++        "/tmp/mh-l2-test-Yjk2nA/run"
++      ]
+     }
+   }
+ }
+
+
+[90mstdout[2m | packages/h2a-runtime/src/central-mcp-0980.test.ts[2m > [22m[2mR6 published 0.98.0 run modifies the exact tracked incident file but does not destroy graphify-ts
+[22m[39mR6 0.98.0 run repeat: bytesEqualToFirstWrite=true graphifyDestroyed=false
+
+[90mstdout[2m | packages/h2a-runtime/src/central-mcp-0980.test.ts[2m > [22m[2mR6 published 0.98.0 restore-reentered-run modifies the exact tracked incident file but does not destroy graphify-ts
+[22m[39mR6 0.98.0 restore-reentered-run: projectWrites=2 bytesEqual=false mode=600 backups=0 servers=["graphify-ts","h2a"] graphifyDestroyed=false
+diff --git a/.mcp.json b/.mcp.json
+index 0d7a324..80d73d6 100644
+--- a/.mcp.json
++++ b/.mcp.json
+@@ -12,6 +12,16 @@
+       "env": {
+         "GRAPHIFY_TOOL_PROFILE": "core"
+       }
++    },
++    "h2a": {
++      "command": "h2a",
++      "args": [
++        "mcp-central-connect",
++        "--endpoint",
++        "http://127.0.0.1:48000/mcp",
++        "--runtime-base",
++        "/tmp/mh-l2-test-Yjk2nA/run"
++      ]
+     }
+   }
+ }
+
+
+[90mstdout[2m | packages/h2a-runtime/src/central-mcp-0980.test.ts[2m > [22m[2mR6 published 0.98.0 restore-reentered-run modifies the exact tracked incident file but does not destroy graphify-ts
+[22m[39mR6 0.98.0 restore-reentered-run repeat: bytesEqualToFirstWrite=true graphifyDestroyed=false
+
+[90mstdout[2m | packages/h2a-runtime/src/central-mcp-0980.test.ts[2m > [22m[2mR6 candidate run makes zero project writes and preserves the exact tracked incident file
+[22m[39mR6 candidate run: projectWrites=0 bytesEqual=true metadataEqual=true gitStatusEqual=true writerCalls=0 sha256=984069aaed26cd2ce888dc692a4400f9c9c1cbb5add9c86fedbed3fc6b3d5470
+
+[90mstdout[2m | packages/h2a-runtime/src/central-mcp-0980.test.ts[2m > [22m[2mR6 candidate restore-reentered-run makes zero project writes and preserves the exact tracked incident file
+[22m[39mR6 candidate restore-reentered-run: projectWrites=0 bytesEqual=true metadataEqual=true gitStatusEqual=true writerCalls=0 sha256=984069aaed26cd2ce888dc692a4400f9c9c1cbb5add9c86fedbed3fc6b3d5470
+
+ [32m✓[39m packages/h2a-runtime/src/central-mcp-0980.test.ts [2m([22m[2m5 tests[22m[2m)[22m[33m 3161[2mms[22m[39m
+
+[2m Test Files [22m [1m[32m1 passed[39m[22m[90m (1)[39m
+[2m      Tests [22m [1m[32m5 passed[39m[22m[90m (5)[39m
+[2m   Start at [22m 00:11:59
+[2m   Duration [22m 3.49s[2m (transform 2.60s, setup 58ms, import 111ms, tests 3.16s, environment 0ms)[22m
+
+
+receipt: {"command":["/usr/bin/node","/tmp/mh-l2-owner-A-final-Tcelt2/source/node_modules/vitest/vitest.mjs","run","packages/h2a-runtime/src/central-mcp-0980.test.ts"],"code":0,"signal":null,"elapsedMs":4082}
