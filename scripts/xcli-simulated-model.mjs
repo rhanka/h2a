@@ -30,7 +30,11 @@ function endpoint() {
     vibe: join(process.env.VIBE_HOME, 'config.toml'),
   };
   const raw = fs.readFileSync(paths[profile], 'utf8');
-  if (!['codex', 'vibe'].includes(profile)) return JSON.parse(raw).mcpServers.h2a;
+  if (!['codex', 'vibe'].includes(profile)) {
+    const settings = JSON.parse(raw);
+    if (profile === 'muse') assert.equal(settings.schema_version, 1, 'native Muse requires settings schema_version 1');
+    return settings.mcpServers.h2a;
+  }
   const expected = profile === 'codex' ? '[mcp_servers.h2a]' : '[[mcp_servers]]';
   assert.ok(raw.includes(expected), 'native TOML table required');
   const command = JSON.parse(/^command = (.+)$/m.exec(raw)?.[1]);

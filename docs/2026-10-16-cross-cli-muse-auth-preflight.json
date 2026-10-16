@@ -1,0 +1,27 @@
+{
+  "mode": "isolated-auth-preflight",
+  "cli": "muse",
+  "version": "1.4.9-R6297.1",
+  "command": [
+    "muse",
+    "exec",
+    "--json",
+    "--no-session-log",
+    "--no-foreign-personal-context",
+    "--disable-write",
+    "--disable-shell",
+    "--disable-web-tools",
+    "--max-model-steps",
+    "1",
+    "Reply exactly OK. Do not use any tools."
+  ],
+  "exitCode": 1,
+  "signal": null,
+  "timedOut": false,
+  "stdoutPresent": false,
+  "diagnosticTags": [],
+  "httpStatuses": [],
+  "modelOutputRetained": false,
+  "containment": "strace --kill-on-exit follows only spawned descendants",
+  "privateStateRemoved": true
+}
