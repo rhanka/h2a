@@ -9,7 +9,7 @@
  *
  * This file pins that the rehearsal CANNOT DRIFT from the real publish: the
  * four per-package publish BODIES are byte-identical to release.yml's publish
- * job except for the single `--dry-run` token, in the same installable order
+ * job except for the dry-run/offline/empty-cache options, in the same installable order
  * (track, h2a-runtime, h2a, h2a-cli), with the same npm version, the same
  * backfill logic, and no credentials. Two DELIBERATE differences are pinned
  * the other way: the rehearsal has NO idempotent skip (it always dry-runs,
@@ -24,7 +24,10 @@
  * skip: every assertion below either passes or fails.
  */
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readFileSync, mkdtempSync, mkdirSync, writeFileSync, existsSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { dirname, resolve } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
@@ -131,10 +134,10 @@ test("the rehearsal publishes the four lockstep packages in installable dependen
   );
 });
 
-test("each rehearsal publish runs the SAME publish body as the publish job, plus only --dry-run", () => {
+test("each rehearsal publish runs the SAME publish body as the publish job, plus isolated offline dry-run options", () => {
   // The anti-drift core: the rehearsal runs the publish job's inner publish
   // BODY (tag/backfill logic, sha256 re-check, npm publish invocation) line
-  // by line with the single `--dry-run` token added. Two DELIBERATE
+  // by line with dry-run/offline/empty-cache options added. Two DELIBERATE
   // differences are excluded from the comparison and pinned separately
   // below: the publish job's outer idempotent skip (`if npm view
   // "<pkg>@$v" version ... already on registry; skipping ... else ... fi`)
@@ -160,6 +163,11 @@ test("each rehearsal publish runs the SAME publish body as the publish job, plus
     );
     const realLines = effectiveScript(real.run);
     const dryLines = effectiveScript(dry.run);
+    // Pin the complete cache setup before removing it from the parity comparison.
+    assert.deepEqual(dryLines.splice(1, 2), [
+      'dryrun_cache="$(mktemp -d)"',
+      `trap 'rm -rf "$dryrun_cache"' EXIT`,
+    ], packageName + ': every dry-run gets a new cache, removed on success or failure');
     // Deliberate absences first: the rehearsal must neither skip nor wait.
     assert.ok(
       !dryLines.some((line) => line.includes("already on registry; skipping")),
@@ -200,13 +208,13 @@ test("each rehearsal publish runs the SAME publish body as the publish job, plus
     assert.equal(
       differing.length,
       1,
-      `${packageName}: exactly ONE effective body line may differ between rehearsal and publish — the npm publish invocation gaining --dry-run (got ${differing.length})`,
+      `${packageName}: exactly ONE effective body line may differ between rehearsal and publish — the npm publish invocation gaining offline dry-run options (got ${differing.length})`,
     );
     const at = realBody.findIndex((line, i) => dryLines[i] !== line);
     assert.equal(
       dryLines[at],
-      realBody[at].replace(" $tagArgs;", " $tagArgs --dry-run;"),
-      `${packageName}: the single differing body line must be the publish invocation with --dry-run appended after $tagArgs`,
+      realBody[at].replace(" $tagArgs;", ' $tagArgs --dry-run --offline --cache "$dryrun_cache";'),
+      `${packageName}: the single differing body line must be the publish invocation with only the pinned dry-run options appended after $tagArgs`,
     );
     assert.ok(
       dryLines[at].includes("npm publish") && dryLines[at].includes("--dry-run"),
@@ -446,4 +454,46 @@ test("the rehearsal carries no registry credentials", () => {
       );
     }
   }
+});
+
+
+test('rehearsal executes all four offline dry-runs and cleans caches on success and failure', () => {
+  const lab=mkdtempSync(resolve(tmpdir(),'rehearsal-execution-'));
+  const bin=resolve(lab,'bin'), temp=resolve(lab,'tmp'), calls=resolve(lab,'calls.jsonl');
+  mkdirSync(bin);mkdirSync(temp);mkdirSync(resolve(lab,'dist-tarballs'));
+  try {
+    writeFileSync(resolve(bin,'npm'), [
+      '#!' + process.execPath,
+      "const fs=require('node:fs'),args=process.argv.slice(2);",
+      "if(args[0]==='view'){console.log('99.0.0');process.exit(0);}",
+      "const at=args.indexOf('--cache'),cache=args[at+1];",
+      "if(args[0]!=='publish'||!args.includes('--dry-run')||!args.includes('--offline')||at<0||fs.readdirSync(cache).length)process.exit(71);",
+      "fs.writeFileSync(cache+'/observed','cache was empty');",
+      "fs.appendFileSync(process.env.REHEARSAL_CALLS,JSON.stringify({args,cache})+'\\n');",
+      "process.exit(process.env.REHEARSAL_FAIL==='1'?37:0);",
+    ].join('\n'),{mode:0o700});
+    const version=JSON.parse(readFileSync(resolve(REPO_ROOT,'packages/h2a/package.json'),'utf8')).version;
+    const manifest=[];
+    for(const [name,prefix] of PACKAGES) {
+      const base=resolve(lab,'packages',name.slice('@sentropic/'.length));mkdirSync(base,{recursive:true});
+      writeFileSync(resolve(base,'package.json'),JSON.stringify({version}));
+      const file=prefix+version+'.tgz',bytes=Buffer.from('verified '+name);
+      writeFileSync(resolve(lab,'dist-tarballs',file),bytes);
+      manifest.push(createHash('sha256').update(bytes).digest('hex')+'  '+file);
+    }
+    writeFileSync(resolve(lab,'dist-tarballs/sha256sums.txt'),manifest.join('\n')+'\n');
+    const steps=PACKAGES.map(([,prefix])=>publishStepFor(REHEARSAL.jobs['rehearse-publish'],prefix,'rehearsal'));
+    for(const fail of ['0','1'])for(const step of steps) {
+      const script=resolve(lab,'step.sh');writeFileSync(script,step.run);
+      const run=spawnSync('bash',['-e','-o','pipefail',script],{cwd:lab,encoding:'utf8',env:{...process.env,PATH:bin+':'+process.env.PATH,TMPDIR:temp,REHEARSAL_CALLS:calls,REHEARSAL_FAIL:fail}});
+      assert.equal(run.status,fail==='1'?1:0,run.stdout+run.stderr);
+    }
+    const observed=readFileSync(calls,'utf8').trim().split('\n').map(line=>JSON.parse(line));
+    assert.equal(observed.length,8,'all four publishes execute on success and on failure');
+    for(const {args,cache} of observed) {
+      assert.ok(args[1].startsWith('./dist-tarballs/'));
+      assert.deepEqual(args.slice(2),['--access','public','--tag','backfill','--dry-run','--offline','--cache',cache]);
+      assert.equal(existsSync(cache),false,'the trap removes each cache even when npm fails');
+    }
+  }finally{rmSync(lab,{recursive:true,force:true});}
 });

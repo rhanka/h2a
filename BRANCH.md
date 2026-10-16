@@ -114,3 +114,14 @@ Only named test files run locally under temporary HOME/XDG/H2A roots. No
 installed h2a, native host, foreign PID, full local suite, merge or publication.
 CI on the PR is the integration authority. External review through the real
 h2a/mesh is excluded by the owner's confinement; no consensus is claimed.
+
+
+The first PR run also reproduced the published-version rehearsal blocker:
+npm 11.15.0 refuses an existing version even in --dry-run. The same unmodified
+published Track tarball is red with the normal dry-run and green with an
+offline dry-run using a fresh cache. Rehearsal alone uses that bounded
+exception; online latest/backfill selection, sha256, bytes, and error
+propagation remain required. The real publication is unchanged. The targeted
+execution test runs all four shell bodies on success and on npm failure and
+proves every cache is removed: 13 passed, 0 failed/skipped. This directly
+blocking rehearsal repair extends the two originally named CI symptoms.
