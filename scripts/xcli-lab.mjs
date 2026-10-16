@@ -35,7 +35,13 @@ export function environment(root, bin = join(root, 'bin')) {
     'XDG_DATA_HOME', 'XDG_RUNTIME_DIR', 'TMPDIR', 'CLAUDE_CONFIG_DIR', 'CODEX_HOME', 'VIBE_HOME']) {
     fs.mkdirSync(inside(root, env[key]), { recursive: true, mode: 0o700 });
   }
-  fs.mkdirSync(bin, { recursive: true, mode: 0o700 });
+  fs.mkdirSync(inside(root, bin), { recursive: true, mode: 0o700 });
+  // setup-node lives outside /usr/bin on GitHub runners. Keep PATH private
+  // while allowing CLI shebangs to use this exact selected Node executable.
+  const node = join(bin, 'node');
+  if (fs.existsSync(node)) {
+    assert.ok(fs.lstatSync(node).isSymbolicLink() && fs.readlinkSync(node) === process.execPath, 'unexpected private Node shim');
+  } else fs.symlinkSync(process.execPath, node);
   return env;
 }
 
