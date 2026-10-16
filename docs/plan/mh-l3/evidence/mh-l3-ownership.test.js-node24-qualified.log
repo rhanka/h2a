@@ -1,0 +1,28 @@
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node --test --test-reporter=tap packages/h2a/test/mh-l3-ownership.test.js
+node: v24.21.0
+private root: /tmp/mh-l3-test-0wPDoe
+case: all cases in explicit file
+TAP version 13
+# Subtest: new baseline should require a proved old generation end and fence its old owner without discarding admitted work
+ok 1 - new baseline should require a proved old generation end and fence its old owner without discarding admitted work
+  ---
+  duration_ms: 43.409269
+  type: 'test'
+  ...
+# Subtest: embedded catalogue should equal the exact server definitions and carry individual normative digests
+ok 2 - embedded catalogue should equal the exact server definitions and carry individual normative digests
+  ---
+  duration_ms: 77.730841
+  type: 'test'
+  ...
+1..2
+# tests 2
+# suites 0
+# pass 2
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 172.032033
+
+receipt: {"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l3-ownership.test.js"],"code":0,"signal":null,"tests":2,"invalid":false,"spawned":1,"leftovers":[]}

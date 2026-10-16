@@ -1,0 +1,19 @@
+npm ci --ignore-scripts --no-audit --no-fund
+
+added 288 packages in 2s
+npm warn Unknown builtin config "globalignorefile". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+
+exit=0
+/usr/bin/node node_modules/typescript/bin/tsc -b --pretty false
+packages/h2a/src/cli.ts(66,51): error TS2307: Cannot find module '@sentropic/track' or its corresponding type declarations.
+packages/h2a/src/cli.ts(7263,49): error TS2307: Cannot find module '@sentropic/track/mcp' or its corresponding type declarations.
+packages/h2a/src/cli.ts(7367,11): error TS7006: Parameter 's' implicitly has an 'any' type.
+packages/h2a/src/cli.ts(7370,11): error TS7006: Parameter 's' implicitly has an 'any' type.
+packages/h2a/src/runtime/loop/engine/adapters.ts(13,35): error TS2307: Cannot find module '@sentropic/track' or its corresponding type declarations.
+packages/h2a/src/runtime/mcp/server.ts(61,8): error TS2307: Cannot find module '@sentropic/track/mcp' or its corresponding type declarations.
+packages/h2a/src/runtime/mcp/server.ts(181,80): error TS7006: Parameter 'tool' implicitly has an 'any' type.
+packages/h2a/src/runtime/mcp/tools.ts(2,45): error TS2307: Cannot find module '@sentropic/track/mcp' or its corresponding type declarations.
+packages/h2a/src/runtime/mcp/tools.ts(809,39): error TS7006: Parameter 'tool' implicitly has an 'any' type.
+packages/h2a-runtime/src/index.ts(2706,50): error TS2307: Cannot find module '@sentropic/h2a' or its corresponding type declarations.
+
+exit=2

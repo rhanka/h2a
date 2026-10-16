@@ -1,0 +1,39 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l3-network.test.js
+node: v22.22.1
+private root: /tmp/mh-l3-test-yY1TYm
+case: resumed notifications should deliver progress for admitted work while cancellation keeps its original transport owner
+TAP version 13
+# Subtest: resumed notifications should deliver progress for admitted work while cancellation keeps its original transport owner
+not ok 1 - resumed notifications should deliver progress for admitted work while cancellation keeps its original transport owner
+  ---
+  duration_ms: 5149.154856
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-bUCXsb/source/packages/h2a/test/mh-l3-network.test.js:2:94'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    + actual - expected
+    
+    + undefined
+    - 'original-progress'
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 'original-progress'
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/mh-l3-qualification-bUCXsb/source/packages/h2a/test/mh-l3-network.test.js:108:12)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 0
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 5370.288481
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l3-network.test.js"],"code":1,"signal":null,"tests":1,"invalid":false,"spawned":1,"leftovers":[]}

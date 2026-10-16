@@ -1,0 +1,23 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l3-central.test.js
+node: v22.22.1
+private root: /tmp/mh-l3-test-Zass3r
+case: real central should resume an initialize reply lost after admission without creating another activation
+TAP version 13
+# {"event":"drive-consent.full-verification","durationMs":0.004087999999967451,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# Subtest: real central should resume an initialize reply lost after admission without creating another activation
+ok 1 - real central should resume an initialize reply lost after admission without creating another activation
+  ---
+  duration_ms: 191.822342
+  type: 'test'
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 1
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 471.889279
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l3-central.test.js"],"code":0,"signal":null,"tests":1,"invalid":false,"spawned":1,"leftovers":[]}

@@ -1,0 +1,46 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l3-state.test.js
+node: v22.22.1
+private root: /tmp/mh-l3-test-EUOKw3
+case: all cases in explicit file
+TAP version 13
+# Subtest: resume should fence transports, preserve one activation and quarantine unknown liveness within capacity
+ok 1 - resume should fence transports, preserve one activation and quarantine unknown liveness within capacity
+  ---
+  duration_ms: 4.393191
+  type: 'test'
+  ...
+# Subtest: request mappings should distinguish typed IDs, remap progress, settle once and cancel the original owner
+ok 2 - request mappings should distinguish typed IDs, remap progress, settle once and cancel the original owner
+  ---
+  duration_ms: 1.645278
+  type: 'test'
+  ...
+# Subtest: non-admission should require every binding from the authenticated response
+ok 3 - non-admission should require every binding from the authenticated response
+  ---
+  duration_ms: 0.347935
+  type: 'test'
+  ...
+# Subtest: catalogue should retain its served view and reject changed tools while accepting only provenance-checked additions
+ok 4 - catalogue should retain its served view and reject changed tools while accepting only provenance-checked additions
+  ---
+  duration_ms: 6.625443
+  type: 'test'
+  ...
+# Subtest: catalogue pages should stay under the frame bound and refuse a cursor from another revision
+ok 5 - catalogue pages should stay under the frame bound and refuse a cursor from another revision
+  ---
+  duration_ms: 55.293405
+  type: 'test'
+  ...
+1..5
+# tests 5
+# suites 0
+# pass 5
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 190.449517
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l3-state.test.js"],"code":0,"signal":null,"tests":5,"invalid":false,"spawned":0,"leftovers":[]}

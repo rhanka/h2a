@@ -1,0 +1,22 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l0-peer.test.js
+node: v22.22.1
+private root: /tmp/mh-l3-test-NrDD4j
+case: all cases in explicit file
+TAP version 13
+# Subtest: L0 network pair: valid future verdict, negative provenance, CAS and lost ACK without duplicate restoration
+ok 1 - L0 network pair: valid future verdict, negative provenance, CAS and lost ACK without duplicate restoration
+  ---
+  duration_ms: 192.834388
+  type: 'test'
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 1
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 342.184027
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l0-peer.test.js"],"code":0,"signal":null,"tests":1,"invalid":false,"spawned":2,"leftovers":[]}

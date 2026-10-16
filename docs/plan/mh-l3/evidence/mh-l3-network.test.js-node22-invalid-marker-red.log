@@ -1,0 +1,76 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l3-network.test.js
+node: v22.22.1
+private root: /tmp/mh-l3-test-ISqQUO
+case: all cases in explicit file
+TAP version 13
+# Subtest: real shim should keep local initialization alive while an invalid marker still forbids connection and autostart
+not ok 1 - real shim should keep local initialization alive while an invalid marker still forbids connection and autostart
+  ---
+  duration_ms: 142.919568
+  type: 'test'
+  location: '/home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/test/mh-l3-network.test.js:9:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    shim closed 1/null: file:///home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/dist/runtime/mcp-central-discovery.js:155
+            throw new Error(`central MCP marker is malformed: ${path}`);
+                  ^
+    
+    Error: central MCP marker is malformed: /tmp/mh-l3-test-ISqQUO/tmpdir/mh-l3-net-fflqSl/run/h2a-mcp-central/marker.json
+        at readCentralClientMarker (file:///home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/dist/runtime/mcp-central-discovery.js:155:15)
+        at runCentralShim (file:///home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/dist/runtime/mcp-central-shim.js:19:22)
+        at file:///home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/test/helpers/mh-l3-shim.mjs:5:26
+    
+    Node.js v22.22.1
+    
+  code: 'ERR_TEST_FAILURE'
+  stack: |-
+    readCentralClientMarker (file:///home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/dist/runtime/mcp-central-discovery.js:155:15)
+    runCentralShim (file:///home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/dist/runtime/mcp-central-shim.js:19:22)
+    file:///home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/test/helpers/mh-l3-shim.mjs:5:26
+    ChildProcess.<anonymous> (file:///home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/test/helpers/mh-l1-shim.js:58:60)
+    Object.onceWrapper (node:events:634:26)
+    ChildProcess.emit (node:events:519:28)
+    maybeClose (node:internal/child_process:1101:16)
+    ChildProcess._handle.onexit (node:internal/child_process:304:5)
+  ...
+# Subtest: shim should initialize locally and retain its catalogue and stdio without any marker or identity
+ok 2 - shim should initialize locally and retain its catalogue and stdio without any marker or identity
+  ---
+  duration_ms: 16.360195
+  type: 'test'
+  ...
+# Subtest: shim should map typed IDs and progress, ignore forged session headers and cancel without waiting for its POST
+ok 3 - shim should map typed IDs and progress, ignore forged session headers and cancel without waiting for its POST
+  ---
+  duration_ms: 99.192851
+  type: 'test'
+  ...
+# Subtest: lost tools/list and identity replies should never be automatically replayed
+ok 4 - lost tools/list and identity replies should never be automatically replayed
+  ---
+  duration_ms: 53.118235
+  type: 'test'
+  ...
+# Subtest: control should cancel local requests at the 32-call limit without any application dispatch
+ok 5 - control should cancel local requests at the 32-call limit without any application dispatch
+  ---
+  duration_ms: 49.271985
+  type: 'test'
+  ...
+# Subtest: unframed oversized input should be bounded while later valid input still works
+ok 6 - unframed oversized input should be bounded while later valid input still works
+  ---
+  duration_ms: 24.353751
+  type: 'test'
+  ...
+1..6
+# tests 6
+# suites 0
+# pass 5
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 612.227501
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l3-network.test.js"],"code":1,"signal":null,"tests":6,"invalid":false,"spawned":1,"leftovers":[]}
