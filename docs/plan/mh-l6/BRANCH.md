@@ -10,7 +10,8 @@
 - [x] A — Journal canonique, exclusion compatible, sélection durable/réconciliation ; `mh-l6-selection.test.js`, 10 tests + 15 fondations et 14 mutations tuées/restaurées par profil Node 22/24 ; limites SIGKILL/adoption/fermeture v1 explicites dans README.md.
 - [x] B1 — Révocation/délégation exacte, acquisition unique, mort de candidat/gardien et reprise ; `mh-l6-delegation.test.js`, 14 tests et 16 mutations ; sélection requalifiée par 10 tests et 14 mutations ; profils Node 22/24. Journal seul, sans CLI/producer v1.
 - [ ] B2 — Exclusion future des moteurs hérités et fermeture maintenue de leurs sources de relancement/admission ; producteur de preuve consommé par C/F/M18. Le verrou pris pendant une commande ne suffit pas.
-- [ ] C — Lanceur autonome, repli diagnostique, bootstrap/adoption avant raccourci de version ; `mh-l6-launcher.test.js`, `mh-l6-bootstrap.test.js`.
+- [x] C1 — Lanceur autonome, même PID, neutralisation des chargements ambiants, repli diagnostique sans exécution ni mutation ; `mh-l6-launcher.test.js`, 10 tests et 13 mutations par Node 22/24, artefact/manifeste reproduits depuis deux copies sources.
+- [ ] C2 — Installation conditionnelle du lanceur, bootstrap/adoption avant raccourci de version, preuves physiques et chemins vivants ; `mh-l6-bootstrap.test.js`, avec B2/F pour le producteur M18.
 - [ ] D — Désadoption conditionnelle, opt-out et dérives npm ; `mh-l6-unmanage.test.js`, `mh-l6-npm.test.js`.
 - [ ] E — Images closes, shrinkwrap publié/runtime exact, natifs précompilés et gel .6 ; `mh-l6-image.test.js`, `mh-l6-package.test.js` et tests hérités affectés.
 - [ ] F — Surface CLI/auto commune, codes/strict/status/resume/abort/compensate, preuve H4 externe M18 sur vrais .5/.6 ; tests CLI et v1 ciblés.
