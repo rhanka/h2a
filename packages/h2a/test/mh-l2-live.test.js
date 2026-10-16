@@ -24,7 +24,7 @@ test('owner A should accept passive live reservation without enabling a product 
     let authorized = 0;
     const admin = new ColdAdministration({ directory, marker: m, inventory: () => ({ revision: 1 }),
       authorizeTarget: () => {}, verifyPrecheck: () => {},
-      liveSource: { reserve: () => { authorized++; return hash; } },
+      liveSource: { reserve: () => { authorized++; return hash; }, sourcePublished: () => true },
       drain: () => ({ revision: 1, calls: 0, children: 0, briefs: 0, callbacks: 0, effects: 0 }), close: () => {} });
     const payload = { target: { packageVersion: '0.98.8', buildId: 'future', manifestDigest: hash,
       entrypoint: join(directory, 'future.js') }, selectionEpoch: 2, precheckEvidenceDigest: hash, authorizationDigest: hash };
@@ -180,14 +180,14 @@ for (const [name, change, badMac] of [
     try {
       f.freeze(); const publicationDigest = f.publication(change, badMac); f.publish();
       assert.throws(() => f.step('retire', { publicationDigest }), /live_record_unauthenticated|live_publication_mismatch/);
-      assert.equal(f.admin.status().state, 'FROZEN'); assert.equal(f.closes(), 0);
+      assert.equal(f.admin.status().state, 'RECOVERY_BLOCKED'); assert.equal(f.closes(), 0);
       assert.equal(f.p.registry.owners()[0].state, 'FROZEN');
     } finally { f.close(); }
   });
 }
 
 test('passive source should require a frozen checkpoint, unchanged inventory and current delegation at publication', () => {
-  for (const name of ['freeze', 'checkpoint', 'inventory', 'delegation', 'expiry', 'barrier', 'owner', 'bytes']) {
+  for (const name of ['freeze', 'checkpoint', 'inventory', 'delegation', 'expiry', 'owner', 'bytes']) {
     const f = liveFixture();
     try {
       if (name === 'freeze') {
@@ -201,7 +201,6 @@ test('passive source should require a frozen checkpoint, unchanged inventory and
         if (name === 'inventory') f.p.inventoryRevision++;
         if (name === 'delegation') f.changeUpgrade({ controllerAuthorityState: 'REVOKED' });
         if (name === 'expiry') f.now(3000);
-        if (name === 'barrier') f.now(2500);
         if (name === 'owner') {
           const owner = readState(f.p.registry.ownerPath('a'), 'ownership');
           replaceState(f.p.registry.ownerPath('a'), { ...owner.value, state: 'ACTIVE' }, 'ownership', owner);
@@ -209,9 +208,9 @@ test('passive source should require a frozen checkpoint, unchanged inventory and
         if (name === 'bytes') fs.appendFileSync(join(f.stateDirectory, f.admin.transaction().value.checkpointReferences[0]), ' ');
       }
       const publicationDigest = f.publication(); f.publish();
-      assert.throws(() => f.step('retire', { publicationDigest }), /live_|inventory_stale|barrier_expired|checkpoint_binding_mismatch|noncanonical_state/);
+      assert.throws(() => f.step('retire', { publicationDigest }), /live_|inventory_stale|checkpoint_binding_mismatch|noncanonical_state/);
       assert.equal(f.closes(), 0);
-      assert.equal(f.admin.status().state, name === 'freeze' ? 'BARRIER' : 'FROZEN');
+      assert.equal(f.admin.status().state, 'RECOVERY_BLOCKED');
     } finally { f.close(); }
   }
 });
@@ -223,7 +222,7 @@ test('uncommitted publication or contradiction should prevent expiration, abort 
       f.freeze(); const publicationDigest = f.publication();
       if (target === 'missing') fs.unlinkSync(f.markerPath);
       else f.publish(target === 'foreign' ? { ...f.next, buildId: 'foreign' } : f.next);
-      assert.throws(() => f.step('abort'), /live_publication_requires_reconciliation/);
+      assert.throws(() => f.step('abort'), target === 'concordant' ? /live_publication_requires_reconciliation/ : /live_publication_mismatch/);
       assert.equal(f.admin.status().state, 'RECOVERY_BLOCKED');
       f.now(2600); assert.equal(f.admin.expire(), false);
       f.admin.operatorStop(); assert.equal(f.closes(), 0);
@@ -231,9 +230,112 @@ test('uncommitted publication or contradiction should prevent expiration, abort 
       assert.equal(f.p.registry.owners()[0].state, 'FROZEN');
       assert.equal(f.admin.admissionsOpen(), false);
       if (target === 'concordant') {
-        f.now(1500);
         assert.equal(f.step('retire', { publicationDigest }).state, 'RETIRED');
       }
+    } finally { f.close(); }
+  }
+});
+
+test('reserved live source should durably close admissions on every publication contradiction without a deadline', () => {
+  for (const target of ['concordant', 'foreign', 'missing']) {
+    for (const observer of ['admissions', 'expiry']) {
+    const f = liveFixture();
+    try {
+      f.step('reserve', f.payload());
+      if (target === 'missing') fs.unlinkSync(f.markerPath);
+      else f.publish(target === 'foreign' ? { ...f.next, buildId: 'foreign' } : f.next);
+      if (observer === 'expiry') assert.equal(f.admin.expire(), false);
+      else assert.equal(f.admin.admissionsOpen(), false, target);
+      assert.equal(f.admin.transaction().value.state, 'RECOVERY_BLOCKED');
+      assert.equal(f.admin.transaction().value.barrierDeadline, null);
+      assert.equal(f.admin.expire(), false);
+      assert.equal(f.admin.status().state, 'RECOVERY_BLOCKED');
+      assert.equal(f.closes(), 0);
+    } finally { f.close(); }
+    }
+  }
+});
+
+test('real authority verification should persist publication contradictions before rejecting administrative requests', () => {
+  for (const operation of ['abort', 'barrier', 'renew', 'freeze', 'checkpoint', 'describe', 'inventory', 'drain-status', 'retire']) {
+    for (const target of ['foreign', 'missing']) {
+      const f = liveFixture();
+      try {
+        f.step('reserve', f.payload());
+        if (target === 'missing') fs.unlinkSync(f.markerPath);
+        else f.publish({ ...f.next, buildId: 'foreign' });
+        assert.throws(() => f.step(operation), /live_publication_mismatch/);
+        assert.equal(f.admin.transaction().value.state, 'RECOVERY_BLOCKED', `${operation}/${target}`);
+        assert.equal(f.admin.admissionsOpen(), false);
+        assert.equal(f.closes(), 0);
+      } finally { f.close(); }
+    }
+  }
+});
+
+test('aborted live authorization should never authorize a successor marker', () => {
+  const f = liveFixture();
+  try {
+    f.step('reserve', f.payload()); f.step('abort');
+    f.publish();
+    assert.equal(f.live.verifyAuthority(f.admin.transaction().value), false);
+    assert.throws(() => f.step('describe'), /source_authority_mismatch/);
+  } finally { f.close(); }
+});
+
+test('concordant publication should retire after an expired barrier without reversing time or skipping G0 drain', () => {
+  for (const observed of [false, true]) {
+    const f = liveFixture();
+    try {
+      const call = f.a.begin('call'); f.freeze(); const publicationDigest = f.publication(); f.publish();
+      f.now(2600);
+      if (observed) {
+        assert.equal(f.admin.expire(), false);
+        assert.equal(f.admin.status().state, 'RECOVERY_BLOCKED');
+      }
+      assert.throws(() => f.step('retire', { publicationDigest }), /drain_blocked/);
+      assert.equal(f.admin.status().state, 'PUBLISHED');
+      assert.equal(f.p.registry.owners()[0].state, 'TRANSFERRING');
+      assert.equal(f.admin.admissionsOpen(), false); assert.equal(f.closes(), 0);
+      f.now(2700); f.a.finish(call, { ok: true });
+      assert.equal(f.step('retire', { publicationDigest }).state, 'RETIRED');
+      assert.equal(f.closes(), 1);
+    } finally { f.close(); }
+  }
+});
+
+test('expired barrier recovery should retain authentication, delegation and checkpoint guards', () => {
+  for (const variant of ['MAC', 'foreign', 'missing', 'checkpoint', 'delegation', 'authorization-expired', 'no-barrier']) {
+    const f = liveFixture();
+    try {
+      if (variant === 'no-barrier') f.step('reserve', f.payload());
+      else f.freeze();
+      const publicationDigest = f.publication({}, variant === 'MAC');
+      f.publish(variant === 'foreign' ? { ...f.next, buildId: 'foreign' } : f.next);
+      if (variant === 'missing') fs.unlinkSync(f.markerPath);
+      if (variant === 'delegation') f.changeUpgrade({ controllerAuthorityState: 'REVOKED' });
+      if (variant === 'checkpoint') fs.appendFileSync(join(f.stateDirectory, f.admin.transaction().value.checkpointReferences[0]), ' ');
+      f.now(variant === 'authorization-expired' ? 3000 : 2600);
+      assert.throws(() => f.step('retire', { publicationDigest }), /live_|noncanonical_state|barrier_required/);
+      assert.equal(f.admin.status().state, 'RECOVERY_BLOCKED');
+      assert.equal(f.closes(), 0); assert.equal(f.admin.admissionsOpen(), false);
+      assert.equal(f.p.registry.owners()[0].state, variant === 'no-barrier' ? 'ACTIVE' : 'FROZEN');
+    } finally { f.close(); }
+  }
+});
+
+test('checkpoint validation should reject transferring or acquired owners before durable source publication', () => {
+  for (const state of ['TRANSFERRING', 'ACTIVE']) {
+    const f = liveFixture();
+    try {
+      f.freeze(); const publicationDigest = f.publication(); f.publish();
+      const path = f.p.registry.ownerPath('a'), owner = readState(path, 'ownership');
+      const changes = state === 'ACTIVE' ? { ownerGeneration: f.next.generation, ownerProcessIdentity: f.next.processIdentity,
+        ownershipEpoch: owner.value.ownershipEpoch + 1 } : {};
+      replaceState(path, { ...owner.value, state, ...changes }, 'ownership', owner);
+      assert.throws(() => f.p.checkTransfer(f.admin.transaction().value, f.next), /checkpoint_not_frozen/);
+      assert.throws(() => f.step('retire', { publicationDigest }), /checkpoint_not_frozen/);
+      assert.equal(f.admin.status().state, 'RECOVERY_BLOCKED'); assert.equal(f.closes(), 0);
     } finally { f.close(); }
   }
 });
@@ -254,6 +356,7 @@ test('passive retirement should persist publication before fencing and reconcile
   const f = liveFixture();
   try {
     const operation = f.a.begin('call'); f.freeze(); const publicationDigest = f.publication(); f.publish();
+    assert.equal(f.admin.admissionsOpen(), false);
     const fsync = fs.fsyncSync; let injected = false;
     t.mock.method(fs, 'fsyncSync', fd => {
       if (!injected && fs.fstatSync(fd).isDirectory()) { injected = true; throw new Error('injected_publication_fsync'); }
@@ -340,7 +443,9 @@ test('uncommitted publication should prevent operator stop from aborting before 
   const f = liveFixture();
   try {
     f.freeze(); f.publish();
-    assert.equal(f.admin.operatorStop().state, 'pause_active_stop_deferred');
+    let result;
+    assert.doesNotThrow(() => { result = f.admin.operatorStop(); });
+    assert.equal(result.state, 'pause_active_stop_deferred');
     assert.equal(f.admin.status().state, 'FROZEN'); assert.equal(f.closes(), 0);
     assert.equal(f.p.writerControl().gate, 'BARRIER');
   } finally { f.close(); }
@@ -458,8 +563,8 @@ test('passive source should refuse an opened gate without the exact acquired tar
 test('passive source should reconcile an uncertain ownership fence before checking participants again', t => {
   const f = liveFixture();
   try {
-    f.admin.options.verifyAuthority = (_operation, tx) => f.live.verifyAuthority(tx);
     const oldCall = f.a.begin('call'); f.freeze(); const publicationDigest = f.publication(); f.publish();
+    assert.equal(f.admin.admissionsOpen(), false);
     const fsync = fs.fsyncSync; let directories = 0;
     t.mock.method(fs, 'fsyncSync', fd => {
       if (fs.fstatSync(fd).isDirectory() && ++directories === 2) throw new Error('injected_fence_fsync');
@@ -484,7 +589,7 @@ test('passive source should revalidate selection, entry and precheck before publ
       f.freeze(); const publicationDigest = f.publication(); f.publish();
       f.admin.options[hook] = () => { throw new Error(reason); };
       assert.throws(() => f.step('retire', { publicationDigest }), new RegExp(reason));
-      assert.equal(f.admin.status().state, 'FROZEN'); assert.equal(f.closes(), 0);
+      assert.equal(f.admin.status().state, 'RECOVERY_BLOCKED'); assert.equal(f.closes(), 0);
       assert.equal(f.p.registry.owners()[0].state, 'FROZEN');
     } finally { f.close(); }
   }

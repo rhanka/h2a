@@ -1,0 +1,17 @@
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node --test packages/h2a/test/identity-readers.test.js
+node: v24.21.0
+private test root: /tmp/mh-l2-test-zoOrUp
+Claude config: /tmp/mh-l2-test-zoOrUp/claude
+✔ should resolve Codex identity without reading the growing transcript body (1.858155ms)
+✔ should preserve a UTF-8 header across short reads and EOF without a newline (0.794965ms)
+✔ should bound reads and release the descriptor for an oversized first record (3.964187ms)
+ℹ tests 3
+ℹ suites 0
+ℹ pass 3
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 47.23176
+
+receipt: {"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","--test","packages/h2a/test/identity-readers.test.js"],"code":0,"signal":null,"elapsedMs":72}

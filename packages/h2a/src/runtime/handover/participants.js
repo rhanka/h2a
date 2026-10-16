@@ -134,6 +134,7 @@ export class Participants {
         if (!owner || owner.handoverId !== tx.handoverId || !owner.checkpointHash ||
             !['FROZEN', 'TRANSFERRING', 'ACTIVE'].includes(owner.state) ||
             (owner.ownerGeneration === tx.source.generation && owner.state === 'ACTIVE')) throw new Error('checkpoint_binding_mismatch');
+        if (!['PUBLISHED', 'RETIRED'].includes(tx.state) && owner.state !== 'FROZEN') throw new Error('checkpoint_not_frozen');
         if (owner.ownerGeneration === tx.source.generation) this.registry.assertOwner(a.token, ['FROZEN', 'TRANSFERRING']);
         else if (!target || owner.ownerGeneration !== target.generation || owner.ownershipEpoch !== a.token.ownershipEpoch + 1 ||
             digest(owner.ownerProcessIdentity) !== digest(target.processIdentity) || owner.state !== 'ACTIVE') throw new Error('ownership_fenced');

@@ -1,0 +1,49 @@
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node --test --test-reporter=tap packages/h2a/test/mh-l2-live.test.js
+node: v24.21.0
+explicit oracle: uncommitted publication should prevent operator stop from aborting before reconciliation
+private root: /tmp/mh-l2-live-mutation-dozFfQ
+TAP version 13
+# Subtest: uncommitted publication should prevent operator stop from aborting before reconciliation
+not ok 1 - uncommitted publication should prevent operator stop from aborting before reconciliation
+  ---
+  duration_ms: 144.650393
+  type: 'test'
+  location: '/tmp/mh-l2fix-qual-06K2z1/source/packages/h2a/test/mh-l2-live.test.js:17:77'
+  failureType: 'testCodeFailure'
+  error: |-
+    Got unwanted exception.
+    Actual message: "source_authority_mismatch"
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  actual:
+  error: 'source_authority_mismatch'
+  stack: |-
+    Object.verifyAuthority (file:///tmp/mh-l2fix-qual-06K2z1/source/packages/h2a/test/helpers/mh-l2-live.js:56:116)
+    ColdAdministration.poll (file:///tmp/mh-l2fix-qual-06K2z1/source/packages/h2a/src/runtime/handover/administration.js:317:37)
+    ColdAdministration.operatorStop (file:///tmp/mh-l2fix-qual-06K2z1/source/packages/h2a/src/runtime/handover/administration.js:305:10)
+    file:///tmp/mh-l2fix-qual-06K2z1/source/packages/h2a/test/mh-l2-live.test.js:447:50
+    getActual (node:assert:611:5)
+    strict.doesNotThrow (node:assert:779:32)
+    TestContext.<anonymous> (file:///tmp/mh-l2fix-qual-06K2z1/source/packages/h2a/test/mh-l2-live.test.js:447:12)
+    Test.runInAsyncScope (node:async_hooks:227:14)
+    Test.run (node:internal/test_runner/test:1402:25)
+    Test.start (node:internal/test_runner/test:1262:17)
+  operator: 'doesNotThrow'
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/mh-l2fix-qual-06K2z1/source/packages/h2a/test/mh-l2-live.test.js:447:12)
+    Test.runInAsyncScope (node:async_hooks:227:14)
+    Test.run (node:internal/test_runner/test:1402:25)
+    Test.start (node:internal/test_runner/test:1262:17)
+    startSubtestAfterBootstrap (node:internal/test_runner/harness:387:17)
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 0
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 195.389809
+
+receipt: {"code":1,"signal":null}

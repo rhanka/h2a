@@ -354,7 +354,7 @@ Branch: `fix/presence-identity-liveness`. Base: `58f111b3` (origin/main at check
 - [x] Regression red/green and mutation proofs: 154/154 audited pairs on Node 22/24; initial cold restoration failures retained alongside two successful bounded reruns.
 - [x] Prefix-sensitive tests from clean git archive + npm ci/build under umask 022; all 20 qualified source/test/runner/schema/contract files match the worktree after restoration.
 - [x] Before push, enumerate every test file referencing touched files and run it; alternate spec naming checked too, no omitted references.
-- [ ] Expanded reference gate is NOT green: intermittent attachments failures remain unresolved; no merge/acceptance claim.
+- [x] Expanded reference gate was NOT_GREEN at 501ea371; the 2026-10-16 finding closure now qualifies attachments and affected references on Node 22/24. Historical failures remain archived; independent review still belongs to the conductor.
 
 ## Lot A — source contract amendment
 - [x] Dated contract amendment with owner decision and exact spec references.
@@ -1117,3 +1117,15 @@ La synchronisation finale intègre `origin/main` à `8c1912d7` par avance rapide
 - [x] bwrap fails before command execution; reviewed shell commands stay on authorized files and private temporary test state.
 - [x] Owner confinement overrides installed harness/Track recorders and installed h2a review dispatch; conductor owns independent review.
 - [x] French report mhl3b-report.md with separate amendment commits, evidence, uncovered scope, deviations and agent-hour/review-round estimates; update push receipt after delivery.
+
+## Independent MH-L2 review closure — 2026-10-16
+- [x] Current run is limited to the six findings in revl2amend.md; MH-L3 remains unstarted.
+- [x] Scope includes the directly blocking identity/live.ts and identity/worker.ts contention fixes, their deterministic regressions, and bounded proof runners.
+- [x] Contradictions are persisted before authority exceptions and observed without a barrier deadline; ABORTED grants no successor authority.
+- [x] Expired barriers permit authenticated concordant forward recovery while keeping delegation, selection, entry, precheck, checkpoint, ownership and drain guards.
+- [x] DELETE is refused during closed admissions; participant transfer/acquisition requires durable PUBLISHED.
+- [x] Key generation is outside the writer lock; publication rechecks the gate and competing keys; workers retry only the named contention error and classify budget exhaustion as identity_timeout.
+- [x] Direct central fixture supports private temporary fallback and separates its workspace from OS scratch without changing the product workspace guard.
+- [x] Original red failures and subsequent diagnostics are retained; no failed/cancelled qualification is called green.
+- [x] Node 22/24: 33 explicit affected files / 288 tests per profile, including all 20 MH-L2/MH-L4 files / 114 tests; six findings covered by 12 killed/restored mutations per profile, zero skips or cancellations.
+- [ ] Conductor independent review of the correction remains outside this confined run; installed h2a, harness/Track recorders and real owner state remain inaccessible by owner instruction.
