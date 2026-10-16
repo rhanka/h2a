@@ -99,7 +99,8 @@ export class NotificationDispatcher {
     private readonly store: LocalStore,
     private readonly root: string,
     private sink: NotificationSink | undefined,
-    private readonly intervalMs: number
+    private readonly intervalMs: number,
+    private readonly onError?: (error: unknown) => void
   ) {}
 
   setSink(sink: NotificationSink | undefined): void {
@@ -118,7 +119,15 @@ export class NotificationDispatcher {
 
   start(): void {
     if (this.timer) return;
-    this.timer = setInterval(() => this.tick(), this.intervalMs);
+    this.timer = setInterval(() => {
+      try {
+        this.tick();
+      } catch (error) {
+        // A scan or sink failure must not kill the MCP or its heartbeats.
+        // Unadvanced snapshots are retried on the next scheduled tick.
+        try { this.onError?.(error); } catch { /* diagnostic only */ }
+      }
+    }, this.intervalMs);
     this.timer.unref?.();
   }
 
