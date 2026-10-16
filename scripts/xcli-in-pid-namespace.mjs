@@ -18,6 +18,7 @@ assert.equal(compiled.status, 0, 'private PID namespace init must compile');
 const child = spawn('/usr/bin/sudo', ['-n', '/usr/bin/env',
   `XCLI_PARENT_PID_NS=${readlinkSync('/proc/self/ns/pid')}`,
   `XCLI_NODE_HEADERS=${process.env.XCLI_NODE_HEADERS ?? '/usr/include/node'}`,
+  ...(process.env.XCLI_SOURCE_TMP_PARENT ? [`XCLI_SOURCE_TMP_PARENT=${process.env.XCLI_SOURCE_TMP_PARENT}`] : []),
   `PATH=${process.env.PATH ?? '/usr/bin:/bin'}`,
   'GIT_CONFIG_COUNT=1', 'GIT_CONFIG_KEY_0=safe.directory', `GIT_CONFIG_VALUE_0=${repo}`,
   '/usr/bin/unshare', '--mount', '--pid', '--fork', '--mount-proc',
