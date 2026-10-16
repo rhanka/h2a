@@ -11,22 +11,29 @@
 - [x] Track imports reserved for the conductor in this concurrent worktree.
 
 ## Branch Scope Boundaries
-- [x] Allowed: packages/h2a/{src/hosts,src/cli.ts,src/runtime/mcp,skills,hooks,scripts,test,package.json}, scripts, docs, package-lock.json, BRANCH.md.
+- [x] Allowed: packages/h2a/{src/hosts,src/cli.ts,src/runtime/{mcp,upgrade},skills,hooks,scripts,test,package.json}, scripts, docs, package-lock.json, BRANCH.md.
 - [x] Forbidden: main, owner configuration/state, installed distribution, .track writes, unrelated fixes.
 - [x] Conditional: CI wiring for named tests and Node 22/24 parser checks only.
 
 ## Lots
 - [x] A1: isolated source runner and historical render catalog/generator; offline tests 2/2.
-- [ ] A2: safe native artifact writer, TOML 1.0 validation, ownership/backups/concurrency.
+- [x] A2: safe native artifact writer, TOML 1.0 validation, ownership/backups/concurrency.
 - [x] A3: Vibe guard/lifecycle wrappers and independent qualification freshness; hooks 2/2, convergence 2/2.
-- [ ] A4/E: skills/resources, VIBE_HOME, Muse and shared agy/Gemini ownership.
-- [ ] A5/E: doctor/status/install/plugin convergence and setup/connect diagnostics.
-- [ ] A6: explicit upgrade convergence and in-memory MCP operator notices.
-- [ ] A7/C: opt-in bounded qualification pilot, fork wording and phase-2 budget proof.
-- [ ] C: clean package consumer, named Node 22/24 checks, two-peer review and docs.
+- [x] A4/E: skills/resources, VIBE_HOME, Muse and shared agy/Gemini ownership.
+- [x] A5/E: doctor/status/install/plugin convergence and setup/connect diagnostics.
+- [x] A6: explicit upgrade convergence and in-memory MCP operator notices.
+- [x] A7/C: opt-in bounded qualification pilot, fork wording and phase-2 budget proof.
+- [x] C/code: clean tarball consumers, 17 named files / 93 pass, 0 fail/skip on Node 22.22.1 and 24.14.0; four package typechecks on both.
+- [x] Opus minors: mandatory doctor diagnostic oracle; corrected two-session phase-2 double with inclusive child accounting; session/fork default attachment wording.
+- [ ] C/acceptance: genuine native observations/config persistence and author-complementary harness consensus remain unqualified.
 - [ ] Delivery: conventional commits, fast-forward push, English PR, CI/report in French.
 
 ## Feedback Loop
 - [x] B receipt discovery/API not accepted: no production reader or invented MCP writer.
 - [x] Native target-host qualification and common RC-3 remain external acceptance gates.
 - [x] bwrap unavailable; scoped shell calls require reviewed escalation.
+
+## Delivery evidence
+- [x] Two confined technical reviews reconciled in docs/reviews/2026-10-16-native-host-equipment.md; no harness consensus claimed.
+- [x] Main inherited red: CI 38885431018, npm-test-trust-root B5 harmless proc entry case 2; legacy inventory 250ms exceeded. No guard weakened.
+- [ ] B/R5/R7 receipt API, target-post Vibe qualification, Muse/agy M-B and common RC-3 remain external; A/E does not close the original MCP demand.
