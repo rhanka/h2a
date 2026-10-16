@@ -59,7 +59,7 @@ Boundaries consumed by the following lots:
 
 | Boundary | L2 behavior / follow-on |
 |---|---|
-| Per-attachment ownership/checkpoint | Framework hooks exist; production freeze/checkpoint qualifies only an empty inventory. A transaction with unqualified transports refuses before barrier. MH-L3/L4 supplies full attachment semantics. |
+| Per-attachment ownership/checkpoint | MH-L4 now supplies the qualified source barrier/freeze/checkpoint and independent operation rights. Unqualified writers/transports still refuse; MH-L3 supplies stable logical attachment/transport semantics. |
 | Retire/live source transition | Passive `live-transfer` acceptance under the 2026-10-15 amendment below. No product strategy initiates it; the external conformance peer (later the .8 coordinator) supplies authorization and publication. |
 | Shim transport epochs, IDs/progress/cancellation | Authentication envelope is implemented; logical transport/replay/fencing remains MH-L3. |
 | Store writers/wake/launch receipts | Pending runtime executor and notification callbacks are counted; unknown/launching outcomes stay blocked. Full business reconciliation/admission fences remain MH-L4. |
@@ -99,6 +99,11 @@ successor-attempt contracts. Live acceptance additionally requires:
    epoch, selected manifest and build. A private ticket and immutable
    `delegationReceipt` in `I/state/upgrade/receipts/<digest>.json` agree on the
    ticket digest, predecessor revision, delegated identity/build and manifest.
+   A separate ticket MAC proves possession of the private ticket nonce: its key
+   is SHA-256(UTF-8 ticketNonce), the existing `requests` key domain and source
+   context are used, and the canonical payload is
+   `{purpose:'live-source-ticket',authorization:<record without mac/ticketMac>}`.
+   The source compatibility MAC covers this ticket MAC as well as the tuple.
    Ticket references are relative to `I/state/upgrade`; no ticket or secret is
    sent to a shim or put in a public report. The receipt adds no product H4
    producer; the conformance peer supplies these private fixtures.

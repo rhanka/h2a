@@ -530,10 +530,16 @@ export async function startCentralMcpServer(
         await new Promise<void>((resolve, reject) => httpServer!.close(error => error ? reject(error) : resolve()));
         const retiring = administration?.transaction()?.value;
         if (claim && !(retiring?.mode === 'live-transfer' && retiring.state === 'RETIRED')) removeMarker(markerPath, claim);
-        const stoppedControl = administration!.control()!;
-        replaceState(join(stateDirectory, "component-control.json"), {
-          ...stoppedControl.value, revision: stoppedControl.value.revision + 1, ownerState: "CLOSED",
-          operatorStopped: stoppedControl.value.operatorStopCommitted }, "componentControl", stoppedControl);
+        const closeOwnControl = () => {
+          const stoppedControl = administration!.control()!;
+          if (stoppedControl.value.sourceGeneration !== marker.generation ||
+              digest(stoppedControl.value.ownerIdentity) !== digest(identity)) return;
+          replaceState(join(stateDirectory, "component-control.json"), {
+            ...stoppedControl.value, revision: stoppedControl.value.revision + 1, ownerState: "CLOSED",
+            operatorStopped: stoppedControl.value.operatorStopCommitted }, "componentControl", stoppedControl);
+        };
+        if (participants) participants.registry.withLock(closeOwnControl);
+        else closeOwnControl();
         const transaction = administration?.transaction();
         if (transaction?.value.state === "STOP_COMMITTED") {
           const control = administration!.control()!.value;
