@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
+import { runCli as runTrackCli } from '@sentropic/track';
 import { QualificationBudget, VIBE_QUALIFICATION_PLAN, PHASE2_RECIPE } from './qualification-budget.mjs';
 import { qualifyVibe } from './qualification-vibe.mjs';
 import { qualifyVibeProbe } from './qualification-probe.mjs';
@@ -37,11 +38,13 @@ const instance = `h2a-qualification-${randomUUID()}`;
 const entrypoint = fileURLToPath(new URL('../dist/bin.js', import.meta.url));
 const evidence = [], cleanup = { sessions: [], deleted: [], incomplete: false, instances: [] };
 const budget = new QualificationBudget();
+let previousAttempt;
 if (phase === 2) {
   if (!flags.previous) throw new Error('phase 2 requires --previous <phase-1 attempt.json>');
   const previous = JSON.parse(fs.readFileSync(flags.previous, 'utf8'));
   if (previous.host !== flags.host || previous.busRoot !== busRoot || previous.profileHome !== flags.home || previous.phase !== 1) throw new Error('phase-1 profile/bus mismatch');
   budget.restorePhase1(previous.accounting, previous.elapsedMilliseconds);
+  previousAttempt = previous;
 }
 const controller = new AbortController(), interrupt = () => controller.abort();
 process.once('SIGINT', interrupt); process.once('SIGTERM', interrupt);
@@ -54,7 +57,7 @@ try {
     report.results = qualifyPollHost({ host: flags.host, env, cwd: join(lane, 'workspace-a'), evidence });
     if (flags.host === 'agy') {
       const root = join(flags.home, '.gemini'), state = join(root, '.h2a-install-agy');
-      const shared = snapshot(join(root, '.h2a-install/commands-manifest.json'));
+      const shared = snapshot(join(root, '.h2a-install-agy/shared-owner.json'));
       if (shared) {
         const path = join(state, 'import-observation.json');
         atomicNativeWrite(path, jsonBytes({ schema: 1, root, status: report.results.import, sharedManifestHash: digest(shared.bytes) }), { state, expected: snapshot(path) });
@@ -62,6 +65,13 @@ try {
     }
     report.limit = 'The native Muse/agy model accounting and session trace contracts are unverified. No unbounded model invocation is launched; M-B remains required.';
   } else {
+    // Track must resolve a real, private store in each disposable workspace;
+    // an empty-view hint from an unadopted directory is not context evidence.
+    for (const name of ['workspace-a', 'workspace-b']) {
+      const workspace = join(lane, name);
+      const code = await runTrackCli(['--track-dir', join(workspace, '.track'), 'init'], { cwd: workspace, out: () => {}, err: () => {} });
+      if (code !== 0) throw new Error('private qualification Track initialization failed');
+    }
     if (phase === 2) {
       const root = env.VIBE_HOME || join(flags.home, '.vibe');
       const manifest = JSON.parse(fs.readFileSync(join(root, '.h2a-install/manifest.json'), 'utf8'));
@@ -73,13 +83,13 @@ try {
     }
     const profileRoot = env.VIBE_HOME || join(flags.home, '.vibe');
     const manifest = JSON.parse(fs.readFileSync(join(profileRoot, '.h2a-install/manifest.json'), 'utf8'));
-    const requiredResources = Object.entries(manifest.files).filter(([path, entry]) => path.includes('/assets/') && entry.selected).map(([path]) => ({ path, bytes: fs.readFileSync(path, 'utf8') }));
+    const requiredResources = Object.entries(manifest.files).filter(([path, entry]) => path.includes('/assets/') && entry.selected).map(([path]) => ({ path: resolve(profileRoot, path), bytes: fs.readFileSync(resolve(profileRoot, path), 'utf8') }));
     report.results = await qualifyVibe({ command: flags['app-server'] ?? 'vibe-app-server', args: [], env,
       workspaces: [join(lane, 'workspace-a'), join(lane, 'workspace-b')], busRoot, phase, budget, signal: controller.signal, evidence, cleanup, components, requiredResources,
       clearRecords: () => clearQualificationRecords({ root: busRoot, instances: cleanup.instances, entrypoint, env }),
       recordSnapshot: () => ownedRecordSnapshot(busRoot, flags['owned-instance']) });
     if (phase === 1) report.probe = await qualifyVibeProbe({ command: flags.vibe ?? 'vibe', appServer: flags['app-server'] ?? 'vibe-app-server', cwd: join(lane, 'workspace-a'), env,
-      tools: report.results.probeTools ?? [], requiredResources, busRoot, budget, signal: controller.signal, evidence, cleanup, directory: lane });
+      tools: report.results.probeTools ?? [], requiredResources, busRoot, components, budget, signal: controller.signal, evidence, cleanup, directory: lane });
     if (flags.record && flags.metadata && !cleanup.incomplete) {
       const metadata = fs.readFileSync(flags.metadata, 'utf8'), version = /^Version: (.+)$/m.exec(metadata)?.[1];
       if (!/Name: mistral[-_]vibe/i.test(metadata) || version !== report.results.runtimeVersion) throw new Error('mistral-vibe wheel metadata does not match the native runtime');
@@ -106,6 +116,17 @@ finally {
   clearTimeout(watchdog); process.removeListener('SIGINT', interrupt); process.removeListener('SIGTERM', interrupt);
   report.accounting = [...budget.executions.values()];
   report.elapsedMilliseconds = Date.now() - budget.start;
+  const currentPhase = phase === 1 ? ['skills', 'MCP', 'context'] : ['guard', 'lifecycle'];
+  report.componentStatus = Object.fromEntries(components.map(component => {
+    const current = currentPhase.includes(component);
+    const attempt = current ? report : previousAttempt;
+    const observed = attempt?.results?.[component] === 'observed' &&
+      (!['skills', 'MCP', 'context'].includes(component) || attempt?.probe?.status === 'observed') &&
+      !attempt?.error && !attempt?.cleanup?.incomplete && attempt?.fixture === report.fixture;
+    return [component, observed ? 'qualified' : 'partial'];
+  }));
+  if (!report.error && !cleanup.incomplete && Object.values(report.componentStatus).every(status => status === 'qualified'))
+    report.status = report.fixture ? 'fixture-only' : 'qualified';
   // Persist only bounded metadata/hashes, never prompts, model output, stderr or credentials.
   const path = evidencePath;
   if (!cleanup.incomplete) fs.rmSync(lane, { recursive: true, force: true });
@@ -119,4 +140,4 @@ finally {
   }
 }
 process.stdout.write(JSON.stringify({ status: report.status, evidence: evidencePath, cleanupComplete: !cleanup.incomplete }) + '\n');
-process.exitCode = 2;
+process.exitCode = report.status === 'qualified' ? 0 : 2;

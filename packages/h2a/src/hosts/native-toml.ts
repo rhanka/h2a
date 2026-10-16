@@ -49,13 +49,18 @@ export function editVibeHooks(text: string, wanted: readonly VibeHook[], owned: 
     if (!desired || semanticDigest(desired) !== semanticDigest(hook)) {
       const node = tables[i];
       if (!node) throw new Error('unsupported hook table layout');
-      edits.push({ start: node.range[0], end: node.range[1], bytes: desired ? renderVibeHook(desired).trimEnd() : '' });
+      // Added blocks own their leading separator; keep unrelated trailing bytes.
+      const start = !desired && text[node.range[0] - 1] === '\n' ? node.range[0] - 1 : node.range[0];
+      const end = !desired && text[node.range[1]] === '\n' ? node.range[1] + 1 : node.range[1];
+      edits.push({ start, end, bytes: desired ? renderVibeHook(desired).trimEnd() : '' });
     }
   }
+  const additions: string[] = [];
   for (const hook of wanted) {
     nextOwned[hook.name] = semanticDigest(hook);
-    if (!seen.has(hook.name)) edits.push({ start: text.length, end: text.length, bytes: '\n' + renderVibeHook(hook) });
+    if (!seen.has(hook.name)) additions.push('\n' + renderVibeHook(hook));
   }
+  if (additions.length) edits.push({ start: text.length, end: text.length, bytes: additions.join('') });
   if (assignment && wanted.length) edits.push({ start: assignment.range[0], end: assignment.range[1], bytes: '' });
   let rendered = text;
   for (const edit of edits.sort((a, b) => b.start - a.start)) rendered = rendered.slice(0, edit.start) + edit.bytes + rendered.slice(edit.end);

@@ -20,7 +20,7 @@ function cli(args, cwd) {
   const code = runCli(args, { cwd: () => cwd, stdout: { write: s => { out += s; } }, stderr: { write: s => { err += s; } } });
   return { code, out, err, json: () => JSON.parse(out) };
 }
-test('Vibe installs resources under VIBE_HOME and preserves custom skills even with force', t => {
+test('Vibe installs resources under VIBE_HOME, requires force for managed edits and preserves unknown skills', t => {
   const { dir, vibe } = fixture(t);
   const first = cli(['install-skills', '--host', 'vibe'], dir);
   assert.equal(first.code, 0, first.err);
@@ -31,9 +31,17 @@ test('Vibe installs resources under VIBE_HOME and preserves custom skills even w
   const before = fs.statSync(path).mtimeMs;
   assert.equal(cli(['install-skills', '--host', 'vibe'], dir).code, 0);
   assert.equal(fs.statSync(path).mtimeMs, before);
+  const original = fs.readFileSync(path);
   fs.writeFileSync(path, 'personal instructions\n');
-  assert.notEqual(cli(['install-skills', '--host', 'vibe', '--force'], dir).code, 0);
+  assert.notEqual(cli(['install-skills', '--host', 'vibe'], dir).code, 0);
   assert.equal(fs.readFileSync(path, 'utf8'), 'personal instructions\n');
+  assert.equal(cli(['install-skills', '--host', 'vibe', '--force'], dir).code, 0);
+  assert.deepEqual(fs.readFileSync(path), original);
+  const unknown = path, manifestPath = join(vibe, '.h2a-install/manifest.json');
+  const manifest = JSON.parse(fs.readFileSync(manifestPath)); delete manifest.files['skills/h2a/SKILL.md']; fs.writeFileSync(manifestPath, JSON.stringify(manifest));
+  fs.writeFileSync(unknown, 'unknown personal skill');
+  assert.notEqual(cli(['install-skills', '--host', 'vibe', '--force'], dir).code, 0);
+  assert.equal(fs.readFileSync(unknown, 'utf8'), 'unknown personal skill');
 });
 test('doctor and status expose the mandatory missing-MCP diagnostic without a write workaround', t => {
   const { dir } = fixture(t);

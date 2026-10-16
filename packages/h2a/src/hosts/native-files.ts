@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { closeSync, constants, fsyncSync, lstatSync, mkdirSync, openSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
-import { dirname, join, parse, resolve, sep } from 'node:path';
+import { dirname, isAbsolute, join, parse, relative, resolve, sep } from 'node:path';
 
 export const digest = (bytes: string | Buffer): string => createHash('sha256').update(bytes).digest('hex');
 export const jsonBytes = (value: unknown): string => JSON.stringify(value, null, 2) + '\n';
@@ -68,16 +68,30 @@ export interface NativeManifest {
   lifecycle?: { enabled: boolean; instance: string; root?: string; status?: string };
 }
 export function readNativeManifest(state: string, host: string, root: string, version: string, manifestName = 'manifest.json'): NativeManifest {
-  const current = snapshot(join(state, manifestName));
+  let current = snapshot(join(state, manifestName));
+  // Upgrade the former shared-store layout; its pointer is not an owner manifest.
+  if (host === 'gemini-commands' && (!current || !JSON.parse(current.bytes.toString()).files))
+    current = snapshot(join(root, '.h2a-install/commands-manifest.json'));
   if (!current) return { schema: 1, host, root, version, files: {} };
   const value = JSON.parse(current.bytes.toString()) as NativeManifest;
-  if (value.schema !== 1 || value.host !== host || value.root !== root || !value.files || Array.isArray(value.files))
+  return normalizeNativeManifest(value, host, root);
+}
+export function nativeRelativePath(root: string, path: string): string {
+  const key = relative(resolve(root), resolve(root, path));
+  if (!key || key === '..' || key.startsWith('..' + sep) || isAbsolute(key)) throw new Error('invalid or out-of-root native manifest entry');
+  return key;
+}
+export function normalizeNativeManifest(value: NativeManifest, host: string, root: string): NativeManifest {
+  if (value.schema !== 1 || value.host !== host || !isAbsolute(value.root ?? '') || !value.files || Array.isArray(value.files))
     throw new Error('unknown or incompatible native manifest');
+  const files: NativeManifest['files'] = {};
   for (const [path, entry] of Object.entries(value.files)) {
-    if (!resolve(path).startsWith(resolve(root) + sep) || !/^[a-f0-9]{64}$/.test(entry.sha256) || typeof entry.source !== 'string' || typeof entry.selected !== 'boolean')
+    const key = nativeRelativePath(value.root, path);
+    if (!/^[a-f0-9]{64}$/.test(entry.sha256) || typeof entry.source !== 'string' || typeof entry.selected !== 'boolean' || files[key])
       throw new Error('invalid or out-of-root native manifest entry');
+    files[key] = entry;
   }
   if (value.guard !== undefined && !['on', 'off'].includes(value.guard)) throw new Error('invalid guard selection');
   if (value.lifecycle && (typeof value.lifecycle.enabled !== 'boolean' || !value.lifecycle.instance || value.lifecycle.instance === 'auto')) throw new Error('invalid explicit lifecycle selection');
-  return value;
+  return { ...value, root, files };
 }

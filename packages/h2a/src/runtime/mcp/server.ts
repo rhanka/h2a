@@ -1,4 +1,5 @@
 import { handleDriveConsent, CONSENT_TOOLS } from "../drive/consent-tools.js";
+import { resolve } from 'node:path';
 import { createLocalStore, type LocalStore } from "../local-files/store.js";
 
 import {
@@ -348,7 +349,8 @@ export function createMcpServer(options: CreateMcpServerOptions): McpServer {
   ): ReturnType<McpServer["callTool"]> {
     if (name === "h2a_identity_status") {
       const notices = options.operatorNotices?.() ?? [];
-      return { content: [{ type: "text", text: JSON.stringify({ ...identityStatus(), ...(notices.length ? { operator_notices: notices } : {}) }) }] };
+      return { content: [{ type: "text", text: JSON.stringify({ ...identityStatus(), root: store.paths.root,
+        workspaceRoot: resolve(options.workspaceRoot ?? process.cwd()), ...(notices.length ? { operator_notices: notices } : {}) }) }] };
     }
     const guard = guardIdentity(name, args);
     if (guard) return guard;

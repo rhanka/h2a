@@ -79,6 +79,8 @@ import { renderCommandMap } from "./cli-command-map.js";
 import { resolveHostConfigRoot } from "./runtime/host-config-root.js";
 import { isNativeHost, NATIVE_HOSTS, REGISTRY_WAITING, vibeHome } from "./hosts/native-paths.js";
 import { convergeNativeHost } from "./hosts/native-convergence.js";
+import { nativeSkillArtifacts } from "./hosts/native-skills.js";
+import { assertNativePath } from "./hosts/native-files.js";
 import { convergeAfterExplicitUpgrade } from "./hosts/upgrade-equipment.js";
 import { captureHostOperatorNotices } from "./hosts/operator-notices.js";
 
@@ -4710,7 +4712,7 @@ function cmdHostPlugin(flags: Record<string, string>, streams: H2ACliStreams): n
       if (flags.write && resolvePath(flags.write) !== join(vibeHome(), 'hooks.toml')) {
         streams.stderr.write('h2a host plugin: this target is not available for vibe; post_agent requires the effective <VIBE_HOME>/hooks.toml TOML file.\n'); return 1;
       }
-      const result = nativeHostReport('vibe', flags, !!flags.write);
+      const result = nativeHostReport('vibe', flags, !!flags.write, false, undefined, streams.cwd?.());
       streams.stdout.write(`${JSON.stringify({ ...result, push: true, mechanism: 'vibe-hooks', record: 'rendered' in result ? result.rendered : '',
         receive: 'N-A', hint: 'post_agent in <VIBE_HOME>/hooks.toml; ' + ('lifecycleScope' in result ? result.lifecycleScope : 'hôte absent') }, null, 2)}\n`);
       return result.ok ? 0 : 2;
@@ -6969,7 +6971,7 @@ function nativeHostReport(host: string, flags: Record<string, string>, repair: b
   if (collection.error) throw new Error(collection.error.message);
   return convergeNativeHost({ host, root, cwd, version: currentCliVersion(), skills: collection.skills, renderGemini: renderSkillAsGeminiToml,
     sourcesComplete: collection.sources.every(s => s.dir !== null && s.count > 0), repair, explicitInstall,
-    dryRun: flags['dry-run'] === 'true', guard: flags.guard, lifecycle: flags.lifecycle,
+    dryRun: flags['dry-run'] === 'true', force: flags.force === 'true', guard: flags.guard, lifecycle: flags.lifecycle,
     instance: flags.instance, busRoot: flags.root, status: flags.status });
 }
 
@@ -7017,9 +7019,9 @@ function cmdInstallSkills(
   }
 
   const targetBase = scope === "user" ? spec.userBase : spec.projectBase;
-  if (isNativeHost(host) || host === 'gemini') {
+  if (scope === 'user' && (isNativeHost(host) || host === 'gemini')) {
     try {
-      const result = nativeHostReport(host, flags, true, true, dirname(targetBase));
+      const result = nativeHostReport(host, flags, true, true, dirname(targetBase), cwd());
       streams.stdout.write(`${JSON.stringify({ ...result, scope, targetBase, installed: 'changed' in result ? result.changed : [], sources: collection.sources,
         prunedLegacy: [], skipped: 'conflicts' in result ? result.conflicts.map(path => ({ path, reason: 'customized or unknown provenance; preserved' })) : [],
         ...(host === 'muse' ? { verifyHint: 'muse skills list   # project scope requires workspace trust' } : {}),
@@ -7029,7 +7031,7 @@ function cmdInstallSkills(
     } catch (error) { streams.stderr.write(`h2a install-skills: ${(error as Error).message}\n`); return 3; }
   }
   // DEC-057: prune the pre-consolidation skill names if they linger on disk.
-  const prunedLegacy = pruneLegacy(spec, targetBase);
+  const prunedLegacy = isNativeHost(host) || host === 'gemini' ? [] : pruneLegacy(spec, targetBase);
 
   const installed: string[] = [];
   const skipped: Array<{ name: string; reason: string }> = [];
@@ -7050,7 +7052,14 @@ function cmdInstallSkills(
       continue;
     }
     try {
-      const targetPath = spec.write(targetBase, skillName, skill.parsed, skill.raw);
+      let targetPath: string;
+      if (scope === 'project' && (isNativeHost(host) || host === 'gemini')) {
+        const artifacts = nativeSkillArtifacts({ host, root: dirname(targetBase), project: true, version: currentCliVersion(), skills: [skill], renderGemini: renderSkillAsGeminiToml, historicalHashes: () => [] });
+        for (const artifact of artifacts) {
+          assertNativePath(artifact.path); mkdirSync(dirname(artifact.path), { recursive: true }); writeFileSync(artifact.path, artifact.bytes);
+        }
+        targetPath = probeTarget;
+      } else targetPath = spec.write(targetBase, skillName, skill.parsed, skill.raw);
       installed.push(targetPath);
     } catch (error) {
       streams.stderr.write(

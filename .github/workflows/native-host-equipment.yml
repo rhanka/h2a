@@ -30,6 +30,8 @@ jobs:
           packages/h2a/test/native-host-qualification.test.js
           packages/h2a/test/native-host-oracles.test.js
           packages/h2a/test/native-host-pilot.test.js
+          packages/h2a/test/native-host-pilot-report.test.js
+          packages/h2a/test/native-host-review-regressions.test.js
           packages/h2a/test/native-host-proof.test.js
           packages/h2a/test/native-host-package.test.js
           packages/h2a/test/vibe-native-hooks.test.js
