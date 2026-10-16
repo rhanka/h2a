@@ -4,20 +4,49 @@ import { createHash } from 'node:crypto';
 import { openQualificationRpc } from './qualification-rpc.mjs';
 import { PHASE2_RECIPE } from './qualification-budget.mjs';
 import { inspectGuardEntries, inspectLifecycleEntries, inspectMcpEntries, inspectSkillEntries } from './qualification-oracles.mjs';
+import { patchNativeHistory } from './qualification-patch.mjs';
 const sha = value => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 export function nativeStats(stats) {
   if (!Number.isInteger(stats?.steps)) throw new Error('native iteration accounting unavailable');
   const { sessionPromptTokens: prompt, sessionCompletionTokens: completion, sessionCachedTokens: cached,
     inputPricePerMillion: input, outputPricePerMillion: output, cachedInputPricePerMillion: cachePrice } = stats;
-  if (![prompt, completion, cached, input, output].every(n => Number.isFinite(n) && n >= 0)) throw new Error('native price accounting unavailable');
+  if (![prompt, completion, cached, input, output].every(n => Number.isFinite(n) && n >= 0) || cached > prompt || cachePrice != null && (!Number.isFinite(cachePrice) || cachePrice < 0)) throw new Error('native price accounting unavailable');
   return { modelCalls: stats.steps, price: ((prompt - cached) * input + cached * (cachePrice ?? input) + completion * output) / 1_000_000 };
 }
 export async function qualifyVibe({ command = 'vibe-app-server', args = [], env, workspaces, busRoot, phase, budget, signal, evidence, cleanup, components, requiredResources = [], clearRecords = () => {}, recordSnapshot = () => undefined }) {
   const sessions = new Map(), history = new Map(), turns = new Map(), completedTurns = new Map(), calls = [];
   let rpc;
+  let lifecycleOrigin, recordBaseline, parentHookStarted, childRecordUntouched = false, parentRecordTransitions = 0, parentAfter;
+  const accounted = new Map();
+  const account = (sessionId, stats) => {
+    const execution = sessions.get(sessionId); if (!execution) throw new Error('unmapped native statistics');
+    const current = nativeStats(stats), previous = accounted.get(sessionId) ?? { modelCalls: 0, price: 0 };
+    budget.account(execution.id, { modelCalls: current.modelCalls - previous.modelCalls, price: current.price - previous.price }); accounted.set(sessionId, current);
+  };
   const onEvent = message => {
     const p = message.params ?? {};
     if (p.entry) { const entries = history.get(p.sessionId) ?? new Map(); entries.set(p.entry.id, p.entry); history.set(p.sessionId, entries); }
+    if (p.entryId && p.patch) {
+      const entries = history.get(p.sessionId), entry = entries?.get(p.entryId);
+      if (entry) try { entries.set(p.entryId, patchNativeHistory(entry, p.patch)); } catch { entries.delete(p.entryId); }
+    }
+    if (p.childSession && sessions.has(p.sessionId)) {
+      sessions.set(p.childSession.id, sessions.get(p.sessionId)); cleanup.sessions.push(p.childSession.id);
+      if (p.sessionId === lifecycleOrigin && p.childSession.status?.type === 'idle') childRecordUntouched = JSON.stringify(recordSnapshot()) === JSON.stringify(recordBaseline);
+    }
+    if (message.method === 'stats/updated' && sessions.has(p.sessionId)) try { account(p.sessionId, p.stats); } catch { rpc.child.kill('SIGTERM'); }
+    const detail = p.entry?.detail;
+    if (p.sessionId === lifecycleOrigin && detail?.scope === 'post_agent') {
+      if (detail.kind === 'hook_run_started') {
+        parentHookStarted = Date.now();
+        if (JSON.stringify(recordSnapshot()) !== JSON.stringify(recordBaseline)) childRecordUntouched = false;
+      }
+      if (detail.kind === 'hook_run_completed') {
+        const current = recordSnapshot();
+        if (JSON.stringify(current?.own) !== JSON.stringify(parentAfter?.own)) parentRecordTransitions++;
+        parentAfter = current;
+      }
+    }
     if (message.method === 'turn/completed') { completedTurns.set(p.turn?.id, p.turn); turns.get(p.turn?.id)?.(p.turn); }
     evidence.push({ method: message.method, sessionId: p.sessionId, eventId: p.eventId, sha256: sha(message) });
   };
@@ -43,7 +72,7 @@ export async function qualifyVibe({ command = 'vibe-app-server', args = [], env,
   };
   const turn = async (sessionId, text) => {
     const execution = sessions.get(sessionId);
-    const watchdog = setTimeout(() => rpc.child.kill('SIGTERM'), Math.max(1, execution.allocation.maxSeconds * 1000 - (Date.now() - execution.started)));
+    const watchdog = setTimeout(() => rpc.child.kill('SIGTERM'), Math.max(1, Math.min(budget.remaining(), execution.allocation.maxSeconds * 1000 - (Date.now() - budget.executions.get(execution.id).started))));
     try {
       const result = await rpc.request('turn/start', { sessionId, message: [{ type: 'text', text }] });
       const completed = completedTurns.has(result.turn.id) ? Promise.resolve(completedTurns.get(result.turn.id)) : new Promise(resolve => turns.set(result.turn.id, resolve));
@@ -52,13 +81,13 @@ export async function qualifyVibe({ command = 'vibe-app-server', args = [], env,
       const done = await Promise.race([completed, died]).finally(() => rpc.child.removeListener('exit', onExit)); turns.delete(result.turn.id);
       if (done.status !== 'completed') throw new Error('native turn incomplete');
       const stats = await rpc.request('stats/read', { sessionId });
-      budget.account(execution.id, nativeStats(stats.stats));
+      account(sessionId, stats.stats);
       const state = await rpc.request('session/read', { sessionId });
       // Delegated calls are included; unavailable child accounting is partial.
       for (const child of state.state?.childSessions ?? []) {
         cleanup.sessions.push(child.id);
         const childStats = await rpc.request('stats/read', { sessionId: child.id });
-        budget.account(execution.id, nativeStats(childStats.stats));
+        sessions.set(child.id, execution); account(child.id, childStats.stats);
       }
       return [...(history.get(sessionId)?.values() ?? [])];
     } finally { clearTimeout(watchdog); }
@@ -89,6 +118,7 @@ export async function qualifyVibe({ command = 'vibe-app-server', args = [], env,
       if (mcpContexts.length === 2 && mcpContexts.every(c => c.context) && mcpContexts[0].h2aSessionId !== mcpContexts[1].h2aSessionId) result.context = 'observed';
     } else {
       const origin = await start('phase2-origin', workspaces[0]); result.sessions.push(origin);
+      lifecycleOrigin = origin; recordBaseline = recordSnapshot();
       const allocation = budget.begin('phase2-copy');
       const fork = await rpc.request('session/fork', { sourceSessionId: origin, attach: PHASE2_RECIPE.fork.attach });
       const copy = fork.state?.session;
@@ -101,7 +131,9 @@ export async function qualifyVibe({ command = 'vibe-app-server', args = [], env,
       const copyEntries = await turn(copy.id, 'Run exactly printf vibe-guard-ok, then request h2a --version to exercise the installed guard, then answer once. Do not run other commands.');
       result.lifecycleRecordUnchangedInFork = JSON.stringify(parentRecord) === JSON.stringify(recordSnapshot());
       result.parentRecordPresent = !!parentRecord?.own;
-      result.recordedAfterParent = parentRecord?.own?.stoppedAt && Date.parse(parentRecord.own.stoppedAt) >= sessions.get(origin).started;
+      result.recordedAfterParent = !!parentHookStarted && !!parentRecord?.own?.stoppedAt && Date.parse(parentRecord.own.stoppedAt) >= parentHookStarted;
+      result.childRecordUntouched = childRecordUntouched; result.parentRecordTransitions = parentRecordTransitions;
+      result.otherInstancesUntouched = JSON.stringify(parentRecord?.others) === JSON.stringify(recordBaseline?.others);
       calls.push(...originEntries, ...copyEntries);
       if (inspectGuardEntries(copyEntries, copy.id)) result.guard = 'observed';
       if (inspectLifecycleEntries(calls, origin, copy.id, result)) result.lifecycle = 'observed';
