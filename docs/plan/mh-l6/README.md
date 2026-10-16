@@ -4,6 +4,9 @@ La branche ne constitue pas encore le lot MH-L6 complet. Le découpage et les
 gates restantes sont dans [BRANCH.md](BRANCH.md). Aucun conducteur MCP vivant,
 aucune découverte MCP registry et aucune action native ne sont introduits.
 
+Le checkpoint de délégation/récupération est décrit dans [B1.md](B1.md) et
+`proof-B1.json`. Les preuves A ci-dessous restent rattachées à `dd23a00a`.
+
 ## A — journal et sélection
 
 `UpgradeStore` ajoute le journal canonique sous le préfixe physique, l'exclusion

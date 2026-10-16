@@ -866,7 +866,8 @@ Branch: `fix/presence-identity-liveness`. Base: `58f111b3` (origin/main at check
 - [x] Owner authorizes the full MH-L6 realization on feat/0.98.7-mh-l6 from reviewed MH-L5; sub-lots and gates in docs/plan/mh-l6/BRANCH.md.
 - [x] A: canonical H4 journal, compatible prefix exclusion, pins, durable selection and forward reconciliation. Node 22/24: 25 targeted tests and 14 killed/restored mutations each; exact bytes/receipts in docs/plan/mh-l6/proof-A.json.
 - [x] Explicit size exception: keep each cohesive engine/test/mutation/proof change together; selective staging, rollback by commit, no unrelated changes.
-- [ ] B–F: delegation/guardian exclusion, launcher/bootstrap/adoption, unmanage/npm, closed packaging/native freeze and common CLI/automatic/M18 integration.
+- [x] B1: durable exact-target delegation and receipt, source revocation, proven-dead delegate/controller recovery and compatible guardian succession. Node 22/24: 24 targeted tests, 30 killed/restored mutation pairs per profile; proof-B1.json.
+- [ ] B2–F: future legacy installer/admission fencing, launcher/bootstrap/adoption, unmanage/npm, closed packaging/native freeze and common CLI/automatic/M18 integration.
 - [x] No installed h2a/dispatch, owner live state, main, .track, Python or full suite. Review selection cannot use the required installed dispatch under owner confinement; no consensus verdict claimed.
 - [ ] Independent conductor review and final MH-L6 acceptance remain required; A alone does not qualify U05/U06 or M18 end to end.
 
