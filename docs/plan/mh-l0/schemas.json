@@ -2,6 +2,309 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "urn:h2a:mh-l0:formats:1",
   "$defs": {
+    "delegationReceipt": {
+      "type": "object",
+      "properties": {
+        "schemaVersion": {
+          "const": 1
+        },
+        "upgradeId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "controllerEpoch": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "previousRevision": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "delegatedControllerIdentity": {
+          "type": "object",
+          "properties": {
+            "machineId": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^(?!0+$)[0-9a-f]{32}$"
+            },
+            "bootId": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+            },
+            "pidNamespace": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[0-9]+$"
+            },
+            "nsNet": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[0-9]+$"
+            },
+            "pid": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            },
+            "startTime": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            }
+          },
+          "required": [
+            "machineId",
+            "bootId",
+            "pidNamespace",
+            "nsNet",
+            "pid",
+            "startTime"
+          ],
+          "additionalProperties": false
+        },
+        "delegatedBuildId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "targetManifestDigest": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "ticketDigest": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "upgradeId",
+        "controllerEpoch",
+        "previousRevision",
+        "delegatedControllerIdentity",
+        "delegatedBuildId",
+        "targetManifestDigest",
+        "ticketDigest"
+      ],
+      "additionalProperties": false
+    },
+    "liveSourceAuthorization": {
+      "type": "object",
+      "properties": {
+        "schemaVersion": {
+          "const": 1
+        },
+        "purpose": {
+          "const": "live-source-authorization"
+        },
+        "source": {},
+        "targetPublication": {},
+        "target": {
+          "type": "object",
+          "properties": {
+            "packageVersion": {
+              "type": "string",
+              "minLength": 1
+            },
+            "buildId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "manifestDigest": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            },
+            "entrypoint": {
+              "type": "string",
+              "minLength": 1,
+              "format": "absolute-path"
+            }
+          },
+          "required": [
+            "packageVersion",
+            "buildId",
+            "manifestDigest",
+            "entrypoint"
+          ],
+          "additionalProperties": false
+        },
+        "authorization": {
+          "type": "object",
+          "properties": {
+            "upgradeId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "handoverId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "transactionEpoch": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            },
+            "controllerEpoch": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            },
+            "selectedManifestDigest": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            },
+            "delegatedControllerIdentity": {
+              "type": "object",
+              "properties": {
+                "machineId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "pattern": "^(?!0+$)[0-9a-f]{32}$"
+                },
+                "bootId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                },
+                "pidNamespace": {
+                  "type": "string",
+                  "minLength": 1,
+                  "pattern": "^[0-9]+$"
+                },
+                "nsNet": {
+                  "type": "string",
+                  "minLength": 1,
+                  "pattern": "^[0-9]+$"
+                },
+                "pid": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9007199254740991
+                },
+                "startTime": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": [
+                "machineId",
+                "bootId",
+                "pidNamespace",
+                "nsNet",
+                "pid",
+                "startTime"
+              ],
+              "additionalProperties": false
+            },
+            "delegationReceiptDigest": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            }
+          },
+          "required": [
+            "upgradeId",
+            "handoverId",
+            "transactionEpoch",
+            "controllerEpoch",
+            "selectedManifestDigest",
+            "delegatedControllerIdentity",
+            "delegationReceiptDigest"
+          ],
+          "additionalProperties": false
+        },
+        "inventoryRevision": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "selectionEpoch": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "issuedAt": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "expiresAt": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "mac": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "purpose",
+        "source",
+        "targetPublication",
+        "target",
+        "authorization",
+        "inventoryRevision",
+        "selectionEpoch",
+        "issuedAt",
+        "expiresAt",
+        "mac"
+      ],
+      "additionalProperties": false
+    },
+    "liveSourcePublication": {
+      "type": "object",
+      "properties": {
+        "schemaVersion": {
+          "const": 1
+        },
+        "purpose": {
+          "const": "live-source-publication"
+        },
+        "authorizationDigest": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "markerDigest": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "checkpointReferences": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "format": "relative-path"
+          }
+        },
+        "mac": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "purpose",
+        "authorizationDigest",
+        "markerDigest",
+        "checkpointReferences",
+        "mac"
+      ],
+      "additionalProperties": false
+    },
     "participantRevision": {
       "type": "object",
       "properties": {

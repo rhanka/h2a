@@ -35,6 +35,14 @@ const authorization = object({ upgradeId: text, handoverId: text, transactionEpo
 const mac = { ...text, pattern: '^[0-9a-f]{64}$' };
 const mode = choice('cold-stop', 'live-transfer', 'catalogue');
 export const schemas = {
+  delegationReceipt: versioned({ upgradeId: text, controllerEpoch: positive, previousRevision: positive,
+    delegatedControllerIdentity: identity, delegatedBuildId: text, targetManifestDigest: hash, ticketDigest: hash }),
+  liveSourceAuthorization: versioned({ purpose: literal('live-source-authorization'),
+    source: json, targetPublication: json, target: object({ ...image, entrypoint: absolute }),
+    authorization, inventoryRevision: positive, selectionEpoch: positive,
+    issuedAt: integer, expiresAt: positive, mac }),
+  liveSourcePublication: versioned({ purpose: literal('live-source-publication'), authorizationDigest: hash,
+    markerDigest: hash, checkpointReferences: list(relative), mac }),
   participantRevision: versioned({ revision: positive }),
   launchLocation: versioned({ launchId: text, attachmentId: text, workspaceRoot: absolute, delegation: nullable(json) }),
   writerControl: versioned({ revision: positive, root: absolute, stateDirectory: absolute,

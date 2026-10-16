@@ -5,7 +5,7 @@ import { digest } from './wire.js';
 import { validate } from './formats.js';
 import { privateDirectory, publishState, readState, replaceState } from './state.js';
 
-const irrevocable = new Set(['STOP_COMMITTED', 'STOPPED', 'STARTING', 'READY', 'SUCCESSOR_FAILED']);
+const irrevocable = new Set(['PUBLISHED', 'RETIRED', 'STOP_COMMITTED', 'STOPPED', 'STARTING', 'READY', 'SUCCESSOR_FAILED']);
 const blocked = new Set(['BARRIER', 'FROZEN', 'DRAINING', 'DRAIN_BLOCKED', 'RECOVERY_BLOCKED', ...irrevocable]);
 const primitives = ['describe', 'inventory', 'reserve', 'barrier', 'renew', 'freeze', 'checkpoint', 'drain-status', 'abort', 'retire', 'commit-stop', 'stop-status'];
 const sourceFields = ['generation', 'publicationEpoch', 'processIdentity', 'packageVersion', 'buildId', 'manifestDigest'];
@@ -55,8 +55,8 @@ export class ColdAdministration {
     this.closeRequested = true; this.options.close();
   }
   reconcile() {
-    this.options.verifyAuthority?.();
     const control = this.control(), transaction = this.transaction();
+    this.options.verifyAuthority?.('reconcile', transaction?.value);
     this.pause();
     for (const path of [this.controlPath, ...(control.value.activeTransaction ? [join(this.directory, control.value.activeTransaction)] : [])]) {
       const fd = fs.openSync(path, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
@@ -66,6 +66,8 @@ export class ColdAdministration {
     try { fs.fsyncSync(directory); } finally { fs.closeSync(directory); }
     this.indeterminate = false;
     this.options.reconcileParticipants?.(transaction?.value);
+    if (transaction?.value.mode === 'live-transfer' && transaction.value.state === 'PUBLISHED') this.options.liveSource.fence(transaction.value);
+    if (transaction?.value.state === 'RETIRED') this.requestClose();
     if (transaction?.value.state === 'STOP_COMMITTED' || control.value.operatorStopCommitted) this.requestClose();
     return this.status();
   }
@@ -96,9 +98,9 @@ export class ColdAdministration {
     const m = this.marker;
     if (step.expectedGeneration !== m.generation || digest(step.expectedPublicationEpoch) !== digest(m.publicationEpoch)) throw new Error('source_authority_mismatch');
     if (this.indeterminate) throw new Error('reconciliation_required');
-    this.options.verifyAuthority?.();
     let observed = this.transaction();
     const tx = observed?.value;
+    this.options.verifyAuthority?.(operation, tx);
     this.options.reconcileParticipants?.(tx);
     if (tx && operation !== 'reserve') {
       if (step.upgradeId !== tx.upgradeId || step.handoverId !== tx.handoverId || step.transactionEpoch !== tx.transactionEpoch ||
@@ -108,11 +110,11 @@ export class ColdAdministration {
     }
     const observation = (result, changes = {}) => observed ? this.update(observed, changes, step, result) : result;
     if (operation === 'describe') return observation({ protocolVersion: 1, liveCoordinator: false,
-      primitives: primitives.filter(p => !['freeze', 'checkpoint', 'retire'].includes(p) || Boolean(this.options[p])),
+      primitives: primitives.filter(p => p === 'retire' ? Boolean(this.options.liveSource) : !['freeze', 'checkpoint'].includes(p) || Boolean(this.options[p])),
       generation: m.generation, state: tx?.state ?? 'READY', paused: this.pause() });
     if (operation === 'inventory') return observation(this.options.inventory());
     if (operation === 'stop-status') return observation({ state: this.status().state, paused: this.pause(), generation: m.generation });
-    if (operation === 'drain-status') return observation(this.drain(), ['BARRIER', 'FROZEN'].includes(tx?.state) ? { state: 'DRAINING' } : {});
+    if (operation === 'drain-status') return observation(this.drain(), tx?.mode === 'cold-stop' && ['BARRIER', 'FROZEN'].includes(tx?.state) ? { state: 'DRAINING' } : {});
     if (operation === 'reserve') {
       if (this.pause()) throw new Error('deferred_paused');
       const control = this.control();
@@ -124,7 +126,8 @@ export class ColdAdministration {
       }
       if (tx && tx.state !== 'ABORTED' && !(tx.state === 'READY' && tx.source.generation !== m.generation)) throw new Error('transaction_reserved');
       if (step.transactionEpoch <= control.value.transactionEpoch) throw new Error('transaction_epoch_stale');
-      if (step.mode !== 'cold-stop') throw new Error('live_coordinator_unavailable');
+      if (!['cold-stop', 'live-transfer'].includes(step.mode)) throw new Error('live_coordinator_unavailable');
+      if (step.mode === 'live-transfer' && !this.options.liveSource) throw new Error('live_authorization_unavailable');
       const inventory = this.options.inventory();
       this.options.assertEligible?.();
       if (step.inventoryRevision !== inventory.revision) throw new Error('inventory_stale');
@@ -135,8 +138,9 @@ export class ColdAdministration {
       this.options.authorizeTarget(payload.target, payload.selectionEpoch);
       this.options.verifyEntry?.('prepare');
       this.options.verifyPrecheck(payload.precheckEvidenceDigest, payload.target);
-      const state = 'PRECHECKED';
-      const result = { state, handoverId: step.handoverId };
+      const authorizationDigest = step.mode === 'live-transfer' ? this.options.liveSource.reserve(step, payload, coordinator) : null;
+      const state = step.mode === 'live-transfer' ? 'RESERVED' : 'PRECHECKED';
+      const result = { state, handoverId: step.handoverId, ...(authorizationDigest ? { authorizationDigest } : {}) };
       const value = { schemaVersion: 1, revision: 1, component: 'mcp', upgradeId: step.upgradeId,
         handoverId: step.handoverId, transactionEpoch: step.transactionEpoch, mode: step.mode,
         source: Object.fromEntries(sourceFields.map(k => [k, m[k]])), target: payload.target, coordinator,
@@ -162,8 +166,37 @@ export class ColdAdministration {
       return result;
     }
     if (!tx) throw new Error('transaction_missing');
+    if (operation === 'retire' && tx.mode === 'live-transfer') {
+      if (!this.options.liveSource) throw new Error('live_authorization_unavailable');
+      if (!['FROZEN', 'RECOVERY_BLOCKED', 'PUBLISHED'].includes(tx.state)) throw new Error('live_publication_required');
+      if (step.inventoryRevision !== tx.inventoryRevision || this.options.inventory().revision !== tx.inventoryRevision) throw new Error('inventory_stale');
+      if (tx.state !== 'PUBLISHED') {
+        if (tx.barrierDeadline <= this.now()) throw new Error('barrier_expired');
+        const publication = this.options.liveSource.publication(tx, payload.publicationDigest);
+        const result = { state: 'PUBLISHED', ...publication };
+        this.update(observed, { state: 'PUBLISHED' }, { stepId: 'live-publication', payloadDigest: digest(result) }, result);
+        observed = this.transaction();
+      } else {
+        const receipt = Object.values(tx.stepResults).map(s => s.result).find(r => r?.state === 'PUBLISHED');
+        if (payload.publicationDigest !== receipt?.publicationDigest) throw new Error('live_publication_mismatch');
+        this.options.liveSource.publication(tx, receipt.publicationDigest, false);
+      }
+      this.options.liveSource.fence(observed.value);
+      if (!this.drain().complete) throw new Error('drain_blocked');
+      const result = this.update(observed, { state: 'RETIRED' }, step, { state: 'RETIRED', generation: m.generation });
+      this.requestClose();
+      return result;
+    }
     if (irrevocable.has(tx.state)) throw new Error('stop_irreversible');
     if (tx.state === 'ABORTED') throw new Error('transaction_aborted');
+    if (tx.mode === 'live-transfer') {
+      if (!this.options.liveSource.sourcePublished(tx)) {
+        if (tx.state !== 'RECOVERY_BLOCKED') this.update(observed, { state: 'RECOVERY_BLOCKED' }, null, null);
+        throw new Error('live_publication_requires_reconciliation');
+      }
+      if (tx.state === 'RECOVERY_BLOCKED') throw new Error('reconciliation_required');
+      this.options.liveSource.revalidate(tx);
+    }
     if (step.inventoryRevision !== tx.inventoryRevision || this.options.inventory().revision !== tx.inventoryRevision) throw new Error('inventory_stale');
     if (operation === 'abort') {
       const result = this.update(observed, { state: 'ABORTED', barrierDeadline: null }, step, { state: 'ABORTED' });
@@ -219,6 +252,11 @@ export class ColdAdministration {
     const observed = this.transaction();
     if (!observed || irrevocable.has(observed.value.state) || observed.value.barrierDeadline === null || observed.value.barrierDeadline > this.now()) return false;
     if (this.indeterminate) throw new Error('reconciliation_required');
+    if (observed.value.mode === 'live-transfer' && !this.options.liveSource.sourcePublished(observed.value)) {
+      if (observed.value.state !== 'RECOVERY_BLOCKED') this.update(observed, { state: 'RECOVERY_BLOCKED' }, null, null);
+      return false;
+    }
+    if (observed.value.state === 'RECOVERY_BLOCKED') return false;
     const state = this.drain().complete ? 'ABORTED' : 'DRAIN_BLOCKED';
     if (state !== observed.value.state) {
       this.update(observed, { state, ...(state === 'ABORTED' ? { barrierDeadline: null } : {}) }, null, null);
@@ -234,7 +272,8 @@ export class ColdAdministration {
   operatorStop() {
     if (!this.pause()) this.writePause(true);
     const tx = this.transaction();
-    if (tx && !irrevocable.has(tx.value.state) && tx.value.state !== 'ABORTED') {
+    if (tx && !irrevocable.has(tx.value.state) && tx.value.state !== 'ABORTED' &&
+        !(tx.value.mode === 'live-transfer' && (tx.value.state === 'RECOVERY_BLOCKED' || !this.options.liveSource.sourcePublished(tx.value)))) {
       this.update(tx, { state: 'ABORTED' }, null, null);
       this.options.reconcileParticipants?.({ ...tx.value, state: 'ABORTED' });
     }
@@ -246,6 +285,8 @@ export class ColdAdministration {
   resume() { this.writePause(false); }
   poll() {
     if (this.indeterminate) { this.reconcile(); return; }
+    const tx = this.transaction()?.value;
+    if (tx?.mode === 'live-transfer' && tx.state !== 'ABORTED' && !this.options.liveSource.sourcePublished(tx)) return;
     const control = this.control();
     if (!this.indeterminate && this.pause() && !control.value.operatorStopCommitted && control.value.sourceGeneration === this.marker.generation && this.drain().complete) {
       this.options.verifyAuthority?.();
