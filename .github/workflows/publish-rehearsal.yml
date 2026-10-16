@@ -5,7 +5,7 @@ name: publish-rehearsal
 # never run before a real tag — a hard-coded smoke pin, track missing from
 # the registry during verify, track rebuilt without dev types in publish, a
 # relative tarball path parsed as a GitHub shorthand. This job runs that
-# whole path on every pull request touching it, with `npm publish --dry-run`
+# whole path on every pull request, with `npm publish --dry-run`
 # and NO registry credentials, so the next defect of that family fails here
 # instead of at tag time.
 #
@@ -19,12 +19,15 @@ name: publish-rehearsal
 # - the integrity re-check matches line by line (SHA source excepted),
 # - each of the four per-package rehearsals runs the SAME publish body as the
 #   release.yml publish job line by line with the single `--dry-run` token
-#   added, plus an offline empty cache for dry-runs of already-published
-#   versions (tag/backfill logic, sha256 re-check, npm publish invocation).
+#   added and an explicit default prerelease tag (backfill logic, sha256
+#   re-check, npm publish invocation stay identical).
 #   Edit one side without the other and the parity test fails.
 #
 # DELIBERATE DIFFERENCES from release.yml (each pinned by the parity test):
-# - trigger: pull_request on the publish path + workflow_dispatch (never tags);
+# - trigger: every pull_request to main + workflow_dispatch (never tags);
+# - versions: CI-only prerelease versions and exact internal pins, plus a matching
+#   independent smoke literal, avoid collisions with already published releases;
+# - tag: default to rehearsal, since npm requires an explicit prerelease tag;
 # - permissions: contents:read only — no id-token, no trusted publishing, no
 #   registry credentials (a step needing auth fails here by design);
 # - no gated SHA exists on a PR: the manifest tie uses this checkout's HEAD;
@@ -37,11 +40,6 @@ name: publish-rehearsal
 #   even when the version is already on the registry (the real publish keeps
 #   its `already on registry; skipping` guard). Otherwise every PR without a
 #   version bump silently rehearses nothing once the version is published;
-# - dry-run only: npm publish uses --offline with a fresh cache, because npm
-#   11 rejects an already-published version even in --dry-run. The package
-#   bytes are unchanged; the latest/backfill probe stays online. This does not
-#   prove registry version availability (real publish keeps its online guard).
-#   Each cache is removed on exit. No force option or swallowed error.
 # - NO registry-visibility wait: `--dry-run` never becomes visible on npm, so
 #   the 18x10s wait would sleep ~170 s per package and warn 4 times on every
 #   bump PR. The real publish keeps its wait;
@@ -50,13 +48,6 @@ name: publish-rehearsal
 on:
   pull_request:
     branches: [main]
-    paths:
-      - '.github/workflows/release.yml'
-      - '.github/workflows/publish-rehearsal.yml'
-      - 'scripts/release*.mjs'
-      - 'scripts/smoke-artifact.mjs'
-      - 'scripts/check-lockstep-versions.mjs'
-      - 'packages/*/package.json'
   workflow_dispatch:
 
 permissions:
@@ -94,6 +85,12 @@ jobs:
       # `chmod: cannot access 'dist/bin.js'` while verify passes.
       - run: npm run build
         shell: bash
+
+      # Stamp only this disposable CI workspace, after npm ci/build and before
+      # packing: npm rejects even --dry-run for already published versions.
+      - name: Stamp unique rehearsal versions and internal dependency pins
+        shell: bash
+        run: node scripts/rehearsal-version.mjs
 
       # Same pack loop and sha256 manifest as the release verify job. Only the
       # SHA source differs: no gated SHA exists on a PR, so the manifest is
@@ -146,11 +143,9 @@ jobs:
         shell: bash
         run: |
           v="$(node -p "require('./packages/track/package.json').version")"
-          dryrun_cache="$(mktemp -d)"
-          trap 'rm -rf "$dryrun_cache"' EXIT
           # NO idempotent skip here (deliberate difference, pinned by test):
           # the rehearsal always dry-runs, even when $v is already on npm.
-          tagArgs=""
+          tagArgs="--tag rehearsal"
           latest="$(npm view "@sentropic/track" dist-tags.latest 2>/dev/null || true)"
           if [ -n "$latest" ] && [ "$v" != "$latest" ]; then
             lowest="$(printf '%s\n%s\n' "$v" "$latest" | sort -V | head -n1)"
@@ -162,7 +157,7 @@ jobs:
           # Same VERIFIED tarball bytes the publish job ships — never a
           # fresh pack of a mutable ref (0.98.6 TS2688).
           (cd dist-tarballs && sha256sum --check --strict sha256sums.txt)
-          if ! npm publish "./dist-tarballs/sentropic-track-${v}.tgz" --access public $tagArgs --dry-run --offline --cache "$dryrun_cache"; then
+          if ! npm publish "./dist-tarballs/sentropic-track-${v}.tgz" --access public $tagArgs --dry-run; then
             echo "::error::@sentropic/track@$v: npm publish failed (not published)." >&2
             exit 1
           fi
@@ -173,11 +168,9 @@ jobs:
         shell: bash
         run: |
           v="$(node -p "require('./packages/h2a-runtime/package.json').version")"
-          dryrun_cache="$(mktemp -d)"
-          trap 'rm -rf "$dryrun_cache"' EXIT
           # NO idempotent skip here (deliberate difference, pinned by test):
           # the rehearsal always dry-runs, even when $v is already on npm.
-          tagArgs=""
+          tagArgs="--tag rehearsal"
           latest="$(npm view "@sentropic/h2a-runtime" dist-tags.latest 2>/dev/null || true)"
           if [ -n "$latest" ] && [ "$v" != "$latest" ]; then
             lowest="$(printf '%s\n%s\n' "$v" "$latest" | sort -V | head -n1)"
@@ -189,7 +182,7 @@ jobs:
           # Same VERIFIED tarball bytes the publish job ships — never a
           # fresh pack of a mutable ref.
           (cd dist-tarballs && sha256sum --check --strict sha256sums.txt)
-          if ! npm publish "./dist-tarballs/sentropic-h2a-runtime-${v}.tgz" --access public $tagArgs --dry-run --offline --cache "$dryrun_cache"; then
+          if ! npm publish "./dist-tarballs/sentropic-h2a-runtime-${v}.tgz" --access public $tagArgs --dry-run; then
             echo "::error::@sentropic/h2a-runtime@$v: npm publish failed (not published)." >&2
             exit 1
           fi
@@ -200,11 +193,9 @@ jobs:
         shell: bash
         run: |
           v="$(node -p "require('./packages/h2a/package.json').version")"
-          dryrun_cache="$(mktemp -d)"
-          trap 'rm -rf "$dryrun_cache"' EXIT
           # NO idempotent skip here (deliberate difference, pinned by test):
           # the rehearsal always dry-runs, even when $v is already on npm.
-          tagArgs=""
+          tagArgs="--tag rehearsal"
           latest="$(npm view "@sentropic/h2a" dist-tags.latest 2>/dev/null || true)"
           if [ -n "$latest" ] && [ "$v" != "$latest" ]; then
             lowest="$(printf '%s\n%s\n' "$v" "$latest" | sort -V | head -n1)"
@@ -216,7 +207,7 @@ jobs:
           # Same VERIFIED tarball bytes the publish job ships — never a
           # fresh pack of a mutable ref.
           (cd dist-tarballs && sha256sum --check --strict sha256sums.txt)
-          if ! npm publish "./dist-tarballs/sentropic-h2a-${v}.tgz" --access public $tagArgs --dry-run --offline --cache "$dryrun_cache"; then
+          if ! npm publish "./dist-tarballs/sentropic-h2a-${v}.tgz" --access public $tagArgs --dry-run; then
             echo "::error::@sentropic/h2a@$v: npm publish failed (not published)." >&2
             exit 1
           fi
@@ -227,11 +218,9 @@ jobs:
         shell: bash
         run: |
           v="$(node -p "require('./packages/h2a-cli/package.json').version")"
-          dryrun_cache="$(mktemp -d)"
-          trap 'rm -rf "$dryrun_cache"' EXIT
           # NO idempotent skip here (deliberate difference, pinned by test):
           # the rehearsal always dry-runs, even when $v is already on npm.
-          tagArgs=""
+          tagArgs="--tag rehearsal"
           latest="$(npm view "@sentropic/h2a-cli" dist-tags.latest 2>/dev/null || true)"
           if [ -n "$latest" ] && [ "$v" != "$latest" ]; then
             lowest="$(printf '%s\n%s\n' "$v" "$latest" | sort -V | head -n1)"
@@ -243,7 +232,7 @@ jobs:
           # Same VERIFIED tarball bytes the publish job ships — never a
           # fresh pack of a mutable ref.
           (cd dist-tarballs && sha256sum --check --strict sha256sums.txt)
-          if ! npm publish "./dist-tarballs/sentropic-h2a-cli-${v}.tgz" --access public $tagArgs --dry-run --offline --cache "$dryrun_cache"; then
+          if ! npm publish "./dist-tarballs/sentropic-h2a-cli-${v}.tgz" --access public $tagArgs --dry-run; then
             echo "::error::@sentropic/h2a-cli@$v: npm publish failed (not published)." >&2
             exit 1
           fi
