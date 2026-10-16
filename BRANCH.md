@@ -71,6 +71,10 @@ explicitly prohibits in this confinement. No external consensus is claimed.
   is exercised offline and vendor source/dist bytes are compared.
 - The exact commands, outputs, pushed SHA, PR and individual CI jobs are
   preserved in the owner's requested `l6p1-report.md` and evidence directory.
+- First PR CI correctly refused duplicate HTTP-403 test identities despite
+  passing assertions. A focused JSON report reproduced the production
+  execution verifier's refusal. Include the headers in parameterized case
+  names; re-run that unchanged verifier on the targeted reports.
 
 ## Remaining qualification
 
