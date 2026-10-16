@@ -258,6 +258,7 @@ test("h2a_send MCP is strict and uses only its trusted sidecar signer", (t) => {
     server.callTool("h2a_send", { to: f.recipient, message: "hello", from: f.recipient }).error,
     /unsupported argument/
   );
+  live(f.root, f.recipient);
   const result = server.callTool("h2a_send", { to: f.recipient, message: "hello" });
   assert.equal(result.ok, true);
   assert.equal(f.store.readInbox(f.recipient).length, 1);
