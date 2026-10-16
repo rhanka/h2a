@@ -577,7 +577,7 @@
     "rehearsal triggers on every PR touching the publish path, plus dispatch",
     "the rehearsal job carries its required-style check name",
     "the rehearsal publishes the four lockstep packages in installable dependency order",
-    "each rehearsal publish runs the SAME publish body as the publish job, plus only --dry-run",
+    "each rehearsal publish runs the SAME publish body as the publish job, plus isolated offline dry-run options",
     "every rehearsal npm publish is a dry-run — nothing here may ever publish",
     "the rehearsal uses the same npm version and Node floor as the publish job",
     "the rehearsal packs the four lockstep tarballs exactly like verify, then smokes them",
