@@ -10,11 +10,13 @@ import { readIdentityLock } from '../dist/runtime/local-files/identity-fence.js'
 const helper=fileURLToPath(new URL('./helpers/identity-election-barrier.mjs',import.meta.url));
 let prefix;
 test.before(()=>{
+ // The published 0.98.5 peer range floats; install its original runtime explicitly.
  prefix=fs.mkdtempSync(join(tmpdir(),'published-unlock-'));
- const installed=spawnSync('npm',['install','--prefix',prefix,'--ignore-scripts','--no-audit','--no-fund','@sentropic/h2a@0.98.5'],{env:{...process.env,npm_config_ignore_scripts:'true'},encoding:'utf8',timeout:60_000});
+ const installed=spawnSync('npm',['install','--prefix',prefix,'--ignore-scripts','--no-audit','--no-fund','@sentropic/h2a@0.98.5','@sentropic/h2a-runtime@0.98.5'],{env:{...process.env,npm_config_ignore_scripts:'true'},encoding:'utf8',timeout:60_000});
  assert.equal(installed.status,0,installed.stdout+installed.stderr);
  assert.equal(JSON.parse(fs.readFileSync(join(prefix,'node_modules/@sentropic/h2a/package.json'))).version,'0.98.5');
- console.log('Published CLI installed: npm install --prefix '+prefix+' --ignore-scripts @sentropic/h2a@0.98.5; exit '+installed.status);
+ assert.equal(JSON.parse(fs.readFileSync(join(prefix,'node_modules/@sentropic/h2a-runtime/package.json'))).version,'0.98.5');
+ console.log('Published CLI installed: npm install --prefix '+prefix+' --ignore-scripts @sentropic/h2a@0.98.5 @sentropic/h2a-runtime@0.98.5; exit '+installed.status);
 });
 test.after(()=>fs.rmSync(prefix,{recursive:true,force:true}));
 const wait=async(read,accept,deadline=performance.now()+15_000)=>{for(;;){const value=read();if(accept(value))return value;assert.ok(performance.now()<deadline,'race observation deadline: '+JSON.stringify(value));await new Promise(r=>setTimeout(r,5));}};
