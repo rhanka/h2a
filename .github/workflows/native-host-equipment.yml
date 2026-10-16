@@ -37,3 +37,6 @@ jobs:
           packages/h2a/test/hosts-integration.test.js
           packages/h2a/test/install-skills-hosts.test.js
           packages/h2a/test/host-connect.test.js
+          packages/h2a/test/dispatch-characterization-goldens.test.js
+          packages/h2a/test/gateway-host-docs.test.js
+          packages/h2a/test/focus-serve.test.js
