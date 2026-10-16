@@ -83,6 +83,7 @@ test("rehearsal triggers on every PR touching the publish path, plus dispatch", 
     ".github/workflows/release.yml",
     "scripts/release*.mjs",
     "scripts/smoke-artifact.mjs",
+    "scripts/check-lockstep-versions.mjs",
     "packages/*/package.json",
   ]) {
     assert.ok(
