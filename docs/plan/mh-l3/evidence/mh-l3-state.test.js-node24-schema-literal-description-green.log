@@ -1,0 +1,22 @@
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node --test --test-reporter=tap packages/h2a/test/mh-l3-state.test.js
+node: v24.21.0
+private root: /tmp/mh-l3-test-V1mFnX
+case: schema instance values and properties named description or dollar-ref should remain normative
+TAP version 13
+# Subtest: schema instance values and properties named description or dollar-ref should remain normative
+ok 1 - schema instance values and properties named description or dollar-ref should remain normative
+  ---
+  duration_ms: 2.112286
+  type: 'test'
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 1
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 53.050806
+
+receipt: {"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l3-state.test.js"],"code":0,"signal":null,"tests":1,"invalid":false,"spawned":1,"leftovers":[]}

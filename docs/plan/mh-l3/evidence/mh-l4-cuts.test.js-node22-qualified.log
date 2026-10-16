@@ -1,0 +1,63 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l4-cuts.test.js
+node: v22.22.1
+private root: /tmp/mh-l3-test-HPsPfq
+case: all cases in explicit file
+TAP version 13
+# {"event":"drive-consent.full-verification","durationMs":0.04471399999999903,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# {"event":"drive-consent.full-verification","durationMs":0.09012000000001308,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# {"event":"drive-consent.full-verification","durationMs":0.014116999999998825,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# {"event":"drive-consent.full-verification","durationMs":0.019636999999988802,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# {"event":"drive-consent.full-verification","durationMs":0.015648999999939406,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# Subtest: should close admissions at barrier and bind presence mutations to the exact session
+ok 1 - should close admissions at barrier and bind presence mutations to the exact session
+  ---
+  duration_ms: 108.501079
+  type: 'test'
+  ...
+# Subtest: should propagate the reserved token through the real async subprocess seam
+ok 2 - should propagate the reserved token through the real async subprocess seam
+  ---
+  duration_ms: 1.748922
+  type: 'test'
+  ...
+# Subtest: should revalidate a replaced presence instance under the mutation lock for update and delete
+ok 3 - should revalidate a replaced presence instance under the mutation lock for update and delete
+  ---
+  duration_ms: 30.266039
+  type: 'test'
+  ...
+# Subtest: should detect conflicting launch parameters through the MCP server cache
+ok 4 - should detect conflicting launch parameters through the MCP server cache
+  ---
+  duration_ms: 76.043485
+  type: 'test'
+  ...
+# Subtest: should reconcile a final memo after a crash before operation closure without executing again
+ok 5 - should reconcile a final memo after a crash before operation closure without executing again
+  ---
+  duration_ms: 48.448714
+  type: 'test'
+  ...
+# Subtest: should persist owner-directed delegation after freeze and deduplicate the eventual writer receipt
+ok 6 - should persist owner-directed delegation after freeze and deduplicate the eventual writer receipt
+  ---
+  duration_ms: 85.496508
+  type: 'test'
+  ...
+# Subtest: should recover the delegation event after final memo publication but before operation closure
+ok 7 - should recover the delegation event after final memo publication but before operation closure
+  ---
+  duration_ms: 56.562987
+  type: 'test'
+  ...
+1..7
+# tests 7
+# suites 0
+# pass 7
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 694.382133
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l4-cuts.test.js"],"code":0,"signal":null,"tests":7,"invalid":false,"spawned":1,"leftovers":[]}

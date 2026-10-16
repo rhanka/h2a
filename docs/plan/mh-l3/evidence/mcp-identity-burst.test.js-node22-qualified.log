@@ -1,0 +1,49 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mcp-identity-burst.test.js
+node: v22.22.1
+private root: /tmp/mh-l3-test-QqCziS
+case: all cases in explicit file
+TAP version 13
+# Subtest: T4 36 distinct conversations resolve to distinct identities (green→green)
+ok 1 - T4 36 distinct conversations resolve to distinct identities (green→green)
+  ---
+  duration_ms: 2319.545179
+  type: 'test'
+  ...
+# Subtest: T4 deadline tail: every connection resolves after release, including an expired attempt
+ok 2 - T4 deadline tail: every connection resolves after release, including an expired attempt
+  ---
+  duration_ms: 21543.209372
+  type: 'test'
+  ...
+# tail expired after 20001ms; bindings after release: 1/2
+# h2a mcp-serve: identity failed (identity_timeout): identity did not become ready within 20000ms
+# after one on-demand retry: 2/2 ready, 2 bindings, 2 distinct identities
+# Subtest: T4 36 connections on ONE conversation → one identity, exactly one binding (window closure)
+ok 3 - T4 36 connections on ONE conversation → one identity, exactly one binding (window closure)
+  ---
+  duration_ms: 2939.535132
+  type: 'test'
+  ...
+# Subtest: T4 holder: 36 connect while the registry lock is held, then all resolve after release
+ok 4 - T4 holder: 36 connect while the registry lock is held, then all resolve after release
+  ---
+  duration_ms: 2357.565887
+  type: 'test'
+  ...
+# Subtest: F2 mixed sync-CLI + async-MCP writers on ONE conversation → exactly one binding
+ok 5 - F2 mixed sync-CLI + async-MCP writers on ONE conversation → exactly one binding
+  ---
+  duration_ms: 2084.475972
+  type: 'test'
+  ...
+1..5
+# tests 5
+# suites 0
+# pass 5
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 31351.296764
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mcp-identity-burst.test.js"],"code":0,"signal":null,"tests":5,"invalid":false,"spawned":349,"leftovers":[]}

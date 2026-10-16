@@ -1,0 +1,34 @@
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node --test --test-reporter=tap packages/h2a/test/mh-l3-evidence.test.js
+node: v24.21.0
+private root: /tmp/mh-l3-test-Ppz1Xh
+case: all cases in explicit file
+TAP version 13
+# Subtest: evidence should accept an unknown delegated build and acknowledge only its exact transaction after commit
+ok 1 - evidence should accept an unknown delegated build and acknowledge only its exact transaction after commit
+  ---
+  duration_ms: 9.127461
+  type: 'test'
+  ...
+# Subtest: durable shim acceptance should survive a lost ACK only for its exact authenticated source and receipt
+ok 2 - durable shim acceptance should survive a lost ACK only for its exact authenticated source and receipt
+  ---
+  duration_ms: 9.550797
+  type: 'test'
+  ...
+# Subtest: ordinary catalogue evidence should bind durable delegation and the published target without granting transfer
+ok 3 - ordinary catalogue evidence should bind durable delegation and the published target without granting transfer
+  ---
+  duration_ms: 48.740303
+  type: 'test'
+  ...
+1..3
+# tests 3
+# suites 0
+# pass 3
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 120.935154
+
+receipt: {"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l3-evidence.test.js"],"code":0,"signal":null,"tests":3,"invalid":false,"spawned":1,"leftovers":[]}

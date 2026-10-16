@@ -1,0 +1,28 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l4-concurrency.test.js
+node: v22.22.1
+private root: /tmp/mh-l3-test-mdSaYb
+case: all cases in explicit file
+TAP version 13
+# Subtest: should serialize eight conforming writers without losing acknowledged registry or inbox writes
+ok 1 - should serialize eight conforming writers without losing acknowledged registry or inbox writes
+  ---
+  duration_ms: 547.162614
+  type: 'test'
+  ...
+# Subtest: should release the filesystem exclusion after killing only its spawned lock holder
+ok 2 - should release the filesystem exclusion after killing only its spawned lock holder
+  ---
+  duration_ms: 84.359609
+  type: 'test'
+  ...
+1..2
+# tests 2
+# suites 0
+# pass 2
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 899.922817
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l4-concurrency.test.js"],"code":0,"signal":null,"tests":2,"invalid":false,"spawned":19,"leftovers":[]}
