@@ -44,7 +44,7 @@ export interface LockObservation {
   readonly attempts?: number;
 }
 
-function logicalLockId(lockPath: string): string {
+export function logicalLockId(lockPath: string): string {
   try {
     const label = basename(dirname(lockPath)) || basename(lockPath);
     return label.length > 64 ? label.slice(0, 64) : label;
@@ -53,7 +53,7 @@ function logicalLockId(lockPath: string): string {
   }
 }
 
-function notifyObserver(
+export function notifyObserver(
   observe: ((event: LockObservation) => void) | undefined,
   event: LockObservation
 ): void {
@@ -227,10 +227,11 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function busyWaitSync(ms: number): void {
+export function busyWaitSync(ms: number): void {
   // Synchronous wait without blocking event-loop indefinitely. Used by
-  // `withLockSync` only — most store methods are sync today and we don't
-  // want to ripple `async` through them just for locking (DEC-036).
+  // `withLockSync` and the synchronous identity fence — most store methods are
+  // sync today and we don't want to ripple `async` through them just for
+  // locking (DEC-036).
   const end = Date.now() + ms;
   // `Atomics.wait` on a private SharedArrayBuffer is the standard
   // "sleep without spinning" primitive in modern Node.

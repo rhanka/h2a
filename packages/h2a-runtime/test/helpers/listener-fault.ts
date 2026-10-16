@@ -3,7 +3,7 @@ import { once } from "node:events";
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { expect } from "vitest";
+import { expect, onTestFinished } from "vitest";
 // @ts-ignore Test-only shared qualification helper.
 import { createPrivateTestDirectory } from "../../../h2a/test/helpers/native-isolation.js";
 import { NativeTerminalClient } from "../../src/native-terminal/client.js";
@@ -16,17 +16,33 @@ export async function assertListenerFaultExit(codes: Array<string | null>, exitC
     "--socket", socketPath, "--registry-path", join(directory, "registry.json"),
     "--generation", "listener-fault"], { env: process.env, stdio: ["ignore", "pipe", "pipe", "ipc"] });
   let client: NativeTerminalClient | undefined;
+  const stop = async () => {
+    if (child.exitCode === null && child.signalCode === null) {
+      const exited = once(child, "exit");
+      child.kill("SIGKILL");
+      await exited;
+    }
+  };
+  // The enclosing test owns the readiness deadline and its child. A separate
+  // 200-tick polling budget races TS startup under concurrent suite load.
+  onTestFinished(stop);
   try {
     let stdout = "";
     let log = "";
     child.stdout!.setEncoding("utf8");
     child.stderr!.setEncoding("utf8");
-    child.stdout!.on("data", chunk => { stdout += chunk; });
     child.stderr!.on("data", chunk => { log += chunk; });
-    for (let n = 0; !stdout.includes("h2a.native-terminal.ready"); n++) {
-      if (n === 200 || child.exitCode !== null) throw new Error(`host did not become ready: ${log}`);
-      await new Promise(resolve => setTimeout(resolve, 10));
-    }
+    await new Promise<void>((resolve, reject) => {
+      const earlyExit = () => reject(new Error(`host exited before readiness: ${log}`));
+      child.once("exit", earlyExit);
+      child.once("error", reject);
+      child.stdout!.on("data", chunk => {
+        stdout += chunk;
+        if (!stdout.includes("h2a.native-terminal.ready")) return;
+        child.removeListener("exit", earlyExit);
+        resolve();
+      });
+    });
     client = await NativeTerminalClient.connect(socketPath);
     expect((await client.ping()).hostPid).toBe(child.pid);
     const diagnostics = once(child, "message");
@@ -46,11 +62,7 @@ export async function assertListenerFaultExit(codes: Array<string | null>, exitC
     await expect(NativeTerminalClient.connect(socketPath)).rejects.toThrow();
   } finally {
     client?.close();
-    if (child.exitCode === null && child.signalCode === null) {
-      const exited = once(child, "exit");
-      child.kill("SIGKILL");
-      await exited;
-    }
+    await stop();
     await rm(directory, { recursive: true, force: true });
   }
 }

@@ -27,7 +27,7 @@ import {
   resolveFrameBudget
 } from "../dist/runtime/mcp/frame-budget.js";
 import { createPayloadStore } from "../dist/runtime/mcp/payload-store.js";
-import { callRpc, copySeed, notify, spawnMcp, stopChildren } from "./helpers/mcp-fix-lab.js";
+import { callRpc, labRoot, notify, spawnMcp, stopChildren } from "./helpers/mcp-fix-lab.js";
 
 const SEED = process.env.H2A_MCP_TEST_SEED;
 
@@ -128,10 +128,11 @@ test("boundNotificationFrame: oversize with persistence → overflow notice, acc
   }
 });
 
-test("transport: a too-big request id is refused (-32600 id:null) and the connection survives", { skip: !SEED }, async (t) => {
-  const root = copySeed(SEED);
+test("transport: a too-big request id is refused (-32600 id:null) and the connection survives", async (t) => {
+  assert.ok(SEED || process.env.H2A_MCP_REQUIRE_REAL_SEED !== "1", "the explicitly required private seed is absent");
+  const root = labRoot(SEED);
   const mcp = spawnMcp({ root });
-  t.after(() => stopChildren(mcp));
+  t.after(async () => { await stopChildren(mcp); rmSync(root, { recursive: true, force: true }); });
   await callRpc(mcp, { jsonrpc: "2.0", id: "i", method: "initialize", params: {} });
   notify(mcp, { jsonrpc: "2.0", method: "notifications/initialized" });
 

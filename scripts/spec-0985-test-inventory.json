@@ -1,0 +1,201 @@
+{
+  "files": [
+    "packages/h2a-runtime/src/native-terminal/crash-safe-log.test.ts",
+    "packages/h2a-runtime/src/native-terminal/crash-safety.functional.test.ts"
+  ],
+  "titles": [
+    {
+      "scope": "node",
+      "anyOf": [
+        "should start, publish, handshake and serve a PTY over previous-boot rows after a hard reboot"
+      ]
+    },
+    {
+      "scope": "node",
+      "anyOf": [
+        "should start over previous-boot rows whose pid numbers are now recycled, touching no live process"
+      ]
+    },
+    {
+      "scope": "node",
+      "anyOf": [
+        "should still refuse a live CURRENT-boot owner mixed with previous-boot rows"
+      ]
+    },
+    {
+      "scope": "node",
+      "anyOf": [
+        "should still refuse a CURRENT-boot owner row without a start-time baseline among old rows"
+      ]
+    },
+    {
+      "scope": "node",
+      "anyOf": [
+        "should reclaim a persistent stale socket through its machine-attributed previous-boot sidecar"
+      ]
+    },
+    {
+      "scope": "runtime",
+      "anyOf": [
+        "should reclaim a persistent stale socket through its unattributed pre-0.98.5 sidecar plus previous-boot rows",
+        "ENDPOINT_ABSENCE_MIGRATES_AN_UNATTRIBUTED_SIDECAR_THROUGH_THE_ALTERNATIVE_PROOF"
+      ]
+    },
+    {
+      "scope": "node",
+      "anyOf": [
+        "should not block the cold path on an unattributed pre-0.98.5 sidecar"
+      ]
+    },
+    {
+      "scope": "node",
+      "anyOf": [
+        "should admit no second owning host over a live host that lost its pathname, under concurrent starts"
+      ]
+    },
+    {
+      "scope": "runtime",
+      "anyOf": [
+        "should refuse publication when a dead-classified sidecar coexists with a live current-boot row",
+        "should refuse a machine-attributed previous-boot sidecar when a CURRENT-boot row is alive",
+        "ENDPOINT_ABSENCE_REFUSES_WHEN_A_STALE_BOOT_SIDECAR_MEETS_A_LIVE_CURRENT_BOOT_ROW"
+      ]
+    },
+    {
+      "scope": "runtime",
+      "anyOf": [
+        "should refuse publication when a live current-boot sidecar coexists with stale-boot rows"
+      ]
+    },
+    {
+      "scope": "runtime",
+      "anyOf": [
+        "should tolerate a synchronous write throw and stop touching stderr",
+        "should tolerate a synchronous write throw, report undelivered, and stop touching stderr"
+      ]
+    },
+    {
+      "scope": "runtime",
+      "anyOf": [
+        "should expose a durable error listener so an async stream error is not an uncaughtException"
+      ]
+    },
+    {
+      "scope": "runtime",
+      "anyOf": [
+        "should never write to the failed stream again",
+        "should never write to the failed stream again, and never re-bump the sync counter"
+      ]
+    },
+    {
+      "scope": "runtime",
+      "anyOf": [
+        "should bound the post-mortem buffer to the most recent lines"
+      ]
+    },
+    {
+      "scope": "runtime",
+      "anyOf": [
+        "survives its stderr reader disappearing before a deferred durable-row prune"
+      ]
+    },
+    {
+      "scope": "runtime",
+      "anyOf": [
+        "isolates a faulty client connection: other clients and PTYs keep working"
+      ]
+    },
+    {
+      "scope": "runtime",
+      "anyOf": [
+        "should contain a faulty pty data callback without losing the host or other sessions"
+      ]
+    },
+    {
+      "scope": "runtime",
+      "anyOf": [
+        "should settle a session from a faulty pty exit callback and keep the host alive"
+      ]
+    },
+    {
+      "scope": "runtime",
+      "anyOf": [
+        "should contain a net.Server error surfacing after listen"
+      ]
+    },
+    {
+      "scope": "runtime",
+      "anyOf": [
+        "should exit non-zero on an unknown net.Server error",
+        "should exit non-zero on an unknown net.Server error (%s)",
+        "should exit non-zero on an unknown net.Server error (null)",
+        "should exit non-zero on an unknown net.Server error (EUNCLASSIFIED)"
+      ]
+    },
+    {
+      "scope": "runtime",
+      "anyOf": [
+        "should exit when the listener becomes unusable",
+        "should exit when the listener becomes unusable (%s)",
+        "should exit when the listener becomes unusable (ERR_SERVER_CLOSED)",
+        "should exit when the listener becomes unusable (EADDRINUSE)",
+        "should exit when the listener becomes unusable (EMFILE)",
+        "should exit when the listener becomes unusable (ENFILE)",
+        "should exit when the listener becomes unusable (EMFILE,EMFILE,EMFILE)",
+        "should exit when the listener becomes unusable (ENFILE,ENFILE,ENFILE)",
+        "should exit when the listener becomes unusable (EMFILE,ENFILE,EMFILE)"
+      ]
+    },
+    {
+      "scope": "runtime",
+      "anyOf": [
+        "should expose the named counters of the exempted silent-catch sites"
+      ]
+    },
+    {
+      "scope": "runtime",
+      "anyOf": [
+        "should keep a durable row when its data callback throws while the group is alive"
+      ]
+    },
+    {
+      "scope": "runtime",
+      "anyOf": [
+        "should never unlink a bound-but-not-listening socket attributed to a current-boot owner",
+        "should never unlink a bound-but-not-listening socket attributed to a current-boot owner: %s",
+        "should never unlink a bound-but-not-listening socket attributed to a current-boot owner: alive",
+        "should never unlink a bound-but-not-listening socket attributed to a current-boot owner: unresolvable"
+      ]
+    },
+    {
+      "scope": "runtime",
+      "anyOf": [
+        "should never unlink an unattributed bound socket created during the current boot"
+      ]
+    },
+    {
+      "scope": "runtime",
+      "anyOf": [
+        "should unlink a pre-boot stale socket after repeated probes and dev/ino recheck"
+      ]
+    },
+    {
+      "scope": "runtime",
+      "anyOf": [
+        "should classify a malformed recorded bootId as foreign-frame"
+      ]
+    },
+    {
+      "scope": "runtime",
+      "anyOf": [
+        "should treat uptime 0 as unknown boot time, never as mass death"
+      ]
+    },
+    {
+      "scope": "runtime",
+      "anyOf": [
+        "should refuse coded when machine-id is unreadable"
+      ]
+    }
+  ]
+}

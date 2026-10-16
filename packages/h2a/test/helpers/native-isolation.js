@@ -2,10 +2,22 @@ import assert from "node:assert/strict";
 import childProcess, { spawn, spawnSync } from "node:child_process";
 import { syncBuiltinESMExports } from "node:module";
 import { isMainThread } from "node:worker_threads";
+import { once } from "node:events";
 import fs, { closeSync, constants, lstatSync, mkdirSync, mkdtempSync, openSync, readlinkSync, rmSync, symlinkSync, unlinkSync } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 
-export const nativeQualificationRoot = resolve(import.meta.dirname, "../../../../.qual-tmp");
+// Test-only short root for deep worktrees whose AF_UNIX paths would overflow.
+// The runner creates it with mkdtemp; every child carries the same boundary.
+const shortQualificationRoot = process.env.H2A_TEST_QUALIFICATION_ROOT;
+if (shortQualificationRoot !== undefined) {
+  assert.ok(/^\/tmp\/h2a-qual-[A-Za-z0-9]+$/.test(shortQualificationRoot), "REFUSING invalid short qualification root");
+  const info = lstatSync(shortQualificationRoot);
+  assert.ok(info.isDirectory() && !info.isSymbolicLink() && info.uid === process.getuid() && (info.mode & 0o777) === 0o700,
+    "REFUSING non-private short qualification root");
+}
+// The repo default must also fit the historical host's longer staging name,
+// including a mkdtemp suffix and seven-digit PID in deeply nested worktrees.
+export const nativeQualificationRoot = shortQualificationRoot ?? resolve(import.meta.dirname, "../../../../.q");
 
 function rejectOwnerPath(path) {
   assert.ok(path !== "/home/antoinefa" && ![
@@ -94,7 +106,7 @@ export function assertIsolatedNativeOperation(env, root = nativeQualificationRoo
 // A complete child fixture never inherits owner configuration or socket overrides.
 export function nativeTestEnvironment(root, overrides = {}) {
   assertPrivateQualificationPath(root, nativeQualificationRoot);
-  const env = { PATH: "/usr/bin:/bin", TERM: "xterm-256color", HOME: join(root, "home"),
+  const env = { ...(nativeQualificationRoot.startsWith("/tmp/") ? { H2A_TEST_QUALIFICATION_ROOT: nativeQualificationRoot } : {}), PATH: "/usr/bin:/bin", TERM: "xterm-256color", HOME: join(root, "home"),
     XDG_RUNTIME_DIR: root, XDG_STATE_HOME: join(root, "state"), XDG_CONFIG_HOME: join(root, "config"),
     H2A_NATIVE_SOCKET: join(root, "host.sock"), REMOTE_CLI_CONFIG_HOME: join(root, "config"),
     TMPDIR: join(root, "tmp"), TMUX_TMPDIR: root, H2A_ROOT: join(root, "store"), ...overrides };
@@ -107,7 +119,9 @@ export function nativeTestEnvironment(root, overrides = {}) {
 export function installNativeTestEnvironment(env) {
   assertIsolatedEnvironment(env);
   const previous = Object.fromEntries(Object.keys(env).map(key => [key, process.env[key]]));
-  Object.assign(process.env, env);
+  for (const [key, value] of Object.entries(env)) {
+    if (value === undefined) delete process.env[key]; else process.env[key] = value;
+  }
   return () => {
     for (const [key, value] of Object.entries(previous)) {
       if (value === undefined) delete process.env[key]; else process.env[key] = value;
@@ -125,6 +139,7 @@ export function setupNativeTestEnvironment(registerCleanup) {
   const restoreEnvironment = installNativeTestEnvironment(env);
   registerCleanup(async () => {
     try {
+      await stopPrivateNativeProcesses(env);
       await waitForPrivateNativeProcesses(env);
       rmSync(root, { recursive: true, force: true });
       privateProcessRoots.delete(root);
@@ -147,6 +162,9 @@ const guardInstalled = Symbol.for("h2a.test.nativeSpawnGuard");
 const preload = `--import=${import.meta.url}`;
 const nativeEntry = /(?:^|[/\\\s"'])(?:op|process)\.[jt]s(?:$|[\s"'])/;
 const privateProcessRoots = childProcess.ChildProcess.prototype[guardInstalled]?.processRoots ?? new Map();
+const privateChildren = childProcess.ChildProcess.prototype[guardInstalled]?.children ?? new Map();
+const privatePins = childProcess.ChildProcess.prototype[guardInstalled]?.pins ?? new Map();
+const closedProcessRoots = childProcess.ChildProcess.prototype[guardInstalled]?.closedRoots ?? new Set();
 
 function isNode(command) {
   return command === process.execPath || /(?:^|[/\\])node(?:js|\.exe)?$/.test(command);
@@ -162,11 +180,14 @@ function guardedEnvironment(command, args, env, cwd = process.cwd()) {
       throw error;
     }
   }
+  assert.ok(!closedProcessRoots.has(env.H2A_TEST_OWNED_PROC_ROOT), "REFUSING spawn after native fixture teardown");
   if (!isNode(command)) return env;
   // Carry the boundary through CLI/worker children even with a minimal env.
   const options = env.NODE_OPTIONS ?? "";
-  return privateProcessEnvironment({ ...env,
+  const prepared = privateProcessEnvironment({ ...env,
     NODE_OPTIONS: options.includes(preload) ? options : `${options} ${preload}`.trim() });
+  assert.ok(!closedProcessRoots.has(prepared.H2A_TEST_OWNED_PROC_ROOT), "REFUSING spawn after native fixture teardown");
+  return prepared;
 }
 
 function privateProcessEnvironment(env) {
@@ -175,6 +196,7 @@ function privateProcessEnvironment(env) {
   if (!["HOME", "XDG_RUNTIME_DIR", "XDG_STATE_HOME", "XDG_CONFIG_HOME"].every(key =>
     env[key]?.startsWith(`${nativeQualificationRoot}/`)) || env.H2A_NATIVE_SOCKET === undefined) return env;
   assertIsolatedNativeOperation(env);
+  if (shortQualificationRoot) env = { ...env, H2A_TEST_QUALIFICATION_ROOT: shortQualificationRoot };
   if (env.H2A_TEST_PROC_ROOT) return env; // Preserve deliberately injected error fixtures.
   // One view per fixture in this running test process. A later campaign must
   // never inherit dangling descriptor links left by a killed earlier child.
@@ -183,7 +205,7 @@ function privateProcessEnvironment(env) {
     root = createPrivateTestDirectory("proc-owned-", env.XDG_RUNTIME_DIR);
     privateProcessRoots.set(env.XDG_RUNTIME_DIR, root);
   }
-  return { ...env, H2A_TEST_PROC_ROOT: root, H2A_TEST_OWNED_PROC_ROOT: root };
+  return { ...env, ...(shortQualificationRoot ? { H2A_TEST_QUALIFICATION_ROOT: shortQualificationRoot } : {}), H2A_TEST_PROC_ROOT: root, H2A_TEST_OWNED_PROC_ROOT: root };
 }
 
 function installProcessViewVariables(env) {
@@ -191,7 +213,7 @@ function installProcessViewVariables(env) {
     if (env[key] !== undefined) process.env[key] = env[key];
 }
 
-function registerPrivateProcess(pid, env, replace = false) {
+function registerPrivateProcess(pid, env, replace = false, survivor = false) {
   if (process.platform !== "linux" || !pid || !env.H2A_TEST_PROC_ROOT
     || env.H2A_TEST_PROC_ROOT !== env.H2A_TEST_OWNED_PROC_ROOT) return () => {};
   const root = env.H2A_TEST_PROC_ROOT;
@@ -201,18 +223,73 @@ function registerPrivateProcess(pid, env, replace = false) {
   // preload replaces its parent's pin with its own before the parent exits.
   const fd = openSync(`/proc/${pid}`, constants.O_RDONLY | constants.O_DIRECTORY);
   const target = `/proc/${process.pid}/fd/${fd}`;
+  const pin = entry + ".pin";
+  let published = target;
+  let pinned = false;
   try {
+    // Explicit pins belong to the surviving test process. A late child preload
+    // cannot retire this anchor, even if it races publication of the PID entry.
+    if (survivor) { symlinkSync(target, pin); pinned = true; }
+    else if (replace) {
+      try { published = readlinkSync(pin); }
+      catch (error) { if (error.code !== "ENOENT") throw error; }
+    }
     if (replace) { try { unlinkSync(entry); } catch (error) { if (error.code !== "ENOENT") throw error; } }
-    symlinkSync(target, entry);
+    symlinkSync(published, entry);
   } catch (error) {
+    if (pinned) unlinkSync(pin);
     closeSync(fd);
     if (error.code === "EEXIST") return () => {};
     throw error;
   }
+  if (survivor) {
+    if (!privatePins.has(root)) privatePins.set(root, new Set());
+    privatePins.get(root).add(pid);
+  }
   return () => {
-    try { unlinkSync(entry); } catch (error) { if (error.code !== "ENOENT") throw error; }
+    // An old child's exit hook must never unlink a newer parent's pin.
+    try { if (readlinkSync(entry) === target) unlinkSync(entry); }
+    catch (error) { if (error.code !== "ENOENT") throw error; }
+    if (survivor) {
+      try { if (readlinkSync(pin) === target) unlinkSync(pin); }
+      catch (error) { if (error.code !== "ENOENT") throw error; }
+      privatePins.get(root)?.delete(pid);
+    }
     closeSync(fd);
   };
+}
+
+// For children launched outside node:child_process (PTYs/tmux), the test must
+// call this with the PID returned by its own launcher, after the child is ready.
+// The Linux PTY crash-containment wrapper has a real command child: pin the
+// owned descendants too, by walking only this launcher's pinned task children.
+// Keep the pin in the surviving test process: a SIGKILL cannot run the child's
+// exit hook, and its self-held /proc descriptor becomes inaccessible at death.
+// Release only after waitForPrivateNativeProcesses proves the pinned child dead.
+export function pinPrivateNativeProcess(pid, env = process.env) {
+  assertIsolatedEnvironment(env);
+  const prepared = privateProcessEnvironment(env);
+  if (process.platform !== "linux") return registerPrivateProcess(pid, prepared, true, true);
+  const releases = [], queue = [pid], seen = new Set();
+  try {
+    for (const child of queue) {
+      if (seen.has(child)) continue;
+      seen.add(child);
+      assert.ok(seen.size <= 64, "private fixture process tree exceeds 64 children");
+      releases.push(registerPrivateProcess(child, prepared, true, true));
+      let children;
+      try {
+        children = fs.readFileSync(join(prepared.H2A_TEST_OWNED_PROC_ROOT, child + ".pin", "task", String(child), "children"), "utf8");
+      } catch (error) { if (["ENOENT", "ESRCH"].includes(error.code)) continue; throw error; }
+      for (const entry of children.trim().split(/\s+/).filter(Boolean)) {
+        assert.match(entry, /^[1-9]\d*$/);
+        queue.push(Number(entry));
+      }
+    }
+  } catch (error) { for (const release of releases.reverse()) release(); throw error; }
+  const release = () => { for (const release of releases.reverse()) release(); };
+  release.pids = [...seen];
+  return release;
 }
 
 export function installNativeTestSpawnGuard() {
@@ -228,7 +305,15 @@ export function installNativeTestSpawnGuard() {
     const guarded = guardedEnvironment(options.file, options.args, env, options.cwd ?? process.cwd());
     const result = actualSpawn.call(this, { ...options,
       envPairs: Object.entries(guarded).map(([key, value]) => `${key}=${value}`) });
-    if (this.pid) this.once("exit", registerPrivateProcess(this.pid, guarded));
+    if (this.pid) {
+      const release = registerPrivateProcess(this.pid, guarded);
+      const root = guarded.H2A_TEST_OWNED_PROC_ROOT;
+      if (root && root === guarded.H2A_TEST_PROC_ROOT) {
+        if (!privateChildren.has(root)) privateChildren.set(root, new Set());
+        privateChildren.get(root).add(this);
+      }
+      this.once("exit", () => { privateChildren.get(root)?.delete(this); release(); });
+    }
     return result;
   };
   childProcess.spawnSync = function (command, args, options) {
@@ -248,6 +333,9 @@ export function installNativeTestSpawnGuard() {
   };
   const state = { violations: [], expectedRefusals: 0 };
   state.processRoots = privateProcessRoots;
+  state.children = privateChildren;
+  state.pins = privatePins;
+  state.closedRoots = closedProcessRoots;
   Object.defineProperty(prototype, guardInstalled, { value: state });
   const failUnexpected = () => {
     if (state.violations.length) {
@@ -258,13 +346,20 @@ export function installNativeTestSpawnGuard() {
   process.once("beforeExit", failUnexpected);
   process.once("exit", failUnexpected);
   const actualRealpath = fs.realpathSync;
-  fs.realpathSync = function (path, ...args) {
+  function guardRealpath(path) {
     // Defense in depth for malformed process fixtures: never canonicalize an
     // external candidate, even if a fixture accidentally names one. The
     // production scanner receives its normal fs implementation outside tests.
     if (new Error().stack?.match(/native-terminal[/\\]server\.[jt]s/))
       assertPrivateQualificationPath(String(path), nativeQualificationRoot);
+  }
+  fs.realpathSync = function (path, ...args) {
+    guardRealpath(path);
     return actualRealpath(path, ...args);
+  };
+  fs.realpathSync.native = function (path, ...args) {
+    guardRealpath(path);
+    return actualRealpath.native(path, ...args);
   };
   syncBuiltinESMExports();
 }
@@ -281,6 +376,67 @@ export function assertNoNativeTestSpawnViolations() {
     "no caught unsafe native launch may pass qualification");
 }
 
+// Stop only handles this test spawned and descendants discovered through
+// their pinned task/children views. A synthetic row or socket sidecar never
+// authorizes a signal. Pin before host death so its journal stays observable.
+export async function stopPrivateNativeProcesses(env) {
+  const root = env.H2A_TEST_OWNED_PROC_ROOT ?? privateProcessRoots.get(env.XDG_RUNTIME_DIR);
+  if (!root) return;
+  assertPrivateQualificationPath(root, nativeQualificationRoot);
+  closedProcessRoots.add(root);
+  const children = [...(privateChildren.get(root) ?? [])];
+  const releases = [];
+  const known = new Set(privatePins.get(root) ?? []);
+  const errors = [];
+  const exited = children.map(child => child.exitCode === null && child.signalCode === null
+    ? once(child, "exit") : Promise.resolve());
+  const prepared = { ...env, H2A_TEST_PROC_ROOT: root, H2A_TEST_OWNED_PROC_ROOT: root };
+  const live = pid => {
+    try { return !/\) [ZX] /.test(fs.readFileSync(join(root, pid + ".pin", "stat"), "utf8")); }
+    catch (error) { if (["ENOENT", "ESRCH"].includes(error.code)) return false; throw error; }
+  };
+  const signal = (pid, name) => {
+    try { if (live(pid)) process.kill(pid, name); }
+    catch (error) { if (error.code !== "ESRCH") errors.push(error); }
+  };
+  try {
+    for (const child of children) {
+      try {
+        const release = pinPrivateNativeProcess(child.pid, prepared);
+        releases.push(release);
+        for (const pid of release.pids ?? [child.pid]) known.add(pid);
+      }
+      catch (error) { if (!["ENOENT", "ESRCH"].includes(error.code)) errors.push(error); }
+    }
+    const owned = () => [...known].filter(pid => pid !== process.pid);
+    for (const pid of owned()) { signal(pid, "SIGCONT"); signal(pid, "SIGTERM"); }
+    const deadline = performance.now() + 500;
+    while (owned().some(live) && performance.now() < deadline) await new Promise(resolve => setTimeout(resolve, 10));
+    // Revisit descendants before escalation, including a partially completed
+    // PTY create. Kill descendants before their parent can abandon them.
+    for (const pid of owned().filter(live)) {
+      try {
+        const release = pinPrivateNativeProcess(pid, prepared);
+        releases.push(release);
+        for (const pid of release.pids ?? [pid]) known.add(pid);
+      }
+      catch (error) { if (!["ENOENT", "ESRCH"].includes(error.code)) errors.push(error); }
+    }
+    for (const pid of owned().reverse()) signal(pid, "SIGKILL");
+    let timer;
+    try {
+      await Promise.race([Promise.all(exited), new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error("fixture child exit was not reaped within 1000ms")), 1000);
+      })]);
+    } finally { clearTimeout(timer); }
+    await waitForPrivateNativeProcesses(prepared);
+    if (errors.length) throw new AggregateError(errors, "private fixture process teardown failed");
+  } finally {
+    for (const release of releases.reverse()) release();
+    privateChildren.delete(root);
+  }
+}
+
 export async function waitForPrivateNativeProcesses(env) {
   const root = env.H2A_TEST_OWNED_PROC_ROOT ?? privateProcessRoots.get(env.XDG_RUNTIME_DIR);
   if (!root) return;
@@ -291,7 +447,13 @@ export async function waitForPrivateNativeProcesses(env) {
     try { entries = fs.readdirSync(root); }
     catch (error) { if (error.code === "ENOENT") return; throw error; }
     const alive = entries.filter(entry => /^\d+$/.test(entry) && Number(entry) !== process.pid).filter(entry => {
-      try { return !/\) [ZX] /.test(fs.readFileSync(join(root, entry, "stat"), "utf8")); }
+      try {
+        // Prefer the survivor anchor over the shared PID publication.
+        let path = join(root, entry);
+        try { readlinkSync(path + ".pin"); path += ".pin"; }
+        catch (error) { if (error.code !== "ENOENT") throw error; }
+        return !/\) [ZX] /.test(fs.readFileSync(join(path, "stat"), "utf8"));
+      }
       catch (error) { if (error.code === "ENOENT" || error.code === "ESRCH") return false; throw error; }
     });
     if (alive.length === 0) return;

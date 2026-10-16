@@ -22,6 +22,9 @@ import { LockCancelledError, LockTimeoutError } from "../local-files/locks.js";
 import { createMcpTrace, setActiveMcpTrace } from "../mcp/phase-trace.js";
 
 interface ResolveRequest {
+  readonly deadlineNs?:string;
+  readonly attemptId?: string;
+  readonly diagnosticKey?: string;
   readonly kind: "resolve_identity";
   readonly v: 1;
   readonly request: {
@@ -56,6 +59,7 @@ function classify(err: unknown): { cause: IdentityFailureCode; message: string }
   const code = (err as NodeJS.ErrnoException | undefined)?.code;
   if (code === "EROFS") return { cause: "storage_readonly", message };
   if (code === "EACCES" || code === "EPERM") return { cause: "storage_permission_denied", message };
+  if (err instanceof Error && err.cause === 'identity_storage_failed') return {cause:'identity_storage_failed',message};
   if (err instanceof Error && err.name === "LockTimeoutError") {
     return { cause: "identity_timeout", message };
   }
@@ -114,10 +118,12 @@ process.on("message", (raw: unknown) => {
       ? { declaredCapabilities: req.request.declaredCapabilities }
       : {})
   };
-  const budgetMs = Number.isFinite(req.budgetMs) && req.budgetMs > 0 ? req.budgetMs : 20_000;
+  const budgetMs = Number.isFinite(req.budgetMs) && req.budgetMs >= 0 ? req.budgetMs : 20_000;
   const startNs = process.hrtime.bigint();
+  const parentDeadline=req.deadlineNs && /^[0-9]{1,30}$/.test(req.deadlineNs)?BigInt(req.deadlineNs):undefined;
   const remainingMs = (): number =>
-    budgetMs - Number((process.hrtime.bigint() - startNs) / 1_000_000n);
+    Math.min(budgetMs - Number(process.hrtime.bigint() - startNs) / 1_000_000,
+      parentDeadline===undefined ? Infinity : Number(parentDeadline-process.hrtime.bigint())/1_000_000);
 
   const cancellableDelay = (ms: number): Promise<void> =>
     new Promise((resolve) => {
@@ -141,12 +147,13 @@ process.on("message", (raw: unknown) => {
   const mintMemo: { value?: { instance: string; agentUuid: string } } = {};
   const prepCache: { prepared?: unknown } = {};
   let attempt = 0;
+  let sequence = 0;
   const resolveWithRetry = async () => {
     while (!abort.signal.aborted) {
       const budget = remainingMs();
       if (budget <= 0) throw new LockTimeoutError("identity", undefined, budgetMs);
       try {
-        return await resolveLiveIdentityAsync(input, {
+        const identity=await resolveLiveIdentityAsync(input, {
           signal: abort.signal,
           deadlineMs: budget,
           // Fail a contended registration fast so the identity lock is not held
@@ -155,7 +162,11 @@ process.on("message", (raw: unknown) => {
           mintMemo,
           prepCache,
           attempt
+          ,...(req.diagnosticKey && /^[0-9a-f]{64}$/.test(req.diagnosticKey) ? {diagnosticKey:Buffer.from(req.diagnosticKey,'hex')} : {}),
+          onBlocker: (diagnostic,stabilityKey) => send({kind:'identity_observation',v:1,attemptId:req.attemptId ?? req.traceAttemptId ?? 'legacy-parent',sequence:++sequence,diagnostic,stabilityKey})
         });
+        if(remainingMs()<=0)throw new LockTimeoutError('identity/.lock',undefined,budgetMs);
+        return identity;
       } catch (err) {
         attempt += 1;
         if (abort.signal.aborted) throw err;
@@ -203,7 +214,9 @@ process.on("message", (raw: unknown) => {
     })
     .catch((err) => {
       const { cause, message } = classify(err);
-      send({ kind: "identity_error", v: 1, cause, message });
+      const diagnostic=(err as {diagnostic?:unknown})?.diagnostic;
+      const safeMessage=message.replaceAll(req.request.root,'<store-root>').replace(/\/(?:[^\s,;:]+\/)+[^\s,;:]+/g,'<path>');
+      send({ kind: "identity_error", v: 1, cause, message:safeMessage, ...(diagnostic ? {diagnostic} : {}) });
     })
     .finally(() => {
       // The worker's whole job is one resolution; exit so no orphan lingers to

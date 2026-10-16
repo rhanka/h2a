@@ -10,6 +10,7 @@ import {
   readdirSync,
   readFileSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
@@ -138,20 +139,60 @@ function processState(pid: number): string | undefined {
   }
 }
 
-/** States of every /proc member of `pgid` (field 5 is the pgrp). */
-function processGroupStates(pgid: number): string[] {
+/** States of the /proc members of `pgid` AMONG THE PID CANDIDATES this test
+ * started (round-4 confinement finding: this helper used to enumerate and
+ * stat EVERY pid in /proc). The candidates are the group's own pids, tracked
+ * by the caller — a member the test never learned a pid for cannot exist for
+ * a group whose leader the test itself spawned. */
+function processGroupStates(pgid: number, candidates: readonly number[]): string[] {
   const states: string[] = [];
-  for (const name of readdirSync("/proc")) {
-    if (!/^\d+$/.test(name)) continue;
+  for (const pid of candidates) {
     try {
-      const raw = readFileSync(`/proc/${name}/stat`, "utf8");
-      const fields = raw.slice(raw.lastIndexOf(") ") + 2).split(" ");
+      const raw = readFileSync(`/proc/${pid}/stat`, "utf8");
+      const fields = raw.slice(raw.lastIndexOf(")") + 2).split(" ");
       if (Number(fields[2]) === pgid) states.push(fields[0]!);
     } catch {
       // Exited mid-scan.
     }
   }
   return states;
+}
+
+/** Direct children of a process this test started (the /proc `children` file
+ * of an owned pid — no global enumeration). */
+function directChildrenPids(pid: number): number[] {
+  try {
+    const raw = readFileSync(`/proc/${pid}/task/${pid}/children`, "utf8");
+    const trimmed = raw.trim();
+    return trimmed.length === 0 ? [] : trimmed.split(/\s+/).map(Number);
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * A /proc-shaped view holding EXACTLY the real processes this test started
+ * (round-4 confinement finding): one symlink per owned pid, plus the
+ * positively-described proc mount line the census requires. The REAL reader
+ * runs unchanged against this root — real stat, real thread lists, dangling
+ * pins reading as ENOENT/ESRCH exactly like a mid-scan exit — so only the
+ * enumeration is confined, never the evidence itself.
+ */
+function ownedProcView(pids: readonly number[]): string {
+  const root = mkdtempSync(join(scratch, "owned-proc-"));
+  mkdirSync(join(root, "self"), { recursive: true });
+  writeFileSync(
+    join(root, "self", "mountinfo"),
+    `54 46 0:25 / ${root} rw,nosuid,nodev,noexec,relatime shared:12 - proc proc rw\n`,
+  );
+  for (const pid of pids) {
+    try {
+      symlinkSync(`/proc/${pid}`, join(root, String(pid)));
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+    }
+  }
+  return root;
 }
 
 async function eventuallyTrue(read: () => boolean): Promise<void> {
@@ -1626,10 +1667,13 @@ describe("NativeTerminalHost", () => {
     host: NativeTerminalHost;
     pgid: number;
     killGroup: ReturnType<typeof fakeReaper>["killGroup"];
+    isGroupAlive: ReturnType<typeof vi.fn>;
     warnings: string[];
   } {
     const { spawner, ptys } = stubSpawner();
     const { reaper, killGroup, alive } = fakeReaper();
+    const isGroupAlive = vi.fn(reaper.isGroupAlive);
+    reaper.isGroupAlive = isGroupAlive;
     const { read, values } = fakeLeaderStartTimeReader(1000);
     const warnings: string[] = [];
     const host = new NativeTerminalHost({
@@ -1646,7 +1690,7 @@ describe("NativeTerminalHost", () => {
     const pgid = ptys.get("alpha")!.pgid;
     alive.add(pgid);
     values.set(pgid, 2000);
-    return { host, pgid, killGroup, warnings };
+    return { host, pgid, killGroup, isGroupAlive, warnings };
   }
 
   /** The frame the writer recorded on the "alpha" row. */
@@ -1682,7 +1726,7 @@ describe("NativeTerminalHost", () => {
       // refuse, blocking, and signal nothing.
       //
       // The REAL reader frame is used: only the row is foreign.
-      const { host, pgid, killGroup, warnings } =
+      const { host, pgid, killGroup, isGroupAlive, warnings } =
         hostOverAnUnrelatedLiveLeader("host-generation-pgid-other-machine");
       patchDurableRow("alpha", (row) => {
         expect(row.pgidPidNamespace).toBeTypeOf("string");
@@ -1697,6 +1741,7 @@ describe("NativeTerminalHost", () => {
         cause: "foreign-frame",
       });
       expect(killGroup).not.toHaveBeenCalled();
+      expect(isGroupAlive).not.toHaveBeenCalled();
       expect(host.pgidGuardCounters).toMatchObject({
         staleBoot: 0,
         foreignFrame: 1,
@@ -1900,22 +1945,32 @@ describe("NativeTerminalHost", () => {
       const zombiePgid = await eventuallyNumber(() => Number(zombieOnlyOut.trim()));
       const mixedPgid = mixed.pid!;
       await eventuallyTrue(() => processState(zombiePgid) === "Z");
-      await eventuallyTrue(
-        () => processGroupStates(mixedPgid).some((state) => state === "Z"),
-      );
+      await eventuallyTrue(() =>
+        processGroupStates(mixedPgid, [mixedPgid, ...directChildrenPids(mixedPgid)])
+          .some((state) => state === "Z"));
 
       // Both groups are reported ALIVE by the standard probe — that is what
       // makes a zombie-only group block containment in the first place.
       expect(posixProcessGroupReaper.isGroupAlive(zombiePgid)).toBe(true);
       expect(posixProcessGroupReaper.isGroupAlive(mixedPgid)).toBe(true);
 
-      expect(groupIsOnlyZombies(zombiePgid)).toBe(true);
+      // Round-4 confinement finding: the census used to enumerate the GLOBAL
+      // /proc. It now runs — unchanged, against REAL zombies — over a view
+      // holding exactly the processes this test started.
+      const view = ownedProcView([
+        process.pid,
+        zombieOnly.pid!,
+        zombiePgid,
+        mixedPgid,
+        ...directChildrenPids(mixedPgid),
+      ]);
+      expect(groupIsOnlyZombies(zombiePgid, view)).toBe(true);
       // A single live member is enough to keep failing closed, even next to a
       // real zombie.
-      expect(groupIsOnlyZombies(mixedPgid)).toBe(false);
+      expect(groupIsOnlyZombies(mixedPgid, view)).toBe(false);
       // No positive evidence at all (nothing in that group): never "dead".
-      expect(groupIsOnlyZombies(0x7fffffff)).toBe(false);
-      expect(groupIsOnlyZombies(process.pid)).toBe(false);
+      expect(groupIsOnlyZombies(0x7fffffff, view)).toBe(false);
+      expect(groupIsOnlyZombies(process.pid, view)).toBe(false);
     } finally {
       zombieOnly.kill("SIGKILL");
       try {
@@ -2099,7 +2154,10 @@ describe("NativeTerminalHost", () => {
         );
         // The standard probe reports the group alive — correctly, it IS alive.
         expect(posixProcessGroupReaper.isGroupAlive(pgid)).toBe(true);
-        expect(groupIsOnlyZombies(pgid)).toBe(false);
+        // Round-4 confinement finding: the census runs unchanged against the
+        // REAL `Zl` process, over a view holding only processes this test
+        // started — never a global /proc enumeration.
+        expect(groupIsOnlyZombies(pgid, ownedProcView([process.pid, pgid]))).toBe(false);
       } finally {
         try {
           process.kill(-zl.pid!, "SIGKILL");
