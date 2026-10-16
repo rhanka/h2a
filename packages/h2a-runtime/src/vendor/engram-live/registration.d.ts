@@ -1,3 +1,5 @@
+// Vendored from rhanka/engram@545a57b8911ab108e84fa1778e0f268fe11bf1de: engram-live/registration.ts.
+// Compiled with TypeScript 5.9.3 (ES2022/NodeNext, declarations); do not hand-edit.
 import { type CloneIdentityDto, type DeclarationRevocationDto, type IdentityUncertaintyState, type NonActivatingLifecycleKind, type OidAlgorithm, type RevocationReason, type WorkspaceDeclarationDto, type WorktreeIdentityDto } from "./contracts.js";
 /** Input for an explicit live declaration (revision starts at INITIAL_DECLARATION_REVISION). */
 export interface CreateLiveDeclarationInput {
