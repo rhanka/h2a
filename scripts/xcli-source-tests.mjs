@@ -30,6 +30,16 @@ for (const name of ['h2a', 'h2a-runtime', 'track', 'remote-protocol']) {
 }
 fs.cpSync(join(repo, 'docs'), join(built.path, 'docs'), { recursive: true });
 fs.cpSync(join(repo, 'packages/h2a/test'), join(built.path, 'packages/h2a/test'), { recursive: true });
+// CLI contract and spawn-boundary consumers read shipped assets and runner
+// configuration. Copy those fixtures unchanged; missing fixtures must fail.
+for (const name of ['skills', 'focus-app']) {
+  fs.cpSync(join(repo, 'packages/h2a', name), join(built.path, 'packages/h2a', name), { recursive: true });
+}
+for (const file of ['vitest.config.mjs', 'packages/h2a-runtime/vitest.config.mjs',
+  'packages/track/vitest.config.ts', 'scripts/run-tests.mjs']) {
+  fs.mkdirSync(join(built.path, file, '..'), { recursive: true });
+  fs.copyFileSync(join(repo, file), join(built.path, file));
+}
 const qualificationRoot = durableParent ? join(built.path, '.q') : root;
 const env = { ...environment(join(qualificationRoot, 'runner')),
   ...(!durableParent ? { H2A_TEST_QUALIFICATION_ROOT: root } : {}) };
