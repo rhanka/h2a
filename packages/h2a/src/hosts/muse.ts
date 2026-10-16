@@ -20,6 +20,7 @@ export function renderMcpConfig(
 ): McpHostConfigSnippet {
   return {
     config: {
+      schema_version: 1,
       mcpServers: {
         h2a: renderH2aMcpServer(options)
       }
@@ -27,7 +28,7 @@ export function renderMcpConfig(
     path: {
       hint:
         "Muse Code reads MCP servers from mcpServers in ~/.config/muse/settings.json " +
-        "(user-global). Merge the snippet under the top-level `mcpServers` key. " +
+        "(user-global). Keep schema_version: 1 at the file root and merge the top-level mcpServers object. " +
         "Caveat: muse documents streamable-HTTP entries there — stdio pickup is " +
         "unconfirmed; if your muse build refuses the stdio entry, re-run this " +
         "command with `--endpoint remote` and an HTTP MCP URL.",

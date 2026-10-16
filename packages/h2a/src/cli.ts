@@ -4510,6 +4510,11 @@ function cmdHostSetup(
     }
   }
 
+  const settingsSchema = snippet.config.schema_version;
+  if (settingsSchema !== undefined && existing.schema_version !== undefined && existing.schema_version !== settingsSchema) {
+    streams.stderr.write(`h2a host setup: ${targetPath} has an unsupported schema_version; refusing to change it.\n`);
+    return 2;
+  }
   if (existing.mcpServers !== undefined && !isPlainObject(existing.mcpServers)) {
     streams.stderr.write(
       `h2a host setup: ${targetPath} has a non-object mcpServers value; refusing to replace it.\n`
@@ -4540,6 +4545,7 @@ function cmdHostSetup(
 
   const merged: Record<string, unknown> = {
     ...existing,
+    ...(settingsSchema !== undefined ? { schema_version: settingsSchema } : {}),
     mcpServers: {
       ...retainedMcpServers,
       h2a: incoming
