@@ -15,6 +15,7 @@ concurrency:
   cancel-in-progress: true
 
 permissions:
+  actions: read
   contents: write
   id-token: write
   packages: write
@@ -130,6 +131,13 @@ jobs:
         run: node --test packages/h2a/test/run-test-gates.test.js
       - run: npm test
         shell: bash
+      # Keep stable manifests in Git; stamp only this disposable checkout.
+      # Both matrix legs smoke the same RC versions and exact internal pins.
+      - name: Prepare tag version and RC pins
+        shell: bash
+        env:
+          BACKFILL_VERSION: ${{ inputs.backfill-version }}
+        run: node scripts/release-candidate.mjs prepare
       # Build once, then smoke and upload these same four tarballs.
       - name: Pack the four lockstep packages
         shell: bash
@@ -209,6 +217,19 @@ jobs:
         shell: bash
         run: npm install -g npm@^11.15.0
 
+      - name: Prepare tag version and RC pins
+        shell: bash
+        env:
+          BACKFILL_VERSION: ${{ inputs.backfill-version }}
+        run: node scripts/release-candidate.mjs prepare
+
+      - name: Require a successful same-tree RC before stable publication
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BACKFILL_VERSION: ${{ inputs.backfill-version }}
+        run: node scripts/release-candidate.mjs require-rc
+
       # SPEC 0.98.5 R8.2: no re-run of typecheck/tests here. verify already
       # gated THIS SHA (trust root, npm test, smoke); publish only converts the
       # verified bytes into registry publications. A second test run would be
@@ -228,8 +249,8 @@ jobs:
           fi
           # Strip leading "v"
           tag_version="${tag#v}"
-          if [[ ! "$tag_version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
-            echo "::error::Release tag '$tag' does not match vX.Y.Z (got version='$tag_version')." >&2
+          if [[ ! "$tag_version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-rc\.(0|[1-9][0-9]*))?$ ]]; then
+            echo "::error::Release tag '$tag' does not match vX.Y.Z or vX.Y.Z-rc.N (got version='$tag_version')." >&2
             exit 1
           fi
           # SPEC 0.98.5 R8.2: the pinned release SHA resolved by verify in THIS
@@ -295,6 +316,9 @@ jobs:
                 echo "@sentropic/track@$v is below latest ($latest); publishing with $tagArgs so the latest dist-tag stays untouched."
               fi
             fi
+            if [[ "$v" == *-rc.* ]]; then
+              tagArgs="--tag next"
+            fi
             # SPEC 0.98.5 R8.2: publish the VERIFIED tarball bytes that verify
             # packed from the gated SHA — never a fresh pack of a mutable ref.
             (cd dist-tarballs && sha256sum --check --strict sha256sums.txt)
@@ -330,6 +354,9 @@ jobs:
                 tagArgs="--tag backfill"
                 echo "@sentropic/h2a-runtime@$v is below latest ($latest); publishing with $tagArgs so the latest dist-tag stays untouched."
               fi
+            fi
+            if [[ "$v" == *-rc.* ]]; then
+              tagArgs="--tag next"
             fi
             # SPEC 0.98.5 R8.2: publish the VERIFIED tarball bytes that verify
             # packed from the gated SHA — never a fresh pack of a mutable ref.
@@ -367,6 +394,9 @@ jobs:
                 echo "@sentropic/h2a@$v is below latest ($latest); publishing with $tagArgs so the latest dist-tag stays untouched."
               fi
             fi
+            if [[ "$v" == *-rc.* ]]; then
+              tagArgs="--tag next"
+            fi
             # SPEC 0.98.5 R8.2: publish the VERIFIED tarball bytes that verify
             # packed from the gated SHA — never a fresh pack of a mutable ref.
             (cd dist-tarballs && sha256sum --check --strict sha256sums.txt)
@@ -403,6 +433,9 @@ jobs:
                 echo "@sentropic/h2a-cli@$v is below latest ($latest); publishing with $tagArgs so the latest dist-tag stays untouched."
               fi
             fi
+            if [[ "$v" == *-rc.* ]]; then
+              tagArgs="--tag next"
+            fi
             # SPEC 0.98.5 R8.2: publish the VERIFIED tarball bytes that verify
             # packed from the gated SHA — never a fresh pack of a mutable ref.
             (cd dist-tarballs && sha256sum --check --strict sha256sums.txt)
@@ -434,16 +467,21 @@ jobs:
             echo "Release $tag already exists; skipping creation."
             exit 0
           fi
+          releaseArgs=()
+          if [[ "$RELEASE_VERSION" == *-rc.* ]]; then
+            releaseArgs+=(--prerelease --latest=false)
+          fi
           gh release create "$tag" \
             --title "$tag" \
             --generate-notes \
-            --verify-tag
+            --verify-tag "${releaseArgs[@]}"
 
       # This is deliberately after GitHub Release creation: publication is already
       # irreversible, so a broken artefact must be reported without hiding the
       # release that describes what npm now serves. It initializes an isolated
       # bus and runs doctor in host-repair dry-run mode on Ubuntu.
       - name: Verify published @sentropic/h2a doctor (post-release)
+        id: post-publish-smoke
         shell: bash
         run: |
           set -euo pipefail
@@ -466,6 +504,11 @@ jobs:
             sleep "$retry_delay_seconds"
           done
           if [[ "$installed" -ne 1 ]]; then
+            # RC promotion requires a completed install, never a warning-only pass.
+            if [[ "$RELEASE_VERSION" == *-rc.* ]]; then
+              echo "::error::RC install smoke did not complete; refusing RC attestation." >&2
+              exit 1
+            fi
             # Positive control (same method as #283: keep a hard-fail path for the real
             # failure). The authoritative "did we publish" signal is the return code of
             # `npm publish`, already made blocking upstream by #283 (`npm publish ... ||
@@ -535,3 +578,21 @@ jobs:
               process.exit(1);
             }
           ' "$out"
+          echo "smoke-passed=true" >> "$GITHUB_OUTPUT"
+
+      # Unconditional for both paths: stable runs record their own result too.
+      # Only a successful RC push run with next + smoke proof can authorize promotion.
+      - name: Record release attestation after the install smoke
+        shell: bash
+        env:
+          BACKFILL_VERSION: ${{ inputs.backfill-version }}
+          RC_SMOKE_PASSED: ${{ steps.post-publish-smoke.outputs.smoke-passed }}
+        run: node scripts/release-candidate.mjs attest
+
+      - name: Upload release attestation
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-attestation-${{ github.run_attempt }}
+          path: release-attestation/attestation.json
+          if-no-files-found: error
+          retention-days: 90
