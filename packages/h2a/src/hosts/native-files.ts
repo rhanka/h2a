@@ -29,7 +29,7 @@ function same(a: Snapshot | undefined, b: Snapshot | undefined): boolean {
 export function atomicNativeWrite(path: string, bytes: string | undefined, options: {
   state: string; expected?: Snapshot; dryRun?: boolean; beforeRename?: () => void;
 }): boolean {
-  const previous = options.expected ?? snapshot(path);
+  const previous = 'expected' in options ? options.expected : snapshot(path);
   if (bytes === undefined && !previous || bytes !== undefined && previous?.bytes.equals(Buffer.from(bytes))) return false;
   if (options.dryRun) return true;
   assertNativePath(path); assertNativePath(options.state);
@@ -66,8 +66,8 @@ export interface NativeManifest {
   guard?: 'on' | 'off';
   lifecycle?: { enabled: boolean; instance: string; root?: string; status?: string };
 }
-export function readNativeManifest(state: string, host: string, root: string, version: string): NativeManifest {
-  const current = snapshot(join(state, 'manifest.json'));
+export function readNativeManifest(state: string, host: string, root: string, version: string, manifestName = 'manifest.json'): NativeManifest {
+  const current = snapshot(join(state, manifestName));
   if (!current) return { schema: 1, host, root, version, files: {} };
   const value = JSON.parse(current.bytes.toString()) as NativeManifest;
   if (value.schema !== 1 || value.host !== host || value.root !== root || !value.files || Array.isArray(value.files))

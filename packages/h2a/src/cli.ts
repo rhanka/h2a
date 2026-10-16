@@ -6754,6 +6754,7 @@ interface CollectedSkill {
   /** SKILL.md content whose frontmatter `name:` matches `installName`. */
   readonly raw: string;
   readonly source: SkillProvenance;
+  readonly resourceDir: string;
 }
 
 type ReadSkillOutcome =
@@ -6800,7 +6801,7 @@ function readSkillFrom(
     raw = raw.replace(/^(name:[ \t]*).*$/m, `$1${installName}`);
     parsed = { ...parsed, name: installName };
   }
-  return { kind: "skill", skill: { installName, parsed, raw, source } };
+  return { kind: "skill", skill: { installName, parsed, raw, source, resourceDir: join(srcDir, dirName) } };
 }
 
 /**
