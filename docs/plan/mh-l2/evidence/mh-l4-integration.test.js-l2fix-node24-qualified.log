@@ -1,0 +1,19 @@
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node --test packages/h2a/test/mh-l4-integration.test.js
+node: v24.21.0
+private test root: /tmp/mh-l2-test-CzPGXF
+Claude config: /tmp/mh-l2-test-CzPGXF/claude
+{"event":"drive-consent.full-verification","durationMs":0.021951000000001386,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+{"event":"drive-consent.full-verification","durationMs":0.020137999999974454,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+✔ should refuse unknown/legacy writers before freeze and recover eligibility only from maintained closure proof (180.560481ms)
+✔ should export a complete source checkpoint and wait for admitted callbacks before freezing (399.494188ms)
+✔ should serialize administrative barrier/freeze/abort with conforming writers and a fresh inventory (74.063374ms)
+ℹ tests 3
+ℹ suites 0
+ℹ pass 3
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 862.954193
+
+receipt: {"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","--test","packages/h2a/test/mh-l4-integration.test.js"],"code":0,"signal":null,"elapsedMs":888}

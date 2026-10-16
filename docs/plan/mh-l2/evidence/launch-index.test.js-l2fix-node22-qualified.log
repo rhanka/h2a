@@ -1,0 +1,117 @@
+command: /usr/bin/node --test packages/h2a/test/launch-index.test.js
+node: v22.22.1
+private test root: /tmp/mh-l2-test-sMagcG
+TAP version 13
+# Subtest: indexed bindings preserve latest conversation binding, proof gating and append-only audit
+ok 1 - indexed bindings preserve latest conversation binding, proof gating and append-only audit
+  ---
+  duration_ms: 9.145084
+  type: 'test'
+  ...
+# Subtest: explicit maintenance requires an absolute root and retains original bytes
+ok 2 - explicit maintenance requires an absolute root and retains original bytes
+  ---
+  duration_ms: 1.774618
+  type: 'test'
+  ...
+# Subtest: an old writer or a failed derived-index update remains visible through tail replay
+ok 3 - an old writer or a failed derived-index update remains visible through tail replay
+  ---
+  duration_ms: 2.244452
+  type: 'test'
+  ...
+# Subtest: derived index manifest falls back to the authoritative binding reader
+ok 4 - derived index manifest falls back to the authoritative binding reader
+  ---
+  duration_ms: 1.481216
+  type: 'test'
+  ...
+# Subtest: derived index bucket falls back to the authoritative binding reader
+ok 5 - derived index bucket falls back to the authoritative binding reader
+  ---
+  duration_ms: 1.598988
+  type: 'test'
+  ...
+# Subtest: derived index replace falls back to the authoritative binding reader
+ok 6 - derived index replace falls back to the authoritative binding reader
+  ---
+  duration_ms: 1.187704
+  type: 'test'
+  ...
+# Subtest: derived index truncate falls back to the authoritative binding reader
+ok 7 - derived index truncate falls back to the authoritative binding reader
+  ---
+  duration_ms: 0.976998
+  type: 'test'
+  ...
+# Subtest: derived index rewrite falls back to the authoritative binding reader
+ok 8 - derived index rewrite falls back to the authoritative binding reader
+  ---
+  duration_ms: 1.1005
+  type: 'test'
+  ...
+# Subtest: derived index partial falls back to the authoritative binding reader
+ok 9 - derived index partial falls back to the authoritative binding reader
+  ---
+  duration_ms: 1.300066
+  type: 'test'
+  ...
+# Subtest: indexed registry keeps first registration, role normalization and key revocations
+ok 10 - indexed registry keeps first registration, role normalization and key revocations
+  ---
+  duration_ms: 6.20899
+  type: 'test'
+  ...
+# Subtest: indexed aliases preserve adoption, duplicate suppression and malformed-row tolerance
+ok 11 - indexed aliases preserve adoption, duplicate suppression and malformed-row tolerance
+  ---
+  duration_ms: 2.013899
+  type: 'test'
+  ...
+# Subtest: concurrent index publication and legacy appends never turn a known binding into absence
+ok 12 - concurrent index publication and legacy appends never turn a known binding into absence
+  ---
+  duration_ms: 114.214875
+  type: 'test'
+  ...
+# Subtest: indexed point lookups do not read a complete historical journal
+ok 13 - indexed point lookups do not read a complete historical journal
+  ---
+  duration_ms: 29.300558
+  type: 'test'
+  ...
+# Subtest: unrelated index publications cannot force a point lookup into a historical scan
+ok 14 - unrelated index publications cannot force a point lookup into a historical scan
+  ---
+  duration_ms: 2.215387
+  type: 'test'
+  ...
+# Subtest: a poisoned row cannot be silently removed by a derived index
+ok 15 - a poisoned row cannot be silently removed by a derived index
+  ---
+  duration_ms: 1.109057
+  type: 'test'
+  ...
+# Subtest: a long history on one conversation needs only its latest binding row
+ok 16 - a long history on one conversation needs only its latest binding row
+  ---
+  duration_ms: 15.215152
+  type: 'test'
+  ...
+# Subtest: legacy inbox ownership keeps earliest claimant and log-order ties without scanning aliases
+ok 17 - legacy inbox ownership keeps earliest claimant and log-order ties without scanning aliases
+  ---
+  duration_ms: 5.786886
+  type: 'test'
+  ...
+1..17
+# tests 17
+# suites 0
+# pass 17
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 528.15113
+
+receipt: {"command":["/usr/bin/node","--test","packages/h2a/test/launch-index.test.js"],"code":0,"signal":null,"elapsedMs":619}

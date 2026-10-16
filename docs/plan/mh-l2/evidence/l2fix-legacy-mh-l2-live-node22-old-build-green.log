@@ -1,0 +1,22 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l2-live.test.js
+node: v22.22.1
+explicit oracle: passive source should refuse signed authorization with old build
+private root: /tmp/mh-l2-live-mutation-PcExsj
+TAP version 13
+# Subtest: passive source should refuse signed authorization with old build
+ok 1 - passive source should refuse signed authorization with old build
+  ---
+  duration_ms: 59.172421
+  type: 'test'
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 1
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 180.167061
+
+receipt: {"code":0,"signal":null}
