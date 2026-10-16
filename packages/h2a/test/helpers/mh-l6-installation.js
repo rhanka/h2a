@@ -17,9 +17,9 @@ export function installationFixture() {
   const installation = { schemaVersion: 1, prefixId: layout.prefixId, canonicalPrefix: prefix,
     uid: process.getuid(), managedRoot: layout.managedRoot };
   publishState(join(layout.managedRoot, 'installation.json'), installation, 'installation');
-  const image = (buildId = 'target', protocolVersion = 1) => {
+  const image = (buildId = 'target', protocolVersion = 1, entrySource) => {
     const stage = join(prefix, 'stage'); fs.mkdirSync(stage, { mode: 0o700 });
-    fs.writeFileSync(join(stage, 'entry.mjs'), `export const buildId=${JSON.stringify(buildId)};\n`);
+    fs.writeFileSync(join(stage, 'entry.mjs'), entrySource ?? `export const buildId=${JSON.stringify(buildId)};\n`);
     fs.writeFileSync(join(stage, 'controller.json'), JSON.stringify({ schemaVersion: 1, protocolVersion, entrypoint: 'entry.mjs' }));
     const manifest = createManifest(stage, { packageVersion: '0.98.7', buildId,
       profile: { platform: 'linux', arch: process.arch, libc: 'glibc', nodeMajor: Number(process.versions.node.split('.')[0]), nodeAbi: process.versions.modules },
