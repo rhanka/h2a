@@ -445,11 +445,47 @@ test("R8.2 (4): publish downloads the verify-built tarballs and verifies every s
   );
   // The four lockstep publishes must publish THE artifact tarballs.
   for (const tarball of ["sentropic-h2a-", "sentropic-h2a-runtime-", "sentropic-h2a-cli-", "sentropic-track-"]) {
-    const publishStep = publish.steps.find((step) => String(step.run ?? "").includes(`npm publish "dist-tarballs/${tarball}`));
+    const publishStep = publish.steps.find((step) => String(step.run ?? "").includes(`npm publish "./dist-tarballs/${tarball}`));
     assert.ok(
       publishStep,
       `publish must run npm publish on the verified artifact tarball for ${tarball}*, not a workspace pack of a mutable ref`,
     );
+  }
+});
+
+test("R8.2 (0.98.6 git-shorthand incident): every npm publish tarball arg is an unambiguous ./ file spec", () => {
+  // Release 0.98.6, publish step "Publish @sentropic/track": npm parsed the
+  // relative path "dist-tarballs/sentropic-track-0.98.6.tgz" as a GitHub
+  // "owner/repo" shorthand and ran
+  // `git ls-remote ssh://git@github.com/dist-tarballs/sentropic-track-0.98.6.tgz.git`.
+  // A spec starting with ./ (or /) is always a file; a bare relative path
+  // containing a slash is probed as owner/repo first. So every tarball
+  // publish must pass "./dist-tarballs/…" — never the bare form.
+  const publish = job("publish");
+  const publishes = publish.steps.filter((step) => String(step.run ?? "").includes("npm publish"));
+  assert.ok(publishes.length >= 4, "publish must publish track plus the three lockstep packages");
+  for (const tarball of [
+    "sentropic-track-${v}.tgz",
+    "sentropic-h2a-runtime-${v}.tgz",
+    "sentropic-h2a-${v}.tgz",
+    "sentropic-h2a-cli-${v}.tgz",
+  ]) {
+    const holders = publishes.filter((step) => String(step.run).includes(`"./dist-tarballs/${tarball}"`));
+    assert.equal(
+      holders.length,
+      1,
+      `exactly one publish step must ship "./dist-tarballs/${tarball}" (unambiguous file spec, not a git shorthand)`,
+    );
+  }
+  for (const step of publishes) {
+    const args = [...String(step.run).matchAll(/npm publish\s+"([^"]+)"/g)].map((m) => m[1]);
+    for (const arg of args) {
+      if (!arg.endsWith(".tgz")) continue;
+      assert.ok(
+        arg.startsWith("./") || arg.startsWith("/"),
+        `publish arg "${arg}" is an unprefixed relative tarball path — npm parses it as owner/repo git shorthand (0.98.6 incident); use "./${arg}"`,
+      );
+    }
   }
 });
 
@@ -489,7 +525,7 @@ test("R8.2: @sentropic/track publishes the VERIFIED tarball bytes — pinned COM
     "fi",
     "fi",
     "(cd dist-tarballs && sha256sum --check --strict sha256sums.txt)",
-    'if ! npm publish "dist-tarballs/sentropic-track-${v}.tgz" --access public $tagArgs; then',
+    'if ! npm publish "./dist-tarballs/sentropic-track-${v}.tgz" --access public $tagArgs; then',
     'echo "::error::@sentropic/track@$v: npm publish failed (not published)." >&2',
     "exit 1",
     "fi",
