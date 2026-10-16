@@ -346,18 +346,18 @@ test("planReleaseGitSteps never commits on main and never creates a tag", () => 
   );
 });
 
-test("formatNextSteps describes branch push -> PR -> CI -> merge -> tag on merged commit", () => {
-  const text = formatNextSteps({ version: "0.2.0", branch: "release/v0.2.0" });
-  assert.equal(text.includes("git push origin HEAD"), false, "direct push to main is refused");
+function assertCandidateToStableFlow(text, version, tagFlags = "-a") {
+  const tag = `v${version}`;
   const order = [
-    "git push -u origin release/v0.2.0",
-    "gh pr create",
-    "gh pr checks release/v0.2.0 --watch",
-    "gh pr merge release/v0.2.0",
-    "git fetch origin main",
-    "git merge-base --is-ancestor",
-    "git tag -a v0.2.0",
-    "git push origin v0.2.0"
+    `git tag ${tagFlags} ${tag}-rc.1 "$SHA"`,
+    `git push origin ${tag}-rc.1\n`,
+    `gh run list --workflow release.yml --branch ${tag}-rc.1`,
+    "npm i -g @sentropic/h2a@next",
+    "REAL machine reboot",
+    `git tag ${tagFlags} ${tag} "$SHA"`,
+    `git push origin ${tag}\n`,
+    `gh run list --workflow release.yml --branch ${tag}\n`,
+    `npm i -g @sentropic/h2a@${version}`
   ];
   let cursor = -1;
   for (const needle of order) {
@@ -365,11 +365,42 @@ test("formatNextSteps describes branch push -> PR -> CI -> merge -> tag on merge
     assert.ok(at > cursor, `expected "${needle}" after previous step`);
     cursor = at;
   }
+  assert.match(text, /owner acceptance/i);
+  assert.match(text, /attestation/);
+  assert.match(text, /upgrade[^\n]*pre-?release/i);
+}
+
+test("formatNextSteps requires RC qualification before stable and explicit installation afterwards", () => {
+  for (const version of ["0.2.0", "12.34.56"]) {
+    const text = formatNextSteps({ version, branch: `release/v${version}` });
+    assert.equal(text.includes("git push origin HEAD"), false, "direct push to main is refused");
+    const order = [
+      `git push -u origin release/v${version}`,
+      "gh pr create",
+      `gh pr checks release/v${version} --watch`,
+      `gh pr merge release/v${version}`,
+      "git fetch origin main",
+      "git merge-base --is-ancestor",
+      `git tag -a v${version}-rc.1 "$SHA"`
+    ];
+    let cursor = -1;
+    for (const needle of order) {
+      const at = text.indexOf(needle);
+      assert.ok(at > cursor, `expected "${needle}" after previous step`);
+      cursor = at;
+    }
+    assertCandidateToStableFlow(text, version);
+  }
+});
+
+test("release guide completes the qualified RC flow with an explicit stable installation", () => {
+  const text = readFileSync(resolve(HERE, "../../../docs/release.md"), "utf8");
+  assertCandidateToStableFlow(text, "0.2.0");
 });
 
 test("formatNextSteps uses a signed tag when requested", () => {
   const text = formatNextSteps({ version: "0.2.0", branch: "feat/foo", signTag: true });
-  assert.match(text, /git tag -s -a v0\.2\.0/);
+  assertCandidateToStableFlow(text, "0.2.0", "-s -a");
 });
 
 const LOCKSTEP_PACKAGES = ['h2a', 'h2a-cli', 'h2a-runtime', 'track'];

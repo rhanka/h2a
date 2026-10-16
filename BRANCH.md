@@ -284,6 +284,47 @@ publish bodies, default/backfill selection and npm failure propagation.
 The owner report records strict-test red/green, broken-package rejection,
 targeted regressions and final PR CI. No full local suite is authorized.
 
+
+## RC on npm next — owner decision 2026-10-16, part B
+
+Branch: feat/release-rc-next, based on origin/main at d2e0cfdc.
+Owner scope: require a successful same-source-tree RC before every stable
+release; no tag push, npm publication, main write or full local suite.
+
+- Keep stable versions in Git; stamp disposable RC manifests, all internal
+  exact pins and the independent artifact smoke literal after the test gate.
+- Publish the four verified tarballs on next only for vX.Y.Z-rc.N, preserving
+  the same verify/pack/smoke and strict publish-rehearsal body parity.
+- Record a repository/run/attempt/commit/tree attestation only after completed
+  post-publish install/doctor smoke, all four next tags and registry integrity
+  matching the verify-built tarballs. This also protects idempotent skips.
+- Stable publication (backfill included) requires a successful RC push run
+  from release.yml, a nonexpired artifact for its current attempt, matching
+  release train/tree and corroboration from GitHub's Git commit API.
+- Operator docs require owner installation of @sentropic/h2a@next and a real
+  machine reboot before tagging the stable version on the same merged commit.
+
+Targeted red/green evidence is retained in tmp/release-rc-evidence and in the
+owner's requested scratchpad report. npm/GitHub publication is simulated;
+GitHub metadata inspection is read-only. No installed h2a is invoked locally.
+Native h2a/mesh consensus review is excluded by the owner's confinement;
+review metadata/eligible hosts cannot be established, so no consensus is claimed.
+CI on the PR is the integration authority; machine reboot remains owner UAT.
+
+## RC review reserves — owner scope 2026-10-16
+
+Close both P2 findings from the independent review of PR #345: document the
+explicit exact-version stable installation after publication because upgrade
+rejects prerelease versions, and make generated release instructions follow
+RC publication, attestation and owner reboot acceptance before the stable tag.
+Both tags retain signing and target the same verified merged commit.
+
+The operator-flow regressions failed before the fix (27 passed, 3 failed,
+0 skipped) and passed after it (30 passed, 0 failed/skipped). Merge origin/main
+through a normal merge commit, run named release regression files only, and
+push this branch. No main write, tag push, publication or installed CLI run.
+Evidence and final CI job results are appended under "Réserves Astra" in the
+owner's scratchpad report; physical reboot and real publication remain owner UAT.
 ## Review fix — round 6
 
 Owner-supplied `revpresence5.md`: FUSIONNABLE-AVEC-RESERVES, one P3.

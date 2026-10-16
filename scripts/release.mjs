@@ -300,13 +300,15 @@ export function planReleaseGitSteps({ version, currentBranch }) {
 
 /**
  * Manual next steps: branch push -> PR -> green CI -> merge -> fetch ->
- * annotated tag on the merged commit verified on origin/main -> tag push.
+ * RC tag on the merged commit -> owner reboot qualification -> stable tag ->
+ * explicit stable installation after successful publication.
  *
  * @param {{ version: string, branch: string, signTag?: boolean }} input
  * @returns {string}
  */
 export function formatNextSteps({ version, branch, signTag = false }) {
   const tag = `v${version}`;
+  const rcTag = `${tag}-rc.1`;
   const tagFlags = signTag ? "-s -a" : "-a";
   return [
     "",
@@ -320,19 +322,40 @@ export function formatNextSteps({ version, branch, signTag = false }) {
     `  gh pr checks ${branch} --watch --required`,
     `  gh pr merge ${branch} --squash`,
     "",
-    "  # 3. Tag the MERGED commit (never the pre-merge local commit)",
+    "  # 3. Owner GO: cut an RC on the MERGED commit (never the pre-merge local commit)",
     "  git fetch origin main",
     `  SHA=$(gh pr view ${branch} --json mergeCommit --jq .mergeCommit.oid)`,
     '  git merge-base --is-ancestor "$SHA" origin/main',
     `  git show "$SHA:packages/h2a/package.json" | grep -q '"version": "${version}"'`,
+    `  git tag ${tagFlags} ${rcTag} "$SHA" -m "release: ${rcTag}"`,
+    `  git push origin ${rcTag}`,
+    "  # Wait for the entire RC release.yml run to succeed, including post-publish",
+    "  # smoke and release-attestation-<run_attempt> upload.",
+    `  gh run list --workflow release.yml --branch ${rcTag}`,
+    "",
+    "  # 4. On the owner's machine, check next is the intended RC, then install",
+    "  npm view @sentropic/h2a dist-tags.next",
+    "  npm i -g @sentropic/h2a@next",
+    "  # Perform a REAL machine reboot; verify startup, reconnection and normal work.",
+    "  # Record owner acceptance and the RC run URL. If it fails, fix through a PR",
+    "  # and repeat with the next unused rc.N on the new merged commit; never move tags.",
+    "",
+    "  # 5. Only after owner acceptance: tag the EXACT SAME merged commit",
     `  git tag ${tagFlags} ${tag} "$SHA" -m "release: ${tag}"`,
     `  git push origin ${tag}`,
+    "",
+    "  # 6. Wait for the entire stable release.yml run to succeed, then exit the RC",
+    `  gh run list --workflow release.yml --branch ${tag}`,
+    `  npm i -g @sentropic/h2a@${version}`,
+    "  # h2a upgrade and automatic upgrade reject prerelease versions; install explicitly.",
     "",
     "On tag push, .github/workflows/release.yml runs:",
     "  - tag-on-main gate (refuses a tag not reachable from origin/main)",
     "  - typecheck + tests",
-    "  - version sanity gate (tag vs package.json)",
-    "  - npm publish --access public via npm Trusted Publishing (track + h2a + h2a-cli + h2a-runtime)",
+    "  - version sanity gate; RC versions and exact pins stamped only in CI",
+    "  - stable publication requires a successful same-source-tree RC attestation",
+    "  - npm publish --access public via npm Trusted Publishing (four packages; RC uses next)",
+    "  - post-publish install/doctor smoke; RC attestation after registry verification",
     "  - gh release create --generate-notes",
     ""
   ].join("\n");
@@ -363,8 +386,9 @@ function printHelp() {
       "",
       "Runs typecheck + tests, bumps every package to the same X.Y.Z and",
       "commits `release: vX.Y.Z` on a branch (release/vX.Y.Z when run from",
-      "main; never on main). No tag is created: tag the merged commit after",
-      "the PR is merged. Publish happens in CI on tag push",
+      "main; never on main). No tag is created: cut an RC on the merged commit,",
+      "qualify it with an owner reboot, then tag stable on the same commit.",
+      "Install stable explicitly after publication. Publish happens in CI on tag push",
       "(see .github/workflows/release.yml).",
       ""
     ].join("\n")
