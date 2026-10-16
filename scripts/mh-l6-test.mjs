@@ -18,6 +18,11 @@ for (const key of ['HOME', 'XDG_RUNTIME_DIR', 'XDG_CONFIG_HOME', 'XDG_STATE_HOME
 if (process.env.H2A_TEST_CLAUDE_HOME_FALLBACK === '1') delete env.CLAUDE_CONFIG_DIR;
 if (process.env.MH_L5_CASE) env.MH_L5_CASE = process.env.MH_L5_CASE;
 if (process.env.MH_L6_CASE) env.MH_L6_CASE = process.env.MH_L6_CASE;
+if (process.env.MH_L6_NATIVE_ASSETS) {
+  const root = fs.realpathSync(process.env.MH_L6_NATIVE_ASSETS);
+  if (!root.startsWith('/tmp/mh-l6-toolchain-')) throw new Error('private_native_assets_required');
+  env.MH_L6_NATIVE_ASSETS = root;
+}
 if (process.env.MH_L5_ARTIFACTS) {
   const root = fs.realpathSync(process.env.MH_L5_ARTIFACTS);
   if (!root.startsWith('/tmp/mh-l5-artifacts-')) throw new Error('private_artifacts_required');

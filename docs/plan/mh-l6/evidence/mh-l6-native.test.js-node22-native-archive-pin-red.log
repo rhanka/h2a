@@ -1,0 +1,39 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-native.test.js
+node: v22.22.1
+private root: /tmp/mh-l6-test-cCXhWK
+case: U10 should reject an unpinned compiler archive before its first instruction executes
+TAP version 13
+# Subtest: U10 should reject an unpinned compiler archive before its first instruction executes
+not ok 1 - U10 should reject an unpinned compiler archive before its first instruction executes
+  ---
+  duration_ms: 469.749069
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-native.test.js:12:67'
+  failureType: 'testCodeFailure'
+  error: |-
+    unverified compiler must never execute
+    
+    true !== false
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: false
+  actual: true
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-native.test.js:146:10)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 0
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 578.635535
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-native.test.js"],"code":1,"signal":null,"tests":1,"invalid":false,"spawned":1,"leftovers":[]}

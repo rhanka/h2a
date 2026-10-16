@@ -1,0 +1,42 @@
+{
+  "archiveSha256": "44109da8eb65646a2100658480ff474ec389913ed2f083ae2539b235b4a20870",
+  "qualification": "byte-comparison-only; no frozen release or relaunch qualified",
+  "rows": [
+    {
+      "path": "dist/launch-guard.js",
+      "publishedSha256": "86418ff55b49fec17ce00bc74e3dc7631d43f5b5ec570de641a485655b1916dc",
+      "currentSha256": "86418ff55b49fec17ce00bc74e3dc7631d43f5b5ec570de641a485655b1916dc",
+      "equal": true
+    },
+    {
+      "path": "dist/native-host.js",
+      "publishedSha256": "91ea3d984755a64e4737dbb9905cd6bdc37ae61c3a927335fc302c70c20deb24",
+      "currentSha256": "61f12e7b4c90267f8a157d5c2b32a7cca124b4fbf083e72fc7e0eab4da16ca97",
+      "equal": false
+    },
+    {
+      "path": "dist/native-terminal/op.js",
+      "publishedSha256": "e0f4efc4318ef16d5b7e4dbe7f6ffa16aff131eb5faf8d0beb6587cd30e10069",
+      "currentSha256": "9c8c25179343a5be6a2f5c7dc1aa0762ee1dce6ae04fea2ccffa8ac09e946f97",
+      "equal": false
+    },
+    {
+      "path": "dist/native-terminal/process.js",
+      "publishedSha256": "328df5a1668cba5eaf1fece00ef70721a2c51d3038e19c825f0196a4b16963bc",
+      "currentSha256": "23379a5f366fc1823f5c68292cbc7d120ee4d81224ec2340571794e0b160a570",
+      "equal": false
+    },
+    {
+      "path": "dist/native-terminal/supervisor.js",
+      "publishedSha256": "778a7f6a7a49d557ef0f37728e3898ccf1fe76891962ac1cbc081304f9663340",
+      "currentSha256": "d0153936c2b0fa1fccabb09e9226632e9cd8bace42a527c56a854419f68b8a76",
+      "equal": false
+    },
+    {
+      "path": "dist/native-terminal/journal.js",
+      "publishedSha256": "f7af111f70bcbf67ede734dd0237ae27d2721ea683f4638aa348979394ce5405",
+      "currentSha256": "7feb3c5da2defdb70f0b3d1d56ad5bb0b88a4c97fca6e4f1a94e85154d0e0794",
+      "equal": false
+    }
+  ]
+}
