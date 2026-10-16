@@ -2,6 +2,7 @@ import { closeSync, mkdirSync, openSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { atomicNativeWrite, assertNativePath, digest, jsonBytes, readNativeManifest, snapshot } from './native-files.js';
 import type { NativeManifest } from './native-files.js';
+import { recoverNativeHooks } from './native-toml.js';
 export interface NativeArtifact { path: string; bytes: string; source: string; selected?: boolean; historical?: readonly string[]; }
 export interface NativeChanges { changed: string[]; adopted: string[]; conflicts: string[]; missing: string[]; planned: string[]; }
 export function convergeArtifacts(options: {
@@ -29,6 +30,7 @@ export function convergeArtifacts(options: {
       const recovery = JSON.parse(pending.bytes.toString()) as NativeManifest;
       if (recovery.schema !== 1 || recovery.host !== host || recovery.root !== root || !recovery.files)
         throw new Error('incompatible interrupted installation; inspect pending.json');
+      if (host === 'vibe') recoverNativeHooks(manifest, recovery, snapshot(join(root, 'hooks.toml'))?.bytes.toString() ?? '');
       for (const artifact of options.artifacts) {
         const entry = recovery.files[artifact.path];
         if (entry?.sha256 === digest(artifact.bytes) && snapshot(artifact.path)?.bytes.equals(Buffer.from(artifact.bytes)))
@@ -54,14 +56,15 @@ export function convergeArtifacts(options: {
     options.configure?.(manifest);
     manifest.version = version;
     if (options.repair && !options.dryRun) {
-      if (writes.length) atomicNativeWrite(pendingPath, jsonBytes(manifest), { state });
+      const needsJournal = writes.length > 0 || !original?.bytes.equals(Buffer.from(jsonBytes(manifest)));
+      if (needsJournal) atomicNativeWrite(pendingPath, jsonBytes(manifest), { state });
       for (const { artifact, previous } of writes) {
         atomicNativeWrite(artifact.path, artifact.bytes, { state, expected: previous });
         changes.changed.push(artifact.path);
       }
       options.finalize?.();
       atomicNativeWrite(manifestPath, jsonBytes(manifest), { state, expected: original });
-      if (pending || writes.length) unlinkSync(pendingPath);
+      if (pending || needsJournal) unlinkSync(pendingPath);
     }
     return { manifest, changes };
   } finally { if (locked) unlinkSync(lockPath); }
