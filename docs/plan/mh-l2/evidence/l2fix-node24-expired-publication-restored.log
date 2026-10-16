@@ -1,0 +1,22 @@
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node --test --test-reporter=tap packages/h2a/test/mh-l2-live.test.js
+node: v24.21.0
+private root: /tmp/mh-l2-amendment-iLDS1x
+env selection: {"MH_L2_LIVE_CASE":"concordant publication should retire after an expired barrier without reversing time or skipping G0 drain"}; unset: 
+TAP version 13
+# Subtest: concordant publication should retire after an expired barrier without reversing time or skipping G0 drain
+ok 1 - concordant publication should retire after an expired barrier without reversing time or skipping G0 drain
+  ---
+  duration_ms: 556.62029
+  type: 'test'
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 1
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 601.22746
+
+receipt: {"code":0,"signal":null}
