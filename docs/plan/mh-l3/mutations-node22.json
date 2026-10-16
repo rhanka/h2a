@@ -1,0 +1,392 @@
+{
+  "node": "v22.22.1",
+  "results": [
+    {
+      "name": "transport-epoch",
+      "path": "packages/h2a/src/runtime/handover/attachment-transports.js",
+      "oracle": "resume should fence transports, preserve one activation and quarantine unknown liveness within capacity",
+      "sourceSha256": "dbf714263f90bbbb0d31bd3321c431a0e5b63f5e4ee6fa5d69f2d5224063fc4b",
+      "red": "docs/plan/mh-l3/evidence/mh-l3-state.test.js-node22-transport-epoch-red.log",
+      "green": "docs/plan/mh-l3/evidence/mh-l3-state.test.js-node22-transport-epoch-green.log",
+      "restored": true
+    },
+    {
+      "name": "resume-context",
+      "path": "packages/h2a/src/runtime/handover/attachment-transports.js",
+      "oracle": "resume should fence transports, preserve one activation and quarantine unknown liveness within capacity",
+      "sourceSha256": "dbf714263f90bbbb0d31bd3321c431a0e5b63f5e4ee6fa5d69f2d5224063fc4b",
+      "red": "docs/plan/mh-l3/evidence/mh-l3-state.test.js-node22-resume-context-red.log",
+      "green": "docs/plan/mh-l3/evidence/mh-l3-state.test.js-node22-resume-context-green.log",
+      "restored": true
+    },
+    {
+      "name": "resume-liveness",
+      "path": "packages/h2a/src/runtime/handover/attachment-transports.js",
+      "oracle": "resume should fence transports, preserve one activation and quarantine unknown liveness within capacity",
+      "sourceSha256": "dbf714263f90bbbb0d31bd3321c431a0e5b63f5e4ee6fa5d69f2d5224063fc4b",
+      "red": "docs/plan/mh-l3/evidence/mh-l3-state.test.js-node22-resume-liveness-red.log",
+      "green": "docs/plan/mh-l3/evidence/mh-l3-state.test.js-node22-resume-liveness-green.log",
+      "restored": true
+    },
+    {
+      "name": "quarantine-capacity",
+      "path": "packages/h2a/src/runtime/handover/attachment-transports.js",
+      "oracle": "resume should fence transports, preserve one activation and quarantine unknown liveness within capacity",
+      "sourceSha256": "dbf714263f90bbbb0d31bd3321c431a0e5b63f5e4ee6fa5d69f2d5224063fc4b",
+      "red": "docs/plan/mh-l3/evidence/mh-l3-state.test.js-node22-quarantine-capacity-red.log",
+      "green": "docs/plan/mh-l3/evidence/mh-l3-state.test.js-node22-quarantine-capacity-green.log",
+      "restored": true
+    },
+    {
+      "name": "resume-attempt",
+      "path": "packages/h2a/src/runtime/handover/attachment-transports.js",
+      "oracle": "resume should fence transports, preserve one activation and quarantine unknown liveness within capacity",
+      "sourceSha256": "dbf714263f90bbbb0d31bd3321c431a0e5b63f5e4ee6fa5d69f2d5224063fc4b",
+      "red": "docs/plan/mh-l3/evidence/mh-l3-state.test.js-node22-resume-attempt-red.log",
+      "green": "docs/plan/mh-l3/evidence/mh-l3-state.test.js-node22-resume-attempt-green.log",
+      "restored": true
+    },
+    {
+      "name": "catalogue-provenance",
+      "path": "packages/h2a/src/runtime/handover/catalogue.js",
+      "oracle": "catalogue should retain its served view and reject changed tools while accepting only provenance-checked additions",
+      "sourceSha256": "61130710f6736159c3123f3515aa8b4cb432ea49b498561ea80fabbcb3eacc6d",
+      "red": "docs/plan/mh-l3/evidence/mh-l3-state.test.js-node22-catalogue-provenance-red.log",
+      "green": "docs/plan/mh-l3/evidence/mh-l3-state.test.js-node22-catalogue-provenance-green.log",
+      "restored": true
+    },
+    {
+      "name": "schema-property-description",
+      "path": "packages/h2a/src/runtime/handover/catalogue.js",
+      "oracle": "catalogue should retain its served view and reject changed tools while accepting only provenance-checked additions",
+      "sourceSha256": "61130710f6736159c3123f3515aa8b4cb432ea49b498561ea80fabbcb3eacc6d",
+      "red": "docs/plan/mh-l3/evidence/mh-l3-state.test.js-node22-schema-property-description-red.log",
+      "green": "docs/plan/mh-l3/evidence/mh-l3-state.test.js-node22-schema-property-description-green.log",
+      "restored": true
+    },
+    {
+      "name": "catalogue-retention",
+      "path": "packages/h2a/src/runtime/handover/catalogue.js",
+      "oracle": "catalogue should retain its served view and reject changed tools while accepting only provenance-checked additions",
+      "sourceSha256": "61130710f6736159c3123f3515aa8b4cb432ea49b498561ea80fabbcb3eacc6d",
+      "red": "docs/plan/mh-l3/evidence/mh-l3-state.test.js-node22-catalogue-retention-red.log",
+      "green": "docs/plan/mh-l3/evidence/mh-l3-state.test.js-node22-catalogue-retention-green.log",
+      "restored": true
+    },
+    {
+      "name": "catalogue-page-revision",
+      "path": "packages/h2a/src/runtime/handover/catalogue.js",
+      "oracle": "catalogue pages should stay under the frame bound and refuse a cursor from another revision",
+      "sourceSha256": "61130710f6736159c3123f3515aa8b4cb432ea49b498561ea80fabbcb3eacc6d",
+      "red": "docs/plan/mh-l3/evidence/mh-l3-state.test.js-node22-catalogue-page-revision-red.log",
+      "green": "docs/plan/mh-l3/evidence/mh-l3-state.test.js-node22-catalogue-page-revision-green.log",
+      "restored": true
+    },
+    {
+      "name": "evidence-validation",
+      "path": "packages/h2a/src/runtime/handover/evidence.js",
+      "oracle": "evidence should accept an unknown delegated build and acknowledge only its exact transaction after commit",
+      "sourceSha256": "79668412a89ab87c32d4aaad6b388453e0f497527b56cb45249c82fa013a459d",
+      "red": "docs/plan/mh-l3/evidence/mh-l3-evidence.test.js-node22-evidence-validation-red.log",
+      "green": "docs/plan/mh-l3/evidence/mh-l3-evidence.test.js-node22-evidence-validation-green.log",
+      "restored": true
+    },
+    {
+      "name": "evidence-idempotency",
+      "path": "packages/h2a/src/runtime/handover/evidence.js",
+      "oracle": "evidence should accept an unknown delegated build and acknowledge only its exact transaction after commit",
+      "sourceSha256": "79668412a89ab87c32d4aaad6b388453e0f497527b56cb45249c82fa013a459d",
+      "red": "docs/plan/mh-l3/evidence/mh-l3-evidence.test.js-node22-evidence-idempotency-red.log",
+      "green": "docs/plan/mh-l3/evidence/mh-l3-evidence.test.js-node22-evidence-idempotency-green.log",
+      "restored": true
+    },
+    {
+      "name": "ordinary-controller",
+      "path": "packages/h2a/src/runtime/handover/shim-evidence.js",
+      "oracle": "ordinary catalogue evidence should bind durable delegation and the published target without granting transfer",
+      "sourceSha256": "747b6ba7c6287bd13feb4ba4de64e8304fea8efc37709e2e4929b338f89309ae",
+      "red": "docs/plan/mh-l3/evidence/mh-l3-evidence.test.js-node22-ordinary-controller-red.log",
+      "green": "docs/plan/mh-l3/evidence/mh-l3-evidence.test.js-node22-ordinary-controller-green.log",
+      "restored": true
+    },
+    {
+      "name": "generation-end-mac",
+      "path": "packages/h2a/src/runtime/handover/generation-end.js",
+      "oracle": "new baseline should require a proved old generation end and fence its old owner without discarding admitted work",
+      "sourceSha256": "530c20c673e28e5883c7efe4a0c6d0ae3f361770a4bb5f5b13f106a21959cced",
+      "red": "docs/plan/mh-l3/evidence/mh-l3-ownership.test.js-node22-generation-end-mac-red.log",
+      "green": "docs/plan/mh-l3/evidence/mh-l3-ownership.test.js-node22-generation-end-mac-green.log",
+      "restored": true
+    },
+    {
+      "name": "baseline-proof",
+      "path": "packages/h2a/src/runtime/handover/ownership.js",
+      "oracle": "new baseline should require a proved old generation end and fence its old owner without discarding admitted work",
+      "sourceSha256": "58727b8c115025f6437ea03cc366714091273b18e6e668270323c2f597986ca0",
+      "red": "docs/plan/mh-l3/evidence/mh-l3-ownership.test.js-node22-baseline-proof-red.log",
+      "green": "docs/plan/mh-l3/evidence/mh-l3-ownership.test.js-node22-baseline-proof-green.log",
+      "restored": true
+    },
+    {
+      "name": "source-ack-mode",
+      "path": "packages/h2a/src/runtime/handover/participants.js",
+      "oracle": "source should refuse transfer without an exact handover acknowledgement even for an accepted catalogue proof",
+      "sourceSha256": "8a9a7275a8204f2593c301670f26d674667c4acd08718c1d81cc7bf9bfddb0fc",
+      "red": "docs/plan/mh-l3/evidence/mh-l3-source-offer.test.js-node22-source-ack-mode-red.log",
+      "green": "docs/plan/mh-l3/evidence/mh-l3-source-offer.test.js-node22-source-ack-mode-green.log",
+      "restored": true
+    },
+    {
+      "name": "cancel-post-cleanup",
+      "path": "packages/h2a/src/runtime/mcp/transport/streamable-http.ts",
+      "oracle": "cancelled JSON POST should release its response immediately and discard late results before ID reuse",
+      "sourceSha256": "4f5b31ef478d34db23e45554b077c6a7970146202126838ab7b9f21cd62098be",
+      "red": "docs/plan/mh-l3/evidence/mh-l3-transport.test.js-node22-cancel-post-cleanup-red.log",
+      "green": "docs/plan/mh-l3/evidence/mh-l3-transport.test.js-node22-cancel-post-cleanup-green.log",
+      "restored": true
+    },
+    {
+      "name": "control-challenge-reserve",
+      "path": "packages/h2a/src/runtime/handover/authentication.js",
+      "oracle": "control should retain separate challenge and nonce capacity when the application pool is full",
+      "sourceSha256": "f467d48117fec621e8c58ec0f8ee3d2c208647fed35086bdced5b7547c07c98e",
+      "red": "docs/plan/mh-l3/evidence/mh-l3-control.test.js-node22-control-challenge-reserve-red.log",
+      "green": "docs/plan/mh-l3/evidence/mh-l3-control.test.js-node22-control-challenge-reserve-green.log",
+      "restored": true
+    },
+    {
+      "name": "control-nonce-reserve",
+      "path": "packages/h2a/src/runtime/handover/authentication.js",
+      "oracle": "control should retain separate challenge and nonce capacity when the application pool is full",
+      "sourceSha256": "f467d48117fec621e8c58ec0f8ee3d2c208647fed35086bdced5b7547c07c98e",
+      "red": "docs/plan/mh-l3/evidence/mh-l3-control.test.js-node22-control-nonce-reserve-red.log",
+      "green": "docs/plan/mh-l3/evidence/mh-l3-control.test.js-node22-control-nonce-reserve-green.log",
+      "restored": true
+    },
+    {
+      "name": "durable-ack-mac",
+      "path": "packages/h2a/src/runtime/handover/evidence.js",
+      "oracle": "durable shim acceptance should survive a lost ACK only for its exact authenticated source and receipt",
+      "sourceSha256": "79668412a89ab87c32d4aaad6b388453e0f497527b56cb45249c82fa013a459d",
+      "red": "docs/plan/mh-l3/evidence/mh-l3-evidence.test.js-node22-durable-ack-mac-red.log",
+      "green": "docs/plan/mh-l3/evidence/mh-l3-evidence.test.js-node22-durable-ack-mac-green.log",
+      "restored": true
+    },
+    {
+      "name": "schema-literal-description",
+      "path": "packages/h2a/src/runtime/handover/catalogue.js",
+      "oracle": "schema instance values and properties named description or dollar-ref should remain normative",
+      "sourceSha256": "61130710f6736159c3123f3515aa8b4cb432ea49b498561ea80fabbcb3eacc6d",
+      "red": "docs/plan/mh-l3/evidence/mh-l3-state.test.js-node22-schema-literal-description-red.log",
+      "green": "docs/plan/mh-l3/evidence/mh-l3-state.test.js-node22-schema-literal-description-green.log",
+      "restored": true
+    },
+    {
+      "name": "catalogue-protocol",
+      "path": "packages/h2a/src/runtime/handover/catalogue.js",
+      "oracle": "catalogue should retain its served view and reject changed tools while accepting only provenance-checked additions",
+      "sourceSha256": "61130710f6736159c3123f3515aa8b4cb432ea49b498561ea80fabbcb3eacc6d",
+      "red": "docs/plan/mh-l3/evidence/mh-l3-state.test.js-node22-catalogue-protocol-red.log",
+      "green": "docs/plan/mh-l3/evidence/mh-l3-state.test.js-node22-catalogue-protocol-green.log",
+      "restored": true
+    },
+    {
+      "name": "sse-readiness",
+      "path": "packages/h2a/src/runtime/handover/authenticated-http.js",
+      "oracle": "signed SSE should authenticate readiness promptly and release only its notification stream on disconnect",
+      "sourceSha256": "1f9f2bcb2963093a32615e253a828b009ee547e93ac0f1995e749349e08f4a6d",
+      "red": "docs/plan/mh-l3/evidence/mh-l3-central.test.js-node22-sse-readiness-red.log",
+      "green": "docs/plan/mh-l3/evidence/mh-l3-central.test.js-node22-sse-readiness-green.log",
+      "restored": true
+    },
+    {
+      "name": "sse-reader-release",
+      "path": "packages/h2a/src/runtime/handover/authenticated-http.js",
+      "oracle": "signed SSE should authenticate readiness promptly and release only its notification stream on disconnect",
+      "sourceSha256": "1f9f2bcb2963093a32615e253a828b009ee547e93ac0f1995e749349e08f4a6d",
+      "red": "docs/plan/mh-l3/evidence/mh-l3-central.test.js-node22-sse-reader-release-red.log",
+      "green": "docs/plan/mh-l3/evidence/mh-l3-central.test.js-node22-sse-reader-release-green.log",
+      "restored": true
+    },
+    {
+      "name": "loaded-shim-build",
+      "path": "packages/h2a/src/runtime/handover/shim-build.js",
+      "oracle": "M21 real compiled shim should attach-transfer to the conformance peer while its real old central preserves G0 work",
+      "sourceSha256": "8453d32701e0734c467ce328997138c24cc2119ebe6d9397dd088f81d15e47f9",
+      "red": "docs/plan/mh-l3/evidence/mh-l3-transfer.test.js-node22-loaded-shim-build-red.log",
+      "green": "docs/plan/mh-l3/evidence/mh-l3-transfer.test.js-node22-loaded-shim-build-green.log",
+      "restored": true
+    },
+    {
+      "name": "lease-activation",
+      "path": "packages/h2a/src/runtime/mcp-central.ts",
+      "oracle": "real central should keep one activation past its lease and resume with fencing and idempotent attempts",
+      "sourceSha256": "3b402cf6e3f32ce141b8eb568978ebe466a069ce2ee1d5f68fffc3ea782ec0e2",
+      "red": "docs/plan/mh-l3/evidence/mh-l3-central.test.js-node22-lease-activation-red.log",
+      "green": "docs/plan/mh-l3/evidence/mh-l3-central.test.js-node22-lease-activation-green.log",
+      "restored": true
+    },
+    {
+      "name": "stale-delete",
+      "path": "packages/h2a/src/runtime/mcp-central.ts",
+      "oracle": "real central should keep one activation past its lease and resume with fencing and idempotent attempts",
+      "sourceSha256": "3b402cf6e3f32ce141b8eb568978ebe466a069ce2ee1d5f68fffc3ea782ec0e2",
+      "red": "docs/plan/mh-l3/evidence/mh-l3-central.test.js-node22-stale-delete-red.log",
+      "green": "docs/plan/mh-l3/evidence/mh-l3-central.test.js-node22-stale-delete-green.log",
+      "restored": true
+    },
+    {
+      "name": "durable-ack-persist",
+      "path": "packages/h2a/src/runtime/mcp-central.ts",
+      "oracle": "M21 real compiled shim should attach-transfer to the conformance peer while its real old central preserves G0 work",
+      "sourceSha256": "3b402cf6e3f32ce141b8eb568978ebe466a069ce2ee1d5f68fffc3ea782ec0e2",
+      "red": "docs/plan/mh-l3/evidence/mh-l3-transfer.test.js-node22-durable-ack-persist-red.log",
+      "green": "docs/plan/mh-l3/evidence/mh-l3-transfer.test.js-node22-durable-ack-persist-green.log",
+      "restored": true
+    },
+    {
+      "name": "typed-id",
+      "path": "packages/h2a/src/runtime/handover/request-mappings.js",
+      "oracle": "request mappings should distinguish typed IDs, remap progress, settle once and cancel the original owner",
+      "sourceSha256": "1392994e33a71fc876b5a33f5f024ba5d9ce9ba03e2bca66376bd8e7704c4b67",
+      "red": "docs/plan/mh-l3/evidence/mh-l3-state.test.js-node22-typed-id-red.log",
+      "green": "docs/plan/mh-l3/evidence/mh-l3-state.test.js-node22-typed-id-green.log",
+      "restored": true
+    },
+    {
+      "name": "progress-owner",
+      "path": "packages/h2a/src/runtime/handover/request-mappings.js",
+      "oracle": "request mappings should distinguish typed IDs, remap progress, settle once and cancel the original owner",
+      "sourceSha256": "1392994e33a71fc876b5a33f5f024ba5d9ce9ba03e2bca66376bd8e7704c4b67",
+      "red": "docs/plan/mh-l3/evidence/mh-l3-state.test.js-node22-progress-owner-red.log",
+      "green": "docs/plan/mh-l3/evidence/mh-l3-state.test.js-node22-progress-owner-green.log",
+      "restored": true
+    },
+    {
+      "name": "progress-cleanup",
+      "path": "packages/h2a/src/runtime/handover/request-mappings.js",
+      "oracle": "request mappings should distinguish typed IDs, remap progress, settle once and cancel the original owner",
+      "sourceSha256": "1392994e33a71fc876b5a33f5f024ba5d9ce9ba03e2bca66376bd8e7704c4b67",
+      "red": "docs/plan/mh-l3/evidence/mh-l3-state.test.js-node22-progress-cleanup-red.log",
+      "green": "docs/plan/mh-l3/evidence/mh-l3-state.test.js-node22-progress-cleanup-green.log",
+      "restored": true
+    },
+    {
+      "name": "single-settlement",
+      "path": "packages/h2a/src/runtime/handover/request-mappings.js",
+      "oracle": "request mappings should distinguish typed IDs, remap progress, settle once and cancel the original owner",
+      "sourceSha256": "1392994e33a71fc876b5a33f5f024ba5d9ce9ba03e2bca66376bd8e7704c4b67",
+      "red": "docs/plan/mh-l3/evidence/mh-l3-state.test.js-node22-single-settlement-red.log",
+      "green": "docs/plan/mh-l3/evidence/mh-l3-state.test.js-node22-single-settlement-green.log",
+      "restored": true
+    },
+    {
+      "name": "cancel-resource",
+      "path": "packages/h2a/src/runtime/handover/request-mappings.js",
+      "oracle": "request mappings should distinguish typed IDs, remap progress, settle once and cancel the original owner",
+      "sourceSha256": "1392994e33a71fc876b5a33f5f024ba5d9ce9ba03e2bca66376bd8e7704c4b67",
+      "red": "docs/plan/mh-l3/evidence/mh-l3-state.test.js-node22-cancel-resource-red.log",
+      "green": "docs/plan/mh-l3/evidence/mh-l3-state.test.js-node22-cancel-resource-green.log",
+      "restored": true
+    },
+    {
+      "name": "local-initialize",
+      "path": "packages/h2a/src/runtime/handover/shim-bridge.js",
+      "oracle": "shim should initialize locally and retain its catalogue and stdio without any marker or identity",
+      "sourceSha256": "f29b3443e0bf1fdfd2e22e3acecc1de16ea8a7104881f6ece6873d087fb77a74",
+      "red": "docs/plan/mh-l3/evidence/mh-l3-network.test.js-node22-local-initialize-red.log",
+      "green": "docs/plan/mh-l3/evidence/mh-l3-network.test.js-node22-local-initialize-green.log",
+      "restored": true
+    },
+    {
+      "name": "application-replay",
+      "path": "packages/h2a/src/runtime/handover/shim-bridge.js",
+      "oracle": "lost tools/list and identity replies should never be automatically replayed",
+      "sourceSha256": "f29b3443e0bf1fdfd2e22e3acecc1de16ea8a7104881f6ece6873d087fb77a74",
+      "red": "docs/plan/mh-l3/evidence/mh-l3-network.test.js-node22-application-replay-red.log",
+      "green": "docs/plan/mh-l3/evidence/mh-l3-network.test.js-node22-application-replay-green.log",
+      "restored": true
+    },
+    {
+      "name": "session-header",
+      "path": "packages/h2a/src/runtime/handover/shim-bridge.js",
+      "oracle": "shim should map typed IDs and progress, ignore forged session headers and cancel without waiting for its POST",
+      "sourceSha256": "f29b3443e0bf1fdfd2e22e3acecc1de16ea8a7104881f6ece6873d087fb77a74",
+      "red": "docs/plan/mh-l3/evidence/mh-l3-network.test.js-node22-session-header-red.log",
+      "green": "docs/plan/mh-l3/evidence/mh-l3-network.test.js-node22-session-header-green.log",
+      "restored": true
+    },
+    {
+      "name": "cancellation-owner",
+      "path": "packages/h2a/src/runtime/handover/shim-bridge.js",
+      "oracle": "M21 real compiled shim should attach-transfer to the conformance peer while its real old central preserves G0 work",
+      "sourceSha256": "f29b3443e0bf1fdfd2e22e3acecc1de16ea8a7104881f6ece6873d087fb77a74",
+      "red": "docs/plan/mh-l3/evidence/mh-l3-transfer.test.js-node22-cancellation-owner-red.log",
+      "green": "docs/plan/mh-l3/evidence/mh-l3-transfer.test.js-node22-cancellation-owner-green.log",
+      "restored": true
+    },
+    {
+      "name": "control-capacity",
+      "path": "packages/h2a/src/runtime/handover/request-mappings.js",
+      "oracle": "control should cancel local requests at the 32-call limit without any application dispatch",
+      "sourceSha256": "1392994e33a71fc876b5a33f5f024ba5d9ce9ba03e2bca66376bd8e7704c4b67",
+      "red": "docs/plan/mh-l3/evidence/mh-l3-network.test.js-node22-control-capacity-red.log",
+      "green": "docs/plan/mh-l3/evidence/mh-l3-network.test.js-node22-control-capacity-green.log",
+      "restored": true
+    },
+    {
+      "name": "unframed-budget",
+      "path": "packages/h2a/src/runtime/handover/shim-bridge.js",
+      "oracle": "unframed oversized input should be bounded while later valid input still works",
+      "sourceSha256": "f29b3443e0bf1fdfd2e22e3acecc1de16ea8a7104881f6ece6873d087fb77a74",
+      "red": "docs/plan/mh-l3/evidence/mh-l3-network.test.js-node22-unframed-budget-red.log",
+      "green": "docs/plan/mh-l3/evidence/mh-l3-network.test.js-node22-unframed-budget-green.log",
+      "restored": true
+    },
+    {
+      "name": "admission-nonce",
+      "path": "packages/h2a/src/runtime/handover/request-mappings.js",
+      "oracle": "non-admission should require every binding from the authenticated response",
+      "sourceSha256": "1392994e33a71fc876b5a33f5f024ba5d9ce9ba03e2bca66376bd8e7704c4b67",
+      "red": "docs/plan/mh-l3/evidence/mh-l3-state.test.js-node22-admission-nonce-red.log",
+      "green": "docs/plan/mh-l3/evidence/mh-l3-state.test.js-node22-admission-nonce-green.log",
+      "restored": true
+    },
+    {
+      "name": "lost-initialize-activation",
+      "path": "packages/h2a/src/runtime/handover/shim-bridge.js",
+      "oracle": "real central should resume an initialize reply lost after admission without creating another activation",
+      "sourceSha256": "f29b3443e0bf1fdfd2e22e3acecc1de16ea8a7104881f6ece6873d087fb77a74",
+      "red": "docs/plan/mh-l3/evidence/mh-l3-central.test.js-node22-lost-initialize-activation-red.log",
+      "green": "docs/plan/mh-l3/evidence/mh-l3-central.test.js-node22-lost-initialize-activation-green.log",
+      "restored": true
+    },
+    {
+      "name": "target-catalogue-revision",
+      "path": "packages/h2a/src/runtime/handover/shim-bridge.js",
+      "oracle": "M21 real compiled shim should attach-transfer to the conformance peer while its real old central preserves G0 work",
+      "sourceSha256": "f29b3443e0bf1fdfd2e22e3acecc1de16ea8a7104881f6ece6873d087fb77a74",
+      "red": "docs/plan/mh-l3/evidence/mh-l3-transfer.test.js-node22-target-catalogue-revision-red.log",
+      "green": "docs/plan/mh-l3/evidence/mh-l3-transfer.test.js-node22-target-catalogue-revision-green.log",
+      "restored": true
+    },
+    {
+      "name": "unknown-identity-resume",
+      "path": "packages/h2a/src/runtime/handover/shim-bridge.js",
+      "oracle": "resume should discover an unknown expected identity without weakening the instance guard or creating another binding",
+      "sourceSha256": "f29b3443e0bf1fdfd2e22e3acecc1de16ea8a7104881f6ece6873d087fb77a74",
+      "red": "docs/plan/mh-l3/evidence/mh-l3-central.test.js-node22-unknown-identity-resume-red.log",
+      "green": "docs/plan/mh-l3/evidence/mh-l3-central.test.js-node22-unknown-identity-resume-green.log",
+      "restored": true
+    },
+    {
+      "name": "resumed-progress",
+      "path": "packages/h2a/src/runtime/handover/shim-bridge.js",
+      "oracle": "resumed notifications should deliver progress for admitted work while cancellation keeps its original transport owner",
+      "sourceSha256": "f29b3443e0bf1fdfd2e22e3acecc1de16ea8a7104881f6ece6873d087fb77a74",
+      "red": "docs/plan/mh-l3/evidence/mh-l3-network.test.js-node22-resumed-progress-red.log",
+      "green": "docs/plan/mh-l3/evidence/mh-l3-network.test.js-node22-resumed-progress-green.log",
+      "restored": true
+    }
+  ]
+}

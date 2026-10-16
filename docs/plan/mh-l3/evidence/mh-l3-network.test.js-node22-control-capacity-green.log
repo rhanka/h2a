@@ -1,0 +1,22 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l3-network.test.js
+node: v22.22.1
+private root: /tmp/mh-l3-test-DL637w
+case: control should cancel local requests at the 32-call limit without any application dispatch
+TAP version 13
+# Subtest: control should cancel local requests at the 32-call limit without any application dispatch
+ok 1 - control should cancel local requests at the 32-call limit without any application dispatch
+  ---
+  duration_ms: 96.510905
+  type: 'test'
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 1
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 317.62334
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l3-network.test.js"],"code":0,"signal":null,"tests":1,"invalid":false,"spawned":1,"leftovers":[]}

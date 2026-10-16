@@ -1,0 +1,46 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l3-network.test.js
+node: v22.22.1
+private root: /tmp/mh-l3-test-sJBZSt
+case: all cases in explicit file
+TAP version 13
+# Subtest: shim should initialize locally and retain its catalogue and stdio without any marker or identity
+ok 1 - shim should initialize locally and retain its catalogue and stdio without any marker or identity
+  ---
+  duration_ms: 30.827922
+  type: 'test'
+  ...
+# Subtest: shim should map typed IDs and progress, ignore forged session headers and cancel without waiting for its POST
+ok 2 - shim should map typed IDs and progress, ignore forged session headers and cancel without waiting for its POST
+  ---
+  duration_ms: 104.428824
+  type: 'test'
+  ...
+# Subtest: lost tools/list and identity replies should never be automatically replayed
+ok 3 - lost tools/list and identity replies should never be automatically replayed
+  ---
+  duration_ms: 53.172246
+  type: 'test'
+  ...
+# Subtest: control should cancel local requests at the 32-call limit without any application dispatch
+ok 4 - control should cancel local requests at the 32-call limit without any application dispatch
+  ---
+  duration_ms: 46.845149
+  type: 'test'
+  ...
+# Subtest: unframed oversized input should be bounded while later valid input still works
+ok 5 - unframed oversized input should be bounded while later valid input still works
+  ---
+  duration_ms: 26.585852
+  type: 'test'
+  ...
+1..5
+# tests 5
+# suites 0
+# pass 5
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 490.734361
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l3-network.test.js"],"code":0,"signal":null,"tests":5,"invalid":false,"spawned":0,"leftovers":[]}

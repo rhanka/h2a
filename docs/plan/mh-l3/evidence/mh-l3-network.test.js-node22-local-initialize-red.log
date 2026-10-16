@@ -1,0 +1,33 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l3-network.test.js
+node: v22.22.1
+private root: /tmp/mh-l3-test-JrKZMM
+case: shim should initialize locally and retain its catalogue and stdio without any marker or identity
+TAP version 13
+# Subtest: shim should initialize locally and retain its catalogue and stdio without any marker or identity
+not ok 1 - shim should initialize locally and retain its catalogue and stdio without any marker or identity
+  ---
+  duration_ms: 1050.374546
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-bUCXsb/source/packages/h2a/test/mh-l3-network.test.js:2:94'
+  failureType: 'testCodeFailure'
+  error: 'expected frame: []'
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  operator: 'fail'
+  stack: |-
+    Object.wait (file:///tmp/mh-l3-qualification-bUCXsb/source/packages/h2a/test/helpers/mh-l3-network.js:45:12)
+    async TestContext.<anonymous> (file:///tmp/mh-l3-qualification-bUCXsb/source/packages/h2a/test/mh-l3-network.test.js:30:18)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 0
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 1257.082168
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l3-network.test.js"],"code":1,"signal":null,"tests":1,"invalid":false,"spawned":1,"leftovers":[]}

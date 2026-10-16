@@ -1,0 +1,33 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l3-control.test.js
+node: v22.22.1
+private root: /tmp/mh-l3-test-nScNWi
+case: control should retain separate challenge and nonce capacity when the application pool is full
+TAP version 13
+# Subtest: control should retain separate challenge and nonce capacity when the application pool is full
+not ok 1 - control should retain separate challenge and nonce capacity when the application pool is full
+  ---
+  duration_ms: 4.512846
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-bUCXsb/source/packages/h2a/test/mh-l3-control.test.js:2:94'
+  failureType: 'testCodeFailure'
+  error: 'challenge_capacity'
+  code: 'ERR_TEST_FAILURE'
+  stack: |-
+    ConnectionAuthentication.challenge (file:///tmp/mh-l3-qualification-bUCXsb/source/packages/h2a/src/runtime/handover/authentication.js:38:88)
+    TestContext.<anonymous> (file:///tmp/mh-l3-qualification-bUCXsb/source/packages/h2a/test/mh-l3-control.test.js:13:24)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.start (node:internal/test_runner/test:944:17)
+    startSubtestAfterBootstrap (node:internal/test_runner/harness:296:17)
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 0
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 113.710015
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l3-control.test.js"],"code":1,"signal":null,"tests":1,"invalid":false,"spawned":0,"leftovers":[]}

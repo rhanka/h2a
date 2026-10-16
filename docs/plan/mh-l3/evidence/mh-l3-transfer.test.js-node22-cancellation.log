@@ -1,0 +1,34 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l3-transfer.test.js
+node: v22.22.1
+private root: /tmp/mh-l3-test-by3uZB
+case: all cases in explicit file
+TAP version 13
+# {"event":"drive-consent.full-verification","durationMs":0.00997800000004645,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# h2a mcp-serve: identity migration: claude:mh-l2-live-image-eiwbwk:fd46277a0910 reads legacy claude:mh-l2-live-image-EIWBWK; no proof of possession of a legacy key — mint net-new keys
+# h2a mcp-serve: auto-opened session for claude:mh-l2-live-image-eiwbwk:fd46277a0910
+# h2a mcp-serve: identity ready: claude:mh-l2-live-image-eiwbwk:fd46277a0910 (signing available)
+# Subtest: M21 real compiled shim should attach-transfer to the conformance peer while its real old central preserves G0 work
+not ok 1 - M21 real compiled shim should attach-transfer to the conformance peer while its real old central preserves G0 work
+  ---
+  duration_ms: 9041.40313
+  type: 'test'
+  location: '/home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/test/mh-l3-transfer.test.js:21:1'
+  failureType: 'testCodeFailure'
+  error: 'missing g0-running: '
+  code: 'ERR_TEST_FAILURE'
+  stack: |-
+    Timeout._onTimeout (file:///home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/test/helpers/mh-l1-shim.js:65:67)
+    listOnTimeout (node:internal/timers:585:17)
+    process.processTimers (node:internal/timers:521:7)
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 0
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 9277.092343
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l3-transfer.test.js"],"code":1,"signal":null,"tests":1,"invalid":false,"spawned":3,"leftovers":[]}
