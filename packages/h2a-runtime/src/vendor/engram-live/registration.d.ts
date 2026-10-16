@@ -1,4 +1,3 @@
-// Vendored types for the sibling .js — see its provenance header; do not hand-edit.
 import { type CloneIdentityDto, type DeclarationRevocationDto, type IdentityUncertaintyState, type NonActivatingLifecycleKind, type OidAlgorithm, type RevocationReason, type WorkspaceDeclarationDto, type WorktreeIdentityDto } from "./contracts.js";
 /** Input for an explicit live declaration (revision starts at INITIAL_DECLARATION_REVISION). */
 export interface CreateLiveDeclarationInput {
@@ -135,4 +134,3 @@ export declare function isSameClone(a: Pick<CloneIdentityDto, "cloneId">, b: Pic
  * are refused.
  */
 export declare function classifyLifecycleEvent(kind: NonActivatingLifecycleKind): "no-activation-change";
-//# sourceMappingURL=registration.d.ts.map
