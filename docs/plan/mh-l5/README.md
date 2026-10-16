@@ -1,5 +1,12 @@
 # MH-L5 — preuves de coexistence et de récupération
 
+Fermeture Argon : [dossier](ARGON.md). Les index `argon-check-node{22,24}.json`
+et `mutations-argon-node{22,24}.json`, vérifiés par
+[argon-proof-audit.json](argon-proof-audit.json), complètent les preuves historiques ci-dessous.
+**M17 n'est pas qualifié** : sa campagne simultanée est déclarée comme gate
+release obligatoire dans [MH-L8](../mh-l8/BRANCH.md). La frontière M18/H4 est
+suivie dans [MH-L6](../mh-l6/BRANCH.md).
+
 Base : `7a8129ea` (MH-L3 R2 FUSIONNABLE ; MH-L4 déjà dans la lignée).
 Autorité : spec v7 §§7/10.2–10.5/10.8 et décision propriétaire A.
 Les résultats finaux, hashes et commandes sont dans [proof-audit.json](proof-audit.json),
@@ -13,12 +20,13 @@ les index `regressions-node{22,24}.json` et les six index `mutations-*-node*.jso
 | M22/M23/M24/M25 | Six morts de processus autour des fsync/rename/close/nettoyage, expiration et commit retardé, pause maintenue, huit prétendants et trois essais partagés : `mh-l5-cold.test.js` |
 | M23/M24 réseau | Vrai central : faute fsync fichier/répertoire et ACK de commit perdu ; contrôleur indépendant mort puis deux starters, un seul successeur réservé : `mh-l5-cold-network.test.js` |
 | M25 compensation | Vraie image source vérifiée et vrai starter ; nouveau contrôleur H4 de fixture, nouveaux epochs et nouvelle génération, ancienne transaction toujours en échec : `mh-l5-compensation.test.js` |
-| M17 charge | Huit processus conformes utilisant les API compilées ; 10 000 mutations par domaine et 20 000 payloads, acquittements externes, hashes/chaînes relus, zéro doublon : `mh-l5-concurrency.test.js` |
+| M17 socle backend | Historique : 10 000 mutations/domaine sous verrou englobant, **preuve insuffisante pour M17**. Après Argon : huit drivers backend explicitement nommés, primitives non englobées, acquisitions flock observées, sweeps à temps réel préservant les refs vivantes ; oracle court réexécuté. Campagne simultanée complète affectée à MH-L8 |
 | Mutations métier | Même oracle sur campagne courte distincte, perte injectée dans chacun des sept domaines : `mh-l5-concurrency-oracles.test.js` |
 | Régressions | 30 fichiers explicitement listés, dont les huit références directes du shim et les dix fichiers MH-L4 : `scripts/mh-l5-regressions.mjs` |
 
-Seul changement produit : T9 expose `legacy_requires_cold_upgrade`, conserve ce
-diagnostic pendant le backoff, puis l'efface après connexion réussie. L'état stdio
+Seul changement produit : T9 expose `legacy_requires_cold_upgrade`, classe le
+remplacement dès la détection, conserve ce diagnostic pendant le backoff et les
+erreurs transitoires, puis l'efface après connexion réussie. L'état stdio
 reste ouvert. Les contrôles physiques, d'identité, de MAC, d'epoch et de preuve
 restent en place ; la frontière de découverte est conservée pour le MCP registry.
 
@@ -46,7 +54,7 @@ Ces diagnostics ne sont pas comptés comme des qualifications vertes.
 |---|---|
 | Distribution .7 | Image prototype construite depuis les sources ; artefacts finaux et packaging release MH-L8 |
 | M18 | Absence après arrêt extérieur qualifiée ; marker v1 mort sans provenance durable toujours refusé. Aucune origine machine/boot inventée ; le producteur de preuve d'activation H4 relève de MH-L6 |
-| M17 | Charge de writers backend synthétiques, avec rôles central/pair/stdio/janitor/CLI ; elle ne simule pas huit clients complets de bout en bout. Les surfaces réelles sont exercées séparément par M21 et les tests d'attachments |
+| M17 | Socle backend, pas huit surfaces réelles simultanées. Anciennes preuves de charge non normatives ; campagne complète et oracles concomitants explicitement bloquants en MH-L8, voir son plan |
 | Coupures | Crash de processus et erreurs fsync déterministes ; aucune certification de coupure électrique/filesystem |
 | H4 et vivant | Contrôleur, fermeture d'admission et verdicts du pair sont des fixtures. Aucun coordinateur vivant produit ni vérificateur sémantique .8 |
 | Consommateurs | Vrai Claude, M20b, charge/endurance MH-L8, vraie transition .7 → .8 et découverte registry hors qualification de ce lot |

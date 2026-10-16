@@ -1,14 +1,14 @@
 command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l5-concurrency-oracles.test.js
 node: v22.22.1
-private root: /tmp/mh-l5-test-F1xTlJ
+private root: /tmp/mh-l5-test-GEkOl0
 case: all cases in explicit file
 TAP version 13
 # Subtest: M17 focused oracle must detect a missing write in any of the seven domains
 not ok 1 - M17 focused oracle must detect a missing write in any of the seven domains
   ---
-  duration_ms: 3838.570737
+  duration_ms: 3300.749376
   type: 'test'
-  location: '/tmp/mh-l3-qualification-x6VBnb/source/packages/h2a/test/mh-l5-concurrency-oracles.test.js:4:1'
+  location: '/tmp/mh-l3-qualification-AogyQv/source/packages/h2a/test/mh-l5-concurrency-oracles.test.js:4:1'
   failureType: 'testCodeFailure'
   error: |-
     Expected values to be strictly deep-equal:
@@ -16,49 +16,49 @@ not ok 1 - M17 focused oracle must detect a missing write in any of the seven do
     
     + []
     - [
-    -   'central:0',
-    -   'central:1',
-    -   'cli:0',
-    -   'cli:1',
-    -   'janitor:0',
-    -   'janitor:1',
-    -   'peer:0',
-    -   'peer:1',
-    -   'stdio1:0',
-    -   'stdio1:1',
-    -   'stdio2:0',
-    -   'stdio2:1',
-    -   'stdio3:0',
-    -   'stdio3:1',
-    -   'stdio4:0',
-    -   'stdio4:1'
+    -   'backend1:0',
+    -   'backend1:1',
+    -   'backend2:0',
+    -   'backend2:1',
+    -   'backend3:0',
+    -   'backend3:1',
+    -   'backend4:0',
+    -   'backend4:1',
+    -   'backend5:0',
+    -   'backend5:1',
+    -   'backend6:0',
+    -   'backend6:1',
+    -   'backend7:0',
+    -   'backend7:1',
+    -   'backend8:0',
+    -   'backend8:1'
     - ]
     
   code: 'ERR_ASSERTION'
   name: 'AssertionError'
   expected:
-    0: 'central:0'
-    1: 'central:1'
-    2: 'cli:0'
-    3: 'cli:1'
-    4: 'janitor:0'
-    5: 'janitor:1'
-    6: 'peer:0'
-    7: 'peer:1'
-    8: 'stdio1:0'
-    9: 'stdio1:1'
-    10: 'stdio2:0'
-    11: 'stdio2:1'
-    12: 'stdio3:0'
-    13: 'stdio3:1'
-    14: 'stdio4:0'
-    15: 'stdio4:1'
+    0: 'backend1:0'
+    1: 'backend1:1'
+    2: 'backend2:0'
+    3: 'backend2:1'
+    4: 'backend3:0'
+    5: 'backend3:1'
+    6: 'backend4:0'
+    7: 'backend4:1'
+    8: 'backend5:0'
+    9: 'backend5:1'
+    10: 'backend6:0'
+    11: 'backend6:1'
+    12: 'backend7:0'
+    13: 'backend7:1'
+    14: 'backend8:0'
+    15: 'backend8:1'
   actual:
   operator: 'deepStrictEqual'
   stack: |-
-    runCampaign (file:///tmp/mh-l3-qualification-x6VBnb/source/packages/h2a/test/helpers/mh-l5-campaign.js:44:12)
+    runCampaign (file:///tmp/mh-l3-qualification-AogyQv/source/packages/h2a/test/helpers/mh-l5-campaign.js:46:12)
     process.processTicksAndRejections (node:internal/process/task_queues:103:5)
-    async TestContext.<anonymous> (file:///tmp/mh-l3-qualification-x6VBnb/source/packages/h2a/test/mh-l5-concurrency-oracles.test.js:5:3)
+    async TestContext.<anonymous> (file:///tmp/mh-l3-qualification-AogyQv/source/packages/h2a/test/mh-l5-concurrency-oracles.test.js:5:3)
     async Test.run (node:internal/test_runner/test:1054:7)
     async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
   ...
@@ -70,6 +70,6 @@ not ok 1 - M17 focused oracle must detect a missing write in any of the seven do
 # cancelled 0
 # skipped 0
 # todo 0
-# duration_ms 4137.450746
+# duration_ms 3577.93504
 
 receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l5-concurrency-oracles.test.js"],"code":1,"signal":null,"tests":1,"invalid":false,"spawned":17,"leftovers":[]}
