@@ -74,13 +74,12 @@ npm exec --package npm@^11.15.0 -- npm trust github @sentropic/h2a-runtime --rep
 npm exec --package npm@^11.15.0 -- npm trust github @sentropic/track --repo rhanka/h2a --file release.yml --allow-publish --yes
 ```
 
-> ⚠️ **OIDC wall for `@sentropic/track`.** Trusted Publishing for `@sentropic/track`
-> is currently bound to the **old** repo `rhanka/track`, not `rhanka/h2a`. Until the
-> trust above is re-pointed at `rhanka/h2a` + `release.yml`, the track publish step
-> in `release.yml` fails with an OIDC-mismatch error. Fallback: publish
-> `@sentropic/track` with an npm automation token (`NODE_AUTH_TOKEN`) instead of
-> trusted publishing for that one package. This is a creds gesture (Fabien) — the
-> workflow is already wired to publish track once the trust is in place.
+> `@sentropic/track` trust was re-pointed at `rhanka/h2a` + `release.yml`, so all
+> four packages now publish the same way: the verify-built tarball bytes via npm
+> Trusted Publishing (`npm publish "dist-tarballs/sentropic-<name>-${v}.tgz"` after
+> a `sha256sum --check`). The 0.98.6 incident — track repacked via
+> `npm publish --workspace`, failing with TS2688 in the publish job where dev
+> types are absent — is what this uniformity removes.
 
 `npm@11.15.0` or newer is required because npm configurations created after 2026-05-20 must explicitly allow at least one action (`npm publish` here). Older `npm trust github` clients omit that permission and the registry rejects the request.
 
