@@ -1,0 +1,21 @@
+{
+  "command": [
+    "/usr/bin/tar",
+    "--sort=name",
+    "--format=ustar",
+    "--mtime=@1767225600",
+    "--owner=0",
+    "--group=0",
+    "--numeric-owner",
+    "-czf",
+    "/home/antoinefa/src/h2a/tmp/worktrees/mh-l0/scripts/release/artifacts/node-pty-linux-x64-gnu-napi8.tgz",
+    "-C",
+    "/tmp/mh-l6-toolchain-coPPfH/primary",
+    "."
+  ],
+  "code": 0,
+  "stdout": "",
+  "stderr": "",
+  "size": 122479,
+  "sha256": "df515dce2883d24f64ce10663d864ee65918e0840adb42037ad7b3bad9b0c605"
+}
