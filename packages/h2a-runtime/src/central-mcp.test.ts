@@ -13,6 +13,7 @@ const central = vi.hoisted(() => {
     startedAt: string;
     root: string;
     protocol: number;
+    endpointMode: 'discovered';
   };
   let marker: Marker | undefined;
   let generation = 0;
@@ -29,6 +30,7 @@ const central = vi.hoisted(() => {
       startedAt: "2026-08-24T00:00:00.000Z",
       root: _args[_args.indexOf("--root") + 1],
       protocol: 2,
+      endpointMode: 'discovered',
     };
     const child = new EventEmitter() as EventEmitter & { unref(): void };
     child.unref = unref;
@@ -43,6 +45,14 @@ const central = vi.hoisted(() => {
         : { kind: "dead" as const },
     ),
     readCentralMcpMarker: vi.fn(() => marker),
+    // Runtime delegates startup to core's registered absolute starter. This
+    // boundary fixture supplies its result; core's own tests exercise spawning.
+    ensureCentralForRoot: vi.fn(async (root: string) => {
+      marker ??= { endpoint: 'http://127.0.0.1:47042/mcp', generation: `generation-${++generation}`,
+        pid: 71_001, startedAt: '2026-08-24T00:00:00.000Z', root, protocol: 2, endpointMode: 'discovered' };
+      return { endpoint: marker.endpoint, generation: marker.generation };
+    }),
+    centralMcpMarkerPath: vi.fn(() => join(process.env.XDG_RUNTIME_DIR!, 'h2a-mcp-central', 'marker.json')),
     runCli: vi.fn(() => 0),
   };
   return {
@@ -57,6 +67,7 @@ const central = vi.hoisted(() => {
       core.centralMcpPing.mockClear();
       core.readCentralMcpMarker.mockClear();
       core.runCli.mockClear();
+      core.ensureCentralForRoot.mockClear();
     },
   };
 });
@@ -81,6 +92,7 @@ describe("central MCP auto-start", () => {
   let previousXdgConfigHome: string | undefined;
   let previousCentral: string | undefined;
   let previousEndpoint: string | undefined;
+  let previousAuthority: string | undefined;
 
   beforeEach(() => {
     central.reset();
@@ -89,10 +101,12 @@ describe("central MCP auto-start", () => {
     previousXdgConfigHome = process.env.XDG_CONFIG_HOME;
     previousCentral = process.env.H2A_MCP_CENTRAL;
     previousEndpoint = process.env.H2A_MCP_CENTRAL_ENDPOINT;
+    previousAuthority = process.env.H2A_MCP_AUTHORITY;
     process.env.REMOTE_CLI_CONFIG_HOME = scratch;
     process.env.XDG_CONFIG_HOME = join(scratch, "xdg");
     delete process.env.H2A_MCP_CENTRAL;
     delete process.env.H2A_MCP_CENTRAL_ENDPOINT;
+    delete process.env.H2A_MCP_AUTHORITY;
   });
 
   afterEach(() => {
@@ -104,10 +118,12 @@ describe("central MCP auto-start", () => {
     else process.env.H2A_MCP_CENTRAL = previousCentral;
     if (previousEndpoint === undefined) delete process.env.H2A_MCP_CENTRAL_ENDPOINT;
     else process.env.H2A_MCP_CENTRAL_ENDPOINT = previousEndpoint;
+    if (previousAuthority === undefined) delete process.env.H2A_MCP_AUTHORITY;
+    else process.env.H2A_MCP_AUTHORITY = previousAuthority;
     rmSync(scratch, { recursive: true, force: true });
   });
 
-  it("starts once without configuration writes and reuses the generation for run and restore", async () => {
+  it("delegates to the qualified core starter without runtime spawning and reuses the generation for run and restore", async () => {
     const endpoint = "http://127.0.0.1:47042/mcp";
     const workspace = join(scratch, "workspace");
     setH2aConfig({ central: { enabled: true, endpoint } });
@@ -120,34 +136,26 @@ describe("central MCP auto-start", () => {
       cwd: workspace,
     });
     expect(first).toEqual({ status: "central", endpoint, generation: "generation-1" });
-    expect(central.spawn).toHaveBeenCalledTimes(1);
-    expect(central.unref).toHaveBeenCalledTimes(1);
-    expect(central.spawn).toHaveBeenCalledWith(
-      "h2a",
-      ["mcp-central-serve", "--root", workspace, "--auto-start"],
-      expect.objectContaining({
-        detached: true,
-        stdio: ["ignore", expect.any(Number), expect.any(Number)],
-        env: expect.objectContaining({
-          H2A_MCP_CENTRAL: "1",
-          H2A_MCP_CENTRAL_ENDPOINT: endpoint,
-        }),
-      }),
-    );
+    expect(central.core.ensureCentralForRoot).toHaveBeenCalledExactlyOnceWith(workspace);
+    expect(central.spawn).not.toHaveBeenCalled();
+    expect(central.unref).not.toHaveBeenCalled();
     expect(process.env).toMatchObject({
       H2A_MCP_CENTRAL: "1",
-      H2A_MCP_CENTRAL_ENDPOINT: endpoint,
+      H2A_MCP_AUTHORITY: central.core.centralMcpMarkerPath(),
     });
+    expect(process.env.H2A_MCP_CENTRAL_ENDPOINT).toBeUndefined();
     expect(central.core.runCli).not.toHaveBeenCalled();
     expect(getH2aConfig().central).toEqual({ enabled: true, endpoint });
 
     const second = await ensureCentralMcp({ root: workspace });
-    expect(second).toEqual({ endpoint, generation: "generation-1" });
-    expect(central.spawn).toHaveBeenCalledTimes(1);
+    expect(second).toMatchObject({ endpoint, generation: "generation-1" });
+    expect(central.core.ensureCentralForRoot).toHaveBeenCalledTimes(2);
+    expect(central.spawn).not.toHaveBeenCalled();
 
     const restored = await prepareCentralMcpForRestore({ root: workspace });
     expect(restored).toEqual({ status: "central", endpoint, generation: "generation-1" });
-    expect(central.spawn).toHaveBeenCalledTimes(1);
+    expect(central.core.ensureCentralForRoot).toHaveBeenCalledTimes(3);
+    expect(central.spawn).not.toHaveBeenCalled();
   });
 
   it("degrades launch and restore when central ensure fails without enabling central routing", async () => {
@@ -155,7 +163,7 @@ describe("central MCP auto-start", () => {
     const workspace = join(scratch, "workspace");
     setH2aConfig({ central: { enabled: true, endpoint } });
 
-    central.core.centralMcpPing.mockRejectedValueOnce(new Error("central liveness is ambiguous"));
+    central.core.ensureCentralForRoot.mockRejectedValueOnce(new Error("central liveness is ambiguous"));
     await expect(prepareCentralMcpForLaunch({ root: workspace, profile: "codex", cwd: workspace })).resolves.toEqual({
       status: "degraded",
       reason: "central liveness is ambiguous",
@@ -164,7 +172,7 @@ describe("central MCP auto-start", () => {
     expect(process.env.H2A_MCP_CENTRAL_ENDPOINT).toBeUndefined();
     expect(central.core.runCli).not.toHaveBeenCalled();
 
-    central.core.centralMcpPing.mockRejectedValueOnce(new Error("central liveness is ambiguous"));
+    central.core.ensureCentralForRoot.mockRejectedValueOnce(new Error("central liveness is ambiguous"));
     await expect(prepareCentralMcpForRestore({ root: workspace })).resolves.toEqual({
       status: "degraded",
       reason: "central liveness is ambiguous",
@@ -180,6 +188,7 @@ describe("central MCP auto-start", () => {
     await expect(prepareCentralMcpForLaunch({ root: workspace, profile: "codex", cwd: workspace })).resolves.toBeUndefined();
     await expect(prepareCentralMcpForRestore({ root: workspace })).resolves.toBeUndefined();
     expect(central.spawn).not.toHaveBeenCalled();
+    expect(central.core.ensureCentralForRoot).not.toHaveBeenCalled();
     expect(central.core.runCli).not.toHaveBeenCalled();
     expect(process.env.H2A_MCP_CENTRAL).toBeUndefined();
     expect(process.env.H2A_MCP_CENTRAL_ENDPOINT).toBeUndefined();
@@ -200,12 +209,9 @@ describe("central MCP auto-start", () => {
     expect(status()).toBe(before);
     expect(readFileSync(join(workspace, ".mcp.json"), "utf8")).toBe(config);
     expect(central.core.runCli).not.toHaveBeenCalled();
-    const [, args, opts] = central.spawn.mock.calls[0];
-    expect(args).not.toContain(workspace);
-    expect(opts).toMatchObject({ cwd: expect.any(String) });
-    expect(opts.env).not.toHaveProperty("CLAUDE_CODE_SESSION_ID");
-    expect(opts.env).not.toHaveProperty("TMUX_PANE");
-    expect(opts.env).not.toHaveProperty("H2A_ROOT");
+    expect(central.core.ensureCentralForRoot).toHaveBeenCalledTimes(2);
+    expect(central.core.ensureCentralForRoot.mock.calls[0][0]).not.toBe(workspace);
+    expect(central.spawn).not.toHaveBeenCalled();
   });
 
   it("does not write configuration while selecting an endpoint", async () => {
@@ -214,5 +220,16 @@ describe("central MCP auto-start", () => {
     await ensureCentralMcp();
     expect(readFileSync(resolveConfigPath(), "utf8")).toBe(before);
     expect(getH2aConfig().central.endpoint).toBeUndefined();
+  });
+
+  it('refuses a core without a qualified starter rather than falling back to the installed h2a binary', async () => {
+    setH2aConfig({ central: { enabled: true } });
+    const starter = central.core.ensureCentralForRoot;
+    try {
+      Object.defineProperty(central.core, 'ensureCentralForRoot', { value: undefined, configurable: true, writable: true });
+      await expect(prepareCentralMcpForRestore()).resolves.toEqual({ status: 'degraded', reason: 'central_starter_unqualified' });
+      expect(central.spawn).not.toHaveBeenCalled();
+      expect(process.env.H2A_MCP_AUTHORITY).toBeUndefined();
+    } finally { central.core.ensureCentralForRoot = starter; }
   });
 });
