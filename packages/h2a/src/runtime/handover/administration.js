@@ -40,11 +40,25 @@ export class ColdAdministration {
   }
   admissionsOpen() {
     if (this.indeterminate || this.pause()) return false;
+    this.observeLivePublication(this.transaction());
     const c = this.control().value;
     if (c.sourceGeneration !== this.marker.generation || c.ownerState !== 'ACTIVE' || c.operatorStopCommitted) return false;
     const tx = this.transaction()?.value;
     if (tx?.state === 'READY' && tx.source.generation !== this.marker.generation) return true;
     return !blocked.has(tx?.state);
+  }
+  observeLivePublication(observed) {
+    const tx = observed?.value;
+    if (tx?.mode !== 'live-transfer' || ['ABORTED', 'PUBLISHED', 'RETIRED', 'RECOVERY_BLOCKED'].includes(tx.state)) return observed;
+    if (this.options.liveSource.sourcePublished(tx)) return observed;
+    // Record the contradiction before an authority check can throw, including
+    // RESERVED transactions which have no barrier deadline yet.
+    const persist = () => {
+      const current = this.transaction();
+      this.update(current, { state: 'RECOVERY_BLOCKED' }, null, null);
+      return this.transaction();
+    };
+    return this.options.withMutationLock ? this.options.withMutationLock(persist) : persist();
   }
   persist(path, value, schema, observed) {
     try { return observed ? replaceState(path, value, schema, observed) : publishState(path, value, schema); }
@@ -98,7 +112,7 @@ export class ColdAdministration {
     const m = this.marker;
     if (step.expectedGeneration !== m.generation || digest(step.expectedPublicationEpoch) !== digest(m.publicationEpoch)) throw new Error('source_authority_mismatch');
     if (this.indeterminate) throw new Error('reconciliation_required');
-    let observed = this.transaction();
+    let observed = this.observeLivePublication(this.transaction());
     const tx = observed?.value;
     this.options.verifyAuthority?.(operation, tx);
     this.options.reconcileParticipants?.(tx);
@@ -177,7 +191,9 @@ export class ColdAdministration {
       if (!['FROZEN', 'RECOVERY_BLOCKED', 'PUBLISHED'].includes(tx.state)) throw new Error('live_publication_required');
       if (step.inventoryRevision !== tx.inventoryRevision || this.options.inventory().revision !== tx.inventoryRevision) throw new Error('inventory_stale');
       if (tx.state !== 'PUBLISHED') {
-        if (tx.barrierDeadline <= this.now()) throw new Error('barrier_expired');
+        // Publication is already effective on disk. An expired barrier cannot
+        // authorize reopening G0 or prevent authenticated forward recovery.
+        if (tx.barrierDeadline === null) throw new Error('barrier_required');
         const publication = this.options.liveSource.publication(tx, payload.publicationDigest);
         this.options.authorizeTarget(tx.target, tx.successorReservation.selectionEpoch);
         // Reuse the existing irreversible-commit entry guard; this call only
@@ -261,14 +277,11 @@ export class ColdAdministration {
     throw new Error('administration_state_invalid');
   }
   expire() {
-    const observed = this.transaction();
-    if (!observed || irrevocable.has(observed.value.state) || observed.value.barrierDeadline === null || observed.value.barrierDeadline > this.now()) return false;
+    let observed = this.transaction();
+    if (!observed || irrevocable.has(observed.value.state) || observed.value.state === 'ABORTED') return false;
     if (this.indeterminate) throw new Error('reconciliation_required');
-    if (observed.value.mode === 'live-transfer' && !this.options.liveSource.sourcePublished(observed.value)) {
-      if (observed.value.state !== 'RECOVERY_BLOCKED') this.update(observed, { state: 'RECOVERY_BLOCKED' }, null, null);
-      return false;
-    }
-    if (observed.value.state === 'RECOVERY_BLOCKED') return false;
+    observed = this.observeLivePublication(observed);
+    if (observed.value.state === 'RECOVERY_BLOCKED' || observed.value.barrierDeadline === null || observed.value.barrierDeadline > this.now()) return false;
     const state = this.drain().complete ? 'ABORTED' : 'DRAIN_BLOCKED';
     if (state !== observed.value.state) {
       this.update(observed, { state, ...(state === 'ABORTED' ? { barrierDeadline: null } : {}) }, null, null);

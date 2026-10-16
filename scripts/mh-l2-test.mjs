@@ -17,11 +17,14 @@ for (const [key, leaf] of Object.entries({ HOME: 'home', XDG_RUNTIME_DIR: 'run',
   env[key] = join(directory, leaf);
   mkdirSync(env[key], { recursive: true, mode: 0o700 });
 }
+// Reader fixtures inject their own temporary homedir. An explicit Claude
+// config root would override that injection; HOME remains private in all cases.
+if (process.env.H2A_TEST_CLAUDE_HOME_FALLBACK === '1') delete env.CLAUDE_CONFIG_DIR;
 const args = runner === 'node' ? ['--test', ...extra, file]
   : [resolve('node_modules/vitest/vitest.mjs'), 'run', file, ...extra];
 const command = [process.execPath, ...args];
 const started = Date.now();
-let output = `command: ${command.join(' ')}\nnode: ${process.version}\nprivate test root: ${directory}\n`;
+let output = `command: ${command.join(' ')}\nnode: ${process.version}\nprivate test root: ${directory}\nClaude config: ${env.CLAUDE_CONFIG_DIR ?? 'temporary HOME / injected homedir fallback'}\n`;
 process.stdout.write(output);
 const child = spawn(process.execPath, args, { env, stdio: ['ignore', 'pipe', 'pipe'] });
 for (const stream of [child.stdout, child.stderr]) stream.on('data', bytes => {

@@ -1,0 +1,21 @@
+command: /usr/bin/node --test packages/h2a/test/mh-l2-compensation.test.js
+node: v22.22.1
+private test root: /tmp/mh-l2-test-Ye2L6q
+TAP version 13
+# Subtest: compensation should require new ACTIVE H4 authority, a verified source image and proven absence; never reopen G0
+ok 1 - compensation should require new ACTIVE H4 authority, a verified source image and proven absence; never reopen G0
+  ---
+  duration_ms: 35.386838
+  type: 'test'
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 1
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 148.592385
+
+receipt: {"command":["/usr/bin/node","--test","packages/h2a/test/mh-l2-compensation.test.js"],"code":0,"signal":null,"elapsedMs":233}
