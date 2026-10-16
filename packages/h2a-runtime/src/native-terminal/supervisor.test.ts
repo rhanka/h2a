@@ -4,6 +4,7 @@ setupNativeTestEnvironment(afterAll);
 import { spawn, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { EventEmitter, once } from "node:events";
+import { PassThrough } from "node:stream";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -11,6 +12,7 @@ import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vites
 
 import { persistNativeTerminalPgid, readNativeTerminalPgid } from "../registry.js";
 import { readProcessStartTime, type NativeTerminalReapOutcome } from "./host.js";
+import { NativeTerminalClient } from "./client.js";
 import {
   NativeTerminalContainmentError,
   NativeTerminalHostSupervisor,
@@ -89,7 +91,7 @@ class FakeHostProcess extends EventEmitter {
   pid = 4_242_424;
   exitCode: number | null = null;
   signalCode: NodeJS.Signals | null = null;
-  stderr = null;
+  stderr: PassThrough | null = null;
   readonly killSignals: string[] = [];
 
   kill(signal?: NodeJS.Signals | number): boolean {
@@ -143,6 +145,69 @@ function deadSocketPath(): string {
 describe.skipIf(process.platform !== "linux")(
   "NativeTerminalHostSupervisor takeover reconcile",
   () => {
+    it("should await the winner when a live-owner refusal exits before its health handshake", async () => {
+      const host = new FakeHostProcess();
+      host.stderr = new PassThrough();
+      const healthy = { ping: vi.fn().mockResolvedValue({ protocolVersion: 1, hostPid: process.pid, generation: "winning-generation" }), close: vi.fn() };
+      const connect = vi.spyOn(NativeTerminalClient, "connect")
+        .mockRejectedValueOnce(new Error("no published socket yet"))
+        .mockRejectedValueOnce(new Error("winner not accepting connections yet"))
+        .mockResolvedValue(healthy as unknown as NativeTerminalClient);
+      const spawnHost = vi.fn(() => {
+        queueMicrotask(() => {
+          host.stderr!.write("fatal [H2A_ENDPOINT_LIVE_OWNER]: endpoint owned by a live older host\n");
+          host.exitCode = 3;
+          host.emit("exit", 3, null);
+        });
+        return host as unknown as ChildProcess;
+      });
+      const supervisor = new NativeTerminalHostSupervisor({ socketPath: deadSocketPath(), registryPath,
+        replayBytesPerSession: 1024, spawnHost });
+      try {
+        expect(await supervisor.client()).toBe(healthy);
+        expect(connect).toHaveBeenCalledTimes(3);
+        expect(healthy.ping).toHaveBeenCalledOnce();
+        expect(spawnHost).toHaveBeenCalledOnce();
+        expect(host.killSignals).toEqual([]);
+        supervisor.disconnect();
+        expect(await supervisor.client()).toBe(healthy);
+        expect(spawnHost).toHaveBeenCalledOnce();
+      } finally { supervisor.disconnect(); connect.mockRestore(); }
+    });
+
+    it("should keep the original deadline when a rejected contender has no healthy winner", async () => {
+      const host = new FakeHostProcess(); host.stderr = new PassThrough();
+      const connect = vi.spyOn(NativeTerminalClient, "connect").mockRejectedValue(new Error("no healthy winner"));
+      const spawnHost = vi.fn(() => {
+        queueMicrotask(() => { host.stderr!.write("[H2A_ENDPOINT_LIVE_OWNER]"); host.exitCode = 3; host.emit("exit", 3, null); });
+        return host as unknown as ChildProcess;
+      });
+      const supervisor = new NativeTerminalHostSupervisor({ socketPath: deadSocketPath(), registryPath,
+        replayBytesPerSession: 1024, spawnHost, startupTimeoutMs: 80 });
+      try {
+        await expect(supervisor.client()).rejects.toThrow(/did not become ready/);
+        expect(spawnHost).toHaveBeenCalledOnce();
+        await expect(supervisor.client()).rejects.toThrow(/restart backoff/);
+        expect(spawnHost).toHaveBeenCalledOnce();
+      } finally { supervisor.disconnect(); connect.mockRestore(); }
+    });
+
+    for (const [code, diagnostic] of [[2, "[H2A_ENDPOINT_LIVE_OWNER]"], [3, "unrelated startup fault"]] as const) {
+      it(`should retain startup failure ${code} without a matching live-owner refusal`, async () => {
+        const host = new FakeHostProcess(); host.stderr = new PassThrough();
+        const connect = vi.spyOn(NativeTerminalClient, "connect").mockRejectedValue(new Error("no host"));
+        const spawnHost = vi.fn(() => {
+          queueMicrotask(() => { host.stderr!.write(diagnostic); host.exitCode = code; host.emit("exit", code, null); });
+          return host as unknown as ChildProcess;
+        });
+        const supervisor = new NativeTerminalHostSupervisor({ socketPath: deadSocketPath(), registryPath,
+          replayBytesPerSession: 1024, spawnHost });
+        try {
+          await expect(supervisor.client()).rejects.toThrow(`exited before accepting connections (${code})`);
+          expect(spawnHost).toHaveBeenCalledOnce();
+        } finally { supervisor.disconnect(); connect.mockRestore(); }
+      });
+    }
     it("SUPERVISOR_TAKEOVER_DOES_NOT_REAP_A_LIVE_HOSTS_SESSIONS", async () => {
       // The owning host recorded on this entry is THIS test process — alive,
       // with a REAL matching /proc start-time, for the entire test. A lost

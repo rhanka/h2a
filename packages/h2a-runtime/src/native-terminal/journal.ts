@@ -36,7 +36,8 @@ export function getRuntimeVersion(): string {
 
 const runtimeDirectory = resolve(fileURLToPath(new URL("../", import.meta.url)));
 const pathEnvironment = new Set(["HOME", "PATH", "PWD", "OLDPWD", "TMPDIR", "NODE_PATH", "TERM", "LANG",
-  "XDG_RUNTIME_DIR", "XDG_STATE_HOME", "XDG_CONFIG_HOME", "REMOTE_CLI_CONFIG_HOME", "H2A_SESSION_HOST", "H2A_NATIVE_SOCKET"]);
+  "XDG_RUNTIME_DIR", "XDG_STATE_HOME", "XDG_CONFIG_HOME", "REMOTE_CLI_CONFIG_HOME", "H2A_SESSION_HOST", "H2A_NATIVE_SOCKET",
+  "H2A_TEST_QUALIFICATION_ROOT"]);
 function safeText(value: string): string {
   let result = value.slice(0, 4096);
   for (const [key, secret] of Object.entries(process.env)) {

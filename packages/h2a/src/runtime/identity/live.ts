@@ -5,20 +5,20 @@ import {
   mkdirSync,
   readFileSync,
   realpathSync,
+  statSync,
   unlinkSync,
   writeFileSync
 } from "node:fs";
 import { hostname } from "node:os";
 import { basename, join } from "node:path";
 
-import {
-  deriveInstanceId,
-  deriveWorkspaceId,
-  mintAgentUuid,
-  signCanonical,
-  type H2AActorRegistration,
-  type H2AWorkspaceRef
+// Worker boot must not initialize the unrelated runtime exported by the public barrel.
+import type {
+  H2AActorRegistration,
+  H2AWorkspaceRef
 } from "@sentropic/h2a";
+import { deriveInstanceId, deriveWorkspaceId, mintAgentUuid } from "../../identity.js";
+import { signCanonical } from "../../signature.js";
 
 import { createLocalStore } from "../local-files/store.js";
 import { getActiveMcpTrace } from "../mcp/phase-trace.js";
@@ -31,6 +31,9 @@ import {
 import { defaultProviderSessionReaders, readHostSessionName } from "./readers.js";
 import { resolveProviderSession, type ProviderSessionReaders } from "./resolver.js";
 import { durableWorkspaceId } from "./workspace-id.js";
+import { syncFile, ensureDurableDirectory, redactIdentityStorageError } from './durable.js';
+import type { IdentityBlockerInfo } from '../local-files/identity-fence.js';
+import { performance } from 'node:perf_hooks';
 
 /**
  * The CLOSED vocabulary an agent may DECLARE at registration.
@@ -215,6 +218,7 @@ function ensureKeypair(
 ): { publicKeyPem: string; privateKeyPath: string; publicKeyPath: string } {
   const existing = readKeypair(root, instance);
   if (existing) {
+    syncFile(existing.privateKeyPath); syncFile(existing.publicKeyPath);
     return {
       publicKeyPem: existing.publicKeyPem,
       privateKeyPath: existing.privateKeyPath,
@@ -223,18 +227,27 @@ function ensureKeypair(
   }
 
   const paths = identityKeyPaths(root, instance);
-  mkdirSync(join(root, "keys"), { recursive: true });
+  ensureDurableDirectory(join(root, "keys"));
   const adopted = adoptFromInstance ? readKeypair(root, adoptFromInstance) : undefined;
   if (adopted) {
     copyFileSync(adopted.privateKeyPath, paths.privateKeyPath);
     copyFileSync(adopted.publicKeyPath, paths.publicKeyPath);
+    syncFile(paths.privateKeyPath); syncFile(paths.publicKeyPath);
     return { publicKeyPem: adopted.publicKeyPem, ...paths };
   }
 
   const generated = generateKeypair();
   writeFileSync(paths.privateKeyPath, generated.privateKeyPem, { encoding: "utf8", mode: 0o600 });
   writeFileSync(paths.publicKeyPath, generated.publicKeyPem, "utf8");
+  syncFile(paths.privateKeyPath); syncFile(paths.publicKeyPath);
   return { publicKeyPem: generated.publicKeyPem, ...paths };
+}
+
+function keypairSourceStamp(paths: { privateKeyPath: string; publicKeyPath: string }): string {
+  return [paths.privateKeyPath, paths.publicKeyPath].map(path => {
+    const stat = statSync(path, { bigint: true });
+    return [stat.dev, stat.ino, stat.size, stat.mtimeNs, stat.ctimeNs].join(":");
+  }).join("|");
 }
 
 /**
@@ -339,6 +352,10 @@ function ensureRegistered(input: {
 }
 
 export function resolveLiveIdentity(input: ResolveLiveIdentityInput): ResolvedLiveIdentity {
+  try{return resolveLiveIdentityInternal(input);}catch(error){throw redactIdentityStorageError(error);}
+}
+
+function resolveLiveIdentityInternal(input: ResolveLiveIdentityInput): ResolvedLiveIdentity {
   // L0 identity spans: provider resolution, key prep, proof, enrollment, alias.
   // NEVER a PEM or a private path in an event — only the phase and its timing.
   const trace = getActiveMcpTrace();
@@ -473,7 +490,7 @@ export function resolveLiveIdentity(input: ResolveLiveIdentityInput): ResolvedLi
           step("identity_proof", () => provesLocalKey(input.root, binding.instance)),
         mint,
         now
-      })
+      }, { beforePublish: result => { mintKeypair = publishIdentity(result.instance, result.agentUuid, 'mint', {skipExistingCheck:true}); } })
     );
     if (result.action === "mint") {
       keypair = mintKeypair ?? publishIdentity(result.instance, result.agentUuid, "mint", { skipExistingCheck: true });
@@ -511,6 +528,8 @@ export function resolveLiveIdentity(input: ResolveLiveIdentityInput): ResolvedLi
 }
 
 export interface ResolveLiveIdentityAsyncOptions {
+  readonly onBlocker?: (info: IdentityBlockerInfo, stabilityKey: string) => void;
+  readonly diagnosticKey?: Buffer;
   /** Cooperative cancellation propagated to the identity-lock wait. */
   readonly signal?: AbortSignal;
   /** Remaining budget (ms) bounding the identity-lock wait for this attempt. */
@@ -583,6 +602,14 @@ export async function resolveLiveIdentityAsync(
   input: ResolveLiveIdentityInput,
   options: ResolveLiveIdentityAsyncOptions = {}
 ): Promise<ResolvedLiveIdentity> {
+  try{return await resolveLiveIdentityAsyncInternal(input,options);}catch(error){throw redactIdentityStorageError(error);}
+}
+
+async function resolveLiveIdentityAsyncInternal(
+  input: ResolveLiveIdentityInput,
+  options: ResolveLiveIdentityAsyncOptions
+): Promise<ResolvedLiveIdentity> {
+  const started=performance.now();
   const host = input.host || "agent";
   if (input.explicitInstance) {
     return { instance: input.explicitInstance, host, action: "override" };
@@ -596,7 +623,10 @@ export async function resolveLiveIdentityAsync(
 
   // Expensive OUTSIDE-lock reads are computed ONCE and cached across the worker's
   // retry attempts (a contended retry must not re-parse the ~17 MB registry).
-  const cache = (options.prepCache ?? {}) as { prepared?: AsyncPrepared };
+  const cache = (options.prepCache ?? {}) as {
+    prepared?: AsyncPrepared;
+    durableKeypair?: { root: string; instance: string; material: ReturnType<typeof ensureKeypair>; stamp: string };
+  };
   if (!cache.prepared) {
     const label = labelFromCwd(input.cwd);
     const readers = input.readers ?? defaultProviderSessionReaders;
@@ -670,7 +700,22 @@ export async function resolveLiveIdentityAsync(
     opts: { skipExistingCheck?: boolean } = {}
   ): { publicKeyPem: string; privateKeyPath: string; publicKeyPath: string } => {
     const adoptedFrom = action === "mint" && P.legacyDecision.adopt ? P.legacyInstance : undefined;
-    const keypair = step("identity_keys", () => ensureKeypair(input.root, resolvedInstance, adoptedFrom));
+    const keypair = step("identity_keys", () => {
+      const previous = cache.durableKeypair;
+      if (previous?.root === input.root && previous.instance === resolvedInstance) {
+        try {
+          if (keypairSourceStamp(previous.material) === previous.stamp) return previous.material;
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+        }
+      }
+      // Registry contention must not re-sync unchanged, already durable keys.
+      // The fresh possession receipt still verifies the actual key files and
+      // active keyring before every binding; this memo grants no authority.
+      const material = ensureKeypair(input.root, resolvedInstance, adoptedFrom);
+      cache.durableKeypair = { root: input.root, instance: resolvedInstance, material, stamp: keypairSourceStamp(material) };
+      return material;
+    });
     step("identity_register", () =>
       ensureRegistered({
         root: input.root,
@@ -747,7 +792,10 @@ export async function resolveLiveIdentityAsync(
       },
       {
         ...(options.signal ? { signal: options.signal } : {}),
-        ...(options.deadlineMs !== undefined ? { deadlineMs: options.deadlineMs } : {})
+        beforePublish: result => { mintKeypair = publishIdentity(result.instance,result.agentUuid,'mint',{skipExistingCheck:true}); },
+        ...(options.onBlocker ? {onBlocker: options.onBlocker} : {}),
+        ...(options.diagnosticKey ? {diagnosticKey: options.diagnosticKey} : {}),
+        ...(options.deadlineMs !== undefined ? { deadlineMs: Math.max(0,options.deadlineMs-(performance.now()-started)) } : {})
       }
     );
     if (result.action === "mint") {

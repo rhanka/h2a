@@ -17,6 +17,8 @@
  *          `@sentropic/h2a` dependency caret to `^X.Y.Z`)
  *        - `packages/h2a-runtime/package.json` (heavy runtime, lockstep)
  *        - `packages/track/package.json` (record-only system of record, lockstep)
+ *        - `scripts/smoke-artifact.mjs` (rewrites the `PINNED_RUNTIME_VERSION`
+ *          literal to `X.Y.Z`, still a literal — never the tree version)
  *   3. Stage and commit those package files with `release: vX.Y.Z` on a
  *      branch, never on `main` (`main` is PR-only, admins included):
  *        - launched from `main`: switches to a new `release/vX.Y.Z` branch;
@@ -40,9 +42,10 @@
  *   node scripts/release.mjs --version 0.2.0 --dry-run
  *
  * Pure helpers (`parseVersion`, `bumpPackageJsonContent`,
- * `bumpPackageLockContent`, `gitStatusIsClean`, `resolveReleaseBranch`,
- * `planReleaseGitSteps`, `formatNextSteps`) are exported so the unit-test
- * suite can exercise them without spawning a subprocess.
+ * `bumpPackageLockContent`, `bumpSmokeArtifactPinContent`, `gitStatusIsClean`,
+ * `resolveReleaseBranch`, `planReleaseGitSteps`, `formatNextSteps`) are
+ * exported so the unit-test suite can exercise them without spawning a
+ * subprocess.
  */
 import { spawnSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
@@ -52,6 +55,16 @@ import { fileURLToPath } from "node:url";
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(HERE, "..");
 
+/**
+ * The packaged-artifact smoke (`scripts/smoke-artifact.mjs`) proves the
+ * candidate against a `PINNED_RUNTIME_VERSION` literal (SPEC 0.98.5 R8.3(4)):
+ * the proof must compare against a literal, never against the tree's own
+ * version. Every `npm run release -- --version X.Y.Z` therefore rewrites that
+ * literal to `X.Y.Z` as part of the bump, so the pin can never be forgotten
+ * on the next release train.
+ */
+const SMOKE_PIN_FILE = "scripts/smoke-artifact.mjs";
+
 const PACKAGE_FILES = [
   "package.json",
   "package-lock.json",
@@ -60,7 +73,8 @@ const PACKAGE_FILES = [
   "packages/h2a/.codex-plugin/plugin.json",
   "packages/h2a-cli/package.json",
   "packages/h2a-runtime/package.json",
-  "packages/track/package.json"
+  "packages/track/package.json",
+  SMOKE_PIN_FILE
 ];
 
 const CORE_PACKAGE_NAME = "@sentropic/h2a";
@@ -200,6 +214,34 @@ export function bumpPackageLockContent(jsonContent, newVersion) {
 
   const out = JSON.stringify(parsed, null, 2);
   return trailingNewline ? `${out}\n` : out;
+}
+
+/**
+ * Rewrite the `PINNED_RUNTIME_VERSION` literal in `scripts/smoke-artifact.mjs`
+ * to `newVersion`. Pure: takes the script source in, returns the script
+ * source out, byte-identical except for the quoted value on the single
+ * declaration line. Only that line is touched: SPEC identifiers (e.g.
+ * `SPEC 0.98.5 R8.3(4)`) and the failure messages that interpolate the
+ * constant keep their text, and no manifest read or tree-version lookup is
+ * introduced — the pin stays a literal, per SPEC 0.98.5 R8.3(4).
+ *
+ * @param {string} jsContent - Raw `scripts/smoke-artifact.mjs` content.
+ * @param {string} newVersion - Target version, validated by `parseVersion`.
+ * @returns {string} The updated script source.
+ */
+export function bumpSmokeArtifactPinContent(jsContent, newVersion) {
+  parseVersion(newVersion); // validate
+  const matches = jsContent.match(/^const PINNED_RUNTIME_VERSION = '[^']*'$/gm);
+  const count = matches ? matches.length : 0;
+  if (count !== 1) {
+    throw new Error(
+      `bumpSmokeArtifactPinContent: expected exactly one \`const PINNED_RUNTIME_VERSION = 'X.Y.Z'\` declaration, found ${count} — the smoke script moved its pin.`
+    );
+  }
+  return jsContent.replace(
+    /^const PINNED_RUNTIME_VERSION = '[^']*'$/m,
+    `const PINNED_RUNTIME_VERSION = '${newVersion}'`
+  );
 }
 
 /** @param {string} porcelainOutput */
@@ -357,7 +399,9 @@ function bumpAllPackages(newVersion, options = {}) {
     const next =
       rel === "package-lock.json"
         ? bumpPackageLockContent(raw, newVersion)
-        : bumpPackageJsonContent(raw, newVersion);
+        : rel === SMOKE_PIN_FILE
+          ? bumpSmokeArtifactPinContent(raw, newVersion)
+          : bumpPackageJsonContent(raw, newVersion);
     if (raw === next) {
       process.stdout.write(`  ${rel}: already at ${newVersion}\n`);
       continue;

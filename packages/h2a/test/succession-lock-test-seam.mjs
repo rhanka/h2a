@@ -21,13 +21,13 @@ instrument("const tok = newToken();\n        const pub = publishLockRecord(lockP
   "if (round === 0) invoke(hooks.beforePublishLock, { prefix, lockPath, path: lockPath, round, depth: 0 });\n        const tok = newToken();\n        const pub = publishLockRecord(lockPath, makeLockRecFor(self, tok));");
 instrument("const next = succeedDeadToken(prefix, lockPath, cur.token, self);",
   "invoke(hooks.beforeSucceedDeadToken, { prefix, lockPath, path: lockPath, target: cur.token, round, depth: 0 });\n    const next = succeedDeadToken(prefix, lockPath, cur.token, self);");
-instrument("cur.token, self)", "cur.token, self, hooks, round)");
-instrument("function succeedDeadToken(prefix, lockPath, g, self) {",
-  "function succeedDeadToken(prefix, lockPath, g, self, hooks, round) {");
-instrument("return retireDeadToken(prefix, lockPath, g, self);",
-  "invoke(hooks.afterPublishSucc, { prefix, lockPath, path: succPathFor(lockPath, t), token: tok, target: g, round, depth });\n            return retireDeadToken(prefix, lockPath, g, self, hooks, round, depth);");
-instrument("function retireDeadToken(prefix, lockPath, g, self) {",
-  "function retireDeadToken(prefix, lockPath, g, self, hooks, round, depth) {");
+instrument("cur.token, self)", "cur.token, self, undefined, hooks, round)");
+instrument("function succeedDeadToken(prefix, lockPath, g, self, io = UPGRADE_FENCE_IO) {",
+  "function succeedDeadToken(prefix, lockPath, g, self, io = UPGRADE_FENCE_IO, hooks, round) {");
+instrument("return retireDeadToken(prefix, lockPath, g, self, io);",
+  "invoke(hooks.afterPublishSucc, { prefix, lockPath, path: succPathFor(lockPath, t), token: tok, target: g, round, depth });\n            return retireDeadToken(prefix, lockPath, g, self, io, hooks, round, depth);");
+instrument("function retireDeadToken(prefix, lockPath, g, self, io = UPGRADE_FENCE_IO) {",
+  "function retireDeadToken(prefix, lockPath, g, self, io = UPGRADE_FENCE_IO, hooks, round, depth) {");
 instrument('if (cur !== "absent" && cur.token === g) {',
   'if (cur !== "absent" && cur.token === g) {\n        invoke(hooks.beforeRetireUnlink, { prefix, lockPath, path: lockPath, target: g, round, depth });');
 instrument('if (unlinkCode !== undefined && unlinkCode !== "ENOENT") {',

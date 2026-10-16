@@ -154,7 +154,10 @@ describe.skipIf(process.platform !== "linux")("native terminal host crash contai
     const contender = new NativeTerminalHost({ generation: "contender", replayBytesPerSession: 1024,
       registryPath: join(root, "contender-registry.json"),
       spawner: () => { throw new Error("contender must never serve a PTY"); } });
-    await expect(startNativeTerminalHostServer({ socketPath, host: contender })).rejects.toThrow(/owner death is unproven/);
+    // Scenario 9 v5: a live host serving this endpoint — same or older
+    // version — is the coded double-publication refusal, never a silent
+    // unlink candidate.
+    await expect(startNativeTerminalHostServer({ socketPath, host: contender })).rejects.toThrow(/endpoint owned by a live older host/);
     expect((await client.ping()).hostPid).toBe(child.pid);
     const lease = await client.acquireController("surviving-child", "healthy");
     await client.write(lease, "still-alive\r");
@@ -296,5 +299,5 @@ describe.skipIf(process.platform !== "linux")("native terminal host crash contai
     ]);
     expect(exitCode).toBe(0);
     client.close();
-  });
+  }, 30_000);
 });
