@@ -7,6 +7,7 @@ import { createRequire } from 'node:module';
 const repo = resolve(import.meta.dirname, '../../../..');
 const ts = createRequire(join(repo, 'package.json'))('typescript');
 const lane = fs.mkdtempSync(join(tmpdir(), 'h2a-host-build-'));
+const npmCli = (process.env.PATH ?? '').split(':').map(p => join(p, 'npm')).find(p => fs.existsSync(p));
 const root = join(lane, 'candidate');
 const files = process.argv.slice(2);
 if (!files.length || files.some(f => !/^packages\/h2a\/test\/[\w-]+\.test\.js$/.test(f)))
@@ -44,6 +45,8 @@ for (const name of fs.readdirSync(join(repo, 'node_modules', '@sentropic'))) {
 }
 const env = { ...process.env, HOME: join(lane, 'home'), TMPDIR: join(lane, 'tmp'),
   PATH: join(lane, 'bin'),
+  HOST_TEST_NPM_CLI: npmCli ? fs.realpathSync(npmCli) : '',
+  npm_config_cache: join(lane, 'npm-cache'), npm_config_userconfig: join(lane, 'npmrc'),
   XDG_RUNTIME_DIR: join(lane, 'runtime'), XDG_CONFIG_HOME: join(lane, 'config'),
   XDG_STATE_HOME: join(lane, 'state'), H2A_ROOT: join(lane, 'state', 'bus'), IDLOCK_LANE: lane,
   VIBE_HOME: '', CLAUDE_CONFIG_DIR: '', CODEX_HOME: '',
