@@ -1,0 +1,7 @@
+{
+  "pid": 31333,
+  "parent": 31327,
+  "startTime": "2347068",
+  "signal": "SIGTERM",
+  "reason": "non-referencing supplemental v1 test blocked; root reference runner retained"
+}
