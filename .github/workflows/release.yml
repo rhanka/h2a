@@ -296,7 +296,7 @@ jobs:
             # SPEC 0.98.5 R8.2: publish the VERIFIED tarball bytes that verify
             # packed from the gated SHA — never a fresh pack of a mutable ref.
             (cd dist-tarballs && sha256sum --check --strict sha256sums.txt)
-            if ! npm publish "dist-tarballs/sentropic-track-${v}.tgz" --access public $tagArgs; then
+            if ! npm publish "./dist-tarballs/sentropic-track-${v}.tgz" --access public $tagArgs; then
               echo "::error::@sentropic/track@$v: npm publish failed (not published)." >&2
               exit 1
             fi
@@ -332,7 +332,7 @@ jobs:
             # SPEC 0.98.5 R8.2: publish the VERIFIED tarball bytes that verify
             # packed from the gated SHA — never a fresh pack of a mutable ref.
             (cd dist-tarballs && sha256sum --check --strict sha256sums.txt)
-            if ! npm publish "dist-tarballs/sentropic-h2a-runtime-${v}.tgz" --access public $tagArgs; then
+            if ! npm publish "./dist-tarballs/sentropic-h2a-runtime-${v}.tgz" --access public $tagArgs; then
               echo "::error::@sentropic/h2a-runtime@$v: npm publish failed (not published)." >&2
               exit 1
             fi
@@ -368,7 +368,7 @@ jobs:
             # SPEC 0.98.5 R8.2: publish the VERIFIED tarball bytes that verify
             # packed from the gated SHA — never a fresh pack of a mutable ref.
             (cd dist-tarballs && sha256sum --check --strict sha256sums.txt)
-            if ! npm publish "dist-tarballs/sentropic-h2a-${v}.tgz" --access public $tagArgs; then
+            if ! npm publish "./dist-tarballs/sentropic-h2a-${v}.tgz" --access public $tagArgs; then
               echo "::error::@sentropic/h2a@$v: npm publish failed (not published)." >&2
               exit 1
             fi
@@ -404,7 +404,7 @@ jobs:
             # SPEC 0.98.5 R8.2: publish the VERIFIED tarball bytes that verify
             # packed from the gated SHA — never a fresh pack of a mutable ref.
             (cd dist-tarballs && sha256sum --check --strict sha256sums.txt)
-            if ! npm publish "dist-tarballs/sentropic-h2a-cli-${v}.tgz" --access public $tagArgs; then
+            if ! npm publish "./dist-tarballs/sentropic-h2a-cli-${v}.tgz" --access public $tagArgs; then
               echo "::error::@sentropic/h2a-cli@$v: npm publish failed (not published)." >&2
               exit 1
             fi
