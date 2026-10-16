@@ -63,7 +63,7 @@ test("release publishes the VERIFIED tarball bytes for all four packages (no wor
     ["@sentropic/h2a-cli", "sentropic-h2a-cli-"],
   ]) {
     const step = publishStep(packageName);
-    assert.match(step, new RegExp(`npm publish "dist-tarballs/${tarball}\\$\\{v\\}\\.tgz"`), `${packageName}: publish must ship the verify-built tarball bytes`);
+    assert.match(step, new RegExp(`npm publish "\\./dist-tarballs/${tarball}\\$\\{v\\}\\.tgz"`), `${packageName}: publish must ship the verify-built tarball bytes via an unambiguous ./ file spec (0.98.6: the bare form parsed as git shorthand)`);
     assert.match(step, /sha256sum --check --strict sha256sums\.txt/, `${packageName}: publish must re-check the tarball sha256 before publishing`);
     assert.ok(!step.includes("--workspace"), `${packageName}: publish must never repack a workspace (0.98.6 TS2688)`);
   }

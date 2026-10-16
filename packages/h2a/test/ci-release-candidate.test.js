@@ -13,7 +13,7 @@ test("should qualify Node 22 and 24 in CI and release with no Node 20 job", () =
   const ci = workflow("ci.yml"), release = workflow("release.yml");
   assert.deepEqual(ci.jobs["build-and-test"].strategy.matrix.node, ["22", "24"]);
   assert.deepEqual(release.jobs.verify.strategy.matrix.node, ["22", "24"]);
-  for (const name of ["ci.yml", "release.yml", "native-namespace-qualification.yml", "smoke.yml", "docker.yml", "codex-drift.yml"]) {
+  for (const name of ["ci.yml", "release.yml", "native-namespace-qualification.yml", "smoke.yml", "docker.yml", "codex-drift.yml", "publish-rehearsal.yml"]) {
     for (const job of Object.values(workflow(name).jobs)) {
       for (const step of job.steps ?? []) assert.notEqual(String(step.with?.["node-version"]), "20");
     }
