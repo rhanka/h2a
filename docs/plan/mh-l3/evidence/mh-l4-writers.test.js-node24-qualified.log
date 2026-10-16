@@ -1,0 +1,46 @@
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node --test --test-reporter=tap packages/h2a/test/mh-l4-writers.test.js
+node: v24.21.0
+private root: /tmp/mh-l3-test-4qvohS
+case: all cases in explicit file
+TAP version 13
+# Subtest: should revalidate registry, inbox, presence, blockage and payload writes at the barrier
+ok 1 - should revalidate registry, inbox, presence, blockage and payload writes at the barrier
+  ---
+  duration_ms: 57.512615
+  type: 'test'
+  ...
+# Subtest: should refuse janitor cleanup when a snapshot has been replaced during liveness proof
+ok 2 - should refuse janitor cleanup when a snapshot has been replaced during liveness proof
+  ---
+  duration_ms: 0.675422
+  type: 'test'
+  ...
+# Subtest: should keep preparatory readOnly opens pure and reject every mutating method
+ok 3 - should keep preparatory readOnly opens pure and reject every mutating method
+  ---
+  duration_ms: 0.381428
+  type: 'test'
+  ...
+# Subtest: should resolve flock from the fixed allow-list and never from PATH
+ok 4 - should resolve flock from the fixed allow-list and never from PATH
+  ---
+  duration_ms: 0.427214
+  type: 'test'
+  ...
+# Subtest: should fail closed naming util-linux when no flock candidate qualifies
+ok 5 - should fail closed naming util-linux when no flock candidate qualifies
+  ---
+  duration_ms: 0.346242
+  type: 'test'
+  ...
+1..5
+# tests 5
+# suites 0
+# pass 5
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 252.349863
+
+receipt: {"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l4-writers.test.js"],"code":0,"signal":null,"tests":5,"invalid":false,"spawned":1,"leftovers":[]}

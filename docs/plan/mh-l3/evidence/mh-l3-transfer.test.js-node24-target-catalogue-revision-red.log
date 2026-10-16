@@ -1,0 +1,43 @@
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node --test --test-reporter=tap packages/h2a/test/mh-l3-transfer.test.js
+node: v24.21.0
+private root: /tmp/mh-l3-test-L3Teng
+case: M21 real compiled shim should attach-transfer to the conformance peer while its real old central preserves G0 work
+TAP version 13
+# {"event":"drive-consent.full-verification","durationMs":0.004799000000275555,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# h2a mcp-serve: identity migration: claude:mh-l2-live-image-afhcjz:3d3adf7085c8 reads legacy claude:mh-l2-live-image-aFHCjz; no proof of possession of a legacy key — mint net-new keys
+# h2a mcp-serve: auto-opened session for claude:mh-l2-live-image-afhcjz:3d3adf7085c8
+# h2a mcp-serve: identity ready: claude:mh-l2-live-image-afhcjz:3d3adf7085c8 (signing available)
+# Subtest: M21 real compiled shim should attach-transfer to the conformance peer while its real old central preserves G0 work
+not ok 1 - M21 real compiled shim should attach-transfer to the conformance peer while its real old central preserves G0 work
+  ---
+  duration_ms: 6983.403429
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-bUCXsb/source/packages/h2a/test/mh-l3-transfer.test.js:2:94'
+  failureType: 'testCodeFailure'
+  error: |-
+    wrong target revision cannot change the served view
+    
+    true !== false
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: false
+  actual: true
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/mh-l3-qualification-bUCXsb/source/packages/h2a/test/mh-l3-transfer.test.js:216:12)
+    process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    async Test.run (node:internal/test_runner/test:1409:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3)
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 0
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 7140.483294
+
+receipt: {"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l3-transfer.test.js"],"code":1,"signal":null,"tests":1,"invalid":false,"spawned":7,"leftovers":[]}
