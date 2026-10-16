@@ -92,6 +92,42 @@ Le [run suivant 38908671072](https://github.com/rhanka/h2a/actions/runs/38908671
 | `node --test scripts/xcli-evidence.test.mjs scripts/xcli-pid-namespace.test.mjs` | Version finale avec refus des alias/écrasements et gardes PID : tests 4, pass 4, fail 0, skipped 0, exit 0 |
 | `node scripts/xcli-runtime-tests.mjs packages/h2a-runtime/src/native-terminal/op.test.ts`, avec un export temporaire | tests 4, passed 4, failed 0, pending 0, exit 0 ; `uidMatchesUploader:true`, `mode:0600`, `privateDirectoryMode:700` |
 
-Les reçus rouge/vert figurent dans [le dossier local](2026-10-16-cross-cli-local/). La preuve complète sous root/namespace et le statut final du nouveau workflow seront ajoutés après push.
+Les reçus rouge/vert figurent dans [le dossier local](2026-10-16-cross-cli-local/). Le run `38908671072` est terminé en failure ; ses deux matrices simulées ont passé, les autres jobs ont échoué sur les fixtures ou l’upload décrits ci-dessus.
+
+Le [run final 38909510272](https://github.com/rhanka/h2a/actions/runs/38909510272) sur `2f4568a93922942c24dfc59d8b62de6725f0147c` est **success : huit jobs sur huit**. Commande de constat : `gh run view 38909510272 --json status,conclusion,jobs` ; sortie : `status: completed`, `conclusion: success`, chaque job `conclusion: success`.
+
+| Contrôle CI, par version Node 22 et 24 | Sortie observée |
+|---|---|
+| `node --test` des neuf fichiers du harness explicités dans le workflow | tests 18, pass 18, fail 0, skipped 0, exit 0 |
+| `node scripts/qualify-cross-cli.mjs --simulated --timeout-ms 30000 --output <runner.temp>/xcli-simulated.json` | 36/36 simulated-OK ; exit 0 |
+| `node scripts/xcli-ci-check.mjs <artefact>` après téléchargement local | `{"cells":36,"outcome":"simulated-round-trips-proven"}`, exit 0, pour chaque artefact |
+| `node --test scripts/xcli-native-config.test.mjs` | tests 2, pass 2, fail 0, skipped 0 |
+| `node scripts/xcli-in-pid-namespace.mjs scripts/xcli-runtime-tests.mjs` | tests 706, passed 702, failed 0, pending 2, plus 2 todo déclarés ; exit 0 |
+| `node scripts/xcli-in-pid-namespace.mjs scripts/xcli-source-tests.mjs <14 fichiers natifs>` | tests 163, pass 151, fail 0, skipped 0, todo 12 déclarés ; exit 0 |
+| Même runner source, `<10 fichiers hosts>` | tests 211, pass 210, fail 0, skipped 1 placeholder keepalive déclaré, todo 0 ; exit 0 |
+
+Les commandes intégrales, la liste précise des fichiers, les non-tests runtime et les sorties numériques sont dans [les huit reçus de jobs](2026-10-16-cross-cli-ci/2f4568a9/). Les six artefacts runtime/source et les deux matrices ont été téléchargés ; la revérification des quatre rapports source donne `verificationFailures: []`, avec 14 ou 10 fichiers requis selon le scope. Le vérificateur versionné des non-tests n’a pas changé. Ces non-tests restent hors couverture, même dans un job vert.
+
+Les deux matrices finales : [Node 22](2026-10-16-cross-cli-ci/2f4568a9/simulated-node22/xcli-simulated.json), [Node 24](2026-10-16-cross-cli-ci/2f4568a9/simulated-node24/xcli-simulated.json). Téléchargement : `gh run download 38909510272 -n xcli-simulated-node-<version> -D <dossier>` ; revérification : `node scripts/xcli-ci-check.mjs <dossier>/xcli-simulated.json`. Aucun modèle réel ni suite globale locale dans cette vérification.
+
+| Commit poussé pendant la reprise | Objet |
+|---|---|
+| `680cf7d8` | Soumettre le wake natif en deux bursts ; vrai aller-retour Claude |
+| `5181af1a` | Schéma Muse requis et programme Muse isolé |
+| `5e9c9db4` | Séparer les jobs CI bornés |
+| `2f4568a9` | Fixtures Track et export privé des reçus |
+
+L’archivage final ne modifie que la documentation et les preuves et porte `[skip ci]` pour ne pas relancer les mêmes contrôles sur du code inchangé ; le commit de code qualifié reste exactement `2f4568a9`. Aucun changement des gardes ni des déclarations de non-tests.
+
+Le [contrôle des nettoyages](2026-10-16-cross-cli-local/cleanup-audit.json) couvre 24 reçus de cette reprise : 20 disposent de l’événement explicite de fin ; 4 précèdent cette instrumentation. L’audit naïf exigeant cet événement pour les 24 est donc rouge (4 preuves manquantes), sans échec de nettoyage déclaré. Pour ces 4 anciens reçus, les répertoires privés de cellule ont disparu ; aucun PID historique n’a été sondé, puisqu’il pourrait avoir été réutilisé. Cette limite de preuve reste explicite. Tous les handles de processus lancés pendant la reprise sont terminés ; aucun processus local conservé.
 
 État réel cumulé : **1/36 measured-OK**, Claude → Claude ; **aucune paire inter-CLI réelle qualifiée**. Les 36 cellules simulées vérifient le chemin h2a et les invariants du harness, pas la prise en charge des six produits réels. Reste estimé : **6–12 heures-agent et 2 tours de revue**, sous réserve d’un login AGY réutilisable, de Gemini et d’une entrée Vibe non Python. La revue formelle reste `selection-failed` suivant [SKILL.md](/home/antoinefa/.codex/skills/harness-review/SKILL.md), qui impose « Launch only through the installed h2a MCP server's h2a_run tool » ; le propriétaire interdit cette route.
+
+| Non couvert / écart restant | Limite explicite |
+|---|---|
+| 35 autres cellules réelles | Aucune revendication de support ; Codex ne charge pas le MCP avant échéance, AGY/Gemini demandent l’authentification, Muse quitte après Trust |
+| 11 cellules impliquant Vibe | Bloquées par l’entrée Python interdite ; aucun Python exécuté |
+| CLI réelles dans GitHub CI | Non exécutées : modèles simulés d’abord, sièges réels ultérieurs selon la décision du 12/10 |
+| Fonctions non exercées par la matrice | Le probe qualifie identité/envoi/inbox/wake/réponse ; il ne prouve pas toutes les fonctions de chaque CLI |
+| Gates globaux npm/release | Entrées non raccordées au confinement PID : non qualifiées ici, aucune suite globale locale exécutée |
+| Revue indépendante à deux pairs | Non effectuée ; aucun consensus ni prêt-à-fusionner revendiqué |
