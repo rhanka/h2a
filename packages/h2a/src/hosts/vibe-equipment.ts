@@ -32,7 +32,11 @@ export function planVibeEquipment(options: VibeEquipmentOptions) {
   });
   const observed = { MCP: mcpFingerprint({ mcp: options.config.mcp_servers ?? [], disabled_tools: options.config.disabled_tools ?? [] }),
     profile: digest(options.root), node: fileFingerprint(process.execPath), entrypoint: fileFingerprint(entrypoint),
-    guard: digest(artifacts[0].bytes), lifecycle: digest(artifacts[1].bytes), masking: digest(JSON.stringify(options.maskingHooks ?? [])) };
+    guard: digest(artifacts[0].bytes), lifecycle: digest(artifacts[1].bytes), masking: digest(JSON.stringify(options.maskingHooks ?? [])),
+    skills: digest(JSON.stringify(Object.entries(manifest.files).filter(([, e]) => !e.source.includes('/hooks/')).map(([path]) => [path, fileFingerprint(path)]))),
+    filters: semanticDigest({ enabled: options.config.enabled_skills ?? [], disabled: options.config.disabled_skills ?? [], paths: options.config.skill_paths ?? [] }),
+    guardBlock: manifest.hooks?.['sentropic-h2a-deny-manual-cli'] ?? 'absent',
+    lifecycleBlock: manifest.hooks?.['h2a-drumbeat-record'] ?? 'absent', lifecycleSelection: semanticDigest(manifest.lifecycle ?? {}) };
   const qualification = inspectNativeQualification(options.state, 'vibe', options.root, observed);
   for (const mode of [options.guard, options.lifecycle]) if (mode !== undefined && !['on', 'off'].includes(mode)) throw new Error('guard/lifecycle must be on or off');
   if (options.instance === 'auto') throw new Error('non disponible — interface B non livrée');

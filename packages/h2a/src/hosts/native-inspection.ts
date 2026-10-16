@@ -1,4 +1,4 @@
-import { accessSync, constants, lstatSync } from 'node:fs';
+import { accessSync, constants, lstatSync, statSync } from 'node:fs';
 import { delimiter, join } from 'node:path';
 import { snapshot } from './native-files.js';
 import { parseNativeToml } from './native-toml.js';
@@ -6,7 +6,7 @@ import { MISSING_VIBE_MCP, nativeRoot, REGISTRY_WAITING, stateRoot, VIBE_LIFECYC
 import type { NativeHost } from './native-paths.js';
 export function nativeCliPresent(host: string): boolean {
   return (process.env.PATH ?? '').split(delimiter).some(dir => {
-    try { accessSync(join(dir, host), constants.X_OK); return lstatSync(join(dir, host)).isFile(); }
+    try { accessSync(join(dir, host), constants.X_OK); return statSync(join(dir, host)).isFile(); }
     catch (e) { if (!['ENOENT', 'ENOTDIR'].includes((e as NodeJS.ErrnoException).code ?? '')) throw e; return false; }
   });
 }

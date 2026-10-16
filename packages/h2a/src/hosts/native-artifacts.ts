@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { atomicNativeWrite, assertNativePath, digest, jsonBytes, readNativeManifest, snapshot } from './native-files.js';
 import type { NativeManifest } from './native-files.js';
 import { recoverNativeHooks } from './native-toml.js';
-export interface NativeArtifact { path: string; bytes: string; source: string; selected?: boolean; historical?: readonly string[]; }
+export interface NativeArtifact { path: string; bytes: string | Buffer; source: string; selected?: boolean; historical?: readonly string[]; }
 export interface NativeChanges { changed: string[]; adopted: string[]; conflicts: string[]; missing: string[]; planned: string[]; }
 export function convergeArtifacts(options: {
   state: string; root: string; host: string; version: string; artifacts: readonly NativeArtifact[];
