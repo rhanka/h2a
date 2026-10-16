@@ -306,7 +306,8 @@ test("npm tarball Focus smoke runs from an installed-artifact layout", { skip: p
       "@modelcontextprotocol/sdk",
       "@sentropic/cluster-mesh",
       "@sentropic/track",
-      "hono"
+      "hono",
+      "toml-eslint-parser"
     ]) {
       linkInstalledDependency(nodeModules, dependency);
     }

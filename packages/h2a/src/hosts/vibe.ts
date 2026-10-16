@@ -27,10 +27,9 @@ export function renderMcpConfig(
     },
     path: {
       hint:
-        "vibe reads MCP servers from the `[[mcp_servers]]` TOML array of tables " +
-        "in `~/.vibe/config.toml` (or `$VIBE_HOME/config.toml`). Translate the " +
-        "snippet above to: [[mcp_servers]] / name = \"h2a\" / transport = \"stdio\" / " +
-        "command = <command> / args = [<args>].",
+        "vibe: rendu historique non recommandé — non migré — bootstrap registre attendu. " +
+        "Configuration observée en lecture seule: $VIBE_HOME/config.toml ou ~/.vibe/config.toml. " +
+        "L’intégrateur registre fournit l’installation, l’activation et le reçu R7.",
       example: "~/.vibe/config.toml"
     }
   };

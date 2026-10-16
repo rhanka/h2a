@@ -440,8 +440,41 @@
   "packages/h2a/test/host-connect.test.js": [],
   "packages/h2a/test/host-installation-doctor.test.js": [],
   "packages/h2a/test/host-mcp-scenario.test.js": [],
-  "packages/h2a/test/host-plugin.test.js": [],
-  "packages/h2a/test/hosts-integration.test.js": [],
+  "packages/h2a/test/host-plugin.test.js": [
+    "host plugin renders a push-capable stop hook for claude/codex/gemini/hermes/opencode",
+    "host plugin marks agy as poll-only (no daemon) with a poll command",
+    "host plugin marks muse as poll-only (no verified stop-hook) with a poll command",
+    "host plugin --write claude merges an idempotent Stop hook into settings.json (DEC-102)",
+    "host plugin --write merges Claude-format Stop hooks for gemini/hermes/opencode (DEC-103)",
+    "host plugin --write codex writes a valid Claude-format hooks.json + pluginHint (DEC-104)",
+    "host plugin --scaffold codex writes the full local marketplace + emits the trust step (DEC-113)",
+    "host plugin --scaffold is refused for non-codex hosts (manifest is codex-specific)",
+    "host plugin marks vibe as push via a post_agent hook (vibe-hooks, ~/.vibe/hooks.toml)",
+    "host plugin --write is refused for vibe (~/.vibe/hooks.toml is TOML; the JSON hook merger is format-strict)",
+    "host plugin --write is refused for agy and muse (poll-only, no verified stop-hook)",
+    "host plugin rejects an unknown host and requires --instance"
+  ],
+  "packages/h2a/test/hosts-integration.test.js": [
+    "H2A_CODEX_HOST.renderMcpConfig defaults to command=h2a + args=[mcp-serve]",
+    "H2A_CODEX_HOST.renderMcpConfig honors custom command/args/root",
+    "H2A_CODEX_HOST.renderMcpConfig renders exactly one remote endpoint",
+    "H2A_CLAUDE_HOST.renderMcpConfig includes --root when provided",
+    "h2a host setup --host codex --print emits JSON snippet on stdout",
+    "h2a host setup names a stale Codex installation without repairing it",
+    "h2a host setup --host claude --print emits a claude-shaped snippet",
+    "H2A_GEMINI_HOST.renderMcpConfig includes --root when provided (DEC-049)",
+    "h2a host setup --host gemini --print emits a gemini-shaped snippet (DEC-049)",
+    "Hermes/OpenCode render h2a MCP setup snippets",
+    "h2a host setup rejects ambiguous local/remote endpoint flags",
+    "h2a host setup requires --host",
+    "h2a host setup rejects unknown host values",
+    "h2a host setup --write creates a new config file with mcpServers.h2a",
+    "h2a host setup --write preserves pre-existing mcpServers.other",
+    "h2a host setup --write replaces h2a aliases and disables standalone Track MCP entries",
+    "h2a host setup refuses native TOML, YAML, and JSONC writes before it can overwrite them",
+    "h2a host setup --write --force may intentionally replace malformed JSON",
+    "h2a host setup --write is idempotent when the target already matches"
+  ],
   "packages/h2a/test/identity-bindings.test.js": [],
   "packages/h2a/test/identity-live-wiring.test.js": [],
   "packages/h2a/test/identity-migration.test.js": [],
@@ -451,7 +484,19 @@
   "packages/h2a/test/identity-state.test.js": [],
   "packages/h2a/test/identity.test.js": [],
   "packages/h2a/test/index.test.js": [],
-  "packages/h2a/test/install-skills-hosts.test.js": [],
+  "packages/h2a/test/install-skills-hosts.test.js": [
+    "install-skills user scope follows configured Claude and Codex roots",
+    "install-skills user scope preserves default Claude and Codex roots",
+    "install-skills --host claude renders h2a + track + harness from a single source each",
+    "install-skills --host gemini renders every source as a .toml custom command",
+    "install-skills --host agy renders the .toml commands + emits an importHint (DEC-101)",
+    "install-skills --host muse renders SKILL.md dirs + emits a verifyHint",
+    "install-skills --host vibe renders SKILL.md dirs + emits a verifyHint",
+    "install-skills renders harness-* from h2a-owned vendored harness skills (SOURCE UNIQUE, no external package)",
+    "install-skills preserves unknown legacy commands in the shared agy/Gemini store",
+    "install-skills refuses overwrite without --force on any host",
+    "install-skills rejects unknown host"
+  ],
   "packages/h2a/test/integration-example.test.js": [],
   "packages/h2a/test/integration-principal-conductors.test.js": [],
   "packages/h2a/test/journal.test.js": [],
@@ -529,7 +574,20 @@
   "packages/h2a/test/multi-human.test.js": [],
   "packages/h2a/test/mutualisation.test.js": [],
   "packages/h2a/test/name-resolution-surface.test.js": [],
-  "packages/h2a/test/native-host-generations.test.js": [],
+  "packages/h2a/test/native-host-generations.test.js": [
+    "should refuse owner runtime paths, escaping symlinks and uncontained paths before starting any process",
+    "should retain an already-compatible historical launch host",
+    "should verify launchFence rather than trusting the compatible socket name",
+    "should fence a structured headless launch on the compatible generation",
+    "should clean a guard's owned incarnation on its receipt socket only",
+    "should launch once through MCP h2a_run on the compatible fleet and deliver one brief",
+    "should route each by-name operation to the observed owner across real historical and compatible hosts",
+    "should refuse ambiguous owners without attaching, writing, driving or stopping either session",
+    "should refuse agent and sidecar collisions before any containment registry write",
+    "should report an incomplete inventory and unknown absence when the historical host is suspended",
+    "should select a second compatible host and preserve the historical sentinel (spec §8/L0; phase A)",
+    "should refuse an explicitly imposed historical endpoint before creation with the typed CLI diagnostic (spec §7/D5)"
+  ],
   "packages/h2a/test/native-inventory-absence.test.js": [
     "should prove isolation guard fails if any environment variable resolves to owner directories",
     "should reject aliased qualification root and ws before any inventory fixture writes",
@@ -720,5 +778,84 @@
   "packages/h2a-runtime/src/native-terminal/respawn.test.ts": [],
   "packages/h2a-runtime/src/native-terminal/upgrade.functional.test.ts": [],
   "packages/h2a-runtime/src/proc-identity.test.ts": [],
-  "packages/h2a/test/publication-lock.test.js": []
+  "packages/h2a/test/publication-lock.test.js": [],
+  "packages/h2a/test/native-host-catalog.test.js": [
+    "offline catalog covers all pinned releases from each host introduction with verified tuples",
+    "vendored published renderers reproduce agy and harness-prefixed bytes without network"
+  ],
+  "packages/h2a/test/native-host-convergence.test.js": [
+    "doctor dry-run is empty of writes; explicit lifecycle is independent of MCP and preserves off/on",
+    "guard rejects fixture qualification, retains stale-code choice, and suspends on observable MCP loss"
+  ],
+  "packages/h2a/test/native-host-equipment.test.js": [
+    "Vibe installs resources under VIBE_HOME, requires force for managed edits and preserves unknown skills",
+    "doctor and status expose the mandatory missing-MCP diagnostic without a write workaround",
+    "Vibe setup refuses MCP writes including JSON and force",
+    "native diagnostics redact provider/server secrets and classify every observed direct entry"
+  ],
+  "packages/h2a/test/native-host-oracles.test.js": [
+    "guard oracle refuses an executed target or an unrelated deny even when benign command succeeds",
+    "lifecycle oracle requires child/parent record boundaries; fork wrapper runs alone are not record calls",
+    "MCP oracle qualifies real identity, session and Track handlers and rejects another bus or workspace"
+  ],
+  "packages/h2a/test/native-host-package.test.js": [
+    "tarball consumer receives hooks/scripts/parser and referenced Track resources without source-tree fallback"
+  ],
+  "packages/h2a/test/native-host-pilot.test.js": [
+    "phase continuation rejects duplicate, missing, negative or over-allocation accounting and retains the elapsed watchdog",
+    "native adapter drives two isolated sessions, consumes history patches, accounts model calls and deletes only its sessions",
+    "failed CLI probe captures emitted session IDs and retains unknown cleanup",
+    "corrected phase 2 forks before delegation and observes three calls per origin and copy including the child",
+    "CLI probe uses supported Vibe flags, its private VIBE_HOME and structured native MCP results"
+  ],
+  "packages/h2a/test/native-host-proof.test.js": [
+    "runtime and evidence mutations invalidate native receipts even when RECORD bytes stay unchanged"
+  ],
+  "packages/h2a/test/native-host-qualification.test.js": [
+    "corrected phase 2 fits two sessions and inclusive model-call accounting without enlarging the envelope",
+    "native pilot is opt-in and reports the unchanged envelope without launching a host",
+    "RPC cleanup terminates only its owned fake host after success, error or abort"
+  ],
+  "packages/h2a/test/native-host-recovery.test.js": [
+    "interrupted hooks are recovered from exact durable pending hashes without rewriting intact files",
+    "a stopped writer lock blocks repair with a recovery diagnostic and preserves its journal"
+  ],
+  "packages/h2a/test/native-host-safety.test.js": [
+    "TOML validates the entire document as 1.0 and preserves third parties",
+    "TOML refuses unknown or customized owned blocks even with third party changes",
+    "native writes refuse races and symlinks; dry-run and stable repeat do not mutate",
+    "TOML inserts hooks in requested order",
+    "TOML hook activation and removal preserve exact surrounding bytes across cycles",
+    "TOML removes the separator and terminal newline of a previously installed hook"
+  ],
+  "packages/h2a/test/native-host-shared-skills.test.js": [
+    "agy and Gemini share one command owner and resources outside command discovery",
+    "shared command notices inspect the actual Gemini artifacts and quoted roots produce valid TOML",
+    "Muse receives referenced resources; Vibe disabled skills stay disabled"
+  ],
+  "packages/h2a/test/native-host-upgrade.test.js": [
+    "explicit upgraded/current/deferred outcomes converge with the verified binary; failures and skip never launch",
+    "MCP identity/session responses preserve fields and include optional in-memory notices"
+  ],
+  "packages/h2a/test/vibe-native-hooks.test.js": [
+    "Vibe guard allows benign quoted text, denies CLI invocations, and fails open on malformed input",
+    "Vibe lifecycle records only explicit parent null, never touches the record for forks or malformed payloads"
+  ],
+  "packages/h2a/test/native-host-review-regressions.test.js": [
+    "explicit Vibe skills installation also ships its hook scripts",
+    "obsolete managed artifacts are removed only at their known hash, with backup and dry-run preservation",
+    "relative manifest entries survive relocation and reject escaping paths",
+    "repair migrates absolute ownership and both former shared-store files without losing provenance",
+    "Gemini and agy update the same authoritative relative shared-owner manifest and clean old resources",
+    "repair reports qualification of the installed bytes after restoring a missing skill",
+    "skill proof becomes obsolete when project discovery gains a collision",
+    "an already enabled guard suspends when a project hook masks it",
+    "an incomplete source inventory reports failure without retiring previously installed skills"
+  ],
+  "packages/h2a/test/native-host-pilot-report.test.js": [
+    "pilot CLI reports success only for all requested observed components and completed cleanup"
+  ],
+  "packages/h2a-runtime/src/gateway-host/live-registration.test.ts": [
+    "fixture commits launch no automatic Git maintenance in observed repositories"
+  ]
 }

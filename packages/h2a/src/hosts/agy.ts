@@ -25,7 +25,7 @@ export function renderMcpConfig(
       }
     },
     path: {
-      hint: "agy reads MCP servers from its embedded runtime's config slot at `~/.gemini/config/mcp_config.json` (Antigravity). Merge this under `mcpServers`.",
+      hint: "agy (Antigravity): ~/.gemini/config/mcp_config.json. Rendu historique non recommandé — non migré — bootstrap registre attendu. The registry integrator supplies installation and activation.",
       example: "~/.gemini/config/mcp_config.json"
     }
   };

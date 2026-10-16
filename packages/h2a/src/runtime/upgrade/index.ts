@@ -971,6 +971,7 @@ export interface AutoUpgradeResult {
     // boot-VISIBLE outcome so the (bounded) reuse-detection loss is surfaced, not silent.
     | "skipped-locked-stale";
   readonly verifiedVersion?: string;
+  readonly verifiedEntrypoint?: string;
   readonly message: string;
   readonly logPath?: string;
 }
@@ -1565,6 +1566,7 @@ export function performAutoUpgrade(
         target,
         outcome: "upgraded",
         verifiedVersion: verified,
+        verifiedEntrypoint: join(resolveGlobalPkgDir(resolvedPrefix), 'dist/bin.js'),
         message: `auto-upgraded ${current} → ${target} (applies on next launch) [verified]`,
         logPath
       };

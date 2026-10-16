@@ -77,6 +77,12 @@ import { runHarnessCli, HARNESS_SKILLS } from "./vendor/harness/index.js";
 import { buildLaunchIndex } from "./runtime/local-files/launch-index.js";
 import { renderCommandMap } from "./cli-command-map.js";
 import { resolveHostConfigRoot } from "./runtime/host-config-root.js";
+import { isNativeHost, NATIVE_HOSTS, REGISTRY_WAITING, vibeHome } from "./hosts/native-paths.js";
+import { convergeNativeHost } from "./hosts/native-convergence.js";
+import { nativeSkillArtifacts } from "./hosts/native-skills.js";
+import { assertNativePath } from "./hosts/native-files.js";
+import { convergeAfterExplicitUpgrade } from "./hosts/upgrade-equipment.js";
+import { captureHostOperatorNotices } from "./hosts/operator-notices.js";
 
 import {
   H2A_ATTESTER_COMPREHENSION_RIGHT,
@@ -468,9 +474,9 @@ export function renderCliHelp(): string {
     "  h2a drumbeat escalations [--root <path>]",
     "  h2a drumbeat relance-inbox [--instance <id>] [--relauncher logging|local-tmux|headless|auto] [--root <path>]",
     "  h2a drumbeat watch [--interval-ms <n>] [--max-relances <n>] [--relauncher logging|local-tmux|remote|headless|auto] [--instance <signer> --private-key <pem>] [--decider logging|<command>] [--decider-after <k>] [--decider-enforce] [--root <path>]",
-    "  h2a host setup --host <codex|claude|gemini|agy|hermes|opencode|muse|vibe> [--endpoint local|remote] [--url <https://…/mcp>] [--root <path>] [--print | --write <file>] [--force] [--no-wake]   (selects exactly one h2a endpoint; local renders mcp-serve --auto-open --auto-upgrade --wake auto by default)",
+    "  h2a host setup --host <codex|claude|gemini|agy|hermes|opencode|muse|vibe> [--endpoint local|remote] [--url <https://…/mcp>] [--root <path>] [--print | --write <file>] [--force] [--no-wake]   (selects one endpoint; Vibe/Muse/agy render nonrecommended historical direct paths pending registry bootstrap; Vibe refuses every --write)",
     "  h2a host status [--host <name>]",
-    "  h2a host plugin --host <codex|claude|gemini|agy|hermes|opencode|muse|vibe> --instance <id> [--status <work-status>] [--root <path>] [--write <settings.json> [--force]] [--scaffold <dir>]   (--write installs the Stop hook for claude|gemini|codex|hermes|opencode; --scaffold writes codex's full local marketplace + trust step; vibe records via a post_agent hook in ~/.vibe/hooks.toml; agy and muse are poll-only)",
+    "  h2a host plugin --host <codex|claude|gemini|agy|hermes|opencode|muse|vibe> --instance <id> [--status <work-status>] [--root <path>] [--write <settings.json|hooks.toml> [--force]] [--scaffold <dir>]   (--write installs the Stop hook for claude|gemini|codex|hermes|opencode; --scaffold writes codex's full local marketplace + trust step; vibe writes its explicit parent-only wrapper to VIBE_HOME/hooks.toml; agy and muse have no qualified native hooks)",
     "  h2a store migrate [--from <v>] [--to <v>] [--sanitize-paths] [--dry-run] [--root <path>]",
     "  h2a store index-launch --root <absolute-path> (derived indexes; original logs retained)",
     "",
@@ -479,7 +485,7 @@ export function renderCliHelp(): string {
     "  h2a conductor [--workspace <id|path>] [--root <path>]   (who is the live conductor/owner of a workspace — derived from presence; conductor=role CONDUCTOR if set, else null; candidates=in-workspace live agents)",
     "  h2a conductor-launch-check [--workspace <id|path>] [--root <path>] [--idle-ms <ms>]   (DRY-RUN: polls track workspace-activity; recommends launching a conductor if work is stalled and none is live — h2a does NOT spawn; launch parked pending spawn policy + remote)",
     "  h2a conductor-launch --workspace <id|path> [--root <path>] [--idle-ms <ms>] [--confirm] [--remote <instance>] [--instance <self>]   (D3 EMIT: if stalled+no conductor, emits a launch-REQUEST envelope to a live remote agent — gated by --confirm + 1/30min/workspace cap; h2a NEVER spawns; remote does the actual spawn)",
-    "  h2a doctor [--root <path>] [--scan <dir>] [--prune] [--repair] [--dry-run]   (--repair converges Claude/Codex plugin installs; --repair --dry-run reports host findings/actions without changing them; --prune deletes host-less/phantom/orphan inbox dirs + stray buses; dry-run by default)",
+    "  h2a doctor [--root <path>] [--scan <dir>] [--prune] [--repair] [--dry-run] [--host <name>] [--skip-hosts] [--guard on|off] [--lifecycle on|off]   (--repair converges detected host components; --repair --dry-run reports host findings/actions without changing them; --prune deletes host-less/phantom/orphan inbox dirs + stray buses; dry-run by default)",
     "  h2a keepalive [--root <path>] [--interval <ms>] [--once]   (external keepalive prober — refreshes presence for agents whose tmux pane is still alive)",
     "  h2a rename --instance <id> --name <name> [--root <path>]   (set a live session's display name so peers can find it via discover --name)",
     "  h2a status [--root <path>] [--scope <s>] [--instance <i>]",
@@ -1876,15 +1882,16 @@ export function cmdUpgrade(
   // the boot auto-upgrade (bounded — no infinite terminal wait). No cachePath is
   // passed, so it always checks fresh and is never throttled for an explicit run.
   const result = performAutoUpgrade(current, { ...(runtime ? { runtime } : {}) });
+  const hosts = convergeAfterExplicitUpgrade(result, flags);
   if (result.outcome === "upgraded") {
     streams.stdout.write(
-      `${JSON.stringify({ ok: true, current, latest: result.target, upgraded: true, verified: result.verifiedVersion, package: H2A_CLI_PACKAGE, ...(result.logPath ? { log: result.logPath } : {}) }, null, 2)}\n`
+      `${JSON.stringify({ ok: true, current, latest: result.target, upgraded: true, verified: result.verifiedVersion, package: H2A_CLI_PACKAGE, hosts, ...(result.logPath ? { log: result.logPath } : {}) }, null, 2)}\n`
     );
     return 0;
   }
   if (result.outcome === "already-current") {
     streams.stdout.write(
-      `${JSON.stringify({ ok: true, current, latest: result.target ?? current, upgraded: false, reason: "already current or registry unreachable" }, null, 2)}\n`
+      `${JSON.stringify({ ok: true, current, latest: result.target ?? current, upgraded: false, hosts, reason: "already current or registry unreachable" }, null, 2)}\n`
     );
     return 0;
   }
@@ -1893,7 +1900,7 @@ export function cmdUpgrade(
   // the staged path retries on a later run. Nothing was mutated.
   if (result.outcome === "deferred-propagation") {
     streams.stdout.write(
-      `${JSON.stringify({ ok: true, current, latest: result.target, upgraded: false, reason: "update published but not yet installable; retry later", ...(result.logPath ? { log: result.logPath } : {}) }, null, 2)}\n`
+      `${JSON.stringify({ ok: true, current, latest: result.target, upgraded: false, hosts, reason: "update published but not yet installable; retry later", ...(result.logPath ? { log: result.logPath } : {}) }, null, 2)}\n`
     );
     return 0;
   }
@@ -4458,9 +4465,15 @@ function cmdHostSetup(
   const targetPath = flags.write;
   const printMode = flags.print === "true" || !targetPath;
 
+  if (host === "vibe" && targetPath) {
+    streams.stderr.write(`h2a host setup: --write is unavailable for Vibe MCP, including JSON/--force; ${REGISTRY_WAITING}.\n`);
+    return 1;
+  }
+
   if (printMode && !targetPath) {
-    streams.stdout.write(`${JSON.stringify(snippet.config, null, 2)}\n`);
+    streams.stdout.write(`${JSON.stringify(isNativeHost(host) ? { ...snippet.config, migration: REGISTRY_WAITING, hint: snippet.path.hint } : snippet.config, null, 2)}\n`);
     streams.stderr.write(
+      isNativeHost(host) ? `# ${host}: rendu historique non recommandé; ${REGISTRY_WAITING}.\n# ${snippet.path.hint}\n` :
       `# ${host} — selected ${endpoint} h2a endpoint; paste this snippet under \`mcpServers\` in:\n# ${snippet.path.hint}\n# example path: ${snippet.path.example}\n`
     );
     return reportHostSetupCoherence(host, streams, options) ? 0 : 2;
@@ -4576,6 +4589,7 @@ function cmdHostSetup(
         replacedH2a,
         removedH2aMcpServers,
         removedTrackMcpServers,
+        ...(isNativeHost(host) ? { migration: "voie directe — non migrée" } : {}),
         ...(coherent ? {} : { next: "h2a doctor --repair" })
       },
       null,
@@ -4662,7 +4676,11 @@ function cmdHostStatus(
       mcpAdapterShipped,
       hostSetupShipped,
       hostScenarioShipped,
-      summary
+      summary: hostScenarioShipped ? summary.replace('scenario shipped', 'rendu testé') : summary,
+      ...(isNativeHost(descriptor.host) ? { native: (() => { try { return nativeHostReport(descriptor.host, flags, false, false, undefined, streams.cwd?.()); }
+        catch (error) { return { ok: false, installation: 'inspection impossible', error: (error as Error).message }; } })() } : {
+        convergence: ['claude', 'codex'].includes(descriptor.host) ? 'historical doctor convergence; native parity unverified; registry non migré' : 'non couvert'
+      })
     };
   });
 
@@ -4687,6 +4705,18 @@ function cmdHostPlugin(flags: Record<string, string>, streams: H2ACliStreams): n
   if (!flags.instance) {
     streams.stderr.write("h2a host plugin: --instance <id> is required\n");
     return 1;
+  }
+  if (flags.host === 'vibe') {
+    try {
+      if (flags.instance === 'auto') throw new Error('non disponible — interface B non livrée');
+      if (flags.write && resolvePath(flags.write) !== join(vibeHome(), 'hooks.toml')) {
+        streams.stderr.write('h2a host plugin: this target is not available for vibe; post_agent requires the effective <VIBE_HOME>/hooks.toml TOML file.\n'); return 1;
+      }
+      const result = nativeHostReport('vibe', flags, !!flags.write, false, undefined, streams.cwd?.());
+      streams.stdout.write(`${JSON.stringify({ ...result, push: true, mechanism: 'vibe-hooks', record: 'rendered' in result ? result.rendered : '',
+        receive: 'N-A', hint: 'post_agent in <VIBE_HOME>/hooks.toml; ' + ('lifecycleScope' in result ? result.lifecycleScope : 'hôte absent') }, null, 2)}\n`);
+      return result.ok ? 0 : 2;
+    } catch (error) { streams.stderr.write(`h2a host plugin: ${(error as Error).message}\n`); return 2; }
   }
   const render = renderStopHook(flags.host, {
     instance: flags.instance,
@@ -5662,6 +5692,12 @@ function cmdDoctor(
   streams: H2ACliStreams,
   options: H2ACliOptions = {}
 ): number {
+  if (flags.host && !isNativeHost(flags.host) && !['claude', 'codex'].includes(flags.host)) {
+    streams.stderr.write('h2a doctor: --host must be claude|codex|vibe|muse|agy\n'); return 1;
+  }
+  if ((flags.guard || flags.lifecycle) && flags.host !== 'vibe') {
+    streams.stderr.write('h2a doctor: --guard/--lifecycle require --host vibe\n'); return 1;
+  }
   const cwd = streams.cwd ?? (() => process.cwd());
   const root = resolveRoot(flags, cwd);
   const report: Record<string, unknown> = {
@@ -5742,9 +5778,10 @@ function cmdDoctor(
   // is allowed to touch host configuration/caches and invoke native host CLIs.
   // That keeps an ordinary isolated-bus probe independent of the operator's
   // personal Claude/Codex setup while retaining a fail-closed repair surface.
-  if (flags.repair === "true") {
+  if (flags.repair === "true" && (!flags.host || ['claude', 'codex'].includes(flags.host))) {
     const dryRun = flags["dry-run"] === "true";
-    const hostInstallations = (options.doctorHostInstallations ?? doctorHostInstallations)({ repair: true, dryRun });
+    const hostInstallations = (options.doctorHostInstallations ?? doctorHostInstallations)({ repair: true, dryRun,
+      ...(flags.host ? { hosts: [flags.host as 'claude' | 'codex'] } : {}) });
     checks.hostInstallations = hostInstallations;
     if (!hostInstallations.ok) {
       report.ok = false;
@@ -5798,6 +5835,16 @@ function cmdDoctor(
       skipped: true,
       message: "pass --repair to detect and converge Claude/Codex host installation drift"
     };
+  }
+
+  if (flags['skip-hosts'] !== 'true') {
+    const selection = flags.host ? isNativeHost(flags.host) ? [flags.host] : [] : NATIVE_HOSTS;
+    const hosts = selection.map(host => {
+      try { const { instance, ...nativeFlags } = flags; return nativeHostReport(host, nativeFlags, flags.repair === 'true', false, undefined, cwd()); }
+      catch (error) { return { host, ok: false, installation: 'inspection impossible', error: (error as Error).message }; }
+    });
+    checks.nativeHostInstallations = { ok: hosts.every(host => host.ok), hosts };
+    if (!hosts.every(host => host.ok)) report.ok = false;
   }
 
   // ── Warning checks (do NOT flip report.ok) ──────────────────────────────
@@ -6480,6 +6527,7 @@ function cmdConnect(
   const followUp = [
     flags.host === "remote"
       ? "Use the bridge-provided environment in the remote session Pod"
+      : isNativeHost(flags.host) ? `Rendu historique non recommandé — ${REGISTRY_WAITING}; installation et activation par l’intégrateur registre.`
       : `Merge the snippet above under \`mcpServers\` in ${steps[1].pathExample}`,
     identity.privateKeyPath
       ? `keypair ready: ${identity.privateKeyPath}`
@@ -6623,7 +6671,7 @@ function targetSpecFor(
     // installed skills are listed at session open.
     return {
       host: "vibe",
-      userBase: join(homedir(), ".vibe", "skills"),
+      userBase: join(vibeHome(), "skills"),
       projectBase: join(cwd, ".vibe", "skills"),
       extension: "SKILL.md",
       write: (base, skillName, _parsed, raw) => {
@@ -6745,6 +6793,7 @@ interface CollectedSkill {
   /** SKILL.md content whose frontmatter `name:` matches `installName`. */
   readonly raw: string;
   readonly source: SkillProvenance;
+  readonly resourceDir: string;
 }
 
 type ReadSkillOutcome =
@@ -6791,7 +6840,7 @@ function readSkillFrom(
     raw = raw.replace(/^(name:[ \t]*).*$/m, `$1${installName}`);
     parsed = { ...parsed, name: installName };
   }
-  return { kind: "skill", skill: { installName, parsed, raw, source } };
+  return { kind: "skill", skill: { installName, parsed, raw, source, resourceDir: join(srcDir, dirName) } };
 }
 
 /**
@@ -6917,6 +6966,15 @@ function collectInstallableSkills(): SkillCollection {
   return { skills, sources };
 }
 
+function nativeHostReport(host: string, flags: Record<string, string>, repair: boolean, explicitInstall = false, root?: string, cwd?: string) {
+  const collection = collectInstallableSkills();
+  if (collection.error) throw new Error(collection.error.message);
+  return convergeNativeHost({ host, root, cwd, version: currentCliVersion(), skills: collection.skills, renderGemini: renderSkillAsGeminiToml,
+    sourcesComplete: collection.sources.every(s => s.dir !== null && s.count > 0), repair, explicitInstall,
+    dryRun: flags['dry-run'] === 'true', force: flags.force === 'true', guard: flags.guard, lifecycle: flags.lifecycle,
+    instance: flags.instance, busRoot: flags.root, status: flags.status });
+}
+
 function cmdInstallSkills(
   flags: Record<string, string>,
   streams: H2ACliStreams
@@ -6961,8 +7019,19 @@ function cmdInstallSkills(
   }
 
   const targetBase = scope === "user" ? spec.userBase : spec.projectBase;
+  if (scope === 'user' && (isNativeHost(host) || host === 'gemini')) {
+    try {
+      const result = nativeHostReport(host, flags, true, true, dirname(targetBase), cwd());
+      streams.stdout.write(`${JSON.stringify({ ...result, scope, targetBase, installed: 'changed' in result ? result.changed : [], sources: collection.sources,
+        prunedLegacy: [], skipped: 'conflicts' in result ? result.conflicts.map(path => ({ path, reason: 'customized or unknown provenance; preserved' })) : [],
+        ...(host === 'muse' ? { verifyHint: 'muse skills list   # project scope requires workspace trust' } : {}),
+        ...(host === 'vibe' ? { verifyHint: 'vibe   # skills load at session open; nouvelle session ou reprise propre' } : {}),
+        ...(host === 'agy' ? { importHint: 'agy plugin import gemini   # then: agy plugin enable h2a' } : {}) }, null, 2)}\n`);
+      return result.ok ? 0 : 2;
+    } catch (error) { streams.stderr.write(`h2a install-skills: ${(error as Error).message}\n`); return 3; }
+  }
   // DEC-057: prune the pre-consolidation skill names if they linger on disk.
-  const prunedLegacy = pruneLegacy(spec, targetBase);
+  const prunedLegacy = isNativeHost(host) || host === 'gemini' ? [] : pruneLegacy(spec, targetBase);
 
   const installed: string[] = [];
   const skipped: Array<{ name: string; reason: string }> = [];
@@ -6983,7 +7052,14 @@ function cmdInstallSkills(
       continue;
     }
     try {
-      const targetPath = spec.write(targetBase, skillName, skill.parsed, skill.raw);
+      let targetPath: string;
+      if (scope === 'project' && (isNativeHost(host) || host === 'gemini')) {
+        const artifacts = nativeSkillArtifacts({ host, root: dirname(targetBase), project: true, version: currentCliVersion(), skills: [skill], renderGemini: renderSkillAsGeminiToml, historicalHashes: () => [] });
+        for (const artifact of artifacts) {
+          assertNativePath(artifact.path); mkdirSync(dirname(artifact.path), { recursive: true }); writeFileSync(artifact.path, artifact.bytes);
+        }
+        targetPath = probeTarget;
+      } else targetPath = spec.write(targetBase, skillName, skill.parsed, skill.raw);
       installed.push(targetPath);
     } catch (error) {
       streams.stderr.write(
@@ -7480,6 +7556,10 @@ export function runCli(
   options: H2ACliOptions = {}
 ): number | Promise<number> {
   const { command, flags } = parseFlags(argv);
+
+  if (streams.stderr === process.stderr && process.stderr.isTTY) {
+    for (const notice of captureHostOperatorNotices()) streams.stderr.write(`${notice}\n`);
+  }
 
   if (command && TRACK_FACADE_VERBS.has(command)) {
     // ④: read-only + sync-write verbs run in-process; `focus` (async) keeps
