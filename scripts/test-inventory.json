@@ -574,10 +574,11 @@
   "packages/h2a/test/pty-native-messaging.test.js": [],
   "packages/h2a/test/pty-objective-loop.test.js": [],
   "packages/h2a/test/publish-rehearsal.test.js": [
-    "rehearsal triggers on every PR touching the publish path, plus dispatch",
+    "rehearsal triggers on every PR to main, plus dispatch",
+    "the rehearsal stamps a unique CI version after build and before packing",
     "the rehearsal job carries its required-style check name",
     "the rehearsal publishes the four lockstep packages in installable dependency order",
-    "each rehearsal publish runs the SAME publish body as the publish job, plus isolated offline dry-run options",
+    "each rehearsal shares the release publish body except dry-run and the default prerelease tag",
     "every rehearsal npm publish is a dry-run — nothing here may ever publish",
     "the rehearsal uses the same npm version and Node floor as the publish job",
     "the rehearsal packs the four lockstep tarballs exactly like verify, then smokes them",
@@ -586,6 +587,12 @@
     "the rehearsal always dry-runs the verified bytes: ./ file spec and backfill kept, skip and wait dropped",
     "the rehearsal drops node_modules before the dry-run publishes",
     "the rehearsal carries no registry credentials"
+  ],
+  "packages/h2a/test/rehearsal-version.test.js": [
+    "stamps every published manifest, internal pin and the independent smoke literal",
+    "different CI runs and attempts stamp different versions, including future release trains",
+    "refuses non-CI invocations or invalid run identifiers without writing",
+    "refuses drift in package versions or the smoke pin before writing any manifest"
   ],
   "packages/h2a/test/reach-guard.test.js": [],
   "packages/h2a/test/recall-doctrine-projection.test.js": [],
