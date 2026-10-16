@@ -51,6 +51,24 @@ test("release publishes are backfill-safe: a version below latest gets --tag bac
   }
 });
 
+test("release publishes the VERIFIED tarball bytes for all four packages (no workspace repack)", () => {
+  // 0.98.6 incident: the track step re-ran `npm publish --workspace
+  // @sentropic/track`, rebuilding in the publish job where dev types are
+  // absent (TS2688). Every lockstep publish must ship the verify-built
+  // tarball after a sha256 re-check — never a workspace repack.
+  for (const [packageName, tarball] of [
+    ["@sentropic/track", "sentropic-track-"],
+    ["@sentropic/h2a-runtime", "sentropic-h2a-runtime-"],
+    ["@sentropic/h2a", "sentropic-h2a-"],
+    ["@sentropic/h2a-cli", "sentropic-h2a-cli-"],
+  ]) {
+    const step = publishStep(packageName);
+    assert.match(step, new RegExp(`npm publish "\\./dist-tarballs/${tarball}\\$\\{v\\}\\.tgz"`), `${packageName}: publish must ship the verify-built tarball bytes via an unambiguous ./ file spec (0.98.6: the bare form parsed as git shorthand)`);
+    assert.match(step, /sha256sum --check --strict sha256sums\.txt/, `${packageName}: publish must re-check the tarball sha256 before publishing`);
+    assert.ok(!step.includes("--workspace"), `${packageName}: publish must never repack a workspace (0.98.6 TS2688)`);
+  }
+});
+
 test("release workflow supports a backfill dispatch for an existing tag", () => {
   const parsed = YAML.parse(workflow);
   assert.equal(parsed.on.workflow_dispatch.inputs["backfill-version"].required, true);

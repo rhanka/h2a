@@ -25,11 +25,11 @@
  *   kill    --id X [--signal S]       stop the session (escalates to SIGKILL)
  *   kill-if-incarnation --id X --generation G --incarnation I
  *                                     fenced owner stop for explicit restart
- *   attach  --id X                    interactive raw bridge on this terminal
+ *   attach  --id X [--takeover]       interactive raw bridge on this terminal
  *                                     (detach: Ctrl-\\ ; exits when session exits)
  *   host-stop                         SIGTERM the host process (sessions stop)
  */
-import { existsSync, readFileSync, writeSync } from "node:fs";
+import { existsSync, readFileSync, readlinkSync, writeSync } from "node:fs";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -75,6 +75,10 @@ function parseArgv(argv: ReadonlyArray<string>): Parsed {
       break;
     }
     if (!arg.startsWith("--")) throw new Error(`unexpected argument: ${arg}`);
+    if (arg === "--takeover") {
+      flags.set("takeover", "true");
+      continue;
+    }
     const value = argv[index + 1];
     if (value === undefined) throw new Error(`${arg} requires a value`);
     flags.set(arg.slice(2), value);
@@ -360,6 +364,7 @@ type ActiveAttachConnection = {
 export async function runAttach(
   id: string,
   runtime: NativeTerminalAttachRuntime = defaultAttachRuntime(socketPathFromEnv()),
+  options: { takeover?: boolean } = {},
 ): Promise<number> {
   const stdin = runtime.stdin;
   const stdout = runtime.stdout;
@@ -408,6 +413,23 @@ export async function runAttach(
   let pendingInputBytes = 0;
   const pendingInput: Buffer[] = [];
   let inputPump: Promise<void> | undefined;
+  let takeoverPending = options.takeover === true;
+  let tty = "not-a-tty";
+  try { tty = readlinkSync("/proc/self/fd/0"); } catch { /* Non-Linux terminal. */ }
+
+  const controllerChanged = (state: NativeTerminalSessionState, lease: NativeTerminalControllerLease): boolean => {
+    if (state.status === "exited" && !state.stopSignal) return false;
+    if (state.generation === lease.generation && state.incarnation === lease.incarnation &&
+        (state.controllerEpoch === undefined || state.controllerEpoch === lease.epoch)) return false;
+    const reason = state.stopSignal ? `session stopped (${state.stopSignal})`
+      : state.status === "exited" ? "session exited"
+      : state.controller ? `controller taken over by pid=${state.controller.pid ?? "unknown"} tty=${state.controller.tty} since=${state.controller.since}`
+      : "controller released or session replaced";
+    stdout.write(`\r\n[h2a] ${reason}; attach detached\r\n`);
+    exitCode = state.status === "exited" && !state.stopSignal ? state.exit?.exitCode ?? 0 : 0;
+    terminalEnded = true;
+    return true;
+  };
 
   const closeActive = (): void => {
     const current = active;
@@ -438,6 +460,12 @@ export async function runAttach(
     // A request from the previous socket may settle after recovery. Fence that
     // stale failure so it can never tear down the newly-acquired controller.
     if (active !== connection) return;
+    if (error instanceof NativeTerminalRemoteError && error.message === "stale terminal controller lease") {
+      stdout.write("\r\n[h2a] controller revoked by takeover or stop; attach detached\r\n");
+      terminalEnded = true;
+      closeActive();
+      return;
+    }
     if (transportFailure === undefined) transportFailure = error;
     closeActive();
   };
@@ -517,7 +545,10 @@ export async function runAttach(
         id,
         `h2a-attach-${process.pid}`,
         "human",
+        { takeover: takeoverPending, pid: process.pid, tty },
       );
+      // A reconnect must never take the terminal back from a newer attach.
+      takeoverPending = false;
       active = { client, lease };
       transportFailure = undefined;
       resize();
@@ -540,7 +571,7 @@ export async function runAttach(
     let nextStatePollAt = runtime.now() + ATTACH_STATE_POLL_MS;
 
     for (;;) {
-      if (detached) break;
+      if (detached || terminalEnded) break;
 
       if (active === undefined || transportFailure !== undefined) {
         closeActive();
@@ -569,6 +600,11 @@ export async function runAttach(
             nextStatePollAt = runtime.now() + ATTACH_STATE_POLL_MS;
             break;
           } catch (error) {
+            if (error instanceof NativeTerminalRemoteError && error.message.includes("already has a controller")) {
+              stdout.write(`\r\n[h2a] ${error.message}; attach detached\r\n`);
+              terminalEnded = true;
+              break;
+            }
             if (isDefinitiveNativeTerminalAbsence(error)) {
               exitCode = 1;
               terminalEnded = true;
@@ -620,6 +656,7 @@ export async function runAttach(
         if (runtime.now() >= nextStatePollAt) {
           const state = await current.client.state(id);
           nextStatePollAt = runtime.now() + ATTACH_STATE_POLL_MS;
+          if (controllerChanged(state, current.lease)) break;
           if (state.status === "exited") {
             exitCode = state.exit?.exitCode ?? 0;
             break;
@@ -865,48 +902,21 @@ export async function runNativeTerminalOp(argv: ReadonlyArray<string>): Promise<
       return 0;
     }
     case "stop":
-    case "kill": {
-      const id = required(parsed, "id");
-      const { client } = await owningClient(parsed, id);
-      const signal = parsed.flags.get("signal") ?? "SIGTERM";
-      if (signal !== "SIGTERM" && signal !== "SIGKILL" && signal !== "SIGINT" && signal !== "SIGHUP") {
-        throw new Error(`unsupported signal: ${signal}`);
-      }
-      const before = await client.state(id);
-      if (before.status !== "exited") {
-        await withController(client, id, async (lease) => {
-          await client.stop(lease, signal);
-        });
-        const deadline = Date.now() + 4_000;
-        for (;;) {
-          const state = await client.state(id);
-          if (state.status === "exited") break;
-          if (Date.now() >= deadline) {
-            await withController(client, id, async (lease) => {
-              await client.stop(lease, "SIGKILL");
-            }).catch(() => {});
-            await delay(300);
-            break;
-          }
-          await delay(100);
-        }
-      }
-      const after = await client.state(id);
-      client.close();
-      emit(after);
-      return after.status === "exited" ? 0 : 1;
-    }
+    case "kill":
     case "stop-if-incarnation":
     case "kill-if-incarnation": {
       const id = required(parsed, "id");
       const { client } = await owningClient(parsed, id);
-      const generation = required(parsed, "generation");
-      const incarnation = required(parsed, "incarnation");
       const signal = parsed.flags.get("signal") ?? "SIGTERM";
       if (signal !== "SIGTERM" && signal !== "SIGKILL" && signal !== "SIGINT" && signal !== "SIGHUP") {
         throw new Error(`unsupported signal: ${signal}`);
       }
       const before = await client.state(id);
+      const fenced = parsed.op.endsWith("-if-incarnation");
+      const generation = fenced ? required(parsed, "generation") : before.generation;
+      const incarnation = fenced ? required(parsed, "incarnation") : before.incarnation;
+      if (before.generation !== generation) throw new Error("stale terminal host generation");
+      if (before.incarnation !== incarnation) throw new Error("stale terminal session incarnation");
       if (before.status !== "exited") {
         await client.stopIfIncarnation(
           id,
@@ -927,7 +937,7 @@ export async function runNativeTerminalOp(argv: ReadonlyArray<string>): Promise<
               generation,
               incarnation,
               "SIGKILL",
-            ).catch(() => {});
+            );
             await delay(300);
             break;
           }
@@ -936,15 +946,21 @@ export async function runNativeTerminalOp(argv: ReadonlyArray<string>): Promise<
       }
       const after = await client.state(id);
       client.close();
+      if (after.generation !== generation || after.incarnation !== incarnation) {
+        throw new Error("native session changed incarnation while stopping; replacement was not stopped");
+      }
+      if (after.status !== "exited") {
+        throw new Error(`native session ${id} pid=${after.pid} did not exit after ${signal} and SIGKILL (status=${after.status})`);
+      }
       emit(after);
-      return after.status === "exited" ? 0 : 1;
+      return 0;
     }
     case "attach": {
       const id = required(parsed, "id");
       const owner = await owningClient(parsed, id);
       owner.client.close();
       // Reconnects retain this owner for the entire interactive operation.
-      return runAttach(id, defaultAttachRuntime(owner.socketPath));
+      return runAttach(id, defaultAttachRuntime(owner.socketPath), { takeover: parsed.flags.get("takeover") === "true" });
     }
     case "host-stop": {
       let client: NativeTerminalClient;

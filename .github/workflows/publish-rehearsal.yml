@@ -1,0 +1,235 @@
+name: publish-rehearsal
+
+# SPEC (owner decision 16/10, "publish rehearsal", option A): the 0.98.6
+# publish failed four times, each time in a part of the publish path that had
+# never run before a real tag — a hard-coded smoke pin, track missing from
+# the registry during verify, track rebuilt without dev types in publish, a
+# relative tarball path parsed as a GitHub shorthand. This job runs that
+# whole path on every pull request touching it, with `npm publish --dry-run`
+# and NO registry credentials, so the next defect of that family fails here
+# instead of at tag time.
+#
+# FIDELITY CONTRACT (pinned by packages/h2a/test/publish-rehearsal.test.js):
+# - `npm run build` mirrors the verify build (release.yml typecheck + npm test
+#   build gate; same as the smoke PR path): dist/ is gitignored, and the pack
+#   prepack needs dist/bin.js — without this the rehearsal dies at pack while
+#   verify passes (PR #335 rehearsal failure 2026-10-16).
+# - the pack step matches release.yml verify line by line (SHA source excepted),
+# - the smoke command is identical,
+# - the integrity re-check matches line by line (SHA source excepted),
+# - each of the four per-package rehearsals runs the SAME publish body as the
+#   release.yml publish job line by line with the single `--dry-run` token
+#   added (tag/backfill logic, sha256 re-check, npm publish invocation).
+#   Edit one side without the other and the parity test fails.
+#
+# DELIBERATE DIFFERENCES from release.yml (each pinned by the parity test):
+# - trigger: pull_request on the publish path + workflow_dispatch (never tags);
+# - permissions: contents:read only — no id-token, no trusted publishing, no
+#   registry credentials (a step needing auth fails here by design);
+# - no gated SHA exists on a PR: the manifest tie uses this checkout's HEAD;
+# - `npm ci` is required to build, pack and smoke (publish downloads artifacts
+#   and never installs), then node_modules is DROPPED so the dry-run publishes
+#   run in the same dependency-less checkout as the publish job — a reintroduced
+#   `--workspace` repack dies here (0.98.6 TS2688) instead of passing on dev
+#   types and exploding at tag time;
+# - NO idempotent skip: the rehearsal always runs the dry-run publish body,
+#   even when the version is already on the registry (the real publish keeps
+#   its `already on registry; skipping` guard). Otherwise every PR without a
+#   version bump silently rehearses nothing once the version is published;
+# - NO registry-visibility wait: `--dry-run` never becomes visible on npm, so
+#   the 18x10s wait would sleep ~170 s per package and warn 4 times on every
+#   bump PR. The real publish keeps its wait;
+# - no GitHub Release creation, no post-release doctor: nothing is published,
+#   there is nothing to announce or probe.
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/release.yml'
+      - '.github/workflows/publish-rehearsal.yml'
+      - 'scripts/release*.mjs'
+      - 'scripts/smoke-artifact.mjs'
+      - 'packages/*/package.json'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  rehearse-publish:
+    name: Publish rehearsal (dry-run)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # Owner decision 2026-10-12: minimum Node 22, including publish.
+          node-version: "22"
+          cache: npm
+
+      - name: Use the release npm version
+        shell: bash
+        run: npm install -g npm@^11.15.0
+
+      # The publish job never installs: it downloads the verified tarballs.
+      # The rehearsal builds them, so it installs and builds first — then drops
+      # the tree again before the dry-run publishes (see below).
+      - run: npm ci
+        shell: bash
+
+      # Same build as the release verify job needs before packing (typecheck +
+      # npm test build gate) and the smoke PR path (`npm ci` then
+      # `npm run build`): dist/ is gitignored, and packages/h2a's prepack
+      # (`node ../../scripts/check-focus-app.mjs && chmod +x dist/bin.js`)
+      # needs dist/bin.js. Without this, `npm pack` dies here with
+      # `chmod: cannot access 'dist/bin.js'` while verify passes.
+      - run: npm run build
+        shell: bash
+
+      # Same pack loop and sha256 manifest as the release verify job. Only the
+      # SHA source differs: no gated SHA exists on a PR, so the manifest is
+      # tied to this checkout and the integrity control re-checks that tie.
+      - name: Pack the four lockstep packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist-tarballs
+          for pkg in @sentropic/h2a @sentropic/h2a-runtime @sentropic/h2a-cli @sentropic/track; do
+            npm pack --workspace "$pkg" --pack-destination dist-tarballs
+          done
+          (cd dist-tarballs && sha256sum *.tgz > sha256sums.txt && cat sha256sums.txt)
+          echo "$(git rev-parse HEAD)" > dist-tarballs/release-sha.txt
+
+      - name: Smoke the packaged artifact
+        shell: bash
+        run: npm run smoke:artifact -- --tarballs dist-tarballs
+
+      # The publish job checks out the gated tree and never installs: no
+      # node_modules, no dev types. Drop the tree the smoke needed so the
+      # dry-run below runs in that same dependency-less checkout.
+      - name: Drop node_modules so the dry-run publishes without dev types (like the publish job)
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf node_modules
+
+      # Same integrity control as the publish job: the registry receives THESE
+      # bytes or nothing — here, the dry-run addresses THESE bytes or nothing.
+      - name: Verify the tarball sha256 (publish these exact bytes or none)
+        shell: bash
+        run: |
+          set -euo pipefail
+          (cd dist-tarballs && sha256sum --check --strict sha256sums.txt)
+          manifest_sha="$(cat dist-tarballs/release-sha.txt)"
+          gated_sha="$(git rev-parse HEAD)"
+          if [ "$manifest_sha" != "$gated_sha" ]; then
+            echo "::error::Artifact manifest SHA ${manifest_sha} != verify-gated SHA ${gated_sha}; refusing to publish bytes of an ungated commit." >&2
+            exit 1
+          fi
+
+      # Rehearsed first, like the publish job: @sentropic/track is a runtime
+      # dependency of @sentropic/h2a, so its lockstep version must exist on
+      # the registry before h2a@X.Y.Z is installed. Same publish BODY as the
+      # publish job, plus --dry-run, with no credentials — but no idempotent
+      # skip (always dry-runs) and no visibility wait (dry-run never lands).
+      - name: Rehearse @sentropic/track publish (dry-run)
+        shell: bash
+        run: |
+          v="$(node -p "require('./packages/track/package.json').version")"
+          # NO idempotent skip here (deliberate difference, pinned by test):
+          # the rehearsal always dry-runs, even when $v is already on npm.
+          tagArgs=""
+          latest="$(npm view "@sentropic/track" dist-tags.latest 2>/dev/null || true)"
+          if [ -n "$latest" ] && [ "$v" != "$latest" ]; then
+            lowest="$(printf '%s\n%s\n' "$v" "$latest" | sort -V | head -n1)"
+            if [ "$lowest" = "$v" ]; then
+              tagArgs="--tag backfill"
+              echo "@sentropic/track@$v is below latest ($latest); publishing with $tagArgs so the latest dist-tag stays untouched."
+            fi
+          fi
+          # Same VERIFIED tarball bytes the publish job ships — never a
+          # fresh pack of a mutable ref (0.98.6 TS2688).
+          (cd dist-tarballs && sha256sum --check --strict sha256sums.txt)
+          if ! npm publish "./dist-tarballs/sentropic-track-${v}.tgz" --access public $tagArgs --dry-run; then
+            echo "::error::@sentropic/track@$v: npm publish failed (not published)." >&2
+            exit 1
+          fi
+          # NO visibility wait here (deliberate): --dry-run never becomes
+          # visible on npm; the publish job keeps its 18x10s wait.
+
+      - name: Rehearse @sentropic/h2a-runtime publish (dry-run)
+        shell: bash
+        run: |
+          v="$(node -p "require('./packages/h2a-runtime/package.json').version")"
+          # NO idempotent skip here (deliberate difference, pinned by test):
+          # the rehearsal always dry-runs, even when $v is already on npm.
+          tagArgs=""
+          latest="$(npm view "@sentropic/h2a-runtime" dist-tags.latest 2>/dev/null || true)"
+          if [ -n "$latest" ] && [ "$v" != "$latest" ]; then
+            lowest="$(printf '%s\n%s\n' "$v" "$latest" | sort -V | head -n1)"
+            if [ "$lowest" = "$v" ]; then
+              tagArgs="--tag backfill"
+              echo "@sentropic/h2a-runtime@$v is below latest ($latest); publishing with $tagArgs so the latest dist-tag stays untouched."
+            fi
+          fi
+          # Same VERIFIED tarball bytes the publish job ships — never a
+          # fresh pack of a mutable ref.
+          (cd dist-tarballs && sha256sum --check --strict sha256sums.txt)
+          if ! npm publish "./dist-tarballs/sentropic-h2a-runtime-${v}.tgz" --access public $tagArgs --dry-run; then
+            echo "::error::@sentropic/h2a-runtime@$v: npm publish failed (not published)." >&2
+            exit 1
+          fi
+          # NO visibility wait here (deliberate): --dry-run never becomes
+          # visible on npm; the publish job keeps its 18x10s wait.
+
+      - name: Rehearse @sentropic/h2a publish (dry-run)
+        shell: bash
+        run: |
+          v="$(node -p "require('./packages/h2a/package.json').version")"
+          # NO idempotent skip here (deliberate difference, pinned by test):
+          # the rehearsal always dry-runs, even when $v is already on npm.
+          tagArgs=""
+          latest="$(npm view "@sentropic/h2a" dist-tags.latest 2>/dev/null || true)"
+          if [ -n "$latest" ] && [ "$v" != "$latest" ]; then
+            lowest="$(printf '%s\n%s\n' "$v" "$latest" | sort -V | head -n1)"
+            if [ "$lowest" = "$v" ]; then
+              tagArgs="--tag backfill"
+              echo "@sentropic/h2a@$v is below latest ($latest); publishing with $tagArgs so the latest dist-tag stays untouched."
+            fi
+          fi
+          # Same VERIFIED tarball bytes the publish job ships — never a
+          # fresh pack of a mutable ref.
+          (cd dist-tarballs && sha256sum --check --strict sha256sums.txt)
+          if ! npm publish "./dist-tarballs/sentropic-h2a-${v}.tgz" --access public $tagArgs --dry-run; then
+            echo "::error::@sentropic/h2a@$v: npm publish failed (not published)." >&2
+            exit 1
+          fi
+          # NO visibility wait here (deliberate): --dry-run never becomes
+          # visible on npm; the publish job keeps its 18x10s wait.
+
+      - name: Rehearse @sentropic/h2a-cli publish (dry-run)
+        shell: bash
+        run: |
+          v="$(node -p "require('./packages/h2a-cli/package.json').version")"
+          # NO idempotent skip here (deliberate difference, pinned by test):
+          # the rehearsal always dry-runs, even when $v is already on npm.
+          tagArgs=""
+          latest="$(npm view "@sentropic/h2a-cli" dist-tags.latest 2>/dev/null || true)"
+          if [ -n "$latest" ] && [ "$v" != "$latest" ]; then
+            lowest="$(printf '%s\n%s\n' "$v" "$latest" | sort -V | head -n1)"
+            if [ "$lowest" = "$v" ]; then
+              tagArgs="--tag backfill"
+              echo "@sentropic/h2a-cli@$v is below latest ($latest); publishing with $tagArgs so the latest dist-tag stays untouched."
+            fi
+          fi
+          # Same VERIFIED tarball bytes the publish job ships — never a
+          # fresh pack of a mutable ref.
+          (cd dist-tarballs && sha256sum --check --strict sha256sums.txt)
+          if ! npm publish "./dist-tarballs/sentropic-h2a-cli-${v}.tgz" --access public $tagArgs --dry-run; then
+            echo "::error::@sentropic/h2a-cli@$v: npm publish failed (not published)." >&2
+            exit 1
+          fi
+          # NO visibility wait here (deliberate): --dry-run never becomes
+          # visible on npm; the publish job keeps its 18x10s wait.
