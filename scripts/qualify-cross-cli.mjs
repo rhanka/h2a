@@ -7,6 +7,7 @@ import { pathToFileURL, fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
 import { CLIS, PROBE, REPLY, repo, environment, sourceBuild, copyLogin,
   cliPath, pythonEntrypoint, classify, matrix, inside } from './xcli-lab.mjs';
+import { startupTerminal } from './xcli-terminal.mjs';
 
 const self = fileURLToPath(import.meta.url);
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -136,7 +137,7 @@ async function worker() {
     isolation.pinPrivateNativeProcess(state.pid, env);
     enroll({ id: role, label: role, tool: cli, kind: 'local-native', cwd: workspace,
       tmuxSession: state.id, source: 'run', sessionClass: 'human' }, registry);
-    const target = { cli, role, dir, env, state, seq: 0, screen: '', workspace };
+    const target = { cli, role, dir, env, state, seq: 0, screen: '', workspace, terminal: startupTerminal() };
     targets.push(target);
     row.evidence.push({ event: 'session-created', role, pid: state.pid, id: state.id });
     return target;
@@ -147,8 +148,16 @@ async function worker() {
       target.lastOutputAt = Date.now();
       target.seq = chunk.seq;
       target.screen = (target.screen + chunk.data).slice(-65536);
+      await target.terminal.write(chunk.data);
     }
-    return stripAnsi(target.screen);
+    const replies = target.terminal.responses();
+    if (replies.length) {
+      const lease = await client.acquireController(target.state.id, 'xcli-terminal', 'automation');
+      try { for (const reply of replies) await client.write(lease, reply); }
+      finally { await client.releaseController(lease); }
+      row.evidence.push({ event: 'startup-terminal-response', role: target.role, count: replies.length, at: Date.now() });
+    }
+    return target.terminal.screen();
   }
   async function startup(target, screen) {
     target.startupActions ??= new Set();
@@ -224,6 +233,7 @@ async function worker() {
       return row;
     }
     row.evidence.push({ event: 'receiver-idle-barrier', at: Date.now(), instance: readiness.instance });
+    r.terminal.freeze();
     const senderPrompt = `Qualification h2a. Use only h2a MCP tools. Call h2a_identity_status until identity_ready (stop if identity_failed), then h2a_send once, to exactly ${readiness.instance}, message exactly ${PROBE}. Finish your turn. Never use shell, files, other agents or any non-h2a tool.`;
     const s = await launch(sender, 'sender', senderPrompt);
     const deadline = Date.now() + timeoutMs;
@@ -233,6 +243,7 @@ async function worker() {
       row.senderMcp = loaded(s);
       const send = se.find(e => e.event === 'send' && e.ok && e.kind === 'probe' && e.to === readiness.instance);
       row.sent = Boolean(send);
+      if (send) s.terminal.freeze();
       if (send) {
         row.delivered = store.readInbox(readiness.instance).some(e => e.id === send.envelopeId && e.body?.text === PROBE && e.actor?.instance === send.from);
         const receive = re.find(e => e.event === 'inbox' && e.ok && e.at >= send.at && e.instance === readiness.instance &&
@@ -288,6 +299,7 @@ async function worker() {
     try { await isolation.stopPrivateNativeProcesses(hostEnv); }
     catch (error) { cleanupError('owned-stop', error); }
     for (const t of targets) {
+      t.terminal.dispose();
       try { await isolation.waitForPrivateNativeProcesses(t.env); }
       catch (error) { cleanupError('owned-wait', error); }
     }
