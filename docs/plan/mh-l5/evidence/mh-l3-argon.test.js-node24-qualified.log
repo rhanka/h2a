@@ -1,0 +1,47 @@
+command: /tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node --test --test-reporter=tap packages/h2a/test/mh-l3-argon.test.js
+node: v24.21.0
+private root: /tmp/mh-l5-test-rXk4J1
+case: all cases in explicit file
+TAP version 13
+# Subtest: recovery should defer autostart after SSE EOF and let an external publication win
+ok 1 - recovery should defer autostart after SSE EOF and let an external publication win
+  ---
+  duration_ms: 107.743906
+  type: 'test'
+  ...
+# Subtest: recovery should defer autostart after SSE error and let an external publication win
+ok 2 - recovery should defer autostart after SSE error and let an external publication win
+  ---
+  duration_ms: 75.840554
+  type: 'test'
+  ...
+# Subtest: recovery should defer autostart after missing marker and let an external publication win
+# {"event":"drive-consent.full-verification","durationMs":0.004337999999961539,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+ok 3 - recovery should defer autostart after missing marker and let an external publication win
+  ---
+  duration_ms: 70.731218
+  type: 'test'
+  ...
+# Subtest: real central should register the retained shim catalogue as inventory without granting compatibility
+ok 4 - real central should register the retained shim catalogue as inventory without granting compatibility
+  ---
+  duration_ms: 193.291589
+  type: 'test'
+  ...
+# Subtest: authority should reject group or world writable physical prefixes including umask 0002 worktrees
+ok 5 - authority should reject group or world writable physical prefixes including umask 0002 worktrees
+  ---
+  duration_ms: 13.843593
+  type: 'test'
+  ...
+1..5
+# tests 5
+# suites 0
+# pass 5
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 663.910544
+
+receipt: {"command":["/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l3-argon.test.js"],"code":0,"signal":null,"tests":5,"invalid":false,"spawned":1,"leftovers":[]}

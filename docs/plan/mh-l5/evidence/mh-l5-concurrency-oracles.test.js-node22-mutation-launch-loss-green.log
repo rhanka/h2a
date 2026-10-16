@@ -1,0 +1,23 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l5-concurrency-oracles.test.js
+node: v22.22.1
+private root: /tmp/mh-l5-test-cb8qxf
+case: all cases in explicit file
+TAP version 13
+# {"domains":{"presence":16,"registry":16,"inbox":16,"negotiations":16,"blockage":16,"launches":16,"payloads":32},"acknowledged":16,"duplicates":0,"actors":["central","peer","stdio1","stdio2","stdio3","stdio4","janitor","cli"]}
+# Subtest: M17 focused oracle must detect a missing write in any of the seven domains
+ok 1 - M17 focused oracle must detect a missing write in any of the seven domains
+  ---
+  duration_ms: 1230.070925
+  type: 'test'
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 1
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 1539.239337
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l5-concurrency-oracles.test.js"],"code":0,"signal":null,"tests":1,"invalid":false,"spawned":17,"leftovers":[]}
