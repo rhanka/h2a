@@ -28,6 +28,7 @@ import {
 } from "./paths.js";
 import { sweepOrphanFiles } from "./orphan-gc.js";
 import { randomBytes } from "node:crypto";
+import { rememberRecipient } from "./recipient-hints.js";
 
 export interface PresenceWriteResult {
   /** Absolute path of the presence file on disk. */
@@ -73,6 +74,9 @@ export function writePresence(
       closeSync(fd);
     }
     renameSync(tmpPath, finalPath);
+    // Keep addressing evidence independently of TTL, explicit close and reap.
+    // A failure is retried with the next heartbeat; hints never grant admission.
+    rememberRecipient(root, session);
   } finally {
     // Includes serialization, write, close and rename failures. Never leave
     // our own partial publication behind for a future GC pass.
@@ -110,6 +114,10 @@ export function readPresence(
 export function deletePresence(root: string, sessionId: string): void {
   const paths = localStorePaths(root);
   const file = presenceFile(paths, sessionId);
+  // Preserve pre-upgrade publications too, before close or the janitor removes
+  // their only addressing evidence. This never keeps the session live.
+  const session = readPresence(root, sessionId);
+  if (session) rememberRecipient(root, session);
   try {
     unlinkSync(file);
   } catch (err) {
