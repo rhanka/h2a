@@ -22,3 +22,11 @@ test('interrupted hooks are recovered from exact durable pending hashes without 
   assert.equal(fs.existsSync(join(state, 'pending.json')), false);
   assert.equal(fs.existsSync(join(state, 'writer.lock')), false);
 });
+test('a stopped writer lock blocks repair with a recovery diagnostic and preserves its journal', t => {
+  const root = fs.mkdtempSync(join(tmpdir(), 'native-lock-')), state = join(root, '.h2a-install');
+  t.after(() => fs.rmSync(root, { recursive: true, force: true })); fs.mkdirSync(state);
+  const pending = join(state, 'pending.json'), lock = join(state, 'writer.lock');
+  fs.writeFileSync(lock, ''); fs.writeFileSync(pending, '{"private":"journal"}');
+  assert.throws(() => convergeArtifacts({ root,state,host:'vibe',version:'0.98.6',repair:true,artifacts:[] }), /Confirm that the writer has stopped.*pending.json is preserved/);
+  assert.equal(fs.readFileSync(pending,'utf8'),'{"private":"journal"}'); assert.ok(fs.existsSync(lock));
+});

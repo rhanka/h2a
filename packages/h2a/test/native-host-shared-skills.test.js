@@ -4,6 +4,8 @@ import { tmpdir } from 'node:os';
 import { join, delimiter } from 'node:path';
 import test from 'node:test';
 import { runCli } from '../dist/index.js';
+import { parseNativeToml } from '../dist/hosts/native-toml.js';
+import { captureHostOperatorNotices } from '../dist/hosts/operator-notices.js';
 function setup(t) {
   const home = fs.mkdtempSync(join(tmpdir(), 'shared-host-')), previous = { ...process.env };
   process.env.HOME = home; process.env.VIBE_HOME = '';
@@ -30,6 +32,17 @@ test('agy and Gemini share one command owner and resources outside command disco
   const custom = join(home, '.gemini/commands/h2a.toml'); fs.writeFileSync(custom, 'personal = true\n');
   assert.notEqual(cli(['install-skills', '--host', 'gemini', '--force']).code, 0);
   assert.equal(fs.readFileSync(custom, 'utf8'), 'personal = true\n');
+});
+test('shared command notices inspect the actual Gemini artifacts and quoted roots produce valid TOML', t => {
+  const { home, cli } = setup(t);
+  const quoted = join(home,"three'''quotes");fs.mkdirSync(quoted);process.env.HOME=quoted;
+  const bin=join(home,'bin');fs.mkdirSync(bin);fs.writeFileSync(join(bin,'agy'),'fixture',{mode:0o700});process.env.PATH=bin;
+  assert.equal(cli(['install-skills','--host','agy']).code,0);
+  const command=join(quoted,'.gemini/commands/present-decision.toml');
+  const parsed=parseNativeToml(fs.readFileSync(command,'utf8'));assert.match(parsed.prompt,/three'''quotes/);
+  assert.deepEqual(captureHostOperatorNotices(),[]);
+  fs.writeFileSync(command,'custom=true\n');
+  assert.ok(captureHostOperatorNotices().length>0);
 });
 test('Muse receives referenced resources; Vibe disabled skills stay disabled', t => {
   const { home, cli } = setup(t);

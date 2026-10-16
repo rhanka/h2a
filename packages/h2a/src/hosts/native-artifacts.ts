@@ -18,7 +18,11 @@ export function convergeArtifacts(options: {
   const lockPath = join(state, 'writer.lock');
   if (options.repair && !options.dryRun) {
     mkdirSync(state, { recursive: true, mode: 0o700 });
-    closeSync(openSync(lockPath, 'wx', 0o600)); locked = true;
+    try { closeSync(openSync(lockPath, 'wx', 0o600)); locked = true; }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'EEXIST') throw new Error('Native writer lock exists: ' + lockPath + '. Confirm that the writer has stopped before manually removing only this lock; pending.json is preserved for recovery.');
+      throw error;
+    }
   }
   try {
     const manifestPath = join(state, options.manifestName ?? 'manifest.json');
