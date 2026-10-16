@@ -127,15 +127,24 @@ function prepareMessage(input: SendLocalMessageInput): SendLocalMessageResult {
   }
   const registrations = input.store.listInstances();
   const fresh = listPresence(input.store.paths.root);
-  // Filter before resolution too: a dead attachment must not create a live
-  // alias candidate or make an otherwise unique display name ambiguous.
+  // Resolve live owners first so dead attachments cannot make a live name ambiguous.
   const live = input.requireLive ? fresh.filter(hasLiveOwner) : fresh;
   const registeredName = resolveRegisteredName(requestedRecipient, registrations);
-  const resolution = resolveRecipient({
+  const target = {
     target: registeredName.target,
-    liveInstances: live,
     registeredInstances: registrations.map((entry) => entry.instance)
-  });
+  };
+  let resolution = resolveRecipient({ ...target, liveInstances: live });
+  if (input.requireLive && live.length < fresh.length &&
+      (resolution.kind === "deliver" || resolution.kind === "deliver-dormant" ||
+       (resolution.kind === "refuse" && resolution.candidates === undefined))) {
+    // Keep a known name/alias available for the typed refusal below. This
+    // fallback never admits an owner: liveRecipient still uses only live PIDs.
+    const known = resolveRecipient({ ...target, liveInstances: fresh });
+    if (known.kind === "deliver-resolved" || known.kind === "deliver-hint") {
+      resolution = known;
+    }
+  }
   if (resolution.kind === "refuse" || resolution.kind === "list") {
     throw new Error(resolution.reason);
   }
