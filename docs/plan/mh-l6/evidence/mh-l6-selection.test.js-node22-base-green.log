@@ -1,0 +1,52 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-selection.test.js
+node: v22.22.1
+private root: /tmp/mh-l6-test-fBHn5e
+case: all cases in explicit file
+TAP version 13
+# Subtest: U05 should select once with canonical journal, history and pins across HOME changes
+ok 1 - U05 should select once with canonical journal, history and pins across HOME changes
+  ---
+  duration_ms: 78.767605
+  type: 'test'
+  ...
+# Subtest: U05 should reconcile every selection persistence cut forward without a second epoch
+ok 2 - U05 should reconcile every selection persistence cut forward without a second epoch
+  ---
+  duration_ms: 2282.121966
+  type: 'test'
+  ...
+# Subtest: U05 should exclude the actual legacy prefix lock and coalesce only the same request
+ok 3 - U05 should exclude the actual legacy prefix lock and coalesce only the same request
+  ---
+  duration_ms: 40.16348
+  type: 'test'
+  ...
+# Subtest: U06 should refuse foreign layout, unknown controllers and changed payload before selection
+ok 4 - U06 should refuse foreign layout, unknown controllers and changed payload before selection
+  ---
+  duration_ms: 36.559486
+  type: 'test'
+  ...
+# Subtest: U06 should block contradictory selection and preserve all diagnostic bytes
+ok 5 - U06 should block contradictory selection and preserve all diagnostic bytes
+  ---
+  duration_ms: 218.302793
+  type: 'test'
+  ...
+# Subtest: U05 should retain the previous selection and reject abort after selection intent
+ok 6 - U05 should retain the previous selection and reject abort after selection intent
+  ---
+  duration_ms: 88.993443
+  type: 'test'
+  ...
+1..6
+# tests 6
+# suites 0
+# pass 6
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 2860.695529
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-selection.test.js"],"code":0,"signal":null,"tests":6,"invalid":false,"spawned":1,"leftovers":[]}
