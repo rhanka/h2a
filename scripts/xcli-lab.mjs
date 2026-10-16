@@ -26,7 +26,7 @@ export function environment(root, bin = join(root, 'bin')) {
     TMPDIR: join(root, 'tmp'), TMUX_TMPDIR: join(root, 'run'),
     REMOTE_CLI_CONFIG_HOME: join(root, 'home'), H2A_ROOT: join(root, 'store'),
     H2A_NATIVE_SOCKET: join(root, 'host.sock'), H2A_SESSION_HOST: 'native',
-    H2A_UPGRADE_REEXECED: '1', DISABLE_AUTOUPDATER: '1',
+    H2A_UPGRADE_REEXECED: '1', DISABLE_AUTOUPDATER: '1', MUSE_NO_AUTO_UPDATE: '1',
     CLAUDE_CONFIG_DIR: join(root, 'home/.claude'), CODEX_HOME: join(root, 'home/.codex'),
     VIBE_HOME: join(root, 'home/.vibe'),
     GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null', GIT_CEILING_DIRECTORIES: root,
@@ -162,6 +162,39 @@ export function cliPath(cli, path) {
     try { fs.accessSync(candidate, fs.constants.X_OK); return candidate; } catch { /* next explicit PATH entry */ }
   }
   return undefined;
+}
+
+// Muse's launcher resolves its cache beside itself, independently of HOME.
+// Even with updates disabled it consumes an installation-side notice on a TTY.
+// Copy only program files and release metadata; never copy that mutable state.
+export function privateExecutable(cli, executable, root) {
+  if (cli !== 'muse') return { path: executable };
+  const install = dirname(executable);
+  const versionFile = join(install, '.muse-version');
+  assert.ok(fs.lstatSync(versionFile).isFile() && !fs.lstatSync(versionFile).isSymbolicLink(), 'Muse version must be a regular program metadata file');
+  const version = fs.readFileSync(versionFile, 'utf8').trim();
+  assert.match(version, /^\d+\.\d+\.\d+-R\d+(?:\.\d+)?$/, 'unknown installed Muse version layout');
+  const binaryName = `muse-bin-${version}`;
+  const sourceBinary = join(install, binaryName);
+  assert.ok(fs.lstatSync(sourceBinary).isFile() && !fs.lstatSync(sourceBinary).isSymbolicLink(), 'Muse binary must be a regular program file');
+  const dest = inside(root, join(root, 'muse-program'));
+  fs.mkdirSync(dest, { mode: 0o700 });
+  const hashes = {};
+  for (const [from, name] of [[executable, 'muse'], [sourceBinary, binaryName]]) {
+    const to = inside(root, join(dest, name));
+    fs.copyFileSync(from, to);
+    fs.chmodSync(to, 0o700);
+    const bytes = fs.readFileSync(to);
+    if (name === binaryName) assert.equal(bytes.subarray(0, 4).toString('hex'), '7f454c46', 'Muse runtime must be a native ELF, never a Python entrypoint');
+    hashes[name] = createHash('sha256').update(bytes).digest('hex');
+  }
+  fs.writeFileSync(join(dest, '.muse-version'), version + '\n', { mode: 0o600 });
+  const release = join(install, '.muse-release-info.json');
+  try {
+    assert.ok(fs.lstatSync(release).isFile() && !fs.lstatSync(release).isSymbolicLink(), 'Muse release metadata must be a regular file');
+    fs.copyFileSync(release, join(dest, '.muse-release-info.json'));
+  } catch (error) { if (error.code !== 'ENOENT') throw error; }
+  return { path: join(dest, 'muse'), version, hashes };
 }
 
 export function pythonEntrypoint(path) {

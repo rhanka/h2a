@@ -255,6 +255,7 @@ for (const host of ["codex", "claude", "gemini", "agy", "hermes", "opencode", "m
     assert.equal(rc, 0, streams.stderrText);
     const rendered = JSON.parse(streams.stdoutText);
     assert.deepEqual(rendered.mcpServers, { h2a: { url: "https://mcp.example.test/h2a" } });
+    if (host === "muse") assert.equal(rendered.schema_version, 1);
     if (['muse', 'agy'].includes(host)) {
       assert.match(rendered.migration, /non migré/);
       assert.doesNotMatch(rendered.hint, /Merge|Translate|re-run/);
@@ -341,6 +342,34 @@ test("h2a host setup --write preserves pre-existing mcpServers.other", () => {
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test("Muse setup writes its required schema while preserving unrelated settings", () => {
+  const dir = mkdtempSync(join(tmpdir(), "h2a-muse-settings-"));
+  const target = join(dir, "settings.json");
+  try {
+    writeFileSync(target, JSON.stringify({ theme: "dark", mcpServers: { other: { command: "fixture" } } }));
+    const streams = captureStreams(dir);
+    assert.equal(runCli(["host", "setup", "--host", "muse", "--write", target], streams), 0);
+    const result = JSON.parse(readFileSync(target, "utf8"));
+    assert.equal(result.schema_version, 1);
+    assert.equal(result.theme, "dark");
+    assert.equal(result.mcpServers.other.command, "fixture");
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("Muse setup refuses an unknown settings schema even with force", () => {
+  const dir = mkdtempSync(join(tmpdir(), "h2a-muse-schema-"));
+  const target = join(dir, "settings.json");
+  try {
+    writeFileSync(target, JSON.stringify({ schema_version: 2, mcpServers: { other: { command: "fixture" } } }));
+    const before = readFileSync(target);
+    for (const flags of [[], ["--force"]]) {
+      const streams = captureStreams(dir);
+      assert.equal(runCli(["host", "setup", "--host", "muse", "--write", target, ...flags], streams), 2);
+      assert.equal(readFileSync(target).equals(before), true);
+    }
+  } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
 test("h2a host setup --write replaces h2a aliases and disables standalone Track MCP entries", () => {
