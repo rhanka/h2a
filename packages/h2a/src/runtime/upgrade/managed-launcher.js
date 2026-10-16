@@ -6,6 +6,7 @@ import { privateDirectory, readState } from '../handover/state.js';
 import { resolveSelectedEntry } from '../handover/selection.js';
 import { validate } from '../handover/formats.js';
 import { verifyImage } from '../handover/image.js';
+import { installImagePolicy } from './image-policy.js';
 
 function installationAt(url) {
   const launcher = fs.realpathSync(fileURLToPath(url)), root = dirname(dirname(launcher));
@@ -97,6 +98,7 @@ export async function launchManaged(url) {
   if (observation.externalInstallDetected) throw new Error('external_install_detected');
   if (observation.pathShadowing) throw new Error('path_shadowing');
   if (transactions.some(tx => tx.phase === 'SELECTING')) throw new Error('selection_recovery_required');
+  installImagePolicy(current.imageRoot, current.manifest, current.selection.manifestDigest);
   process.argv[1] = current.entrypoint;
   await import(pathToFileURL(current.entrypoint).href);
 }

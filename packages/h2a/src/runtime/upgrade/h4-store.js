@@ -9,6 +9,7 @@ import { digest } from '../handover/wire.js';
 import { privateDirectory, readState, publishState, replaceState } from '../handover/state.js';
 import { mutationLock } from '../handover/mutation.js';
 import { verifyImage } from '../handover/image.js';
+import { assertImageRuntime } from './image-policy.js';
 
 const terminal = new Set(['COMPLETED', 'ABORTED']);
 const id = value => {
@@ -77,6 +78,7 @@ export class UpgradeStore {
     if (!fs.lstatSync(path).isFile()) throw new Error('image_manifest_required');
     const manifest = JSON.parse(fs.readFileSync(path, 'utf8'));
     verifyImage(root, manifest, target.manifestDigest);
+    assertImageRuntime(manifest);
     if (!manifest.entrypoints.controller || manifest.entrypoints.controller !== target.entrypoint) throw new Error('controller_protocol_incompatible');
     if (manifest.packageVersion !== target.packageVersion || manifest.buildId !== target.buildId ||
       manifest.profile.nodeMajor !== Number(process.versions.node.split('.')[0]) ||
