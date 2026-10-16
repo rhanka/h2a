@@ -4,7 +4,8 @@ import { callTool, parseToolJson, readIdentityStatus } from "./mcp-fix-lab.js";
 
 /**
  * Drive the documented on-demand recovery after a contention fixture releases
- * its lock. Status reads alone never retry. Each connection gets at most ONE
+ * its lock. Status reads can now retry; the signed call below also supports
+ * historical binaries where only guarded tools retry. Each connection gets at most ONE
  * new attempt, only for identity_timeout; permanent or repeated failures fail
  * the test. Callers set the lab-only retry interval to zero, leaving the real
  * 20 s attempt deadline and the cohort's existing overall budget untouched.
