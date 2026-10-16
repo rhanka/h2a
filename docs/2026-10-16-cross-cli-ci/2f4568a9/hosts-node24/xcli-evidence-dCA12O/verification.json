@@ -1,0 +1,13 @@
+{
+  "artifact": "docs/2026-10-16-cross-cli-ci/2f4568a9/hosts-node24/xcli-evidence-dCA12O/receipt.json",
+  "requiredFiles": 10,
+  "counts": {
+    "tests": 211,
+    "pass": 210,
+    "fail": 0,
+    "cancelled": 0,
+    "skipped": 1,
+    "todo": 0
+  },
+  "verificationFailures": []
+}
