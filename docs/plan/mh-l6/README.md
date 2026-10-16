@@ -6,6 +6,8 @@ aucune découverte MCP registry et aucune action native ne sont introduits.
 
 Le checkpoint de délégation/récupération est décrit dans [B1.md](B1.md) et
 `proof-B1.json`. Les preuves A ci-dessous restent rattachées à `dd23a00a`.
+Le lanceur autonome et ses limites d'intégration sont décrits dans [C1.md](C1.md),
+avec `proof-C1.json` et un artefact concret reproductible.
 
 ## A — journal et sélection
 

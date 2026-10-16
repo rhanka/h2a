@@ -1,0 +1,89 @@
+{
+  "node": "v24.21.0",
+  "files": [
+    {
+      "path": "packages/h2a/src/runtime/upgrade/managed-launcher.js",
+      "sha256": "518f00bcb01d912a37cfb1c15e943d527daed3c1c731d580f301b6d781e8d151"
+    }
+  ],
+  "results": [
+    {
+      "name": "runtime-profile",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-launcher.test.js-node24-mutation-runtime-profile-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-launcher.test.js-node24-mutation-runtime-profile-green.log",
+      "restored": true
+    },
+    {
+      "name": "same-process-import",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-launcher.test.js-node24-mutation-same-process-import-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-launcher.test.js-node24-mutation-same-process-import-green.log",
+      "restored": true
+    },
+    {
+      "name": "neutralize-node-path",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-launcher.test.js-node24-mutation-neutralize-node-path-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-launcher.test.js-node24-mutation-neutralize-node-path-green.log",
+      "restored": true
+    },
+    {
+      "name": "environment-loading-flags",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-launcher.test.js-node24-mutation-environment-loading-flags-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-launcher.test.js-node24-mutation-environment-loading-flags-green.log",
+      "restored": true
+    },
+    {
+      "name": "argv-loading-flags",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-launcher.test.js-node24-mutation-argv-loading-flags-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-launcher.test.js-node24-mutation-argv-loading-flags-green.log",
+      "restored": true
+    },
+    {
+      "name": "history-payload",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-launcher.test.js-node24-mutation-history-payload-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-launcher.test.js-node24-mutation-history-payload-green.log",
+      "restored": true
+    },
+    {
+      "name": "selected-image-verification",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-launcher.test.js-node24-mutation-selected-image-verification-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-launcher.test.js-node24-mutation-selected-image-verification-green.log",
+      "restored": true
+    },
+    {
+      "name": "path-shadowing",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-launcher.test.js-node24-mutation-path-shadowing-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-launcher.test.js-node24-mutation-path-shadowing-green.log",
+      "restored": true
+    },
+    {
+      "name": "external-command-link",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-launcher.test.js-node24-mutation-external-command-link-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-launcher.test.js-node24-mutation-external-command-link-green.log",
+      "restored": true
+    },
+    {
+      "name": "diagnostic-status",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-launcher.test.js-node24-mutation-diagnostic-status-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-launcher.test.js-node24-mutation-diagnostic-status-green.log",
+      "restored": true
+    },
+    {
+      "name": "selection-commit-guard",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-launcher.test.js-node24-mutation-selection-commit-guard-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-launcher.test.js-node24-mutation-selection-commit-guard-green.log",
+      "restored": true
+    },
+    {
+      "name": "no-fallback-execution",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-launcher.test.js-node24-mutation-no-fallback-execution-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-launcher.test.js-node24-mutation-no-fallback-execution-green.log",
+      "restored": true
+    },
+    {
+      "name": "journal-format",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-launcher.test.js-node24-mutation-journal-format-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-launcher.test.js-node24-mutation-journal-format-green.log",
+      "restored": true
+    }
+  ]
+}
