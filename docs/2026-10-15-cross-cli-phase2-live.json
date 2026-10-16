@@ -1,0 +1,86 @@
+{
+  "version": 1,
+  "mode": "real-cli",
+  "sha": "575dd129deb50f6c668ea8b0242ca11aa564eb6a",
+  "node": "v22.22.1",
+  "command": "node scripts/qualify-cross-cli.mjs --pair claude:codex --timeout-ms 15000 --auth-home /home/antoinefa --output docs/2026-10-15-cross-cli-phase2-live.json",
+  "root": "/tmp/h2a-qual-zaWErD",
+  "build": {
+    "path": "/tmp/h2a-qual-zaWErD/build",
+    "nativeBuild": {
+      "command": [
+        "/usr/bin/g++",
+        "-std=c++17",
+        "-shared",
+        "-fPIC",
+        "-O2",
+        "-pthread",
+        "-DNAPI_CPP_EXCEPTIONS",
+        "-I/usr/include/node",
+        "-I/home/antoinefa/src/h2a/tmp/worktrees/xcli/node_modules/node-addon-api",
+        "/tmp/h2a-qual-zaWErD/build/node_modules/node-pty/src/unix/pty.cc",
+        "-o",
+        "/tmp/h2a-qual-zaWErD/build/node_modules/node-pty/build/Release/pty.node",
+        "-lutil"
+      ],
+      "exitCode": 0
+    }
+  },
+  "cells": [
+    {
+      "sender": "claude",
+      "receiver": "codex",
+      "status": "measured-KO",
+      "senderMcp": null,
+      "receiverMcp": false,
+      "sent": null,
+      "delivered": null,
+      "received": null,
+      "woke": null,
+      "replied": null,
+      "replyDelivered": null,
+      "evidence": [
+        {
+          "event": "host-setup",
+          "role": "receiver",
+          "exitCode": 2
+        },
+        {
+          "event": "session-created",
+          "role": "receiver",
+          "pid": 8408,
+          "id": "h2a-receiver"
+        },
+        {
+          "event": "readiness-deadline",
+          "role": "receiver",
+          "modelToolCallObserved": false,
+          "composerReady": false,
+          "mcpLoaded": false,
+          "wakeArmed": false
+        },
+        {
+          "event": "screen-signals",
+          "role": "receiver",
+          "signals": [
+            "cursorQuery"
+          ]
+        }
+      ],
+      "startedAt": "2026-10-16T03:38:37.424Z",
+      "credentialsCopied": {
+        "receiver": [
+          ".codex/auth.json"
+        ]
+      },
+      "noPostSendHarnessInput": true,
+      "failure": "mcp-not-loaded-before-deadline",
+      "elapsedMs": 16991
+    }
+  ],
+  "counts": {
+    "measured-OK": 0,
+    "measured-KO": 1,
+    "blocked": 0
+  }
+}
