@@ -1,0 +1,22 @@
+command: /tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-physical.test.js
+node: v24.21.0
+private root: /tmp/mh-l6-test-Pz6kwO
+case: U07 should verify the npm package identity and declared command entry
+TAP version 13
+# Subtest: U07 should verify the npm package identity and declared command entry
+ok 1 - U07 should verify the npm package identity and declared command entry
+  ---
+  duration_ms: 11.088482
+  type: 'test'
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 1
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 41.991951
+
+receipt: {"command":["/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-physical.test.js"],"code":0,"signal":null,"tests":1,"invalid":false,"spawned":1,"leftovers":[]}
