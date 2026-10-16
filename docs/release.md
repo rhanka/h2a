@@ -44,7 +44,7 @@ that is not reachable from `origin/main`.
 2. Runs `npm run typecheck` and `npm test`.
 3. Verifies those commands did not dirty the worktree.
 4. Bumps `package.json`, `package-lock.json`, and every workspace manifest (`packages/h2a`, `packages/h2a-cli`, `packages/h2a-runtime`, `packages/track`).
-5. Aligns the lockstep dependency carets to `^X.Y.Z`: `@sentropic/h2a-cli` → `@sentropic/h2a`, and `@sentropic/h2a` → `@sentropic/track`.
+5. Pins internal dependencies and peers to exact `X.Y.Z`: `@sentropic/h2a-cli` → `@sentropic/h2a`, and `@sentropic/h2a` → `@sentropic/track` / `@sentropic/h2a-runtime`. Release gates reject mixed versions or ranges before packing and publishing.
 6. Commits the version bump as `release: vX.Y.Z` on a branch: from `main` it first creates `release/vX.Y.Z`; from another branch it commits there; a detached HEAD is refused; it never commits on `main`.
 7. Prints the next steps (branch push, PR, green CI, merge, fetch, annotated tag on the merged commit verified on `origin/main` — signed when `git config commit.gpgsign` is `true` — and tag push).
 
