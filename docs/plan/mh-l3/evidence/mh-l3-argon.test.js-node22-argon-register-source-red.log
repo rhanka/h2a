@@ -1,0 +1,40 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l3-argon.test.js
+node: v22.22.1
+private root: /tmp/mh-l3-test-5lcUxF
+case: real central should register the retained shim catalogue as inventory without granting compatibility
+TAP version 13
+# {"event":"drive-consent.full-verification","durationMs":0.004597999999987223,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# Subtest: real central should register the retained shim catalogue as inventory without granting compatibility
+not ok 1 - real central should register the retained shim catalogue as inventory without granting compatibility
+  ---
+  duration_ms: 522.910629
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-QCpN2Q/source/packages/h2a/test/mh-l3-argon.test.js:2:94'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    
+    200 !== 409
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 409
+  actual: 200
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/mh-l3-qualification-QCpN2Q/source/packages/h2a/test/mh-l3-argon.test.js:150:15)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 0
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 804.437988
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l3-argon.test.js"],"code":1,"signal":null,"tests":1,"invalid":false,"spawned":1,"leftovers":[]}

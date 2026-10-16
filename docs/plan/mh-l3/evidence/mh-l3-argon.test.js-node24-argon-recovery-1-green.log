@@ -1,0 +1,22 @@
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node --test --test-reporter=tap packages/h2a/test/mh-l3-argon.test.js
+node: v24.21.0
+private root: /tmp/mh-l3-test-J7AHaZ
+case: recovery should defer autostart after SSE EOF and let an external publication win
+TAP version 13
+# Subtest: recovery should defer autostart after SSE EOF and let an external publication win
+ok 1 - recovery should defer autostart after SSE EOF and let an external publication win
+  ---
+  duration_ms: 116.575618
+  type: 'test'
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 1
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 313.251249
+
+receipt: {"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l3-argon.test.js"],"code":0,"signal":null,"tests":1,"invalid":false,"spawned":1,"leftovers":[]}

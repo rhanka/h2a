@@ -1,0 +1,113 @@
+{
+  "base": "c96792f3",
+  "codeCommit": "413e7b32a0c43aef6192cb91368fe6f7cfc02c8f",
+  "qualificationCopy": "/tmp/mh-l3-qualification-QCpN2Q/source",
+  "referenceCommand": [
+    "rg",
+    "-l",
+    "mcp-central-client\\.js|shim-bridge\\.js|schemas\\.js|mh-l3-network\\.js|mcp-central\\.(js|ts)|mh-l0/schemas\\.json",
+    "packages",
+    "apps",
+    "-g",
+    "*.test.js",
+    "-g",
+    "*.test.ts",
+    "-g",
+    "!**/node_modules/**",
+    "-g",
+    "!**/dist/**"
+  ],
+  "references": [
+    "packages/h2a-runtime/src/central-mcp-0980.test.ts",
+    "packages/h2a/test/mcp-central-attachments.test.js",
+    "packages/h2a/test/mh-l0-formats.test.js",
+    "packages/h2a/test/mh-l1-package.test.js",
+    "packages/h2a/test/mh-l1-shim.test.js",
+    "packages/h2a/test/mh-l2-image.test.js",
+    "packages/h2a/test/mh-l2-integration.test.js",
+    "packages/h2a/test/mh-l2-live-central.test.js",
+    "packages/h2a/test/mh-l3-argon.test.js",
+    "packages/h2a/test/mh-l3-central.test.js",
+    "packages/h2a/test/mh-l3-network.test.js",
+    "packages/h2a/test/mh-l3-recovery.test.js",
+    "packages/h2a/test/mh-l3-transfer.test.js",
+    "packages/h2a/test/mh-l4-central.test.js",
+    "packages/h2a/test/mh-l4-idle.test.js"
+  ],
+  "files": [
+    {
+      "path": "docs/plan/mh-l0/schemas.json",
+      "sha256": "c3db81beaeae10d8b93cb21cf96f2fd4c66f03d824cc7b5aad801afd8fde21c3"
+    },
+    {
+      "path": "packages/h2a/src/runtime/handover/schemas.js",
+      "sha256": "73dc40bfecd8685058febf9c7498126e98cd0f8e1a15ab2e7d4ddeeef0839bc2"
+    },
+    {
+      "path": "packages/h2a/src/runtime/handover/shim-bridge.js",
+      "sha256": "b73275a9bc9e6b6ecf31fbe57e9ee162034fca1986595586e94d17abf9a86b30"
+    },
+    {
+      "path": "packages/h2a/src/runtime/mcp-central.ts",
+      "sha256": "e72cb89a35da055a1029ac27545280077d5d4393f8b2f5346176ab3bfb6c3fc6"
+    },
+    {
+      "path": "packages/h2a/src/runtime/handover/admission.js",
+      "sha256": "c73fc87606d1a650c1c50b8bafacb3c262ab4a846fcec7d8c1d0ab51595ac6f4"
+    },
+    {
+      "path": "packages/h2a/test/helpers/mh-l3-network.js",
+      "sha256": "4fce770c5b3a70428c9cdb2bfae2fa106c40c91fe10aec766cbf06805827ac82"
+    },
+    {
+      "path": "packages/h2a/test/mh-l3-argon.test.js",
+      "sha256": "7aa87358fe02cb18515da24b01eee97300814764b9d7c630928cfb78a56ab651"
+    },
+    {
+      "path": "scripts/mh-l3-mutate.mjs",
+      "sha256": "3c0f0a9bf5a17525bc62968f216e669bd15b0b847df98dc36abf6a2f0710ae10"
+    }
+  ],
+  "compiled": [
+    {
+      "path": "packages/h2a/dist/runtime/handover/schemas.js",
+      "sha256": "5aaa1f22e549f61624ba5d80500b3ed097bb974f886e07e6b44d890b061276f7"
+    },
+    {
+      "path": "packages/h2a/dist/runtime/handover/shim-bridge.js",
+      "sha256": "906305c0646e230cf3e0cdd41ce6245958e9ea292988f4d2455192a78867349e"
+    },
+    {
+      "path": "packages/h2a/dist/runtime/mcp-central.js",
+      "sha256": "96a8c41ab27154a3e93522b62786e0c4b534c0d912d7bbcf69ac5e181ab9563b"
+    },
+    {
+      "path": "packages/h2a/dist/runtime/handover/admission.js",
+      "sha256": "d172ff325b90d31062dba0c2c33e5bd9b462f789a676e871e4aac80cd3bdd0b2"
+    }
+  ],
+  "profiles": [
+    {
+      "node": "v22.22.1",
+      "explicitFiles": 18,
+      "tests": 80,
+      "mutationPairs": 8,
+      "skips": 0,
+      "cancellations": 0,
+      "remainingOwnChildren": 0
+    },
+    {
+      "node": "v24.21.0",
+      "explicitFiles": 18,
+      "tests": 80,
+      "mutationPairs": 8,
+      "skips": 0,
+      "cancellations": 0,
+      "remainingOwnChildren": 0
+    }
+  ],
+  "prefixModes": {
+    "worktree": 509,
+    "copy": 493
+  }
+}
