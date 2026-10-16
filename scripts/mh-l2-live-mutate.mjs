@@ -64,7 +64,7 @@ const execute = (oracle, label) => {
     XDG_DATA_HOME:'data', XDG_CACHE_HOME:'cache', REMOTE_CLI_CONFIG_HOME:'cli', CODEX_HOME:'codex', CLAUDE_CONFIG_DIR:'claude', TMPDIR:'tmp', H2A_ROOT:'store' })) {
     env[key] = join(root, leaf); fs.mkdirSync(env[key], { mode: 0o700 });
   }
-  const args = ['--test', 'packages/h2a/test/mh-l2-live.test.js'];
+  const args = ['--test', '--test-reporter=tap', 'packages/h2a/test/mh-l2-live.test.js'];
   try {
     const result = spawnSync(process.execPath, args, { env, encoding: 'utf8', maxBuffer: 8 * 1024 * 1024 });
     const output = `command: ${process.execPath} ${args.join(' ')}\nnode: ${process.version}\nexplicit oracle: ${oracle}\nprivate root: ${root}\n${result.stdout}${result.stderr}\nreceipt: ${JSON.stringify({ code: result.status, signal: result.signal })}\n`;
