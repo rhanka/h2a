@@ -312,7 +312,9 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const SKILLS_DIR = resolvePath(HERE, "..", "skills");
 
 /**
- * Source of the DETACHED boot auto-upgrade worker (launched via
+ * @deprecated Compatibility source for external consumers of this export.
+ * Production boot uses runtime/upgrade/boot-worker.js, an image-bound entry.
+ * The historical detached worker was launched via
  * `node --input-type=module --eval <this> -- <moduleUrl> <root> <ttl> <mode>`). It imports
  * the upgrade module by URL and runs the check/upgrade in the background. The body is wrapped
  * in a catch — a boot-upgrade failure must never affect the MCP server. Exported (module-level,
@@ -2088,11 +2090,7 @@ export async function runMcpServe(
         const worker = spawn(
           process.execPath,
           [
-            "--input-type=module",
-            "--eval",
-            MCP_UPGRADE_WORKER_SOURCE,
-            "--",
-            new URL("./runtime/upgrade/index.js", import.meta.url).href,
+            fileURLToPath(new URL("./runtime/upgrade/boot-worker.js", import.meta.url)),
             root,
             String(ttlMs),
             wantAutoUpgrade ? "auto" : "check"
