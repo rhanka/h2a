@@ -125,6 +125,7 @@ export interface CreateMcpServerOptions {
   notifications?: {
     intervalMs?: number;
     sink?: NotificationSink;
+    onError?: (error: unknown) => void;
   };
   /** L1: frame budget override (tests). Defaults to `resolveFrameBudget()`. */
   frameBudget?: FrameBudget;
@@ -288,7 +289,8 @@ export function createMcpServer(options: CreateMcpServerOptions): McpServer {
     options.root,
     options.notifications?.sink,
     options.notifications?.intervalMs ??
-      H2A_SESSION_DEFAULT_HEARTBEAT_INTERVAL_MS
+      H2A_SESSION_DEFAULT_HEARTBEAT_INTERVAL_MS,
+    options.notifications?.onError
   );
 
   // L1: per-root recovery store + per-server paginating discovery pager. The
