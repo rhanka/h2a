@@ -1,0 +1,1003 @@
+{
+  "version": 1,
+  "mode": "real-cli",
+  "sha": "8b9c0fbb5cf0cb0c64dfe1438adb75f62e635295",
+  "node": "v22.22.1",
+  "command": "node scripts/qualify-cross-cli.mjs --pair claude:claude --timeout-ms 60000 --auth-home /home/antoinefa --output docs/2026-10-16-cross-cli-resume-claude-60s.json",
+  "root": "/tmp/h2a-qual-4o8YWK",
+  "build": {
+    "path": "/tmp/h2a-qual-4o8YWK/build",
+    "sourceDigest": "e11a92d5a23958a22596e7ffb5a0f34b30c61d6bd015349ca1e2a99a398d581c",
+    "nativeBuild": {
+      "command": [
+        "/usr/bin/g++",
+        "-std=c++17",
+        "-shared",
+        "-fPIC",
+        "-O2",
+        "-pthread",
+        "-DNAPI_CPP_EXCEPTIONS",
+        "-I/usr/include/node",
+        "-I/home/antoinefa/src/h2a/tmp/worktrees/xcli/node_modules/node-addon-api",
+        "/tmp/h2a-qual-4o8YWK/build/node_modules/node-pty/src/unix/pty.cc",
+        "-o",
+        "/tmp/h2a-qual-4o8YWK/build/node_modules/node-pty/build/Release/pty.node",
+        "-lutil"
+      ],
+      "exitCode": 0
+    }
+  },
+  "harnessDigests": {
+    "qualify-cross-cli.mjs": "e6439f698cac59c19873fffcbd2ba00fc6cd945d3969b74fa33d18eaeec8e035",
+    "xcli-lab.mjs": "5cf366d1b38942668815a25d2f3d0dd41b43274958a5ed38c56a5d509bff78eb",
+    "xcli-proxy.mjs": "28354e7d0621bdae045f531f39a78941248fdde9e9d6ceaea41cd096b0a013a4",
+    "xcli-simulated-model.mjs": "3c56bd6aae926cf9f31674c9002a8d8ce88d4c9982f1b994c2acc625f9deb2c3"
+  },
+  "cells": [
+    {
+      "sender": "claude",
+      "receiver": "claude",
+      "status": "measured-KO",
+      "senderMcp": true,
+      "receiverMcp": true,
+      "sent": true,
+      "delivered": true,
+      "received": false,
+      "woke": false,
+      "replied": false,
+      "replyDelivered": false,
+      "evidence": [
+        {
+          "event": "host-setup",
+          "role": "receiver",
+          "exitCode": 2
+        },
+        {
+          "event": "session-created",
+          "role": "receiver",
+          "pid": 3935,
+          "id": "h2a-receiver"
+        },
+        {
+          "event": "startup-terminal-response",
+          "role": "receiver",
+          "count": 1,
+          "at": 1792151854863
+        },
+        {
+          "event": "startup-ui",
+          "role": "receiver",
+          "action": "trust-empty-workspace",
+          "facts": {
+            "matched": [
+              "Quick safety check",
+              "Yes, I trust this folder",
+              "No, exit",
+              "Enter",
+              "confirm",
+              "trust",
+              "folder"
+            ],
+            "choices": [],
+            "qualificationDraft": false
+          },
+          "at": 1792151856892
+        },
+        {
+          "event": "startup-terminal-response",
+          "role": "receiver",
+          "count": 1,
+          "at": 1792151857409
+        },
+        {
+          "event": "receiver-idle-barrier",
+          "at": 1792151879146,
+          "instance": "claude:workspace:2dba8ed91aa0"
+        },
+        {
+          "event": "host-setup",
+          "role": "sender",
+          "exitCode": 2
+        },
+        {
+          "event": "session-created",
+          "role": "sender",
+          "pid": 4192,
+          "id": "h2a-sender"
+        },
+        {
+          "event": "startup-terminal-response",
+          "role": "sender",
+          "count": 1,
+          "at": 1792151879842
+        },
+        {
+          "event": "startup-ui",
+          "role": "sender",
+          "action": "trust-empty-workspace",
+          "facts": {
+            "matched": [
+              "Quick safety check",
+              "Yes, I trust this folder",
+              "No, exit",
+              "Enter",
+              "confirm",
+              "trust",
+              "folder"
+            ],
+            "choices": [],
+            "qualificationDraft": false
+          },
+          "at": 1792151881874
+        },
+        {
+          "event": "startup-terminal-response",
+          "role": "sender",
+          "count": 1,
+          "at": 1792151882389
+        },
+        {
+          "role": "receiver",
+          "at": 1792151857263,
+          "event": "proxy-start",
+          "pid": 4012,
+          "childPid": 4093
+        },
+        {
+          "role": "receiver",
+          "at": 1792151857528,
+          "event": "startup-phase",
+          "phase": "process_start",
+          "kind": "sample",
+          "processRole": "server"
+        },
+        {
+          "role": "receiver",
+          "at": 1792151857531,
+          "event": "startup-phase",
+          "phase": "identity_pending",
+          "kind": "sample",
+          "processRole": "server"
+        },
+        {
+          "role": "receiver",
+          "at": 1792151857548,
+          "event": "initialize",
+          "ok": true
+        },
+        {
+          "role": "receiver",
+          "at": 1792151857554,
+          "event": "tools",
+          "ok": true,
+          "messaging": true
+        },
+        {
+          "role": "receiver",
+          "at": 1792151857666,
+          "event": "startup-phase",
+          "phase": "identity_provider",
+          "kind": "begin",
+          "processRole": "identity-child"
+        },
+        {
+          "role": "receiver",
+          "at": 1792151857666,
+          "event": "startup-phase",
+          "phase": "identity_provider",
+          "kind": "end",
+          "processRole": "identity-child",
+          "durationMs": 0.496
+        },
+        {
+          "role": "receiver",
+          "at": 1792151857671,
+          "event": "startup-phase",
+          "phase": "bindings_lookup",
+          "kind": "begin",
+          "processRole": "identity-child"
+        },
+        {
+          "role": "receiver",
+          "at": 1792151857671,
+          "event": "startup-phase",
+          "phase": "bindings_lookup",
+          "kind": "end",
+          "processRole": "identity-child",
+          "durationMs": 0.199
+        },
+        {
+          "role": "receiver",
+          "at": 1792151857671,
+          "event": "startup-phase",
+          "phase": "aliases_lookup",
+          "kind": "begin",
+          "processRole": "identity-child"
+        },
+        {
+          "role": "receiver",
+          "at": 1792151857672,
+          "event": "startup-phase",
+          "phase": "aliases_lookup",
+          "kind": "end",
+          "processRole": "identity-child",
+          "durationMs": 0.056
+        },
+        {
+          "role": "receiver",
+          "at": 1792151857673,
+          "event": "startup-phase",
+          "phase": "identity_keys",
+          "kind": "begin",
+          "processRole": "identity-child"
+        },
+        {
+          "role": "receiver",
+          "at": 1792151857728,
+          "event": "startup-phase",
+          "phase": "identity_keys",
+          "kind": "end",
+          "processRole": "identity-child",
+          "durationMs": 55.014
+        },
+        {
+          "role": "receiver",
+          "at": 1792151857728,
+          "event": "startup-phase",
+          "phase": "identity_register",
+          "kind": "begin",
+          "processRole": "identity-child"
+        },
+        {
+          "role": "receiver",
+          "at": 1792151857729,
+          "event": "startup-phase",
+          "phase": "lock_wait",
+          "kind": "sample",
+          "processRole": "identity-child"
+        },
+        {
+          "role": "receiver",
+          "at": 1792151857730,
+          "event": "startup-phase",
+          "phase": "lock_acquired",
+          "kind": "sample",
+          "processRole": "identity-child",
+          "waitMs": 0
+        },
+        {
+          "role": "receiver",
+          "at": 1792151857730,
+          "event": "startup-phase",
+          "phase": "instances_lookup",
+          "kind": "begin",
+          "processRole": "identity-child"
+        },
+        {
+          "role": "receiver",
+          "at": 1792151857730,
+          "event": "startup-phase",
+          "phase": "instances_lookup",
+          "kind": "end",
+          "processRole": "identity-child",
+          "durationMs": 0.039
+        },
+        {
+          "role": "receiver",
+          "at": 1792151857730,
+          "event": "startup-phase",
+          "phase": "registry_read",
+          "kind": "begin",
+          "processRole": "identity-child"
+        },
+        {
+          "role": "receiver",
+          "at": 1792151857730,
+          "event": "startup-phase",
+          "phase": "registry_read",
+          "kind": "end",
+          "processRole": "identity-child",
+          "durationMs": 0.075
+        },
+        {
+          "role": "receiver",
+          "at": 1792151857730,
+          "event": "startup-phase",
+          "phase": "lock_released",
+          "kind": "sample",
+          "processRole": "identity-child",
+          "holdMs": 1
+        },
+        {
+          "role": "receiver",
+          "at": 1792151857730,
+          "event": "startup-phase",
+          "phase": "identity_register",
+          "kind": "end",
+          "processRole": "identity-child",
+          "durationMs": 2.298
+        },
+        {
+          "role": "receiver",
+          "at": 1792151857730,
+          "event": "startup-phase",
+          "phase": "identity_alias",
+          "kind": "begin",
+          "processRole": "identity-child"
+        },
+        {
+          "role": "receiver",
+          "at": 1792151857730,
+          "event": "startup-phase",
+          "phase": "aliases_lookup",
+          "kind": "begin",
+          "processRole": "identity-child"
+        },
+        {
+          "role": "receiver",
+          "at": 1792151857730,
+          "event": "startup-phase",
+          "phase": "aliases_lookup",
+          "kind": "end",
+          "processRole": "identity-child",
+          "durationMs": 0.042
+        },
+        {
+          "role": "receiver",
+          "at": 1792151857730,
+          "event": "startup-phase",
+          "phase": "identity_alias",
+          "kind": "end",
+          "processRole": "identity-child",
+          "durationMs": 0.221
+        },
+        {
+          "role": "receiver",
+          "at": 1792151857730,
+          "event": "startup-phase",
+          "phase": "bindings_lookup",
+          "kind": "begin",
+          "processRole": "identity-child"
+        },
+        {
+          "role": "receiver",
+          "at": 1792151857730,
+          "event": "startup-phase",
+          "phase": "bindings_lookup",
+          "kind": "end",
+          "processRole": "identity-child",
+          "durationMs": 0.029
+        },
+        {
+          "role": "receiver",
+          "at": 1792151857731,
+          "event": "startup-phase",
+          "phase": "identity_keys",
+          "kind": "begin",
+          "processRole": "identity-child"
+        },
+        {
+          "role": "receiver",
+          "at": 1792151857731,
+          "event": "startup-phase",
+          "phase": "identity_keys",
+          "kind": "end",
+          "processRole": "identity-child",
+          "durationMs": 0.026
+        },
+        {
+          "role": "receiver",
+          "at": 1792151857731,
+          "event": "startup-phase",
+          "phase": "identity_register",
+          "kind": "begin",
+          "processRole": "identity-child"
+        },
+        {
+          "role": "receiver",
+          "at": 1792151857731,
+          "event": "startup-phase",
+          "phase": "lock_wait",
+          "kind": "sample",
+          "processRole": "identity-child"
+        },
+        {
+          "role": "receiver",
+          "at": 1792151857731,
+          "event": "startup-phase",
+          "phase": "lock_acquired",
+          "kind": "sample",
+          "processRole": "identity-child",
+          "waitMs": 0
+        },
+        {
+          "role": "receiver",
+          "at": 1792151857731,
+          "event": "startup-phase",
+          "phase": "instances_lookup",
+          "kind": "begin",
+          "processRole": "identity-child"
+        },
+        {
+          "role": "receiver",
+          "at": 1792151857731,
+          "event": "startup-phase",
+          "phase": "instances_lookup",
+          "kind": "end",
+          "processRole": "identity-child",
+          "durationMs": 0.016
+        },
+        {
+          "role": "receiver",
+          "at": 1792151857731,
+          "event": "startup-phase",
+          "phase": "registry_read",
+          "kind": "begin",
+          "processRole": "identity-child"
+        },
+        {
+          "role": "receiver",
+          "at": 1792151857731,
+          "event": "startup-phase",
+          "phase": "registry_read",
+          "kind": "end",
+          "processRole": "identity-child",
+          "durationMs": 0.071
+        },
+        {
+          "role": "receiver",
+          "at": 1792151857731,
+          "event": "startup-phase",
+          "phase": "lock_released",
+          "kind": "sample",
+          "processRole": "identity-child",
+          "holdMs": 0
+        },
+        {
+          "role": "receiver",
+          "at": 1792151857731,
+          "event": "startup-phase",
+          "phase": "identity_register",
+          "kind": "end",
+          "processRole": "identity-child",
+          "durationMs": 0.391
+        },
+        {
+          "role": "receiver",
+          "at": 1792151857731,
+          "event": "startup-phase",
+          "phase": "identity_alias",
+          "kind": "begin",
+          "processRole": "identity-child"
+        },
+        {
+          "role": "receiver",
+          "at": 1792151857731,
+          "event": "startup-phase",
+          "phase": "aliases_lookup",
+          "kind": "begin",
+          "processRole": "identity-child"
+        },
+        {
+          "role": "receiver",
+          "at": 1792151857731,
+          "event": "startup-phase",
+          "phase": "aliases_lookup",
+          "kind": "end",
+          "processRole": "identity-child",
+          "durationMs": 0.036
+        },
+        {
+          "role": "receiver",
+          "at": 1792151857731,
+          "event": "startup-phase",
+          "phase": "identity_alias",
+          "kind": "end",
+          "processRole": "identity-child",
+          "durationMs": 0.1
+        },
+        {
+          "role": "receiver",
+          "at": 1792151857798,
+          "event": "startup-phase",
+          "phase": "bindings_lookup",
+          "kind": "begin",
+          "processRole": "identity-child"
+        },
+        {
+          "role": "receiver",
+          "at": 1792151857799,
+          "event": "startup-phase",
+          "phase": "bindings_lookup",
+          "kind": "end",
+          "processRole": "identity-child",
+          "durationMs": 0.083
+        },
+        {
+          "role": "receiver",
+          "at": 1792151857960,
+          "event": "startup-phase",
+          "phase": "bindings_lookup",
+          "kind": "begin",
+          "processRole": "identity-child"
+        },
+        {
+          "role": "receiver",
+          "at": 1792151857961,
+          "event": "startup-phase",
+          "phase": "bindings_lookup",
+          "kind": "end",
+          "processRole": "identity-child",
+          "durationMs": 0.66
+        },
+        {
+          "role": "receiver",
+          "at": 1792151857966,
+          "event": "wake-armed"
+        },
+        {
+          "role": "receiver",
+          "at": 1792151857966,
+          "event": "startup-phase",
+          "phase": "identity_ready",
+          "kind": "sample",
+          "processRole": "server"
+        },
+        {
+          "role": "receiver",
+          "at": 1792151869167,
+          "event": "identity",
+          "ok": true,
+          "ready": true,
+          "instance": "claude:workspace:2dba8ed91aa0",
+          "state": "identity_ready"
+        },
+        {
+          "role": "sender",
+          "at": 1792151882290,
+          "event": "proxy-start",
+          "pid": 4265,
+          "childPid": 4338
+        },
+        {
+          "role": "sender",
+          "at": 1792151882565,
+          "event": "startup-phase",
+          "phase": "process_start",
+          "kind": "sample",
+          "processRole": "server"
+        },
+        {
+          "role": "sender",
+          "at": 1792151882568,
+          "event": "startup-phase",
+          "phase": "identity_pending",
+          "kind": "sample",
+          "processRole": "server"
+        },
+        {
+          "role": "sender",
+          "at": 1792151882588,
+          "event": "initialize",
+          "ok": true
+        },
+        {
+          "role": "sender",
+          "at": 1792151882602,
+          "event": "tools",
+          "ok": true,
+          "messaging": true
+        },
+        {
+          "role": "sender",
+          "at": 1792151882702,
+          "event": "startup-phase",
+          "phase": "identity_provider",
+          "kind": "begin",
+          "processRole": "identity-child"
+        },
+        {
+          "role": "sender",
+          "at": 1792151882702,
+          "event": "startup-phase",
+          "phase": "identity_provider",
+          "kind": "end",
+          "processRole": "identity-child",
+          "durationMs": 0.518
+        },
+        {
+          "role": "sender",
+          "at": 1792151882709,
+          "event": "startup-phase",
+          "phase": "bindings_lookup",
+          "kind": "begin",
+          "processRole": "identity-child"
+        },
+        {
+          "role": "sender",
+          "at": 1792151882709,
+          "event": "startup-phase",
+          "phase": "bindings_lookup",
+          "kind": "end",
+          "processRole": "identity-child",
+          "durationMs": 0.249
+        },
+        {
+          "role": "sender",
+          "at": 1792151882710,
+          "event": "startup-phase",
+          "phase": "aliases_lookup",
+          "kind": "begin",
+          "processRole": "identity-child"
+        },
+        {
+          "role": "sender",
+          "at": 1792151882710,
+          "event": "startup-phase",
+          "phase": "aliases_lookup",
+          "kind": "end",
+          "processRole": "identity-child",
+          "durationMs": 0.043
+        },
+        {
+          "role": "sender",
+          "at": 1792151882711,
+          "event": "startup-phase",
+          "phase": "identity_keys",
+          "kind": "begin",
+          "processRole": "identity-child"
+        },
+        {
+          "role": "sender",
+          "at": 1792151882754,
+          "event": "startup-phase",
+          "phase": "identity_keys",
+          "kind": "end",
+          "processRole": "identity-child",
+          "durationMs": 42.954
+        },
+        {
+          "role": "sender",
+          "at": 1792151882754,
+          "event": "startup-phase",
+          "phase": "identity_register",
+          "kind": "begin",
+          "processRole": "identity-child"
+        },
+        {
+          "role": "sender",
+          "at": 1792151882755,
+          "event": "startup-phase",
+          "phase": "lock_wait",
+          "kind": "sample",
+          "processRole": "identity-child"
+        },
+        {
+          "role": "sender",
+          "at": 1792151882755,
+          "event": "startup-phase",
+          "phase": "lock_acquired",
+          "kind": "sample",
+          "processRole": "identity-child",
+          "waitMs": 0
+        },
+        {
+          "role": "sender",
+          "at": 1792151882755,
+          "event": "startup-phase",
+          "phase": "instances_lookup",
+          "kind": "begin",
+          "processRole": "identity-child"
+        },
+        {
+          "role": "sender",
+          "at": 1792151882755,
+          "event": "startup-phase",
+          "phase": "instances_lookup",
+          "kind": "end",
+          "processRole": "identity-child",
+          "durationMs": 0.041
+        },
+        {
+          "role": "sender",
+          "at": 1792151882755,
+          "event": "startup-phase",
+          "phase": "registry_read",
+          "kind": "begin",
+          "processRole": "identity-child"
+        },
+        {
+          "role": "sender",
+          "at": 1792151882755,
+          "event": "startup-phase",
+          "phase": "registry_read",
+          "kind": "end",
+          "processRole": "identity-child",
+          "durationMs": 0.116
+        },
+        {
+          "role": "sender",
+          "at": 1792151882755,
+          "event": "startup-phase",
+          "phase": "lock_released",
+          "kind": "sample",
+          "processRole": "identity-child",
+          "holdMs": 0
+        },
+        {
+          "role": "sender",
+          "at": 1792151882755,
+          "event": "startup-phase",
+          "phase": "identity_register",
+          "kind": "end",
+          "processRole": "identity-child",
+          "durationMs": 1.947
+        },
+        {
+          "role": "sender",
+          "at": 1792151882755,
+          "event": "startup-phase",
+          "phase": "identity_alias",
+          "kind": "begin",
+          "processRole": "identity-child"
+        },
+        {
+          "role": "sender",
+          "at": 1792151882756,
+          "event": "startup-phase",
+          "phase": "aliases_lookup",
+          "kind": "begin",
+          "processRole": "identity-child"
+        },
+        {
+          "role": "sender",
+          "at": 1792151882756,
+          "event": "startup-phase",
+          "phase": "aliases_lookup",
+          "kind": "end",
+          "processRole": "identity-child",
+          "durationMs": 0.026
+        },
+        {
+          "role": "sender",
+          "at": 1792151882756,
+          "event": "startup-phase",
+          "phase": "identity_alias",
+          "kind": "end",
+          "processRole": "identity-child",
+          "durationMs": 0.161
+        },
+        {
+          "role": "sender",
+          "at": 1792151882756,
+          "event": "startup-phase",
+          "phase": "bindings_lookup",
+          "kind": "begin",
+          "processRole": "identity-child"
+        },
+        {
+          "role": "sender",
+          "at": 1792151882756,
+          "event": "startup-phase",
+          "phase": "bindings_lookup",
+          "kind": "end",
+          "processRole": "identity-child",
+          "durationMs": 0.027
+        },
+        {
+          "role": "sender",
+          "at": 1792151882756,
+          "event": "startup-phase",
+          "phase": "identity_keys",
+          "kind": "begin",
+          "processRole": "identity-child"
+        },
+        {
+          "role": "sender",
+          "at": 1792151882756,
+          "event": "startup-phase",
+          "phase": "identity_keys",
+          "kind": "end",
+          "processRole": "identity-child",
+          "durationMs": 0.031
+        },
+        {
+          "role": "sender",
+          "at": 1792151882756,
+          "event": "startup-phase",
+          "phase": "identity_register",
+          "kind": "begin",
+          "processRole": "identity-child"
+        },
+        {
+          "role": "sender",
+          "at": 1792151882756,
+          "event": "startup-phase",
+          "phase": "lock_wait",
+          "kind": "sample",
+          "processRole": "identity-child"
+        },
+        {
+          "role": "sender",
+          "at": 1792151882756,
+          "event": "startup-phase",
+          "phase": "lock_acquired",
+          "kind": "sample",
+          "processRole": "identity-child",
+          "waitMs": 0
+        },
+        {
+          "role": "sender",
+          "at": 1792151882757,
+          "event": "startup-phase",
+          "phase": "instances_lookup",
+          "kind": "begin",
+          "processRole": "identity-child"
+        },
+        {
+          "role": "sender",
+          "at": 1792151882757,
+          "event": "startup-phase",
+          "phase": "instances_lookup",
+          "kind": "end",
+          "processRole": "identity-child",
+          "durationMs": 0.016
+        },
+        {
+          "role": "sender",
+          "at": 1792151882757,
+          "event": "startup-phase",
+          "phase": "registry_read",
+          "kind": "begin",
+          "processRole": "identity-child"
+        },
+        {
+          "role": "sender",
+          "at": 1792151882757,
+          "event": "startup-phase",
+          "phase": "registry_read",
+          "kind": "end",
+          "processRole": "identity-child",
+          "durationMs": 0.028
+        },
+        {
+          "role": "sender",
+          "at": 1792151882757,
+          "event": "startup-phase",
+          "phase": "lock_released",
+          "kind": "sample",
+          "processRole": "identity-child",
+          "holdMs": 0
+        },
+        {
+          "role": "sender",
+          "at": 1792151882757,
+          "event": "startup-phase",
+          "phase": "identity_register",
+          "kind": "end",
+          "processRole": "identity-child",
+          "durationMs": 0.379
+        },
+        {
+          "role": "sender",
+          "at": 1792151882757,
+          "event": "startup-phase",
+          "phase": "identity_alias",
+          "kind": "begin",
+          "processRole": "identity-child"
+        },
+        {
+          "role": "sender",
+          "at": 1792151882757,
+          "event": "startup-phase",
+          "phase": "aliases_lookup",
+          "kind": "begin",
+          "processRole": "identity-child"
+        },
+        {
+          "role": "sender",
+          "at": 1792151882757,
+          "event": "startup-phase",
+          "phase": "aliases_lookup",
+          "kind": "end",
+          "processRole": "identity-child",
+          "durationMs": 0.015
+        },
+        {
+          "role": "sender",
+          "at": 1792151882757,
+          "event": "startup-phase",
+          "phase": "identity_alias",
+          "kind": "end",
+          "processRole": "identity-child",
+          "durationMs": 0.05
+        },
+        {
+          "role": "sender",
+          "at": 1792151882902,
+          "event": "startup-phase",
+          "phase": "bindings_lookup",
+          "kind": "begin",
+          "processRole": "identity-child"
+        },
+        {
+          "role": "sender",
+          "at": 1792151882903,
+          "event": "startup-phase",
+          "phase": "bindings_lookup",
+          "kind": "end",
+          "processRole": "identity-child",
+          "durationMs": 0.162
+        },
+        {
+          "role": "sender",
+          "at": 1792151882999,
+          "event": "startup-phase",
+          "phase": "bindings_lookup",
+          "kind": "begin",
+          "processRole": "identity-child"
+        },
+        {
+          "role": "sender",
+          "at": 1792151882999,
+          "event": "startup-phase",
+          "phase": "bindings_lookup",
+          "kind": "end",
+          "processRole": "identity-child",
+          "durationMs": 0.216
+        },
+        {
+          "role": "sender",
+          "at": 1792151883004,
+          "event": "wake-armed"
+        },
+        {
+          "role": "sender",
+          "at": 1792151883004,
+          "event": "startup-phase",
+          "phase": "identity_ready",
+          "kind": "sample",
+          "processRole": "server"
+        },
+        {
+          "role": "sender",
+          "at": 1792151895563,
+          "event": "identity",
+          "ok": true,
+          "ready": true,
+          "instance": "claude:workspace:782589c7f590",
+          "state": "identity_ready"
+        },
+        {
+          "role": "sender",
+          "at": 1792151899329,
+          "event": "send",
+          "ok": true,
+          "kind": "probe",
+          "envelopeId": "env:send:046513a9-bcb5-499e-81f9-c298806d36b0",
+          "from": "claude:workspace:782589c7f590",
+          "to": "claude:workspace:2dba8ed91aa0"
+        }
+      ],
+      "startedAt": "2026-10-16T11:57:32.944Z",
+      "credentialsCopied": {
+        "receiver": [
+          ".claude/.credentials.json",
+          ".claude.json:login-metadata-only"
+        ],
+        "sender": [
+          ".claude/.credentials.json",
+          ".claude.json:login-metadata-only"
+        ]
+      },
+      "noPostSendHarnessInput": true,
+      "failure": "live-receive-not-observed",
+      "elapsedMs": 86720
+    }
+  ],
+  "counts": {
+    "measured-OK": 0,
+    "measured-KO": 1,
+    "blocked": 0
+  }
+}

@@ -12,6 +12,9 @@ test('the transparent MCP witness records outcomes and exact envelope IDs withou
   const events = join(root, 'events.jsonl');
   const env = { ...environment(root), XCLI_CELL: root, XCLI_EVENTS: events, XCLI_BIN: server };
   fs.writeFileSync(server, `import {createInterface} from 'node:readline';
+process.stderr.write('DO_NOT_RETAIN_PROVIDER_BODY\\n');
+process.stderr.write('h2a mcp-serve: inbox-wake: 1 new envelope(s) → drive ok\\n');
+process.stderr.write('h2a mcp-serve: inbox-wake: 2 new envelope(s) → drive failed\\n');
 for await(const line of createInterface({input:process.stdin})) {
  const m=JSON.parse(line); let result;
  if(m.method==='initialize') result={protocolVersion:'2024-11-05',capabilities:{tools:{}},serverInfo:{name:'fixture',version:'1'}};
@@ -41,6 +44,8 @@ for await(const line of createInterface({input:process.stdin})) {
     assert.ok(!raw.includes('DO_NOT_RETAIN_PROVIDER_BODY'));
     assert.ok(!raw.includes(PROBE), 'retain only fixed marker classification, never bodies');
     const records = raw.trim().split('\n').map(JSON.parse);
+    assert.deepEqual(records.filter(e => e.event === 'inbox-wake').map(e => ({ freshCount: e.freshCount, ok: e.ok })),
+      [{ freshCount: 1, ok: true }, { freshCount: 2, ok: false }]);
     assert.ok(records.some(e => e.event === 'initialize' && e.ok));
     assert.ok(records.some(e => e.event === 'tools' && e.messaging));
     assert.ok(records.some(e => e.event === 'send' && e.ok && e.kind === 'probe' && e.envelopeId === 'env:fixture'));
