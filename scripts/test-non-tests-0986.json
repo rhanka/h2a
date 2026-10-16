@@ -155,6 +155,12 @@
       "reason": "Owner round 6: declared non-test; Pre-existing tracked debt outside spec §5"
     },
     {
+      "file": "packages/h2a-runtime/src/gateway-host/live-declarations-process.test.ts",
+      "fullName": "live declarations real-process fencing (L6a fix3) admits only one holder when A is paused between the two lock-acquisition mkdirs",
+      "status": "skipped",
+      "reason": "L6a-H-next: two-step lock-acquisition race proven RED then skipped pending atomic single-step acquisition; owner declares the skipped regression is not yet a test (RED proof: docs/plan/live-git/L6a-H-next.md)."
+    },
+    {
       "file": "packages/h2a-runtime/src/host-selection-invariants.test.ts",
       "fullName": "dead legacy tmux row relaunch policy — NAMED DEBT, not covered DEAD_LEGACY_TMUX_ROW_RELAUNCHES_NATIVE_NOT_TMUX — pending dead-tmux-relaunch host policy decision (reopened by owner tmux-permanent ratification 2026-08-08)",
       "status": "todo",
