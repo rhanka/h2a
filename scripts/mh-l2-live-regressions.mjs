@@ -14,11 +14,16 @@ fs.writeFileSync(`docs/plan/mh-l2/owner-A-node${major}-affected-tests.json`, JSO
   command: ['rg', ...args], files, gitHistoryException: 'mh-l0-formats.test.js runs in the worktree with the same isolated runner'
 }, null, 2) + '\n');
 let tests = 0;
+const failures = [];
 for (const file of files) {
   if (file.endsWith('/mh-l0-formats.test.js')) continue;
   const args = ['scripts/mh-l2-test.mjs', file, label, file.endsWith('.ts') ? 'vitest' : 'node'];
   const result = spawnSync(process.execPath, args, { encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 });
-  if (result.status !== 0) { process.stdout.write(result.stdout + result.stderr); process.exit(result.status ?? 1); }
+  if (result.status !== 0) {
+    failures.push({ file, code: result.status });
+    process.stdout.write(`node${major}: ${file}: FAILED code=${result.status}; see its ${label} evidence log\n`);
+    continue;
+  }
   const output = fs.readFileSync(join('docs/plan/mh-l2/evidence', `${basename(file)}-${label}.log`), 'utf8').replace(/\u001b\[[0-9;]*m/g, '');
   if (/\b[1-9][0-9]* skipped\b/.test(output)) throw new Error('required_test_skipped:' + file);
   const count = Number(/(?:#|ℹ) tests (\d+)/.exec(output)?.[1] ?? /Tests\s+(\d+) passed/.exec(output)?.[1] ?? 0);
@@ -26,4 +31,6 @@ for (const file of files) {
   tests += count;
   process.stdout.write(`node${major}: ${file}: ${count} passed, code=0\n`);
 }
-process.stdout.write(`node${major}: ${files.length - 1} explicit reference/supplement files, ${tests} tests passed; Git-dependent format file verified separately; no skips\n`);
+process.stdout.write(`node${major}: ${files.length - 1} explicit reference/supplement files, ${tests} tests passed; failed files=${failures.length}; Git-dependent format file verified separately; no skips\n`);
+fs.writeFileSync(`docs/plan/mh-l2/owner-A-node${major}-reference-result.json`, JSON.stringify({ files: files.filter(f => !f.endsWith('/mh-l0-formats.test.js')), testsPassed: tests, failures }, null, 2) + '\n');
+if (failures.length) process.exitCode = 1;
