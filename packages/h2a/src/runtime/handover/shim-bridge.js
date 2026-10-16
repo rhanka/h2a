@@ -44,7 +44,7 @@ export async function bridgeCentralMcpStdio(options) {
   let current, pendingOwner, connecting, initialized, stopped = false, writer = Promise.resolve(), queued = 0;
   let viewOrigin = { generation: null, buildId: buildInfo.buildId, profileId: `linux-${process.arch}-node${process.versions.node.split('.')[0]}` };
   let transportState = 'CONNECTING', buffer = '', discarding = false, eventOwner;
-  let leasing = false, nextRecovery = 0, failures = 0, recoveryStarted, healthySince;
+  let leasing = false, nextRecovery = 0, failures = 0, recoveryStarted, healthySince, unavailableReason = 'central_unavailable';
   const recover = () => {
     // Loss is the first recovery event, even before connect() has failed.
     // Both supervision and downstream demand must leave the first backoff
@@ -179,6 +179,7 @@ export async function bridgeCentralMcpStdio(options) {
       let marker;
       try { marker = readCentralClientMarker(markerPath); }
       catch (e) { if (e.code !== 'ENOENT') throw e; await options.ensure?.(); marker = readCentralClientMarker(markerPath); }
+      if (marker.schemaVersion !== 2 || marker.protocol !== 2) throw new Error('legacy_requires_cold_upgrade');
       if (options.endpoint && !current && marker.endpoint !== parseCentralMcpEndpoint(options.endpoint)) throw new Error('central MCP marker does not match requested endpoint');
       if (current?.pendingAcceptance) await finishAcceptance(current);
       if (!current && pendingOwner && pendingOwner.generation !== marker.generation && ownerLiveness(pendingOwner.marker, currentIdentity()) !== 'dead' &&
@@ -288,7 +289,8 @@ export async function bridgeCentralMcpStdio(options) {
         if (registered.ok) current.registration = await registered.json();
       }
       notifications(current); return current;
-    })().then(owner => { healthySince ??= Date.now(); return owner; }).catch(e => {
+    })().then(owner => { healthySince ??= Date.now(); unavailableReason = 'central_unavailable'; return owner; }).catch(e => {
+      unavailableReason = e.message === 'legacy_requires_cold_upgrade' ? 'legacy_requires_cold_upgrade' : 'central_unavailable';
       transportState = 'DEGRADED_TRANSPORT'; healthySince = undefined; recoveryStarted ??= Date.now(); failures++;
       const degraded = Date.now() - recoveryStarted >= 60000;
       nextRecovery = Date.now() + (degraded ? 30000 * (0.8 + Math.random() * 0.4) : [1000, 2000, 4000, 8000, 15000][Math.min(failures - 1, 4)] * (0.5 + Math.random() / 2));
@@ -299,7 +301,7 @@ export async function bridgeCentralMcpStdio(options) {
   const available = async () => {
     if (connecting) return connecting;
     if (current && transportState === 'READY') return current;
-    if (Date.now() < nextRecovery) throw new Error('central_unavailable');
+    if (Date.now() < nextRecovery) throw new Error(unavailableReason);
     return connect();
   };
   const dispatch = async (message, entry) => {
@@ -339,7 +341,7 @@ export async function bridgeCentralMcpStdio(options) {
         if (mappings.settle(entry, 'non-admission')) error(entry.downstreamId, e.refusal.reason, e.refusal.reason, true); return;
       }
       if (entry.dispatchState === 'possible') { recover(); if (e.applicationDispatched === false) entry.dispatchState = 'not-sent'; }
-      if (mappings.settle(entry, 'error')) error(entry.downstreamId, entry.dispatchState === 'possible' ? 'outcome_unknown' : e.message === 'deadline_exceeded' ? 'deadline_exceeded' : 'central_unavailable', e.message);
+      if (mappings.settle(entry, 'error')) error(entry.downstreamId, entry.dispatchState === 'possible' ? 'outcome_unknown' : ['deadline_exceeded', 'legacy_requires_cold_upgrade'].includes(e.message) ? e.message : 'central_unavailable', e.message);
     } finally { retireOwners(); }
   };
   const onMessage = message => {
