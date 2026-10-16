@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { fstatSync, lstatSync, readdirSync, readFileSync, readlinkSync, realpathSync, statSync, unlinkSync } from "node:fs";
+import { closeSync, constants, fstatSync, lstatSync, openSync, readdirSync, readFileSync, readlinkSync, realpathSync, statSync, unlinkSync } from "node:fs";
 import { chmod, link, lstat, mkdir, open, readFile, rename, unlink, writeFile, type FileHandle } from "node:fs/promises";
 import { createConnection, createServer, type Server, type Socket } from "node:net";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
@@ -233,10 +233,18 @@ function dispatch(host: NativeTerminalHost, context: ConnectionContext, request:
       return host.attachObserver(sessionId(params));
     case "acquire-controller": {
       const record = requiredRecord(params, "params");
+      if (record.takeover !== undefined && typeof record.takeover !== "boolean") {
+        throw new TypeError("terminal controller takeover must be a boolean");
+      }
       const lease = host.acquireController(
         requiredIdentifier(record.id, "session id"),
         requiredIdentifier(record.controllerId, "controller id"),
         controllerActivity(record.activity),
+        {
+          ...(record.takeover !== undefined ? { takeover: record.takeover as boolean } : {}),
+          ...(record.pid !== undefined ? { pid: requiredInteger(record.pid, "controller pid") } : {}),
+          ...(record.tty !== undefined ? { tty: requiredString(record.tty, "controller tty") } : {}),
+        },
       );
       context.leases.set(lease.id, lease);
       return lease;
@@ -745,6 +753,10 @@ function findActiveHostServingSocket(
       reason: `cannot canonicalize target socket path: ${socketPath}`,
     };
   }
+  const targetDirectory = statSync(dirname(targetCanonical));
+  let targetSocket: NativeTerminalSocketIdentity | undefined;
+  try { targetSocket = statSync(targetCanonical); }
+  catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
 
   for (const entry of entries) {
     if (!/^\d+$/.test(entry)) continue;
@@ -786,14 +798,21 @@ function findActiveHostServingSocket(
     if (!isHost) continue;
 
     const candidateCanonical = canonicalizePath(candidateSocket);
-    if (!candidateCanonical) {
-      // The alias used at host startup was deleted; canonicalization cannot prove absence
-      return {
-        state: "unknown",
-        reason: `cannot canonicalize host socket path ${candidateSocket} for host pid ${pid}`,
-      };
+    let sameCandidateSocket = false;
+    if (targetSocket) {
+      try { sameCandidateSocket = sameNativeTerminalSocket(statSync(candidateSocket), targetSocket); }
+      catch { /* An absent published name supplies no direct inode evidence. */ }
     }
-    if (candidateCanonical !== targetCanonical) continue;
+    // Staged stems collide between the primary and lf1 endpoints. A native
+    // publication keeps its full basename; only direct socket identity can
+    // override a different endpoint name or a different resolved path.
+    if (!sameCandidateSocket && basename(resolve(candidateSocket)) !== basename(targetCanonical)) continue;
+    // An ancestor alias can have been retargeted since bind. Its current
+    // resolution alone cannot exclude the old target; pinned bind evidence can.
+    const candidateAliased = candidateCanonical !== undefined && candidateCanonical !== resolve(candidateSocket);
+    const couldServeTarget = candidateCanonical === undefined
+      || candidateCanonical === targetCanonical || sameCandidateSocket || candidateAliased;
+    if (!couldServeTarget) continue;
 
     const candDir = dirname(candidateSocket);
     let isStagingCandidate = false;
@@ -819,18 +838,17 @@ function findActiveHostServingSocket(
     }
 
     let hasSocketFd = false;
-    let unixSockets: Map<string, string> | undefined;
+    const descriptorLinks = new Map<string, string>();
+    let unreadableDescriptor: string | undefined;
     for (const fd of fds) {
-      let link: string;
-      try {
-        link = readlinkSync(join(fdDir, fd));
-      } catch (err) {
+      try { descriptorLinks.set(fd, readlinkSync(join(fdDir, fd))); }
+      catch (err) {
         if ((err as NodeJS.ErrnoException).code === "ENOENT" || (err as NodeJS.ErrnoException).code === "ESRCH") continue;
-        return {
-          state: "unknown",
-          reason: `cannot readlink /proc/${pid}/fd/${fd}: ${err instanceof Error ? err.message : String(err)}`,
-        };
+        unreadableDescriptor = `cannot readlink /proc/${pid}/fd/${fd}: ${String(err)}`;
       }
+    }
+    let unixSockets: Map<string, string> | undefined;
+    for (const link of descriptorLinks.values()) {
       const inode = /^socket:\[(\d+)\]$/.exec(link)?.[1];
       if (!inode) continue;
       if (!unixSockets) {
@@ -848,16 +866,54 @@ function findActiveHostServingSocket(
       // Stdio and journal IPC are Unix socket pairs too. Only the native
       // listener's canonical or PID-attributed staged address proves service,
       // including a listener whose filesystem pathname has been unlinked.
-      if (!boundPath || (boundPath !== candidateSocket && !(dirname(boundPath) === candDir
-        && isStagedSocketName(basename(boundPath), candidateSocket, pid)))) continue;
+      if (!boundPath || !boundPath.startsWith("/")) continue;
       const canonicalBound = canonicalizePath(boundPath);
-      if (!canonicalBound) return { state: "unknown", reason: `cannot canonicalize bound socket for host pid ${pid}` };
-      if (canonicalBound === targetCanonical || (dirname(canonicalBound) === dirname(targetCanonical)
-        && isStagedSocketName(basename(canonicalBound), candidateSocket, pid))) {
+      let sameSocket = false;
+      if (targetSocket) {
+        try { sameSocket = sameNativeTerminalSocket(statSync(boundPath), targetSocket); }
+        catch { /* An unlinked staging name has no filesystem inode to compare. */ }
+      }
+      const stagedForTarget = isStagedSocketName(basename(boundPath), socketPath, pid);
+      if (sameSocket) {
         hasSocketFd = true;
         break;
       }
+      // Prefer the pinned directory even when its old pathname resolves again:
+      // a replacement directory at that name is a different endpoint. The bind
+      // directory is canonical, so its FD stays attributable after alias loss.
+      // Never compare the sockfs inode with a VFS inode.
+      // The Unix-table row above belongs to a socket this PID actually holds.
+      const nativeListener = boundPath === candidateSocket
+        || isStagedSocketName(basename(boundPath), candidateSocket, pid);
+      if (!nativeListener) continue;
+      let boundDirectory: NativeTerminalSocketIdentity | undefined;
+      for (const [fd, path] of descriptorLinks) {
+        if (path !== dirname(boundPath) && path !== `${dirname(boundPath)} (deleted)`) continue;
+        try {
+          const info = statSync(join(fdDir, fd));
+          if (info.isDirectory() && (path === dirname(boundPath) || info.nlink === 0)) {
+            boundDirectory = info;
+            break;
+          }
+        } catch { /* Missing directory evidence remains unknown below. */ }
+      }
+      if (boundDirectory && !sameNativeTerminalSocket(boundDirectory, targetDirectory)) continue;
+      if (boundDirectory && (stagedForTarget || basename(boundPath) === basename(targetCanonical))) {
+        hasSocketFd = true;
+        break;
+      }
+      // Older hosts have no directory FD. Resolvable bind evidence can still
+      // attribute them; only an opaque listener of this same endpoint remains
+      // unknown. Distinct endpoint names were excluded before FD inspection.
+      if (canonicalBound === targetCanonical || (canonicalBound !== undefined
+        && dirname(canonicalBound) === dirname(targetCanonical) && stagedForTarget)) {
+        hasSocketFd = true;
+        break;
+      }
+      if (canonicalBound !== undefined && !candidateAliased) continue;
+      return { state: "unknown", reason: `cannot attribute bound socket directory for host pid ${pid}` };
     }
+    if (!hasSocketFd && unreadableDescriptor) return { state: "unknown", reason: unreadableDescriptor };
     if (!hasSocketFd) continue;
 
     const startTime = readProcessStartTime(pid);
@@ -1326,13 +1382,24 @@ async function initializeNativeTerminalHostServer(options: {
       sockets.delete(socket);
     });
   });
-  const stagedPath = stagingSocketPath(options.socketPath);
+  // bind(2) retains this literal path in /proc/net/unix. Resolve its directory
+  // before binding so it agrees with the retained directory FD even if an
+  // ancestor symlink is later removed. Keep the published path and grammar.
+  const stagedPath = stagingSocketPath(join(realpathSync(dirname(options.socketPath)), basename(options.socketPath)));
+  let directoryFd: number | undefined;
+  const closeDirectory = () => {
+    if (directoryFd !== undefined) { closeSync(directoryFd); directoryFd = undefined; }
+  };
   let ownedSocket: NativeTerminalSocketIdentity | undefined;
   // Assigned once the published close is built; the listener-failure handler
   // (installed before that object exists) tears the server down through it.
   let closePublished: ((closeOptions?: { stopSessions?: boolean; signal?: string }) => Promise<void>) | undefined;
   let initializationFailure: NativeTerminalListenerFailure | undefined;
   try {
+    // Keep the real directory inode observable through /proc/<pid>/fd even
+    // after its pathname is deleted. The bind name and staging grammar stay
+    // compatible with older readers; no private-state census is introduced.
+    directoryFd = openSync(dirname(stagedPath), constants.O_RDONLY | constants.O_DIRECTORY);
     await abortable(new Promise<void>((resolve, reject) => {
       server.once("error", reject);
       server.listen(stagedPath, () => {
@@ -1404,6 +1471,9 @@ async function initializeNativeTerminalHostServer(options: {
     };
     // Capture the listener's inode before any publication await can suspend.
     ownedSocket = lstatSync(stagedPath);
+    if (!sameNativeTerminalSocket(fstatSync(directoryFd), statSync(dirname(stagedPath)))) {
+      throw new Error("terminal host socket directory changed during bind");
+    }
     await abortable(chmod(stagedPath, 0o600), options.signal);
     await withSocketPublicationLock(
       options.socketPath,
@@ -1430,13 +1500,15 @@ async function initializeNativeTerminalHostServer(options: {
       throw new Error(initializationFailure.kind === "unknown" ? "unknown listener error" : "unusable listener error");
     }
   } catch (error) {
-    for (const socket of sockets) socket.destroy();
-    const closed = new Promise<void>((resolve) => server.close(() => resolve()));
-    if (ownedSocket !== undefined) {
-      unlinkOwnedPath(stagedPath, ownedSocket);
-      rollbackEndpoint(options.socketPath, ownedSocket);
-    }
-    await abortable(closed, AbortSignal.timeout(SOCKET_PUBLICATION_CLEANUP_TIMEOUT_MS));
+    try {
+      for (const socket of sockets) socket.destroy();
+      const closed = new Promise<void>((resolve) => server.close(() => resolve()));
+      if (ownedSocket !== undefined) {
+        unlinkOwnedPath(stagedPath, ownedSocket);
+        rollbackEndpoint(options.socketPath, ownedSocket);
+      }
+      await abortable(closed, AbortSignal.timeout(SOCKET_PUBLICATION_CLEANUP_TIMEOUT_MS));
+    } finally { closeDirectory(); }
     throw error;
   }
   readyForRequests = true;
@@ -1469,7 +1541,7 @@ async function initializeNativeTerminalHostServer(options: {
         }
       });
       if (stopError !== undefined) throw stopError;
-    })();
+    })().finally(closeDirectory);
     return closing;
   };
   closePublished = doClose;

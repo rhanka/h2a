@@ -443,14 +443,105 @@ test("R8.2 (4): publish downloads the verify-built tarballs and verifies every s
     verifyHashes,
     "publish must verify every tarball sha256 against what verify recorded before any npm publish",
   );
-  // The three lockstep publishes must publish THE artifact tarballs.
-  for (const tarball of ["sentropic-h2a-", "sentropic-h2a-runtime-", "sentropic-h2a-cli-"]) {
-    const publishStep = publish.steps.find((step) => String(step.run ?? "").includes(`npm publish "dist-tarballs/${tarball}`));
+  // The four lockstep publishes must publish THE artifact tarballs.
+  for (const tarball of ["sentropic-h2a-", "sentropic-h2a-runtime-", "sentropic-h2a-cli-", "sentropic-track-"]) {
+    const publishStep = publish.steps.find((step) => String(step.run ?? "").includes(`npm publish "./dist-tarballs/${tarball}`));
     assert.ok(
       publishStep,
       `publish must run npm publish on the verified artifact tarball for ${tarball}*, not a workspace pack of a mutable ref`,
     );
   }
+});
+
+test("R8.2 (0.98.6 git-shorthand incident): every npm publish tarball arg is an unambiguous ./ file spec", () => {
+  // Release 0.98.6, publish step "Publish @sentropic/track": npm parsed the
+  // relative path "dist-tarballs/sentropic-track-0.98.6.tgz" as a GitHub
+  // "owner/repo" shorthand and ran
+  // `git ls-remote ssh://git@github.com/dist-tarballs/sentropic-track-0.98.6.tgz.git`.
+  // A spec starting with ./ (or /) is always a file; a bare relative path
+  // containing a slash is probed as owner/repo first. So every tarball
+  // publish must pass "./dist-tarballs/…" — never the bare form.
+  const publish = job("publish");
+  const publishes = publish.steps.filter((step) => String(step.run ?? "").includes("npm publish"));
+  assert.ok(publishes.length >= 4, "publish must publish track plus the three lockstep packages");
+  for (const tarball of [
+    "sentropic-track-${v}.tgz",
+    "sentropic-h2a-runtime-${v}.tgz",
+    "sentropic-h2a-${v}.tgz",
+    "sentropic-h2a-cli-${v}.tgz",
+  ]) {
+    const holders = publishes.filter((step) => String(step.run).includes(`"./dist-tarballs/${tarball}"`));
+    assert.equal(
+      holders.length,
+      1,
+      `exactly one publish step must ship "./dist-tarballs/${tarball}" (unambiguous file spec, not a git shorthand)`,
+    );
+  }
+  for (const step of publishes) {
+    const args = [...String(step.run).matchAll(/npm publish\s+"([^"]+)"/g)].map((m) => m[1]);
+    for (const arg of args) {
+      if (!arg.endsWith(".tgz")) continue;
+      assert.ok(
+        arg.startsWith("./") || arg.startsWith("/"),
+        `publish arg "${arg}" is an unprefixed relative tarball path — npm parses it as owner/repo git shorthand (0.98.6 incident); use "./${arg}"`,
+      );
+    }
+  }
+});
+
+test("R8.2: @sentropic/track publishes the VERIFIED tarball bytes — pinned COMMAND BY COMMAND", () => {
+  // 0.98.6 publish incident: the track step ran `npm publish --workspace
+  // @sentropic/track`, re-running the package build in the publish job where
+  // dev types are absent (TS2688: Cannot find type definition file for
+  // 'node'). The three other packages publish the verify-built tarball bytes
+  // (sha256-checked, SPEC 0.98.5 R8.2); track must do exactly the same. The
+  // EFFECTIVE script (comments stripped) is pinned line by line, so any
+  // return to a workspace repack — or a dropped sha256 re-check — changes a
+  // line and fails here.
+  const publish = job("publish");
+  const step = publish.steps.find((s) => s.name === "Publish @sentropic/track (trusted publishing, public)");
+  assert.ok(step, "publish must carry the track tarball step under its trusted-publishing name");
+  assert.equal(step.shell, "bash", "the track publish must run under the bash wrapper — a weaker shell changes what the pinned lines mean");
+  assert.equal(step["working-directory"], undefined, "a working-directory on the track step silently relocates the paths the pinned commands address");
+  assert.equal(step.env, undefined, "an env block on the track step can shadow the variables the pinned commands use");
+  assert.equal(step.if, undefined, "the track publish must stay unconditional (the total-unconditionality test above enforces this for every step)");
+  assert.equal(step["continue-on-error"], undefined, "a continue-on-error on the track publish would read a failed publication green");
+  assert.ok(
+    !String(step.run).includes("--workspace"),
+    "the track publish must never repack a workspace: `npm publish --workspace` rebuilds in the publish job where dev types are absent (0.98.6 TS2688)",
+  );
+  assert.deepEqual(effectiveScript(step.run), [
+    'v="$(node -p "require(\'./packages/track/package.json\').version")"',
+    'if npm view "@sentropic/track@$v" version >/dev/null 2>&1; then',
+    'echo "@sentropic/track@$v already on registry; skipping."',
+    "else",
+    'tagArgs=""',
+    'latest="$(npm view "@sentropic/track" dist-tags.latest 2>/dev/null || true)"',
+    'if [ -n "$latest" ] && [ "$v" != "$latest" ]; then',
+    'lowest="$(printf \'%s\\n%s\\n\' "$v" "$latest" | sort -V | head -n1)"',
+    'if [ "$lowest" = "$v" ]; then',
+    'tagArgs="--tag backfill"',
+    'echo "@sentropic/track@$v is below latest ($latest); publishing with $tagArgs so the latest dist-tag stays untouched."',
+    "fi",
+    "fi",
+    "(cd dist-tarballs && sha256sum --check --strict sha256sums.txt)",
+    'if ! npm publish "./dist-tarballs/sentropic-track-${v}.tgz" --access public $tagArgs; then',
+    'echo "::error::@sentropic/track@$v: npm publish failed (not published)." >&2',
+    "exit 1",
+    "fi",
+    "fi",
+    "for attempt in $(seq 1 18); do",
+    'if npm view "@sentropic/track@$v" version >/dev/null 2>&1; then',
+    "break",
+    "fi",
+    'if [[ "$attempt" -eq 18 ]]; then',
+    'echo "::warning::@sentropic/track@$v was published but is not visible on registry after 18 attempts — registry propagation lag; not failing the step." >&2',
+    "break",
+    "fi",
+    'echo "@sentropic/track@$v is not visible on registry yet; retrying in 10 seconds (attempt $attempt/18)." >&2',
+    "sleep 10",
+    "done",
+  ], "the track publish's failure and idempotence conditions are pinned: a workspace repack (0.98.6 TS2688), a dropped sha256 re-check, a lost backfill tag, or a silenced publish error all change this script");
 });
 
 test("R8.2: the artifact manifest is TIED to the resolved SHA, and publish re-checks the tie before publishing", () => {
