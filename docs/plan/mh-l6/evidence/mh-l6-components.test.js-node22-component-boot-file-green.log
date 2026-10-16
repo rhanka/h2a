@@ -1,0 +1,22 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-components.test.js
+node: v22.22.1
+private root: /tmp/mh-l6-test-HVy073
+case: U12 should prevent the real MCP boot worker from executing code changed after its parent verified the image
+TAP version 13
+# Subtest: U12 should prevent the real MCP boot worker from executing code changed after its parent verified the image
+ok 1 - U12 should prevent the real MCP boot worker from executing code changed after its parent verified the image
+  ---
+  duration_ms: 3854.160876
+  type: 'test'
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 1
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 4133.815897
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-components.test.js"],"code":0,"signal":null,"tests":1,"invalid":false,"spawned":2,"leftovers":[]}

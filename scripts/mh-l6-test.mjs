@@ -25,7 +25,7 @@ if (process.env.MH_L5_ARTIFACTS) {
 }
 const args = runner === 'node' ? ['--test', '--test-reporter=tap', file] : [resolve('node_modules/vitest/vitest.mjs'), 'run', file];
 const command = [process.execPath, ...args];
-let output = `command: ${command.join(' ')}\nnode: ${process.version}\nprivate root: ${directory}\ncase: ${env.MH_L5_CASE ?? 'all cases in explicit file'}\n`;
+let output = `command: ${command.join(' ')}\nnode: ${process.version}\nprivate root: ${directory}\ncase: ${env.MH_L6_CASE ?? env.MH_L5_CASE ?? 'all cases in explicit file'}\n`;
 const child = spawn(process.execPath, args, { env, stdio: ['ignore', 'pipe', 'pipe'] });
 const deadline = setTimeout(() => { output += '\nfile budget exceeded\n'; child.kill('SIGTERM'); }, 900_000);
 for (const stream of [child.stdout, child.stderr]) stream.on('data', bytes => { output += bytes; process.stdout.write(bytes); });
