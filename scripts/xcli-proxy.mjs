@@ -13,7 +13,25 @@ const child = spawn(process.execPath, [process.env.XCLI_BIN, ...process.argv.sli
 emit({ event: 'proxy-start', pid: process.pid, childPid: child.pid });
 const pending = new Map();
 let diagnostic = '';
+let lastIdentity;
+let diagnosticLines = '';
 child.stderr.on('data', bytes => {
+  diagnosticLines += bytes.toString();
+  let newline;
+  while ((newline = diagnosticLines.indexOf('\n')) !== -1) {
+    const line = diagnosticLines.slice(0, newline);
+    diagnosticLines = diagnosticLines.slice(newline + 1);
+    const prefix = line.indexOf('h2a.mcp.phase ');
+    if (prefix === -1) continue;
+    try {
+      const trace = JSON.parse(line.slice(prefix + 'h2a.mcp.phase '.length));
+      if (/^(?:identity|provider|keys|register|alias|registry|binding_lock|process_start)/.test(trace.phase) && /^[a-z0-9_:. -]{1,80}$/i.test(trace.phase)) {
+        emit({ event: 'startup-phase', phase: trace.phase, kind: trace.event, role: trace.role,
+          durationMs: trace.durationMs, waitMs: trace.waitMs, holdMs: trace.holdMs });
+      }
+    } catch { /* never retain unparsed diagnostics */ }
+  }
+  diagnosticLines = diagnosticLines.slice(-32768);
   diagnostic = (diagnostic + bytes.toString()).slice(-16384);
   if (diagnostic.includes('inbox-wake armed') && !diagnostic.includes('XCLI_ARMED_RECORDED')) {
     emit({ event: 'wake-armed' });
@@ -51,8 +69,13 @@ function observe(line) {
     if (request.method !== 'tools/call') return;
     let value;
     try { value = JSON.parse(result?.content?.find(c => c.type === 'text')?.text); } catch { /* unsuccessful/non-JSON */ }
-    if (request.tool === 'h2a_identity_status') emit({ event: 'identity', ok,
-      ready: value?.state === 'identity_ready', instance: value?.instance });
+    if (request.tool === 'h2a_identity_status') {
+      const state = `${ok}:${value?.state}:${value?.instance}`;
+      if (state !== lastIdentity) emit({ event: 'identity', ok,
+        ready: value?.state === 'identity_ready', instance: value?.instance,
+        state: value?.state, cause: /^[a-z_]+$/.test(value?.cause ?? '') ? value.cause : undefined });
+      lastIdentity = state;
+    }
     if (request.tool === 'h2a_send') {
       const kind = request.args?.message === PROBE ? 'probe' : request.args?.message === REPLY ? 'reply' : 'other';
       emit({ event: 'send', ok: ok && !value?.error && Boolean(value?.envelope?.id), kind,

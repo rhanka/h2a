@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import { spawn, spawnSync } from 'node:child_process';
 import { join, dirname, resolve } from 'node:path';
 import { pathToFileURL, fileURLToPath } from 'node:url';
+import { createHash } from 'node:crypto';
 import { CLIS, PROBE, REPLY, repo, environment, sourceBuild, copyLogin,
   cliPath, pythonEntrypoint, classify, matrix, inside } from './xcli-lab.mjs';
 
@@ -37,8 +38,12 @@ function argsFor(cli, prompt) {
 
 // Only normal startup UI interactions in our empty temporary workspace.
 // No bypass flags, persisted trust edits, or inputs after the idle barrier.
-function startupKey(screen) {
-  if (/Choose the text style|Choose the text style that looks best|Select theme|Choose a theme/i.test(screen)) return 'theme-default';
+export function startupKey(screen) {
+  const normalized = screen.replace(/\s+/g, ' ');
+  if (/choose.{0,25}permissions/i.test(normalized) && /default/i.test(normalized) && /press.{0,35}continue/i.test(normalized)) return 'permissions-keep-default';
+  if (/Default permissions/i.test(screen) && /press[^\n]{0,35}continue/i.test(screen)) return 'permissions-keep-default';
+  if (/(?:Choose|Select) the text style|Select theme|Choose a theme/i.test(screen)) return 'theme-default';
+  if (/Do you trust this workspace\?/.test(screen) && /Trust and continue/.test(screen)) return 'trust-empty-workspace';
   if (/Yes, I trust this folder|Yes, I trust this project|Trust folder|Trust this folder/i.test(screen)) return 'trust-empty-workspace';
   if (/Press Enter to continue/i.test(screen) && /security|safety|welcome|terminal setup/i.test(screen)) return 'startup-continue';
   return undefined;
@@ -46,7 +51,7 @@ function startupKey(screen) {
 
 async function worker() {
   const request = JSON.parse(fs.readFileSync(0, 'utf8'));
-  const { sender, receiver, root, build, executables, timeoutMs, authHome } = request;
+  const { sender, receiver, root, build, executables, timeoutMs, authHome, simulated, dropWake } = request;
   const cell = fs.mkdtempSync(join(root, 'c-'));
   const hostEnv = { ...environment(cell), H2A_TEST_QUALIFICATION_ROOT: root };
   Object.assign(process.env, hostEnv);
@@ -71,6 +76,12 @@ async function worker() {
   const cancel = () => { cancelled = true; };
   process.on('SIGTERM', cancel);
   process.on('SIGINT', cancel);
+  const cleanupError = (stage, error) => {
+    row.cleanupFailed = true;
+    row.cleanupErrors ??= [];
+    row.cleanupErrors.push({ stage, code: error.code, name: error.name,
+      locations: String(error.stack ?? '').split('\n').slice(1).filter(line => line.includes(build) || line.includes(repo)).map(line => line.trim()) });
+  };
   async function launch(cli, role, prompt) {
     const dir = join(cell, role);
     fs.mkdirSync(dir, { mode: 0o700 });
@@ -79,6 +90,14 @@ async function worker() {
       REMOTE_CLI_CONFIG_HOME: hostEnv.HOME,
       H2A_NATIVE_TARGET_SESSION: `h2a-${role}`, H2A_NATIVE_PTY_SESSION: `h2a-${role}`,
       XCLI_CELL: cell, XCLI_EVENTS: join(dir, 'events.jsonl'), XCLI_BIN: bin,
+      XCLI_BUILD: build, ...(simulated ? { XCLI_SIMULATED: '1' } : {}),
+      // Both peers belong to this one experiment. Their lock liveness checks
+      // must see the same owned-process view, never unrelated owner processes.
+      H2A_TEST_PROC_ROOT: process.env.H2A_TEST_PROC_ROOT,
+      H2A_TEST_OWNED_PROC_ROOT: process.env.H2A_TEST_OWNED_PROC_ROOT,
+      ...(simulated ? { H2A_NOTIFY_INTERVAL_MS: '100' } : {}),
+      H2A_MCP_TRACE: '1',
+      ...(dropWake ? { XCLI_DROP_WAKE: '1' } : {}),
     };
     row.credentialsCopied[role] = copyLogin(cli, authHome, cell, env);
     if ((cli === 'gemini' || cli === 'agy') && row.credentialsCopied[role].includes('.gemini/oauth_creds.json')) {
@@ -99,12 +118,14 @@ async function worker() {
     // Phase 1 deliberately uses the product descriptor's own default path.
     const descriptor = await import(pathToFileURL(join(build, `packages/h2a/dist/hosts/${cli}.js`)));
     const hint = descriptor.renderMcpConfig().path.example;
-    const path = hint.replace(/^~(?=\/)/, env.HOME);
+    const path = cli === 'claude' && hint === '~/.claude.json'
+      ? join(env.CLAUDE_CONFIG_DIR, '.claude.json') : hint.replace(/^~(?=\/)/, env.HOME);
     inside(cell, path);
     fs.mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
     if (path.endsWith('.toml')) {
       const endpoint = config.mcpServers.h2a;
-      fs.writeFileSync(path, `[[mcp_servers]]\nname = "h2a"\ntransport = "stdio"\ncommand = ${JSON.stringify(endpoint.command)}\nargs = ${JSON.stringify(endpoint.args)}\n`);
+      const table = cli === 'codex' ? '[mcp_servers.h2a]\n' : '[[mcp_servers]]\nname = "h2a"\ntransport = "stdio"\n';
+      fs.writeFileSync(path, `${table}command = ${JSON.stringify(endpoint.command)}\nargs = ${JSON.stringify(endpoint.args)}\n`);
     } else {
       let previous = {};
       if (fs.existsSync(path)) previous = JSON.parse(fs.readFileSync(path, 'utf8'));
@@ -123,6 +144,7 @@ async function worker() {
   async function capture(target) {
     const output = await client.readOutput(target.state.id, target.seq);
     for (const chunk of output.chunks) {
+      target.lastOutputAt = Date.now();
       target.seq = chunk.seq;
       target.screen = (target.screen + chunk.data).slice(-65536);
     }
@@ -156,7 +178,7 @@ async function worker() {
       if (blocker) return { blocker };
       const identity = events(target).find(e => e.event === 'identity' && e.ok && e.ready);
       const armed = events(target).some(e => e.event === 'wake-armed');
-      if (identity && loaded(target) && armed && paneIsReady(screen, target.cli)) {
+      if (identity && loaded(target) && armed && paneIsReady(screen, target.cli) && Date.now() - (target.lastOutputAt ?? Date.now()) >= 2000) {
         quietSince ??= Date.now();
         if (Date.now() - quietSince >= 2000) return { instance: identity.instance };
       } else quietSince = undefined;
@@ -168,6 +190,14 @@ async function worker() {
       modelToolCallObserved: e.some(v => ['identity', 'send', 'inbox'].includes(v.event)),
       composerReady: paneIsReady(stripAnsi(target.screen), target.cli),
       mcpLoaded: loaded(target), wakeArmed: e.some(v => v.event === 'wake-armed') });
+    const screen = stripAnsi(target.screen);
+    row.evidence.push({ event: 'screen-signals', role: target.role, signals: Object.entries({
+      error: /\berror\b/i, mcpFailure: /MCP.{0,80}(?:failed|error)|failed.{0,80}MCP/i,
+      onboarding: /welcome|theme|onboard/i, login: /sign.?in|log.?in|authenticat/i,
+      modelLoading: /model.{0,30}loading/i, modelUnavailable: /model.{0,60}(?:not found|unavailable|not supported)/i,
+      permission: /permission|approval|trust/i, noTools: /no (?:MCP|tools)|tools.{0,30}unavailable/i,
+      cursorQuery: /\x1b\[6n/.test(target.screen) ? /[\s\S]/ : /(?!) /,
+    }).filter(([, pattern]) => pattern.test(screen)).map(([name]) => name) });
     return loaded(target) ? { blocker: 'initial-model-tool-turn-not-observed' } : { failure: 'mcp-not-loaded-before-deadline' };
   }
   try {
@@ -184,7 +214,7 @@ async function worker() {
       try { client = await NativeTerminalClient.connect(hostEnv.H2A_NATIVE_SOCKET); break; } catch { await sleep(50); }
     }
     if (!client) { row.blocker = 'private-host-unavailable'; return row; }
-    const receiverPrompt = `Qualification h2a. Use only h2a MCP tools. First call h2a_identity_status once, then finish your turn and wait. Do not poll. On an automatic h2a inbox wake, read your own inbox using h2a_inbox action read and your identity. For the exact message ${PROBE}, reply with h2a_send to that envelope's actor.instance, message exactly ${REPLY}. Never use shell, files, other agents or any non-h2a tool.`;
+    const receiverPrompt = `Qualification h2a. Use only h2a MCP tools. First call h2a_identity_status until state identity_ready (stop if identity_failed), then finish your turn and wait. After readiness do not poll. On an automatic h2a inbox wake, read your own inbox using h2a_inbox action read and your identity. For the exact message ${PROBE}, reply with h2a_send to that envelope's actor.instance, message exactly ${REPLY}. Never use shell, files, other agents or any non-h2a tool.`;
     const r = await launch(receiver, 'receiver', receiverPrompt);
     const readiness = await ready(r);
     row.receiverMcp = loaded(r);
@@ -194,7 +224,7 @@ async function worker() {
       return row;
     }
     row.evidence.push({ event: 'receiver-idle-barrier', at: Date.now(), instance: readiness.instance });
-    const senderPrompt = `Qualification h2a. Use only h2a MCP tools. Call h2a_identity_status then h2a_send once, to exactly ${readiness.instance}, message exactly ${PROBE}. Finish your turn. Never use shell, files, other agents or any non-h2a tool.`;
+    const senderPrompt = `Qualification h2a. Use only h2a MCP tools. Call h2a_identity_status until identity_ready (stop if identity_failed), then h2a_send once, to exactly ${readiness.instance}, message exactly ${PROBE}. Finish your turn. Never use shell, files, other agents or any non-h2a tool.`;
     const s = await launch(sender, 'sender', senderPrompt);
     const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {
@@ -232,8 +262,22 @@ async function worker() {
   } finally {
     for (const t of targets) row.evidence.push(...events(t).map(e => ({ role: t.role, ...e })));
     for (const t of targets.reverse()) {
-      try { await client.stopIfIncarnation(t.state.id, t.state.generation, t.state.incarnation, 'SIGKILL'); }
-      catch { row.cleanupFailed = true; }
+      try { isolation.pinPrivateNativeProcess(t.state.pid, t.env); }
+      catch (error) { if (!['ENOENT', 'ESRCH'].includes(error.code)) cleanupError('pin', error); }
+      try {
+        const current = await client.state(t.state.id);
+        assert.equal(current.generation, t.state.generation, 'private host generation changed');
+        assert.equal(current.incarnation, t.state.incarnation, 'private session incarnation changed');
+        if (current.status !== 'exited') {
+          try { await client.stopIfIncarnation(t.state.id, t.state.generation, t.state.incarnation, 'SIGKILL'); }
+          catch (error) {
+            // The child may exit between state and the fenced stop. Accept
+            // only the same observed generation/incarnation, now exited.
+            const after = await client.state(t.state.id);
+            if (after.status !== 'exited' || after.generation !== t.state.generation || after.incarnation !== t.state.incarnation) throw error;
+          }
+        }
+      } catch (error) { cleanupError('native-stop', error); }
     }
     client?.close();
     if (host) {
@@ -241,14 +285,20 @@ async function worker() {
       await Promise.race([new Promise(r => host.exitCode !== null || host.signalCode !== null ? r() : host.once('close', r)), sleep(3000)]);
       if (host.exitCode === null && host.signalCode === null) { host.kill('SIGKILL'); await new Promise(r => host.once('close', r)); }
     }
-    try { await isolation.waitForPrivateNativeProcesses(hostEnv); }
-    catch { row.cleanupFailed = true; }
+    try { await isolation.stopPrivateNativeProcesses(hostEnv); }
+    catch (error) { cleanupError('owned-stop', error); }
+    for (const t of targets) {
+      try { await isolation.waitForPrivateNativeProcesses(t.env); }
+      catch (error) { cleanupError('owned-wait', error); }
+    }
     row.elapsedMs = Date.now() - started;
     row.status = row.cleanupFailed ? 'blocked' : classify(row);
+    if (simulated) row.status = row.status.replace('measured-', 'simulated-');
     if (row.cleanupFailed) row.blocker = 'owned-process-cleanup-failed';
     // Remove copied logins and CLI-owned transcripts. Only allowlisted witness
     // records returned to the parent survive the cell.
-    fs.rmSync(cell, { recursive: true, force: true });
+    if (!row.cleanupFailed) fs.rmSync(cell, { recursive: true, force: true });
+    else row.privateCleanupRoot = cell;
     process.off('SIGTERM', cancel);
     process.off('SIGINT', cancel);
   }
@@ -275,10 +325,26 @@ function markdown(result) {
 async function main() {
   assert.ok([22, 24].includes(Number(process.versions.node.split('.')[0])), 'Node 22/24 required');
   const root = fs.mkdtempSync('/tmp/h2a-qual-');
+  process.stdout.write(`Private qualification root: ${root}\n`);
   const built = sourceBuild(root);
   const sourcePath = process.env.PATH ?? '/usr/bin:/bin';
+  const simulated = process.argv.includes('--simulated');
+  assert.ok(!simulated || !option('--auth-home'), 'simulated CI must never read login files');
   const executables = Object.fromEntries(CLIS.map(cli => [cli, cliPath(cli, sourcePath)]));
+  if (simulated) {
+    fs.mkdirSync(join(root, 'sim-bin'));
+    for (const cli of CLIS) {
+      const path = join(root, 'sim-bin', cli);
+      fs.writeFileSync(path, `#!/bin/sh\nexec ${quote(process.execPath)} ${quote(join(repo, 'scripts/xcli-simulated-model.mjs'))} ${quote(cli)} "$@"\n`, { mode: 0o700 });
+      executables[cli] = path;
+    }
+  }
   const cells = [];
+  let active;
+  let stopping = false;
+  const stop = () => { stopping = true; active?.kill('SIGTERM'); };
+  process.on('SIGTERM', stop);
+  process.on('SIGINT', stop);
   const selected = option('--pair');
   const pairs = CLIS.flatMap(sender => CLIS.map(receiver => ({ sender, receiver })))
     .filter(p => !selected || `${p.sender}:${p.receiver}` === selected);
@@ -286,33 +352,48 @@ async function main() {
   const timeoutMs = Number(option('--timeout-ms', '30000'));
   assert.ok(Number.isSafeInteger(timeoutMs) && timeoutMs >= 1000 && timeoutMs <= 180000, 'invalid bounded timeout');
   for (const { sender, receiver } of pairs) {
+    if (stopping) {
+      cells.push({ sender, receiver, status: 'blocked', blocker: 'qualification-cancelled', evidence: [], elapsedMs: 0 });
+      continue;
+    }
     const child = spawn(process.execPath, [self, '--worker'], {
       env: { ...environment(join(root, 'worker')), H2A_TEST_QUALIFICATION_ROOT: root },
       cwd: root, stdio: ['pipe', 'pipe', 'ignore'],
     });
+    active = child;
+    const watchdog = setTimeout(() => child.kill('SIGTERM'), timeoutMs * 2 + 45000);
     let output = '';
     child.stdout.on('data', bytes => { output += bytes; });
     child.stdin.end(JSON.stringify({ sender, receiver, root, build: built.path, executables, timeoutMs,
-      authHome: option('--auth-home') }));
+      authHome: option('--auth-home'), simulated, dropWake: process.argv.includes('--drop-simulated-wake') }));
     await new Promise((r, reject) => { child.once('close', r); child.once('error', reject); });
+    clearTimeout(watchdog);
+    active = undefined;
     let row;
     try { row = JSON.parse(output); } catch { row = { sender, receiver, status: 'blocked', blocker: 'qualification-worker-failed', evidence: [], elapsedMs: 0 }; }
     cells.push(row);
+    fs.writeFileSync(join(root, `${sender}-${receiver}.json`), JSON.stringify(row, null, 2) + '\n', { mode: 0o600 });
+    if (row.cleanupFailed) stopping = true;
     process.stdout.write(`${sender} -> ${receiver}: ${row.status} (${row.blocker ?? row.failure ?? 'round-trip'})\n`);
   }
   const sha = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: repo, encoding: 'utf8' }).stdout.trim();
-  const result = { version: 1, mode: 'real-cli', sha, node: process.version,
+  const result = { version: 1, mode: simulated ? 'simulated-model' : 'real-cli', sha, node: process.version,
     command: ['node', 'scripts/qualify-cross-cli.mjs', ...process.argv.slice(2)].join(' '),
-    root, build: built, cells, counts: Object.fromEntries(['measured-OK', 'measured-KO', 'blocked'].map(s => [s, cells.filter(c => c.status === s).length])) };
+    root, build: built,
+    harnessDigests: Object.fromEntries(['qualify-cross-cli.mjs', 'xcli-lab.mjs', 'xcli-proxy.mjs', 'xcli-simulated-model.mjs'].map(name =>
+      [name, createHash('sha256').update(fs.readFileSync(join(repo, 'scripts', name))).digest('hex')])),
+    cells, counts: Object.fromEntries([simulated ? 'simulated-OK' : 'measured-OK', simulated ? 'simulated-KO' : 'measured-KO', 'blocked'].map(s => [s, cells.filter(c => c.status === s).length])) };
   const output = resolve(option('--output', join(root, 'qualification.json')));
   fs.writeFileSync(output, JSON.stringify(result, null, 2) + '\n', { mode: 0o600 });
-  if (!selected) {
+  if (!selected && !simulated) {
     const doc = resolve(option('--markdown', join(root, 'qualification.md')));
     fs.writeFileSync(doc, markdown(result));
     process.stdout.write(`Table: ${doc}\n`);
   }
   process.stdout.write(`Evidence: ${output}\n${JSON.stringify(result.counts)}\n`);
-  process.exitCode = cells.every(c => c.status === 'measured-OK') ? 0 : 2;
+  process.off('SIGTERM', stop);
+  process.off('SIGINT', stop);
+  process.exitCode = cells.every(c => c.status === (simulated ? 'simulated-OK' : 'measured-OK')) ? 0 : 2;
 }
 
 if (process.argv.includes('--worker')) {

@@ -616,6 +616,8 @@ export function registrySessions(
     ) {
       continue;
     }
+    // Live Gemini enrollment does not establish a measured resume contract.
+    if (e.tool === "gemini") continue;
     const project = projectForCwd(src, e.cwd);
     if (!project) continue;
     const seen = Date.parse(e.lastSeenAt);
