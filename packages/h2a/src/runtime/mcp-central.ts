@@ -236,8 +236,8 @@ function createCentralApp(
     if (options.precheck) return context.json({ error: "precheck_admission_closed" }, 409);
     if (closing) return context.json({ error: "central MCP is stopping" }, 503);
     if (!administration()?.admissionsOpen()) {
-      let control = context.req.method !== "POST";
-      if (!control) {
+      let control = context.req.method === "GET";
+      if (context.req.method === "POST") {
         try {
           const message = await context.req.json();
           const frames = Array.isArray(message) ? message : [message];

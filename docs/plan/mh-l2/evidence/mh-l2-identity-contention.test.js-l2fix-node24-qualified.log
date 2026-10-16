@@ -1,0 +1,18 @@
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node --test packages/h2a/test/mh-l2-identity-contention.test.js
+node: v24.21.0
+private test root: /tmp/mh-l2-test-c31bqr
+Claude config: /tmp/mh-l2-test-c31bqr/claude
+✔ identity should generate Ed25519 keys outside the global writer lock and recheck the gate before publishing (303.977686ms)
+✔ identity should preserve a competing keypair published while its candidate is generated (19.73792ms)
+✔ identity worker should retry mutation contention within its identity budget (7099.870025ms)
+✔ identity worker should classify exhausted mutation contention as identity_timeout (5303.900995ms)
+ℹ tests 4
+ℹ suites 0
+ℹ pass 4
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 12945.684618
+
+receipt: {"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","--test","packages/h2a/test/mh-l2-identity-contention.test.js"],"code":0,"signal":null,"elapsedMs":12973}

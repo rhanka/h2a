@@ -1,0 +1,30 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l2-live-central.test.js
+node: v22.22.1
+private root: /tmp/mh-l2-amendment-ilxyI0
+env selection: {}; unset: TMPDIR,XDG_CACHE_HOME
+TAP version 13
+# {"event":"drive-consent.full-verification","durationMs":0.004066999999849941,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# Subtest: real .7 source should accept the external peer, preserve its admitted large reply and retire without deleting the successor marker
+not ok 1 - real .7 source should accept the external peer, preserve its admitted large reply and retire without deleting the successor marker
+  ---
+  duration_ms: 3143.106317
+  type: 'test'
+  location: '/home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/test/mh-l2-live-central.test.js:18:1'
+  failureType: 'testCodeFailure'
+  error: 'fixture tool finished before entering the injected executor: {"result":{"content":[{"type":"text","text":"{\\"error\\":\\"h2a_run: durable agent workspaces may not be under the OS temporary directory\\"}"}],"isError":true},"jsonrpc":"2.0","id":3}'
+  code: 'ERR_TEST_FAILURE'
+  stack: |-
+    file:///home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/test/mh-l2-live-central.test.js:64:13
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 0
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 3300.417632
+
+receipt: {"code":1,"signal":null}

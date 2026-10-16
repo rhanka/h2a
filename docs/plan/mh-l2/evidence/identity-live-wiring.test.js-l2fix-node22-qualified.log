@@ -1,0 +1,39 @@
+command: /usr/bin/node --test packages/h2a/test/identity-live-wiring.test.js
+node: v22.22.1
+private test root: /tmp/mh-l2-test-fR32AP
+TAP version 13
+# Subtest: re-anchored on conversation: two distinct provider sessions in the SAME workspace get DISTINCT identities (concurrent agents never share an inbox — the BR25 collision fix)
+ok 1 - re-anchored on conversation: two distinct provider sessions in the SAME workspace get DISTINCT identities (concurrent agents never share an inbox — the BR25 collision fix)
+  ---
+  duration_ms: 18.409231
+  type: 'test'
+  ...
+# Subtest: connect reclaims the same perennial identity for the same provider session and local key
+ok 2 - connect reclaims the same perennial identity for the same provider session and local key
+  ---
+  duration_ms: 12.037585
+  type: 'test'
+  ...
+# Subtest: a same-leaf de-collisioned peer does NOT read the owner's legacy inbox (review BLOCKER \#2)
+ok 3 - a same-leaf de-collisioned peer does NOT read the owner's legacy inbox (review BLOCKER \#2)
+  ---
+  duration_ms: 8.883582
+  type: 'test'
+  ...
+# Subtest: inbox read on the perennial instance also reads its legacy alias inbox with dedup
+ok 4 - inbox read on the perennial instance also reads its legacy alias inbox with dedup
+  ---
+  duration_ms: 6.264043
+  type: 'test'
+  ...
+1..4
+# tests 4
+# suites 0
+# pass 4
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 336.233674
+
+receipt: {"command":["/usr/bin/node","--test","packages/h2a/test/identity-live-wiring.test.js"],"code":0,"signal":null,"elapsedMs":417}

@@ -1,0 +1,22 @@
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node --test packages/h2a/test/identity-migration.test.js
+node: v24.21.0
+private test root: /tmp/mh-l2-test-UBIJth
+Claude config: /tmp/mh-l2-test-UBIJth/claude
+✔ empty / no sets → [] (0.837104ms)
+✔ single set passes through, sorted by id (0.193274ms)
+✔ dedup by id across sets — current (first) set wins on collision (0.108214ms)
+✔ legacy-only ids are surfaced (transparent dual-read) (0.082465ms)
+✔ entries without a string id are skipped, never throw (0.081644ms)
+✔ decideLegacyAdoption: first to prove possession inherits the legacy keyring (0.06897ms)
+✔ decideLegacyAdoption: de-collided peer (already adopted) mints net-new keys (0.049663ms)
+✔ decideLegacyAdoption: no proof of possession → never inherits, mints net-new (0.056206ms)
+ℹ tests 8
+ℹ suites 0
+ℹ pass 8
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 204.017066
+
+receipt: {"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","--test","packages/h2a/test/identity-migration.test.js"],"code":0,"signal":null,"elapsedMs":230}

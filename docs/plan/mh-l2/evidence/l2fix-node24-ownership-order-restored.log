@@ -1,0 +1,22 @@
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node --test --test-reporter=tap packages/h2a/test/mh-l2-live.test.js
+node: v24.21.0
+private root: /tmp/mh-l2-amendment-HoKVjk
+env selection: {"MH_L2_LIVE_CASE":"checkpoint validation should reject transferring or acquired owners before durable source publication"}; unset: 
+TAP version 13
+# Subtest: checkpoint validation should reject transferring or acquired owners before durable source publication
+ok 1 - checkpoint validation should reject transferring or acquired owners before durable source publication
+  ---
+  duration_ms: 930.479953
+  type: 'test'
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 1
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 980.976012
+
+receipt: {"code":0,"signal":null}

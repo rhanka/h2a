@@ -1,0 +1,30 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l2-live-central.test.js
+node: v22.22.1
+private root: /tmp/mh-l2-amendment-eYbYjc
+env selection: {}; unset: TMPDIR,XDG_CACHE_HOME
+TAP version 13
+# {"event":"drive-consent.full-verification","durationMs":0.004938999999922089,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# {"event":"drive-consent.full-verification","durationMs":0.007504000001063105,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# Subtest: real .7 source should accept the external peer, preserve its admitted large reply and retire without deleting the successor marker
+not ok 1 - real .7 source should accept the external peer, preserve its admitted large reply and retire without deleting the successor marker
+  ---
+  duration_ms: 93251.937594
+  type: 'test'
+  location: '/home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/test/mh-l2-live-central.test.js:18:1'
+  failureType: 'cancelledByParent'
+  error: 'Promise resolution is still pending but the event loop has already resolved'
+  code: 'ERR_TEST_FAILURE'
+  stack: |-
+    process.emit (node:events:519:28)
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 0
+# fail 0
+# cancelled 1
+# skipped 0
+# todo 0
+# duration_ms 93386.157961
+
+receipt: {"code":1,"signal":null}
