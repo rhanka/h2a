@@ -6,7 +6,7 @@ import { join, dirname, resolve } from 'node:path';
 import { pathToFileURL, fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
 import { CLIS, PROBE, REPLY, repo, environment, sourceBuild, copyLogin,
-  cliPath, pythonEntrypoint, classify, matrix, inside } from './xcli-lab.mjs';
+  cliPath, privateExecutable, pythonEntrypoint, classify, matrix, inside } from './xcli-lab.mjs';
 import { startupTerminal } from './xcli-terminal.mjs';
 
 const self = fileURLToPath(import.meta.url);
@@ -28,8 +28,15 @@ function startupFacts(screen) {
     'Default permissions', 'Choose your permissions', 'Choose how', 'Select',
     'permissions', 'Press', 'Enter', 'continue', 'confirm', 'trust', 'folder',
     "You're in control", 'Codex can make mistakes', 'Included with your ChatGPT plan',
-    'Learn about permissions and approvals', 'security notes', 'MCP', 'Allow', 'Sign in'];
+    'Learn about permissions and approvals', 'security notes', 'MCP', 'Allow', 'Sign in', 'Select login method:',
+    'Do you trust this workspace?', 'Trust and continue', 'Quit'];
   return { matched: vocabulary.filter(text => screen.includes(text)),
+    trustChoices: screen.split('\n').filter(line => /Trust and continue|\bQuit\b/.test(line)).map(line => ({
+      choice: line.includes('Trust and continue') ? 'trust' : 'quit',
+      marked: /^\s*[❯›>●]/.test(line) })),
+    errorSignals: Object.entries({ unknownArgument: /unknown (?:option|argument)|unexpected argument|unrecognized (?:option|argument)/i,
+      cursorPosition: /cursor position could not be read/i, missingLibrary: /error while loading shared libraries/i,
+      terminal: /terminal|tty/i, error: /\berror\b|panic/i }).filter(([, pattern]) => pattern.test(screen)).map(([name]) => name),
     choices: [...screen.matchAll(/(?:^|\n)\s*([›❯>]?)\s*([1-9])[.)]\s*(Yes|No)\b/g)].map(m => ({ selected: Boolean(m[1]), number: Number(m[2]), choice: m[3] })),
     qualificationDraft: /^\s*›\s*Qualification h2a\./m.test(screen),
     wakeDraft: /^\s*[❯›]\s*\[h2a from=/m.test(screen),
@@ -38,8 +45,8 @@ function startupFacts(screen) {
     toolApproval: /permission.{0,20}(?:required|denied)|allow.{0,30}(?:tool|MCP)|approve.{0,25}(?:tool|MCP)/i.test(screen) };
 
 }
-function blockingScreen(screen) {
-  if (/sign in|log in|login required|not logged in|authentication required|please authenticate|API key.{0,30}(?:missing|required)|Select authentication|How would you like to authenticate/i.test(screen)) return 'authentication-required';
+export function blockingScreen(screen) {
+  if (/sign in|log in|login required|not logged in|authentication required|please authenticate|API key.{0,30}(?:missing|required)|Select authentication|Select login method|How would you like to authenticate/i.test(screen)) return 'authentication-required';
   if (/quota exceeded|usage limit|rate.?limit|credits exhausted|insufficient credits|limit reached/i.test(screen)) return 'provider-quota';
   if (/trust (?:this|the) (?:folder|workspace)|Do you trust|trust this project|security notes|choose.{0,20}theme|select.{0,20}theme|Welcome to Claude/i.test(screen)) return 'onboarding-or-trust';
   if (/permission.{0,20}(?:required|denied)|allow.{0,30}(?:tool|MCP)|approve.{0,25}(?:tool|MCP)/i.test(screen)) return 'tool-approval-required';
@@ -148,7 +155,10 @@ async function worker() {
       if (fs.existsSync(path)) previous = JSON.parse(fs.readFileSync(path, 'utf8'));
       fs.writeFileSync(path, JSON.stringify({ ...previous, ...config }));
     }
-    const state = await client.create({ id: `h2a-${role}`, command: executables[cli],
+    const executable = simulated ? { path: executables[cli] } : privateExecutable(cli, executables[cli], dir);
+    if (executable.version) row.evidence.push({ event: 'private-program-copy', role, cli,
+      version: executable.version, hashes: executable.hashes });
+    const state = await client.create({ id: `h2a-${role}`, command: executable.path,
       args: argsFor(cli, prompt), cwd: workspace, env: isolation.isolatedNativeTestEnvironment(env), cols: 140, rows: 40 });
     isolation.pinPrivateNativeProcess(state.pid, env);
     enroll({ id: role, label: role, tool: cli, kind: 'local-native', cwd: workspace,
@@ -191,7 +201,8 @@ async function worker() {
         screen.includes('Quick safety check') && screen.includes('No, exit') && screen.includes('Yes, I trust this folder');
       await client.write(lease, cancelFirst ? '\x1b[B\r' : '\r');
     } finally { await client.releaseController(lease); }
-    row.evidence.push({ event: 'startup-ui', role: target.role, action, facts: startupFacts(screen), at: Date.now() });
+    row.evidence.push({ event: 'startup-ui', role: target.role, action, facts: startupFacts(screen),
+      choiceStyles: target.terminal.choiceStyles(['Trust and continue', 'Quit']), at: Date.now() });
     target.screen = '';
     await sleep(500);
     return true;
@@ -216,7 +227,12 @@ async function worker() {
         quietSince ??= Date.now();
         if (Date.now() - quietSince >= 2000) return { instance: identity.instance };
       } else quietSince = undefined;
-      if ((await client.state(target.state.id)).status === 'exited') return { blocker: 'cli-exited-before-ready' };
+      const state = await client.state(target.state.id);
+      if (state.status === 'exited') {
+        row.evidence.push({ event: 'cli-exit', role: target.role, exit: state.exit,
+          facts: startupFacts(screen), rawFacts: startupFacts(stripAnsi(target.screen)) });
+        return { blocker: 'cli-exited-before-ready' };
+      }
       await sleep(100);
     }
     const e = events(target);
@@ -299,7 +315,10 @@ async function worker() {
       .filter(line => line.includes(build) || line.includes(repo)).map(line => line.trim());
     return row;
   } finally {
-    for (const t of targets) row.evidence.push(...events(t).map(e => ({ role: t.role, ...e })));
+    for (const t of targets) {
+      row.evidence.push(...events(t).map(e => ({ role: t.role, ...e })));
+      row.evidence.push({ event: 'terminal-queries', role: t.role, kinds: t.terminal.queries() });
+    }
     for (const t of targets.reverse()) {
       try {
         const owned = isolation.pinPrivateNativeProcess(t.state.pid, t.env);
@@ -431,7 +450,7 @@ async function main() {
   const result = { version: 1, mode: simulated ? 'simulated-model' : 'real-cli', sha, node: process.version,
     command: ['node', 'scripts/qualify-cross-cli.mjs', ...process.argv.slice(2)].join(' '),
     root, build: built,
-    harnessDigests: Object.fromEntries(['qualify-cross-cli.mjs', 'xcli-lab.mjs', 'xcli-proxy.mjs', 'xcli-simulated-model.mjs'].map(name =>
+    harnessDigests: Object.fromEntries(['qualify-cross-cli.mjs', 'xcli-lab.mjs', 'xcli-proxy.mjs', 'xcli-terminal.mjs', 'xcli-simulated-model.mjs'].map(name =>
       [name, createHash('sha256').update(fs.readFileSync(join(repo, 'scripts', name))).digest('hex')])),
     cells, counts: Object.fromEntries([simulated ? 'simulated-OK' : 'measured-OK', simulated ? 'simulated-KO' : 'measured-KO', 'blocked'].map(s => [s, cells.filter(c => c.status === s).length])) };
   const output = resolve(option('--output', join(root, 'qualification.json')));

@@ -37,6 +37,8 @@ function assertHttpMcpUrl(value: string): void {
 export interface McpHostConfigSnippet {
   /** JSON snippet to merge into the host's MCP config file. */
   config: {
+    /** Host-native root metadata required by Muse's settings format. */
+    schema_version?: 1;
     mcpServers: {
       h2a: H2AMcpEndpointConfig;
     };

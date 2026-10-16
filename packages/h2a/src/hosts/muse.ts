@@ -20,6 +20,7 @@ export function renderMcpConfig(
 ): McpHostConfigSnippet {
   return {
     config: {
+      schema_version: 1,
       mcpServers: {
         h2a: renderH2aMcpServer(options)
       }
@@ -27,8 +28,11 @@ export function renderMcpConfig(
     path: {
       hint:
         "Muse Code reads MCP servers from mcpServers in ~/.config/muse/settings.json " +
-        "(user-global). Rendu historique non recommandé — non migré — bootstrap registre attendu. " +
-        "Stdio pickup remains unconfirmed. The registry integrator supplies installation and activation.",
+        "(user-global). Keep schema_version: 1 at the file root. " +
+        "Rendu historique non recommandé — non migré — bootstrap registre attendu. " +
+        "Stdio pickup remains unconfirmed: muse documents streamable-HTTP entries there; " +
+        "if your muse build refuses the stdio entry, use `--endpoint remote` with an HTTP MCP URL. " +
+        "The registry integrator supplies installation and activation.",
       example: "~/.config/muse/settings.json"
     }
   };
