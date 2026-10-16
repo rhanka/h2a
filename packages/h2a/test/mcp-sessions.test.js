@@ -226,7 +226,7 @@ test("h2a_session_close deletes the presence file and stops the heartbeat", () =
   }
 });
 
-test("SessionRegistry expires stale peer presence files on scan", () => {
+test("SessionRegistry filters stale peers without deleting their publication", () => {
   const root = makeRoot("expire");
   try {
     // expiryMs must be comfortably larger than the test's own wall-clock so the
@@ -253,17 +253,18 @@ test("SessionRegistry expires stale peer presence files on scan", () => {
     };
     // write through the public API so isH2ASession passes
     writePresence(root, staleSession);
+    const staleFile = presenceFile(paths, staleSession.sessionId);
+    const staleBytes = readFileSync(staleFile, "utf8");
 
     const fresh = reg.scanFresh();
     const ids = fresh.map((s) => s.sessionId).sort();
     assert.deepEqual(ids, ["sess:fresh"], "stale session must be filtered out");
-    // The stale file should be swept from disk by the scan.
+    // Readers must not unlink a path the peer may concurrently republish.
+    assert.equal(readFileSync(staleFile, "utf8"), staleBytes);
     const onDisk = listPresence(root, { includeExpired: true });
-    assert.equal(
-      onDisk.some((s) => s.sessionId === "sess:stale"),
-      false,
-      "stale presence file must be swept from disk"
-    );
+    assert.equal(onDisk.some((s) => s.sessionId === "sess:stale"), true);
+    writePresence(root, { ...staleSession, heartbeatAt: new Date().toISOString() });
+    assert.deepEqual(reg.scanFresh().map(s => s.sessionId).sort(), ["sess:fresh", "sess:stale"]);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
