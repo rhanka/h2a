@@ -52,6 +52,8 @@ add('drain', 'administration.js', "      if (!this.drain().complete) throw new E
 add('close-order', 'administration.js', '      this.options.liveSource.fence(observed.value);', '      this.requestClose();\n      this.options.liveSource.fence(observed.value);', active);
 add('expiry-reopen', 'administration.js', "if (observed.value.mode === 'live-transfer' && !this.options.liveSource.sourcePublished(observed.value))", 'if (false)', 'uncommitted publication should prevent expiration before any administrative reconciliation');
 add('operator-reopen', 'administration.js', "!(tx.value.mode === 'live-transfer' && (tx.value.state === 'RECOVERY_BLOCKED' || !this.options.liveSource.sourcePublished(tx.value)))", 'true', 'uncommitted publication should prevent operator stop from aborting before reconciliation');
+add('step-id-recovery', 'administration.js', "        this.update(observed, { state: 'PUBLISHED' }, step, result);", "        this.update(observed, { state: 'PUBLISHED' }, { stepId: 'live-publication', payloadDigest: digest(result) }, result);", 'passive retirement should accept every valid stepId and resume its own durable publication after a lost ACK');
+add('step-conflict', 'administration.js', "        if (prior.payloadDigest !== step.payloadDigest) throw new Error('step_conflict');", '', 'passive retirement should accept every valid stepId and resume its own durable publication after a lost ACK');
 add('owner-process', 'participants.js', "digest(owner.ownerProcessIdentity) !== digest(target.processIdentity) || ", '', 'passive source should preserve exact acquired G1 ownership and reject foreign generation, epoch or process');
 
 const selected = process.argv.slice(2), chosen = selected.length ? cases.filter(c => selected.includes(c.name)) : cases;
