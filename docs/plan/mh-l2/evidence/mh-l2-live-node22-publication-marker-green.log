@@ -1,0 +1,22 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l2-live.test.js
+node: v22.22.1
+explicit oracle: passive retirement should preserve admitted G0 work and fence owners only after authenticated concordant publication
+private root: /tmp/mh-l2-live-mutation-LoH2Q8
+TAP version 13
+# Subtest: passive retirement should preserve admitted G0 work and fence owners only after authenticated concordant publication
+ok 1 - passive retirement should preserve admitted G0 work and fence owners only after authenticated concordant publication
+  ---
+  duration_ms: 1297.759923
+  type: 'test'
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 1
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 1433.840635
+
+receipt: {"code":0,"signal":null}

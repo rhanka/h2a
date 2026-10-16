@@ -1,0 +1,57 @@
+{"command":["/usr/bin/node","scripts/mh-l2-live-mutate.mjs"]}
+node22 acceptance: mutant=1 (assertion), restored=0; oracle=owner A should accept passive live reservation without enabling a product live coordinator
+node22 retirement-acceptance: mutant=1 (assertion), restored=0; oracle=passive source should retire after valid publication and zero drain
+node22 old-generation: mutant=1 (assertion), restored=0; oracle=passive source should refuse signed authorization with old generation
+node22 old-publication-epoch: mutant=1 (assertion), restored=0; oracle=passive source should refuse signed authorization with old publication epoch
+node22 old-process: mutant=1 (assertion), restored=0; oracle=passive source should refuse signed authorization with old process
+node22 old-build: mutant=1 (assertion), restored=0; oracle=passive source should refuse signed authorization with old build
+node22 new-generation: mutant=1 (assertion), restored=0; oracle=passive source should refuse signed authorization with new generation
+node22 new-predecessor: mutant=1 (assertion), restored=0; oracle=passive source should refuse signed authorization with new predecessor
+node22 new-epoch: mutant=1 (assertion), restored=0; oracle=passive source should refuse signed authorization with new epoch
+node22 new-endpoint: mutant=1 (assertion), restored=0; oracle=passive source should refuse signed authorization with new endpoint
+node22 new-build: mutant=1 (assertion), restored=0; oracle=passive source should refuse signed authorization with new build
+node22 new-manifest: mutant=1 (assertion), restored=0; oracle=passive source should refuse signed authorization with new manifest
+node22 same-process: mutant=1 (assertion), restored=0; oracle=passive source should refuse signed authorization with same process
+node22 wrong-transaction-epoch: mutant=1 (assertion), restored=0; oracle=passive source should refuse signed authorization with wrong transaction epoch
+node22 wrong-controller: mutant=1 (assertion), restored=0; oracle=passive source should refuse signed authorization with wrong controller
+node22 wrong-handover: mutant=1 (assertion), restored=0; oracle=passive source should refuse signed authorization with wrong handover
+node22 wrong-selection: mutant=1 (assertion), restored=0; oracle=passive source should refuse signed authorization with wrong selection epoch
+node22 new-root: mutant=1 (assertion), restored=0; oracle=passive source should refuse signed authorization with new root
+node22 new-UID: mutant=1 (assertion), restored=0; oracle=passive source should refuse signed authorization with new UID
+node22 new-namespace: mutant=1 (assertion), restored=0; oracle=passive source should refuse signed authorization with new namespace
+node22 new-process-frame: mutant=1 (assertion), restored=0; oracle=passive source should refuse signed authorization with new process frame
+node22 inventory: mutant=1 (assertion), restored=0; oracle=passive source should refuse signed authorization with stale session inventory
+node22 expired: mutant=1 (assertion), restored=0; oracle=passive source should refuse signed authorization with expired
+node22 not-yet-valid: mutant=1 (assertion), restored=0; oracle=passive source should refuse signed authorization with not yet valid
+node22 delegation-revoked-authority: mutant=1 (assertion), restored=0; oracle=passive source should refuse durable revoked authority
+node22 delegation-missing-delegation: mutant=1 (assertion), restored=0; oracle=passive source should refuse durable missing delegation
+node22 delegation-wrong-controller-epoch: mutant=1 (assertion), restored=0; oracle=passive source should refuse durable wrong controller epoch
+node22 delegation-wrong-controller-process: mutant=1 (assertion), restored=0; oracle=passive source should refuse durable wrong controller process
+node22 delegation-wrong-controller-build: mutant=1 (assertion), restored=0; oracle=passive source should refuse durable wrong controller build
+node22 delegation-wrong-target-manifest: mutant=1 (assertion), restored=0; oracle=passive source should refuse durable wrong target manifest
+node22 delegation-wrong-component-journal: mutant=1 (assertion), restored=0; oracle=passive source should refuse durable wrong component journal
+node22 delegation-wrong-receipt: mutant=1 (assertion), restored=0; oracle=passive source should refuse durable wrong receipt
+node22 delegation-missing-ticket: mutant=1 (assertion), restored=0; oracle=passive source should refuse durable missing ticket
+node22 delegation-unselected-installation: mutant=1 (assertion), restored=0; oracle=passive source should refuse durable unselected installation
+node22 ticket-and-receipt: mutant=1 (assertion), restored=0; oracle=passive source should refuse missing, changed or expired private ticket and receipt
+node22 ticket-possession: mutant=1 (assertion), restored=0; oracle=passive source should refuse signed authorization with ticket MAC
+node22 revalidation: mutant=1 (assertion), restored=0; oracle=passive source should revalidate source, coordinator, inventory and delegation before new mutations
+node22 digest: mutant=1 (assertion), restored=0; oracle=passive source should refuse content changed under its immutable authorization digest
+node22 mac-authorization: mutant=1 (assertion), restored=0; oracle=passive source should refuse signed authorization with MAC
+node22 mac-publication: mutant=1 (assertion), restored=0; oracle=passive source should refuse publication with wrong MAC before fencing or closing
+node22 publication-authorization: mutant=1 (assertion), restored=0; oracle=passive source should refuse publication with wrong authorization before fencing or closing
+node22 publication-checkpoint: mutant=1 (assertion), restored=0; oracle=passive source should refuse publication with wrong checkpoint before fencing or closing
+node22 publication-target: mutant=1 (assertion), restored=0; oracle=passive source should refuse publication with wrong target before fencing or closing
+node22 publication-marker: mutant=1 (assertion), restored=0; oracle=passive retirement should preserve admitted G0 work and fence owners only after authenticated concordant publication
+node22 checkpoint-before-publication: mutant=1 (assertion), restored=0; oracle=passive source should require a frozen checkpoint, unchanged inventory and current delegation at publication
+node22 fencing: mutant=1 (assertion), restored=0; oracle=passive retirement should preserve admitted G0 work and fence owners only after authenticated concordant publication
+node22 drain: mutant=1 (assertion), restored=0; oracle=passive retirement should preserve admitted G0 work and fence owners only after authenticated concordant publication
+node22 close-order: mutant=1 (assertion), restored=0; oracle=passive retirement should preserve admitted G0 work and fence owners only after authenticated concordant publication
+node22 expiry-reopen: mutant=1 (assertion), restored=0; oracle=uncommitted publication should prevent expiration before any administrative reconciliation
+node22 operator-reopen: mutant=1 (assertion), restored=0; oracle=uncommitted publication should prevent operator stop from aborting before reconciliation
+node22 step-id-recovery: mutant=1 (assertion), restored=0; oracle=passive retirement should accept every valid stepId and resume its own durable publication after a lost ACK
+node22 step-conflict: mutant=1 (assertion), restored=0; oracle=passive retirement should accept every valid stepId and resume its own durable publication after a lost ACK
+node22 owner-process: mutant=1 (assertion), restored=0; oracle=passive source should preserve exact acquired G1 ownership and reject foreign generation, epoch or process
+node22: 53/53 mutations killed and restored; no skipped/zero-test oracle
+
+exitCode: 0

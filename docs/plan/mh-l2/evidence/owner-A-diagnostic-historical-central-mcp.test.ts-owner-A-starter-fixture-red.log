@@ -1,0 +1,108 @@
+command: /usr/bin/node /tmp/mh-l2-live-qualified-UVJg9p/source/node_modules/vitest/vitest.mjs run packages/h2a-runtime/src/central-mcp.test.ts
+node: v22.22.1
+private test root: /tmp/mh-l2-test-B1hr0W
+
+[1m[30m[46m RUN [49m[39m[22m [36mv4.1.11 [39m[90m/tmp/mh-l2-live-qualified-UVJg9p/source[39m
+
+ [31m❯[39m packages/h2a-runtime/src/central-mcp.test.ts [2m([22m[2m5 tests[22m[2m | [22m[31m4 failed[39m[2m)[22m[33m 1850[2mms[22m[39m
+[31m     [31m×[31m starts once without configuration writes and reuses the generation for run and restore[39m[32m 41[2mms[22m[39m
+[31m     [31m×[31m degrades launch and restore when central ensure fails without enabling central routing[39m[32m 72[2mms[22m[39m
+     [32m✓[39m is a warning-free no-op while central MCP remains disabled[32m 1[2mms[22m[39m
+[31m     [31m×[31m leaves project files and git status unchanged after run and restore[39m[33m 1733[2mms[22m[39m
+[31m     [31m×[31m does not write configuration while selecting an endpoint[39m[32m 2[2mms[22m[39m
+
+[31m⎯⎯⎯⎯⎯⎯⎯[39m[1m[41m Failed Tests 4 [49m[22m[31m⎯⎯⎯⎯⎯⎯⎯[39m
+
+[41m[1m FAIL [22m[49m packages/h2a-runtime/src/central-mcp.test.ts[2m > [22mcentral MCP auto-start[2m > [22mstarts once without configuration writes and reuses the generation for run and restore
+[31m[1mAssertionError[22m: expected { status: 'degraded', …(1) } to deeply equal { status: 'central', …(2) }[39m
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  {[22m
+[32m-   "endpoint": "http://127.0.0.1:47042/mcp",[39m
+[32m-   "generation": "generation-1",[39m
+[32m-   "status": "central",[39m
+[31m+   "reason": "[vitest] No \"ensureCentralForRoot\" export is defined on the \"@sentropic/h2a\" mock. Did you forget to return it from \"vi.mock\"?[39m
+[31m+ If you need to partially mock a module, you can use \"importOriginal\" helper inside:[39m
+[31m+ ",[39m
+[31m+   "status": "degraded",[39m
+[2m  }[22m
+
+[36m [2m❯[22m packages/h2a-runtime/src/central-mcp.test.ts:[2m122:19[22m[39m
+    [90m120|[39m       cwd[33m:[39m workspace[33m,[39m
+    [90m121|[39m     })[33m;[39m
+    [90m122|[39m     expect(first).toEqual({ status: "central", endpoint, generation: "…
+    [90m   |[39m                   [31m^[39m
+    [90m123|[39m     [34mexpect[39m(central[33m.[39mspawn)[33m.[39m[34mtoHaveBeenCalledTimes[39m([34m1[39m)[33m;[39m
+    [90m124|[39m     [34mexpect[39m(central[33m.[39munref)[33m.[39m[34mtoHaveBeenCalledTimes[39m([34m1[39m)[33m;[39m
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/4]⎯[22m[39m
+
+[41m[1m FAIL [22m[49m packages/h2a-runtime/src/central-mcp.test.ts[2m > [22mcentral MCP auto-start[2m > [22mdegrades launch and restore when central ensure fails without enabling central routing
+[31m[1mAssertionError[22m: expected { status: 'degraded', …(1) } to deeply equal { status: 'degraded', …(1) }[39m
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  {[22m
+[32m-   "reason": "central liveness is ambiguous",[39m
+[31m+   "reason": "[vitest] No \"ensureCentralForRoot\" export is defined on the \"@sentropic/h2a\" mock. Did you forget to return it from \"vi.mock\"?[39m
+[31m+ If you need to partially mock a module, you can use \"importOriginal\" helper inside:[39m
+[31m+ ",[39m
+[2m    "status": "degraded",[22m
+[2m  }[22m
+
+[36m [2m❯[22m packages/h2a-runtime/src/central-mcp.test.ts:[2m159:100[22m[39m
+    [90m157|[39m
+    [90m158|[39m     central.core.centralMcpPing.mockRejectedValueOnce(new Error("centr…
+    [90m159|[39m     await expect(prepareCentralMcpForLaunch({ root: workspace, profile…
+    [90m   |[39m                                                                                                    [31m^[39m
+    [90m160|[39m       status[33m:[39m [32m"degraded"[39m[33m,[39m
+    [90m161|[39m       reason[33m:[39m [32m"central liveness is ambiguous"[39m[33m,[39m
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/4]⎯[22m[39m
+
+[41m[1m FAIL [22m[49m packages/h2a-runtime/src/central-mcp.test.ts[2m > [22mcentral MCP auto-start[2m > [22mleaves project files and git status unchanged after run and restore
+[31m[1mTypeError[22m: undefined is not iterable (cannot read property Symbol(Symbol.iterator))[39m
+[36m [2m❯[22m packages/h2a-runtime/src/central-mcp.test.ts:[2m203:28[22m[39m
+    [90m201|[39m     expect(readFileSync(join(workspace, ".mcp.json"), "utf8")).toBe(co…
+    [90m202|[39m     [34mexpect[39m(central[33m.[39mcore[33m.[39mrunCli)[33m.[39mnot[33m.[39m[34mtoHaveBeenCalled[39m()[33m;[39m
+    [90m203|[39m     [35mconst[39m [[33m,[39m args[33m,[39m opts] [33m=[39m central[33m.[39mspawn[33m.[39mmock[33m.[39mcalls[[34m0[39m][33m;[39m
+    [90m   |[39m                            [31m^[39m
+    [90m204|[39m     [34mexpect[39m(args)[33m.[39mnot[33m.[39m[34mtoContain[39m(workspace)[33m;[39m
+    [90m205|[39m     [34mexpect[39m(opts)[33m.[39m[34mtoMatchObject[39m({ cwd[33m:[39m expect[33m.[39m[34many[39m([33mString[39m) })[33m;[39m
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/4]⎯[22m[39m
+
+[41m[1m FAIL [22m[49m packages/h2a-runtime/src/central-mcp.test.ts[2m > [22mcentral MCP auto-start[2m > [22mdoes not write configuration while selecting an endpoint
+[31m[1mError[22m: [vitest] No "ensureCentralForRoot" export is defined on the "@sentropic/h2a" mock. Did you forget to return it from "vi.mock"?
+If you need to partially mock a module, you can use "importOriginal" helper inside:
+[39m
+vi.mock(import("@sentropic/h2a"), async (importOriginal) => {
+  const actual = await importOriginal()
+  return {
+    ...actual,
+    // your mocked methods
+  }
+})
+
+[36m [2m❯[22m Module.ensureCentralMcp packages/h2a-runtime/src/central-mcp.ts:[2m87:19[22m[39m
+    [90m 85|[39m   const root = rawRoot ? resolve(rawRoot) : join(homedir(), "h2a-works…
+    [90m 86|[39m   [35mconst[39m core [33m=[39m [35mawait[39m [34mloadCoreCentralMcp[39m()[33m;[39m
+    [90m 87|[39m   if (typeof core.ensureCentralForRoot !== "function") throw new Error…
+    [90m   |[39m                   [31m^[39m
+    [90m 88|[39m   [35mreturn[39m core[33m.[39m[34mensureCentralForRoot[39m(root)[33m;[39m
+    [90m 89|[39m }
+[90m [2m❯[22m packages/h2a-runtime/src/central-mcp.test.ts:[2m214:5[22m[39m
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/4]⎯[22m[39m
+
+
+[2m Test Files [22m [1m[31m1 failed[39m[22m[90m (1)[39m
+[2m      Tests [22m [1m[31m4 failed[39m[22m[2m | [22m[1m[32m1 passed[39m[22m[90m (5)[39m
+[2m   Start at [22m 22:55:30
+[2m   Duration [22m 2.11s[2m (transform 99ms, setup 39ms, import 58ms, tests 1.85s, environment 0ms)[22m
+
+
+receipt: {"command":["/usr/bin/node","/tmp/mh-l2-live-qualified-UVJg9p/source/node_modules/vitest/vitest.mjs","run","packages/h2a-runtime/src/central-mcp.test.ts"],"code":1,"signal":null,"elapsedMs":2545}
