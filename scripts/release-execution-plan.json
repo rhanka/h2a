@@ -126,6 +126,7 @@
         "shell": "bash",
         "run": [
           "set -euo pipefail",
+          "node scripts/check-lockstep-versions.mjs",
           "mkdir -p dist-tarballs",
           "for pkg in @sentropic/h2a @sentropic/h2a-runtime @sentropic/h2a-cli @sentropic/track; do",
           "  npm pack --workspace \"$pkg\" --pack-destination dist-tarballs",
@@ -229,6 +230,7 @@
           "  echo \"::error::Refusing publish: release SHA $release_sha is not on origin/main.\" >&2",
           "  exit 1",
           "fi",
+          "node scripts/check-lockstep-versions.mjs",
           "h2a_version=\"$(node -p \"require('./packages/h2a/package.json').version\")\"",
           "cli_version=\"$(node -p \"require('./packages/h2a-cli/package.json').version\")\"",
           "runtime_version=\"$(node -p \"require('./packages/h2a-runtime/package.json').version\")\"",
