@@ -21,6 +21,8 @@ child.stderr.on('data', bytes => {
   while ((newline = diagnosticLines.indexOf('\n')) !== -1) {
     const line = diagnosticLines.slice(0, newline);
     diagnosticLines = diagnosticLines.slice(newline + 1);
+    const wake = /^h2a mcp-serve: inbox-wake: (\d+) new envelope\(s\) → drive (ok|failed)$/.exec(line);
+    if (wake) emit({ event: 'inbox-wake', freshCount: Number(wake[1]), ok: wake[2] === 'ok' });
     const prefix = line.indexOf('h2a.mcp.phase ');
     if (prefix === -1) continue;
     try {
