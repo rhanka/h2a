@@ -1,0 +1,18 @@
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node --test packages/h2a/test/mcp-identity-readiness.test.js
+node: v24.21.0
+private test root: /tmp/mh-l2-test-0HOHVN
+✔ T3 identity-independent connection under a live registry lock (initialize/tools-list decoupled, pending visible) (433.426525ms)
+✔ T5 pending→ready: signed/mutating tools refused while pending, available after real activation (393.322236ms)
+✔ T5 pending→failed: identity_timeout at ~20s from pending, no ACK, no presence, signed tools refused (20423.232943ms)
+✔ T5 transport close while pending: clean shutdown, no readiness ACK, no orphan (692.574849ms)
+✔ T-retry: a dead-process-held lock fails identity, then freeing it + a tool call reaches ready (no restart) (20677.526007ms)
+ℹ tests 5
+ℹ suites 0
+ℹ pass 5
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 42718.059921
+
+receipt: {"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","--test","packages/h2a/test/mcp-identity-readiness.test.js"],"code":0,"signal":null,"elapsedMs":42746}
