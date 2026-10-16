@@ -109,7 +109,8 @@ jobs:
         # What this stops proving: that the code works on macOS or Windows at all.
         # `smoke-install` still exercises the PUBLISHED package on all three after release.
         os: [ubuntu-latest]
-        node: ["20", "22"]
+        # Owner decision 2026-10-12: minimum Node 22; qualify 22 and 24.
+        node: ["22", "24"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -118,6 +119,8 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run typecheck
+      - name: Install the mandatory configuration oracles
+        run: npm install --global @openai/codex@0.145.0 @anthropic-ai/claude-code@2.1.296
       - name: Verify messaging backends and receive signatures
         run: node --test packages/h2a/test/send.test.js packages/h2a/test/cluster-mesh-messaging.test.js
       - run: npm test
@@ -152,3 +155,27 @@ jobs:
       # migration P2: le contrat public (surface MCP/CLI + anti-cycle core) ne doit pas dériver sans bump
       - run: bash scripts/check-public-contract.sh
         if: runner.os == 'Linux'
+
+  # Stable, independently requireable trust root for `npm test`.
+  #
+  # Keep this as a dedicated job: GitHub branch protection can require jobs, not
+  # individual steps. It deliberately bypasses package.json for the production
+  # invocation, while the preceding direct test pins package wiring, this job's
+  # graph, and the runner's exact production command map.
+  npm-test-trust-root:
+    name: npm-test-trust-root
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci
+      - name: Install the mandatory configuration oracles
+        run: npm install --global @openai/codex@0.145.0 @anthropic-ai/claude-code@2.1.296
+      - name: Verify npm test wiring independently
+        run: node --test packages/h2a/test/run-test-gates.test.js
+      - name: Execute the production test entrypoint directly
+        run: node scripts/run-test-gates.mjs

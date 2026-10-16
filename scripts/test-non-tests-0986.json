@@ -1,0 +1,170 @@
+{
+  "schemaVersion": 1,
+  "release": "0.98.6",
+  "ownerDecisionDate": "2026-10-12",
+  "ownerDecision": "s'ils sont désactivés ce n'est pas un pb ce ne sont pas encore des tests",
+  "entries": [
+    {
+      "file": "packages/h2a/test/cli-contract.test.js",
+      "fullName": "keepalive emits a action envelope on the happy path",
+      "status": "skipped",
+      "reason": "Disabled CLI happy-path placeholder; owner declares it is not yet a test."
+    },
+    {
+      "file": "packages/h2a/test/m02-drive-characterization.test.js",
+      "fullName": "M02 Target-B differential parity — pending enlarged cluster-mesh 0.9.0 contract/capability bundle",
+      "status": "todo",
+      "reason": "Unimplemented characterization placeholder: pending enlarged cluster-mesh 0.9.0 contract/capability bundle. Owner declares it is not yet a test."
+    },
+    {
+      "file": "packages/h2a/test/m02-drive-characterization.test.js",
+      "fullName": "M02 contract outcomes and durable receipts — native CLI exposes only driven:boolean and no receipt",
+      "status": "todo",
+      "reason": "Unimplemented characterization placeholder: native CLI exposes only driven:boolean and no receipt. Owner declares it is not yet a test."
+    },
+    {
+      "file": "packages/h2a/test/m02-drive-characterization.test.js",
+      "fullName": "M02 typed BUFFER_OVERFLOW and NO_CONTROLLING_TERMINAL outcomes — pending contract-owned outcome codes",
+      "status": "todo",
+      "reason": "Unimplemented characterization placeholder: pending contract-owned outcome codes. Owner declares it is not yet a test."
+    },
+    {
+      "file": "packages/h2a/test/m02-drive-characterization.test.js",
+      "fullName": "M02 read-only and dry-run zero-mutation scenarios — direct native drive has no such CLI modes",
+      "status": "todo",
+      "reason": "Unimplemented characterization placeholder: direct native drive has no such CLI modes. Owner declares it is not yet a test."
+    },
+    {
+      "file": "packages/h2a/test/m02-drive-characterization.test.js",
+      "fullName": "M02 stale/revoked custody and wrong action/path/target matrix — pending OQ1/OQ5 registration gate",
+      "status": "todo",
+      "reason": "Unimplemented characterization placeholder: pending OQ1/OQ5 registration gate. Owner declares it is not yet a test."
+    },
+    {
+      "file": "packages/h2a/test/m02-drive-characterization.test.js",
+      "fullName": "M02 F2/F3 post-effect persistence failure with restart and concurrent retry — pending durable request identity and receipt reconciliation contract",
+      "status": "todo",
+      "reason": "Unimplemented characterization placeholder: pending durable request identity and receipt reconciliation contract. Owner declares it is not yet a test."
+    },
+    {
+      "file": "packages/h2a/test/m04-wake-characterization.test.js",
+      "fullName": "M04 Target-B differential parity — pending enlarged cluster-mesh 0.9.0 contract/capability bundle",
+      "status": "todo",
+      "reason": "Unimplemented characterization placeholder: pending enlarged cluster-mesh 0.9.0 contract/capability bundle. Owner declares it is not yet a test."
+    },
+    {
+      "file": "packages/h2a/test/m04-wake-characterization.test.js",
+      "fullName": "M04 revoked-registration zero effect — native self-wake does not consume registration revocation or custody evidence",
+      "status": "todo",
+      "reason": "Unimplemented characterization placeholder: native self-wake does not consume registration revocation or custody evidence. Owner declares it is not yet a test."
+    },
+    {
+      "file": "packages/h2a/test/m04-wake-characterization.test.js",
+      "fullName": "M04 F1 retry after restart — native boot-backlog seeding suppresses a known pre-effect retry",
+      "status": "todo",
+      "reason": "Unimplemented characterization placeholder: native boot-backlog seeding suppresses a known pre-effect retry. Owner declares it is not yet a test."
+    },
+    {
+      "file": "packages/h2a/test/m04-wake-characterization.test.js",
+      "fullName": "M04 F2/F3 concurrent idempotency — native in-memory seen state permits duplicate wakes and has no durable request identity or receipt reconciliation",
+      "status": "todo",
+      "reason": "Unimplemented characterization placeholder: native in-memory seen state permits duplicate wakes and has no durable request identity or receipt reconciliation. Owner declares it is not yet a test."
+    },
+    {
+      "file": "packages/h2a/test/m04-wake-characterization.test.js",
+      "fullName": "M04 typed BUFFER_OVERFLOW, PIPE_CLOSED, and NO_CONTROLLING_TERMINAL outcomes — native handler exposes only boolean",
+      "status": "todo",
+      "reason": "Unimplemented characterization placeholder: native handler exposes only boolean. Owner declares it is not yet a test."
+    },
+    {
+      "file": "packages/h2a/test/m04-wake-characterization.test.js",
+      "fullName": "M04 direct read-only mode — native inbox-wake handler has no read-only invocation surface",
+      "status": "todo",
+      "reason": "Unimplemented characterization placeholder: native inbox-wake handler has no read-only invocation surface. Owner declares it is not yet a test."
+    },
+    {
+      "file": "packages/h2a/test/m07-relaunch-characterization.test.js",
+      "fullName": "M07 Target-B differential parity — pending enlarged cluster-mesh contract and capability bundle",
+      "status": "todo",
+      "reason": "Unimplemented characterization placeholder: pending enlarged cluster-mesh contract and capability bundle. Owner declares it is not yet a test."
+    },
+    {
+      "file": "packages/h2a/test/m07-relaunch-characterization.test.js",
+      "fullName": "M07 exact runtime CLI apply/dry-run output and exit parity — h2a-runtime orchestration path remains CI-only",
+      "status": "todo",
+      "reason": "Unimplemented characterization placeholder: h2a-runtime orchestration path remains CI-only. Owner declares it is not yet a test."
+    },
+    {
+      "file": "packages/h2a/test/m07-relaunch-characterization.test.js",
+      "fullName": "M07 OQ2 and custody admission — native relaunch adapters do not consume registration holder, epoch, or revocation evidence",
+      "status": "todo",
+      "reason": "Unimplemented characterization placeholder: native relaunch adapters do not consume registration holder, epoch, or revocation evidence. Owner declares it is not yet a test."
+    },
+    {
+      "file": "packages/h2a/test/m07-relaunch-characterization.test.js",
+      "fullName": "M07 contract-grade typed outcome and receipt parity — native relaunch surfaces expose boolean success only",
+      "status": "todo",
+      "reason": "Unimplemented characterization placeholder: native relaunch surfaces expose boolean success only. Owner declares it is not yet a test."
+    },
+    {
+      "file": "packages/h2a/test/m07-relaunch-characterization.test.js",
+      "fullName": "M07 crash between termination and recovery — native CLI has no durable transaction that can rediscover a removed exact target",
+      "status": "todo",
+      "reason": "Unimplemented characterization placeholder: native CLI has no durable transaction that can rediscover a removed exact target. Owner declares it is not yet a test."
+    },
+    {
+      "file": "packages/h2a/test/m07-relaunch-characterization.test.js",
+      "fullName": "M07 F2/F3 lost-receipt retry — reconcile terminated old and possibly-created replacement without a second recovery",
+      "status": "todo",
+      "reason": "Unimplemented characterization placeholder: reconcile terminated old and possibly-created replacement without a second recovery. Owner declares it is not yet a test."
+    },
+    {
+      "file": "packages/h2a/test/m07-relaunch-characterization.test.js",
+      "fullName": "M07 re-registration generation binding — stale relaunch findings can still dispatch after the current generation",
+      "status": "todo",
+      "reason": "Unimplemented characterization placeholder: stale relaunch findings can still dispatch after the current generation. Owner declares it is not yet a test."
+    },
+    {
+      "file": "packages/h2a/test/m07-relaunch-characterization.test.js",
+      "fullName": "M07 local-native terminal outcome parity — detached fallback proves NO_CONTROLLING_TERMINAL but returns no typed terminal outcome",
+      "status": "todo",
+      "reason": "Unimplemented characterization placeholder: detached fallback proves NO_CONTROLLING_TERMINAL but returns no typed terminal outcome. Owner declares it is not yet a test."
+    },
+    {
+      "file": "packages/h2a/test/mcp-storage-readonly.test.js",
+      "fullName": "T11 real read-only mount (EROFS): identity_failed storage_readonly — or BLOCKED_ENVIRONMENT without a namespace",
+      "status": "skipped",
+      "reason": "EROFS namespace case disabled in this environment; owner declares the disabled case is not a required test."
+    },
+    {
+      "file": "packages/h2a/test/pty-objective-loop.test.js",
+      "fullName": "native PTY wake injection depends on PR-1 native-PTY transport; validated post-PR-1 merge",
+      "status": "todo",
+      "reason": "Unimplemented native PTY objective-loop placeholder pending PR-1 transport; owner declares it is not yet a test."
+    },
+    {
+      "file": "packages/h2a-runtime/src/delegate.test.ts",
+      "fullName": "delegate on a tmux-less machine — NAMED DEBT, not covered DELEGATE_REGISTERS_LOCAL_NATIVE_WHILE_REQUIRING_TMUX — tracked debt: #199 creates the POPULATION that can hit this (a tmux-less machine becomes a legitimate config when pty is the default), not the defect; pending delegate native-without-tmux",
+      "status": "skipped",
+      "reason": "Owner round 6: declared non-test; Pre-existing tracked debt outside spec §5"
+    },
+    {
+      "file": "packages/h2a-runtime/src/destructive-act-unknown-failclosed.test.ts",
+      "fullName": "attach missing->remote fallthrough — NAMED DEBT, not covered ATTACH_MISSING_IDENTITY_MUST_NOT_FALL_THROUGH_TO_REMOTE_HOMONYM — pending attach fail-closed symmetry (tracked debt 2026-08-08)",
+      "status": "todo",
+      "reason": "Owner round 6: declared non-test; Pre-existing tracked debt outside spec §5"
+    },
+    {
+      "file": "packages/h2a-runtime/src/host-selection-invariants.test.ts",
+      "fullName": "dead legacy tmux row relaunch policy — NAMED DEBT, not covered DEAD_LEGACY_TMUX_ROW_RELAUNCHES_NATIVE_NOT_TMUX — pending dead-tmux-relaunch host policy decision (reopened by owner tmux-permanent ratification 2026-08-08)",
+      "status": "todo",
+      "reason": "Owner round 6: declared non-test; Pre-existing tracked debt outside spec §5"
+    },
+    {
+      "file": "packages/h2a-runtime/src/native-terminal/supervisor.test.ts",
+      "fullName": "NativeTerminalHostSupervisor takeover reconcile reap treats unknown per identity, never as a global state",
+      "status": "skipped",
+      "reason": "Owner round 6: declared non-test; Pre-existing tracked debt outside spec §5"
+    }
+  ]
+}

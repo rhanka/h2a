@@ -6,7 +6,10 @@
  * envelope itself and verified by the receiver (DEC-075).
  */
 
-import { signEnvelope, type H2AEnvelope } from "@sentropic/h2a";
+import type {
+  H2AEnvelope
+} from "@sentropic/h2a";
+import { signEnvelope } from "../../envelope.js";
 
 export interface SendRemoteOptions {
   /** Signer instance id recorded in the signature's `by`. */

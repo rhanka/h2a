@@ -1,5 +1,6 @@
 import type { ChildProcess } from "node:child_process";
 import { once } from "node:events";
+import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
 import { chmod, mkdir, mkdtemp, readFile, readdir, readlink, rm, stat, unlink, writeFile } from "node:fs/promises";
 import { createConnection, createServer } from "node:net";
 import { tmpdir } from "node:os";
@@ -7,7 +8,7 @@ import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, afterEach, describe, expect, it } from "vitest";
 // @ts-ignore Shared JS qualification helper; tests are outside the production build.
-import { isolatedNativeTestEnvironment, spawnIsolatedNative as spawn, spawnSyncIsolatedNative as spawnSync, setupNativeTestEnvironment, waitForPrivateNativeProcesses } from "../../../h2a/test/helpers/native-isolation.js";
+import { isolatedNativeTestEnvironment, pinPrivateNativeProcess, spawnIsolatedNative as spawn, spawnSyncIsolatedNative as spawnSync, setupNativeTestEnvironment, waitForPrivateNativeProcesses } from "../../../h2a/test/helpers/native-isolation.js";
 
 setupNativeTestEnvironment(afterAll);
 
@@ -15,6 +16,8 @@ import { persistNativeTerminalPgid, readNativeTerminalPgid } from "../registry.j
 import { NativeTerminalClient } from "./client.js";
 import {
   NATIVE_TERMINAL_FORCE_KILL_TIMEOUT_MS,
+  groupCarriesSessionToken,
+  groupIsOnlyZombies,
   NativeTerminalHost,
   readProcessStartTime,
   reconcileDeadHostOrphans,
@@ -28,6 +31,7 @@ import {
 import {
   NATIVE_TERMINAL_HEALTH_TIMEOUT_MS,
   NATIVE_TERMINAL_MAX_FRAME_BYTES,
+  type NativeTerminalStopSignal,
 } from "./protocol.js";
 
 const children = new Set<ChildProcess>();
@@ -37,23 +41,108 @@ const directories = new Set<string>();
 // suite — not the production reaper — owns its cleanup, including when an
 // assertion aborts the test before its own teardown.
 const processGroups = new Set<number>();
+const processPins = new Set<() => void>();
+/**
+ * PIDs this test may OBSERVE in /proc: every process it started itself, plus
+ * processes discovered only by walking an already-owned process's own
+ * `task/<pid>/children` (a fixture host's journal writer and PTY trees). The
+ * round-3 review finding: this file read the stat of EVERY pid in /proc
+ * before filtering — a read of processes the test did not start. Every /proc
+ * read below is bounded by this set: observing a pid outside it fails the
+ * suite instead of reading it.
+ */
+const ownedPids = new Set<number>([process.pid]);
+
+function assertOwnedPid(pid: number): void {
+  if (!ownedPids.has(pid)) {
+    throw new Error(
+      `confinement: refusing to read /proc/${pid} — not a process this test started`,
+    );
+  }
+}
+
+/** Register a spawned fixture process for cleanup AND /proc observation. */
+function adopt(child: ChildProcess): void {
+  children.add(child);
+  if (child.pid !== undefined) ownedPids.add(child.pid);
+}
 
 afterEach(async () => {
-  for (const child of children) {
-    if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
-    if (child.exitCode === null && child.signalCode === null) await once(child, "exit");
+  // Discover and pin descendants while their owning host still exists. This
+  // also catches a create request whose response was preempted by test timeout.
+  const queue = [...children].flatMap(child => child.pid === undefined ? [] : [child.pid]);
+  for (const pid of queue) ownedPids.add(pid);
+  const seen = new Set<number>();
+  const errors: unknown[] = [];
+  for (const pid of queue) {
+    if (seen.has(pid)) continue;
+    seen.add(pid);
+    try {
+      const observation = await processObservation(pid);
+      if (observation.processGroup === pid && observation.session === pid) {
+        processGroups.add(pid);
+        processPins.add(pinPrivateNativeProcess(pid, isolatedNativeTestEnvironment(process.env)));
+      }
+      queue.push(...await directChildren(pid));
+    } catch (error) {
+      if (!["ENOENT", "ESRCH"].includes((error as NodeJS.ErrnoException).code ?? "")) errors.push(error);
+    }
   }
-  children.clear();
+  // Kill the complete PTY group before its host: TERM/HUP-resistant shells
+  // otherwise survive the host and keep both the test scope and its pipes open.
   for (const pgid of processGroups) {
     try {
       process.kill(-pgid, "SIGKILL");
-    } catch {
-      // Already empty; nothing of this test's making is left to collect.
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ESRCH") errors.push(error);
     }
   }
-  processGroups.clear();
-  for (const directory of directories) await rm(directory, { recursive: true, force: true });
-  directories.clear();
+  try {
+    for (const child of children) {
+      if (child.exitCode === null && child.signalCode === null) {
+        const exited = once(child, "exit");
+        child.kill("SIGKILL");
+        await exited;
+      }
+    }
+    await waitForPrivateNativeProcesses(process.env);
+    const procView = processGroups.size === 0 ? undefined : createOwnedProcView(process.env.TMPDIR!, seen);
+    // A zombie has already died; the private process proof must find no live
+    // descendant even when the test aborted before normal production reaping.
+    const reapDeadline = performance.now() + 1_000;
+    for (const pgid of processGroups) {
+      for (;;) {
+        let empty = false;
+        try { process.kill(-pgid, 0); }
+        catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
+          empty = true;
+        }
+        // The group can disappear between the existence probe and either
+        // zombie census. A changing census is a refusal, so repeat the proof
+        // until ESRCH or two stable zombie censuses, never assume it is dead.
+        if (empty || groupIsOnlyZombies(pgid, procView)) break;
+        expect(performance.now(),
+          `teardown left a live descendant in process group ${pgid}`).toBeLessThan(reapDeadline);
+        await new Promise(resolve => setTimeout(resolve, 10));
+      }
+    }
+  } finally {
+    for (const child of children) {
+      if (child.exitCode === null && child.signalCode === null) {
+        const exited = once(child, "exit");
+        child.kill("SIGKILL");
+        await exited;
+      }
+    }
+    children.clear();
+    for (const release of processPins) release();
+    processPins.clear();
+    processGroups.clear();
+    for (const directory of directories) await rm(directory, { recursive: true, force: true });
+    directories.clear();
+  }
+  if (errors.length) throw new AggregateError(errors, "fixture tree discovery or group kill failed");
 });
 
 async function eventually<T>(read: () => Promise<T> | T, accept: (value: T) => boolean): Promise<T> {
@@ -64,6 +153,20 @@ async function eventually<T>(read: () => Promise<T> | T, accept: (value: T) => b
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
   throw new Error(`condition did not become true; last value: ${JSON.stringify(last)}`);
+}
+
+async function sessionExited(client: NativeTerminalClient, id: string): Promise<void> {
+  // Poll the host's actual PTY-exit observation. Its force-stop deadline is
+  // the product bound; a fixed number of timer ticks is not an exit proof.
+  const deadline = performance.now() + NATIVE_TERMINAL_FORCE_KILL_TIMEOUT_MS;
+  for (;;) {
+    const state = await client.state(id);
+    if (state.status === "exited") return;
+    if (performance.now() >= deadline) {
+      throw new Error(`terminal ${id} missed the product stop deadline: ${JSON.stringify(state)}`);
+    }
+    await new Promise(resolve => setTimeout(resolve, 10));
+  }
 }
 
 async function clientAfterFirstRestartBackoff(
@@ -131,6 +234,7 @@ type ProcessObservation = Readonly<{
 }>;
 
 async function processObservation(pid: number): Promise<ProcessObservation> {
+  assertOwnedPid(pid);
   try {
     const raw = await readFile(`/proc/${pid}/stat`, "utf8");
     const commandEnd = raw.lastIndexOf(")");
@@ -151,21 +255,74 @@ async function processObservation(pid: number): Promise<ProcessObservation> {
   }
 }
 
-async function processGroupMemberPids(processGroup: number): Promise<number[]> {
-  const observations = await Promise.all(
-    (await readdir("/proc"))
-      .filter((entry) => /^\d+$/.test(entry))
-      .map((entry) => processObservation(Number(entry))),
-  );
+/**
+ * Live members of `processGroup` AMONG THE PID CANDIDATES this fixture owns
+ * (round-3 confinement finding: this reader used to enumerate and stat EVERY
+ * pid in /proc before filtering). The candidates are the members the test
+ * already knows — the workload's own pids, tracked at creation — so the stat
+ * reads stay bounded to processes this test started. Emptiness of the WHOLE
+ * group (members the test never learned a pid for included) is proven by the
+ * ESRCH probe below, which signals the group this fixture created and reads
+ * nobody.
+ */
+async function processGroupMemberPids(
+  processGroup: number,
+  candidates: readonly number[],
+): Promise<number[]> {
+  const observations = await Promise.all(candidates.map((pid) => processObservation(pid)));
   return observations
     .filter((observation) => observation.processGroup === processGroup)
     .map((observation) => observation.pid)
     .sort((left, right) => left - right);
 }
 
+/** ESRCH is the only acceptable answer to "is this fixture's group empty". */
+function expectProcessGroupEmpty(processGroup: number): void {
+  let empty = false;
+  try {
+    process.kill(-processGroup, 0);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
+    empty = true;
+  }
+  expect(empty, `process group ${processGroup} still has live members`).toBe(true);
+}
+
+/**
+ * A /proc-shaped view containing EXACTLY the processes this fixture started
+ * (round-4 confinement finding): one symlink per owned pid — the pin the
+ * isolation guard applies to guarded spawns, extended here to the PTY trees
+ * only this suite knows the pids of — plus the positively-described proc
+ * mount line the zombie census requires. The PRODUCTION group readers run
+ * unchanged against this root (real stat, real environ, real thread lists):
+ * only the enumeration is confined, and a dangling pin reads as ENOENT/ESRCH,
+ * exactly like a process that exited mid-scan.
+ */
+function createOwnedProcView(directory: string, pids: Iterable<number>): string {
+  const root = mkdtempSync(join(directory, "owned-proc-"));
+  mkdirSync(join(root, "self"), { recursive: true });
+  writeFileSync(
+    join(root, "self", "mountinfo"),
+    `54 46 0:25 / ${root} rw,nosuid,nodev,noexec,relatime shared:12 - proc proc rw\n`,
+  );
+  for (const pid of pids) {
+    try {
+      symlinkSync(`/proc/${pid}`, join(root, String(pid)));
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+    }
+  }
+  return root;
+}
+
+
 async function directChildren(pid: number): Promise<number[]> {
+  assertOwnedPid(pid);
   const raw = await readFile(`/proc/${pid}/task/${pid}/children`, "utf8");
-  return raw.trim().length === 0 ? [] : raw.trim().split(/\s+/).map(Number);
+  const childPids = raw.trim().length === 0 ? [] : raw.trim().split(/\s+/).map(Number);
+  // Children of a process this fixture owns are fixture processes too.
+  for (const childPid of childPids) ownedPids.add(childPid);
+  return childPids;
 }
 
 /** Ping whoever currently serves `socketPath`, and leave no connection open. */
@@ -196,6 +353,7 @@ async function persistProvenDeadOwnerRow(
 ): Promise<number> {
   const owner = spawn(process.execPath, ["-e", "setTimeout(() => {}, 200)"]);
   const ownerPid = owner.pid!;
+  ownedPids.add(ownerPid);
   const startTime = await eventually(
     () => readProcessStartTime(ownerPid),
     (value) => typeof value === "number",
@@ -264,6 +422,10 @@ async function createStubbornWorkload(
     cols: 80,
     rows: 24,
   });
+  // The PTY session process is a child of the fixture host: owned from the
+  // moment the host (itself adopted) created it for this test.
+  ownedPids.add(session.pid);
+  processGroups.add(session.pid);
   const output = await eventually(
     () => client.readOutput(id, 0),
     (replay) => replay.chunks.some((chunk) =>
@@ -273,10 +435,20 @@ async function createStubbornWorkload(
   const match = output.chunks.map((chunk) => chunk.data).join("")
     .match(new RegExp(`${id}-ready:(\\d+)`));
   if (!match) throw new Error("stubborn PTY did not report its descendant");
+  ownedPids.add(Number(match[1]));
   const targetChildren = await eventually(
     () => directChildren(session.pid),
     (pids) => pids.length === 1,
   );
+  // The shells do not run the Node preload. Publish parent-held pins before
+  // their host can die, so a later private census retains their membership.
+  processPins.add(pinPrivateNativeProcess(session.pid, isolatedNativeTestEnvironment(process.env)));
+  const persisted = readNativeTerminalPgid(id, join(directory, "registry.json"));
+  expect(persisted.status).toBe("resolved");
+  if (persisted.status !== "resolved" || persisted.groupToken === undefined) throw new Error("stubborn group has no durable token");
+  const procRoot = process.env.H2A_TEST_OWNED_PROC_ROOT;
+  if (!procRoot) throw new Error("stubborn workload has no private process view");
+  expect(groupCarriesSessionToken(session.pid, persisted.groupToken, procRoot)).toBe(true);
   return [session.pid, targetChildren[0]!, Number(match[1])];
 }
 
@@ -362,7 +534,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
         env: process.env,
         stdio: ["ignore", "pipe", "pipe"],
       });
-      children.add(child);
+      adopt(child);
       return child;
     };
     const supervisor = new NativeTerminalHostSupervisor({
@@ -403,6 +575,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
     const nodeChildrenBefore = await directChildren(ping.hostPid);
     const writerChildren = [];
     for (const pid of nodeChildrenBefore) {
+      assertOwnedPid(pid);
       const argv = (await readFile(`/proc/${pid}/cmdline`, "utf8")).split("\0");
       if (argv.includes("--native-host-journal-writer")) {
         expect(argv).toContain(fileURLToPath(new URL("../../dist/native-terminal/journal.js", import.meta.url)));
@@ -413,6 +586,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
     const terminalChildren = nodeChildrenBefore.filter(pid => !writerChildren.includes(pid));
     expect(terminalChildren.sort((left, right) => left - right)).toEqual([alpha.pid, beta.pid].sort((left, right) => left - right));
     for (const pid of terminalChildren) {
+      assertOwnedPid(pid);
       const executable = basename(await readlink(`/proc/${pid}/exe`));
       expect(executable.startsWith("node")).toBe(false);
     }
@@ -455,6 +629,104 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
     await eventually(() => processObservation(writerChildren[0]!),
       (observation) => observation.missing === true || observation.state === "Z");
     expect(running(ping.hostPid)).toBe(false);
+  });
+
+  it("should not leak foreign PTY master file descriptors to a session CLI or its grandchildren", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "n-"));
+    directories.add(directory);
+    const socketPath = join(directory, "host.sock");
+    const entry = fileURLToPath(new URL("../../dist/native-terminal/process.js", import.meta.url));
+    const spawnHost: NativeTerminalHostSpawn = (options) => {
+      const child = spawn(process.execPath, [
+        "--import",
+        "tsx",
+        entry,
+        "--socket",
+        options.socketPath,
+        "--generation",
+        options.generation,
+        "--replay-bytes",
+        String(options.replayBytesPerSession),
+        ...(options.registryPath !== undefined ? ["--registry-path", options.registryPath] : []),
+      ], {
+        cwd: dirname(entry),
+        env: process.env,
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+      children.add(child);
+      return child;
+    };
+    const supervisor = new NativeTerminalHostSupervisor({
+      socketPath,
+      registryPath: join(directory, "registry.json"),
+      replayBytesPerSession: 1024 * 1024,
+      spawnHost,
+      generationFactory: () => "hygiene-generation",
+    });
+
+    const client = await supervisor.client();
+    const ping = await client.ping();
+    expect(ping).toMatchObject({ generation: "hygiene-generation", protocolVersion: 1 });
+
+    // Spawn first session with a descendant
+    const [alphaGuardianPid, , ] = await createStubbornWorkload(client, "alpha", directory);
+    processGroups.add(alphaGuardianPid);
+
+    // Spawn second session with a descendant
+    const [betaGuardianPid, betaCliPid, betaGrandchildPid] = await createStubbornWorkload(client, "beta", directory);
+    processGroups.add(betaGuardianPid);
+
+    async function ptmxFds(pid: number): Promise<number[]> {
+      const fdDir = `/proc/${pid}/fd`;
+      const entries = await readdir(fdDir);
+      const fds: number[] = [];
+      for (const entry of entries) {
+        try {
+          const target = await readlink(join(fdDir, entry));
+          if (target === "/dev/ptmx") {
+            fds.push(Number(entry));
+          }
+        } catch {
+          // fd closed during scan
+        }
+      }
+      return fds.sort((a, b) => a - b);
+    }
+
+    async function hostPtmxFdsWithFlags(hostPid: number): Promise<Array<{ fd: number; flags: number }>> {
+      const fdDir = `/proc/${hostPid}/fd`;
+      const entries = await readdir(fdDir);
+      const results: Array<{ fd: number; flags: number }> = [];
+      for (const entry of entries) {
+        try {
+          const target = await readlink(join(fdDir, entry));
+          if (target === "/dev/ptmx") {
+            const fdinfo = await readFile(`/proc/${hostPid}/fdinfo/${entry}`, "utf8");
+            const match = fdinfo.match(/^flags:\s+([0-7]+)/m);
+            const flags = match ? parseInt(match[1]!, 8) : 0;
+            results.push({ fd: Number(entry), flags });
+          }
+        } catch {
+          // ignore
+        }
+      }
+      return results.sort((a, b) => a.fd - b.fd);
+    }
+
+    // 1. Owner host must hold its masters non-CLOEXEC
+    const hostMasters = await hostPtmxFdsWithFlags(ping.hostPid);
+    expect(hostMasters.length).toBeGreaterThanOrEqual(2);
+    for (const master of hostMasters) {
+      // 0o2000000 = O_CLOEXEC in Linux
+      expect(master.flags & 0o2000000).toBe(0);
+    }
+
+    // 2. Second session CLI and grandchild must NOT hold any foreign /dev/ptmx
+    const betaCliPtmx = await ptmxFds(betaCliPid);
+    const betaGrandchildPtmx = await ptmxFds(betaGrandchildPid);
+
+    expect(betaCliPtmx).toEqual([]);
+    expect(betaGrandchildPtmx).toEqual([]);
   });
 
   // How long the reaper below waits for a host it SIGSTOPped: that host can
@@ -519,7 +791,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
         env: process.env,
         stdio: ["ignore", "pipe", "pipe"],
       });
-      children.add(child);
+      adopt(child);
       spawnedHosts.push(child);
       return child;
     };
@@ -554,8 +826,12 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
     // takeover of this health-checked, known-dead host as containment work:
     // client() returns only after the durable pgid has been reaped (or it
     // fails rather than starting a replacement over live descendants).
-    const replacement = await clientAfterFirstRestartBackoff(supervisor);
-    expect(await processGroupMemberPids(hardCrashPgid)).toEqual([]);
+    const replacement = await clientAfterFirstRestartBackoff(supervisor).catch(error => {
+      console.error("REAP_DIAGNOSTIC " + JSON.stringify({error:String(error),cause:error.refusalCause,logs:reconcileLogs,procRoot:process.env.H2A_TEST_OWNED_PROC_ROOT}));
+      throw error;
+    });
+    expect(await processGroupMemberPids(hardCrashPgid, hardCrashPids)).toEqual([]);
+    expectProcessGroupEmpty(hardCrashPgid);
     const hardCrashStates = await Promise.all(hardCrashPids.map(processObservation));
     expect(hardCrashStates.every((state) => state.missing === true)).toBe(true);
     const replacementPing = await replacement.ping();
@@ -577,6 +853,31 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
     process.kill(forcedReapPgid, "SIGKILL");
     supervisor.disconnect();
     process.kill(replacementPing.hostPid, "SIGSTOP");
+    // Confinement (round-4 finding): the forced reap reaches the
+    // leader-absent branch, whose DEFAULT group readers enumerate the GLOBAL
+    // /proc — a read of processes this test did not start. The reaps below
+    // still run the REAL NativeTerminalHost.reapOrphan (same group kill, same
+    // ESRCH confirmation, same counters and logs); only its group readers are
+    // confined to a view holding exactly the fixture's own processes.
+    const ownedView = createOwnedProcView(directory, ownedPids);
+    const confinedReapHost = new NativeTerminalHost({
+      generation: "parent-death-confined-reap",
+      replayBytesPerSession: 1,
+      spawner: () => {
+        throw new Error("the confined reap host must never spawn a pty");
+      },
+      registryPath: join(directory, "registry.json"),
+      findGroupMemberToken: (pgid, expectedToken) =>
+        groupCarriesSessionToken(pgid, expectedToken, ownedView),
+      groupIsOnlyZombies: (pgid) => groupIsOnlyZombies(pgid, ownedView),
+      log: (line) => reconcileLogs.push(line),
+    });
+    const reapConfinedToOwnedView = (
+      sessionId: string,
+      pgid: number,
+      signal: NativeTerminalStopSignal,
+      expected?: { groupToken?: string },
+    ) => confinedReapHost.reapOrphan(sessionId, signal, pgid, expected);
     const reaper = new NativeTerminalHostSupervisor({
       socketPath,
       registryPath: join(directory, "registry.json"),
@@ -586,6 +887,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
       log: (line) => reconcileLogs.push(line),
       generationFactory: () => "parent-death-reap-timeout",
       spawnHost: () => spawnedHosts[1]!,
+      reapOrphan: reapConfinedToOwnedView,
     });
     await expect(reaper.client()).rejects.toThrow(/did not become ready/i);
     const cleanupSupervisor = new NativeTerminalHostSupervisor({
@@ -597,6 +899,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
       log: (line) => reconcileLogs.push(line),
       generationFactory: () => "parent-death-cleanup",
       spawnHost,
+      reapOrphan: reapConfinedToOwnedView,
     });
     await cleanupSupervisor.client();
 
@@ -606,7 +909,8 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
     // SIGKILL) and waited for kill(-pgid, 0) to return ESRCH. That reaches
     // descendants whether they reparented to init or to a subreaper.
     expect(running(replacementPing.hostPid)).toBe(false);
-    expect(await processGroupMemberPids(forcedReapPgid)).toEqual([]);
+    expect(await processGroupMemberPids(forcedReapPgid, forcedReapPids)).toEqual([]);
+    expectProcessGroupEmpty(forcedReapPgid);
     const forcedReapStates = await Promise.all(forcedReapPids.map(processObservation));
     expect(forcedReapStates.every((state) => state.missing === true)).toBe(true);
     expect(
@@ -673,7 +977,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
           env: process.env,
           stdio: ["ignore", "pipe", "pipe"],
         });
-        children.add(child);
+        adopt(child);
         return child;
       },
     });
@@ -692,7 +996,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
       ["-c", "trap '' HUP TERM INT; while :; do sleep 1; done"],
       { detached: true, stdio: "ignore" },
     );
-    children.add(distractor);
+    adopt(distractor);
     if (distractor.pid === undefined) throw new Error("expected distractor pid");
     const distractorPgid = distractor.pid;
     await eventually(() => running(distractorPgid), (alive) => alive);
@@ -840,7 +1144,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
           env: process.env,
           stdio: ["ignore", "pipe", "pipe"],
         });
-        children.add(child);
+        adopt(child);
         return child;
       },
     });
@@ -924,7 +1228,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
           env: process.env,
           stdio: ["ignore", "pipe", "pipe"],
         });
-        children.add(child);
+        adopt(child);
         return child;
       },
     });
@@ -959,6 +1263,11 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
     // owning host — reaps purely from the durably persisted registry row.
     // The owning host's own liveness is irrelevant to reapOrphan's
     // contract; this isolates the invariant under test.
+    // Confinement (round-4 finding): the DEFAULT group readers enumerate the
+    // GLOBAL /proc — a read of processes this test did not start. The
+    // production readers run unchanged against a view holding exactly the
+    // fixture's own processes, so the token proof stays real.
+    const ownedView = createOwnedProcView(directory, ownedPids);
     const freshHost = new NativeTerminalHost({
       generation: "leader-dead-fresh-host",
       replayBytesPerSession: 1024,
@@ -966,6 +1275,9 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
         throw new Error("the fresh host in this test must never spawn a pty");
       },
       registryPath,
+      findGroupMemberToken: (pgid, expectedToken) =>
+        groupCarriesSessionToken(pgid, expectedToken, ownedView),
+      groupIsOnlyZombies: (pgid) => groupIsOnlyZombies(pgid, ownedView),
     });
 
     const outcome = await freshHost.reapOrphan("leader-dead-orphan", "SIGKILL");
@@ -1197,7 +1509,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
     const child = spawn(process.execPath, ["--import", "tsx", wrapper], {
       cwd: dirname(entry), env: { ...process.env, XDG_STATE_HOME: statePath }, stdio: ["ignore", "pipe", "pipe", "ipc"],
     });
-    children.add(child);
+    adopt(child);
     const messages: unknown[] = [];
     child.on("message", (message) => messages.push(message));
     let stdout = "";
@@ -1307,7 +1619,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
           String(options.replayBytesPerSession),
           ...(options.registryPath !== undefined ? ["--registry-path", options.registryPath] : []),
         ], { cwd: dirname(entry), env: process.env, stdio: ["ignore", "pipe", "pipe"] });
-        children.add(child);
+        adopt(child);
         return child;
       },
     });
@@ -1376,7 +1688,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
           env: process.env,
           stdio: ["ignore", "pipe", "pipe"],
         });
-        children.add(child);
+        adopt(child);
         return child;
       },
     });
@@ -1443,7 +1755,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
           env: process.env,
           stdio: ["ignore", "pipe", "pipe"],
         });
-        children.add(hostProcess);
+        adopt(hostProcess);
         return hostProcess;
       },
     });
@@ -1549,7 +1861,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
           env: process.env,
           stdio: ["ignore", "pipe", "pipe"],
         });
-        children.add(child);
+        adopt(child);
         return child;
       },
     });
@@ -1573,11 +1885,15 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
       "recycled",
       "same-controller",
     );
-    await staleClient.stop(staleLease, "SIGTERM");
+    // Qualify a running original command before testing its reincarnation.
+    // create() returns the guardian PID before its shell has necessarily
+    // started; TERM delivered in that interval can precede the shell itself.
     await eventually(
-      () => staleClient.state("recycled"),
-      (state) => state.status === "exited",
+      () => staleClient.readOutput("recycled", 0),
+      output => output.chunks.some(chunk => chunk.data.includes("original-ready")),
     );
+    await staleClient.stop(staleLease, "SIGTERM");
+    await sessionExited(staleClient, "recycled");
 
     const replacement = await currentClient.create(shell("replacement"));
     const currentLease = await currentClient.acquireController(
@@ -1617,9 +1933,10 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
       (output) => output.chunks.some((chunk) => chunk.data.includes("replacement:current-write")),
     );
     await currentClient.stop(currentLease, "SIGTERM");
-    await eventually(() => running(replacement.pid), (alive) => !alive);
+    await sessionExited(currentClient, "recycled");
+    expect(running(replacement.pid)).toBe(false);
     currentClient.close();
-  });
+  }, HOST_STARTUP_BUDGET_MS + CLIENT_OVERRUN_BUDGET_MS + 2 * NATIVE_TERMINAL_FORCE_KILL_TIMEOUT_MS);
 
   it("should drop a slow pipelined client without affecting another real PTY", async () => {
     const directory = await mkdtemp(join(tmpdir(), "n-"));
@@ -1648,7 +1965,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
           env: process.env,
           stdio: ["ignore", "pipe", "pipe"],
         });
-        children.add(child);
+        adopt(child);
         return child;
       },
     });
@@ -1734,7 +2051,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
           env: process.env,
           stdio: ["ignore", "ignore", "pipe"],
         });
-        children.add(child);
+        adopt(child);
         return child;
       },
     });
@@ -1810,7 +2127,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
               stdio: ["ignore", "pipe", "pipe"],
             });
         if (spawnCount === 1) hungChild = child;
-        children.add(child);
+        adopt(child);
         return child;
       },
     });
@@ -1890,7 +2207,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
               stdio: ["ignore", "pipe", "pipe"],
             });
         if (losingSpawnCount === 1) losingChild = child;
-        children.add(child);
+        adopt(child);
         return child;
       },
     });
@@ -1924,7 +2241,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
           env: process.env,
           stdio: ["ignore", "pipe", "pipe"],
         });
-        children.add(winningChild);
+        adopt(winningChild);
         return winningChild;
       },
     });
@@ -1963,7 +2280,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
         String(options.replayBytesPerSession),
         ...(options.registryPath !== undefined ? ["--registry-path", options.registryPath] : []),
       ], { cwd: dirname(entry), env: process.env, stdio: ["ignore", "pipe", "pipe"] });
-      children.add(child);
+      adopt(child);
       return child;
     };
     const firstSupervisor = new NativeTerminalHostSupervisor({
@@ -2028,7 +2345,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
         String(options.replayBytesPerSession),
         ...(options.registryPath !== undefined ? ["--registry-path", options.registryPath] : []),
       ], { cwd: dirname(entry), env: process.env, stdio: ["ignore", "pipe", "pipe"] });
-      children.add(child);
+      adopt(child);
       return child;
     };
 
@@ -2106,7 +2423,8 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
       status: "unresolved",
       reason: expect.stringMatching(/no pgid recorded/i),
     });
-    expect(await processGroupMemberPids(stubbornPgid)).toEqual([]);
+    expect(await processGroupMemberPids(stubbornPgid, stubbornPids)).toEqual([]);
+    expectProcessGroupEmpty(stubbornPgid);
     const stubbornStates = await Promise.all(stubbornPids.map(processObservation));
     expect(stubbornStates.every((state) => state.missing === true)).toBe(true);
   });
@@ -2165,7 +2483,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
           env: process.env,
           stdio: ["ignore", "pipe", "pipe"],
         });
-        children.add(ownerChild);
+        adopt(ownerChild);
         return ownerChild;
       },
     });
@@ -2211,7 +2529,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
           env: process.env,
           stdio: ["ignore", "pipe", "pipe"],
         });
-        children.add(child);
+        adopt(child);
         return child;
       },
     });
@@ -2229,7 +2547,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
       env: process.env,
       stdio: ["ignore", "pipe", "pipe"],
     });
-    children.add(external);
+    adopt(external);
     const externalPid = await eventually(
       async () => {
         try {
@@ -2314,7 +2632,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
           String(options.replayBytesPerSession),
           ...(options.registryPath !== undefined ? ["--registry-path", options.registryPath] : []),
         ], { cwd: dirname(entry), env: process.env, stdio: ["ignore", "pipe", "pipe"] });
-        children.add(hostChild);
+        adopt(hostChild);
         return hostChild;
       },
     });
@@ -2384,7 +2702,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
       "--registry-path",
       registryPath,
     ], { cwd: dirname(entry), env: process.env, stdio: ["ignore", "pipe", "pipe"] });
-    children.add(external);
+    adopt(external);
     const externalPid = await eventually(
       () => pingSocket(socketPath).catch(() => undefined),
       (pid) => typeof pid === "number",
@@ -2420,7 +2738,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
           String(options.replayBytesPerSession),
           ...(options.registryPath !== undefined ? ["--registry-path", options.registryPath] : []),
         ], { cwd: dirname(entry), env: process.env, stdio: ["ignore", "pipe", "pipe"] });
-        children.add(child);
+        adopt(child);
         return child;
       },
     });

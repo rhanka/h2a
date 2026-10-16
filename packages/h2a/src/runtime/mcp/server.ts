@@ -209,7 +209,7 @@ const IDENTITY_INDEPENDENT_TOOLS = new Set<string>([
 ]);
 
 /** A bounded typed error emitted for a guarded tool while identity is pending. */
-function identityPendingError(): McpTransportResult {
+function identityPendingError(lastFailure?: unknown): McpTransportResult {
   return {
     content: [
       {
@@ -219,7 +219,8 @@ function identityPendingError(): McpTransportResult {
           code: "identity_pending",
           message: "identity is not ready",
           retryable: true,
-          retryAfterMs: 250
+          retryAfterMs: 250,
+          ...(lastFailure ? {lastFailure} : {})
         })
       }
     ],
@@ -237,7 +238,8 @@ function identityPendingError(): McpTransportResult {
 function identityFailedError(
   cause: string,
   retryable: boolean,
-  retryAfterMs?: number
+  retryAfterMs?: number,
+  failure?: Extract<McpIdentityStatus,{state:'identity_failed'}>
 ): McpTransportResult {
   return {
     content: [
@@ -247,10 +249,12 @@ function identityFailedError(
           error: "identity_failed",
           code: "identity_failed",
           cause,
-          message: retryable
+          message: failure?.message ?? (retryable
             ? "identity initialization failed transiently; retry — a new attempt runs on a later tool call once the retry interval elapses"
-            : "identity initialization failed; reconnect after correcting the cause",
+            : "identity initialization failed; reconnect after correcting the cause"),
           retryable,
+          ...(failure?.diagnostic ? {diagnostic:failure.diagnostic} : {}),
+          ...(failure?.retryCondition ? {retryCondition:failure.retryCondition} : {}),
           ...(retryAfterMs !== undefined ? { retryAfterMs } : {})
         })
       }
@@ -319,17 +323,17 @@ export function createMcpServer(options: CreateMcpServerOptions): McpServer {
     if (TRACK_READ_TOOL_NAMES.has(name)) return undefined;
     if (IDENTITY_INDEPENDENT_TOOLS.has(name)) return undefined;
     if (name === "h2a_inbox" && (args?.action === "read")) return undefined;
-    if (st.state === "identity_pending") return identityPendingError();
+    if (st.state === "identity_pending") return identityPendingError(st.lastFailure);
     // identity_failed. A TRANSIENT failure (identity_timeout — a dead/contended/expired
     // lock) becomes self-healing: THIS tool call triggers a bounded on-demand re-attempt.
     // If a fresh attempt kicked, report pending (retryable). Otherwise we are within the
     // retry min-interval, so return the memoized transient failure (still retryable, with a
     // hint). A PERMANENT failure stays terminal (retryable:false) and never re-attempts.
     if (st.retryable) {
-      if (options.identity.retry()) return identityPendingError();
-      return identityFailedError(st.cause, true, MCP_IDENTITY_RETRY_MIN_MS);
+      if (options.identity.retry()) return identityPendingError(st);
+      return identityFailedError(st.cause, true, st.retryCondition==='blocker-change' ? undefined : st.retryAfterMs ?? MCP_IDENTITY_RETRY_MIN_MS,st);
     }
-    return identityFailedError(st.cause, false);
+    return identityFailedError(st.cause, false,undefined,st);
   }
 
   const launch = createH2aRunLauncher(options.runExecutor ?? executeH2aRun, 49_000, (request, result) =>

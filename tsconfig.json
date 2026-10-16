@@ -8,6 +8,9 @@
       "path": "./packages/focus-interactive"
     },
     {
+      "path": "./packages/agent-stats"
+    },
+    {
       "path": "./packages/h2a"
     },
     {

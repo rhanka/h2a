@@ -101,12 +101,27 @@ maybe(
     const root = labRoot(SEED);
     const prefix = "t4-distinct-";
     const handles = Array.from({ length: N }, (_, i) =>
-      spawnMcp({ root, args: ["--auto-open", "--host", "claude"], env: { CLAUDE_CODE_SESSION_ID: `${prefix}${i}` } })
+      spawnMcp({ root, args: ["--auto-open", "--host", "claude"],
+        env: { CLAUDE_CODE_SESSION_ID: `${prefix}${i}`, H2A_IDENTITY_RETRY_MIN_MS: "0" } })
     );
     try {
       const { max } = await initAll(handles, 20_000);
       assert.ok(max < 30_000, `no connection latency may reach the client's 30s window (max ${max}ms)`);
-      const mine = await waitForBindings(root, prefix, (b) => b.length >= N);
+      // Startup counts toward the production deadline. A load-expired worker
+      // needs the same single on-demand recovery as the held-lock cohort.
+      const finals = await resolveCohortAfterRelease(handles);
+      assert.equal(finals.filter(s => s.state === "identity_ready" && s.signingAvailable).length, N);
+      const mine = bindingsWithPrefix(root, prefix);
+      if (mine.length !== N) {
+        const bound = new Set(mine.map(b => b.providerSessionId));
+        for (let i = 0; i < handles.length; i++) {
+          if (!bound.has(prefix + i)) {
+            const h = handles[i];
+            console.error("MISSING_WORKER " + JSON.stringify({ conversation: prefix + i, pid: h.pid,
+              status: await readIdentityStatus(h), stderr: h.stderr }));
+          }
+        }
+      }
       assert.equal(mine.length, N, `all ${N} distinct conversations produce a binding`);
       const instances = new Set(mine.map((b) => b.instance));
       assert.equal(instances.size, N, "distinct conversations get distinct identities (no duplicate)");

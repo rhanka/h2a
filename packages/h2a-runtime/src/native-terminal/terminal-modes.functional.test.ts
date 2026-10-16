@@ -1,9 +1,9 @@
 // @ts-ignore Shared JS test isolation helper.
-import { isolatedNativeTestEnvironment, spawnIsolatedNative as spawn, spawnSyncIsolatedNative as spawnSync, setupNativeTestEnvironment } from "../../../h2a/test/helpers/native-isolation.js";
+import { isolatedNativeTestEnvironment, nativeQualificationRoot, pinPrivateNativeProcess, spawnIsolatedNative as spawn, spawnSyncIsolatedNative as spawnSync, setupNativeTestEnvironment, waitForPrivateNativeProcesses } from "../../../h2a/test/helpers/native-isolation.js";
 setupNativeTestEnvironment(afterAll);
 import type { ChildProcess } from "node:child_process";
 import { once } from "node:events";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, readlink, readdir, rm, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -24,6 +24,7 @@ const terminals = new Set<NodePty.IPty>();
 const directories = new Set<string>();
 const supervisors = new Set<NativeTerminalHostSupervisor>();
 const tmuxSockets = new Set<string>();
+const processPins = new Set<() => void>();
 
 afterEach(async () => {
   for (const terminal of terminals) terminal.kill("SIGKILL");
@@ -40,6 +41,9 @@ afterEach(async () => {
     }
   }
   children.clear();
+  await waitForPrivateNativeProcesses(process.env);
+  for (const release of processPins) release();
+  processPins.clear();
   for (const directory of directories) await rm(directory, { recursive: true, force: true });
   directories.clear();
 });
@@ -49,6 +53,23 @@ async function until(accept: () => boolean): Promise<void> {
   while (!accept()) {
     if (Date.now() > deadline) throw new Error("isolated terminal did not reach the expected state");
     await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+}
+
+async function allTasksStopped(pid: number, deadline: number): Promise<void> {
+  // node-pty waits in a native worker thread. A stopped leader alone does not
+  // prove that the waitpid thread has reached the group stop.
+  const taskRoot = `/proc/${pid}/task`;
+  for (;;) {
+    const tasks = await readdir(taskRoot);
+    expect(tasks.length).toBeGreaterThan(0);
+    const stats = await Promise.all(tasks.map(tid => readFile(join(taskRoot, tid, "stat"), "utf8")));
+    const confirmed = await readdir(taskRoot);
+    if (stats.every(stat => /\) [Tt] /.test(stat))) {
+      if (tasks.sort().join(",") === confirmed.sort().join(",")) return;
+    }
+    expect(Date.now()).toBeLessThan(deadline);
+    await new Promise(resolve => setTimeout(resolve, 10));
   }
 }
 
@@ -77,11 +98,18 @@ async function fixture(replayBytes = 4096, command?: { command: string; args: st
   supervisors.add(supervisor);
   const client = await supervisor.client();
   const id = "mode-fixture";
-  await client.create({
+  // A distinct file forces a real late preload even when tsx canonicalizes
+  // module query strings. Preserve the original qualification boundary.
+  const latePreload = join(directory, "late-native-isolation.mjs");
+  await writeFile(latePreload, (await readFile(new URL("../../../h2a/test/helpers/native-isolation.js", import.meta.url), "utf8"))
+    .replace('resolve(import.meta.dirname, "../../../../.q")', JSON.stringify(nativeQualificationRoot)));
+  const created = await client.create({
     id, command: command?.command ?? process.execPath,
     args: command?.args ?? ["-e", `process.stdin.setRawMode(true); process.stdin.resume();
-      process.stdout.write(${JSON.stringify(ENABLE)} + 'ready');
+      process.stdout.write(${JSON.stringify(ENABLE)} + 'ready inner-node-' + process.pid);
       process.stdin.on('data', b => {
+        if (b.includes(112)) import(${JSON.stringify(latePreload)})
+          .then(() => process.stdout.write('late-pin-installed:' + JSON.stringify({pid:process.pid,root:process.env.H2A_TEST_OWNED_PROC_ROOT})));
         if (b.includes(120)) process.exit(0);
         if (b.includes(99)) throw new Error('isolated inner crash');
         if (b.includes(116)) {
@@ -92,12 +120,18 @@ async function fixture(replayBytes = 4096, command?: { command: string; args: st
     cwd: directory, env: env as Record<string, string>, cols: 80, rows: 24,
   });
   const fault = join(directory, "attach-fault.mjs");
-  await writeFile(fault, `const write = process.stdout.write.bind(process.stdout);
+  const crashTrigger = join(directory, "attach-crash");
+  await writeFile(fault, `import { watch } from 'node:fs';
+    const write = process.stdout.write.bind(process.stdout);
     let armed = true;
     process.stdout.write = (chunk, ...args) => {
       if (armed && String(chunk).includes('ready')) {
         armed = false;
-        setImmediate(() => { throw new Error('isolated attach crash'); });
+        const trigger = watch(${JSON.stringify(directory)}, (_event, file) => {
+          if (file !== 'attach-crash') return;
+          trigger.close();
+          setImmediate(() => { throw new Error('isolated attach crash'); });
+        });
       }
       return write(chunk, ...args);
     };`);
@@ -126,9 +160,15 @@ async function fixture(replayBytes = 4096, command?: { command: string; args: st
     let ended = false;
     terminal.onData((data) => { output += data; });
     terminal.onExit(() => { ended = true; terminals.delete(terminal); });
-    return { terminal, output: () => output, ended: () => ended };
+    return { terminal, output: () => output, ended: () => ended,
+      pin: () => {
+        // Both PTYs need a descriptor held by the surviving test process.
+        processPins.add(pinPrivateNativeProcess(created.pid, env));
+        processPins.add(pinPrivateNativeProcess(terminal.pid, env));
+      } };
   };
-  return { host, client, id, attach };
+  return { host, client, id, attach, crashTrigger, innerPid: created.pid, procRoot: env.H2A_TEST_OWNED_PROC_ROOT!,
+    pinChild: (pid: number) => { processPins.add(pinPrivateNativeProcess(pid, env)); } };
 }
 
 function clean(output: string): void {
@@ -144,6 +184,7 @@ describe.skipIf(process.platform !== "linux")("native attach terminal modes on r
       const f = await fixture();
       const outer = f.attach();
       await until(() => outer.output().includes("ready"));
+      outer.pin();
       if (ending === "inner exit") outer.terminal.write("x");
       else if (ending === "inner crash") outer.terminal.write("c");
       else if (ending === "host death") f.host.kill("SIGKILL");
@@ -153,10 +194,67 @@ describe.skipIf(process.platform !== "linux")("native attach terminal modes on r
     }, 10_000,
   );
 
+  it("should inspect a killed inner PTY while its stopped host cannot reap it", async () => {
+    const f = await fixture();
+    const outer = f.attach();
+    await until(() => outer.output().includes("ready"));
+    outer.pin();
+    f.host.kill("SIGSTOP");
+    try {
+      const deadline = Date.now() + 4_000;
+      await allTasksStopped(f.host.pid!, deadline);
+      process.kill(f.innerPid, "SIGKILL");
+      let stat = "";
+      while (!/\) [ZX] /.test(stat)) {
+        stat = await readFile(join(f.procRoot, String(f.innerPid), "stat"), "utf8");
+        expect(Date.now()).toBeLessThan(deadline);
+        if (!/\) [ZX] /.test(stat)) await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      expect(stat).toMatch(/\) [ZX] /);
+    } finally {
+      f.host.kill("SIGCONT");
+    }
+  }, 10_000);
+
+  it("should retain the parent pin after a late preload and prove the unreaped inner child dead", async () => {
+    const f = await fixture();
+    const outer = f.attach();
+    await until(() => outer.output().includes("ready"));
+    outer.pin();
+    const nodePid = Number(/inner-node-(\d+)/.exec(outer.output())![1]);
+    const ownedChildren = (await readFile(`/proc/${f.innerPid}/task/${f.innerPid}/children`, "utf8"))
+      .trim().split(/\s+/).map(Number);
+    expect(ownedChildren).toContain(nodePid);
+    const entry = join(f.procRoot, String(nodePid));
+    outer.terminal.write("p");
+    await until(() => outer.output().includes("late-pin-installed"));
+    const parentPin = await readlink(entry);
+    f.host.kill("SIGSTOP");
+    process.kill(f.innerPid, "SIGSTOP");
+    try {
+      const deadline = Date.now() + 4_000;
+      await allTasksStopped(f.host.pid!, deadline);
+      await allTasksStopped(f.innerPid, deadline);
+      process.kill(nodePid, "SIGKILL");
+      let stat = "";
+      while (!/\) [ZX] /.test(stat)) {
+        stat = await readFile(join(entry, "stat"), "utf8");
+        expect(Date.now()).toBeLessThan(deadline);
+        if (!/\) [ZX] /.test(stat)) await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      expect(stat).toMatch(/\) [ZX] /);
+      expect(parentPin.startsWith(`/proc/${process.pid}/fd/`)).toBe(true);
+    } finally {
+      process.kill(f.innerPid, "SIGCONT");
+      f.host.kill("SIGCONT");
+    }
+  }, 10_000);
+
   it("should clean detach and re-establish inner modes even after replay eviction", async () => {
     const f = await fixture(128);
     const first = f.attach();
     await until(() => first.output().includes("ready"));
+    first.pin();
     first.terminal.write("t");
     await until(() => first.output().includes("tail-ready"));
     first.terminal.write("\x1c");
@@ -168,6 +266,7 @@ describe.skipIf(process.platform !== "linux")("native attach terminal modes on r
     await f.client.releaseController(lease);
     const second = f.attach();
     await until(() => second.output().includes("tail-ready"));
+    second.pin();
     const tracker = new TerminalModeTracker();
     tracker.feed(second.output());
     expect(tracker.resetSequence()).toBe(RESET);
@@ -187,6 +286,7 @@ describe.skipIf(process.platform !== "linux")("native attach terminal modes on r
     });
     const outer = f.attach();
     await until(() => outer.output().includes("[h2a] relaunch:"));
+    outer.pin();
     expect(outer.output()).toContain(`${RESET}\r`);
     expect(outer.output().indexOf(RESET)).toBeLessThan(outer.output().indexOf("[h2a]"));
     // The inherited prompt hook must also clean modes from the next command.
@@ -204,12 +304,14 @@ describe.skipIf(process.platform !== "linux")("native attach terminal modes on r
     const f = await fixture();
     const outer = f.attach(true);
     await until(() => outer.output().includes("ready"));
+    outer.pin();
     const childPids = (await readFile(`/proc/${outer.terminal.pid}/task/${outer.terminal.pid}/children`, "utf8"))
       .trim().split(/\s+/).map(Number);
     expect(childPids).toHaveLength(1);
     const childPid = childPids[0]!;
     const argv = await readFile(`/proc/${childPid}/cmdline`, "utf8");
     expect(argv).toContain("/native-terminal/op.ts");
+    f.pinChild(childPid);
     process.kill(childPid, "SIGKILL");
     await until(outer.ended);
     clean(outer.output());
@@ -219,6 +321,9 @@ describe.skipIf(process.platform !== "linux")("native attach terminal modes on r
   it("should clean modes after an uncaught attach exception without suppressing the failure", async () => {
     const f = await fixture();
     const outer = f.attach(false, true);
+    await until(() => outer.output().includes("ready"));
+    outer.pin();
+    await writeFile(f.crashTrigger, "crash");
     await until(outer.ended);
     expect(outer.output()).toContain("isolated attach crash");
     expect(outer.output()).toContain(RESET);
@@ -253,6 +358,11 @@ describe.skipIf(process.platform !== "linux")("native attach terminal modes on r
       terminal.onData((data) => { output += data; });
       terminal.onExit(() => { ended = true; terminals.delete(terminal); });
       await until(() => output.includes("tmux-mode-ready"));
+      const pane = spawnSync("tmux", ["-S", socket, "display-message", "-p", "-t", "modes", "#{pane_pid}"],
+        { env, encoding: "utf8" });
+      expect(pane.status, pane.stderr).toBe(0);
+      expect(pane.stdout.trim()).toMatch(/^[1-9]\d*$/);
+      processPins.add(pinPrivateNativeProcess(Number(pane.stdout.trim()), env));
       terminal.write("\x02d");
       await until(() => ended);
       expect(output).toContain("\x1b[?1049h");
