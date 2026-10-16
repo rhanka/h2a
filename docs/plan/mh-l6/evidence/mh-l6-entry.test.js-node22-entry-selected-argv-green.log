@@ -1,0 +1,22 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-entry.test.js
+node: v22.22.1
+private root: /tmp/mh-l6-test-cfGfWv
+case: all cases in explicit file
+TAP version 13
+# Subtest: U04 should preserve the exact selected argv entry and PID when the real npm router imports it
+ok 1 - U04 should preserve the exact selected argv entry and PID when the real npm router imports it
+  ---
+  duration_ms: 4082.396088
+  type: 'test'
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 1
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 4367.901122
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-entry.test.js"],"code":0,"signal":null,"tests":1,"invalid":false,"spawned":2,"leftovers":[]}

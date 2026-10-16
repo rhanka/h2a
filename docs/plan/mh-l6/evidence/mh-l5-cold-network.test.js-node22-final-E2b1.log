@@ -1,0 +1,37 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l5-cold-network.test.js
+node: v22.22.1
+private root: /tmp/mh-l6-test-y46zhk
+case: all cases in explicit file
+TAP version 13
+# {"event":"drive-consent.full-verification","durationMs":0.00485900000012407,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# Subtest: M23 M24 real central file-sync must keep one durable stop and one reserved successor
+ok 1 - M23 M24 real central file-sync must keep one durable stop and one reserved successor
+  ---
+  duration_ms: 10961.036032
+  type: 'test'
+  ...
+# {"event":"drive-consent.full-verification","durationMs":0.004367999999885797,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# Subtest: M23 M24 real central directory-sync must keep one durable stop and one reserved successor
+ok 2 - M23 M24 real central directory-sync must keep one durable stop and one reserved successor
+  ---
+  duration_ms: 10239.564145
+  type: 'test'
+  ...
+# {"event":"drive-consent.full-verification","durationMs":0.003687000000354601,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# Subtest: M23 M24 real central lost-commit-ack must keep one durable stop and one reserved successor
+ok 3 - M23 M24 real central lost-commit-ack must keep one durable stop and one reserved successor
+  ---
+  duration_ms: 10296.261317
+  type: 'test'
+  ...
+1..3
+# tests 3
+# suites 0
+# pass 3
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 31650.329165
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l5-cold-network.test.js"],"code":0,"signal":null,"tests":3,"invalid":false,"spawned":10,"leftovers":[]}

@@ -1,0 +1,4 @@
+command: /usr/bin/node node_modules/typescript/bin/tsc -b packages/h2a --pretty false
+node: v22.22.1
+
+exit: 0

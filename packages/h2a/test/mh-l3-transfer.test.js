@@ -69,7 +69,7 @@ test('M21 real compiled shim should attach-transfer to the conformance peer whil
     const managedRoot = join(dir, 'h2a-managed', String(process.getuid()));
     const images = join(managedRoot, 'images'), state = join(managedRoot, 'state'), root = join(dir, 'store'), runtime = join(dir, 'run');
     for (const path of [images, state, root, runtime]) fs.mkdirSync(path, { recursive: true, mode: 0o700 });
-    const payload = await buildPackagingPrototype(join(dir, 'payload'), { buildId: 'fixture-live-source' });
+    const payload = await buildPackagingPrototype(join(dir, 'payload'), { buildId: 'fixture-live-source', managedRoot });
     const image = join(images, payload.manifestDigest.slice(7)); fs.renameSync(payload.root, image);
     const installation = { schemaVersion: 1, canonicalPrefix: dir, uid: process.getuid(), managedRoot,
       prefixId: digest({ canonicalPrefix: dir, uid: process.getuid() }) };

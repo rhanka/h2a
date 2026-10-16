@@ -4,6 +4,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { digest } from './wire.js';
 import { readState, privateDirectory } from './state.js';
 import { verifyImage } from './image.js';
+import { ensureManagedImageExecution } from '../upgrade/image-entry.js';
 
 export function installationForEntry(entry) {
   const absolute = fs.realpathSync(entry);
@@ -82,8 +83,10 @@ export async function routeSelectedEntrypoint(entryUrl) {
   if (process.env.NODE_PATH || /(?:--require|--import|--loader|--experimental-loader)/.test(process.env.NODE_OPTIONS ?? '')) throw new Error('external_loader_unqualified');
   const current = resolveSelectedEntry(installation);
   const loaded = relative(current.imageRoot, fs.realpathSync(entry));
+  await ensureManagedImageExecution(pathToFileURL(current.entrypoint));
   if (current.manifest.files.some(f => f.path === loaded && f.type === 'file')) return false;
   delete process.env.NODE_PATH;
+  process.argv[1] = current.entrypoint;
   await import(pathToFileURL(current.entrypoint).href);
   return true;
 }

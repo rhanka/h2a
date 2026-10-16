@@ -12,7 +12,7 @@ export async function managedImage() {
     const managedRoot = join(dir, 'h2a-managed', String(process.getuid())), state = join(managedRoot, 'state');
     const images = join(managedRoot, 'images'), root = join(dir, 'store'), runtime = join(dir, 'run');
     for (const path of [images, state, root, runtime]) fs.mkdirSync(path, { recursive: true, mode: 0o700 });
-    const payload = await buildPackagingPrototype(join(dir, 'payload'), { buildId: 'fixture-mh-l5-source' });
+    const payload = await buildPackagingPrototype(join(dir, 'payload'), { buildId: 'fixture-mh-l5-source', managedRoot });
     const image = join(images, payload.manifestDigest.slice(7)); fs.renameSync(payload.root, image);
     const installation = { schemaVersion: 1, canonicalPrefix: dir, uid: process.getuid(), managedRoot,
       prefixId: digest({ canonicalPrefix: dir, uid: process.getuid() }) };

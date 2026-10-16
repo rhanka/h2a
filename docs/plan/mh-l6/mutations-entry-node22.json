@@ -1,0 +1,53 @@
+{
+  "node": "v22.22.1",
+  "files": [
+    {
+      "path": "packages/h2a/src/runtime/handover/selection.js",
+      "sha256": "71ce10e3d6a6bd91fbd4ab64d1706dff217d3d2a518b813b445f646788e6c6e1"
+    },
+    {
+      "path": "packages/h2a/src/runtime/upgrade/image-entry.js",
+      "sha256": "15a55dad17c184ed8aaf32b1fbf81787b28942da38eb845d86fa377bfc5e0372"
+    },
+    {
+      "path": "packages/h2a/dist/runtime/handover/selection.js",
+      "sha256": "1e2147ff80acb2f99b6f1bc4f2ede5d1931a663cdec75884d0bcb74ac4b640a4"
+    },
+    {
+      "path": "packages/h2a/dist/runtime/upgrade/image-entry.js",
+      "sha256": "fdc412dc1b85c20ad6adcff740cea0fd08dc52e99edd5e9d858bb476d9e0b767"
+    }
+  ],
+  "results": [
+    {
+      "name": "direct-binding",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-entry.test.js-node22-entry-direct-binding-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-entry.test.js-node22-entry-direct-binding-green.log",
+      "restored": true
+    },
+    {
+      "name": "preimport-integrity",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-entry.test.js-node22-entry-preimport-integrity-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-entry.test.js-node22-entry-preimport-integrity-green.log",
+      "restored": true
+    },
+    {
+      "name": "descriptor-protocol",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-entry.test.js-node22-entry-descriptor-protocol-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-entry.test.js-node22-entry-descriptor-protocol-green.log",
+      "restored": true
+    },
+    {
+      "name": "selected-argv",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-entry.test.js-node22-entry-selected-argv-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-entry.test.js-node22-entry-selected-argv-green.log",
+      "restored": true
+    },
+    {
+      "name": "preload-loading",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-entry.test.js-node22-entry-preload-loading-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-entry.test.js-node22-entry-preload-loading-green.log",
+      "restored": true
+    }
+  ]
+}
