@@ -54,6 +54,6 @@
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "scripts": {
-    "build": "node ../../scripts/clean-workspace-dist.mjs && tsc -b --force"
+    "build": "node ../../scripts/clean-workspace-dist.mjs && tsc -b --force && node ../../scripts/copy-vendored-engram-live.mjs"
   }
 }
