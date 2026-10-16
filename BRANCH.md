@@ -15,7 +15,7 @@ The parallel `feat/live-cross-cli-messaging` lot owns delivery, host wake and cr
 ## Isolation and collection invariants
 
 - Repository source builds only, into mkdtemp lanes; temporary HOME, TMPDIR and XDG roots, with the existing forbidden-state/owned-PID guard.
-- Targeted test files only. No installed h2a invocation, owner state/workspace, unowned process access, full suite, PR or release. Round 5 explicitly authorizes merging origin/main into this branch.
+- Targeted test files only. No installed h2a invocation, owner state/workspace, unowned process access, full suite, PR or release. Rounds 5 and 6 explicitly authorize merging origin/main into this branch.
 - GC requires age >=24 hours, regular file, one link, a provably dead PID (ESRCH), and unchanged inode/timestamps before unlink. Presence filenames must also carry an old creation timestamp.
 - Retain live/unknown holders, malformed archives, young files, symlinks and linked files. Read-only presence scans disable GC.
 - Expiry stays honest during storage failure or disconnection. An MCP reconnect publishes a new session for the same instance; EOF removes the old attachment presence.
@@ -253,3 +253,56 @@ tag; no offline/cache exception remains. Execution tests retain all four
 publish bodies, default/backfill selection and npm failure propagation.
 The owner report records strict-test red/green, broken-package rejection,
 targeted regressions and final PR CI. No full local suite is authorized.
+
+## Review fix — round 6
+
+Owner-supplied `revpresence5.md`: FUSIONNABLE-AVEC-RESERVES, one P3.
+Accepted and reproduced with three real subprocesses held after actual directory
+enumeration: each observes the same 1,023 entries, then the old implementation
+publishes all three (1,026 entries). Fixed in `aa16ad17addc1d63f77d03b7fd2fad657b310220`.
+This section supersedes round 5's concurrency limitation.
+
+New history uses a fixed pool of numbered slots: one exclusive, non-recursive
+mkdir reserves the first missing slot in the bounded snapshot. Contenders for
+the same snapshot make one attempt at the same slot; losers return immediately.
+With L stable legacy entries, admission can only claim slot indices below
+1,024-L. Arbitrary interleavings of updated writers therefore cannot grow a
+directory initially within capacity beyond 1,024 places. Each slot contains at
+most one temporary or published file; no extra temporary file sits outside its
+reservation. Legacy hints remain readable and oversized/corrupt legacy files
+are repaired atomically through a reserved temporary place. Existing excess is
+not evicted, and receives no new places. No dependencies or global lock added.
+
+An interrupted writer can consume one place but cannot lock out the remaining
+pool. Failed writes clean their temporary and empty reservation best-effort;
+incomplete places count against capacity and never become addressing evidence.
+Overlapping identical publications are deduplicated on read. No history record
+admits a send; unchanged live-admission and dormant API contracts still apply.
+
+Normal merge `a99919956c594733e51fcd2ba230c172484038e9` incorporates origin/main
+`d2e0cfdc069f5714bc3d15ce75eb07ac7c1c240c` (#339). The sole conflict was in
+BRANCH.md; both contents were preserved. Exact internal dependencies/peers and
+lockfile remain at 0.98.6. Track events-contains confirms all 1,512 events from
+each parent. Read-only query/report on a temporary copy still exposes 69 done
+items without fresh acceptance: NOT consolidated — to treat by the designated
+single writer/conductor, with no journal edits in this concurrent worktree.
+
+| Targeted verification | Observed command output |
+|---|---|
+| Final regression bytes on exact pre-fix merge a9991995 (3SYT0W) | 16 tests, 15 pass, 1 expected failure (1,026 != 1,024), 0 skipped; exit 1 |
+| Thirteen named history/presence/send/MCP compatibility files (jReCeb) | 173/173, 0 failures/skips; exit 0 |
+| Three named incoming version/release/rehearsal files in the same temporary lane | 47/47, 0 failures/skips; exit 0 |
+| Typechecks of the same temporary source build | track, remote-protocol, h2a, h2a-runtime: exit 0 each |
+| Spawned-PID audit over all four campaigns plus merge checks | 183 checked, none alive, no errors |
+
+Full commands, TAP, SHA-256 red/green provenance, temporary environments and
+process audit are retained in scratch `presence-evidence/tour6/`; owner report
+`presence-report.md`, Tour 6. Runtime Node 22.22.1. The final test/helper bytes
+are identical on red and green; all tested source bytes match the fix commit.
+No full suite, installed h2a, owner state, Python or foreign process access.
+
+No new independent consensus or merge approval is claimed. The required installed
+MCP review launch remains prohibited by the owner; the review dossier records
+selection-failed. Node 24, other OSes, field/endurance and cross-CLI end-to-end
+remain outside this round. Capacity/failure may lose optional historical detail;
+the root concurrency defect is fixed without introducing a persistent global lock.
