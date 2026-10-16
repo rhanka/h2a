@@ -13,7 +13,15 @@ import { assertPrivatePidNamespace } from '../packages/h2a/test/helpers/private-
 const files = process.argv.slice(2);
 assert.ok(files.length, 'explicit test files required');
 for (const file of files) assert.match(file, /^packages\/h2a\/test\/[a-z0-9-]+\.test\.js$/);
-const root = fs.mkdtempSync('/tmp/h2a-qual-');
+// h2a_run deliberately rejects /tmp workspaces. Its historical integration
+// fixture needs a private mkdtemp in the ephemeral GitHub runner's temp area,
+// using the unchanged helper's default <build>/.q boundary instead.
+const durableParent = process.env.XCLI_SOURCE_TMP_PARENT;
+if (durableParent) {
+  assert.equal(durableParent, '/home/runner/work/_temp', 'only the hosted CI temporary parent is allowed');
+  assert.equal(fs.realpathSync(durableParent), durableParent, 'CI temporary parent must not be aliased');
+}
+const root = fs.mkdtempSync(durableParent ? join(durableParent, 'xcli-') : '/tmp/h2a-qual-');
 const built = sourceBuild(root);
 // Some source-consumer suites verify the shipped documentation and literal
 // source citations. Preserve those fixtures in the same private build tree.
@@ -22,7 +30,9 @@ for (const name of ['h2a', 'h2a-runtime', 'track', 'remote-protocol']) {
 }
 fs.cpSync(join(repo, 'docs'), join(built.path, 'docs'), { recursive: true });
 fs.cpSync(join(repo, 'packages/h2a/test'), join(built.path, 'packages/h2a/test'), { recursive: true });
-const env = { ...environment(join(root, 'runner')), H2A_TEST_QUALIFICATION_ROOT: root };
+const qualificationRoot = durableParent ? join(built.path, '.q') : root;
+const env = { ...environment(join(qualificationRoot, 'runner')),
+  ...(!durableParent ? { H2A_TEST_QUALIFICATION_ROOT: root } : {}) };
 if (files.includes('packages/h2a/test/native-inventory-absence.test.js')) {
   env.H2A_TEST_REQUIRE_LEGACY_HOST = '1';
   try {
