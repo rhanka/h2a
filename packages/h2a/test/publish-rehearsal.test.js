@@ -19,12 +19,15 @@
  * tarball path, lost backfill tag, reordered publish, reintroduced skip or
  * wait) changes one side and fails here.
  *
- * Parse+assert only (same standing choice as release-workflow.test.js): it
- * parses both workflows with a real YAML parser. No network, no registry, no
- * skip: every assertion below either passes or fails.
+ * Parse both workflows with a real YAML parser, then execute their four
+ * rehearsal bodies with a controlled npm fixture. No network, no registry,
+ * no skip: every assertion below either passes or fails.
  */
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readFileSync, mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { dirname, resolve } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
@@ -455,4 +458,51 @@ test("the rehearsal carries no registry credentials", () => {
       );
     }
   }
+});
+
+test('rehearsal executes all four online dry-runs and propagates failures', () => {
+  const lab = mkdtempSync(resolve(tmpdir(), 'rehearsal-execution-'));
+  const bin = resolve(lab, 'bin'), calls = resolve(lab, 'calls.jsonl');
+  mkdirSync(bin);
+  mkdirSync(resolve(lab, 'dist-tarballs'));
+  try {
+    writeFileSync(resolve(bin, 'npm'), [
+      '#!' + process.execPath,
+      "const fs=require('node:fs'),args=process.argv.slice(2);",
+      "if(args[0]==='view'){console.log(process.env.REHEARSAL_LATEST);process.exit(0);}",
+      "if(args[0]!=='publish'||!args.includes('--dry-run')||args.includes('--offline')||args.includes('--cache'))process.exit(71);",
+      "fs.appendFileSync(process.env.REHEARSAL_CALLS,JSON.stringify(args)+'\\n');",
+      "process.exit(process.env.REHEARSAL_FAIL==='1'?37:0);",
+    ].join('\n'), { mode: 0o700 });
+    const version = '0.98.6-rehearsal.123.1';
+    const manifest = [];
+    for (const [name, prefix] of PACKAGES) {
+      const base = resolve(lab, 'packages', name.slice('@sentropic/'.length));
+      mkdirSync(base, { recursive: true });
+      writeFileSync(resolve(base, 'package.json'), JSON.stringify({ version }));
+      const file = prefix + version + '.tgz', bytes = Buffer.from('verified ' + name);
+      writeFileSync(resolve(lab, 'dist-tarballs', file), bytes);
+      manifest.push(createHash('sha256').update(bytes).digest('hex') + '  ' + file);
+    }
+    writeFileSync(resolve(lab, 'dist-tarballs/sha256sums.txt'), manifest.join('\n') + '\n');
+    const steps = PACKAGES.map(([, prefix]) => publishStepFor(REHEARSAL.jobs['rehearse-publish'], prefix, 'rehearsal'));
+    for (const latest of ['0.98.6', '99.0.0']) {
+      writeFileSync(calls, '');
+      for (const fail of ['0', '1']) for (const step of steps) {
+        const script = resolve(lab, 'step.sh');
+        writeFileSync(script, step.run);
+        const run = spawnSync('bash', ['-e', '-o', 'pipefail', script], {
+          cwd: lab, encoding: 'utf8', env: { ...process.env, PATH: bin + ':' + process.env.PATH,
+            REHEARSAL_CALLS: calls, REHEARSAL_FAIL: fail, REHEARSAL_LATEST: latest },
+        });
+        assert.equal(run.status, fail === '1' ? 1 : 0, run.stdout + run.stderr);
+      }
+      const observed = readFileSync(calls, 'utf8').trim().split('\n').map(line => JSON.parse(line));
+      assert.equal(observed.length, 8, 'all four publishes execute on success and on failure');
+      for (const args of observed) {
+        assert.ok(args[1].startsWith('./dist-tarballs/'));
+        assert.deepEqual(args.slice(2), ['--access', 'public', '--tag', latest === '99.0.0' ? 'backfill' : 'rehearsal', '--dry-run']);
+      }
+    }
+  } finally { rmSync(lab, { recursive: true, force: true }); }
 });
