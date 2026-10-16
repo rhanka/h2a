@@ -32,6 +32,7 @@ jobs:
           node --test scripts/xcli-lab.test.mjs scripts/xcli-proxy.test.mjs
           scripts/xcli-simulation.test.mjs scripts/xcli-gemini-registry.test.mjs
           scripts/xcli-cleanup.test.mjs
+          scripts/xcli-pid-namespace.test.mjs
       - name: Exercise all 36 ordered pairs with simulated models
         run: >-
           node scripts/qualify-cross-cli.mjs --simulated --timeout-ms 30000
@@ -65,4 +66,16 @@ jobs:
       - run: node scripts/xcli-install-oracles.mjs
       - run: node --test scripts/xcli-native-config.test.mjs
       - name: Run all source suites referencing the changed runtime modules
-        run: node scripts/xcli-runtime-tests.mjs
+        run: node scripts/xcli-in-pid-namespace.mjs scripts/xcli-runtime-tests.mjs
+      - name: Run cross-package source consumers in the same isolated PID domain
+        run: >-
+          node scripts/xcli-in-pid-namespace.mjs scripts/xcli-source-tests.mjs
+          packages/h2a/test/runtime-llm-mesh-account.test.js
+          packages/h2a/test/restore-dead-session-recovery.test.js
+          packages/h2a/test/runtime-restore-native.test.js
+          packages/h2a/test/cli-command-map.test.js
+          packages/h2a/test/native-session-restart.test.js
+          packages/h2a/test/resume-conflict-selfheal.test.js
+          packages/h2a/test/native-inventory-absence.test.js
+          packages/h2a/test/m02-drive-characterization.test.js
+          packages/h2a/test/m04-wake-characterization.test.js
