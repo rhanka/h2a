@@ -4675,7 +4675,8 @@ function cmdHostStatus(
       hostSetupShipped,
       hostScenarioShipped,
       summary: hostScenarioShipped ? summary.replace('scenario shipped', 'rendu testé') : summary,
-      ...(isNativeHost(descriptor.host) ? { native: nativeHostReport(descriptor.host, flags, false) } : {
+      ...(isNativeHost(descriptor.host) ? { native: (() => { try { return nativeHostReport(descriptor.host, flags, false, false, undefined, streams.cwd?.()); }
+        catch (error) { return { ok: false, installation: 'inspection impossible', error: (error as Error).message }; } })() } : {
         convergence: ['claude', 'codex'].includes(descriptor.host) ? 'historical doctor convergence; native parity unverified; registry non migré' : 'non couvert'
       })
     };
@@ -4706,7 +4707,9 @@ function cmdHostPlugin(flags: Record<string, string>, streams: H2ACliStreams): n
   if (flags.host === 'vibe') {
     try {
       if (flags.instance === 'auto') throw new Error('non disponible — interface B non livrée');
-      if (flags.write && resolvePath(flags.write) !== join(vibeHome(), 'hooks.toml')) throw new Error('Vibe lifecycle writes only the effective <VIBE_HOME>/hooks.toml');
+      if (flags.write && resolvePath(flags.write) !== join(vibeHome(), 'hooks.toml')) {
+        streams.stderr.write('h2a host plugin: this target is not available for vibe; post_agent requires the effective <VIBE_HOME>/hooks.toml TOML file.\n'); return 1;
+      }
       const result = nativeHostReport('vibe', flags, !!flags.write);
       streams.stdout.write(`${JSON.stringify({ ...result, push: true, mechanism: 'vibe-hooks', record: 'rendered' in result ? result.rendered : '',
         receive: 'N-A', hint: 'post_agent in <VIBE_HOME>/hooks.toml; ' + ('lifecycleScope' in result ? result.lifecycleScope : 'hôte absent') }, null, 2)}\n`);
@@ -5835,7 +5838,7 @@ function cmdDoctor(
   if (flags['skip-hosts'] !== 'true') {
     const selection = flags.host ? isNativeHost(flags.host) ? [flags.host] : [] : NATIVE_HOSTS;
     const hosts = selection.map(host => {
-      try { return nativeHostReport(host, flags, flags.repair === 'true'); }
+      try { const { instance, ...nativeFlags } = flags; return nativeHostReport(host, nativeFlags, flags.repair === 'true', false, undefined, cwd()); }
       catch (error) { return { host, ok: false, installation: 'inspection impossible', error: (error as Error).message }; }
     });
     checks.nativeHostInstallations = { ok: hosts.every(host => host.ok), hosts };
@@ -6961,10 +6964,10 @@ function collectInstallableSkills(): SkillCollection {
   return { skills, sources };
 }
 
-function nativeHostReport(host: string, flags: Record<string, string>, repair: boolean, explicitInstall = false, root?: string) {
+function nativeHostReport(host: string, flags: Record<string, string>, repair: boolean, explicitInstall = false, root?: string, cwd?: string) {
   const collection = collectInstallableSkills();
   if (collection.error) throw new Error(collection.error.message);
-  return convergeNativeHost({ host, root, version: currentCliVersion(), skills: collection.skills, renderGemini: renderSkillAsGeminiToml,
+  return convergeNativeHost({ host, root, cwd, version: currentCliVersion(), skills: collection.skills, renderGemini: renderSkillAsGeminiToml,
     sourcesComplete: collection.sources.every(s => s.dir !== null && s.count > 0), repair, explicitInstall,
     dryRun: flags['dry-run'] === 'true', guard: flags.guard, lifecycle: flags.lifecycle,
     instance: flags.instance, busRoot: flags.root, status: flags.status });
@@ -7018,6 +7021,7 @@ function cmdInstallSkills(
     try {
       const result = nativeHostReport(host, flags, true, true, dirname(targetBase));
       streams.stdout.write(`${JSON.stringify({ ...result, scope, targetBase, installed: 'changed' in result ? result.changed : [], sources: collection.sources,
+        prunedLegacy: [], skipped: 'conflicts' in result ? result.conflicts.map(path => ({ path, reason: 'customized or unknown provenance; preserved' })) : [],
         ...(host === 'muse' ? { verifyHint: 'muse skills list   # project scope requires workspace trust' } : {}),
         ...(host === 'vibe' ? { verifyHint: 'vibe   # skills load at session open; nouvelle session ou reprise propre' } : {}),
         ...(host === 'agy' ? { importHint: 'agy plugin import gemini   # then: agy plugin enable h2a' } : {}) }, null, 2)}\n`);

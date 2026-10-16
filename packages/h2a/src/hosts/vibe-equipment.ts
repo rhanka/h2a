@@ -2,7 +2,7 @@ import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { atomicNativeWrite, digest, readNativeManifest, snapshot } from './native-files.js';
 import type { NativeManifest } from './native-files.js';
-import { editVibeHooks, renderVibeHook } from './native-toml.js';
+import { editVibeHooks, recoverNativeHooks, renderVibeHook } from './native-toml.js';
 import type { VibeHook } from './native-toml.js';
 import type { NativeArtifact } from './native-artifacts.js';
 import { fileFingerprint, inspectNativeQualification, mcpFingerprint } from './native-proof.js';
@@ -13,9 +13,16 @@ export interface VibeEquipmentOptions {
   root: string; state: string; version: string; config: Record<string, any>; mcpAvailable: boolean;
   repair: boolean; dryRun?: boolean; guard?: string; lifecycle?: string;
   instance?: string; busRoot?: string; status?: string;
+  maskingHooks?: readonly string[];
 }
 export function planVibeEquipment(options: VibeEquipmentOptions) {
   const manifest = readNativeManifest(options.state, 'vibe', options.root, options.version);
+  const pendingFile = snapshot(join(options.state, 'pending.json'));
+  if (pendingFile) {
+    const pending = JSON.parse(pendingFile.bytes.toString()) as NativeManifest;
+    if (pending.schema !== 1 || pending.host !== 'vibe' || pending.root !== options.root) throw new Error('incompatible interrupted Vibe installation');
+    recoverNativeHooks(manifest, pending, snapshot(join(options.root, 'hooks.toml'))?.bytes.toString() ?? '');
+  }
   const entrypoint = resolve(h2aPackageRoot, 'dist/bin.js');
   if (!snapshot(process.execPath) || !snapshot(entrypoint)) throw new Error('verified Node/h2a entrypoint unavailable');
   const artifacts: NativeArtifact[] = ['vibe-pre-tool.mjs', 'vibe-post-agent.mjs'].map(name => {
@@ -25,11 +32,11 @@ export function planVibeEquipment(options: VibeEquipmentOptions) {
   });
   const observed = { MCP: mcpFingerprint({ mcp: options.config.mcp_servers ?? [], disabled_tools: options.config.disabled_tools ?? [] }),
     profile: digest(options.root), node: fileFingerprint(process.execPath), entrypoint: fileFingerprint(entrypoint),
-    guard: digest(artifacts[0].bytes), lifecycle: digest(artifacts[1].bytes) };
+    guard: digest(artifacts[0].bytes), lifecycle: digest(artifacts[1].bytes), masking: digest(JSON.stringify(options.maskingHooks ?? [])) };
   const qualification = inspectNativeQualification(options.state, 'vibe', options.root, observed);
   for (const mode of [options.guard, options.lifecycle]) if (mode !== undefined && !['on', 'off'].includes(mode)) throw new Error('guard/lifecycle must be on or off');
   if (options.instance === 'auto') throw new Error('non disponible — interface B non livrée');
-  if (options.guard === 'on' && manifest.guard !== 'on' && !qualification.guardEligible)
+  if (options.guard === 'on' && manifest.guard !== 'on' && (!qualification.guardEligible || options.maskingHooks?.length))
     throw new Error('First guard activation requires a current native MCP qualification; configuration, fixture and manual observation are insufficient.');
   const guard = options.guard ?? manifest.guard;
   const lifecycle = options.instance ? { enabled: true, instance: options.instance, ...(options.busRoot ? { root: options.busRoot } : {}), ...(options.status ? { status: options.status } : {}) } : manifest.lifecycle ? { ...manifest.lifecycle } : undefined;
@@ -39,7 +46,7 @@ export function planVibeEquipment(options: VibeEquipmentOptions) {
   const command = (name: string) => [process.execPath, join(options.state, 'hooks', name)].map(shellQuote).join(' ');
   if (guard === 'on' && options.mcpAvailable) hooks.push({ name: 'sentropic-h2a-deny-manual-cli', type: 'pre_tool', match: 're:(bash|file_system\\.bash|process_start|process\\.start)', command: command('vibe-pre-tool.mjs'), timeout: 5, strict: false });
   if (lifecycle?.enabled) {
-    const args = ['--entrypoint', entrypoint, '--instance', lifecycle.instance, '--status', lifecycle.status ?? 'paused'];
+    const args = ['--entrypoint', entrypoint, '--instance', lifecycle.instance, '--status', lifecycle.status ?? 'paused', '--command', 'vibe -c', '--resume-command', 'vibe -c'];
     if (lifecycle.root) args.push('--root', lifecycle.root);
     hooks.push({ name: 'h2a-drumbeat-record', type: 'post_agent', command: command('vibe-post-agent.mjs') + ' ' + args.map(shellQuote).join(' '), timeout: 5 });
   }
