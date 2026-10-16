@@ -1,0 +1,115 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l5-shim-recovery.test.js
+node: v22.22.1
+private root: /tmp/mh-l5-test-Bc5VYI
+case: all cases in explicit file
+TAP version 13
+# Subtest: T9 should classify a cold v1 replacement during the first supervision backoff (same generation: false)
+not ok 1 - T9 should classify a cold v1 replacement during the first supervision backoff (same generation: false)
+  ---
+  duration_ms: 121.610506
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-AogyQv/source/packages/h2a/test/mh-l5-shim-recovery.test.js:7:94'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    + actual - expected
+    
+    + 'central_unavailable'
+    - 'legacy_requires_cold_upgrade'
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 'legacy_requires_cold_upgrade'
+  actual: 'central_unavailable'
+  operator: 'strictEqual'
+  stack: |-
+    assertLegacy (file:///tmp/mh-l3-qualification-AogyQv/source/packages/h2a/test/mh-l5-shim-recovery.test.js:58:10)
+    TestContext.<anonymous> (file:///tmp/mh-l3-qualification-AogyQv/source/packages/h2a/test/mh-l5-shim-recovery.test.js:68:5)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+  ...
+# Subtest: T9 should classify a cold v1 replacement during the first supervision backoff (same generation: true)
+not ok 2 - T9 should classify a cold v1 replacement during the first supervision backoff (same generation: true)
+  ---
+  duration_ms: 319.374246
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-AogyQv/source/packages/h2a/test/mh-l5-shim-recovery.test.js:7:94'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    + actual - expected
+    
+    + undefined
+    - 'legacy_requires_cold_upgrade'
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 'legacy_requires_cold_upgrade'
+  operator: 'strictEqual'
+  stack: |-
+    assertLegacy (file:///tmp/mh-l3-qualification-AogyQv/source/packages/h2a/test/mh-l5-shim-recovery.test.js:58:10)
+    TestContext.<anonymous> (file:///tmp/mh-l3-qualification-AogyQv/source/packages/h2a/test/mh-l5-shim-recovery.test.js:68:5)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: T9 should classify v1 immediately when transport loss starts recovery before supervision
+not ok 3 - T9 should classify v1 immediately when transport loss starts recovery before supervision
+  ---
+  duration_ms: 226.975635
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-AogyQv/source/packages/h2a/test/mh-l5-shim-recovery.test.js:7:94'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    + actual - expected
+    
+    + 'central_unavailable'
+    - 'legacy_requires_cold_upgrade'
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 'legacy_requires_cold_upgrade'
+  actual: 'central_unavailable'
+  operator: 'strictEqual'
+  stack: |-
+    assertLegacy (file:///tmp/mh-l3-qualification-AogyQv/source/packages/h2a/test/mh-l5-shim-recovery.test.js:58:10)
+    TestContext.<anonymous> (file:///tmp/mh-l3-qualification-AogyQv/source/packages/h2a/test/mh-l5-shim-recovery.test.js:79:5)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: T9 should retain the legacy diagnosis through missing or malformed marker retries and clear it only after v2 reconnects
+not ok 4 - T9 should retain the legacy diagnosis through missing or malformed marker retries and clear it only after v2 reconnects
+  ---
+  duration_ms: 40.667678
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-AogyQv/source/packages/h2a/test/mh-l5-shim-recovery.test.js:7:94'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    + actual - expected
+    
+    + 'central_unavailable'
+    - 'legacy_requires_cold_upgrade'
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 'legacy_requires_cold_upgrade'
+  actual: 'central_unavailable'
+  operator: 'strictEqual'
+  stack: |-
+    assertLegacy (file:///tmp/mh-l3-qualification-AogyQv/source/packages/h2a/test/mh-l5-shim-recovery.test.js:58:10)
+    TestContext.<anonymous> (file:///tmp/mh-l3-qualification-AogyQv/source/packages/h2a/test/mh-l5-shim-recovery.test.js:92:5)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+1..4
+# tests 4
+# suites 0
+# pass 0
+# fail 4
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 936.861569
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l5-shim-recovery.test.js"],"code":1,"signal":null,"tests":4,"invalid":false,"spawned":1,"leftovers":[]}
