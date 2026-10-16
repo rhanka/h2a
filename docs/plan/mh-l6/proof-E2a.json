@@ -1,0 +1,327 @@
+{
+  "source": "/tmp/mh-l3-qualification-YeHHOv/source",
+  "files": [
+    {
+      "path": "packages/h2a/src/runtime/upgrade/image-policy.js",
+      "sha256": "ff20ee4243a3c6be71d86414a43f020aa29de32934dfdbf5d6048b7bd3bc4534"
+    },
+    {
+      "path": "packages/h2a/src/runtime/upgrade/image-execution.js",
+      "sha256": "671405f33084fed66a9b616d5b0e08146287919882b6ddaf044e0a6a6aa767f7"
+    },
+    {
+      "path": "packages/h2a/src/runtime/upgrade/image-preloader.js",
+      "sha256": "b7a0efb09b39c6e7af87639ad95a1989bfd4756556789af0a01c78642a0b5901"
+    },
+    {
+      "path": "packages/h2a/src/runtime/upgrade/managed-launcher.js",
+      "sha256": "9047ee442c62afa34b1da0b57608f419f000af43c43526079763e584f1039941"
+    },
+    {
+      "path": "packages/h2a/src/runtime/upgrade/h4-store.js",
+      "sha256": "0ab3868d3979c5e095b9b71dfa6d212a996d9be01c6ec65c7c8b01bd69b6bdb9"
+    },
+    {
+      "path": "packages/h2a/test/mh-l6-image-policy.test.js",
+      "sha256": "ee9a5269ef5b64f82e0369ffb5be2ee73807bc7b22101d43740881cf20323445"
+    },
+    {
+      "path": "packages/h2a/test/mh-l6-launcher.test.js",
+      "sha256": "eb981843062ee7bba2305a06dafb23b588db2a915278986315fccaa371106484"
+    },
+    {
+      "path": "packages/h2a/test/helpers/mh-l6-installation.js",
+      "sha256": "d7f56d076d6fd90ba09ca34088c0341af37b8135c1b1587d2b51d6998695bb6c"
+    },
+    {
+      "path": "packages/h2a/test/helpers/mh-l6-image-reader.mjs",
+      "sha256": "ea2dd0708f82d5fe8993f03980cff955bca56ca9392403690e51e1629f09efc6"
+    },
+    {
+      "path": "scripts/mh-l6-test.mjs",
+      "sha256": "5bd1a9d0402119fe24339bc2740f026b90a09a1c5a9ae411104fca69a9f26d3a"
+    },
+    {
+      "path": "scripts/mh-l6-execution-mutate.mjs",
+      "sha256": "5a11fea7befe33d3f27f571c39e68b6538acd2cbc1c62d695dc560d9b47bcd97"
+    },
+    {
+      "path": "scripts/build-managed-launcher.mjs",
+      "sha256": "82eead93fe5cf4c2daa3d39d9118531ed1411c8eadd30466c92ea8a4894a2570"
+    },
+    {
+      "path": "scripts/mh-l0-native-prototype.mjs",
+      "sha256": "3fc7ac05e95d8761448c7a54917774284bf11c575dc0e048518378f90572c3f5"
+    },
+    {
+      "path": "package-lock.json",
+      "sha256": "b684ee430b41e01f2fa1a90a016cf01a322cf86744cdb3bee2022ee80f5db626"
+    },
+    {
+      "path": "packages/h2a/src/runtime/handover/authority.js",
+      "sha256": "857ca32c04daf901937bfc357ff402a941d8e1b2540903c06b2e717c843a5140"
+    },
+    {
+      "path": "packages/h2a/src/runtime/handover/state.js",
+      "sha256": "910a1cc6b94583ba5245af21852ecf72e86a63efa7b5d3ed46715abeeea58f20"
+    },
+    {
+      "path": "packages/h2a/src/runtime/handover/selection.js",
+      "sha256": "256f7d3072dd4f7ff5573eb34abbe8472a7faa657a6e2d61667d2e252ea73a5f"
+    },
+    {
+      "path": "packages/h2a/src/runtime/handover/image.js",
+      "sha256": "b1a179eb08a4250388811ebc5fe73492c970ec9a01dd5c15ed54dc992f2248cf"
+    },
+    {
+      "path": "packages/h2a/src/runtime/handover/formats.js",
+      "sha256": "33650c8876cff94465cdb4e6e87101cbb425dc15affd2a839bbe81ecba3a117a"
+    },
+    {
+      "path": "packages/h2a/src/runtime/handover/wire.js",
+      "sha256": "20838943242182bc871e0ebb2ac40e14b82c33dca0156905f65632b4c4f71d2d"
+    },
+    {
+      "path": "packages/h2a/src/runtime/handover/schemas.js",
+      "sha256": "73dc40bfecd8685058febf9c7498126e98cd0f8e1a15ab2e7d4ddeeef0839bc2"
+    }
+  ],
+  "compiled": [
+    {
+      "path": "packages/h2a/dist/runtime/upgrade/image-policy.js",
+      "sha256": "ac6f44810031ec97e48b2244739575d70a61f1492a3a83cd68b6b9ebe477fff8"
+    },
+    {
+      "path": "packages/h2a/dist/runtime/upgrade/image-execution.js",
+      "sha256": "715b4dd3a4fb467df80d545d5f5e6aa01ee458631a2837bb65318a271277cfe9"
+    },
+    {
+      "path": "packages/h2a/dist/runtime/upgrade/image-preloader.js",
+      "sha256": "eac29629427169d3a54ce0ecb12e20769c074c115e551bd58da01a09d52c089c"
+    },
+    {
+      "path": "packages/h2a/dist/runtime/upgrade/managed-launcher.js",
+      "sha256": "df8cf8f8cbd06f5b6a4952517ea7986f20920020ee2e0524ca16352c1168cf5e"
+    },
+    {
+      "path": "packages/h2a/dist/runtime/upgrade/h4-store.js",
+      "sha256": "9e2a47c917b0928358457142816fc8242618ba883be78005fa3647e3f48e379d"
+    }
+  ],
+  "profiles": [
+    {
+      "major": 22,
+      "tests": 37,
+      "mutationPairs": 10,
+      "regressions": [
+        {
+          "log": "docs/plan/mh-l6/evidence/mh-l6-launcher.test.js-node22-red-E2a-spawn.log",
+          "sha256": "58da842474fbcce2415328fe77d453da199e156cfc82b585c5bd154fca1c0d94",
+          "command": [
+            "/usr/bin/node",
+            "--test",
+            "--test-reporter=tap",
+            "packages/h2a/test/mh-l6-launcher.test.js"
+          ],
+          "code": 1,
+          "signal": null,
+          "tests": 1,
+          "invalid": false,
+          "spawned": 2,
+          "leftovers": []
+        },
+        {
+          "log": "docs/plan/mh-l6/evidence/mh-l6-launcher.test.js-node22-red-E2a-fork.log",
+          "sha256": "0105c4619309cb2b2da5926a7072c62c39bd2c2cc3ce1e6f2e2d1cf4fa0b6639",
+          "command": [
+            "/usr/bin/node",
+            "--test",
+            "--test-reporter=tap",
+            "packages/h2a/test/mh-l6-launcher.test.js"
+          ],
+          "code": 1,
+          "signal": null,
+          "tests": 1,
+          "invalid": false,
+          "spawned": 2,
+          "leftovers": []
+        },
+        {
+          "log": "docs/plan/mh-l6/evidence/mh-l6-launcher.test.js-node22-red-E2a-worker.log",
+          "sha256": "92454dbf0933a0df6a333ccb0cbdfd946ba9d236ac908a393f557ac9b2128adf",
+          "command": [
+            "/usr/bin/node",
+            "--test",
+            "--test-reporter=tap",
+            "packages/h2a/test/mh-l6-launcher.test.js"
+          ],
+          "code": 1,
+          "signal": null,
+          "tests": 1,
+          "invalid": false,
+          "spawned": 2,
+          "leftovers": []
+        },
+        {
+          "log": "docs/plan/mh-l6/evidence/mh-l6-launcher.test.js-node22-red-E2a-worker-memory.log",
+          "sha256": "cd373972bd742a170ee882ecc0aa44b516330fd34ef840b5f4fc0cf1ffe3dc21",
+          "command": [
+            "/usr/bin/node",
+            "--test",
+            "--test-reporter=tap",
+            "packages/h2a/test/mh-l6-launcher.test.js"
+          ],
+          "code": 1,
+          "signal": null,
+          "tests": 1,
+          "invalid": false,
+          "spawned": 2,
+          "leftovers": []
+        }
+      ],
+      "logs": [
+        {
+          "log": "docs/plan/mh-l6/evidence/mh-l6-launcher.test.js-node22-final-E2a-25.log",
+          "sha256": "97ee05c361dee05ddaab33cab108ac1028ff5fd567182c1b1d1c81a43fdbe579",
+          "command": [
+            "/usr/bin/node",
+            "--test",
+            "--test-reporter=tap",
+            "packages/h2a/test/mh-l6-launcher.test.js"
+          ],
+          "code": 0,
+          "signal": null,
+          "tests": 25,
+          "invalid": false,
+          "spawned": 2,
+          "leftovers": []
+        },
+        {
+          "log": "docs/plan/mh-l6/evidence/mh-l6-image-policy.test.js-node22-final-E2a-25.log",
+          "sha256": "f589f594f74bd019417633edb39cc3556c51991b44bb0ca03aae541e24498ce9",
+          "command": [
+            "/usr/bin/node",
+            "--test",
+            "--test-reporter=tap",
+            "packages/h2a/test/mh-l6-image-policy.test.js"
+          ],
+          "code": 0,
+          "signal": null,
+          "tests": 12,
+          "invalid": false,
+          "spawned": 1,
+          "leftovers": []
+        }
+      ]
+    },
+    {
+      "major": 24,
+      "tests": 37,
+      "mutationPairs": 10,
+      "regressions": [
+        {
+          "log": "docs/plan/mh-l6/evidence/mh-l6-launcher.test.js-node24-red-E2a-spawn.log",
+          "sha256": "42ab967beba8d381a186aa10252c477819ebd10933911476d5691ca03d6a1db7",
+          "command": [
+            "/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node",
+            "--test",
+            "--test-reporter=tap",
+            "packages/h2a/test/mh-l6-launcher.test.js"
+          ],
+          "code": 1,
+          "signal": null,
+          "tests": 1,
+          "invalid": false,
+          "spawned": 2,
+          "leftovers": []
+        },
+        {
+          "log": "docs/plan/mh-l6/evidence/mh-l6-launcher.test.js-node24-red-E2a-fork.log",
+          "sha256": "e312324751adfa196fd170adc91af87c1e4320d29b409c0a37bfc1e113419d0c",
+          "command": [
+            "/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node",
+            "--test",
+            "--test-reporter=tap",
+            "packages/h2a/test/mh-l6-launcher.test.js"
+          ],
+          "code": 1,
+          "signal": null,
+          "tests": 1,
+          "invalid": false,
+          "spawned": 2,
+          "leftovers": []
+        },
+        {
+          "log": "docs/plan/mh-l6/evidence/mh-l6-launcher.test.js-node24-red-E2a-worker.log",
+          "sha256": "5bd823cd435529288b28edac7d97918703cbc42d425772c2789e8b166b6d8fe3",
+          "command": [
+            "/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node",
+            "--test",
+            "--test-reporter=tap",
+            "packages/h2a/test/mh-l6-launcher.test.js"
+          ],
+          "code": 1,
+          "signal": null,
+          "tests": 1,
+          "invalid": false,
+          "spawned": 2,
+          "leftovers": []
+        },
+        {
+          "log": "docs/plan/mh-l6/evidence/mh-l6-launcher.test.js-node24-red-E2a-worker-memory.log",
+          "sha256": "320d72cd536084a905a7c5b8fc154a7958e4e0e4d0eb37e9236a311176e9c474",
+          "command": [
+            "/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node",
+            "--test",
+            "--test-reporter=tap",
+            "packages/h2a/test/mh-l6-launcher.test.js"
+          ],
+          "code": 1,
+          "signal": null,
+          "tests": 1,
+          "invalid": false,
+          "spawned": 2,
+          "leftovers": []
+        }
+      ],
+      "logs": [
+        {
+          "log": "docs/plan/mh-l6/evidence/mh-l6-launcher.test.js-node24-final-E2a-25.log",
+          "sha256": "53e5961dee36a2ed0c31557941e6987885754347fe7e5dc029d9c01e0ec8119c",
+          "command": [
+            "/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node",
+            "--test",
+            "--test-reporter=tap",
+            "packages/h2a/test/mh-l6-launcher.test.js"
+          ],
+          "code": 0,
+          "signal": null,
+          "tests": 25,
+          "invalid": false,
+          "spawned": 2,
+          "leftovers": []
+        },
+        {
+          "log": "docs/plan/mh-l6/evidence/mh-l6-image-policy.test.js-node24-final-E2a-25.log",
+          "sha256": "fe46e86ebd36a2993ae42463c20945db3f85426c485139d8bae30259a352c2ba",
+          "command": [
+            "/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node",
+            "--test",
+            "--test-reporter=tap",
+            "packages/h2a/test/mh-l6-image-policy.test.js"
+          ],
+          "code": 0,
+          "signal": null,
+          "tests": 12,
+          "invalid": false,
+          "spawned": 1,
+          "leftovers": []
+        }
+      ]
+    }
+  ],
+  "artifact": "docs/plan/mh-l6/artifacts/h2a-launcher-E2a.mjs",
+  "digest": "sha256:d326e610e05f2b43e7a246fcbb08e691b018860104332863734da85264fa0bcf",
+  "loaderArtifact": "docs/plan/mh-l6/artifacts/image-loader-f8666555468eeb5af9ee12c75ff37fecd9acb3bc2b0dcbb89f70da1e6219d360.mjs",
+  "loaderDigest": "sha256:f8666555468eeb5af9ee12c75ff37fecd9acb3bc2b0dcbb89f70da1e6219d360"
+}
