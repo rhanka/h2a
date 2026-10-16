@@ -1,0 +1,500 @@
+{
+  "node": "v22.22.1",
+  "files": [
+    {
+      "file": "packages/h2a/test/mh-l2-authority.test.js",
+      "command": [
+        "/usr/bin/node",
+        "scripts/mh-l2-test.mjs",
+        "packages/h2a/test/mh-l2-authority.test.js",
+        "l2fix-node22-qualified",
+        "node"
+      ],
+      "code": 0,
+      "signal": null,
+      "tests": 2,
+      "invalid": false,
+      "evidence": "docs/plan/mh-l2/evidence/mh-l2-authority.test.js-l2fix-node22-qualified.log"
+    },
+    {
+      "file": "packages/h2a/test/mh-l2-auth.test.js",
+      "command": [
+        "/usr/bin/node",
+        "scripts/mh-l2-test.mjs",
+        "packages/h2a/test/mh-l2-auth.test.js",
+        "l2fix-node22-qualified",
+        "node"
+      ],
+      "code": 0,
+      "signal": null,
+      "tests": 3,
+      "invalid": false,
+      "evidence": "docs/plan/mh-l2/evidence/mh-l2-auth.test.js-l2fix-node22-qualified.log"
+    },
+    {
+      "file": "packages/h2a/test/mh-l2-starters.test.js",
+      "command": [
+        "/usr/bin/node",
+        "scripts/mh-l2-test.mjs",
+        "packages/h2a/test/mh-l2-starters.test.js",
+        "l2fix-node22-qualified",
+        "node"
+      ],
+      "code": 0,
+      "signal": null,
+      "tests": 1,
+      "invalid": false,
+      "evidence": "docs/plan/mh-l2/evidence/mh-l2-starters.test.js-l2fix-node22-qualified.log"
+    },
+    {
+      "file": "packages/h2a/test/mh-l2-cold.test.js",
+      "command": [
+        "/usr/bin/node",
+        "scripts/mh-l2-test.mjs",
+        "packages/h2a/test/mh-l2-cold.test.js",
+        "l2fix-node22-qualified",
+        "node"
+      ],
+      "code": 0,
+      "signal": null,
+      "tests": 4,
+      "invalid": false,
+      "evidence": "docs/plan/mh-l2/evidence/mh-l2-cold.test.js-l2fix-node22-qualified.log"
+    },
+    {
+      "file": "packages/h2a/test/mh-l2-compensation.test.js",
+      "command": [
+        "/usr/bin/node",
+        "scripts/mh-l2-test.mjs",
+        "packages/h2a/test/mh-l2-compensation.test.js",
+        "l2fix-node22-qualified",
+        "node"
+      ],
+      "code": 0,
+      "signal": null,
+      "tests": 1,
+      "invalid": false,
+      "evidence": "docs/plan/mh-l2/evidence/mh-l2-compensation.test.js-l2fix-node22-qualified.log"
+    },
+    {
+      "file": "packages/h2a/test/mh-l2-integration.test.js",
+      "command": [
+        "/usr/bin/node",
+        "scripts/mh-l2-test.mjs",
+        "packages/h2a/test/mh-l2-integration.test.js",
+        "l2fix-node22-qualified",
+        "node"
+      ],
+      "code": 0,
+      "signal": null,
+      "tests": 3,
+      "invalid": false,
+      "evidence": "docs/plan/mh-l2/evidence/mh-l2-integration.test.js-l2fix-node22-qualified.log"
+    },
+    {
+      "file": "packages/h2a/test/mh-l2-image.test.js",
+      "command": [
+        "/usr/bin/node",
+        "scripts/mh-l2-test.mjs",
+        "packages/h2a/test/mh-l2-image.test.js",
+        "l2fix-node22-qualified",
+        "node"
+      ],
+      "code": 0,
+      "signal": null,
+      "tests": 1,
+      "invalid": false,
+      "evidence": "docs/plan/mh-l2/evidence/mh-l2-image.test.js-l2fix-node22-qualified.log"
+    },
+    {
+      "file": "packages/h2a/test/mh-l2-live.test.js",
+      "command": [
+        "/usr/bin/node",
+        "scripts/mh-l2-test.mjs",
+        "packages/h2a/test/mh-l2-live.test.js",
+        "l2fix-node22-qualified",
+        "node"
+      ],
+      "code": 0,
+      "signal": null,
+      "tests": 65,
+      "invalid": false,
+      "evidence": "docs/plan/mh-l2/evidence/mh-l2-live.test.js-l2fix-node22-qualified.log"
+    },
+    {
+      "file": "packages/h2a/test/mh-l2-live-central.test.js",
+      "command": [
+        "/usr/bin/node",
+        "scripts/mh-l2-test.mjs",
+        "packages/h2a/test/mh-l2-live-central.test.js",
+        "l2fix-node22-qualified",
+        "node"
+      ],
+      "code": 0,
+      "signal": null,
+      "tests": 1,
+      "invalid": false,
+      "evidence": "docs/plan/mh-l2/evidence/mh-l2-live-central.test.js-l2fix-node22-qualified.log"
+    },
+    {
+      "file": "packages/h2a/test/mh-l2-identity-contention.test.js",
+      "command": [
+        "/usr/bin/node",
+        "scripts/mh-l2-test.mjs",
+        "packages/h2a/test/mh-l2-identity-contention.test.js",
+        "l2fix-node22-qualified",
+        "node"
+      ],
+      "code": 0,
+      "signal": null,
+      "tests": 4,
+      "invalid": false,
+      "evidence": "docs/plan/mh-l2/evidence/mh-l2-identity-contention.test.js-l2fix-node22-qualified.log"
+    },
+    {
+      "file": "packages/h2a/test/mh-l4-ownership.test.js",
+      "command": [
+        "/usr/bin/node",
+        "scripts/mh-l2-test.mjs",
+        "packages/h2a/test/mh-l4-ownership.test.js",
+        "l2fix-node22-qualified",
+        "node"
+      ],
+      "code": 0,
+      "signal": null,
+      "tests": 4,
+      "invalid": false,
+      "evidence": "docs/plan/mh-l2/evidence/mh-l4-ownership.test.js-l2fix-node22-qualified.log"
+    },
+    {
+      "file": "packages/h2a/test/mh-l4-writers.test.js",
+      "command": [
+        "/usr/bin/node",
+        "scripts/mh-l2-test.mjs",
+        "packages/h2a/test/mh-l4-writers.test.js",
+        "l2fix-node22-qualified",
+        "node"
+      ],
+      "code": 0,
+      "signal": null,
+      "tests": 5,
+      "invalid": false,
+      "evidence": "docs/plan/mh-l2/evidence/mh-l4-writers.test.js-l2fix-node22-qualified.log"
+    },
+    {
+      "file": "packages/h2a/test/mh-l4-checkpoint.test.js",
+      "command": [
+        "/usr/bin/node",
+        "scripts/mh-l2-test.mjs",
+        "packages/h2a/test/mh-l4-checkpoint.test.js",
+        "l2fix-node22-qualified",
+        "node"
+      ],
+      "code": 0,
+      "signal": null,
+      "tests": 2,
+      "invalid": false,
+      "evidence": "docs/plan/mh-l2/evidence/mh-l4-checkpoint.test.js-l2fix-node22-qualified.log"
+    },
+    {
+      "file": "packages/h2a/test/mh-l4-wake.test.js",
+      "command": [
+        "/usr/bin/node",
+        "scripts/mh-l2-test.mjs",
+        "packages/h2a/test/mh-l4-wake.test.js",
+        "l2fix-node22-qualified",
+        "node"
+      ],
+      "code": 0,
+      "signal": null,
+      "tests": 2,
+      "invalid": false,
+      "evidence": "docs/plan/mh-l2/evidence/mh-l4-wake.test.js-l2fix-node22-qualified.log"
+    },
+    {
+      "file": "packages/h2a/test/mh-l4-launch.test.js",
+      "command": [
+        "/usr/bin/node",
+        "scripts/mh-l2-test.mjs",
+        "packages/h2a/test/mh-l4-launch.test.js",
+        "l2fix-node22-qualified",
+        "node"
+      ],
+      "code": 0,
+      "signal": null,
+      "tests": 2,
+      "invalid": false,
+      "evidence": "docs/plan/mh-l2/evidence/mh-l4-launch.test.js-l2fix-node22-qualified.log"
+    },
+    {
+      "file": "packages/h2a/test/mh-l4-integration.test.js",
+      "command": [
+        "/usr/bin/node",
+        "scripts/mh-l2-test.mjs",
+        "packages/h2a/test/mh-l4-integration.test.js",
+        "l2fix-node22-qualified",
+        "node"
+      ],
+      "code": 0,
+      "signal": null,
+      "tests": 3,
+      "invalid": false,
+      "evidence": "docs/plan/mh-l2/evidence/mh-l4-integration.test.js-l2fix-node22-qualified.log"
+    },
+    {
+      "file": "packages/h2a/test/mh-l4-cuts.test.js",
+      "command": [
+        "/usr/bin/node",
+        "scripts/mh-l2-test.mjs",
+        "packages/h2a/test/mh-l4-cuts.test.js",
+        "l2fix-node22-qualified",
+        "node"
+      ],
+      "code": 0,
+      "signal": null,
+      "tests": 7,
+      "invalid": false,
+      "evidence": "docs/plan/mh-l2/evidence/mh-l4-cuts.test.js-l2fix-node22-qualified.log"
+    },
+    {
+      "file": "packages/h2a/test/mh-l4-concurrency.test.js",
+      "command": [
+        "/usr/bin/node",
+        "scripts/mh-l2-test.mjs",
+        "packages/h2a/test/mh-l4-concurrency.test.js",
+        "l2fix-node22-qualified",
+        "node"
+      ],
+      "code": 0,
+      "signal": null,
+      "tests": 2,
+      "invalid": false,
+      "evidence": "docs/plan/mh-l2/evidence/mh-l4-concurrency.test.js-l2fix-node22-qualified.log"
+    },
+    {
+      "file": "packages/h2a/test/mh-l4-central.test.js",
+      "command": [
+        "/usr/bin/node",
+        "scripts/mh-l2-test.mjs",
+        "packages/h2a/test/mh-l4-central.test.js",
+        "l2fix-node22-qualified",
+        "node"
+      ],
+      "code": 0,
+      "signal": null,
+      "tests": 1,
+      "invalid": false,
+      "evidence": "docs/plan/mh-l2/evidence/mh-l4-central.test.js-l2fix-node22-qualified.log"
+    },
+    {
+      "file": "packages/h2a/test/mh-l4-idle.test.js",
+      "command": [
+        "/usr/bin/node",
+        "scripts/mh-l2-test.mjs",
+        "packages/h2a/test/mh-l4-idle.test.js",
+        "l2fix-node22-qualified",
+        "node"
+      ],
+      "code": 0,
+      "signal": null,
+      "tests": 1,
+      "invalid": false,
+      "evidence": "docs/plan/mh-l2/evidence/mh-l4-idle.test.js-l2fix-node22-qualified.log"
+    },
+    {
+      "file": "packages/h2a/test/mcp-central-attachments.test.js",
+      "command": [
+        "/usr/bin/node",
+        "scripts/mh-l2-test.mjs",
+        "packages/h2a/test/mcp-central-attachments.test.js",
+        "l2fix-node22-qualified",
+        "node"
+      ],
+      "code": 1,
+      "signal": null,
+      "tests": 33,
+      "invalid": false,
+      "evidence": "docs/plan/mh-l2/evidence/mcp-central-attachments.test.js-l2fix-node22-qualified.log"
+    },
+    {
+      "file": "packages/h2a/test/identity-live-wiring.test.js",
+      "command": [
+        "/usr/bin/node",
+        "scripts/mh-l2-test.mjs",
+        "packages/h2a/test/identity-live-wiring.test.js",
+        "l2fix-node22-qualified",
+        "node"
+      ],
+      "code": 0,
+      "signal": null,
+      "tests": 4,
+      "invalid": false,
+      "evidence": "docs/plan/mh-l2/evidence/identity-live-wiring.test.js-l2fix-node22-qualified.log"
+    },
+    {
+      "file": "packages/h2a/test/identity-bindings.test.js",
+      "command": [
+        "/usr/bin/node",
+        "scripts/mh-l2-test.mjs",
+        "packages/h2a/test/identity-bindings.test.js",
+        "l2fix-node22-qualified",
+        "node"
+      ],
+      "code": 0,
+      "signal": null,
+      "tests": 7,
+      "invalid": false,
+      "evidence": "docs/plan/mh-l2/evidence/identity-bindings.test.js-l2fix-node22-qualified.log"
+    },
+    {
+      "file": "packages/h2a/test/identity-migration.test.js",
+      "command": [
+        "/usr/bin/node",
+        "scripts/mh-l2-test.mjs",
+        "packages/h2a/test/identity-migration.test.js",
+        "l2fix-node22-qualified",
+        "node"
+      ],
+      "code": 0,
+      "signal": null,
+      "tests": 8,
+      "invalid": false,
+      "evidence": "docs/plan/mh-l2/evidence/identity-migration.test.js-l2fix-node22-qualified.log"
+    },
+    {
+      "file": "packages/h2a/test/identity-readers.test.js",
+      "command": [
+        "/usr/bin/node",
+        "scripts/mh-l2-test.mjs",
+        "packages/h2a/test/identity-readers.test.js",
+        "l2fix-node22-qualified",
+        "node"
+      ],
+      "code": 0,
+      "signal": null,
+      "tests": 3,
+      "invalid": false,
+      "evidence": "docs/plan/mh-l2/evidence/identity-readers.test.js-l2fix-node22-qualified.log"
+    },
+    {
+      "file": "packages/h2a/test/mcp-identity-burst.test.js",
+      "command": [
+        "/usr/bin/node",
+        "scripts/mh-l2-test.mjs",
+        "packages/h2a/test/mcp-identity-burst.test.js",
+        "l2fix-node22-qualified",
+        "node"
+      ],
+      "code": 0,
+      "signal": null,
+      "tests": 5,
+      "invalid": false,
+      "evidence": "docs/plan/mh-l2/evidence/mcp-identity-burst.test.js-l2fix-node22-qualified.log"
+    },
+    {
+      "file": "packages/h2a/test/enrollment-ceremony.test.js",
+      "command": [
+        "/usr/bin/node",
+        "scripts/mh-l2-test.mjs",
+        "packages/h2a/test/enrollment-ceremony.test.js",
+        "l2fix-node22-qualified",
+        "node"
+      ],
+      "code": 0,
+      "signal": null,
+      "tests": 44,
+      "invalid": false,
+      "evidence": "docs/plan/mh-l2/evidence/enrollment-ceremony.test.js-l2fix-node22-qualified.log"
+    },
+    {
+      "file": "packages/h2a/test/wp6-host-session-name.test.js",
+      "command": [
+        "/usr/bin/node",
+        "scripts/mh-l2-test.mjs",
+        "packages/h2a/test/wp6-host-session-name.test.js",
+        "l2fix-node22-qualified",
+        "node"
+      ],
+      "code": 1,
+      "signal": null,
+      "tests": 9,
+      "invalid": false,
+      "evidence": "docs/plan/mh-l2/evidence/wp6-host-session-name.test.js-l2fix-node22-qualified.log"
+    },
+    {
+      "file": "packages/h2a/test/launch-index.test.js",
+      "command": [
+        "/usr/bin/node",
+        "scripts/mh-l2-test.mjs",
+        "packages/h2a/test/launch-index.test.js",
+        "l2fix-node22-qualified",
+        "node"
+      ],
+      "code": 0,
+      "signal": null,
+      "tests": 17,
+      "invalid": false,
+      "evidence": "docs/plan/mh-l2/evidence/launch-index.test.js-l2fix-node22-qualified.log"
+    },
+    {
+      "file": "packages/h2a/test/lane-addressing-presence-name.test.js",
+      "command": [
+        "/usr/bin/node",
+        "scripts/mh-l2-test.mjs",
+        "packages/h2a/test/lane-addressing-presence-name.test.js",
+        "l2fix-node22-qualified",
+        "node"
+      ],
+      "code": 1,
+      "signal": null,
+      "tests": 36,
+      "invalid": false,
+      "evidence": "docs/plan/mh-l2/evidence/lane-addressing-presence-name.test.js-l2fix-node22-qualified.log"
+    },
+    {
+      "file": "packages/h2a/test/mh-l1-shim.test.js",
+      "command": [
+        "/usr/bin/node",
+        "scripts/mh-l2-test.mjs",
+        "packages/h2a/test/mh-l1-shim.test.js",
+        "l2fix-node22-qualified",
+        "node"
+      ],
+      "code": 0,
+      "signal": null,
+      "tests": 2,
+      "invalid": false,
+      "evidence": "docs/plan/mh-l2/evidence/mh-l1-shim.test.js-l2fix-node22-qualified.log"
+    },
+    {
+      "file": "packages/h2a/test/mh-l1-package.test.js",
+      "command": [
+        "/usr/bin/node",
+        "scripts/mh-l2-test.mjs",
+        "packages/h2a/test/mh-l1-package.test.js",
+        "l2fix-node22-qualified",
+        "node"
+      ],
+      "code": 0,
+      "signal": null,
+      "tests": 1,
+      "invalid": false,
+      "evidence": "docs/plan/mh-l2/evidence/mh-l1-package.test.js-l2fix-node22-qualified.log"
+    },
+    {
+      "file": "packages/h2a-runtime/src/central-mcp-0980.test.ts",
+      "command": [
+        "/usr/bin/node",
+        "scripts/mh-l2-test.mjs",
+        "packages/h2a-runtime/src/central-mcp-0980.test.ts",
+        "l2fix-node22-qualified",
+        "vitest"
+      ],
+      "code": 0,
+      "signal": null,
+      "tests": 5,
+      "invalid": false,
+      "evidence": "docs/plan/mh-l2/evidence/central-mcp-0980.test.ts-l2fix-node22-qualified.log"
+    }
+  ]
+}

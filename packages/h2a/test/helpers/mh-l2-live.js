@@ -52,6 +52,9 @@ export function liveFixture() {
   const live = new PassiveLiveSource({ installation, marker: m, markerPath, rootKey, participants: p, now: () => now });
   const admin = new ColdAdministration({ directory: stateDirectory, marker: m, now: () => now,
     inventory: () => p.inventory(), drain: () => p.drain(), liveSource: live,
+    verifyAuthority: (_operation, tx) => {
+      if (!live.verifyAuthority(tx) && digest(readState(markerPath, 'marker')?.value ?? null) !== digest(m)) throw new Error('source_authority_mismatch');
+    },
     withMutationLock: fn => p.registry.withLock(fn), reconcileParticipants: tx => p.reconcileTransaction(tx),
     assertEligible: () => p.assertEligible(), barrier: tx => p.barrier(tx.handoverId),
     freeze: (_, tx) => p.freeze(tx.handoverId), checkpoint: (_, tx) => p.checkpoint(tx.handoverId),
