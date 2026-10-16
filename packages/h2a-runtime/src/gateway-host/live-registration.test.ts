@@ -92,7 +92,9 @@ const gitEnv = (): NodeJS.ProcessEnv => ({
 
 const git = (cwd: string, args: readonly string[]): string => {
   try {
-    return execFileSync("git", ["-C", cwd, ...args], {
+    // Fixture commits must not leave detached maintenance mutating the repo
+    // while activation's strict before/after inventory is being observed.
+    return execFileSync("git", ["-c", "maintenance.auto=false", "-c", "gc.auto=0", "-C", cwd, ...args], {
       env: gitEnv(),
       stdio: ["ignore", "pipe", "pipe"],
       timeout: 10_000,
@@ -127,6 +129,23 @@ function makeRepo(dir: string, commits = 1): string {
   }
   return dir;
 }
+
+it("fixture commits launch no automatic Git maintenance in observed repositories", () => {
+  const base = mkdtempSync(join(tmpdir(), "h2a-live-git-maintenance-"));
+  const trace = join(base, "git-trace.jsonl"), previousTrace = process.env.GIT_TRACE2_EVENT;
+  try {
+    process.env.GIT_TRACE2_EVENT = trace;
+    makeRepo(join(base, "repo"), 2);
+    const events = readFileSync(trace, "utf8").trim().split("\n").map(line => JSON.parse(line));
+    expect(events.some(event => event.event === "start" && event.argv?.includes("commit"))).toBe(true);
+    expect(events.filter(event => event.event === "child_start" &&
+      event.argv?.some((arg: string) => arg === "maintenance" || arg === "gc"))).toEqual([]);
+  } finally {
+    if (previousTrace === undefined) delete process.env.GIT_TRACE2_EVENT;
+    else process.env.GIT_TRACE2_EVENT = previousTrace;
+    rmSync(base, { recursive: true, force: true });
+  }
+});
 
 const allowAllAuthority: LiveAuthority = {
   authorize: () => ({ ok: true, principal: "local:test-principal" }),
