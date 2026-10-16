@@ -124,6 +124,15 @@
       },
       {
         "shell": "bash",
+        "env": {
+          "BACKFILL_VERSION": "${{ inputs.backfill-version }}"
+        },
+        "run": [
+          "node scripts/release-candidate.mjs prepare"
+        ]
+      },
+      {
+        "shell": "bash",
         "run": [
           "set -euo pipefail",
           "node scripts/check-lockstep-versions.mjs",
@@ -205,6 +214,25 @@
       {
         "shell": "bash",
         "env": {
+          "BACKFILL_VERSION": "${{ inputs.backfill-version }}"
+        },
+        "run": [
+          "node scripts/release-candidate.mjs prepare"
+        ]
+      },
+      {
+        "shell": "bash",
+        "env": {
+          "GH_TOKEN": "${{ github.token }}",
+          "BACKFILL_VERSION": "${{ inputs.backfill-version }}"
+        },
+        "run": [
+          "node scripts/release-candidate.mjs require-rc"
+        ]
+      },
+      {
+        "shell": "bash",
+        "env": {
           "GITHUB_REF": "${{ github.ref }}",
           "BACKFILL_VERSION": "${{ inputs.backfill-version }}"
         },
@@ -217,8 +245,8 @@
           "fi",
           "# Strip leading \"v\"",
           "tag_version=\"${tag#v}\"",
-          "if [[ ! \"$tag_version\" =~ ^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$ ]]; then",
-          "  echo \"::error::Release tag '$tag' does not match vX.Y.Z (got version='$tag_version').\" >&2",
+          "if [[ ! \"$tag_version\" =~ ^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(-rc\\.(0|[1-9][0-9]*))?$ ]]; then",
+          "  echo \"::error::Release tag '$tag' does not match vX.Y.Z or vX.Y.Z-rc.N (got version='$tag_version').\" >&2",
           "  exit 1",
           "fi",
           "# SPEC 0.98.5 R8.2: the pinned release SHA resolved by verify in THIS",
@@ -277,6 +305,9 @@
           "      echo \"@sentropic/track@$v is below latest ($latest); publishing with $tagArgs so the latest dist-tag stays untouched.\"",
           "    fi",
           "  fi",
+          "  if [[ \"$v\" == *-rc.* ]]; then",
+          "    tagArgs=\"--tag next\"",
+          "  fi",
           "  # SPEC 0.98.5 R8.2: publish the VERIFIED tarball bytes that verify",
           "  # packed from the gated SHA — never a fresh pack of a mutable ref.",
           "  (cd dist-tarballs && sha256sum --check --strict sha256sums.txt)",
@@ -314,6 +345,9 @@
           "      tagArgs=\"--tag backfill\"",
           "      echo \"@sentropic/h2a-runtime@$v is below latest ($latest); publishing with $tagArgs so the latest dist-tag stays untouched.\"",
           "    fi",
+          "  fi",
+          "  if [[ \"$v\" == *-rc.* ]]; then",
+          "    tagArgs=\"--tag next\"",
           "  fi",
           "  # SPEC 0.98.5 R8.2: publish the VERIFIED tarball bytes that verify",
           "  # packed from the gated SHA — never a fresh pack of a mutable ref.",
@@ -353,6 +387,9 @@
           "      echo \"@sentropic/h2a@$v is below latest ($latest); publishing with $tagArgs so the latest dist-tag stays untouched.\"",
           "    fi",
           "  fi",
+          "  if [[ \"$v\" == *-rc.* ]]; then",
+          "    tagArgs=\"--tag next\"",
+          "  fi",
           "  # SPEC 0.98.5 R8.2: publish the VERIFIED tarball bytes that verify",
           "  # packed from the gated SHA — never a fresh pack of a mutable ref.",
           "  (cd dist-tarballs && sha256sum --check --strict sha256sums.txt)",
@@ -391,6 +428,9 @@
           "      echo \"@sentropic/h2a-cli@$v is below latest ($latest); publishing with $tagArgs so the latest dist-tag stays untouched.\"",
           "    fi",
           "  fi",
+          "  if [[ \"$v\" == *-rc.* ]]; then",
+          "    tagArgs=\"--tag next\"",
+          "  fi",
           "  # SPEC 0.98.5 R8.2: publish the VERIFIED tarball bytes that verify",
           "  # packed from the gated SHA — never a fresh pack of a mutable ref.",
           "  (cd dist-tarballs && sha256sum --check --strict sha256sums.txt)",
@@ -425,14 +465,19 @@
           "  echo \"Release $tag already exists; skipping creation.\"",
           "  exit 0",
           "fi",
+          "releaseArgs=()",
+          "if [[ \"$RELEASE_VERSION\" == *-rc.* ]]; then",
+          "  releaseArgs+=(--prerelease --latest=false)",
+          "fi",
           "gh release create \"$tag\" \\",
           "  --title \"$tag\" \\",
           "  --generate-notes \\",
-          "  --verify-tag",
+          "  --verify-tag \"${releaseArgs[@]}\"",
           ""
         ]
       },
       {
+        "id": "post-publish-smoke",
         "shell": "bash",
         "run": [
           "set -euo pipefail",
@@ -455,6 +500,11 @@
           "  sleep \"$retry_delay_seconds\"",
           "done",
           "if [[ \"$installed\" -ne 1 ]]; then",
+          "  # RC promotion requires a completed install, never a warning-only pass.",
+          "  if [[ \"$RELEASE_VERSION\" == *-rc.* ]]; then",
+          "    echo \"::error::RC install smoke did not complete; refusing RC attestation.\" >&2",
+          "    exit 1",
+          "  fi",
           "  # Positive control (same method as #283: keep a hard-fail path for the real",
           "  # failure). The authoritative \"did we publish\" signal is the return code of",
           "  # `npm publish`, already made blocking upstream by #283 (`npm publish ... ||",
@@ -524,8 +574,28 @@
           "    process.exit(1);",
           "  }",
           "' \"$out\"",
+          "echo \"smoke-passed=true\" >> \"$GITHUB_OUTPUT\"",
           ""
         ]
+      },
+      {
+        "shell": "bash",
+        "env": {
+          "BACKFILL_VERSION": "${{ inputs.backfill-version }}",
+          "RC_SMOKE_PASSED": "${{ steps.post-publish-smoke.outputs.smoke-passed }}"
+        },
+        "run": [
+          "node scripts/release-candidate.mjs attest"
+        ]
+      },
+      {
+        "uses": "actions/upload-artifact@v4",
+        "with": {
+          "name": "release-attestation-${{ github.run_attempt }}",
+          "path": "release-attestation/attestation.json",
+          "if-no-files-found": "error",
+          "retention-days": 90
+        }
       }
     ]
   }
