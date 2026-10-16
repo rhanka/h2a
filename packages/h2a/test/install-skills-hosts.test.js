@@ -391,7 +391,7 @@ for (const host of ["claude", "codex"]) {
   });
 }
 
-test("install-skills prunes legacy h2a-*.toml on gemini (DEC-057 migration)", () => {
+test("install-skills preserves unknown legacy commands in the shared agy/Gemini store", () => {
   const cwd = freshCwd();
   try {
     const base = join(cwd, ".gemini", "commands");
@@ -407,22 +407,17 @@ test("install-skills prunes legacy h2a-*.toml on gemini (DEC-057 migration)", ()
     assert.equal(rc, 0, streams.stderrText);
     const parsed = JSON.parse(streams.stdoutText);
     assert.equal(parsed.ok, true);
-    const prunedNames = parsed.prunedLegacy.map((e) => e.name).sort();
-    assert.deepEqual(prunedNames, [
-      "h2a-connect",
-      "h2a-discover",
-      "h2a-send"
-    ]);
+    assert.deepEqual(parsed.prunedLegacy, []);
     for (const legacy of ["h2a-connect", "h2a-discover", "h2a-send"]) {
-      assert.equal(existsSync(join(base, `${legacy}.toml`)), false);
+      assert.equal(readFileSync(join(base, `${legacy}.toml`), 'utf8'), `description = "legacy"\nprompt = '''old'''\n`);
     }
   } finally {
     rmSync(cwd, { recursive: true, force: true });
   }
 });
 
-test("install-skills refuses overwrite without --force on any host", () => {
-  for (const host of ["claude", "codex", "gemini"]) {
+test("install-skills preserves the historical overwrite contract for Claude and Codex", () => {
+  for (const host of ["claude", "codex"]) {
     const cwd = freshCwd();
     try {
       // Initial install
