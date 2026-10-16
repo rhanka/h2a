@@ -1,0 +1,1261 @@
+{
+  "schema": 1,
+  "through": "0.98.6",
+  "unavailable": [
+    "0.76.0"
+  ],
+  "releases": [
+    {
+      "version": "0.78.0",
+      "package": "@sentropic/h2a@0.78.0",
+      "track": null
+    },
+    {
+      "version": "0.79.0",
+      "package": "@sentropic/h2a@0.79.0",
+      "track": "@sentropic/track@0.24.0"
+    },
+    {
+      "version": "0.80.0",
+      "package": "@sentropic/h2a@0.80.0",
+      "track": "@sentropic/track@0.24.0"
+    },
+    {
+      "version": "0.81.0",
+      "package": "@sentropic/h2a@0.81.0",
+      "track": "@sentropic/track@0.24.0"
+    },
+    {
+      "version": "0.82.0",
+      "package": "@sentropic/h2a@0.82.0",
+      "track": "@sentropic/track@0.24.0"
+    },
+    {
+      "version": "0.83.0",
+      "package": "@sentropic/h2a@0.83.0",
+      "track": "@sentropic/track@0.83.0"
+    },
+    {
+      "version": "0.84.0",
+      "package": "@sentropic/h2a@0.84.0",
+      "track": "@sentropic/track@0.84.0"
+    },
+    {
+      "version": "0.85.0",
+      "package": "@sentropic/h2a@0.85.0",
+      "track": "@sentropic/track@0.85.0"
+    },
+    {
+      "version": "0.85.1",
+      "package": "@sentropic/h2a@0.85.1",
+      "track": "@sentropic/track@0.85.1"
+    },
+    {
+      "version": "0.85.2",
+      "package": "@sentropic/h2a@0.85.2",
+      "track": "@sentropic/track@0.85.2"
+    },
+    {
+      "version": "0.85.3",
+      "package": "@sentropic/h2a@0.85.3",
+      "track": "@sentropic/track@0.85.3"
+    },
+    {
+      "version": "0.85.4",
+      "package": "@sentropic/h2a@0.85.4",
+      "track": "@sentropic/track@0.85.4"
+    },
+    {
+      "version": "0.85.5",
+      "package": "@sentropic/h2a@0.85.5",
+      "track": "@sentropic/track@0.85.5"
+    },
+    {
+      "version": "0.85.6",
+      "package": "@sentropic/h2a@0.85.6",
+      "track": "@sentropic/track@0.85.6"
+    },
+    {
+      "version": "0.85.7",
+      "package": "@sentropic/h2a@0.85.7",
+      "track": "@sentropic/track@0.85.6"
+    },
+    {
+      "version": "0.85.8",
+      "package": "@sentropic/h2a@0.85.8",
+      "track": "@sentropic/track@0.85.6"
+    },
+    {
+      "version": "0.85.9",
+      "package": "@sentropic/h2a@0.85.9",
+      "track": "@sentropic/track@0.85.9"
+    },
+    {
+      "version": "0.85.10",
+      "package": "@sentropic/h2a@0.85.10",
+      "track": "@sentropic/track@0.85.10"
+    },
+    {
+      "version": "0.85.11",
+      "package": "@sentropic/h2a@0.85.11",
+      "track": "@sentropic/track@0.85.11"
+    },
+    {
+      "version": "0.85.13",
+      "package": "@sentropic/h2a@0.85.13",
+      "track": "@sentropic/track@0.85.13"
+    },
+    {
+      "version": "0.85.14",
+      "package": "@sentropic/h2a@0.85.14",
+      "track": "@sentropic/track@0.85.14"
+    },
+    {
+      "version": "0.85.15",
+      "package": "@sentropic/h2a@0.85.15",
+      "track": "@sentropic/track@0.85.15"
+    },
+    {
+      "version": "0.85.16",
+      "package": "@sentropic/h2a@0.85.16",
+      "track": "@sentropic/track@0.85.16"
+    },
+    {
+      "version": "0.85.17",
+      "package": "@sentropic/h2a@0.85.17",
+      "track": "@sentropic/track@0.85.17"
+    },
+    {
+      "version": "0.85.18",
+      "package": "@sentropic/h2a@0.85.18",
+      "track": "@sentropic/track@0.85.18"
+    },
+    {
+      "version": "0.85.19",
+      "package": "@sentropic/h2a@0.85.19",
+      "track": "@sentropic/track@0.85.19"
+    },
+    {
+      "version": "0.85.20",
+      "package": "@sentropic/h2a@0.85.20",
+      "track": "@sentropic/track@0.85.20"
+    },
+    {
+      "version": "0.85.21",
+      "package": "@sentropic/h2a@0.85.21",
+      "track": "@sentropic/track@0.85.21"
+    },
+    {
+      "version": "0.85.22",
+      "package": "@sentropic/h2a@0.85.22",
+      "track": "@sentropic/track@0.85.22"
+    },
+    {
+      "version": "0.85.24",
+      "package": "@sentropic/h2a@0.85.24",
+      "track": "@sentropic/track@0.85.24"
+    },
+    {
+      "version": "0.85.25",
+      "package": "@sentropic/h2a@0.85.25",
+      "track": "@sentropic/track@0.85.25"
+    },
+    {
+      "version": "0.86.0",
+      "package": "@sentropic/h2a@0.86.0",
+      "track": "@sentropic/track@0.86.0"
+    },
+    {
+      "version": "0.87.0",
+      "package": "@sentropic/h2a@0.87.0",
+      "track": "@sentropic/track@0.87.0"
+    },
+    {
+      "version": "0.88.0",
+      "package": "@sentropic/h2a@0.88.0",
+      "track": "@sentropic/track@0.88.0"
+    },
+    {
+      "version": "0.89.0",
+      "package": "@sentropic/h2a@0.89.0",
+      "track": "@sentropic/track@0.89.0"
+    },
+    {
+      "version": "0.90.0",
+      "package": "@sentropic/h2a@0.90.0",
+      "track": "@sentropic/track@0.90.0"
+    },
+    {
+      "version": "0.90.1",
+      "package": "@sentropic/h2a@0.90.1",
+      "track": "@sentropic/track@0.90.1"
+    },
+    {
+      "version": "0.90.2",
+      "package": "@sentropic/h2a@0.90.2",
+      "track": "@sentropic/track@0.90.2"
+    },
+    {
+      "version": "0.90.3",
+      "package": "@sentropic/h2a@0.90.3",
+      "track": "@sentropic/track@0.90.3"
+    },
+    {
+      "version": "0.91.0",
+      "package": "@sentropic/h2a@0.91.0",
+      "track": "@sentropic/track@0.91.0"
+    },
+    {
+      "version": "0.91.1",
+      "package": "@sentropic/h2a@0.91.1",
+      "track": "@sentropic/track@0.91.1"
+    },
+    {
+      "version": "0.92.0",
+      "package": "@sentropic/h2a@0.92.0",
+      "track": "@sentropic/track@0.92.0"
+    },
+    {
+      "version": "0.93.0",
+      "package": "@sentropic/h2a@0.93.0",
+      "track": "@sentropic/track@0.93.0"
+    },
+    {
+      "version": "0.93.1",
+      "package": "@sentropic/h2a@0.93.1",
+      "track": "@sentropic/track@0.93.1"
+    },
+    {
+      "version": "0.93.2",
+      "package": "@sentropic/h2a@0.93.2",
+      "track": "@sentropic/track@0.93.2"
+    },
+    {
+      "version": "0.93.3",
+      "package": "@sentropic/h2a@0.93.3",
+      "track": "@sentropic/track@0.93.3"
+    },
+    {
+      "version": "0.93.4",
+      "package": "@sentropic/h2a@0.93.4",
+      "track": "@sentropic/track@0.93.4"
+    },
+    {
+      "version": "0.93.5",
+      "package": "@sentropic/h2a@0.93.5",
+      "track": "@sentropic/track@0.93.5"
+    },
+    {
+      "version": "0.94.0",
+      "package": "@sentropic/h2a@0.94.0",
+      "track": "@sentropic/track@0.94.0"
+    },
+    {
+      "version": "0.94.1",
+      "package": "@sentropic/h2a@0.94.1",
+      "track": "@sentropic/track@0.94.1"
+    },
+    {
+      "version": "0.94.2",
+      "package": "@sentropic/h2a@0.94.2",
+      "track": "@sentropic/track@0.94.2"
+    },
+    {
+      "version": "0.94.3",
+      "package": "@sentropic/h2a@0.94.3",
+      "track": "@sentropic/track@0.94.3"
+    },
+    {
+      "version": "0.95.0",
+      "package": "@sentropic/h2a@0.95.0",
+      "track": "@sentropic/track@0.95.0"
+    },
+    {
+      "version": "0.96.0",
+      "package": "@sentropic/h2a@0.96.0",
+      "track": "@sentropic/track@0.96.0"
+    },
+    {
+      "version": "0.96.1",
+      "package": "@sentropic/h2a@0.96.1",
+      "track": "@sentropic/track@0.96.1"
+    },
+    {
+      "version": "0.96.2",
+      "package": "@sentropic/h2a@0.96.2",
+      "track": "@sentropic/track@0.96.1"
+    },
+    {
+      "version": "0.97.0",
+      "package": "@sentropic/h2a@0.97.0",
+      "track": "@sentropic/track@0.97.0"
+    },
+    {
+      "version": "0.97.1",
+      "package": "@sentropic/h2a@0.97.1",
+      "track": "@sentropic/track@0.97.1"
+    },
+    {
+      "version": "0.97.2",
+      "package": "@sentropic/h2a@0.97.2",
+      "track": "@sentropic/track@0.97.2"
+    },
+    {
+      "version": "0.97.3",
+      "package": "@sentropic/h2a@0.97.3",
+      "track": "@sentropic/track@0.97.3"
+    },
+    {
+      "version": "0.97.4",
+      "package": "@sentropic/h2a@0.97.4",
+      "track": "@sentropic/track@0.97.4"
+    },
+    {
+      "version": "0.97.5",
+      "package": "@sentropic/h2a@0.97.5",
+      "track": "@sentropic/track@0.97.5"
+    },
+    {
+      "version": "0.97.6",
+      "package": "@sentropic/h2a@0.97.6",
+      "track": "@sentropic/track@0.97.6"
+    },
+    {
+      "version": "0.97.7",
+      "package": "@sentropic/h2a@0.97.7",
+      "track": "@sentropic/track@0.97.7"
+    },
+    {
+      "version": "0.97.8",
+      "package": "@sentropic/h2a@0.97.8",
+      "track": "@sentropic/track@0.97.8"
+    },
+    {
+      "version": "0.97.9",
+      "package": "@sentropic/h2a@0.97.9",
+      "track": "@sentropic/track@0.97.9"
+    },
+    {
+      "version": "0.97.10",
+      "package": "@sentropic/h2a@0.97.10",
+      "track": "@sentropic/track@0.97.10"
+    },
+    {
+      "version": "0.97.11",
+      "package": "@sentropic/h2a@0.97.11",
+      "track": "@sentropic/track@0.97.11"
+    },
+    {
+      "version": "0.97.12",
+      "package": "@sentropic/h2a@0.97.12",
+      "track": "@sentropic/track@0.97.12"
+    },
+    {
+      "version": "0.98.0",
+      "package": "@sentropic/h2a@0.98.0",
+      "track": "@sentropic/track@0.98.0"
+    },
+    {
+      "version": "0.98.1",
+      "package": "@sentropic/h2a@0.98.1",
+      "track": "@sentropic/track@0.98.1"
+    },
+    {
+      "version": "0.98.2",
+      "package": "@sentropic/h2a@0.98.2",
+      "track": "@sentropic/track@0.98.2"
+    },
+    {
+      "version": "0.98.3",
+      "package": "@sentropic/h2a@0.98.3",
+      "track": "@sentropic/track@0.98.3"
+    },
+    {
+      "version": "0.98.4",
+      "package": "@sentropic/h2a@0.98.4",
+      "track": "@sentropic/track@0.98.4"
+    },
+    {
+      "version": "0.98.5",
+      "package": "@sentropic/h2a@0.98.5",
+      "track": "@sentropic/track@0.98.5"
+    },
+    {
+      "version": "0.98.6",
+      "package": "@sentropic/h2a@0.98.6",
+      "track": "@sentropic/track@0.98.6"
+    }
+  ],
+  "packages": {
+    "@sentropic/h2a@0.78.0": {
+      "name": "@sentropic/h2a",
+      "version": "0.78.0",
+      "integrity": "sha512-epX3/x0wJzmdutTmkSctvhOHYtTAO02TrEmsM1Zhf0CyL5NyfCPKdajNbAU1a9r61A6AKxaBO4tiA40cDDmp2Q==",
+      "tarball": "https://registry.npmjs.org/@sentropic/h2a/-/h2a-0.78.0.tgz"
+    },
+    "@sentropic/h2a@0.79.0": {
+      "name": "@sentropic/h2a",
+      "version": "0.79.0",
+      "integrity": "sha512-IX11rAMZEPm59aVe0j+Lgbulppn2n/obu81EYQ0aAIjuXtoHVcnntfhkMCbX+JcB5Ov+rVVRYHOmFrD91KFxbg==",
+      "tarball": "https://registry.npmjs.org/@sentropic/h2a/-/h2a-0.79.0.tgz"
+    },
+    "@sentropic/track@0.24.0": {
+      "name": "@sentropic/track",
+      "version": "0.24.0",
+      "integrity": "sha512-u+PQZbaCCFdk46YXyW5im9TS0nMbaYYNUZy25WHSyD5HJc8/RSSJ4mGo7QHTDx8TwR1uPY6GtKD2nCGPyph9GA==",
+      "tarball": "https://registry.npmjs.org/@sentropic/track/-/track-0.24.0.tgz"
+    },
+    "@sentropic/h2a@0.80.0": {
+      "name": "@sentropic/h2a",
+      "version": "0.80.0",
+      "integrity": "sha512-Wx2+jR+FABqqpG85fSCp8WslocVaW2Qbj0PuJSmHUxMhaYT4R1wAuC7UaWc9Er/jDPgTiJdadE2pZ00PlpixRw==",
+      "tarball": "https://registry.npmjs.org/@sentropic/h2a/-/h2a-0.80.0.tgz"
+    },
+    "@sentropic/h2a@0.81.0": {
+      "name": "@sentropic/h2a",
+      "version": "0.81.0",
+      "integrity": "sha512-Scwi+/nRsyeIZOHu3zAWEB9DNMmw1/mIlX9/xFihz2Nm+hQnZAIJuR9/gfj2NyMxfdoNeIyo2SfddKshRqnLvg==",
+      "tarball": "https://registry.npmjs.org/@sentropic/h2a/-/h2a-0.81.0.tgz"
+    },
+    "@sentropic/h2a@0.82.0": {
+      "name": "@sentropic/h2a",
+      "version": "0.82.0",
+      "integrity": "sha512-LVz6UTQ9Eu8lqiWXfbm6h+IN4NYUrWWqc7N05/RjDOljM5V5CmwYGUNp29CCH3/RVEqancwtAJ/k8Uzk3no+Rw==",
+      "tarball": "https://registry.npmjs.org/@sentropic/h2a/-/h2a-0.82.0.tgz"
+    },
+    "@sentropic/h2a@0.83.0": {
+      "name": "@sentropic/h2a",
+      "version": "0.83.0",
+      "integrity": "sha512-6U5KgUs/d5MKmom1OxawOfJUVeje1n4OcOoTAmwnPxAwiKE65TCFtEpmtOoscqQcseGBLKj305shfFjqvjj0Tg==",
+      "tarball": "https://registry.npmjs.org/@sentropic/h2a/-/h2a-0.83.0.tgz"
+    },
+    "@sentropic/track@0.83.0": {
+      "name": "@sentropic/track",
+      "version": "0.83.0",
+      "integrity": "sha512-E0NjyAWrG9kpq71nP9sIFnq9YrNHNVZy9iAmYtwWEjiFXbCXxzhS5BzWkbbQ405KWq88cfQYmJnnU+2DaBA1FA==",
+      "tarball": "https://registry.npmjs.org/@sentropic/track/-/track-0.83.0.tgz"
+    },
+    "@sentropic/h2a@0.84.0": {
+      "name": "@sentropic/h2a",
+      "version": "0.84.0",
+      "integrity": "sha512-u56ZiBx1eqliHd/HFB/1NMXWbai09CEu9nffVBh6O/UEU9ACe/duySmMq46Y7YzpirA2cOtMG3bsLKWZlPhuYw==",
+      "tarball": "https://registry.npmjs.org/@sentropic/h2a/-/h2a-0.84.0.tgz"
+    },
+    "@sentropic/track@0.84.0": {
+      "name": "@sentropic/track",
+      "version": "0.84.0",
+      "integrity": "sha512-tSbxXC7bfEH2YxR6USKJKyTV0dCwUjdGJTj7ETFSKoOLtMx7b+SfFmxIgZ6EAf62iPHR8/yq29bx4NWhmhEJ2w==",
+      "tarball": "https://registry.npmjs.org/@sentropic/track/-/track-0.84.0.tgz"
+    },
+    "@sentropic/h2a@0.85.0": {
+      "name": "@sentropic/h2a",
+      "version": "0.85.0",
+      "integrity": "sha512-oVEd0uaViwexPeiBhttb7joVQsIpqPqVFWRXh7Zqh+YyDgE0hDPfojFwtWl4ykjUEXu8WdY3LRnpVt7mQZWhgw==",
+      "tarball": "https://registry.npmjs.org/@sentropic/h2a/-/h2a-0.85.0.tgz"
+    },
+    "@sentropic/track@0.85.0": {
+      "name": "@sentropic/track",
+      "version": "0.85.0",
+      "integrity": "sha512-1dXAR/2htmINqNkhFwqz4Oz5M4tRZCcqTLYAjJI9dSUQnRcUB4pO2JgxjGmPSlhx0tWHM6u4lY/p1XQKmeIIhw==",
+      "tarball": "https://registry.npmjs.org/@sentropic/track/-/track-0.85.0.tgz"
+    },
+    "@sentropic/h2a@0.85.1": {
+      "name": "@sentropic/h2a",
+      "version": "0.85.1",
+      "integrity": "sha512-1lXY26EnfoAQMXHkpxUZrDSYBc/VSx4vvJvJMZtulj+llCzVw0oAijlo71Ja2AR8VIfQwBugedSvBP+ab+EqYw==",
+      "tarball": "https://registry.npmjs.org/@sentropic/h2a/-/h2a-0.85.1.tgz"
+    },
+    "@sentropic/track@0.85.1": {
+      "name": "@sentropic/track",
+      "version": "0.85.1",
+      "integrity": "sha512-Yfc2SxzzHqODT3ZTjCE3N1z7oENnFQdUzW0uK0lyzkiPvv04etbc2vCYp6gmxJB4c9N+urkt+9Xc9Dy6L6+JeQ==",
+      "tarball": "https://registry.npmjs.org/@sentropic/track/-/track-0.85.1.tgz"
+    },
+    "@sentropic/h2a@0.85.2": {
+      "name": "@sentropic/h2a",
+      "version": "0.85.2",
+      "integrity": "sha512-5zmqdRsvOUBrRsvV0FSWh7c/PA87H/31X7kGGiiV0r1K7/mKHxi8KU84Jc19JndN72dxBkE6a2wQ/bUqqxvipw==",
+      "tarball": "https://registry.npmjs.org/@sentropic/h2a/-/h2a-0.85.2.tgz"
+    },
+    "@sentropic/track@0.85.2": {
+      "name": "@sentropic/track",
+      "version": "0.85.2",
+      "integrity": "sha512-knxj/xE388VZXWVJK2Knh51hYo0AVJKGOr1IeajV6XBRFbF5kRUgBEKwyihS9LYlrYAX7qyIW/0RNfopqpHKbw==",
+      "tarball": "https://registry.npmjs.org/@sentropic/track/-/track-0.85.2.tgz"
+    },
+    "@sentropic/h2a@0.85.3": {
+      "name": "@sentropic/h2a",
+      "version": "0.85.3",
+      "integrity": "sha512-CCXIqYz6kd6KE0p45fRZCn9YyCIvrNZjiAWBk1TnvJ7QCfR1OoTeD65JaXbJCoyxYTgt8CzH1FyrBHlo0ezdEA==",
+      "tarball": "https://registry.npmjs.org/@sentropic/h2a/-/h2a-0.85.3.tgz"
+    },
+    "@sentropic/track@0.85.3": {
+      "name": "@sentropic/track",
+      "version": "0.85.3",
+      "integrity": "sha512-81QjlmNMxaC6TzzwXfpr8KYzcefoWWWJanDcgPZ1oo8huWENKgMAJfLdy9uq83vLnZ7Kyvkjo0TAk890Pf2yLA==",
+      "tarball": "https://registry.npmjs.org/@sentropic/track/-/track-0.85.3.tgz"
+    },
+    "@sentropic/h2a@0.85.4": {
+      "name": "@sentropic/h2a",
+      "version": "0.85.4",
+      "integrity": "sha512-asZ6AeXvmwG3wovegzwHk5ATPp4V5nevpsV8hMXE3Sq21nPT+xrjVQzpdtEwZpw4sfQpAS1oy3cb4vvCc1aBEw==",
+      "tarball": "https://registry.npmjs.org/@sentropic/h2a/-/h2a-0.85.4.tgz"
+    },
+    "@sentropic/track@0.85.4": {
+      "name": "@sentropic/track",
+      "version": "0.85.4",
+      "integrity": "sha512-V9WwaFbBVtIo6HuxRjaHIIRIw99qW/XOMUjW4oqcBeS28aPXxt2PTizdsUoSrC47x/zgp8bUWeyXdHn56hrNig==",
+      "tarball": "https://registry.npmjs.org/@sentropic/track/-/track-0.85.4.tgz"
+    },
+    "@sentropic/h2a@0.85.5": {
+      "name": "@sentropic/h2a",
+      "version": "0.85.5",
+      "integrity": "sha512-lJlt6WHsd6m/sTcnPayCTRgaIHStHHH+eiLKegWe1B/7qHY+wgzrgxkKyWPGmYCEdgNnS5aM8jX2+RngBFR1VQ==",
+      "tarball": "https://registry.npmjs.org/@sentropic/h2a/-/h2a-0.85.5.tgz"
+    },
+    "@sentropic/track@0.85.5": {
+      "name": "@sentropic/track",
+      "version": "0.85.5",
+      "integrity": "sha512-noy90/P6vFuM1uAtywxUqEEXJ5xybtgrSfHf8Wd6QJC/kUQuVQ/Xia9jYrGSMuOHdTnH4FYSsV+VYWWz+QHzWQ==",
+      "tarball": "https://registry.npmjs.org/@sentropic/track/-/track-0.85.5.tgz"
+    },
+    "@sentropic/h2a@0.85.6": {
+      "name": "@sentropic/h2a",
+      "version": "0.85.6",
+      "integrity": "sha512-M5BV4hCg7OYlQS7XZjMHec6Jlq2pqMFC/6EFZgNFUMM09pgU2AWWL7bSGaw2EbvQTUtbnbvjz6/21nqN+KEimw==",
+      "tarball": "https://registry.npmjs.org/@sentropic/h2a/-/h2a-0.85.6.tgz"
+    },
+    "@sentropic/track@0.85.6": {
+      "name": "@sentropic/track",
+      "version": "0.85.6",
+      "integrity": "sha512-afvt2iFx6XJr8NCBZa4OhkySw5qKX6AMiH5ISTgrpf+R0E6CpFrN5tZuocOBmtHk8UJ7nl5kLcbQ10ba5BvnUg==",
+      "tarball": "https://registry.npmjs.org/@sentropic/track/-/track-0.85.6.tgz"
+    },
+    "@sentropic/h2a@0.85.7": {
+      "name": "@sentropic/h2a",
+      "version": "0.85.7",
+      "integrity": "sha512-sfXGYo30bpBhRlcZHbHrBYQEdHqN+Ml3YBUoDjQa+sBxSz7XrLH7h/bna+QOFR4fg480ie5RfII8r8SjyGu8Og==",
+      "tarball": "https://registry.npmjs.org/@sentropic/h2a/-/h2a-0.85.7.tgz"
+    },
+    "@sentropic/h2a@0.85.8": {
+      "name": "@sentropic/h2a",
+      "version": "0.85.8",
+      "integrity": "sha512-Tmfa42IzwbeOtUXXig6jEzvh5bCQz5u6UA+zSLgTkgJHI9V2Mx4VHGriuE2IFVwMNQRH+yzED9pljMbXVq9wxA==",
+      "tarball": "https://registry.npmjs.org/@sentropic/h2a/-/h2a-0.85.8.tgz"
+    },
+    "@sentropic/h2a@0.85.9": {
+      "name": "@sentropic/h2a",
+      "version": "0.85.9",
+      "integrity": "sha512-sLD9/NR4xkD59z53kY81Ig6HlPFk6aIj/iwYw2vPWoB7PJOPqqFZDmJKC9waImeHgMVj+ed/YJpV4wXiOwI7cg==",
+      "tarball": "https://registry.npmjs.org/@sentropic/h2a/-/h2a-0.85.9.tgz"
+    },
+    "@sentropic/track@0.85.9": {
+      "name": "@sentropic/track",
+      "version": "0.85.9",
+      "integrity": "sha512-P7BjWK96w0ErTCP4tAplvKoOszgrWt7VVB7OMQ5Cd7aLcZQpX4ETEAm+3jlNM51VnV6xRecCwucGHyJN7rG3OA==",
+      "tarball": "https://registry.npmjs.org/@sentropic/track/-/track-0.85.9.tgz"
+    },
+    "@sentropic/h2a@0.85.10": {
+      "name": "@sentropic/h2a",
+      "version": "0.85.10",
+      "integrity": "sha512-1rTO2n9SR3mKMpcL1cNLOxK46greR1rJbrWU41NOr2a/+nES5JtRzx/Zul9Tf00foPb4jZCacET+C5GxvOzPVw==",
+      "tarball": "https://registry.npmjs.org/@sentropic/h2a/-/h2a-0.85.10.tgz"
+    },
+    "@sentropic/track@0.85.10": {
+      "name": "@sentropic/track",
+      "version": "0.85.10",
+      "integrity": "sha512-zjXf03ETmB/JTG3RB1qXgH7T8E8t5QF7RdSNdm5lA9trMioFD5Z5PpQODufq4/+iwgOP0FRvCHyZmtCLSXlIcw==",
+      "tarball": "https://registry.npmjs.org/@sentropic/track/-/track-0.85.10.tgz"
+    },
+    "@sentropic/h2a@0.85.11": {
+      "name": "@sentropic/h2a",
+      "version": "0.85.11",
+      "integrity": "sha512-DvYCEHZVb5YFUn3wSv93IERkVzl314CVFhnQoCan9fhPmVtIl7dQ0jeN2zFB92Wr3ET5EJfe1AoY5iNb5aa5TQ==",
+      "tarball": "https://registry.npmjs.org/@sentropic/h2a/-/h2a-0.85.11.tgz"
+    },
+    "@sentropic/track@0.85.11": {
+      "name": "@sentropic/track",
+      "version": "0.85.11",
+      "integrity": "sha512-GOeyD3F8OHC8dc1hkFSKhv4pch8rtuQzK2kw3SiTQuN33nrIgBXOrbcERMp8IDJjVdaXGch2k+oTLCrl4WbJbw==",
+      "tarball": "https://registry.npmjs.org/@sentropic/track/-/track-0.85.11.tgz"
+    },
+    "@sentropic/h2a@0.85.13": {
+      "name": "@sentropic/h2a",
+      "version": "0.85.13",
+      "integrity": "sha512-CvcZAcbAH4b+w1ayeeEbEbDBR7H1MYYBlx8+9APyDwXkHEXMEzga6e24oLmKmCbGcI20js+DfxBXq9JSfPXDtA==",
+      "tarball": "https://registry.npmjs.org/@sentropic/h2a/-/h2a-0.85.13.tgz"
+    },
+    "@sentropic/track@0.85.13": {
+      "name": "@sentropic/track",
+      "version": "0.85.13",
+      "integrity": "sha512-ZnvjtSt6xUt6iE1N9cNKE9OtEGnNyKkWJppSfVORtroReB5nX42UH/4fml2uvKbPpB5GXDKgbCM1WJQ9fhmoSQ==",
+      "tarball": "https://registry.npmjs.org/@sentropic/track/-/track-0.85.13.tgz"
+    },
+    "@sentropic/h2a@0.85.14": {
+      "name": "@sentropic/h2a",
+      "version": "0.85.14",
+      "integrity": "sha512-J4eZNElU0A0FRn9RmbGLxP3kpdTw8JhjhL2XuF2bgxoG7DYIBdlFMbS4DzAIbvLX0LrBJ6AJStwbF60OVokBEg==",
+      "tarball": "https://registry.npmjs.org/@sentropic/h2a/-/h2a-0.85.14.tgz"
+    },
+    "@sentropic/track@0.85.14": {
+      "name": "@sentropic/track",
+      "version": "0.85.14",
+      "integrity": "sha512-VyOsI8Ba+kpbxcdUBVJLTEbj/mayA70tK25iMo89q7dST94AOuGcT87XBbXTx755AWWpaVna8wfezFUWtFRtow==",
+      "tarball": "https://registry.npmjs.org/@sentropic/track/-/track-0.85.14.tgz"
+    },
+    "@sentropic/h2a@0.85.15": {
+      "name": "@sentropic/h2a",
+      "version": "0.85.15",
+      "integrity": "sha512-Cm39WVC/9ewlq4vlLKb8x4dfWQrSvVD4EQj2KBMA7G6+ubnOQrsQvWdiQdkr9rHw6C2d+geBtRGOd71BoKQgjw==",
+      "tarball": "https://registry.npmjs.org/@sentropic/h2a/-/h2a-0.85.15.tgz"
+    },
+    "@sentropic/track@0.85.15": {
+      "name": "@sentropic/track",
+      "version": "0.85.15",
+      "integrity": "sha512-/5CoXifxWzD0AQN689kDIpK6c0OFv4kHG0w4MPsH/F4JwT0CVQl8AbDmVWi+GsXJNp2CI2naHVkb97SxFcXvVQ==",
+      "tarball": "https://registry.npmjs.org/@sentropic/track/-/track-0.85.15.tgz"
+    },
+    "@sentropic/h2a@0.85.16": {
+      "name": "@sentropic/h2a",
+      "version": "0.85.16",
+      "integrity": "sha512-gCaG1l2Iz9Izm9eBOln+18m0id4DxgYwkrRN8aZIV3Nz40GbqSm0dA5NkL8dPkjOBzfk6Gr6cde44HY5Vvy9MA==",
+      "tarball": "https://registry.npmjs.org/@sentropic/h2a/-/h2a-0.85.16.tgz"
+    },
+    "@sentropic/track@0.85.16": {
+      "name": "@sentropic/track",
+      "version": "0.85.16",
+      "integrity": "sha512-Z2X5EtLXUidJugYL3hMFIAZcsV1WrOTmTikRKFV1tb79VgJsk/T9KyQMWS4YwhKiD33BdH9fFW4O0/KRWfS+pw==",
+      "tarball": "https://registry.npmjs.org/@sentropic/track/-/track-0.85.16.tgz"
+    },
+    "@sentropic/h2a@0.85.17": {
+      "name": "@sentropic/h2a",
+      "version": "0.85.17",
+      "integrity": "sha512-eifP2oMZpyh0L0Kw3b1gryin9+hpRQAAIfw5KaEJu6DHr529mjEsdhqpxjgNp7gHoUVWjCAdiq53Vt3W6QbKmg==",
+      "tarball": "https://registry.npmjs.org/@sentropic/h2a/-/h2a-0.85.17.tgz"
+    },
+    "@sentropic/track@0.85.17": {
+      "name": "@sentropic/track",
+      "version": "0.85.17",
+      "integrity": "sha512-gz8WKBhUvzUDOvhdS09by/X38SfBTz1Wvmv3FvsHY8M25c7eBSD3YuFJkDqIzH5ewLEBSkqbBKuIsTow1aCThQ==",
+      "tarball": "https://registry.npmjs.org/@sentropic/track/-/track-0.85.17.tgz"
+    },
+    "@sentropic/h2a@0.85.18": {
+      "name": "@sentropic/h2a",
+      "version": "0.85.18",
+      "integrity": "sha512-u0+e7lu+PR5n+nD8IUTVnoyPQoJk7msorEBDwVB/eZwUXGMg/ub2nsGc6iiBiSecew0HMuu4bbCD//HUkEBriQ==",
+      "tarball": "https://registry.npmjs.org/@sentropic/h2a/-/h2a-0.85.18.tgz"
+    },
+    "@sentropic/track@0.85.18": {
+      "name": "@sentropic/track",
+      "version": "0.85.18",
+      "integrity": "sha512-4+mTs2ik5/jYbDVBpZDHMXVrdKr2kaXkRL4etwOhS1dwoCJaYpLeBQBpX1X6knznmdnzv+GV+e0Fu86E/xgscA==",
+      "tarball": "https://registry.npmjs.org/@sentropic/track/-/track-0.85.18.tgz"
+    },
+    "@sentropic/h2a@0.85.19": {
+      "name": "@sentropic/h2a",
+      "version": "0.85.19",
+      "integrity": "sha512-uN3lI/uYPhX/pZ6xdXTHtoaPl0FTILwIz3KKPr6dDHLy9kEYxddk5nMi6tF+IJNibasGyPqfthyU2LPA8pGcwA==",
+      "tarball": "https://registry.npmjs.org/@sentropic/h2a/-/h2a-0.85.19.tgz"
+    },
+    "@sentropic/track@0.85.19": {
+      "name": "@sentropic/track",
+      "version": "0.85.19",
+      "integrity": "sha512-6klaFlbq3bkeq6u4+J2sivSyiHH+r7DGZ1UjhoNJv67gt+fvBQLsF+sueaGMDIf2JMziostmt976xyB3qPKuuw==",
+      "tarball": "https://registry.npmjs.org/@sentropic/track/-/track-0.85.19.tgz"
+    },
+    "@sentropic/h2a@0.85.20": {
+      "name": "@sentropic/h2a",
+      "version": "0.85.20",
+      "integrity": "sha512-qw9YACPEkHxGyXx/gnW2teSWgICKaKH0b/uOtrSPuDJRe+MevaVlmGz0JnN28ZjkV7KJ3NGyKrOXq69iJ96gbA==",
+      "tarball": "https://registry.npmjs.org/@sentropic/h2a/-/h2a-0.85.20.tgz"
+    },
+    "@sentropic/track@0.85.20": {
+      "name": "@sentropic/track",
+      "version": "0.85.20",
+      "integrity": "sha512-KYIsNLQTauV4HXcau03KUjj7/vV8hyhzakeK4BgS6HO+WyGIk9L/H8jVlt+ax5UYL69mRQD4R3u2DLsKkauGkQ==",
+      "tarball": "https://registry.npmjs.org/@sentropic/track/-/track-0.85.20.tgz"
+    },
+    "@sentropic/h2a@0.85.21": {
+      "name": "@sentropic/h2a",
+      "version": "0.85.21",
+      "integrity": "sha512-D3yLKt4ddHngVLei98CdlICkKecdpRo48CG9OxPYKp5MlMcde2bsDYTHM1n4tpNF2zjwk/jTIQKBraAjeqUDvQ==",
+      "tarball": "https://registry.npmjs.org/@sentropic/h2a/-/h2a-0.85.21.tgz"
+    },
+    "@sentropic/track@0.85.21": {
+      "name": "@sentropic/track",
+      "version": "0.85.21",
+      "integrity": "sha512-gR2vDNhb5Fvpj1EfTbphrpEIpXkbYCuC60taI7Z6FhnQ2IPPoZ8OY6ZlqDWtdnuzSSDc0K5oRTVdSsAjeYGC9g==",
+      "tarball": "https://registry.npmjs.org/@sentropic/track/-/track-0.85.21.tgz"
+    },
+    "@sentropic/h2a@0.85.22": {
+      "name": "@sentropic/h2a",
+      "version": "0.85.22",
+      "integrity": "sha512-OOjLoqerL071X+u42cHMMuKLHXNeqLYAwMyZJM6VIfF9KtFocGCQUt6BRnVKj3EKSPRyO1jue25u92ca8i+esg==",
+      "tarball": "https://registry.npmjs.org/@sentropic/h2a/-/h2a-0.85.22.tgz"
+    },
+    "@sentropic/track@0.85.22": {
+      "name": "@sentropic/track",
+      "version": "0.85.22",
+      "integrity": "sha512-SdHfhGgM+SVw5gD4J+yX4TVt//u3mmzYYI8p2MpmWRXvkPHVij6BwE44QNiYM46HkoOo/gWUvrP9nB5re/us+w==",
+      "tarball": "https://registry.npmjs.org/@sentropic/track/-/track-0.85.22.tgz"
+    },
+    "@sentropic/h2a@0.85.24": {
+      "name": "@sentropic/h2a",
+      "version": "0.85.24",
+      "integrity": "sha512-Vh9cT8cMZrRO52FfUP4f/7xJ+DQNnDw7ndJmnFeBAQa41fu0GZ8BjCRcmfs3rC5cRDLyeR/6nbj0M9tfAfZCbw==",
+      "tarball": "https://registry.npmjs.org/@sentropic/h2a/-/h2a-0.85.24.tgz"
+    },
+    "@sentropic/track@0.85.24": {
+      "name": "@sentropic/track",
+      "version": "0.85.24",
+      "integrity": "sha512-fQDpYwUl7c2BetS7nkQAc+4JcDNNwfUYd5D0eCz/PysaKCTq8Rq9CZln4FOMdNuy4eDJ4aWIi3byzzav+JFQhA==",
+      "tarball": "https://registry.npmjs.org/@sentropic/track/-/track-0.85.24.tgz"
+    },
+    "@sentropic/h2a@0.85.25": {
+      "name": "@sentropic/h2a",
+      "version": "0.85.25",
+      "integrity": "sha512-RFU5wSxe3B97GVgOyT7cgIkZ9FR/DOSnOpxeinYj+Aw76BnJAmDRz9ZmjvzC35RfCAbbBwmM1hpohfPXleVH3Q==",
+      "tarball": "https://registry.npmjs.org/@sentropic/h2a/-/h2a-0.85.25.tgz"
+    },
+    "@sentropic/track@0.85.25": {
+      "name": "@sentropic/track",
+      "version": "0.85.25",
+      "integrity": "sha512-vf3yvTFQAZKLIB6L8wXXstDDzvZ6v/tkSjABQRlA/rB0w6kAPBOv/B0LlmaAAVNmMAHoJwdZpg3j0o+dzw+4cw==",
+      "tarball": "https://registry.npmjs.org/@sentropic/track/-/track-0.85.25.tgz"
+    },
+    "@sentropic/h2a@0.86.0": {
+      "name": "@sentropic/h2a",
+      "version": "0.86.0",
+      "integrity": "sha512-ekRdlBCJ3lMOa+XctvqfN3DH+N/pGNl5fTwrI98eRw1MCmZGKkVB+mOU8UOkAuS5O1Nd28RqZ9FHTQbqRb5+vA==",
+      "tarball": "https://registry.npmjs.org/@sentropic/h2a/-/h2a-0.86.0.tgz"
+    },
+    "@sentropic/track@0.86.0": {
+      "name": "@sentropic/track",
+      "version": "0.86.0",
+      "integrity": "sha512-exSvYfcIocCcIjboYkjU1kprSgfJE1JNStDAzAWUiZFsjkg+V6/bQvjslLgd/c4xfFgQTcojvLrrD1VZwyhAAg==",
+      "tarball": "https://registry.npmjs.org/@sentropic/track/-/track-0.86.0.tgz"
+    },
+    "@sentropic/h2a@0.87.0": {
+      "name": "@sentropic/h2a",
+      "version": "0.87.0",
+      "integrity": "sha512-Vr5hF6ERUyFcQ59JuHGUpgwC8q5QoIfF2ux7A3lSTshQyKxALguxSzph5rmsuHYTc6ElijEofWg4SrHAmo+w+A==",
+      "tarball": "https://registry.npmjs.org/@sentropic/h2a/-/h2a-0.87.0.tgz"
+    },
+    "@sentropic/track@0.87.0": {
+      "name": "@sentropic/track",
+      "version": "0.87.0",
+      "integrity": "sha512-Fd8LgBcUR47ycMdb2Ou4rV7CJVQF2sO0xH6i9Qb+fXdvom90Op6cv2WgMAFmWPiqUT2hNSzl7uPyJl1Pj8r+aQ==",
+      "tarball": "https://registry.npmjs.org/@sentropic/track/-/track-0.87.0.tgz"
+    },
+    "@sentropic/h2a@0.88.0": {
+      "name": "@sentropic/h2a",
+      "version": "0.88.0",
+      "integrity": "sha512-ZBNYGeHxCZ2fNTkGTEzz02lJeyf+ON3qMiNufFMTgjFO7vlr9c10BiH1t+kdrJoVH/6I1iae0Gu/wgASGCA4Pw==",
+      "tarball": "https://registry.npmjs.org/@sentropic/h2a/-/h2a-0.88.0.tgz"
+    },
+    "@sentropic/track@0.88.0": {
+      "name": "@sentropic/track",
+      "version": "0.88.0",
+      "integrity": "sha512-JQZe45KLtPfGAnCM1oYbHTKrG1tPbXvUbcnedWTkbM7NVnQdPHwyYZ0SvHT6L6/JyyiRigPG1feADmesBO8fow==",
+      "tarball": "https://registry.npmjs.org/@sentropic/track/-/track-0.88.0.tgz"
+    },
+    "@sentropic/h2a@0.89.0": {
+      "name": "@sentropic/h2a",
+      "version": "0.89.0",
+      "integrity": "sha512-wBwhalDiSQjJp3hVY8+l+hn118XKp9lGpeyrf6KKxzEoFE0z3slRZSEHCGYhM91vX2ASMPWr8TG0qyNHp3Y7zw==",
+      "tarball": "https://registry.npmjs.org/@sentropic/h2a/-/h2a-0.89.0.tgz"
+    },
+    "@sentropic/track@0.89.0": {
+      "name": "@sentropic/track",
+      "version": "0.89.0",
+      "integrity": "sha512-+gq4Ns2z9lflSkCPJUYgNTkPrjJ66Qy9K/R7NAfITNrVB2u7zNeHfJQTB1tc96cu8eDMGxQbcIMekLbxJbLrFA==",
+      "tarball": "https://registry.npmjs.org/@sentropic/track/-/track-0.89.0.tgz"
+    },
+    "@sentropic/h2a@0.90.0": {
+      "name": "@sentropic/h2a",
+      "version": "0.90.0",
+      "integrity": "sha512-X+8avKM20wJrAdRcht6/zULUV0Ml2oeFqgkkdl9aGmPvxGPsTLbDn6YY5HwtUHhvDyuTMGzWCO4L6NTawS8dsg==",
+      "tarball": "https://registry.npmjs.org/@sentropic/h2a/-/h2a-0.90.0.tgz"
+    },
+    "@sentropic/track@0.90.0": {
+      "name": "@sentropic/track",
+      "version": "0.90.0",
+      "integrity": "sha512-j6IalgvAHNNSAl8AvDOLkOv5MLOFyuk5oCq7vbYOhYhTiWObfwjvqlTpIr1G75a96BAFOrYS2sNhzWtwZrU3RA==",
+      "tarball": "https://registry.npmjs.org/@sentropic/track/-/track-0.90.0.tgz"
+    },
+    "@sentropic/h2a@0.90.1": {
+      "name": "@sentropic/h2a",
+      "version": "0.90.1",
+      "integrity": "sha512-IEmiQJtI38RBR87Db1tT8nIF2MeD63iDt3qk3nhvjFJjhTBlNkZ1ISEkbBqeXsw9bSb9R7NB4GO7ErfakJ5m4A==",
+      "tarball": "https://registry.npmjs.org/@sentropic/h2a/-/h2a-0.90.1.tgz"
+    },
+    "@sentropic/track@0.90.1": {
+      "name": "@sentropic/track",
+      "version": "0.90.1",
+      "integrity": "sha512-zIDviUr+OeYKVcqBxyGPeQTzkNAbMr/MbvXlyGZbiuay6cpwdx2ux/rhG5e5cQHnwwTvZ0VYON1Rw0AtIekU1Q==",
+      "tarball": "https://registry.npmjs.org/@sentropic/track/-/track-0.90.1.tgz"
+    },
+    "@sentropic/h2a@0.90.2": {
+      "name": "@sentropic/h2a",
+      "version": "0.90.2",
+      "integrity": "sha512-ZuLe8uQCcWi/OAaz0nHYwW6kwZm6gUPOsK0iskpx1EM399sb80rGkfX97Ok42Ve9wWhYUaDj5wOedw4GOkJWBQ==",
+      "tarball": "https://registry.npmjs.org/@sentropic/h2a/-/h2a-0.90.2.tgz"
+    },
+    "@sentropic/track@0.90.2": {
+      "name": "@sentropic/track",
+      "version": "0.90.2",
+      "integrity": "sha512-SkuQwmXha9ZsBWqhqDqFSrS+lZH4LWawhmLLBqi7ahNiUm6pbCZQv75HL0jdqm+rwu4AHCQcluNuD5mkbAXXAA==",
+      "tarball": "https://registry.npmjs.org/@sentropic/track/-/track-0.90.2.tgz"
+    },
+    "@sentropic/h2a@0.90.3": {
+      "name": "@sentropic/h2a",
+      "version": "0.90.3",
+      "integrity": "sha512-kLbXD5ji0NvW0MwEHVHCh98QpxWPhKXxX33V72PzcIdOd4M07mHRJqM8lud98DV7xDoFLKGIhndmJs3H4DqC/Q==",
+      "tarball": "https://registry.npmjs.org/@sentropic/h2a/-/h2a-0.90.3.tgz"
+    },
+    "@sentropic/track@0.90.3": {
+      "name": "@sentropic/track",
+      "version": "0.90.3",
+      "integrity": "sha512-d93VpddNturgO32Wh3IdQmwXUbZGRzOnp2qJRuwPEQYqeRC+4sSIyujr0mS2B0ftfZ7vP3P+Ky37L19TU0KL7Q==",
+      "tarball": "https://registry.npmjs.org/@sentropic/track/-/track-0.90.3.tgz"
+    },
+    "@sentropic/h2a@0.91.0": {
+      "name": "@sentropic/h2a",
+      "version": "0.91.0",
+      "integrity": "sha512-VnUh7eBaHjoffrbcovdS/eNygC0SV3J+oFM56nr5YuU9iESZstqB2kByE8I8S/mTZ9uBcdMYoBVZE1detOba9A==",
+      "tarball": "https://registry.npmjs.org/@sentropic/h2a/-/h2a-0.91.0.tgz"
+    },
+    "@sentropic/track@0.91.0": {
+      "name": "@sentropic/track",
+      "version": "0.91.0",
+      "integrity": "sha512-z6b5WBBc5MqwhKH7nU/nTd4m/Alq3XrCW5Slv4W+7RBoySsbBHa4wHIiXMoku5iKuSMoOc/uZGkpWZhSnAaE1g==",
+      "tarball": "https://registry.npmjs.org/@sentropic/track/-/track-0.91.0.tgz"
+    },
+    "@sentropic/h2a@0.91.1": {
+      "name": "@sentropic/h2a",
+      "version": "0.91.1",
+      "integrity": "sha512-1t8X7yebL02XrE/6D/Oqwk9OBRSCT5HEPTul2QOBMMYHS21P6Umw5X4K9Ri2KdK3D6eNZwLvy7YW+RcnGrz0sA==",
+      "tarball": "https://registry.npmjs.org/@sentropic/h2a/-/h2a-0.91.1.tgz"
+    },
+    "@sentropic/track@0.91.1": {
+      "name": "@sentropic/track",
+      "version": "0.91.1",
+      "integrity": "sha512-KGFWqlUSNdT+SERGQmlpFglTZM0ypSyRNosgVyHCTrlCrqpVXr6tYGWKZmNHjSPWMhqtVdHWWXplSnQscj+ArQ==",
+      "tarball": "https://registry.npmjs.org/@sentropic/track/-/track-0.91.1.tgz"
+    },
+    "@sentropic/h2a@0.92.0": {
+      "name": "@sentropic/h2a",
+      "version": "0.92.0",
+      "integrity": "sha512-/CuKr+YgCJlNwfxX7TCl9lHyYtFKTQ7bysXImdCZNL5Z6nZ8h/Vyni2msUsYgKfRQZoaqJxNbpluAvB5yYhGCg==",
+      "tarball": "https://registry.npmjs.org/@sentropic/h2a/-/h2a-0.92.0.tgz"
+    },
+    "@sentropic/track@0.92.0": {
+      "name": "@sentropic/track",
+      "version": "0.92.0",
+      "integrity": "sha512-EKIue3tXg28xSBmZW2/4jDkQVdfHiF/2ko3/4k7xG2yh8dWMv4Kxx4NCatRVF0DXfGSTiGPJ/ymADZ5f1JVXiA==",
+      "tarball": "https://registry.npmjs.org/@sentropic/track/-/track-0.92.0.tgz"
+    },
+    "@sentropic/h2a@0.93.0": {
+      "name": "@sentropic/h2a",
+      "version": "0.93.0",
+      "integrity": "sha512-st2XRfFmqTQVeXNwgpK+Vo5FZpXx03c0grfas1vt7r0TpOiET8cgA7YwVaD5t3YcHaTDeRPAqOHU3e5kmyea1w==",
+      "tarball": "https://registry.npmjs.org/@sentropic/h2a/-/h2a-0.93.0.tgz"
+    },
+    "@sentropic/track@0.93.0": {
+      "name": "@sentropic/track",
+      "version": "0.93.0",
+      "integrity": "sha512-UvXGEPF1NumBYzdmfmpKfWBrygh760uYoo/9guPMBo+05QmqKvYtzw/+Rs0AqJoSeu6W4u6CSAET4tB1MvuROQ==",
+      "tarball": "https://registry.npmjs.org/@sentropic/track/-/track-0.93.0.tgz"
+    },
+    "@sentropic/h2a@0.93.1": {
+      "name": "@sentropic/h2a",
+      "version": "0.93.1",
+      "integrity": "sha512-SH7KwhsRw++JBbCHN4nk1595w+Pj3hCqeCHEqUqPspwAEGf+uSZG9DabwY84slEPaqY4+Ygcz4B92ES01n3+4g==",
+      "tarball": "https://registry.npmjs.org/@sentropic/h2a/-/h2a-0.93.1.tgz"
+    },
+    "@sentropic/track@0.93.1": {
+      "name": "@sentropic/track",
+      "version": "0.93.1",
+      "integrity": "sha512-PtHl87ZFI6IdK540TyKmLuAecrpXiVrVNrs4bmHQCCWVqAFgcZ0S0X0abiELfKRmgINlqJ3MIfBMGBOK4HcqKQ==",
+      "tarball": "https://registry.npmjs.org/@sentropic/track/-/track-0.93.1.tgz"
+    },
+    "@sentropic/h2a@0.93.2": {
+      "name": "@sentropic/h2a",
+      "version": "0.93.2",
+      "integrity": "sha512-u8ONkHyOXaMT875/EfC7jN93r1X7/BcDbwbYcOhYDX9RHkXfKVAE1Vj6yxOgdfRKq2wd9NQvXN7uFHwOOuj0vw==",
+      "tarball": "https://registry.npmjs.org/@sentropic/h2a/-/h2a-0.93.2.tgz"
+    },
+    "@sentropic/track@0.93.2": {
+      "name": "@sentropic/track",
+      "version": "0.93.2",
+      "integrity": "sha512-JxQVKAjHzKIsaFK945sA2Ihf7XAGS3yUGEr0iy6y27c4+CCHDgrneqKtGz30QmNEMXUJ9RS9YR7eCprl7N0g6Q==",
+      "tarball": "https://registry.npmjs.org/@sentropic/track/-/track-0.93.2.tgz"
+    },
+    "@sentropic/h2a@0.93.3": {
+      "name": "@sentropic/h2a",
+      "version": "0.93.3",
+      "integrity": "sha512-CfhIuzNIGl6tgAwZnm+QJDpBz3FPhalfP/ZD7HM5gx/wH1t2w9ukhRyqWKFqk2gmOxEr7sbXTBlRxKu6MTo4hg==",
+      "tarball": "https://registry.npmjs.org/@sentropic/h2a/-/h2a-0.93.3.tgz"
+    },
+    "@sentropic/track@0.93.3": {
+      "name": "@sentropic/track",
+      "version": "0.93.3",
+      "integrity": "sha512-GEftRLn/M7jdEa3qqLCbQnBObYCBSvzGPWSGre1HzvdSGphNqT2Ax2Be5UYraUAADgSDIateDqWoEWFwQWbLpQ==",
+      "tarball": "https://registry.npmjs.org/@sentropic/track/-/track-0.93.3.tgz"
+    },
+    "@sentropic/h2a@0.93.4": {
+      "name": "@sentropic/h2a",
+      "version": "0.93.4",
+      "integrity": "sha512-ZQTkcayNTK6a/xBwjF/ige1fenV2xDpip0UXXyxdnNBNauIGT78/A+6RHcU6cq03f0XTYLmozTIRhG8NkQNgXw==",
+      "tarball": "https://registry.npmjs.org/@sentropic/h2a/-/h2a-0.93.4.tgz"
+    },
+    "@sentropic/track@0.93.4": {
+      "name": "@sentropic/track",
+      "version": "0.93.4",
+      "integrity": "sha512-wyMrthAmKmo4YlKKBr2kNyTN6gmA4cfWtosm1+/88nzTn6pu5iY/VEKdAeQVLKslo/QQBz/gg6tQwo0ImCrpNA==",
+      "tarball": "https://registry.npmjs.org/@sentropic/track/-/track-0.93.4.tgz"
+    },
+    "@sentropic/h2a@0.93.5": {
+      "name": "@sentropic/h2a",
+      "version": "0.93.5",
+      "integrity": "sha512-6kv5UN0mw+dC5DWQph1iQgsSyijPwfGVj03UlYboI359WPBjeHQ33OFB/5pyOc2bT4AxFMRSXvOdIP5OYb0Lng==",
+      "tarball": "https://registry.npmjs.org/@sentropic/h2a/-/h2a-0.93.5.tgz"
+    },
+    "@sentropic/track@0.93.5": {
+      "name": "@sentropic/track",
+      "version": "0.93.5",
+      "integrity": "sha512-yW2/JsdBffwPYy+a7RiQL70SDsQXzzofYwvlMMnwzs1UYeMHHo1s4Z3XVdle+UQ2EGQdwLSMnnzmvWG9EvWJZQ==",
+      "tarball": "https://registry.npmjs.org/@sentropic/track/-/track-0.93.5.tgz"
+    },
+    "@sentropic/h2a@0.94.0": {
+      "name": "@sentropic/h2a",
+      "version": "0.94.0",
+      "integrity": "sha512-+SnxHqhfvZ0DfyW4ZutA+vjGk9r3ZdunciUAZo1sXtxKrQ+1LYFagKig+OGHWIMCrsWaVQDYufAGNDkXVnSEDA==",
+      "tarball": "https://registry.npmjs.org/@sentropic/h2a/-/h2a-0.94.0.tgz"
+    },
+    "@sentropic/track@0.94.0": {
+      "name": "@sentropic/track",
+      "version": "0.94.0",
+      "integrity": "sha512-NJIrOa84ZYrBvalS2uuKyVKo9XFDWFpHqE4tWLea6SiBsbx38JmO+p0Ms/ZnoRAIQHQVwZvgdPBmAQmrVc4Nvg==",
+      "tarball": "https://registry.npmjs.org/@sentropic/track/-/track-0.94.0.tgz"
+    },
+    "@sentropic/h2a@0.94.1": {
+      "name": "@sentropic/h2a",
+      "version": "0.94.1",
+      "integrity": "sha512-xZN7V4OXBfDXp/0mMhPZCNLiMuvRzY7O7xsPTuhfWRiOS1jkgzjtRpozdnB2gDwrWGZIhFteeUD6F36MDXhMiA==",
+      "tarball": "https://registry.npmjs.org/@sentropic/h2a/-/h2a-0.94.1.tgz"
+    },
+    "@sentropic/track@0.94.1": {
+      "name": "@sentropic/track",
+      "version": "0.94.1",
+      "integrity": "sha512-LwJK7e7ruNwdK4/cpmIflewK5FLrNtFV9KmLUS6DewDeTecf616SYUto53fBdOCYMm91E5TvOIrAlkEWm4hl0Q==",
+      "tarball": "https://registry.npmjs.org/@sentropic/track/-/track-0.94.1.tgz"
+    },
+    "@sentropic/h2a@0.94.2": {
+      "name": "@sentropic/h2a",
+      "version": "0.94.2",
+      "integrity": "sha512-5YMl/oh8jVM3TFiBNcYVf6EuGmUUViJx1qH8lo7YoVl9UkST6Rm56dP/Jq5eIpDih0kPOA8dvypzWMveXzfzVw==",
+      "tarball": "https://registry.npmjs.org/@sentropic/h2a/-/h2a-0.94.2.tgz"
+    },
+    "@sentropic/track@0.94.2": {
+      "name": "@sentropic/track",
+      "version": "0.94.2",
+      "integrity": "sha512-ThDxYGUsV8uoisNmvuxhSE+koG7GODZ/aD1JZ40DEgkJAl5Q/elN6Vt0imzPZaX7jCQCxpcBwAoGUpS3N+y6rA==",
+      "tarball": "https://registry.npmjs.org/@sentropic/track/-/track-0.94.2.tgz"
+    },
+    "@sentropic/h2a@0.94.3": {
+      "name": "@sentropic/h2a",
+      "version": "0.94.3",
+      "integrity": "sha512-saya7nvNNnca+a+YxMMGOzTIIMdT6hxG8VW5gvB0JculT+7Rr8ari6qjFS1liOzPR+8fWlgANQbVL3+WJC6qgA==",
+      "tarball": "https://registry.npmjs.org/@sentropic/h2a/-/h2a-0.94.3.tgz"
+    },
+    "@sentropic/track@0.94.3": {
+      "name": "@sentropic/track",
+      "version": "0.94.3",
+      "integrity": "sha512-Bt1VWWXJtew4p49HnhFuMpOvHigLBMqra1VnBUcRohQhgfHmWiZ4mZq0M405W/RkTFzQr4Hn9FN9R4R+axObYA==",
+      "tarball": "https://registry.npmjs.org/@sentropic/track/-/track-0.94.3.tgz"
+    },
+    "@sentropic/h2a@0.95.0": {
+      "name": "@sentropic/h2a",
+      "version": "0.95.0",
+      "integrity": "sha512-w90Rz+3Pf1Fr8y7c5q4OysSPr2xW3+i1rkM9go7RHEbv6UlRDI9NSK+gh0jRiyRA7qyLFDKz+jvEP6C6y5qYkQ==",
+      "tarball": "https://registry.npmjs.org/@sentropic/h2a/-/h2a-0.95.0.tgz"
+    },
+    "@sentropic/track@0.95.0": {
+      "name": "@sentropic/track",
+      "version": "0.95.0",
+      "integrity": "sha512-yO/HQBdU7UjfyuxAgB7k5MUZRuWIOUCVCiW6HVyCxWEvTf2dFh5TAYlxXlGioh5kQ0Zxsv2S7/0wpkbL1qD/pg==",
+      "tarball": "https://registry.npmjs.org/@sentropic/track/-/track-0.95.0.tgz"
+    },
+    "@sentropic/h2a@0.96.0": {
+      "name": "@sentropic/h2a",
+      "version": "0.96.0",
+      "integrity": "sha512-yPwUiCaoWDU5sbaDROVkzK+OS7RXViriiI8+BFY4DIGj1au5BrJ2/XDisLmGfbo2gc8k42O2U4+rsn0y3OP25Q==",
+      "tarball": "https://registry.npmjs.org/@sentropic/h2a/-/h2a-0.96.0.tgz"
+    },
+    "@sentropic/track@0.96.0": {
+      "name": "@sentropic/track",
+      "version": "0.96.0",
+      "integrity": "sha512-PcziK+hRV/g04DzHBBHj6A6YP9Nt4n1rxclz+XNHh7I6EwIzIvDTStjy98fpIM/S7we0hQSphbIbiID1MxjrgA==",
+      "tarball": "https://registry.npmjs.org/@sentropic/track/-/track-0.96.0.tgz"
+    },
+    "@sentropic/h2a@0.96.1": {
+      "name": "@sentropic/h2a",
+      "version": "0.96.1",
+      "integrity": "sha512-RGTg5LdusgKzeP55h3pRsvRC8XZQtPf1mNkygCVCd4le2iWKTQY//x9pOI8L0TaWsugHTw3fT1lEV7EOPtzbJQ==",
+      "tarball": "https://registry.npmjs.org/@sentropic/h2a/-/h2a-0.96.1.tgz"
+    },
+    "@sentropic/track@0.96.1": {
+      "name": "@sentropic/track",
+      "version": "0.96.1",
+      "integrity": "sha512-zhUyS/2uRABqPG6lelT09xQ//INfeOU6dMM5ZNYTDLd/QxBQfgakAIzXpbnqYZr2gvutCyc2hkRmH+fI/XqFiQ==",
+      "tarball": "https://registry.npmjs.org/@sentropic/track/-/track-0.96.1.tgz"
+    },
+    "@sentropic/h2a@0.96.2": {
+      "name": "@sentropic/h2a",
+      "version": "0.96.2",
+      "integrity": "sha512-f/87Osf3QE0cUlGYJ1OMj8wnyrepe2C1+ivbE5OfPwrz1Srnuc02NhTT1XoBSnOYVXSEvcvfPLi2vsFaOphPHw==",
+      "tarball": "https://registry.npmjs.org/@sentropic/h2a/-/h2a-0.96.2.tgz"
+    },
+    "@sentropic/h2a@0.97.0": {
+      "name": "@sentropic/h2a",
+      "version": "0.97.0",
+      "integrity": "sha512-MEQfMmhiwTQSQUxRVsa9X1Y6QHyiV540kZ5lMrJ98t/O3hKEtW/UnPhbZl/Y+4ynd3GUbqy8lE0CERopPMNwVA==",
+      "tarball": "https://registry.npmjs.org/@sentropic/h2a/-/h2a-0.97.0.tgz"
+    },
+    "@sentropic/track@0.97.0": {
+      "name": "@sentropic/track",
+      "version": "0.97.0",
+      "integrity": "sha512-X+7LxltfYz9f0NkC6g2Z6t2M+qZflrh26NK7QXf3Nj+Wt0/9FKYYj2cs/nHiHtBEz0/H+Q4VbatR1yCyvgBlmg==",
+      "tarball": "https://registry.npmjs.org/@sentropic/track/-/track-0.97.0.tgz"
+    },
+    "@sentropic/h2a@0.97.1": {
+      "name": "@sentropic/h2a",
+      "version": "0.97.1",
+      "integrity": "sha512-X3ZAluzeTorP8LRy9LfL9/rG4gJNDIxRiT86t5qG9SpMZkqVavwMv3oA4p/f7ZMeCWDJaJ7wnYT8o3m2ZCcEcw==",
+      "tarball": "https://registry.npmjs.org/@sentropic/h2a/-/h2a-0.97.1.tgz"
+    },
+    "@sentropic/track@0.97.1": {
+      "name": "@sentropic/track",
+      "version": "0.97.1",
+      "integrity": "sha512-FjuXiHZCU2eAFJFmdvivoT8nHrbph2DdR0Am9sTyuC071UnjVPh9D9uDBy6lX9XEs3WaCF3NiiWN1qU7EVtBKg==",
+      "tarball": "https://registry.npmjs.org/@sentropic/track/-/track-0.97.1.tgz"
+    },
+    "@sentropic/h2a@0.97.2": {
+      "name": "@sentropic/h2a",
+      "version": "0.97.2",
+      "integrity": "sha512-yxKRYyIG6e2lJ6IFuy2xcIxX0GknpXNWUgNRpdCi8idS+1VRW+KIjDvC8/+WMZ7eY+FXWBmDaOO35L36BmX8zw==",
+      "tarball": "https://registry.npmjs.org/@sentropic/h2a/-/h2a-0.97.2.tgz"
+    },
+    "@sentropic/track@0.97.2": {
+      "name": "@sentropic/track",
+      "version": "0.97.2",
+      "integrity": "sha512-JtigBqd9Rprp7ILwa+6xxNv1lQYHWzJRUdQBWKarh5qt9oGIWzTx4e5NGLIYeP/61HWIChdWlSl70dAslYuBvQ==",
+      "tarball": "https://registry.npmjs.org/@sentropic/track/-/track-0.97.2.tgz"
+    },
+    "@sentropic/h2a@0.97.3": {
+      "name": "@sentropic/h2a",
+      "version": "0.97.3",
+      "integrity": "sha512-5tYxDUAewxO+t9Ki/QZXTgAcSrvnhXqrYleV1lxzn5GDgGrf77w+QMWjmShLy2D8hK7Q+InDnoWFRWx6EmuEjQ==",
+      "tarball": "https://registry.npmjs.org/@sentropic/h2a/-/h2a-0.97.3.tgz"
+    },
+    "@sentropic/track@0.97.3": {
+      "name": "@sentropic/track",
+      "version": "0.97.3",
+      "integrity": "sha512-1KWjbbZrKiVSuRwIxNln359G1M2GlBgJ6lMJfTkohyl/rCpVL3WIRAEgtRUZG39PLRAJmL+rm/DX1p9CVE2q0Q==",
+      "tarball": "https://registry.npmjs.org/@sentropic/track/-/track-0.97.3.tgz"
+    },
+    "@sentropic/h2a@0.97.4": {
+      "name": "@sentropic/h2a",
+      "version": "0.97.4",
+      "integrity": "sha512-0afiE+uhRTLJET7vDSAxvwM0NYZOezRBLaHNaj3CiPqHfRyx44HZ/7d+7vmt8PIeWFP74ic57VwDLSa7s8gjcA==",
+      "tarball": "https://registry.npmjs.org/@sentropic/h2a/-/h2a-0.97.4.tgz"
+    },
+    "@sentropic/track@0.97.4": {
+      "name": "@sentropic/track",
+      "version": "0.97.4",
+      "integrity": "sha512-MpXQeLYTzLkK0aRGGDabxScyG5VXmuU7I9QEEBVpXoTKik+g9//qq7HZcMItxZqWZPj1c/ZNqR9AQIQGdSq6MQ==",
+      "tarball": "https://registry.npmjs.org/@sentropic/track/-/track-0.97.4.tgz"
+    },
+    "@sentropic/h2a@0.97.5": {
+      "name": "@sentropic/h2a",
+      "version": "0.97.5",
+      "integrity": "sha512-+cqBVq3yFwYbpcN7imE97eRJ/RjvPAD1NGtKvmXK711XLx+lkxj9Q1GO5E50TqRWCWykbrKdxeWv8SKq5R1YSw==",
+      "tarball": "https://registry.npmjs.org/@sentropic/h2a/-/h2a-0.97.5.tgz"
+    },
+    "@sentropic/track@0.97.5": {
+      "name": "@sentropic/track",
+      "version": "0.97.5",
+      "integrity": "sha512-/zQtVSwc/PyPzkPeK6DackQifIyM0FGIu29P406k/Vg0bQJVZ9z9kDWdWvzBym2fIIKdWUbJdoIzjMOXSZKZUg==",
+      "tarball": "https://registry.npmjs.org/@sentropic/track/-/track-0.97.5.tgz"
+    },
+    "@sentropic/h2a@0.97.6": {
+      "name": "@sentropic/h2a",
+      "version": "0.97.6",
+      "integrity": "sha512-zdEpMZp5s+iM33in57uCty11Qi3Vo3veSQYOWFqe/vHR4QH+l9lCcg0tiscq+kJrJj1ejRWgq99LWcv43Ujycw==",
+      "tarball": "https://registry.npmjs.org/@sentropic/h2a/-/h2a-0.97.6.tgz"
+    },
+    "@sentropic/track@0.97.6": {
+      "name": "@sentropic/track",
+      "version": "0.97.6",
+      "integrity": "sha512-6GQq7WHTpG/R+/y+YIYuLyB1rIjHHk7UlgUsmyT0oW78XhxraIS5OhZ7ZN1/QPC+LhfgkX7Q2W50j2RZInvbpg==",
+      "tarball": "https://registry.npmjs.org/@sentropic/track/-/track-0.97.6.tgz"
+    },
+    "@sentropic/h2a@0.97.7": {
+      "name": "@sentropic/h2a",
+      "version": "0.97.7",
+      "integrity": "sha512-5Tmsqs5zYKJVMIo4lCe+w2emruBcxW78ZRzG+X8uLKfVb0+lMtbZTnYDAJaQ0Y4rrEwe9s/u0OGoAUnPsl3rOQ==",
+      "tarball": "https://registry.npmjs.org/@sentropic/h2a/-/h2a-0.97.7.tgz"
+    },
+    "@sentropic/track@0.97.7": {
+      "name": "@sentropic/track",
+      "version": "0.97.7",
+      "integrity": "sha512-1QYCuoU1SkHfd/QScPcmryRIlY/2C54+JFngcKA/LpH/JocZUrSrwVFeIVT/AmlUX/A8Nr0cic5lZT0DXt63GQ==",
+      "tarball": "https://registry.npmjs.org/@sentropic/track/-/track-0.97.7.tgz"
+    },
+    "@sentropic/h2a@0.97.8": {
+      "name": "@sentropic/h2a",
+      "version": "0.97.8",
+      "integrity": "sha512-csv0bB26CJNgdC0bTnCrkoUxaFh8v1kodfBo2/UshFPDOU0p+yG7A2W2+gaaOtVV0A2fLvsg6gVkCXVtPNHFGQ==",
+      "tarball": "https://registry.npmjs.org/@sentropic/h2a/-/h2a-0.97.8.tgz"
+    },
+    "@sentropic/track@0.97.8": {
+      "name": "@sentropic/track",
+      "version": "0.97.8",
+      "integrity": "sha512-LXlEZzw9xQ+7f4lnPUrB5qXJCB3Agc5l4rvumyCvv1hIotoIgNClyyIYQSw/1Yf5XFe9n+5V9uB+M/QH6Jqiew==",
+      "tarball": "https://registry.npmjs.org/@sentropic/track/-/track-0.97.8.tgz"
+    },
+    "@sentropic/h2a@0.97.9": {
+      "name": "@sentropic/h2a",
+      "version": "0.97.9",
+      "integrity": "sha512-hM8X8cLIoetZFmSFJXcINRXS1rm1NSdPSmbebjtnae4x3fKSJSHmyyQNIOWxZ4J7GW4qJ70TL8wIx/r96dgaKg==",
+      "tarball": "https://registry.npmjs.org/@sentropic/h2a/-/h2a-0.97.9.tgz"
+    },
+    "@sentropic/track@0.97.9": {
+      "name": "@sentropic/track",
+      "version": "0.97.9",
+      "integrity": "sha512-9hg7NZ21pw8tXOnFHh3g89vnA9rbMHxq8uj6vMKOJLoRuY2GdSpoEgO8oxN9YHblSLehYx4NcFo/x6DGGoFQLg==",
+      "tarball": "https://registry.npmjs.org/@sentropic/track/-/track-0.97.9.tgz"
+    },
+    "@sentropic/h2a@0.97.10": {
+      "name": "@sentropic/h2a",
+      "version": "0.97.10",
+      "integrity": "sha512-otAZ0EPM5I58MwKDp/f4SotoYspYduvm+5NOhCElCOgNaSDhoIaAq24JSYh/ANPwzpq0i1yvnSrDUZcF8RDhkg==",
+      "tarball": "https://registry.npmjs.org/@sentropic/h2a/-/h2a-0.97.10.tgz"
+    },
+    "@sentropic/track@0.97.10": {
+      "name": "@sentropic/track",
+      "version": "0.97.10",
+      "integrity": "sha512-VJcMo2yBNvCXDcitdGTDWNYXK0x6YdCoNMXbqz1YsI/YmIgS/S6vH3oIj3eMqPDy9UENwrdCzWTHEiuWDHtOaQ==",
+      "tarball": "https://registry.npmjs.org/@sentropic/track/-/track-0.97.10.tgz"
+    },
+    "@sentropic/h2a@0.97.11": {
+      "name": "@sentropic/h2a",
+      "version": "0.97.11",
+      "integrity": "sha512-gtCM7qPTpNS0DSrXsyGmQSWiFAcBo/Oz/yUcro+25WpOugBhfgLXP23wieceBPpPKn4yf0lJw9LybRbkzNs7Ow==",
+      "tarball": "https://registry.npmjs.org/@sentropic/h2a/-/h2a-0.97.11.tgz"
+    },
+    "@sentropic/track@0.97.11": {
+      "name": "@sentropic/track",
+      "version": "0.97.11",
+      "integrity": "sha512-pbZuwxwAy+bLf8UM9ipdyVxe327H5IqD8Hf6u0ganJFL3JBBotvBxc9Wbwyx2YV0c5xEY2vgZgjEdJWD4+2eBw==",
+      "tarball": "https://registry.npmjs.org/@sentropic/track/-/track-0.97.11.tgz"
+    },
+    "@sentropic/h2a@0.97.12": {
+      "name": "@sentropic/h2a",
+      "version": "0.97.12",
+      "integrity": "sha512-4nGFLITNKoeccM/nam07J1eFsBvf+zdeOrkfzRmQV7r5RnbtsJfRiLwT0FYScbdkeCjhHdGAK1ZPYe4m5I2fGA==",
+      "tarball": "https://registry.npmjs.org/@sentropic/h2a/-/h2a-0.97.12.tgz"
+    },
+    "@sentropic/track@0.97.12": {
+      "name": "@sentropic/track",
+      "version": "0.97.12",
+      "integrity": "sha512-dl0va7yxJ+ixPZPSqalfocNR9T7bnjFh86cjzq/k63HqgryMo0hV8SmFF6f1+tMDQLJQqrofDHNLW6XoEBPAAg==",
+      "tarball": "https://registry.npmjs.org/@sentropic/track/-/track-0.97.12.tgz"
+    },
+    "@sentropic/h2a@0.98.0": {
+      "name": "@sentropic/h2a",
+      "version": "0.98.0",
+      "integrity": "sha512-RpQS860hrgOfvIiK4EBUNXQJmuiyi0LWTMdd96raJDgTFmOT4v4rpxFz9yS/7IgyyKMPeGyXRDaYB3aO80csmQ==",
+      "tarball": "https://registry.npmjs.org/@sentropic/h2a/-/h2a-0.98.0.tgz"
+    },
+    "@sentropic/track@0.98.0": {
+      "name": "@sentropic/track",
+      "version": "0.98.0",
+      "integrity": "sha512-6uXVpleEgsPJC4iG1/YhxtEFkJZxuwYpX+092oN1xAgpkJlcckQFhLOp3YnEqkximCh6lAlwqLhwiFF8P66XdA==",
+      "tarball": "https://registry.npmjs.org/@sentropic/track/-/track-0.98.0.tgz"
+    },
+    "@sentropic/h2a@0.98.1": {
+      "name": "@sentropic/h2a",
+      "version": "0.98.1",
+      "integrity": "sha512-BmRqRijv+m4lb/sdMogOLgFPz9FmojDjm98HC3gWiDuhucNBbcrN8GS7jlCtNYd+30BZki43E5GkC0qFSMqfzQ==",
+      "tarball": "https://registry.npmjs.org/@sentropic/h2a/-/h2a-0.98.1.tgz"
+    },
+    "@sentropic/track@0.98.1": {
+      "name": "@sentropic/track",
+      "version": "0.98.1",
+      "integrity": "sha512-MSa14980dW3rLfEGAaCAn91z5hPVLFGU48FTvcrZDh9Sx88LL76yfZruKCRGjhXdk03xBj7NUTpjF3ZX6QEiLg==",
+      "tarball": "https://registry.npmjs.org/@sentropic/track/-/track-0.98.1.tgz"
+    },
+    "@sentropic/h2a@0.98.2": {
+      "name": "@sentropic/h2a",
+      "version": "0.98.2",
+      "integrity": "sha512-lJVjvLECeRwQqSfTe6vzyVjJ6b6as9XaUTPupzf60u1U18oJg2yUmV57RRcmAo1un41wMkhNE9f1AkEofmlNmw==",
+      "tarball": "https://registry.npmjs.org/@sentropic/h2a/-/h2a-0.98.2.tgz"
+    },
+    "@sentropic/track@0.98.2": {
+      "name": "@sentropic/track",
+      "version": "0.98.2",
+      "integrity": "sha512-alyXpxuJekCvC42lxWMlpUnD9UwpgDZ0Od4TfKV3ZYPv6jMCgToRKpYnFo+4UtiVyx17T07a/1QU5CxjtjvDuQ==",
+      "tarball": "https://registry.npmjs.org/@sentropic/track/-/track-0.98.2.tgz"
+    },
+    "@sentropic/h2a@0.98.3": {
+      "name": "@sentropic/h2a",
+      "version": "0.98.3",
+      "integrity": "sha512-oib+CWnAuu4wSgGoz2UKBVJAk0I+MonQvzpD/KNuX+v1EHRjlXIgalHYjylimmhO5XaOlReXFMQqhTe80qYMJw==",
+      "tarball": "https://registry.npmjs.org/@sentropic/h2a/-/h2a-0.98.3.tgz"
+    },
+    "@sentropic/track@0.98.3": {
+      "name": "@sentropic/track",
+      "version": "0.98.3",
+      "integrity": "sha512-oi9I/BtXugzo2K3vPjk74t0a7R95aWL7/oPRr2waetdeOq//ltmJPpWpM/4UBFGTIjs3tBjTtwCHaVF0XeBcWQ==",
+      "tarball": "https://registry.npmjs.org/@sentropic/track/-/track-0.98.3.tgz"
+    },
+    "@sentropic/h2a@0.98.4": {
+      "name": "@sentropic/h2a",
+      "version": "0.98.4",
+      "integrity": "sha512-qjEdsNrfCW9sfHJDYIl7QygI/eaHwND+mpIatQURs16g6UTrMh4vCzFFEwekmNZzfZFoltyK27Pw6Yv3O8nXpA==",
+      "tarball": "https://registry.npmjs.org/@sentropic/h2a/-/h2a-0.98.4.tgz"
+    },
+    "@sentropic/track@0.98.4": {
+      "name": "@sentropic/track",
+      "version": "0.98.4",
+      "integrity": "sha512-kh9RhMR75ryvCN8pnZuRA3sEID/ZIGJyKJzXR9embBCi2sYLmlgVerv+oDvSinX0IwTtsAWZzy18822EAeAkJQ==",
+      "tarball": "https://registry.npmjs.org/@sentropic/track/-/track-0.98.4.tgz"
+    },
+    "@sentropic/h2a@0.98.5": {
+      "name": "@sentropic/h2a",
+      "version": "0.98.5",
+      "integrity": "sha512-nwztKV3ENIgeJFam1bk8OuSUiN+gEKWQU0nn+rA4QC6ENqP5q/yiadP7xhonaMKaEnB6D8fzmNfvU7Vk+0DXJQ==",
+      "tarball": "https://registry.npmjs.org/@sentropic/h2a/-/h2a-0.98.5.tgz"
+    },
+    "@sentropic/track@0.98.5": {
+      "name": "@sentropic/track",
+      "version": "0.98.5",
+      "integrity": "sha512-OHlfC8EadNES6ibkz/T9f0rWbghemv3QAUdQmhH1JpCM49S+/fg9Yn+soo5UPUxhMRSVHa2uBpTClEP8jAKmig==",
+      "tarball": "https://registry.npmjs.org/@sentropic/track/-/track-0.98.5.tgz"
+    },
+    "@sentropic/h2a@0.98.6": {
+      "name": "@sentropic/h2a",
+      "version": "0.98.6",
+      "integrity": "sha512-3e56L3hp1tMH0Cuu/WWFcaLYmWCJ8ffuutuEbNxWL2s7q0CJ4NNncqrXllJ+TmqFvkWur//5TKQND1YXdR2pRg==",
+      "tarball": "https://registry.npmjs.org/@sentropic/h2a/-/h2a-0.98.6.tgz"
+    },
+    "@sentropic/track@0.98.6": {
+      "name": "@sentropic/track",
+      "version": "0.98.6",
+      "integrity": "sha512-OiSqSnxBo0qdz1ei4dRCZpQBAO52Qnc1otW/6BkuK+HnSr6wnBGkKzvfhK3QzMW7PcFkt5PMcg/Ppm8XUZtjeg==",
+      "tarball": "https://registry.npmjs.org/@sentropic/track/-/track-0.98.6.tgz"
+    }
+  }
+}

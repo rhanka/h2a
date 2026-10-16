@@ -1,4 +1,5 @@
 import { handleDriveConsent, CONSENT_TOOLS } from "../drive/consent-tools.js";
+import { resolve } from 'node:path';
 import { createLocalStore, type LocalStore } from "../local-files/store.js";
 
 import {
@@ -80,6 +81,8 @@ import { MCP_IDENTITY_RETRY_MIN_MS } from "./identity-state.js";
 import type { McpIdentityController, McpIdentityStatus } from "./identity-state.js";
 
 export interface CreateMcpServerOptions {
+  /** In-memory notices captured/refreshed outside request handling. */
+  operatorNotices?: () => readonly string[];
   /** Filesystem root for the backing local-files store. */
   root: string;
   /** Workspace boundary captured when the local MCP server starts. */
@@ -351,10 +354,12 @@ export function createMcpServer(options: CreateMcpServerOptions): McpServer {
     // controller keeps pending/permanent failures and the retry gates inert.
     if (name === "h2a_identity_status") {
       const status = identityStatus();
+      const notices = options.operatorNotices?.() ?? [];
       options.identity?.retry();
       // Preserve the just-observed failure for this response even when a
       // zero-delay retry starts; subsequent calls see the new attempt.
-      return { content: [{ type: "text", text: JSON.stringify(status) }] };
+      return { content: [{ type: "text", text: JSON.stringify({ ...status, root: store.paths.root,
+        workspaceRoot: resolve(options.workspaceRoot ?? process.cwd()), ...(notices.length ? { operator_notices: notices } : {}) }) }] };
     }
     if (IDENTITY_INDEPENDENT_TOOLS.has(name) || TRACK_READ_TOOL_NAMES.has(name) ||
         (name === "h2a_inbox" && args?.action === "read")) options.identity?.retry();
@@ -421,7 +426,7 @@ export function createMcpServer(options: CreateMcpServerOptions): McpServer {
       case "h2a_escalate":
         return handleEscalate(store, args as never);
       case "h2a_session_open":
-        return handleSessionOpen(sessions, args as never);
+        return { ...handleSessionOpen(sessions, args as never), ...((options.operatorNotices?.().length ?? 0) ? { operator_notices: options.operatorNotices!() } : {}) };
       case "h2a_session_close":
         return handleSessionClose(sessions, args as never);
       case "h2a_discover_sessions":

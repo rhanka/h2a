@@ -1,0 +1,44 @@
+name: native host equipment
+on:
+  pull_request:
+    branches: [main]
+jobs:
+  scoped-hosts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['22', '24']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci --ignore-scripts --no-audit
+      - name: Named host regressions in private source/HOME/XDG copies
+        run: >-
+          node packages/h2a/test/helpers/host-isolated-run.mjs
+          packages/h2a/test/native-host-equipment.test.js
+          packages/h2a/test/native-host-safety.test.js
+          packages/h2a/test/native-host-recovery.test.js
+          packages/h2a/test/native-host-catalog.test.js
+          packages/h2a/test/native-host-convergence.test.js
+          packages/h2a/test/native-host-shared-skills.test.js
+          packages/h2a/test/native-host-upgrade.test.js
+          packages/h2a/test/native-host-qualification.test.js
+          packages/h2a/test/native-host-oracles.test.js
+          packages/h2a/test/native-host-pilot.test.js
+          packages/h2a/test/native-host-pilot-report.test.js
+          packages/h2a/test/native-host-review-regressions.test.js
+          packages/h2a/test/native-host-proof.test.js
+          packages/h2a/test/native-host-package.test.js
+          packages/h2a/test/vibe-native-hooks.test.js
+          packages/h2a/test/host-plugin.test.js
+          packages/h2a/test/hosts-integration.test.js
+          packages/h2a/test/install-skills-hosts.test.js
+          packages/h2a/test/host-connect.test.js
+          packages/h2a/test/dispatch-characterization-goldens.test.js
+          packages/h2a/test/gateway-host-docs.test.js
+          packages/h2a/test/focus-serve.test.js
