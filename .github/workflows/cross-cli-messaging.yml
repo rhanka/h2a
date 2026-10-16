@@ -62,7 +62,7 @@ jobs:
       - run: npm ci --ignore-scripts
       - run: node scripts/xcli-node-headers.mjs
       # Config discovery needs real CLI parsers, but no login/model/paid seat.
-      - run: npm install --global --ignore-scripts @openai/codex@0.162.1 @anthropic-ai/claude-code@2.1.301
+      - run: node scripts/xcli-install-oracles.mjs
       - run: node --test scripts/xcli-native-config.test.mjs
       - name: Run all source suites referencing the changed runtime modules
         run: node scripts/xcli-runtime-tests.mjs
