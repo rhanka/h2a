@@ -45,6 +45,16 @@ export async function bridgeCentralMcpStdio(options) {
   let viewOrigin = { generation: null, buildId: buildInfo.buildId, profileId: `linux-${process.arch}-node${process.versions.node.split('.')[0]}` };
   let transportState = 'CONNECTING', buffer = '', discarding = false, eventOwner;
   let leasing = false, nextRecovery = 0, failures = 0, recoveryStarted, healthySince;
+  const recover = () => {
+    // Loss is the first recovery event, even before connect() has failed.
+    // Both supervision and downstream demand must leave the first backoff
+    // interval available to an externally restarted central before autostart.
+    if (transportState === 'READY') {
+      healthySince = undefined; recoveryStarted ??= Date.now();
+      nextRecovery = Math.max(nextRecovery, Date.now() + 1000 * (0.5 + Math.random() / 2));
+    }
+    transportState = 'RECOVERING';
+  };
   const decoder = new StringDecoder('utf8');
   const track = promise => { work.add(promise); void promise.catch(() => {}).finally(() => work.delete(promise)); return promise; };
   const write = value => {
@@ -159,8 +169,8 @@ export async function bridgeCentralMcpStdio(options) {
           for (const message of messages(event + '\n\n', 'text/event-stream')) await receive(message, owner);
         }
       }
-    })().then(() => { if (!signal.aborted && current === owner && owner.registration) transportState = 'RECOVERING'; })
-      .catch(() => { if (!signal.aborted && current === owner) transportState = 'RECOVERING'; })
+    })().then(() => { if (!signal.aborted && current === owner && owner.registration) recover(); })
+      .catch(() => { if (!signal.aborted && current === owner) recover(); })
       .finally(() => { if (eventOwner === owner) eventOwner = undefined; }));
   };
   const connect = () => {
@@ -272,7 +282,8 @@ export async function bridgeCentralMcpStdio(options) {
           attachmentProtocol: 1, handoverProtocol: 1, downstreamProtocolVersion: initialized.protocolVersion,
           servedDescriptorDigest: view.served.descriptorDigest, servedContractDigest: view.served.contractDigest, supportedCheckpointVersions: [1],
           capabilities: { listChanged: true, attachTransfer: true, admissionProof: true, transportResume: true },
-          clientQualification: { profileId: `linux-${process.arch}-node${process.versions.node.split('.')[0]}` } };
+          clientQualification: { profileId: `linux-${process.arch}-node${process.versions.node.split('.')[0]}` },
+          sourceView: { ...viewOrigin, descriptorDigest: view.served.descriptorDigest, contractDigest: view.served.contractDigest } };
         const registered = await request(current, `/_h2a-central/shim/${attachmentId}/register`, { method: 'POST', headers: headers(current), body: JSON.stringify(advertisement) });
         if (registered.ok) current.registration = await registered.json();
       }
@@ -327,7 +338,7 @@ export async function bridgeCentralMcpStdio(options) {
       if (entry.owner && nonAdmissionMatches(e.refusal, entry, message)) {
         if (mappings.settle(entry, 'non-admission')) error(entry.downstreamId, e.refusal.reason, e.refusal.reason, true); return;
       }
-      if (entry.dispatchState === 'possible') { transportState = 'RECOVERING'; if (e.applicationDispatched === false) entry.dispatchState = 'not-sent'; }
+      if (entry.dispatchState === 'possible') { recover(); if (e.applicationDispatched === false) entry.dispatchState = 'not-sent'; }
       if (mappings.settle(entry, 'error')) error(entry.downstreamId, entry.dispatchState === 'possible' ? 'outcome_unknown' : e.message === 'deadline_exceeded' ? 'deadline_exceeded' : 'central_unavailable', e.message);
     } finally { retireOwners(); }
   };
@@ -399,7 +410,7 @@ export async function bridgeCentralMcpStdio(options) {
       if (healthySince && Date.now() - healthySince >= 10000) { failures = 0; recoveryStarted = undefined; }
       const observed = readCentralClientMarker(markerPath);
       await pollOffer(current);
-      if (observed.generation !== current.marker.generation) { transportState = 'RECOVERING'; return; }
+      if (observed.generation !== current.marker.generation) { recover(); return; }
       if (Date.now() - (current.lastLease ?? 0) >= 5000) {
         const response = await request(current, `/_h2a-central/lease/${current.sessionId}`, { headers: headers(current) });
         if (!response.ok) throw new Error('lease_unavailable');
@@ -407,7 +418,7 @@ export async function bridgeCentralMcpStdio(options) {
         if (options.attachment && status.state === 'identity_ready' && status.instance) options.attachment.expectedInstance = status.instance;
         current.lastLease = Date.now(); notifications(current);
       }
-    })().catch(() => { transportState = 'RECOVERING'; }).finally(() => { leasing = false; }));
+    })().catch(recover).finally(() => { leasing = false; }));
   }, 1000);
   supervision.unref(); await ended;
   clearInterval(supervision); options.signal?.removeEventListener('abort', stop);
