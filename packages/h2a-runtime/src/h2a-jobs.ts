@@ -39,9 +39,9 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 
-import { assertSafeName, type DelegateType } from "./delegate.js";
+import { assertSafeName } from "./delegate.js";
 import { defaultLocalH2aRoot, instanceInboxDir } from "./h2a-bridge.js";
-import type { JobState, RegistryEntry } from "./registry.js";
+import type { JobState, RegistryEntry, RegistryTool } from "./registry.js";
 
 export const H2A_PROTOCOL = "sentropic.h2a";
 export const H2A_VERSION = "0.1";
@@ -70,7 +70,7 @@ export type H2aEnvelope<TBody> = {
 export type JobDoneBody = {
   jobId: string;
   /** The agent type (claude/codex/agy) so the parent need not re-look-up. */
-  type: DelegateType;
+  type: RegistryTool;
   state: JobState;
   exitCode?: number;
   summary?: string;

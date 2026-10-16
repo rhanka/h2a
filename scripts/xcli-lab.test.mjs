@@ -3,6 +3,14 @@ import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import test from 'node:test';
 import { CLIS, classify, matrix, environment, inside, pythonEntrypoint } from './xcli-lab.mjs';
+import { startupKey } from './qualify-cross-cli.mjs';
+
+test('startup can keep the normal default permissions without auto-approving a tool', () => {
+  assert.equal(startupKey('Default permissions\nPress ↵ to continue'), 'permissions-keep-default');
+  assert.equal(startupKey('Choose your permissions\nDefault (current)\nPress ↵ to continue'), 'permissions-keep-default');
+  assert.equal(startupKey('Do you trust this workspace?\nTrust and continue'), 'trust-empty-workspace');
+  assert.equal(startupKey('Allow this shell command? Press Enter to confirm'), undefined);
+});
 
 test('durable delivery without live receive and reply never qualifies a real CLI', () => {
   const row = { senderMcp: true, receiverMcp: true, sent: true, delivered: true,

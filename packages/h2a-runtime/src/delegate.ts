@@ -32,7 +32,8 @@ import { occupiesSlot } from "./registry.js";
 import { humanAge } from "./migrate-candidates.js";
 import { AGY_DEFAULT_MODEL } from "./profiles.js";
 
-export type DelegateType = RegistryTool; // claude | codex | agy | muse | vibe
+// Registry support for messaging does not imply measured delegation support.
+export type DelegateType = Exclude<RegistryTool, "gemini">;
 
 const DELEGATE_BIN: Readonly<Record<DelegateType, string>> = {
   claude: "claude",
@@ -845,7 +846,7 @@ export function resolveJobCwd(
 
 export type JobRow = {
   id: string;
-  type: DelegateType;
+  type: RegistryTool;
   state: JobState;
   age: string;
   cwd: string;
