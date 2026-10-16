@@ -9,6 +9,19 @@ const nominal = 'U05 should select once with canonical journal, history and pins
 const exclusion = 'U05 should exclude the actual legacy prefix lock and coalesce only the same request';
 const invalid = 'U06 should refuse foreign layout, unknown controllers and changed payload before selection';
 const cases = [
+  ['launcher', 'runtime-profile', "if (process.platform !== 'linux' || ![22, 24].includes(Number(process.versions.node.split('.')[0])) || !process.report.getReport().header.glibcVersionRuntime) throw new Error('authority_profile_unqualified');", '', 'U10 should refuse a runtime outside the qualified glibc profile before importing any image'],
+  ['launcher', 'same-process-import', 'await import(pathToFileURL(current.entrypoint).href);', "const { spawnSync } = await import('node:child_process'); const result = spawnSync(process.execPath, [current.entrypoint], { encoding: 'utf8' }); process.stdout.write(result.stdout);", 'U04 should import the verified absolute image in the launcher PID without npm imports'],
+  ['launcher', 'neutralize-node-path', 'delete process.env.NODE_PATH;', '', 'U12 should remove NODE_PATH and refuse external loading flags from env or node argv'],
+  ['launcher', 'environment-loading-flags', "const options = [process.env.NODE_OPTIONS ?? '', ...process.execArgv].join(' ').trim();", "const options = process.execArgv.join(' ').trim();", 'U12 should remove NODE_PATH and refuse external loading flags from env or node argv'],
+  ['launcher', 'argv-loading-flags', "const options = [process.env.NODE_OPTIONS ?? '', ...process.execArgv].join(' ').trim();", "const options = (process.env.NODE_OPTIONS ?? '').trim();", 'U12 should remove NODE_PATH and refuse external loading flags from env or node argv'],
+  ['launcher', 'history-payload', 'verifyImage(root, manifest, selection.manifestDigest);', '', 'U06 should reject a corrupt history payload as a diagnostic recovery candidate'],
+  ['launcher', 'selected-image-verification', 'current = resolveSelectedEntry(installation);', "const selection = readState(join(installation.managedRoot, 'state/selected-build.json'), 'selection').value; current = { selection, entrypoint: join(installation.managedRoot, 'images', selection.manifestDigest.slice(7), selection.entrypoint) };", 'U06 should reject altered payload and foreign selection before importing code'],
+  ['launcher', 'path-shadowing', "if (observation.pathShadowing) throw new Error('path_shadowing');", '', 'U09 should diagnose PATH shadowing and a changed command link without rewriting either'],
+  ['launcher', 'external-command-link', "if (observation.externalInstallDetected) throw new Error('external_install_detected');", '', 'U09 should diagnose PATH shadowing and a changed command link without rewriting either'],
+  ['launcher', 'diagnostic-status', 'if (status) {', 'if (false) {', 'U06 should keep status read-only and use verified history only for diagnostics when selection is corrupt'],
+  ['launcher', 'selection-commit-guard', "if (transactions.some(tx => tx.phase === 'SELECTING')) throw new Error('selection_recovery_required');", '', 'U06 should keep an in-progress selection available only for diagnosis until reconciled'],
+  ['launcher', 'no-fallback-execution', 'if (selectionError) throw selectionError;', "if (selectionError) { const selection = verifiedHistory(installation); current = { entrypoint: join(installation.managedRoot, 'images', selection.manifestDigest.slice(7), selection.entrypoint) }; }", 'U06 should never import an older fallback during an engaged selection transaction'],
+  ['launcher', 'journal-format', "const tx = readState(join(directory, name), 'upgradeTransaction')?.value;", "const tx = JSON.parse(fs.readFileSync(join(directory, name), 'utf8'));", 'U06 should refuse to claim a reliable status for an unknown journal without repairing it'],
   ['delegation', 'recovery-revision', "if (tx.delegationState === 'DELEGATING' && ticket.expectedRevision !== tx.revision) throw new Error('delegation_revision_mismatch');", '', 'T5 should refuse acquisition against a different durable revocation revision'],
   ['delegation', 'live-delegate-fencing', "if (ownerLiveness({ processIdentity: ticket.delegatedControllerIdentity }, identity) !== 'dead') throw new Error('delegation_owner_not_dead');", '', 'T5 should replace a proven dead unacquired delegate with a new epoch and reject its old ticket'],
   ['delegation', 'unknown-delegate-fencing', "if (ownerLiveness({ processIdentity: ticket.delegatedControllerIdentity }, identity) !== 'dead') throw new Error('delegation_owner_not_dead');", '', 'T5 should refuse a delegate death inferred from an incomparable process frame'],
@@ -40,11 +53,12 @@ const cases = [
   ['selection', 'pin-persistence', "if (!prior) publishState(path, pin, 'imagePin');", '', nominal],
   ['selection', 'selection-directory-sync', 'syncDirectory(this.state);', '', 'U05 should reconcile every selection persistence cut forward without a second epoch'],
 ];
-const files = ['packages/h2a/src/runtime/upgrade/h4-store.js', 'packages/h2a/dist/runtime/upgrade/h4-store.js'];
+const files = group === 'launcher' ? ['packages/h2a/src/runtime/upgrade/managed-launcher.js'] :
+  ['packages/h2a/src/runtime/upgrade/h4-store.js', 'packages/h2a/dist/runtime/upgrade/h4-store.js'];
 const originals = files.map(path => ({ path, bytes: fs.readFileSync(path) }));
 const selected = cases.filter(c => c[0] === group && (!process.env.MH_L6_MUTATION || c[1] === process.env.MH_L6_MUTATION));
 if (!selected.length) throw new Error('unknown_mutation_group');
-const file = `packages/h2a/test/mh-l6-${group === 'delegation' ? 'delegation' : 'selection'}.test.js`;
+const file = `packages/h2a/test/mh-l6-${['delegation', 'launcher'].includes(group) ? group : 'selection'}.test.js`;
 const results = [];
 for (const [, name, from, to, scenario] of selected) {
   const run = color => {
