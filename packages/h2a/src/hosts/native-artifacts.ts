@@ -8,6 +8,7 @@ export function convergeArtifacts(options: {
   state: string; root: string; host: string; version: string; artifacts: readonly NativeArtifact[];
   repair: boolean; dryRun?: boolean; configure?: (manifest: NativeManifest) => void;
   manifestName?: string;
+  finalize?: () => void;
 }): { manifest: NativeManifest; changes: NativeChanges } {
   const { state, root, host, version } = options;
   assertNativePath(state);
@@ -58,6 +59,7 @@ export function convergeArtifacts(options: {
         atomicNativeWrite(artifact.path, artifact.bytes, { state, expected: previous });
         changes.changed.push(artifact.path);
       }
+      options.finalize?.();
       atomicNativeWrite(manifestPath, jsonBytes(manifest), { state, expected: original });
       if (pending || writes.length) unlinkSync(pendingPath);
     }
