@@ -8,10 +8,16 @@ const group = process.argv[2] ?? 'transport', major = process.versions.node.spli
 const v1 = 'packages/h2a/test/mh-l5-v1.test.js', cold = 'packages/h2a/test/mh-l5-cold.test.js';
 const m21 = 'packages/h2a/test/mh-l3-transfer.test.js', compensation = 'packages/h2a/test/mh-l5-compensation.test.js';
 const oracles = 'packages/h2a/test/mh-l5-concurrency-oracles.test.js';
+const recovery = 'packages/h2a/test/mh-l5-shim-recovery.test.js';
 const legacy = 'M19 T8 T9 0.98.5 live v1 refuses .7 takeover, routes fresh sessions to stdio and keeps an already chosen shim open';
 const stem = 'packages/h2a/', module = name => stem + 'src/runtime/handover/' + name + '.js';
 const compiled = name => stem + 'dist/runtime/' + name + '.js';
 const cases = [
+  ['argon', 'backend-batch-lock', 'packages/h2a/test/helpers/mh-l5-writer.mjs', 'const row = (() => {', "const row = (await import('../../dist/runtime/handover/mutation.js')).mutationLock.bind(null, writerDirectory(root), () => {", oracles],
+  ['argon', 'legacy-loss-classification', module('shim-bridge'), "if (marker.schemaVersion !== 2 || marker.protocol !== 2) unavailableReason = 'legacy_requires_cold_upgrade';", '', recovery, 'T9 should classify v1 immediately when transport loss starts recovery before supervision'],
+  ['argon', 'legacy-supervision-classification', module('shim-bridge'), 'if (observed.schemaVersion !== 2 || observed.protocol !== 2) { recover(observed); return; }', '', recovery, 'T9 should classify a cold v1 replacement during the first supervision backoff (same generation: true)'],
+  ['argon', 'legacy-transient-overwrite', module('shim-bridge'), "if (e.message === 'legacy_requires_cold_upgrade') unavailableReason = e.message;", "unavailableReason = e.message === 'legacy_requires_cold_upgrade' ? e.message : 'central_unavailable';", recovery],
+  ['argon', 'legacy-success-reset', module('shim-bridge'), "healthySince ??= Date.now(); unavailableReason = 'central_unavailable'; return owner;", 'healthySince ??= Date.now(); return owner;', recovery],
   ['transport', 'legacy-classification', module('shim-bridge'), "if (marker.schemaVersion !== 2 || marker.protocol !== 2) throw new Error('legacy_requires_cold_upgrade');", '', v1, legacy],
   ['transport', 'legacy-backoff', module('shim-bridge'), 'throw new Error(unavailableReason);', "throw new Error('central_unavailable');", v1, legacy],
   ['transport', 'legacy-code', module('shim-bridge'), "['deadline_exceeded', 'legacy_requires_cold_upgrade'].includes(e.message)", "['deadline_exceeded'].includes(e.message)", v1, legacy],
