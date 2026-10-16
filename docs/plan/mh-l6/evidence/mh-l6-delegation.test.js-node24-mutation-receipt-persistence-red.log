@@ -1,0 +1,161 @@
+command: /tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-delegation.test.js
+node: v24.21.0
+private root: /tmp/mh-l6-test-1b6GoE
+case: all cases in explicit file
+TAP version 13
+# Subtest: T5 should revoke the source before the exact future controller acquires and acknowledges once
+not ok 1 - T5 should revoke the source before the exact future controller acquires and acknowledges once
+  ---
+  duration_ms: 163.050251
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-delegation.test.js:11:94'
+  failureType: 'testCodeFailure'
+  error: |-
+    lost target ACK must not increment revision/epoch
+    + actual - expected
+    
+      {
+    +   error: 'RECOVERY_BLOCKED:delegation_receipt'
+    -   transaction: {
+    -     artifactDigests: {},
+    -     canonicalPrefix: '/tmp/mh-l6-test-1b6GoE/tmpdir/mh-l6-installation-xE2lTi',
+    -     componentTransactions: {},
+    -     controllerAuthorityState: 'ACTIVE',
+    -     controllerBuildId: 'future-build-without-allowlist',
+    -     controllerEpoch: 2,
+    -     controllerIdentity: {
+    -       bootId: '8439d051-a5bd-4960-b5f5-7a2059d3f3dc',
+    -       machineId: '05fc260f9cef46e6b56519f54f236a02',
+    -       nsNet: '4026531833',
+    -       pid: 19417,
+    -       pidNamespace: '4026533617',
+    -       startTime: 8022355
+    -     },
+    -     createdAt: 1792179470355,
+    -     delegatedBuildId: 'future-build-without-allowlist',
+    -     delegationReceiptDigest: 'sha256:786ad31d0af2a8b77ba859e35d24174d4034f2f9c58e7ceab290dab8fafe75b1',
+    -     delegationState: 'DELEGATED',
+    -     initiatorIdentity: {
+    -       bootId: '8439d051-a5bd-4960-b5f5-7a2059d3f3dc',
+    -       machineId: '05fc260f9cef46e6b56519f54f236a02',
+    -       nsNet: '4026531833',
+    -       pid: 19407,
+    -       pidNamespace: '4026533617',
+    -       startTime: 8022345
+    -     },
+    -     installationState: 'ACTIVATING',
+    -     observations: {
+    -       previousSelectionDigest: null,
+    -       requestDigest: 'sha256:88528a9d8052b380f4831ea38276f21e9e40cef6cbf29dc6e4e7e0c7a0723114',
+    -       selectionIntent: {
+    -         buildId: 'future-build-without-allowlist',
+    -         canonicalPrefix: '/tmp/mh-l6-test-1b6GoE/tmpdir/mh-l6-installation-xE2lTi',
+    -         entrypoint: 'entry.mjs',
+    -         manifestDigest: 'sha256:9cb45801730479c4010b574ee40c0c8d5126f314c1dd039d34593ec456e87321',
+    -         packageVersion: '0.98.7',
+    -         prefixId: 'sha256:22ff5a6fbeac45b774c8c80727b0526ab771cb7cabaa396dac9a476285f87755',
+    -         previousSelectionReference: null,
+    -         schemaVersion: 1,
+    -         selectionEpoch: 1,
+    -         uid: 1000,
+    -         upgradeId: 'one'
+    -       }
+    -     },
+    -     origin: 'manual',
+    -     prefixId: 'sha256:22ff5a6fbeac45b774c8c80727b0526ab771cb7cabaa396dac9a476285f87755',
+    -     previousSelectionReference: null,
+    -     privateTicketReference: 'private/delegation-one-2.json',
+    -     requestedTarget: '0.98.7',
+    -     resolvedTarget: '0.98.7',
+    -     revision: 6,
+    -     schemaVersion: 1,
+    -     selectionEpoch: 1,
+    -     targetManifestDigest: 'sha256:9cb45801730479c4010b574ee40c0c8d5126f314c1dd039d34593ec456e87321',
+    -     uid: 1000,
+    -     updatedAt: 1792179470475,
+    -     upgradeId: 'one',
+    -     verification: {
+    -       imageVerified: true
+    -     }
+    -   }
+      }
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected:
+    transaction:
+      artifactDigests:
+      canonicalPrefix: '/tmp/mh-l6-test-1b6GoE/tmpdir/mh-l6-installation-xE2lTi'
+      componentTransactions:
+      controllerAuthorityState: 'ACTIVE'
+      controllerBuildId: 'future-build-without-allowlist'
+      controllerEpoch: 2
+      controllerIdentity:
+        bootId: '8439d051-a5bd-4960-b5f5-7a2059d3f3dc'
+        machineId: '05fc260f9cef46e6b56519f54f236a02'
+        nsNet: '4026531833'
+        pid: 19417
+        pidNamespace: '4026533617'
+        startTime: 8022355
+      createdAt: 1792179470355
+      delegatedBuildId: 'future-build-without-allowlist'
+      delegationReceiptDigest: 'sha256:786ad31d0af2a8b77ba859e35d24174d4034f2f9c58e7ceab290dab8fafe75b1'
+      delegationState: 'DELEGATED'
+      initiatorIdentity:
+        bootId: '8439d051-a5bd-4960-b5f5-7a2059d3f3dc'
+        machineId: '05fc260f9cef46e6b56519f54f236a02'
+        nsNet: '4026531833'
+        pid: 19407
+        pidNamespace: '4026533617'
+        startTime: 8022345
+      installationState: 'ACTIVATING'
+      observations:
+        previousSelectionDigest: ~
+        requestDigest: 'sha256:88528a9d8052b380f4831ea38276f21e9e40cef6cbf29dc6e4e7e0c7a0723114'
+        selectionIntent:
+          buildId: 'future-build-without-allowlist'
+          canonicalPrefix: '/tmp/mh-l6-test-1b6GoE/tmpdir/mh-l6-installation-xE2lTi'
+          entrypoint: 'entry.mjs'
+          manifestDigest: 'sha256:9cb45801730479c4010b574ee40c0c8d5126f314c1dd039d34593ec456e87321'
+          packageVersion: '0.98.7'
+          prefixId: 'sha256:22ff5a6fbeac45b774c8c80727b0526ab771cb7cabaa396dac9a476285f87755'
+          previousSelectionReference: ~
+          schemaVersion: 1
+          selectionEpoch: 1
+          uid: 1000
+          upgradeId: 'one'
+      origin: 'manual'
+      prefixId: 'sha256:22ff5a6fbeac45b774c8c80727b0526ab771cb7cabaa396dac9a476285f87755'
+      previousSelectionReference: ~
+      privateTicketReference: 'private/delegation-one-2.json'
+      requestedTarget: '0.98.7'
+      resolvedTarget: '0.98.7'
+      revision: 6
+      schemaVersion: 1
+      selectionEpoch: 1
+      targetManifestDigest: 'sha256:9cb45801730479c4010b574ee40c0c8d5126f314c1dd039d34593ec456e87321'
+      uid: 1000
+      updatedAt: 1792179470475
+      upgradeId: 'one'
+      verification:
+        imageVerified: true
+  actual:
+    error: 'RECOVERY_BLOCKED:delegation_receipt'
+  operator: 'deepStrictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-delegation.test.js:62:10)
+    process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    async Test.run (node:internal/test_runner/test:1409:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3)
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 0
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 223.774333
+
+receipt: {"command":["/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-delegation.test.js"],"code":1,"signal":null,"tests":1,"invalid":false,"spawned":3,"leftovers":[]}

@@ -1,12 +1,12 @@
 command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-selection.test.js
 node: v22.22.1
-private root: /tmp/mh-l6-test-WSgFR5
+private root: /tmp/mh-l6-test-sv1bBg
 case: all cases in explicit file
 TAP version 13
 # Subtest: U05 should retain the previous selection and reject abort after selection intent
 not ok 1 - U05 should retain the previous selection and reject abort after selection intent
   ---
-  duration_ms: 80.721894
+  duration_ms: 75.177467
   type: 'test'
   location: '/tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-selection.test.js:12:94'
   failureType: 'testCodeFailure'
@@ -30,6 +30,6 @@ not ok 1 - U05 should retain the previous selection and reject abort after selec
 # cancelled 0
 # skipped 0
 # todo 0
-# duration_ms 205.706653
+# duration_ms 194.653769
 
 receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-selection.test.js"],"code":1,"signal":null,"tests":1,"invalid":false,"spawned":1,"leftovers":[]}

@@ -1,12 +1,12 @@
 command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-selection.test.js
 node: v22.22.1
-private root: /tmp/mh-l6-test-UoDvaf
+private root: /tmp/mh-l6-test-XFP48Z
 case: all cases in explicit file
 TAP version 13
 # Subtest: U06 should block contradictory selection and preserve all diagnostic bytes
 not ok 1 - U06 should block contradictory selection and preserve all diagnostic bytes
   ---
-  duration_ms: 86.265288
+  duration_ms: 88.528247
   type: 'test'
   location: '/tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-selection.test.js:12:94'
   failureType: 'testCodeFailure'
@@ -30,6 +30,6 @@ not ok 1 - U06 should block contradictory selection and preserve all diagnostic 
 # cancelled 0
 # skipped 0
 # todo 0
-# duration_ms 207.348413
+# duration_ms 204.173096
 
 receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-selection.test.js"],"code":1,"signal":null,"tests":1,"invalid":false,"spawned":1,"leftovers":[]}
