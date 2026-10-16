@@ -12,13 +12,14 @@ import { readBlockage } from '../../dist/runtime/blockage/registry.js';
 import { establishWriterControl } from '../../dist/runtime/handover/mutation.js';
 import { verifyJournalChain } from '../../dist/journal.js';
 import { readState } from '../../dist/runtime/handover/state.js';
+import { createPayloadStore } from '../../dist/runtime/mcp/payload-store.js';
 
 export async function runCampaign(count) {
   const dir = fs.mkdtempSync(join(tmpdir(), 'mh-l5-concurrency-')), root = join(dir, 'store'), directory = join(dir, 'state');
   for (const path of [root, directory]) fs.mkdirSync(path, { mode: 0o700 });
-  const workers = [], roles = ['central', 'peer', 'stdio1', 'stdio2', 'stdio3', 'stdio4', 'janitor', 'cli'];
-  // The same actors perform 1,250 updates in six domains and 2,500 in payloads.
-  // No reduced CI count can satisfy this normative file.
+  const workers = [], roles = Array.from({ length: 8 }, (_, n) => `backend${n + 1}`);
+  // Backend stress only, not the eight protocol surfaces required by §10.8.
+  // The complete M17 acceptance is tracked in docs/plan/mh-l8/BRANCH.md.
   const total = count * roles.length;
   try {
     const store = createLocalStore({ root }); establishWriterControl(root, directory);
@@ -41,10 +42,14 @@ export async function runCampaign(count) {
     const journals = Array.from({ length: 16 }, (_, n) => store.readNegotiationJournal('stripe-' + n));
     for (const journal of journals) assert.equal(verifyJournalChain(journal).ok, true);
     const events = journals.flat();
+    const payloads = createPayloadStore(root);
     assert.deepEqual(events.map(r => r.id).sort(), expected);
     for (const row of acknowledged) {
+      assert.ok(row.lockAcquisitions >= 8, `iteration ${row.id} must acquire the kernel lock at the eight business mutation boundaries; got ${row.lockAcquisitions}`);
       assert.equal(events.find(e => e.id === row.id)?.contentHash, row.journalHash);
       assert.equal(row.payloadSha256, 'sha256:' + createHash('sha256').update(row.id).digest('hex'));
+      assert.equal(Buffer.from(payloads.readPayload(row.payloadRef, 0, 1024).data, 'base64').toString(), row.id);
+      assert.equal(payloads.readPayload(row.expiredRef, 0, 1024).error, 'payload_not_found');
       const memo = readState(row.launchPath, 'launchMemo').value;
       assert.equal(memo.state, 'completed'); assert.equal(memo.terminalResult.id, row.id);
     }
@@ -55,7 +60,8 @@ export async function runCampaign(count) {
     const counts = { presence: total, registry: total, inbox: total, negotiations: total, blockage: total,
       launches: acknowledged.length, payloads: acknowledged.reduce((sum, row) => sum + row.payloadMutations, 0) };
     assert.ok(Object.values(counts).every(n => n >= total));
-    const result = { domains: counts, acknowledged: acknowledged.length, duplicates: 0, actors: roles };
+    const result = { domains: counts, acknowledged: acknowledged.length, duplicates: 0, actors: roles,
+      coverage: 'backend-only', minimumLockAcquisitionsPerIteration: Math.min(...acknowledged.map(row => row.lockAcquisitions)) };
     console.log(JSON.stringify(result)); return result;
   } finally {
     for (const w of workers) if (w.child.exitCode === null && w.child.signalCode === null) { w.child.kill('SIGTERM'); await w.closed; }
