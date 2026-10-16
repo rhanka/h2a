@@ -1,0 +1,187 @@
+{
+  "base": "7a8129ea4120e6202e5f825ebbc5101289090daf",
+  "qualificationCopy": "/tmp/mh-l3-qualification-aRKm7F/source",
+  "files": [
+    {
+      "path": "packages/h2a/src/runtime/handover/shim-bridge.js",
+      "sha256": "baf649db3c71953face51bd4a69eb5d7b9509f78366f125a084339a6a0591b2d"
+    },
+    {
+      "path": "packages/h2a/test/helpers/mh-l5-campaign.js",
+      "sha256": "fe2c7439ebd290ef20d967cf4c8c50b2a78a75a656a6a0dfbccb8035c3657181"
+    },
+    {
+      "path": "packages/h2a/test/helpers/mh-l5-cold-worker.mjs",
+      "sha256": "48a983ff63f0e2bde8ba3a875fdaa78476f97f558399eaae3be6cde389f41a3e"
+    },
+    {
+      "path": "packages/h2a/test/helpers/mh-l5-controller.mjs",
+      "sha256": "eb166ab2f9ab4372815d3eb0668c041376dd9fbc044837d75e90e4447dcdbaa1"
+    },
+    {
+      "path": "packages/h2a/test/helpers/mh-l5-image.js",
+      "sha256": "b6fcbb60c42f5d48e497845f7c815d682c8214eafc3724bf4bed5bc094dd9ac3"
+    },
+    {
+      "path": "packages/h2a/test/helpers/mh-l5-v1-worker.mjs",
+      "sha256": "f1ef08f1c526e03ae6c9464925092362ce7165b935f10908ad2bb67b4f72562a"
+    },
+    {
+      "path": "packages/h2a/test/helpers/mh-l5-v1.js",
+      "sha256": "b224e9b4eead3e595c77e01e1e0a38f6e95961d12f706e51b7f6402677cd943c"
+    },
+    {
+      "path": "packages/h2a/test/helpers/mh-l5-writer.mjs",
+      "sha256": "e401434aba6cf707e7fb382997cb65a4ccf7b06f40dd002a191873c1f41f4b3f"
+    },
+    {
+      "path": "packages/h2a/test/mh-l3-transfer.test.js",
+      "sha256": "dc77b31e9ade3e00606de19d9069fd1b77756a8e7bc4ebca61233bf4df086d08"
+    },
+    {
+      "path": "packages/h2a/test/mh-l5-cold-network.test.js",
+      "sha256": "5aeece802b9b7e39b94f1c6175f58495afb3988b09c6cd038e6c8c3113333ba6"
+    },
+    {
+      "path": "packages/h2a/test/mh-l5-cold.test.js",
+      "sha256": "dedb9ceac4e40c9521fe478f6dbbe3d76f936b263d9dc8ad85ad4cd09b651430"
+    },
+    {
+      "path": "packages/h2a/test/mh-l5-compensation.test.js",
+      "sha256": "0db0df9a8f0f40f668ee4daeafe2d956c8919f17ff4116e3763125348008451d"
+    },
+    {
+      "path": "packages/h2a/test/mh-l5-concurrency-oracles.test.js",
+      "sha256": "a41511afc5bb7d0c21621348f44b598f851e9cacd5e22772b31829f095495af8"
+    },
+    {
+      "path": "packages/h2a/test/mh-l5-concurrency.test.js",
+      "sha256": "2e3a887e127fbe74e31fcac7619c1c3dc018e564347a1da099f14106a1767329"
+    },
+    {
+      "path": "packages/h2a/test/mh-l5-legacy-writer.test.js",
+      "sha256": "43d0e06608faac54189a1b87e5c29e5dd524dc2e59083cebdb7fb0ed50c06ae2"
+    },
+    {
+      "path": "packages/h2a/test/mh-l5-v1.test.js",
+      "sha256": "5fc7087c02c9fe2e5b6a9bc8ddd0a34e15f65d2400bf11f53583eb29383d997d"
+    },
+    {
+      "path": "scripts/mh-l5-artifacts.mjs",
+      "sha256": "a51bae513c385846eba140161df39933ddf00cb6e150ba1c5c513d79689a8d22"
+    },
+    {
+      "path": "scripts/mh-l5-audit.mjs",
+      "sha256": "93b17791e576969986894919c3be5f07b000cd544d8e3bf593d0f6a081fb576d"
+    },
+    {
+      "path": "scripts/mh-l5-mutate.mjs",
+      "sha256": "0faf5cbcae80c27d2785517674d4bf9921d5286fdfd345c7a60f9c4093cdf5b7"
+    },
+    {
+      "path": "scripts/mh-l5-regressions.mjs",
+      "sha256": "d162c071539a30d52f28539088652ebd87c127d483b3347ea20ae35933cef488"
+    },
+    {
+      "path": "scripts/mh-l5-test.mjs",
+      "sha256": "f3d8b024aec5b97bf3c7fe91baa29b9bdf628d194980c23ef02ee85d183c1e31"
+    }
+  ],
+  "compiled": [
+    {
+      "path": "packages/h2a/dist/runtime/handover/shim-bridge.js",
+      "sha256": "c4cdea87a739a7288ec10e756ea9cea702d896d470b884373e6ec8016b6b64c2"
+    }
+  ],
+  "profiles": [
+    {
+      "node": "v22.22.1",
+      "explicitFiles": 31,
+      "tests": 128,
+      "mutationPairs": 21,
+      "mutations": [
+        "legacy-classification",
+        "legacy-backoff",
+        "legacy-code",
+        "decoy-secret",
+        "v1-ping",
+        "typed-id",
+        "g0-progress",
+        "g0-cancel-owner",
+        "g0-retained-stream",
+        "stop-irreversible",
+        "successor-unknown",
+        "attempt-budget",
+        "compensation-epoch",
+        "compensation-new-generation",
+        "registry-loss",
+        "inbox-loss",
+        "negotiation-loss",
+        "presence-loss",
+        "blockage-loss",
+        "payload-loss",
+        "launch-loss"
+      ],
+      "domains": {
+        "presence": 10000,
+        "registry": 10000,
+        "inbox": 10000,
+        "negotiations": 10000,
+        "blockage": 10000,
+        "launches": 10000,
+        "payloads": 20000
+      },
+      "skipped": 0,
+      "cancelled": 0,
+      "remainingOwnChildren": 0
+    },
+    {
+      "node": "v24.21.0",
+      "explicitFiles": 31,
+      "tests": 128,
+      "mutationPairs": 21,
+      "mutations": [
+        "legacy-classification",
+        "legacy-backoff",
+        "legacy-code",
+        "decoy-secret",
+        "v1-ping",
+        "typed-id",
+        "g0-progress",
+        "g0-cancel-owner",
+        "g0-retained-stream",
+        "stop-irreversible",
+        "successor-unknown",
+        "attempt-budget",
+        "compensation-epoch",
+        "compensation-new-generation",
+        "registry-loss",
+        "inbox-loss",
+        "negotiation-loss",
+        "presence-loss",
+        "blockage-loss",
+        "payload-loss",
+        "launch-loss"
+      ],
+      "domains": {
+        "presence": 10000,
+        "registry": 10000,
+        "inbox": 10000,
+        "negotiations": 10000,
+        "blockage": 10000,
+        "launches": 10000,
+        "payloads": 20000
+      },
+      "skipped": 0,
+      "cancelled": 0,
+      "remainingOwnChildren": 0
+    }
+  ],
+  "limitations": [
+    "prototype .7 image; final release artifacts belong to MH-L8",
+    "synthetic backend writers for the 80,000-mutation campaign",
+    "fixture H4 controller/closure proof; product H4 belongs to MH-L6",
+    "process-crash cuts, not power-loss certification",
+    "no real Claude, semantic verifier, registry discovery, product live coordinator or real .7-to-.8 qualification"
+  ]
+}

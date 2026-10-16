@@ -1,0 +1,224 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l5-cold.test.js
+node: v22.22.1
+private root: /tmp/mh-l5-test-SDyK2T
+case: all cases in explicit file
+TAP version 13
+# Subtest: M23 M24 cold process crash at before-file-sync must preserve the irreversible boundary
+not ok 1 - M23 M24 cold process crash at before-file-sync must preserve the irreversible boundary
+  ---
+  duration_ms: 372.637945
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/test/mh-l5-cold.test.js:10:94'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    + actual - expected
+    
+    + 'PRECHECKED'
+    - 'RESERVED'
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 'RESERVED'
+  actual: 'PRECHECKED'
+  operator: 'strictEqual'
+  stack: |-
+    reserved (file:///tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/test/mh-l5-cold.test.js:24:10)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async TestContext.<anonymous> (file:///tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/test/mh-l5-cold.test.js:34:46)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+  ...
+# Subtest: M23 M24 cold process crash at after-file-sync must preserve the irreversible boundary
+not ok 2 - M23 M24 cold process crash at after-file-sync must preserve the irreversible boundary
+  ---
+  duration_ms: 162.347607
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/test/mh-l5-cold.test.js:10:94'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    + actual - expected
+    
+    + 'PRECHECKED'
+    - 'RESERVED'
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 'RESERVED'
+  actual: 'PRECHECKED'
+  operator: 'strictEqual'
+  stack: |-
+    reserved (file:///tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/test/mh-l5-cold.test.js:24:10)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async TestContext.<anonymous> (file:///tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/test/mh-l5-cold.test.js:34:46)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: M23 M24 cold process crash at after-rename must preserve the irreversible boundary
+not ok 3 - M23 M24 cold process crash at after-rename must preserve the irreversible boundary
+  ---
+  duration_ms: 98.635461
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/test/mh-l5-cold.test.js:10:94'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    + actual - expected
+    
+    + 'PRECHECKED'
+    - 'RESERVED'
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 'RESERVED'
+  actual: 'PRECHECKED'
+  operator: 'strictEqual'
+  stack: |-
+    reserved (file:///tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/test/mh-l5-cold.test.js:24:10)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async TestContext.<anonymous> (file:///tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/test/mh-l5-cold.test.js:34:46)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: M23 M24 cold process crash at after-directory-sync must preserve the irreversible boundary
+not ok 4 - M23 M24 cold process crash at after-directory-sync must preserve the irreversible boundary
+  ---
+  duration_ms: 255.532108
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/test/mh-l5-cold.test.js:10:94'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    + actual - expected
+    
+    + 'PRECHECKED'
+    - 'RESERVED'
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 'RESERVED'
+  actual: 'PRECHECKED'
+  operator: 'strictEqual'
+  stack: |-
+    reserved (file:///tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/test/mh-l5-cold.test.js:24:10)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async TestContext.<anonymous> (file:///tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/test/mh-l5-cold.test.js:34:46)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: M23 M24 cold process crash at listener-close must preserve the irreversible boundary
+not ok 5 - M23 M24 cold process crash at listener-close must preserve the irreversible boundary
+  ---
+  duration_ms: 364.229492
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/test/mh-l5-cold.test.js:10:94'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    + actual - expected
+    
+    + 'PRECHECKED'
+    - 'RESERVED'
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 'RESERVED'
+  actual: 'PRECHECKED'
+  operator: 'strictEqual'
+  stack: |-
+    reserved (file:///tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/test/mh-l5-cold.test.js:24:10)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async TestContext.<anonymous> (file:///tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/test/mh-l5-cold.test.js:34:46)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: M23 M24 cold process crash at marker-cleanup must preserve the irreversible boundary
+not ok 6 - M23 M24 cold process crash at marker-cleanup must preserve the irreversible boundary
+  ---
+  duration_ms: 105.703684
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/test/mh-l5-cold.test.js:10:94'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    + actual - expected
+    
+    + 'PRECHECKED'
+    - 'RESERVED'
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 'RESERVED'
+  actual: 'PRECHECKED'
+  operator: 'strictEqual'
+  stack: |-
+    reserved (file:///tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/test/mh-l5-cold.test.js:24:10)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async TestContext.<anonymous> (file:///tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/test/mh-l5-cold.test.js:34:46)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: M22 pause during a barrier must stay armed through restart and stop only after the admitted call drains
+not ok 7 - M22 pause during a barrier must stay armed through restart and stop only after the admitted call drains
+  ---
+  duration_ms: 129.186876
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/test/mh-l5-cold.test.js:10:94'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    + actual - expected
+    
+    + 'PRECHECKED'
+    - 'RESERVED'
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 'RESERVED'
+  actual: 'PRECHECKED'
+  operator: 'strictEqual'
+  stack: |-
+    reserved (file:///tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/test/mh-l5-cold.test.js:24:10)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async TestContext.<anonymous> (file:///tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/test/mh-l5-cold.test.js:62:25)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: M24 M25 eight starters must share a crash-consumed three-attempt budget and refuse an unknown candidate
+not ok 8 - M24 M25 eight starters must share a crash-consumed three-attempt budget and refuse an unknown candidate
+  ---
+  duration_ms: 101.255499
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/test/mh-l5-cold.test.js:10:94'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    + actual - expected
+    
+    + 'PRECHECKED'
+    - 'RESERVED'
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 'RESERVED'
+  actual: 'PRECHECKED'
+  operator: 'strictEqual'
+  stack: |-
+    reserved (file:///tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/test/mh-l5-cold.test.js:24:10)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async TestContext.<anonymous> (file:///tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/test/mh-l5-cold.test.js:75:44)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+1..8
+# tests 8
+# suites 0
+# pass 0
+# fail 8
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 1690.031538
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l5-cold.test.js"],"code":1,"signal":null,"tests":8,"invalid":false,"spawned":17,"leftovers":[]}

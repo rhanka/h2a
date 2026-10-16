@@ -1,0 +1,23 @@
+command: /tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node --test --test-reporter=tap packages/h2a/test/mh-l5-concurrency.test.js
+node: v24.21.0
+private root: /tmp/mh-l5-test-hqLolF
+case: all cases in explicit file
+TAP version 13
+# {"domains":{"presence":10000,"registry":10000,"inbox":10000,"negotiations":10000,"blockage":10000,"launches":10000,"payloads":20000},"acknowledged":10000,"duplicates":0,"actors":["central","peer","stdio1","stdio2","stdio3","stdio4","janitor","cli"]}
+# Subtest: M17 should reconcile 10,000 mutations in each of seven domains from eight independent writers
+ok 1 - M17 should reconcile 10,000 mutations in each of seven domains from eight independent writers
+  ---
+  duration_ms: 442506.907977
+  type: 'test'
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 1
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 442712.187564
+
+receipt: {"command":["/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l5-concurrency.test.js"],"code":0,"signal":null,"tests":1,"invalid":false,"spawned":17,"leftovers":[]}

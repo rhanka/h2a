@@ -1,0 +1,102 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l5-cold.test.js
+node: v22.22.1
+private root: /tmp/mh-l5-test-vPrhy7
+case: all cases in explicit file
+TAP version 13
+# Subtest: M23 M24 cold process crash at before-file-sync must preserve the irreversible boundary
+not ok 1 - M23 M24 cold process crash at before-file-sync must preserve the irreversible boundary
+  ---
+  duration_ms: 438.776845
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/test/mh-l5-cold.test.js:10:94'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    + actual - expected
+    
+    + 'transaction_aborted'
+    - 'administration_state_invalid'
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 'administration_state_invalid'
+  actual: 'transaction_aborted'
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/test/mh-l5-cold.test.js:52:16)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+  ...
+# Subtest: M23 M24 cold process crash at after-file-sync must preserve the irreversible boundary
+not ok 2 - M23 M24 cold process crash at after-file-sync must preserve the irreversible boundary
+  ---
+  duration_ms: 415.075743
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/test/mh-l5-cold.test.js:10:94'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    + actual - expected
+    
+    + 'transaction_aborted'
+    - 'administration_state_invalid'
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 'administration_state_invalid'
+  actual: 'transaction_aborted'
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/test/mh-l5-cold.test.js:52:16)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: M23 M24 cold process crash at after-rename must preserve the irreversible boundary
+ok 3 - M23 M24 cold process crash at after-rename must preserve the irreversible boundary
+  ---
+  duration_ms: 665.942328
+  type: 'test'
+  ...
+# Subtest: M23 M24 cold process crash at after-directory-sync must preserve the irreversible boundary
+ok 4 - M23 M24 cold process crash at after-directory-sync must preserve the irreversible boundary
+  ---
+  duration_ms: 328.63237
+  type: 'test'
+  ...
+# Subtest: M23 M24 cold process crash at listener-close must preserve the irreversible boundary
+ok 5 - M23 M24 cold process crash at listener-close must preserve the irreversible boundary
+  ---
+  duration_ms: 219.248895
+  type: 'test'
+  ...
+# Subtest: M23 M24 cold process crash at marker-cleanup must preserve the irreversible boundary
+ok 6 - M23 M24 cold process crash at marker-cleanup must preserve the irreversible boundary
+  ---
+  duration_ms: 539.108226
+  type: 'test'
+  ...
+# Subtest: M22 pause during a barrier must stay armed through restart and stop only after the admitted call drains
+ok 7 - M22 pause during a barrier must stay armed through restart and stop only after the admitted call drains
+  ---
+  duration_ms: 358.246821
+  type: 'test'
+  ...
+# Subtest: M24 M25 eight starters must share a crash-consumed three-attempt budget and refuse an unknown candidate
+ok 8 - M24 M25 eight starters must share a crash-consumed three-attempt budget and refuse an unknown candidate
+  ---
+  duration_ms: 1247.149193
+  type: 'test'
+  ...
+1..8
+# tests 8
+# suites 0
+# pass 6
+# fail 2
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 4316.660903
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l5-cold.test.js"],"code":1,"signal":null,"tests":8,"invalid":false,"spawned":83,"leftovers":[]}

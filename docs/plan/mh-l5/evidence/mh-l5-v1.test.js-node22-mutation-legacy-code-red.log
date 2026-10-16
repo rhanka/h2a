@@ -1,0 +1,41 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l5-v1.test.js
+node: v22.22.1
+private root: /tmp/mh-l5-test-Q35Q3I
+case: M19 T8 T9 0.98.5 live v1 refuses .7 takeover, routes fresh sessions to stdio and keeps an already chosen shim open
+TAP version 13
+# Subtest: M19 T8 T9 0.98.5 live v1 refuses .7 takeover, routes fresh sessions to stdio and keeps an already chosen shim open
+not ok 1 - M19 T8 T9 0.98.5 live v1 refuses .7 takeover, routes fresh sessions to stdio and keeps an already chosen shim open
+  ---
+  duration_ms: 841.541617
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/test/mh-l5-v1.test.js:14:94'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    + actual - expected
+    
+    + 'central_unavailable'
+    - 'legacy_requires_cold_upgrade'
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 'legacy_requires_cold_upgrade'
+  actual: 'central_unavailable'
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/test/mh-l5-v1.test.js:103:14)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 0
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 1142.75063
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l5-v1.test.js"],"code":1,"signal":null,"tests":1,"invalid":false,"spawned":7,"leftovers":[]}

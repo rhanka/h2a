@@ -1,0 +1,39 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l5-cold.test.js
+node: v22.22.1
+private root: /tmp/mh-l5-test-H6zz0C
+case: M24 M25 eight starters must share a crash-consumed three-attempt budget and refuse an unknown candidate
+TAP version 13
+# Subtest: M24 M25 eight starters must share a crash-consumed three-attempt budget and refuse an unknown candidate
+not ok 1 - M24 M25 eight starters must share a crash-consumed three-attempt budget and refuse an unknown candidate
+  ---
+  duration_ms: 325.244409
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/test/mh-l5-cold.test.js:10:94'
+  failureType: 'testCodeFailure'
+  error: |-
+    [{"id":"ready","error":"authority_lock_unavailable"},{"id":"ready","error":"authority_lock_unavailable"},{"id":"ready","ticket":{"handoverId":"h","transactionEpoch":1,"attempt":2}},{"id":"ready","ticket":{"handoverId":"h","transactionEpoch":1,"attempt":1}},{"id":"ready","error":"authority_lock_unavailable"},{"id":"ready","error":"authority_lock_unavailable"},{"id":"ready","error":"authority_lock_unavailable"},{"id":"ready","error":"authority_lock_unavailable"}]
+    
+    2 !== 1
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 1
+  actual: 2
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/test/mh-l5-cold.test.js:84:62)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 0
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 424.072954
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l5-cold.test.js"],"code":1,"signal":null,"tests":1,"invalid":false,"spawned":21,"leftovers":[]}

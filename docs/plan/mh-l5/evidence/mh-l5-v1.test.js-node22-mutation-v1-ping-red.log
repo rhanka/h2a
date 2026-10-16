@@ -1,0 +1,36 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l5-v1.test.js
+node: v22.22.1
+private root: /tmp/mh-l5-test-ozowFL
+case: M18b 0.98.5 starter must preserve fixed and discovered .7 markers and reclaim only the invalid control
+TAP version 13
+# {"event":"drive-consent.full-verification","durationMs":0.004457999999999629,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# cleanup after negative fixture: marker_compare_failed
+# Subtest: M18b 0.98.5 starter must preserve fixed and discovered .7 markers and reclaim only the invalid control
+not ok 1 - M18b 0.98.5 starter must preserve fixed and discovered .7 markers and reclaim only the invalid control
+  ---
+  duration_ms: 729.953829
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/test/mh-l5-v1.test.js:14:94'
+  failureType: 'testCodeFailure'
+  error: 'The "string" argument must be of type string. Received type undefined (undefined)'
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected:
+  operator: 'match'
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/test/mh-l5-v1.test.js:32:16)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 0
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 998.337352
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l5-v1.test.js"],"code":1,"signal":null,"tests":1,"invalid":false,"spawned":3,"leftovers":[]}
