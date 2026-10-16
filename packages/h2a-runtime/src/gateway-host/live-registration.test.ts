@@ -733,21 +733,23 @@ describe("gateway-host live registration (L6a H)", () => {
 // ---------------------------------------------------------------------------
 
 /**
- * Pinned neutral entries compiled from engram origin/main @545a57b8
- * (includes PR #366 @e432240f) with TypeScript 5.9.3, ES2022/NodeNext,
+ * Pinned neutral entries compiled from rhanka/engram@545a57b8911ab108e84fa1778e0f268fe11bf1de
+ * (includes R1 PR #365 and P1 PR #366). TypeScript 5.9.3, ES2022/NodeNext,
  * strict/skipLibCheck/declaration. No runtime cross-checkout import.
  * Contracts are mirrored byte-identically into core and runtime.
  * Source checkout is read-only; all build products stayed in this worktree.
  */
 const ENGRAM_LIVE_VENDORED_INTEGRITY = {
-  "contracts.d.ts": "sha512-oy8eQku6kO55gb3V8Y97eLkUCXS2yta5cQQaU96PxQvJFpyDwbFcefSKDba3KoIYcthb1i+IQc7JyUpEOTtaNA==",
-  "contracts.js": "sha512-NmiZBfmmfj9atMMtNi2lnKgk+tipiy6kHCJ0wdYoXeZhsmp0a2FPsBftUiNylsPyO7blQZGkHMlmxgFHBnhcdA==",
-  "integration.d.ts": "sha512-Re0pphHIOfsP+Me7WASOQehWDCzHUwN5lXwIh5h+OfHtllgGvo0WruDmgTJD3XSidP5vzsLk7OOpms7JBzyGrA==",
-  "integration.js": "sha512-iNAltIBzcdbfalxWtfAJtfG+842RTjY2QOyKIeguFcWqRc8BUzPULK60BAFXG9WlSaLw7hwuVn2d4I0amnb2dw==",
+  "contracts.d.ts": "sha512-WwySyIJ4pHfO6ckYuuxbeWCc9JKl6/fHibLSuN/iO1VHkJLM73TpSPEk69B95Ur2tidWt6vliiPUy+WFfOTLsw==",
+  "contracts.js": "sha512-Uag0Ki11bp0AcW+dc73oSkj1lGe3nIWUR4vJkPS7lDUHumbtQLbWzueaH/OlgZ6xmvVL1DavHa9eoJXK1Gd9Sg==",
+  "integration.d.ts": "sha512-ZrAGZvmq2JmEpmxjHUpKQhQYIzt26sX5cHi+7fxMX3aF5z0qvnZCbcxJCIz2yW81yFyyZSUv6Ctg4zsVYKcohw==",
+  "integration.js": "sha512-Mh+RNrB9lgIEH4t6a84bdKk2QBl3CWfaNJwS+lcZ3A1ZXhTdxj1vHgRLlCqKOuJNVOhdyKbwUJbH/RLoAphBtA==",
   "pr-sync.d.ts": "sha512-11QKxeJI2VXkqjTkpPDRhiDkBGupJQ717wvxVBYPukIhVe+xGuS2OXmHx/cniLqXO4blsDqn9ufkX01wcA2+GA==",
   "pr-sync.js": "sha512-MHVYEY4Pr/jF+uzJhOkQ46towYXRBd6LlCqLpgT8n4iRWKpCU/R8hadvfTJCLxspW6U3ssimhzOm7hza2B31+Q==",
-  "registration.d.ts": "sha512-1Ae09+xHe/2aJkdkv/0+ZqXFBx+Yjaf5MGDShtd2YaVr4BiWndO2ahKHictTE1eoYkuvMk9wiYuMqrfGVhYSmA==",
-  "registration.js": "sha512-fIp+0p5FJZ9m0yRFId5mZD47wu1EZEYQYNmqrMg7WY5telZeskCXobO3QNiABg3HoHUbiDrUiY8RR6prbtUpAA=="
+  "registration.d.ts": "sha512-Y9keL7opgY0IgGZbUII5AM+06GQklKu/WTy9TbCai2Sl2UHgF7PZffY5FynY7dA6Harxw/h4k8sJ0Q12kXcjcQ==",
+  "registration.js": "sha512-xWO4WIpfS609Jv1G/Yiw8utcAdtDRBCFGOBZKqcCYVqtbbO/L4twjwmdIrR20+FCiuHdjph0ocVJC2Bw95EBoQ==",
+  "retention.d.ts": "sha512-lUj+KviCoKzNjjAd6AyWEVjXwlvN3VQMPLn/VmxO4tEbosGa+q16qKa4VTvCtBaJ5IXzJ3KUclEOwshPBbXMCA==",
+  "retention.js": "sha512-VDNIpMnm6QuQVE1EKk3Q0S7iBzayydis+3R/Obp18dmB+J6gAcgZW/PoPc1uOZaWl/5WFe/jCUPEqilkR2PmKw=="
 };
 
 const noPrincipalAuthority: LiveAuthority = {

@@ -1,3 +1,5 @@
+// Vendored from rhanka/engram@545a57b8911ab108e84fa1778e0f268fe11bf1de: engram-live/contracts.ts.
+// Compiled with TypeScript 5.9.3 (ES2022/NodeNext, declarations); do not hand-edit.
 export declare const CONTRACT_NAME = "@sentropic/engram-live/contracts";
 export declare const CONTRACT_VERSION = 1;
 export declare const PRODUCER_NAME = "engram-live";
