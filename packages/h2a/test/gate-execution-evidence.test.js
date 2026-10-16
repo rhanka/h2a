@@ -96,14 +96,14 @@ const workflowMutants = {
   A08: [
     (w) => { w.jobs.publish.steps.splice(3,0,{run:'printf broken >> dist-tarballs/sentropic-h2a-runtime-0.98.5.tgz'}) },
     (w) => { w.jobs.publish.steps.splice(3,0,{run:'npm pack --workspace @sentropic/h2a --pack-destination dist-tarballs'}) },
-    (w) => { const s=w.jobs.publish.steps.find((step)=>String(step.run??'').includes('npm publish "dist-tarballs/sentropic-h2a-runtime-')); s.run=s.run.replace('if ! npm publish', 'printf broken >> dist-tarballs/sentropic-h2a-runtime-${v}.tgz\nif ! npm publish') },
+    (w) => { const s=w.jobs.publish.steps.find((step)=>String(step.run??'').includes('npm publish "./dist-tarballs/sentropic-h2a-runtime-')); s.run=s.run.replace('if ! npm publish', 'printf broken >> dist-tarballs/sentropic-h2a-runtime-${v}.tgz\nif ! npm publish') },
     (w) => { w.jobs.publish.steps.splice(3,0,{uses:'actions/download-artifact@v4',with:{name:'other-bytes',path:'dist-tarballs'}}) },
   ],
   A09: [
     (w) => { w.jobs.emergency={needs:'verify',if:'${{ always() }}',steps:[{run:'npm publish --workspace @sentropic/h2a'}]} },
     (w) => { w.jobs.publish.steps.push({run:'npm publish --workspace @sentropic/h2a'}) },
     (w) => { w.jobs.verify.steps.push({run:'npm publish --workspace @sentropic/h2a-runtime'}) },
-    (w) => { w.jobs.publish.steps.find((step)=>String(step.run??'').includes('npm publish "dist-tarballs/sentropic-h2a-cli-')).run+='\nnpm publish --workspace @sentropic/h2a-cli\n' },
+    (w) => { w.jobs.publish.steps.find((step)=>String(step.run??'').includes('npm publish "./dist-tarballs/sentropic-h2a-cli-')).run+='\nnpm publish --workspace @sentropic/h2a-cli\n' },
   ],
   A10: [
     (w) => { w.jobs.publish.steps.find((step)=>step.uses==='actions/download-artifact@v4').with['run-id']='123' },
