@@ -63,6 +63,7 @@ function live(root, instance, name = "Receiver") {
   const now = new Date().toISOString();
   writePresence(root, {
     sessionId: `session:${instance}`,
+    pid: process.pid,
     instance,
     name,
     startedAt: now,
