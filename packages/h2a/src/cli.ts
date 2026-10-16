@@ -77,10 +77,11 @@ import { runHarnessCli, HARNESS_SKILLS } from "./vendor/harness/index.js";
 import { buildLaunchIndex } from "./runtime/local-files/launch-index.js";
 import { renderCommandMap } from "./cli-command-map.js";
 import { resolveHostConfigRoot } from "./runtime/host-config-root.js";
-import { isNativeHost, NATIVE_HOSTS, REGISTRY_WAITING, vibeHome } from "./hosts/native-paths.js";
+import { isNativeHost, NATIVE_HOSTS, REGISTRY_WAITING, stateRoot, vibeHome } from "./hosts/native-paths.js";
 import { convergeNativeHost } from "./hosts/native-convergence.js";
 import { nativeSkillArtifacts } from "./hosts/native-skills.js";
-import { assertNativePath } from "./hosts/native-files.js";
+import { assertNativePath, atomicNativeWrite, snapshot as snapshotNativeFile } from "./hosts/native-files.js";
+import { editVibeMcpServers, VIBE_MCP_NAME, type VibeMcpEntry } from "./hosts/vibe-mcp.js";
 import { convergeAfterExplicitUpgrade } from "./hosts/upgrade-equipment.js";
 import { captureHostOperatorNotices } from "./hosts/operator-notices.js";
 
@@ -474,7 +475,7 @@ export function renderCliHelp(): string {
     "  h2a drumbeat escalations [--root <path>]",
     "  h2a drumbeat relance-inbox [--instance <id>] [--relauncher logging|local-tmux|headless|auto] [--root <path>]",
     "  h2a drumbeat watch [--interval-ms <n>] [--max-relances <n>] [--relauncher logging|local-tmux|remote|headless|auto] [--instance <signer> --private-key <pem>] [--decider logging|<command>] [--decider-after <k>] [--decider-enforce] [--root <path>]",
-    "  h2a host setup --host <codex|claude|gemini|agy|hermes|opencode|muse|vibe> [--endpoint local|remote] [--url <https://…/mcp>] [--root <path>] [--print | --write <file>] [--force] [--no-wake]   (selects one endpoint; Vibe/Muse/agy render nonrecommended historical direct paths pending registry bootstrap; Vibe refuses every --write)",
+    "  h2a host setup --host <codex|claude|gemini|agy|hermes|opencode|muse|vibe> [--endpoint local|remote] [--url <https://…/mcp>] [--root <path>] [--print | --write <file>] [--force] [--no-wake]   (selects one endpoint; Muse/agy render nonrecommended historical direct paths pending registry bootstrap; Vibe --write installs the interim direct entry pending registry bootstrap (--remove clears it for migration))",
     "  h2a host status [--host <name>]",
     "  h2a host plugin --host <codex|claude|gemini|agy|hermes|opencode|muse|vibe> --instance <id> [--status <work-status>] [--root <path>] [--write <settings.json|hooks.toml> [--force]] [--scaffold <dir>]   (--write installs the Stop hook for claude|gemini|codex|hermes|opencode; --scaffold writes codex's full local marketplace + trust step; vibe writes its explicit parent-only wrapper to VIBE_HOME/hooks.toml; agy and muse have no qualified native hooks)",
     "  h2a store migrate [--from <v>] [--to <v>] [--sanitize-paths] [--dry-run] [--root <path>]",
@@ -4362,6 +4363,114 @@ function driveLineFromHookInput(raw: string): string | undefined {
   return driveLineFromText(raw);
 }
 
+function resolveVibeSetupTarget(flags: Record<string, string>): string {
+  if (flags.write && flags.write !== "true") return flags.write;
+  return join(vibeHome(), "config.toml");
+}
+
+function vibeWantedEntry(snippet: ReturnType<typeof H2A_VIBE_HOST.renderMcpConfig>): VibeMcpEntry {
+  const incoming = snippet.config.mcpServers.h2a as { command?: string; args?: string[]; url?: string };
+  if (typeof incoming.url === "string") return { name: VIBE_MCP_NAME, url: incoming.url };
+  return { name: VIBE_MCP_NAME, command: incoming.command ?? "h2a", args: [...(incoming.args ?? ["mcp-serve"])] };
+}
+
+function cmdVibeSetupWrite(flags: Record<string, string>, streams: H2ACliStreams, snippet: ReturnType<typeof H2A_VIBE_HOST.renderMcpConfig>, endpoint: string): number {
+  const targetPath = resolveVibeSetupTarget(flags);
+  if (!targetPath.toLowerCase().endsWith(".toml")) {
+    streams.stderr.write(
+      `h2a host setup: --write for Vibe MCP supports TOML only and will not rewrite ${targetPath}. Use the default <VIBE_HOME>/config.toml.\n`
+    );
+    return 1;
+  }
+  const wanted = vibeWantedEntry(snippet);
+  let original;
+  try {
+    if (!existsSync(targetPath)) original = "";
+    else original = readFileSync(targetPath, "utf8");
+  } catch (error) {
+    streams.stderr.write(
+      `h2a host setup: cannot read ${targetPath} (${(error as Error).message})\n`
+    );
+    return 3;
+  }
+  let edited;
+  try {
+    edited = editVibeMcpServers(original, wanted);
+  } catch (error) {
+    streams.stderr.write(
+      `h2a host setup: ${targetPath} refused (${(error as Error).message}); invalid or incompatible TOML is never overwritten, even with --force.\n`
+    );
+    return 2;
+  }
+  if (!edited.changed) {
+    streams.stdout.write(
+      `${JSON.stringify({ ok: true, host: "vibe", endpoint, path: targetPath, merged: false, replacedH2a: false, removedH2aMcpServers: [], migration: "voie directe — non migrée" }, null, 2)}\n`
+    );
+    return 0;
+  }
+  try {
+    const root = vibeHome();
+    atomicNativeWrite(targetPath, edited.text, { state: stateRoot("vibe", root), expected: snapshotNativeFile(targetPath) });
+  } catch (error) {
+    streams.stderr.write(
+      `h2a host setup: cannot write ${targetPath} (${(error as Error).message})\n`
+    );
+    return 3;
+  }
+  streams.stdout.write(
+    `${JSON.stringify({ ok: true, host: "vibe", endpoint, path: targetPath, merged: true, replacedH2a: edited.replacedH2a, removedH2aMcpServers: edited.removed, migration: "voie directe — non migrée" }, null, 2)}\n`
+  );
+  streams.stderr.write(
+    `# wrote the interim direct mcp_servers.h2a endpoint for host=vibe to ${targetPath} (owner 16/10, derogation O7.2; migration R5/R7: h2a host setup --host vibe --remove)\n# disabled duplicate h2a MCP entries: ${edited.removed.join(", ") || "none"}\n# ${snippet.path.hint}\n`
+  );
+  return 0;
+}
+
+function cmdVibeSetupRemove(flags: Record<string, string>, streams: H2ACliStreams): number {
+  const targetPath = resolveVibeSetupTarget(flags);
+  let original;
+  try {
+    if (!existsSync(targetPath)) original = "";
+    else original = readFileSync(targetPath, "utf8");
+  } catch (error) {
+    streams.stderr.write(
+      `h2a host setup: cannot read ${targetPath} (${(error as Error).message})\n`
+    );
+    return 3;
+  }
+  let edited;
+  try {
+    edited = editVibeMcpServers(original, null);
+  } catch (error) {
+    streams.stderr.write(
+      `h2a host setup: ${targetPath} refused (${(error as Error).message}); invalid or incompatible TOML is never overwritten, even with --force.\n`
+    );
+    return 2;
+  }
+  if (!edited.changed) {
+    streams.stdout.write(
+      `${JSON.stringify({ ok: true, host: "vibe", path: targetPath, removed: false, migration: REGISTRY_WAITING }, null, 2)}\n`
+    );
+    return 0;
+  }
+  try {
+    const root = vibeHome();
+    atomicNativeWrite(targetPath, edited.text, { state: stateRoot("vibe", root), expected: snapshotNativeFile(targetPath) });
+  } catch (error) {
+    streams.stderr.write(
+      `h2a host setup: cannot write ${targetPath} (${(error as Error).message})\n`
+    );
+    return 3;
+  }
+  streams.stdout.write(
+    `${JSON.stringify({ ok: true, host: "vibe", path: targetPath, removed: true, removedH2aMcpServers: edited.removed, migration: REGISTRY_WAITING }, null, 2)}\n`
+  );
+  streams.stderr.write(
+    `# removed the interim direct mcp_servers.h2a endpoint for host=vibe from ${targetPath}; registry bootstrap expected.\n`
+  );
+  return 0;
+}
+
 function cmdHostSetup(
   flags: Record<string, string>,
   streams: H2ACliStreams,
@@ -4465,9 +4574,12 @@ function cmdHostSetup(
   const targetPath = flags.write;
   const printMode = flags.print === "true" || !targetPath;
 
+  if (host === "vibe" && flags.remove === "true") {
+    return cmdVibeSetupRemove(flags, streams);
+  }
+
   if (host === "vibe" && targetPath) {
-    streams.stderr.write(`h2a host setup: --write is unavailable for Vibe MCP, including JSON/--force; ${REGISTRY_WAITING}.\n`);
-    return 1;
+    return cmdVibeSetupWrite(flags, streams, snippet, endpoint);
   }
 
   if (printMode && !targetPath) {
@@ -6527,6 +6639,7 @@ function cmdConnect(
   const followUp = [
     flags.host === "remote"
       ? "Use the bridge-provided environment in the remote session Pod"
+      : flags.host === "vibe" ? `Entrée directe intérimaire (décision owner 16/10, dérogation O7.2) : h2a host setup --host vibe --write ; migration registre R5/R7 : h2a host setup --host vibe --remove puis bootstrap.`
       : isNativeHost(flags.host) ? `Rendu historique non recommandé — ${REGISTRY_WAITING}; installation et activation par l’intégrateur registre.`
       : `Merge the snippet above under \`mcpServers\` in ${steps[1].pathExample}`,
     identity.privateKeyPath

@@ -2,7 +2,8 @@ import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { atomicNativeWrite, digest, readNativeManifest, snapshot } from './native-files.js';
 import type { NativeManifest } from './native-files.js';
-import { editVibeHooks, recoverNativeHooks, renderVibeHook, semanticDigest } from './native-toml.js';
+import { editVibeHooks, parseNativeToml, recoverNativeHooks, renderVibeHook, semanticDigest } from './native-toml.js';
+import { editVibeMcpServers, isVibeH2aServer } from './vibe-mcp.js';
 import type { VibeHook } from './native-toml.js';
 import type { NativeArtifact } from './native-artifacts.js';
 import { fileFingerprint, inspectNativeQualification, mcpFingerprint } from './native-proof.js';
@@ -63,7 +64,21 @@ export function planVibeEquipment(options: VibeEquipmentOptions) {
   }
   const path = join(options.root, 'hooks.toml'), original = snapshot(path);
   const edited = editVibeHooks(original?.bytes.toString() ?? '', hooks, manifest.hooks ?? {});
+  const mcpPath = join(options.root, 'config.toml');
+  const mcpOriginal = snapshot(mcpPath);
+  const mcpRaw = mcpOriginal?.bytes.toString() ?? '';
+  const mcpWanted = { name: 'h2a', command: 'h2a', args: ['mcp-serve', '--auto-open', '--host', 'vibe', '--auto-upgrade', '--wake', 'auto'] };
+  // Doctor/install convergence is additive: it installs the interim direct
+  // entry (owner 16/10) only when no h2a-managed server is present, and never
+  // rewrites a present entry (setup --write owns argument changes).
+  let mcpServers: any[] = [];
+  try { mcpServers = (parseNativeToml(mcpRaw).mcp_servers ?? []) as any[]; } catch { mcpServers = []; }
+  if (!Array.isArray(mcpServers)) throw new Error('incompatible MCP collection');
+  const mcpEdit = mcpServers.some(isVibeH2aServer)
+    ? { text: mcpRaw, changed: false, replacedH2a: false, removed: [] as string[] }
+    : editVibeMcpServers(mcpRaw, mcpWanted);
   return { artifacts, hooks, rendered: hooks.map(renderVibeHook).join('\n'), qualification, observed,
+    mcp: { path: mcpPath, changed: mcpEdit.changed, replacedH2a: mcpEdit.replacedH2a },
     guard: { choice: guard ?? 'off', active: guardActive, suspended: guard === 'on' && !guardActive,
       reason: guard !== 'on' ? 'off' : maskingHooks.length ? 'project hook masking' : !options.mcpAvailable ? 'MCP absent' : guardBinding !== observed.MCP ? 'MCP binding changed' : 'active' }, lifecycle, restart: VIBE_RESTART, scope: VIBE_LIFECYCLE_SCOPE,
     configure: (current: NativeManifest) => {
@@ -77,5 +92,6 @@ export function planVibeEquipment(options: VibeEquipmentOptions) {
     finish: () => {
       if (!options.repair || options.dryRun) return;
       if (original || edited.text) atomicNativeWrite(path, edited.text, { state: options.state, expected: original });
+      if (mcpEdit.changed) atomicNativeWrite(mcpPath, mcpEdit.text, { state: options.state, expected: mcpOriginal });
     } };
 }
