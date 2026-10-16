@@ -1,12 +1,12 @@
 command: /tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-selection.test.js
 node: v24.21.0
-private root: /tmp/mh-l6-test-qvDt2O
+private root: /tmp/mh-l6-test-jcvnol
 case: all cases in explicit file
 TAP version 13
 # Subtest: U06 should reject a validly encoded intent from another installation without publication
 not ok 1 - U06 should reject a validly encoded intent from another installation without publication
   ---
-  duration_ms: 58.362376
+  duration_ms: 54.945815
   type: 'test'
   location: '/tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-selection.test.js:12:94'
   failureType: 'testCodeFailure'
@@ -30,6 +30,6 @@ not ok 1 - U06 should reject a validly encoded intent from another installation 
 # cancelled 0
 # skipped 0
 # todo 0
-# duration_ms 126.503709
+# duration_ms 107.308678
 
 receipt: {"command":["/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-selection.test.js"],"code":1,"signal":null,"tests":1,"invalid":false,"spawned":1,"leftovers":[]}

@@ -1,0 +1,100 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-delegation.test.js
+node: v22.22.1
+private root: /tmp/mh-l6-test-votfNt
+case: all cases in explicit file
+TAP version 13
+# Subtest: T5 should revoke the source before the exact future controller acquires and acknowledges once
+ok 1 - T5 should revoke the source before the exact future controller acquires and acknowledges once
+  ---
+  duration_ms: 243.166584
+  type: 'test'
+  ...
+# Subtest: T5 should refuse every altered ticket binding and a second controller before granting authority
+ok 2 - T5 should refuse every altered ticket binding and a second controller before granting authority
+  ---
+  duration_ms: 355.134061
+  type: 'test'
+  ...
+# Subtest: T5 should refuse a correctly identified process loaded outside the selected absolute entry
+ok 3 - T5 should refuse a correctly identified process loaded outside the selected absolute entry
+  ---
+  duration_ms: 196.200971
+  type: 'test'
+  ...
+# Subtest: T5 should refuse an expired unacquired ticket and keep the source revoked
+ok 4 - T5 should refuse an expired unacquired ticket and keep the source revoked
+  ---
+  duration_ms: 171.564217
+  type: 'test'
+  ...
+# Subtest: U05 should reconcile every ticket/revocation fsync cut before target acquisition
+ok 5 - U05 should reconcile every ticket/revocation fsync cut before target acquisition
+  ---
+  duration_ms: 779.082643
+  type: 'test'
+  ...
+# Subtest: U05 should reconcile receipt/acquisition fsync cuts without duplicate authority or false ACK
+ok 6 - U05 should reconcile receipt/acquisition fsync cuts without duplicate authority or false ACK
+  ---
+  duration_ms: 776.845442
+  type: 'test'
+  ...
+# Subtest: T5 should suspend behind the real compatible guardian and reacquire after its proven death
+ok 7 - T5 should suspend behind the real compatible guardian and reacquire after its proven death
+  ---
+  duration_ms: 323.228766
+  type: 'test'
+  ...
+# Subtest: U05 should resynchronize a previously visible receipt before granting controller authority
+ok 8 - U05 should resynchronize a previously visible receipt before granting controller authority
+  ---
+  duration_ms: 200.278666
+  type: 'test'
+  ...
+# Subtest: U05 should resynchronize an uncertain acquisition before asserting mutation authority
+ok 9 - U05 should resynchronize an uncertain acquisition before asserting mutation authority
+  ---
+  duration_ms: 195.186241
+  type: 'test'
+  ...
+# Subtest: T5 should refuse acquisition against a different durable revocation revision
+ok 10 - T5 should refuse acquisition against a different durable revocation revision
+  ---
+  duration_ms: 321.803342
+  type: 'test'
+  ...
+# Subtest: T5 should refuse a corrupt delegation receipt before any further controller authority
+ok 11 - T5 should refuse a corrupt delegation receipt before any further controller authority
+  ---
+  duration_ms: 208.798352
+  type: 'test'
+  ...
+# Subtest: T5 should replace a proven dead unacquired delegate with a new epoch and reject its old ticket
+ok 12 - T5 should replace a proven dead unacquired delegate with a new epoch and reject its old ticket
+  ---
+  duration_ms: 329.877682
+  type: 'test'
+  ...
+# Subtest: T5 should recover a dead acquired controller from the exact selected image without reviving its source
+ok 13 - T5 should recover a dead acquired controller from the exact selected image without reviving its source
+  ---
+  duration_ms: 364.975686
+  type: 'test'
+  ...
+# Subtest: T5 should refuse a delegate death inferred from an incomparable process frame
+ok 14 - T5 should refuse a delegate death inferred from an incomparable process frame
+  ---
+  duration_ms: 267.922031
+  type: 'test'
+  ...
+1..14
+# tests 14
+# suites 0
+# pass 14
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 4864.236069
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-delegation.test.js"],"code":0,"signal":null,"tests":14,"invalid":false,"spawned":53,"leftovers":[]}

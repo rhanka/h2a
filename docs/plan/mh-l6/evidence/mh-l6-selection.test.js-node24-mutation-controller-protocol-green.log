@@ -1,12 +1,12 @@
 command: /tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-selection.test.js
 node: v24.21.0
-private root: /tmp/mh-l6-test-mNlgEF
+private root: /tmp/mh-l6-test-ZbML9b
 case: all cases in explicit file
 TAP version 13
 # Subtest: U06 should refuse foreign layout, unknown controllers and changed payload before selection
 ok 1 - U06 should refuse foreign layout, unknown controllers and changed payload before selection
   ---
-  duration_ms: 49.275231
+  duration_ms: 45.601987
   type: 'test'
   ...
 1..1
@@ -17,6 +17,6 @@ ok 1 - U06 should refuse foreign layout, unknown controllers and changed payload
 # cancelled 0
 # skipped 0
 # todo 0
-# duration_ms 115.568816
+# duration_ms 97.735408
 
 receipt: {"command":["/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-selection.test.js"],"code":0,"signal":null,"tests":1,"invalid":false,"spawned":1,"leftovers":[]}

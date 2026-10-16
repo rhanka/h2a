@@ -1,12 +1,12 @@
 command: /tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-selection.test.js
 node: v24.21.0
-private root: /tmp/mh-l6-test-NzX60D
+private root: /tmp/mh-l6-test-fBVEyu
 case: all cases in explicit file
 TAP version 13
 # Subtest: U05 should exclude the actual legacy prefix lock and coalesce only the same request
 not ok 1 - U05 should exclude the actual legacy prefix lock and coalesce only the same request
   ---
-  duration_ms: 14.925735
+  duration_ms: 16.440216
   type: 'test'
   location: '/tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-selection.test.js:12:94'
   failureType: 'testCodeFailure'
@@ -21,11 +21,11 @@ not ok 1 - U05 should exclude the actual legacy prefix lock and coalesce only th
   actual:
   error: 'legacy_lock_lost'
   stack: |-
-    held (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/dist/runtime/upgrade/h4-store.js:71:27)
-    file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/dist/runtime/upgrade/h4-store.js:72:17
+    held (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/dist/runtime/upgrade/h4-store.js:72:27)
+    file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/dist/runtime/upgrade/h4-store.js:73:17
     mutationLock (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/dist/runtime/handover/mutation.js:50:23)
-    #locked (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/dist/runtime/upgrade/h4-store.js:69:20)
-    UpgradeStore.begin (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/dist/runtime/upgrade/h4-store.js:128:28)
+    #locked (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/dist/runtime/upgrade/h4-store.js:70:20)
+    UpgradeStore.begin (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/dist/runtime/upgrade/h4-store.js:129:28)
     file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-selection.test.js:64:37
     getActual (node:assert:611:5)
     strict.throws (node:assert:759:24)
@@ -47,6 +47,6 @@ not ok 1 - U05 should exclude the actual legacy prefix lock and coalesce only th
 # cancelled 0
 # skipped 0
 # todo 0
-# duration_ms 68.199823
+# duration_ms 73.283642
 
 receipt: {"command":["/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-selection.test.js"],"code":1,"signal":null,"tests":1,"invalid":false,"spawned":1,"leftovers":[]}
