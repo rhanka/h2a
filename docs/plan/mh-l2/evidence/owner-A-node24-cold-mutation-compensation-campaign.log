@@ -1,0 +1,44 @@
+{"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","scripts/mh-l2-mutate.mjs","compensation"],"pid":54457,"code":0,"signal":null,"elapsedMs":3588}
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node --test packages/h2a/test/mh-l2-compensation.test.js
+node: v24.21.0
+private test root: /tmp/mh-l2-test-Z528lu
+✖ compensation should require new ACTIVE H4 authority, a verified source image and proven absence; never reopen G0 (2686.293425ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 0
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 2739.279009
+
+✖ failing tests:
+
+test at packages/h2a/test/mh-l2-compensation.test.js:11:1
+✖ compensation should require new ACTIVE H4 authority, a verified source image and proven absence; never reopen G0 (2686.293425ms)
+  AssertionError [ERR_ASSERTION]: Missing expected exception.
+      at TestContext.<anonymous> (file:///tmp/mh-l2-owner-A-final-Tcelt2/source/packages/h2a/test/mh-l2-compensation.test.js:55:12)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: undefined,
+    expected: /compensation_controller_unqualified/,
+    operator: 'throws',
+    diff: 'simple'
+  }
+receipt: {"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","--test","packages/h2a/test/mh-l2-compensation.test.js"],"code":1,"signal":null,"elapsedMs":2767}
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node --test packages/h2a/test/mh-l2-compensation.test.js
+node: v24.21.0
+private test root: /tmp/mh-l2-test-DAB1HW
+✔ compensation should require new ACTIVE H4 authority, a verified source image and proven absence; never reopen G0 (661.120837ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 1
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 715.652652
+receipt: {"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","--test","packages/h2a/test/mh-l2-compensation.test.js"],"code":0,"signal":null,"elapsedMs":747}
+

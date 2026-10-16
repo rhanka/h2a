@@ -1,0 +1,16 @@
+{
+  "command": [
+    "/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node",
+    "scripts/mh-l2-mutate.mjs",
+    "owner-record"
+  ],
+  "code": 0,
+  "signal": null,
+  "elapsedMs": 85433,
+  "umask": "022",
+  "redAssertion": true,
+  "redCode1": true,
+  "greenCode0": true,
+  "noSkips": true,
+  "initialFailedRestoration": "owner-A-node24-cold-mutation-owner-record-campaign.log"
+}
