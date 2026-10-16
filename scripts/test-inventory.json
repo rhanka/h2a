@@ -586,7 +586,8 @@
     "the rehearsal re-checks the tarball sha256 tie before any dry-run publish",
     "the rehearsal always dry-runs the verified bytes: ./ file spec and backfill kept, skip and wait dropped",
     "the rehearsal drops node_modules before the dry-run publishes",
-    "the rehearsal carries no registry credentials"
+    "the rehearsal carries no registry credentials",
+    "rehearsal executes all four online dry-runs and propagates failures"
   ],
   "packages/h2a/test/rehearsal-version.test.js": [
     "stamps every published manifest, internal pin and the independent smoke literal",
