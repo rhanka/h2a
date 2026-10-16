@@ -1,6 +1,6 @@
 ---
 status: selection-failed
-target-ref: feat/live-cross-cli-messaging, native-terminal/op.ts and cross-CLI qualification harness
+target-ref: 2f4568a93922942c24dfc59d8b62de6725f0147c, native-terminal/op.ts, Muse host setup and cross-CLI qualification harness
 observed-failure: Exact author model/effort metadata is not attested; the owner also forbids the installed h2a dispatch required by the review skill.
 ---
 
