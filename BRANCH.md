@@ -1,89 +1,41 @@
-# Identity lock recovery 0.98.6 — FINAL v6, A + B
+# Presence and identity liveness — 0.98.6
 
-Branch: `fix/0.98.6-identity-lock-recovery`.
-Base: `e3fc1a52` (0.98.5); first attempt: `4c5c6596`.
-Owner decision D1 = B: provenance recovery and bounded independent recovery
-of canonical epoch-bearing legacy binding locks ship together.
+Branch: `fix/presence-identity-liveness`. Base: `58f111b3` (origin/main at checkout).
 
 ## Scope
 
-- Identity v2/v4/legacy discrimination, qualified death proofs and per-link authorization.
-- Existing succession election, durable repair before retiring the original generation.
-- Durable possession receipts, exclusive binding CAS slots and roll-forward of all relevant slots.
-- Complete-line readers, bounded monotone waits and safe release/exit behavior.
-- Identity operator and cull verifier use the common fence; destructive cull stays disabled.
-- MCP contention IPC, parent diagnostic HMAC, retry conditions and current/previous attempt handling.
-- Test-only isolated builds, real-process concurrency, legacy producer and private reboot simulations.
+- Keep MCP heartbeats alive after transient presence write failures; log the failure and retry on the next tick.
+- Clean failed atomic publications immediately; collect old orphan presence temporary files.
+- Make status/discovery/read calls drive the existing bounded identity retry, retaining permanent-failure and blocker-change gates.
+- Reuse the 0.98.6 identity fence recovery. Collect only old dead-holder `.lock.stale-*` archives, never active fences or succession/journal files.
+- Refuse live MCP discussion without fresh recipient presence (`recipient_not_live`). Bound mesh initialization/send acknowledgement to 10 seconds (`send_timeout`, delivery unconfirmed).
 
-Upgrade keeps its 0.98.5 serializer, classifier and default election bindings.
-No dependency or version range change, installed h2a invocation, main mutation,
-force-push, generic GC or public anchor/inventory spoofing option.
+The parallel `feat/live-cross-cli-messaging` lot owns delivery, host wake and cross-CLI end-to-end measurements. This lot changes only presence/identity and the requested MCP send admission/deadline boundary. `sendLocalMessage` and the CLI retain the existing dormant-deposit contract; MCP opts into live-only admission.
+
+## Isolation and collection invariants
+
+- Repository source builds only, into mkdtemp lanes; temporary HOME, TMPDIR and XDG roots, with the existing forbidden-state/owned-PID guard.
+- Targeted test files only. No installed h2a invocation, owner state/workspace, unowned process access, full suite, PR, merge or release.
+- GC requires age >=24 hours, regular file, one link, a provably dead PID (ESRCH), and unchanged inode/timestamps before unlink. Presence filenames must also carry an old creation timestamp.
+- Retain live/unknown holders, malformed archives, young files, symlinks and linked files. Read-only presence scans disable GC.
+- Expiry stays honest during storage failure or disconnection. An MCP reconnect publishes a new session for the same instance; EOF removes the old attachment presence.
 
 ## Verification
 
-Run only named test files with `test/helpers/identity-isolated-run.mjs`.
-The runner builds repository sources into mkdtemp, uses temporary XDG/H2A roots,
-and enforces a checked guard against production state and unowned PIDs.
-Reboot/procfs and capability fixtures remain outside src/dist/package exports.
-Typecheck runs in that same source copy via `identity-isolated-typecheck.mjs`.
-The conductor owns the full integration suite and release cut.
+| Evidence | Result |
+|---|---|
+| New regression files against original HEAD, lane BR9xYC | 12 tests, 1 pass, 11 fail, 0 skipped |
+| Punctuated historical archive suffix regression, lane Fp9xl8 | 11 tests, 9 pass, 2 fail, 0 skipped |
+| Eleven targeted files on final sources, lane RQHurs | 96 tests, 96 pass, 0 fail, 0 skipped |
+| Isolated typecheck of RQHurs | track, remote-protocol, h2a, h2a-runtime: exit 0 |
 
-## Release gates still external
+Run tests through `packages/h2a/test/helpers/identity-isolated-run.mjs` with explicit file arguments. The selected files are presence-identity-liveness, presence-identity-recovery, identity-state, send, mcp-sessions, mcp-stdio, presence-workstatus, identity-lock-recovery, identity-lock-mcp-v6, cluster-mesh-messaging and presence-confidence (`packages/h2a/test/*.test.js`).
 
-Native B qualification on an isolated initial-namespace CI host/KVM lab,
-power-loss images reconstructed from synchronized writes, full R8 matrix,
-Darwin/Windows native qualification, and independent final re-review are not
-inferred from scoped green tests. The build report records exact commands,
-outputs, simulations and remaining qualification gaps. A+B has no release GO
-until the FINAL v6 B10 gate is satisfied.
+The real-process regressions cover an injected heartbeat write failure while MCP still answers, and a live v2 holder that times out, dies without unlinking its fence, then is reclaimed by a second real identity worker triggered by status alone. Every fork is awaited during teardown.
 
-## Release candidate round 6
+## Limits and review
 
-Owner scope: F1–F10 and interrupted PTY teardown. Tests use private temporary
-HOME/XDG roots, owned processes only, and named files until the explicit final
-`npm test` integration exception (at most two runs). No installed h2a, main
-changes, dependency version changes, Python, merge, tag or publication.
-
-- PTY reincarnation waits for the observed exit within the product stop bound.
-  Teardown discovers created trees before host death, kills entire groups, and
-  verifies no live descendant; fault-injected failure and timeout are qualified.
-- Legacy predicate regressions cover Threads: 1, hostname/collection, inode
-  protections, time namespaces, and exact civil-date/boot agreement margins.
-- Published 0.98.5 `identity unlock` races the candidate in both election orders
-  through the real exclusive filesystem publication, using a private npm prefix.
-- The isolated typecheck creates a fresh source lane and preserves npm workspace
-  dependency resolution; a previous test run is no longer a prerequisite.
-- The four runtime placeholders are declared non-tests alongside the 38 Node
-  placeholders. Their exact identities, statuses and continued presence are
-  required by the execution gate; none is claimed as coverage.
-- Native qualification records real initial procfs anchors and owned PID churn.
-  A global NSpid census over unowned processes, suspend/KVM and physical power
-  loss remain outside this confinement; B10 is not inferred from partial evidence.
-
-The external round-6 report preserves every command/output, mutant and failed
-experiment. Final qualification, pushed commits and remaining limitations are
-recorded there; no merge is authorized while a reserve remains.
-
-The second full integration exposed a deterministic supervisor election race:
-a contender can exit with the live-owner publication refusal before the winning
-host answers health. Continue the existing readiness loop under its original
-deadline for that exact refusal; never respawn or bypass the health/containment
-gate. The regression also checks unrelated startup errors, no healthy winner,
-and backoff. The owner's two-full limit is exhausted; another full requires an
-explicit extension. No final-green claim is made without that additional run.
-
-## Release candidate CI repair
-
-Owner scope 2026-10-13: repair PR #330 CI on Node 22/24, provision historical
-fixtures in shallow checkouts, build native qualification in workspace order,
-and prove fixture host/journal teardown on success, failure and timeout.
-The owner abolished the out-of-gate native kernel qualification and authorized
-one final full integration run for this repair. No merge or release is authorized.
-
-CI exposed additional blocking fixtures after the historical builds ran:
-the namespace registry parent was absent, the reaper probed a group before
-checking its frame, mandatory host configuration oracles were not installed,
-the 30x24 lock stress reloaded the full API per worker, and Node 24 selected
-the spec reporter for a nested timeout proof. Targeted checks cover the fixes;
-the stress load and 120-second deadline stay unchanged. The single local full
-run passed before these CI follow-ups; final acceptance belongs to head CI.
+- No nine-hour soak or reproduction on the real Antigravity/Claude host. The reproduced failure routes explain code defects, not an attestation of the exact field incident.
+- No end-to-end cross-CLI delivery qualification or Darwin/Windows qualification; the conductor owns integration.
+- An already dispatched mesh operation has no cancellation contract. Timeout bounds the response and reports unconfirmed delivery; it cannot assert non-delivery or safe automatic retry.
+- The required peer review could not be dispatched under owner confinement. See `docs/reviews/presence-identity-liveness.md`; no consensus is claimed.
