@@ -7,6 +7,8 @@ export function inspectSkillEntries(entries, requiredResources) {
 export function inspectGuardEntries(entries, sessionId) {
   const notices = entries.filter(e => e.sessionId === sessionId && e.type === 'notice').map(e => e.detail);
   const refused = notices.find(n => n.kind === 'hook_completed' && n.scope === 'pre_tool' && n.hookName === 'sentropic-h2a-deny-manual-cli' && n.status === 'error' && n.toolCallId);
+  const targets = entries.filter(e => e.sessionId === sessionId && e.type === 'effect' && e.detail?.input?.command === 'h2a --version');
+  if (targets.some(e => e.state?.status === 'completed') || !targets.some(e => e.id === refused?.toolCallId && ['failed', 'skipped', 'cancelled'].includes(e.state?.status))) return false;
   const benign = entries.find(e => e.sessionId === sessionId && e.type === 'effect' && e.detail?.input?.command === 'printf vibe-guard-ok' && e.state?.status === 'completed');
   const id = benign?.id;
   const started = notices.some(n => n.kind === 'hook_run_started' && n.scope === 'pre_tool' && n.toolCallId === id);
@@ -18,7 +20,8 @@ export function inspectLifecycleEntries(entries, origin, copy, recordEvidence) {
   const post = entries.filter(e => e.type === 'notice' && e.detail?.scope === 'post_agent');
   const nativeParentRun = post.some(e => e.sessionId === origin && e.detail.kind === 'hook_run_started') && post.some(e => e.sessionId === origin && e.detail.kind === 'hook_run_completed');
   const delegated = entries.some(e => e.sessionId === origin && e.type === 'effect' && e.detail?.kind === 'subagent' && e.state?.status === 'completed');
-  return nativeParentRun && delegated && !!copy && recordEvidence.parentRecordPresent && recordEvidence.lifecycleRecordUnchangedInFork && recordEvidence.recordedAfterParent;
+  return nativeParentRun && delegated && !!copy && recordEvidence.parentRecordPresent && recordEvidence.lifecycleRecordUnchangedInFork && recordEvidence.recordedAfterParent &&
+    recordEvidence.childRecordUntouched === true && recordEvidence.parentRecordTransitions === 1 && recordEvidence.otherInstancesUntouched === true;
 }
 export function inspectMcpEntries(entries, sessionId, { busRoot, workspace }) {
   const effects = entries.filter(e => e.sessionId === sessionId && e.type === 'effect' && e.state?.status === 'completed');
