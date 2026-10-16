@@ -22,6 +22,22 @@ const readEvents = path => {
 };
 
 // Closed vocabulary only: provider text and errors never leave process memory.
+function startupFacts(screen) {
+  const vocabulary = ['Welcome to Claude', 'Quick safety check', 'Yes, I trust this folder',
+    'Yes, I trust this project', 'No, exit', 'Choose the text style', 'Trust this folder?',
+    'Default permissions', 'Choose your permissions', 'Choose how', 'Select',
+    'permissions', 'Press', 'Enter', 'continue', 'confirm', 'trust', 'folder',
+    "You're in control", 'Codex can make mistakes', 'Included with your ChatGPT plan',
+    'Learn about permissions and approvals', 'security notes', 'MCP', 'Allow', 'Sign in'];
+  return { matched: vocabulary.filter(text => screen.includes(text)),
+    choices: [...screen.matchAll(/(?:^|\n)\s*([›❯>]?)\s*([1-9])[.)]\s*(Yes|No)\b/g)].map(m => ({ selected: Boolean(m[1]), number: Number(m[2]), choice: m[3] })),
+    qualificationDraft: /^\s*›\s*Qualification h2a\./m.test(screen),
+    wakeDraft: /^\s*[❯›]\s*\[h2a from=/m.test(screen),
+    emptyComposer: /^\s*[❯›]\s*$/m.test(screen), interruptVisible: /esc to interrupt/i.test(screen),
+    signedWakeVisible: screen.includes('[h2a from='), inboxWakeVisible: screen.includes('[h2a-wake reason=inbox'),
+    toolApproval: /permission.{0,20}(?:required|denied)|allow.{0,30}(?:tool|MCP)|approve.{0,25}(?:tool|MCP)/i.test(screen) };
+
+}
 function blockingScreen(screen) {
   if (/sign in|log in|login required|not logged in|authentication required|please authenticate|API key.{0,30}(?:missing|required)|Select authentication|How would you like to authenticate/i.test(screen)) return 'authentication-required';
   if (/quota exceeded|usage limit|rate.?limit|credits exhausted|insufficient credits|limit reached/i.test(screen)) return 'provider-quota';
@@ -162,11 +178,20 @@ async function worker() {
   async function startup(target, screen) {
     target.startupActions ??= new Set();
     const action = startupKey(screen);
-    if (!action || target.startupActions.has(action)) return false;
+    if (!action) return false;
+    // Rendering a choice does not mean the CLI has installed its key handler.
+    // Use the same quiet interval as readiness, within the existing deadline.
+    if (target.startupActions.has(action) || Date.now() - (target.lastOutputAt ?? Date.now()) < 2000) { await sleep(100); return true; }
     target.startupActions.add(action);
     const lease = await client.acquireController(target.state.id, 'xcli-startup', 'automation');
-    try { await client.write(lease, '\r'); } finally { await client.releaseController(lease); }
-    row.evidence.push({ event: 'startup-ui', role: target.role, action, at: Date.now() });
+    try {
+      // Claude 2.1.301 hides indexes and focuses Cancel in this exact dialog.
+      // Navigate its normal UI to the explicit trust choice in our empty workspace.
+      const cancelFirst = action === 'trust-empty-workspace' && target.cli === 'claude' &&
+        screen.includes('Quick safety check') && screen.includes('No, exit') && screen.includes('Yes, I trust this folder');
+      await client.write(lease, cancelFirst ? '\x1b[B\r' : '\r');
+    } finally { await client.releaseController(lease); }
+    row.evidence.push({ event: 'startup-ui', role: target.role, action, facts: startupFacts(screen), at: Date.now() });
     target.screen = '';
     await sleep(500);
     return true;
@@ -184,7 +209,7 @@ async function worker() {
       const screen = await capture(target);
       if (await startup(target, screen)) continue;
       const blocker = blockingScreen(screen);
-      if (blocker) return { blocker };
+      if (blocker) { row.evidence.push({ event: 'startup-screen-facts', role: target.role, facts: startupFacts(screen) }); return { blocker }; }
       const identity = events(target).find(e => e.event === 'identity' && e.ok && e.ready);
       const armed = events(target).some(e => e.event === 'wake-armed');
       if (identity && loaded(target) && armed && paneIsReady(screen, target.cli) && Date.now() - (target.lastOutputAt ?? Date.now()) >= 2000) {
@@ -195,6 +220,7 @@ async function worker() {
       await sleep(100);
     }
     const e = events(target);
+    row.evidence.push({ event: 'startup-screen-facts', role: target.role, facts: startupFacts(target.terminal.screen()) });
     row.evidence.push({ event: 'readiness-deadline', role: target.role,
       modelToolCallObserved: e.some(v => ['identity', 'send', 'inbox'].includes(v.event)),
       composerReady: paneIsReady(stripAnsi(target.screen), target.cli),
@@ -261,6 +287,8 @@ async function worker() {
       if (blocker) { row.blocker = blocker; break; }
       await sleep(100);
     }
+    if (!row.replyDelivered) for (const target of targets)
+      row.evidence.push({ event: 'final-screen-facts', role: target.role, facts: startupFacts(await capture(target)) });
     if (!row.blocker && !row.replyDelivered) row.failure = row.sent ? (row.received ? 'reply-not-observed' : 'live-receive-not-observed') : 'sender-send-not-observed';
     return row;
   } catch (error) {
@@ -273,7 +301,15 @@ async function worker() {
   } finally {
     for (const t of targets) row.evidence.push(...events(t).map(e => ({ role: t.role, ...e })));
     for (const t of targets.reverse()) {
-      try { isolation.pinPrivateNativeProcess(t.state.pid, t.env); }
+      try {
+        const owned = isolation.pinPrivateNativeProcess(t.state.pid, t.env);
+        row.evidence.push({ event: 'owned-process-states', role: t.role, states: owned.pids.flatMap(pid => {
+          try {
+            const stat = fs.readFileSync(join(t.env.H2A_TEST_OWNED_PROC_ROOT, pid + '.pin', 'stat'), 'utf8');
+            return [{ pid, state: stat.slice(stat.lastIndexOf(')') + 2, stat.lastIndexOf(')') + 3) }];
+          } catch (error) { if (['ENOENT', 'ESRCH'].includes(error.code)) return []; throw error; }
+        }) });
+      }
       catch (error) { if (!['ENOENT', 'ESRCH'].includes(error.code)) cleanupError('pin', error); }
       try {
         const current = await client.state(t.state.id);
@@ -309,7 +345,10 @@ async function worker() {
     if (row.cleanupFailed) row.blocker = 'owned-process-cleanup-failed';
     // Remove copied logins and CLI-owned transcripts. Only allowlisted witness
     // records returned to the parent survive the cell.
-    if (!row.cleanupFailed) fs.rmSync(cell, { recursive: true, force: true });
+    if (!row.cleanupFailed) {
+      fs.rmSync(cell, { recursive: true, force: true });
+      row.evidence.push({ event: 'cleanup-complete', ownedProcessesStopped: true, privateStateRemoved: !fs.existsSync(cell) });
+    }
     else row.privateCleanupRoot = cell;
     process.off('SIGTERM', cancel);
     process.off('SIGINT', cancel);
