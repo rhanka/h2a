@@ -1,6 +1,6 @@
 ---
 status: selection-failed
-target-ref: 97e75967
+target-ref: 87d88fa1110365be2a58a020ab4a4b82faa5390b
 review-author:
   host: codex
   model: unknown
@@ -47,3 +47,29 @@ Additional limits: expired/malformed published files are retained on disk (TTL s
 them); local PID existence is not proof of connected MCP consumption and cannot prevent
 later death or PID reuse; mirrored owners are validated by remote heartbeat freshness only.
 No real owner state, nine-hour soak, Node 24 rerun, cross-CLI end-to-end or full suite.
+
+## Owner-supplied independent re-review and round 3
+
+`revpresence2.md` reports NON-FUSIONNABLE on one remaining P2: the dead-PID
+prefilter also removed a known display name, bypassing the typed live-admission
+refusal. Accepted and fixed in `87d88fa1110365be2a58a020ab4a4b82faa5390b`.
+Both transports share the corrected preparation path. Live owners retain
+resolution priority; fresh rejected records supply only a unique diagnostic
+name/alias, and the existing live-only admission still refuses before side effects.
+The same pattern on an unregistered host:label alias was reproduced and fixed.
+The other CLI/MCP resolver callers do not apply that PID prefilter.
+
+Six regressions failed before the fix (13 tests: 7 pass, 6 fail, 0 skipped,
+`myhpNJ`), including successful display-name sends while real owners lived.
+After the fix: 15/15 admission checks (`d1EMBr`); 88/88 across five named files
+(`B130fd`), zero skips. Four isolated package typechecks exit 0. All 44 recorded
+test PIDs are gone. Source provenance was checked against the pre-fix commit
+and final source bytes; commands/output are in scratch `presence-evidence/tour3/`.
+
+Manual review checked the live-only admission, ambiguity preservation, dead alias
+versus live display names, malformed/unknown addressing and dormant compatibility.
+This is implementation plus regression evidence, not independent approval to merge.
+The harness-review skill still requires "Launch only through the installed h2a
+MCP server's `h2a_run` tool", forbidden by owner confinement; no peer was launched,
+no consensus is claimed and the selection-failed status remains. Node 22.22.1 only
+in this round; previous field/E2E/platform/endurance limitations remain.

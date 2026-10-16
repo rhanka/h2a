@@ -74,3 +74,38 @@ and `presence-evidence/tour2/`. No global suite or real-host validation was run.
 The prior reconnect test already passed on the base; it is compatibility coverage, not a
 newly fixed regression. No second independent review or multi-peer consensus is claimed;
 the installed h2a MCP review launch path remains forbidden. See the review dossier.
+
+## Review fix — round 3
+
+Owner-supplied `revpresence2.md` retained one P2: PID filtering removed display
+names before resolution, so a known dead peer returned an unqualified/phantom
+error rather than the typed `recipient_not_live` refusal.
+
+Fixed in `87d88fa1`: resolve living owners first; when no living candidate is
+resolved, use the fresh records only to recover a unique known name/alias for
+the existing admission check. That check still uses only qualifying live owners
+and runs before signing, inbox writes or mesh dispatch. Living candidates and
+their ambiguity retain priority; unknown/malformed targets keep addressing errors.
+The same defect affected an unregistered peer's host:label alias and is covered
+on both backends. Other CLI/MCP resolver callers do not prefilter owner PIDs;
+the dormant deposit contract and the shared address resolver remain unchanged.
+
+| Targeted isolated validation | Observed result |
+|---|---|
+| New regressions on unchanged pre-fix sources (`954cdc10`, lane `myhpNJ`) | 13 tests, 7 pass, 6 expected failures, 0 skipped; exit 1 |
+| Admission file after fix, including two added compatibility controls (`d1EMBr`) | 15/15, 0 skipped; exit 0 |
+| Five named files: presence-live-admission, send, wp2-resolve-before-send, presence-identity-liveness, cluster-mesh-messaging (`B130fd`) | 88/88, 0 skipped; exit 0 |
+| Isolated typecheck of the same final build | track, remote-protocol, h2a, h2a-runtime: exit 0 each |
+| Audit of recorded test PIDs across the three lanes | 44 checked, none alive |
+
+The four display-name regressions send successfully through the same name while
+a real child owner lives, terminate and await that child, then check typed refusal
+without inbox/mesh effects and successful recovery with a live attachment.
+Two further regressions cover unregistered aliases. Compatibility checks preserve
+live names over dead duplicates, live ambiguity even with a dead alias, and
+unknown/malformed errors. Node 22.22.1; temporary builds/HOME/XDG roots and the
+owned-PID/forbidden-path guard. Commands, full TAP, environments and source hashes
+are in the owner's scratch report, Tour 3, and `presence-evidence/tour3/`.
+No full suite, real owner state, installed h2a, Python or independent consensus
+review. Node 24, other OSes, nine-hour endurance and cross-CLI delivery remain
+unqualified in this round. The installed MCP review launch path remains forbidden.
