@@ -25,15 +25,27 @@ export function verifyImageLoader(path, managedRoot, expectedDigest) {
   return path;
 }
 
-function imageAt(managedRoot, file) {
-  const path = file instanceof URL ? fileURLToPath(file) : resolve(file);
+function imageAt(managedRoot, file, base = process.cwd()) {
+  let requested;
+  try { requested = file instanceof URL || (typeof file === 'string' && file.startsWith('file:')) ? fileURLToPath(file) : resolve(base, file); }
+  catch (error) { if (typeof file === 'string' && file.startsWith('file:')) return undefined; throw error; }
   const prefix = join(managedRoot, 'images') + sep;
-  if (!path.startsWith(prefix)) return undefined;
+  let path;
+  try { path = fs.realpathSync(requested); }
+  catch (error) {
+    if (!requested.startsWith(prefix) && ['ENOENT', 'ENOTDIR', 'ENAMETOOLONG', 'EINVAL'].includes(error.code)) return undefined;
+    throw error;
+  }
+  if (!path.startsWith(prefix)) {
+    if (requested.startsWith(prefix)) throw new Error('image_external_module');
+    return undefined;
+  }
   const hash = path.slice(prefix.length).split(sep)[0];
   if (!/^[0-9a-f]{64}$/.test(hash)) throw new Error('image_root_invalid');
+  if (requested.startsWith(prefix) && requested.slice(prefix.length).split(sep)[0] !== hash) throw new Error('image_external_module');
   const root = join(managedRoot, 'images', hash);
-  if (!inside(root, fs.realpathSync(path))) throw new Error('image_external_module');
-  return { root, manifestDigest: 'sha256:' + hash };
+  if (!inside(root, path)) throw new Error('image_external_module');
+  return { root, manifestDigest: 'sha256:' + hash, entrypoint: path };
 }
 
 function cleanEnv(env = process.env) {
@@ -98,25 +110,41 @@ export function installImageExecutionPolicy(root, manifest, manifestDigest, load
   const original = Object.fromEntries(['spawn', 'spawnSync', 'execFile', 'execFileSync', 'fork'].map(key => [key, cp[key]]));
   const nodeArgs = (command, args, options = {}) => {
     const cwd = options.cwd ? (options.cwd instanceof URL ? fileURLToPath(options.cwd) : resolve(options.cwd)) : process.cwd();
-    // An image path anywhere in argv makes shell/eval ambiguity fail closed.
-    const candidates = args.map((arg, index) => ({ arg, index })).filter(({ arg }) => typeof arg === 'string' &&
-      (isAbsolute(arg) ? inside(join(managedRoot, 'images'), arg) : inside(join(managedRoot, 'images'), resolve(cwd, arg))));
-    if (!candidates.length) return { args, options };
-    // File arguments to external tools (for example tar/cat) are not module
-    // entries. Node executions of our images must use this qualified runtime.
-    if (!['node', 'nodejs'].includes(basename(command)) && command !== process.execPath) return { args, options };
+    let nodeCommand = ['node', 'nodejs'].includes(basename(command)) || command === process.execPath;
+    if (!nodeCommand && isAbsolute(command)) {
+      try { nodeCommand = fs.realpathSync(command) === currentNode; } catch { /* Original spawn diagnoses an unavailable external command. */ }
+    }
+    if (!nodeCommand) return { args, options };
     let first = -1;
     for (let index = 0; index < args.length; index++) {
       if (args[index] === '--import') { index++; continue; }
       if (args[index] === '--') { first = index + 1; break; }
       if (!args[index].startsWith('-')) { first = index; break; }
     }
-    const script = first === -1 ? undefined : candidates.find(row => row.index === first);
-    if (!script || options.shell) throw new Error('image_child_entry_unqualified');
-    const target = imageAt(managedRoot, resolve(cwd, script.arg));
-    const env = cleanEnv(options.env); qualifiedNode(command, env);
-    const prefixFlags = args.slice(0, first).filter(arg => arg !== '--');
-    return { args: [...flags(prefixFlags), preload(target), ...args.slice(first)], options: { ...options, env } };
+    if (first >= 0 && first < args.length) {
+      const prefixFlags = args.slice(0, first).filter(arg => arg !== '--');
+      const target = imageAt(managedRoot, args[first], cwd);
+      if (target) {
+        if (options.shell) throw new Error('image_child_entry_unqualified');
+        const qualified = flags(prefixFlags), env = cleanEnv(options.env); qualifiedNode(command, env);
+        // Once the script is known, subsequent argv are opaque application
+        // data. Never resolve or inspect paths supplied there by a tool user.
+        return { args: [...qualified, preload(target), target.entrypoint, ...args.slice(first + 1)], options: { ...options, env } };
+      }
+      let qualified = false;
+      try { flags(prefixFlags); qualified = true; } catch { /* Ambiguous options are examined below. */ }
+      if (qualified && !options.shell) return { args: [...withoutOwnPreload(args.slice(0, first)), ...args.slice(first)], options };
+    }
+    // An unknown option can consume the apparent script. Refuse ambiguous
+    // shell/eval/loading forms when they refer to any physical image file.
+    const referencesImage = args.some(arg => {
+      if (typeof arg !== 'string') return false;
+      const split = arg.startsWith('--') ? arg.indexOf('=') : -1;
+      const value = split >= 0 ? arg.slice(split + 1) : arg;
+      return inside(join(managedRoot, 'images'), resolve(cwd, value)) || imageAt(managedRoot, value, cwd);
+    });
+    if (referencesImage) throw new Error(options.shell ? 'image_child_entry_unqualified' : 'external_loader_unqualified');
+    return { args, options };
   };
   for (const key of ['spawn', 'spawnSync', 'execFile', 'execFileSync']) {
     cp[key] = function(command, args, options, callback) {
@@ -131,7 +159,8 @@ export function installImageExecutionPolicy(root, manifest, manifestDigest, load
   cp.fork = function(file, args, options) {
     if (!Array.isArray(args)) { options = args ?? {}; args = []; }
     options ??= {};
-    const target = imageAt(managedRoot, file);
+    const cwd = options.cwd ? (options.cwd instanceof URL ? fileURLToPath(options.cwd) : resolve(options.cwd)) : process.cwd();
+    const target = imageAt(managedRoot, file, cwd);
     if (!target) {
       // External Node applications must not inherit an h2a image restriction.
       return original.fork.call(this, file, args, { ...options, execArgv: withoutOwnPreload(options.execArgv ?? process.execArgv) });

@@ -1,0 +1,39 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-components.test.js
+node: v22.22.1
+private root: /tmp/mh-l6-test-IknIts
+case: U12 should leave opaque data arguments untouched after identifying the image entry
+TAP version 13
+# Subtest: U12 should leave opaque data arguments untouched after identifying the image entry
+not ok 1 - U12 should leave opaque data arguments untouched after identifying the image entry
+  ---
+  duration_ms: 2677.402911
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-components.test.js:10:84'
+  failureType: 'testCodeFailure'
+  error: |-
+    EACCES: permission denied, lstat '/tmp/mh-l6-test-IknIts/tmpdir/mh-l5-image-E5Ri0c/unverified-worker-data/opaque'
+    
+    -1 !== 0
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 0
+  actual: -1
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-components.test.js:75:142)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 0
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 2947.27169
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-components.test.js"],"code":1,"signal":null,"tests":1,"invalid":false,"spawned":2,"leftovers":[]}

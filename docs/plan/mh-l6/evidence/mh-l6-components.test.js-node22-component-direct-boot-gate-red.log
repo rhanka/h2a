@@ -1,0 +1,40 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-components.test.js
+node: v22.22.1
+private root: /tmp/mh-l6-test-KkFlfg
+case: U12 should guard the real boot file on a direct Node entry outside its parent launcher
+TAP version 13
+# Subtest: U12 should guard the real boot file on a direct Node entry outside its parent launcher
+not ok 1 - U12 should guard the real boot file on a direct Node entry outside its parent launcher
+  ---
+  duration_ms: 2516.907191
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-components.test.js:10:84'
+  failureType: 'testCodeFailure'
+  error: |-
+    h2a mcp-serve: h2a 0.98.6 available (current 0.98.5) — run `h2a upgrade`
+    
+    
+    0 !== 1
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 1
+  actual: 0
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-components.test.js:82:69)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 0
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 2826.594491
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-components.test.js"],"code":1,"signal":null,"tests":1,"invalid":false,"spawned":2,"leftovers":[]}
