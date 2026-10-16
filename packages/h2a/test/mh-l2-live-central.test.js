@@ -18,7 +18,7 @@ test('real .7 source should accept the external peer, preserve its admitted larg
   const { buildPackagingPrototype } = await import('../../../scripts/mh-l1-package-prototype.mjs');
   const { runIsolatedPrecheck } = await import('../src/runtime/handover/precheck.js');
   const dir = fs.mkdtempSync(join(process.env.XDG_CACHE_HOME, 'mh-l2-live-image-'));
-  let source, peer, peerExit, lines, releaseTool, enterTool;
+  let source, peer, peerExit, lines, releaseTool, enterTool, originalFailure;
   const toolEntered = new Promise(resolve => { enterTool = resolve; });
   try {
     const managedRoot = join(dir, 'h2a-managed', String(process.getuid()));
@@ -66,6 +66,13 @@ test('real .7 source should accept the external peer, preserve its admitted larg
     lines = createInterface({ input: peer.stdout });
     const [line] = await Promise.race([once(lines, 'line'), peerExit.then(([code]) => { throw new Error(`own peer exited ${code}: ${stderr}`); })]);
     const peerReady = JSON.parse(line); assert.equal(peerReady.processIdentity.pid, peer.pid);
+    const peerCommand = async command => {
+      const reply = Promise.race([once(lines, 'line'), peerExit.then(([code]) => { throw new Error(`own peer exited ${code}: ${stderr}`); })]);
+      peer.stdin.write(JSON.stringify(command) + '\n');
+      const [line] = await reply, result = JSON.parse(line);
+      if (result.error) throw new Error(result.error);
+      return result;
+    };
     const next = { ...m, generation: '33333333-3333-4333-8333-333333333333', publicationEpoch: { ...m.publicationEpoch, counter: m.publicationEpoch.counter + 1 },
       predecessorGeneration: m.generation, processIdentity: peerReady.processIdentity, pid: peer.pid, endpoint: peerReady.endpoint };
     const coordinator = currentIdentity(), upgradeDirectory = join(state, 'upgrade');
@@ -117,16 +124,16 @@ test('real .7 source should accept the external peer, preserve its admitted larg
     assert.equal((await call('retire', { publicationDigest }, 409)).error, 'drain_blocked');
     const ownerPath = fs.readdirSync(durable).find(name => name.startsWith('ownership-'));
     assert.equal(readState(join(durable, ownerPath), 'ownership').value.state, 'TRANSFERRING');
+    const acquisition = await peerCommand({ operation: 'acquire', target: next, root, markerPath,
+      attachmentId: checkpoint.attachmentId, checkpointHash: digest(checkpoint), sourceGeneration: m.generation, handoverId: 'h' });
+    assert.equal(acquisition.acquired, true);
+    assert.equal(fs.readFileSync(join(root, 'g1-admitted-work'), 'utf8'), 'G1 admitted while G0 drains');
     releaseTool();
     const reply = await (await running).json(); const overflow = JSON.parse(reply.result.content[0].text);
     assert.equal(overflow.code, 'response_too_large'); assert.ok(overflow.recovery.ref);
     assert.ok(fs.readFileSync(join(root, 'mcp-payloads', overflow.recovery.ref + '.bin'), 'utf8').includes('x'.repeat(1024)));
     assert.equal((await call('drain-status')).complete, true);
-    // The external future peer may already own shared component control while
-    // G0 is still finishing its independently admitted operations.
-    const controlPath = join(durable, 'component-control.json'), control = readState(controlPath, 'componentControl');
-    replaceState(controlPath, { ...control.value, revision: control.value.revision + 1,
-      sourceGeneration: next.generation, ownerIdentity: next.processIdentity, ownerState: 'ACTIVE' }, 'componentControl', control);
+    const controlPath = join(durable, 'component-control.json');
     assert.equal((await call('retire', { publicationDigest })).state, 'RETIRED');
     await source.closed;
     assert.equal(readState(markerPath, 'marker').value.generation, next.generation);
@@ -134,10 +141,18 @@ test('real .7 source should accept the external peer, preserve its admitted larg
     assert.equal(readState(join(durable, liveTransactionReference('h')), 'componentTransaction').value.state, 'RETIRED');
     assert.equal(readState(controlPath, 'componentControl').value.ownerState, 'ACTIVE');
     assert.equal(readState(controlPath, 'componentControl').value.sourceGeneration, next.generation);
+    assert.equal(readState(join(durable, ownerPath), 'ownership').value.ownerGeneration, next.generation);
+    const newOperation = readState(join(durable, `operation-${digest(acquisition.operationId).slice(7)}.json`), 'admittedOperation').value;
+    assert.equal(newOperation.state, 'pending'); assert.equal(newOperation.executionOwner.pid, peer.pid);
     assert.equal(fs.existsSync(join(durable, 'operator-stop.json')), false);
+    assert.equal((await peerCommand({ operation: 'complete' })).completed, true);
+  } catch (error) {
+    originalFailure = error; throw error;
   } finally {
-    releaseTool?.(); if (source?.kind === 'started') await source.stop();
-    lines?.close(); if (peer) { peer.stdin.end(); const [code] = await peerExit; assert.equal(code, 0); }
-    fs.rmSync(dir, { recursive: true, force: true });
+    let stopError;
+    try { releaseTool?.(); if (source?.kind === 'started') await source.stop(); } catch (error) { stopError = error; }
+    try { lines?.close(); if (peer) { peer.stdin.end(); const [code] = await peerExit; if (!originalFailure) assert.equal(code, 0); } }
+    finally { fs.rmSync(dir, { recursive: true, force: true }); }
+    if (!originalFailure && stopError) throw stopError;
   }
 });
