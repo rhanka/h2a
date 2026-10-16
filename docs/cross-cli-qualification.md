@@ -67,3 +67,29 @@ Le workflow `cross-cli-messaging` exécute ces gates sur Node 22 et 24. Les
 cellules des six modèles réels restent une qualification locale, en attente
 des sièges CI. Délégation, reprise, configuration centrale automatique et
 fonctions hors messagerie ne sont pas prouvées par cette matrice.
+
+Les tests de producteurs historiques doivent passer par le lanceur CI Linux :
+
+```sh
+node scripts/xcli-in-pid-namespace.mjs scripts/xcli-runtime-tests.mjs
+```
+
+Il compile un init C++ en mkdtemp, puis utilise `sudo -n unshare` pour créer
+un espace PID et son procfs privés. L’init récolte les descendants orphelins ;
+il refuse de fonctionner hors PID 1. La fixture upgrade refuse l’absence de
+preuve du changement d’espace PID. Aucun fallback vers le procfs extérieur
+n’est autorisé. Les fixtures source/doc sont copiées dans le build temporaire.
+Les seuls placeholders admis restent ceux de la déclaration propriétaire
+versionnée ; une absence d’état ou de fixture historique exigée échoue.
+
+Le lecteur PTY émule aussi les requêtes VT de démarrage avec `@xterm/headless`,
+puis interdit irréversiblement toute réponse terminal au receiver après sa
+barrière inactive. Le vérificateur de preuve rejette une entrée ultérieure.
+Le rejeu Codex avec cette émulation reste KO : elle ne suffit pas à qualifier
+le MCP ni un échange modèle réel.
+
+Le gate global `npm test`/release n’est pas qualifié ici. Sa fixture historique
+exige maintenant ce confinement : sans le lanceur, elle échoue avant
+l’installation ou l’exécution du producteur ancien. Le nouveau workflow couvre
+les 34 suites runtime et neuf suites source ciblées ; l’intégration des entrées
+globales dans un domaine PID privé reste nécessaire avant merge.
