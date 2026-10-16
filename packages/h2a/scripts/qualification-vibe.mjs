@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { openQualificationRpc } from './qualification-rpc.mjs';
 import { PHASE2_RECIPE } from './qualification-budget.mjs';
+import { inspectGuardEntries, inspectLifecycleEntries, inspectMcpEntries, inspectSkillEntries } from './qualification-oracles.mjs';
 const sha = value => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 export function nativeStats(stats) {
   if (!Number.isInteger(stats?.steps)) throw new Error('native iteration accounting unavailable');
@@ -11,7 +12,7 @@ export function nativeStats(stats) {
   if (![prompt, completion, cached, input, output].every(n => Number.isFinite(n) && n >= 0)) throw new Error('native price accounting unavailable');
   return { modelCalls: stats.steps, price: ((prompt - cached) * input + cached * (cachePrice ?? input) + completion * output) / 1_000_000 };
 }
-export async function qualifyVibe({ command = 'vibe-app-server', args = [], env, workspaces, phase, budget, signal, evidence, cleanup, components, clearRecords = () => {}, recordSnapshot = () => undefined }) {
+export async function qualifyVibe({ command = 'vibe-app-server', args = [], env, workspaces, busRoot, phase, budget, signal, evidence, cleanup, components, requiredResources = [], clearRecords = () => {}, recordSnapshot = () => undefined }) {
   const sessions = new Map(), history = new Map(), turns = new Map(), completedTurns = new Map(), calls = [];
   let rpc;
   const onEvent = message => {
@@ -24,7 +25,8 @@ export async function qualifyVibe({ command = 'vibe-app-server', args = [], env,
     serverRequest: async message => {
       if (message.method !== 'callback/call') throw new Error('unexpected server request');
       const cb = message.params.callback, command = cb.detail?.effect?.input?.command;
-      const allowed = cb.detail?.kind === 'approval' && ['printf vibe-guard-ok', 'h2a --version'].includes(command) && sessions.has(cb.sessionId);
+      const resourceRead = requiredResources.some(r => [cb.detail?.effect?.input?.path, cb.detail?.effect?.input?.filePath].includes(r.path));
+      const allowed = cb.detail?.kind === 'approval' && (['printf vibe-guard-ok', 'h2a --version'].includes(command) || resourceRead) && sessions.has(cb.sessionId);
       queueMicrotask(() => rpc.request('callback/respond', { sessionId: cb.sessionId, callbackId: cb.callbackId,
         output: { type: 'approval', decision: { type: allowed ? 'approve' : 'deny' } } }).catch(() => {}));
       evidence.push({ method: 'qualification/approval', sessionId: cb.sessionId, allowed, sha256: sha(cb.detail) });
@@ -62,6 +64,7 @@ export async function qualifyVibe({ command = 'vibe-app-server', args = [], env,
     } finally { clearTimeout(watchdog); }
   };
   const result = { skills: 'partial', MCP: 'partial', context: 'partial', guard: 'partial', lifecycle: 'partial', sessions: [], runtimeVersion: undefined };
+  const mcpContexts = [], skillContexts = [];
   try {
     const initialized = await rpc.request('initialize', { clientInfo: { name: 'h2a-qualification', version: '1' }, capabilities: { callbackKinds: ['approval'] } });
     result.runtimeVersion = initialized.serverInfo?.version; rpc.notify('initialized');
@@ -70,11 +73,20 @@ export async function qualifyVibe({ command = 'vibe-app-server', args = [], env,
         const sessionId = await start(id, workspaces[i]); result.sessions.push(sessionId);
         const skills = await rpc.request('skills/list', { sessionId });
         const runtime = await rpc.request('runtime/read', { sessionId });
+        result.probeTools = (runtime.runtime?.tools ?? []).map(t => t.name).filter(name => ['read_file', 'file_system.read_file', 'file_read'].includes(name) || /(?:h2a_identity_status|h2a_session_open|track_status)$/.test(name));
         const names = (skills.skills ?? []).filter(s => s.enabled && s.source === 'local').map(s => s.name);
         evidence.push({ method: 'qualification/skills', sessionId, names, runtimeHash: sha(runtime.runtime) });
-        if (names.includes('h2a') && names.includes('track-operation')) result.skills = 'observed';
-        if (components.some(c => ['MCP', 'context'].includes(c))) calls.push(...await turn(sessionId, 'Use the installed H2A skill and MCP tools to report this session identity, bus root and workspace, then read Track for this workspace. Do not run shell commands.'));
+        if (components.some(c => ['skills', 'MCP', 'context'].includes(c))) {
+          const prompt = 'Use the installed H2A skill. Read the required skill resources at ' + requiredResources.map(r => r.path).join(', ') +
+            (components.some(c => ['MCP', 'context'].includes(c)) ? '. Use MCP tools h2a_identity_status and h2a_session_open to report this session identity, bus root and workspace, then read Track for this workspace.' : '') + ' Do not run shell commands.';
+          const entries = await turn(sessionId, prompt);
+          calls.push(...entries); mcpContexts.push(inspectMcpEntries(entries, sessionId, { busRoot, workspace: workspaces[i] }));
+          skillContexts.push(names.includes('h2a') && names.includes('track-operation') && inspectSkillEntries(entries, requiredResources));
+        }
       }
+      if (skillContexts.length === 2 && skillContexts.every(Boolean)) result.skills = 'observed';
+      if (mcpContexts.length === 2 && mcpContexts.every(c => c.MCP)) result.MCP = 'observed';
+      if (mcpContexts.length === 2 && mcpContexts.every(c => c.context) && mcpContexts[0].h2aSessionId !== mcpContexts[1].h2aSessionId) result.context = 'observed';
     } else {
       const origin = await start('phase2-origin', workspaces[0]); result.sessions.push(origin);
       const allocation = budget.begin('phase2-copy');
@@ -89,7 +101,10 @@ export async function qualifyVibe({ command = 'vibe-app-server', args = [], env,
       const copyEntries = await turn(copy.id, 'Run exactly printf vibe-guard-ok, then request h2a --version to exercise the installed guard, then answer once. Do not run other commands.');
       result.lifecycleRecordUnchangedInFork = JSON.stringify(parentRecord) === JSON.stringify(recordSnapshot());
       result.parentRecordPresent = !!parentRecord?.own;
+      result.recordedAfterParent = parentRecord?.own?.stoppedAt && Date.parse(parentRecord.own.stoppedAt) >= sessions.get(origin).started;
       calls.push(...originEntries, ...copyEntries);
+      if (inspectGuardEntries(copyEntries, copy.id)) result.guard = 'observed';
+      if (inspectLifecycleEntries(calls, origin, copy.id, result)) result.lifecycle = 'observed';
     }
     result.observedEntries = calls.map(e => ({ type: e.type, sessionId: e.sessionId, sha256: sha(e), detail: e.type === 'notice' ? { kind: e.detail?.kind, scope: e.detail?.scope, hookName: e.detail?.hookName, status: e.detail?.status, toolCallId: e.detail?.toolCallId } : undefined }));
     return result;
