@@ -1,0 +1,22 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l3-state.test.js
+node: v22.22.1
+private root: /tmp/mh-l3-test-SWyfdr
+case: non-admission should require every binding from the authenticated response
+TAP version 13
+# Subtest: non-admission should require every binding from the authenticated response
+ok 1 - non-admission should require every binding from the authenticated response
+  ---
+  duration_ms: 2.239505
+  type: 'test'
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 1
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 102.607501
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l3-state.test.js"],"code":0,"signal":null,"tests":1,"invalid":false,"spawned":1,"leftovers":[]}
