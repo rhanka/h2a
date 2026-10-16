@@ -5,9 +5,8 @@ A **focused-session document runtime** — the read-only **FocusSnapshot** rende
 to orient/steer it (decide being one modality among orient / amend / comment). See
 `spec/SPEC_VOL_FOCUS.md`.
 
-This package is **private** (`"private": true`) and **app-local-first**: it is not yet published.
-It is extracted to `@sentropic/focus` on npm only once a real external consumer wires it
-(repo real-consumption rule).
+This is a **public published package** (`@sentropic/focus` on npm). Its public API is intentionally
+small: hosts provide their own authentication, authorization, sanitization and styling.
 
 ## Scope — Focus-M1 L1 (`feat/focus-render-core`)
 
