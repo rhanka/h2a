@@ -1,0 +1,99 @@
+{
+  "node": "v22.22.1",
+  "files": [
+    {
+      "path": "packages/h2a/src/runtime/upgrade/h4-store.js",
+      "sha256": "bfb35b769dc2c23f7b6943852c074ccbcbba493d4d2f1cf9b9fe273e1a6c0326"
+    },
+    {
+      "path": "packages/h2a/dist/runtime/upgrade/h4-store.js",
+      "sha256": "3536c9727a3402b014a1e0f6b82492bdccf7b050f519d858c9cd1b72c61c2b1d"
+    }
+  ],
+  "results": [
+    {
+      "name": "intent-installation-binding",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-selection.test.js-node22-mutation-intent-installation-binding-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-selection.test.js-node22-mutation-intent-installation-binding-green.log",
+      "restored": true
+    },
+    {
+      "name": "compatible-lock",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-selection.test.js-node22-mutation-compatible-lock-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-selection.test.js-node22-mutation-compatible-lock-green.log",
+      "restored": true
+    },
+    {
+      "name": "controller-protocol",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-selection.test.js-node22-mutation-controller-protocol-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-selection.test.js-node22-mutation-controller-protocol-green.log",
+      "restored": true
+    },
+    {
+      "name": "payload-verification",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-selection.test.js-node22-mutation-payload-verification-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-selection.test.js-node22-mutation-payload-verification-green.log",
+      "restored": true
+    },
+    {
+      "name": "coalescence",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-selection.test.js-node22-mutation-coalescence-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-selection.test.js-node22-mutation-coalescence-green.log",
+      "restored": true
+    },
+    {
+      "name": "request-binding",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-selection.test.js-node22-mutation-request-binding-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-selection.test.js-node22-mutation-request-binding-green.log",
+      "restored": true
+    },
+    {
+      "name": "irreversible-abort",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-selection.test.js-node22-mutation-irreversible-abort-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-selection.test.js-node22-mutation-irreversible-abort-green.log",
+      "restored": true
+    },
+    {
+      "name": "history-before-selection",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-selection.test.js-node22-mutation-history-before-selection-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-selection.test.js-node22-mutation-history-before-selection-green.log",
+      "restored": true
+    },
+    {
+      "name": "last-valid-binding",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-selection.test.js-node22-mutation-last-valid-binding-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-selection.test.js-node22-mutation-last-valid-binding-green.log",
+      "restored": true
+    },
+    {
+      "name": "selection-binding",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-selection.test.js-node22-mutation-selection-binding-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-selection.test.js-node22-mutation-selection-binding-green.log",
+      "restored": true
+    },
+    {
+      "name": "history-persistence",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-selection.test.js-node22-mutation-history-persistence-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-selection.test.js-node22-mutation-history-persistence-green.log",
+      "restored": true
+    },
+    {
+      "name": "backup-persistence",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-selection.test.js-node22-mutation-backup-persistence-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-selection.test.js-node22-mutation-backup-persistence-green.log",
+      "restored": true
+    },
+    {
+      "name": "pin-persistence",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-selection.test.js-node22-mutation-pin-persistence-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-selection.test.js-node22-mutation-pin-persistence-green.log",
+      "restored": true
+    },
+    {
+      "name": "selection-directory-sync",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-selection.test.js-node22-mutation-selection-directory-sync-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-selection.test.js-node22-mutation-selection-directory-sync-green.log",
+      "restored": true
+    }
+  ]
+}

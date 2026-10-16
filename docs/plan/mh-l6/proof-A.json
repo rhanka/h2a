@@ -1,0 +1,244 @@
+{
+  "source": "/tmp/mh-l3-qualification-YeHHOv/source",
+  "worktree": "/home/antoinefa/src/h2a/tmp/worktrees/mh-l0",
+  "files": [
+    {
+      "path": "packages/h2a/src/runtime/upgrade/h4-store.js",
+      "sha256": "bfb35b769dc2c23f7b6943852c074ccbcbba493d4d2f1cf9b9fe273e1a6c0326"
+    },
+    {
+      "path": "packages/h2a/test/mh-l6-selection.test.js",
+      "sha256": "3db592ca34a67e75f59eeb502fe9823f9ac0c7234903182d8738b5e962d693b0"
+    },
+    {
+      "path": "packages/h2a/test/helpers/mh-l6-installation.js",
+      "sha256": "7dd070f8ff368b5cdd588f17437663af8bd8b82a9c7f7b5fc23950dbd941930f"
+    },
+    {
+      "path": "scripts/mh-l6-test.mjs",
+      "sha256": "5bd1a9d0402119fe24339bc2740f026b90a09a1c5a9ae411104fca69a9f26d3a"
+    },
+    {
+      "path": "scripts/mh-l6-mutate.mjs",
+      "sha256": "29421c7ca487cc74be32d5862ad2e640b53fefd5d561fd918b11875137a4c30c"
+    }
+  ],
+  "compiled": {
+    "path": "packages/h2a/dist/runtime/upgrade/h4-store.js",
+    "sha256": "3536c9727a3402b014a1e0f6b82492bdccf7b050f519d858c9cd1b72c61c2b1d"
+  },
+  "profiles": [
+    {
+      "major": 22,
+      "tests": 25,
+      "mutations": 14,
+      "logs": [
+        {
+          "log": "docs/plan/mh-l6/evidence/mh-l6-selection.test.js-node22-final-A.log",
+          "sha256": "7ab1ba49b2e1a2f9e7919c240c2f7310a32e3d516eff0b979462e4c7880b66c0",
+          "command": [
+            "/usr/bin/node",
+            "--test",
+            "--test-reporter=tap",
+            "packages/h2a/test/mh-l6-selection.test.js"
+          ],
+          "code": 0,
+          "signal": null,
+          "tests": 10,
+          "invalid": false,
+          "spawned": 1,
+          "leftovers": []
+        },
+        {
+          "log": "docs/plan/mh-l6/evidence/mh-l0-state.test.js-node22-selection-regression.log",
+          "sha256": "995c36c17a21d264988e549c57c1d8d004087996b5731f95e91467cd86221220",
+          "command": [
+            "/usr/bin/node",
+            "--test",
+            "--test-reporter=tap",
+            "packages/h2a/test/mh-l0-state.test.js"
+          ],
+          "code": 0,
+          "signal": null,
+          "tests": 4,
+          "invalid": false,
+          "spawned": 1,
+          "leftovers": []
+        },
+        {
+          "log": "docs/plan/mh-l6/evidence/mh-l0-image.test.js-node22-selection-regression.log",
+          "sha256": "95b4b0b6e79eb3993b8ec5a6045d2beb6fdb0ccc3bf91a9fc9b51baa5197e673",
+          "command": [
+            "/usr/bin/node",
+            "--test",
+            "--test-reporter=tap",
+            "packages/h2a/test/mh-l0-image.test.js"
+          ],
+          "code": 0,
+          "signal": null,
+          "tests": 5,
+          "invalid": false,
+          "spawned": 1,
+          "leftovers": []
+        },
+        {
+          "log": "docs/plan/mh-l6/evidence/mh-l0-authority.test.js-node22-selection-git-fixture.log",
+          "sha256": "4f343265d68e260ddc7f3fa4a4d25ea53ba0250c125344a37ccdd1bf234a2349",
+          "command": [
+            "/usr/bin/node",
+            "--test",
+            "--test-reporter=tap",
+            "packages/h2a/test/mh-l0-authority.test.js"
+          ],
+          "code": 0,
+          "signal": null,
+          "tests": 2,
+          "invalid": false,
+          "spawned": 1,
+          "leftovers": []
+        },
+        {
+          "log": "docs/plan/mh-l6/evidence/mh-l0-formats.test.js-node22-selection-git-fixture.log",
+          "sha256": "2f6079513b4a17c820e62c6551c5e7852b5f9dc8ac915f9627acf6cde97b0e47",
+          "command": [
+            "/usr/bin/node",
+            "--test",
+            "--test-reporter=tap",
+            "packages/h2a/test/mh-l0-formats.test.js"
+          ],
+          "code": 0,
+          "signal": null,
+          "tests": 4,
+          "invalid": false,
+          "spawned": 1,
+          "leftovers": []
+        }
+      ]
+    },
+    {
+      "major": 24,
+      "tests": 25,
+      "mutations": 14,
+      "logs": [
+        {
+          "log": "docs/plan/mh-l6/evidence/mh-l6-selection.test.js-node24-final-A.log",
+          "sha256": "839669283fd48ae8c9f6d32cb3d95efb475e2577fdab4d01cb73349babe90b58",
+          "command": [
+            "/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node",
+            "--test",
+            "--test-reporter=tap",
+            "packages/h2a/test/mh-l6-selection.test.js"
+          ],
+          "code": 0,
+          "signal": null,
+          "tests": 10,
+          "invalid": false,
+          "spawned": 1,
+          "leftovers": []
+        },
+        {
+          "log": "docs/plan/mh-l6/evidence/mh-l0-state.test.js-node24-selection-regression.log",
+          "sha256": "8e07f3bcca8d6ce04ef45c75451dd487e523950660f08ee8fd3f7a920b72837c",
+          "command": [
+            "/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node",
+            "--test",
+            "--test-reporter=tap",
+            "packages/h2a/test/mh-l0-state.test.js"
+          ],
+          "code": 0,
+          "signal": null,
+          "tests": 4,
+          "invalid": false,
+          "spawned": 1,
+          "leftovers": []
+        },
+        {
+          "log": "docs/plan/mh-l6/evidence/mh-l0-image.test.js-node24-selection-regression.log",
+          "sha256": "7731b6ad134a511dbb09cb599552fcdfa9357aedcb7acec0bb6d430df082203a",
+          "command": [
+            "/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node",
+            "--test",
+            "--test-reporter=tap",
+            "packages/h2a/test/mh-l0-image.test.js"
+          ],
+          "code": 0,
+          "signal": null,
+          "tests": 5,
+          "invalid": false,
+          "spawned": 1,
+          "leftovers": []
+        },
+        {
+          "log": "docs/plan/mh-l6/evidence/mh-l0-authority.test.js-node24-selection-git-fixture.log",
+          "sha256": "4d6a807fff7a580982a7d70847e8a9c08d93ff0bf4e847a12c76e14aa93f5b59",
+          "command": [
+            "/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node",
+            "--test",
+            "--test-reporter=tap",
+            "packages/h2a/test/mh-l0-authority.test.js"
+          ],
+          "code": 0,
+          "signal": null,
+          "tests": 2,
+          "invalid": false,
+          "spawned": 1,
+          "leftovers": []
+        },
+        {
+          "log": "docs/plan/mh-l6/evidence/mh-l0-formats.test.js-node24-selection-git-fixture.log",
+          "sha256": "9e9ff59166327e69b1b060a1198e926a6fe2905ad3d7868d58fda689e2a68712",
+          "command": [
+            "/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node",
+            "--test",
+            "--test-reporter=tap",
+            "packages/h2a/test/mh-l0-formats.test.js"
+          ],
+          "code": 0,
+          "signal": null,
+          "tests": 4,
+          "invalid": false,
+          "spawned": 1,
+          "leftovers": []
+        }
+      ]
+    }
+  ],
+  "diagnostics": [
+    {
+      "path": "docs/plan/mh-l6/evidence/mh-l0-authority.test.js-node22-selection-regression.log",
+      "code": 1,
+      "tests": 2,
+      "sha256": "8910f9ec02059972982bec3264cafe05fbeea55abebc3fcb8014c1097fcbfb70"
+    },
+    {
+      "path": "docs/plan/mh-l6/evidence/mh-l0-formats.test.js-node22-selection-regression.log",
+      "code": 1,
+      "tests": 4,
+      "sha256": "a34dbaa71d959c2a70bb07aacf99970ecae5b1713fe644ed4b8fae1c9f7f54e2"
+    },
+    {
+      "path": "docs/plan/mh-l6/evidence/mh-l6-selection.test.js-node22-first-green.log",
+      "code": 1,
+      "tests": 6,
+      "sha256": "76f5090473976de7ad24e55cf6338765f2ac248cca81141d4c747a2e74b6747e"
+    },
+    {
+      "path": "docs/plan/mh-l6/evidence/mh-l6-selection.test.js-node22-history-red.log",
+      "code": 1,
+      "tests": 9,
+      "sha256": "49dc4b8cdef79910b47ad824f98d8acc9dd73d38bb2e3b6d4b222ad18f56b72e"
+    },
+    {
+      "path": "docs/plan/mh-l6/evidence/mh-l6-selection.test.js-node22-initial-red.log",
+      "code": 1,
+      "tests": 6,
+      "sha256": "b756686e1c435e8fe01a1c6e8f2ad85450c02efeb282a6cb819ecc8d396e6b19"
+    },
+    {
+      "path": "docs/plan/mh-l6/evidence/mh-l6-selection.test.js-node22-intent-red.log",
+      "code": 1,
+      "tests": 1,
+      "sha256": "eead740fc292c0c8c0aa22e9d1645795098b7c27e9033c4b6ac3558759200b06"
+    }
+  ]
+}

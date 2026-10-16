@@ -1,5 +1,22 @@
 # MH-L6 — frontière H4 issue de M18
 
+## Réalisation MH-L6 — sous-lots
+
+- [x] Branche `feat/0.98.7-mh-l6` depuis MH-L5 relu ; confinement et règles owner prioritaires.
+- [x] Allowed : H4/upgrade, lanceur/bootstrap, conditionnement, tests ciblés et docs MH-L6 ; adaptations directes CLI/starters/native seulement si nécessaires au contrat.
+- [x] Forbidden : main, .track, état live, binaire/dist installé, découverte registry, conducteur live, Python, suite globale, signaux à des PID étrangers.
+- [x] Conditional : manifests/npm/shrinkwrap/natifs pour le payload qualifié ; aucune compilation utilisateur ; aucun affaiblissement des gardes.
+- [x] Exception de taille : chaque sous-lot conserve ensemble moteur, régressions, mutations et preuves nécessaires ; staging sélectif et rollback par commit.
+- [x] A — Journal canonique, exclusion compatible, sélection durable/réconciliation ; `mh-l6-selection.test.js`, 10 tests + 15 fondations et 14 mutations tuées/restaurées par profil Node 22/24 ; limites SIGKILL/adoption/fermeture v1 explicites dans README.md.
+- [ ] B — Révocation/délégation exacte, acquisition unique, perte de gardien et reprise ; `mh-l6-delegation.test.js`, deux contrôleurs et mutations Node 22/24.
+- [ ] C — Lanceur autonome, repli diagnostique, bootstrap/adoption avant raccourci de version ; `mh-l6-launcher.test.js`, `mh-l6-bootstrap.test.js`.
+- [ ] D — Désadoption conditionnelle, opt-out et dérives npm ; `mh-l6-unmanage.test.js`, `mh-l6-npm.test.js`.
+- [ ] E — Images closes, shrinkwrap publié/runtime exact, natifs précompilés et gel .6 ; `mh-l6-image.test.js`, `mh-l6-package.test.js` et tests hérités affectés.
+- [ ] F — Surface CLI/auto commune, codes/strict/status/resume/abort/compensate, preuve H4 externe M18 sur vrais .5/.6 ; tests CLI et v1 ciblés.
+- [ ] Gate par sous-lot : commandes/sorties conservées, zéro skip/enfant, mutations tuées puis restaurées, vérification des références affectées, commit conventionnel anglais sans trailer, push fast-forward propre branche, rapport français mis à jour.
+- [ ] Revue indépendante confiée au conducteur ; aucune invocation de dispatch installé et aucun verdict de consensus inventé.
+- [ ] Rapport : scratchpad owner `0985/mhl6-report.md`, couvert/non couvert/écarts, reste en heures-agent et tours de revue.
+
 Responsable : réalisateur H4/bootstrap MH-L6.
 État : **à réaliser avant gel MH-L6** ; dépendance explicite de la campagne
 M17 convergée [MH-L8](../mh-l8/BRANCH.md).
