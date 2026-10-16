@@ -16,6 +16,7 @@ import { createLocalStore } from "../local-files/index.js";
 import { reapDeadInstancePresence } from "../local-files/presence.js";
 import { agentVersion } from "../version/agent-version.js";
 import { currentCliVersion } from "../upgrade/index.js";
+import { captureHostOperatorNotices } from '../../hosts/operator-notices.js';
 import { getActiveMcpTrace } from "./phase-trace.js";
 import {
   createMcpServer,
@@ -379,7 +380,14 @@ export function runMcpStdio(options: RunMcpStdioOptions): Promise<void> {
     notification: unknown,
     meta: { method: string; topic?: string | undefined }
   ) => { accepted: boolean } = () => ({ accepted: false });
+  let operatorNotices: readonly string[] = [];
+  // Deferred so startup/read-only identity requests never wait for host probes.
+  const refreshNotices = () => { operatorNotices = captureHostOperatorNotices(); };
+  setImmediate(refreshNotices);
+  const noticeTimer = setInterval(refreshNotices, 60_000);
+  noticeTimer.unref();
   const server = createMcpServer({
+    operatorNotices: () => operatorNotices,
     root,
     workspaceRoot: options.workspaceRoot ?? process.cwd(),
     ...(options.runExecutor ? { runExecutor: options.runExecutor } : {}),
@@ -503,6 +511,7 @@ export function runMcpStdio(options: RunMcpStdioOptions): Promise<void> {
   let meshTimer: ReturnType<typeof setInterval> | undefined;
   let didShutdown = false;
   function shutdown(reason: "transport_closed" | "signal" = "transport_closed"): void {
+    clearInterval(noticeTimer);
     if (didShutdown) return;
     didShutdown = true;
     if (meshTimer) clearInterval(meshTimer);

@@ -13,6 +13,8 @@
  * (EVO-0), with a polling fallback instead of push.
  */
 
+import { VIBE_LIFECYCLE_SCOPE, VIBE_RESTART } from './native-paths.js';
+
 export type H2AHostPluginMechanism =
   | "claude-settings-hook"
   | "gemini-hooks"
@@ -98,7 +100,7 @@ export const H2A_HOST_PLUGIN_TARGETS: Readonly<Record<string, H2AHostPluginTarge
     resumeCommand: "vibe -c",
     mechanism: "vibe-hooks",
     push: true,
-    hint: "Register the record command as a `post_agent` hook in `~/.vibe/hooks.toml` ([[hooks]] name = \"h2a-drumbeat-record\", type = \"post_agent\", command = <record>). Vibe has no prompt-level hook, so the drive receive gate is not wired; poll `h2a drumbeat scan` / `h2a blockage list` as the fallback. Skills install to `~/.vibe/skills/h2a` via `h2a install-skills --host vibe`."
+    hint: "Use host plugin --host vibe --instance <id> --write <VIBE_HOME>/hooks.toml for the managed post_agent wrapper. drive receive: N-A. " + VIBE_LIFECYCLE_SCOPE + ' ' + VIBE_RESTART
   }
 };
 
@@ -154,7 +156,7 @@ export function renderStopHook(
     push: target.push,
     hint: target.hint,
     record,
-    receive,
+    receive: host === 'vibe' ? 'N-A' : receive,
     // Poll command for every host (agy and muse use it as their only path; the others
     // can use it as a manual fallback). Drumbeat scan + blockage list.
     poll: `h2a drumbeat scan${rootArg}`
