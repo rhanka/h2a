@@ -12,11 +12,13 @@
 - [x] Lot A: obtain and integrity-check published v1 artifacts in private temporary directories; exercise M18/M18b/M18c/M19/M20, T4/T8/T9 with real compiled starter/bridge and unchanged .7 participants.
 - [x] Lot B: external peer plus compiled source/shim; typed/reused IDs, late G0 progress/cancellation while G1 admits work, deterministic lost responses and durable cold recovery/compensation cuts.
 - [x] Lot C: eight conforming processes, seven domains and at least 10,000 mutations per domain; external acknowledgment reconciliation, stale janitor and inherited writer refusal.
-- [ ] Lot gate: explicit files only under temporary HOME/XDG/TMPDIR, Node 22/24, zero skips/cancellations/own children; retain every failed diagnostic and killed/restored mutation command/output.
+- [x] Lot gate: explicit files only under temporary HOME/XDG/TMPDIR, Node 22/24, zero skips/cancellations/own children; retain every failed diagnostic and killed/restored mutation command/output.
 - [x] Cold/G0-G1 implementation checkpoint: real source/shim M21, process-cut kernel, real fsync/ACK faults, independent controller death and actual compensated generation pass their targeted Node 22/24 files.
 - [x] Concurrency checkpoint: Node 22/24 each reconcile 10,000 mutations per six domains and 20,000 payload mutations; 10,000 external acknowledgements, verified contentHash/chains, zero duplicate/skip/cancel/own child. All 21 mutation pairs per profile killed/restored.
-- [ ] Review every diff hunk, audit exact qualified source/compiled bytes, conventional English commits without trailers, fast-forward push only own branch.
-- [ ] Deliver French report to owner scratchpad with coverage, deviations, remaining agent-hours and review rounds.
+- [x] Self-review every diff hunk and audit exact qualified source/compiled bytes: 31 explicit files / 128 tests and 21 killed/restored mutation pairs per Node 22.22.1 / 24.21.0; zero skipped/cancelled/own children. Independent review remains with the conductor.
+- [x] Coverage reserve: M17 uses eight synthetic backend actor drivers, with real surfaces tested separately. Full simultaneous central/pair/four-stdio/janitor/CLI coverage is not claimed; docs/plan/mh-l5/REVIEW.md gives the bounded acceptance handoff.
+- [x] Delivery discipline: conventional English commits without trailers; fast-forward push of this branch only. The push receipt belongs in the owner scratchpad report.
+- [x] Final French report path reserved in owner scratchpad: mhl5-report.md, with coverage, deviations, push receipt, remaining agent-hours and review rounds.
 
 # MH-L3 continuation — passive MH-L2 amendment first
 
