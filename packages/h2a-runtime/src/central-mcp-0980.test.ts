@@ -24,6 +24,8 @@ const core = vi.hoisted(() => ({
   H2A_MCP_CENTRAL_ENDPOINT_ENV: "H2A_MCP_CENTRAL_ENDPOINT",
   centralMcpPing: vi.fn(async () => ({ kind: "generation", generation: "fixture-0980" })),
   readCentralMcpMarker: vi.fn(),
+  ensureCentralForRoot: vi.fn(async (_root: string) => core.readCentralMcpMarker()),
+  centralMcpMarkerPath: vi.fn(() => join(process.env.XDG_RUNTIME_DIR!, 'h2a-mcp-central', 'marker.json')),
   runCli: vi.fn(),
 }));
 vi.mock("@sentropic/h2a", () => core);
