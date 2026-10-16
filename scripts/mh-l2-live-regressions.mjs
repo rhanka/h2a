@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { basename, join } from 'node:path';
 if (![22, 24].includes(Number(process.versions.node.split('.')[0]))) throw new Error('Node 22/24 required');
-const pattern = '(administration|participants|schemas|live-source|mcp-central|mcp-central-attachment)\\.(js|ts)|runtime/mcp/stdio\\.(js|ts)|mh-l0/schemas\\.json|mh-l2-live(-peer)?\\.(js|mjs)';
+const pattern = '(administration|participants|schemas|live-source|ownership|launch-memo|mcp-central|mcp-central-attachment)\\.(js|ts)|runtime/mcp/stdio\\.(js|ts)|mh-l0/schemas\\.json|mh-l2-live(-peer)?\\.(js|mjs)';
 const args = ['-l', pattern, 'packages', 'apps', '--glob', '*.test.js', '--glob', '*.test.ts', '--glob', '!**/node_modules/**', '--glob', '!**/dist/**', '--glob', '!**/evidence/**'];
 const search = spawnSync('rg', args, { encoding: 'utf8' });
 if (search.status !== 0) throw new Error('affected_test_search_failed');
