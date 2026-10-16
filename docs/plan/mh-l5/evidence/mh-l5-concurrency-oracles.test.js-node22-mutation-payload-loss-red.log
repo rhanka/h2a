@@ -1,14 +1,14 @@
 command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l5-concurrency-oracles.test.js
 node: v22.22.1
-private root: /tmp/mh-l5-test-LFS7PX
+private root: /tmp/mh-l5-test-nXFtvi
 case: all cases in explicit file
 TAP version 13
 # Subtest: M17 focused oracle must detect a missing write in any of the seven domains
 not ok 1 - M17 focused oracle must detect a missing write in any of the seven domains
   ---
-  duration_ms: 1342.015906
+  duration_ms: 799.620791
   type: 'test'
-  location: '/tmp/mh-l3-qualification-x6VBnb/source/packages/h2a/test/mh-l5-concurrency-oracles.test.js:4:1'
+  location: '/tmp/mh-l3-qualification-AogyQv/source/packages/h2a/test/mh-l5-concurrency-oracles.test.js:4:1'
   failureType: 'testCodeFailure'
   error: |-
     node:buffer:328
@@ -17,9 +17,8 @@ not ok 1 - M17 focused oracle must detect a missing write in any of the seven do
     
     TypeError [ERR_INVALID_ARG_TYPE]: The first argument must be of type string or an instance of Buffer, ArrayBuffer, or Array or an Array-like Object. Received undefined
         at Function.from (node:buffer:328:9)
-        at file:///tmp/mh-l3-qualification-x6VBnb/source/packages/h2a/test/helpers/mh-l5-writer.mjs:42:16
-        at mutationLock (file:///tmp/mh-l3-qualification-x6VBnb/source/packages/h2a/dist/runtime/handover/mutation.js:50:23)
-        at file:///tmp/mh-l3-qualification-x6VBnb/source/packages/h2a/test/helpers/mh-l5-writer.mjs:23:15
+        at file:///tmp/mh-l3-qualification-AogyQv/source/packages/h2a/test/helpers/mh-l5-writer.mjs:46:16
+        at file:///tmp/mh-l3-qualification-AogyQv/source/packages/h2a/test/helpers/mh-l5-writer.mjs:59:5
         at process.processTicksAndRejections (node:internal/process/task_queues:103:5) {
       code: 'ERR_INVALID_ARG_TYPE'
     }
@@ -36,13 +35,11 @@ not ok 1 - M17 focused oracle must detect a missing write in any of the seven do
   operator: 'strictEqual'
   stack: |-
     Function.from (node:buffer:328:9)
-    file:///tmp/mh-l3-qualification-x6VBnb/source/packages/h2a/test/helpers/mh-l5-writer.mjs:42:16
-    mutationLock (file:///tmp/mh-l3-qualification-x6VBnb/source/packages/h2a/dist/runtime/handover/mutation.js:50:23)
-    file:///tmp/mh-l3-qualification-x6VBnb/source/packages/h2a/test/helpers/mh-l5-writer.mjs:23:15
+    file:///tmp/mh-l3-qualification-AogyQv/source/packages/h2a/test/helpers/mh-l5-writer.mjs:46:16
+    file:///tmp/mh-l3-qualification-AogyQv/source/packages/h2a/test/helpers/mh-l5-writer.mjs:59:5
     process.processTicksAndRejections (node:internal/process/task_queues:103:5) {
-    runCampaign (file:///tmp/mh-l3-qualification-x6VBnb/source/packages/h2a/test/helpers/mh-l5-campaign.js:35:78)
-    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
-    async TestContext.<anonymous> (file:///tmp/mh-l3-qualification-x6VBnb/source/packages/h2a/test/mh-l5-concurrency-oracles.test.js:5:3)
+    runCampaign (file:///tmp/mh-l3-qualification-AogyQv/source/packages/h2a/test/helpers/mh-l5-campaign.js:36:78)
+    async TestContext.<anonymous> (file:///tmp/mh-l3-qualification-AogyQv/source/packages/h2a/test/mh-l5-concurrency-oracles.test.js:5:3)
     async Test.run (node:internal/test_runner/test:1054:7)
     async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
   ...
@@ -54,6 +51,6 @@ not ok 1 - M17 focused oracle must detect a missing write in any of the seven do
 # cancelled 0
 # skipped 0
 # todo 0
-# duration_ms 1644.632407
+# duration_ms 1075.052583
 
 receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l5-concurrency-oracles.test.js"],"code":1,"signal":null,"tests":1,"invalid":false,"spawned":17,"leftovers":[]}
