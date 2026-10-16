@@ -273,7 +273,7 @@ describe("live GitHub transport", () => {
     [403, { "x-ratelimit-remaining": "0", "x-ratelimit-reset": "1800000010" }, "rate_limited"],
     [403, { "retry-after": "Fri, 15 Jan 2027 08:00:10 GMT" }, "rate_limited"],
     [503, {}, "offline"], [302, {}, "protocol"],
-  ])("should classify HTTP %i, preserve last success and keep diagnostics secret-free", async (status, headers, kind) => {
+  ])("should classify HTTP %i with headers %j, preserve last success and keep diagnostics secret-free", async (status, headers, kind) => {
     handler = () => ({ body: [pr(1)] });
     const store = memoryPersistence();
     await runPrSyncPass({ repository, now: 1800000000000, sweepKind: "full" }, { transport, persistence: store.persistence });
