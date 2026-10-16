@@ -1,5 +1,15 @@
 # MH-L5 — qualification of passive handover and legacy coexistence
 
+## Argon reserve closure — 2026-10-16
+- [x] Owner authorizes closure of findings 1/2 and explicit M17 allocation to MH-L8 as the alternative to implementing all eight surfaces in this lot; no merge with reserves.
+- [x] T9: reproduce the supervision/SSE first-backoff window and transient ENOENT/malformed-marker overwrite; retain the legacy reason until a successful v2 connection. Include same-generation replacement and reset regressions.
+- [x] Backend campaign: remove the encompassing mutationLock, observe real flock acquisitions per iteration, preserve live payloads while expired refs are collected, and label all eight actors backend-only.
+- [x] Supersede any M17 acceptance implied by the historical Lot C/80,000-mutation checkpoints below: these are backend evidence only, not §10.8 acceptance.
+- [x] Declare the exact unmet simultaneous-surface campaign as a mandatory MH-L8 release gate in docs/plan/mh-l8/BRANCH.md, per spec v7 §§10.8/12; no claim that M17 is qualified.
+- [x] Confirm finding 3 is tracked for the real MH-L6 H4/bootstrap producer and v1 activation tests in docs/plan/mh-l6/BRANCH.md; retain owner_liveness_unknown without provenance.
+- [x] Targeted Node 22/24 red/green: 12 files / 72 tests per profile, 12 killed/restored mutation pairs per profile; nine source/test/script files and one compiled module audited. Commands/output archived, zero skips/own children. Parallel attachments attempts failed on their fixed port; unchanged serialized reruns pass 33/33 on both profiles. The 10,000-mutation campaign is not rerun as part of this reserve closure; converged M17 qualification is MH-L8.
+- [x] Delivery prepared with conventional commits without trailers; fast-forward own-branch push and its receipt are recorded in the owner report's Réserves Argon appendix at delivery. Independent re-review stays with the conductor; installed dispatch remains forbidden.
+
 ## MH-L5 Objective / Scope / Guardrails
 - [ ] Qualify published v1 dists .5/.6, external peer, deterministic faults, G0/G1, cold stop, compensation and seven-domain concurrency against spec v7 §10.3–10.5/10.8.
 - [x] Branch feat/0.98.7-mh-l5 starts at reviewed 7a8129ea; MH-L4 is already in its ancestry. No main, .track, installed h2a/dist, native host or owner state.
