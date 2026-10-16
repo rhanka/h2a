@@ -6,11 +6,13 @@ import { once } from 'node:events';
 import { spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
+import { createHash } from 'node:crypto';
 import { digest, sign } from '../src/runtime/handover/wire.js';
 import { publishState, readState, replaceState } from '../src/runtime/handover/state.js';
 import { authenticatedHttpRequest, readAuthenticationKey } from '../src/runtime/handover/authenticated-http.js';
 import { currentIdentity } from '../src/runtime/handover/admission.js';
 import { liveTransactionReference } from '../src/runtime/handover/live-source.js';
+import { localStorePaths, presenceFile } from '../dist/runtime/local-files/paths.js';
 
 test('real .7 source should accept the external peer, preserve its admitted large reply and retire without deleting the successor marker', async () => {
   const { buildPackagingPrototype } = await import('../../../scripts/mh-l1-package-prototype.mjs');
@@ -51,6 +53,9 @@ test('real .7 source should accept the external peer, preserve its admitted larg
     assert.equal(opened.status, 200);
     const running = post({ jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'h2a_run', arguments: {
       profile: 'claude', name: 'retained-g0', prompt: 'fixture', workspace: dir, background: true, h2aSidecar: false } } });
+    // A failing assertion must report its cause even when cleanup closes the
+    // deliberately suspended HTTP call. The original promise is still awaited.
+    void running.catch(() => {});
     await toolEntered;
     const target = { packageVersion: selection.packageVersion, buildId: selection.buildId, manifestDigest: selection.manifestDigest, entrypoint: join(image, selection.entrypoint) };
     const oldSelection = readState(selectionPath, 'selection'); selection = { ...selection, selectionEpoch: 2 };
@@ -81,6 +86,8 @@ test('real .7 source should accept the external peer, preserve its admitted larg
       observations: {}, verification: {}, createdAt: Date.now(), updatedAt: Date.now() }, 'upgradeTransaction');
     const key = readAuthenticationKey(markerPath, m), signingContext = { service: m.service, namespaceId: m.namespaceId, generation: m.generation };
     const save = (kind, value) => {
+      if (kind === 'authorization') value = { ...value, ticketMac: sign(createHash('sha256').update(ticket.ticketNonce).digest(),
+        'requests', signingContext, { purpose: 'live-source-ticket', authorization: value }) };
       const signed = { ...value, mac: sign(key, 'compatibility', signingContext, value) }, hash = digest(signed);
       publishState(join(durable, `live-${kind}-${hash.slice(7)}.json`), signed, kind === 'authorization' ? 'liveSourceAuthorization' : 'liveSourcePublication'); return hash;
     };
@@ -101,7 +108,8 @@ test('real .7 source should accept the external peer, preserve its admitted larg
     const checkpoints = await call('checkpoint');
     const checkpoint = readState(join(durable, checkpoints.references[0]), 'checkpoint').value;
     assert.equal(checkpoint.context.workspace, dir); assert.equal(checkpoint.presence.length, 1);
-    const presenceBefore = fs.readFileSync(join(root, 'presence', checkpoint.presence[0].sessionId + '.json'));
+    const presencePath = presenceFile(localStorePaths(root), checkpoint.presence[0].sessionId);
+    const presenceBefore = fs.readFileSync(presencePath);
     const publicationDigest = save('publication', { schemaVersion: 1, purpose: 'live-source-publication', authorizationDigest,
       markerDigest: digest(next), checkpointReferences: checkpoints.references });
     assert.equal((await call('retire', { publicationDigest }, 409)).error, 'live_publication_mismatch');
@@ -114,11 +122,18 @@ test('real .7 source should accept the external peer, preserve its admitted larg
     assert.equal(overflow.code, 'response_too_large'); assert.ok(overflow.recovery.ref);
     assert.ok(fs.readFileSync(join(root, 'mcp-payloads', overflow.recovery.ref + '.bin'), 'utf8').includes('x'.repeat(1024)));
     assert.equal((await call('drain-status')).complete, true);
+    // The external future peer may already own shared component control while
+    // G0 is still finishing its independently admitted operations.
+    const controlPath = join(durable, 'component-control.json'), control = readState(controlPath, 'componentControl');
+    replaceState(controlPath, { ...control.value, revision: control.value.revision + 1,
+      sourceGeneration: next.generation, ownerIdentity: next.processIdentity, ownerState: 'ACTIVE' }, 'componentControl', control);
     assert.equal((await call('retire', { publicationDigest })).state, 'RETIRED');
     await source.closed;
     assert.equal(readState(markerPath, 'marker').value.generation, next.generation);
-    assert.deepEqual(fs.readFileSync(join(root, 'presence', checkpoint.presence[0].sessionId + '.json')), presenceBefore);
+    assert.deepEqual(fs.readFileSync(presencePath), presenceBefore);
     assert.equal(readState(join(durable, liveTransactionReference('h')), 'componentTransaction').value.state, 'RETIRED');
+    assert.equal(readState(controlPath, 'componentControl').value.ownerState, 'ACTIVE');
+    assert.equal(readState(controlPath, 'componentControl').value.sourceGeneration, next.generation);
     assert.equal(fs.existsSync(join(durable, 'operator-stop.json')), false);
   } finally {
     releaseTool?.(); if (source?.kind === 'started') await source.stop();
