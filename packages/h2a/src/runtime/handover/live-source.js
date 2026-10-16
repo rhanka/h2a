@@ -1,4 +1,5 @@
 import { join, relative } from 'node:path';
+import { createHash } from 'node:crypto';
 import { digest, verify } from './wire.js';
 import { validate, safeRelative } from './formats.js';
 import { readState } from './state.js';
@@ -75,6 +76,9 @@ export class PassiveLiveSource {
         digest(ticket.delegatedControllerIdentity) !== digest(a.delegatedControllerIdentity) ||
         digest(receipt.delegatedControllerIdentity) !== digest(a.delegatedControllerIdentity) ||
         ticket.expiresAt <= this.now()) throw new Error('live_ticket_invalid');
+    const { mac, ticketMac, ...authorization } = value;
+    if (!verify(createHash('sha256').update(ticket.ticketNonce).digest(), 'requests', context(this.marker),
+      { purpose: 'live-source-ticket', authorization }, ticketMac)) throw new Error('live_ticket_possession_invalid');
   }
   authorize(value, step, target, selectionEpoch, coordinator) {
     this.checkTuple(value, step, target, selectionEpoch, coordinator);
@@ -107,7 +111,7 @@ export class PassiveLiveSource {
     if (publication.authorizationDigest !== hash || publication.markerDigest !== digest(value.targetPublication) ||
         !current || digest(current) !== publication.markerDigest || !tx.checkpointReferences.length ||
         digest(publication.checkpointReferences) !== digest(tx.checkpointReferences)) throw new Error('live_publication_mismatch');
-    this.participants.checkTransfer(tx, value.targetPublication);
+    if (tx.state !== 'RETIRED') this.participants.checkTransfer(tx, value.targetPublication);
     return { publicationDigest, markerDigest: publication.markerDigest };
   }
   verifyAuthority(tx) {
