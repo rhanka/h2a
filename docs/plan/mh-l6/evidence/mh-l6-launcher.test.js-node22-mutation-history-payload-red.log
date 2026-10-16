@@ -1,0 +1,64 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-launcher.test.js
+node: v22.22.1
+private root: /tmp/mh-l6-test-4ZLuAp
+case: all cases in explicit file
+TAP version 13
+# Subtest: U06 should reject a corrupt history payload as a diagnostic recovery candidate
+not ok 1 - U06 should reject a corrupt history payload as a diagnostic recovery candidate
+  ---
+  duration_ms: 186.429257
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-launcher.test.js:13:94'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    + actual - expected
+    
+    + {
+    +   buildId: 'launcher-selected',
+    +   canonicalPrefix: '/tmp/mh-l6-test-4ZLuAp/tmpdir/mh-l6-installation-soCBaO',
+    +   entrypoint: 'entry.mjs',
+    +   manifestDigest: 'sha256:87c525cc9b7ee84e359987e8b19f193a6e74524674a8a5a2a3631855a7c5896a',
+    +   packageVersion: '0.98.7',
+    +   prefixId: 'sha256:e2a3fc97dab48ed678aa70f7bf38da82d5743c7720135d304e98881dc8e5917c',
+    +   previousSelectionReference: null,
+    +   schemaVersion: 1,
+    +   selectionEpoch: 1,
+    +   uid: 1000,
+    +   upgradeId: 'one'
+    + }
+    - null
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: ~
+  actual:
+    buildId: 'launcher-selected'
+    canonicalPrefix: '/tmp/mh-l6-test-4ZLuAp/tmpdir/mh-l6-installation-soCBaO'
+    entrypoint: 'entry.mjs'
+    manifestDigest: 'sha256:87c525cc9b7ee84e359987e8b19f193a6e74524674a8a5a2a3631855a7c5896a'
+    packageVersion: '0.98.7'
+    prefixId: 'sha256:e2a3fc97dab48ed678aa70f7bf38da82d5743c7720135d304e98881dc8e5917c'
+    previousSelectionReference: ~
+    schemaVersion: 1
+    selectionEpoch: 1
+    uid: 1000
+    upgradeId: 'one'
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-launcher.test.js:108:10)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 0
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 309.46581
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-launcher.test.js"],"code":1,"signal":null,"tests":1,"invalid":false,"spawned":2,"leftovers":[]}
