@@ -49,6 +49,7 @@ on:
       - '.github/workflows/publish-rehearsal.yml'
       - 'scripts/release*.mjs'
       - 'scripts/smoke-artifact.mjs'
+      - 'scripts/check-lockstep-versions.mjs'
       - 'packages/*/package.json'
   workflow_dispatch:
 
@@ -95,6 +96,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          node scripts/check-lockstep-versions.mjs
           mkdir -p dist-tarballs
           for pkg in @sentropic/h2a @sentropic/h2a-runtime @sentropic/h2a-cli @sentropic/track; do
             npm pack --workspace "$pkg" --pack-destination dist-tarballs
