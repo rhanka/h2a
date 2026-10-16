@@ -237,28 +237,29 @@ test('RC 0.98.6 declared non-tests accept only exact identities and report lifec
   } finally { fs.rmSync(lab, { recursive: true, force: true }) }
 })
 
-test('RC 0.98.6 production policy is a versioned list of 23 Node and 4 runtime non-tests', () => {
+test('RC 0.98.6 production policy is a versioned list of 23 Node and 5 runtime non-tests', () => {
   const manifest = JSON.parse(fs.readFileSync(join(repo, 'scripts/test-non-tests-0986.json'), 'utf8'))
   assert.equal(manifest.schemaVersion, 1)
   assert.equal(manifest.release, '0.98.6')
   assert.equal(manifest.ownerDecision, "s'ils sont désactivés ce n'est pas un pb ce ne sont pas encore des tests")
   // 42 at RC cut; minus the 15 CLI happy-path placeholders DEC-034 reactivated
   // (PR #328) — they pass now, so the versioned declaration drops them and the
-  // execution proof holds them to passing like any other test.
-  assert.equal(manifest.entries.length, 27)
-  assert.equal(manifest.entries.filter(e => e.status === 'skipped').length, 4)
+  // execution proof holds them to passing like any other test — plus the
+  // L6a-H-next skipped regression declared by PR #333 (proven RED, fix pending).
+  assert.equal(manifest.entries.length, 28)
+  assert.equal(manifest.entries.filter(e => e.status === 'skipped').length, 5)
   assert.equal(manifest.entries.filter(e => e.status === 'todo').length, 23)
-  assert.equal(new Set(manifest.entries.map(e => e.file + ' :: ' + e.fullName)).size, 27)
+  assert.equal(new Set(manifest.entries.map(e => e.file + ' :: ' + e.fullName)).size, 28)
   for (const entry of manifest.entries) assert.ok(entry.file && entry.fullName && entry.reason.trim())
   const node = policyFor(repo, readInventory(repo), 'node')
   assert.equal(node.declaredNonTests.length, 23)
-  assert.equal(policyFor(repo, readInventory(repo), 'runtime').declaredNonTests.length, 4)
+  assert.equal(policyFor(repo, readInventory(repo), 'runtime').declaredNonTests.length, 5)
 })
 
 test('RC 0.98.6 runtime debt lifecycle: every declared debt rejects disappearance, activation, and unlisted skips',()=>{
   const production=policyFor(repo,readInventory(repo),'runtime');
   const debts=production.declaredNonTests;
-  assert.equal(debts.length,4);
+  assert.equal(debts.length,5);
   for(const entry of debts) {
     const file=entry.file,original=report(file);
     original.testResults[0].assertionResults.push({fullName:entry.fullName,status:entry.status});
