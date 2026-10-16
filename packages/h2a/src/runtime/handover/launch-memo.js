@@ -120,10 +120,12 @@ export class LaunchJournal {
     return this.ledger.publishEffect(operation, { type: 'launch-delegation', launchId: memo.launchId,
       delegation: location.delegation, terminalResult: result });
   }
-  static reconcileAll(registry, ledger) {
+  /** @param {{generation: string, processIdentity: object} | undefined} [scope] */
+  static reconcileAll(registry, ledger, scope = undefined) {
     for (const name of fs.readdirSync(registry.directory).filter(p => /^launch-[a-f0-9]+\.json$/.test(p))) {
       const observed = readState(join(registry.directory, name), 'launchMemo');
       const memo = observed.value;
+      if (scope && digest(memo.executionOwner) !== digest(scope.processIdentity)) continue;
       const location = readState(join(registry.directory, `launch-location-${memo.launchId}.json`), 'launchLocation')?.value;
       if (!location || location.attachmentId !== memo.attachmentId) continue;
       const journal = new LaunchJournal({ registry, ledger, token: { attachmentId: memo.attachmentId }, root: location.workspaceRoot });
