@@ -1379,6 +1379,9 @@ export type StartJobResult =
  * (so a queued remote job doesn't hold a workspace while waiting).
  */
 export async function startJob(job: RegistryEntry): Promise<StartJobResult> {
+  if (!isDelegateType(job.tool)) {
+    return { started: false, error: `delegation is not qualified for ${job.tool}` };
+  }
   const task = job.task ?? "";
   const headless = job.headless === true;
   const trackWp = job.trackWp;
@@ -1876,6 +1879,9 @@ function formatIdle(ms: number): string {
  * (control-plane) are phase 2 — see the TODOs at the call site.
  */
 export function resumeThrottledJob(job: RegistryEntry): StartJobResult {
+  if (!isDelegateType(job.tool)) {
+    return { started: false, error: `delegation is not qualified for ${job.tool}` };
+  }
   if (!isManagedLocalKind(job.kind) || job.headless !== true) {
     return {
       started: false,
@@ -7376,6 +7382,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
    * best-effort `job.done` + realizes the track mirror, like the normal path.
    */
   const maybeRecordThrottle = (job: RegistryEntry): boolean => {
+    if (!isDelegateType(job.tool)) return false;
     const verdict = detectThrottle(readJobLogTail(job), job.tool);
     if (!verdict.throttled) return false;
     const nowMs = Date.now();
@@ -9397,7 +9404,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
     for (const s of listLocalSessions()) {
       if (filter && !s.slug.includes(filter)) continue;
       const tool = coerceRegistryTool(s.profile);
-      if (!tool) continue; // shell/opencode/… aren't agent CLIs with a throttle shape
+      if (!tool || !isDelegateType(tool)) continue; // only measured throttle profiles
       out.push({
         slug: s.slug,
         session: {
