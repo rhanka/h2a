@@ -25,6 +25,7 @@ const capabilities = object({ managedImage: boolean, endpointPinned: boolean, re
   primitives: list(text), attachTransfer: boolean, liveCoordinator: literal(false) });
 const image = { packageVersion: text, buildId: text, manifestDigest: hash };
 const catalogue = { descriptorDigest: hash, contractDigest: hash };
+const catalogueSource = object({ generation: nullable(uuid), buildId: text, profileId: text, ...catalogue });
 const authority = { namespaceId: text, prefixId: hash, uid: integer };
 const publication = { generation: uuid, publicationEpoch: epoch, processIdentity: identity };
 const target = object({ generation: uuid, publicationEpoch: epoch, endpoint,
@@ -35,6 +36,7 @@ const authorization = object({ upgradeId: text, handoverId: text, transactionEpo
 const mac = { ...text, pattern: '^[0-9a-f]{64}$' };
 const mode = choice('cold-stop', 'live-transfer', 'catalogue');
 export const schemas = {
+  catalogueSource,
   processIdentity: identity,
   generationEnd: versioned({ purpose: literal('generation-ended'), generation: uuid, source: json, markerDigest: hash, endedAt: integer, mac }),
   shimAcceptance: versioned({ sourceGeneration: uuid, sourceMarkerDigest: hash, receipt: json, mac }),
@@ -103,7 +105,7 @@ export const schemas = {
     attester: object({ ...publication, buildId: text }),
     verifier: object({ algorithmVersion: text, buildId: text, reportDigest: hash,
       verdict: literal('additive-compatible') }), authorization,
-    source: object({ generation: nullable(uuid), buildId: text, profileId: text, ...catalogue }),
+    source: catalogueSource,
     target, attachmentId: text, inventoryRevision: positive, issuedAt: integer, expiresAt: positive,
     challengeNonce: text, mac }),
   inventory: versioned({ revision: positive, shims: list(object({ attachmentId: text,
