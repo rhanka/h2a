@@ -39,3 +39,38 @@ The real-process regressions cover an injected heartbeat write failure while MCP
 - No end-to-end cross-CLI delivery qualification or Darwin/Windows qualification; the conductor owns integration.
 - An already dispatched mesh operation has no cancellation contract. Timeout bounds the response and reports unconfirmed delivery; it cannot assert non-delivery or safe automatic retry.
 - The required peer review could not be dispatched under owner confinement. See `docs/reviews/presence-identity-liveness.md`; no consensus is claimed.
+
+## Review fixes — round 2
+
+Independent review supplied by the owner: `revpresence.md`, verdict NON-FUSIONNABLE.
+All three blocking findings were reproduced before source changes and corrected:
+
+| Finding | Commit | Regression |
+|---|---|---|
+| P1: unprotected notification tick kills MCP on scan EIO | `46a496ee` | `presence-scan-recovery.test.js`: real MCP survives, next scan emits the missed peer notification, heartbeat advances, initialize responds; throwing sink/error reporter also recovers |
+| P1: scan deletes a heartbeat published after its stale read | `bf0d0c0c` | `presence-sweep-race.test.js`: expired, malformed and EIO snapshots each replaced by a verified fresh publication before scan continuation |
+| P2: fresh local presence from a dead PID passes live admission | `97e75967` | `presence-live-admission.test.js`: real exited PID refused on both backends before side effects, real in-memory mesh, live recovery, invalid/missing PID, alias filtering, EPERM/unknown probe errors, mirrored PID never probed locally |
+
+The safe scan contract filters expired/malformed records without unlinking published paths.
+A stat/read recheck would still leave a check-to-unlink race; no such partial fix is claimed.
+`sweep` now controls orphan temporary-file GC only; explicit owner close/reap stays separate.
+The former removal assertion in `mcp-sessions.test.js` now checks filtering, unchanged stored
+bytes and rediscovery after refresh. The send fixture publishes its actual test PID because
+MCP live admission now requires proof of a local owner (legacy missing-PID records are refused).
+Mirrored records retain the remote heartbeat contract and never undergo local PID probing.
+The dormant API/CLI contract remains unchanged; local PID existence cannot prove an active
+MCP consumer, prevent later process death, or distinguish PID reuse.
+
+Repro lane `np5rWT`: 12 tests, 1 control pass, 11 expected failures, zero skipped.
+P1 scan lane `syuEEY`: 18/18. P1 sweep lane `v2De7L`: 31/31.
+P2 admission lane `VEYUws`: 42/42. Final lane `Hd56eN`: 120/120 across sixteen
+explicitly named files; zero failures/skips. Node 22.22.1. Four isolated package typechecks
+exit 0: track, remote-protocol, h2a, h2a-runtime. Tests ran only through the isolated source
+build helper with temporary HOME/TMPDIR/XDG roots and the forbidden-path/owned-PID guard.
+Audit of 92 recorded test PIDs: none alive, no probe errors.
+Command/output evidence is in the owner's scratch report `presence-report.md`, section Tour 2,
+and `presence-evidence/tour2/`. No global suite or real-host validation was run.
+
+The prior reconnect test already passed on the base; it is compatibility coverage, not a
+newly fixed regression. No second independent review or multi-peer consensus is claimed;
+the installed h2a MCP review launch path remains forbidden. See the review dossier.
