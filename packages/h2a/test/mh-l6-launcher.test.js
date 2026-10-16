@@ -11,10 +11,10 @@ const { buildManagedLauncher } = await import('../../../scripts/build-managed-la
   if (e.code !== 'ERR_MODULE_NOT_FOUND') throw e; return {};
 });
 const test = (name, fn) => { if (!process.env.MH_L6_CASE || name === process.env.MH_L6_CASE) nodeTest(name, fn); };
-async function fixture(t) {
+async function fixture(t, entrySource) {
   assert.equal(typeof buildManagedLauncher, 'function', 'standalone same-process launcher required');
   const f = installationFixture(); t.after(() => f.close());
-  const target = f.image('launcher-selected', 1, `process.stdout.write(JSON.stringify({selected:true,pid:process.pid,entry:process.argv[1],nodePath:process.env.NODE_PATH??null})+'\\n');\n`);
+  const target = f.image('launcher-selected', 1, entrySource ?? `process.stdout.write(JSON.stringify({selected:true,pid:process.pid,entry:process.argv[1],nodePath:process.env.NODE_PATH??null})+'\\n');\n`);
   const store = new UpgradeStore(f.layout); store.begin({ upgradeId: 'one', target }); store.prepare('one'); store.select('one');
   const directory = join(f.layout.managedRoot, 'launcher'); fs.mkdirSync(directory, { mode: 0o700 });
   const launcher = join(directory, 'h2a.mjs'), bundle = await buildManagedLauncher();
@@ -135,4 +135,13 @@ test('U10 should refuse a runtime outside the qualified glibc profile before imp
   process.env.PATH = join(f.layout.canonicalPrefix, 'bin'); delete process.env.NODE_OPTIONS;
   t.mock.method(process.report, 'getReport', () => ({ header: {} }));
   await assert.rejects(launchManaged(pathToFileURL(f.launcher).href), /authority_profile_unqualified/);
+});
+
+test('U12 should install the closed reader before the selected entry can import outside its image', async t => {
+  const f = await fixture(t, "await import(process.env.IMAGE_POLICY_DECOY);process.stdout.write(JSON.stringify({selected:true})+'\\n');");
+  const decoy = join(f.layout.canonicalPrefix, 'outside.mjs'), marker = join(f.layout.canonicalPrefix, 'decoy-loaded');
+  fs.writeFileSync(decoy, `import fs from'node:fs';fs.writeFileSync(${JSON.stringify(marker)},'loaded');`);
+  const result = f.run(['--json'], { IMAGE_POLICY_DECOY: pathToFileURL(decoy).href });
+  assert.equal(result.status, 1); assert.equal(result.json.reason, 'image_external_module');
+  assert.equal(fs.existsSync(marker), false);
 });
