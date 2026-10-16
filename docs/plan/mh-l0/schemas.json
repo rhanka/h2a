@@ -2,6 +2,49 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "urn:h2a:mh-l0:formats:1",
   "$defs": {
+    "catalogueSource": {
+      "type": "object",
+      "properties": {
+        "generation": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+            }
+          ]
+        },
+        "buildId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "profileId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "descriptorDigest": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "contractDigest": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        }
+      },
+      "required": [
+        "generation",
+        "buildId",
+        "profileId",
+        "descriptorDigest",
+        "contractDigest"
+      ],
+      "additionalProperties": false
+    },
     "processIdentity": {
       "type": "object",
       "properties": {

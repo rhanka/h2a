@@ -81,6 +81,28 @@ const cases = [
     'resume should discover an unknown expected identity without weakening the instance guard or creating another binding', true]
   ,['resumed-progress', prefix+'shim-bridge.js', '        mappings.resumeNotifications(previous, current);', '', network,
     'resumed notifications should deliver progress for admitted work while cancellation keeps its original transport owner', true]
+  ,['argon-recovery-1', prefix+'shim-bridge.js',
+    'nextRecovery = Math.max(nextRecovery, Date.now() + 1000 * (0.5 + Math.random() / 2));', 'nextRecovery = 0;',
+    'packages/h2a/test/mh-l3-argon.test.js', 'recovery should defer autostart after SSE EOF and let an external publication win', true]
+  ,['argon-recovery-2', prefix+'shim-bridge.js',
+    'nextRecovery = Math.max(nextRecovery, Date.now() + 1000 * (0.5 + Math.random() / 2));', 'nextRecovery = 0;',
+    'packages/h2a/test/mh-l3-argon.test.js', 'recovery should defer autostart after SSE error and let an external publication win', true]
+  ,['argon-recovery-3', prefix+'shim-bridge.js',
+    'nextRecovery = Math.max(nextRecovery, Date.now() + 1000 * (0.5 + Math.random() / 2));', 'nextRecovery = 0;',
+    'packages/h2a/test/mh-l3-argon.test.js', 'recovery should defer autostart after missing marker and let an external publication win', true]
+  ,['argon-register-descriptor', 'packages/h2a/src/runtime/mcp-central.ts', "      validate('shimInventoryItem', advertisement);",
+    "      validate('shimInventoryItem', advertisement);\n      if (advertisement.servedDescriptorDigest !== descriptor.descriptorDigest) throw new Error('shim_inventory_mismatch');",
+    'packages/h2a/test/mh-l3-argon.test.js', 'real central should register the retained shim catalogue as inventory without granting compatibility', true]
+  ,['argon-register-contract', 'packages/h2a/src/runtime/mcp-central.ts', "      validate('shimInventoryItem', advertisement);",
+    "      validate('shimInventoryItem', advertisement);\n      if (advertisement.servedContractDigest !== descriptor.contractDigest) throw new Error('shim_inventory_mismatch');",
+    'packages/h2a/test/mh-l3-argon.test.js', 'real central should register the retained shim catalogue as inventory without granting compatibility', true]
+  ,['argon-register-epoch', 'packages/h2a/src/runtime/mcp-central.ts',
+    "      if (Number(context.req.header('x-h2a-auth-transport-epoch')) !== a.transportEpoch) throw new Error('transport_fenced');", '',
+    'packages/h2a/test/mh-l3-argon.test.js', 'real central should register the retained shim catalogue as inventory without granting compatibility', true]
+  ,['argon-register-source', 'packages/h2a/src/runtime/mcp-central.ts', 'sourceView.descriptorDigest !== advertisement.servedDescriptorDigest', 'false',
+    'packages/h2a/test/mh-l3-argon.test.js', 'real central should register the retained shim catalogue as inventory without granting compatibility', true]
+  ,['argon-prefix-mode', prefix+'admission.js', ' || (prefixInfo.mode & 0o022)', '',
+    'packages/h2a/test/mh-l3-argon.test.js', 'authority should reject group or world writable physical prefixes including umask 0002 worktrees']
 ];
 function compile() {
   const r = spawnSync(process.execPath, ['node_modules/typescript/bin/tsc', '-b', 'packages/h2a', '--pretty', 'false'], { encoding: 'utf8' });
