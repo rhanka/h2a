@@ -494,7 +494,7 @@
     "install-skills --host vibe renders SKILL.md dirs + emits a verifyHint",
     "install-skills renders harness-* from h2a-owned vendored harness skills (SOURCE UNIQUE, no external package)",
     "install-skills preserves unknown legacy commands in the shared agy/Gemini store",
-    "install-skills preserves the historical overwrite contract for Claude and Codex",
+    "install-skills refuses overwrite without --force on any host",
     "install-skills rejects unknown host"
   ],
   "packages/h2a/test/integration-example.test.js": [],
@@ -782,14 +782,15 @@
     "guard rejects fixture qualification, retains stale-code choice, and suspends on observable MCP loss"
   ],
   "packages/h2a/test/native-host-equipment.test.js": [
-    "Vibe installs resources under VIBE_HOME and preserves custom skills even with force",
+    "Vibe installs resources under VIBE_HOME, requires force for managed edits and preserves unknown skills",
     "doctor and status expose the mandatory missing-MCP diagnostic without a write workaround",
     "Vibe setup refuses MCP writes including JSON and force",
     "native diagnostics redact provider/server secrets and classify every observed direct entry"
   ],
   "packages/h2a/test/native-host-oracles.test.js": [
     "guard oracle refuses an executed target or an unrelated deny even when benign command succeeds",
-    "lifecycle oracle requires child/parent record boundaries; fork wrapper runs alone are not record calls"
+    "lifecycle oracle requires child/parent record boundaries; fork wrapper runs alone are not record calls",
+    "MCP oracle qualifies real identity, session and Track handlers and rejects another bus or workspace"
   ],
   "packages/h2a/test/native-host-package.test.js": [
     "tarball consumer receives hooks/scripts/parser and referenced Track resources without source-tree fallback"
@@ -798,7 +799,8 @@
     "phase continuation rejects duplicate, missing, negative or over-allocation accounting and retains the elapsed watchdog",
     "native adapter drives two isolated sessions, consumes history patches, accounts model calls and deletes only its sessions",
     "failed CLI probe captures emitted session IDs and retains unknown cleanup",
-    "corrected phase 2 forks before delegation and observes three calls per origin and copy including the child"
+    "corrected phase 2 forks before delegation and observes three calls per origin and copy including the child",
+    "CLI probe uses supported Vibe flags, its private VIBE_HOME and structured native MCP results"
   ],
   "packages/h2a/test/native-host-proof.test.js": [
     "runtime and evidence mutations invalidate native receipts even when RECORD bytes stay unchanged"
@@ -815,7 +817,10 @@
   "packages/h2a/test/native-host-safety.test.js": [
     "TOML validates the entire document as 1.0 and preserves third parties",
     "TOML refuses unknown or customized owned blocks even with third party changes",
-    "native writes refuse races and symlinks; dry-run and stable repeat do not mutate"
+    "native writes refuse races and symlinks; dry-run and stable repeat do not mutate",
+    "TOML inserts hooks in requested order",
+    "TOML hook activation and removal preserve exact surrounding bytes across cycles",
+    "TOML removes the separator and terminal newline of a previously installed hook"
   ],
   "packages/h2a/test/native-host-shared-skills.test.js": [
     "agy and Gemini share one command owner and resources outside command discovery",
@@ -829,5 +834,18 @@
   "packages/h2a/test/vibe-native-hooks.test.js": [
     "Vibe guard allows benign quoted text, denies CLI invocations, and fails open on malformed input",
     "Vibe lifecycle records only explicit parent null, never touches the record for forks or malformed payloads"
+  ],
+  "packages/h2a/test/native-host-review-regressions.test.js": [
+    "explicit Vibe skills installation also ships its hook scripts",
+    "obsolete managed artifacts are removed only at their known hash, with backup and dry-run preservation",
+    "relative manifest entries survive relocation and reject escaping paths",
+    "repair migrates absolute ownership and both former shared-store files without losing provenance",
+    "Gemini and agy update the same authoritative relative shared-owner manifest and clean old resources",
+    "repair reports qualification of the installed bytes after restoring a missing skill",
+    "skill proof becomes obsolete when project discovery gains a collision",
+    "an already enabled guard suspends when a project hook masks it"
+  ],
+  "packages/h2a/test/native-host-pilot-report.test.js": [
+    "pilot CLI reports success only for all requested observed components and completed cleanup"
   ]
 }
