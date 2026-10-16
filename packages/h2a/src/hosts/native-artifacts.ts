@@ -7,6 +7,7 @@ export interface NativeChanges { changed: string[]; adopted: string[]; conflicts
 export function convergeArtifacts(options: {
   state: string; root: string; host: string; version: string; artifacts: readonly NativeArtifact[];
   repair: boolean; dryRun?: boolean; configure?: (manifest: NativeManifest) => void;
+  manifestName?: string;
 }): { manifest: NativeManifest; changes: NativeChanges } {
   const { state, root, host, version } = options;
   assertNativePath(state);
@@ -18,9 +19,9 @@ export function convergeArtifacts(options: {
     closeSync(openSync(lockPath, 'wx', 0o600)); locked = true;
   }
   try {
-    const manifestPath = join(state, 'manifest.json');
+    const manifestPath = join(state, options.manifestName ?? 'manifest.json');
     const original = snapshot(manifestPath);
-    const manifest = readNativeManifest(state, host, root, version);
+    const manifest = readNativeManifest(state, host, root, version, options.manifestName);
     const pendingPath = join(state, 'pending.json');
     const pending = snapshot(pendingPath);
     if (pending) {
