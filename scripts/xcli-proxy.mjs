@@ -25,8 +25,8 @@ child.stderr.on('data', bytes => {
     if (prefix === -1) continue;
     try {
       const trace = JSON.parse(line.slice(prefix + 'h2a.mcp.phase '.length));
-      if (/^(?:identity|provider|keys|register|alias|registry|binding_lock|process_start)/.test(trace.phase) && /^[a-z0-9_:. -]{1,80}$/i.test(trace.phase)) {
-        emit({ event: 'startup-phase', phase: trace.phase, kind: trace.event, role: trace.role,
+      if ((trace.role === 'identity-child' || /^(?:process_start|identity_pending|identity_ready|identity_failed)$/.test(trace.phase)) && /^[a-z0-9_:. -]{1,80}$/i.test(trace.phase)) {
+        emit({ event: 'startup-phase', phase: trace.phase, kind: trace.event, processRole: trace.role,
           durationMs: trace.durationMs, waitMs: trace.waitMs, holdMs: trace.holdMs });
       }
     } catch { /* never retain unparsed diagnostics */ }
