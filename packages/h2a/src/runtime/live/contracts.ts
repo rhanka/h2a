@@ -13,8 +13,8 @@
  * published yet — and it is os-bounded (linux), so even a digest-pinned
  * packed prerelease consumed through a `file:` dependency breaks
  * cross-platform install and packed redistribution (smoke). H therefore
- * vendors the portable contract entry (dist/contracts.js, extracted
- * byte-identical from the pinned tarball built from graphify@70ebdfee;
+ * vendors the portable contract entry (compiled from engram
+ * 545a57b8911ab108e84fa1778e0f268fe11bf1de, including R1 PR #365;
  * provenance and per-file integrity pinned by the GUARD test in h2a-runtime
  * live-registration.test.ts) under ../../vendor/engram-live, with no
  * external dependency and no neighboring checkout imported: at publication
