@@ -9,6 +9,7 @@ import { sourceBuild, environment, repo } from './xcli-lab.mjs';
 import { verifyExecutionReport } from './test-execution-evidence.mjs';
 import { ensureHistoricalGitRef, LEGACY_HOST_REF } from './historical-test-ref.mjs';
 import { assertPrivatePidNamespace } from '../packages/h2a/test/helpers/private-pid-namespace.mjs';
+import { exportEvidence } from './xcli-export-evidence.mjs';
 
 const files = process.argv.slice(2);
 assert.ok(files.length, 'explicit test files required');
@@ -35,6 +36,7 @@ fs.cpSync(join(repo, 'packages/h2a/test'), join(built.path, 'packages/h2a/test')
 for (const name of ['skills', 'focus-app']) {
   fs.cpSync(join(repo, 'packages/h2a', name), join(built.path, 'packages/h2a', name), { recursive: true });
 }
+fs.cpSync(join(repo, 'packages/track/skills'), join(built.path, 'packages/track/skills'), { recursive: true });
 for (const file of ['vitest.config.mjs', 'packages/h2a-runtime/vitest.config.mjs',
   'packages/track/vitest.config.ts', 'scripts/run-tests.mjs']) {
   fs.mkdirSync(join(built.path, file, '..'), { recursive: true });
@@ -87,6 +89,7 @@ const counts = Object.fromEntries(['tests', 'pass', 'fail', 'cancelled', 'skippe
   [key, Number([...output.matchAll(new RegExp(`^# ${key} (\\d+)$`, 'gm'))].at(-1)?.[1] ?? -1)]));
 fs.writeFileSync(join(root, 'receipt.json'), JSON.stringify({ command: ['node', ...args], counts,
   exitCode: result.status, sourceBuild: built }, null, 2) + '\n');
+exportEvidence(root, ['receipt.json', 'execution.json']);
 process.stdout.write(output + `Evidence: ${root}\n`);
 const declared = JSON.parse(fs.readFileSync(join(repo, 'scripts/test-non-tests-0986.json'), 'utf8')).entries
   .map(entry => ({ ...entry, file: join(built.path, entry.file) }));
