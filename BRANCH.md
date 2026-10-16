@@ -1,5 +1,35 @@
 # Presence and identity liveness — 0.98.6
 
+## CI compatibility — round 7
+
+Run `38952358867` failed the mint/reclaim signed mesh round trips and the T4
+deadline tail on Node 22/24 and npm-test-trust-root. The unchanged two files
+reproduce exactly three failures on `12308394` (15/18 pass, zero skips), while
+the same files pass 18/18 on `main@d2e0cfdc`. These are obsolete test contracts,
+not product defects: the scope below explicitly requires live MCP recipients
+and status-driven bounded identity retry.
+
+- The mesh fixture registered a peer without publishing presence, so MCP now
+  correctly returns `recipient_not_live`. The fixture's in-process mesh receiver
+  now publishes a fresh attachment owned by the actual test PID. Both mint and
+  reclaim cases additionally require typed refusal and zero transport puts
+  before publication and after close. The delayed ACK, signer identity and
+  signed round trip assertions remain intact.
+- T4 asserted that status reads never retry, the opposite of the required
+  recovery for read-only clients. It now uses status calls alone after release,
+  verifies exactly one fresh attempt reaches signing-ready, and retains the
+  real 20-second expiry, binding count and distinct identity checks. No signed
+  fallback or increased timeout is used in this case. The shared cohort helper's
+  comment now acknowledges status-driven recovery and its historical fallback.
+
+Targeted source-build validation (Node 22.22.1), command:
+`rtk env TMPDIR=/tmp IDLOCK_SUMMARY=1 node packages/h2a/test/helpers/identity-isolated-run.mjs packages/h2a/test/mcp-mesh-activation.test.js packages/h2a/test/mcp-identity-burst.test.js`.
+Red lane `xRByZt`: 18 tests, 15 pass, 3 fail, zero skipped, exit 1.
+Green lane `qbiP0D`: 18/18, zero skipped, exit 0. Main control `tlkc9c`
+uses the same command with `IDLOCK_CANDIDATE_REF=d2e0cfdc`: 18/18, exit 0.
+No product code, CI gate, test inventory or deadline changed; no full local
+suite was run. Full TAP and environments: scratch `presence-evidence/tour7/`.
+
 Branch: `fix/presence-identity-liveness`. Base: `58f111b3` (origin/main at checkout).
 
 ## Scope

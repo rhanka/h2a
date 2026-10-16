@@ -135,6 +135,23 @@ the observed threshold; existing excess is not purged. Loss of diagnostic detail
 at failure/capacity is intentional. Node 22 only; full suite, other OSes,
 field/endurance and cross-CLI E2E remain unqualified.
 
+## CI compatibility review — round 7
+
+Manual review of the two failing files against `BRANCH.md` and the changes to
+`runtime/mcp/server.ts` / `runtime/send.ts` confirms both intentional contracts:
+status-only clients drive bounded retry; MCP discussion requires fresh living
+recipient presence. Original tests: main d2e0cfdc 18/18, branch 12308394 15/18
+(exactly the three CI failures). Updated tests: branch 18/18, zero skips.
+The mesh fixture now includes refusal before presence and after close, with no
+transport put, while preserving both signed directions and delayed readiness.
+T4 now requires status-only recovery, one fresh activated attempt, and both
+distinct bindings after the unchanged production deadline expires.
+
+No product change or weakened assertion; written test-evolution justification
+and exact command are in `BRANCH.md`, round 7. No fresh independent consensus
+is claimed. The owner's supplied last verdict is FUSIONNABLE; the installed
+h2a review path remains prohibited by owner confinement.
+
 ## Owner-supplied independent re-review and round 6
 
 `revpresence5.md`: FUSIONNABLE-AVEC-RESERVES, a single P3: three writers
