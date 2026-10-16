@@ -1,6 +1,6 @@
 ---
 status: selection-failed
-target-ref: 14b3aaa61ebba509a06419a75dfa33cdc70af883
+target-ref: aa16ad17addc1d63f77d03b7fd2fad657b310220
 review-author:
   host: codex
   model: unknown
@@ -134,3 +134,37 @@ observed capacity without deleting old evidence. Concurrent writers may exceed
 the observed threshold; existing excess is not purged. Loss of diagnostic detail
 at failure/capacity is intentional. Node 22 only; full suite, other OSes,
 field/endurance and cross-CLI E2E remain unqualified.
+
+## Owner-supplied independent re-review and round 6
+
+`revpresence5.md`: FUSIONNABLE-AVEC-RESERVES, a single P3: three writers
+observing 1,023 entries can all append. Accepted and fixed in the exact target
+above, after normal merge a9991995 of origin/main d2e0cfdc (#339).
+
+Three real child processes pause after their actual directory snapshots, then
+publish simultaneously: the exact pre-fix source yields 1,026 entries instead
+of 1,024. One expected failure / 16 targeted history tests, 15 controls passing,
+zero skips (3SYT0W). Identical final test/helper bytes pass with eleven additional
+compatibility files: 173/173, zero skips (jReCeb). Incoming version preparation,
+release helpers and controlled publish rehearsal: 47/47. Four temporary package
+typechecks exit 0; all 183 recorded spawned PIDs are gone. The merge retains all
+1,512 Track events from each parent, with exact internal 0.98.6 pins.
+
+Manual review checked quota reservation before any temporary write, a single
+exclusive mkdir attempt, the finite slot-index range with stable legacy files,
+reservation cleanup, crash isolation, atomic visibility, preservation/repair of
+legacy evidence, duplicate hints, bounded reads and unchanged live admission.
+The new adversarial controls kill and await a real writer, publish through its
+unoccupied remaining pool, overlap different and identical recipients, exercise
+session lifecycle at capacity, and verify failed writes release empty places.
+Existing excess is retained without growth; a crashed reservation consumes one
+finite place, never a global lock. No findings remain from the supplied review.
+
+Evidence: owner's scratch `presence-evidence/tour6/`, with full commands/TAP,
+source provenance, environments and PID audit; report section Tour 6.
+This is the correction and manual validation, without a new independent verdict.
+[harness-review](/home/antoinefa/.codex/skills/harness-review/SKILL.md) requires
+"Launch only through the installed h2a MCP server's `h2a_run` tool"; the owner's
+confinement forbids this path. No peer was dispatched; author metadata remains
+unknown and selection-failed stands. Field attribution, nine-hour soak, Node 24,
+other OSes, cross-CLI E2E and the full integration suite remain unqualified here.
