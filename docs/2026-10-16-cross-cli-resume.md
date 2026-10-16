@@ -10,7 +10,8 @@ La [table initiale](2026-10-15-cross-cli-phase1.md) reste inchangée : 0 measure
 | AGY → AGY | Non avant sélection de login | Non mesuré | Non mesuré | blocked : authentication-required |
 | Muse → Claude | Non côté Muse | Aucun envoi | Non mesuré | measured-KO |
 | Muse → Muse | Non | Non mesuré | Non mesuré | blocked : cli-exited-before-ready |
-| 30 autres cellules | Pas rejouées ici | Pas qualifié par ces cellules | Pas qualifié | Relevé initial uniquement |
+| Claude → Gemini | Non avant sélection de login | Non mesuré | Non mesuré | blocked : authentication-required |
+| 29 autres cellules | Pas rejouées ici | Pas qualifié par ces cellules | Pas qualifié | Relevé initial uniquement |
 
 Preuves : [Claude rouge](2026-10-16-cross-cli-resume-claude-drive-red.json), [Claude vert](2026-10-16-cross-cli-resume-claude-drive-green.json), [Codex](2026-10-16-cross-cli-resume-codex-processes.json). Les JSON conservent la commande, les empreintes du build et du harness, les étapes observées et le nettoyage. Le SHA de base est 8b9c0fbb ; les empreintes identifient les modifications non commitées lors des mesures. Claude → Claude ne prouve aucune autre paire.
 
@@ -39,7 +40,7 @@ Reçus dans [le dossier local](2026-10-16-cross-cli-local/). Les commandes réel
 |---|---|
 | Codex | Consigne visible comme brouillon, aucun MCP initialisé. Une Entrée avant barrière ne change rien : essai retiré. Les trois descendants observés étaient en état S puis ont été collectés. Aucun support réel annoncé. |
 | AGY | [Rejeu vers Claude](2026-10-16-cross-cli-resume-agy-claude.json) : deux MCP chargés, mais aucun envoi AGY en 60 s ; écran avec choix Select non traité. Aucun échange réel qualifié. |
-| Gemini | Authentification initiale non résolue ; pas de nouveau rejeu. |
+| Gemini | [Rejeu isolé](2026-10-16-cross-cli-resume-gemini-auth.json) : authentication-required malgré les seuls fichiers de login autorisés copiés. Aucun succès réel. |
 | Muse | Schéma corrigé et accepté par le vrai parseur ; la session interactive quitte encore avec code 1 après Trust. Le précontrôle isolé exec quitte aussi avec code 1 sans diagnostic reconnu. Ce résultat ne permet pas d’attribuer le blocage à l’authentification. |
 | Vibe | Lanceur Python interdit : 11 cellules impliquant Vibe bloquées. Aucun Python lancé dans cette reprise. |
 | Revue formelle | `harness-review` impose « Launch only through the installed h2a MCP server's h2a_run tool ». Route interdite par le propriétaire : aucun lancement, aucun consensus revendiqué. Voir le dossier de revue existant. |
@@ -80,6 +81,17 @@ Le run complet est **cancelled**, pas vert : annotation GitHub « The job has ex
 
 Les artefacts [Node 22](2026-10-16-cross-cli-ci/680cf7d8/node22/xcli-simulated.json) et [Node 24](2026-10-16-cross-cli-ci/680cf7d8/node24/xcli-simulated.json) ont été téléchargés avec `gh run download 38900923045 -n xcli-simulated-node-<version> -D <dossier>` puis vérifiés avec `node scripts/xcli-ci-check.mjs <artefact>` : sortie exacte pour chacun `{"cells":36,"outcome":"simulated-round-trips-proven"}`. Les reçus des logs des jobs sont archivés à côté.
 
-Le workflow répartit désormais runtime, source native et source hosts dans des jobs indépendants Node 22/24, tous avec le même budget de dix minutes et les mêmes assertions. Les tests source utilisent uniquement le parent temporaire GitHub déjà autorisé et une namespace PID privée. Le workflow publie aussi les reçus d’exécution ; aucun guard n’est affaibli. Sa validation après push reste requise.
+Le workflow répartit désormais runtime, source native et source hosts dans des jobs indépendants Node 22/24, tous avec le même budget de dix minutes et les mêmes assertions. Les tests source utilisent uniquement le parent temporaire GitHub déjà autorisé et une namespace PID privée. Le workflow publie aussi les reçus d’exécution ; aucun guard n’est affaibli.
+
+Le [run suivant 38908671072](https://github.com/rhanka/h2a/actions/runs/38908671072), commit `5e9c9db4`, a détecté deux défauts du runner : six assertions d’install-skills échouaient faute des skills Track versionnés dans le build privé ; l’upload ne pouvait lire les répertoires privés créés par le runner root. Les 702 tests runtime avaient passé sur Node 22 avant l’erreur EACCES d’upload. Ces défauts sont corrigés sans modifier les tests produit : copie des fixtures Track et export des seuls JSON receipt/execution vers un dossier privé créé par le parent, avec le propriétaire de l’uploader. Les répertoires de build et d’état restent en 0700 ; aucun log ou credential exporté.
+
+| Commande ciblée de suivi CI | Sortie observée |
+|---|---|
+| `node scripts/xcli-source-tests.mjs packages/h2a/test/install-skills-hosts.test.js` | Rouge : tests 17, pass 11, fail 6, skipped 0, exit 1 ; vert : pass 17, fail 0, skipped 0, exit 0 |
+| `node --test scripts/xcli-evidence.test.mjs` | Avant export : pass 0, fail 1, exit 1, liste de fichiers vide ; après : pass 1, fail 0, exit 0 |
+| `node --test scripts/xcli-evidence.test.mjs scripts/xcli-pid-namespace.test.mjs` | Version finale avec refus des alias/écrasements et gardes PID : tests 4, pass 4, fail 0, skipped 0, exit 0 |
+| `node scripts/xcli-runtime-tests.mjs packages/h2a-runtime/src/native-terminal/op.test.ts`, avec un export temporaire | tests 4, passed 4, failed 0, pending 0, exit 0 ; `uidMatchesUploader:true`, `mode:0600`, `privateDirectoryMode:700` |
+
+Les reçus rouge/vert figurent dans [le dossier local](2026-10-16-cross-cli-local/). La preuve complète sous root/namespace et le statut final du nouveau workflow seront ajoutés après push.
 
 État réel cumulé : **1/36 measured-OK**, Claude → Claude ; **aucune paire inter-CLI réelle qualifiée**. Les 36 cellules simulées vérifient le chemin h2a et les invariants du harness, pas la prise en charge des six produits réels. Reste estimé : **6–12 heures-agent et 2 tours de revue**, sous réserve d’un login AGY réutilisable, de Gemini et d’une entrée Vibe non Python. La revue formelle reste `selection-failed` suivant [SKILL.md](/home/antoinefa/.codex/skills/harness-review/SKILL.md), qui impose « Launch only through the installed h2a MCP server's h2a_run tool » ; le propriétaire interdit cette route.

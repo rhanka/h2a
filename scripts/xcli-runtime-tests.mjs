@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { repo, sourceBuild, environment } from './xcli-lab.mjs';
+import { exportEvidence } from './xcli-export-evidence.mjs';
 
 const root = fs.mkdtempSync('/tmp/h2a-qual-');
 const built = sourceBuild(root);
@@ -51,6 +52,7 @@ if (fs.existsSync(report)) {
   const summary = { files: selected, tests: json.numTotalTests, passed: json.numPassedTests, failed: json.numFailedTests,
     pending: json.numPendingTests, evidence: root, exitCode: result.status };
   fs.writeFileSync(join(root, 'receipt.json'), JSON.stringify(summary, null, 2) + '\n');
+  exportEvidence(root, ['receipt.json']);
   console.log(JSON.stringify(summary));
   for (const suite of json.testResults) {
     for (const assertion of suite.assertionResults) if (assertion.status !== 'passed') {
