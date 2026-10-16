@@ -872,7 +872,8 @@ Branch: `fix/presence-identity-liveness`. Base: `58f111b3` (origin/main at check
 - [x] E2a: standalone content-addressed preload for launcher image descendants, recursive file child/Worker policy and physical installation revalidation. Node 22/24: 37 targeted tests, 10 killed/restored pairs; proof-E2a.json. Real component/direct/eval entry qualification remains open.
 - [x] E2b1: real direct CLI and npm router install the verified preload before application imports; closed descriptor, pre-import integrity, selected argv and same PID. Node 22/24: 42 targeted tests, five killed/restored pairs; proof-E2b1.json.
 - [x] E2b2: real file boot worker, journal fork/Worker and identity, physical Node/file aliases, URI and opaque data handling. Node 22/24: 75 targeted tests and 16 killed/restored pairs on ten fault points; proof-E2b2.json.
-- [ ] B2/C2/D/E2b3/E3/F: future legacy installer/admission fencing, bootstrap/adoption/link installation, unmanage/npm, all-entry closed loading, release packaging/native freeze and common CLI/automatic/M18 integration.
+- [x] C2a: read-only physical npm provenance; 22 targeted tests, 13 killed/restored fault configurations per Node 22/24. Bootstrap/adoption wiring remains C2b.
+- [ ] B2/C2b/D/E2b3/E3/F: future legacy installer/admission fencing, bootstrap/adoption/link installation, unmanage/npm, all-entry closed loading, release packaging/native freeze and common CLI/automatic/M18 integration.
 - [x] No installed h2a/dispatch, owner live state, main, .track, Python or full suite. Review selection cannot use the required installed dispatch under owner confinement; no consensus verdict claimed.
 - [ ] Independent conductor review and final MH-L6 acceptance remain required; A alone does not qualify U05/U06 or M18 end to end.
 
