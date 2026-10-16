@@ -69,6 +69,7 @@ jobs:
       - name: Run all source suites referencing the changed runtime modules
         run: node scripts/xcli-in-pid-namespace.mjs scripts/xcli-runtime-tests.mjs
       - name: Run cross-package source consumers in the same isolated PID domain
+        if: ${{ !cancelled() }}
         run: >-
           node scripts/xcli-in-pid-namespace.mjs scripts/xcli-source-tests.mjs
           packages/h2a/test/runtime-llm-mesh-account.test.js
