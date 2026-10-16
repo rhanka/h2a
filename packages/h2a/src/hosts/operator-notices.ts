@@ -10,10 +10,14 @@ export function captureHostOperatorNotices(): string[] {
   for (const host of NATIVE_HOSTS) {
     try {
       if (!inspectNativeHost(host).detected) continue;
-      const manifest = JSON.parse(readFileSync(join(stateRoot(host, nativeRoot(host)), 'manifest.json'), 'utf8'));
+      const root = nativeRoot(host);
+      const manifests = [JSON.parse(readFileSync(join(stateRoot(host, root), 'manifest.json'), 'utf8'))];
+      if (host === 'agy') manifests.push(JSON.parse(readFileSync(join(root, '.h2a-install/commands-manifest.json'), 'utf8')));
+      for (const manifest of manifests) {
       if (manifest.version !== currentCliVersion()) return [HOST_UPDATE_NOTICE];
       for (const [path, entry] of Object.entries(manifest.files ?? {}) as [string, { selected: boolean; sha256: string }][]) {
         if (entry.selected && digest(readFileSync(path)) !== entry.sha256) return [HOST_UPDATE_NOTICE];
+      }
       }
     } catch { return [HOST_UPDATE_NOTICE]; }
   }
