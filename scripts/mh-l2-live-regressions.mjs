@@ -19,7 +19,7 @@ for (const file of files) {
   const args = ['scripts/mh-l2-test.mjs', file, label, file.endsWith('.ts') ? 'vitest' : 'node'];
   const result = spawnSync(process.execPath, args, { encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 });
   if (result.status !== 0) { process.stdout.write(result.stdout + result.stderr); process.exit(result.status ?? 1); }
-  const output = fs.readFileSync(join('docs/plan/mh-l2/evidence', `${basename(file)}-${label}.log`), 'utf8');
+  const output = fs.readFileSync(join('docs/plan/mh-l2/evidence', `${basename(file)}-${label}.log`), 'utf8').replace(/\u001b\[[0-9;]*m/g, '');
   if (/\b[1-9][0-9]* skipped\b/.test(output)) throw new Error('required_test_skipped:' + file);
   const count = Number(/(?:#|ℹ) tests (\d+)/.exec(output)?.[1] ?? /Tests\s+(\d+) passed/.exec(output)?.[1] ?? 0);
   if (!count) throw new Error('required_test_not_run:' + file);
