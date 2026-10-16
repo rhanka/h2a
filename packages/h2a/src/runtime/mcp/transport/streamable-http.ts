@@ -461,6 +461,16 @@ export class StreamableHTTPTransport implements Transport {
           // Store the response for this request to send messages back through this connection
           // We need to track by request ID to maintain the connection
           const result = await new Promise<Response>((resolve) => {
+            const requestIds = messages.filter(isJSONRPCRequest).map(message => message.id)
+            const release = () => {
+              this.#streamMapping.delete(streamId)
+              for (const id of requestIds) {
+                this.#requestToStreamMapping.delete(id)
+                this.#requestResponseMap.delete(id)
+              }
+            }
+            const cancelled = () => { release(); resolve(ctx.body(null, 202)) }
+            ctx.req.raw.signal.addEventListener('abort', cancelled, { once: true })
             for (const message of messages) {
               if (isJSONRPCRequest(message)) {
                 this.#streamMapping.set(streamId, {
@@ -471,7 +481,8 @@ export class StreamableHTTPTransport implements Transport {
                     },
                   },
                   cleanup: () => {
-                    this.#streamMapping.delete(streamId)
+                    release()
+                    ctx.req.raw.signal.removeEventListener('abort', cancelled)
                   },
                 })
                 this.#requestToStreamMapping.set(message.id, streamId)
@@ -682,6 +693,13 @@ export class StreamableHTTPTransport implements Transport {
     this.onclose?.()
   }
 
+  /** Fence only notification delivery. Admitted POSTs retain their streams. */
+  detachNotifications(): void {
+    const stream = this.#streamMapping.get(this.#standaloneSseStreamId)
+    stream?.stream?.abort()
+    stream?.cleanup()
+  }
+
   async send(message: JSONRPCMessage, options?: { relatedRequestId?: RequestId }): Promise<void> {
     let requestId = options?.relatedRequestId
     if (isJSONRPCResultResponse(message) || isJSONRPCErrorResponse(message)) {
@@ -725,7 +743,8 @@ export class StreamableHTTPTransport implements Transport {
     const streamId = this.#requestToStreamMapping.get(requestId)
     const response = this.#streamMapping.get(streamId!)
     if (!streamId) {
-      throw new Error(`No connection established for request ID: ${String(requestId)}`)
+      // A cancelled POST retired its mapping. A late result has no recipient.
+      return
     }
 
     if (!this.#enableJsonResponse) {

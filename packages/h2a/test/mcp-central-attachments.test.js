@@ -28,6 +28,8 @@ import { enroll } from "../../h2a-runtime/dist/registry.js";
 import { createLocalStore } from "../dist/runtime/local-files/store.js";
 import { qualifiedEnvironment, qualificationRoot, assertQualifiedPath } from "./helpers/qual-env.js";
 import { qualifiedShim, fixtureQualification, initialize as fixtureInitialize } from "./helpers/mh-l1-shim.js";
+import { describeCatalogue } from '../src/runtime/handover/catalogue.js';
+import { H2A_CLI_MCP_TOOL_DESCRIPTORS } from '../dist/runtime/mcp/tools.js';
 
 // Exact fixture clients exercise routing without qualifying any release Claude.
 const testManifest = { ...fixtureQualification, clients: [
@@ -113,7 +115,8 @@ async function signedFixtureBackend(f, fetch) {
     root: f.root, stateDirectory: authority.stateDirectory, uid: process.getuid(),
     authKeyReference: authority.authKeyReference, generation: randomUUID() };
   const auth = new ConnectionAuthentication(marker, authority.rootKey);
-  const server = createAuthenticatedServer(auth, fetch);
+  const server = createAuthenticatedServer(auth, request => new URL(request.url).pathname === '/_h2a-central/catalogue'
+    ? jsonResponse({ ...describeCatalogue(JSON.parse(JSON.stringify(H2A_CLI_MCP_TOOL_DESCRIPTORS))), revision: 1 }) : fetch(request));
   await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
   marker.endpoint = `http://127.0.0.1:${server.address().port}/mcp`;
   writeFileSync(join(directory, "marker.json"), JSON.stringify(marker), { mode: 0o600 });
@@ -285,6 +288,9 @@ test("R6 Claude defaults to central without configuration and preserves the exac
   try {
     await client.connect(transport);
     assert.ok((await client.listTools()).tools.length);
+    // initialize/tools-list are local in v7. Observe an admitted call before
+    // testing daemon state; retain all original project-byte/metadata oracles.
+    assert.ok((await client.callTool({ name: 'h2a_identity_status', arguments: {} })).content);
     const status = await centralOperator("status", { runtimeBase: f.runtimeBase });
     assert.equal(status.running, true, "Claude starts central by default when configuration is absent");
     assert.equal(status.protocol, 2);
@@ -317,6 +323,7 @@ test("R3 unqualified v1 connector leaves live central attachments unchanged with
       });
       channel = rpcChannel(child.stdin, child.stdout);
       assert.ok((await channel.call("initialize")).result);
+      if (hostArgs.length) await ready(channel);
       const attached = (await centralOperator("status", { runtimeBase: f.runtimeBase })).attachments;
       assert.equal(attached, before + (hostArgs.length ? 1 : 0), hostArgs.length ? "explicit Claude host creates one central attachment" : "no host must remain stdio even with a native Claude ID and live marker");
       channel.close();
@@ -433,7 +440,7 @@ test("missing systemd runtime chooses a fixed UID fallback, with private namespa
   assert.equal(runtimeBase({}, { XDG_RUNTIME_DIR: "/private/test/runtime" }, () => false), "/private/test/runtime");
 });
 
-test("an orphaned HTTP attachment is purged and the central exits idle", { timeout: 5000 }, async () => {
+test("an HTTP attachment with unknown liveness is quarantined past its lease until explicit disconnect", { timeout: 5000 }, async () => {
   const f = fixture();
   let server;
   try {
@@ -443,7 +450,12 @@ test("an orphaned HTTP attachment is purged and the central exits idle", { timeo
     assert.equal(response.status, 200);
     await response.text();
     assert.equal((await centralOperator("status", { runtimeBase: f.runtimeBase })).attachments, 1);
-    await Promise.race([server.closed, delay(2500).then(() => { throw new Error("idle shutdown did not happen"); })]);
+    await delay(250);
+    assert.equal((await centralOperator('status', { runtimeBase: f.runtimeBase })).attachments, 1, 'lease expiry cannot prove shim death');
+    const disconnected = await authenticatedHttpRequest(server.markerPath, marker, server.endpoint, { method: 'DELETE',
+      headers: { 'mcp-session-id': response.headers.get('mcp-session-id') } });
+    assert.equal(disconnected.status, 200);
+    await Promise.race([server.closed, delay(2500).then(() => { throw new Error("idle shutdown did not happen after disconnect"); })]);
     assert.equal(existsSync(server.markerPath), false);
   } finally { await server?.stop(); f.cleanup(); }
 });
@@ -531,18 +543,21 @@ test("a lost mutation reply is outcome_unknown and is never replayed during reco
     }
     if (request.method === "DELETE") return new Response(null, { status: 204 });
     const rpc = await request.json();
-    if (rpc.params?.name === "fixture_mutation") {
+    if (rpc.params?.name === "h2a_send") {
       mutationCount++;
       // The effect happened before its reply was lost: under the signed
       // transport a reply the bridge cannot decode carries an unknown outcome.
       return new Response("{{lost-reply", { headers: { "content-type": "application/json", "mcp-session-id": "fixture-session" } });
     }
-    return jsonResponse({ jsonrpc: "2.0", id: rpc.id, result: { tools: [] } }, "fixture-session");
+    if (rpc.method === 'initialize') return jsonResponse({ jsonrpc: '2.0', id: rpc.id, result: {
+      protocolVersion: '2025-06-18', capabilities: {}, serverInfo: { name: 'fixture', version: '1' } } }, 'fixture-session');
+    if (rpc.method === 'notifications/initialized') return new Response(null, { status: 202 });
+    return jsonResponse({ jsonrpc: "2.0", id: rpc.id, result: { tools: [] } });
   });
   try {
     channel = connect(f, url, join(f.dir, "repo-a"), "lost-mutation-reply");
     await channel.call("initialize");
-    const lost = await channel.call("tools/call", { name: "fixture_mutation", arguments: {} });
+    const lost = await channel.call("tools/call", { name: "h2a_send", arguments: {} });
     assert.equal(lost.error.data.code, "outcome_unknown");
     assert.equal(lost.error.data.retrySafe, false);
     assert.ok((await channel.call("tools/list")).result);
@@ -594,7 +609,8 @@ test("SIGTERM of the real central leaves host stdio open and resumes the same bi
     assert.equal((await ready(channel)).instance, before.instance, "enabled=false leaves a healthy live attachment intact");
     await centralOperator("stop", { runtimeBase: f.runtimeBase });
     await delay(100);
-    const unavailable = await channel.call("tools/list");
+    assert.ok((await channel.call('tools/list')).result.tools.length, 'cached catalogue survives downtime');
+    const unavailable = await channel.call("tools/call", { name: 'h2a_identity_status', arguments: {} });
     assert.equal(unavailable.error.data.code, "central_unavailable");
     assert.equal(shim.exitCode, null, "disabled live shim keeps stdio open without spawning a full runtime");
     assert.equal(bindings(f.root).length, 1);
@@ -619,7 +635,8 @@ test("operator stop is authenticated, leaves shims open, and residue detection n
     const stopped = await centralOperator("stop", { runtimeBase: f.runtimeBase });
     assert.equal(stopped.paused, true);
     await server.closed;
-    const unavailable = await channel.call("tools/list");
+    assert.ok((await channel.call('tools/list')).result.tools.length, 'cached catalogue survives operator pause');
+    const unavailable = await channel.call("tools/call", { name: 'h2a_identity_status', arguments: {} });
     assert.equal(unavailable.error.data.code, "central_unavailable");
     const repo = join(f.dir, "repo-a");
     execFileSync("git", ["init", "-q", repo]);
@@ -754,7 +771,10 @@ test("a network cutoff during initialize recovers cleanly and returns the handsh
     const initResponse = await channel.call("initialize");
     assert.equal(initResponse.error, undefined, "initialize must not return error");
     assert.ok(initResponse.result, "initialize must return valid result");
-    assert.equal(initResponse.result.serverInfo.name, "test-server");
+    assert.equal(initResponse.result.serverInfo.name, '@sentropic/h2a', 'initialize is answered locally');
+    const ping = await channel.call('ping');
+    assert.ok(ping.result, 'the idempotent upstream handshake recovers after its lost reply');
+    assert.equal(initializeAttempts, 2);
   } finally {
     await channel?.close();
     server.closeAllConnections();
