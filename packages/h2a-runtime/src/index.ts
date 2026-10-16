@@ -6361,6 +6361,9 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
               `[h2a] local session ${slug} already exists; no new ${profile} was started.\n`,
             );
             process.stderr.write(`[h2a] attach: h2a attach ${slug}\n`);
+            if (existingNativeSlugs.includes(slug)) {
+              process.stderr.write(`[h2a] take over an attached terminal: h2a attach ${slug} --takeover\n`);
+            }
             process.stderr.write(
               `[h2a] stop first: h2a stop ${slug} --reason restart\n`,
             );
@@ -10020,6 +10023,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
       "force the legacy WS/SSE attach (control-plane proxy) instead of exec",
     )
     .option("--local", "force local tmux lookup")
+    .option("--takeover", "detach the current native terminal controller and attach here")
     .option(
       "--headless-terminal",
       "attach a persistent 160x48 PTY client without taking over this terminal (local sessions only)",
@@ -10033,6 +10037,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           ws?: boolean;
           local?: boolean;
           headlessTerminal?: boolean;
+          takeover?: boolean;
         },
       ) => {
         // Local tmux session? (unless an explicit URL/sessionId pair is given).
@@ -10144,7 +10149,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
               }
             }
             process.exitCode = nativeTarget
-              ? attachNativeSession(resolution.name)
+              ? attachNativeSession(resolution.name, undefined, { takeover: opts.takeover === true })
               : attachLocalSession(resolution.name);
             return;
           }
