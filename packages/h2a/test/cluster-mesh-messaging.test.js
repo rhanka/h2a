@@ -10,7 +10,7 @@ import test from "node:test";
 import { BoundedLocalMessagingStore, verifyCustodySignature } from "@sentropic/cluster-mesh";
 import {
   createLocalStore, createClusterMeshMessaging, createMcpServer,
-  createInboxWakeHandler, createEnvelope, signEnvelope, identityKeyPaths, sendMessage, runMcpStdio
+  createInboxWakeHandler, createEnvelope, signEnvelope, identityKeyPaths, sendMessage, runMcpStdio, writePresence
 } from "../dist/index.js";
 
 const context = (instance) => ({
@@ -164,6 +164,7 @@ test("should refuse a mismatched authenticated principal and propagate transport
 
 test("should use the existing MCP send tool with an explicit mesh backend and retain the local default", async (t) => {
   const f = await fixture(t);
+  liveReceiver(f);
   const server = createMcpServer({ root: f.root, store: f.local, sendContext: f.sender, clusterMesh: f.sendMesh });
   const sent = await server.callTool("h2a_send", { to: f.receiver.instance, message: "MCP mesh", backend: "cluster-mesh" });
   assert.equal(sent.backend, "cluster-mesh");
@@ -231,6 +232,7 @@ test("should send from the compiled CLI through a configured transport across a 
 
 test("should await asynchronous MCP sends before replying and closing stdio", async (t) => {
   const f = await fixture(t);
+  liveReceiver(f);
   const stdin = new PassThrough(), stdout = new PassThrough(), stderr = new PassThrough();
   let output = "";
   stdout.on("data", (chunk) => { output += chunk; });
@@ -246,6 +248,13 @@ test("should await asynchronous MCP sends before replying and closing stdio", as
   assert.ok(result.messageId);
   assert.deepEqual((await f.receiveMesh.drain()).accepted, [result.messageId]);
 });
+
+function liveReceiver(f) {
+  const now = new Date().toISOString();
+  writePresence(f.root, { sessionId: 'sess:mesh-receiver', instance: f.receiver.instance,
+    pid: process.pid, startedAt: now, heartbeatAt: now, state: 'live',
+    interests: { scopes: [], negotiations: [] }, subscribedTopics: [] });
+}
 
 test("should drain the real mesh in the running MCP sidecar before notifying and waking", async (t) => {
   const f = await fixture(t);

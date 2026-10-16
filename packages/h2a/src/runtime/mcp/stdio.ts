@@ -406,10 +406,12 @@ export function runMcpStdio(options: RunMcpStdioOptions): Promise<void> {
     delegationContext: () => delegation,
     sessions: {
       autoHeartbeat: true,
+      onHeartbeatError: (error) => stderr.write(`h2a mcp-serve: presence heartbeat failed; retrying next tick: ${error instanceof Error ? error.message : String(error)}\n`),
       ...(heartbeatIntervalMs !== undefined ? { heartbeatIntervalMs } : {}),
       ...(expiryMs !== undefined ? { expiryMs } : {})
     },
     notifications: {
+      onError: (error) => stderr.write(`h2a mcp-serve: notification scan failed; retrying next tick: ${error instanceof Error ? error.message : String(error)}\n`),
       ...(notifyIntervalMs !== undefined ? { intervalMs: notifyIntervalMs } : {}),
       sink: (notification) =>
         emitNotification(notification, {

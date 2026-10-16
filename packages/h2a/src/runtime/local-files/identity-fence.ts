@@ -22,6 +22,7 @@ import {
 } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { performance } from "node:perf_hooks";
+import { sweepOrphanFiles } from "./orphan-gc.js";
 import { repairBindingSlots, prepareBindingSlots, type PreparedBindingSlots } from "../identity/binding-commit.js";
 import { ensureDurableDirectory, syncDirectory, redactIdentityStorageError } from "../identity/durable.js";
 import { captureLegacyLock, collectLegacyEvidence, legacyCaptureHeld, legacyCapacityExceeded, type LegacyCapture, type LegacyEvidenceResult } from './legacy-identity-evidence.js';
@@ -1156,6 +1157,7 @@ interface FenceLoopContext {
 function newLoopContext(lockPath: string, options: IdentityFenceOptions): FenceLoopContext {
   const dir = dirname(lockPath);
   ensureIdentityDir(dir);
+  sweepOrphanFiles(dir, "identity");
   const observe = options.observe;
   const quota=options.signal ? LEGACY_PASS_QUOTAS.get(options.signal) ?? {passes:0} : {passes:0};
   if(options.signal)LEGACY_PASS_QUOTAS.set(options.signal,quota);

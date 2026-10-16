@@ -173,16 +173,22 @@ maybe(
       assert.ok(failed.elapsedMs >= IDENTITY_DEADLINE_MS);
       assert.equal(bindingsWithPrefix(root, prefix).length, 1, "only the head binds while the tail is blocked");
       await holder.stop();
-      assert.equal((await readIdentityStatus(tail)).attemptId, failed.attemptId, "status reads do not restart an expired attempt");
       t.diagnostic(`tail expired after ${failed.elapsedMs}ms; bindings after release: ${bindingsWithPrefix(root, prefix).length}/2`);
       t.diagnostic(tail.stderr.split("\n").filter((line) => line.includes("identity failed")).join("\n"));
-      const finals = await resolveCohortAfterRelease(handles);
+      // Presence liveness requires status-only clients to recover too. No
+      // signed-tool fallback here: reads must start and activate one new attempt.
+      const recovery = await waitForIdentity(tail, (s) => s.attemptId !== failed.attemptId);
+      assert.ok(recovery.state === "identity_pending" || recovery.state === "identity_ready", JSON.stringify(recovery));
+      const recovered = await waitForIdentity(tail, (s) => s.state !== "identity_pending");
+      assert.equal(recovered.state, "identity_ready", JSON.stringify(recovered));
+      assert.equal(recovered.attemptId, recovery.attemptId, "one fresh attempt must complete recovery");
+      const finals = [await readIdentityStatus(head), recovered];
       assert.equal(finals.filter((s) => s.state === "identity_ready").length, 2, "all 2 resolve after release");
       assert.notEqual(finals[1].attemptId, failed.attemptId, "the tail recovers through a fresh attempt without restart");
       assert.equal(finals[1].signingAvailable, true, "the recovered identity is activated, not merely bound");
       assert.equal(bindingsWithPrefix(root, prefix).length, 2, "both conversations bind");
       assert.equal(new Set(finals.map((s) => s.instance)).size, 2, "distinct identities, no collision");
-      t.diagnostic("after one on-demand retry: 2/2 ready, 2 bindings, 2 distinct identities");
+      t.diagnostic("after one status-only retry: 2/2 ready, 2 bindings, 2 distinct identities");
     } finally {
       await holder?.stop();
       await Promise.all(handles.map((h) => stopChildren(h)));

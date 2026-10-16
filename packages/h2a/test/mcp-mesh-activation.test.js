@@ -9,7 +9,7 @@ import { createServer } from "node:http";
 import { join } from "node:path";
 import test from "node:test";
 import { BoundedLocalMessagingStore } from "@sentropic/cluster-mesh";
-import { createLocalStore, createClusterMeshMessaging, sendMessage } from "../dist/index.js";
+import { createLocalStore, createClusterMeshMessaging, sendMessage, writePresence, deletePresence } from "../dist/index.js";
 import { callRpc, callTool, collectFrames, labRoot, parseToolJson, readIdentityStatus,
   spawnMcp, startLiveHolder, stopChildren, waitForIdentity } from "./helpers/mcp-fix-lab.js";
 
@@ -135,14 +135,27 @@ for (const reclaim of [false, true]) test(`mesh activation: ${reclaim ? "reclaim
   local.registerInstance({ id: peer.instance, instance: peer.instance, roles:["AGENTS"], scopes:["scope:default"], capabilities:[],
     endpoints:[{kind:"local-files", uri:"file:///test"}], publicKeys:[publicKey.export({format:"pem",type:"spki"}).toString()], acceptedPolicies:[], createdAt:new Date().toISOString() });
   const mesh = await createClusterMeshMessaging(local, peer, { store:f.transport, context:context(peer.instance) });
+  // MCP discussion requires a live attachment; registration alone only permits
+  // the dormant CLI/API deposit contract. Refusal must precede transport puts.
+  const refused = parseToolJson(await callTool(h, "h2a_send", { to:peer.instance, message:"not-live" }));
+  assert.equal(refused.code, "recipient_not_live", JSON.stringify(refused));
+  assert.equal(f.calls.filter((c) => c.method === "put").length, 0);
+  const now = new Date().toISOString();
+  writePresence(f.root, { instance:peer.instance, sessionId:"sess:mesh-peer", pid:process.pid,
+    startedAt:now, heartbeatAt:now, state:"live", interests:{scopes:[], negotiations:[]}, subscribedTopics:[] });
   const sent = parseToolJson(await callTool(h, "h2a_send", { to:peer.instance, message:"outbound" }));
-  assert.equal(sent.backend, "cluster-mesh"); assert.ok(sent.messageId);
+  assert.equal(sent.backend, "cluster-mesh", JSON.stringify(sent)); assert.ok(sent.messageId);
   assert.deepEqual((await mesh.drain()).accepted, [sent.messageId]);
   await sendMessage({store:local, signer:peer, to:ready.instance, message:"inbound", backend:"cluster-mesh", clusterMesh:mesh});
   await wait(() => local.readInbox(ready.instance).some((e) => e.body.text === "inbound"));
   await wait(() => h.stderr.includes("inbox-wake: 1 new envelope(s)"));
   assert.ok(f.calls.some((c) => c.method === "ack"));
   assert.ok(f.calls.every((c) => c.ackPresent), "no transport activity before readiness ACK");
+  deletePresence(f.root, "sess:mesh-peer");
+  const puts = f.calls.filter((c) => c.method === "put").length;
+  const closed = parseToolJson(await callTool(h, "h2a_send", { to:peer.instance, message:"closed" }));
+  assert.equal(closed.code, "recipient_not_live", JSON.stringify(closed));
+  assert.equal(f.calls.filter((c) => c.method === "put").length, puts, "closed peer cannot dispatch");
 });
 
 for (const mode of ["reject", "principal", "ack", "timeout", "close"]) test(`mesh activation: ${mode} prevents receive and readiness`, { timeout: 40000 }, async (t) => {
