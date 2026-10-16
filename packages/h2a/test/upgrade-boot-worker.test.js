@@ -1,4 +1,6 @@
-// The mcp-serve boot auto-upgrade can run in a DETACHED worker launched as
+// Compatibility of the historical exported worker source for external callers.
+// Production boot now uses runtime/upgrade/boot-worker.js; the real path is
+// exercised in mh-l6-components.test.js. The old export still runs as
 //   node --input-type=module --eval <src> -- <moduleUrl> <root> <ttl> <mode>
 // where <src> is the exported MCP_UPGRADE_WORKER_SOURCE and <moduleUrl> is the compiled
 // dist upgrade module. The worker imports that module by URL and calls currentCliVersion /
@@ -6,7 +8,7 @@
 // predicate isQuietUpgradeOutcome. Its body is wrapped in a catch (best-effort: a boot
 // failure must never break serving), so a symbol that fails to RESOLVE at runtime would be
 // swallowed — presence of an export in dist is not resolution in the real --eval context.
-// These tests run the REAL worker source (not a copy) in that exact context.
+// These tests run the real compatibility export (not a copy) in that context.
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -18,10 +20,10 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { MCP_UPGRADE_WORKER_SOURCE } from "../dist/index.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-// Same target the worker computes from dist/cli.js: dist/runtime/upgrade/index.js.
+// Engine used by the compatibility export: dist/runtime/upgrade/index.js.
 const MODULE_URL = pathToFileURL(join(HERE, "..", "dist", "runtime", "upgrade", "index.js")).href;
 
-// Launch the REAL worker source exactly as cli.js does.
+// Launch the real compatibility export in its historical eval context.
 function runWorker(moduleUrl, mode, root) {
   return spawnSync(
     process.execPath,

@@ -1,0 +1,12 @@
+{
+  "command": [
+    "/usr/bin/node",
+    "scripts/mh-l6-components-mutate.mjs"
+  ],
+  "exit": 1,
+  "diagnostic": "mutation_not_unique:real-fork-journal:packages/h2a/dist/runtime/upgrade/image-execution.js",
+  "completedPairs": 9,
+  "sourceRestored": true,
+  "originalMutatorSha256": "b3d1c8f7710b35efafd6f807053a27b6f41bea5f93df41aeb3e4abc4fe71c758",
+  "excludedFromProductProof": true
+}
