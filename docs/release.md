@@ -1,6 +1,9 @@
 # Release procedure (V1)
 
-> Status: tag-driven release automation is available (DEC-038). Local prep is done by `npm run release`; npm publication happens in GitHub Actions when the `vX.Y.Z` tag is pushed.
+> Local prep is done by `npm run release`. Every stable release requires a
+> successful `vX.Y.Z-rc.N` publication on npm `next` from the same source tree,
+> followed by the owner's installation and real reboot test. Publication is
+> an owner GO; agents must not push release tags or publish packages.
 
 ## Release Flow
 
@@ -30,9 +33,32 @@ git fetch origin main
 SHA=$(gh pr view release/v0.2.0 --json mergeCommit --jq .mergeCommit.oid)
 git merge-base --is-ancestor "$SHA" origin/main
 git show "$SHA:packages/h2a/package.json" | grep -q '"version": "0.2.0"'
-git tag -a v0.2.0 "$SHA" -m "release: v0.2.0"   # -s when commit.gpgsign=true
+# Owner GO: cut the candidate first (-s when commit.gpgsign=true).
+git tag -a v0.2.0-rc.1 "$SHA" -m "release: v0.2.0-rc.1"
+git push origin v0.2.0-rc.1
+# Wait for the entire release.yml RC run, including the post-publish smoke
+# and release-attestation-<run_attempt> upload, to succeed.
+gh run list --workflow release.yml --branch v0.2.0-rc.1
+
+# On the owner's machine, after checking that next is the intended RC:
+npm view @sentropic/h2a dist-tags.next
+npm i -g @sentropic/h2a@next
+# Perform a REAL machine reboot, then verify h2a startup, reconnection,
+# and the owner's normal workflow. Record the result and the RC run URL.
+
+# Only after owner acceptance: tag the EXACT SAME merged commit.
+git tag -a v0.2.0 "$SHA" -m "release: v0.2.0"
 git push origin v0.2.0
+# Wait for the entire stable release.yml run to succeed, including publication
+# and post-publish smoke, then explicitly replace the RC on the owner's machine.
+gh run list --workflow release.yml --branch v0.2.0
+npm i -g @sentropic/h2a@0.2.0
 ```
+
+Install the exact stable version explicitly after successful publication.
+`h2a upgrade` and automatic upgrade reject prerelease versions, so they cannot
+take an installed RC back to stable. Do not rely on `@next` for this step: it
+continues to select a candidate.
 
 Never tag before the merge: a squash or rebase merge rewrites the commit, so a
 pre-merge tag would point outside `main`, and `release.yml` refuses any tag
@@ -46,24 +72,60 @@ that is not reachable from `origin/main`.
 4. Bumps `package.json`, `package-lock.json`, and every workspace manifest (`packages/h2a`, `packages/h2a-cli`, `packages/h2a-runtime`, `packages/track`).
 5. Pins internal dependencies and peers to exact `X.Y.Z`: `@sentropic/h2a-cli` → `@sentropic/h2a`, and `@sentropic/h2a` → `@sentropic/track` / `@sentropic/h2a-runtime`. Release gates reject mixed versions or ranges before packing and publishing.
 6. Commits the version bump as `release: vX.Y.Z` on a branch: from `main` it first creates `release/vX.Y.Z`; from another branch it commits there; a detached HEAD is refused; it never commits on `main`.
-7. Prints the next steps (branch push, PR, green CI, merge, fetch, annotated tag on the merged commit verified on `origin/main` — signed when `git config commit.gpgsign` is `true` — and tag push).
+7. Prints the next steps (branch push, PR, green CI, merge, fetch, annotated RC tag on the merged commit verified on `origin/main` — signed when `git config commit.gpgsign` is `true` — successful RC publication, owner installation and real reboot acceptance, stable tag on the same commit, and explicit stable installation after successful publication).
 
 The script deliberately does **not** create the tag, does **not** publish to npm and does **not** push to GitHub. `--dry-run` prints the planned commands and file bumps without writing files or running git/npm commands.
 
-The version must be a strict `X.Y.Z` SemVer triple with no leading `v`, no pre-release/build metadata, and no leading zeros.
+The preparation script's version must be a strict `X.Y.Z` SemVer triple with
+no leading `v`, pre-release/build metadata, or leading zeros. Keep this stable
+version in Git while testing RCs. Do not commit an RC version bump: release CI
+stamps all four package manifests, exact internal pins and the independent
+artifact-smoke version literal with `X.Y.Z-rc.N` in disposable checkouts only.
+`N` is a nonnegative integer without leading zeros.
+
+If the reboot test fails, fix the source through a PR, then cut `rc.2` (or the
+next unused candidate number) on the new merged commit. Repeat installation
+and the real reboot. Any source-tree change requires a new successful RC;
+never move an existing tag. Avoid concurrent RC publications because all four
+`next` tags must point to the candidate when its attestation is recorded.
 
 ## Publish Workflow
 
 `.github/workflows/release.yml` runs on tags matching `v*.*.*` and then:
 
-1. Bootstraps Node 20 and upgrades npm to `^11.15.0` for Trusted Publishing.
-2. Installs with `npm ci`.
-3. Runs `npm run typecheck` and `npm test`.
-4. Verifies the tag version matches every workspace package version (h2a, h2a-cli, h2a-runtime, track).
-5. Publishes the packages with npm Trusted Publishing (`npm publish --access public`), `@sentropic/track` first (it is a dependency of `@sentropic/h2a`).
-6. Creates a GitHub Release with generated notes.
+1. Resolves the release commit once and verifies it is on `origin/main`.
+2. Verifies it on Linux with Node 22 and 24: `npm ci`, security audit,
+   typecheck, the test trust root and `npm test`.
+3. Prepares the tag version, packs all four lockstep packages, then runs the
+   packaged-artifact smoke. The same checks apply to RCs and stable releases.
+4. Downloads the verified tarballs in publish (Node 22, npm `^11.15.0`) and
+   checks their hashes and the gated commit. Before **any** stable publication,
+   requires a successful RC attestation for `X.Y.Z` and the same Git tree hash.
+   Backfill dispatches have the same requirement; there is no bypass input.
+5. Publishes those exact tarballs in dependency order: track, h2a-runtime,
+   h2a, h2a-cli. RCs always pass `--tag next`, including when below `latest`;
+   they never update `latest`. Stable backfills retain `--tag backfill`.
+6. Creates a GitHub Release (explicitly a prerelease for RCs), then runs the
+   post-publish install/doctor smoke. RC installation must actually finish;
+   propagation lag cannot produce a warning-only success or an attestation.
+7. Confirms all four npm `next` tags point to the RC and their registry
+   integrity matches the verified tarballs (including idempotent skips), records its version,
+   repository, run ID/attempt, commit SHA, Git tree hash and completed smoke,
+   then uploads `release-attestation-<run_attempt>` (90-day retention).
 
-The release job intentionally uses Node 20 for the publish bootstrap. The Node 22.22.2 hosted-toolcache npm has been observed failing during `npm install -g npm@^11.15.0` with a missing `promise-retry` module, while the separate CI matrix still verifies Node 20 and 22 compatibility.
+Stable promotion discovers proof through GitHub's repository-scoped
+`release.yml` run/artifact APIs (`actions: read`). Only a completed successful
+RC **tag push** run in this repository is eligible. The record must match its
+run ID/attempt, all four versions and the commit's tree from GitHub's Git API.
+Missing/expired artifacts, API failures, incomplete smoke, a different release
+train or a tree mismatch fail closed. If proof expires, publish and test a new
+RC number from the intended tree. This CI proof covers the automated install
+smoke; the real machine reboot remains an explicit owner acceptance step.
+
+The PR publish rehearsal stays credential-free and uses `npm publish --dry-run`.
+Its four publish bodies, including RC `next` selection, are compared strictly
+with the release bodies; only the documented dry-run/default-tag differences
+are allowed.
 
 Trusted Publishing must be configured on npm for every package before a tag publish can succeed:
 
@@ -83,7 +145,10 @@ npm exec --package npm@^11.15.0 -- npm trust github @sentropic/track --repo rhan
 
 `npm@11.15.0` or newer is required because npm configurations created after 2026-05-20 must explicitly allow at least one action (`npm publish` here). Older `npm trust github` clients omit that permission and the registry rejects the request.
 
-The repository root is private and never publishes. The `--workspace` flag remains mandatory for package publication. The CLI bin entry (`bin: { h2a: "dist/bin.js" }`) is the failure mode that produced the broken `0.1.0` — see below.
+The repository root is private and never publishes. Packing uses `--workspace`;
+publication uses verified `./dist-tarballs/*.tgz` file specs and never repacks
+workspaces. The CLI bin entry (`bin: { h2a: "dist/bin.js" }`) is the failure
+mode that produced the broken `0.1.0` — see below.
 
 ## Release gate: `smoke.yml`
 

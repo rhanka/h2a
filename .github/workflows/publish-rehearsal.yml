@@ -156,6 +156,9 @@ jobs:
           fi
           # Same VERIFIED tarball bytes the publish job ships — never a
           # fresh pack of a mutable ref (0.98.6 TS2688).
+          if [[ "$v" == *-rc.* ]]; then
+            tagArgs="--tag next"
+          fi
           (cd dist-tarballs && sha256sum --check --strict sha256sums.txt)
           if ! npm publish "./dist-tarballs/sentropic-track-${v}.tgz" --access public $tagArgs --dry-run; then
             echo "::error::@sentropic/track@$v: npm publish failed (not published)." >&2
@@ -181,6 +184,9 @@ jobs:
           fi
           # Same VERIFIED tarball bytes the publish job ships — never a
           # fresh pack of a mutable ref.
+          if [[ "$v" == *-rc.* ]]; then
+            tagArgs="--tag next"
+          fi
           (cd dist-tarballs && sha256sum --check --strict sha256sums.txt)
           if ! npm publish "./dist-tarballs/sentropic-h2a-runtime-${v}.tgz" --access public $tagArgs --dry-run; then
             echo "::error::@sentropic/h2a-runtime@$v: npm publish failed (not published)." >&2
@@ -206,6 +212,9 @@ jobs:
           fi
           # Same VERIFIED tarball bytes the publish job ships — never a
           # fresh pack of a mutable ref.
+          if [[ "$v" == *-rc.* ]]; then
+            tagArgs="--tag next"
+          fi
           (cd dist-tarballs && sha256sum --check --strict sha256sums.txt)
           if ! npm publish "./dist-tarballs/sentropic-h2a-${v}.tgz" --access public $tagArgs --dry-run; then
             echo "::error::@sentropic/h2a@$v: npm publish failed (not published)." >&2
@@ -231,6 +240,9 @@ jobs:
           fi
           # Same VERIFIED tarball bytes the publish job ships — never a
           # fresh pack of a mutable ref.
+          if [[ "$v" == *-rc.* ]]; then
+            tagArgs="--tag next"
+          fi
           (cd dist-tarballs && sha256sum --check --strict sha256sums.txt)
           if ! npm publish "./dist-tarballs/sentropic-h2a-cli-${v}.tgz" --access public $tagArgs --dry-run; then
             echo "::error::@sentropic/h2a-cli@$v: npm publish failed (not published)." >&2
