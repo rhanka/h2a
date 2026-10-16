@@ -1,0 +1,34 @@
+command: /usr/bin/node --test packages/h2a/test/mh-l3-state.test.js
+node: v22.22.1
+private test root: /tmp/mh-l2-test-yJl6PN
+Claude config: /tmp/mh-l2-test-yJl6PN/claude
+TAP version 13
+# Subtest: resume should fence transports, preserve one activation and quarantine unknown liveness within capacity
+ok 1 - resume should fence transports, preserve one activation and quarantine unknown liveness within capacity
+  ---
+  duration_ms: 4.395034
+  type: 'test'
+  ...
+# Subtest: request mappings should distinguish typed IDs, remap progress, settle once and cancel the original owner
+ok 2 - request mappings should distinguish typed IDs, remap progress, settle once and cancel the original owner
+  ---
+  duration_ms: 1.405256
+  type: 'test'
+  ...
+# Subtest: catalogue should retain its served view and reject changed tools while accepting only provenance-checked additions
+ok 3 - catalogue should retain its served view and reject changed tools while accepting only provenance-checked additions
+  ---
+  duration_ms: 2.414496
+  type: 'test'
+  ...
+1..3
+# tests 3
+# suites 0
+# pass 3
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 132.332149
+
+receipt: {"command":["/usr/bin/node","--test","packages/h2a/test/mh-l3-state.test.js"],"code":0,"signal":null,"elapsedMs":222}

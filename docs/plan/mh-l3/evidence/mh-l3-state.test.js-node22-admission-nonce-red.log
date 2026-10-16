@@ -1,0 +1,38 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l3-state.test.js
+node: v22.22.1
+private root: /tmp/mh-l3-test-YWcegx
+case: non-admission should require every binding from the authenticated response
+TAP version 13
+# Subtest: non-admission should require every binding from the authenticated response
+not ok 1 - non-admission should require every binding from the authenticated response
+  ---
+  duration_ms: 3.935688
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-bUCXsb/source/packages/h2a/test/mh-l3-state.test.js:2:94'
+  failureType: 'testCodeFailure'
+  error: |-
+    requestNonce
+    
+    true !== false
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: false
+  actual: true
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/mh-l3-qualification-bUCXsb/source/packages/h2a/test/mh-l3-state.test.js:76:83)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 0
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 117.477802
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l3-state.test.js"],"code":1,"signal":null,"tests":1,"invalid":false,"spawned":1,"leftovers":[]}

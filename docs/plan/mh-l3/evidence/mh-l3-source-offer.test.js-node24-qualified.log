@@ -1,0 +1,22 @@
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node --test --test-reporter=tap packages/h2a/test/mh-l3-source-offer.test.js
+node: v24.21.0
+private root: /tmp/mh-l3-test-8i7jmf
+case: all cases in explicit file
+TAP version 13
+# Subtest: source should refuse transfer without an exact handover acknowledgement even for an accepted catalogue proof
+ok 1 - source should refuse transfer without an exact handover acknowledgement even for an accepted catalogue proof
+  ---
+  duration_ms: 161.672583
+  type: 'test'
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 1
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 208.722164
+
+receipt: {"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l3-source-offer.test.js"],"code":0,"signal":null,"tests":1,"invalid":false,"spawned":1,"leftovers":[]}

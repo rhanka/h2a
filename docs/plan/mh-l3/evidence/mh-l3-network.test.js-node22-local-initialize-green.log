@@ -1,0 +1,22 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l3-network.test.js
+node: v22.22.1
+private root: /tmp/mh-l3-test-Pa5Zz1
+case: shim should initialize locally and retain its catalogue and stdio without any marker or identity
+TAP version 13
+# Subtest: shim should initialize locally and retain its catalogue and stdio without any marker or identity
+ok 1 - shim should initialize locally and retain its catalogue and stdio without any marker or identity
+  ---
+  duration_ms: 29.615976
+  type: 'test'
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 1
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 244.314259
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l3-network.test.js"],"code":0,"signal":null,"tests":1,"invalid":false,"spawned":1,"leftovers":[]}

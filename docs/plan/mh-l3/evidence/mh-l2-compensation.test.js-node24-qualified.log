@@ -1,0 +1,22 @@
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node --test --test-reporter=tap packages/h2a/test/mh-l2-compensation.test.js
+node: v24.21.0
+private root: /tmp/mh-l3-test-vBEYph
+case: all cases in explicit file
+TAP version 13
+# Subtest: compensation should require new ACTIVE H4 authority, a verified source image and proven absence; never reopen G0
+ok 1 - compensation should require new ACTIVE H4 authority, a verified source image and proven absence; never reopen G0
+  ---
+  duration_ms: 25.674066
+  type: 'test'
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 1
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 75.201491
+
+receipt: {"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l2-compensation.test.js"],"code":0,"signal":null,"tests":1,"invalid":false,"spawned":1,"leftovers":[]}
