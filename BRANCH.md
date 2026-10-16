@@ -116,12 +116,21 @@ CI on the PR is the integration authority. External review through the real
 h2a/mesh is excluded by the owner's confinement; no consensus is claimed.
 
 
-The first PR run also reproduced the published-version rehearsal blocker:
-npm 11.15.0 refuses an existing version even in --dry-run. The same unmodified
-published Track tarball is red with the normal dry-run and green with an
-offline dry-run using a fresh cache. Rehearsal alone uses that bounded
-exception; online latest/backfill selection, sha256, bytes, and error
-propagation remain required. The real publication is unchanged. The targeted
-execution test runs all four shell bodies on success and on npm failure and
-proves every cache is removed: 13 passed, 0 failed/skipped. This directly
-blocking rehearsal repair extends the two originally named CI symptoms.
+## Main CI repair — Tour 2
+
+Owner scope: integrate #338 and origin/main (#333) through normal merge
+commits, without rebase or force-push. This supersedes the historical merge
+restriction above. No merge into main or real publication is authorized.
+
+The rejected offline workaround is removed. Rehearsal stamps the disposable
+CI workspace after build and before pack with
+`<version>-rehearsal.<run_id>.<attempt>`, rewriting all internal manifest pins
+and the independent smoke literal. The exact-version gate still runs before
+pack and accepts those exact prerelease pins. Release manifests and lockfile
+stay at 0.98.6 in git; the real release path is unchanged.
+
+Publish parity permits only --dry-run and the explicit default prerelease
+tag; no offline/cache exception remains. Execution tests retain all four
+publish bodies, default/backfill selection and npm failure propagation.
+The owner report records strict-test red/green, broken-package rejection,
+targeted regressions and final PR CI. No full local suite is authorized.
