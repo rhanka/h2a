@@ -233,10 +233,18 @@ function dispatch(host: NativeTerminalHost, context: ConnectionContext, request:
       return host.attachObserver(sessionId(params));
     case "acquire-controller": {
       const record = requiredRecord(params, "params");
+      if (record.takeover !== undefined && typeof record.takeover !== "boolean") {
+        throw new TypeError("terminal controller takeover must be a boolean");
+      }
       const lease = host.acquireController(
         requiredIdentifier(record.id, "session id"),
         requiredIdentifier(record.controllerId, "controller id"),
         controllerActivity(record.activity),
+        {
+          ...(record.takeover !== undefined ? { takeover: record.takeover as boolean } : {}),
+          ...(record.pid !== undefined ? { pid: requiredInteger(record.pid, "controller pid") } : {}),
+          ...(record.tty !== undefined ? { tty: requiredString(record.tty, "controller tty") } : {}),
+        },
       );
       context.leases.set(lease.id, lease);
       return lease;

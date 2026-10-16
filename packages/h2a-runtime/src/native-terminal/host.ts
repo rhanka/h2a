@@ -567,6 +567,18 @@ export type NativeTerminalSessionStatus = "running" | "stopping" | "exited";
 /** The provenance of an exclusive controller, used only for human-input safety. */
 export type NativeTerminalControllerActivity = "human" | "automation";
 
+export type NativeTerminalControllerIdentity = Readonly<{
+  pid: number | null;
+  tty: string;
+  since: string;
+}>;
+
+export type NativeTerminalControllerOptions = Readonly<{
+  takeover?: boolean;
+  pid?: number;
+  tty?: string;
+}>;
+
 export type NativeTerminalSessionState = Readonly<{
   id: string;
   generation: string;
@@ -578,11 +590,12 @@ export type NativeTerminalSessionState = Readonly<{
   stopSignal: string | null;
   /**
    * Whether a controller currently holds this session's exclusive input lease.
-   * Deliberately a BOOLEAN: consumers (restore visibility) only need to know
-   * that a controlling terminal exists, never who it is — the controller id
-   * stays private to the host.
+   * Restore consumers need only this boolean. Attach rescue also exposes the
+   * holder's diagnostic identity and epoch, never its input lease.
    */
   controlled: boolean;
+  controllerEpoch?: number;
+  controller?: NativeTerminalControllerIdentity | null;
   /**
    * Most recent human controller/input activity, in epoch milliseconds. A
    * missing value means an older host did not provide the safety signal and
@@ -740,6 +753,7 @@ type SessionRecord = {
   stopSignal: string | null;
   controllerId: string | null;
   controllerActivity: NativeTerminalControllerActivity | null;
+  controllerIdentity: NativeTerminalControllerIdentity | null;
   controllerEpoch: number;
   lastHumanActivityAt: number | null;
   dataSubscription?: { dispose(): void };
@@ -1014,6 +1028,7 @@ export class NativeTerminalHost {
       stopSignal: null,
       controllerId: null,
       controllerActivity: null,
+      controllerIdentity: null,
       controllerEpoch: 0,
       lastHumanActivityAt: null,
     };
@@ -1140,6 +1155,7 @@ export class NativeTerminalHost {
     id: string,
     controllerId: string,
     activity: NativeTerminalControllerActivity = "human",
+    options: NativeTerminalControllerOptions = {},
   ): NativeTerminalControllerLease {
     const record = this.#requireControllableSession(id);
     if (
@@ -1150,15 +1166,25 @@ export class NativeTerminalHost {
         `terminal controller id must contain 1-${NATIVE_TERMINAL_MAX_IDENTIFIER_CHARS} characters`,
       );
     }
-    if (record.controllerId !== null) {
-      throw new Error(`terminal session already has a controller: ${id}`);
-    }
     if (activity !== "human" && activity !== "automation") {
       throw new TypeError("terminal controller activity must be human or automation");
     }
+    if (options.pid !== undefined && (!Number.isSafeInteger(options.pid) || options.pid <= 0)) {
+      throw new TypeError("terminal controller pid must be a positive safe integer");
+    }
+    if (options.tty !== undefined && (options.tty.length === 0 || options.tty.length > 256 || /[\p{Cc}\p{Cf}]/u.test(options.tty))) {
+      throw new TypeError("terminal controller tty must be a printable name of 1-256 characters");
+    }
+    if (record.controllerId !== null && options.takeover !== true) {
+      const holder = record.controllerIdentity;
+      throw new Error(`terminal session already has a controller: ${id}; pid=${holder?.pid ?? "unknown"} tty=${holder?.tty ?? "unknown"} since=${holder?.since ?? "unknown"}; use h2a attach ${id.replace(/^h2a-/, "")} --takeover to detach it`);
+    }
+    // Serialized with the lease grant: old input and disconnect cleanup are
+    // fenced by the new epoch, even if the previous attach is still exiting.
     record.controllerEpoch += 1;
     record.controllerId = controllerId;
     record.controllerActivity = activity;
+    record.controllerIdentity = Object.freeze({ pid: options.pid ?? null, tty: options.tty ?? "unknown", since: new Date().toISOString() });
     if (activity === "human") record.lastHumanActivityAt = Date.now();
     return Object.freeze({
       role: "controller",
@@ -2039,6 +2065,7 @@ export class NativeTerminalHost {
     if (record.controllerId === null) return;
     record.controllerId = null;
     record.controllerActivity = null;
+    record.controllerIdentity = null;
     record.controllerEpoch += 1;
   }
 
@@ -2075,6 +2102,8 @@ export class NativeTerminalHost {
       exit: record.exit,
       stopSignal: record.stopSignal,
       controlled: record.controllerId !== null,
+      controllerEpoch: record.controllerEpoch,
+      controller: record.controllerIdentity,
       lastHumanActivityAt: record.lastHumanActivityAt,
     });
   }
