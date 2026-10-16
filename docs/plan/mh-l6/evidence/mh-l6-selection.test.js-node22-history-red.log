@@ -1,0 +1,105 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-selection.test.js
+node: v22.22.1
+private root: /tmp/mh-l6-test-cfCv1q
+case: all cases in explicit file
+TAP version 13
+# Subtest: U05 should select once with canonical journal, history and pins across HOME changes
+ok 1 - U05 should select once with canonical journal, history and pins across HOME changes
+  ---
+  duration_ms: 956.238795
+  type: 'test'
+  ...
+# Subtest: U05 should reconcile every selection persistence cut forward without a second epoch
+ok 2 - U05 should reconcile every selection persistence cut forward without a second epoch
+  ---
+  duration_ms: 2529.12476
+  type: 'test'
+  ...
+# Subtest: U05 should exclude the actual legacy prefix lock and coalesce only the same request
+ok 3 - U05 should exclude the actual legacy prefix lock and coalesce only the same request
+  ---
+  duration_ms: 27.694579
+  type: 'test'
+  ...
+# Subtest: U06 should refuse foreign layout, unknown controllers and changed payload before selection
+ok 4 - U06 should refuse foreign layout, unknown controllers and changed payload before selection
+  ---
+  duration_ms: 31.093898
+  type: 'test'
+  ...
+# Subtest: U06 should block contradictory selection and preserve all diagnostic bytes
+ok 5 - U06 should block contradictory selection and preserve all diagnostic bytes
+  ---
+  duration_ms: 115.920689
+  type: 'test'
+  ...
+# Subtest: U05 should retain the previous selection and reject abort after selection intent
+ok 6 - U05 should retain the previous selection and reject abort after selection intent
+  ---
+  duration_ms: 594.597616
+  type: 'test'
+  ...
+# Subtest: U06 should refuse a contradictory durable history before changing the selected build
+not ok 7 - U06 should refuse a contradictory durable history before changing the selected build
+  ---
+  duration_ms: 184.547095
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-selection.test.js:114:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    history contradiction must not change selection
+    
+    true !== false
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: false
+  actual: true
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-selection.test.js:120:10)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: U06 should refuse a contradictory last-valid record before changing selection
+not ok 8 - U06 should refuse a contradictory last-valid record before changing selection
+  ---
+  duration_ms: 42.557737
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-selection.test.js:123:1'
+  failureType: 'testCodeFailure'
+  error: 'Missing expected exception.'
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected:
+  operator: 'throws'
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-selection.test.js:128:10)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: U05 should retain verified previous history with a monotonically increasing epoch
+ok 9 - U05 should retain verified previous history with a monotonically increasing epoch
+  ---
+  duration_ms: 46.057605
+  type: 'test'
+  ...
+1..9
+# tests 9
+# suites 0
+# pass 7
+# fail 2
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 5771.498846
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-selection.test.js"],"code":1,"signal":null,"tests":9,"invalid":false,"spawned":1,"leftovers":[]}
