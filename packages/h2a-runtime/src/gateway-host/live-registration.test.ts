@@ -723,12 +723,18 @@ describe("gateway-host live registration (L6a H)", () => {
  * redistribution. Re-vendor from that commit and compare digests to rotate.
  */
 const ENGRAM_LIVE_VENDORED_INTEGRITY = {
+  "contracts.d.ts":
+    "sha512-ZY8jaPcnjbKt5R8a/QA759l0038fiL9u1GHC6HV7FfqWAs+nVrMx16Zi1yIVFYVEH1FaYRxYQWwiibKuEEKP/w==",
   "contracts.js":
     "sha512-Jg0HTAjImE5IhPY1jqygRui7F16GeZ85RgGgJWSsIzv1JDnWtwZl23Z6DXLQvOG7Kg60c5cMfcThKusKU6jfzQ==",
   "registration.js":
     "sha512-v/0LGM651f3nVcP+R99oz2kRyC5ZKVhUO5UJ8dIeYrdLbdoayA5VOheZpIqF/fwRPQOxEfGP38QEg+cLvJoz7Q==",
+  "registration.d.ts":
+    "sha512-nRHZITOtLNND2lu0A59JbGrop8r9qb5Z75qGQ5FhycjeTCjqyygFsTrUSFEKEiDws6J5uoqGYx9ZttrflqTw2Q==",
   "integration.js":
     "sha512-cLQpW8pZl2NmP/41aX2DWqVNkQXqImd+To7XCx09PRR4dbT09OkR7qPmrf0uVpdIpjcNB/ynhzxRIVca3eHGFw==",
+  "integration.d.ts":
+    "sha512-mm7CIOP4c1VwvJhqHCIjE05KARUVVquxZo/xQ/Zj7L87Qvu/ltaz2Bb2wWBU0amir88KOOU9pTuPnTNu3goB5A==",
 };
 
 const noPrincipalAuthority: LiveAuthority = {
@@ -738,16 +744,21 @@ const noPrincipalAuthority: LiveAuthority = {
 describe("gateway-host live registration L6a realignment", () => {
   it("GUARD: consumes the pinned vendored engram-live surface, never a silent copy", async () => {
     const vendor = new URL("../vendor/engram-live/", import.meta.url);
+    expect(Object.keys(ENGRAM_LIVE_VENDORED_INTEGRITY).sort()).toEqual(
+      readdirSync(vendor).filter((file) => file.endsWith(".js") || file.endsWith(".d.ts")).sort(),
+    );
     for (const [file, digest] of Object.entries(ENGRAM_LIVE_VENDORED_INTEGRITY)) {
       const bytes = readFileSync(new URL(file, vendor));
       expect(`sha512-${createHash("sha512").update(bytes).digest("base64")}`).toBe(digest);
     }
-    // The core and runtime packages vendor the same contracts entry: the two
-    // copies must stay byte-identical, never drift apart.
-    const coreContracts = readFileSync(
-      new URL("../../../h2a/src/vendor/engram-live/contracts.js", import.meta.url),
-    );
-    expect(coreContracts.equals(readFileSync(new URL("contracts.js", vendor)))).toBe(true);
+    // The core and runtime packages vendor the same contracts entry: both
+    // executable code and type declarations must stay byte-identical.
+    for (const file of ["contracts.js", "contracts.d.ts"]) {
+      const coreContracts = readFileSync(
+        new URL(`../../../h2a/src/vendor/engram-live/${file}`, import.meta.url),
+      );
+      expect(coreContracts.equals(readFileSync(new URL(file, vendor))), file).toBe(true);
+    }
     const contracts = await import("../vendor/engram-live/contracts.js");
     expect(contracts.CONTRACT_NAME).toBe("@sentropic/engram-live/contracts");
     expect(contracts.CONTRACT_VERSION).toBe(1);
