@@ -1,4 +1,5 @@
 import test from 'node:test';
+import { performance } from 'node:perf_hooks';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { hostname, tmpdir } from 'node:os';
@@ -115,3 +116,22 @@ for(const offset of [-2001,-2000,-1999,1999,2000,2001])test(`R5: btime/uptime ag
   const result=collectLegacyEvidence(capture(t,x),performance.now()+1000,()=>x.context);
   assert.equal(result.dead,Math.abs(offset)<=2000,JSON.stringify(result));assert.equal(result.reasonCode,Math.abs(offset)<=2000?'legacy-global-pid-absent':'legacy-time-evidence-unavailable');
 });
+
+// Scheduling can consume the entire wall-clock budget even for two entries.
+// Completeness tests use a controlled clock; these keep both real product
+// limits fail-closed at equality, including a process that vanishes mid-scan.
+for (const budget of [100, 250]) for (const offset of [-1, 0, 1])
+  test(`B5: inventory with a vanished entry at ${budget + offset} ms of a ${budget} ms budget`, t => {
+    const x=fixture(t), restore=simulatedReboot(x.dir,{entries:[String(process.pid),'4194000']});defer(t,restore);
+    const c=capture(t,x), before=fs.readFileSync(x.path);
+    let now=1000;t.mock.method(performance,'now',()=>now);
+    const open=fs.openSync;
+    patch(t,{openSync:(path,...args)=>{
+      if(path==='/proc/4194000/status')now=1000+budget+offset;
+      return open(path,...args);
+    }});
+    const result=collectLegacyEvidence(c,1000+(budget===100?100:1000),()=>x.context);
+    assert.equal(result.dead,offset<0,JSON.stringify(result));
+    assert.equal(result.reasonCode,offset<0?'legacy-global-pid-absent':'legacy-inventory-incomplete');
+    assert.deepEqual(fs.readFileSync(x.path),before,'budget exhaustion never changes the generation');
+  });
