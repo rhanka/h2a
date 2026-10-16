@@ -1,0 +1,40 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l0-formats.test.js
+node: v22.22.1
+private root: /tmp/mh-l6-test-i4cf0S
+case: all cases in explicit file
+TAP version 13
+# Subtest: M18b/M18c format: v2 retains every v1 field, decoy and separate auth reference
+ok 1 - M18b/M18c format: v2 retains every v1 field, decoy and separate auth reference
+  ---
+  duration_ms: 4.96751
+  type: 'test'
+  ...
+# Subtest: M10b format: future builds are open, schema/provenance fields are closed
+ok 2 - M10b format: future builds are open, schema/provenance fields are closed
+  ---
+  duration_ms: 1.682768
+  type: 'test'
+  ...
+# Subtest: formats cover all L0 persistence families and reject unknown versions
+ok 3 - formats cover all L0 persistence families and reject unknown versions
+  ---
+  duration_ms: 0.382931
+  type: 'test'
+  ...
+# Subtest: published v1 reader accepts the actual v2 file and rejects insecure permissions
+ok 4 - published v1 reader accepts the actual v2 file and rejects insecure permissions
+  ---
+  duration_ms: 194.386846
+  type: 'test'
+  ...
+1..4
+# tests 4
+# suites 0
+# pass 4
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 346.259647
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l0-formats.test.js"],"code":0,"signal":null,"tests":4,"invalid":false,"spawned":1,"leftovers":[]}
