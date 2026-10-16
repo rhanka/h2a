@@ -1,0 +1,58 @@
+command: /tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node --test --test-reporter=tap packages/h2a/test/mh-l5-shim-recovery.test.js
+node: v24.21.0
+private root: /tmp/mh-l5-test-PlLMyq
+case: all cases in explicit file
+TAP version 13
+# Subtest: T9 should classify a cold v1 replacement during the first supervision backoff (same generation: false)
+ok 1 - T9 should classify a cold v1 replacement during the first supervision backoff (same generation: false)
+  ---
+  duration_ms: 78.148214
+  type: 'test'
+  ...
+# Subtest: T9 should classify a cold v1 replacement during the first supervision backoff (same generation: true)
+ok 2 - T9 should classify a cold v1 replacement during the first supervision backoff (same generation: true)
+  ---
+  duration_ms: 46.771085
+  type: 'test'
+  ...
+# Subtest: T9 should classify v1 immediately when transport loss starts recovery before supervision
+ok 3 - T9 should classify v1 immediately when transport loss starts recovery before supervision
+  ---
+  duration_ms: 48.215524
+  type: 'test'
+  ...
+# Subtest: T9 should retain the legacy diagnosis through missing or malformed marker retries and clear it only after v2 reconnects
+not ok 4 - T9 should retain the legacy diagnosis through missing or malformed marker retries and clear it only after v2 reconnects
+  ---
+  duration_ms: 88.893861
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-AogyQv/source/packages/h2a/test/mh-l5-shim-recovery.test.js:7:94'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    + actual - expected
+    
+    + 'legacy_requires_cold_upgrade'
+    - 'central_unavailable'
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 'central_unavailable'
+  actual: 'legacy_requires_cold_upgrade'
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/mh-l3-qualification-AogyQv/source/packages/h2a/test/mh-l5-shim-recovery.test.js:104:12)
+    async Test.run (node:internal/test_runner/test:1409:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:974:7)
+  ...
+1..4
+# tests 4
+# suites 0
+# pass 3
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 406.531706
+
+receipt: {"command":["/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l5-shim-recovery.test.js"],"code":1,"signal":null,"tests":4,"invalid":false,"spawned":1,"leftovers":[]}

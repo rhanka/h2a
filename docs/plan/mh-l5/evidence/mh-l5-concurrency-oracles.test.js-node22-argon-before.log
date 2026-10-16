@@ -1,0 +1,36 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l5-concurrency-oracles.test.js
+node: v22.22.1
+private root: /tmp/mh-l5-test-d5GILD
+case: all cases in explicit file
+TAP version 13
+# Subtest: M17 focused oracle must detect a missing write in any of the seven domains
+not ok 1 - M17 focused oracle must detect a missing write in any of the seven domains
+  ---
+  duration_ms: 3308.32299
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-AogyQv/source/packages/h2a/test/mh-l5-concurrency-oracles.test.js:4:1'
+  failureType: 'testCodeFailure'
+  error: 'iteration central:0 must acquire the kernel lock at the eight business mutation boundaries; got 1'
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: true
+  actual: false
+  operator: '=='
+  stack: |-
+    runCampaign (file:///tmp/mh-l3-qualification-AogyQv/source/packages/h2a/test/helpers/mh-l5-campaign.js:46:14)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async TestContext.<anonymous> (file:///tmp/mh-l3-qualification-AogyQv/source/packages/h2a/test/mh-l5-concurrency-oracles.test.js:5:3)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 0
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 3586.774136
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l5-concurrency-oracles.test.js"],"code":1,"signal":null,"tests":1,"invalid":false,"spawned":17,"leftovers":[]}
