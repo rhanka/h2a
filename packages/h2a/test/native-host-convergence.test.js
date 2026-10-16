@@ -6,6 +6,7 @@ import test from 'node:test';
 import { runCli } from '../dist/index.js';
 import { planVibeEquipment } from '../dist/hosts/vibe-equipment.js';
 import { digest } from '../dist/hosts/native-files.js';
+import { createHash } from 'node:crypto';
 function setup(t) {
   const dir = fs.mkdtempSync(join(tmpdir(), 'host-convergence-')), root = join(dir, "vibe ' quoted");
   const previous = { ...process.env }; process.env.HOME = dir; process.env.VIBE_HOME = root;
@@ -38,11 +39,15 @@ test('guard rejects fixture qualification, retains stale-code choice, and suspen
   assert.equal(doctor([]).code, 0);
   const config = { mcp_servers: [{ name: 'h2a', command: 'h2a', args: ['mcp-serve'] }] };
   const plan = planVibeEquipment({ root, state, version: '0.98.6', config, mcpAvailable: true, repair: false });
-  const recordPath = join(root, 'RECORD'), metadataPath = join(root, 'METADATA');
-  fs.writeFileSync(recordPath, 'private runtime fixture'); fs.writeFileSync(metadataPath, 'Name: mistral-vibe\nVersion: 2.26.1\n');
+  const dist = join(root, 'runtime/mistral_vibe-2.26.1.dist-info'); fs.mkdirSync(dist, { recursive: true });
+  fs.mkdirSync(join(root, 'runtime/vibe')); fs.writeFileSync(join(root, 'runtime/vibe/runtime.mjs'), 'fixture');
+  const recordPath = join(dist, 'RECORD'), metadataPath = join(dist, 'METADATA');
+  const record = `vibe/runtime.mjs,sha256=${createHash('sha256').update('fixture').digest('base64url')},7\n`;
+  fs.writeFileSync(recordPath, record); fs.writeFileSync(metadataPath, 'Name: mistral-vibe\nVersion: 2.26.1\n');
+  const evidencePath = join(root, 'native-evidence.json'); fs.writeFileSync(evidencePath, '{}');
   const proof = { schema: 1, host: 'vibe', root, fixture: true, recordedAt: new Date().toISOString(),
-    runtime: { distribution: 'mistral-vibe', version: '2.26.1', recordPath, metadataPath, recordSha256: digest('private runtime fixture') },
-    components: { MCP: { status: 'qualified', dependencies: plan.observed, evidence: ['test double only'], scope: 'private fixture' } } };
+    runtime: { distribution: 'mistral-vibe', version: '2.26.1', recordPath, metadataPath, recordSha256: digest(record) },
+    components: { MCP: { status: 'qualified', dependencies: plan.observed, evidence: [evidencePath], evidenceHashes: { [evidencePath]: digest('{}') }, scope: 'private fixture' } } };
   const proofPath = join(state, 'qualification.json'); fs.writeFileSync(proofPath, JSON.stringify(proof));
   assert.notEqual(doctor(['--guard', 'on']).code, 0);
   // Exercise production receipt validation in this disposable profile; no real host is qualified.
@@ -52,6 +57,9 @@ test('guard rejects fixture qualification, retains stale-code choice, and suspen
   proof.components.MCP.dependencies.entrypoint = 'obsolete-code'; fs.writeFileSync(proofPath, JSON.stringify(proof));
   assert.equal(doctor([]).code, 0);
   assert.match(fs.readFileSync(join(root, 'hooks.toml'), 'utf8'), /pre_tool/);
+  fs.writeFileSync(join(root, 'config.toml'), '[[mcp_servers]]\nname="h2a"\ncommand="changed-binding"\nargs=["mcp-serve"]\n');
+  assert.equal(doctor([]).code, 0);
+  assert.doesNotMatch(fs.readFileSync(join(root, 'hooks.toml'), 'utf8'), /pre_tool/, 'observable binding drift must suspend the installed guard');
   fs.writeFileSync(join(root, 'config.toml'), 'mcp_servers=[]\n');
   assert.equal(doctor([]).code, 0);
   assert.doesNotMatch(fs.readFileSync(join(root, 'hooks.toml'), 'utf8'), /pre_tool/);

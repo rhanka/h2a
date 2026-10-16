@@ -2,7 +2,7 @@ import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { atomicNativeWrite, digest, readNativeManifest, snapshot } from './native-files.js';
 import type { NativeManifest } from './native-files.js';
-import { editVibeHooks, recoverNativeHooks, renderVibeHook } from './native-toml.js';
+import { editVibeHooks, recoverNativeHooks, renderVibeHook, semanticDigest } from './native-toml.js';
 import type { VibeHook } from './native-toml.js';
 import type { NativeArtifact } from './native-artifacts.js';
 import { fileFingerprint, inspectNativeQualification, mcpFingerprint } from './native-proof.js';
@@ -40,15 +40,18 @@ export function planVibeEquipment(options: VibeEquipmentOptions) {
   const qualification = inspectNativeQualification(options.state, 'vibe', options.root, observed);
   for (const mode of [options.guard, options.lifecycle]) if (mode !== undefined && !['on', 'off'].includes(mode)) throw new Error('guard/lifecycle must be on or off');
   if (options.instance === 'auto') throw new Error('non disponible — interface B non livrée');
-  if (options.guard === 'on' && manifest.guard !== 'on' && (!qualification.guardEligible || options.maskingHooks?.length))
+  const knownBinding = manifest.guardBinding;
+  if (options.guard === 'on' && ((!knownBinding || knownBinding !== observed.MCP) && !qualification.guardEligible || options.maskingHooks?.length))
     throw new Error('First guard activation requires a current native MCP qualification; configuration, fixture and manual observation are insufficient.');
   const guard = options.guard ?? manifest.guard;
+  const guardBinding = options.guard === 'on' && qualification.guardEligible ? observed.MCP : knownBinding;
+  const guardActive = guard === 'on' && options.mcpAvailable && guardBinding === observed.MCP;
   const lifecycle = options.instance ? { enabled: true, instance: options.instance, ...(options.busRoot ? { root: options.busRoot } : {}), ...(options.status ? { status: options.status } : {}) } : manifest.lifecycle ? { ...manifest.lifecycle } : undefined;
   if (options.lifecycle === 'on' && !lifecycle) throw new Error('Run h2a host plugin --host vibe --instance <id> --write <hooks.toml> first.');
   if (lifecycle && options.lifecycle) lifecycle.enabled = options.lifecycle === 'on';
   const hooks: VibeHook[] = [];
   const command = (name: string) => [process.execPath, join(options.state, 'hooks', name)].map(shellQuote).join(' ');
-  if (guard === 'on' && options.mcpAvailable) hooks.push({ name: 'sentropic-h2a-deny-manual-cli', type: 'pre_tool', match: 're:(bash|file_system\\.bash|process_start|process\\.start)', command: command('vibe-pre-tool.mjs'), timeout: 5, strict: false });
+  if (guardActive) hooks.push({ name: 'sentropic-h2a-deny-manual-cli', type: 'pre_tool', match: 're:(bash|file_system\\.bash|process_start|process\\.start)', command: command('vibe-pre-tool.mjs'), timeout: 5, strict: false });
   if (lifecycle?.enabled) {
     const args = ['--entrypoint', entrypoint, '--instance', lifecycle.instance, '--status', lifecycle.status ?? 'paused', '--command', 'vibe -c', '--resume-command', 'vibe -c'];
     if (lifecycle.root) args.push('--root', lifecycle.root);
@@ -57,12 +60,13 @@ export function planVibeEquipment(options: VibeEquipmentOptions) {
   const path = join(options.root, 'hooks.toml'), original = snapshot(path);
   const edited = editVibeHooks(original?.bytes.toString() ?? '', hooks, manifest.hooks ?? {});
   return { artifacts, hooks, rendered: hooks.map(renderVibeHook).join('\n'), qualification, observed,
-    guard: { choice: guard ?? 'off', active: guard === 'on' && options.mcpAvailable, suspended: guard === 'on' && !options.mcpAvailable }, lifecycle, restart: VIBE_RESTART, scope: VIBE_LIFECYCLE_SCOPE,
+    guard: { choice: guard ?? 'off', active: guardActive, suspended: guard === 'on' && !guardActive }, lifecycle, restart: VIBE_RESTART, scope: VIBE_LIFECYCLE_SCOPE,
     configure: (current: NativeManifest) => {
-      if (JSON.stringify(current.hooks ?? {}) !== JSON.stringify(manifest.hooks ?? {}) || JSON.stringify(current.lifecycle) !== JSON.stringify(manifest.lifecycle) || current.guard !== manifest.guard)
+      if (JSON.stringify(current.hooks ?? {}) !== JSON.stringify(manifest.hooks ?? {}) || JSON.stringify(current.lifecycle) !== JSON.stringify(manifest.lifecycle) || current.guard !== manifest.guard || current.guardBinding !== manifest.guardBinding)
         throw new Error('concurrent hook selection changed');
       current.hooks = edited.owned;
       if (guard) current.guard = guard as 'on' | 'off';
+      if (guardBinding) current.guardBinding = guardBinding;
       if (lifecycle) current.lifecycle = lifecycle;
     },
     finish: () => {

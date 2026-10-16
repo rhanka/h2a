@@ -64,6 +64,7 @@ export interface NativeManifest {
   files: Record<string, { sha256: string; source: string; selected: boolean }>;
   hooks?: Record<string, string>;
   guard?: 'on' | 'off';
+  guardBinding?: string;
   lifecycle?: { enabled: boolean; instance: string; root?: string; status?: string };
 }
 export function readNativeManifest(state: string, host: string, root: string, version: string, manifestName = 'manifest.json'): NativeManifest {
