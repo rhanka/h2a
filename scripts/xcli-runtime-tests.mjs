@@ -33,6 +33,7 @@ assert.equal(npmLocation.status, 0, 'npm build toolchain must be available');
 const env = { ...environment(join(root, 'runner')), H2A_TEST_QUALIFICATION_ROOT: root,
   npm_config_ignore_scripts: 'true',
   npm_execpath: fs.realpathSync(npmLocation.stdout.trim()),
+  ...(process.env.XCLI_PARENT_PID_NS ? { XCLI_PARENT_PID_NS: process.env.XCLI_PARENT_PID_NS } : {}),
   ...(process.env.XCLI_NODE_HEADERS ? { XCLI_NODE_HEADERS: process.env.XCLI_NODE_HEADERS } : {}) };
 const requested = process.argv.slice(2);
 const selected = requested.length ? files.filter(file => requested.includes(file)) : files;
