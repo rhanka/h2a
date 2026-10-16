@@ -15,7 +15,8 @@
 - [ ] D — Désadoption conditionnelle, opt-out et dérives npm ; `mh-l6-unmanage.test.js`, `mh-l6-npm.test.js`.
 - [x] E1 — Lecteur de modules lié au manifeste et installé dans le lanceur ; prérequis avant journal H4 ; ESM/CJS/createRequire/leurres/modes/métadonnées/probe PTY réel. Node 22/24 : quatre fichiers, 47 tests et 11 paires de mutation, zéro skip/enfant ; chaîne native locale non qualifiée release.
 - [x] E2a — Préchargeur autonome adressé par SHA, propagation aux descendants fichier du lanceur ; 37 tests et dix paires de mutation par Node 22/24, preuve-E2a ; détails et limites dans E2a.md.
-- [ ] E2b — Propager et qualifier le lecteur à chaque entrée directe, spawn/fork/Worker/eval-worker et import tardif ; ne pas déduire la couverture des enfants de celle du parent.
+- [x] E2b1 — Garde sur vraie entrée directe et routeur npm avant modules applicatifs ; descripteur fermé, préchargeur vérifié avant sa première instruction, argv sélectionné/même PID ; 42 tests ciblés et cinq paires par Node 22/24, preuve-E2b1.json.
+- [ ] E2b2 — Propager et qualifier le lecteur à chaque entrée directe, spawn/fork/Worker/eval-worker et import tardif ; ne pas déduire la couverture des enfants de celle du parent.
 - [ ] E3 — Payload publié/shrinkwrap/runtime exact, natifs précompilés par chaîne épinglée, probe ancien moteur, reproductibilité, gel .6 et gate des relancements ; `mh-l6-package.test.js` et références affectées.
 - [ ] F — Surface CLI/auto commune, codes/strict/status/resume/abort/compensate, preuve H4 externe M18 sur vrais .5/.6 ; tests CLI et v1 ciblés.
 - [ ] Gate par sous-lot : commandes/sorties conservées, zéro skip/enfant, mutations tuées puis restaurées, vérification des références affectées, commit conventionnel anglais sans trailer, push fast-forward propre branche, rapport français mis à jour.

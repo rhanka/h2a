@@ -1,0 +1,166 @@
+command: /tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-launcher.test.js
+node: v24.21.0
+private root: /tmp/mh-l6-test-kT0Z3P
+case: all cases in explicit file
+TAP version 13
+# Subtest: U04 should import the verified absolute image in the launcher PID without npm imports
+ok 1 - U04 should import the verified absolute image in the launcher PID without npm imports
+  ---
+  duration_ms: 122.67447
+  type: 'test'
+  ...
+# Subtest: U12 should remove NODE_PATH and refuse external loading flags from env or node argv
+ok 2 - U12 should remove NODE_PATH and refuse external loading flags from env or node argv
+  ---
+  duration_ms: 142.551444
+  type: 'test'
+  ...
+# Subtest: U06 should keep status read-only and use verified history only for diagnostics when selection is corrupt
+ok 3 - U06 should keep status read-only and use verified history only for diagnostics when selection is corrupt
+  ---
+  duration_ms: 121.886726
+  type: 'test'
+  ...
+# Subtest: U06 should reject altered payload and foreign selection before importing code
+ok 4 - U06 should reject altered payload and foreign selection before importing code
+  ---
+  duration_ms: 103.74094
+  type: 'test'
+  ...
+# Subtest: U09 should diagnose PATH shadowing and a changed command link without rewriting either
+ok 5 - U09 should diagnose PATH shadowing and a changed command link without rewriting either
+  ---
+  duration_ms: 144.212441
+  type: 'test'
+  ...
+# Subtest: U06 should never import an older fallback during an engaged selection transaction
+ok 6 - U06 should never import an older fallback during an engaged selection transaction
+  ---
+  duration_ms: 92.830003
+  type: 'test'
+  ...
+# Subtest: U06 should reject a corrupt history payload as a diagnostic recovery candidate
+ok 7 - U06 should reject a corrupt history payload as a diagnostic recovery candidate
+  ---
+  duration_ms: 82.998478
+  type: 'test'
+  ...
+# Subtest: U06 should keep an in-progress selection available only for diagnosis until reconciled
+ok 8 - U06 should keep an in-progress selection available only for diagnosis until reconciled
+  ---
+  duration_ms: 108.003885
+  type: 'test'
+  ...
+# Subtest: U06 should refuse to claim a reliable status for an unknown journal without repairing it
+ok 9 - U06 should refuse to claim a reliable status for an unknown journal without repairing it
+  ---
+  duration_ms: 75.760984
+  type: 'test'
+  ...
+# Subtest: U10 should refuse a runtime outside the qualified glibc profile before importing any image
+ok 10 - U10 should refuse a runtime outside the qualified glibc profile before importing any image
+  ---
+  duration_ms: 51.096929
+  type: 'test'
+  ...
+# Subtest: U12 should install the closed reader before the selected entry can import outside its image
+ok 11 - U12 should install the closed reader before the selected entry can import outside its image
+  ---
+  duration_ms: 87.918528
+  type: 'test'
+  ...
+# Subtest: U12 should guard the selected image spawn before its late external import
+ok 12 - U12 should guard the selected image spawn before its late external import
+  ---
+  duration_ms: 114.348136
+  type: 'test'
+  ...
+# Subtest: U12 should guard the selected image fork before its late external import
+ok 13 - U12 should guard the selected image fork before its late external import
+  ---
+  duration_ms: 120.580508
+  type: 'test'
+  ...
+# Subtest: U12 should guard the selected image worker before its late external import
+ok 14 - U12 should guard the selected image worker before its late external import
+  ---
+  duration_ms: 119.924604
+  type: 'test'
+  ...
+# Subtest: U12 should preserve verified internal execution through spawn with explicit child options
+ok 15 - U12 should preserve verified internal execution through spawn with explicit child options
+  ---
+  duration_ms: 118.256443
+  type: 'test'
+  ...
+# Subtest: U12 should preserve verified internal execution through fork with explicit child options
+ok 16 - U12 should preserve verified internal execution through fork with explicit child options
+  ---
+  duration_ms: 114.283154
+  type: 'test'
+  ...
+# Subtest: U12 should preserve verified internal execution through worker with explicit child options
+ok 17 - U12 should preserve verified internal execution through worker with explicit child options
+  ---
+  duration_ms: 112.059348
+  type: 'test'
+  ...
+# Subtest: U12 should reverify the immutable preload before starting any selected image child
+ok 18 - U12 should reverify the immutable preload before starting any selected image child
+  ---
+  duration_ms: 83.866912
+  type: 'test'
+  ...
+# Subtest: U12 should require the pinned standalone preload while keeping status available without it
+ok 19 - U12 should require the pinned standalone preload while keeping status available without it
+  ---
+  duration_ms: 137.427028
+  type: 'test'
+  ...
+# Subtest: U12 should keep external Node applications outside the image without hard-wiring an MCP allowlist
+ok 20 - U12 should keep external Node applications outside the image without hard-wiring an MCP allowlist
+  ---
+  duration_ms: 154.317731
+  type: 'test'
+  ...
+# Subtest: U12 should bind a candidate process to its own image without importing it into the source process
+ok 21 - U12 should bind a candidate process to its own image without importing it into the source process
+  ---
+  duration_ms: 123.638183
+  type: 'test'
+  ...
+# Subtest: U12 should refuse external loader options before creating an image fork
+ok 22 - U12 should refuse external loader options before creating an image fork
+  ---
+  duration_ms: 95.68634
+  type: 'test'
+  ...
+# Subtest: U12 should refuse external loader options before creating an image worker
+ok 23 - U12 should refuse external loader options before creating an image worker
+  ---
+  duration_ms: 96.732258
+  type: 'test'
+  ...
+# Subtest: U12 should revalidate physical installation authority in an image child before its entry executes
+ok 24 - U12 should revalidate physical installation authority in an image child before its entry executes
+  ---
+  duration_ms: 120.967527
+  type: 'test'
+  ...
+# Subtest: U12 should preserve a guarded Worker when the launcher has a qualified memory option
+ok 25 - U12 should preserve a guarded Worker when the launcher has a qualified memory option
+  ---
+  duration_ms: 129.906152
+  type: 'test'
+  ...
+1..25
+# tests 25
+# suites 0
+# pass 25
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 2825.814873
+
+receipt: {"command":["/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-launcher.test.js"],"code":0,"signal":null,"tests":25,"invalid":false,"spawned":2,"leftovers":[]}
