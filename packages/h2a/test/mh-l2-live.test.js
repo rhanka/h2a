@@ -476,3 +476,16 @@ test('passive source should reconcile an uncertain ownership fence before checki
     assert.equal(f.step('retire', { publicationDigest }).state, 'RETIRED');
   } finally { t.mock.restoreAll(); f.close(); }
 });
+
+test('passive source should revalidate selection, entry and precheck before publication commitment', () => {
+  for (const [hook, reason] of [['authorizeTarget', 'target_selection_mismatch'], ['verifyEntry', 'external_install_detected'], ['verifyPrecheck', 'precheck_evidence_mismatch']]) {
+    const f = liveFixture();
+    try {
+      f.freeze(); const publicationDigest = f.publication(); f.publish();
+      f.admin.options[hook] = () => { throw new Error(reason); };
+      assert.throws(() => f.step('retire', { publicationDigest }), new RegExp(reason));
+      assert.equal(f.admin.status().state, 'FROZEN'); assert.equal(f.closes(), 0);
+      assert.equal(f.p.registry.owners()[0].state, 'FROZEN');
+    } finally { f.close(); }
+  }
+});
