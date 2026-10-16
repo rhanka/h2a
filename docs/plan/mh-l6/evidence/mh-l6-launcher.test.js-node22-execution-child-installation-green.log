@@ -1,0 +1,22 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-launcher.test.js
+node: v22.22.1
+private root: /tmp/mh-l6-test-NKpbQx
+case: all cases in explicit file
+TAP version 13
+# Subtest: U12 should revalidate physical installation authority in an image child before its entry executes
+ok 1 - U12 should revalidate physical installation authority in an image child before its entry executes
+  ---
+  duration_ms: 277.424506
+  type: 'test'
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 1
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 402.169683
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-launcher.test.js"],"code":0,"signal":null,"tests":1,"invalid":false,"spawned":2,"leftovers":[]}

@@ -1,0 +1,69 @@
+command: /tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-launcher.test.js
+node: v24.21.0
+private root: /tmp/mh-l6-test-A3p2A9
+case: all cases in explicit file
+TAP version 13
+# Subtest: U12 should bind a candidate process to its own image without importing it into the source process
+not ok 1 - U12 should bind a candidate process to its own image without importing it into the source process
+  ---
+  duration_ms: 148.651157
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-launcher.test.js:13:94'
+  failureType: 'testCodeFailure'
+  error: |-
+    h2a: file:///tmp/mh-l6-test-A3p2A9/tmpdir/mh-l6-installation-HTjz4W/h2a-managed/1000/bootstrap/image-loader-615013bc2e9ea083ed1b8c95a7801e442b05effcf9d0018778f7ed5d59f9eb4e.mjs?image=%2Ftmp%2Fmh-l6-test-A3p2A9%2Ftmpdir%2Fmh-l6-installation-HTjz4W%2Fh2a-managed%2F1000%2Fimages%2F0f6896dfe97b33b3753f275030817af41ec03570c5b926f47c0972c0c84b6320:796
+        const error = new Error(reason);
+                      ^
+    
+    Error: image_external_module
+        at fail (file:///tmp/mh-l6-test-A3p2A9/tmpdir/mh-l6-installation-HTjz4W/h2a-managed/1000/bootstrap/image-loader-615013bc2e9ea083ed1b8c95a7801e442b05effcf9d0018778f7ed5d59f9eb4e.mjs?image=%2Ftmp%2Fmh-l6-test-A3p2A9%2Ftmpdir%2Fmh-l6-installation-HTjz4W%2Fh2a-managed%2F1000%2Fimages%2F0f6896dfe97b33b3753f275030817af41ec03570c5b926f47c0972c0c84b6320:796:19)
+        at resolve (file:///tmp/mh-l6-test-A3p2A9/tmpdir/mh-l6-installation-HTjz4W/h2a-managed/1000/bootstrap/image-loader-615013bc2e9ea083ed1b8c95a7801e442b05effcf9d0018778f7ed5d59f9eb4e.mjs?image=%2Ftmp%2Fmh-l6-test-A3p2A9%2Ftmpdir%2Fmh-l6-installation-HTjz4W%2Fh2a-managed%2F1000%2Fimages%2F0f6896dfe97b33b3753f275030817af41ec03570c5b926f47c0972c0c84b6320:838:33)
+        at nextStep (node:internal/modules/customization_hooks:189:26)
+        at resolveWithHooks (node:internal/modules/customization_hooks:417:10)
+        at ModuleLoader.resolveSync (node:internal/modules/esm/loader:751:16)
+        at #resolve (node:internal/modules/esm/loader:687:17)
+        at ModuleLoader.getOrCreateModuleJob (node:internal/modules/esm/loader:607:35)
+        at node:internal/modules/esm/loader:636:32
+        at TracingChannel.tracePromise (node:diagnostics_channel:362:14)
+        at ModuleLoader.import (node:internal/modules/esm/loader:632:21) {
+      code: 'ERR_IMAGE_MODULE'
+    }
+    
+    Node.js v24.21.0
+    
+    
+    
+    1 !== 0
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 0
+  actual: 1
+  operator: 'strictEqual'
+  stack: |-
+    fail (file:///tmp/mh-l6-test-A3p2A9/tmpdir/mh-l6-installation-HTjz4W/h2a-managed/1000/bootstrap/image-loader-615013bc2e9ea083ed1b8c95a7801e442b05effcf9d0018778f7ed5d59f9eb4e.mjs?image=%2Ftmp%2Fmh-l6-test-A3p2A9%2Ftmpdir%2Fmh-l6-installation-HTjz4W%2Fh2a-managed%2F1000%2Fimages%2F0f6896dfe97b33b3753f275030817af41ec03570c5b926f47c0972c0c84b6320:796:19)
+    resolve (file:///tmp/mh-l6-test-A3p2A9/tmpdir/mh-l6-installation-HTjz4W/h2a-managed/1000/bootstrap/image-loader-615013bc2e9ea083ed1b8c95a7801e442b05effcf9d0018778f7ed5d59f9eb4e.mjs?image=%2Ftmp%2Fmh-l6-test-A3p2A9%2Ftmpdir%2Fmh-l6-installation-HTjz4W%2Fh2a-managed%2F1000%2Fimages%2F0f6896dfe97b33b3753f275030817af41ec03570c5b926f47c0972c0c84b6320:838:33)
+    nextStep (node:internal/modules/customization_hooks:189:26)
+    resolveWithHooks (node:internal/modules/customization_hooks:417:10)
+    ModuleLoader.resolveSync (node:internal/modules/esm/loader:751:16)
+    #resolve (node:internal/modules/esm/loader:687:17)
+    ModuleLoader.getOrCreateModuleJob (node:internal/modules/esm/loader:607:35)
+    node:internal/modules/esm/loader:636:32
+    TracingChannel.tracePromise (node:diagnostics_channel:362:14)
+    ModuleLoader.import (node:internal/modules/esm/loader:632:21) {
+    TestContext.<anonymous> (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-launcher.test.js:206:88)
+    process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    async Test.run (node:internal/test_runner/test:1409:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3)
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 0
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 196.29213
+
+receipt: {"command":["/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-launcher.test.js"],"code":1,"signal":null,"tests":1,"invalid":false,"spawned":2,"leftovers":[]}

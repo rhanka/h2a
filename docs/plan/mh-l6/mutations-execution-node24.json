@@ -1,0 +1,71 @@
+{
+  "node": "v24.21.0",
+  "files": [
+    {
+      "path": "packages/h2a/src/runtime/upgrade/image-execution.js",
+      "sha256": "671405f33084fed66a9b616d5b0e08146287919882b6ddaf044e0a6a6aa767f7"
+    }
+  ],
+  "results": [
+    {
+      "name": "child-spawn",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-launcher.test.js-node24-execution-child-spawn-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-launcher.test.js-node24-execution-child-spawn-green.log",
+      "restored": true
+    },
+    {
+      "name": "child-fork",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-launcher.test.js-node24-execution-child-fork-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-launcher.test.js-node24-execution-child-fork-green.log",
+      "restored": true
+    },
+    {
+      "name": "child-worker",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-launcher.test.js-node24-execution-child-worker-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-launcher.test.js-node24-execution-child-worker-green.log",
+      "restored": true
+    },
+    {
+      "name": "loader-integrity",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-launcher.test.js-node24-execution-loader-integrity-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-launcher.test.js-node24-execution-loader-integrity-green.log",
+      "restored": true
+    },
+    {
+      "name": "child-preflight",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-launcher.test.js-node24-execution-child-preflight-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-launcher.test.js-node24-execution-child-preflight-green.log",
+      "restored": true
+    },
+    {
+      "name": "child-loader-flags",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-launcher.test.js-node24-execution-child-loader-flags-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-launcher.test.js-node24-execution-child-loader-flags-green.log",
+      "restored": true
+    },
+    {
+      "name": "worker-loader-flags",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-launcher.test.js-node24-execution-worker-loader-flags-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-launcher.test.js-node24-execution-worker-loader-flags-green.log",
+      "restored": true
+    },
+    {
+      "name": "candidate-binding",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-launcher.test.js-node24-execution-candidate-binding-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-launcher.test.js-node24-execution-candidate-binding-green.log",
+      "restored": true
+    },
+    {
+      "name": "child-installation",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-launcher.test.js-node24-execution-child-installation-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-launcher.test.js-node24-execution-child-installation-green.log",
+      "restored": true
+    },
+    {
+      "name": "worker-memory",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-launcher.test.js-node24-execution-worker-memory-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-launcher.test.js-node24-execution-worker-memory-green.log",
+      "restored": true
+    }
+  ]
+}
