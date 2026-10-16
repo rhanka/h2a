@@ -58,7 +58,7 @@ function classify(err: unknown): { cause: IdentityFailureCode; message: string }
   const code = (err as NodeJS.ErrnoException | undefined)?.code;
   if (code === "EROFS") return { cause: "storage_readonly", message };
   if (code === "EACCES" || code === "EPERM") return { cause: "storage_permission_denied", message };
-  if (err instanceof Error && err.name === "LockTimeoutError") {
+  if (err instanceof Error && (err.name === "LockTimeoutError" || err.message === "mutation_lock_unavailable")) {
     return { cause: "identity_timeout", message };
   }
   // A generic durable-store write failure vs. an unexpected worker fault.
@@ -163,7 +163,7 @@ process.on("message", (raw: unknown) => {
       } catch (err) {
         attempt += 1;
         if (abort.signal.aborted) throw err;
-        if (err instanceof LockTimeoutError && remainingMs() > 0) {
+        if ((err instanceof LockTimeoutError || (err instanceof Error && err.message === "mutation_lock_unavailable")) && remainingMs() > 0) {
           await cancellableDelay(200);
           continue;
         }
