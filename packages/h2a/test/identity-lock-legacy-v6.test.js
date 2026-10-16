@@ -1,4 +1,5 @@
 import test from 'node:test';
+import { performance } from 'node:perf_hooks';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -53,7 +54,10 @@ for(const [caseIndex, rewrite] of [s=>s+'\n',s=>s+' ',s=>s.replace('"pid":123','
  fs.writeFileSync(x.lock,rewrite(JSON.stringify(r)));const result=readIdentityLock(x.lock);assert.ok(result==='corrupt'||result==='unknown'||result.eligible===false);
  }finally{fs.rmSync(x.dir,{recursive:true,force:true});}});
 for(const [caseIndex, options] of [{mount:'2 1 0:2 / /proc/sys/fs/binfmt_misc rw - binfmt_misc binfmt_misc rw\n'}, {entries:[String(process.pid),'4194000']}].entries())
- test(`B5: harmless proc entry case ${caseIndex+1} does not prevent a complete proof`,async()=>{const x=setup();let restore=()=>{};try{legacy(x);restore=simulatedReboot(x.dir,options);
+ test(`B5: harmless proc entry case ${caseIndex+1} does not prevent a complete proof`,async t=>{const x=setup();let restore=()=>{};try{legacy(x);restore=simulatedReboot(x.dir,options);
+   // Exercise completeness independently of CI scheduling. Budget refusal is
+   // covered at the exact 250 ms boundary in identity-lock-legacy-predicates.
+   let tick=performance.now();t.mock.method(performance,'now',()=>tick++);
    assert.equal(await withIdentityFence(x.lock,lease=>lease.recovered,{timeoutMs:1000}),true);
  }finally{restore();fs.rmSync(x.dir,{recursive:true,force:true});}});
 for(const kind of ['live','o-excl','exhausted'])test(`B6: ${kind} succession blocks legacy recovery without removing any generation`,async()=>{
