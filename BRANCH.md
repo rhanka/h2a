@@ -1,89 +1,51 @@
-# Identity lock recovery 0.98.6 — FINAL v6, A + B
+# Live cross-CLI messaging
 
-Branch: `fix/0.98.6-identity-lock-recovery`.
-Base: `e3fc1a52` (0.98.5); first attempt: `4c5c6596`.
-Owner decision D1 = B: provenance recovery and bounded independent recovery
-of canonical epoch-bearing legacy binding locks ship together.
+Branch: feat/live-cross-cli-messaging; base: 54e7ffd7859f84fdaa04db94975e292e1af63330 (0.98.6).
+Owner scope: 2026-10-15. No merge, release, installed h2a execution, Python,
+real owner h2a state, unowned process inspection, force push, or main changes.
 
-## Scope
+## Lot 1 — measure before changing the product
 
-- Identity v2/v4/legacy discrimination, qualified death proofs and per-link authorization.
-- Existing succession election, durable repair before retiring the original generation.
-- Durable possession receipts, exclusive binding CAS slots and roll-forward of all relevant slots.
-- Complete-line readers, bounded monotone waits and safe release/exit behavior.
-- Identity operator and cull verifier use the common fence; destructive cull stays disabled.
-- MCP contention IPC, parent diagnostic HMAC, retry conditions and current/previous attempt handling.
-- Test-only isolated builds, real-process concurrency, legacy producer and private reboot simulations.
+- Node 22/24 harness; source-only build in mkdtemp; direct C++ compilation of
+  unchanged node-pty source avoids its Python installation toolchain.
+- 36 distinct ordered pairs of Claude, Codex, AGY, Gemini, Muse and Vibe.
+- Separate evidence for MCP initialization/tools, signed send, durable
+  delivery, CLI inbox read, autonomous live reaction and signed reply delivery.
+- Two empty independent workspaces/identities, including same-CLI pairs.
+- Fresh HOME/XDG/store/socket/registry per cell; existing login files copied
+  through an auth-only allowlist and deleted with CLI state after the cell.
+- Existing native isolation guards retained. Every nested h2a command resolves
+  to a temporary shim over checkout sources. Existing upgrade reexec guard
+  prevents background installation. No raw model/provider outputs retained.
+- Blocking trust/auth/provider/environment cases remain explicit blockers.
+  No skipped cells and no support claims without measured-OK.
+- Commit and push harness plus full table before product corrections.
 
-Upgrade keeps its 0.98.5 serializer, classifier and default election bindings.
-No dependency or version range change, installed h2a invocation, main mutation,
-force-push, generic GC or public anchor/inventory spoofing option.
+## Lot 2 — repair only observed failures
 
-## Verification
+Order: MCP loading, durable delivery, live wake, reply. Each regression must
+retain a failing command/receipt and the corresponding passing observation.
+Run every test file that references a changed integration. A successful MCP
+handshake alone never becomes a successful messaging cell.
 
-Run only named test files with `test/helpers/identity-isolated-run.mjs`.
-The runner builds repository sources into mkdtemp, uses temporary XDG/H2A roots,
-and enforces a checked guard against production state and unowned PIDs.
-Reboot/procfs and capability fixtures remain outside src/dist/package exports.
-Typecheck runs in that same source copy via `identity-isolated-typecheck.mjs`.
-The conductor owns the full integration suite and release cut.
+## Lot 3 — simulated CI, real local qualification
 
-## Release gates still external
+GitHub CI on Node 22/24 exercises deterministic model peers on the real product
+messaging/wake path for all ordered pairs. Local real-CLI qualification stays
+separate, with no secrets or paid seats required by CI. Missing simulation
+coverage is a failed assertion, never a silent skip.
 
-Native B qualification on an isolated initial-namespace CI host/KVM lab,
-power-loss images reconstructed from synchronized writes, full R8 matrix,
-Darwin/Windows native qualification, and independent final re-review are not
-inferred from scoped green tests. The build report records exact commands,
-outputs, simulations and remaining qualification gaps. A+B has no release GO
-until the FINAL v6 B10 gate is satisfied.
+## Design review and limitations
 
-## Release candidate round 6
+Two independent adversarial design readings were reconciled: use h2a_inbox
+(no h2a_receive tool exists), prove MCP initialization plus tool publication,
+correlate exact envelopes and identities, require an idle receiver barrier,
+preserve the upgrade guard, and never treat a notification as model reception.
 
-Owner scope: F1–F10 and interrupted PTY teardown. Tests use private temporary
-HOME/XDG roots, owned processes only, and named files until the explicit final
-`npm test` integration exception (at most two runs). No installed h2a, main
-changes, dependency version changes, Python, merge, tag or publication.
+The installed-h2a consensus-review route prescribed by harness-review is
+incompatible with the owner's explicit confinement. It is not used. These
+design readings are not a claim of a formal harness-review consensus.
 
-- PTY reincarnation waits for the observed exit within the product stop bound.
-  Teardown discovers created trees before host death, kills entire groups, and
-  verifies no live descendant; fault-injected failure and timeout are qualified.
-- Legacy predicate regressions cover Threads: 1, hostname/collection, inode
-  protections, time namespaces, and exact civil-date/boot agreement margins.
-- Published 0.98.5 `identity unlock` races the candidate in both election orders
-  through the real exclusive filesystem publication, using a private npm prefix.
-- The isolated typecheck creates a fresh source lane and preserves npm workspace
-  dependency resolution; a previous test run is no longer a prerequisite.
-- The four runtime placeholders are declared non-tests alongside the 38 Node
-  placeholders. Their exact identities, statuses and continued presence are
-  required by the execution gate; none is claimed as coverage.
-- Native qualification records real initial procfs anchors and owned PID churn.
-  A global NSpid census over unowned processes, suspend/KVM and physical power
-  loss remain outside this confinement; B10 is not inferred from partial evidence.
-
-The external round-6 report preserves every command/output, mutant and failed
-experiment. Final qualification, pushed commits and remaining limitations are
-recorded there; no merge is authorized while a reserve remains.
-
-The second full integration exposed a deterministic supervisor election race:
-a contender can exit with the live-owner publication refusal before the winning
-host answers health. Continue the existing readiness loop under its original
-deadline for that exact refusal; never respawn or bypass the health/containment
-gate. The regression also checks unrelated startup errors, no healthy winner,
-and backoff. The owner's two-full limit is exhausted; another full requires an
-explicit extension. No final-green claim is made without that additional run.
-
-## Release candidate CI repair
-
-Owner scope 2026-10-13: repair PR #330 CI on Node 22/24, provision historical
-fixtures in shallow checkouts, build native qualification in workspace order,
-and prove fixture host/journal teardown on success, failure and timeout.
-The owner abolished the out-of-gate native kernel qualification and authorized
-one final full integration run for this repair. No merge or release is authorized.
-
-CI exposed additional blocking fixtures after the historical builds ran:
-the namespace registry parent was absent, the reaper probed a group before
-checking its frame, mandatory host configuration oracles were not installed,
-the 30x24 lock stress reloaded the full API per worker, and Node 24 selected
-the spec reporter for a nested timeout proof. Targeted checks cover the fixes;
-the stress load and 120-second deadline stay unchanged. The single local full
-run passed before these CI follow-ups; final acceptance belongs to head CI.
+The shell's default bwrap runner cannot create its namespace in this
+confinement. Source reads and private test commands use explicit execution
+exceptions; they do not authorize contacting the real h2a host or state.
