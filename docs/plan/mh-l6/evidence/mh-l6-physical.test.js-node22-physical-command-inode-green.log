@@ -1,0 +1,22 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-physical.test.js
+node: v22.22.1
+private root: /tmp/mh-l6-test-3EUTXl
+case: U07 should detect an identical-byte inode replacement of the original command
+TAP version 13
+# Subtest: U07 should detect an identical-byte inode replacement of the original command
+ok 1 - U07 should detect an identical-byte inode replacement of the original command
+  ---
+  duration_ms: 14.807482
+  type: 'test'
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 1
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 107.062682
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-physical.test.js"],"code":0,"signal":null,"tests":1,"invalid":false,"spawned":1,"leftovers":[]}
