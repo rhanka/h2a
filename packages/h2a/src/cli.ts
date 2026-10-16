@@ -4996,6 +4996,29 @@ function cmdHostSetup(
     return 1;
   }
 
+  // Required-settings-schema guard (fix muse): refuse a config whose
+  // schema_version the installed hosts cannot speak, even with --force.
+  // The writer below only replaces the h2a entry, so a mismatch is checked
+  // here before it touches the file.
+  const settingsSchema = (snippet.config as { schema_version?: unknown }).schema_version;
+  if (settingsSchema !== undefined) {
+    let parsedExisting: unknown;
+    try {
+      const rawExisting = readFileSync(targetPath, "utf8");
+      parsedExisting = rawExisting.trim().length > 0 ? JSON.parse(rawExisting) : {};
+    } catch {
+      parsedExisting = undefined;
+    }
+    if (
+      isPlainObject(parsedExisting) &&
+      parsedExisting.schema_version !== undefined &&
+      parsedExisting.schema_version !== settingsSchema
+    ) {
+      streams.stderr.write(`h2a host setup: ${targetPath} has an unsupported schema_version; refusing to change it.\n`);
+      return 2;
+    }
+  }
+
   // Only the explicitly selected h2a entry is edited; preserve all other bytes.
   let backupPath: string | undefined;
   let replacedH2a = false;
@@ -5005,6 +5028,15 @@ function cmdHostSetup(
       replacedH2a = isPlainObject(existing?.mcpServers) && existing.mcpServers.h2a !== undefined;
     }
     ({ backupPath } = writeHostMcpEntry(targetPath, snippet.config.mcpServers.h2a, flags["allow-tracked"] === "true"));
+    // The writer only replaces the h2a entry: re-assert a required settings
+    // schema (e.g. Muse schema_version) when the file still lacks one. A
+    // mismatch was already refused above, so only the missing case lands here.
+    if (settingsSchema !== undefined) {
+      const written = JSON.parse(readFileSync(targetPath, "utf8")) as Record<string, unknown>;
+      if (isPlainObject(written) && written.schema_version === undefined) {
+        writeFileSync(targetPath, `${JSON.stringify({ ...written, schema_version: settingsSchema }, null, 2)}\n`);
+      }
+    }
   } catch (error) {
     streams.stderr.write(`h2a host setup: cannot write ${targetPath} (${(error as Error).message})\n`);
     return error instanceof HostConfigConflict || error instanceof SyntaxError ? 2 : 3;
