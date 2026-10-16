@@ -4,6 +4,16 @@ import { join } from 'node:path';
 import test from 'node:test';
 import { CLIS, classify, matrix, environment, inside, pythonEntrypoint } from './xcli-lab.mjs';
 import { startupKey } from './qualify-cross-cli.mjs';
+import { spawnSync } from 'node:child_process';
+
+test('private CLI shebangs use the selected Node version without inheriting the host PATH', () => {
+  const root = mkdtempSync('/tmp/xcli-node-path-');
+  try {
+    const result = spawnSync('/usr/bin/env', ['node', '--version'], { env: environment(root), encoding: 'utf8' });
+    assert.equal(result.status, 0);
+    assert.equal(result.stdout.trim(), process.version, 'env node must preserve the selected Node 22/24 toolchain');
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
 
 test('startup can keep the normal default permissions without auto-approving a tool', () => {
   assert.equal(startupKey('Default permissions\nPress ↵ to continue'), 'permissions-keep-default');
