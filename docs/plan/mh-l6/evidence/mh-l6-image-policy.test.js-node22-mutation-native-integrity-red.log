@@ -1,0 +1,39 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-image-policy.test.js
+node: v22.22.1
+private root: /tmp/mh-l6-test-qloWYr
+case: all cases in explicit file
+TAP version 13
+# Subtest: U10 should load the real node-pty probe and its ABI-qualified addon through the image reader
+not ok 1 - U10 should load the real node-pty probe and its ABI-qualified addon through the image reader
+  ---
+  duration_ms: 1091.693069
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-image-policy.test.js:17:94'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    
+    0 !== 1
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 1
+  actual: 0
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-image-policy.test.js:149:49)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 0
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 1207.999322
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-image-policy.test.js"],"code":1,"signal":null,"tests":1,"invalid":false,"spawned":1,"leftovers":[]}
