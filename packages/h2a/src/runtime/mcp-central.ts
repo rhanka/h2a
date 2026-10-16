@@ -11,6 +11,7 @@ import { digest } from "./handover/wire.js";
 import { ConnectionAuthentication } from "./handover/authentication.js";
 import { createAuthenticatedServer } from "./handover/authenticated-http.js";
 import { ColdAdministration } from "./handover/administration.js";
+import { PassiveLiveSource } from "./handover/live-source.js";
 import { installationForEntry, physicalPrefixForEntry, starterPlan, resolveSelectedEntry } from "./handover/selection.js";
 import { checkStartupReservation, markStartupReady } from "./handover/launch.js";
 import { recordSuccessor, readySuccessor } from "./handover/successor.js";
@@ -182,8 +183,10 @@ function createCentralApp(
   const sweep = setInterval(() => {
     if (!ready) return;
     const now = Date.now();
+    const liveTransaction = administration()?.transaction()?.value;
     for (const [id, attachment] of sessions) {
-      if (now - attachment.touched > options.sessionLeaseMs) void closeAttachment(id, attachment);
+      if (!(liveTransaction?.mode === 'live-transfer' && !['ABORTED', 'RETIRED'].includes(liveTransaction.state)) &&
+          now - attachment.touched > options.sessionLeaseMs) void closeAttachment(id, attachment);
     }
     try { administration()?.expire(); administration()?.poll(); }
     catch (error) {
@@ -436,7 +439,7 @@ export async function startCentralMcpServer(
         manifestDigest: plan.selection?.manifestDigest ?? digest({ packageVersion: currentCliVersion(), entry: physicalPrefix }),
         protocol: 2, handoverProtocol: 1, handoverCapabilities: { managedImage: Boolean(installation),
           endpointPinned: Boolean(explicitEndpoint), restrictions: [...(installation ? [] : ["unmanaged_image"]), "store_writer_set_unknown"],
-          primitives: ["describe", "inventory", "reserve", "barrier", "renew", "freeze", "checkpoint", "drain-status", "abort", "commit-stop", "stop-status"],
+          primitives: ["describe", "inventory", "reserve", "barrier", "renew", "freeze", "checkpoint", "drain-status", "abort", "retire", "commit-stop", "stop-status"],
           attachTransfer: false, liveCoordinator: false }, mcpProtocolVersions: ["2025-06-18"],
         descriptorDigest: digest({ tools: [] }), contractDigest: digest({ tools: [] }), state: "ready",
         token: randomUUID(), authKeyReference: authority.authKeyReference };
@@ -477,9 +480,14 @@ export async function startCentralMcpServer(
       if (nowControl) replaceState(join(stateDirectory, "component-control.json"), { ...nowControl.value, revision: nowControl.value.revision + 1,
         sourceGeneration: marker.generation, ownerIdentity: identity, ownerState: "ACTIVE",
         operatorStopCommitted: false, operatorStopped: false }, "componentControl", nowControl);
+      const liveSource = installation && participants ? new PassiveLiveSource({ installation, marker, markerPath, rootKey: authority.rootKey, participants }) : undefined;
       administration = new ColdAdministration({ directory: stateDirectory, marker, inventory: application.inventory, drain: application.drain,
+        ...(liveSource ? { liveSource } : {}),
         ...(installation ? { pinDirectory: join(installation.managedRoot, "state", "pins") } : {}),
-        verifyAuthority: () => { if (!claim) throw new Error("readiness_unavailable"); compareMarker(markerPath, claim); },
+        verifyAuthority: (_operation: string, tx: any) => {
+          if (!claim) throw new Error("readiness_unavailable");
+          if (!liveSource?.verifyAuthority(tx)) compareMarker(markerPath, claim);
+        },
         ...(participants ? {
           withMutationLock: (fn: () => unknown) => participants!.registry.withLock(fn),
           reconcileParticipants: (tx: any) => participants!.reconcileTransaction(tx),
@@ -520,7 +528,8 @@ export async function startCentralMcpServer(
       try {
         await application!.close(); httpServer!.closeAllConnections();
         await new Promise<void>((resolve, reject) => httpServer!.close(error => error ? reject(error) : resolve()));
-        if (claim) removeMarker(markerPath, claim);
+        const retiring = administration?.transaction()?.value;
+        if (claim && !(retiring?.mode === 'live-transfer' && retiring.state === 'RETIRED')) removeMarker(markerPath, claim);
         const stoppedControl = administration!.control()!;
         replaceState(join(stateDirectory, "component-control.json"), {
           ...stoppedControl.value, revision: stoppedControl.value.revision + 1, ownerState: "CLOSED",
