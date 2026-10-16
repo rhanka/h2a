@@ -16,6 +16,7 @@ import {
   type RecipientResolution
 } from "./local-files/paths.js";
 import { listPresence } from "./local-files/presence.js";
+import { listRecipientHints } from "./local-files/recipient-hints.js";
 import type { LocalStore } from "./local-files/store.js";
 import type { H2aClusterMeshMessaging } from "./cluster-mesh-messaging.js";
 
@@ -134,15 +135,29 @@ function prepareMessage(input: SendLocalMessageInput): SendLocalMessageResult {
     target: registeredName.target,
     registeredInstances: registrations.map((entry) => entry.instance)
   };
-  let resolution = resolveRecipient({ ...target, liveInstances: live });
-  if (input.requireLive && live.length < fresh.length &&
+  const resolution = resolveRecipient({ ...target, liveInstances: live });
+  if (input.requireLive &&
       (resolution.kind === "deliver" || resolution.kind === "deliver-dormant" ||
        (resolution.kind === "refuse" && resolution.candidates === undefined))) {
-    // Keep a known name/alias available for the typed refusal below. This
-    // fallback never admits an owner: liveRecipient still uses only live PIDs.
-    const known = resolveRecipient({ ...target, liveInstances: fresh });
+    // TTL and session deletion must not erase known addressing evidence.
+    // Legacy publications/registrations also work before any hint was written.
+    const known = resolveRecipient({ ...target, liveInstances: [
+      ...registrations, ...listRecipientHints(input.store.paths.root),
+      ...listPresence(input.store.paths.root, { includeExpired: true, sweep: false })
+    ] });
+    let unavailable: string | undefined;
     if (known.kind === "deliver-resolved" || known.kind === "deliver-hint") {
-      resolution = known;
+      unavailable = known.kind === "deliver-resolved" ? known.recipient : known.liveCandidate;
+    } else if (known.kind === "refuse" && known.candidates !== undefined) {
+      // Several sessions or evidence sources can describe the same instance.
+      const candidates = [...new Map(known.candidates.map(instance => [canonicalAddress(instance), instance])).values()];
+      if (candidates.length === 1) unavailable = candidates[0];
+      else throw new Error(`'${requestedRecipient}' is ambiguous — known recipients: ${candidates.join(", ")}; address the exact instance.`);
+    }
+    if (unavailable !== undefined) {
+      // Do not promote historical names into admission even if the same instance
+      // now has a living attachment under a different name.
+      throw new H2ASendError("recipient_not_live", `h2a send: '${unavailable}' has no live presence for '${requestedRecipient}'`);
     }
   }
   if (resolution.kind === "refuse" || resolution.kind === "list") {

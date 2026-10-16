@@ -2,15 +2,18 @@ import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import { generateKeyPairSync } from 'node:crypto';
 import { once } from 'node:events';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import { BoundedLocalMessagingStore } from '@sentropic/cluster-mesh';
 import { createClusterMeshMessaging, createLocalStore, writePresence } from '../dist/index.js';
 import { handleSend } from '../dist/runtime/mcp/handlers.js';
+import { deletePresence, listPresence, readPresence, reapAllDeadPresence } from '../dist/runtime/local-files/presence.js';
+import { H2A_SESSION_DEFAULT_EXPIRY_MS } from '../dist/session.js';
+import { presenceFile } from '../dist/runtime/local-files/paths.js';
 
-async function fixture(t) {
+async function fixture(t, recipientName) {
   const root = mkdtempSync(join(tmpdir(), 'h2a-live-admission-'));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const store = createLocalStore({ root });
@@ -18,7 +21,8 @@ async function fixture(t) {
     const { publicKey, privateKey } = generateKeyPairSync('ed25519');
     const publicKeyPem = publicKey.export({ type: 'spki', format: 'pem' }).toString();
     store.registerInstance({ id: instance, instance, roles: ['AGENTS'], scopes: ['scope:test'], capabilities: [],
-      endpoints: [], acceptedPolicies: [], publicKeys: [publicKeyPem], createdAt: new Date().toISOString() });
+      endpoints: [], acceptedPolicies: [], publicKeys: [publicKeyPem], createdAt: new Date().toISOString(),
+      ...(instance.startsWith('claude:') && recipientName ? { name: recipientName } : {}) });
     return { instance, privateKeyPem: privateKey.export({ type: 'pkcs8', format: 'pem' }).toString() };
   });
   const [signer, recipient] = identities;
@@ -44,9 +48,12 @@ async function fixture(t) {
   return { root, store, signer, recipient, mesh, receiver, publish, send, puts: () => puts };
 }
 
+const knownNameCases = ['peer-display', 'h2a:peer-display'].flatMap(to =>
+  ['fresh/dead', 'expired', 'removed', 'GC-swept'].map(state => ({ to, state })));
+
 for (const backend of ['local', 'cluster-mesh']) {
-  for (const to of ['peer-display', 'h2a:peer-display']) {
-    test(backend + ' preserves typed refusal for known display name ' + to + ' after owner death', async t => {
+  for (const { to, state } of knownNameCases) {
+    test(backend + ' preserves typed refusal for known display name ' + to + ' when ' + state, async t => {
       const f = await fixture(t);
       const owner = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
       const exited = once(owner, 'exit');
@@ -66,7 +73,20 @@ for (const backend of ['local', 'cluster-mesh']) {
       owner.kill();
       await exited;
       assert.throws(() => process.kill(owner.pid, 0), { code: 'ESRCH' });
-      const refused = await f.send(backend, to);
+      if (state === 'expired' || state === 'GC-swept') {
+        const expiredNow = Date.parse(readPresence(f.root, 'sess:recipient').heartbeatAt) + H2A_SESSION_DEFAULT_EXPIRY_MS + 1;
+        t.mock.method(Date, 'now', () => expiredNow);
+        assert.deepEqual(listPresence(f.root), [], 'the expired record is not discoverable');
+        assert.equal(readPresence(f.root, 'sess:recipient').name, 'peer-display', 'the name remains intact on disk');
+      }
+      if (state === 'removed') deletePresence(f.root, 'sess:recipient');
+      if (state === 'GC-swept') assert.deepEqual(reapAllDeadPresence(f.root), [
+        { sessionId: 'sess:recipient', instance: f.recipient.instance, pid: owner.pid }
+      ]);
+      if (state === 'removed' || state === 'GC-swept') assert.equal(readPresence(f.root, 'sess:recipient'), undefined);
+      // Reopening must retain the diagnostic without an in-memory name cache.
+      const refused = await handleSend(createLocalStore({ root: f.root }), f.signer,
+        { to, message: 'hello', backend }, { clusterMesh: f.mesh });
       assert.equal(refused.code, 'recipient_not_live', JSON.stringify(refused));
       assert.equal(refused.retryable, true);
       assert.ok(refused.error.includes(f.recipient.instance));
@@ -74,12 +94,86 @@ for (const backend of ['local', 'cluster-mesh']) {
       assert.equal(f.puts(), puts, 'no mesh dispatch after owner death');
       assert.deepEqual(await f.receiver.drain(), { accepted: [], rejected: [] });
 
+      t.mock.restoreAll();
       f.publish({ name: 'peer-display' });
       assert.equal((await f.send(backend, to)).ok, true, 'a live attachment restores the name');
     });
   }
 
-  test(backend + ' preserves typed refusal for an unregistered dead owner addressed by alias', async t => {
+  test(backend + ' refuses expired and historical names even while the instance PID lives', async t => {
+    const f = await fixture(t);
+    f.publish({ name: 'peer-display' });
+    const sent = await f.send(backend, 'peer-display');
+    assert.equal(sent.ok, true);
+    if (backend === 'cluster-mesh') await f.receiver.drain();
+    const inbox = f.store.readInbox(f.recipient.instance), puts = f.puts();
+    const expiredNow = Date.now() + H2A_SESSION_DEFAULT_EXPIRY_MS + 1;
+    t.mock.method(Date, 'now', () => expiredNow);
+    for (const to of ['peer-display', 'h2a:peer-display']) {
+      assert.equal((await f.send(backend, to)).code, 'recipient_not_live', 'TTL alone must refuse the living owner');
+    }
+    t.mock.restoreAll();
+    f.publish({ name: 'new-name' });
+    for (const to of ['peer-display', 'h2a:peer-display']) {
+      assert.equal((await f.send(backend, to)).code, 'recipient_not_live', 'historical names cannot admit a renamed live instance');
+    }
+    assert.deepEqual(f.store.readInbox(f.recipient.instance), inbox);
+    assert.equal(f.puts(), puts);
+    assert.deepEqual(await f.receiver.drain(), { accepted: [], rejected: [] });
+    assert.equal((await f.send(backend, 'new-name')).ok, true);
+  });
+
+  for (const source of ['legacy expired presence', 'legacy removed presence', 'legacy GC-swept presence', 'registration without presence']) {
+    test(backend + ' keeps typed refusals from ' + source + ' without a recipient hint', async t => {
+      const f = await fixture(t, source === 'registration without presence' ? 'peer-display' : undefined);
+      if (source.startsWith('legacy')) {
+        const dead = spawnSync(process.execPath, ['-e', ''], { stdio: 'ignore' });
+        assert.equal(dead.status, 0);
+        const old = new Date(Date.now() - H2A_SESSION_DEFAULT_EXPIRY_MS - 1).toISOString();
+        // Pre-upgrade publications have no durable recipient hint at all.
+        mkdirSync(f.store.paths.presence, { recursive: true });
+        writeFileSync(presenceFile(f.store.paths, 'sess:legacy'), JSON.stringify({
+          instance: f.recipient.instance, sessionId: 'sess:legacy', pid: dead.pid, name: 'peer-display',
+          startedAt: old, heartbeatAt: old, state: 'live', interests: { scopes: [], negotiations: [] }, subscribedTopics: []
+        }));
+        if (source === 'legacy removed presence') deletePresence(f.root, 'sess:legacy');
+        if (source === 'legacy GC-swept presence') assert.equal(reapAllDeadPresence(f.root).length, 1);
+      }
+      for (const to of ['peer-display', 'h2a:peer-display']) {
+        const refused = await f.send(backend, to);
+        assert.equal(refused.code, 'recipient_not_live', JSON.stringify(refused));
+        assert.equal(refused.retryable, true);
+        assert.ok(refused.error.includes(f.recipient.instance));
+      }
+      assert.deepEqual(f.store.readInbox(f.recipient.instance), []);
+      assert.equal(f.puts(), 0);
+      assert.deepEqual(await f.receiver.drain(), { accepted: [], rejected: [] });
+    });
+  }
+
+  test(backend + ' deduplicates known identities and refuses ambiguous historical names', async t => {
+    const f = await fixture(t);
+    f.publish({ name: 'peer-display' });
+    f.publish({ name: 'peer-display', sessionId: 'sess:second' });
+    deletePresence(f.root, 'sess:recipient');
+    deletePresence(f.root, 'sess:second');
+    for (const to of ['peer-display', 'h2a:peer-display']) {
+      assert.equal((await f.send(backend, to)).code, 'recipient_not_live', 'duplicate evidence is one known recipient');
+    }
+    f.publish({ name: 'peer-display', instance: 'claude:other:333333333333' });
+    deletePresence(f.root, 'sess:recipient');
+    for (const to of ['peer-display', 'h2a:peer-display']) {
+      const ambiguous = await f.send(backend, to);
+      assert.match(ambiguous.error, /ambiguous/);
+      assert.equal(ambiguous.code, undefined);
+    }
+    assert.deepEqual(f.store.readInbox(f.recipient.instance), []);
+    assert.equal(f.puts(), 0);
+    assert.deepEqual(await f.receiver.drain(), { accepted: [], rejected: [] });
+  });
+
+  for (const state of ['fresh/dead', 'expired', 'removed', 'GC-swept']) {
+  test(backend + ' preserves typed refusal for an unregistered owner addressed by alias when ' + state, async t => {
     const f = await fixture(t);
     const dead = spawnSync(process.execPath, ['-e', ''], { stdio: 'ignore' });
     assert.equal(dead.status, 0);
@@ -88,6 +182,13 @@ for (const backend of ['local', 'cluster-mesh']) {
     writePresence(f.root, { instance, sessionId: 'sess:unregistered', pid: dead.pid,
       startedAt: now, heartbeatAt: now, state: 'live',
       interests: { scopes: [], negotiations: [] }, subscribedTopics: [] });
+    if (state === 'expired') {
+      const expiredNow = Date.now() + H2A_SESSION_DEFAULT_EXPIRY_MS + 1;
+      t.mock.method(Date, 'now', () => expiredNow);
+      assert.deepEqual(listPresence(f.root), []);
+    }
+    if (state === 'removed') deletePresence(f.root, 'sess:unregistered');
+    if (state === 'GC-swept') assert.equal(reapAllDeadPresence(f.root).length, 1);
     const refused = await f.send(backend, 'claude:unregistered');
     assert.equal(refused.code, 'recipient_not_live', JSON.stringify(refused));
     assert.equal(refused.retryable, true);
@@ -96,6 +197,7 @@ for (const backend of ['local', 'cluster-mesh']) {
     assert.equal(f.puts(), 0);
     assert.deepEqual(await f.receiver.drain(), { accepted: [], rejected: [] });
   });
+  }
 
   test(backend + ' refuses fresh presence belonging to a process that actually exited', async t => {
     const f = await fixture(t);
