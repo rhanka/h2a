@@ -53,7 +53,9 @@ test("H2A_CODEX_HOST.renderMcpConfig defaults to command=h2a + args=[mcp-serve]"
   const { config, path } = H2A_CODEX_HOST.renderMcpConfig();
   assert.equal(config.mcpServers.h2a.command, "h2a");
   assert.deepEqual(config.mcpServers.h2a.args, ["mcp-serve"]);
-  assert.match(path.hint, /~\/\.config\/codex\//);
+  assert.match(path.hint, /~\/\.codex\/config\.toml/);
+  assert.match(path.hint, /\[mcp_servers\.h2a\]/);
+  assert.equal(path.example, "~/.codex/config.toml");
   assert.equal(typeof path.example, "string");
   assert.ok(path.example.length > 0);
 });
@@ -106,6 +108,8 @@ test("H2A_CLAUDE_HOST.renderMcpConfig includes --root when provided", () => {
     /~\/\.config\/claude\//.test(path.hint) || /\.mcp\.json/.test(path.hint),
     `expected claude path hint to mention ~/.config/claude/ or .mcp.json, got ${path.hint}`
   );
+  assert.equal(path.example, "~/.claude.json");
+  assert.match(path.hint, /CLAUDE_CONFIG_DIR/);
 });
 
 test("h2a host setup --host codex --print emits JSON snippet on stdout", () => {
