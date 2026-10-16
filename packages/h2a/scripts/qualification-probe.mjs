@@ -6,12 +6,13 @@ import { createHash } from 'node:crypto';
 import { openQualificationRpc } from './qualification-rpc.mjs';
 import { nativeStats } from './qualification-vibe.mjs';
 import { inspectSkillEntries, inspectMcpEntries } from './qualification-oracles.mjs';
-export async function qualifyVibeProbe({ command = 'vibe', commandArgs = [], appServer = 'vibe-app-server', appServerArgs = [], cwd, env, tools, budget, signal, evidence, cleanup, directory, requiredResources = [], busRoot }) {
+export async function qualifyVibeProbe({ command = 'vibe', commandArgs = [], appServer = 'vibe-app-server', appServerArgs = [], cwd, env, tools, budget, signal, evidence, cleanup, directory, requiredResources = [], busRoot, components = ['skills', 'MCP', 'context'] }) {
   if (!tools.length || tools.some(t => /bash|shell|exec|process|terminal|code|eval/i.test(t))) throw new Error('probe requires minimal native read-only tools; execution tools forbidden');
   const allocation = budget.begin('cli-probe');
-  const output = join(directory, 'cli-journal'); fs.mkdirSync(output, { mode: 0o700 });
-  const args = [...commandArgs, '-p', 'Read the installed H2A skill resources at ' + requiredResources.map(r => r.path).join(', ') + '. Use h2a_identity_status, h2a_session_open and Track for this workspace. Do not execute commands.', '--agent', 'auto-approve', '--enabled-tools', ...tools,
-    '--max-turns', String(allocation.maxIterations), '--max-price', String(allocation.maxPrice), '--time-limit', String(allocation.maxSeconds), '--output', 'streaming', '--output-dir', output];
+  const needsMcp = components.some(c => c === 'MCP' || c === 'context');
+  const args = [...commandArgs, '-p', 'Read the installed H2A skill resources at ' + requiredResources.map(r => r.path).join(', ') +
+    (needsMcp ? '. Use h2a_identity_status, h2a_session_open and track_status with level=task and baselineCommit=qualification for this workspace.' : '') + ' Do not execute commands.', '--agent', 'auto-approve', '--enabled-tools', ...tools,
+    '--max-turns', String(allocation.maxIterations), '--max-price', String(allocation.maxPrice), '--output', 'streaming'];
   const child = spawn(command, args, { cwd, env, stdio: ['ignore', 'pipe', 'pipe'] });
   let raw = '', pending = '', malformed = false, error, rpc;
   const ids = new Set(), entries = [];
@@ -42,7 +43,7 @@ export async function qualifyVibeProbe({ command = 'vibe', commandArgs = [], app
     const stats = await rpc.request('stats/read', { sessionId }); budget.account('cli-probe', nativeStats(stats.stats));
     const journal = state.state?.session?.id === sessionId && Array.isArray(state.state?.history) && state.state.history.length > 0;
     const resources = inspectSkillEntries(entries, requiredResources), mcp = inspectMcpEntries(entries, sessionId, { busRoot, workspace: cwd });
-    const result = { status: journal && resources && mcp.MCP && mcp.context ? 'observed' : 'partial', sessionId, journal, resources, MCP: mcp.MCP, context: mcp.context };
+    const result = { status: journal && (!components.includes('skills') || resources) && (!components.includes('MCP') || mcp.MCP) && (!components.includes('context') || mcp.context) ? 'observed' : 'partial', sessionId, journal, resources, MCP: mcp.MCP, context: mcp.context };
     evidence.push({ method: 'qualification/cli-probe', ...result, sha256: createHash('sha256').update(raw).digest('hex') }); return result;
   } finally {
     clearTimeout(watchdog); clearTimeout(force); signal?.removeEventListener('abort', abort);

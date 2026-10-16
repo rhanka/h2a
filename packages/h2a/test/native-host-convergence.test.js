@@ -34,11 +34,11 @@ test('doctor dry-run is empty of writes; explicit lifecycle is independent of MC
   assert.notEqual(doctor(['--guard', 'on']).code, 0);
 });
 test('guard rejects fixture qualification, retains stale-code choice, and suspends on observable MCP loss', t => {
-  const { root, state, doctor } = setup(t);
+  const { dir, root, state, doctor } = setup(t);
   fs.writeFileSync(join(root, 'config.toml'), '[[mcp_servers]]\nname="h2a"\ncommand="h2a"\nargs=["mcp-serve"]\n');
   assert.equal(doctor([]).code, 0);
   const config = { mcp_servers: [{ name: 'h2a', command: 'h2a', args: ['mcp-serve'] }] };
-  const plan = planVibeEquipment({ root, state, version: '0.98.6', config, mcpAvailable: true, repair: false });
+  const plan = planVibeEquipment({ root, state, cwd: dir, version: '0.98.6', config, mcpAvailable: true, repair: false });
   const dist = join(root, 'runtime/mistral_vibe-2.26.1.dist-info'); fs.mkdirSync(dist, { recursive: true });
   fs.mkdirSync(join(root, 'runtime/vibe')); fs.writeFileSync(join(root, 'runtime/vibe/runtime.mjs'), 'fixture');
   const recordPath = join(dist, 'RECORD'), metadataPath = join(dist, 'METADATA');

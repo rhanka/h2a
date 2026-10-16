@@ -7,13 +7,14 @@ import type { VibeHook } from './native-toml.js';
 import type { NativeArtifact } from './native-artifacts.js';
 import { fileFingerprint, inspectNativeQualification, mcpFingerprint } from './native-proof.js';
 import { VIBE_LIFECYCLE_SCOPE, VIBE_RESTART } from './native-paths.js';
+import { inspectVibeDiscovery } from './vibe-discovery.js';
 export const h2aPackageRoot = fileURLToPath(new URL('../../', import.meta.url));
 export const shellQuote = (value: string): string => "'" + value.replace(/'/g, "'\\''") + "'";
 export interface VibeEquipmentOptions {
   root: string; state: string; version: string; config: Record<string, any>; mcpAvailable: boolean;
   repair: boolean; dryRun?: boolean; guard?: string; lifecycle?: string;
   instance?: string; busRoot?: string; status?: string;
-  maskingHooks?: readonly string[];
+  maskingHooks?: readonly string[]; cwd?: string;
 }
 export function planVibeEquipment(options: VibeEquipmentOptions) {
   const manifest = readNativeManifest(options.state, 'vibe', options.root, options.version);
@@ -30,10 +31,13 @@ export function planVibeEquipment(options: VibeEquipmentOptions) {
     if (!source) throw new Error(`missing packaged hook: ${name}`);
     return { path: join(options.state, 'hooks', name), bytes: source.bytes.toString(), source: `h2a@${options.version}/hooks/${name}` };
   });
+  const discovery = inspectVibeDiscovery(options.root, options.cwd ?? process.cwd(), options.config);
+  const maskingHooks = options.maskingHooks ?? discovery.maskingHooks;
   const observed = { MCP: mcpFingerprint({ mcp: options.config.mcp_servers ?? [], disabled_tools: options.config.disabled_tools ?? [], enabled_tools: options.config.enabled_tools ?? [] }),
     profile: digest(options.root), node: fileFingerprint(process.execPath), entrypoint: fileFingerprint(entrypoint),
-    guard: digest(artifacts[0].bytes), lifecycle: digest(artifacts[1].bytes), masking: digest(JSON.stringify(options.maskingHooks ?? [])),
-    skills: digest(JSON.stringify(Object.entries(manifest.files).filter(([, e]) => !e.source.includes('/hooks/')).map(([path]) => [path, fileFingerprint(path)]))),
+    guard: fileFingerprint(artifacts[0].path), lifecycle: fileFingerprint(artifacts[1].path), masking: semanticDigest(maskingHooks),
+    skills: semanticDigest({ files: Object.entries(manifest.files).filter(([, e]) => !e.source.includes('/hooks/')).sort(([a], [b]) => a.localeCompare(b)).map(([path, e]) => [path, e.selected, fileFingerprint(join(options.root, path))]),
+      discovery: { ...discovery, sources: Object.fromEntries(Object.entries(discovery.sources).map(([name, paths]) => [name, paths.map(path => [path, fileFingerprint(path)])])) } }),
     filters: semanticDigest({ enabled: options.config.enabled_skills ?? [], disabled: options.config.disabled_skills ?? [], paths: options.config.skill_paths ?? [] }),
     guardBlock: manifest.hooks?.['sentropic-h2a-deny-manual-cli'] ?? 'absent',
     lifecycleBlock: manifest.hooks?.['h2a-drumbeat-record'] ?? 'absent', lifecycleSelection: semanticDigest(manifest.lifecycle ?? {}) };
@@ -41,11 +45,11 @@ export function planVibeEquipment(options: VibeEquipmentOptions) {
   for (const mode of [options.guard, options.lifecycle]) if (mode !== undefined && !['on', 'off'].includes(mode)) throw new Error('guard/lifecycle must be on or off');
   if (options.instance === 'auto') throw new Error('non disponible — interface B non livrée');
   const knownBinding = manifest.guardBinding;
-  if (options.guard === 'on' && ((!knownBinding || knownBinding !== observed.MCP) && !qualification.guardEligible || options.maskingHooks?.length))
+  if (options.guard === 'on' && ((!knownBinding || knownBinding !== observed.MCP) && !qualification.guardEligible || maskingHooks.length))
     throw new Error('First guard activation requires a current native MCP qualification; configuration, fixture and manual observation are insufficient.');
   const guard = options.guard ?? manifest.guard;
   const guardBinding = options.guard === 'on' && qualification.guardEligible ? observed.MCP : knownBinding;
-  const guardActive = guard === 'on' && options.mcpAvailable && guardBinding === observed.MCP;
+  const guardActive = guard === 'on' && options.mcpAvailable && guardBinding === observed.MCP && maskingHooks.length === 0;
   const lifecycle = options.instance ? { enabled: true, instance: options.instance, ...(options.busRoot ? { root: options.busRoot } : {}), ...(options.status ? { status: options.status } : {}) } : manifest.lifecycle ? { ...manifest.lifecycle } : undefined;
   if (options.lifecycle === 'on' && !lifecycle) throw new Error('Run h2a host plugin --host vibe --instance <id> --write <hooks.toml> first.');
   if (lifecycle && options.lifecycle) lifecycle.enabled = options.lifecycle === 'on';
@@ -60,7 +64,8 @@ export function planVibeEquipment(options: VibeEquipmentOptions) {
   const path = join(options.root, 'hooks.toml'), original = snapshot(path);
   const edited = editVibeHooks(original?.bytes.toString() ?? '', hooks, manifest.hooks ?? {});
   return { artifacts, hooks, rendered: hooks.map(renderVibeHook).join('\n'), qualification, observed,
-    guard: { choice: guard ?? 'off', active: guardActive, suspended: guard === 'on' && !guardActive }, lifecycle, restart: VIBE_RESTART, scope: VIBE_LIFECYCLE_SCOPE,
+    guard: { choice: guard ?? 'off', active: guardActive, suspended: guard === 'on' && !guardActive,
+      reason: guard !== 'on' ? 'off' : maskingHooks.length ? 'project hook masking' : !options.mcpAvailable ? 'MCP absent' : guardBinding !== observed.MCP ? 'MCP binding changed' : 'active' }, lifecycle, restart: VIBE_RESTART, scope: VIBE_LIFECYCLE_SCOPE,
     configure: (current: NativeManifest) => {
       if (JSON.stringify(current.hooks ?? {}) !== JSON.stringify(manifest.hooks ?? {}) || JSON.stringify(current.lifecycle) !== JSON.stringify(manifest.lifecycle) || current.guard !== manifest.guard || current.guardBinding !== manifest.guardBinding)
         throw new Error('concurrent hook selection changed');

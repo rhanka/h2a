@@ -55,9 +55,9 @@ provide reminders. A tool result or hidden stderr does not prove visible relay.
 Nonempty `VIBE_HOME` expands `~` and resolves absolutely; the default is
 `~/.vibe`. User/project scopes remain distinct. Vibe/Muse receive complete
 skill directories, including Track/Harness support resources. agy/Gemini share
-one `~/.gemini/.h2a-install/commands-manifest.json`; resources live outside command
+one `~/.gemini/.h2a-install-agy/shared-owner.json` ownership manifest with paths relative to the native root; resources live outside command
 discovery at `.h2a-install/skill-resources/<source>/<version>/<skill>/`.
-agy also records its own `.h2a-install-agy` state. Gemini never qualifies agy.
+Both writers refresh this same state; the earlier commands-manifest layout is adopted on repair. Gemini never qualifies agy.
 
 An absent host does not cause profile creation during doctor/upgrade. A shared
 `.gemini` directory alone does not detect agy. Explicit skill installation is
@@ -70,8 +70,11 @@ agy plugin import gemini
 agy plugin enable h2a
 ```
 
-Managed files update only while their recorded bytes remain intact. Unknown or
-custom files survive even `--force`; selected missing files are repairable.
+Managed files update while their recorded bytes remain intact. Without `--force`,
+local edits are conflicts; explicit user-scope `install-skills --force` restores managed skills/scripts with backups.
+Unknown provenance and customized hook blocks remain protected even with `--force`.
+Obsolete managed files are removed only at their recorded hash, with backup; customized residues remain conflicts.
+Selected missing files are repairable. Project scope installs only project skills and uses the historical overwrite contract, without user hooks or installation state.
 Recognized deselection/disabled skills are preserved. Vibe status reports
 skill sources, filters, collisions and project hook masking; plugin resolution
 still requires native observation. Missing required resources prohibit success.
@@ -158,9 +161,12 @@ record after the fork. The copy's benign-call/denied-call/final-answer calls tot
 three and must leave that record unchanged. No additional origin turn is needed.
 The CLI probe uses only an observed minimal read-only tool selection, native
 limits and streaming output; absence of a usable native journal remains partial. The probe must also satisfy
-resource/MCP/context oracles and native accounting. The inspected Vibe source
-checkout does not expose the spec’s `--time-limit`/`--output-dir` flags; an
-incompatible binary fails closed. Its real CLI contract still needs native
+requested resource/MCP/context oracles and native accounting. The probe uses
+`--max-turns`, `--max-price`, `--output streaming` and the explicit private `VIBE_HOME`;
+the Node watchdog enforces wall time without unsupported `--time-limit`/`--output-dir` flags.
+The identity handler reports its canonical bus root and workspace; the oracle checks actual identity/session and Track status results.
+The report qualifies only requested observed components after successful cleanup; fixtures remain fixture-only.
+Its real CLI contract still needs native
 qualification, not a substitute unbounded invocation.
 
 Muse/agy adapters observe their verified discovery/import commands, but do not

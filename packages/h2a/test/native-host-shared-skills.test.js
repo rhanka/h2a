@@ -21,7 +21,7 @@ test('agy and Gemini share one command owner and resources outside command disco
   const first = cli(['install-skills', '--host', 'agy']);
   assert.equal(first.code, 0, first.err);
   assert.equal(first.json().sharedGeminiEffect, true);
-  const owner = join(home, '.gemini/.h2a-install/commands-manifest.json');
+  const owner = join(home, '.gemini/.h2a-install-agy/shared-owner.json');
   const bytes = fs.readFileSync(owner), mtime = fs.statSync(owner).mtimeMs;
   assert.equal(cli(['install-skills', '--host', 'gemini']).code, 0);
   assert.deepEqual(fs.readFileSync(owner), bytes); assert.equal(fs.statSync(owner).mtimeMs, mtime);
@@ -30,8 +30,10 @@ test('agy and Gemini share one command owner and resources outside command disco
   const prompt = fs.readFileSync(join(home, '.gemini/commands/present-decision.toml'), 'utf8');
   assert.match(prompt, /\.h2a-install\/skill-resources\/track\/0\.98\.6\/present-decision\/assets\//);
   const custom = join(home, '.gemini/commands/h2a.toml'); fs.writeFileSync(custom, 'personal = true\n');
-  assert.notEqual(cli(['install-skills', '--host', 'gemini', '--force']).code, 0);
+  assert.notEqual(cli(['install-skills', '--host', 'gemini']).code, 0);
   assert.equal(fs.readFileSync(custom, 'utf8'), 'personal = true\n');
+  assert.equal(cli(['install-skills', '--host', 'gemini', '--force']).code, 0);
+  assert.notEqual(fs.readFileSync(custom, 'utf8'), 'personal = true\n');
 });
 test('shared command notices inspect the actual Gemini artifacts and quoted roots produce valid TOML', t => {
   const { home, cli } = setup(t);

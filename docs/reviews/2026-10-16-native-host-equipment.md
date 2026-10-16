@@ -45,3 +45,35 @@ and source-consumer checks, not genuine native-host qualification or consensus.
 
 External gates remain B/R5/R7, genuine Vibe CLI/app-server observations including
 configuration persistence, and Muse/agy M-B. No fixture qualifies the owner's post.
+
+## PR 340 — Tour 2
+
+status: selection-failed
+review-author: { host: codex, model: unknown, effort: unknown }
+target-ref: feat/vibe-host-equip, corrections to independent rev340.md (findings 1–5)
+target-diff-sha256: bf5aecfe2aa31755d8b9ad2892fdd7f578eef1a0eed8d27433a454acff490f9a
+target-paths: git diff HEAD --no-ext-diff -- . ':!docs/reviews/2026-10-16-native-host-equipment.md' (dossier excluded)
+observed-failure: exact author model/effort unavailable; eligible installed h2a MCP dispatch remains unavailable and forbidden by owner confinement. No eligible legs dispatched, no harness consensus verdict.
+
+The harness-review requirement “Unknown author means no acceptable review” remains
+in effect. This reconciliation records reproduced defects and validation; it does
+not replace the next independent review or authorize merging the PR.
+
+| Independent finding | Reconciliation and regression |
+|---|---|
+| 1: runtime oracle/status/CLI flags | Accepted: real H2A identity/session and Track handlers, explicit canonical bus/workspace, supported Vibe CLI flags with external watchdog, requested-component report/exit/cleanup and fixture-only status. Disposable Track stores are initialized by Track's actual CLI. |
+| 2: project scope, stale residues, force, weakened test, hook scripts | Accepted: project skills/resources use distinct installation; user managed conflicts require force, unknown files and hooks remain protected; known-hash stale artifacts are backed up then removed; Gemini restored to historical overwrite test, all four native hosts covered; explicit Vibe installation ships scripts. |
+| 3: relative paths/shared owner | Accepted: relative ownership survives relocation; former absolute layout is normalized; both Gemini and agy write the same authoritative shared-owner.json under one writer lock. |
+| 4: proof timing/discovery/masking | Accepted: committed bytes/selections are re-read after repair; discovery sources, collisions and content enter the skills fingerprint; project masking suspends an already enabled guard. |
+| 5: insertion/deletion | Accepted: a single ordered insertion preserves requested order; removal owns separator/newline without accumulating blanks, including the previous renderer's output. |
+
+The requested force restoration of modified managed skills/scripts supersedes
+spec-astra-v9 §5's earlier blanket customization-preservation sentence. Unknown
+provenance and customized TOML hooks remain protected. The CLI flag adaptation
+supersedes §11's unsupported `--time-limit`/`--output-dir` spelling while preserving
+the budget and watchdog. These are explicit review/owner-requested corrections.
+
+Local fixture/source-consumer checks do not demonstrate the owner's end-to-end
+equipment: A/E delivers skills and hooks; B supplies the real MCP bootstrap and
+attachment; C/spec §§11–12 requires the genuine target-post recipe. Muse/agy M-B,
+settings-persistence observation and common RC-3 remain open.

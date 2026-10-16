@@ -9,7 +9,7 @@ export interface NativeSkill {
 }
 export function nativeSkillArtifacts(options: {
   host: string; root: string; version: string; skills: readonly NativeSkill[];
-  enabled?: readonly string[]; disabled?: readonly string[];
+  enabled?: readonly string[]; disabled?: readonly string[]; project?: boolean;
   renderGemini: (skill: NativeSkill['parsed']) => string;
   historicalHashes: (host: string, name: string) => readonly string[];
 }): NativeArtifact[] {
@@ -19,7 +19,7 @@ export function nativeSkillArtifacts(options: {
     const selected = !options.disabled?.includes(skill.installName) && (!options.enabled?.length || options.enabled.includes(skill.installName));
     const gemini = options.host === 'agy' || options.host === 'gemini';
     const target = gemini ? join(options.root, 'commands', `${skill.installName}.toml`) : join(options.root, 'skills', skill.installName, 'SKILL.md');
-    const resources = gemini ? join(options.root, '.h2a-install/skill-resources', skill.source, options.version, skill.installName) : join(options.root, 'skills', skill.installName);
+    const resources = gemini ? join(options.root, options.project ? 'skill-resources' : '.h2a-install/skill-resources', skill.source, options.version, skill.installName) : join(options.root, 'skills', skill.installName);
     for (const reference of skill.raw.match(/\bassets\/[\w./-]+/g) ?? []) {
       if (reference.split('/').includes('..') || !existsSync(join(skill.resourceDir, reference))) throw new Error(`required skill resource missing: ${skill.installName}/${reference}`);
     }

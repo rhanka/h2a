@@ -42,3 +42,14 @@
 - [x] Merge origin/main d2e0cfdc (PR 339 CI fixes); keep exact lockstep pins and vendored live-copy build step.
 - [x] Track tree identical on both parents (3f3318b40d597af507216a184b9bd0e054987168); no Track repair/import/consolidation in this concurrent conductor-owned store.
 - [x] CI-revealed help golden, documentation status and Focus dependency fixture corrected; three named files: 19/19 on Node 22 and 24.
+
+## PR 340 — Tour 2
+- [x] Review finding 1: real identity/session/Track handler oracle, bounded supported CLI probe, component-based report/exit status and private Track workspaces.
+- [x] Review findings 2/3: separate project installation with resources; managed force/conflicts; obsolete known-hash cleanup; relative manifests and one shared Gemini/agy owner with legacy-layout adoption.
+- [x] Review finding 4: re-read qualification after repair; fingerprint discovery and actual installed bytes; suspend an enabled guard on project masking.
+- [x] Review finding 5: stable hook insertion order and exact separator removal, including older rendered blocks.
+- [x] Historical overwrite test restored for Gemini and extended to Vibe/Muse/agy; independent user-scope managed/unknown-provenance assertions retained.
+- [x] Named source-consumer regression campaign: 22 files, 134 passed / 0 failed / 0 skipped on Node 22 and 24; targeted MCP compatibility: 16 passed / 0 failed / 0 skipped.
+- [x] Fetch/merge origin/main: already contained by the normal two-parent merge 53cfa83f; Track tree still identical to origin/main. No Track writes or consolidation by this worker.
+- [ ] Real equipment: A/E distributes skills/resources/hooks; B (C contract §§8–11, R5/R7 bootstrap/attachment) delivers the actual MCP route; C/spec §§11–12 qualifies the target post. The owner's skills + MCP demand remains open until B and the genuine Vibe recipe pass.
+- [ ] Harness consensus: exact author model/effort unavailable and installed MCP dispatch forbidden; selection-failed, no consensus claimed.
