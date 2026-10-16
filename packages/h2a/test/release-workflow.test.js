@@ -295,11 +295,11 @@ test("R8.1/R8.3 (3): verify runs the trust root BEFORE npm test, then the packag
   );
 });
 
-test("R8.2: verify packs the three lockstep packages, records sha256, uploads them as artifacts", () => {
+test("R8.2: verify packs the four lockstep packages, records sha256, uploads them as artifacts", () => {
   const verify = job("verify");
   const pack = verify.steps.find((step) => String(step.run ?? "").includes("npm pack --workspace"));
   assert.ok(pack, "verify must npm pack the candidate packages");
-  for (const pkg of ["@sentropic/h2a", "@sentropic/h2a-runtime", "@sentropic/h2a-cli"]) {
+  for (const pkg of ["@sentropic/h2a", "@sentropic/h2a-runtime", "@sentropic/h2a-cli", "@sentropic/track"]) {
     assert.ok(
       String(pack.run).includes(pkg),
       `verify must pack ${pkg} — the tarball publish later MUST be these exact bytes`,
@@ -332,7 +332,7 @@ test("R8.2: the pack step is pinned COMMAND BY COMMAND — a manifest that stops
   assert.deepEqual(effectiveScript(pack.run), [
     "set -euo pipefail",
     "mkdir -p dist-tarballs",
-    "for pkg in @sentropic/h2a @sentropic/h2a-runtime @sentropic/h2a-cli; do",
+    "for pkg in @sentropic/h2a @sentropic/h2a-runtime @sentropic/h2a-cli @sentropic/track; do",
     'npm pack --workspace "$pkg" --pack-destination dist-tarballs',
     "done",
     "(cd dist-tarballs && sha256sum *.tgz > sha256sums.txt && cat sha256sums.txt)",
@@ -340,14 +340,14 @@ test("R8.2: the pack step is pinned COMMAND BY COMMAND — a manifest that stops
   ], "the manifest generation is pinned: narrowing the sha256sum glob (round-5 H01: CLI-only manifest), dropping a package from the pack loop, or removing `set -euo pipefail` all change this script");
 });
 
-test("R8.2: the sha256 manifest covers the THREE lockstep tarballs — generation AND consumption are EXECUTED", () => {
+test("R8.2: the sha256 manifest covers the FOUR lockstep tarballs — generation AND consumption are EXECUTED", () => {
   // The round-5 H01 proof closed on execution, not text: a textual pin
   // proves the script did not change, not that it MEANS coverage. So this
   // qualification executes the workflow's own pack step and publish
   // integrity control in a mkdtemp lab with a fake npm (no install, no
   // registry, no publication — only local files): the manifest the pack
-  // step actually GENERATES must cover h2a, h2a-runtime and h2a-cli, and
-  // the publish control must refuse EACH of the three tarballs once its
+  // step actually GENERATES must cover h2a, h2a-runtime, h2a-cli and track,
+  // and the publish control must refuse EACH of the four tarballs once its
   // bytes are corrupted. Under the round-5 mutation (a manifest covering
   // the CLI only) the corrupted runtime passes with exit 0 — exactly the
   // property this test forces to stay red.
@@ -367,7 +367,7 @@ test("R8.2: the sha256 manifest covers the THREE lockstep tarballs — generatio
   };
   mkdirSync(join(lab, "run"));
   try {
-    // A fake npm producing the three tarballs `npm pack` would: purely local
+    // A fake npm producing the four tarballs `npm pack` would: purely local
     // file writes inside the lab, no network and no real npm involved.
     const bin = join(lab, "bin");
     mkdirSync(bin);
@@ -407,8 +407,8 @@ test("R8.2: the sha256 manifest covers the THREE lockstep tarballs — generatio
       .map((line) => line.trim().split(/\s+/)[1]);
     assert.deepEqual(
       [...covered].sort(),
-      ["sentropic-h2a-0.98.5.tgz", "sentropic-h2a-cli-0.98.5.tgz", "sentropic-h2a-runtime-0.98.5.tgz"],
-      "the manifest the pack step GENERATES must cover all THREE lockstep tarballs — a CLI-only manifest is the round-5 false green",
+      ["sentropic-h2a-0.98.5.tgz", "sentropic-h2a-cli-0.98.5.tgz", "sentropic-h2a-runtime-0.98.5.tgz", "sentropic-track-0.98.5.tgz"],
+      "the manifest the pack step GENERATES must cover all FOUR lockstep tarballs — a CLI-only manifest is the round-5 false green",
     );
     assert.equal(
       readFileSync(join(lab, "dist-tarballs", "release-sha.txt"), "utf8").trim(),
@@ -419,7 +419,7 @@ test("R8.2: the sha256 manifest covers the THREE lockstep tarballs — generatio
     const intact = runWorkflowScript(integrity.run, "integrity.sh");
     assert.equal(intact.status, 0, `positive control failed:\n${intact.stdout}\n${intact.stderr}`);
     // The guarded property, per tarball: corrupt the bytes, the publish
-    // control must refuse EACH of the three (exit non-zero), then restore.
+    // control must refuse EACH of the four (exit non-zero), then restore.
     for (const tarball of covered) {
       const path = join(lab, "dist-tarballs", tarball);
       const original = readFileSync(path);
