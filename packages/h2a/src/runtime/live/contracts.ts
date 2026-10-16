@@ -10,13 +10,15 @@
  * policy (isLocalLiveTenant below).
  *
  * PRE-RELEASE CONSUMPTION (spec §11): @sentropic/engram-live is not
- * published yet, so H consumes the digest-pinned packed prerelease built
- * from graphify@70ebdfee with the repo's own scripts/build-live.mjs (see
- * vendor/sentropic-engram-live-0.1.0.tgz; integrity pinned by the GUARD
- * test in h2a-runtime live-registration.test.ts and recorded in
- * package-lock.json). No neighboring checkout is imported, no `file:`
- * outside the vendored tarball is shipped, and no contract code is copied:
- * at publication time this becomes an exact registry version pin. The
+ * published yet — and it is os-bounded (linux), so even a digest-pinned
+ * packed prerelease consumed through a `file:` dependency breaks
+ * cross-platform install and packed redistribution (smoke). H therefore
+ * vendors the portable contract entry (dist/contracts.js, extracted
+ * byte-identical from the pinned tarball built from graphify@70ebdfee;
+ * provenance and per-file integrity pinned by the GUARD test in h2a-runtime
+ * live-registration.test.ts) under ../../vendor/engram-live, with no
+ * external dependency and no neighboring checkout imported: at publication
+ * time this becomes an exact registry version pin. The
  * derivations (deriveCloneIdentity / deriveWorktreeIdentity /
  * deriveDeclarationIdentity) live in the /integration entry and are consumed
  * by the runtime side only — core never imports the factory entry, keeping
@@ -57,7 +59,7 @@ export {
   validatePrivatePurgeRequest,
   validateWorkspaceDeclaration,
   validateWorktreeIdentity,
-} from "@sentropic/engram-live/contracts";
+} from "../../vendor/engram-live/contracts.js";
 export type {
   CloneIdentityDto,
   DeclarationRevocationDto,
@@ -69,7 +71,7 @@ export type {
   ValidationResult,
   WorkspaceDeclarationDto,
   WorktreeIdentityDto,
-} from "@sentropic/engram-live/contracts";
+} from "../../vendor/engram-live/contracts.js";
 
 /**
  * H tenant guard: the live tenant is ALWAYS a stable local scope

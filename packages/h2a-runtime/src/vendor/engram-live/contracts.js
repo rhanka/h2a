@@ -1,0 +1,558 @@
+// Vendored from @sentropic/engram-live 0.1.0 dist/contracts.js — extracted
+// byte-identical from vendor/sentropic-engram-live-0.1.0.tgz (graphify@
+// 70ebdfee, PR rhanka/engram#359; the tarball is removed after vendoring and
+// its sha512 is recorded in the GUARD test of live-registration.test.ts).
+// Only the portable entries H consumes are vendored (this module takes no
+// imports at all); upstream is unpublished and os-bounded (linux), so a
+// file: dependency breaks cross-platform install and packed redistribution.
+// Do not hand-edit.
+// @sentropic/engram-live/contracts — built, data-pure contract export
+// (spec/SPEC_LIVE_GIT_INDEXING.md §3, §11; plan/09 L1b).
+//
+// This module is data-pure: DTOs, constants and validators only. It takes no
+// imports at all — neither node: builtins, host types, model modules nor
+// storage drivers. The executable factory lives in ./integration.js; hosts
+// import only this contract at the adapter boundary and lazily load the
+// factory when they compose live (§3).
+export const CONTRACT_NAME = "@sentropic/engram-live/contracts";
+export const CONTRACT_VERSION = 1;
+export const PRODUCER_NAME = "engram-live";
+export const POLICY_VERSION = "live-git-indexing/1";
+export const CAPABILITY_IDS = [
+    "refs",
+    "history-dag",
+    "github-pr",
+    "index-snapshot",
+    "working-tree",
+    "diffs",
+    "code-analysis",
+    "retention-requests",
+    "reconciliation",
+    "publication",
+];
+/** The lot that implements each capability; part of the advertised contract. */
+export const CAPABILITY_PLANNED_LOTS = {
+    "refs": "L2a",
+    "history-dag": "L2b",
+    "github-pr": "P1",
+    "index-snapshot": "L4a",
+    "working-tree": "L4a",
+    "diffs": "L4b",
+    "code-analysis": "L5",
+    "retention-requests": "R1",
+    "reconciliation": "L6b",
+    "publication": "L6b",
+};
+export const NOT_IMPLEMENTED_REASON = "engram-live L1b supplies the package/factory seams and grammar loading only; this capability is explicitly unavailable until its lot lands";
+export function describeCapabilities() {
+    return CAPABILITY_IDS.map((capability) => ({
+        capability,
+        state: "unavailable",
+        reason: NOT_IMPLEMENTED_REASON,
+        plannedLot: CAPABILITY_PLANNED_LOTS[capability],
+    }));
+}
+export const COVERAGE_AXES = [
+    "refs",
+    "dag",
+    "pr-metadata",
+    "object-availability",
+    "pr-attribution",
+    "ast",
+    "index",
+    "working-tree",
+    "remote-publication",
+];
+/** Languages with a pinned, packaged tree-sitter WASM grammar (L1b matrix). */
+export const ADVERTISED_LANGUAGES = [
+    "c",
+    "cpp",
+    "go",
+    "java",
+    "javascript",
+    "php",
+    "python",
+    "ruby",
+    "rust",
+    "typescript",
+    "tsx",
+];
+export const GRAMMAR_UNAVAILABLE_REASON = "no packaged grammar is pinned for this language; AST coverage is explicitly unavailable";
+function isRecord(value) {
+    return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+function isNonEmptyString(value) {
+    return typeof value === "string" && value.trim().length > 0;
+}
+function isPositiveInteger(value) {
+    return typeof value === "number" && Number.isSafeInteger(value) && value > 0;
+}
+function hasNul(value) {
+    return typeof value === "string" && value.includes("\0");
+}
+/** Opaque scoped id as minted by the canonical derivation (prefixed, NUL-free). */
+function isOpaqueId(value, prefix) {
+    return isNonEmptyString(value) && !hasNul(value) && value.startsWith(prefix);
+}
+function isUncertaintyList(value) {
+    return Array.isArray(value) && value.every((state) => isIdentityUncertaintyState(state));
+}
+// Exact-key enforcement (L6a): every DTO validator rejects unknown keys so
+// a misspelled or smuggled field can never pass as a valid declaration,
+// clone, worktree, batch or revocation.
+function rejectUnknownKeys(value, allowed, path, errors) {
+    for (const key of Object.keys(value)) {
+        if (!allowed.includes(key))
+            errors.push(`${path}.${key} is not a known key`);
+    }
+}
+const LIVE_SCOPE_KEYS = ["tenant", "clone", "worktree"];
+export function validateLiveScope(scope) {
+    if (!isRecord(scope))
+        return { ok: false, errors: ["scope must be an object"] };
+    const errors = [];
+    rejectUnknownKeys(scope, LIVE_SCOPE_KEYS, "scope", errors);
+    if (!isNonEmptyString(scope.tenant))
+        errors.push("scope.tenant must be a non-empty string");
+    if (!isNonEmptyString(scope.clone))
+        errors.push("scope.clone must be a non-empty string");
+    if (scope.worktree !== undefined && !isNonEmptyString(scope.worktree)) {
+        errors.push("scope.worktree, when present, must be a non-empty string");
+    }
+    return { ok: errors.length === 0, errors };
+}
+const WORKSPACE_DECLARATION_KEYS = [
+    "tenant",
+    "principal",
+    "hostFingerprint",
+    "identityUncertainty",
+    "declarationId",
+    "cloneId",
+    "worktreeId",
+    "authorizedRoots",
+    "liveCapability",
+    "policyVersion",
+    "declarationRevision",
+    "serverWorkspaceId",
+    "serverIssuer",
+    "bindingRevision",
+];
+export function validateWorkspaceDeclaration(declaration) {
+    if (!isRecord(declaration))
+        return { ok: false, errors: ["declaration must be an object"] };
+    const errors = [];
+    rejectUnknownKeys(declaration, WORKSPACE_DECLARATION_KEYS, "declaration", errors);
+    if (!isNonEmptyString(declaration.tenant) || hasNul(declaration.tenant)) {
+        errors.push("declaration.tenant must be a non-empty string without NUL");
+    }
+    if (!isNonEmptyString(declaration.principal) || hasNul(declaration.principal)) {
+        errors.push("declaration.principal must be a non-empty string without NUL");
+    }
+    if (!isUncertaintyList(declaration.identityUncertainty)) {
+        errors.push(`declaration.identityUncertainty must be an array of uncertainty states (${IDENTITY_UNCERTAINTY_STATES.join(", ")})`);
+    }
+    if (declaration.hostFingerprint !== undefined) {
+        if (!isNonEmptyString(declaration.hostFingerprint) || hasNul(declaration.hostFingerprint)) {
+            errors.push("declaration.hostFingerprint, when present, must be a non-empty string without NUL");
+        }
+    }
+    else if (!isUncertaintyList(declaration.identityUncertainty) ||
+        !declaration.identityUncertainty.includes("missing_history")) {
+        errors.push('declaration.hostFingerprint is absent: identityUncertainty must explicitly contain "missing_history" (LIVE §12)');
+    }
+    if (!isOpaqueId(declaration.declarationId, ID_PREFIXES.declaration)) {
+        errors.push(`declaration.declarationId must be a non-empty opaque id starting with "${ID_PREFIXES.declaration}"`);
+    }
+    if (!isOpaqueId(declaration.cloneId, ID_PREFIXES.clone)) {
+        errors.push(`declaration.cloneId must be a non-empty opaque id starting with "${ID_PREFIXES.clone}"`);
+    }
+    if (!isOpaqueId(declaration.worktreeId, ID_PREFIXES.worktree)) {
+        errors.push(`declaration.worktreeId must be a non-empty opaque id starting with "${ID_PREFIXES.worktree}"`);
+    }
+    if (!Array.isArray(declaration.authorizedRoots) || declaration.authorizedRoots.length === 0) {
+        errors.push("declaration.authorizedRoots must be a non-empty array");
+    }
+    else if (declaration.authorizedRoots.some((path) => !isNonEmptyString(path) || hasNul(path))) {
+        errors.push("declaration.authorizedRoots entries must be non-empty strings without NUL");
+    }
+    if (declaration.liveCapability !== "live") {
+        errors.push('declaration.liveCapability must be the explicit string "live" (bind/upload is not activation)');
+    }
+    if (declaration.policyVersion !== POLICY_VERSION) {
+        errors.push(`declaration.policyVersion must be the fixed live policy version "${POLICY_VERSION}"`);
+    }
+    if (!isPositiveInteger(declaration.declarationRevision) ||
+        declaration.declarationRevision < INITIAL_DECLARATION_REVISION) {
+        errors.push(`declaration.declarationRevision must be an integer >= ${INITIAL_DECLARATION_REVISION}`);
+    }
+    const hasServerWorkspace = declaration.serverWorkspaceId !== undefined;
+    const hasServerIssuer = declaration.serverIssuer !== undefined;
+    const hasBindingRevision = declaration.bindingRevision !== undefined;
+    if (hasServerWorkspace && (!isNonEmptyString(declaration.serverWorkspaceId) || hasNul(declaration.serverWorkspaceId))) {
+        errors.push("declaration.serverWorkspaceId, when present, must be a non-empty string without NUL");
+    }
+    if (hasServerIssuer && (!isNonEmptyString(declaration.serverIssuer) || hasNul(declaration.serverIssuer))) {
+        errors.push("declaration.serverIssuer, when present, must be a non-empty string without NUL");
+    }
+    if (hasBindingRevision && (!isPositiveInteger(declaration.bindingRevision) ||
+        declaration.bindingRevision < INITIAL_BINDING_REVISION)) {
+        errors.push(`declaration.bindingRevision, when present, must be an integer >= ${INITIAL_BINDING_REVISION}`);
+    }
+    // Product live intent binds the complete server/issuer/revision triplet
+    // (spec §12): a workspace without its issuer or binding revision, an
+    // issuer or revision without the workspace, is not a valid product
+    // binding. Absence of all three is a valid local-only declaration
+    // requiring no enrollment.
+    if ((hasServerWorkspace || hasServerIssuer || hasBindingRevision) &&
+        !(hasServerWorkspace && hasServerIssuer && hasBindingRevision)) {
+        errors.push("the product binding must be the complete serverWorkspaceId + serverIssuer + bindingRevision triplet: a partial binding is not a valid product intent");
+    }
+    return { ok: errors.length === 0, errors };
+}
+const FACT_BATCH_KEYS = [
+    "scope",
+    "producerName",
+    "contractVersion",
+    "policyVersion",
+    "generationId",
+    "batchId",
+    "batchDigest",
+    "facts",
+];
+export function validateFactBatch(batch) {
+    if (!isRecord(batch))
+        return { ok: false, errors: ["batch must be an object"] };
+    const errors = [];
+    rejectUnknownKeys(batch, FACT_BATCH_KEYS, "batch", errors);
+    const scope = validateLiveScope(batch.scope);
+    if (!scope.ok)
+        errors.push(...scope.errors.map((error) => `batch.scope: ${error}`));
+    if (batch.producerName !== PRODUCER_NAME)
+        errors.push(`batch.producerName must be "${PRODUCER_NAME}"`);
+    if (batch.contractVersion !== CONTRACT_VERSION) {
+        errors.push(`batch.contractVersion must be ${CONTRACT_VERSION}`);
+    }
+    if (!isNonEmptyString(batch.policyVersion))
+        errors.push("batch.policyVersion must be a non-empty string");
+    if (!isNonEmptyString(batch.generationId))
+        errors.push("batch.generationId must be a non-empty string");
+    if (!isNonEmptyString(batch.batchId))
+        errors.push("batch.batchId must be a non-empty string");
+    if (!isNonEmptyString(batch.batchDigest))
+        errors.push("batch.batchDigest must be a non-empty string");
+    if (!Array.isArray(batch.facts))
+        errors.push("batch.facts must be an array");
+    return { ok: errors.length === 0, errors };
+}
+// Same identity, same bytes is idempotent; same identity, different bytes is
+// refused (spec §3). Pure decision over validated batches.
+export function classifyDuplicateBatch(previous, next) {
+    if (previous.batchId !== next.batchId) {
+        throw new Error("classifyDuplicateBatch compares the same batch identity only");
+    }
+    return previous.batchDigest === next.batchDigest ? "idempotent" : "refused";
+}
+// — L6a: explicit host declarations and clone identity
+// (spec/SPEC_LIVE_GIT_INDEXING.md §§2–3, 10, 12; plan/09 L6a; owner Q4 A).
+//
+// Consumer contract for the h2a (H) and cluster-mesh/sentropic (S) seats.
+// H owns durable local declarations plus clone/worktree resolution
+// (live-registration.ts, live-declarations.ts, data-pure DTOs); S owns the
+// registration persistence, product declarations and migrations; engram
+// owns only this data-pure contract and the pure functions in
+// ./registration.js. Read this block before implementing either host side.
+//
+// - Explicit opt-in, once per workspace, through h2a/cluster-mesh. Only
+//   liveCapability "live" (EXPLICIT_LIVE_CAPABILITY) activates collection.
+//   Bind, upload, code-workspace creation, session opening or session
+//   ending never activate or remove a declaration
+//   (NON_ACTIVATING_LIFECYCLE_KINDS). Replay of a stored declaration after
+//   projection loss resumes work without renewed activation.
+// - Engram neutrality: this module takes no imports of any kind (no h2a,
+//   no sentropic, no storage driver, no network); registration.ts adds pure
+//   functions with no host state, no storage and no network. Durable state
+//   belongs to the hosts — local h2a state outside source roots plus
+//   app-operated product persistence — independent of the live projection.
+// - Opaque identity triangle: every declaration carries a declarationId
+//   (unique per declaration, stable across revisions) attached to its
+//   cloneId and worktreeId. A revocation names exactly one declaration;
+//   withdrawing a whole clone means revoking each of its declarations,
+//   each revocation naming its exact declarationId.
+// - Workspace fingerprint vs clone identity: the public h2a `ws:`
+//   fingerprint stays on the declaration (hostFingerprint) and is never
+//   the sole clone key. The clone key is the (hostScope, common-dir
+//   realpath, common-dir project fingerprint) triple. Two clones with an
+//   equal project fingerprint remain distinct; linked worktrees sharing one
+//   common-dir share one clone with isolated worktree identities. The
+//   common-dir realpath is host-local and never published to sentropic:
+//   share only the opaque cloneId.
+// - Identity uncertainty (LIVE §12): a repo without history (unborn HEAD)
+//   or with grafted (shallow) history declares explicit uncertainty
+//   states; a fingerprint may be absent only under "missing_history".
+//   Uncertainty never merges clones: the hostScope + common-dir realpath
+//   key components keep them distinct.
+// - Revisions increment by exactly one, preserve tenant/principal/
+//   hostFingerprint, and preserve the product binding unless the binding
+//   itself changes: a revision outside the binding (roots, policy version)
+//   keeps it, while a changed serverWorkspaceId or serverIssuer — or an
+//   explicit revalidation — requires a strictly increasing
+//   bindingRevision (the first binding carries exactly 1). The host must
+//   additionally refuse to redirect in-flight collection/publication on
+//   rebind.
+// - Revocation is a private-purge request: the host stops work, rejects
+//   delayed jobs, and purges private snapshots, derived indexes and
+//   decryptability, while preserving authorized committed history. Purging
+//   never deletes committed facts.
+//
+// FROZEN L6a CONVENTIONS — both seats align on these values:
+// - POLICY_VERSION ("live-git-indexing/1") is the one policy name stamped
+//   on every live declaration; h2a's provisional "live-git-1" retires.
+// - INITIAL_DECLARATION_REVISION (1): the explicit activation itself is
+//   the first revision; there is no revision-0 declaration.
+// - INITIAL_BINDING_REVISION (1): the first product binding carries 1,
+//   and every rebind/revalidation carries a strictly greater
+//   bindingRevision.
+// - Identity uncertainty vocabulary: "missing_history", "shallow_history"
+//   (the labels H already produces under LIVE §12).
+// - Opaque ids are minted ONLY through the canonical derivation below
+//   (canonicalIdKey + the sha256 minting in ./registration.js): the same
+//   inputs give H, S and E byte-identical cloneId/worktreeId/
+//   declarationId. MIGRATION (H): identifiers already persisted by h2a
+//   were hashed from newline-joined "hostScope\nrealpath\nfingerprint"
+//   (clone), "hostScope\ngitDir" (worktree) and
+//   "hostScope\ncommonDirRealpath\nws:" (declaration); that scheme is
+//   ambiguous and diverges from this contract. Re-derive every persisted
+//   id with the canonical derivation and rewrite the local h2a store; no
+//   old id has crossed to sentropic (L6a is not consumed yet), so the
+//   migration is a purely local rewrite with no product-side replay.
+/** The only capability value that activates live collection (Q4 A). */
+export const EXPLICIT_LIVE_CAPABILITY = "live";
+/**
+ * Lifecycle kinds that never activate or remove a live declaration:
+ * enrollment bind, transcript upload, code-workspace creation and agent
+ * session open/end are distinct capabilities (spec §12).
+ */
+export const NON_ACTIVATING_LIFECYCLE_KINDS = [
+    "bind",
+    "upload",
+    "code-workspace-create",
+    "session-open",
+    "session-end",
+];
+export function isNonActivatingLifecycleKind(value) {
+    return (typeof value === "string" &&
+        NON_ACTIVATING_LIFECYCLE_KINDS.includes(value));
+}
+export const OID_ALGORITHMS = ["sha1", "sha256"];
+export const REVOCATION_REASONS = ["workspace-remove", "owner-request", "policy-withdrawn"];
+export function isRevocationReason(value) {
+    return (typeof value === "string" &&
+        REVOCATION_REASONS.includes(value));
+}
+/**
+ * Explicit identity-coverage uncertainty states (LIVE §12). A repo with no
+ * history (unborn HEAD) declares "missing_history"; a grafted (shallow)
+ * history declares "shallow_history" while keeping its fingerprints, whose
+ * coverage stays uncertain. An absent fingerprint is valid only under
+ * "missing_history"; uncertainty never merges clones.
+ */
+export const IDENTITY_UNCERTAINTY_STATES = ["missing_history", "shallow_history"];
+export function isIdentityUncertaintyState(value) {
+    return (typeof value === "string" &&
+        IDENTITY_UNCERTAINTY_STATES.includes(value));
+}
+/** First declaration revision: the explicit activation is revision 1. */
+export const INITIAL_DECLARATION_REVISION = 1;
+/** First product binding revision; every rebind carries a strictly greater one. */
+export const INITIAL_BINDING_REVISION = 1;
+/** The three opaque id kinds minted by the canonical derivation. */
+export const ID_KINDS = ["clone", "worktree", "declaration"];
+/** Opaque id prefixes; a valid id of a kind starts with its prefix. */
+export const ID_PREFIXES = {
+    clone: "clone:",
+    worktree: "wt:",
+    declaration: "decl:",
+};
+export function isIdKind(value) {
+    return (typeof value === "string" &&
+        ID_KINDS.includes(value));
+}
+/**
+ * THE canonical identity serialization shared by every live opaque id
+ * (cloneId, worktreeId, declarationId). Both seats and engram mint ids
+ * from this exact function, so the same identity components always give
+ * the same id on every side. The serialization is unambiguous: a JSON
+ * array of the kind plus the components in order, so no component value
+ * can shift a boundary. NUL is refused outright in every component, so the
+ * ambiguous couples ("a\0b", "c") vs ("a", "b\0c") can never be
+ * constructed. Pure and total over valid inputs; throws on malformed
+ * components so no silent normalization can produce a colliding key.
+ */
+export function canonicalIdKey(kind, components) {
+    if (!isIdKind(kind)) {
+        throw new Error(`canonicalIdKey requires a known id kind (${ID_KINDS.join(", ")})`);
+    }
+    for (const component of components) {
+        if (typeof component !== "string") {
+            throw new Error("canonicalIdKey requires string components");
+        }
+        if (component.includes("\0")) {
+            throw new Error("canonicalIdKey refuses NUL in identity components");
+        }
+    }
+    return JSON.stringify([kind, ...components]);
+}
+const CLONE_IDENTITY_KEYS = [
+    "hostScope",
+    "commonDirRealpath",
+    "commonDirProjectFingerprint",
+    "cloneId",
+    "oidAlgorithm",
+    "identityUncertainty",
+];
+const WORKTREE_IDENTITY_KEYS = [
+    "cloneId",
+    "worktreeId",
+    "worktreePath",
+    "gitDir",
+    "worktreeFingerprint",
+    "identityUncertainty",
+];
+const PRIVATE_PURGE_REQUEST_KEYS = [
+    "purgePrivateSnapshots",
+    "purgeDerivedIndexes",
+    "revokeDecryptability",
+    "preserveCommittedHistory",
+];
+const DECLARATION_REVOCATION_KEYS = [
+    "declarationId",
+    "tenant",
+    "cloneId",
+    "worktreeId",
+    "declarationRevision",
+    "reason",
+    "requestPrivatePurge",
+];
+/**
+ * Lexical normalization applied to the host-resolved common-dir realpath
+ * before key derivation: trailing slashes are stripped (the filesystem
+ * root alone is kept). The host resolves symlinks to the realpath before
+ * calling; this function performs no I/O.
+ */
+export function normalizeCommonDirRealpath(realpath) {
+    if (realpath.length > 1) {
+        const stripped = realpath.replace(/\/+$/, "");
+        return stripped.length === 0 ? "/" : stripped;
+    }
+    return realpath;
+}
+export function validateCloneIdentity(identity) {
+    if (!isRecord(identity))
+        return { ok: false, errors: ["cloneIdentity must be an object"] };
+    const errors = [];
+    rejectUnknownKeys(identity, CLONE_IDENTITY_KEYS, "cloneIdentity", errors);
+    if (!isNonEmptyString(identity.hostScope) || hasNul(identity.hostScope)) {
+        errors.push("cloneIdentity.hostScope must be a non-empty string without NUL");
+    }
+    if (!isNonEmptyString(identity.commonDirRealpath) || hasNul(identity.commonDirRealpath)) {
+        errors.push("cloneIdentity.commonDirRealpath must be a non-empty string without NUL");
+    }
+    if (identity.commonDirProjectFingerprint !== undefined &&
+        (!isNonEmptyString(identity.commonDirProjectFingerprint) || hasNul(identity.commonDirProjectFingerprint))) {
+        errors.push("cloneIdentity.commonDirProjectFingerprint, when present, must be a non-empty string without NUL");
+    }
+    else if (identity.commonDirProjectFingerprint === undefined &&
+        (!isUncertaintyList(identity.identityUncertainty) ||
+            !identity.identityUncertainty.includes("missing_history"))) {
+        errors.push('cloneIdentity.commonDirProjectFingerprint is absent: identityUncertainty must explicitly contain "missing_history" (LIVE §12)');
+    }
+    if (!isOpaqueId(identity.cloneId, ID_PREFIXES.clone)) {
+        errors.push(`cloneIdentity.cloneId must be a non-empty opaque id starting with "${ID_PREFIXES.clone}"`);
+    }
+    if (identity.oidAlgorithm !== "sha1" && identity.oidAlgorithm !== "sha256") {
+        errors.push('cloneIdentity.oidAlgorithm must be "sha1" or "sha256"');
+    }
+    if (!isUncertaintyList(identity.identityUncertainty)) {
+        errors.push(`cloneIdentity.identityUncertainty must be an array of uncertainty states (${IDENTITY_UNCERTAINTY_STATES.join(", ")})`);
+    }
+    return { ok: errors.length === 0, errors };
+}
+export function validateWorktreeIdentity(identity) {
+    if (!isRecord(identity))
+        return { ok: false, errors: ["worktreeIdentity must be an object"] };
+    const errors = [];
+    rejectUnknownKeys(identity, WORKTREE_IDENTITY_KEYS, "worktreeIdentity", errors);
+    if (!isOpaqueId(identity.cloneId, ID_PREFIXES.clone)) {
+        errors.push(`worktreeIdentity.cloneId must be a non-empty opaque id starting with "${ID_PREFIXES.clone}"`);
+    }
+    if (!isOpaqueId(identity.worktreeId, ID_PREFIXES.worktree)) {
+        errors.push(`worktreeIdentity.worktreeId must be a non-empty opaque id starting with "${ID_PREFIXES.worktree}"`);
+    }
+    if (!isNonEmptyString(identity.worktreePath) || hasNul(identity.worktreePath)) {
+        errors.push("worktreeIdentity.worktreePath must be a non-empty string without NUL");
+    }
+    if (!isNonEmptyString(identity.gitDir) || hasNul(identity.gitDir)) {
+        errors.push("worktreeIdentity.gitDir must be a non-empty string without NUL");
+    }
+    if (identity.worktreeFingerprint !== undefined &&
+        (!isNonEmptyString(identity.worktreeFingerprint) || hasNul(identity.worktreeFingerprint))) {
+        errors.push("worktreeIdentity.worktreeFingerprint, when present, must be a non-empty string without NUL");
+    }
+    else if (identity.worktreeFingerprint === undefined &&
+        (!isUncertaintyList(identity.identityUncertainty) ||
+            !identity.identityUncertainty.includes("missing_history"))) {
+        errors.push('worktreeIdentity.worktreeFingerprint is absent: identityUncertainty must explicitly contain "missing_history" (LIVE §12)');
+    }
+    if (!isUncertaintyList(identity.identityUncertainty)) {
+        errors.push(`worktreeIdentity.identityUncertainty must be an array of uncertainty states (${IDENTITY_UNCERTAINTY_STATES.join(", ")})`);
+    }
+    return { ok: errors.length === 0, errors };
+}
+export function validatePrivatePurgeRequest(request) {
+    if (!isRecord(request))
+        return { ok: false, errors: ["requestPrivatePurge must be an object"] };
+    const errors = [];
+    rejectUnknownKeys(request, PRIVATE_PURGE_REQUEST_KEYS, "requestPrivatePurge", errors);
+    if (request.purgePrivateSnapshots !== true) {
+        errors.push("requestPrivatePurge.purgePrivateSnapshots must be true (revocation always purges private snapshots)");
+    }
+    if (request.purgeDerivedIndexes !== true) {
+        errors.push("requestPrivatePurge.purgeDerivedIndexes must be true (revocation always purges derived indexes)");
+    }
+    if (request.revokeDecryptability !== true) {
+        errors.push("requestPrivatePurge.revokeDecryptability must be true (revocation always revokes decryptability)");
+    }
+    if (request.preserveCommittedHistory !== true) {
+        errors.push("requestPrivatePurge.preserveCommittedHistory must be true (revocation never deletes committed history)");
+    }
+    return { ok: errors.length === 0, errors };
+}
+export function validateDeclarationRevocation(revocation) {
+    if (!isRecord(revocation))
+        return { ok: false, errors: ["revocation must be an object"] };
+    const errors = [];
+    rejectUnknownKeys(revocation, DECLARATION_REVOCATION_KEYS, "revocation", errors);
+    if (!isOpaqueId(revocation.declarationId, ID_PREFIXES.declaration)) {
+        errors.push(`revocation.declarationId must be a non-empty opaque id starting with "${ID_PREFIXES.declaration}"`);
+    }
+    if (!isNonEmptyString(revocation.tenant) || hasNul(revocation.tenant)) {
+        errors.push("revocation.tenant must be a non-empty string without NUL");
+    }
+    if (!isOpaqueId(revocation.cloneId, ID_PREFIXES.clone)) {
+        errors.push(`revocation.cloneId must be a non-empty opaque id starting with "${ID_PREFIXES.clone}"`);
+    }
+    if (!isOpaqueId(revocation.worktreeId, ID_PREFIXES.worktree)) {
+        errors.push(`revocation.worktreeId must be a non-empty opaque id starting with "${ID_PREFIXES.worktree}"`);
+    }
+    if (!isPositiveInteger(revocation.declarationRevision) ||
+        revocation.declarationRevision < INITIAL_DECLARATION_REVISION) {
+        errors.push(`revocation.declarationRevision must be an integer >= ${INITIAL_DECLARATION_REVISION}`);
+    }
+    if (!isRevocationReason(revocation.reason)) {
+        errors.push(`revocation.reason must be one of ${REVOCATION_REASONS.join(", ")}`);
+    }
+    const purge = validatePrivatePurgeRequest(revocation.requestPrivatePurge);
+    if (!purge.ok)
+        errors.push(...purge.errors.map((error) => `revocation.${error}`));
+    return { ok: errors.length === 0, errors };
+}

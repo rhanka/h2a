@@ -33,19 +33,20 @@ import {
   type LiveWorkController,
 } from "./live-registration.js";
 // L6a realignment: H consumes the frozen neutral contract
-// (@sentropic/engram-live 0.1.0 @70ebdfee, digest-pinned vendor tarball —
-// see the GUARD test below), never a silent copy of its derivations.
+// (@sentropic/engram-live 0.1.0 @70ebdfee, vendored under
+// ../vendor/engram-live — see the GUARD test below), never a silent copy of
+// its derivations.
 import {
   INITIAL_BINDING_REVISION,
   POLICY_VERSION,
   validateDeclarationRevocation,
   validateWorkspaceDeclaration,
-} from "@sentropic/engram-live/contracts";
+} from "../vendor/engram-live/contracts.js";
 import {
   deriveCloneIdentity,
   deriveDeclarationIdentity,
   deriveWorktreeIdentity,
-} from "@sentropic/engram-live/integration";
+} from "../vendor/engram-live/integration.js";
 import { createHash } from "node:crypto";
 import * as liveRegistrationModule from "./live-registration.js";
 // Data-pure core DTOs are mirrored (not imported) by the runtime per the
@@ -712,23 +713,42 @@ describe("gateway-host live registration (L6a H)", () => {
 // vocabulary and refuses unverified principals.
 // ---------------------------------------------------------------------------
 
-/** Pinned integrity of the consumed prerelease (spec §11: digest-pinned packed prerelease). */
-const ENGRAM_LIVE_PRERELEASE_INTEGRITY =
-  "sha512-SpNpd9iDWi0x9lySvYd+HtUtWDyEPncW6pAdMS3YjaCiWF1C3aaIEMbxc6TbkPNwlBGxNpHdwf+Zc8ntMPq2iw==";
+/**
+ * Pinned integrity of the vendored neutral surface (spec §11). The entries
+ * were extracted byte-identical from vendor/sentropic-engram-live-0.1.0.tgz
+ * (graphify@70ebdfee, PR rhanka/engram#359), whose own sha512 was
+ * sha512-SpNpd9iDWi0x9lySvYd+HtUtWDyEPncW6pAdMS3YjaCiWF1C3aaIEMbxc6TbkPNwlBGxNpHdwf+Zc8ntMPq2iw==;
+ * the tarball is removed after vendoring because its os-bounded (linux)
+ * `file:` consumption breaks cross-platform install and packed
+ * redistribution. Re-vendor from that commit and compare digests to rotate.
+ */
+const ENGRAM_LIVE_VENDORED_INTEGRITY = {
+  "contracts.js":
+    "sha512-Jg0HTAjImE5IhPY1jqygRui7F16GeZ85RgGgJWSsIzv1JDnWtwZl23Z6DXLQvOG7Kg60c5cMfcThKusKU6jfzQ==",
+  "registration.js":
+    "sha512-v/0LGM651f3nVcP+R99oz2kRyC5ZKVhUO5UJ8dIeYrdLbdoayA5VOheZpIqF/fwRPQOxEfGP38QEg+cLvJoz7Q==",
+  "integration.js":
+    "sha512-cLQpW8pZl2NmP/41aX2DWqVNkQXqImd+To7XCx09PRR4dbT09OkR7qPmrf0uVpdIpjcNB/ynhzxRIVca3eHGFw==",
+};
 
 const noPrincipalAuthority: LiveAuthority = {
   authorize: () => ({ ok: true }),
 };
 
 describe("gateway-host live registration L6a realignment", () => {
-  it("GUARD: consumes the digest-pinned engram-live prerelease, never a silent copy", async () => {
-    const repoRoot = new URL("../../../..", import.meta.url);
-    const tarball = new URL("vendor/sentropic-engram-live-0.1.0.tgz", repoRoot);
-    const bytes = readFileSync(tarball);
-    expect(`sha512-${createHash("sha512").update(bytes).digest("base64")}`).toBe(
-      ENGRAM_LIVE_PRERELEASE_INTEGRITY,
+  it("GUARD: consumes the pinned vendored engram-live surface, never a silent copy", async () => {
+    const vendor = new URL("../vendor/engram-live/", import.meta.url);
+    for (const [file, digest] of Object.entries(ENGRAM_LIVE_VENDORED_INTEGRITY)) {
+      const bytes = readFileSync(new URL(file, vendor));
+      expect(`sha512-${createHash("sha512").update(bytes).digest("base64")}`).toBe(digest);
+    }
+    // The core and runtime packages vendor the same contracts entry: the two
+    // copies must stay byte-identical, never drift apart.
+    const coreContracts = readFileSync(
+      new URL("../../../h2a/src/vendor/engram-live/contracts.js", import.meta.url),
     );
-    const contracts = await import("@sentropic/engram-live/contracts");
+    expect(coreContracts.equals(readFileSync(new URL("contracts.js", vendor)))).toBe(true);
+    const contracts = await import("../vendor/engram-live/contracts.js");
     expect(contracts.CONTRACT_NAME).toBe("@sentropic/engram-live/contracts");
     expect(contracts.CONTRACT_VERSION).toBe(1);
     expect(contracts.POLICY_VERSION).toBe("live-git-indexing/1");
@@ -944,7 +964,9 @@ describe("gateway-host live registration L6a realignment", () => {
   });
 
   it("core contract surface re-exports the frozen neutral surface without copies", async () => {
-    const engramContracts = await import("@sentropic/engram-live/contracts");
+    const engramContracts = await import(
+      "../../../h2a/src/vendor/engram-live/contracts.js"
+    );
     expect(coreLiveContracts.POLICY_VERSION).toBe(engramContracts.POLICY_VERSION);
     expect(coreLiveContracts.EXPLICIT_LIVE_CAPABILITY).toBe("live");
     expect(coreLiveContracts.INITIAL_DECLARATION_REVISION).toBe(1);

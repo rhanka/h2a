@@ -13,8 +13,8 @@
  *    full local CloneIdentityDto/WorktreeIdentityDto (host-local realpath,
  *    git-dir and paths needed to operate; only the opaque ids cross to
  *    sentropic). Every write is validated with the engram validators — the
- *    runtime keeps no mirror of the contract, it imports
- *    @sentropic/engram-live/contracts (digest-pinned prerelease, see the
+ *    runtime keeps no mirror of the contract, it imports the vendored
+ *    neutral contracts entry (../vendor/engram-live, see the
  *    core live/contracts.ts header).
  *  - Writes are atomic (0600, tmp+rename) through a token-owned staging
  *    file; a corrupt store fails EXPLICITLY, it never silently
@@ -53,12 +53,12 @@ import {
   validateCloneIdentity,
   validateWorkspaceDeclaration,
   validateWorktreeIdentity,
-} from "@sentropic/engram-live/contracts";
+} from "../vendor/engram-live/contracts.js";
 import type {
   CloneIdentityDto,
   WorkspaceDeclarationDto,
   WorktreeIdentityDto,
-} from "@sentropic/engram-live/contracts";
+} from "../vendor/engram-live/contracts.js";
 
 export const LIVE_DECLARATION_KIND = "h2a-live-declaration";
 export const LIVE_DECLARATION_SCHEMA_VERSION = 1;

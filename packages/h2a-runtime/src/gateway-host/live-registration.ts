@@ -10,8 +10,8 @@
  *    ./live-declarations.ts); it is never the product workspace router and
  *    never projection-owned.
  *  - Identities are minted ONLY through the three canonical public
- *    derivations from @sentropic/engram-live/integration
- *    (digest-pinned prerelease, see the core live/contracts.ts header), so
+ *    derivations from the vendored neutral integration entry
+ *    (../vendor/engram-live, see the core live/contracts.ts header), so
  *    H ids are byte-identical to the engram (E) side for identical inputs:
  *    equal fingerprints under different realpaths derive distinct clones,
  *    while linked worktrees sharing one common-dir derive the same clone.
@@ -51,7 +51,7 @@ import {
   isNonActivatingLifecycleKind,
   validateDeclarationRevocation,
   validateWorkspaceDeclaration,
-} from "@sentropic/engram-live/contracts";
+} from "../vendor/engram-live/contracts.js";
 import type {
   CloneIdentityDto,
   DeclarationRevocationDto,
@@ -61,12 +61,12 @@ import type {
   RevocationReason,
   WorkspaceDeclarationDto,
   WorktreeIdentityDto,
-} from "@sentropic/engram-live/contracts";
+} from "../vendor/engram-live/contracts.js";
 import {
   deriveCloneIdentity,
   deriveDeclarationIdentity,
   deriveWorktreeIdentity,
-} from "@sentropic/engram-live/integration";
+} from "../vendor/engram-live/integration.js";
 
 import {
   LIVE_DECLARATION_KIND,
