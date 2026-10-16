@@ -1,0 +1,41 @@
+command: /tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-physical.test.js
+node: v24.21.0
+private root: /tmp/mh-l6-test-2kqEar
+case: U07 should derive physical prefix and original npm link without preparing managed state
+TAP version 13
+# Subtest: U07 should derive physical prefix and original npm link without preparing managed state
+not ok 1 - U07 should derive physical prefix and original npm link without preparing managed state
+  ---
+  duration_ms: 1.612105
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-physical.test.js:8:67'
+  failureType: 'testCodeFailure'
+  error: |-
+    physical npm evidence must exist before adoption
+    + actual - expected
+    
+    + 'undefined'
+    - 'function'
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 'function'
+  actual: 'undefined'
+  operator: 'strictEqual'
+  stack: |-
+    api (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-physical.test.js:14:10)
+    async TestContext.<anonymous> (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-physical.test.js:33:76)
+    async Test.run (node:internal/test_runner/test:1409:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3)
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 0
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 31.826036
+
+receipt: {"command":["/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-physical.test.js"],"code":1,"signal":null,"tests":1,"invalid":false,"spawned":1,"leftovers":[]}

@@ -1,0 +1,22 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-physical.test.js
+node: v22.22.1
+private root: /tmp/mh-l6-test-BNMRR5
+case: U07 should reject hardlinked npm code before adoption
+TAP version 13
+# Subtest: U07 should reject hardlinked npm code before adoption
+ok 1 - U07 should reject hardlinked npm code before adoption
+  ---
+  duration_ms: 14.326687
+  type: 'test'
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 1
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 108.757723
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-physical.test.js"],"code":0,"signal":null,"tests":1,"invalid":false,"spawned":1,"leftovers":[]}
