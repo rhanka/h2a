@@ -46,7 +46,7 @@ for (const [name, before] of [
 add('publication-target', 'live-source.js', ['publication.markerDigest !== digest(value.targetPublication) ||', 'digest(current) !== publication.markerDigest || '], ['', ''], 'passive source should refuse publication with wrong target before fencing or closing');
 const active = 'passive retirement should preserve admitted G0 work and fence owners only after authenticated concordant publication';
 add('publication-marker', 'live-source.js', '!current || digest(current) !== publication.markerDigest || ', '', active);
-add('checkpoint-before-publication', 'live-source.js', "    if (tx.state !== 'RETIRED') this.participants.checkTransfer(tx, value.targetPublication);", '', 'passive source should require a frozen checkpoint, unchanged inventory and current delegation at publication');
+add('checkpoint-before-publication', 'live-source.js', "    if (checkParticipants && tx.state !== 'RETIRED') this.participants.checkTransfer(tx, value.targetPublication);", '', 'passive source should require a frozen checkpoint, unchanged inventory and current delegation at publication');
 add('fencing', 'administration.js', '      this.options.liveSource.fence(observed.value);', '', active);
 add('drain', 'administration.js', "      if (!this.drain().complete) throw new Error('drain_blocked');", '', active);
 add('close-order', 'administration.js', '      this.options.liveSource.fence(observed.value);', '      this.requestClose();\n      this.options.liveSource.fence(observed.value);', active);
@@ -55,6 +55,13 @@ add('operator-reopen', 'administration.js', "!(tx.value.mode === 'live-transfer'
 add('step-id-recovery', 'administration.js', "        this.update(observed, { state: 'PUBLISHED' }, step, result);", "        this.update(observed, { state: 'PUBLISHED' }, { stepId: 'live-publication', payloadDigest: digest(result) }, result);", 'passive retirement should accept every valid stepId and resume its own durable publication after a lost ACK');
 add('step-conflict', 'administration.js', "        if (prior.payloadDigest !== step.payloadDigest) throw new Error('step_conflict');", '', 'passive retirement should accept every valid stepId and resume its own durable publication after a lost ACK');
 add('owner-process', 'participants.js', "digest(owner.ownerProcessIdentity) !== digest(target.processIdentity) || ", '', 'passive source should preserve exact acquired G1 ownership and reject foreign generation, epoch or process');
+add('acquired-writer-gate', 'participants.js', "const targetOpen = target &&", "const targetOpen = false && target &&", 'passive source should retire after the authenticated acquired G1 opens its writer gate');
+add('acquired-writer-authority', 'participants.js', "if (!(gate.handoverId === tx.handoverId && gate.gate === 'BARRIER') && !targetOpen)", 'if (false)', 'passive source should refuse an opened gate without the exact acquired target authority');
+add('source-drain-scope', 'ownership.js', '        if (scope && (op.ownerGeneration !== scope.generation || digest(op.executionOwner) !== digest(scope.processIdentity))) continue;', '', 'passive source should drain only G0 while independently admitted G1 calls remain pending');
+add('source-unknown-work', 'ownership.js', "        if (op.state === 'completed') continue;", "        if (op.state === 'completed' || op.state === 'unknown') continue;", 'passive source should drain only G0 while independently admitted G1 calls remain pending');
+add('source-memo-scope', 'participants.js', '        if (scope && digest(memo.executionOwner) !== digest(scope.processIdentity)) continue;', '', 'passive source should neither reconcile nor count new G1 launch memos');
+add('source-reconcile-scope', 'launch-memo.js', '      if (scope && digest(memo.executionOwner) !== digest(scope.processIdentity)) continue;', '', 'passive source should neither reconcile nor count new G1 launch memos');
+add('reconcile-uncertain-fence', 'live-source.js', '    if (publication) this.publication(tx, publication.publicationDigest, false, false);', '    if (publication) this.publication(tx, publication.publicationDigest, false);', 'passive source should reconcile an uncertain ownership fence before checking participants again');
 
 const selected = process.argv.slice(2), chosen = selected.length ? cases.filter(c => selected.includes(c.name)) : cases;
 if (!chosen.length || selected.some(name => !cases.some(c => c.name === name))) throw new Error('unknown_mutation');
