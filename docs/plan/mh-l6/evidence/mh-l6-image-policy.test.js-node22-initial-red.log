@@ -1,0 +1,188 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-image-policy.test.js
+node: v22.22.1
+private root: /tmp/mh-l6-test-BWl0ZU
+case: all cases in explicit file
+TAP version 13
+# Subtest: U12 should load verified relative and package modules through the real ESM and CJS readers
+not ok 1 - U12 should load verified relative and package modules through the real ESM and CJS readers
+  ---
+  duration_ms: 1.781994
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-image-policy.test.js:13:94'
+  failureType: 'testCodeFailure'
+  error: |-
+    closed image reader required
+    + actual - expected
+    
+    + 'undefined'
+    - 'function'
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 'function'
+  actual: 'undefined'
+  operator: 'strictEqual'
+  stack: |-
+    fixture (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-image-policy.test.js:15:10)
+    TestContext.<anonymous> (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-image-policy.test.js:47:13)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.start (node:internal/test_runner/test:944:17)
+    startSubtestAfterBootstrap (node:internal/test_runner/harness:296:17)
+  ...
+# Subtest: U12 should refuse a parent npm decoy after a verified ESM dependency disappears
+not ok 2 - U12 should refuse a parent npm decoy after a verified ESM dependency disappears
+  ---
+  duration_ms: 0.303451
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-image-policy.test.js:13:94'
+  failureType: 'testCodeFailure'
+  error: |-
+    closed image reader required
+    + actual - expected
+    
+    + 'undefined'
+    - 'function'
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 'function'
+  actual: 'undefined'
+  operator: 'strictEqual'
+  stack: |-
+    fixture (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-image-policy.test.js:15:10)
+    TestContext.<anonymous> (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-image-policy.test.js:54:13)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+  ...
+# Subtest: U12 should refuse a NODE_PATH decoy through createRequire after its internal package disappears
+not ok 3 - U12 should refuse a NODE_PATH decoy through createRequire after its internal package disappears
+  ---
+  duration_ms: 0.135324
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-image-policy.test.js:13:94'
+  failureType: 'testCodeFailure'
+  error: |-
+    closed image reader required
+    + actual - expected
+    
+    + 'undefined'
+    - 'function'
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 'function'
+  actual: 'undefined'
+  operator: 'strictEqual'
+  stack: |-
+    fixture (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-image-policy.test.js:15:10)
+    TestContext.<anonymous> (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-image-policy.test.js:62:13)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: U12 should refuse an explicit out-of-image dynamic import before any decoy effect
+not ok 4 - U12 should refuse an explicit out-of-image dynamic import before any decoy effect
+  ---
+  duration_ms: 0.103545
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-image-policy.test.js:13:94'
+  failureType: 'testCodeFailure'
+  error: |-
+    closed image reader required
+    + actual - expected
+    
+    + 'undefined'
+    - 'function'
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 'function'
+  actual: 'undefined'
+  operator: 'strictEqual'
+  stack: |-
+    fixture (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-image-policy.test.js:15:10)
+    TestContext.<anonymous> (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-image-policy.test.js:71:13)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: U12 should recheck late module bytes and isolate the manifest snapshot from its caller
+not ok 5 - U12 should recheck late module bytes and isolate the manifest snapshot from its caller
+  ---
+  duration_ms: 0.195208
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-image-policy.test.js:13:94'
+  failureType: 'testCodeFailure'
+  error: |-
+    closed image reader required
+    + actual - expected
+    
+    + 'undefined'
+    - 'function'
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 'function'
+  actual: 'undefined'
+  operator: 'strictEqual'
+  stack: |-
+    fixture (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-image-policy.test.js:15:10)
+    TestContext.<anonymous> (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-image-policy.test.js:79:15)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: U12 should preserve a missing dependency as a local failure without using HOME packages
+not ok 6 - U12 should preserve a missing dependency as a local failure without using HOME packages
+  ---
+  duration_ms: 0.121479
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-image-policy.test.js:13:94'
+  failureType: 'testCodeFailure'
+  error: |-
+    closed image reader required
+    + actual - expected
+    
+    + 'undefined'
+    - 'function'
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 'function'
+  actual: 'undefined'
+  operator: 'strictEqual'
+  stack: |-
+    fixture (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-image-policy.test.js:15:10)
+    TestContext.<anonymous> (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-image-policy.test.js:85:13)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+1..6
+# tests 6
+# suites 0
+# pass 0
+# fail 6
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 120.361247
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-image-policy.test.js"],"code":1,"signal":null,"tests":6,"invalid":false,"spawned":1,"leftovers":[]}

@@ -1,0 +1,88 @@
+command: /tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-image-policy.test.js
+node: v24.21.0
+private root: /tmp/mh-l6-test-Ru0Mkx
+case: all cases in explicit file
+TAP version 13
+# Subtest: U12 should load verified relative and package modules through the real ESM and CJS readers
+ok 1 - U12 should load verified relative and package modules through the real ESM and CJS readers
+  ---
+  duration_ms: 33.594936
+  type: 'test'
+  ...
+# Subtest: U12 should refuse a parent npm decoy after a verified ESM dependency disappears
+ok 2 - U12 should refuse a parent npm decoy after a verified ESM dependency disappears
+  ---
+  duration_ms: 29.14477
+  type: 'test'
+  ...
+# Subtest: U12 should refuse a NODE_PATH decoy through createRequire after its internal package disappears
+ok 3 - U12 should refuse a NODE_PATH decoy through createRequire after its internal package disappears
+  ---
+  duration_ms: 31.044024
+  type: 'test'
+  ...
+# Subtest: U12 should refuse an explicit out-of-image dynamic import before any decoy effect
+ok 4 - U12 should refuse an explicit out-of-image dynamic import before any decoy effect
+  ---
+  duration_ms: 28.331889
+  type: 'test'
+  ...
+# Subtest: U12 should recheck late module bytes and isolate the manifest snapshot from its caller
+ok 5 - U12 should recheck late module bytes and isolate the manifest snapshot from its caller
+  ---
+  duration_ms: 58.225508
+  type: 'test'
+  ...
+# Subtest: U12 should preserve a missing dependency as a local failure without using HOME packages
+ok 6 - U12 should preserve a missing dependency as a local failure without using HOME packages
+  ---
+  duration_ms: 32.335134
+  type: 'test'
+  ...
+# Subtest: U12 should refuse createRequire pointed at an external base by image code
+ok 7 - U12 should refuse createRequire pointed at an external base by image code
+  ---
+  duration_ms: 27.713695
+  type: 'test'
+  ...
+# Subtest: U10 should refuse selection before journaling when the runtime has no qualified image reader
+ok 8 - U10 should refuse selection before journaling when the runtime has no qualified image reader
+  ---
+  duration_ms: 44.778817
+  type: 'test'
+  ...
+# Subtest: U12 should reject late module mode changes even when the bytes are unchanged
+ok 9 - U12 should reject late module mode changes even when the bytes are unchanged
+  ---
+  duration_ms: 30.242246
+  type: 'test'
+  ...
+# Subtest: U12 should reject altered package metadata before executing an otherwise unchanged module
+ok 10 - U12 should reject altered package metadata before executing an otherwise unchanged module
+  ---
+  duration_ms: 31.766684
+  type: 'test'
+  ...
+# Subtest: U12 should refuse code added inside the image after its manifest was verified
+ok 11 - U12 should refuse code added inside the image after its manifest was verified
+  ---
+  duration_ms: 30.162625
+  type: 'test'
+  ...
+# Subtest: U10 should load the real node-pty probe and its ABI-qualified addon through the image reader
+ok 12 - U10 should load the real node-pty probe and its ABI-qualified addon through the image reader
+  ---
+  duration_ms: 783.174152
+  type: 'test'
+  ...
+1..12
+# tests 12
+# suites 0
+# pass 12
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 1215.348155
+
+receipt: {"command":["/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-image-policy.test.js"],"code":0,"signal":null,"tests":12,"invalid":false,"spawned":1,"leftovers":[]}
