@@ -2,6 +2,124 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "urn:h2a:mh-l0:formats:1",
   "$defs": {
+    "processIdentity": {
+      "type": "object",
+      "properties": {
+        "machineId": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^(?!0+$)[0-9a-f]{32}$"
+        },
+        "bootId": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "pidNamespace": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[0-9]+$"
+        },
+        "nsNet": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[0-9]+$"
+        },
+        "pid": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "startTime": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "machineId",
+        "bootId",
+        "pidNamespace",
+        "nsNet",
+        "pid",
+        "startTime"
+      ],
+      "additionalProperties": false
+    },
+    "generationEnd": {
+      "type": "object",
+      "properties": {
+        "schemaVersion": {
+          "const": 1
+        },
+        "purpose": {
+          "const": "generation-ended"
+        },
+        "generation": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "source": {},
+        "markerDigest": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "endedAt": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "mac": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "purpose",
+        "generation",
+        "source",
+        "markerDigest",
+        "endedAt",
+        "mac"
+      ],
+      "additionalProperties": false
+    },
+    "shimAcceptance": {
+      "type": "object",
+      "properties": {
+        "schemaVersion": {
+          "const": 1
+        },
+        "sourceGeneration": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "sourceMarkerDigest": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "receipt": {},
+        "mac": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "sourceGeneration",
+        "sourceMarkerDigest",
+        "receipt",
+        "mac"
+      ],
+      "additionalProperties": false
+    },
     "delegationReceipt": {
       "type": "object",
       "properties": {
@@ -4120,6 +4238,135 @@
         "maxAttachments",
         "files",
         "nativeArtifacts"
+      ],
+      "additionalProperties": false
+    },
+    "shimInventoryItem": {
+      "type": "object",
+      "properties": {
+        "attachmentId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "shimVersion": {
+          "type": "string",
+          "minLength": 1
+        },
+        "shimBuildId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "shimProcessIdentity": {
+          "type": "object",
+          "properties": {
+            "machineId": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^(?!0+$)[0-9a-f]{32}$"
+            },
+            "bootId": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+            },
+            "pidNamespace": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[0-9]+$"
+            },
+            "nsNet": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[0-9]+$"
+            },
+            "pid": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            },
+            "startTime": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            }
+          },
+          "required": [
+            "machineId",
+            "bootId",
+            "pidNamespace",
+            "nsNet",
+            "pid",
+            "startTime"
+          ],
+          "additionalProperties": false
+        },
+        "attachmentProtocol": {
+          "const": 1
+        },
+        "handoverProtocol": {
+          "const": 1
+        },
+        "downstreamProtocolVersion": {
+          "type": "string",
+          "minLength": 1
+        },
+        "servedDescriptorDigest": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "servedContractDigest": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "supportedCheckpointVersions": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
+          }
+        },
+        "capabilities": {
+          "type": "object",
+          "properties": {
+            "listChanged": {
+              "type": "boolean"
+            },
+            "attachTransfer": {
+              "type": "boolean"
+            },
+            "admissionProof": {
+              "type": "boolean"
+            },
+            "transportResume": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "listChanged",
+            "attachTransfer",
+            "admissionProof",
+            "transportResume"
+          ],
+          "additionalProperties": false
+        },
+        "clientQualification": {}
+      },
+      "required": [
+        "attachmentId",
+        "shimVersion",
+        "shimBuildId",
+        "shimProcessIdentity",
+        "attachmentProtocol",
+        "handoverProtocol",
+        "downstreamProtocolVersion",
+        "servedDescriptorDigest",
+        "servedContractDigest",
+        "supportedCheckpointVersions",
+        "capabilities",
+        "clientQualification"
       ],
       "additionalProperties": false
     }

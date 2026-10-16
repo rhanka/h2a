@@ -17,6 +17,13 @@ test('should start the idle interval at durable readiness after slow source prep
   const response=await authenticatedHttpRequest(server.markerPath,marker,server.endpoint,{method:'POST',headers:{'content-type':'application/json',accept:'application/json, text/event-stream'},
    body:JSON.stringify({jsonrpc:'2.0',id:1,method:'initialize',params:{protocolVersion:'2025-06-18',capabilities:{},clientInfo:{name:'idle-fixture',version:'1'}}})});
   assert.equal(response.status,200);await response.text();
+  // MH-L3: a lost lease does not prove the shim dead. Preserve the original
+  // readiness oracle, then explicitly disconnect the quarantined transport.
+  await delay(250);
+  const status=await authenticatedHttpRequest(server.markerPath,marker,new URL('/_h2a-central/status',server.endpoint));
+  const observed=await status.json();assert.equal(observed.attachments,1);assert.equal(observed.transports[0].state,'quarantined');
+  const disconnected=await authenticatedHttpRequest(server.markerPath,marker,server.endpoint,{method:'DELETE',headers:{'mcp-session-id':response.headers.get('mcp-session-id')}});
+  assert.equal(disconnected.status,200);
   await Promise.race([server.closed,delay(2500).then(()=>{throw Error('orphan did not retire');})]);
   assert.equal(fs.existsSync(server.markerPath),false);
  }finally{await server?.stop();fs.rmSync(directory,{recursive:true,force:true});}
