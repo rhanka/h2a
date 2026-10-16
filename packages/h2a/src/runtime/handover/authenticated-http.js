@@ -1,6 +1,6 @@
 import { Agent, request, createServer } from 'node:http';
 import { randomBytes } from 'node:crypto';
-import { ConnectionAuthentication, FrameVerifier } from './authentication.js';
+import { ConnectionAuthentication, FrameVerifier, isControlRequest } from './authentication.js';
 import { readState } from './state.js';
 import { digest } from './wire.js';
 import { validate } from './formats.js';
@@ -34,12 +34,14 @@ export function readAuthenticationKey(markerPath, marker) {
 // socket; a close/reconnect cannot silently move the body to a new listener.
 /** @param {*} options */
 export async function authenticatedHttpRequest(markerPath, marker, url, options = {}) {
-  const key = readAuthenticationKey(markerPath, marker);
+  let key;
+  try { key = readAuthenticationKey(markerPath, marker); }
+  catch (error) { error.applicationDispatched = false; throw error; }
   const endpoint = new URL(url);
   if (endpoint.origin !== new URL(marker.endpoint).origin || endpoint.search || endpoint.hash) throw new Error('authentication_endpoint_mismatch');
   const agent = new Agent({ keepAlive: true, maxSockets: 1, maxFreeSockets: 1 });
   const auth = new ConnectionAuthentication(marker, key), verifier = new FrameVerifier(marker, key);
-  let socket;
+  let socket, applicationDispatched = false;
   const exchange = (url, method, headers, body, requiredSocket) => new Promise((resolve, reject) => {
     const req = request(url, { agent, method, headers, signal: options.signal }, resolve);
     req.on('error', reject);
@@ -48,19 +50,21 @@ export async function authenticatedHttpRequest(markerPath, marker, url, options 
         req.destroy(new Error('challenge_connection_lost')); return;
       }
       socket = assigned;
+      if (requiredSocket) applicationDispatched = true;
       req.end(body);
     });
   });
   try {
     const clientNonce = randomBytes(32).toString('hex');
-    const response = await exchange(new URL(`/_h2a-central/challenge/${clientNonce}`, marker.endpoint), 'GET', {}, undefined);
+    const wireBody = { method: options.method ?? 'GET', headers: options.headers ?? {}, body: options.body ?? null };
+    const challengePath = isControlRequest(endpoint.pathname, wireBody) ? 'control-challenge' : 'challenge';
+    const response = await exchange(new URL(`/_h2a-central/${challengePath}/${clientNonce}`, marker.endpoint), 'GET', {}, undefined);
     const proof = JSON.parse(await bytesOf(response));
     if (response.statusCode !== 200 || !auth.verifyChallenge(proof, clientNonce)) throw new Error('readiness_invalid');
     const challengedSocket = socket;
-    const wireBody = { method: options.method ?? 'GET', headers: options.headers ?? {}, body: options.body ?? null };
     const path = endpoint.pathname;
     const attachmentId = options.attachmentId ?? 'control', transportEpoch = options.transportEpoch ?? 1;
-    const signed = auth.request(proof, path, wireBody, { attachmentId, transportEpoch });
+    const signed = auth.request(proof, path, wireBody, { attachmentId, transportEpoch, requestUid: options.requestUid, requestNonce: options.requestNonce });
     const body = JSON.stringify(wireBody);
     const incoming = await exchange(endpoint, 'POST', { 'content-type': 'application/json', 'content-length': String(Buffer.byteLength(body)),
       'x-h2a-proof': Buffer.from(JSON.stringify(signed)).toString('base64url') }, body, challengedSocket);
@@ -102,7 +106,7 @@ export async function authenticatedHttpRequest(markerPath, marker, url, options 
       headers: { get: name => status.headers[name.toLowerCase()] ?? null }, body: stream(),
       text: async () => { let result = ''; for await (const chunk of stream()) result += chunk; return result; },
       json: async () => { throw new Error('sse_not_json'); } };
-  } catch (error) { agent.destroy(); throw error; }
+  } catch (error) { agent.destroy(); error.applicationDispatched = applicationDispatched; throw error; }
 }
 
 export function createAuthenticatedServer(auth, fetch) {
@@ -112,9 +116,10 @@ export function createAuthenticatedServer(auth, fetch) {
     try {
       const path = new URL(incoming.url, auth.marker.endpoint).pathname;
       if (incoming.method === 'GET' && path === '/_h2a-central/ping') { sendPlain(200, { generation: auth.marker.generation }); return; }
-      if (incoming.method === 'GET' && path.startsWith('/_h2a-central/challenge/')) {
+      if (incoming.method === 'GET' && (path.startsWith('/_h2a-central/challenge/') || path.startsWith('/_h2a-central/control-challenge/'))) {
         if (auth.ready === false) throw new Error('readiness_unavailable');
-        sendPlain(200, auth.challenge(incoming.socket, path.slice('/_h2a-central/challenge/'.length))); return;
+        const pool = path.startsWith('/_h2a-central/control-challenge/') ? 'control' : 'data';
+        sendPlain(200, auth.challenge(incoming.socket, path.split('/').at(-1), pool)); return;
       }
       if (incoming.method !== 'POST' || incoming.headers.authorization || !incoming.headers['x-h2a-proof']) throw new Error('authentication_required');
       if (incoming.headers.host !== new URL(auth.marker.endpoint).host) throw new Error('authentication_authority_invalid');
@@ -125,6 +130,8 @@ export function createAuthenticatedServer(auth, fetch) {
       admitted = auth.admit(incoming.socket, proof, path, envelope);
       const headers = new Headers(envelope.headers);
       headers.delete('authorization'); headers.delete('x-h2a-proof'); headers.delete('content-length');
+      headers.set('x-h2a-auth-attachment-id', admitted.attachmentId ?? 'control');
+      headers.set('x-h2a-auth-transport-epoch', String(admitted.transportEpoch ?? 1));
       headers.set('host', new URL(auth.marker.endpoint).host);
       const controller = new AbortController();
       outgoing.once('close', () => controller.abort());
@@ -136,7 +143,13 @@ export function createAuthenticatedServer(auth, fetch) {
       const metadata = { status: response.status, headers: headersOf(response.headers) };
       if (!response.headers.get('content-type')?.includes('text/event-stream')) {
         const text = await response.text();
-        const frame = auth.frame({ ...metadata, body: text ? JSON.parse(text) : null }, ownership);
+        let body = text ? JSON.parse(text) : null;
+        if (body?.accepted === false && body?.execution === 'not_started') {
+          let rpc; try { rpc = JSON.parse(envelope.body); } catch { rpc = envelope.body; }
+          body = { ...body, requestUid: admitted.requestUid, requestNonce: admitted.requestNonce, generation: auth.marker.generation,
+            publicationEpoch: auth.marker.publicationEpoch, method: rpc?.method ?? envelope.method, requestDigest: digest(rpc), reason: body.reason ?? body.error };
+        }
+        const frame = auth.frame({ ...metadata, body }, ownership);
         outgoing.writeHead(response.status, { 'content-type': 'application/json' });
         // Keep an authenticated body even for logical 204/202 responses.
         if (response.status === 204) outgoing.statusCode = 200;
@@ -144,7 +157,10 @@ export function createAuthenticatedServer(auth, fetch) {
       }
       outgoing.writeHead(response.status, { 'content-type': 'text/event-stream',
         'x-h2a-response': Buffer.from(JSON.stringify(auth.frame(metadata, ownership))).toString('base64url') });
+      outgoing.flushHeaders();
       let buffer = ''; const decoder = new StringDecoder('utf8'); const reader = response.body.getReader();
+      const releaseReader = () => { void reader.cancel().catch(() => {}); };
+      outgoing.once('close', releaseReader);
       try {
         for (;;) {
           const { done, value } = await reader.read(); if (done) break;
@@ -158,10 +174,13 @@ export function createAuthenticatedServer(auth, fetch) {
             const message = JSON.parse(data);
             const notification = message.method && message.id === undefined;
             const frame = auth.frame(message, notification ? { ...ownership, channel: 'notifications', requestUid: null } : ownership);
-            if (!outgoing.write(`data: ${JSON.stringify(frame)}\n\n`)) await new Promise(resolve => outgoing.once('drain', resolve));
+            if (!outgoing.write(`data: ${JSON.stringify(frame)}\n\n`)) await new Promise(resolve => {
+              const done = () => { outgoing.off('drain', done); outgoing.off('close', done); resolve(); };
+              outgoing.once('drain', done); outgoing.once('close', done); if (outgoing.destroyed) done();
+            });
           }
         }
-      } finally { await reader.cancel().catch(() => {}); }
+      } finally { outgoing.off('close', releaseReader); await reader.cancel().catch(() => {}); }
       outgoing.end();
     } catch (error) {
       auth.rejectedRequests = (auth.rejectedRequests ?? 0) + 1;

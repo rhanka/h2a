@@ -128,7 +128,11 @@ test('real .7 source should accept the external peer, preserve its admitted larg
       const before = await call('inventory');
       const response = await authenticatedHttpRequest(markerPath, m, m.endpoint, { method: 'DELETE', headers: { 'mcp-session-id': session } });
       assert.equal(response.status, 409, `DELETE must preserve the ${state} inventory`);
-      assert.deepEqual(await response.json(), { error: 'admission_closed', accepted: false, execution: 'not_started' });
+      const refusal = await response.json();
+      assert.deepEqual(Object.fromEntries(['error', 'accepted', 'execution'].map(k => [k, refusal[k]])), { error: 'admission_closed', accepted: false, execution: 'not_started' });
+      assert.equal(refusal.generation, m.generation); assert.deepEqual(refusal.publicationEpoch, m.publicationEpoch);
+      assert.equal(refusal.method, 'DELETE'); assert.equal(refusal.handoverId, 'h'); assert.equal(refusal.transactionEpoch, 1);
+      assert.ok(refusal.requestUid && refusal.requestNonce && refusal.requestDigest);
       const after = await call('inventory');
       assert.equal(after.revision, before.revision);
       assert.deepEqual(after.transports, before.transports);
