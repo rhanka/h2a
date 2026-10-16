@@ -20,7 +20,9 @@ function visit(dir) {
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
     const path = join(dir, entry.name);
     if (entry.isDirectory()) visit(path);
-    else if (entry.name.endsWith('.test.ts') && /["'](?:\.\.?\/)+(?:registry|delegate|h2a-jobs|index|restore)\.js["']/.test(fs.readFileSync(path, 'utf8'))) {
+    else if (entry.name.endsWith('.test.ts') && /["'](?:\.\.?\/)+(?:registry|delegate|h2a-jobs|index|restore|op)\.js["']/.test(fs.readFileSync(path, 'utf8'))) {
+      files.push(path.slice(repo.length + 1));
+    } else if (path.endsWith('/native-terminal/terminal-modes.functional.test.ts')) {
       files.push(path.slice(repo.length + 1));
     }
   }

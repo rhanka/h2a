@@ -831,3 +831,15 @@ an init reaper. The scoped new CI launcher supplies it. Running that fixture
 without the launcher fails closed; adapting the existing full npm-test/release
 entry points remains a pre-merge task, and those full gates are not qualified
 by the scoped cross-CLI workflow. No merge readiness is claimed.
+
+## Resume 2026-10-16
+
+Preserve the twelve pushed commits; never run the full suite locally. The
+confirmed native wake framing defect is fixed: keep the validated line and its
+single submit CR in separate input bursts under the same fenced lease. Human
+activity and control-byte guards remain intact. Claude-to-Claude now has a real
+measured signed round trip, autonomous inbox read and signed reply after the
+idle barrier. Codex still has no real MCP initialization; an ineffective
+initial-submit experiment was removed. The scoped CI workflow now includes the
+direct op consumers. See docs/2026-10-16-cross-cli-resume.md for commands,
+red/green receipts, qualification limits and cleanup evidence.
