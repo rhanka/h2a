@@ -3,11 +3,11 @@
   "files": [
     {
       "path": "packages/h2a/src/runtime/upgrade/h4-store.js",
-      "sha256": "bfb35b769dc2c23f7b6943852c074ccbcbba493d4d2f1cf9b9fe273e1a6c0326"
+      "sha256": "06d6bb515be9e9b0178e9225de47334eca53bd332b7b5253fda2eec4e44ac39a"
     },
     {
       "path": "packages/h2a/dist/runtime/upgrade/h4-store.js",
-      "sha256": "3536c9727a3402b014a1e0f6b82492bdccf7b050f519d858c9cd1b72c61c2b1d"
+      "sha256": "400c7f6f20d1b03fc6300844884f6f02c756eb4992ffb3c831450bf6523b88cf"
     }
   ],
   "results": [
