@@ -37,8 +37,25 @@ test('M21 real compiled shim should attach-transfer to the conformance peer whil
   const toolEntered = new Promise(resolve => { enterTool = resolve; });
   const cancelledEntered = new Promise(resolve => { enterCancelled = resolve; });
   let launches = 0;
-  let ackLost = false; const originalCreateServer = http.createServer;
+  const enteredWithin = async (promise, label) => {
+    let timer;
+    try { await Promise.race([promise, new Promise((_, reject) => { timer = setTimeout(() => reject(new assert.AssertionError({ message: label })), 3000); })]); }
+    finally { clearTimeout(timer); }
+  };
+  let ackLost = false, sourceAuth, sourceEvents;
+  const admittedCalls = [], cancellations = [];
+  const originalCreateServer = http.createServer;
   t.mock.method(http, 'createServer', handler => originalCreateServer((req, res) => {
+    let wire = '';
+    req.on('data', bytes => { wire += bytes; });
+    req.on('end', () => {
+      try {
+        const envelope = JSON.parse(wire), message = JSON.parse(envelope.body ?? 'null');
+        if (message?.method === 'tools/call' && message.params?.name === 'h2a_run') admittedCalls.push(message);
+        if (message?.method === 'notifications/cancelled') cancellations.push(message);
+        if (envelope.method === 'GET' && req.url === '/mcp') sourceEvents = res;
+      } catch { /* Challenge traffic contains no application envelope. */ }
+    });
     const end = res.end.bind(res);
     res.end = function(bytes, ...rest) {
       if (!ackLost && req.url?.startsWith('/_h2a-central/shim/') && req.url.endsWith('/ack') && bytes) {
@@ -66,6 +83,9 @@ test('M21 real compiled shim should attach-transfer to the conformance peer whil
       entrypoint: 'dist/bin.js', previousSelectionReference: null, upgradeId: 'u' };
     publishState(selectionPath, selection, 'selection');
     const { startCentralMcpServer } = await import(join(image, 'node_modules/@sentropic/h2a/dist/runtime/mcp-central.js'));
+    const { ConnectionAuthentication } = await import(join(image, 'node_modules/@sentropic/h2a/dist/runtime/handover/authentication.js'));
+    const frame = ConnectionAuthentication.prototype.frame;
+    t.mock.method(ConnectionAuthentication.prototype, 'frame', function(...args) { sourceAuth = this; return frame.apply(this, args); });
     source = await startCentralMcpServer({ root, runtimeBase: runtime, writerProof: { evidenceDigest: payload.manifestDigest, verify: () => 'qualified' },
       runExecutor: () => { const first = ++launches === 1; if (first) enterTool(); else enterCancelled(); return new Promise(resolve => {
         const release = () => resolve({ state: 'started', ok: true, prompt: { delivered: true }, padding: 'x'.repeat(2 * 1024 * 1024) });
@@ -85,12 +105,12 @@ test('M21 real compiled shim should attach-transfer to the conformance peer whil
       await new Promise(r => setTimeout(r, 50));
     }
     assert.ok(instance, shim.stderr);
-    shim.send({ jsonrpc: '2.0', id: 'g0-running', method: 'tools/call', params: { name: 'h2a_run', arguments: {
+    shim.send({ jsonrpc: '2.0', id: 17, method: 'tools/call', params: { name: 'h2a_run', _meta: { progressToken: 17 }, arguments: {
       profile: 'claude', name: 'retained-g0', prompt: 'fixture', workspace: dir, background: true, h2aSidecar: false } } });
-    await toolEntered;
-    shim.send({ jsonrpc: '2.0', id: 'g0-cancel', method: 'tools/call', params: { name: 'h2a_run', arguments: {
+    await enteredWithin(toolEntered, 'the numeric G0 call must be admitted');
+    shim.send({ jsonrpc: '2.0', id: '17', method: 'tools/call', params: { name: 'h2a_run', _meta: { progressToken: '17' }, arguments: {
       profile: 'claude', name: 'cancelled-g0', prompt: 'fixture', workspace: dir, background: true, h2aSidecar: false } } });
-    await cancelledEntered;
+    await enteredWithin(cancelledEntered, 'the string G0 call must be admitted independently of the numeric ID');
     const target = { packageVersion: selection.packageVersion, buildId: selection.buildId, manifestDigest: selection.manifestDigest, entrypoint: join(image, selection.entrypoint) };
     const oldSelection = readState(selectionPath, 'selection'); selection = { ...selection, selectionEpoch: 2 };
     replaceState(selectionPath, selection, 'selection', oldSelection);
@@ -227,19 +247,35 @@ test('M21 real compiled shim should attach-transfer to the conformance peer whil
     assert.ok(g1?.result, JSON.stringify(g1) + shim.stderr);
     assert.equal(JSON.parse(g1.result.content[0].text).generation, next.generation, shim.stderr);
     assert.equal(fs.readFileSync(join(root, 'g1-admitted-work'), 'utf8'), 'G1 admitted while G0 drains');
+    assert.notEqual(admittedCalls[0].id, admittedCalls[1].id);
+    assert.notEqual(admittedCalls[0].params._meta.progressToken, admittedCalls[1].params._meta.progressToken);
+    assert.ok(sourceEvents && !sourceEvents.destroyed, 'G0 notification transport must remain during G1 admissions');
+    const progress = sourceAuth.frame({ jsonrpc: '2.0', method: 'notifications/progress', params: {
+      progressToken: admittedCalls[0].params._meta.progressToken, progress: 7 } }, {
+      channel: 'notifications', attachmentId: item.attachmentId, transportEpoch: 1, requestUid: null });
+    sourceEvents.write('data: ' + JSON.stringify(progress) + '\n\n');
+    for (let i = 0; !shim.frames.some(f => f.method === 'notifications/progress') && i < 100; i++) await new Promise(r => setTimeout(r, 10));
+    assert.equal(shim.frames.find(f => f.method === 'notifications/progress')?.params.progressToken, 17);
     assert.ok(Number(fs.readFileSync(probes, 'utf8')) >= 2);
     const ownerPath = fs.readdirSync(durable).find(name => name.startsWith('ownership-'));
     assert.equal(readState(join(durable, ownerPath), 'ownership').value.ownerGeneration, next.generation);
-    shim.send({ jsonrpc: '2.0', method: 'notifications/cancelled', params: { requestId: 'g0-cancel' } });
+    shim.send({ jsonrpc: '2.0', method: 'notifications/cancelled', params: { requestId: '17' } });
     await new Promise(r => setTimeout(r, 100));
     assert.equal(fs.existsSync(join(root, 'g1-cancellation')), false, 'cancellation must target G0 while G1 is current');
+    assert.equal(cancellations.at(-1)?.params.requestId, admittedCalls[1].id);
+    const reused = await rpc('17', 'tools/call', { name: 'fixture_added', arguments: {} });
+    assert.equal(JSON.parse(reused.result.content[0].text).generation, next.generation);
     releaseCancelled();
     releaseTool();
-    const reply = await shim.response('g0-running'); const overflow = JSON.parse(reply.result.content[0].text);
+    const reply = await shim.response(17); const overflow = JSON.parse(reply.result.content[0].text);
     assert.equal(overflow.code, 'response_too_large'); assert.ok(overflow.recovery.ref);
     assert.ok(fs.readFileSync(join(root, 'mcp-payloads', overflow.recovery.ref + '.bin'), 'utf8').includes('x'.repeat(1024)));
     assert.equal((await call('drain-status')).complete, true);
-    assert.equal(shim.frames.some(f => f.id === 'g0-cancel'), false);
+    assert.equal(shim.frames.filter(f => f.id === '17').length, 1, 'a late cancelled G0 result cannot settle a reused G1 ID');
+    const beforeReuse = shim.frames.length;
+    shim.send({ jsonrpc: '2.0', id: 17, method: 'tools/call', params: { name: 'fixture_added', arguments: {} } });
+    for (let i = 0; !shim.frames.slice(beforeReuse).some(f => f.id === 17) && i < 100; i++) await new Promise(r => setTimeout(r, 10));
+    assert.equal(JSON.parse(shim.frames.slice(beforeReuse).find(f => f.id === 17)?.result.content[0].text).generation, next.generation);
     assert.equal(launches, 2, 'neither old call may be replayed');
     const controlPath = join(durable, 'component-control.json');
     assert.equal((await call('retire', { publicationDigest })).state, 'RETIRED');
