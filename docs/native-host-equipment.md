@@ -14,11 +14,17 @@ is delivered, with no established deadline. Doctor/status display:
 > Skills installées, outils MCP absents — bootstrap registre attendu
 
 Any observed direct endpoint, regardless of its creation date, is labelled
-“voie directe — non migrée”. Vibe `host setup --write` refuses every target,
-including JSON and `--force`; `config.toml` is read only. `host setup` and
-`connect` retain a labelled historical rendering without instructions to paste,
-translate or merge it. Existing explicit Muse/agy JSON writers remain available
-until each host migrates. Claude/Codex retain their historical contracts;
+“voie directe — non migrée”. INTERIM DIRECT PATH (owner decision 16/10 “Entrée
+directe maintenant”, derogation spec-astra-v9 §4/O7.2): Vibe `host setup --write`
+installs the `[[mcp_servers]] h2a` stdio entry (same backend and args in meaning
+as the other hosts, server key `h2a`) into `<VIBE_HOME>/config.toml` through the
+Node TOML writer (backup, idempotent merge, refusal on unreadable/incompatible TOML
+even with `--force`, `mcp_servers = []` replaced without duplicate key, user entries
+preserved); JSON targets stay refused. `h2a host setup --host vibe --remove` clears
+the direct entry for the later R5/R7 registry migration. `doctor --repair --host vibe`
+(and install/upgrade convergence) installs the entry when absent and reports it;
+inspection reports « voie directe — non migrée ». Existing explicit Muse/agy JSON
+writers remain available until each host migrates. Claude/Codex retain their historical contracts;
 absence of native/registry receipts does not downgrade their historic codes.
 
 ## First corrected installation

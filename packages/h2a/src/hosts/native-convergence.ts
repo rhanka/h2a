@@ -43,10 +43,17 @@ export function convergeNativeHost(options: NativeConvergenceOptions) {
   const missingSources = options.sourcesComplete === false;
   const ok = result.changes.conflicts.length === 0 && !missingSources;
   const pending = result.changes.planned.length > 0 && (!repair || dryRun);
+  // Re-read the effective MCP state after a repair so doctor reports the
+  // installed interim direct entry (owner 16/10), never pre-repair absence.
+  let freshMigration = observation?.migration;
+  if (host === 'vibe' && repair && !dryRun) {
+    try { freshMigration = inspectNativeHost(host, root).migration; } catch { /* keep pre-repair observation */ }
+  }
+  const installedMcp = installedVibe && 'mcp' in installedVibe ? (installedVibe as { mcp: unknown }).mcp : vibe?.mcp;
   return { host, root, ok, installation: !ok ? 'conflict' : pending ? 'action necessary' : 'coherent',
-    qualification: installedVibe?.qualification ?? { status: 'absent' }, migration: observation?.migration ?? 'non migré',
+    qualification: installedVibe?.qualification ?? { status: 'absent' }, migration: freshMigration ?? 'non migré',
     coverage: 'convergence native couverte; qualification native distincte', observation: publicObservation, discovery,
     ...result.changes, missingSources, manifest: result.manifest, guard: installedVibe?.guard, lifecycle: installedVibe?.lifecycle,
-    ...(vibe ? { rendered: vibe.rendered, restart: vibe.restart, lifecycleScope: vibe.scope } : {}),
+    ...(vibe ? { rendered: vibe.rendered, restart: vibe.restart, lifecycleScope: vibe.scope, mcp: installedMcp } : {}),
     ...(shared ? { sharedGeminiEffect: true, sharedOwner: join(state, 'shared-owner.json') } : {}) };
 }
