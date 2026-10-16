@@ -59,7 +59,7 @@ import { conductorLaunchCheck } from "../governance/launch-check.js";
 import { canonicalAddress, isHostQualifiedAddress, listPresence, resolveRecipient, writePresence } from "../local-files/index.js";
 import { createLocalStore } from "../local-files/store.js";
 import type { LocalStore } from "../local-files/store.js";
-import { messageBackend, sendMessage, type H2ASendSigner, type H2AMessageBackend } from "../send.js";
+import { H2ASendError, messageBackend, sendMessage, type H2ASendSigner, type H2AMessageBackend } from "../send.js";
 import type { H2aClusterMeshMessaging } from "../cluster-mesh-messaging.js";
 import { lastSpawnRequestAt, recordSpawnRequest, spawnAllowed } from "../governance/spawns.js";
 import { gatherNhiSnapshot } from "../nhi.js";
@@ -339,7 +339,7 @@ export function handleSend(
   store: LocalStore,
   signer: H2ASendSigner | undefined,
   args: { to?: unknown; message?: unknown; backend?: unknown } | undefined,
-  options: { backend?: H2AMessageBackend; clusterMesh?: H2aClusterMeshMessaging } = {}
+  options: { backend?: H2AMessageBackend; clusterMesh?: H2aClusterMeshMessaging; timeoutMs?: number } = {}
 ): McpToolResult | McpErrorResult | Promise<McpToolResult | McpErrorResult> {
   if (!signer) {
     return { error: "h2a_send: unavailable without a trusted auto-open signing identity" };
@@ -351,15 +351,18 @@ export function handleSend(
   if (unknown.length > 0) {
     return { error: `h2a_send: unsupported argument(s): ${unknown.join(", ")}` };
   }
+  const sendError = (error: unknown) => error instanceof H2ASendError
+    ? { error: error.message, code: error.code, retryable: error.retryable }
+    : safeError(error);
   try {
     const result = sendMessage({
       store, to: args.to, message: args.message, signer,
       backend: messageBackend(args.backend === undefined ? options.backend : args.backend),
-      clusterMesh: options.clusterMesh
+      clusterMesh: options.clusterMesh, requireLive: true, timeoutMs: options.timeoutMs
     });
-    return result instanceof Promise ? result.then((value) => ({ ...value })).catch(safeError) : { ...result };
+    return result instanceof Promise ? result.then((value) => ({ ...value })).catch(sendError) : { ...result };
   } catch (error) {
-    return safeError(error);
+    return sendError(error);
   }
 }
 

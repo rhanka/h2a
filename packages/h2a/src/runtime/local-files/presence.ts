@@ -28,6 +28,8 @@ import {
   presenceFile,
   type LocalStorePaths
 } from "./paths.js";
+import { sweepOrphanFiles } from "./orphan-gc.js";
+import { randomBytes } from "node:crypto";
 
 export interface PresenceWriteResult {
   /** Absolute path of the presence file on disk. */
@@ -64,14 +66,20 @@ export function writePresence(
   const paths = localStorePaths(root);
   ensurePresenceDir(paths);
   const finalPath = presenceFile(paths, session.sessionId);
-  const tmpPath = `${finalPath}.tmp-${process.pid}-${Date.now()}`;
+  const tmpPath = `${finalPath}.tmp-${process.pid}-${Date.now()}-${randomBytes(6).toString("hex")}`;
   const fd = openSync(tmpPath, "wx");
   try {
-    writeFileSync(fd, `${JSON.stringify(persistedSession, null, 2)}\n`, "utf8");
+    try {
+      writeFileSync(fd, `${JSON.stringify(persistedSession, null, 2)}\n`, "utf8");
+    } finally {
+      closeSync(fd);
+    }
+    renameSync(tmpPath, finalPath);
   } finally {
-    closeSync(fd);
+    // Includes serialization, write, close and rename failures. Never leave
+    // our own partial publication behind for a future GC pass.
+    try { unlinkSync(tmpPath); } catch { /* already renamed or best-effort */ }
   }
-  renameSync(tmpPath, finalPath);
   return { path: finalPath };
 }
 
@@ -149,6 +157,7 @@ export function listPresenceWithDiagnostics(
     throw err;
   }
   const now = options.now ?? Date.now();
+  if (options.sweep !== false) sweepOrphanFiles(paths.presence, "presence", now);
   const expiryMs = options.expiryMs ?? H2A_SESSION_DEFAULT_EXPIRY_MS;
   const all: H2ASession[] = [];
   for (const entry of entries) {

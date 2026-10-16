@@ -186,9 +186,9 @@ const KNOWN_TOOL_NAMES = new Set<string>([
 
 /**
  * L2: the tools that stay available while identity is pending/failed — a MCP
- * connection is up even though the shared identity is not yet bound. Every one
- * of these is a pure READ that needs no signing identity and performs no
- * implicit write; each was audited against its handler. `h2a_inbox` is allowed
+ * connection is up even though the shared identity is not yet bound. Their
+ * handlers perform only reads and need no signing identity; calls may also
+ * schedule bounded background identity recovery. `h2a_inbox` is allowed
  * ONLY for `action:"read"` (checked at the call site). `h2a_conductor_launch_check`
  * is deliberately NOT here (its read path still has effects) and every unlisted
  * known tool is refused by default. Track read tools are always allowed.
@@ -344,9 +344,18 @@ export function createMcpServer(options: CreateMcpServerOptions): McpServer {
     args: Record<string, unknown> | undefined,
     _context?: McpCallContext
   ): ReturnType<McpServer["callTool"]> {
+    // Status/discovery are often the only calls an unbound client makes.
+    // They must drive the same bounded recovery as signed calls. The
+    // controller keeps pending/permanent failures and the retry gates inert.
     if (name === "h2a_identity_status") {
-      return { content: [{ type: "text", text: JSON.stringify(identityStatus()) }] };
+      const status = identityStatus();
+      options.identity?.retry();
+      // Preserve the just-observed failure for this response even when a
+      // zero-delay retry starts; subsequent calls see the new attempt.
+      return { content: [{ type: "text", text: JSON.stringify(status) }] };
     }
+    if (IDENTITY_INDEPENDENT_TOOLS.has(name) || TRACK_READ_TOOL_NAMES.has(name) ||
+        (name === "h2a_inbox" && args?.action === "read")) options.identity?.retry();
     const guard = guardIdentity(name, args);
     if (guard) return guard;
     if (TRACK_READ_TOOL_NAMES.has(name)) {
