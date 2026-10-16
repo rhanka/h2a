@@ -29,11 +29,12 @@ the pipeline requires an explicit reviewed update to this contract and its
 negative controls. Additional checkouts, shells, environment overrides, artifact
 origins, mutation steps or publication routes fail qualification.
 
-Verify builds the three lockstep tarballs once. Smoke installs those same local
+Verify builds the four lockstep tarballs once. Smoke installs those same local
 tarballs and checks that their bytes remain unchanged. Upload immediately follows
 smoke. Publish downloads the current run's artifact, validates its release SHA and
-hashes, then rechecks hashes immediately before publishing each tarball. Track
-keeps its existing workspace publication exception.
+hashes, then rechecks hashes immediately before publishing each tarball. All four
+packages — including track — publish those same bytes; there is no
+workspace-publication exception.
 
 The smoke qualification executes the real orchestration with simulated packaged
 dependencies and observes cold-boot seeding, local installs, faulty connection
