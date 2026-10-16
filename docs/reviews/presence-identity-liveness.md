@@ -1,6 +1,6 @@
 ---
 status: selection-failed
-target-ref: 7271e66251ccb2a346c5a1c1fb1c889b316d5b7b
+target-ref: 14b3aaa61ebba509a06419a75dfa33cdc70af883
 review-author:
   host: codex
   model: unknown
@@ -103,3 +103,34 @@ selection-failed stands, with no consensus or merge approval claimed.
 Node 22 only in this round. No full suite, owner state, field/endurance or
 cross-CLI E2E qualification. Hints are retained without TTL for diagnostics;
 already erased pre-upgrade evidence cannot be recovered without another source.
+
+
+## Owner-supplied independent re-review and round 5
+
+revpresence4.md retains one P2: rememberRecipient could throw after presence
+publication and permanently prevent deferred MCP activation. Accepted and fixed
+in the exact target above, following normal merge aed130eb of origin/main
+7d87b4fb. Diagnostic history failures are swallowed at both exported boundaries;
+there is one attempt per call, bounded file reads and directory traversal, and
+new history writes stop at observed capacity. History still never admits a send.
+
+The final regression file on the exact pre-fix merge yields 12/12 expected
+failures (VJbyY9); identical test bytes pass with eleven compatibility files:
+169/169, zero skips (9OPDPN). Four source-build typechecks exit 0. Real identity
+workers reproduce session_open_failed before the fix and identity_ready,
+heartbeat progress, initialize response and clean EOF afterward. Persistent
+EIO/ENOSPC, corrupt/non-file/oversized history and capacity are covered. Manual
+review checked cleanup, finite attempts, live-admission separation, read-error
+fallback and source provenance. Evidence is in scratch presence-evidence/tour5/.
+
+Selection remains failed, not a consensus verdict. The skill
+[harness-review](/home/antoinefa/.codex/skills/harness-review/SKILL.md) requires
+"Launch only through the installed h2a MCP server's h2a_run tool"; that path
+is explicitly forbidden by the owner. No peer was dispatched, no independent
+approval to merge is claimed. Exact author model/effort remain unavailable.
+
+Budgets are 16 KiB per hint and 1,024 entries per traversal; new writes stop at
+observed capacity without deleting old evidence. Concurrent writers may exceed
+the observed threshold; existing excess is not purged. Loss of diagnostic detail
+at failure/capacity is intentional. Node 22 only; full suite, other OSes,
+field/endurance and cross-CLI E2E remain unqualified.

@@ -15,7 +15,7 @@ The parallel `feat/live-cross-cli-messaging` lot owns delivery, host wake and cr
 ## Isolation and collection invariants
 
 - Repository source builds only, into mkdtemp lanes; temporary HOME, TMPDIR and XDG roots, with the existing forbidden-state/owned-PID guard.
-- Targeted test files only. No installed h2a invocation, owner state/workspace, unowned process access, full suite, PR, merge or release.
+- Targeted test files only. No installed h2a invocation, owner state/workspace, unowned process access, full suite, PR or release. Round 5 explicitly authorizes merging origin/main into this branch.
 - GC requires age >=24 hours, regular file, one link, a provably dead PID (ESRCH), and unchanged inode/timestamps before unlink. Presence filenames must also carry an old creation timestamp.
 - Retain live/unknown holders, malformed archives, young files, symlinks and linked files. Read-only presence scans disable GC.
 - Expiry stays honest during storage failure or disconnection. An MCP reconnect publishes a new session for the same instance; EOF removes the old attachment presence.
@@ -147,3 +147,53 @@ remain unqualified. Already erased pre-upgrade names absent from registrations
 cannot be reconstructed. New hints intentionally outlive session collection;
 they contain no PID, heartbeat, key or launch context. No new independent
 consensus review: installed MCP dispatch remains forbidden by the owner.
+
+
+## Review fix — round 5
+
+Owner-supplied revpresence4.md: NON-FUSIONNABLE, one P2 at presence.ts:79.
+Accepted and reproduced: a history EIO after publishing presence left deferred
+identity permanently failed (session_open_failed, retryable:false), with no
+registered session or heartbeat. Fixed in 14b3aaa61ebba509a06419a75dfa33cdc70af883.
+
+Recipient history is now best-effort at its read/write boundary. No history
+failure escapes into open, heartbeat, close or reap; directory read failure
+returns no diagnostic evidence. One attempt per call, no synchronous retry.
+Reads are limited to 16 KiB per regular file (including growth after stat),
+and directory walks to 1,024 entries. New hints are forgone when that observed
+capacity is reached; unchanged hints still use the direct read fast path.
+The cap is an observed admission budget, not a lock across concurrent writers;
+pre-existing excess is not deleted. No TTL or liveness permission is added.
+Oversized/malformed evidence is ignored; a later successful heartbeat can
+repair/recreate hints. A non-file entry cannot block session lifecycle.
+
+Normal merge aed130eb5532f9b8da50f15269bf633608b15e94 incorporates
+origin/main at 7d87b4fba1734cf6d98341edbfd374f2530fa1af, with no conflict.
+The merge and both parents have the identical Track blob. Source-built Track
+events-contains independently confirms all 1,512 events from each parent.
+Read-only query/report at the merge found 69 done items without fresh acceptance;
+they remain NOT consolidated — to treat by the designated conductor/writer.
+This concurrent worktree does not append or consolidate the shared journal.
+
+| Isolated targeted verification | Observed result |
+|---|---|
+| Final regression file on exact pre-fix merge aed130eb (VJbyY9) | 12 tests, 12 expected failures, 0 skipped; exit 1 |
+| Same regression file and eleven compatibility files on final sources (9OPDPN) | 169/169, 0 failures/skips; exit 0 |
+| Typechecks of the same temporary build | track, remote-protocol, h2a, h2a-runtime: exit 0 each |
+
+The fault table covers one-shot read/rename EIO during real identity-worker
+activation, persistent ENOSPC while MCP heartbeats and answers initialize,
+manual open/touch/close under open/write/close/rename/mkdir errors, unreadable
+history directories, malformed JSON, a file replaced by a directory, oversized
+records and capacity exhaustion. Tests check actual injection hits, EOF removal,
+later history recovery and temporary-file cleanup. Every real worker is awaited.
+Commands, full TAP, source hashes, temporary environments, Track output and the
+owned-PID audit are retained in scratch presence-evidence/tour5/. Final runtime:
+Node 22.22.1. No full suite, real owner state, installed h2a or Python.
+
+No independent review consensus is claimed: the installed MCP dispatch required
+by harness-review remains forbidden by the owner. Full integration, Node 24,
+other OSes, nine-hour endurance and cross-CLI delivery/wake remain unqualified.
+At capacity or on failure only historical refusal detail can be lost; live
+admission still requires fresh qualifying presence. Under concurrent writers the
+observed entry threshold may be exceeded; each traversal/read remains bounded.
