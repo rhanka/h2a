@@ -1,0 +1,75 @@
+command: /tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node --test --test-reporter=tap packages/h2a/test/mh-l5-concurrency-oracles.test.js
+node: v24.21.0
+private root: /tmp/mh-l5-test-pbW7Sk
+case: all cases in explicit file
+TAP version 13
+# Subtest: M17 focused oracle must detect a missing write in any of the seven domains
+not ok 1 - M17 focused oracle must detect a missing write in any of the seven domains
+  ---
+  duration_ms: 1105.061265
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-x6VBnb/source/packages/h2a/test/mh-l5-concurrency-oracles.test.js:4:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly deep-equal:
+    + actual - expected
+    
+    + []
+    - [
+    -   'central:0',
+    -   'central:1',
+    -   'cli:0',
+    -   'cli:1',
+    -   'janitor:0',
+    -   'janitor:1',
+    -   'peer:0',
+    -   'peer:1',
+    -   'stdio1:0',
+    -   'stdio1:1',
+    -   'stdio2:0',
+    -   'stdio2:1',
+    -   'stdio3:0',
+    -   'stdio3:1',
+    -   'stdio4:0',
+    -   'stdio4:1'
+    - ]
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected:
+    0: 'central:0'
+    1: 'central:1'
+    2: 'cli:0'
+    3: 'cli:1'
+    4: 'janitor:0'
+    5: 'janitor:1'
+    6: 'peer:0'
+    7: 'peer:1'
+    8: 'stdio1:0'
+    9: 'stdio1:1'
+    10: 'stdio2:0'
+    11: 'stdio2:1'
+    12: 'stdio3:0'
+    13: 'stdio3:1'
+    14: 'stdio4:0'
+    15: 'stdio4:1'
+  actual:
+  operator: 'deepStrictEqual'
+  stack: |-
+    runCampaign (file:///tmp/mh-l3-qualification-x6VBnb/source/packages/h2a/test/helpers/mh-l5-campaign.js:40:12)
+    process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    async TestContext.<anonymous> (file:///tmp/mh-l3-qualification-x6VBnb/source/packages/h2a/test/mh-l5-concurrency-oracles.test.js:5:3)
+    async Test.run (node:internal/test_runner/test:1409:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3)
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 0
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 1295.593013
+
+receipt: {"command":["/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l5-concurrency-oracles.test.js"],"code":1,"signal":null,"tests":1,"invalid":false,"spawned":17,"leftovers":[]}

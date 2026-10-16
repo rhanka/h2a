@@ -1,0 +1,485 @@
+{
+  "node": "v24.21.0",
+  "results": [
+    {
+      "file": "packages/h2a/test/mh-l5-v1.test.js",
+      "log": "docs/plan/mh-l5/evidence/mh-l5-v1.test.js-node24-qualified.log",
+      "command": [
+        "/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node",
+        "--test",
+        "--test-reporter=tap",
+        "packages/h2a/test/mh-l5-v1.test.js"
+      ],
+      "code": 0,
+      "signal": null,
+      "tests": 10,
+      "invalid": false,
+      "spawned": 41,
+      "leftovers": []
+    },
+    {
+      "file": "packages/h2a/test/mh-l5-legacy-writer.test.js",
+      "log": "docs/plan/mh-l5/evidence/mh-l5-legacy-writer.test.js-node24-qualified.log",
+      "command": [
+        "/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node",
+        "--test",
+        "--test-reporter=tap",
+        "packages/h2a/test/mh-l5-legacy-writer.test.js"
+      ],
+      "code": 0,
+      "signal": null,
+      "tests": 2,
+      "invalid": false,
+      "spawned": 5,
+      "leftovers": []
+    },
+    {
+      "file": "packages/h2a/test/mh-l5-cold.test.js",
+      "log": "docs/plan/mh-l5/evidence/mh-l5-cold.test.js-node24-qualified.log",
+      "command": [
+        "/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node",
+        "--test",
+        "--test-reporter=tap",
+        "packages/h2a/test/mh-l5-cold.test.js"
+      ],
+      "code": 0,
+      "signal": null,
+      "tests": 8,
+      "invalid": false,
+      "spawned": 83,
+      "leftovers": []
+    },
+    {
+      "file": "packages/h2a/test/mh-l5-cold-network.test.js",
+      "log": "docs/plan/mh-l5/evidence/mh-l5-cold-network.test.js-node24-qualified.log",
+      "command": [
+        "/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node",
+        "--test",
+        "--test-reporter=tap",
+        "packages/h2a/test/mh-l5-cold-network.test.js"
+      ],
+      "code": 0,
+      "signal": null,
+      "tests": 3,
+      "invalid": false,
+      "spawned": 9,
+      "leftovers": []
+    },
+    {
+      "file": "packages/h2a/test/mh-l5-compensation.test.js",
+      "log": "docs/plan/mh-l5/evidence/mh-l5-compensation.test.js-node24-qualified.log",
+      "command": [
+        "/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node",
+        "--test",
+        "--test-reporter=tap",
+        "packages/h2a/test/mh-l5-compensation.test.js"
+      ],
+      "code": 0,
+      "signal": null,
+      "tests": 1,
+      "invalid": false,
+      "spawned": 4,
+      "leftovers": []
+    },
+    {
+      "file": "packages/h2a/test/mh-l5-concurrency-oracles.test.js",
+      "log": "docs/plan/mh-l5/evidence/mh-l5-concurrency-oracles.test.js-node24-qualified.log",
+      "command": [
+        "/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node",
+        "--test",
+        "--test-reporter=tap",
+        "packages/h2a/test/mh-l5-concurrency-oracles.test.js"
+      ],
+      "code": 0,
+      "signal": null,
+      "tests": 1,
+      "invalid": false,
+      "spawned": 17,
+      "leftovers": []
+    },
+    {
+      "file": "packages/h2a/test/mh-l3-transfer.test.js",
+      "log": "docs/plan/mh-l5/evidence/mh-l3-transfer.test.js-node24-qualified.log",
+      "command": [
+        "/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node",
+        "--test",
+        "--test-reporter=tap",
+        "packages/h2a/test/mh-l3-transfer.test.js"
+      ],
+      "code": 0,
+      "signal": null,
+      "tests": 1,
+      "invalid": false,
+      "spawned": 7,
+      "leftovers": []
+    },
+    {
+      "file": "packages/h2a/test/mh-l3-network.test.js",
+      "log": "docs/plan/mh-l5/evidence/mh-l3-network.test.js-node24-qualified.log",
+      "command": [
+        "/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node",
+        "--test",
+        "--test-reporter=tap",
+        "packages/h2a/test/mh-l3-network.test.js"
+      ],
+      "code": 0,
+      "signal": null,
+      "tests": 7,
+      "invalid": false,
+      "spawned": 3,
+      "leftovers": []
+    },
+    {
+      "file": "packages/h2a/test/mh-l3-argon.test.js",
+      "log": "docs/plan/mh-l5/evidence/mh-l3-argon.test.js-node24-qualified.log",
+      "command": [
+        "/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node",
+        "--test",
+        "--test-reporter=tap",
+        "packages/h2a/test/mh-l3-argon.test.js"
+      ],
+      "code": 0,
+      "signal": null,
+      "tests": 5,
+      "invalid": false,
+      "spawned": 1,
+      "leftovers": []
+    },
+    {
+      "file": "packages/h2a/test/mh-l3-recovery.test.js",
+      "log": "docs/plan/mh-l5/evidence/mh-l3-recovery.test.js-node24-qualified.log",
+      "command": [
+        "/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node",
+        "--test",
+        "--test-reporter=tap",
+        "packages/h2a/test/mh-l3-recovery.test.js"
+      ],
+      "code": 0,
+      "signal": null,
+      "tests": 1,
+      "invalid": false,
+      "spawned": 65,
+      "leftovers": []
+    },
+    {
+      "file": "packages/h2a/test/mh-l3-central.test.js",
+      "log": "docs/plan/mh-l5/evidence/mh-l3-central.test.js-node24-qualified.log",
+      "command": [
+        "/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node",
+        "--test",
+        "--test-reporter=tap",
+        "packages/h2a/test/mh-l3-central.test.js"
+      ],
+      "code": 0,
+      "signal": null,
+      "tests": 4,
+      "invalid": false,
+      "spawned": 2,
+      "leftovers": []
+    },
+    {
+      "file": "packages/h2a/test/mh-l3-state.test.js",
+      "log": "docs/plan/mh-l5/evidence/mh-l3-state.test.js-node24-qualified.log",
+      "command": [
+        "/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node",
+        "--test",
+        "--test-reporter=tap",
+        "packages/h2a/test/mh-l3-state.test.js"
+      ],
+      "code": 0,
+      "signal": null,
+      "tests": 6,
+      "invalid": false,
+      "spawned": 1,
+      "leftovers": []
+    },
+    {
+      "file": "packages/h2a/test/mh-l2-integration.test.js",
+      "log": "docs/plan/mh-l5/evidence/mh-l2-integration.test.js-node24-qualified.log",
+      "command": [
+        "/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node",
+        "--test",
+        "--test-reporter=tap",
+        "packages/h2a/test/mh-l2-integration.test.js"
+      ],
+      "code": 0,
+      "signal": null,
+      "tests": 3,
+      "invalid": false,
+      "spawned": 1,
+      "leftovers": []
+    },
+    {
+      "file": "packages/h2a/test/mh-l2-cold.test.js",
+      "log": "docs/plan/mh-l5/evidence/mh-l2-cold.test.js-node24-qualified.log",
+      "command": [
+        "/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node",
+        "--test",
+        "--test-reporter=tap",
+        "packages/h2a/test/mh-l2-cold.test.js"
+      ],
+      "code": 0,
+      "signal": null,
+      "tests": 4,
+      "invalid": false,
+      "spawned": 1,
+      "leftovers": []
+    },
+    {
+      "file": "packages/h2a/test/mh-l2-compensation.test.js",
+      "log": "docs/plan/mh-l5/evidence/mh-l2-compensation.test.js-node24-qualified.log",
+      "command": [
+        "/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node",
+        "--test",
+        "--test-reporter=tap",
+        "packages/h2a/test/mh-l2-compensation.test.js"
+      ],
+      "code": 0,
+      "signal": null,
+      "tests": 1,
+      "invalid": false,
+      "spawned": 1,
+      "leftovers": []
+    },
+    {
+      "file": "packages/h2a/test/mh-l2-image.test.js",
+      "log": "docs/plan/mh-l5/evidence/mh-l2-image.test.js-node24-qualified.log",
+      "command": [
+        "/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node",
+        "--test",
+        "--test-reporter=tap",
+        "packages/h2a/test/mh-l2-image.test.js"
+      ],
+      "code": 0,
+      "signal": null,
+      "tests": 1,
+      "invalid": false,
+      "spawned": 3,
+      "leftovers": []
+    },
+    {
+      "file": "packages/h2a/test/mh-l1-shim.test.js",
+      "log": "docs/plan/mh-l5/evidence/mh-l1-shim.test.js-node24-qualified.log",
+      "command": [
+        "/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node",
+        "--test",
+        "--test-reporter=tap",
+        "packages/h2a/test/mh-l1-shim.test.js"
+      ],
+      "code": 0,
+      "signal": null,
+      "tests": 2,
+      "invalid": false,
+      "spawned": 3,
+      "leftovers": []
+    },
+    {
+      "file": "packages/h2a/test/mh-l1-routing.test.js",
+      "log": "docs/plan/mh-l5/evidence/mh-l1-routing.test.js-node24-qualified.log",
+      "command": [
+        "/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node",
+        "--test",
+        "--test-reporter=tap",
+        "packages/h2a/test/mh-l1-routing.test.js"
+      ],
+      "code": 0,
+      "signal": null,
+      "tests": 4,
+      "invalid": false,
+      "spawned": 1,
+      "leftovers": []
+    },
+    {
+      "file": "packages/h2a/test/mh-l1-transport.test.js",
+      "log": "docs/plan/mh-l5/evidence/mh-l1-transport.test.js-node24-qualified.log",
+      "command": [
+        "/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node",
+        "--test",
+        "--test-reporter=tap",
+        "packages/h2a/test/mh-l1-transport.test.js"
+      ],
+      "code": 0,
+      "signal": null,
+      "tests": 1,
+      "invalid": false,
+      "spawned": 1,
+      "leftovers": []
+    },
+    {
+      "file": "packages/h2a/test/mcp-central-attachments.test.js",
+      "log": "docs/plan/mh-l5/evidence/mcp-central-attachments.test.js-node24-qualified.log",
+      "command": [
+        "/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node",
+        "--test",
+        "--test-reporter=tap",
+        "packages/h2a/test/mcp-central-attachments.test.js"
+      ],
+      "code": 0,
+      "signal": null,
+      "tests": 33,
+      "invalid": false,
+      "spawned": 186,
+      "leftovers": []
+    },
+    {
+      "file": "packages/h2a/test/mh-l4-ownership.test.js",
+      "log": "docs/plan/mh-l5/evidence/mh-l4-ownership.test.js-node24-qualified.log",
+      "command": [
+        "/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node",
+        "--test",
+        "--test-reporter=tap",
+        "packages/h2a/test/mh-l4-ownership.test.js"
+      ],
+      "code": 0,
+      "signal": null,
+      "tests": 4,
+      "invalid": false,
+      "spawned": 1,
+      "leftovers": []
+    },
+    {
+      "file": "packages/h2a/test/mh-l4-writers.test.js",
+      "log": "docs/plan/mh-l5/evidence/mh-l4-writers.test.js-node24-qualified.log",
+      "command": [
+        "/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node",
+        "--test",
+        "--test-reporter=tap",
+        "packages/h2a/test/mh-l4-writers.test.js"
+      ],
+      "code": 0,
+      "signal": null,
+      "tests": 5,
+      "invalid": false,
+      "spawned": 1,
+      "leftovers": []
+    },
+    {
+      "file": "packages/h2a/test/mh-l4-checkpoint.test.js",
+      "log": "docs/plan/mh-l5/evidence/mh-l4-checkpoint.test.js-node24-qualified.log",
+      "command": [
+        "/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node",
+        "--test",
+        "--test-reporter=tap",
+        "packages/h2a/test/mh-l4-checkpoint.test.js"
+      ],
+      "code": 0,
+      "signal": null,
+      "tests": 2,
+      "invalid": false,
+      "spawned": 1,
+      "leftovers": []
+    },
+    {
+      "file": "packages/h2a/test/mh-l4-wake.test.js",
+      "log": "docs/plan/mh-l5/evidence/mh-l4-wake.test.js-node24-qualified.log",
+      "command": [
+        "/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node",
+        "--test",
+        "--test-reporter=tap",
+        "packages/h2a/test/mh-l4-wake.test.js"
+      ],
+      "code": 0,
+      "signal": null,
+      "tests": 2,
+      "invalid": false,
+      "spawned": 1,
+      "leftovers": []
+    },
+    {
+      "file": "packages/h2a/test/mh-l4-launch.test.js",
+      "log": "docs/plan/mh-l5/evidence/mh-l4-launch.test.js-node24-qualified.log",
+      "command": [
+        "/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node",
+        "--test",
+        "--test-reporter=tap",
+        "packages/h2a/test/mh-l4-launch.test.js"
+      ],
+      "code": 0,
+      "signal": null,
+      "tests": 2,
+      "invalid": false,
+      "spawned": 1,
+      "leftovers": []
+    },
+    {
+      "file": "packages/h2a/test/mh-l4-integration.test.js",
+      "log": "docs/plan/mh-l5/evidence/mh-l4-integration.test.js-node24-qualified.log",
+      "command": [
+        "/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node",
+        "--test",
+        "--test-reporter=tap",
+        "packages/h2a/test/mh-l4-integration.test.js"
+      ],
+      "code": 0,
+      "signal": null,
+      "tests": 3,
+      "invalid": false,
+      "spawned": 1,
+      "leftovers": []
+    },
+    {
+      "file": "packages/h2a/test/mh-l4-cuts.test.js",
+      "log": "docs/plan/mh-l5/evidence/mh-l4-cuts.test.js-node24-qualified.log",
+      "command": [
+        "/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node",
+        "--test",
+        "--test-reporter=tap",
+        "packages/h2a/test/mh-l4-cuts.test.js"
+      ],
+      "code": 0,
+      "signal": null,
+      "tests": 7,
+      "invalid": false,
+      "spawned": 1,
+      "leftovers": []
+    },
+    {
+      "file": "packages/h2a/test/mh-l4-concurrency.test.js",
+      "log": "docs/plan/mh-l5/evidence/mh-l4-concurrency.test.js-node24-qualified.log",
+      "command": [
+        "/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node",
+        "--test",
+        "--test-reporter=tap",
+        "packages/h2a/test/mh-l4-concurrency.test.js"
+      ],
+      "code": 0,
+      "signal": null,
+      "tests": 2,
+      "invalid": false,
+      "spawned": 19,
+      "leftovers": []
+    },
+    {
+      "file": "packages/h2a/test/mh-l4-central.test.js",
+      "log": "docs/plan/mh-l5/evidence/mh-l4-central.test.js-node24-qualified.log",
+      "command": [
+        "/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node",
+        "--test",
+        "--test-reporter=tap",
+        "packages/h2a/test/mh-l4-central.test.js"
+      ],
+      "code": 0,
+      "signal": null,
+      "tests": 1,
+      "invalid": false,
+      "spawned": 2,
+      "leftovers": []
+    },
+    {
+      "file": "packages/h2a/test/mh-l4-idle.test.js",
+      "log": "docs/plan/mh-l5/evidence/mh-l4-idle.test.js-node24-qualified.log",
+      "command": [
+        "/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node",
+        "--test",
+        "--test-reporter=tap",
+        "packages/h2a/test/mh-l4-idle.test.js"
+      ],
+      "code": 0,
+      "signal": null,
+      "tests": 1,
+      "invalid": false,
+      "spawned": 1,
+      "leftovers": []
+    }
+  ]
+}
