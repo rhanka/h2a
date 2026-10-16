@@ -2,7 +2,6 @@
 import { isAbsolute } from "node:path";
 import { bridgeCentralMcpStdio } from "./mcp-central-client.js";
 import { captureCentralAttachment } from "./mcp-central-context.js";
-import { centralMcpMarkerPath, readCentralClientMarker } from "./mcp-central-discovery.js";
 import { ensureCentralForShim } from "./mcp-central-start.js";
 
 export async function runCentralShim(flags: Record<string, string>, root: string): Promise<number> {
@@ -13,20 +12,11 @@ export async function runCentralShim(flags: Record<string, string>, root: string
   for (const signal of signals) process.once(signal, onSignal);
   try {
     const paths = flags["runtime-base"] ? { runtimeBase: flags["runtime-base"] } : {};
-    let marker: ReturnType<typeof readCentralClientMarker> | undefined;
-    try {
-      marker = readCentralClientMarker(centralMcpMarkerPath(paths));
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
-    }
-    if (!marker && !flags.endpoint) {
-      marker = await ensureCentralForShim(true, paths);
-    }
-    const endpoint = marker?.endpoint ?? flags.endpoint;
-    if (!endpoint) throw new Error("no central MCP endpoint available");
+    // Discovery errors still reject the bridge's connection state. Local MCP
+    // initialization precedes that state; only ENOENT can permit autostart.
+    // The legacy --endpoint hint never overrides the selected publication.
     const qualified = flags.host === "claude" && Boolean(process.env.CLAUDE_CODE_SESSION_ID?.trim());
     await bridgeCentralMcpStdio({
-      endpoint,
       ...paths, stdin: process.stdin, stdout: process.stdout, signal: controller.signal,
       workspaceRoot: process.cwd(),
       ...(qualified ? {

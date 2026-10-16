@@ -7,11 +7,14 @@ import { LaunchJournal } from './launch-memo.js';
 import { establishWriterControl, updateWriterControl, writerDirectory, withExecution, currentExecution } from './mutation.js';
 import { readState, publishState } from './state.js';
 import { digest } from './wire.js';
+import { ownerLiveness, currentIdentity } from './admission.js';
+import { endedOwner } from './generation-end.js';
 
 export class Participants {
   constructor(options) {
     this.root = resolve(options.root); this.directory = options.directory; this.marker = options.marker;
     this.writerProof = options.writerProof; this.attachments = new Map(); this.inventoryRevision = 1;
+    this.authenticationKey = options.authenticationKey;
     establishWriterControl(this.root, this.directory);
     this.registry = new OwnershipRegistry({ directory: this.directory, generation: this.marker.generation,
       processIdentity: this.marker.processIdentity, lockDirectory: writerDirectory(this.root) });
@@ -32,7 +35,12 @@ export class Participants {
   attach(attachmentId, context = {}) {
     return this.registry.withLock(() => {
       if (this.writerControl().gate !== 'OPEN') throw new Error('store_admission_closed');
-      const token = this.registry.claim({ attachmentId, presenceSessionId: `pending:${attachmentId}`, expectedInstance: context.expectedInstance ?? 'identity_disabled' });
+      const input = { attachmentId, presenceSessionId: `pending:${attachmentId}`, expectedInstance: context.expectedInstance ?? 'identity_disabled' };
+      const previous = readState(this.registry.ownerPath(attachmentId), 'ownership');
+      const token = previous && context.attachment?.resume
+        ? this.registry.rebaseline(input, owner => ownerLiveness({ processIdentity: owner.ownerProcessIdentity }, currentIdentity()) === 'dead' ||
+          Boolean(this.authenticationKey && endedOwner(owner, this.marker, this.authenticationKey)))
+        : this.registry.claim(input);
       const participant = new AttachmentParticipant(this, token, context);
       this.attachments.set(attachmentId, participant); this.inventoryRevision++;
       return participant;
@@ -43,7 +51,7 @@ export class Participants {
     try { this.assertEligible(); restriction = 'qualified'; } catch (e) { restriction = e.message; }
     return { schemaVersion: 1, revision: this.inventoryRevision, shims: [],
       transports: [...this.attachments.values()].map(a => ({ attachmentId: a.token.attachmentId,
-        ownershipEpoch: a.token.ownershipEpoch, ownerGeneration: a.token.ownerGeneration, attachmentProtocol: 'pending-MH-L3' })),
+        ownershipEpoch: a.token.ownershipEpoch, ownerGeneration: a.token.ownerGeneration, attachmentProtocol: a.advertisement?.attachmentProtocol ?? 'direct-mcp' })),
       operations: this.ledger.operations(), quarantines: [], launches: [...this.attachments.values()].flatMap(a => a.launches.memos().map(m => m.launchId)),
       endpointPinned: this.marker.endpointMode === 'fixed', writerRestrictions: restriction === 'qualified' ? [] : [restriction],
       managedImage: this.marker.handoverCapabilities.managedImage };
@@ -128,6 +136,10 @@ export class Participants {
       }
       const references = [];
       for (const a of this.attachments.values()) {
+        if (a.advertisement && (!a.shimAcceptance || a.shimAcceptance.mode !== 'handover' ||
+            a.shimAcceptance.authorization.handoverId !== tx.handoverId ||
+            a.shimAcceptance.authorization.transactionEpoch !== tx.transactionEpoch ||
+            a.shimAcceptance.authorization.controllerEpoch !== tx.controllerEpoch)) throw new Error('shim_acceptance_required');
         const owner = readState(this.registry.ownerPath(a.token.attachmentId), 'ownership')?.value;
         // G1 may already have acquired the exact FROZEN checkpoint. Never
         // rewrite its ownership while G0's admitted operations drain.

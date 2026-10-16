@@ -336,9 +336,9 @@ Branch: `fix/presence-identity-liveness`. Base: `58f111b3` (origin/main at check
 # MH-L3 continuation — passive MH-L2 amendment first
 
 ## Objective and authority
-- [ ] Deliver MH-L3 against the amended source contract, including M21 against the real old central.
+- [x] Deliver MH-L3 against the amended source contract, including M21 against the real compiled old central and shim; independent MH-L3 review belongs to the conductor.
 - [x] Owner 2026-10-15 chooses bounded option A: .7 accepts an externally conducted live transfer, never initiates one.
-- [ ] Independent review of separate MH-L2 amendment commits MUST precede MH-L3 implementation.
+- [x] Independent MH-L2 review revl2amend-r2.md declares 513312b8 FUSIONNABLE; owner authorizes MH-L3 continuation.
 
 ## Scope / Guardrails
 - [x] Branch feat/0.98.7-mh-l3 from 642a82f9; main and .track untouched.
@@ -364,8 +364,8 @@ Branch: `fix/presence-identity-liveness`. Base: `58f111b3` (origin/main at check
 - [x] Separate contract/source commits and review dossier prepared for conductor handoff; own-branch push receipt belongs in mhl3b-report.md.
 
 ## Lot B — MH-L3 (after independent review)
-- [ ] Shim, resume/quarantine, IDs/progress/cancellation, catalogue, evidence/transfer and M21.
-- [ ] Qualification, mutations and affected targeted regressions on both Node profiles.
+- [x] Shim, resume/quarantine, IDs/progress/cancellation, catalogue, evidence/transfer and M21 against the real compiled old central and shim.
+- [x] Node 22.22.1 / 24.21.0: 45 explicit files and 236 tests per profile; 43 killed/restored mutation pairs per profile; zero skips, cancellations or remaining own children. Byte audit compares 45 source/test/script/schema files and 19 compiled runtime files.
 
 ## Lot 2 — Checkpoints, notifications and wake
 - [x] Complete immutable checkpoints, lost ACK, producer/delivery/application receipt separation.
@@ -1119,7 +1119,7 @@ La synchronisation finale intègre `origin/main` à `8c1912d7` par avance rapide
 - [x] French report mhl3b-report.md with separate amendment commits, evidence, uncovered scope, deviations and agent-hour/review-round estimates; update push receipt after delivery.
 
 ## Independent MH-L2 review closure — 2026-10-16
-- [x] Current run is limited to the six findings in revl2amend.md; MH-L3 remains unstarted.
+- [x] Previous correction run closed the six findings in revl2amend.md; MH-L3 started only after the owner supplied the independent R2 acceptance.
 - [x] Scope includes the directly blocking identity/live.ts and identity/worker.ts contention fixes, their deterministic regressions, and bounded proof runners.
 - [x] Contradictions are persisted before authority exceptions and observed without a barrier deadline; ABORTED grants no successor authority.
 - [x] Expired barriers permit authenticated concordant forward recovery while keeping delegation, selection, entry, precheck, checkpoint, ownership and drain guards.
@@ -1128,4 +1128,13 @@ La synchronisation finale intègre `origin/main` à `8c1912d7` par avance rapide
 - [x] Direct central fixture supports private temporary fallback and separates its workspace from OS scratch without changing the product workspace guard.
 - [x] Original red failures and subsequent diagnostics are retained; no failed/cancelled qualification is called green.
 - [x] Node 22/24: 33 explicit affected files / 288 tests per profile, including all 20 MH-L2/MH-L4 files / 114 tests; six findings covered by 12 killed/restored mutations per profile, zero skips or cancellations.
-- [ ] Conductor independent review of the correction remains outside this confined run; installed h2a, harness/Track recorders and real owner state remain inaccessible by owner instruction.
+- [x] Owner supplied revl2amend-r2.md: 513312b8 is FUSIONNABLE for the MH-L2 amendment. That verdict does not review this MH-L3 implementation; installed h2a, harness/Track recorders and real owner state remain inaccessible by owner instruction.
+
+## MH-L3 continuation — 2026-10-16
+- [x] Scope extends to lightweight shim state, generated descriptor, request mapping, authenticated control capacity, attachment transports, source acknowledgements, cold baselines, catalogue and passive transfer consumption; associated schemas, explicit fixtures/runners and docs are necessary.
+- [x] No live conductor or semantic compatibility verifier. M21 uses a separate test executable against the real compiled old central and shim; its fixture verdict is not a .8 product claim.
+- [x] Registry owner decision (16/10): all h2a MCP selections should use cluster-mesh MCP registry. Discovery is deferred to its pending contract; preserve the discovery boundary and physical/authenticated authority checks, with no fixed endpoint or future-build allowlist.
+- [x] Local initialization survives absent/invalid discovery; discovery failure still forbids connection, and only ENOENT permits autostart. The initial automatic-review rejection is retained as a diagnostic, not bypassed by accepting invalid discovery.
+- [x] Automatic review also rejected removing descriptor/contract checks at source registration; both remain in force. The ordinary catalogue reader is qualified independently against durable H4; wider future-source registration belongs to its contract.
+- [x] Final targeted Node 22/24 qualification and all mutation/restoration receipts audited against identical bytes; raw negative diagnostics remain archived in docs/plan/mh-l3.
+- [x] Delivery is split into implementation and qualification/review handoff commits. Push receipts and the French final report belong in the owner's external mhl3c-report.md; independent MH-L3 review remains with the conductor under owner confinement.
