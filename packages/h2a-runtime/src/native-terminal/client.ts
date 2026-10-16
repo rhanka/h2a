@@ -4,6 +4,7 @@ import { createConnection, type Socket } from "node:net";
 import type {
   NativeTerminalControllerLease,
   NativeTerminalControllerActivity,
+  NativeTerminalControllerOptions,
   NativeTerminalControllerState,
   NativeTerminalCreateOptions,
   NativeTerminalObserverAttachment,
@@ -169,8 +170,9 @@ export class NativeTerminalClient {
     id: string,
     controllerId: string,
     activity: NativeTerminalControllerActivity = "human",
+    options: NativeTerminalControllerOptions = {},
   ): Promise<NativeTerminalControllerLease> {
-    return this.#request("acquire-controller", { id, controllerId, activity }) as Promise<NativeTerminalControllerLease>;
+    return this.#request("acquire-controller", { id, controllerId, activity, ...options }) as Promise<NativeTerminalControllerLease>;
   }
 
   acquireAutomationControllerIfNoRecentHuman(

@@ -399,6 +399,8 @@ describe("NativeTerminalHost", () => {
         exit: { exitCode: 7, signal: 15 },
         stopSignal: null,
         controlled: false,
+        controller: null,
+        controllerEpoch: 0,
         lastHumanActivityAt: null,
       },
       {
@@ -411,6 +413,8 @@ describe("NativeTerminalHost", () => {
         exit: null,
         stopSignal: null,
         controlled: false,
+        controller: null,
+        controllerEpoch: 0,
         lastHumanActivityAt: null,
       },
     ]);
