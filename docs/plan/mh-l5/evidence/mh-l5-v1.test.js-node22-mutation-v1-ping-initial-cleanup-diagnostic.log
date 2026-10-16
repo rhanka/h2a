@@ -1,0 +1,35 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l5-v1.test.js
+node: v22.22.1
+private root: /tmp/mh-l5-test-NurdQZ
+case: M18b 0.98.5 starter must preserve fixed and discovered .7 markers and reclaim only the invalid control
+TAP version 13
+# {"event":"drive-consent.full-verification","durationMs":0.004217999999980293,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# Subtest: M18b 0.98.5 starter must preserve fixed and discovered .7 markers and reclaim only the invalid control
+not ok 1 - M18b 0.98.5 starter must preserve fixed and discovered .7 markers and reclaim only the invalid control
+  ---
+  duration_ms: 501.439407
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/test/mh-l5-v1.test.js:14:94'
+  failureType: 'testCodeFailure'
+  error: 'marker_compare_failed'
+  code: 'ERR_TEST_FAILURE'
+  stack: |-
+    compareMarker (file:///tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/dist/runtime/handover/admission.js:101:15)
+    removeMarker (file:///tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/dist/runtime/handover/admission.js:106:5)
+    file:///tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/dist/runtime/mcp-central.js:780:21
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async TestContext.<anonymous> (file:///tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/test/mh-l5-v1.test.js:40:39)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 0
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 780.251955
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l5-v1.test.js"],"code":1,"signal":null,"tests":1,"invalid":false,"spawned":3,"leftovers":[]}

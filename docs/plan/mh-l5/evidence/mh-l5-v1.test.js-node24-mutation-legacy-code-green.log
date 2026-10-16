@@ -1,0 +1,23 @@
+command: /tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node --test --test-reporter=tap packages/h2a/test/mh-l5-v1.test.js
+node: v24.21.0
+private root: /tmp/mh-l5-test-LTZ3pu
+case: M19 T8 T9 0.98.5 live v1 refuses .7 takeover, routes fresh sessions to stdio and keeps an already chosen shim open
+TAP version 13
+# {"event":"drive-consent.full-verification","durationMs":0.020488000000000284,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# Subtest: M19 T8 T9 0.98.5 live v1 refuses .7 takeover, routes fresh sessions to stdio and keeps an already chosen shim open
+ok 1 - M19 T8 T9 0.98.5 live v1 refuses .7 takeover, routes fresh sessions to stdio and keeps an already chosen shim open
+  ---
+  duration_ms: 1578.841924
+  type: 'test'
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 1
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 1764.900552
+
+receipt: {"command":["/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l5-v1.test.js"],"code":0,"signal":null,"tests":1,"invalid":false,"spawned":7,"leftovers":[]}

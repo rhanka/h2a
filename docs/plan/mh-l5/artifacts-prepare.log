@@ -1,0 +1,20 @@
+npm install --ignore-scripts --no-audit --no-fund --save-exact ./h2a.tgz ./h2a-runtime.tgz
+
+added 138 packages in 10s
+npm warn Unknown builtin config "globalignorefile". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+npm notice
+npm notice New minor version of npm available! 11.17.0 -> 11.21.1
+npm notice Changelog: https://github.com/npm/cli/releases/tag/v11.21.1
+npm notice To update run: npm install -g npm@11.21.1
+npm notice
+
+exit=0
+npm install --ignore-scripts --no-audit --no-fund --save-exact ./h2a.tgz ./h2a-runtime.tgz
+
+added 138 packages in 2s
+npm warn Unknown builtin config "globalignorefile". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+
+exit=0
+tar -xJf /tmp/mh-l5-artifacts-shD7Sf/node24.tar.xz -C /tmp/mh-l5-artifacts-shD7Sf
+
+exit=0

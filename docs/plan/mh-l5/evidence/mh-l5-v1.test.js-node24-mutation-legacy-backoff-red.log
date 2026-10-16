@@ -1,0 +1,39 @@
+command: /tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node --test --test-reporter=tap packages/h2a/test/mh-l5-v1.test.js
+node: v24.21.0
+private root: /tmp/mh-l5-test-h81rEl
+case: M19 T8 T9 0.98.5 live v1 refuses .7 takeover, routes fresh sessions to stdio and keeps an already chosen shim open
+TAP version 13
+# Subtest: M19 T8 T9 0.98.5 live v1 refuses .7 takeover, routes fresh sessions to stdio and keeps an already chosen shim open
+not ok 1 - M19 T8 T9 0.98.5 live v1 refuses .7 takeover, routes fresh sessions to stdio and keeps an already chosen shim open
+  ---
+  duration_ms: 563.07587
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/test/mh-l5-v1.test.js:14:94'
+  failureType: 'testCodeFailure'
+  error: |-
+    The input did not match the regular expression /legacy_requires_cold_upgrade/. Input:
+    
+    '{"jsonrpc":"2.0","id":"remote","error":{"code":-32011,"message":"central_unavailable","data":{"code":"central_unavailable","retrySafe":false}}}'
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected:
+  actual: '{"jsonrpc":"2.0","id":"remote","error":{"code":-32011,"message":"central_unavailable","data":{"code":"central_unavailable","retrySafe":false}}}'
+  operator: 'match'
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/test/mh-l5-v1.test.js:100:14)
+    process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    async Test.run (node:internal/test_runner/test:1409:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3)
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 0
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 763.142904
+
+receipt: {"command":["/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l5-v1.test.js"],"code":1,"signal":null,"tests":1,"invalid":false,"spawned":7,"leftovers":[]}
