@@ -1,0 +1,39 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-delegation.test.js
+node: v22.22.1
+private root: /tmp/mh-l6-test-QuDb8Y
+case: all cases in explicit file
+TAP version 13
+# Subtest: T5 should replace a proven dead unacquired delegate with a new epoch and reject its old ticket
+not ok 1 - T5 should replace a proven dead unacquired delegate with a new epoch and reject its old ticket
+  ---
+  duration_ms: 351.003056
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-delegation.test.js:11:94'
+  failureType: 'testCodeFailure'
+  error: |-
+    The input did not match the regular expression /delegation_owner_not_dead/. Input:
+    
+    'store.recoverDelegation is not a function'
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected:
+  actual: 'store.recoverDelegation is not a function'
+  operator: 'match'
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-delegation.test.js:183:10)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 0
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 468.033483
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-delegation.test.js"],"code":1,"signal":null,"tests":1,"invalid":false,"spawned":5,"leftovers":[]}

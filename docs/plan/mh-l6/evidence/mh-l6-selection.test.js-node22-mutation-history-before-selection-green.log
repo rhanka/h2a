@@ -1,12 +1,12 @@
 command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-selection.test.js
 node: v22.22.1
-private root: /tmp/mh-l6-test-cynbQ8
+private root: /tmp/mh-l6-test-xivbyi
 case: all cases in explicit file
 TAP version 13
 # Subtest: U06 should refuse a contradictory durable history before changing the selected build
 ok 1 - U06 should refuse a contradictory durable history before changing the selected build
   ---
-  duration_ms: 62.383385
+  duration_ms: 61.565225
   type: 'test'
   ...
 1..1
@@ -17,6 +17,6 @@ ok 1 - U06 should refuse a contradictory durable history before changing the sel
 # cancelled 0
 # skipped 0
 # todo 0
-# duration_ms 186.118061
+# duration_ms 185.07072
 
 receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-selection.test.js"],"code":0,"signal":null,"tests":1,"invalid":false,"spawned":1,"leftovers":[]}
