@@ -1,0 +1,13 @@
+{
+  "artifact": "docs/2026-10-16-cross-cli-ci/2f4568a9/native-node24/xcli-evidence-EIKrNK/receipt.json",
+  "requiredFiles": 14,
+  "counts": {
+    "tests": 163,
+    "pass": 151,
+    "fail": 0,
+    "cancelled": 0,
+    "skipped": 0,
+    "todo": 12
+  },
+  "verificationFailures": []
+}
