@@ -573,6 +573,20 @@
   "packages/h2a/test/pty-actuator.test.js": [],
   "packages/h2a/test/pty-native-messaging.test.js": [],
   "packages/h2a/test/pty-objective-loop.test.js": [],
+  "packages/h2a/test/publish-rehearsal.test.js": [
+    "rehearsal triggers on every PR touching the publish path, plus dispatch",
+    "the rehearsal job carries its required-style check name",
+    "the rehearsal publishes the four lockstep packages in installable dependency order",
+    "each rehearsal publish runs the SAME publish body as the publish job, plus only --dry-run",
+    "every rehearsal npm publish is a dry-run — nothing here may ever publish",
+    "the rehearsal uses the same npm version and Node floor as the publish job",
+    "the rehearsal packs the four lockstep tarballs exactly like verify, then smokes them",
+    "the rehearsal builds before packing, like verify needs before pack",
+    "the rehearsal re-checks the tarball sha256 tie before any dry-run publish",
+    "the rehearsal always dry-runs the verified bytes: ./ file spec and backfill kept, skip and wait dropped",
+    "the rehearsal drops node_modules before the dry-run publishes",
+    "the rehearsal carries no registry credentials"
+  ],
   "packages/h2a/test/reach-guard.test.js": [],
   "packages/h2a/test/recall-doctrine-projection.test.js": [],
   "packages/h2a/test/recourse.test.js": [],
@@ -596,6 +610,7 @@
   "packages/h2a/test/release-script.test.js": [],
   "packages/h2a/test/release-workflow-publish-order.test.js": [],
   "packages/h2a/test/release-workflow.test.js": [
+    "R8.2 (0.98.6 git-shorthand incident): every npm publish tarball arg is an unambiguous ./ file spec",
     "R8.4 gel total: verify has no event filter — every publication path is gated",
     "R8.1: verify keeps the Node 22+24 matrix — both legs EFFECTIVE",
     "R8.1: the matrix legs are EFFECTIVE — verify's setup-node must run exactly ${{ matrix.node }}",
