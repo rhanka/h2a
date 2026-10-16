@@ -69,8 +69,34 @@ jobs:
       - run: node --test scripts/xcli-native-config.test.mjs
       - name: Run all source suites referencing the changed runtime modules
         run: node scripts/xcli-in-pid-namespace.mjs scripts/xcli-runtime-tests.mjs
-      - name: Run cross-package source consumers in the same isolated PID domain
-        if: ${{ !cancelled() }}
+      - name: Preserve runtime execution receipts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xcli-runtime-node-${{ matrix.node }}
+          path: /tmp/h2a-qual-*/receipt.json
+          if-no-files-found: error
+
+  # The runtime and source consumers are independent checks. Serializing both
+  # exceeded the existing 10-minute job budget on Node 24 in run 38900923045.
+  source-consumers:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ["22", "24"]
+        scope: [native, hosts]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: node scripts/xcli-node-headers.mjs
+      - name: Run native source consumers in a private PID domain
+        if: matrix.scope == 'native'
         env:
           XCLI_SOURCE_TMP_PARENT: ${{ runner.temp }}
         run: >-
@@ -89,4 +115,28 @@ jobs:
           packages/h2a/test/native-spawn-guard.test.js
           packages/h2a/test/pty-native-messaging.test.js
           packages/h2a/test/drive.test.js
+      - name: Run host setup consumers in a private PID domain
+        if: matrix.scope == 'hosts'
+        env:
+          XCLI_SOURCE_TMP_PARENT: ${{ runner.temp }}
+        run: >-
+          node scripts/xcli-in-pid-namespace.mjs scripts/xcli-source-tests.mjs
+          packages/h2a/test/hosts-integration.test.js
+          packages/h2a/test/cli-host-status.test.js
+          packages/h2a/test/evo-host-setup-wake.test.js
+          packages/h2a/test/mcp-central.test.js
+          packages/h2a/test/host-connect.test.js
+          packages/h2a/test/host-plugin.test.js
+          packages/h2a/test/gateway-host-docs.test.js
+          packages/h2a/test/install-skills-hosts.test.js
+          packages/h2a/test/mcp-run.test.js
           packages/h2a/test/cli-contract.test.js
+      - name: Preserve source execution receipts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xcli-source-${{ matrix.scope }}-node-${{ matrix.node }}
+          path: |
+            ${{ runner.temp }}/xcli-*/receipt.json
+            ${{ runner.temp }}/xcli-*/execution.json
+          if-no-files-found: error
