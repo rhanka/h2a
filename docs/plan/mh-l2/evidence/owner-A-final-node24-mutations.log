@@ -1,0 +1,111 @@
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node /tmp/owner-A-mhl3b-qualify-driver.mjs mutations
+umask: 022
+[node24] live-mutations started own PID 50515: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node scripts/mh-l2-live-mutate.mjs
+node24 acceptance: mutant=1 (assertion), restored=0; oracle=owner A should accept passive live reservation without enabling a product live coordinator
+node24 retirement-acceptance: mutant=1 (assertion), restored=0; oracle=passive source should retire after valid publication and zero drain
+node24 old-generation: mutant=1 (assertion), restored=0; oracle=passive source should refuse signed authorization with old generation
+node24 old-publication-epoch: mutant=1 (assertion), restored=0; oracle=passive source should refuse signed authorization with old publication epoch
+node24 old-process: mutant=1 (assertion), restored=0; oracle=passive source should refuse signed authorization with old process
+node24 old-build: mutant=1 (assertion), restored=0; oracle=passive source should refuse signed authorization with old build
+node24 new-generation: mutant=1 (assertion), restored=0; oracle=passive source should refuse signed authorization with new generation
+node24 new-predecessor: mutant=1 (assertion), restored=0; oracle=passive source should refuse signed authorization with new predecessor
+node24 new-epoch: mutant=1 (assertion), restored=0; oracle=passive source should refuse signed authorization with new epoch
+node24 new-endpoint: mutant=1 (assertion), restored=0; oracle=passive source should refuse signed authorization with new endpoint
+node24 new-build: mutant=1 (assertion), restored=0; oracle=passive source should refuse signed authorization with new build
+node24 new-manifest: mutant=1 (assertion), restored=0; oracle=passive source should refuse signed authorization with new manifest
+node24 same-process: mutant=1 (assertion), restored=0; oracle=passive source should refuse signed authorization with same process
+node24 wrong-transaction-epoch: mutant=1 (assertion), restored=0; oracle=passive source should refuse signed authorization with wrong transaction epoch
+node24 wrong-controller: mutant=1 (assertion), restored=0; oracle=passive source should refuse signed authorization with wrong controller
+node24 wrong-handover: mutant=1 (assertion), restored=0; oracle=passive source should refuse signed authorization with wrong handover
+[node24] live-mutations still running (30s), own PID 50515
+node24 wrong-selection: mutant=1 (assertion), restored=0; oracle=passive source should refuse signed authorization with wrong selection epoch
+node24 new-root: mutant=1 (assertion), restored=0; oracle=passive source should refuse signed authorization with new root
+node24 new-UID: mutant=1 (assertion), restored=0; oracle=passive source should refuse signed authorization with new UID
+node24 new-namespace: mutant=1 (assertion), restored=0; oracle=passive source should refuse signed authorization with new namespace
+node24 new-process-frame: mutant=1 (assertion), restored=0; oracle=passive source should refuse signed authorization with new process frame
+node24 inventory: mutant=1 (assertion), restored=0; oracle=passive source should refuse signed authorization with stale session inventory
+[node24] live-mutations still running (60s), own PID 50515
+node24 expired: mutant=1 (assertion), restored=0; oracle=passive source should refuse signed authorization with expired
+node24 not-yet-valid: mutant=1 (assertion), restored=0; oracle=passive source should refuse signed authorization with not yet valid
+node24 delegation-revoked-authority: mutant=1 (assertion), restored=0; oracle=passive source should refuse durable revoked authority
+node24 delegation-missing-delegation: mutant=1 (assertion), restored=0; oracle=passive source should refuse durable missing delegation
+node24 delegation-wrong-controller-epoch: mutant=1 (assertion), restored=0; oracle=passive source should refuse durable wrong controller epoch
+node24 delegation-wrong-controller-process: mutant=1 (assertion), restored=0; oracle=passive source should refuse durable wrong controller process
+node24 delegation-wrong-controller-build: mutant=1 (assertion), restored=0; oracle=passive source should refuse durable wrong controller build
+node24 delegation-wrong-target-manifest: mutant=1 (assertion), restored=0; oracle=passive source should refuse durable wrong target manifest
+node24 delegation-wrong-component-journal: mutant=1 (assertion), restored=0; oracle=passive source should refuse durable wrong component journal
+node24 delegation-wrong-receipt: mutant=1 (assertion), restored=0; oracle=passive source should refuse durable wrong receipt
+node24 delegation-missing-ticket: mutant=1 (assertion), restored=0; oracle=passive source should refuse durable missing ticket
+node24 delegation-unselected-installation: mutant=1 (assertion), restored=0; oracle=passive source should refuse durable unselected installation
+[node24] live-mutations still running (90s), own PID 50515
+node24 ticket-and-receipt: mutant=1 (assertion), restored=0; oracle=passive source should refuse missing, changed or expired private ticket and receipt
+node24 ticket-possession: mutant=1 (assertion), restored=0; oracle=passive source should refuse signed authorization with ticket MAC
+node24 revalidation: mutant=1 (assertion), restored=0; oracle=passive source should revalidate source, coordinator, inventory and delegation before new mutations
+node24 digest: mutant=1 (assertion), restored=0; oracle=passive source should refuse content changed under its immutable authorization digest
+node24 mac-authorization: mutant=1 (assertion), restored=0; oracle=passive source should refuse signed authorization with MAC
+node24 mac-publication: mutant=1 (assertion), restored=0; oracle=passive source should refuse publication with wrong MAC before fencing or closing
+node24 publication-authorization: mutant=1 (assertion), restored=0; oracle=passive source should refuse publication with wrong authorization before fencing or closing
+node24 publication-checkpoint: mutant=1 (assertion), restored=0; oracle=passive source should refuse publication with wrong checkpoint before fencing or closing
+node24 publication-target: mutant=1 (assertion), restored=0; oracle=passive source should refuse publication with wrong target before fencing or closing
+node24 publication-marker: mutant=1 (assertion), restored=0; oracle=passive retirement should preserve admitted G0 work and fence owners only after authenticated concordant publication
+[node24] live-mutations still running (120s), own PID 50515
+node24 checkpoint-before-publication: mutant=1 (assertion), restored=0; oracle=passive source should require a frozen checkpoint, unchanged inventory and current delegation at publication
+node24 fencing: mutant=1 (assertion), restored=0; oracle=passive retirement should preserve admitted G0 work and fence owners only after authenticated concordant publication
+node24 drain: mutant=1 (assertion), restored=0; oracle=passive retirement should preserve admitted G0 work and fence owners only after authenticated concordant publication
+node24 close-order: mutant=1 (assertion), restored=0; oracle=passive retirement should preserve admitted G0 work and fence owners only after authenticated concordant publication
+node24 expiry-reopen: mutant=1 (assertion), restored=0; oracle=uncommitted publication should prevent expiration before any administrative reconciliation
+node24 operator-reopen: mutant=1 (assertion), restored=0; oracle=uncommitted publication should prevent operator stop from aborting before reconciliation
+node24 step-id-recovery: mutant=1 (assertion), restored=0; oracle=passive retirement should accept every valid stepId and resume its own durable publication after a lost ACK
+node24 step-conflict: mutant=1 (assertion), restored=0; oracle=passive retirement should accept every valid stepId and resume its own durable publication after a lost ACK
+node24 owner-process: mutant=1 (assertion), restored=0; oracle=passive source should preserve exact acquired G1 ownership and reject foreign generation, epoch or process
+node24 acquired-writer-gate: mutant=1 (assertion), restored=0; oracle=passive source should retire after the authenticated acquired G1 opens its writer gate
+node24 acquired-writer-authority: mutant=1 (assertion), restored=0; oracle=passive source should refuse an opened gate without the exact acquired target authority
+node24 source-drain-scope: mutant=1 (assertion), restored=0; oracle=passive source should drain only G0 while independently admitted G1 calls remain pending
+node24 source-unknown-work: mutant=1 (assertion), restored=0; oracle=passive source should drain only G0 while independently admitted G1 calls remain pending
+[node24] live-mutations still running (150s), own PID 50515
+node24 source-memo-scope: mutant=1 (assertion), restored=0; oracle=passive source should neither reconcile nor count new G1 launch memos
+node24 source-reconcile-scope: mutant=1 (assertion), restored=0; oracle=passive source should neither reconcile nor count new G1 launch memos
+node24 reconcile-uncertain-fence: mutant=1 (assertion), restored=0; oracle=passive source should reconcile an uncertain ownership fence before checking participants again
+node24 publication-target-revalidation: mutant=1 (assertion), restored=0; oracle=passive source should revalidate selection, entry and precheck before publication commitment
+node24 publication-entry-revalidation: mutant=1 (assertion), restored=0; oracle=passive source should revalidate selection, entry and precheck before publication commitment
+node24 publication-precheck-revalidation: mutant=1 (assertion), restored=0; oracle=passive source should revalidate selection, entry and precheck before publication commitment
+node24: 63/63 mutations killed and restored; no skipped/zero-test oracle
+[node24] live-mutations: code=0, elapsed=168066ms; complete output retained
+[node24] real-source-mutations started own PID 53714: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node scripts/mh-l2-live-central-mutate.mjs
+[node24] real-source-mutations still running (30s), own PID 53714
+[node24] real-source-mutations still running (60s), own PID 53714
+[node24] real-source-mutations still running (90s), own PID 53714
+node24 real source successor-control: mutant=1 (assertion), restored=0
+[node24] real-source-mutations still running (120s), own PID 53714
+node24 real source published-source-authority: mutant=1 (assertion), restored=0
+[node24] real-source-mutations: code=0, elapsed=144943ms; complete output retained
+[node24] cold-mutation-unicode started own PID 54054: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node scripts/mh-l2-mutate.mjs unicode
+[node24] cold-mutation-unicode: code=0, elapsed=605ms; complete output retained
+[node24] cold-mutation-durable started own PID 54103: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node scripts/mh-l2-mutate.mjs durable
+[node24] cold-mutation-durable still running (30s), own PID 54103
+[node24] cold-mutation-durable: code=0, elapsed=59316ms; complete output retained
+[node24] cold-mutation-owner-record started own PID 54230: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node scripts/mh-l2-mutate.mjs owner-record
+[node24] cold-mutation-owner-record still running (30s), own PID 54230
+[node24] cold-mutation-owner-record: code=1, elapsed=46289ms; complete output retained
+[node24] cold-mutation-compensation started own PID 54457: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node scripts/mh-l2-mutate.mjs compensation
+[node24] cold-mutation-compensation: code=0, elapsed=3588ms; complete output retained
+[node24] cold-mutation-pause started own PID 54504: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node scripts/mh-l2-mutate.mjs pause
+[node24] cold-mutation-pause: code=0, elapsed=322ms; complete output retained
+[node24] cold-mutation-mac started own PID 54551: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node scripts/mh-l2-mutate.mjs mac
+[node24] cold-mutation-mac: code=0, elapsed=1418ms; complete output retained
+[node24] cold-mutation-socket started own PID 54600: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node scripts/mh-l2-mutate.mjs socket
+[node24] cold-mutation-socket: code=0, elapsed=962ms; complete output retained
+[node24] cold-mutation-owner started own PID 54649: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node scripts/mh-l2-mutate.mjs owner
+[node24] cold-mutation-owner: code=0, elapsed=2091ms; complete output retained
+[node24] cold-mutation-inode started own PID 54710: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node scripts/mh-l2-mutate.mjs inode
+[node24] cold-mutation-inode: code=0, elapsed=3635ms; complete output retained
+[node24] cold-mutation-precheck started own PID 54772: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node scripts/mh-l2-mutate.mjs precheck
+[node24] cold-mutation-precheck still running (30s), own PID 54772
+[node24] cold-mutation-precheck: code=0, elapsed=35489ms; complete output retained
+[node24] cold-mutation-stop started own PID 54973: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node scripts/mh-l2-mutate.mjs stop
+[node24] cold-mutation-stop: code=0, elapsed=4293ms; complete output retained
+[node24] cold-mutation-budget started own PID 55020: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node scripts/mh-l2-mutate.mjs budget
+[node24] cold-mutation-budget: code=0, elapsed=480ms; complete output retained
+[node24] mutations: 14 explicit commands, failed commands=1
+
+receipt: {"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","/tmp/owner-A-mhl3b-qualify-driver.mjs","mutations"],"umask":"022","pid":50508,"code":1,"signal":null,"elapsedMs":471857}

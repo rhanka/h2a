@@ -1,0 +1,162 @@
+{
+  "codeTarget": "9f34f124593f43c9025ed73f8b6be8b4a10aba0e",
+  "archive": "/tmp/mh-l2-owner-A-final-Tcelt2/source",
+  "worktreeHead": "9f34f124593f43c9025ed73f8b6be8b4a10aba0e",
+  "runnerAmendments": [
+    "scripts/mh-l2-test.mjs",
+    "scripts/mh-l2-live-regressions.mjs"
+  ],
+  "copiedEvidenceFiles": 454,
+  "excludedDuplicateEvidence": [
+    "owner-A-node24-cold-owner-A-node22-cold-mh-l2-auth.test.js-mutation-mac-green.log",
+    "owner-A-node24-cold-owner-A-node22-cold-mh-l2-auth.test.js-mutation-mac-red.log",
+    "owner-A-node24-cold-owner-A-node22-cold-mh-l2-auth.test.js-mutation-socket-green.log",
+    "owner-A-node24-cold-owner-A-node22-cold-mh-l2-auth.test.js-mutation-socket-red.log",
+    "owner-A-node24-cold-owner-A-node22-cold-mh-l2-auth.test.js-mutation-unicode-green.log",
+    "owner-A-node24-cold-owner-A-node22-cold-mh-l2-auth.test.js-mutation-unicode-red.log",
+    "owner-A-node24-cold-owner-A-node22-cold-mh-l2-authority.test.js-mutation-inode-green.log",
+    "owner-A-node24-cold-owner-A-node22-cold-mh-l2-authority.test.js-mutation-inode-red.log",
+    "owner-A-node24-cold-owner-A-node22-cold-mh-l2-authority.test.js-mutation-owner-green.log",
+    "owner-A-node24-cold-owner-A-node22-cold-mh-l2-authority.test.js-mutation-owner-red.log",
+    "owner-A-node24-cold-owner-A-node22-cold-mh-l2-cold.test.js-mutation-budget-green.log",
+    "owner-A-node24-cold-owner-A-node22-cold-mh-l2-cold.test.js-mutation-budget-red.log",
+    "owner-A-node24-cold-owner-A-node22-cold-mh-l2-cold.test.js-mutation-stop-green.log",
+    "owner-A-node24-cold-owner-A-node22-cold-mh-l2-cold.test.js-mutation-stop-red.log",
+    "owner-A-node24-cold-owner-A-node22-cold-mh-l2-compensation.test.js-mutation-compensation-green.log",
+    "owner-A-node24-cold-owner-A-node22-cold-mh-l2-compensation.test.js-mutation-compensation-red.log",
+    "owner-A-node24-cold-owner-A-node22-cold-mh-l2-image.test.js-mutation-durable-green.log",
+    "owner-A-node24-cold-owner-A-node22-cold-mh-l2-image.test.js-mutation-durable-red.log",
+    "owner-A-node24-cold-owner-A-node22-cold-mh-l2-starters.test.js-mutation-pause-green.log",
+    "owner-A-node24-cold-owner-A-node22-cold-mh-l2-starters.test.js-mutation-pause-red.log",
+    "owner-A-node24-cold-owner-A-node22-initial-failed-cold-mh-l2-image.test.js-mutation-precheck-green.log",
+    "owner-A-node24-cold-owner-A-node22-initial-failed-cold-mh-l2-image.test.js-mutation-precheck-red.log"
+  ],
+  "frozenSchemaCount": 33,
+  "addedSchemas": [
+    "delegationReceipt",
+    "liveSourceAuthorization",
+    "liveSourcePublication"
+  ],
+  "files": [
+    {
+      "path": "docs/plan/mh-l0/schemas.json",
+      "worktreeSha256": "4266005187097dbcf56fc627d4b22d4dca5e67c73a57525d9c6420121b3225ff",
+      "archiveSha256": "4266005187097dbcf56fc627d4b22d4dca5e67c73a57525d9c6420121b3225ff",
+      "equal": true
+    },
+    {
+      "path": "docs/plan/mh-l2/CONTRACT.md",
+      "worktreeSha256": "6ae5765e5e9dfa8fabca2075e16298f0e39fe85251ce45de5d5e725121233b37",
+      "archiveSha256": "6ae5765e5e9dfa8fabca2075e16298f0e39fe85251ce45de5d5e725121233b37",
+      "equal": true
+    },
+    {
+      "path": "packages/h2a-runtime/src/central-mcp-0980.test.ts",
+      "worktreeSha256": "757e32ef9e20d4b6843f4774d892911c9d7cef5992db29d54ee05b164d7a9ddc",
+      "archiveSha256": "757e32ef9e20d4b6843f4774d892911c9d7cef5992db29d54ee05b164d7a9ddc",
+      "equal": true
+    },
+    {
+      "path": "packages/h2a/src/runtime/handover/administration.js",
+      "worktreeSha256": "4291bf5036ea1c0b44fdc20aa653194e23cdd679ac18f655d82b6b81de2a0d23",
+      "archiveSha256": "4291bf5036ea1c0b44fdc20aa653194e23cdd679ac18f655d82b6b81de2a0d23",
+      "equal": true
+    },
+    {
+      "path": "packages/h2a/src/runtime/handover/launch-memo.js",
+      "worktreeSha256": "44bf4ac74e5d1a5e8b61fb47189fd87fd4afa2eb5de019b10f157f0390a7cd8d",
+      "archiveSha256": "44bf4ac74e5d1a5e8b61fb47189fd87fd4afa2eb5de019b10f157f0390a7cd8d",
+      "equal": true
+    },
+    {
+      "path": "packages/h2a/src/runtime/handover/live-source.js",
+      "worktreeSha256": "66bcfc45ac8305c0a04811d2b02e0a4681e40af8fdde25b6364738f1642de0eb",
+      "archiveSha256": "66bcfc45ac8305c0a04811d2b02e0a4681e40af8fdde25b6364738f1642de0eb",
+      "equal": true
+    },
+    {
+      "path": "packages/h2a/src/runtime/handover/ownership.js",
+      "worktreeSha256": "5d7776bbad69ed8a914c347bf4dfbbd0ad01c65ec24fff22811b2d31dc180d7e",
+      "archiveSha256": "5d7776bbad69ed8a914c347bf4dfbbd0ad01c65ec24fff22811b2d31dc180d7e",
+      "equal": true
+    },
+    {
+      "path": "packages/h2a/src/runtime/handover/participants.js",
+      "worktreeSha256": "bd77fe844adb64becc03cfc36702920938aba64639928858189dbaaaa8652c93",
+      "archiveSha256": "bd77fe844adb64becc03cfc36702920938aba64639928858189dbaaaa8652c93",
+      "equal": true
+    },
+    {
+      "path": "packages/h2a/src/runtime/handover/schemas.js",
+      "worktreeSha256": "0f75d532eb4f1f15c04c29ab83db65af9049c83db5d109e066492b1b4fd4ea52",
+      "archiveSha256": "0f75d532eb4f1f15c04c29ab83db65af9049c83db5d109e066492b1b4fd4ea52",
+      "equal": true
+    },
+    {
+      "path": "packages/h2a/src/runtime/mcp-central-attachment.ts",
+      "worktreeSha256": "c5ed74cb5b45183a9dc19619efeee232c5f9d05de5cc195e36f21e92ca5c7780",
+      "archiveSha256": "c5ed74cb5b45183a9dc19619efeee232c5f9d05de5cc195e36f21e92ca5c7780",
+      "equal": true
+    },
+    {
+      "path": "packages/h2a/src/runtime/mcp-central.ts",
+      "worktreeSha256": "43743001378b45eb55a1d63ab692e5f7212f3ab68b82c7090f9813187d100b31",
+      "archiveSha256": "43743001378b45eb55a1d63ab692e5f7212f3ab68b82c7090f9813187d100b31",
+      "equal": true
+    },
+    {
+      "path": "packages/h2a/src/runtime/mcp/stdio.ts",
+      "worktreeSha256": "4318ffe2d07ab150a4b8dd8f715f5a7f6da4b1369b527735142d6d291902abfa",
+      "archiveSha256": "4318ffe2d07ab150a4b8dd8f715f5a7f6da4b1369b527735142d6d291902abfa",
+      "equal": true
+    },
+    {
+      "path": "packages/h2a/test/helpers/mh-l2-live-peer.mjs",
+      "worktreeSha256": "a3dd4733331fd84f827b68f1f6098a7e3eff363ba0e196dabb62c0da5592fbd7",
+      "archiveSha256": "a3dd4733331fd84f827b68f1f6098a7e3eff363ba0e196dabb62c0da5592fbd7",
+      "equal": true
+    },
+    {
+      "path": "packages/h2a/test/helpers/mh-l2-live.js",
+      "worktreeSha256": "c0a27d56be9d56826a631b94f15a556c6184a2208a6f9fc0cf35955c069b6ed4",
+      "archiveSha256": "c0a27d56be9d56826a631b94f15a556c6184a2208a6f9fc0cf35955c069b6ed4",
+      "equal": true
+    },
+    {
+      "path": "packages/h2a/test/mh-l2-live-central.test.js",
+      "worktreeSha256": "86d6e8ff2d2a1c1c1f679a7942e4142fa380c75a7d10132d0bc049ef331576f8",
+      "archiveSha256": "86d6e8ff2d2a1c1c1f679a7942e4142fa380c75a7d10132d0bc049ef331576f8",
+      "equal": true
+    },
+    {
+      "path": "packages/h2a/test/mh-l2-live.test.js",
+      "worktreeSha256": "f066f3514a10e7f440cdd06888ec88d9e5dbc33dcdd923bccbb17d0b32c36b2b",
+      "archiveSha256": "f066f3514a10e7f440cdd06888ec88d9e5dbc33dcdd923bccbb17d0b32c36b2b",
+      "equal": true
+    },
+    {
+      "path": "scripts/mh-l2-live-central-mutate.mjs",
+      "worktreeSha256": "57b653ce1fb9302e4fd4952bb5c332696f45a1d912d2131dc6c451b17072deb9",
+      "archiveSha256": "57b653ce1fb9302e4fd4952bb5c332696f45a1d912d2131dc6c451b17072deb9",
+      "equal": true
+    },
+    {
+      "path": "scripts/mh-l2-live-mutate.mjs",
+      "worktreeSha256": "d196c585a8d05c0ceb34d1b97135614346db869db3d50e40e2611675f672d54f",
+      "archiveSha256": "d196c585a8d05c0ceb34d1b97135614346db869db3d50e40e2611675f672d54f",
+      "equal": true
+    },
+    {
+      "path": "scripts/mh-l2-live-regressions.mjs",
+      "worktreeSha256": "c8fefff5377f64c3707feaa846a7caf23428da2734ee190f5910b1b86780c2f2",
+      "archiveSha256": "c8fefff5377f64c3707feaa846a7caf23428da2734ee190f5910b1b86780c2f2",
+      "equal": true
+    },
+    {
+      "path": "scripts/mh-l2-test.mjs",
+      "worktreeSha256": "09eeea8e6a406d85a9e1f0dd2a3bf99509b1ca568bf820525ef80da4b13a8429",
+      "archiveSha256": "09eeea8e6a406d85a9e1f0dd2a3bf99509b1ca568bf820525ef80da4b13a8429",
+      "equal": true
+    }
+  ]
+}

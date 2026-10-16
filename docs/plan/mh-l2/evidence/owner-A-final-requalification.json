@@ -1,0 +1,39 @@
+[
+  {
+    "command": [
+      "/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node",
+      "scripts/mh-l2-test.mjs",
+      "packages/h2a/test/mcp-central-attachments.test.js",
+      "owner-A-node24-final-022"
+    ],
+    "umask": "022",
+    "pid": 44178,
+    "code": 1,
+    "signal": null,
+    "elapsedMs": 92418
+  },
+  {
+    "command": [
+      "/usr/bin/node",
+      "/tmp/owner-A-mhl3b-qualify-driver.mjs",
+      "mutations"
+    ],
+    "umask": "022",
+    "pid": 46004,
+    "code": 1,
+    "signal": null,
+    "elapsedMs": 689840
+  },
+  {
+    "command": [
+      "/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node",
+      "/tmp/owner-A-mhl3b-qualify-driver.mjs",
+      "mutations"
+    ],
+    "umask": "022",
+    "pid": 50508,
+    "code": 1,
+    "signal": null,
+    "elapsedMs": 471857
+  }
+]

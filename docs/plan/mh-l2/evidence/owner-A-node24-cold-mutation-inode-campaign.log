@@ -1,0 +1,47 @@
+{"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","scripts/mh-l2-mutate.mjs","inode"],"pid":54710,"code":0,"signal":null,"elapsedMs":3635}
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node --test packages/h2a/test/mh-l2-authority.test.js
+node: v24.21.0
+private test root: /tmp/mh-l2-test-Kd1Bir
+✔ M04 should release its abstract preclaim while a spawned child remains alive without inheriting the descriptor (406.72939ms)
+✖ M04 should refuse HTTP-based reclaim, hold preclaim through ready and compare epoch plus inode (2339.444529ms)
+ℹ tests 2
+ℹ suites 0
+ℹ pass 1
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 2780.609623
+
+✖ failing tests:
+
+test at packages/h2a/test/mh-l2-authority.test.js:31:1
+✖ M04 should refuse HTTP-based reclaim, hold preclaim through ready and compare epoch plus inode (2339.444529ms)
+  AssertionError [ERR_ASSERTION]: Missing expected exception.
+      at TestContext.<anonymous> (file:///tmp/mh-l2-owner-A-final-Tcelt2/source/packages/h2a/test/mh-l2-authority.test.js:65:12)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: undefined,
+    expected: /marker_compare_failed/,
+    operator: 'throws',
+    diff: 'simple'
+  }
+receipt: {"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","--test","packages/h2a/test/mh-l2-authority.test.js"],"code":1,"signal":null,"elapsedMs":2806}
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node --test packages/h2a/test/mh-l2-authority.test.js
+node: v24.21.0
+private test root: /tmp/mh-l2-test-LxhRUJ
+✔ M04 should release its abstract preclaim while a spawned child remains alive without inheriting the descriptor (281.297146ms)
+✔ M04 should refuse HTTP-based reclaim, hold preclaim through ready and compare epoch plus inode (17.456282ms)
+ℹ tests 2
+ℹ suites 0
+ℹ pass 2
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 332.475508
+receipt: {"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","--test","packages/h2a/test/mh-l2-authority.test.js"],"code":0,"signal":null,"elapsedMs":357}
+

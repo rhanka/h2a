@@ -1,0 +1,49 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l2-live.test.js
+node: v22.22.1
+explicit oracle: passive source should reconcile an uncertain ownership fence before checking participants again
+private root: /tmp/mh-l2-live-mutation-GB0XAh
+TAP version 13
+# Subtest: passive source should reconcile an uncertain ownership fence before checking participants again
+not ok 1 - passive source should reconcile an uncertain ownership fence before checking participants again
+  ---
+  duration_ms: 3353.614467
+  type: 'test'
+  location: '/tmp/mh-l2-owner-A-final-Tcelt2/source/packages/h2a/test/mh-l2-live.test.js:17:77'
+  failureType: 'testCodeFailure'
+  error: |-
+    Got unwanted exception.
+    Actual message: "reconciliation_required"
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  actual:
+  error: 'reconciliation_required'
+  stack: |-
+    file:///tmp/mh-l2-owner-A-final-Tcelt2/source/packages/h2a/src/runtime/handover/ownership.js:26:37
+    mutationLock (file:///tmp/mh-l2-owner-A-final-Tcelt2/source/packages/h2a/src/runtime/handover/mutation.js:51:19)
+    OwnershipRegistry.withLock (file:///tmp/mh-l2-owner-A-final-Tcelt2/source/packages/h2a/src/runtime/handover/ownership.js:25:12)
+    Participants.checkTransfer (file:///tmp/mh-l2-owner-A-final-Tcelt2/source/packages/h2a/src/runtime/handover/participants.js:113:26)
+    PassiveLiveSource.publication (file:///tmp/mh-l2-owner-A-final-Tcelt2/source/packages/h2a/src/runtime/handover/live-source.js:114:72)
+    PassiveLiveSource.verifyAuthority (file:///tmp/mh-l2-owner-A-final-Tcelt2/source/packages/h2a/src/runtime/handover/live-source.js:123:27)
+    f.admin.options.verifyAuthority (file:///tmp/mh-l2-owner-A-final-Tcelt2/source/packages/h2a/test/mh-l2-live.test.js:461:66)
+    ColdAdministration.reconcile (file:///tmp/mh-l2-owner-A-final-Tcelt2/source/packages/h2a/src/runtime/handover/administration.js:59:35)
+    file:///tmp/mh-l2-owner-A-final-Tcelt2/source/packages/h2a/test/mh-l2-live.test.js:472:39
+    getActual (node:assert:609:5)
+  operator: 'doesNotThrow'
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/mh-l2-owner-A-final-Tcelt2/source/packages/h2a/test/mh-l2-live.test.js:472:12)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.start (node:internal/test_runner/test:944:17)
+    startSubtestAfterBootstrap (node:internal/test_runner/harness:296:17)
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 0
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 3475.769505
+
+receipt: {"code":1,"signal":null}

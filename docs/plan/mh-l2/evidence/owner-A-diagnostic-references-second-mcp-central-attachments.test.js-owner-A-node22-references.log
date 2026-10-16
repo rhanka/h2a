@@ -1,0 +1,320 @@
+command: /usr/bin/node --test packages/h2a/test/mcp-central-attachments.test.js
+node: v22.22.1
+private test root: /tmp/mh-l2-test-kQKQq7
+TAP version 13
+# Subtest: R20 auto wake probes and submits only on the client tmux socket with identical pane IDs
+not ok 1 - R20 auto wake probes and submits only on the client tmux socket with identical pane IDs
+  ---
+  duration_ms: 19291.456823
+  type: 'test'
+  location: '/tmp/mh-l2-review-source-fgXzcI/source/packages/h2a/test/mcp-central-attachments.test.js:167:3'
+  failureType: 'testCodeFailure'
+  error: 'fixture daemon must publish its marker'
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: true
+  actual: false
+  operator: '=='
+  stack: |-
+    startWakeDaemon (file:///tmp/mh-l2-review-source-fgXzcI/source/packages/h2a/test/mcp-central-attachments.test.js:135:10)
+    async TestContext.<anonymous> (file:///tmp/mh-l2-review-source-fgXzcI/source/packages/h2a/test/mcp-central-attachments.test.js:188:7)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+  ...
+# Subtest: R20 local-tmux wake probes and submits only on the client tmux socket with identical pane IDs
+not ok 2 - R20 local-tmux wake probes and submits only on the client tmux socket with identical pane IDs
+  ---
+  duration_ms: 11231.81781
+  type: 'test'
+  location: '/tmp/mh-l2-review-source-fgXzcI/source/packages/h2a/test/mcp-central-attachments.test.js:167:3'
+  failureType: 'testCodeFailure'
+  error: 'fixture daemon must publish its marker'
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: true
+  actual: false
+  operator: '=='
+  stack: |-
+    startWakeDaemon (file:///tmp/mh-l2-review-source-fgXzcI/source/packages/h2a/test/mcp-central-attachments.test.js:135:10)
+    async TestContext.<anonymous> (file:///tmp/mh-l2-review-source-fgXzcI/source/packages/h2a/test/mcp-central-attachments.test.js:188:7)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: R21 auto wake inventories and writes only the client native socket with identical session names
+not ok 3 - R21 auto wake inventories and writes only the client native socket with identical session names
+  ---
+  duration_ms: 38693.973631
+  type: 'test'
+  location: '/tmp/mh-l2-review-source-fgXzcI/source/packages/h2a/test/mcp-central-attachments.test.js:220:3'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    
+    true !== false
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: false
+  actual: true
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/mh-l2-review-source-fgXzcI/source/packages/h2a/test/mcp-central-attachments.test.js:243:14)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: R21 native wake inventories and writes only the client native socket with identical session names
+not ok 4 - R21 native wake inventories and writes only the client native socket with identical session names
+  ---
+  duration_ms: 31021.751892
+  type: 'test'
+  location: '/tmp/mh-l2-review-source-fgXzcI/source/packages/h2a/test/mcp-central-attachments.test.js:220:3'
+  failureType: 'testCodeFailure'
+  error: 'fixture daemon must publish its marker'
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: true
+  actual: false
+  operator: '=='
+  stack: |-
+    startWakeDaemon (file:///tmp/mh-l2-review-source-fgXzcI/source/packages/h2a/test/mcp-central-attachments.test.js:135:10)
+    async TestContext.<anonymous> (file:///tmp/mh-l2-review-source-fgXzcI/source/packages/h2a/test/mcp-central-attachments.test.js:233:7)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: R21 local-tmux wake inventories and writes only the client native socket with identical session names
+not ok 5 - R21 local-tmux wake inventories and writes only the client native socket with identical session names
+  ---
+  duration_ms: 30959.440993
+  type: 'test'
+  location: '/tmp/mh-l2-review-source-fgXzcI/source/packages/h2a/test/mcp-central-attachments.test.js:220:3'
+  failureType: 'testCodeFailure'
+  error: 'fixture daemon must publish its marker'
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: true
+  actual: false
+  operator: '=='
+  stack: |-
+    startWakeDaemon (file:///tmp/mh-l2-review-source-fgXzcI/source/packages/h2a/test/mcp-central-attachments.test.js:135:10)
+    async TestContext.<anonymous> (file:///tmp/mh-l2-review-source-fgXzcI/source/packages/h2a/test/mcp-central-attachments.test.js:233:7)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: qualification guards reject paths resolving outside .qual-tmp
+ok 6 - qualification guards reject paths resolving outside .qual-tmp
+  ---
+  duration_ms: 1.638856
+  type: 'test'
+  ...
+# Subtest: R6 Claude defaults to central without configuration and preserves the exact incident bytes
+not ok 7 - R6 Claude defaults to central without configuration and preserves the exact incident bytes
+  ---
+  duration_ms: 60458.920669
+  type: 'test'
+  location: '/tmp/mh-l2-review-source-fgXzcI/source/packages/h2a/test/mcp-central-attachments.test.js:267:1'
+  failureType: 'testCodeFailure'
+  error: 'MCP error -32001: Request timed out'
+  code: -32001
+  name: 'McpError'
+  stack: |-
+    McpError.fromError (file:///tmp/mh-l2-review-source-fgXzcI/source/node_modules/@modelcontextprotocol/sdk/dist/esm/types.js:2048:16)
+    Timeout.timeoutHandler (file:///tmp/mh-l2-review-source-fgXzcI/source/node_modules/@modelcontextprotocol/sdk/dist/esm/shared/protocol.js:741:58)
+    listOnTimeout (node:internal/timers:585:17)
+    process.processTimers (node:internal/timers:521:7)
+  ...
+# {"event":"drive-consent.full-verification","durationMs":0.007744999980786815,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# Subtest: R3 unqualified v1 connector leaves live central attachments unchanged with an inherited Claude ID
+ok 8 - R3 unqualified v1 connector leaves live central attachments unchanged with an inherited Claude ID
+  ---
+  duration_ms: 1328.019765
+  type: 'test'
+  ...
+# Subtest: R18 v1 unqualified connector selects stdio before reading invalid JSON central configuration
+ok 9 - R18 v1 unqualified connector selects stdio before reading invalid JSON central configuration
+  ---
+  duration_ms: 367.70779
+  type: 'test'
+  ...
+# Subtest: R18 v1 codex connector selects stdio before reading invalid JSON central configuration
+ok 10 - R18 v1 codex connector selects stdio before reading invalid JSON central configuration
+  ---
+  duration_ms: 362.874683
+  type: 'test'
+  ...
+# Subtest: R18 v1 agy connector selects stdio before reading invalid JSON central configuration
+ok 11 - R18 v1 agy connector selects stdio before reading invalid JSON central configuration
+  ---
+  duration_ms: 341.191298
+  type: 'test'
+  ...
+# Subtest: R18 v1 unqualified connector selects stdio before reading unreadable central configuration
+ok 12 - R18 v1 unqualified connector selects stdio before reading unreadable central configuration
+  ---
+  duration_ms: 323.065069
+  type: 'test'
+  ...
+# Subtest: R18 v1 codex connector selects stdio before reading unreadable central configuration
+ok 13 - R18 v1 codex connector selects stdio before reading unreadable central configuration
+  ---
+  duration_ms: 335.232511
+  type: 'test'
+  ...
+# Subtest: R18 v1 agy connector selects stdio before reading unreadable central configuration
+ok 14 - R18 v1 agy connector selects stdio before reading unreadable central configuration
+  ---
+  duration_ms: 337.168495
+  type: 'test'
+  ...
+# Subtest: R19 manual daemon native launcher context never becomes the target of a client without terminal context
+ok 15 - R19 manual daemon native launcher context never becomes the target of a client without terminal context
+  ---
+  duration_ms: 7018.985186
+  type: 'test'
+  ...
+# Subtest: R19 manual daemon tmux launcher context never becomes the target of a client without terminal context
+# {"event":"drive-consent.full-verification","durationMs":0.0030660000047646463,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+ok 16 - R19 manual daemon tmux launcher context never becomes the target of a client without terminal context
+  ---
+  duration_ms: 5799.211073
+  type: 'test'
+  ...
+# Subtest: missing systemd runtime chooses a fixed UID fallback, with private namespaces for isolation
+ok 17 - missing systemd runtime chooses a fixed UID fallback, with private namespaces for isolation
+  ---
+  duration_ms: 0.338256
+  type: 'test'
+  ...
+# Subtest: an orphaned HTTP attachment is purged and the central exits idle
+ok 18 - an orphaned HTTP attachment is purged and the central exits idle
+  ---
+  duration_ms: 444.218948
+  type: 'test'
+  ...
+# {"event":"drive-consent.full-verification","durationMs":0.004117000004043803,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# h2a mcp-serve: identity migration: claude:repo-a:0886040ed4f0 reads legacy claude:repo-a; no proof of possession of a legacy key — mint net-new keys
+# h2a mcp-serve: auto-opened session for claude:repo-a:0886040ed4f0
+# h2a mcp-serve: identity ready: claude:repo-a:0886040ed4f0 (signing available)
+# h2a mcp-serve: identity migration: claude:repo-b:638c1f31bac6 reads legacy claude:repo-b; no proof of possession of a legacy key — mint net-new keys
+# h2a mcp-serve: auto-opened session for claude:repo-b:638c1f31bac6
+# h2a mcp-serve: identity ready: claude:repo-b:638c1f31bac6 (signing available)
+# Subtest: two attached repos route Track and h2a_run to their own workspace, sharing only state
+ok 19 - two attached repos route Track and h2a_run to their own workspace, sharing only state
+  ---
+  duration_ms: 1915.656579
+  type: 'test'
+  ...
+# {"event":"drive-consent.full-verification","durationMs":0.00745400000596419,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# h2a mcp-serve: identity migration: claude:repo-a:dce73b92de2f reads legacy claude:repo-a; no proof of possession of a legacy key — mint net-new keys
+# h2a mcp-serve: auto-opened session for claude:repo-a:dce73b92de2f
+# h2a mcp-serve: identity ready: claude:repo-a:dce73b92de2f (signing available)
+# {"event":"drive-consent.full-verification","durationMs":0.026229999988572672,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# h2a mcp-serve: auto-opened session for claude:repo-a:dce73b92de2f
+# h2a mcp-serve: identity ready: claude:repo-a:dce73b92de2f (signing available)
+# Subtest: a live shim survives central token rotation with the same identity and no added binding
+ok 20 - a live shim survives central token rotation with the same identity and no added binding
+  ---
+  duration_ms: 1547.690994
+  type: 'test'
+  ...
+# {"event":"drive-consent.full-verification","durationMs":0.003796999983023852,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# h2a mcp-serve: identity migration: claude:repo-a:1b2cbb6149c1 reads legacy claude:repo-a; no proof of possession of a legacy key — mint net-new keys
+# h2a mcp-serve: auto-opened session for claude:repo-a:1b2cbb6149c1
+# h2a mcp-serve: identity ready: claude:repo-a:1b2cbb6149c1 (signing available)
+# {"event":"drive-consent.full-verification","durationMs":0.023854999977629632,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# h2a mcp-serve: identity failed (identity_worker_failed): identity proof failed: resume requires the existing conversation binding
+# Subtest: resume with a missing signing key fails closed without minting another binding
+ok 21 - resume with a missing signing key fails closed without minting another binding
+  ---
+  duration_ms: 1158.522739
+  type: 'test'
+  ...
+# Subtest: a lost mutation reply is outcome_unknown and is never replayed during recovery
+ok 22 - a lost mutation reply is outcome_unknown and is never replayed during recovery
+  ---
+  duration_ms: 99.613404
+  type: 'test'
+  ...
+# Subtest: SIGTERM of the real central leaves host stdio open and resumes the same binding
+ok 23 - SIGTERM of the real central leaves host stdio open and resumes the same binding
+  ---
+  duration_ms: 3084.360603
+  type: 'test'
+  ...
+# {"event":"drive-consent.full-verification","durationMs":0.003576999995857477,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# h2a mcp-serve: identity migration: claude:repo-a:a7d8847c40ef reads legacy claude:repo-a; no proof of possession of a legacy key — mint net-new keys
+# h2a mcp-serve: auto-opened session for claude:repo-a:a7d8847c40ef
+# h2a mcp-serve: identity ready: claude:repo-a:a7d8847c40ef (signing available)
+# Subtest: operator stop is authenticated, leaves shims open, and residue detection never changes files
+ok 24 - operator stop is authenticated, leaves shims open, and residue detection never changes files
+  ---
+  duration_ms: 850.03561
+  type: 'test'
+  ...
+# Subtest: mcp-serve defaults Claude to one ephemeral central without project writes; other hosts and opt-outs use stdio
+# {"event":"drive-consent.full-verification","durationMs":0.0031359999848064035,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+ok 25 - mcp-serve defaults Claude to one ephemeral central without project writes; other hosts and opt-outs use stdio
+  ---
+  duration_ms: 5770.581823
+  type: 'test'
+  ...
+# Subtest: full MCP handshake through the shim consumes 202 without emitting invalid null frames
+ok 26 - full MCP handshake through the shim consumes 202 without emitting invalid null frames
+  ---
+  duration_ms: 362.042075
+  type: 'test'
+  ...
+# Subtest: a network cutoff during initialize recovers cleanly and returns the handshake result without HTTP 400
+ok 27 - a network cutoff during initialize recovers cleanly and returns the handshake result without HTTP 400
+  ---
+  duration_ms: 107.85689
+  type: 'test'
+  ...
+# {"event":"drive-consent.full-verification","durationMs":0.020627999998396263,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# Subtest: v1 residual configurations without --host route to stdio on missing marker or opt-outs, and can be explicitly repaired
+ok 28 - v1 residual configurations without --host route to stdio on missing marker or opt-outs, and can be explicitly repaired
+  ---
+  duration_ms: 4873.762121
+  type: 'test'
+  ...
+# Subtest: relative H2A_ROOT deterministically selects stdio and never derives central root from cwd
+ok 29 - relative H2A_ROOT deterministically selects stdio and never derives central root from cwd
+  ---
+  duration_ms: 640.736585
+  type: 'test'
+  ...
+# Subtest: central stop when daemon is already absent writes the pause inhibition
+ok 30 - central stop when daemon is already absent writes the pause inhibition
+  ---
+  duration_ms: 14.339382
+  type: 'test'
+  ...
+# Subtest: runtime-base namespace is strictly isolated across discovery, auto-start, policy, operator and exercises reconnection in real shim
+ok 31 - runtime-base namespace is strictly isolated across discovery, auto-start, policy, operator and exercises reconnection in real shim
+  ---
+  duration_ms: 3025.627558
+  type: 'test'
+  ...
+# Subtest: structured sidecar launches with readiness challenge stay on stdio and acknowledge without initial MCP request
+ok 32 - structured sidecar launches with readiness challenge stay on stdio and acknowledge without initial MCP request
+  ---
+  duration_ms: 621.137934
+  type: 'test'
+  ...
+# Subtest: H2A_MCP_CENTRAL=0 acts as independent escape hatch before reading configuration, even with invalid JSON or unreadable file
+ok 33 - H2A_MCP_CENTRAL=0 acts as independent escape hatch before reading configuration, even with invalid JSON or unreadable file
+  ---
+  duration_ms: 3.042006
+  type: 'test'
+  ...
+1..33
+# tests 33
+# suites 0
+# pass 27
+# fail 6
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 232917.410984
+
+receipt: {"command":["/usr/bin/node","--test","packages/h2a/test/mcp-central-attachments.test.js"],"code":1,"signal":null,"elapsedMs":232999}

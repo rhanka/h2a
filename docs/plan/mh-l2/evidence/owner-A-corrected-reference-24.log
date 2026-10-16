@@ -1,0 +1,111 @@
+{"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","scripts/mh-l2-test.mjs","packages/h2a/test/mcp-central-attachments.test.js","owner-A-node24-attachments-repeat"],"code":1}
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node --test packages/h2a/test/mcp-central-attachments.test.js
+node: v24.21.0
+private test root: /tmp/mh-l2-test-xAIEZk
+✔ R20 auto wake probes and submits only on the client tmux socket with identical pane IDs (3593.406354ms)
+✔ R20 local-tmux wake probes and submits only on the client tmux socket with identical pane IDs (2965.516016ms)
+✖ R21 auto wake inventories and writes only the client native socket with identical session names (33491.356569ms)
+✔ R21 native wake inventories and writes only the client native socket with identical session names (2495.527759ms)
+✔ R21 local-tmux wake inventories and writes only the client native socket with identical session names (13574.665539ms)
+✔ qualification guards reject paths resolving outside .qual-tmp (0.975666ms)
+✖ R6 Claude defaults to central without configuration and preserves the exact incident bytes (60059.203876ms)
+{"event":"drive-consent.full-verification","durationMs":0.004117999997106381,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+✔ R3 unqualified v1 connector leaves live central attachments unchanged with an inherited Claude ID (1554.028741ms)
+✔ R18 v1 unqualified connector selects stdio before reading invalid JSON central configuration (295.648952ms)
+✔ R18 v1 codex connector selects stdio before reading invalid JSON central configuration (307.685961ms)
+✔ R18 v1 agy connector selects stdio before reading invalid JSON central configuration (315.474182ms)
+✔ R18 v1 unqualified connector selects stdio before reading unreadable central configuration (276.423321ms)
+✔ R18 v1 codex connector selects stdio before reading unreadable central configuration (266.019787ms)
+✔ R18 v1 agy connector selects stdio before reading unreadable central configuration (276.665838ms)
+✔ R19 manual daemon native launcher context never becomes the target of a client without terminal context (9359.738237ms)
+{"event":"drive-consent.full-verification","durationMs":0.0037070000253152102,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+✔ R19 manual daemon tmux launcher context never becomes the target of a client without terminal context (4181.643176ms)
+✔ missing systemd runtime chooses a fixed UID fallback, with private namespaces for isolation (0.441462ms)
+✔ an orphaned HTTP attachment is purged and the central exits idle (307.866041ms)
+{"event":"drive-consent.full-verification","durationMs":0.004076999990502372,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+h2a mcp-serve: identity migration: claude:repo-a:44b401b77db7 reads legacy claude:repo-a; no proof of possession of a legacy key — mint net-new keys
+h2a mcp-serve: auto-opened session for claude:repo-a:44b401b77db7
+h2a mcp-serve: identity ready: claude:repo-a:44b401b77db7 (signing available)
+h2a mcp-serve: identity migration: claude:repo-b:b2dee27edb14 reads legacy claude:repo-b; no proof of possession of a legacy key — mint net-new keys
+h2a mcp-serve: auto-opened session for claude:repo-b:b2dee27edb14
+h2a mcp-serve: identity ready: claude:repo-b:b2dee27edb14 (signing available)
+✔ two attached repos route Track and h2a_run to their own workspace, sharing only state (13161.829167ms)
+{"event":"drive-consent.full-verification","durationMs":0.005059999995864928,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+h2a mcp-serve: identity migration: claude:repo-a:caac53498b77 reads legacy claude:repo-a; no proof of possession of a legacy key — mint net-new keys
+h2a mcp-serve: auto-opened session for claude:repo-a:caac53498b77
+h2a mcp-serve: identity ready: claude:repo-a:caac53498b77 (signing available)
+{"event":"drive-consent.full-verification","durationMs":0.02341399999568239,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+h2a mcp-serve: auto-opened session for claude:repo-a:caac53498b77
+h2a mcp-serve: identity ready: claude:repo-a:caac53498b77 (signing available)
+✔ a live shim survives central token rotation with the same identity and no added binding (1300.695436ms)
+{"event":"drive-consent.full-verification","durationMs":0.004898999992292374,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+h2a mcp-serve: identity migration: claude:repo-a:26cf501973b2 reads legacy claude:repo-a; no proof of possession of a legacy key — mint net-new keys
+h2a mcp-serve: auto-opened session for claude:repo-a:26cf501973b2
+h2a mcp-serve: identity ready: claude:repo-a:26cf501973b2 (signing available)
+{"event":"drive-consent.full-verification","durationMs":0.031398999999510124,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+h2a mcp-serve: identity failed (identity_worker_failed): identity proof failed: resume requires the existing conversation binding
+✔ resume with a missing signing key fails closed without minting another binding (1815.518761ms)
+✔ a lost mutation reply is outcome_unknown and is never replayed during recovery (66.8016ms)
+✔ SIGTERM of the real central leaves host stdio open and resumes the same binding (3309.147272ms)
+{"event":"drive-consent.full-verification","durationMs":0.004227999976137653,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+h2a mcp-serve: identity migration: claude:repo-a:6613f1bb5512 reads legacy claude:repo-a; no proof of possession of a legacy key — mint net-new keys
+h2a mcp-serve: auto-opened session for claude:repo-a:6613f1bb5512
+h2a mcp-serve: identity ready: claude:repo-a:6613f1bb5512 (signing available)
+✔ operator stop is authenticated, leaves shims open, and residue detection never changes files (1396.635748ms)
+{"event":"drive-consent.full-verification","durationMs":0.004247999982908368,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+✔ mcp-serve defaults Claude to one ephemeral central without project writes; other hosts and opt-outs use stdio (6263.213414ms)
+✔ full MCP handshake through the shim consumes 202 without emitting invalid null frames (2671.073996ms)
+✔ a network cutoff during initialize recovers cleanly and returns the handshake result without HTTP 400 (245.60619ms)
+{"event":"drive-consent.full-verification","durationMs":0.038040999992517754,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+✔ v1 residual configurations without --host route to stdio on missing marker or opt-outs, and can be explicitly repaired (4203.686512ms)
+✔ relative H2A_ROOT deterministically selects stdio and never derives central root from cwd (799.91762ms)
+✔ central stop when daemon is already absent writes the pause inhibition (525.052431ms)
+{"event":"drive-consent.full-verification","durationMs":0.05670699998154305,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+✔ runtime-base namespace is strictly isolated across discovery, auto-start, policy, operator and exercises reconnection in real shim (8614.939946ms)
+✔ structured sidecar launches with readiness challenge stay on stdio and acknowledge without initial MCP request (568.781258ms)
+✔ H2A_MCP_CENTRAL=0 acts as independent escape hatch before reading configuration, even with invalid JSON or unreadable file (2.25226ms)
+ℹ tests 33
+ℹ suites 0
+ℹ pass 31
+ℹ fail 2
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 178501.935586
+
+✖ failing tests:
+
+test at packages/h2a/test/mcp-central-attachments.test.js:220:3
+✖ R21 auto wake inventories and writes only the client native socket with identical session names (33491.356569ms)
+  AssertionError [ERR_ASSERTION]: The input did not match the regular expression /inbox-wake: 1 new envelope\(s\) → drive ok/. Input:
+  
+  '{"event":"drive-consent.full-verification","durationMs":0.008125999999947453,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}\n' +
+    'h2a mcp-central-serve: listening on http://127.0.0.1:34433/mcp (generation dd36fcd1-11b5-41f8-aeb0-882839eeb09b)\n' +
+    'h2a mcp-serve: identity migration: claude:repo-a:137d06a966fa reads legacy claude:repo-a; no proof of possession of a legacy key — mint net-new keys\n' +
+    'h2a mcp-serve: auto-opened session for claude:repo-a:137d06a966fa\n' +
+    'h2a mcp-serve: inbox-wake armed for claude:repo-a:137d06a966fa\n' +
+    'h2a mcp-serve: identity ready: claude:repo-a:137d06a966fa (signing available)\n' +
+    'drive[native-pty]: same-session (ok)\n'
+  
+      at TestContext.<anonymous> (file:///tmp/mh-l2-owner-A-final-Tcelt2/source/packages/h2a/test/mcp-central-attachments.test.js:246:14)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: '{"event":"drive-consent.full-verification","durationMs":0.008125999999947453,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}\nh2a mcp-central-serve: listening on http://127.0.0.1:34433/mcp (generation dd36fcd1-11b5-41f8-aeb0-882839eeb09b)\nh2a mcp-serve: identity migration: claude:repo-a:137d06a966fa reads legacy claude:repo-a; no proof of possession of a legacy key — mint net-new keys\nh2a mcp-serve: auto-opened session for claude:repo-a:137d06a966fa\nh2a mcp-serve: inbox-wake armed for claude:repo-a:137d06a966fa\nh2a mcp-serve: identity ready: claude:repo-a:137d06a966fa (signing available)\ndrive[native-pty]: same-session (ok)\n',
+    expected: /inbox-wake: 1 new envelope\(s\) → drive ok/,
+    operator: 'match',
+    diff: 'simple'
+  }
+
+test at packages/h2a/test/mcp-central-attachments.test.js:267:1
+✖ R6 Claude defaults to central without configuration and preserves the exact incident bytes (60059.203876ms)
+  Error [McpError]: MCP error -32001: Request timed out
+      at McpError.fromError (file:///tmp/mh-l2-owner-A-final-Tcelt2/source/node_modules/@modelcontextprotocol/sdk/dist/esm/types.js:2048:16)
+      at Timeout.timeoutHandler (file:///tmp/mh-l2-owner-A-final-Tcelt2/source/node_modules/@modelcontextprotocol/sdk/dist/esm/shared/protocol.js:741:58)
+      at listOnTimeout (node:internal/timers:685:17)
+      at process.processTimers (node:internal/timers:618:7) {
+    code: -32001,
+    data: { timeout: 60000 }
+  }
+receipt: {"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","--test","packages/h2a/test/mcp-central-attachments.test.js"],"code":1,"signal":null,"elapsedMs":178529}
