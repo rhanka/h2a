@@ -1,3 +1,21 @@
+# MH-L5 — qualification of passive handover and legacy coexistence
+
+## MH-L5 Objective / Scope / Guardrails
+- [ ] Qualify published v1 dists .5/.6, external peer, deterministic faults, G0/G1, cold stop, compensation and seven-domain concurrency against spec v7 §10.3–10.5/10.8.
+- [x] Branch feat/0.98.7-mh-l5 starts at reviewed 7a8129ea; MH-L4 is already in its ancestry. No main, .track, installed h2a/dist, native host or owner state.
+- [x] Allowed: MH-L5 test helpers/files, scripts/mh-l5-*.mjs, docs/plan/mh-l5/** and this plan. Product changes conditional on an evidenced regression, with red/green and mutations.
+- [x] Necessary qualification exception: the existing mh-l3-transfer.test.js is strengthened; deterministic helpers, provenance locks and archived proof outputs are cohesive and exceed the per-commit line guideline. Selective staging and rollback by commit; no unrelated changes.
+- [x] Forbidden: live coordinator, semantic verifier, registry discovery, dependencies/release metadata changes, broad cleanup, Python, full test suite, unrelated processes and forced pushes.
+- [x] Owner option A: .7 consumes externally conducted publication only. Future MCP registry discovery remains an open boundary.
+- [x] Installed harness/Track recorders and installed review dispatch conflict with confinement; no invocation. Independent review is handed to the conductor, with no consensus claim.
+- [x] bwrap fails before execution; reviewed shell commands use authorized paths and private temporary state only.
+- [x] Lot A: obtain and integrity-check published v1 artifacts in private temporary directories; exercise M18/M18b/M18c/M19/M20, T4/T8/T9 with real compiled starter/bridge and unchanged .7 participants.
+- [x] Lot B: external peer plus compiled source/shim; typed/reused IDs, late G0 progress/cancellation while G1 admits work, deterministic lost responses and durable cold recovery/compensation cuts.
+- [x] Lot C: eight conforming processes, seven domains and at least 10,000 mutations per domain; external acknowledgment reconciliation, stale janitor and inherited writer refusal.
+- [ ] Lot gate: explicit files only under temporary HOME/XDG/TMPDIR, Node 22/24, zero skips/cancellations/own children; retain every failed diagnostic and killed/restored mutation command/output.
+- [ ] Review every diff hunk, audit exact qualified source/compiled bytes, conventional English commits without trailers, fast-forward push only own branch.
+- [ ] Deliver French report to owner scratchpad with coverage, deviations, remaining agent-hours and review rounds.
+
 # MH-L3 continuation — passive MH-L2 amendment first
 
 ## Objective and authority
