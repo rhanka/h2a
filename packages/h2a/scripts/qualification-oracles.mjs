@@ -27,6 +27,7 @@ export function inspectMcpEntries(entries, sessionId, { busRoot, workspace }) {
   const effects = entries.filter(e => e.sessionId === sessionId && e.type === 'effect' && e.state?.status === 'completed');
   const decode = e => {
     let output = e.state.output;
+    if (output?.isError) return undefined;
     if (output?.content) output = output.content.filter(c => c.type === 'text').map(c => c.text).join('\n');
     try { return typeof output === 'string' ? JSON.parse(output) : output; } catch { return undefined; }
   };
@@ -34,7 +35,10 @@ export function inspectMcpEntries(entries, sessionId, { busRoot, workspace }) {
   const opened = effects.filter(e => /h2a_session_open$/.test(e.detail?.toolName ?? '')).map(decode).find(o => o?.session?.sessionId);
   const track = effects.filter(e => /track_/.test(e.detail?.toolName ?? '')).map(decode);
   const identityContext = identity?.identity ?? identity;
-  const correctBus = identityContext?.root === busRoot;
-  const correctWorkspace = track.some(result => result?.root === workspace || result?.workspaceRoot === workspace || result?.cwd === workspace);
+  const correctBus = ['identity_ready', 'identity_disabled'].includes(identityContext?.state) && identityContext?.root === busRoot;
+  // Track's real status payload is {level, groups}, without a root field.
+  // Bind it to the workspace reported by the same native MCP server. A serve-empty
+  // hint or tool error cannot decode as a successful Track status observation.
+  const correctWorkspace = identityContext?.workspaceRoot === workspace && track.some(result => result?.level && Array.isArray(result.groups));
   return { MCP: correctBus && !!opened, context: correctBus && correctWorkspace && !!opened, h2aSessionId: opened?.session.sessionId, instance: opened?.session.instance };
 }

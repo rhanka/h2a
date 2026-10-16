@@ -6,10 +6,30 @@ import test from 'node:test';
 import { QualificationBudget, VIBE_QUALIFICATION_PLAN } from '../scripts/qualification-budget.mjs';
 import { qualifyVibe, nativeStats } from '../scripts/qualification-vibe.mjs';
 import { qualifyVibeProbe } from '../scripts/qualification-probe.mjs';
+import { createMcpServer } from '../dist/index.js';
 function lane(t) {
   const dir = fs.mkdtempSync(join(tmpdir(), 'native-pilot-'));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true })); return dir;
 }
+test('CLI probe uses supported Vibe flags, its private VIBE_HOME and structured native MCP results', async t => {
+  const dir = lane(t), stub = join(dir, 'cli.mjs'), rpcStub = join(dir, 'rpc.mjs'), argsLog = join(dir, 'args.json');
+  const resource = { path: join(dir, 'assets/help.txt'), bytes: 'help' }, busRoot = join(dir, 'bus');
+  fs.mkdirSync(join(dir, '.track')); fs.writeFileSync(join(dir, '.track/events.jsonl'), '');
+  const server = createMcpServer({ root: busRoot, workspaceRoot: dir });
+  t.after(() => { server.notifications.stop(); server.sessions.closeAll('closed'); });
+  const effect = (toolName, input) => ({ type: 'effect', sessionId: 'probe-own', detail: { toolName, input }, state: { status: 'completed', output: server.callTool(toolName, input) } });
+  const entries = [effect('h2a_identity_status', {}), effect('h2a_session_open', { instance: 'probe-test', host: 'vibe' }), effect('track_status', { level: 'task', baselineCommit: 'qualification' }),
+    { type: 'effect', sessionId: 'probe-own', detail: { input: { path: resource.path } }, state: { status: 'completed', output: { content: resource.bytes } } }];
+  const profile = join(dir, 'private-profile'); fs.mkdirSync(profile);
+  fs.writeFileSync(stub, `import fs from 'node:fs';const args=process.argv.slice(2);fs.writeFileSync(${JSON.stringify(argsLog)},JSON.stringify({args,home:process.env.VIBE_HOME}));if(args.includes('--time-limit')||args.includes('--output-dir'))process.exit(64);for(const entry of ${JSON.stringify(entries)})console.log(JSON.stringify(entry));`);
+  fs.writeFileSync(rpcStub, `import readline from 'node:readline';for await(const l of readline.createInterface({input:process.stdin})){const m=JSON.parse(l);if(!m.id)continue;let result={};if(m.method==='session/read')result={state:{session:{id:'probe-own'},history:[{}]}};if(m.method==='stats/read')result={stats:{steps:1,sessionPromptTokens:1,sessionCompletionTokens:1,sessionCachedTokens:0,inputPricePerMillion:1,outputPricePerMillion:1}};console.log(JSON.stringify({id:m.id,result}));}`);
+  const cleanup = { sessions: [], deleted: [], incomplete: false };
+  const result = await qualifyVibeProbe({ command: process.execPath, commandArgs: [stub], appServer: process.execPath, appServerArgs: [rpcStub], cwd: dir, env: { ...process.env, VIBE_HOME: profile },
+    tools: ['read_file', 'h2a_identity_status', 'h2a_session_open', 'track_status'], requiredResources: [resource], busRoot, budget: new QualificationBudget(), evidence: [], cleanup, directory: dir });
+  assert.equal(result.status, 'observed'); assert.equal(cleanup.incomplete, false); assert.deepEqual(cleanup.deleted, ['probe-own']);
+  const logged = JSON.parse(fs.readFileSync(argsLog)); assert.equal(logged.home, profile);
+  assert.equal(logged.args[logged.args.indexOf('--max-turns') + 1], '3'); assert.equal(logged.args[logged.args.indexOf('--output') + 1], 'streaming');
+});
 test('phase continuation rejects duplicate, missing, negative or over-allocation accounting and retains the elapsed watchdog', () => {
   const entries = VIBE_QUALIFICATION_PLAN.filter(e => e.phase === 1).map(e => ({ id: e.id, iterations: 2, price: 0.01 }));
   for (const bad of [[...entries, entries[0]], entries.slice(1), entries.map(e => ({ ...e, price: -1 })), entries.map(e => ({ ...e, price: 0.2 })), entries.map(e => ({ ...e, iterations: -1 }))])
@@ -33,9 +53,9 @@ for await(const line of readline.createInterface({input:process.stdin})){
  if(m.method==='turn/start'){
   result={turn:{id:'turn-'+p.sessionId}};const sid=p.sessionId,cwd=sessions.get(sid).cwd;
   const entries=[{id:'resource',type:'effect',sessionId:sid,detail:{input:{path:resources[0].path}},state:{status:'running'}},
-   {id:'identity',type:'effect',sessionId:sid,detail:{toolName:'h2a_identity_status'},state:{status:'completed',output:{root:${JSON.stringify(join(dir,'bus'))}}}},
+   {id:'identity',type:'effect',sessionId:sid,detail:{toolName:'h2a_identity_status'},state:{status:'completed',output:{state:'identity_disabled',root:${JSON.stringify(join(dir,'bus'))},workspaceRoot:cwd}}},
    {id:'open',type:'effect',sessionId:sid,detail:{toolName:'h2a_session_open'},state:{status:'completed',output:{session:{sessionId:'h2a-'+sid}}}},
-   {id:'track',type:'effect',sessionId:sid,detail:{toolName:'track_status'},state:{status:'completed',output:{workspaceRoot:cwd}}}];
+   {id:'track',type:'effect',sessionId:sid,detail:{toolName:'track_status'},state:{status:'completed',output:{level:'task',groups:[]}}}];
   for(const entry of entries)out({method:'history/entryAdded',params:{sessionId:sid,entry}});
   out({method:'history/entryUpdated',params:{sessionId:sid,entryId:'resource',patch:[{op:'replace',path:'/state',value:{status:'completed',output:{content:resources[0].bytes}}}]}});
   out({method:'turn/completed',params:{sessionId:sid,turn:{id:result.turn.id,status:'completed'}}});

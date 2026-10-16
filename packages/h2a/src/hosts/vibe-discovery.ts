@@ -11,7 +11,7 @@ export function inspectVibeDiscovery(root: string, cwd: string, config: Record<s
   const unavailable: string[] = [];
   for (const path of paths) {
     try {
-      for (const entry of readdirSync(path, { withFileTypes: true })) if (entry.isDirectory()) {
+      for (const entry of readdirSync(path, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) if (entry.isDirectory()) {
         const file = join(path, entry.name, 'SKILL.md');
         if (snapshot(file)) (sources[entry.name] ??= []).push(file);
       }
@@ -21,6 +21,6 @@ export function inspectVibeDiscovery(root: string, cwd: string, config: Record<s
   const managedNames = ['sentropic-h2a-deny-manual-cli', 'h2a-drumbeat-record'];
   const file = resolve(projectHooks) === resolve(root, 'hooks.toml') ? undefined : snapshot(projectHooks);
   const maskingHooks = file ? (parseNativeToml(file.bytes.toString()).hooks ?? []).filter((h: any) => managedNames.includes(h.name)).map((h: any) => h.name) : [];
-  return { paths, collisions: Object.entries(sources).filter(([, files]) => files.length > 1).map(([name, files]) => ({ name, files })),
+  return { paths, sources, collisions: Object.entries(sources).filter(([, files]) => files.length > 1).map(([name, files]) => ({ name, files })),
     maskingHooks, unavailable, plugins: 'Plugin skill resolution requires native skills/list; configuration inspection is not qualification.' };
 }

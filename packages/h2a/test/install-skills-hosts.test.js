@@ -416,8 +416,8 @@ test("install-skills preserves unknown legacy commands in the shared agy/Gemini 
   }
 });
 
-test("install-skills preserves the historical overwrite contract for Claude and Codex", () => {
-  for (const host of ["claude", "codex"]) {
+test("install-skills refuses overwrite without --force on any host", () => {
+  for (const host of ["claude", "codex", "gemini", "vibe", "muse", "agy"]) {
     const cwd = freshCwd();
     try {
       // Initial install

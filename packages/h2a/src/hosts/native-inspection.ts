@@ -30,7 +30,7 @@ export function inspectNativeHost(host: NativeHost, root = nativeRoot(host)) {
   if (host === 'agy') {
     try {
       const observed = JSON.parse(snapshot(join(stateRoot(host, root), 'import-observation.json'))?.bytes.toString() ?? '{}');
-      const shared = snapshot(join(root, '.h2a-install/commands-manifest.json'));
+      const shared = snapshot(join(root, '.h2a-install-agy/shared-owner.json'));
       if (observed.schema === 1 && observed.root === root && shared && observed.sharedManifestHash === digest(shared.bytes) && ['observed-success', 'failed'].includes(observed.status)) importStatus = observed.status;
     } catch { /* A malformed observation is never proof of import. */ }
   }

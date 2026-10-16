@@ -110,7 +110,7 @@ export async function qualifyVibe({ command = 'vibe-app-server', args = [], env,
         evidence.push({ method: 'qualification/skills', sessionId, names, runtimeHash: sha(runtime.runtime) });
         if (components.some(c => ['skills', 'MCP', 'context'].includes(c))) {
           const prompt = 'Use the installed H2A skill. Read the required skill resources at ' + requiredResources.map(r => r.path).join(', ') +
-            (components.some(c => ['MCP', 'context'].includes(c)) ? '. Use MCP tools h2a_identity_status and h2a_session_open to report this session identity, bus root and workspace, then read Track for this workspace.' : '') + ' Do not run shell commands.';
+            (components.some(c => ['MCP', 'context'].includes(c)) ? '. Use MCP tools h2a_identity_status and h2a_session_open to report this session identity, bus root and workspace, then track_status with level=task and baselineCommit=qualification for this workspace.' : '') + ' Do not run shell commands.';
           const entries = await turn(sessionId, prompt);
           calls.push(...entries); mcpContexts.push(inspectMcpEntries(entries, sessionId, { busRoot, workspace: workspaces[i] }));
           skillContexts.push(names.includes('h2a') && names.includes('track-operation') && inspectSkillEntries(entries, requiredResources));

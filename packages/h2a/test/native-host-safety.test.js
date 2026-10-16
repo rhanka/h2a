@@ -23,6 +23,26 @@ test('TOML refuses unknown or customized owned blocks even with third party chan
   const changedThird = first.text + third;
   assert.ok(editVibeHooks(changedThird, [], first.owned).text.includes('echo personal'));
 });
+test('TOML inserts hooks in requested order', () => {
+  const guard = { ...hook, name: 'sentropic-h2a-deny-manual-cli', type: 'pre_tool' };
+  const result = editVibeHooks(third, [guard, hook], {});
+  assert.deepEqual(parseNativeToml(result.text).hooks.map(h => h.name), ['user', guard.name, hook.name]);
+});
+test('TOML hook activation and removal preserve exact surrounding bytes across cycles', () => {
+  for (const original of ['', third, third.trimEnd()]) {
+    let text = original;
+    for (let i = 0; i < 3; i++) {
+      const installed = editVibeHooks(text, [hook], {});
+      text = editVibeHooks(installed.text, [], installed.owned).text;
+      assert.equal(text, original);
+    }
+  }
+});
+test('TOML removes the separator and terminal newline of a previously installed hook', () => {
+  const installed = editVibeHooks(third, [hook], {});
+  const historical = installed.text.endsWith('\n') ? installed.text : installed.text + '\n';
+  assert.equal(editVibeHooks(historical, [], installed.owned).text, third);
+});
 test('native writes refuse races and symlinks; dry-run and stable repeat do not mutate', t => {
   const dir = fs.mkdtempSync(join(tmpdir(), 'native-writes-'));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
