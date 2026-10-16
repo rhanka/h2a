@@ -3,8 +3,11 @@ import {
   pinPrivateNativeProcess, stopPrivateNativeProcesses, waitForPrivateNativeProcesses,
 } from "./helpers/native-isolation.js";
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { once } from "node:events";
+import { existsSync, linkSync, mkdirSync, readdirSync, rmSync, statSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
+import { createConnection } from "node:net";
+import { basename, dirname, join, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import test from "node:test";
 import { NativeTerminalClient } from "../../h2a-runtime/dist/native-terminal/client.js";
 
@@ -62,6 +65,76 @@ async function fixture(context, body) {
   async function op(args) {
     return start([join(terminal, "op.js"), ...args]).closed;
   }
+  async function proof(socketPath, denyPid) {
+    const script = join(root, "proof.mjs");
+    writeFileSync(script, `
+      import fs from 'node:fs';
+      import { join } from 'node:path';
+      import { syncBuiltinESMExports } from 'node:module';
+      const denied = join(process.env.H2A_TEST_PROC_ROOT, ${JSON.stringify(String(denyPid))}, 'fd');
+      const readdir = fs.readdirSync;
+      fs.readdirSync = (path, ...args) => {
+        if (${denyPid !== undefined} && path === denied) {
+          console.error('UNEXPECTED_FD_INSPECTION');
+          throw Object.assign(new Error('fixture fd access denied'), { code: 'EACCES' });
+        }
+        return readdir(path, ...args);
+      };
+      syncBuiltinESMExports();
+      const { proveNativeTerminalEndpointAbsent } = await import(${JSON.stringify(pathToFileURL(join(terminal, "server.js")).href)});
+      try {
+        console.log(JSON.stringify({ absent: await proveNativeTerminalEndpointAbsent(
+          process.argv[2], { code: 'ENOENT' }) }));
+      } catch (error) {
+        console.log(JSON.stringify({ code: error.code, cause: error.cause?.message }));
+      }
+    `);
+    const result = await start([script, socketPath]).closed;
+    assert.equal(result.status, 0, JSON.stringify(result));
+    assert.doesNotMatch(result.stderr, /UNEXPECTED_FD_INSPECTION/, JSON.stringify(result));
+    return JSON.parse(result.stdout);
+  }
+  async function legacyHost(socketPath, directBind = false) {
+    // A real pre-directory-FD listener: same bind/link/unlink grammar, no
+    // retained directory handle. Only its transport, not an old dist, is needed.
+    const script = join(root, "legacy-process.js");
+    writeFileSync(script, `
+      const fs = require('node:fs'), net = require('node:net'), path = require('node:path');
+      const published = process.argv[3], directory = path.dirname(published);
+      fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
+      const staged = ${directBind} ? published : path.join(directory, '.native-t.' + process.pid + '.12345678.sock');
+      const server = net.createServer(socket => socket.on('data', data => socket.write(data)));
+      server.listen(staged, () => {
+        fs.chmodSync(staged, 0o600);
+        if (staged !== published) {
+          fs.linkSync(staged, published);
+          fs.unlinkSync(staged);
+        }
+        console.log('legacy-ready');
+      });
+    `);
+    const launched = start([script, "--socket", socketPath], "ignore", 30_000);
+    await Promise.race([launched.closed, new Promise(resolve => {
+      launched.child.stdout.on("data", () => {
+        if (launched.output().stdout.includes("legacy-ready")) resolve();
+      });
+    })]);
+    assert.match(launched.output().stdout, /legacy-ready/, JSON.stringify(launched.output()));
+    const connection = createConnection(socketPath);
+    clients.push({ close: () => connection.destroy() });
+    await once(connection, "connect");
+    const parent = statSync(dirname(socketPath));
+    const fdDir = `/proc/${launched.child.pid}/fd`;
+    assert.ok(!readdirSync(fdDir).some(fd => {
+      const info = statSync(join(fdDir, fd));
+      return info.isDirectory() && info.dev === parent.dev && info.ino === parent.ino;
+    }), "legacy host must not pin its bind directory");
+    return { ...launched, async ping() {
+      const response = once(connection, "data");
+      connection.write("alive");
+      assert.equal((await response)[0].toString(), "alive");
+    } };
+  }
   async function session(host, id) {
     return host.client.create({ id, command: "/bin/bash",
       args: ["--noprofile", "--norc", "-c", "printf 'foreign-probe-ready\\n'; while IFS= read -r line; do printf '%s\\n' \"$line\"; done"],
@@ -109,7 +182,7 @@ async function fixture(context, body) {
   }
   // Node runs this hook even when it cancels the body on a test timeout.
   context.after(cleanup);
-  try { await body({ root, env, paths, host, session, op, start, deletedForeignHost }); }
+  try { await body({ root, env, paths, host, legacyHost, session, op, proof, start, deletedForeignHost }); }
   finally { await cleanup(); }
 }
 
@@ -141,10 +214,104 @@ test("should refuse absence when the target host lost its alias, socket and owne
     unlinkSync(target);
     unlinkSync(alias);
     assert.equal((await host.client.ping()).hostPid, host.child.pid);
+    assert.deepEqual(await f.proof(target), { code: "H2A_ENDPOINT_LIVE_OWNER" });
     const result = await f.op(["probe", "--socket", target, "--id", "h2a-alias"]);
     assert.equal(result.status, 0, JSON.stringify(result));
     assert.equal(JSON.parse(result.stdout).verdict, "unknown", JSON.stringify(result));
     assert.equal(existsSync(target), false, "the probe must never republish a live endpoint");
+  }));
+
+for (const removed of ["alias", "directory"]) test(`should prove the same-named target absent beside a symlink foreign host with a lost ${removed}`,
+  { timeout: 12_000 }, context => fixture(context, async f => {
+    const real = join(f.root, "real"), alias = join(f.root, "alias");
+    mkdirSync(join(real, "h2a-nt"), { recursive: true, mode: 0o700 });
+    symlinkSync(real, alias);
+    const host = await f.host(join(alias, "h2a-nt", basename(f.paths[0])));
+    if (removed === "alias") unlinkSync(alias);
+    else rmSync(real, { recursive: true });
+    assert.equal((await host.client.ping()).hostPid, host.child.pid);
+    assert.deepEqual(await f.proof(f.paths[0]), { absent: true });
+  }));
+
+for (const index of [0, 1]) test(`should distinguish endpoint ${index} from its companion after the host alias is lost`,
+  { timeout: 12_000 }, context => fixture(context, async f => {
+    const alias = join(f.root, "alias");
+    mkdirSync(dirname(f.paths[index]), { recursive: true, mode: 0o700 });
+    symlinkSync(f.root, alias);
+    const host = await f.host(join(alias, "h2a-nt", basename(f.paths[index])));
+    unlinkSync(alias);
+    assert.equal((await host.client.ping()).hostPid, host.child.pid);
+    assert.deepEqual(await f.proof(f.paths[1 - index]), { absent: true });
+    assert.equal((await f.proof(f.paths[index])).code, "H2A_ENDPOINT_LIVE_OWNER");
+  }));
+
+for (const foreign of ["companion", "directory"]) test(`should avoid inspecting a resolvable ${foreign} host's descriptors`,
+  { timeout: 12_000 }, context => fixture(context, async f => {
+    const host = await f.host(foreign === "companion" ? f.paths[0] : join(f.root, "foreign", basename(f.paths[1])));
+    assert.deepEqual(await f.proof(f.paths[1], host.child.pid), { absent: true });
+  }));
+
+test("should prove the target absent when the bind directory is replaced at the same pathname", { timeout: 12_000 }, context =>
+  fixture(context, async f => {
+    const host = await f.host();
+    rmSync(dirname(f.paths[0]), { recursive: true });
+    mkdirSync(dirname(f.paths[0]), { mode: 0o700 });
+    assert.equal((await host.client.ping()).hostPid, host.child.pid);
+    assert.deepEqual(await f.proof(f.paths[0]), { absent: true });
+  }));
+
+test("should retain a live target when its startup alias is retargeted", { timeout: 12_000 }, context =>
+  fixture(context, async f => {
+    const real = join(f.root, "real"), other = join(f.root, "other"), alias = join(f.root, "alias");
+    for (const directory of [real, other]) mkdirSync(join(directory, "h2a-nt"), { recursive: true, mode: 0o700 });
+    symlinkSync(real, alias);
+    const host = await f.host(join(alias, "h2a-nt", basename(f.paths[0])));
+    const target = join(real, "h2a-nt", basename(f.paths[0]));
+    unlinkSync(target);
+    unlinkSync(`${target}.owner`);
+    unlinkSync(alias);
+    symlinkSync(other, alias);
+    assert.equal((await host.client.ping()).hostPid, host.child.pid);
+    assert.deepEqual(await f.proof(target), { code: "H2A_ENDPOINT_LIVE_OWNER" });
+  }));
+
+test("should preserve direct socket inode evidence across endpoint names", { timeout: 12_000 }, context =>
+  fixture(context, async f => {
+    const host = await f.legacyHost(f.paths[0], true);
+    linkSync(f.paths[0], f.paths[1]);
+    await host.ping();
+    assert.deepEqual(await f.proof(f.paths[1]), { code: "H2A_ENDPOINT_LIVE_OWNER" });
+  }));
+
+test("should attribute a resolvable legacy symlink listener without a directory FD", { timeout: 12_000 }, context =>
+  fixture(context, async f => {
+    const real = join(f.root, "real"), alias = join(f.root, "alias");
+    mkdirSync(real, { mode: 0o700 });
+    symlinkSync(real, alias);
+    const host = await f.legacyHost(join(alias, basename(f.paths[0])));
+    await host.ping();
+    assert.deepEqual(await f.proof(join(real, basename(f.paths[0]))), { code: "H2A_ENDPOINT_LIVE_OWNER" });
+  }));
+
+for (const removed of ["alias", "directory"]) test(`should exclude a differently named legacy endpoint without a directory FD after losing its ${removed}`,
+  { timeout: 12_000 }, context => fixture(context, async f => {
+    const real = join(f.root, "real"), alias = join(f.root, "alias");
+    mkdirSync(real, { mode: 0o700 });
+    symlinkSync(real, alias);
+    const host = await f.legacyHost(join(alias, basename(f.paths[0])));
+    if (removed === "alias") unlinkSync(alias);
+    else rmSync(real, { recursive: true });
+    await host.ping();
+    assert.deepEqual(await f.proof(f.paths[1]), { absent: true });
+  }));
+
+test("should keep an opaque same-named legacy listener without a directory FD unknown", { timeout: 12_000 }, context =>
+  fixture(context, async f => {
+    const directory = join(f.root, "legacy");
+    const host = await f.legacyHost(join(directory, basename(f.paths[0])));
+    rmSync(directory, { recursive: true });
+    await host.ping();
+    assert.equal((await f.proof(f.paths[0])).code, "H2A_ENDPOINT_SCAN_UNKNOWN");
   }));
 
 for (const index of [0, 1]) test(`should attach and kill a real session on endpoint ${index} beside a deleted foreign host`,
