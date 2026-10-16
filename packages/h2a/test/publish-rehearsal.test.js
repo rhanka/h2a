@@ -8,12 +8,16 @@
  * pull request with `npm publish --dry-run` and no registry credentials.
  *
  * This file pins that the rehearsal CANNOT DRIFT from the real publish: the
- * four per-package publish commands are byte-identical to release.yml's
- * publish job except for the single `--dry-run` token, in the same
- * installable order (track, h2a-runtime, h2a, h2a-cli), with the same npm
- * version, the same idempotence/backfill logic, and no credentials. A
- * reintroduced defect (workspace repack, bare tarball path, lost backfill
- * tag, reordered publish) changes one side and fails here.
+ * four per-package publish BODIES are byte-identical to release.yml's publish
+ * job except for the single `--dry-run` token, in the same installable order
+ * (track, h2a-runtime, h2a, h2a-cli), with the same npm version, the same
+ * backfill logic, and no credentials. Two DELIBERATE differences are pinned
+ * the other way: the rehearsal has NO idempotent skip (it always dry-runs,
+ * even when the version is already on npm — otherwise non-bump PRs rehearse
+ * nothing) and NO visibility wait (`--dry-run` never lands, so 18x10s would
+ * sleep ~170 s per package). A reintroduced defect (workspace repack, bare
+ * tarball path, lost backfill tag, reordered publish, reintroduced skip or
+ * wait) changes one side and fails here.
  *
  * Parse+assert only (same standing choice as release-workflow.test.js): it
  * parses both workflows with a real YAML parser. No network, no registry, no
@@ -126,12 +130,19 @@ test("the rehearsal publishes the four lockstep packages in installable dependen
   );
 });
 
-test("each rehearsal publish runs the SAME commands as the publish job, plus only --dry-run", () => {
-  // The anti-drift core: strip the single `--dry-run` token from the
-  // rehearsal step and the EFFECTIVE scripts must be identical to the
-  // publish job's. A reintroduced workspace repack (0.98.6 TS2688), a bare
-  // tarball path (0.98.6 git shorthand), a dropped backfill tag or a lost
-  // idempotence check changes a line on one side and fails here.
+test("each rehearsal publish runs the SAME publish body as the publish job, plus only --dry-run", () => {
+  // The anti-drift core: the rehearsal runs the publish job's inner publish
+  // BODY (tag/backfill logic, sha256 re-check, npm publish invocation) line
+  // by line with the single `--dry-run` token added. Two DELIBERATE
+  // differences are excluded from the comparison and pinned separately
+  // below: the publish job's outer idempotent skip (`if npm view
+  // "<pkg>@$v" version ... already on registry; skipping ... else ... fi`)
+  // and its trailing visibility wait (`for attempt in $(seq 1 18) ...
+  // sleep 10 ... done`). The rehearsal has neither: it always dry-runs
+  // (otherwise non-bump PRs rehearse nothing) and never waits on a dry-run
+  // (which never lands). A reintroduced workspace repack (0.98.6 TS2688), a
+  // bare tarball path (0.98.6 git shorthand) or a dropped backfill tag
+  // changes a body line on one side and fails here.
   const publish = RELEASE.jobs.publish;
   const rehearsal = REHEARSAL.jobs["rehearse-publish"];
   for (const [packageName, tarballPrefix] of PACKAGES) {
@@ -148,26 +159,57 @@ test("each rehearsal publish runs the SAME commands as the publish job, plus onl
     );
     const realLines = effectiveScript(real.run);
     const dryLines = effectiveScript(dry.run);
+    // Deliberate absences first: the rehearsal must neither skip nor wait.
+    assert.ok(
+      !dryLines.some((line) => line.includes("already on registry; skipping")),
+      `${packageName}: the rehearsal must not short-circuit when the version is already on npm — it always dry-runs`,
+    );
+    assert.ok(
+      !dryLines.some((line) => line.includes(`"${packageName}@$v" version`)),
+      `${packageName}: the rehearsal must not probe the version-existence guard (the backfill dist-tags.latest probe stays)`,
+    );
+    assert.ok(
+      !dryLines.some((line) => line.startsWith("for attempt in $(seq 1 18)")),
+      `${packageName}: the rehearsal must not carry the visibility wait — --dry-run never lands`,
+    );
+    assert.ok(
+      !dryLines.some((line) => line === "sleep 10" || line.includes("not visible on registry")),
+      `${packageName}: the rehearsal must not sleep or warn on registry visibility`,
+    );
+    // Extract the publish BODY from the real step: the version line plus the
+    // lines between the guard `else` and the guard-closing `fi` that stands
+    // right before the visibility wait. Anything else in the real step is the
+    // pinned-deliberate guard/wait, not the publish body.
+    const elseIdx = realLines.findIndex((line) => line === "else");
+    const forIdx = realLines.findIndex((line) => line.startsWith("for attempt in $(seq 1 18)"));
+    assert.ok(elseIdx !== -1, `${packageName}: the publish step must keep its idempotent guard (else not found)`);
+    assert.ok(forIdx !== -1, `${packageName}: the publish step must keep its visibility wait (for loop not found)`);
+    assert.equal(
+      realLines[forIdx - 1],
+      "fi",
+      `${packageName}: the guard-closing fi must stand right before the visibility wait`,
+    );
+    const realBody = [realLines[0], ...realLines.slice(elseIdx + 1, forIdx - 1)];
     assert.equal(
       dryLines.length,
-      realLines.length,
-      `${packageName}: the rehearsal step must have exactly as many effective lines as the publish step (same commands, no more, no fewer)`,
+      realBody.length,
+      `${packageName}: the rehearsal body must have exactly as many effective lines as the publish body (same commands, no more, no fewer)`,
     );
-    const differing = realLines.filter((line, i) => dryLines[i] !== line);
+    const differing = realBody.filter((line, i) => dryLines[i] !== line);
     assert.equal(
       differing.length,
       1,
-      `${packageName}: exactly ONE effective line may differ between rehearsal and publish — the npm publish invocation gaining --dry-run (got ${differing.length})`,
+      `${packageName}: exactly ONE effective body line may differ between rehearsal and publish — the npm publish invocation gaining --dry-run (got ${differing.length})`,
     );
-    const at = realLines.findIndex((line, i) => dryLines[i] !== line);
+    const at = realBody.findIndex((line, i) => dryLines[i] !== line);
     assert.equal(
       dryLines[at],
-      realLines[at].replace(" $tagArgs;", " $tagArgs --dry-run;"),
-      `${packageName}: the single differing line must be the publish invocation with --dry-run appended after $tagArgs`,
+      realBody[at].replace(" $tagArgs;", " $tagArgs --dry-run;"),
+      `${packageName}: the single differing body line must be the publish invocation with --dry-run appended after $tagArgs`,
     );
     assert.ok(
       dryLines[at].includes("npm publish") && dryLines[at].includes("--dry-run"),
-      `${packageName}: the differing line must be the dry-run publish`,
+      `${packageName}: the differing body line must be the dry-run publish`,
     );
   }
 });
@@ -258,6 +300,30 @@ test("the rehearsal packs the four lockstep tarballs exactly like verify, then s
   assert.equal(smoke.if, undefined);
 });
 
+test("the rehearsal builds before packing, like verify needs before pack", () => {
+  // PR #335 rehearsal failure 2026-10-16: the rehearsal ran `npm ci` then
+  // packed straight away while dist/ is gitignored — packages/h2a's prepack
+  // (`node ../../scripts/check-focus-app.mjs && chmod +x dist/bin.js`) died
+  // with `chmod: cannot access 'dist/bin.js'`. Verify never hits this
+  // because typecheck (`npm run build -w @sentropic/track && tsc -b`) and
+  // the npm test build gate (`npm run build`) always compile before pack;
+  // the smoke PR path also runs `npm ci` then `npm run build` before pack.
+  const rehearsal = REHEARSAL.jobs["rehearse-publish"];
+  const steps = rehearsal.steps ?? [];
+  const ciIdx = steps.findIndex((step) => String(step.run ?? "").trim() === "npm ci");
+  const buildIdx = steps.findIndex((step) => String(step.run ?? "").trim() === "npm run build");
+  const packIdx = steps.findIndex((step) => String(step.run ?? "").includes("npm pack --workspace"));
+  assert.ok(ciIdx !== -1, "the rehearsal must install dependencies with npm ci");
+  assert.ok(buildIdx !== -1, "the rehearsal must build (npm run build) before packing — dist/ is gitignored");
+  assert.ok(packIdx !== -1, "the rehearsal must pack the workspaces");
+  assert.ok(
+    ciIdx < buildIdx && buildIdx < packIdx,
+    "order must be npm ci, then npm run build, then pack — otherwise prepack chmods a missing dist/bin.js",
+  );
+  assert.equal(steps[buildIdx].shell, "bash");
+  assert.equal(steps[buildIdx].if, undefined);
+});
+
 test("the rehearsal re-checks the tarball sha256 tie before any dry-run publish", () => {
   const publish = RELEASE.jobs.publish;
   const rehearsal = REHEARSAL.jobs["rehearse-publish"];
@@ -285,7 +351,13 @@ test("the rehearsal re-checks the tarball sha256 tie before any dry-run publish"
   );
 });
 
-test("the rehearsal keeps the publish guards: tarball bytes, ./ file spec, backfill, idempotence", () => {
+test("the rehearsal always dry-runs the verified bytes: ./ file spec and backfill kept, skip and wait dropped", () => {
+  // The publish job keeps its idempotent skip and its visibility wait; the
+  // rehearsal deliberately keeps neither (pinned here): no skip so every PR
+  // exercises the dry-run even when the version is already on npm, no wait
+  // because a dry-run never lands. Everything else stays: verified tarball
+  // bytes, unambiguous ./ file spec, backfill tag.
+  const publish = RELEASE.jobs.publish;
   const rehearsal = REHEARSAL.jobs["rehearse-publish"];
   for (const [packageName, tarballPrefix] of PACKAGES) {
     const step = publishStepFor(rehearsal, tarballPrefix, "rehearsal");
@@ -298,10 +370,38 @@ test("the rehearsal keeps the publish guards: tarball bytes, ./ file spec, backf
       run.includes(`npm publish "./dist-tarballs/${tarballPrefix}\${v}.tgz"`),
       `${packageName}: the rehearsal must address the verified tarball via an unambiguous ./ file spec (0.98.6: the bare form parsed as git shorthand)`,
     );
-    assert.ok(run.includes("sha256sum --check --strict sha256sums.txt"));
-    assert.ok(run.includes("already on registry; skipping"));
-    assert.ok(run.includes("--tag backfill"));
-    assert.ok(run.includes("not visible on registry yet; retrying"));
+    assert.ok(
+      run.includes("sha256sum --check --strict sha256sums.txt"),
+      `${packageName}: the rehearsal must re-check the verified bytes before the dry-run`,
+    );
+    assert.ok(run.includes("--tag backfill"), `${packageName}: the rehearsal must keep the backfill tag logic`);
+    assert.ok(
+      !run.includes("already on registry; skipping"),
+      `${packageName}: the rehearsal must not skip when the version is already on npm — it always dry-runs`,
+    );
+    assert.ok(
+      !run.includes(`"${packageName}@$v" version`),
+      `${packageName}: the rehearsal must not probe the version-existence guard`,
+    );
+    assert.ok(
+      !run.includes("seq 1 18") && !run.includes("sleep 10"),
+      `${packageName}: the rehearsal must not wait on registry visibility`,
+    );
+    assert.ok(
+      !run.includes("not visible on registry"),
+      `${packageName}: the rehearsal must not warn on registry visibility`,
+    );
+    // The real publish keeps both (the rehearsal diverges here by design).
+    const real = publishStepFor(publish, tarballPrefix, "publish");
+    const realRun = String(real.run);
+    assert.ok(
+      realRun.includes("already on registry; skipping"),
+      `${packageName}: the real publish must keep its idempotent skip`,
+    );
+    assert.ok(
+      realRun.includes("seq 1 18") && realRun.includes("not visible on registry yet; retrying"),
+      `${packageName}: the real publish must keep its visibility wait`,
+    );
   }
 });
 
