@@ -1,0 +1,22 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-native.test.js
+node: v22.22.1
+private root: /tmp/mh-l6-test-jvdeFW
+case: U10 should refuse a hardlinked precompiled artifact rather than sharing mutable ELF bytes
+TAP version 13
+# Subtest: U10 should refuse a hardlinked precompiled artifact rather than sharing mutable ELF bytes
+ok 1 - U10 should refuse a hardlinked precompiled artifact rather than sharing mutable ELF bytes
+  ---
+  duration_ms: 13.469374
+  type: 'test'
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 1
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 109.724523
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-native.test.js"],"code":0,"signal":null,"tests":1,"invalid":false,"spawned":1,"leftovers":[]}
