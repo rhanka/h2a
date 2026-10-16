@@ -1,0 +1,1751 @@
+{
+  "baseline": "501ea371763970c5fadcd0425c808cf2fed3d263",
+  "qualificationSource": "/tmp/mh-l2fix-qual-06K2z1/source",
+  "prefix": {
+    "path": "/tmp/mh-l2fix-qual-06K2z1/source/packages/h2a",
+    "mode": "755",
+    "uid": 1000
+  },
+  "fidelity": [
+    {
+      "file": "packages/h2a/src/runtime/handover/administration.js",
+      "sha256": "0d2239c384366bf97c479d93c87001160b0f46db339922da83cec9bf224f4b2f"
+    },
+    {
+      "file": "packages/h2a/src/runtime/handover/live-source.js",
+      "sha256": "664d20834ab7642181eb0735366a87983341970ca069595231856cf7eab306f7"
+    },
+    {
+      "file": "packages/h2a/src/runtime/handover/participants.js",
+      "sha256": "cd6c4364c18a2ebb396a19b256f23112355a857c7ab5343d21c48dbe8c2dd6c9"
+    },
+    {
+      "file": "packages/h2a/src/runtime/identity/live.ts",
+      "sha256": "c52a894b270e6f4e2c95de159a6b0fd9628595684cddd48cab99c814a2f58c77"
+    },
+    {
+      "file": "packages/h2a/src/runtime/identity/worker.ts",
+      "sha256": "fc7c7ce35b8c2aaa8b099c4066a0c0a99b010339512d38b89c44186388be06ea"
+    },
+    {
+      "file": "packages/h2a/src/runtime/mcp-central.ts",
+      "sha256": "e97cc62c6de3560ec252f0a38a5906d2f6dab70a9b99dac12de0412afce557dc"
+    },
+    {
+      "file": "packages/h2a/test/helpers/mh-l2-live.js",
+      "sha256": "c7a0fed8e29e5a87bd4406286d76a24f3d809b3e5912c05d7b67807dbb8a2ebe"
+    },
+    {
+      "file": "packages/h2a/test/mh-l2-live-central.test.js",
+      "sha256": "1fcfb137bfb8a6138a4f54c6cab972da1fdff6444a23cad57012954ef3779b56"
+    },
+    {
+      "file": "packages/h2a/test/mh-l2-live.test.js",
+      "sha256": "d8c7b1b0afdf4b03cac7ebc04639da0637d4653c1cd303250a2fd49cf223f1c1"
+    },
+    {
+      "file": "scripts/mh-l2-live-mutate.mjs",
+      "sha256": "b81ac1926ed503dd455fa32d836d5c65653bd14dd0afa65f9ec57599691e8814"
+    },
+    {
+      "file": "packages/h2a/test/mh-l2-identity-contention.test.js",
+      "sha256": "57611356e135e413807a95e911bdb4d6ee05c977de609b5e86b60411441ff262"
+    },
+    {
+      "file": "scripts/mh-l2-amendment-proof.mjs",
+      "sha256": "6ea4d8e291dcb3ba95c1c64db689378d92380d74e6477a2b8b35b00aabca7f83"
+    },
+    {
+      "file": "scripts/mh-l2-test.mjs",
+      "sha256": "d3ea78a8f80316982cc5141e0a0d4dba9d67ae074c8ae9ac25c9bd0bff57b428"
+    },
+    {
+      "file": "scripts/mh-l2-amendment-regressions.mjs",
+      "sha256": "3e3801e527d23ab895267a4b726c90e23fd56dc43ed6f4b01334d8066884a295"
+    }
+  ],
+  "profiles": [
+    {
+      "node": "v22.22.1",
+      "qualificationFiles": 33,
+      "tests": 288,
+      "findings": [
+        {
+          "name": "admissions-contradiction",
+          "mutant": {
+            "file": "l2fix-node22-admissions-contradiction-mutant.log",
+            "sha256": "ce76905e768e8ff0e8fb0e7b81b39cf533b7ed8b3336fe00e188755137382a78"
+          },
+          "restored": {
+            "file": "l2fix-node22-admissions-contradiction-restored.log",
+            "sha256": "23a5af086334c9bc0d2a9ede94b258fa1e84eb1bf48c5f3b2c595a155aacbe90"
+          }
+        },
+        {
+          "name": "expiry-contradiction",
+          "mutant": {
+            "file": "l2fix-node22-expiry-contradiction-mutant.log",
+            "sha256": "93f9a4e8ee657d51ecfa2c73b2595850020b0749bdccc8d768757041d5153973"
+          },
+          "restored": {
+            "file": "l2fix-node22-expiry-contradiction-restored.log",
+            "sha256": "a5022862c109192052b7e5b75add73ce2d1abfb1af91a3cf44a9083a5f0a60c3"
+          }
+        },
+        {
+          "name": "authority-order",
+          "mutant": {
+            "file": "l2fix-node22-authority-order-mutant.log",
+            "sha256": "ccb276fa2cf5af880fdd5a194763ae45981966482d0afa1de1fac129e0489e84"
+          },
+          "restored": {
+            "file": "l2fix-node22-authority-order-restored.log",
+            "sha256": "ce80ac547fb410131712014fc08718c3cbe046578fbb113cde2206539bc99102"
+          }
+        },
+        {
+          "name": "aborted-authority",
+          "mutant": {
+            "file": "l2fix-node22-aborted-authority-mutant.log",
+            "sha256": "776da1db0fef6bfb100042cec45d592b263530c2a39e9b2f70157c714de4c708"
+          },
+          "restored": {
+            "file": "l2fix-node22-aborted-authority-restored.log",
+            "sha256": "93713d76f4662da588d7105de12140dabf53b4ac786655bac09ef8c70c0fab4d"
+          }
+        },
+        {
+          "name": "expired-publication",
+          "mutant": {
+            "file": "l2fix-node22-expired-publication-mutant.log",
+            "sha256": "f4015efc28b59fb1b3e9fd82cc0a226e24548ce1e4e7a3713092815bbc5a9564"
+          },
+          "restored": {
+            "file": "l2fix-node22-expired-publication-restored.log",
+            "sha256": "22dcd387bc42d4af022078811b7e2375f218c51e3e7c0536a178e8eead4481ca"
+          }
+        },
+        {
+          "name": "ownership-order",
+          "mutant": {
+            "file": "l2fix-node22-ownership-order-mutant.log",
+            "sha256": "2efb5e8bb5eb7bfbfd40ce544ba2ed6e6c886949d64f3335339d57861f214f57"
+          },
+          "restored": {
+            "file": "l2fix-node22-ownership-order-restored.log",
+            "sha256": "9d2204b72c1b325e7696b0e20364a7735f40a300b87a7805c5457e6f2d30ff2e"
+          }
+        },
+        {
+          "name": "key-generation-lock",
+          "mutant": {
+            "file": "l2fix-node22-key-generation-lock-mutant.log",
+            "sha256": "07c3d488798f43049242ff90522bdf20c45185959e889fe443dfb5f5dc5b2362"
+          },
+          "restored": {
+            "file": "l2fix-node22-key-generation-lock-restored.log",
+            "sha256": "3d8809004d7f63896b926d8c76e08c726e3a8fcf8927c4515c0e22cf4433d70c"
+          }
+        },
+        {
+          "name": "key-publication-race",
+          "mutant": {
+            "file": "l2fix-node22-key-publication-race-mutant.log",
+            "sha256": "f1b01d57423a3bd64f91b83c55a5cb2a03296f7205aeb5ed4348f7a473344138"
+          },
+          "restored": {
+            "file": "l2fix-node22-key-publication-race-restored.log",
+            "sha256": "e343e0b176fd8121c335dc40a6010fc1c61e6fba1c659cbc42a2abbfda2fe08a"
+          }
+        },
+        {
+          "name": "identity-retry",
+          "mutant": {
+            "file": "l2fix-node22-identity-retry-mutant.log",
+            "sha256": "9af40c59512be4b1fe22aa053dd76c8f6f9c775d71953a0d547b519930dc6528"
+          },
+          "restored": {
+            "file": "l2fix-node22-identity-retry-restored.log",
+            "sha256": "7498f2771b0a459e9bb887c856a40ba55d518ab94c2e104aef4a04526616a63c"
+          }
+        },
+        {
+          "name": "identity-timeout",
+          "mutant": {
+            "file": "l2fix-node22-identity-timeout-mutant.log",
+            "sha256": "885afc4eeef5be9d3a013e0187ec41c0559623749c878fb027bc6c6b61b9576d"
+          },
+          "restored": {
+            "file": "l2fix-node22-identity-timeout-restored.log",
+            "sha256": "fe0f3f31f4689004d6e4b57209c2c6b99820b8ab18961645deee47658e66909c"
+          }
+        },
+        {
+          "name": "delete-barrier",
+          "mutant": {
+            "file": "l2fix-node22-delete-barrier-mutant.log",
+            "sha256": "f32b1733ae60db7e9cf10ee8beae6bd31036d82ae19a5e41829c01275423b4ca"
+          },
+          "restored": {
+            "file": "l2fix-node22-delete-barrier-restored.log",
+            "sha256": "16d4d50078c5329377f0267ab37d4dd42456f168471cd2a35ccaaca3a9594a0a"
+          }
+        },
+        {
+          "name": "temp-fallback",
+          "mutant": {
+            "file": "l2fix-node22-temp-fallback-mutant.log",
+            "sha256": "9a1a1e7de8d8808a6a63de4f08e2f3c8d9ab7bb81583c947f03433c522d3a586"
+          },
+          "restored": {
+            "file": "l2fix-node22-temp-fallback-restored.log",
+            "sha256": "493c371983a0244cc6284fe49f78eba3fe17c38bfa9e151fa3b30688f0775270"
+          }
+        }
+      ],
+      "legacy": [
+        {
+          "name": "acceptance",
+          "mutant": {
+            "file": "l2fix-legacy-mh-l2-live-node22-acceptance-red.log",
+            "sha256": "7235cc882a002a71ef5413652a67b28c30a6de1fb218b35cb9281af4431ccb67"
+          },
+          "restored": {
+            "file": "l2fix-legacy-mh-l2-live-node22-acceptance-green.log",
+            "sha256": "6fdbb18914f10c92c9d43a59a3db2b92b1e80acff8aa537e2eae434605e7573a"
+          }
+        },
+        {
+          "name": "acquired-writer-authority",
+          "mutant": {
+            "file": "l2fix-legacy-mh-l2-live-node22-acquired-writer-authority-red.log",
+            "sha256": "2556e9d55519c19c2e74638a8abd0c5613627938131c5b377fbce08478d3f6c7"
+          },
+          "restored": {
+            "file": "l2fix-legacy-mh-l2-live-node22-acquired-writer-authority-green.log",
+            "sha256": "5235b72937852a7945d775bea207354ac4af5932d00aa7a0cf8515facbfa99a1"
+          }
+        },
+        {
+          "name": "acquired-writer-gate",
+          "mutant": {
+            "file": "l2fix-legacy-mh-l2-live-node22-acquired-writer-gate-red.log",
+            "sha256": "342ec3c723f44d0fc973875b1a36e451c5628b31b99ebf66769082962b71e54c"
+          },
+          "restored": {
+            "file": "l2fix-legacy-mh-l2-live-node22-acquired-writer-gate-green.log",
+            "sha256": "41f38fae6e0a6dd5083c1c286469dc124196ef79e7f01f1cd2da033da9f6d596"
+          }
+        },
+        {
+          "name": "checkpoint-before-publication",
+          "mutant": {
+            "file": "l2fix-legacy-mh-l2-live-node22-checkpoint-before-publication-red.log",
+            "sha256": "0b0f24df03a0918ca1f2ee6ebb4d411d264cd499736b2d6ceb2d73a0a5962a24"
+          },
+          "restored": {
+            "file": "l2fix-legacy-mh-l2-live-node22-checkpoint-before-publication-green.log",
+            "sha256": "7e2c3b00c5a46d043aeb403d2d23df3e4d423f27bf91b04f7067aef40d8a7d4c"
+          }
+        },
+        {
+          "name": "close-order",
+          "mutant": {
+            "file": "l2fix-legacy-mh-l2-live-node22-close-order-red.log",
+            "sha256": "20eb11021d09ce0b5802007f27e5ba4060eb26c7cb8c3fe36f6b0228eed62f54"
+          },
+          "restored": {
+            "file": "l2fix-legacy-mh-l2-live-node22-close-order-green.log",
+            "sha256": "e937e6951fbcf652ceef96a4a78d7770e82d99991dfc6ccbbfa9edea599eda43"
+          }
+        },
+        {
+          "name": "delegation-missing-delegation",
+          "mutant": {
+            "file": "l2fix-legacy-mh-l2-live-node22-delegation-missing-delegation-red.log",
+            "sha256": "709dd47c0731c2ed2411b0ecc2c5c23775c61514813b2c217b13a8b7819693d3"
+          },
+          "restored": {
+            "file": "l2fix-legacy-mh-l2-live-node22-delegation-missing-delegation-green.log",
+            "sha256": "98c2e2a50f78a5d99bd693c7c34c85c76e6f8f1f1443fc56b2fee4a46642edfe"
+          }
+        },
+        {
+          "name": "delegation-missing-ticket",
+          "mutant": {
+            "file": "l2fix-legacy-mh-l2-live-node22-delegation-missing-ticket-red.log",
+            "sha256": "86e9c34eb63aa11591d5e83cf96e8dac988096326f2619f96279d1f7717c52f8"
+          },
+          "restored": {
+            "file": "l2fix-legacy-mh-l2-live-node22-delegation-missing-ticket-green.log",
+            "sha256": "ad7f8bcf9fc049d27eeec572e07710dfc0ed8ad8eeefe7df750f45b69b4e28ba"
+          }
+        },
+        {
+          "name": "delegation-revoked-authority",
+          "mutant": {
+            "file": "l2fix-legacy-mh-l2-live-node22-delegation-revoked-authority-red.log",
+            "sha256": "1769a6ae81d59278957fb23b565ce2d908b7a36f97023083890f32a683c70b88"
+          },
+          "restored": {
+            "file": "l2fix-legacy-mh-l2-live-node22-delegation-revoked-authority-green.log",
+            "sha256": "0bef05a9fec3d380e4b6ec7284289948716a6d1d7702c6a9c22c63664af53275"
+          }
+        },
+        {
+          "name": "delegation-unselected-installation",
+          "mutant": {
+            "file": "l2fix-legacy-mh-l2-live-node22-delegation-unselected-installation-red.log",
+            "sha256": "f699af78b01d24ea0819155689bfb6b2df1570bbbee68452caaa1a81bec2dc5a"
+          },
+          "restored": {
+            "file": "l2fix-legacy-mh-l2-live-node22-delegation-unselected-installation-green.log",
+            "sha256": "bf6c1b04b62e5fd942050ce7ef4f56578718f372e9703468a06e5a73ce94fc32"
+          }
+        },
+        {
+          "name": "delegation-wrong-component-journal",
+          "mutant": {
+            "file": "l2fix-legacy-mh-l2-live-node22-delegation-wrong-component-journal-red.log",
+            "sha256": "b59e0b02481a0dde8df98fc27247404c97d3b9baf04fc03bbede5a1915939360"
+          },
+          "restored": {
+            "file": "l2fix-legacy-mh-l2-live-node22-delegation-wrong-component-journal-green.log",
+            "sha256": "dc9c12963dfd7ae58ad88b2054c7544b8da085fb6da8e144fba768ca0cfc8814"
+          }
+        },
+        {
+          "name": "delegation-wrong-controller-build",
+          "mutant": {
+            "file": "l2fix-legacy-mh-l2-live-node22-delegation-wrong-controller-build-red.log",
+            "sha256": "3abaa6265df55f9e5ba08d65106fe6b0806dc251ff55a1b49738e87286e6f994"
+          },
+          "restored": {
+            "file": "l2fix-legacy-mh-l2-live-node22-delegation-wrong-controller-build-green.log",
+            "sha256": "e9be526542bf8381cc5ea5ebc6aacedc88f395a8da51273fe8bf18a03725285f"
+          }
+        },
+        {
+          "name": "delegation-wrong-controller-epoch",
+          "mutant": {
+            "file": "l2fix-legacy-mh-l2-live-node22-delegation-wrong-controller-epoch-red.log",
+            "sha256": "e478a2fb550275dd0255936ec077902f247dd06914d8bb1dccb731eb38eec3c0"
+          },
+          "restored": {
+            "file": "l2fix-legacy-mh-l2-live-node22-delegation-wrong-controller-epoch-green.log",
+            "sha256": "502717883f630097b9accc6618e9e686d3754b9f9c935caa1ef36bfe58425472"
+          }
+        },
+        {
+          "name": "delegation-wrong-controller-process",
+          "mutant": {
+            "file": "l2fix-legacy-mh-l2-live-node22-delegation-wrong-controller-process-red.log",
+            "sha256": "b8126bdc33add71e9ea4d59d6ff7962bdc7b8bb93dcefc265081fa6040e8f4e1"
+          },
+          "restored": {
+            "file": "l2fix-legacy-mh-l2-live-node22-delegation-wrong-controller-process-green.log",
+            "sha256": "315c29ee47b38f334b3aa73425a3aff3daa776a0ee3279b710234130cbb954e7"
+          }
+        },
+        {
+          "name": "delegation-wrong-receipt",
+          "mutant": {
+            "file": "l2fix-legacy-mh-l2-live-node22-delegation-wrong-receipt-red.log",
+            "sha256": "141d8e0c138e7bcf85cac39b3688a309f11789b4a2e47868112c1c4f3099afe2"
+          },
+          "restored": {
+            "file": "l2fix-legacy-mh-l2-live-node22-delegation-wrong-receipt-green.log",
+            "sha256": "7ee37a03d9471e2037cdaf1e4f01f3b045024d06d092399cb668906b59e3f97e"
+          }
+        },
+        {
+          "name": "delegation-wrong-target-manifest",
+          "mutant": {
+            "file": "l2fix-legacy-mh-l2-live-node22-delegation-wrong-target-manifest-red.log",
+            "sha256": "918b94e0a5e0eac83dbf02e6c59e6a0097be108e571e3c35fe92bf10c02cf390"
+          },
+          "restored": {
+            "file": "l2fix-legacy-mh-l2-live-node22-delegation-wrong-target-manifest-green.log",
+            "sha256": "74e7428741fa77f99af241295dbf594c2ce53a33e8b0921e4a37fc778f5909f3"
+          }
+        },
+        {
+          "name": "digest",
+          "mutant": {
+            "file": "l2fix-legacy-mh-l2-live-node22-digest-red.log",
+            "sha256": "6552c2c3c1a7c9d06e70ed7541537765e296bbffde8fbba7cd281799f340988a"
+          },
+          "restored": {
+            "file": "l2fix-legacy-mh-l2-live-node22-digest-green.log",
+            "sha256": "83a2f4f0abe28dceb234fd1c3693cf711c320be1c06477d8d48606d0f353d77d"
+          }
+        },
+        {
+          "name": "drain",
+          "mutant": {
+            "file": "l2fix-legacy-mh-l2-live-node22-drain-red.log",
+            "sha256": "359db38810220b996f3f7f8ef2cdbeaa6f5d325ad87b42135ca3fe85bdd2adc2"
+          },
+          "restored": {
+            "file": "l2fix-legacy-mh-l2-live-node22-drain-green.log",
+            "sha256": "cf0f716bd26afbee63df95d09830d89b2e3f429930d5853d065480568631bb24"
+          }
+        },
+        {
+          "name": "expired",
+          "mutant": {
+            "file": "l2fix-legacy-mh-l2-live-node22-expired-red.log",
+            "sha256": "73b1a1461479dde12071e738525dc68ba7219978d9cf79e0cbe9445e7ed69529"
+          },
+          "restored": {
+            "file": "l2fix-legacy-mh-l2-live-node22-expired-green.log",
+            "sha256": "d6c41683a4544167dec35d45b34c298ffea4e9163bb9168d28b3b43e9354f6d9"
+          }
+        },
+        {
+          "name": "expiry-reopen",
+          "mutant": {
+            "file": "l2fix-legacy-mh-l2-live-node22-expiry-reopen-red.log",
+            "sha256": "afc199a38b102ef33cb6931c996917b6007f4c3781e8059d115d0c1336a6f4aa"
+          },
+          "restored": {
+            "file": "l2fix-legacy-mh-l2-live-node22-expiry-reopen-green.log",
+            "sha256": "7dc0721f3eaee846931193b11bb533346962e4e859c8300045c97ceec3490469"
+          }
+        },
+        {
+          "name": "fencing",
+          "mutant": {
+            "file": "l2fix-legacy-mh-l2-live-node22-fencing-red.log",
+            "sha256": "7277153f5a715bc4d07133cebe6d05f7416d401c3ceb1efe47a4db94e2677bf0"
+          },
+          "restored": {
+            "file": "l2fix-legacy-mh-l2-live-node22-fencing-green.log",
+            "sha256": "cc0f7e4119aa713a5cdc88382de19bf8ee6bbcb968ca6622d0081422703047af"
+          }
+        },
+        {
+          "name": "inventory",
+          "mutant": {
+            "file": "l2fix-legacy-mh-l2-live-node22-inventory-red.log",
+            "sha256": "241f7099b34a164eea48ef95e0d22f4b8f4a721d4d42b50500156f7c541a6e28"
+          },
+          "restored": {
+            "file": "l2fix-legacy-mh-l2-live-node22-inventory-green.log",
+            "sha256": "e6080846e10ede523978c6ea09deabd0b6d6088367b9606c1a513d0d26906534"
+          }
+        },
+        {
+          "name": "mac-authorization",
+          "mutant": {
+            "file": "l2fix-legacy-mh-l2-live-node22-mac-authorization-red.log",
+            "sha256": "366ae29cba072b9aafe10bb609a6014eab20c17ef30ea8cee3e7a485c1013a19"
+          },
+          "restored": {
+            "file": "l2fix-legacy-mh-l2-live-node22-mac-authorization-green.log",
+            "sha256": "93fb18a056899e427c17a7f1f4848cf3a05721ecb3b85128233c1a8b92a56015"
+          }
+        },
+        {
+          "name": "mac-publication",
+          "mutant": {
+            "file": "l2fix-legacy-mh-l2-live-node22-mac-publication-red.log",
+            "sha256": "20e23fb385c5538a787d919cbd098b52dba0a66bc7061120089ef04a6279b1f2"
+          },
+          "restored": {
+            "file": "l2fix-legacy-mh-l2-live-node22-mac-publication-green.log",
+            "sha256": "cb3c9d9e195fbcf02e9fb0f3ea66c36cd81ff1515195ff421a6f736703461849"
+          }
+        },
+        {
+          "name": "new-UID",
+          "mutant": {
+            "file": "l2fix-legacy-mh-l2-live-node22-new-UID-red.log",
+            "sha256": "f130dc63cdcd7a120b2423b456adf623403eae5cc7110cbdc9691a5ab980c983"
+          },
+          "restored": {
+            "file": "l2fix-legacy-mh-l2-live-node22-new-UID-green.log",
+            "sha256": "f4359b85026dd49a089c52259dce77ae46b61683267e9e1973688d56fbb6e2f7"
+          }
+        },
+        {
+          "name": "new-build",
+          "mutant": {
+            "file": "l2fix-legacy-mh-l2-live-node22-new-build-red.log",
+            "sha256": "d419551d6de29780c572e802c362de5de6deef92dbdbcbc31fb359218bf10621"
+          },
+          "restored": {
+            "file": "l2fix-legacy-mh-l2-live-node22-new-build-green.log",
+            "sha256": "42a23a81c42d598c27e674433bbdc6578a97a6f595e98379dbe6d2fbc6fca65b"
+          }
+        },
+        {
+          "name": "new-endpoint",
+          "mutant": {
+            "file": "l2fix-legacy-mh-l2-live-node22-new-endpoint-red.log",
+            "sha256": "fc33de6eaaa9d94f31d5d373c613377b7f5e162d5b76804c209585b805d85308"
+          },
+          "restored": {
+            "file": "l2fix-legacy-mh-l2-live-node22-new-endpoint-green.log",
+            "sha256": "3f11534a1e53a93e19f144ce07873eaa81a449f982726b49ac49b2223e2c08b0"
+          }
+        },
+        {
+          "name": "new-epoch",
+          "mutant": {
+            "file": "l2fix-legacy-mh-l2-live-node22-new-epoch-red.log",
+            "sha256": "564b59b2501ad9acffc82ac0b42fecc7794e1172b3db04a06d5fe42d3d3f53cc"
+          },
+          "restored": {
+            "file": "l2fix-legacy-mh-l2-live-node22-new-epoch-green.log",
+            "sha256": "7f205589cb5daef11fdc12d25da009dcf68fd129f290fdb8ae81d1bed086c1ec"
+          }
+        },
+        {
+          "name": "new-generation",
+          "mutant": {
+            "file": "l2fix-legacy-mh-l2-live-node22-new-generation-red.log",
+            "sha256": "c4c2a74a85c064cd4c2c2ea42dc2ad6c3a613e4a02c6c8c9888d0d7e37619e24"
+          },
+          "restored": {
+            "file": "l2fix-legacy-mh-l2-live-node22-new-generation-green.log",
+            "sha256": "a0b48b1431864e6d70ac19c4bf3f67694980b9f2c4779136301f0340fa702642"
+          }
+        },
+        {
+          "name": "new-manifest",
+          "mutant": {
+            "file": "l2fix-legacy-mh-l2-live-node22-new-manifest-red.log",
+            "sha256": "e3caa970e36e72b06635f6caf5b237f09fdf102c29b76d1cbfcc26631f4e95b1"
+          },
+          "restored": {
+            "file": "l2fix-legacy-mh-l2-live-node22-new-manifest-green.log",
+            "sha256": "2e2dd218fd26b4de4e84090b4f65037b31ef30137de81ff749d58ce318676ec8"
+          }
+        },
+        {
+          "name": "new-namespace",
+          "mutant": {
+            "file": "l2fix-legacy-mh-l2-live-node22-new-namespace-red.log",
+            "sha256": "22ac97ccb02892a68ad73868749d423a27ad6534e3abc99d8595fd8fe7a71470"
+          },
+          "restored": {
+            "file": "l2fix-legacy-mh-l2-live-node22-new-namespace-green.log",
+            "sha256": "b0f3a6e1e9d96d60f65c63f2537b93ec5b446386ecb8156cc8a771b623719f44"
+          }
+        },
+        {
+          "name": "new-predecessor",
+          "mutant": {
+            "file": "l2fix-legacy-mh-l2-live-node22-new-predecessor-red.log",
+            "sha256": "709c9ee18f5c911fe5e2218bde7615aa36d88796d09de075e221ac4a6d762288"
+          },
+          "restored": {
+            "file": "l2fix-legacy-mh-l2-live-node22-new-predecessor-green.log",
+            "sha256": "404b7bb3bd594ff06b6fd70828549fac2eff38e8ca3eae3406d7a363298954d7"
+          }
+        },
+        {
+          "name": "new-process-frame",
+          "mutant": {
+            "file": "l2fix-legacy-mh-l2-live-node22-new-process-frame-red.log",
+            "sha256": "99591f69ac367b3cc4f6305ab30e24005b632171a3a227eaff7eb818b0dc55dd"
+          },
+          "restored": {
+            "file": "l2fix-legacy-mh-l2-live-node22-new-process-frame-green.log",
+            "sha256": "8ca56c0985aa83519d0291b42df903a1df565dc4eee409eee8f974bbc37fd2f5"
+          }
+        },
+        {
+          "name": "new-root",
+          "mutant": {
+            "file": "l2fix-legacy-mh-l2-live-node22-new-root-red.log",
+            "sha256": "4ab61c2c4a14adbd0effe84c8125634b07626adb979f104ce5bd0cfa96f12611"
+          },
+          "restored": {
+            "file": "l2fix-legacy-mh-l2-live-node22-new-root-green.log",
+            "sha256": "743e6717f3c51f8f2aeaf9d0ba66a1d90791eb875a4848d1d5abb9b3810778fe"
+          }
+        },
+        {
+          "name": "not-yet-valid",
+          "mutant": {
+            "file": "l2fix-legacy-mh-l2-live-node22-not-yet-valid-red.log",
+            "sha256": "35e2643f60a467c6d1134ec8eae3b22eef3ebe406cd1f65c70c49c624711b705"
+          },
+          "restored": {
+            "file": "l2fix-legacy-mh-l2-live-node22-not-yet-valid-green.log",
+            "sha256": "07fb49c0a35306f13117036d23d6568cb6b07d487e344e209bbd6ecbcfc74a1a"
+          }
+        },
+        {
+          "name": "old-build",
+          "mutant": {
+            "file": "l2fix-legacy-mh-l2-live-node22-old-build-red.log",
+            "sha256": "07ba52014b52f17e1e4a5a0b6e006aaf61e3a0fd2cfd2aa62ba8f4a003853e81"
+          },
+          "restored": {
+            "file": "l2fix-legacy-mh-l2-live-node22-old-build-green.log",
+            "sha256": "1310ab7ac2ba615881733395c65374d5d71fd6108f7e916e98c31cc893b2835d"
+          }
+        },
+        {
+          "name": "old-generation",
+          "mutant": {
+            "file": "l2fix-legacy-mh-l2-live-node22-old-generation-red.log",
+            "sha256": "bca4a75c0a5514007fc0320db2e28bb858c9b33874b72ff7bbaec9bfbc0bd580"
+          },
+          "restored": {
+            "file": "l2fix-legacy-mh-l2-live-node22-old-generation-green.log",
+            "sha256": "bea02afa4976b3a7acb130b806689969828261569f7a3d27297be29a2945ba0b"
+          }
+        },
+        {
+          "name": "old-process",
+          "mutant": {
+            "file": "l2fix-legacy-mh-l2-live-node22-old-process-red.log",
+            "sha256": "21558e6668123b2b28d3ec8b2f82664a91d22b0ded8bc28a029605540b59562d"
+          },
+          "restored": {
+            "file": "l2fix-legacy-mh-l2-live-node22-old-process-green.log",
+            "sha256": "5cdf3de16b033796eedee935f459a0dabaec3d726d6f551fd43b74065deb8389"
+          }
+        },
+        {
+          "name": "old-publication-epoch",
+          "mutant": {
+            "file": "l2fix-legacy-mh-l2-live-node22-old-publication-epoch-red.log",
+            "sha256": "b51a7f5e00fc13409a94d0e7157d67dd279ce02299ddd0ad2482cdc92ecd9438"
+          },
+          "restored": {
+            "file": "l2fix-legacy-mh-l2-live-node22-old-publication-epoch-green.log",
+            "sha256": "f810db2d0500730005443b12a736f4a74ca16636ff5fd1b0e56faac1fcee66ee"
+          }
+        },
+        {
+          "name": "operator-reopen",
+          "mutant": {
+            "file": "l2fix-legacy-mh-l2-live-node22-operator-reopen-red.log",
+            "sha256": "ae759eb13dbba061996bf0fa2ea2381fd4c63862265de0b085c323ce97cfc6ef"
+          },
+          "restored": {
+            "file": "l2fix-legacy-mh-l2-live-node22-operator-reopen-green.log",
+            "sha256": "8cb248abb74ff531252dbbcc7eaa085399667e05c31c2d240a96910e2f05dc7b"
+          }
+        },
+        {
+          "name": "owner-process",
+          "mutant": {
+            "file": "l2fix-legacy-mh-l2-live-node22-owner-process-red.log",
+            "sha256": "8f90f564f67fc5e40c97c877f61f114d0d32ab11d400fcd96dc6af0c3af2dea9"
+          },
+          "restored": {
+            "file": "l2fix-legacy-mh-l2-live-node22-owner-process-green.log",
+            "sha256": "bb43dbad2d736e8837135ebac4d63633fe659b7de602a10917539d9e94840b04"
+          }
+        },
+        {
+          "name": "publication-authorization",
+          "mutant": {
+            "file": "l2fix-legacy-mh-l2-live-node22-publication-authorization-red.log",
+            "sha256": "ba7b41a93f7d1732b5acd91b1219bdc8735e4097bd7c28ac9640b349be2126b4"
+          },
+          "restored": {
+            "file": "l2fix-legacy-mh-l2-live-node22-publication-authorization-green.log",
+            "sha256": "f6505e2ecf9874ee9f6e33c4b77ab49cb8ad540e68fa7367793b1833edc1048a"
+          }
+        },
+        {
+          "name": "publication-checkpoint",
+          "mutant": {
+            "file": "l2fix-legacy-mh-l2-live-node22-publication-checkpoint-red.log",
+            "sha256": "3c4500f318dc1e5ce4b7e67c6ac5349298234be1e0151cd5917fc6098f958477"
+          },
+          "restored": {
+            "file": "l2fix-legacy-mh-l2-live-node22-publication-checkpoint-green.log",
+            "sha256": "28ec6ba25ca52f09538bc552d154df0b4479f524d88b912bc3ae993c0ca219b3"
+          }
+        },
+        {
+          "name": "publication-entry-revalidation",
+          "mutant": {
+            "file": "l2fix-legacy-mh-l2-live-node22-publication-entry-revalidation-red.log",
+            "sha256": "44c6a80b2b31ec82733bf373e6e51452b7d58b65ad319b767384caa2e4a68dbc"
+          },
+          "restored": {
+            "file": "l2fix-legacy-mh-l2-live-node22-publication-entry-revalidation-green.log",
+            "sha256": "198d8c7d43fc28e87450eac8f224b5d52cfe3b2d31ef2d775630c48cabb6cd82"
+          }
+        },
+        {
+          "name": "publication-marker",
+          "mutant": {
+            "file": "l2fix-legacy-mh-l2-live-node22-publication-marker-red.log",
+            "sha256": "1def9aefa34c10a60ccf7cf880bc32dc73cba6e639272bfd5343c0d8e9e98585"
+          },
+          "restored": {
+            "file": "l2fix-legacy-mh-l2-live-node22-publication-marker-green.log",
+            "sha256": "dff422045e7e5052a4e5c57ad9c10bdffab797e01c0f74f33336c7be6d176ac9"
+          }
+        },
+        {
+          "name": "publication-precheck-revalidation",
+          "mutant": {
+            "file": "l2fix-legacy-mh-l2-live-node22-publication-precheck-revalidation-red.log",
+            "sha256": "18d89c114033d0a14e172c03557ea5b06077ed41efe26ac779fc7ee8708f8590"
+          },
+          "restored": {
+            "file": "l2fix-legacy-mh-l2-live-node22-publication-precheck-revalidation-green.log",
+            "sha256": "cd548a4ea52b299c3261d0f7659b952d4f1fa8c829483dbe0e4ac943a806dca8"
+          }
+        },
+        {
+          "name": "publication-target",
+          "mutant": {
+            "file": "l2fix-legacy-mh-l2-live-node22-publication-target-red.log",
+            "sha256": "222976ac0a52e3a6990d7eb832650d95d8d70a08e325aaa3aa6a63678d0a1006"
+          },
+          "restored": {
+            "file": "l2fix-legacy-mh-l2-live-node22-publication-target-green.log",
+            "sha256": "4e3fe872d247c99ad4ccaf3524a9f6221cd30112b792398a1b97b4464d90d534"
+          }
+        },
+        {
+          "name": "publication-target-revalidation",
+          "mutant": {
+            "file": "l2fix-legacy-mh-l2-live-node22-publication-target-revalidation-red.log",
+            "sha256": "003097b49ec1d1d1861205db57a39d4d6ab0b5f9923c12cbfd6c6ad5653bb0de"
+          },
+          "restored": {
+            "file": "l2fix-legacy-mh-l2-live-node22-publication-target-revalidation-green.log",
+            "sha256": "56f922f609a5e58570512b288601debe07274dcdb1b7c478cdb76af155b21e32"
+          }
+        },
+        {
+          "name": "reconcile-uncertain-fence",
+          "mutant": {
+            "file": "l2fix-legacy-mh-l2-live-node22-reconcile-uncertain-fence-red.log",
+            "sha256": "238f254a980ea00852cf7ca82191ef2a960abaf3136dc65c50cda8c1f36f2c74"
+          },
+          "restored": {
+            "file": "l2fix-legacy-mh-l2-live-node22-reconcile-uncertain-fence-green.log",
+            "sha256": "abce3bff74ff47aa65896c64f7a603d482f3a1e03617a7486265dad197e14262"
+          }
+        },
+        {
+          "name": "retirement-acceptance",
+          "mutant": {
+            "file": "l2fix-legacy-mh-l2-live-node22-retirement-acceptance-red.log",
+            "sha256": "8188e06cd9b8aee2959c712f3c3a225e2fdaca1c69881b3bf71294e90546d50e"
+          },
+          "restored": {
+            "file": "l2fix-legacy-mh-l2-live-node22-retirement-acceptance-green.log",
+            "sha256": "72839e62127e4ae136a8c34e6fd51bddfa83643a35b3ce281f6ce1a1234b9f26"
+          }
+        },
+        {
+          "name": "revalidation",
+          "mutant": {
+            "file": "l2fix-legacy-mh-l2-live-node22-revalidation-red.log",
+            "sha256": "ec16856349158e92216caac64af3e507f58056cd69ecd1abc91bc4dbd7d06314"
+          },
+          "restored": {
+            "file": "l2fix-legacy-mh-l2-live-node22-revalidation-green.log",
+            "sha256": "ed9937381b4007983a2229d26afdb78c8563a6353c859e289aa8dbfc3adac50d"
+          }
+        },
+        {
+          "name": "same-process",
+          "mutant": {
+            "file": "l2fix-legacy-mh-l2-live-node22-same-process-red.log",
+            "sha256": "fc4949e3fcfa8639bc96cbdf5a64e23e4f5ed47ff4f0df0668b8f5c33f454346"
+          },
+          "restored": {
+            "file": "l2fix-legacy-mh-l2-live-node22-same-process-green.log",
+            "sha256": "f40995fb43915a55ca5c0fca5c0d199c2668291c55ab3770cb19a6892782fa94"
+          }
+        },
+        {
+          "name": "source-drain-scope",
+          "mutant": {
+            "file": "l2fix-legacy-mh-l2-live-node22-source-drain-scope-red.log",
+            "sha256": "2923ffab73933cceea28687fdd671c394a8f346e2fbc791c6229a30ab1256bca"
+          },
+          "restored": {
+            "file": "l2fix-legacy-mh-l2-live-node22-source-drain-scope-green.log",
+            "sha256": "a55773d3be27dfd1ad8de02aaad9a18a7777d6006035d1372311aec2db0b649b"
+          }
+        },
+        {
+          "name": "source-memo-scope",
+          "mutant": {
+            "file": "l2fix-legacy-mh-l2-live-node22-source-memo-scope-red.log",
+            "sha256": "a07815d35c966313526a880e1d6314664d96021770f81bb2e8cf0fd07c01233a"
+          },
+          "restored": {
+            "file": "l2fix-legacy-mh-l2-live-node22-source-memo-scope-green.log",
+            "sha256": "6bdbcf551264a1c703128a5cd6bc3bc278bf8e7bb126149c80a7e4cfd7b109c4"
+          }
+        },
+        {
+          "name": "source-reconcile-scope",
+          "mutant": {
+            "file": "l2fix-legacy-mh-l2-live-node22-source-reconcile-scope-red.log",
+            "sha256": "73a377f43d4ff86f0479b6fead015ee740898c0615d8858eb12cde77acc7bd5b"
+          },
+          "restored": {
+            "file": "l2fix-legacy-mh-l2-live-node22-source-reconcile-scope-green.log",
+            "sha256": "109ceeb5e8c2029e38e24e7bbaff0d445ca89e2faa4d5258f0f99560ec87691b"
+          }
+        },
+        {
+          "name": "source-unknown-work",
+          "mutant": {
+            "file": "l2fix-legacy-mh-l2-live-node22-source-unknown-work-red.log",
+            "sha256": "244bec0e669b58074ba4d187b40af295006c69f1ecc8e5ed13b2a49a79634be0"
+          },
+          "restored": {
+            "file": "l2fix-legacy-mh-l2-live-node22-source-unknown-work-green.log",
+            "sha256": "9658d1ecc44365011965da342af2f6d78b3c1b0205703c5551953b228cca13d0"
+          }
+        },
+        {
+          "name": "step-conflict",
+          "mutant": {
+            "file": "l2fix-legacy-mh-l2-live-node22-step-conflict-red.log",
+            "sha256": "0ba6fa9b795b2d81ff7c1ab00b5e601695a4c3f6d72a6e3e2c07581a96af9336"
+          },
+          "restored": {
+            "file": "l2fix-legacy-mh-l2-live-node22-step-conflict-green.log",
+            "sha256": "383adecfc11f96477ed7fe8b264d1e3f00cfe79fbea510b18d52dc33e107d850"
+          }
+        },
+        {
+          "name": "step-id-recovery",
+          "mutant": {
+            "file": "l2fix-legacy-mh-l2-live-node22-step-id-recovery-red.log",
+            "sha256": "4d1ac12d627756359da2651c260af0a469ce27164a457dd853cff0073f40040b"
+          },
+          "restored": {
+            "file": "l2fix-legacy-mh-l2-live-node22-step-id-recovery-green.log",
+            "sha256": "8d0bc0d6d887718f1becaa787c64cf9cb0f9a7cea360ffc402df631f4467a23d"
+          }
+        },
+        {
+          "name": "ticket-and-receipt",
+          "mutant": {
+            "file": "l2fix-legacy-mh-l2-live-node22-ticket-and-receipt-red.log",
+            "sha256": "7287a7386483607eb6689689b2ee6363f4d6b43e1bde14953ec862fbacebdbe6"
+          },
+          "restored": {
+            "file": "l2fix-legacy-mh-l2-live-node22-ticket-and-receipt-green.log",
+            "sha256": "29d29815d6a48ad913797a69e484f8d4de777d65fe0ffb3adc908a2b00e82825"
+          }
+        },
+        {
+          "name": "ticket-possession",
+          "mutant": {
+            "file": "l2fix-legacy-mh-l2-live-node22-ticket-possession-red.log",
+            "sha256": "ff0a1ae6fb11191a43a12cb808f2f5d1c3b99df708513b3a1a3decc894abd695"
+          },
+          "restored": {
+            "file": "l2fix-legacy-mh-l2-live-node22-ticket-possession-green.log",
+            "sha256": "a3e802ed2e4fbedc6c774a116e86c0b24bfa83ff9af66397ef4854c5580fe9cd"
+          }
+        },
+        {
+          "name": "wrong-controller",
+          "mutant": {
+            "file": "l2fix-legacy-mh-l2-live-node22-wrong-controller-red.log",
+            "sha256": "aa5ec2515ecb70771a42512c2889af97c786ab36f1115ec073cf2077b0074847"
+          },
+          "restored": {
+            "file": "l2fix-legacy-mh-l2-live-node22-wrong-controller-green.log",
+            "sha256": "c68d03c39b8d2ff461bc103245e5cfde4cdcce63f845b687a2854cb17a3887f1"
+          }
+        },
+        {
+          "name": "wrong-handover",
+          "mutant": {
+            "file": "l2fix-legacy-mh-l2-live-node22-wrong-handover-red.log",
+            "sha256": "c3e424306690f49ad490654f53372c0828bbc6b5e2eccce3f8ee099e64b04bda"
+          },
+          "restored": {
+            "file": "l2fix-legacy-mh-l2-live-node22-wrong-handover-green.log",
+            "sha256": "2959310a9dc3502a49db2561f83e273cfd52dc86f509110bea44f103ff364cd0"
+          }
+        },
+        {
+          "name": "wrong-selection",
+          "mutant": {
+            "file": "l2fix-legacy-mh-l2-live-node22-wrong-selection-red.log",
+            "sha256": "04a0791b98e15159bae381f7791f45dc3aba36cd7dd8329d630aeb1c14e9a001"
+          },
+          "restored": {
+            "file": "l2fix-legacy-mh-l2-live-node22-wrong-selection-green.log",
+            "sha256": "33d02fcc867ad921383910ae7d6cac6700139b8ac559c35cc1f9386128042c1b"
+          }
+        },
+        {
+          "name": "wrong-transaction-epoch",
+          "mutant": {
+            "file": "l2fix-legacy-mh-l2-live-node22-wrong-transaction-epoch-red.log",
+            "sha256": "b05b1114863e4cc1aa43bd449da367983b5fcd2b1e66648e0c069f023b86e500"
+          },
+          "restored": {
+            "file": "l2fix-legacy-mh-l2-live-node22-wrong-transaction-epoch-green.log",
+            "sha256": "9933f6e803bbc1226323d668af6785f5fb6f1eeb5fbb17d46ec1787e2e90e8f7"
+          }
+        }
+      ]
+    },
+    {
+      "node": "v24.21.0",
+      "qualificationFiles": 33,
+      "tests": 288,
+      "findings": [
+        {
+          "name": "admissions-contradiction",
+          "mutant": {
+            "file": "l2fix-node24-admissions-contradiction-mutant.log",
+            "sha256": "bdf10f754fb6958d1176ae7102a8fa327b2a9511100401be6e6e9b6fa4196f6b"
+          },
+          "restored": {
+            "file": "l2fix-node24-admissions-contradiction-restored.log",
+            "sha256": "86b78936dce3333e4944cb01295edf84a60b5d7f5b7480aca660130ea098be04"
+          }
+        },
+        {
+          "name": "expiry-contradiction",
+          "mutant": {
+            "file": "l2fix-node24-expiry-contradiction-mutant.log",
+            "sha256": "c5c18ea8b2d69d90ddaad7bbba341cc76459267b4b84599eabd015c18375e02f"
+          },
+          "restored": {
+            "file": "l2fix-node24-expiry-contradiction-restored.log",
+            "sha256": "b3c2d957db889308ce0607cf83117d68ada39c14149a462bfb072d31ba5046ef"
+          }
+        },
+        {
+          "name": "authority-order",
+          "mutant": {
+            "file": "l2fix-node24-authority-order-mutant.log",
+            "sha256": "2755e331dc7d2a38903da7c9e160a801c240f6fc4effe04b3b792d956da610be"
+          },
+          "restored": {
+            "file": "l2fix-node24-authority-order-restored.log",
+            "sha256": "6c4b6f15e397c324693e08c3b45cfc363d34dcc9d86c9737d44eaeb6a651c08d"
+          }
+        },
+        {
+          "name": "aborted-authority",
+          "mutant": {
+            "file": "l2fix-node24-aborted-authority-mutant.log",
+            "sha256": "388da993609a4c92c3f21c3e6093903bdb820762565472ab14bcd518999064f6"
+          },
+          "restored": {
+            "file": "l2fix-node24-aborted-authority-restored.log",
+            "sha256": "a6eafc041290e99fa5a9a337f102bb43890cd5989a081b372b0aab8927d0d995"
+          }
+        },
+        {
+          "name": "expired-publication",
+          "mutant": {
+            "file": "l2fix-node24-expired-publication-mutant.log",
+            "sha256": "f832b5a85a23ea35800f69fbdd29ff9ed75b63c3ff95288c1426bb1ef7a3f766"
+          },
+          "restored": {
+            "file": "l2fix-node24-expired-publication-restored.log",
+            "sha256": "3ae72cfef478efa3ead6123111543d4fc3f312e9dfbe614c0eae2c87657ac490"
+          }
+        },
+        {
+          "name": "ownership-order",
+          "mutant": {
+            "file": "l2fix-node24-ownership-order-mutant.log",
+            "sha256": "afcc8e6fbc31ba65192174d5c766fa93421777044115acd0a35390738446e5f5"
+          },
+          "restored": {
+            "file": "l2fix-node24-ownership-order-restored.log",
+            "sha256": "b2f4b8bd8077299c8465f9277c485aa93d65955b4d84c0759e36bddf6564abd0"
+          }
+        },
+        {
+          "name": "key-generation-lock",
+          "mutant": {
+            "file": "l2fix-node24-key-generation-lock-mutant.log",
+            "sha256": "bcc0ff41948dc9e22bc8b9a4c71649f7dc575afae79df2dfe0417b8cca01acca"
+          },
+          "restored": {
+            "file": "l2fix-node24-key-generation-lock-restored.log",
+            "sha256": "9582d15ea50c35a685b823887d1d14ba4e2103d170b8b625cd71dab8bfc12c1c"
+          }
+        },
+        {
+          "name": "key-publication-race",
+          "mutant": {
+            "file": "l2fix-node24-key-publication-race-mutant.log",
+            "sha256": "10461df514ef9692670c92e1c1eb64d432f7a42dcc62b30d0abcf93f976de83f"
+          },
+          "restored": {
+            "file": "l2fix-node24-key-publication-race-restored.log",
+            "sha256": "444332cf032ad692fc68cd0397915a8944b94af89b2647e4c8d2b46cc395d771"
+          }
+        },
+        {
+          "name": "identity-retry",
+          "mutant": {
+            "file": "l2fix-node24-identity-retry-mutant.log",
+            "sha256": "8846d6d7c175afcd83a8b0fb4055900114ed33ec7af0e7eaaa37f8012e812638"
+          },
+          "restored": {
+            "file": "l2fix-node24-identity-retry-restored.log",
+            "sha256": "6a33409c61083eeaa07d576d4c1c4ab79bb40065ec933fd52baa22f7c08e81d9"
+          }
+        },
+        {
+          "name": "identity-timeout",
+          "mutant": {
+            "file": "l2fix-node24-identity-timeout-mutant.log",
+            "sha256": "fe25c6a07b39f8177c5388d41c46c011a3914478fc118af493bc75c8c0cbabe5"
+          },
+          "restored": {
+            "file": "l2fix-node24-identity-timeout-restored.log",
+            "sha256": "2c3e92f03c3a9440cada1eea12e7c07d91a8c19df562c30676d824a7aa5f6a47"
+          }
+        },
+        {
+          "name": "delete-barrier",
+          "mutant": {
+            "file": "l2fix-node24-delete-barrier-mutant.log",
+            "sha256": "deadec715bff6bf5e5b54e2b5d02518cefd271b29e797b9ec64e539bb133e1fa"
+          },
+          "restored": {
+            "file": "l2fix-node24-delete-barrier-restored.log",
+            "sha256": "51aeee50a8f405aee5d63bf9048d0a5ff3c85c45fee163385660430e3457ea9b"
+          }
+        },
+        {
+          "name": "temp-fallback",
+          "mutant": {
+            "file": "l2fix-node24-temp-fallback-mutant.log",
+            "sha256": "f62ad73b09a57d4d108e8e2c7bb1c3ee88735dbe3ecfe915644f20d9a4287460"
+          },
+          "restored": {
+            "file": "l2fix-node24-temp-fallback-restored.log",
+            "sha256": "357e8c9b7ed46f47c2894ff4c3530d4410f073487a73babd8dd2112e993413d4"
+          }
+        }
+      ],
+      "legacy": [
+        {
+          "name": "acceptance",
+          "mutant": {
+            "file": "l2fix-legacy-mh-l2-live-node24-acceptance-red.log",
+            "sha256": "4f21e73dd5b1ba17d4591b13c5b6872c6302f7c3ac662e80d919bdf3a5a3c034"
+          },
+          "restored": {
+            "file": "l2fix-legacy-mh-l2-live-node24-acceptance-green.log",
+            "sha256": "1b44cdfdcb17f623dbe3128765524d616547da368df7eb84e896383726d2cdd6"
+          }
+        },
+        {
+          "name": "acquired-writer-authority",
+          "mutant": {
+            "file": "l2fix-legacy-mh-l2-live-node24-acquired-writer-authority-red.log",
+            "sha256": "c9b549a56c3b5ca61f5570558b9d8516bc757a8b2cbeac6a18fdfe972638a8ef"
+          },
+          "restored": {
+            "file": "l2fix-legacy-mh-l2-live-node24-acquired-writer-authority-green.log",
+            "sha256": "4fa05a8d12c87ca2951cdb8cb338452959f10df8a83bd79a370988a20a00929d"
+          }
+        },
+        {
+          "name": "acquired-writer-gate",
+          "mutant": {
+            "file": "l2fix-legacy-mh-l2-live-node24-acquired-writer-gate-red.log",
+            "sha256": "3f08c0c2e6c70e8ad0776bdc2e451061530ed02d416622b5b7a0233b3586b1da"
+          },
+          "restored": {
+            "file": "l2fix-legacy-mh-l2-live-node24-acquired-writer-gate-green.log",
+            "sha256": "ebdc99b9ac950155aed5e1a1ae102b838fbad232cd62e33ece71043d750ad863"
+          }
+        },
+        {
+          "name": "checkpoint-before-publication",
+          "mutant": {
+            "file": "l2fix-legacy-mh-l2-live-node24-checkpoint-before-publication-red.log",
+            "sha256": "c327d24c3e98c7201202942193d3ed887d40aff5fd40ee64bebaf378bc1da179"
+          },
+          "restored": {
+            "file": "l2fix-legacy-mh-l2-live-node24-checkpoint-before-publication-green.log",
+            "sha256": "27527af6b414d0680f42aafcac265889ae6429a3410177a73f2acb00b3609c08"
+          }
+        },
+        {
+          "name": "close-order",
+          "mutant": {
+            "file": "l2fix-legacy-mh-l2-live-node24-close-order-red.log",
+            "sha256": "5864bf81bb9b2af07a4c0f103e48f93f3ef6679a0566e5a7d710bf8c68408bc9"
+          },
+          "restored": {
+            "file": "l2fix-legacy-mh-l2-live-node24-close-order-green.log",
+            "sha256": "370774634dde17ec73102a6b684a07451bbff745a8e96a57f6c3eb7c9a05192d"
+          }
+        },
+        {
+          "name": "delegation-missing-delegation",
+          "mutant": {
+            "file": "l2fix-legacy-mh-l2-live-node24-delegation-missing-delegation-red.log",
+            "sha256": "c13bc9b4ae38a7e2aeb2eabfe000916875a80c974ffba2a1a1a57eb9a6dede99"
+          },
+          "restored": {
+            "file": "l2fix-legacy-mh-l2-live-node24-delegation-missing-delegation-green.log",
+            "sha256": "b27d60bf4b248b8f4709e2c79cad7c4d4841a159eda549b6819b6af28843b7a6"
+          }
+        },
+        {
+          "name": "delegation-missing-ticket",
+          "mutant": {
+            "file": "l2fix-legacy-mh-l2-live-node24-delegation-missing-ticket-red.log",
+            "sha256": "4610abc81b8abe42b2db829c700f6d61d9365c9ec6aed9b321b10a98338b2b92"
+          },
+          "restored": {
+            "file": "l2fix-legacy-mh-l2-live-node24-delegation-missing-ticket-green.log",
+            "sha256": "62d53c895eba3b93eb3d2fa1bd9f22cdf5856365bebc0627cee463ecfd593a68"
+          }
+        },
+        {
+          "name": "delegation-revoked-authority",
+          "mutant": {
+            "file": "l2fix-legacy-mh-l2-live-node24-delegation-revoked-authority-red.log",
+            "sha256": "1e110f04042540b10e7805c7a4c0a175183622e333b4546feec7dd1955355dea"
+          },
+          "restored": {
+            "file": "l2fix-legacy-mh-l2-live-node24-delegation-revoked-authority-green.log",
+            "sha256": "5ffeb6defc0d4a0f10d287f19a249558d68bc2941aff940e5e19926a1e934f7e"
+          }
+        },
+        {
+          "name": "delegation-unselected-installation",
+          "mutant": {
+            "file": "l2fix-legacy-mh-l2-live-node24-delegation-unselected-installation-red.log",
+            "sha256": "1cc5220150297b9992161e51a4a872f8ec61ee38a9a03dc1a6249335e0326b29"
+          },
+          "restored": {
+            "file": "l2fix-legacy-mh-l2-live-node24-delegation-unselected-installation-green.log",
+            "sha256": "b36c01573124bea88507da0e822e496e20439ec46033ef0403ddb390d1a669a5"
+          }
+        },
+        {
+          "name": "delegation-wrong-component-journal",
+          "mutant": {
+            "file": "l2fix-legacy-mh-l2-live-node24-delegation-wrong-component-journal-red.log",
+            "sha256": "2ff801c0201d0eb1a3836d797f3e98cfd0df52db7a3bfa7dfc6385496889d0b3"
+          },
+          "restored": {
+            "file": "l2fix-legacy-mh-l2-live-node24-delegation-wrong-component-journal-green.log",
+            "sha256": "9ac20993852c8f566ded3d75ea55b1883572bc3538789177628ab600c28173c8"
+          }
+        },
+        {
+          "name": "delegation-wrong-controller-build",
+          "mutant": {
+            "file": "l2fix-legacy-mh-l2-live-node24-delegation-wrong-controller-build-red.log",
+            "sha256": "1d56c08a7c6fb5d9f490c8744331e6750223e22ce16c0050b4fa503a4e44643f"
+          },
+          "restored": {
+            "file": "l2fix-legacy-mh-l2-live-node24-delegation-wrong-controller-build-green.log",
+            "sha256": "74962a2fb665bb235263869431677ecc9b6e9cc8246c6da5de6d43417776572f"
+          }
+        },
+        {
+          "name": "delegation-wrong-controller-epoch",
+          "mutant": {
+            "file": "l2fix-legacy-mh-l2-live-node24-delegation-wrong-controller-epoch-red.log",
+            "sha256": "4b010a0825c4ac5807ed7d780ad8c32ebc9b1f5d60e79aeed96858a2db2d8335"
+          },
+          "restored": {
+            "file": "l2fix-legacy-mh-l2-live-node24-delegation-wrong-controller-epoch-green.log",
+            "sha256": "8dfdb8f0d43fbdba3f2f721d7047262edc26fcffd8924e53608e58e8ab193c7c"
+          }
+        },
+        {
+          "name": "delegation-wrong-controller-process",
+          "mutant": {
+            "file": "l2fix-legacy-mh-l2-live-node24-delegation-wrong-controller-process-red.log",
+            "sha256": "a74ce5bdc40b14822c99aead39c0c416b32ab81e17f894b1e96ba7fde7200e2a"
+          },
+          "restored": {
+            "file": "l2fix-legacy-mh-l2-live-node24-delegation-wrong-controller-process-green.log",
+            "sha256": "ed779a6f33edba3747ac52a8254313ee177ffb5dcc120f6db3962453587af7a7"
+          }
+        },
+        {
+          "name": "delegation-wrong-receipt",
+          "mutant": {
+            "file": "l2fix-legacy-mh-l2-live-node24-delegation-wrong-receipt-red.log",
+            "sha256": "b7044e2f05e539a512b54310d6bbcad5111091ec4e4d8b4ee9fe8dd9ada68eb6"
+          },
+          "restored": {
+            "file": "l2fix-legacy-mh-l2-live-node24-delegation-wrong-receipt-green.log",
+            "sha256": "3bd32de71cc82bc7e450aa8569add76b46adfa1fe73dab2d31f23ad2aa56e89a"
+          }
+        },
+        {
+          "name": "delegation-wrong-target-manifest",
+          "mutant": {
+            "file": "l2fix-legacy-mh-l2-live-node24-delegation-wrong-target-manifest-red.log",
+            "sha256": "2776923516797f0cc20ce636a03fcfb61be8a8f60d152fe7675669138ece9d52"
+          },
+          "restored": {
+            "file": "l2fix-legacy-mh-l2-live-node24-delegation-wrong-target-manifest-green.log",
+            "sha256": "bb13d312a2d25089e6ce6a00b6309b85f1550284b1a2b4f804e8c13fc7873ccc"
+          }
+        },
+        {
+          "name": "digest",
+          "mutant": {
+            "file": "l2fix-legacy-mh-l2-live-node24-digest-red.log",
+            "sha256": "84a922495e481c32f69c00928ab99ee605be09d91efec781fa72d611e3c17d1a"
+          },
+          "restored": {
+            "file": "l2fix-legacy-mh-l2-live-node24-digest-green.log",
+            "sha256": "259003f7623bc2b3029979d9db1b4be7845182fc697ca094911116d703b64772"
+          }
+        },
+        {
+          "name": "drain",
+          "mutant": {
+            "file": "l2fix-legacy-mh-l2-live-node24-drain-red.log",
+            "sha256": "fd37b6e17c20287f7512cb3fd418caba36f25f7dc57a6b148cefc054e164838a"
+          },
+          "restored": {
+            "file": "l2fix-legacy-mh-l2-live-node24-drain-green.log",
+            "sha256": "744154c46d11c17b361a944164c4f980f31ddb016c2fb5ead8ca8ab1ba2b96a9"
+          }
+        },
+        {
+          "name": "expired",
+          "mutant": {
+            "file": "l2fix-legacy-mh-l2-live-node24-expired-red.log",
+            "sha256": "15767014b5d8b6aa89cbf83e1698ea151dbbc7b8b6c16ef68145ecf9a7dfedc0"
+          },
+          "restored": {
+            "file": "l2fix-legacy-mh-l2-live-node24-expired-green.log",
+            "sha256": "6e165f706812ab9ebd7e2839b8c1f630902bc7fca8a1257879a472cb0f320628"
+          }
+        },
+        {
+          "name": "expiry-reopen",
+          "mutant": {
+            "file": "l2fix-legacy-mh-l2-live-node24-expiry-reopen-red.log",
+            "sha256": "f2e9ff83e15490af2843e85e9d136067fd4312446ca4d779fa6e0ca566973eb6"
+          },
+          "restored": {
+            "file": "l2fix-legacy-mh-l2-live-node24-expiry-reopen-green.log",
+            "sha256": "8573f3980326e8543332608a06c7bf748cb1101617d3f100fdb0554aa8890afe"
+          }
+        },
+        {
+          "name": "fencing",
+          "mutant": {
+            "file": "l2fix-legacy-mh-l2-live-node24-fencing-red.log",
+            "sha256": "78aba94016d1c1185a39d1a923ed9d368717c5d06544802b2e755fc703481552"
+          },
+          "restored": {
+            "file": "l2fix-legacy-mh-l2-live-node24-fencing-green.log",
+            "sha256": "9a426f81a0a316a2fe7535a314dcab865ae6d6388a6740c1a73cc603a37fac88"
+          }
+        },
+        {
+          "name": "inventory",
+          "mutant": {
+            "file": "l2fix-legacy-mh-l2-live-node24-inventory-red.log",
+            "sha256": "a96e9ae18296b81243f457243777e645553b7ebfb73fd95df513c2ab4de46bc1"
+          },
+          "restored": {
+            "file": "l2fix-legacy-mh-l2-live-node24-inventory-green.log",
+            "sha256": "eef02e84e7247506d893707327308ace3631ee282c6d4531de51026e9d09968d"
+          }
+        },
+        {
+          "name": "mac-authorization",
+          "mutant": {
+            "file": "l2fix-legacy-mh-l2-live-node24-mac-authorization-red.log",
+            "sha256": "742a40f6956fc16a7ae11a7ada64a8226d5321fccf90c47208c67783332c6568"
+          },
+          "restored": {
+            "file": "l2fix-legacy-mh-l2-live-node24-mac-authorization-green.log",
+            "sha256": "03da22794610aaf138fbd7ed34c262bbac405c2f459cc4fc7515e727d689a218"
+          }
+        },
+        {
+          "name": "mac-publication",
+          "mutant": {
+            "file": "l2fix-legacy-mh-l2-live-node24-mac-publication-red.log",
+            "sha256": "dfef7f1eb8b8fa338dd2adef7a7354549b926ee212e58be87ec0a91400c83cd4"
+          },
+          "restored": {
+            "file": "l2fix-legacy-mh-l2-live-node24-mac-publication-green.log",
+            "sha256": "adb03405350e4462b1e65741b5bc3fffe5204f829f19c54e4db91db9e8afe2fa"
+          }
+        },
+        {
+          "name": "new-UID",
+          "mutant": {
+            "file": "l2fix-legacy-mh-l2-live-node24-new-UID-red.log",
+            "sha256": "afc568e007b2528d6fdde9c129e86305bd8f075faa31e9dce4ba47a776a54ffb"
+          },
+          "restored": {
+            "file": "l2fix-legacy-mh-l2-live-node24-new-UID-green.log",
+            "sha256": "0c58857a1270c4b521f286e8c34863cc82e1fe0734f5d0d16c379d7fc7d2a256"
+          }
+        },
+        {
+          "name": "new-build",
+          "mutant": {
+            "file": "l2fix-legacy-mh-l2-live-node24-new-build-red.log",
+            "sha256": "958a20585075200973685b9b3e1c0da09d1c5ba6795ed49ed224451debb0ad27"
+          },
+          "restored": {
+            "file": "l2fix-legacy-mh-l2-live-node24-new-build-green.log",
+            "sha256": "cc71fa2559c3c22b3da325fb783d92912029f146a5667ffa113e6bff2805abce"
+          }
+        },
+        {
+          "name": "new-endpoint",
+          "mutant": {
+            "file": "l2fix-legacy-mh-l2-live-node24-new-endpoint-red.log",
+            "sha256": "a9498704ecc9fe8646da866898186d5c5d9efef63012754a7a08b64bdd696db8"
+          },
+          "restored": {
+            "file": "l2fix-legacy-mh-l2-live-node24-new-endpoint-green.log",
+            "sha256": "ccb44598bd47abb0364dbdd29e591b8b5960305ef80d4397b30525fd2fd3ac91"
+          }
+        },
+        {
+          "name": "new-epoch",
+          "mutant": {
+            "file": "l2fix-legacy-mh-l2-live-node24-new-epoch-red.log",
+            "sha256": "5d393b0296c8c01794df68cf118f1003fc9617e96523e4cfe8e07b4def6680a4"
+          },
+          "restored": {
+            "file": "l2fix-legacy-mh-l2-live-node24-new-epoch-green.log",
+            "sha256": "c1ec870fd8decf21fe2ee8bef56405a07b82f4fac3248df36f9226eb9780022d"
+          }
+        },
+        {
+          "name": "new-generation",
+          "mutant": {
+            "file": "l2fix-legacy-mh-l2-live-node24-new-generation-red.log",
+            "sha256": "7504264896771faec21f1ecd4f08cd8cf2083853247ac38028c4d2fecf27b6f2"
+          },
+          "restored": {
+            "file": "l2fix-legacy-mh-l2-live-node24-new-generation-green.log",
+            "sha256": "c3b45a9156fff7e3c5b523d3f58403f24f6885ac6a1f6240f1d0c4b0e8a16db9"
+          }
+        },
+        {
+          "name": "new-manifest",
+          "mutant": {
+            "file": "l2fix-legacy-mh-l2-live-node24-new-manifest-red.log",
+            "sha256": "0c18b4b30389d2fec379f017453d8ff0eb38fd0d2425895066fb4831d5ed36aa"
+          },
+          "restored": {
+            "file": "l2fix-legacy-mh-l2-live-node24-new-manifest-green.log",
+            "sha256": "ffe9d3e8ff13686c8f36c41c4e84b541e45e058b2386c6bfacb8ae626d258674"
+          }
+        },
+        {
+          "name": "new-namespace",
+          "mutant": {
+            "file": "l2fix-legacy-mh-l2-live-node24-new-namespace-red.log",
+            "sha256": "89f2e6b0e5879aac7aa57c99ef3869d794b1e59316e2eb11bd79cc0baf155fb5"
+          },
+          "restored": {
+            "file": "l2fix-legacy-mh-l2-live-node24-new-namespace-green.log",
+            "sha256": "7c2534234bc54e2404e847de69ba8379439166e63453950012c343ee4666827c"
+          }
+        },
+        {
+          "name": "new-predecessor",
+          "mutant": {
+            "file": "l2fix-legacy-mh-l2-live-node24-new-predecessor-red.log",
+            "sha256": "44e9a81163a443b7db0262ca8882739a7d9464a03eb928b62196ad7d4abe54e2"
+          },
+          "restored": {
+            "file": "l2fix-legacy-mh-l2-live-node24-new-predecessor-green.log",
+            "sha256": "a9414d579341b54dbe46bffee64d9d63473b8f192d8753e0f1f99df3ab86db0d"
+          }
+        },
+        {
+          "name": "new-process-frame",
+          "mutant": {
+            "file": "l2fix-legacy-mh-l2-live-node24-new-process-frame-red.log",
+            "sha256": "9e67ab32ac8c1ded3cd62bf4406103109535de82a5e07cdede72cb25fd955390"
+          },
+          "restored": {
+            "file": "l2fix-legacy-mh-l2-live-node24-new-process-frame-green.log",
+            "sha256": "e33fe0b8a75edb7bcf90cc75fbfe0ea7d5250a28d9aadeda8d17720a62cd154a"
+          }
+        },
+        {
+          "name": "new-root",
+          "mutant": {
+            "file": "l2fix-legacy-mh-l2-live-node24-new-root-red.log",
+            "sha256": "4f04dd1e26dd19181c6370c1ac2e8dc74c21d79cf787b49108c53ef0cc8ca16e"
+          },
+          "restored": {
+            "file": "l2fix-legacy-mh-l2-live-node24-new-root-green.log",
+            "sha256": "99856bd547b54e5a56b75abfd6f81b289c476698597b0581296109fb0e51be88"
+          }
+        },
+        {
+          "name": "not-yet-valid",
+          "mutant": {
+            "file": "l2fix-legacy-mh-l2-live-node24-not-yet-valid-red.log",
+            "sha256": "645553b04756378fbff4bf540828427bb7a1732d48fd7b52d6b39c27b3fe6a74"
+          },
+          "restored": {
+            "file": "l2fix-legacy-mh-l2-live-node24-not-yet-valid-green.log",
+            "sha256": "758c3bd63d32d4e359b85b31308a45117da2798a24e607df470fd07f6f95c971"
+          }
+        },
+        {
+          "name": "old-build",
+          "mutant": {
+            "file": "l2fix-legacy-mh-l2-live-node24-old-build-red.log",
+            "sha256": "826145bc474d240039c1b4861b85eda298702c2ac71ebd1f9e219bfe740cdb7d"
+          },
+          "restored": {
+            "file": "l2fix-legacy-mh-l2-live-node24-old-build-green.log",
+            "sha256": "ae0f0174dbcafa492c593894bfada6e9be41f0ae997911909b21110f2e9c8265"
+          }
+        },
+        {
+          "name": "old-generation",
+          "mutant": {
+            "file": "l2fix-legacy-mh-l2-live-node24-old-generation-red.log",
+            "sha256": "35931ba9c29e3c3263e9740d6bc4916cce8e0695bb15739ca0bfeb8559975264"
+          },
+          "restored": {
+            "file": "l2fix-legacy-mh-l2-live-node24-old-generation-green.log",
+            "sha256": "3388595b47d6822ebd7c75d9e5e79b1f2ea1c89bec9ef3304a5ae2132f98f810"
+          }
+        },
+        {
+          "name": "old-process",
+          "mutant": {
+            "file": "l2fix-legacy-mh-l2-live-node24-old-process-red.log",
+            "sha256": "02af5c091645f9017077c1c837ea973d4bdb39937f1837231e16cd97f0b32fb6"
+          },
+          "restored": {
+            "file": "l2fix-legacy-mh-l2-live-node24-old-process-green.log",
+            "sha256": "44cf2fa7bb1cf0ff3dac24eb41b44e72da470aca30bdbc98afd9b22c2a61fc2b"
+          }
+        },
+        {
+          "name": "old-publication-epoch",
+          "mutant": {
+            "file": "l2fix-legacy-mh-l2-live-node24-old-publication-epoch-red.log",
+            "sha256": "4d161fe2bd9358a82b1551310ac911b76089bce325509c2db986a6d6fd859e06"
+          },
+          "restored": {
+            "file": "l2fix-legacy-mh-l2-live-node24-old-publication-epoch-green.log",
+            "sha256": "a5d92b761858906a65f3dbb774af341cc4de9b7151258ffbe11d8844d8a0958f"
+          }
+        },
+        {
+          "name": "operator-reopen",
+          "mutant": {
+            "file": "l2fix-legacy-mh-l2-live-node24-operator-reopen-red.log",
+            "sha256": "af49f6f0794daa4029961e9493ea6b14ed528cb1c11b1bb01536c5e781566af3"
+          },
+          "restored": {
+            "file": "l2fix-legacy-mh-l2-live-node24-operator-reopen-green.log",
+            "sha256": "b8272b2da0d6917ed302833ed0c8459da5c73e3703b122a76037c1c735054910"
+          }
+        },
+        {
+          "name": "owner-process",
+          "mutant": {
+            "file": "l2fix-legacy-mh-l2-live-node24-owner-process-red.log",
+            "sha256": "c654a52e7e5bc0d2cd6f11afb05f5a2769af9e19b844c139ed9aa596b05a3e9f"
+          },
+          "restored": {
+            "file": "l2fix-legacy-mh-l2-live-node24-owner-process-green.log",
+            "sha256": "aae590a5e7f9d98df0a6fb87a6fa62976412bb9af346192d57d2e22e0d97f779"
+          }
+        },
+        {
+          "name": "publication-authorization",
+          "mutant": {
+            "file": "l2fix-legacy-mh-l2-live-node24-publication-authorization-red.log",
+            "sha256": "45b868f7b2a87bfbf007d8c1cf3d7f11dbedd2061089b3ae91065870142fabac"
+          },
+          "restored": {
+            "file": "l2fix-legacy-mh-l2-live-node24-publication-authorization-green.log",
+            "sha256": "11eaf54ba2aa1199d9587ede0082c4be07adf9abd63efece18e03accfff16604"
+          }
+        },
+        {
+          "name": "publication-checkpoint",
+          "mutant": {
+            "file": "l2fix-legacy-mh-l2-live-node24-publication-checkpoint-red.log",
+            "sha256": "c4d362c1929e85b2f365e983352a83bccafcde56270d816a89494436f889bd09"
+          },
+          "restored": {
+            "file": "l2fix-legacy-mh-l2-live-node24-publication-checkpoint-green.log",
+            "sha256": "10cb65fa8424c0236c8155ff3476c808164a388adcf76f3fd05682142f1c75d8"
+          }
+        },
+        {
+          "name": "publication-entry-revalidation",
+          "mutant": {
+            "file": "l2fix-legacy-mh-l2-live-node24-publication-entry-revalidation-red.log",
+            "sha256": "98707506ff8b023f9d3b2a5605ce182c431acc68fd51e1a2491cf46cf4c11090"
+          },
+          "restored": {
+            "file": "l2fix-legacy-mh-l2-live-node24-publication-entry-revalidation-green.log",
+            "sha256": "863489d384a575939775fb3d7a04350891b7c5a880d69f8413945bd29a3a0f02"
+          }
+        },
+        {
+          "name": "publication-marker",
+          "mutant": {
+            "file": "l2fix-legacy-mh-l2-live-node24-publication-marker-red.log",
+            "sha256": "b288ff4bc9e47abf293d2555309570765a41d11e897a95af5d674e02edfaffac"
+          },
+          "restored": {
+            "file": "l2fix-legacy-mh-l2-live-node24-publication-marker-green.log",
+            "sha256": "03723e2da52b18d03efdff3217a8887524799c897b6392d1b854407947ba0f98"
+          }
+        },
+        {
+          "name": "publication-precheck-revalidation",
+          "mutant": {
+            "file": "l2fix-legacy-mh-l2-live-node24-publication-precheck-revalidation-red.log",
+            "sha256": "7f64372528dd6db1c686bb4fa920b27b376d84b5ab4ffc1df960e0780f0c79ad"
+          },
+          "restored": {
+            "file": "l2fix-legacy-mh-l2-live-node24-publication-precheck-revalidation-green.log",
+            "sha256": "b59c268ebf873aa8bbb23b49f66173a94f8a86b2b332617afb950e2054b31d64"
+          }
+        },
+        {
+          "name": "publication-target",
+          "mutant": {
+            "file": "l2fix-legacy-mh-l2-live-node24-publication-target-red.log",
+            "sha256": "cddfcf39a1602d2ffae0342f2b7bf0868c3ee9244dcd35c28d26c20afe90080d"
+          },
+          "restored": {
+            "file": "l2fix-legacy-mh-l2-live-node24-publication-target-green.log",
+            "sha256": "e1fcc9b8286d3a9c5041323b111ace4820866487512225de5ebb2ba0e92c19f9"
+          }
+        },
+        {
+          "name": "publication-target-revalidation",
+          "mutant": {
+            "file": "l2fix-legacy-mh-l2-live-node24-publication-target-revalidation-red.log",
+            "sha256": "c4ed7209793d19b18dc664cd81d6e62b07388a19e48c3bdceb682b0471bd76af"
+          },
+          "restored": {
+            "file": "l2fix-legacy-mh-l2-live-node24-publication-target-revalidation-green.log",
+            "sha256": "8e94c44a95fcec419bb77c8539c1fde0c1b1ab2e0ef0df636bef980f2f43acf9"
+          }
+        },
+        {
+          "name": "reconcile-uncertain-fence",
+          "mutant": {
+            "file": "l2fix-legacy-mh-l2-live-node24-reconcile-uncertain-fence-red.log",
+            "sha256": "aaf20569ea2de65c065435a8212c91ff0bcf3c3116e756224a38a2063b867f50"
+          },
+          "restored": {
+            "file": "l2fix-legacy-mh-l2-live-node24-reconcile-uncertain-fence-green.log",
+            "sha256": "364f1c0548d7d4d4df4d5c33383d1a47a8184d62cf74d72b4bbdb4433a46ecff"
+          }
+        },
+        {
+          "name": "retirement-acceptance",
+          "mutant": {
+            "file": "l2fix-legacy-mh-l2-live-node24-retirement-acceptance-red.log",
+            "sha256": "7aedf71863bfeff0de401f0b99577caf23bf33fc3ee6bacdf7dbab3ac05fb196"
+          },
+          "restored": {
+            "file": "l2fix-legacy-mh-l2-live-node24-retirement-acceptance-green.log",
+            "sha256": "e039f4dcd01c5f15bd1ad5339a3548a66d8a912fb6655fc7da0efaa555d855ca"
+          }
+        },
+        {
+          "name": "revalidation",
+          "mutant": {
+            "file": "l2fix-legacy-mh-l2-live-node24-revalidation-red.log",
+            "sha256": "5133e6cb13cc5cb883985b4db1b86a63d6446305ea64791927d85822605e8efb"
+          },
+          "restored": {
+            "file": "l2fix-legacy-mh-l2-live-node24-revalidation-green.log",
+            "sha256": "183e131c2b7d4a0e32e1125d1bc6d6e8833dfcbcb56db69eadf38c13d91acf95"
+          }
+        },
+        {
+          "name": "same-process",
+          "mutant": {
+            "file": "l2fix-legacy-mh-l2-live-node24-same-process-red.log",
+            "sha256": "3edcdd215875afe63516e9434f144adca5e9307ea72a552b8f5ad1ea9737c1d2"
+          },
+          "restored": {
+            "file": "l2fix-legacy-mh-l2-live-node24-same-process-green.log",
+            "sha256": "312bf540a17c5e5ff7a0ed7b5e699ea828e3c3f17b325e2c472d827b6e300422"
+          }
+        },
+        {
+          "name": "source-drain-scope",
+          "mutant": {
+            "file": "l2fix-legacy-mh-l2-live-node24-source-drain-scope-red.log",
+            "sha256": "e47b896ce799c1508617ed26413c855955d210bc29dff11c744983c9a14e847c"
+          },
+          "restored": {
+            "file": "l2fix-legacy-mh-l2-live-node24-source-drain-scope-green.log",
+            "sha256": "e508e8c64a87da03b3a2af6e66d028ceb854087f0e62f1569cafcacba0f3523c"
+          }
+        },
+        {
+          "name": "source-memo-scope",
+          "mutant": {
+            "file": "l2fix-legacy-mh-l2-live-node24-source-memo-scope-red.log",
+            "sha256": "41425d8cf9e5ca00085dd007e8ad9ed6e13bcf6a0d6bc8b2495577de0cf9aaf6"
+          },
+          "restored": {
+            "file": "l2fix-legacy-mh-l2-live-node24-source-memo-scope-green.log",
+            "sha256": "8bb2c5bb39247862ffc63b534d5bd0ac5fd7014e6585c5970d127dc20797d233"
+          }
+        },
+        {
+          "name": "source-reconcile-scope",
+          "mutant": {
+            "file": "l2fix-legacy-mh-l2-live-node24-source-reconcile-scope-red.log",
+            "sha256": "823b26420bc86fa3699c40f6b8db0ebc459b88d0881a895e3bdafc03bddd8d4c"
+          },
+          "restored": {
+            "file": "l2fix-legacy-mh-l2-live-node24-source-reconcile-scope-green.log",
+            "sha256": "2ad7f86e06a819edfa4abc2d7dee5ea6956d24b962cada2a17709e7226cba4fc"
+          }
+        },
+        {
+          "name": "source-unknown-work",
+          "mutant": {
+            "file": "l2fix-legacy-mh-l2-live-node24-source-unknown-work-red.log",
+            "sha256": "21da7228bf10231dc83949aca3247bc146a1bcc518140d3866fe1f9606e6a88e"
+          },
+          "restored": {
+            "file": "l2fix-legacy-mh-l2-live-node24-source-unknown-work-green.log",
+            "sha256": "e9fe8541f9eedd6afceddbb634ecc2666d10cfe8b50c7e8af95c6d683d379915"
+          }
+        },
+        {
+          "name": "step-conflict",
+          "mutant": {
+            "file": "l2fix-legacy-mh-l2-live-node24-step-conflict-red.log",
+            "sha256": "e411006e7a6a9952299ae267007734a29666b3d535a057fd5e7496f17be5d153"
+          },
+          "restored": {
+            "file": "l2fix-legacy-mh-l2-live-node24-step-conflict-green.log",
+            "sha256": "d2147344c022f19dd9e68b205aec0e2e0da8a0ad19fd9aa02519ee8c0b54796c"
+          }
+        },
+        {
+          "name": "step-id-recovery",
+          "mutant": {
+            "file": "l2fix-legacy-mh-l2-live-node24-step-id-recovery-red.log",
+            "sha256": "bc416b50f2cc0ab00311533016e4748157eb707474e1c6e7a792147e7d818ed6"
+          },
+          "restored": {
+            "file": "l2fix-legacy-mh-l2-live-node24-step-id-recovery-green.log",
+            "sha256": "b8585950e539dc4789c0d0dfb8b6dc8bf2b01997dae5238cd4530d39b7934a71"
+          }
+        },
+        {
+          "name": "ticket-and-receipt",
+          "mutant": {
+            "file": "l2fix-legacy-mh-l2-live-node24-ticket-and-receipt-red.log",
+            "sha256": "51a3e03cb3bbf8312a6d39b3c2ca74493e90cb95f14352673744d010733a4c12"
+          },
+          "restored": {
+            "file": "l2fix-legacy-mh-l2-live-node24-ticket-and-receipt-green.log",
+            "sha256": "c3b9c71e7b7d01646b8d52b433ec0dee29057b8436b95064235c264ece0bf6b5"
+          }
+        },
+        {
+          "name": "ticket-possession",
+          "mutant": {
+            "file": "l2fix-legacy-mh-l2-live-node24-ticket-possession-red.log",
+            "sha256": "0d5b8dd5630d20e367bf7aea52f35b13cd9dfd83532fcd6ad46338b3f1b3f024"
+          },
+          "restored": {
+            "file": "l2fix-legacy-mh-l2-live-node24-ticket-possession-green.log",
+            "sha256": "a45927d806a0850b2ca39cd46b8e1d8d58ab906d3d85b9f8955cd2261688f6dc"
+          }
+        },
+        {
+          "name": "wrong-controller",
+          "mutant": {
+            "file": "l2fix-legacy-mh-l2-live-node24-wrong-controller-red.log",
+            "sha256": "1abdff24a01f590cd692bd81baf36eebb2686ad8bf83816d8434316fc1a4500e"
+          },
+          "restored": {
+            "file": "l2fix-legacy-mh-l2-live-node24-wrong-controller-green.log",
+            "sha256": "8a52cded595aa68efd818b8d5395fd2e865c44155a4830810f9a1bc3409e329d"
+          }
+        },
+        {
+          "name": "wrong-handover",
+          "mutant": {
+            "file": "l2fix-legacy-mh-l2-live-node24-wrong-handover-red.log",
+            "sha256": "d0082b93e65cf1e3e9bffd1da4fac097b2d5ef4478828415a6e08efd12115cbb"
+          },
+          "restored": {
+            "file": "l2fix-legacy-mh-l2-live-node24-wrong-handover-green.log",
+            "sha256": "1f0a8166603a4384db776c83a64512e92a989dafa92026537e43c2288f3a3b04"
+          }
+        },
+        {
+          "name": "wrong-selection",
+          "mutant": {
+            "file": "l2fix-legacy-mh-l2-live-node24-wrong-selection-red.log",
+            "sha256": "b2e20cd7e956ba5c790d511b45baf9735b04bf7b525b410858dd89daaffeba22"
+          },
+          "restored": {
+            "file": "l2fix-legacy-mh-l2-live-node24-wrong-selection-green.log",
+            "sha256": "38ac3852564258251e215e69b6e5eaeb654c5002bb5cb97f9100c7f057017fea"
+          }
+        },
+        {
+          "name": "wrong-transaction-epoch",
+          "mutant": {
+            "file": "l2fix-legacy-mh-l2-live-node24-wrong-transaction-epoch-red.log",
+            "sha256": "22198b6132193f4eb00d170e25c5c4bd33a2be5d3723f753a493d14959e48962"
+          },
+          "restored": {
+            "file": "l2fix-legacy-mh-l2-live-node24-wrong-transaction-epoch-green.log",
+            "sha256": "fba30d1535137b2d5fc6e502250ec04a3a6a0b05964e153812138227290d74a2"
+          }
+        }
+      ]
+    }
+  ],
+  "totals": {
+    "explicitFilesPerProfile": 33,
+    "testsPerProfile": 288,
+    "findingMutations": 24,
+    "legacyMutations": 126,
+    "allMutationPairs": 150
+  },
+  "exclusions": [
+    "repository-wide suite",
+    "old cold/MH-L4 mutation campaigns",
+    "MH-L3/M21",
+    "real owner state",
+    "independent conductor review"
+  ]
+}

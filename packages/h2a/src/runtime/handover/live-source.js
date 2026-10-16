@@ -115,7 +115,7 @@ export class PassiveLiveSource {
     return { publicationDigest, markerDigest: publication.markerDigest };
   }
   verifyAuthority(tx) {
-    if (!tx || tx.mode !== 'live-transfer' || this.sourcePublished(tx)) return false;
+    if (!tx || tx.mode !== 'live-transfer' || tx.state === 'ABORTED' || this.sourcePublished(tx)) return false;
     const publication = Object.values(tx.stepResults).map(s => s.result).find(r => r?.publicationDigest && ['PUBLISHED', 'RETIRED'].includes(r.state));
     // This is the pure publication-authority read before reconciliation. The
     // registry may still be indeterminate; every retirement/fence checks the

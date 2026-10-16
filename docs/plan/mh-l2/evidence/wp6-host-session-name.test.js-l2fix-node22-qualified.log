@@ -1,0 +1,70 @@
+command: /usr/bin/node --test packages/h2a/test/wp6-host-session-name.test.js
+node: v22.22.1
+private test root: /tmp/mh-l2-test-DL2j2t
+Claude config: temporary HOME / injected homedir fallback
+TAP version 13
+# Subtest: readHostSessionName: claude returns customTitle (preferred over agentName and aiTitle)
+ok 1 - readHostSessionName: claude returns customTitle (preferred over agentName and aiTitle)
+  ---
+  duration_ms: 3.106253
+  type: 'test'
+  ...
+# Subtest: readHostSessionName: claude falls back to agentName when no customTitle
+ok 2 - readHostSessionName: claude falls back to agentName when no customTitle
+  ---
+  duration_ms: 0.668317
+  type: 'test'
+  ...
+# Subtest: readHostSessionName: claude never returns aiTitle (returns undefined)
+ok 3 - readHostSessionName: claude never returns aiTitle (returns undefined)
+  ---
+  duration_ms: 0.519397
+  type: 'test'
+  ...
+# Subtest: readHostSessionName: claude takes the LAST customTitle (a rename appends)
+ok 4 - readHostSessionName: claude takes the LAST customTitle (a rename appends)
+  ---
+  duration_ms: 0.453634
+  type: 'test'
+  ...
+# Subtest: readHostSessionName: codex returns thread_name, last-match wins
+ok 5 - readHostSessionName: codex returns thread_name, last-match wins
+  ---
+  duration_ms: 0.326104
+  type: 'test'
+  ...
+# Subtest: readHostSessionName: codex returns undefined when sessionId not in index
+ok 6 - readHostSessionName: codex returns undefined when sessionId not in index
+  ---
+  duration_ms: 0.086333
+  type: 'test'
+  ...
+# Subtest: readHostSessionName: unknown host returns undefined
+ok 7 - readHostSessionName: unknown host returns undefined
+  ---
+  duration_ms: 0.123472
+  type: 'test'
+  ...
+# Subtest: readHostSessionName: returns undefined when sessionId is undefined
+ok 8 - readHostSessionName: returns undefined when sessionId is undefined
+  ---
+  duration_ms: 0.07459
+  type: 'test'
+  ...
+# Subtest: sessions --name finds a session whose presence.name is set from host naming
+ok 9 - sessions --name finds a session whose presence.name is set from host naming
+  ---
+  duration_ms: 3.795871
+  type: 'test'
+  ...
+1..9
+# tests 9
+# suites 0
+# pass 9
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 342.590433
+
+receipt: {"command":["/usr/bin/node","--test","packages/h2a/test/wp6-host-session-name.test.js"],"code":0,"signal":null,"elapsedMs":443}

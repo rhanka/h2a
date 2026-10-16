@@ -7,6 +7,7 @@ import { spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
+import { tmpdir } from 'node:os';
 import { digest, sign } from '../src/runtime/handover/wire.js';
 import { publishState, readState, replaceState } from '../src/runtime/handover/state.js';
 import { authenticatedHttpRequest, readAuthenticationKey } from '../src/runtime/handover/authenticated-http.js';
@@ -17,7 +18,15 @@ import { localStorePaths, presenceFile } from '../dist/runtime/local-files/paths
 test('real .7 source should accept the external peer, preserve its admitted large reply and retire without deleting the successor marker', async () => {
   const { buildPackagingPrototype } = await import('../../../scripts/mh-l1-package-prototype.mjs');
   const { runIsolatedPrecheck } = await import('../src/runtime/handover/precheck.js');
-  const dir = fs.mkdtempSync(join(process.env.XDG_CACHE_HOME, 'mh-l2-live-image-'));
+  let dir;
+  assert.doesNotThrow(() => {
+    dir = fs.mkdtempSync(join(process.env.H2A_HANDOVER_TEST_TMPDIR || process.env.TMPDIR || tmpdir(), 'mh-l2-live-image-'));
+  });
+  const priorTmpdir = process.env.TMPDIR;
+  // The injected run still enforces durable-workspace separation. Keep its
+  // workspace in this private fixture and its OS scratch in a distinct child.
+  process.env.TMPDIR = join(dir, 'tmp');
+  fs.mkdirSync(process.env.TMPDIR, { mode: 0o700 });
   let source, peer, peerExit, lines, releaseTool, enterTool, originalFailure;
   const toolEntered = new Promise(resolve => { enterTool = resolve; });
   try {
@@ -56,7 +65,9 @@ test('real .7 source should accept the external peer, preserve its admitted larg
     // A failing assertion must report its cause even when cleanup closes the
     // deliberately suspended HTTP call. The original promise is still awaited.
     void running.catch(() => {});
-    await toolEntered;
+    await Promise.race([toolEntered, running.then(async response => {
+      throw new Error('fixture tool finished before entering the injected executor: ' + JSON.stringify(await response.json()));
+    })]);
     const target = { packageVersion: selection.packageVersion, buildId: selection.buildId, manifestDigest: selection.manifestDigest, entrypoint: join(image, selection.entrypoint) };
     const oldSelection = readState(selectionPath, 'selection'); selection = { ...selection, selectionEpoch: 2 };
     replaceState(selectionPath, selection, 'selection', oldSelection);
@@ -98,9 +109,11 @@ test('real .7 source should accept the external peer, preserve its admitted larg
       const signed = { ...value, mac: sign(key, 'compatibility', signingContext, value) }, hash = digest(signed);
       publishState(join(durable, `live-${kind}-${hash.slice(7)}.json`), signed, kind === 'authorization' ? 'liveSourceAuthorization' : 'liveSourcePublication'); return hash;
     };
+    let inventoryObservation = 0;
     const call = async (operation, body = {}, expectedStatus = 200) => {
       const step = { protocolVersion: 1, mode: 'live-transfer', upgradeId: 'u', handoverId: 'h', transactionEpoch: 1,
-        expectedGeneration: m.generation, expectedPublicationEpoch: m.publicationEpoch, inventoryRevision: 2, stepId: operation, payloadDigest: digest(body) };
+        expectedGeneration: m.generation, expectedPublicationEpoch: m.publicationEpoch, inventoryRevision: 2,
+        stepId: operation === 'inventory' ? `inventory-${++inventoryObservation}` : operation, payloadDigest: digest(body) };
       const response = await authenticatedHttpRequest(markerPath, m, new URL(`/_h2a-central/admin/${operation}`, m.endpoint), { method: 'POST', body: JSON.stringify({ step, payload: body, coordinator }) });
       const value = await response.json(); assert.equal(response.status, expectedStatus, JSON.stringify(value)); return value;
     };
@@ -111,7 +124,17 @@ test('real .7 source should accept the external peer, preserve its admitted larg
     assert.equal(unsigned.status, 401); await unsigned.text();
     const reserved = await call('reserve', { target, controllerEpoch: 2, selectionEpoch: 2, precheckEvidenceDigest, authorizationDigest });
     assert.equal(reserved.state, 'RESERVED'); assert.equal((await call('describe')).liveCoordinator, false);
-    await call('barrier', { deadline: Date.now() + 60000 }); await call('freeze');
+    const refuseDelete = async state => {
+      const before = await call('inventory');
+      const response = await authenticatedHttpRequest(markerPath, m, m.endpoint, { method: 'DELETE', headers: { 'mcp-session-id': session } });
+      assert.equal(response.status, 409, `DELETE must preserve the ${state} inventory`);
+      assert.deepEqual(await response.json(), { error: 'admission_closed', accepted: false, execution: 'not_started' });
+      const after = await call('inventory');
+      assert.equal(after.revision, before.revision);
+      assert.deepEqual(after.transports, before.transports);
+    };
+    await call('barrier', { deadline: Date.now() + 60000 }); await refuseDelete('BARRIER');
+    await call('freeze'); await refuseDelete('FROZEN');
     const checkpoints = await call('checkpoint');
     const checkpoint = readState(join(durable, checkpoints.references[0]), 'checkpoint').value;
     assert.equal(checkpoint.context.workspace, dir); assert.equal(checkpoint.presence.length, 1);
@@ -122,6 +145,7 @@ test('real .7 source should accept the external peer, preserve its admitted larg
     assert.equal((await call('retire', { publicationDigest }, 409)).error, 'live_publication_mismatch');
     replaceState(markerPath, next, 'marker', readState(markerPath, 'marker'));
     assert.equal((await call('retire', { publicationDigest }, 409)).error, 'drain_blocked');
+    await refuseDelete('PUBLISHED');
     const ownerPath = fs.readdirSync(durable).find(name => name.startsWith('ownership-'));
     assert.equal(readState(join(durable, ownerPath), 'ownership').value.state, 'TRANSFERRING');
     const acquisition = await peerCommand({ operation: 'acquire', target: next, root, markerPath,
@@ -152,7 +176,11 @@ test('real .7 source should accept the external peer, preserve its admitted larg
     let stopError;
     try { releaseTool?.(); if (source?.kind === 'started') await source.stop(); } catch (error) { stopError = error; }
     try { lines?.close(); if (peer) { peer.stdin.end(); const [code] = await peerExit; if (!originalFailure) assert.equal(code, 0); } }
-    finally { fs.rmSync(dir, { recursive: true, force: true }); }
+    finally {
+      if (priorTmpdir === undefined) delete process.env.TMPDIR;
+      else process.env.TMPDIR = priorTmpdir;
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
     if (!originalFailure && stopError) throw stopError;
   }
 });

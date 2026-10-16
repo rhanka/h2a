@@ -1,7 +1,6 @@
 import { withWriterMutation } from "../handover/mutation.js";
 import { createHash, generateKeyPairSync } from "node:crypto";
 import {
-  copyFileSync,
   existsSync,
   mkdirSync,
   readFileSync,
@@ -211,33 +210,25 @@ function readKeypair(root: string, instance: string):
   };
 }
 
-function ensureKeypairUnfenced(
+function ensureKeypair(
   root: string,
   instance: string,
   adoptFromInstance?: string
 ): { publicKeyPem: string; privateKeyPath: string; publicKeyPath: string } {
-  const existing = readKeypair(root, instance);
-  if (existing) {
-    return {
-      publicKeyPem: existing.publicKeyPem,
-      privateKeyPath: existing.privateKeyPath,
-      publicKeyPath: existing.publicKeyPath
-    };
-  }
-
-  const paths = identityKeyPaths(root, instance);
-  mkdirSync(join(root, "keys"), { recursive: true });
-  const adopted = adoptFromInstance ? readKeypair(root, adoptFromInstance) : undefined;
-  if (adopted) {
-    copyFileSync(adopted.privateKeyPath, paths.privateKeyPath);
-    copyFileSync(adopted.publicKeyPath, paths.publicKeyPath);
-    return { publicKeyPem: adopted.publicKeyPem, ...paths };
-  }
-
-  const generated = generateKeypair();
-  writeFileSync(paths.privateKeyPath, generated.privateKeyPem, { encoding: "utf8", mode: 0o600 });
-  writeFileSync(paths.publicKeyPath, generated.publicKeyPem, "utf8");
-  return { publicKeyPem: generated.publicKeyPem, ...paths };
+  // Prepare expensive cryptography before taking the store-wide lock. A
+  // concurrent publisher may win meanwhile; re-read its keys under the gate.
+  const prepared = readKeypair(root, instance) ??
+    (adoptFromInstance ? readKeypair(root, adoptFromInstance) : undefined) ?? generateKeypair();
+  return withWriterMutation(root, 'registry', () => {
+    const existing = readKeypair(root, instance);
+    if (existing) return { publicKeyPem: existing.publicKeyPem,
+      privateKeyPath: existing.privateKeyPath, publicKeyPath: existing.publicKeyPath };
+    const paths = identityKeyPaths(root, instance);
+    mkdirSync(join(root, "keys"), { recursive: true });
+    writeFileSync(paths.privateKeyPath, prepared.privateKeyPem, { encoding: "utf8", mode: 0o600 });
+    writeFileSync(paths.publicKeyPath, prepared.publicKeyPem, "utf8");
+    return { publicKeyPem: prepared.publicKeyPem, ...paths };
+  });
 }
 
 /**
@@ -795,10 +786,6 @@ export async function resolveLiveIdentityAsync(
         ? `identity migration: ${result.instance} reads legacy ${P.legacyInstance}; ${P.legacyDecision.reason}`
         : undefined
   };
-}
-
-function ensureKeypair(...args: Parameters<typeof ensureKeypairUnfenced>): ReturnType<typeof ensureKeypairUnfenced> {
-  return withWriterMutation(args[0], 'registry', () => ensureKeypairUnfenced(...args));
 }
 
 function cleanupOrphanKeypair(...args: Parameters<typeof cleanupOrphanKeypairUnfenced>): ReturnType<typeof cleanupOrphanKeypairUnfenced> {

@@ -1,0 +1,23 @@
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node --test packages/h2a/test/wp6-host-session-name.test.js
+node: v24.21.0
+private test root: /tmp/mh-l2-test-won3va
+Claude config: temporary HOME / injected homedir fallback
+✔ readHostSessionName: claude returns customTitle (preferred over agentName and aiTitle) (1.349299ms)
+✔ readHostSessionName: claude falls back to agentName when no customTitle (0.336503ms)
+✔ readHostSessionName: claude never returns aiTitle (returns undefined) (0.285988ms)
+✔ readHostSessionName: claude takes the LAST customTitle (a rename appends) (0.29743ms)
+✔ readHostSessionName: codex returns thread_name, last-match wins (0.154851ms)
+✔ readHostSessionName: codex returns undefined when sessionId not in index (0.073469ms)
+✔ readHostSessionName: unknown host returns undefined (0.057979ms)
+✔ readHostSessionName: returns undefined when sessionId is undefined (0.046758ms)
+✔ sessions --name finds a session whose presence.name is set from host naming (2.568903ms)
+ℹ tests 9
+ℹ suites 0
+ℹ pass 9
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 199.500964
+
+receipt: {"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","--test","packages/h2a/test/wp6-host-session-name.test.js"],"code":0,"signal":null,"elapsedMs":223}

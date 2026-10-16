@@ -1,5 +1,9 @@
 # Amendement MH-L2 — décision A du 15 octobre 2026
 
+Qualification historique, conservée avec ses échecs. La correction des six
+findings du 16 octobre et ses nouvelles preuves sont dans
+[OWNER-A-FINDING-CLOSURE.md](OWNER-A-FINDING-CLOSURE.md).
+
 L'amendement permet au central .7 de recevoir un passage à chaud conduit par
 un pair externe autorisé. Il n'ajoute aucun initiateur produit. La re-review
 indépendante exigée par le propriétaire précède toute réalisation MH-L3 ; voir

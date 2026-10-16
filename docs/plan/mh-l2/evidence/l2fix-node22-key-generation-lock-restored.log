@@ -1,0 +1,22 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l2-identity-contention.test.js
+node: v22.22.1
+private root: /tmp/mh-l2-amendment-vt0ZsK
+env selection: {"MH_L2_IDENTITY_CASE":"identity should generate Ed25519 keys outside the global writer lock and recheck the gate before publishing"}; unset: 
+TAP version 13
+# Subtest: identity should generate Ed25519 keys outside the global writer lock and recheck the gate before publishing
+ok 1 - identity should generate Ed25519 keys outside the global writer lock and recheck the gate before publishing
+  ---
+  duration_ms: 54.653341
+  type: 'test'
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 1
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 379.928301
+
+receipt: {"code":0,"signal":null}
