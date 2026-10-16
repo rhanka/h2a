@@ -241,6 +241,11 @@
           "minimum": 1,
           "maximum": 9007199254740991
         },
+        "ticketMac": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[0-9a-f]{64}$"
+        },
         "mac": {
           "type": "string",
           "minLength": 1,
@@ -258,6 +263,7 @@
         "selectionEpoch",
         "issuedAt",
         "expiresAt",
+        "ticketMac",
         "mac"
       ],
       "additionalProperties": false
