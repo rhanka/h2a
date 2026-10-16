@@ -74,6 +74,7 @@ Managed files update while their recorded bytes remain intact. Without `--force`
 local edits are conflicts; explicit user-scope `install-skills --force` restores managed skills/scripts with backups.
 Unknown provenance and customized hook blocks remain protected even with `--force`.
 Obsolete managed files are removed only at their recorded hash, with backup; customized residues remain conflicts.
+An incomplete source inventory reports failure and never retires installed files.
 Selected missing files are repairable. Project scope installs only project skills and uses the historical overwrite contract, without user hooks or installation state.
 Recognized deselection/disabled skills are preserved. Vibe status reports
 skill sources, filters, collisions and project hook masking; plugin resolution

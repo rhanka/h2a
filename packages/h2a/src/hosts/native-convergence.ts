@@ -36,7 +36,8 @@ export function convergeNativeHost(options: NativeConvergenceOptions) {
   const vibe = vibeOptions ? planVibeEquipment(vibeOptions) : undefined;
   if (vibe) artifacts.push(...vibe.artifacts);
   const result = convergeArtifacts({ state, root, host: shared ? 'gemini-commands' : host, version, artifacts, repair, dryRun,
-    force: options.explicitInstall && options.force, ...(shared ? { manifestName: 'shared-owner.json' } : {}), configure: vibe?.configure, finalize: vibe?.finish });
+    force: options.explicitInstall && options.force, prune: options.sourcesComplete !== false,
+    ...(shared ? { manifestName: 'shared-owner.json' } : {}), configure: vibe?.configure, finalize: vibe?.finish });
   // Re-read committed artifacts and selections. Never report pre-repair proof freshness.
   const installedVibe = vibeOptions && repair && !dryRun ? planVibeEquipment({ ...vibeOptions, guard: undefined, lifecycle: undefined, instance: undefined, repair: false }) : vibe;
   const missingSources = options.sourcesComplete === false;
