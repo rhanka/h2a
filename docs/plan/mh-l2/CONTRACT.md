@@ -126,6 +126,22 @@ request digest. A lost ACK or a nonempty drain resumes that same step; no public
 stepId is reserved for internal bookkeeping. A final RETIRED receipt retains the
 publication digest, including when a second concordant retire step finishes it.
 
+After source publication commitment and acquisition, G1 may open the common
+writer gate only under its exact ACTIVE component-control generation/process
+identity. G0 validates that authority as well as the frozen checkpoint/owner
+tuple; an anonymous OPEN gate or one belonging to another handover refuses.
+The component-control reference retains this handover until G0 retires. A
+PUBLISHED/RETIRED live source counts and reconciles only operations and launch
+memos executed by that source generation/process; G1's new work remains owned
+by G1. G0's unknown work continues to block its drain. The existing unscoped
+ledger/cold-stop behavior is unchanged. This is a source acceptance primitive,
+not a .7 target acquisition/restoration or live strategy.
+
+Authority verification during reconciliation is a pure read of the authenticated
+publication tuple. An indeterminate participant registry is fsynced/reconciled
+before participant validation/fencing runs again. Every mutation path retains
+the checkpoint and exact owner checks; no wire flag disables them.
+
 Publication, including a concordant marker observed before its receipt can be
 reconciled, prohibits abort/expiration/operator-stop from reopening G0. A
 contradiction closes admissions and requires explicit reconciliation. Repeated
