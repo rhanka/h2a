@@ -34,6 +34,7 @@ jobs:
           scripts/xcli-cleanup.test.mjs
           scripts/xcli-pid-namespace.test.mjs
           scripts/xcli-terminal.test.mjs
+          scripts/xcli-startup.test.mjs
       - name: Exercise all 36 ordered pairs with simulated models
         run: >-
           node scripts/qualify-cross-cli.mjs --simulated --timeout-ms 30000
@@ -83,3 +84,9 @@ jobs:
           packages/h2a/test/native-inventory-absence.test.js
           packages/h2a/test/m02-drive-characterization.test.js
           packages/h2a/test/m04-wake-characterization.test.js
+          packages/h2a/test/native-host-generations.test.js
+          packages/h2a/test/native-process-view.test.js
+          packages/h2a/test/native-spawn-guard.test.js
+          packages/h2a/test/pty-native-messaging.test.js
+          packages/h2a/test/drive.test.js
+          packages/h2a/test/cli-contract.test.js
