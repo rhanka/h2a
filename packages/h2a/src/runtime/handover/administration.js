@@ -179,6 +179,12 @@ export class ColdAdministration {
       if (tx.state !== 'PUBLISHED') {
         if (tx.barrierDeadline <= this.now()) throw new Error('barrier_expired');
         const publication = this.options.liveSource.publication(tx, payload.publicationDigest);
+        this.options.authorizeTarget(tx.target, tx.successorReservation.selectionEpoch);
+        // Reuse the existing irreversible-commit entry guard; this call only
+        // verifies the physical bin and does not execute a cold stop.
+        this.options.verifyEntry?.('commit-stop');
+        this.options.verifyPrecheck(tx.precheckEvidenceDigest, tx.target);
+        this.options.assertEligible?.();
         const result = { state: 'PUBLISHED', ...publication };
         this.update(observed, { state: 'PUBLISHED' }, step, result);
         observed = this.transaction();
