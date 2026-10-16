@@ -61,6 +61,7 @@ export type HostCommandRunner = (
 ) => HostCommandResult;
 
 export interface HostInstallationDoctorOptions {
+  readonly hosts?: readonly Host[];
   readonly home?: string;
   /** `false` is inspect-only. `true` performs the documented repair. */
   readonly repair?: boolean;
@@ -2662,7 +2663,7 @@ export function doctorHostInstallations(
     if (!cliReachable) report.unrepaired.push(unreachableHostCliDiagnostic(host, artifacts.present));
     return report;
   };
-  const mutable = [inspectOrRepair("claude"), inspectOrRepair("codex")];
+  const mutable = (options.hosts ?? ["claude", "codex"]).map(inspectOrRepair);
   const hosts = mutable.map(freezeReport);
   return {
     ok: hosts.every((host) => host.ok),

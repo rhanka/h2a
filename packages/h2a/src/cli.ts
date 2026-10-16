@@ -77,7 +77,8 @@ import { runHarnessCli, HARNESS_SKILLS } from "./vendor/harness/index.js";
 import { buildLaunchIndex } from "./runtime/local-files/launch-index.js";
 import { renderCommandMap } from "./cli-command-map.js";
 import { resolveHostConfigRoot } from "./runtime/host-config-root.js";
-import { isNativeHost, REGISTRY_WAITING } from "./hosts/native-paths.js";
+import { isNativeHost, NATIVE_HOSTS, REGISTRY_WAITING, vibeHome } from "./hosts/native-paths.js";
+import { convergeNativeHost } from "./hosts/native-convergence.js";
 
 import {
   H2A_ATTESTER_COMPREHENSION_RIGHT,
@@ -4670,7 +4671,10 @@ function cmdHostStatus(
       mcpAdapterShipped,
       hostSetupShipped,
       hostScenarioShipped,
-      summary
+      summary: hostScenarioShipped ? summary.replace('scenario shipped', 'rendu testé') : summary,
+      ...(isNativeHost(descriptor.host) ? { native: nativeHostReport(descriptor.host, flags, false) } : {
+        convergence: ['claude', 'codex'].includes(descriptor.host) ? 'historical doctor convergence; native parity unverified; registry non migré' : 'non couvert'
+      })
     };
   });
 
@@ -4695,6 +4699,15 @@ function cmdHostPlugin(flags: Record<string, string>, streams: H2ACliStreams): n
   if (!flags.instance) {
     streams.stderr.write("h2a host plugin: --instance <id> is required\n");
     return 1;
+  }
+  if (flags.host === 'vibe') {
+    try {
+      if (flags.instance === 'auto') throw new Error('non disponible — interface B non livrée');
+      if (flags.write && resolvePath(flags.write) !== join(vibeHome(), 'hooks.toml')) throw new Error('Vibe lifecycle writes only the effective <VIBE_HOME>/hooks.toml');
+      const result = nativeHostReport('vibe', flags, !!flags.write);
+      streams.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+      return result.ok ? 0 : 2;
+    } catch (error) { streams.stderr.write(`h2a host plugin: ${(error as Error).message}\n`); return 2; }
   }
   const render = renderStopHook(flags.host, {
     instance: flags.instance,
@@ -5670,6 +5683,12 @@ function cmdDoctor(
   streams: H2ACliStreams,
   options: H2ACliOptions = {}
 ): number {
+  if (flags.host && !isNativeHost(flags.host) && !['claude', 'codex'].includes(flags.host)) {
+    streams.stderr.write('h2a doctor: --host must be claude|codex|vibe|muse|agy\n'); return 1;
+  }
+  if ((flags.guard || flags.lifecycle) && flags.host !== 'vibe') {
+    streams.stderr.write('h2a doctor: --guard/--lifecycle require --host vibe\n'); return 1;
+  }
   const cwd = streams.cwd ?? (() => process.cwd());
   const root = resolveRoot(flags, cwd);
   const report: Record<string, unknown> = {
@@ -5750,9 +5769,10 @@ function cmdDoctor(
   // is allowed to touch host configuration/caches and invoke native host CLIs.
   // That keeps an ordinary isolated-bus probe independent of the operator's
   // personal Claude/Codex setup while retaining a fail-closed repair surface.
-  if (flags.repair === "true") {
+  if (flags.repair === "true" && (!flags.host || ['claude', 'codex'].includes(flags.host))) {
     const dryRun = flags["dry-run"] === "true";
-    const hostInstallations = (options.doctorHostInstallations ?? doctorHostInstallations)({ repair: true, dryRun });
+    const hostInstallations = (options.doctorHostInstallations ?? doctorHostInstallations)({ repair: true, dryRun,
+      ...(flags.host ? { hosts: [flags.host as 'claude' | 'codex'] } : {}) });
     checks.hostInstallations = hostInstallations;
     if (!hostInstallations.ok) {
       report.ok = false;
@@ -5806,6 +5826,16 @@ function cmdDoctor(
       skipped: true,
       message: "pass --repair to detect and converge Claude/Codex host installation drift"
     };
+  }
+
+  if (flags['skip-hosts'] !== 'true') {
+    const selection = flags.host ? isNativeHost(flags.host) ? [flags.host] : [] : NATIVE_HOSTS;
+    const hosts = selection.map(host => {
+      try { return nativeHostReport(host, flags, flags.repair === 'true'); }
+      catch (error) { return { host, ok: false, installation: 'inspection impossible', error: (error as Error).message }; }
+    });
+    checks.nativeHostInstallations = { ok: hosts.every(host => host.ok), hosts };
+    if (!hosts.every(host => host.ok)) report.ok = false;
   }
 
   // ── Warning checks (do NOT flip report.ok) ──────────────────────────────
@@ -6632,7 +6662,7 @@ function targetSpecFor(
     // installed skills are listed at session open.
     return {
       host: "vibe",
-      userBase: join(homedir(), ".vibe", "skills"),
+      userBase: join(vibeHome(), "skills"),
       projectBase: join(cwd, ".vibe", "skills"),
       extension: "SKILL.md",
       write: (base, skillName, _parsed, raw) => {
@@ -6927,6 +6957,15 @@ function collectInstallableSkills(): SkillCollection {
   return { skills, sources };
 }
 
+function nativeHostReport(host: string, flags: Record<string, string>, repair: boolean, explicitInstall = false, root?: string) {
+  const collection = collectInstallableSkills();
+  if (collection.error) throw new Error(collection.error.message);
+  return convergeNativeHost({ host, root, version: currentCliVersion(), skills: collection.skills, renderGemini: renderSkillAsGeminiToml,
+    sourcesComplete: collection.sources.every(s => s.dir !== null && s.count > 0), repair, explicitInstall,
+    dryRun: flags['dry-run'] === 'true', guard: flags.guard, lifecycle: flags.lifecycle,
+    instance: flags.instance, busRoot: flags.root, status: flags.status });
+}
+
 function cmdInstallSkills(
   flags: Record<string, string>,
   streams: H2ACliStreams
@@ -6971,6 +7010,14 @@ function cmdInstallSkills(
   }
 
   const targetBase = scope === "user" ? spec.userBase : spec.projectBase;
+  if (isNativeHost(host) || host === 'gemini') {
+    try {
+      const result = nativeHostReport(host, flags, true, true, dirname(targetBase));
+      streams.stdout.write(`${JSON.stringify({ ...result, scope, targetBase, installed: result.changed ?? [], sources: collection.sources,
+        ...(host === 'agy' ? { importHint: 'agy plugin import gemini   # then: agy plugin enable h2a' } : {}) }, null, 2)}\n`);
+      return result.ok ? 0 : 2;
+    } catch (error) { streams.stderr.write(`h2a install-skills: ${(error as Error).message}\n`); return 3; }
+  }
   // DEC-057: prune the pre-consolidation skill names if they linger on disk.
   const prunedLegacy = pruneLegacy(spec, targetBase);
 
