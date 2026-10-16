@@ -615,6 +615,12 @@
     "R9: the three lockstep deprecation commands are prepared, range-pinned, post-validation only, track excluded"
   ],
   "packages/h2a/test/recurring-obligations.test.js": [],
+  "packages/h2a/test/recipient-hints-concurrency.test.js": [
+    "three real writers sharing a 1023-entry snapshot cannot exceed the storage cap",
+    "an interrupted writer consumes at most one place and does not lock out later writers",
+    "a reserved publication is invisible until complete and is not overwritten by another writer",
+    "overlapping publications of the same recipient remain one diagnostic candidate"
+  ],
   "packages/h2a/test/release-script.test.js": [],
   "packages/h2a/test/release-workflow-publish-order.test.js": [],
   "packages/h2a/test/release-workflow.test.js": [

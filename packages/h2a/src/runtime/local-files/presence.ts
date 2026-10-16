@@ -8,14 +8,12 @@ import {
   unlinkSync,
   writeFileSync
 } from "node:fs";
-import { join } from "node:path";
 
 import {
   H2A_SESSION_DEFAULT_EXPIRY_MS,
   H2A_SESSION_STATES,
   H2A_WORK_STATUSES,
   isH2ASession,
-  isSessionExpired,
   pickFreshSessions,
   type H2ALaunchContext,
   type H2ASession,
@@ -28,6 +26,9 @@ import {
   presenceFile,
   type LocalStorePaths
 } from "./paths.js";
+import { sweepOrphanFiles } from "./orphan-gc.js";
+import { randomBytes } from "node:crypto";
+import { rememberRecipient } from "./recipient-hints.js";
 
 export interface PresenceWriteResult {
   /** Absolute path of the presence file on disk. */
@@ -64,14 +65,23 @@ export function writePresence(
   const paths = localStorePaths(root);
   ensurePresenceDir(paths);
   const finalPath = presenceFile(paths, session.sessionId);
-  const tmpPath = `${finalPath}.tmp-${process.pid}-${Date.now()}`;
+  const tmpPath = `${finalPath}.tmp-${process.pid}-${Date.now()}-${randomBytes(6).toString("hex")}`;
   const fd = openSync(tmpPath, "wx");
   try {
-    writeFileSync(fd, `${JSON.stringify(persistedSession, null, 2)}\n`, "utf8");
+    try {
+      writeFileSync(fd, `${JSON.stringify(persistedSession, null, 2)}\n`, "utf8");
+    } finally {
+      closeSync(fd);
+    }
+    renameSync(tmpPath, finalPath);
+    // Keep addressing evidence independently of TTL, explicit close and reap.
+    // Best-effort only: a failed hint must not prevent activation or heartbeat.
+    rememberRecipient(root, session);
   } finally {
-    closeSync(fd);
+    // Includes serialization, write, close and rename failures. Never leave
+    // our own partial publication behind for a future GC pass.
+    try { unlinkSync(tmpPath); } catch { /* already renamed or best-effort */ }
   }
-  renameSync(tmpPath, finalPath);
   return { path: finalPath };
 }
 
@@ -104,6 +114,10 @@ export function readPresence(
 export function deletePresence(root: string, sessionId: string): void {
   const paths = localStorePaths(root);
   const file = presenceFile(paths, sessionId);
+  // Preserve pre-upgrade publications too, before close or the janitor removes
+  // their only addressing evidence. This never keeps the session live.
+  const session = readPresence(root, sessionId);
+  if (session) rememberRecipient(root, session);
   try {
     unlinkSync(file);
   } catch (err) {
@@ -119,7 +133,7 @@ export interface ListPresenceOptions {
   readonly expiryMs?: number;
   /** Include expired sessions (default false). */
   readonly includeExpired?: boolean;
-  /** Sweep malformed/expired files (default true). Read-only projections disable it. */
+  /** Collect orphan temporary files (default true). Never deletes published presence. */
   readonly sweep?: boolean;
 }
 
@@ -131,7 +145,10 @@ export interface ListPresenceResult {
 /**
  * Read all presence files under `<root>/.h2a/presence/`, filter out malformed
  * files, and (by default) drop sessions whose heartbeat is older than
- * `expiryMs`. Sweep expired files from disk as a side-effect.
+ * `expiryMs`. Only orphan temporary files are collected as a side-effect.
+ * Published files are owned by their writer: unlinking an expired/malformed
+ * snapshot by path can delete a heartbeat atomically published after the read.
+ * Even a final stat/read check leaves that race open; filter without unlinking.
  */
 export function listPresenceWithDiagnostics(
   root: string,
@@ -149,6 +166,7 @@ export function listPresenceWithDiagnostics(
     throw err;
   }
   const now = options.now ?? Date.now();
+  if (options.sweep !== false) sweepOrphanFiles(paths.presence, "presence", now);
   const expiryMs = options.expiryMs ?? H2A_SESSION_DEFAULT_EXPIRY_MS;
   const all: H2ASession[] = [];
   for (const entry of entries) {
@@ -157,31 +175,12 @@ export function listPresenceWithDiagnostics(
     const session = readPresence(root, sid);
     if (!session) {
       warnings.push(`presence ${entry} is malformed or unreadable`);
-      // Stale or malformed — best-effort cleanup
-      if (options.sweep !== false) {
-        try {
-          unlinkSync(join(paths.presence, entry));
-        } catch {
-          // ignore
-        }
-      }
       continue;
     }
     all.push(session);
   }
   if (options.includeExpired) return { sessions: all, warnings };
   const fresh = pickFreshSessions(all, { now, expiryMs });
-  // Sweep newly-expired files
-  if (options.sweep !== false) {
-    for (const session of all) {
-      if (!isSessionExpired(session, { now, expiryMs })) continue;
-      try {
-        unlinkSync(presenceFile(paths, session.sessionId));
-      } catch {
-        // ignore
-      }
-    }
-  }
   return { sessions: fresh, warnings };
 }
 
