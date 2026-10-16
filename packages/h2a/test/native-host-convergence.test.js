@@ -10,7 +10,7 @@ function setup(t) {
   const dir = fs.mkdtempSync(join(tmpdir(), 'host-convergence-')), root = join(dir, "vibe ' quoted");
   const previous = { ...process.env }; process.env.HOME = dir; process.env.VIBE_HOME = root;
   fs.mkdirSync(root); fs.writeFileSync(join(root, 'config.toml'), 'mcp_servers=[]\n');
-  t.after(() => { process.env = previous; fs.rmSync(dir, { recursive: true, force: true }); });
+  t.after(() => { for (const key of Object.keys(process.env)) if (!(key in previous)) delete process.env[key]; Object.assign(process.env, previous); fs.rmSync(dir, { recursive: true, force: true }); });
   const cli = args => { let out = '', err = ''; const code = runCli(args, { cwd: () => dir, stdout: { write: s => { out += s; } }, stderr: { write: s => { err += s; } } }); return { code, out, err, json: () => JSON.parse(out) }; };
   const bus = join(dir, 'bus'); cli(['init', '--root', bus]);
   return { dir, root, state: join(root, '.h2a-install'), cli, doctor: flags => cli(['doctor', '--root', bus, '--host', 'vibe', '--repair', ...flags]) };

@@ -12,7 +12,7 @@ function fixture(t) {
   process.env.VIBE_HOME = join(dir, 'vibe with spaces');
   fs.mkdirSync(process.env.VIBE_HOME);
   fs.writeFileSync(join(process.env.VIBE_HOME, 'config.toml'), 'mcp_servers = []\n');
-  t.after(() => { process.env = previous; fs.rmSync(dir, { recursive: true, force: true }); });
+  t.after(() => { for (const key of Object.keys(process.env)) if (!(key in previous)) delete process.env[key]; Object.assign(process.env, previous); fs.rmSync(dir, { recursive: true, force: true }); });
   return { dir, vibe: process.env.VIBE_HOME };
 }
 function cli(args, cwd) {

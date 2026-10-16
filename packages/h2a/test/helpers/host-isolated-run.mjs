@@ -11,7 +11,8 @@ const root = join(lane, 'candidate');
 const files = process.argv.slice(2);
 if (!files.length || files.some(f => !/^packages\/h2a\/test\/[\w-]+\.test\.js$/.test(f)))
   throw new Error('explicit named h2a test files required');
-for (const name of ['home', 'runtime', 'config', 'state', 'tmp']) fs.mkdirSync(join(lane, name), { mode: 0o700 });
+for (const name of ['home', 'runtime', 'config', 'state', 'tmp', 'bin']) fs.mkdirSync(join(lane, name), { mode: 0o700 });
+fs.symlinkSync(process.execPath, join(lane, 'bin/node'));
 for (const pkg of ['h2a', 'h2a-runtime', 'track', 'remote-protocol']) {
   const from = join(repo, 'packages', pkg), dest = join(root, 'packages', pkg);
   fs.cpSync(from, dest, { recursive: true, filter: p => !/\/(node_modules|dist)(\/|$)/.test(p) });
@@ -42,6 +43,7 @@ for (const name of fs.readdirSync(join(repo, 'node_modules', '@sentropic'))) {
   fs.symlinkSync(own ? join(root, 'packages', name) : join(repo, 'node_modules', '@sentropic', name), join(root, 'node_modules', '@sentropic', name));
 }
 const env = { ...process.env, HOME: join(lane, 'home'), TMPDIR: join(lane, 'tmp'),
+  PATH: join(lane, 'bin'),
   XDG_RUNTIME_DIR: join(lane, 'runtime'), XDG_CONFIG_HOME: join(lane, 'config'),
   XDG_STATE_HOME: join(lane, 'state'), H2A_ROOT: join(lane, 'state', 'bus'), IDLOCK_LANE: lane,
   VIBE_HOME: '', CLAUDE_CONFIG_DIR: '', CODEX_HOME: '',

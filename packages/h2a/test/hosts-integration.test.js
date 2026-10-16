@@ -249,9 +249,12 @@ for (const host of ["codex", "claude", "gemini", "agy", "hermes", "opencode", "m
       streams
     );
     assert.equal(rc, 0, streams.stderrText);
-    assert.deepEqual(JSON.parse(streams.stdoutText), {
-      mcpServers: { h2a: { url: "https://mcp.example.test/h2a" } }
-    });
+    const rendered = JSON.parse(streams.stdoutText);
+    assert.deepEqual(rendered.mcpServers, { h2a: { url: "https://mcp.example.test/h2a" } });
+    if (['muse', 'agy'].includes(host)) {
+      assert.match(rendered.migration, /non migré/);
+      assert.doesNotMatch(rendered.hint, /Merge|Translate|re-run/);
+    } else assert.deepEqual(Object.keys(rendered), ['mcpServers']);
   });
 }
 
