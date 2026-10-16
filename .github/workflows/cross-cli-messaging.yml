@@ -1,0 +1,68 @@
+name: cross-cli-messaging
+
+on:
+  push:
+    branches: [main, feat/live-cross-cli-messaging]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  simulated-messaging:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ["22", "24"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      # The temporary source builder compiles node-pty directly with g++.
+      # No install scripts, node-gyp, Python or installed h2a are needed.
+      - run: npm ci --ignore-scripts
+      - run: node scripts/xcli-node-headers.mjs
+      - name: Test witness integrity and detect delivery without live reaction
+        run: >-
+          node --test scripts/xcli-lab.test.mjs scripts/xcli-proxy.test.mjs
+          scripts/xcli-simulation.test.mjs scripts/xcli-gemini-registry.test.mjs
+          scripts/xcli-cleanup.test.mjs
+      - name: Exercise all 36 ordered pairs with simulated models
+        run: >-
+          node scripts/qualify-cross-cli.mjs --simulated --timeout-ms 30000
+          --output "${{ runner.temp }}/xcli-simulated.json"
+      - name: Require every cell and every live messaging stage
+        run: node scripts/xcli-ci-check.mjs "${{ runner.temp }}/xcli-simulated.json"
+      - name: Preserve safe qualification receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xcli-simulated-node-${{ matrix.node }}
+          path: ${{ runner.temp }}/xcli-simulated.json
+          if-no-files-found: error
+
+  native-configuration-oracles:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ["22", "24"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: node scripts/xcli-node-headers.mjs
+      # Config discovery needs real CLI parsers, but no login/model/paid seat.
+      - run: npm install --global --ignore-scripts @openai/codex@0.162.1 @anthropic-ai/claude-code@2.1.301
+      - run: node --test scripts/xcli-native-config.test.mjs
+      - name: Run all source suites referencing the changed runtime modules
+        run: node scripts/xcli-runtime-tests.mjs
