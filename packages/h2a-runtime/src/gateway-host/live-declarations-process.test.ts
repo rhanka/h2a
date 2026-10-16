@@ -168,46 +168,45 @@ describe("live declarations real-process fencing (L6a fix3)", () => {
     }
   }, 15_000);
 
-  it("admits only one holder when A is paused between the two lock-acquisition mkdirs", async ({ skip }) => {
-    skip("L6a-H-next: atomic single-step acquisition (temp file carrying token + exclusive link to lock path; stale takeover by rename to a unique name, single winner)");
-    const root = mkdtempSync(join(tmpdir(), "h2a-live-acquire-"));
-    const children: ReturnType<typeof launch>[] = [];
-    try {
-      const { id } = fixture(root);
-      // A is held after mkdir(lockDir), before mkdir(lockDir/token): the
-      // exact two-step window of live-declarations.ts acquireStoreLock.
-      const a = launch(root, id, "A", "acquire");
-      children.push(a);
-      expect(await a.message()).toEqual({ paused: true, pid: a.child.pid });
-      // Real elapsed time, exceeding the production 10 s stale delay, so B
-      // takes over the abandoned lock dir and owns its only generation.
-      await delay(10_200);
-      const b = launch(root, id, "B", "hold");
-      children.push(b);
-      expect(await b.message()).toEqual({ paused: true, pid: b.child.pid });
-      expect(readdirSync(join(root, "live", ".declarations.lock"))).toHaveLength(1);
-      // A resumes into B's generation and commits; then B commits over A.
-      // Without an atomic single-step acquisition both report ok and A's
-      // revision 2 is silently overwritten by B's revision 2.
-      expect(a.child.kill("SIGCONT")).toBe(true);
-      const resultA = await a.message();
-      expect(await a.exited).toEqual([0, null]);
-      expect(b.child.kill("SIGCONT")).toBe(true);
-      const resultB = await b.message();
-      expect(await b.exited).toEqual([0, null]);
-      expect([resultA, resultB].filter((result) => result.ok)).toHaveLength(1);
-      const loser = resultA.ok ? resultB : resultA;
-      expect(loser).toMatchObject({ name: "LiveRevisionConflict", expected: 1 });
-      const durable = createLiveDeclarationStore(root).get(id)!;
-      expect(durable.declaration.declarationRevision).toBe(2);
-      expect(durable.declaration.bindingRevision).toBe(1);
-      expect(durable.declaration.serverWorkspaceId).toBe(resultA.ok ? "workspace-A" : "workspace-B");
-      console.info("acquire-race proof", JSON.stringify({ a: resultA, b: resultB }));
-    } finally {
-      await Promise.all(children.map(({ child, exited }) => stop(child, exited)));
-      rmSync(root, { recursive: true, force: true });
-    }
-  }, 25_000);
+  for (const operation of ["A", "delete"]) {
+    it(`admits only one holder when ${operation} is paused after lock publication`, async () => {
+      const root = mkdtempSync(join(tmpdir(), "h2a-live-acquire-"));
+      const children: ReturnType<typeof launch>[] = [];
+      try {
+        const { id } = fixture(root);
+        // The driver also cuts after mkdir(lockDir) in the old implementation,
+        // so reverting atomic publication reproduces the original two-holder bug.
+        const a = launch(root, id, operation, "acquire");
+        children.push(a);
+        expect(await a.message()).toEqual({ paused: true, pid: a.child.pid });
+        // Real elapsed time, exceeding the production 10 s stale delay, so B
+        // takes over the abandoned lock dir and owns its only generation.
+        await delay(10_200);
+        const b = launch(root, id, "B", "hold");
+        children.push(b);
+        expect(await b.message()).toEqual({ paused: true, pid: b.child.pid });
+        expect(readdirSync(join(root, "live", ".declarations.lock"))).toHaveLength(1);
+        // With two-step acquisition A could resume inside B's generation.
+        // Atomic publication binds A to its own now-removed generation.
+        expect(a.child.kill("SIGCONT")).toBe(true);
+        const resultA = await a.message();
+        expect(await a.exited).toEqual([0, null]);
+        expect(b.child.kill("SIGCONT")).toBe(true);
+        const resultB = await b.message();
+        expect(await b.exited).toEqual([0, null]);
+        expect(resultA).toMatchObject({ name: "LiveRevisionConflict", expected: 1 });
+        expect(resultB).toEqual({ ok: true, pid: b.child.pid });
+        const durable = createLiveDeclarationStore(root).get(id)!;
+        expect(durable.declaration.declarationRevision).toBe(2);
+        expect(durable.declaration.bindingRevision).toBe(1);
+        expect(durable.declaration.serverWorkspaceId).toBe("workspace-B");
+        console.info("acquire-race proof", JSON.stringify({ a: resultA, b: resultB }));
+      } finally {
+        await Promise.all(children.map(({ child, exited }) => stop(child, exited)));
+        rmSync(root, { recursive: true, force: true });
+      }
+    }, 25_000);
+  }
 
   it("does not release B's live lock or staged commit when dispossessed A exits", async () => {
     const root = mkdtempSync(join(tmpdir(), "h2a-live-successor-"));
