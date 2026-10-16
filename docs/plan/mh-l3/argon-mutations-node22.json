@@ -1,0 +1,77 @@
+{
+  "node": "v22.22.1",
+  "results": [
+    {
+      "name": "argon-recovery-1",
+      "path": "packages/h2a/src/runtime/handover/shim-bridge.js",
+      "oracle": "recovery should defer autostart after SSE EOF and let an external publication win",
+      "sourceSha256": "b73275a9bc9e6b6ecf31fbe57e9ee162034fca1986595586e94d17abf9a86b30",
+      "red": "docs/plan/mh-l3/evidence/mh-l3-argon.test.js-node22-argon-recovery-1-red.log",
+      "green": "docs/plan/mh-l3/evidence/mh-l3-argon.test.js-node22-argon-recovery-1-green.log",
+      "restored": true
+    },
+    {
+      "name": "argon-recovery-2",
+      "path": "packages/h2a/src/runtime/handover/shim-bridge.js",
+      "oracle": "recovery should defer autostart after SSE error and let an external publication win",
+      "sourceSha256": "b73275a9bc9e6b6ecf31fbe57e9ee162034fca1986595586e94d17abf9a86b30",
+      "red": "docs/plan/mh-l3/evidence/mh-l3-argon.test.js-node22-argon-recovery-2-red.log",
+      "green": "docs/plan/mh-l3/evidence/mh-l3-argon.test.js-node22-argon-recovery-2-green.log",
+      "restored": true
+    },
+    {
+      "name": "argon-recovery-3",
+      "path": "packages/h2a/src/runtime/handover/shim-bridge.js",
+      "oracle": "recovery should defer autostart after missing marker and let an external publication win",
+      "sourceSha256": "b73275a9bc9e6b6ecf31fbe57e9ee162034fca1986595586e94d17abf9a86b30",
+      "red": "docs/plan/mh-l3/evidence/mh-l3-argon.test.js-node22-argon-recovery-3-red.log",
+      "green": "docs/plan/mh-l3/evidence/mh-l3-argon.test.js-node22-argon-recovery-3-green.log",
+      "restored": true
+    },
+    {
+      "name": "argon-register-descriptor",
+      "path": "packages/h2a/src/runtime/mcp-central.ts",
+      "oracle": "real central should register the retained shim catalogue as inventory without granting compatibility",
+      "sourceSha256": "e72cb89a35da055a1029ac27545280077d5d4393f8b2f5346176ab3bfb6c3fc6",
+      "red": "docs/plan/mh-l3/evidence/mh-l3-argon.test.js-node22-argon-register-descriptor-red.log",
+      "green": "docs/plan/mh-l3/evidence/mh-l3-argon.test.js-node22-argon-register-descriptor-green.log",
+      "restored": true
+    },
+    {
+      "name": "argon-register-contract",
+      "path": "packages/h2a/src/runtime/mcp-central.ts",
+      "oracle": "real central should register the retained shim catalogue as inventory without granting compatibility",
+      "sourceSha256": "e72cb89a35da055a1029ac27545280077d5d4393f8b2f5346176ab3bfb6c3fc6",
+      "red": "docs/plan/mh-l3/evidence/mh-l3-argon.test.js-node22-argon-register-contract-red.log",
+      "green": "docs/plan/mh-l3/evidence/mh-l3-argon.test.js-node22-argon-register-contract-green.log",
+      "restored": true
+    },
+    {
+      "name": "argon-register-epoch",
+      "path": "packages/h2a/src/runtime/mcp-central.ts",
+      "oracle": "real central should register the retained shim catalogue as inventory without granting compatibility",
+      "sourceSha256": "e72cb89a35da055a1029ac27545280077d5d4393f8b2f5346176ab3bfb6c3fc6",
+      "red": "docs/plan/mh-l3/evidence/mh-l3-argon.test.js-node22-argon-register-epoch-red.log",
+      "green": "docs/plan/mh-l3/evidence/mh-l3-argon.test.js-node22-argon-register-epoch-green.log",
+      "restored": true
+    },
+    {
+      "name": "argon-register-source",
+      "path": "packages/h2a/src/runtime/mcp-central.ts",
+      "oracle": "real central should register the retained shim catalogue as inventory without granting compatibility",
+      "sourceSha256": "e72cb89a35da055a1029ac27545280077d5d4393f8b2f5346176ab3bfb6c3fc6",
+      "red": "docs/plan/mh-l3/evidence/mh-l3-argon.test.js-node22-argon-register-source-red.log",
+      "green": "docs/plan/mh-l3/evidence/mh-l3-argon.test.js-node22-argon-register-source-green.log",
+      "restored": true
+    },
+    {
+      "name": "argon-prefix-mode",
+      "path": "packages/h2a/src/runtime/handover/admission.js",
+      "oracle": "authority should reject group or world writable physical prefixes including umask 0002 worktrees",
+      "sourceSha256": "c73fc87606d1a650c1c50b8bafacb3c262ab4a846fcec7d8c1d0ab51595ac6f4",
+      "red": "docs/plan/mh-l3/evidence/mh-l3-argon.test.js-node22-argon-prefix-mode-red.log",
+      "green": "docs/plan/mh-l3/evidence/mh-l3-argon.test.js-node22-argon-prefix-mode-green.log",
+      "restored": true
+    }
+  ]
+}
