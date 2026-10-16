@@ -197,3 +197,59 @@ other OSes, nine-hour endurance and cross-CLI delivery/wake remain unqualified.
 At capacity or on failure only historical refusal detail can be lost; live
 admission still requires fresh qualifying presence. Under concurrent writers the
 observed entry threshold may be exceeded; each traversal/read remains bounded.
+
+
+CI exposed additional blocking fixtures after the historical builds ran:
+the namespace registry parent was absent, the reaper probed a group before
+checking its frame, mandatory host configuration oracles were not installed,
+the 30x24 lock stress reloaded the full API per worker, and Node 24 selected
+the spec reporter for a nested timeout proof. Targeted checks cover the fixes;
+the stress load and 120-second deadline stay unchanged. The single local full
+run passed before these CI follow-ups; final acceptance belongs to head CI.
+
+
+## Main CI repair — 2026-10-16
+
+Current branch: `fix/main-ci-green`, based on `origin/main` at `58f111b3`.
+Owner scope supersedes the historical branch's dependency-range restriction:
+repair B5 scheduling, restore the exact published R6 pair, and pin internal
+h2a / h2a-cli / h2a-runtime / track dependencies and peers to exact versions.
+Keep release preparation, lockfile and release/rehearsal gates in lockstep.
+
+- B5 is a scheduling-dependent test assumption: a 300 ms pause reproduces
+  the CI's 250 ms incomplete-inventory refusal. Completeness uses a test-only
+  monotone clock. Six boundary cases retain refusal at and beyond both the
+  inventory cap and a shorter attempt deadline; product evidence is unchanged.
+- R6's published core 0.98.5 must install runtime 0.98.5 explicitly; both
+  real election orders fail before the pin and pass after it.
+- Exact internal requirements prevent future npm resolution from combining
+  incompatible patch releases. Version preparation preserves pins, and
+  release verify/publish reject floating or mismatched internal requirements.
+- Targeted source-built identity lane: 70 passed, 0 failed/skipped.
+  Release helper/workflow/order checks: 60 passed, 0 failed/skipped.
+  Red/green commands and outputs are retained in the owner's final report.
+
+Only named test files run locally under temporary HOME/XDG/H2A roots. No
+installed h2a, native host, foreign PID, full local suite, merge or publication.
+CI on the PR is the integration authority. External review through the real
+h2a/mesh is excluded by the owner's confinement; no consensus is claimed.
+
+
+## Main CI repair — Tour 2
+
+Owner scope: integrate #338 and origin/main (#333) through normal merge
+commits, without rebase or force-push. This supersedes the historical merge
+restriction above. No merge into main or real publication is authorized.
+
+The rejected offline workaround is removed. Rehearsal stamps the disposable
+CI workspace after build and before pack with
+`<version>-rehearsal.<run_id>.<attempt>`, rewriting all internal manifest pins
+and the independent smoke literal. The exact-version gate still runs before
+pack and accepts those exact prerelease pins. Release manifests and lockfile
+stay at 0.98.6 in git; the real release path is unchanged.
+
+Publish parity permits only --dry-run and the explicit default prerelease
+tag; no offline/cache exception remains. Execution tests retain all four
+publish bodies, default/backfill selection and npm failure propagation.
+The owner report records strict-test red/green, broken-package rejection,
+targeted regressions and final PR CI. No full local suite is authorized.
