@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { closeSync, constants, fsyncSync, lstatSync, mkdirSync, openSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
-import { dirname, join, parse, resolve } from 'node:path';
+import { dirname, join, parse, resolve, sep } from 'node:path';
 
 export const digest = (bytes: string | Buffer): string => createHash('sha256').update(bytes).digest('hex');
 export const jsonBytes = (value: unknown): string => JSON.stringify(value, null, 2) + '\n';
@@ -26,7 +26,7 @@ export function snapshot(path: string): Snapshot | undefined {
 function same(a: Snapshot | undefined, b: Snapshot | undefined): boolean {
   return !a && !b || !!a && !!b && a.ino === b.ino && a.mode === b.mode && a.mtimeMs === b.mtimeMs && a.bytes.equals(b.bytes);
 }
-export function atomicNativeWrite(path: string, bytes: string | undefined, options: {
+export function atomicNativeWrite(path: string, bytes: string | Buffer | undefined, options: {
   state: string; expected?: Snapshot; dryRun?: boolean; beforeRename?: () => void;
 }): boolean {
   const previous = 'expected' in options ? options.expected : snapshot(path);
@@ -72,5 +72,11 @@ export function readNativeManifest(state: string, host: string, root: string, ve
   const value = JSON.parse(current.bytes.toString()) as NativeManifest;
   if (value.schema !== 1 || value.host !== host || value.root !== root || !value.files || Array.isArray(value.files))
     throw new Error('unknown or incompatible native manifest');
+  for (const [path, entry] of Object.entries(value.files)) {
+    if (!resolve(path).startsWith(resolve(root) + sep) || !/^[a-f0-9]{64}$/.test(entry.sha256) || typeof entry.source !== 'string' || typeof entry.selected !== 'boolean')
+      throw new Error('invalid or out-of-root native manifest entry');
+  }
+  if (value.guard !== undefined && !['on', 'off'].includes(value.guard)) throw new Error('invalid guard selection');
+  if (value.lifecycle && (typeof value.lifecycle.enabled !== 'boolean' || !value.lifecycle.instance || value.lifecycle.instance === 'auto')) throw new Error('invalid explicit lifecycle selection');
   return value;
 }

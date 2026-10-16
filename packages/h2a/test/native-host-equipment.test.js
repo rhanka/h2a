@@ -51,6 +51,15 @@ test('Vibe setup refuses MCP writes including JSON and force', t => {
   assert.notEqual(result.code, 0, result.out);
   assert.equal(fs.existsSync(path), false);
 });
+test('native diagnostics redact provider/server secrets and classify every observed direct entry', t => {
+  const { dir, vibe } = fixture(t);
+  const config = '[[providers]]\nname="private"\napi_key="must-never-print"\n[[mcp_servers]]\nname="h2a"\ncommand="h2a"\nargs=["mcp-serve"]\n';
+  fs.writeFileSync(join(vibe, 'config.toml'), config);
+  const result = cli(['host', 'status', '--host', 'vibe'], dir);
+  assert.match(result.out, /voie directe — non migrée/);
+  assert.doesNotMatch(result.out, /must-never-print|api_key/);
+  assert.equal(fs.readFileSync(join(vibe, 'config.toml'), 'utf8'), config);
+});
 for (const host of ['vibe', 'muse', 'agy']) {
   test(`${host} setup labels historical rendering without recommending direct configuration`, t => {
     const { dir } = fixture(t);
