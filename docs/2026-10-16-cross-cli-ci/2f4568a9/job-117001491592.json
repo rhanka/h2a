@@ -1,0 +1,27 @@
+{
+  "run": 38909510272,
+  "sha": "2f4568a93922942c24dfc59d8b62de6725f0147c",
+  "job": 117001491592,
+  "name": "source-consumers (24, hosts)",
+  "conclusion": "success",
+  "url": "https://github.com/rhanka/h2a/actions/runs/38909510272/job/117001491592",
+  "commands": [
+    {
+      "command": "node scripts/xcli-node-headers.mjs",
+      "outputCounts": {},
+      "outcomes": []
+    },
+    {
+      "command": "node scripts/xcli-in-pid-namespace.mjs scripts/xcli-source-tests.mjs packages/h2a/test/hosts-integration.test.js packages/h2a/test/cli-host-status.test.js packages/h2a/test/evo-host-setup-wake.test.js packages/h2a/test/mcp-central.test.js packages/h2a/test/host-connect.test.js packages/h2a/test/host-plugin.test.js packages/h2a/test/gateway-host-docs.test.js packages/h2a/test/install-skills-hosts.test.js packages/h2a/test/mcp-run.test.js packages/h2a/test/cli-contract.test.js",
+      "outputCounts": {
+        "tests": 211,
+        "pass": 210,
+        "fail": 0,
+        "cancelled": 0,
+        "skipped": 1,
+        "todo": 0
+      },
+      "outcomes": []
+    }
+  ]
+}
