@@ -16,9 +16,9 @@
 - [x] Conditional: CI wiring for named tests and Node 22/24 parser checks only.
 
 ## Lots
-- [ ] A1: isolated source runner and historical render catalog/generator.
+- [x] A1: isolated source runner and historical render catalog/generator; offline tests 2/2.
 - [ ] A2: safe native artifact writer, TOML 1.0 validation, ownership/backups/concurrency.
-- [ ] A3: Vibe guard/lifecycle wrappers and independent qualification freshness.
+- [x] A3: Vibe guard/lifecycle wrappers and independent qualification freshness; hooks 2/2, convergence 2/2.
 - [ ] A4/E: skills/resources, VIBE_HOME, Muse and shared agy/Gemini ownership.
 - [ ] A5/E: doctor/status/install/plugin convergence and setup/connect diagnostics.
 - [ ] A6: explicit upgrade convergence and in-memory MCP operator notices.

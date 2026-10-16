@@ -7013,7 +7013,7 @@ function cmdInstallSkills(
   if (isNativeHost(host) || host === 'gemini') {
     try {
       const result = nativeHostReport(host, flags, true, true, dirname(targetBase));
-      streams.stdout.write(`${JSON.stringify({ ...result, scope, targetBase, installed: result.changed ?? [], sources: collection.sources,
+      streams.stdout.write(`${JSON.stringify({ ...result, scope, targetBase, installed: 'changed' in result ? result.changed : [], sources: collection.sources,
         ...(host === 'agy' ? { importHint: 'agy plugin import gemini   # then: agy plugin enable h2a' } : {}) }, null, 2)}\n`);
       return result.ok ? 0 : 2;
     } catch (error) { streams.stderr.write(`h2a install-skills: ${(error as Error).message}\n`); return 3; }
