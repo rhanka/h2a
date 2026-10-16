@@ -1,0 +1,44 @@
+command: /usr/bin/node --test packages/h2a/test/mh-l3-transfer.test.js
+node: v22.22.1
+private test root: /tmp/mh-l2-test-GOE4Si
+Claude config: /tmp/mh-l2-test-GOE4Si/claude
+TAP version 13
+# {"event":"drive-consent.full-verification","durationMs":0.005690999999842461,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# h2a mcp-serve: identity migration: claude:mh-l2-live-image-kwkdgf:885bdde3d135 reads legacy claude:mh-l2-live-image-kWkDGf; no proof of possession of a legacy key — mint net-new keys
+# h2a mcp-serve: auto-opened session for claude:mh-l2-live-image-kwkdgf:885bdde3d135
+# h2a mcp-serve: identity ready: claude:mh-l2-live-image-kwkdgf:885bdde3d135 (signing available)
+# Subtest: M21 real compiled shim should attach-transfer to the conformance peer while its real old central preserves G0 work
+not ok 1 - M21 real compiled shim should attach-transfer to the conformance peer while its real old central preserves G0 work
+  ---
+  duration_ms: 6368.50161
+  type: 'test'
+  location: '/home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/test/mh-l3-transfer.test.js:21:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    {"error":"inventory_stale"}
+    
+    409 !== 200
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 200
+  actual: 409
+  operator: 'strictEqual'
+  stack: |-
+    call (file:///home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/test/mh-l3-transfer.test.js:121:51)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async TestContext.<anonymous> (file:///home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/test/mh-l3-transfer.test.js:128:22)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 0
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 6602.641785
+
+receipt: {"command":["/usr/bin/node","--test","packages/h2a/test/mh-l3-transfer.test.js"],"code":1,"signal":null,"elapsedMs":6680}
