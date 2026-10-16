@@ -49,6 +49,7 @@
 - [x] Review finding 4: re-read qualification after repair; fingerprint discovery and actual installed bytes; suspend an enabled guard on project masking.
 - [x] Review finding 5: stable hook insertion order and exact separator removal, including older rendered blocks.
 - [x] Historical overwrite test restored for Gemini and extended to Vibe/Muse/agy; independent user-scope managed/unknown-provenance assertions retained.
+- [x] CI trust-root integration: versioned inventory follows the two corrected test names and requires the new regressions; run-test-gates.test.js reproduced 37/38 then passed 38/38 on Node 22 and 24 in temporary source/HOME copies.
 - [x] Named source-consumer regression campaign: 22 files, 134 passed / 0 failed / 0 skipped on Node 22 and 24; targeted MCP compatibility: 16 passed / 0 failed / 0 skipped.
 - [x] Fetch/merge origin/main: already contained by the normal two-parent merge 53cfa83f; Track tree still identical to origin/main. No Track writes or consolidation by this worker.
 - [ ] Real equipment: A/E distributes skills/resources/hooks; B (C contract §§8–11, R5/R7 bootstrap/attachment) delivers the actual MCP route; C/spec §§11–12 qualifies the target post. The owner's skills + MCP demand remains open until B and the genuine Vibe recipe pass.
