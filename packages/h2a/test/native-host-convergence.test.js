@@ -57,6 +57,12 @@ test('guard rejects fixture qualification, retains stale-code choice, and suspen
   proof.components.MCP.dependencies.entrypoint = 'obsolete-code'; fs.writeFileSync(proofPath, JSON.stringify(proof));
   assert.equal(doctor([]).code, 0);
   assert.match(fs.readFileSync(join(root, 'hooks.toml'), 'utf8'), /pre_tool/);
+  fs.writeFileSync(join(root, 'config.toml'), 'enabled_tools=["read_file"]\n[[mcp_servers]]\nname="h2a"\ncommand="h2a"\nargs=["mcp-serve"]\n');
+  assert.equal(doctor([]).code, 0);
+  assert.doesNotMatch(fs.readFileSync(join(root, 'hooks.toml'), 'utf8'), /pre_tool/, 'an MCP allowlist change must suspend the old qualified binding');
+  fs.writeFileSync(join(root, 'config.toml'), '[[mcp_servers]]\nname="h2a"\ncommand="h2a"\nargs=["mcp-serve"]\n');
+  assert.equal(doctor([]).code, 0);
+  assert.match(fs.readFileSync(join(root, 'hooks.toml'), 'utf8'), /pre_tool/);
   fs.writeFileSync(join(root, 'config.toml'), '[[mcp_servers]]\nname="h2a"\ncommand="changed-binding"\nargs=["mcp-serve"]\n');
   assert.equal(doctor([]).code, 0);
   assert.doesNotMatch(fs.readFileSync(join(root, 'hooks.toml'), 'utf8'), /pre_tool/, 'observable binding drift must suspend the installed guard');
