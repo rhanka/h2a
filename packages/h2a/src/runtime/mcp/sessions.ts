@@ -273,11 +273,9 @@ export class SessionRegistry {
   /**
    * Scan all presence files under root (own + peers), filtered by freshness.
    *
-   * L2: `sweep:false` performs a DEGRADED read that never deletes a stale/
-   * malformed presence file — used while identity is pending/failed (and on a
-   * read-only store) so a discovery / inbox-read stays a pure read and never
-   * attempts a write. The default (`sweep` omitted / true) keeps the historical
-   * best-effort cleanup.
+   * L2: `sweep:false` also disables orphan temporary-file collection so
+   * discovery / inbox reads on pending identity or a read-only store never
+   * attempt a write. Published presence files are never deleted by a scan.
    */
   scanFresh(now: number = Date.now(), options?: { sweep?: boolean }): H2ASession[] {
     return listPresence(this.root, {

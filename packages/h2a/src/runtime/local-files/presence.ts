@@ -8,14 +8,12 @@ import {
   unlinkSync,
   writeFileSync
 } from "node:fs";
-import { join } from "node:path";
 
 import {
   H2A_SESSION_DEFAULT_EXPIRY_MS,
   H2A_SESSION_STATES,
   H2A_WORK_STATUSES,
   isH2ASession,
-  isSessionExpired,
   pickFreshSessions,
   type H2ALaunchContext,
   type H2ASession,
@@ -127,7 +125,7 @@ export interface ListPresenceOptions {
   readonly expiryMs?: number;
   /** Include expired sessions (default false). */
   readonly includeExpired?: boolean;
-  /** Sweep malformed/expired files (default true). Read-only projections disable it. */
+  /** Collect orphan temporary files (default true). Never deletes published presence. */
   readonly sweep?: boolean;
 }
 
@@ -139,7 +137,10 @@ export interface ListPresenceResult {
 /**
  * Read all presence files under `<root>/.h2a/presence/`, filter out malformed
  * files, and (by default) drop sessions whose heartbeat is older than
- * `expiryMs`. Sweep expired files from disk as a side-effect.
+ * `expiryMs`. Only orphan temporary files are collected as a side-effect.
+ * Published files are owned by their writer: unlinking an expired/malformed
+ * snapshot by path can delete a heartbeat atomically published after the read.
+ * Even a final stat/read check leaves that race open; filter without unlinking.
  */
 export function listPresenceWithDiagnostics(
   root: string,
@@ -166,31 +167,12 @@ export function listPresenceWithDiagnostics(
     const session = readPresence(root, sid);
     if (!session) {
       warnings.push(`presence ${entry} is malformed or unreadable`);
-      // Stale or malformed — best-effort cleanup
-      if (options.sweep !== false) {
-        try {
-          unlinkSync(join(paths.presence, entry));
-        } catch {
-          // ignore
-        }
-      }
       continue;
     }
     all.push(session);
   }
   if (options.includeExpired) return { sessions: all, warnings };
   const fresh = pickFreshSessions(all, { now, expiryMs });
-  // Sweep newly-expired files
-  if (options.sweep !== false) {
-    for (const session of all) {
-      if (!isSessionExpired(session, { now, expiryMs })) continue;
-      try {
-        unlinkSync(presenceFile(paths, session.sessionId));
-      } catch {
-        // ignore
-      }
-    }
-  }
   return { sessions: fresh, warnings };
 }
 
