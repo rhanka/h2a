@@ -1,0 +1,89 @@
+{
+  "node": "v22.22.1",
+  "files": [
+    {
+      "path": "scripts/build-release-native.mjs",
+      "sha256": "0ddb4816c892b6ac91226fe658557268f14eaeb56e4c8e74f7c4f733e6dc552e"
+    }
+  ],
+  "results": [
+    {
+      "name": "archive-pin",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-native.test.js-node22-native-archive-pin-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-native.test.js-node22-native-archive-pin-green.log",
+      "restored": true
+    },
+    {
+      "name": "elf",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-native.test.js-node22-native-elf-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-native.test.js-node22-native-elf-green.log",
+      "restored": true
+    },
+    {
+      "name": "javascript",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-native.test.js-node22-native-javascript-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-native.test.js-node22-native-javascript-green.log",
+      "restored": true
+    },
+    {
+      "name": "inventory",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-native.test.js-node22-native-inventory-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-native.test.js-node22-native-inventory-green.log",
+      "restored": true
+    },
+    {
+      "name": "descriptor-pin",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-native.test.js-node22-native-descriptor-pin-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-native.test.js-node22-native-descriptor-pin-green.log",
+      "restored": true
+    },
+    {
+      "name": "hardlink",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-native.test.js-node22-native-hardlink-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-native.test.js-node22-native-hardlink-green.log",
+      "restored": true
+    },
+    {
+      "name": "symlink",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-native.test.js-node22-native-symlink-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-native.test.js-node22-native-symlink-green.log",
+      "restored": true
+    },
+    {
+      "name": "architecture",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-native.test.js-node22-native-architecture-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-native.test.js-node22-native-architecture-green.log",
+      "restored": true
+    },
+    {
+      "name": "major",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-native.test.js-node22-native-major-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-native.test.js-node22-native-major-green.log",
+      "restored": true
+    },
+    {
+      "name": "abi",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-native.test.js-node22-native-abi-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-native.test.js-node22-native-abi-green.log",
+      "restored": true
+    },
+    {
+      "name": "napi",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-native.test.js-node22-native-napi-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-native.test.js-node22-native-napi-green.log",
+      "restored": true
+    },
+    {
+      "name": "libc",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-native.test.js-node22-native-libc-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-native.test.js-node22-native-libc-green.log",
+      "restored": true
+    },
+    {
+      "name": "ambient-fallback",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-native.test.js-node22-native-ambient-fallback-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-native.test.js-node22-native-ambient-fallback-green.log",
+      "restored": true
+    }
+  ]
+}
