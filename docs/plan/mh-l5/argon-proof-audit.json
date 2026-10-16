@@ -1,0 +1,1390 @@
+{
+  "base": "4a4ca76c88aa47f49a780f63242680dbbc499d48",
+  "qualificationCopy": "/tmp/mh-l3-qualification-AogyQv/source",
+  "files": [
+    {
+      "path": "packages/h2a/src/runtime/handover/shim-bridge.js",
+      "sha256": "4e7c3cb301d9a267d84869d61addd570343b5a381b2fdff68cc88d321db65925"
+    },
+    {
+      "path": "packages/h2a/test/helpers/mh-l5-campaign.js",
+      "sha256": "5eaa9fa781a883b3b2b065933425df877d8205e7fcdcdb7a0e5d0b415d772214"
+    },
+    {
+      "path": "packages/h2a/test/helpers/mh-l5-lock-observer.js",
+      "sha256": "5ff927c1e23b229830674fb0e8e6424a9ec5001a73848b325f06016e55a49d0c"
+    },
+    {
+      "path": "packages/h2a/test/helpers/mh-l5-writer.mjs",
+      "sha256": "05afeba64542f0821be8824f2da7d37929988c4a78909c0fc3c6248d76e767f9"
+    },
+    {
+      "path": "packages/h2a/test/mh-l5-concurrency.test.js",
+      "sha256": "66f8be14e54b066db6f59e19ef27813a9d327818bdf50c1f4ea8cbc90e59cde6"
+    },
+    {
+      "path": "packages/h2a/test/mh-l5-shim-recovery.test.js",
+      "sha256": "5faea21a53f0815a2b44b4e655b11c0a5d5d8bab344e1de3f6b07d65d50375e7"
+    },
+    {
+      "path": "scripts/mh-l5-argon-audit.mjs",
+      "sha256": "bc1e39029bbfb327c9811a2e5c5dbb623653009b846f06a88468029a26c13466"
+    },
+    {
+      "path": "scripts/mh-l5-argon-check.mjs",
+      "sha256": "882f19900676c3758266d244ce7ae87544392e22c25c9abf760340f9a1e760f7"
+    },
+    {
+      "path": "scripts/mh-l5-mutate.mjs",
+      "sha256": "a03fb78f283e0fbd68addaaa50cedbe65ad3cceb7209cdf93fcb25e3603d6f47"
+    }
+  ],
+  "compiled": [
+    {
+      "path": "packages/h2a/dist/runtime/handover/shim-bridge.js",
+      "sha256": "f60328c7f6d954420aa1950fe6ee0b16efbb6c79d1eb975110fc9df8b5b7c493",
+      "sourceSha256": "4e7c3cb301d9a267d84869d61addd570343b5a381b2fdff68cc88d321db65925"
+    }
+  ],
+  "profiles": [
+    {
+      "node": "v22.22.1",
+      "explicitFiles": 12,
+      "tests": 72,
+      "mutationPairs": 12,
+      "skipped": 0,
+      "cancelled": 0,
+      "remainingOwnChildren": 0,
+      "receipts": [
+        {
+          "command": [
+            "/usr/bin/node",
+            "--test",
+            "--test-reporter=tap",
+            "packages/h2a/test/mh-l5-shim-recovery.test.js"
+          ],
+          "code": 0,
+          "signal": null,
+          "tests": 4,
+          "invalid": false,
+          "spawned": 1,
+          "leftovers": [],
+          "log": "docs/plan/mh-l5/evidence/mh-l5-shim-recovery.test.js-node22-argon-qualified.log",
+          "sha256": "e8ed9041befef7151b020d6a2c43101c60c0ee1a3aff55b36a620e75aa2f4ffa"
+        },
+        {
+          "command": [
+            "/usr/bin/node",
+            "--test",
+            "--test-reporter=tap",
+            "packages/h2a/test/mh-l5-concurrency-oracles.test.js"
+          ],
+          "code": 0,
+          "signal": null,
+          "tests": 1,
+          "invalid": false,
+          "spawned": 17,
+          "leftovers": [],
+          "log": "docs/plan/mh-l5/evidence/mh-l5-concurrency-oracles.test.js-node22-argon-qualified.log",
+          "sha256": "7d19aae8f1d73ae3f7c759d6c1308b563b15647fc8041423f1991a8897ecd42b"
+        },
+        {
+          "command": [
+            "/usr/bin/node",
+            "--test",
+            "--test-reporter=tap",
+            "packages/h2a/test/mh-l5-v1.test.js"
+          ],
+          "code": 0,
+          "signal": null,
+          "tests": 10,
+          "invalid": false,
+          "spawned": 41,
+          "leftovers": [],
+          "log": "docs/plan/mh-l5/evidence/mh-l5-v1.test.js-node22-argon-qualified.log",
+          "sha256": "e34d8647a00d18078971e4ff01557bd6d76ef468fcc079ed59ed88ac3ea5bd7d"
+        },
+        {
+          "command": [
+            "/usr/bin/node",
+            "--test",
+            "--test-reporter=tap",
+            "packages/h2a/test/mh-l5-legacy-writer.test.js"
+          ],
+          "code": 0,
+          "signal": null,
+          "tests": 2,
+          "invalid": false,
+          "spawned": 5,
+          "leftovers": [],
+          "log": "docs/plan/mh-l5/evidence/mh-l5-legacy-writer.test.js-node22-argon-qualified.log",
+          "sha256": "9715197389eec77bd89871926c35198d20121d856c75bb147aa39d174855dd3b"
+        },
+        {
+          "command": [
+            "/usr/bin/node",
+            "--test",
+            "--test-reporter=tap",
+            "packages/h2a/test/mh-l3-transfer.test.js"
+          ],
+          "code": 0,
+          "signal": null,
+          "tests": 1,
+          "invalid": false,
+          "spawned": 7,
+          "leftovers": [],
+          "log": "docs/plan/mh-l5/evidence/mh-l3-transfer.test.js-node22-argon-qualified.log",
+          "sha256": "a0bf1205fa7f2dc59ecdafed884310f8f490144c7c91239e44ff8b3c96599ac8"
+        },
+        {
+          "command": [
+            "/usr/bin/node",
+            "--test",
+            "--test-reporter=tap",
+            "packages/h2a/test/mh-l3-network.test.js"
+          ],
+          "code": 0,
+          "signal": null,
+          "tests": 7,
+          "invalid": false,
+          "spawned": 3,
+          "leftovers": [],
+          "log": "docs/plan/mh-l5/evidence/mh-l3-network.test.js-node22-argon-qualified.log",
+          "sha256": "02fe326ede2de3646f2d06abf25659aed865c646b5295972632cf8addf9d30ff"
+        },
+        {
+          "command": [
+            "/usr/bin/node",
+            "--test",
+            "--test-reporter=tap",
+            "packages/h2a/test/mh-l3-argon.test.js"
+          ],
+          "code": 0,
+          "signal": null,
+          "tests": 5,
+          "invalid": false,
+          "spawned": 1,
+          "leftovers": [],
+          "log": "docs/plan/mh-l5/evidence/mh-l3-argon.test.js-node22-argon-qualified.log",
+          "sha256": "00e8a122dbece9ccd54bd6167426a53b3e5ba3236425f5f4e7f641fdea089ce7"
+        },
+        {
+          "command": [
+            "/usr/bin/node",
+            "--test",
+            "--test-reporter=tap",
+            "packages/h2a/test/mh-l3-recovery.test.js"
+          ],
+          "code": 0,
+          "signal": null,
+          "tests": 1,
+          "invalid": false,
+          "spawned": 65,
+          "leftovers": [],
+          "log": "docs/plan/mh-l5/evidence/mh-l3-recovery.test.js-node22-argon-qualified.log",
+          "sha256": "1940e9c8cdaf476e2e292a6071a986c4bc2c3ab7dea059c26518dd0d01bf3d92"
+        },
+        {
+          "command": [
+            "/usr/bin/node",
+            "--test",
+            "--test-reporter=tap",
+            "packages/h2a/test/mh-l3-central.test.js"
+          ],
+          "code": 0,
+          "signal": null,
+          "tests": 4,
+          "invalid": false,
+          "spawned": 2,
+          "leftovers": [],
+          "log": "docs/plan/mh-l5/evidence/mh-l3-central.test.js-node22-argon-qualified.log",
+          "sha256": "0c4aed40f52d6eaa5399adfbfc3d94c07ab946795ffd3a682557fc85c6fc8cd7"
+        },
+        {
+          "command": [
+            "/usr/bin/node",
+            "--test",
+            "--test-reporter=tap",
+            "packages/h2a/test/mh-l2-integration.test.js"
+          ],
+          "code": 0,
+          "signal": null,
+          "tests": 3,
+          "invalid": false,
+          "spawned": 1,
+          "leftovers": [],
+          "log": "docs/plan/mh-l5/evidence/mh-l2-integration.test.js-node22-argon-qualified.log",
+          "sha256": "a9b16bea1a49c2a17196770a817630c4684b0722288c9ed9102ebb43ad117cfd"
+        },
+        {
+          "command": [
+            "/usr/bin/node",
+            "--test",
+            "--test-reporter=tap",
+            "packages/h2a/test/mh-l1-transport.test.js"
+          ],
+          "code": 0,
+          "signal": null,
+          "tests": 1,
+          "invalid": false,
+          "spawned": 1,
+          "leftovers": [],
+          "log": "docs/plan/mh-l5/evidence/mh-l1-transport.test.js-node22-argon-qualified.log",
+          "sha256": "7aab390a3b28e6819b6b5efdff3947e203c62da4a905282f5586963986ceddd5"
+        },
+        {
+          "command": [
+            "/usr/bin/node",
+            "--test",
+            "--test-reporter=tap",
+            "packages/h2a/test/mcp-central-attachments.test.js"
+          ],
+          "code": 0,
+          "signal": null,
+          "tests": 33,
+          "invalid": false,
+          "spawned": 187,
+          "leftovers": [],
+          "log": "docs/plan/mh-l5/evidence/mcp-central-attachments.test.js-node22-argon-serial-before.log",
+          "sha256": "d04014dd0aa04fe6528e67a5fa941c243bae86fd6467a034524781879285806d"
+        }
+      ],
+      "mutations": [
+        {
+          "name": "backend-batch-lock",
+          "red": {
+            "command": [
+              "/usr/bin/node",
+              "--test",
+              "--test-reporter=tap",
+              "packages/h2a/test/mh-l5-concurrency-oracles.test.js"
+            ],
+            "code": 1,
+            "signal": null,
+            "tests": 1,
+            "invalid": false,
+            "spawned": 17,
+            "leftovers": [],
+            "log": "docs/plan/mh-l5/evidence/mh-l5-concurrency-oracles.test.js-node22-mutation-backend-batch-lock-red.log",
+            "sha256": "e60e6746ce598806f77987b0cf718f280b59ec462ec1e2b68373a7dab41bb6c2"
+          },
+          "green": {
+            "command": [
+              "/usr/bin/node",
+              "--test",
+              "--test-reporter=tap",
+              "packages/h2a/test/mh-l5-concurrency-oracles.test.js"
+            ],
+            "code": 0,
+            "signal": null,
+            "tests": 1,
+            "invalid": false,
+            "spawned": 17,
+            "leftovers": [],
+            "log": "docs/plan/mh-l5/evidence/mh-l5-concurrency-oracles.test.js-node22-mutation-backend-batch-lock-green.log",
+            "sha256": "16402336b81ecb5f7821560a33fcf7ece8c14e5cdd7ca6627ce62cd5c94983c5"
+          }
+        },
+        {
+          "name": "legacy-loss-classification",
+          "red": {
+            "command": [
+              "/usr/bin/node",
+              "--test",
+              "--test-reporter=tap",
+              "packages/h2a/test/mh-l5-shim-recovery.test.js"
+            ],
+            "code": 1,
+            "signal": null,
+            "tests": 1,
+            "invalid": false,
+            "spawned": 1,
+            "leftovers": [],
+            "log": "docs/plan/mh-l5/evidence/mh-l5-shim-recovery.test.js-node22-mutation-legacy-loss-classification-red.log",
+            "sha256": "b98122fe5a34da8886cf58a363ad0cfcc1e917f51d3f35c331aa87bb4294f01d"
+          },
+          "green": {
+            "command": [
+              "/usr/bin/node",
+              "--test",
+              "--test-reporter=tap",
+              "packages/h2a/test/mh-l5-shim-recovery.test.js"
+            ],
+            "code": 0,
+            "signal": null,
+            "tests": 1,
+            "invalid": false,
+            "spawned": 1,
+            "leftovers": [],
+            "log": "docs/plan/mh-l5/evidence/mh-l5-shim-recovery.test.js-node22-mutation-legacy-loss-classification-green.log",
+            "sha256": "b1271aaa216dbf7321538de913d2c8ca874fe69077c7d18c7d3549cfa039997a"
+          }
+        },
+        {
+          "name": "legacy-supervision-classification",
+          "red": {
+            "command": [
+              "/usr/bin/node",
+              "--test",
+              "--test-reporter=tap",
+              "packages/h2a/test/mh-l5-shim-recovery.test.js"
+            ],
+            "code": 1,
+            "signal": null,
+            "tests": 1,
+            "invalid": false,
+            "spawned": 1,
+            "leftovers": [],
+            "log": "docs/plan/mh-l5/evidence/mh-l5-shim-recovery.test.js-node22-mutation-legacy-supervision-classification-red.log",
+            "sha256": "99be9db11acb1f494bb1411448975fbf73c9e11ad85165a69544fcc65c17a680"
+          },
+          "green": {
+            "command": [
+              "/usr/bin/node",
+              "--test",
+              "--test-reporter=tap",
+              "packages/h2a/test/mh-l5-shim-recovery.test.js"
+            ],
+            "code": 0,
+            "signal": null,
+            "tests": 1,
+            "invalid": false,
+            "spawned": 1,
+            "leftovers": [],
+            "log": "docs/plan/mh-l5/evidence/mh-l5-shim-recovery.test.js-node22-mutation-legacy-supervision-classification-green.log",
+            "sha256": "d4c9e4665a04a9d8d85c18e7ce435bc4f9b6f517116519bb3b323247e185d63c"
+          }
+        },
+        {
+          "name": "legacy-transient-overwrite",
+          "red": {
+            "command": [
+              "/usr/bin/node",
+              "--test",
+              "--test-reporter=tap",
+              "packages/h2a/test/mh-l5-shim-recovery.test.js"
+            ],
+            "code": 1,
+            "signal": null,
+            "tests": 4,
+            "invalid": false,
+            "spawned": 1,
+            "leftovers": [],
+            "log": "docs/plan/mh-l5/evidence/mh-l5-shim-recovery.test.js-node22-mutation-legacy-transient-overwrite-red.log",
+            "sha256": "84be43820e8966b64a2fa30729366ba80140698650057ec9ad1c83daf2962907"
+          },
+          "green": {
+            "command": [
+              "/usr/bin/node",
+              "--test",
+              "--test-reporter=tap",
+              "packages/h2a/test/mh-l5-shim-recovery.test.js"
+            ],
+            "code": 0,
+            "signal": null,
+            "tests": 4,
+            "invalid": false,
+            "spawned": 1,
+            "leftovers": [],
+            "log": "docs/plan/mh-l5/evidence/mh-l5-shim-recovery.test.js-node22-mutation-legacy-transient-overwrite-green.log",
+            "sha256": "07275fe262a3acffdcc751602b03c552bd47543acb5acdbcb381cc94af63f8a0"
+          }
+        },
+        {
+          "name": "legacy-success-reset",
+          "red": {
+            "command": [
+              "/usr/bin/node",
+              "--test",
+              "--test-reporter=tap",
+              "packages/h2a/test/mh-l5-shim-recovery.test.js"
+            ],
+            "code": 1,
+            "signal": null,
+            "tests": 4,
+            "invalid": false,
+            "spawned": 1,
+            "leftovers": [],
+            "log": "docs/plan/mh-l5/evidence/mh-l5-shim-recovery.test.js-node22-mutation-legacy-success-reset-red.log",
+            "sha256": "9d31e571c4a748852ab2f05b019c82194593c44a3a27a66911bb20a95f55018c"
+          },
+          "green": {
+            "command": [
+              "/usr/bin/node",
+              "--test",
+              "--test-reporter=tap",
+              "packages/h2a/test/mh-l5-shim-recovery.test.js"
+            ],
+            "code": 0,
+            "signal": null,
+            "tests": 4,
+            "invalid": false,
+            "spawned": 1,
+            "leftovers": [],
+            "log": "docs/plan/mh-l5/evidence/mh-l5-shim-recovery.test.js-node22-mutation-legacy-success-reset-green.log",
+            "sha256": "767e2df9b86619c6cc7e888eb024f2cf418276285716c372242ba32b1b033b6c"
+          }
+        },
+        {
+          "name": "registry-loss",
+          "red": {
+            "command": [
+              "/usr/bin/node",
+              "--test",
+              "--test-reporter=tap",
+              "packages/h2a/test/mh-l5-concurrency-oracles.test.js"
+            ],
+            "code": 1,
+            "signal": null,
+            "tests": 1,
+            "invalid": false,
+            "spawned": 17,
+            "leftovers": [],
+            "log": "docs/plan/mh-l5/evidence/mh-l5-concurrency-oracles.test.js-node22-mutation-registry-loss-red.log",
+            "sha256": "2a3f97730f976145d69557745b76017160959075ff1624fe946e39ef746d1034"
+          },
+          "green": {
+            "command": [
+              "/usr/bin/node",
+              "--test",
+              "--test-reporter=tap",
+              "packages/h2a/test/mh-l5-concurrency-oracles.test.js"
+            ],
+            "code": 0,
+            "signal": null,
+            "tests": 1,
+            "invalid": false,
+            "spawned": 17,
+            "leftovers": [],
+            "log": "docs/plan/mh-l5/evidence/mh-l5-concurrency-oracles.test.js-node22-mutation-registry-loss-green.log",
+            "sha256": "a9dd7de63b0a154bf6d867b19bdf03147a90c29dd0f70e6b3028ab353b0dea2b"
+          }
+        },
+        {
+          "name": "inbox-loss",
+          "red": {
+            "command": [
+              "/usr/bin/node",
+              "--test",
+              "--test-reporter=tap",
+              "packages/h2a/test/mh-l5-concurrency-oracles.test.js"
+            ],
+            "code": 1,
+            "signal": null,
+            "tests": 1,
+            "invalid": false,
+            "spawned": 17,
+            "leftovers": [],
+            "log": "docs/plan/mh-l5/evidence/mh-l5-concurrency-oracles.test.js-node22-mutation-inbox-loss-red.log",
+            "sha256": "5e16f84c25e3f2f603f262cf16b87c356c0f375e166cdbdf11689df66d9cff97"
+          },
+          "green": {
+            "command": [
+              "/usr/bin/node",
+              "--test",
+              "--test-reporter=tap",
+              "packages/h2a/test/mh-l5-concurrency-oracles.test.js"
+            ],
+            "code": 0,
+            "signal": null,
+            "tests": 1,
+            "invalid": false,
+            "spawned": 17,
+            "leftovers": [],
+            "log": "docs/plan/mh-l5/evidence/mh-l5-concurrency-oracles.test.js-node22-mutation-inbox-loss-green.log",
+            "sha256": "c58a59a740384560010cb627ee6b9e437831ae8483d94a1e5b7b35402d80742d"
+          }
+        },
+        {
+          "name": "negotiation-loss",
+          "red": {
+            "command": [
+              "/usr/bin/node",
+              "--test",
+              "--test-reporter=tap",
+              "packages/h2a/test/mh-l5-concurrency-oracles.test.js"
+            ],
+            "code": 1,
+            "signal": null,
+            "tests": 1,
+            "invalid": false,
+            "spawned": 17,
+            "leftovers": [],
+            "log": "docs/plan/mh-l5/evidence/mh-l5-concurrency-oracles.test.js-node22-mutation-negotiation-loss-red.log",
+            "sha256": "722c849ea0667eb5591445019d559ba7ef6170ec16e10065aaf9ad907c39b1c6"
+          },
+          "green": {
+            "command": [
+              "/usr/bin/node",
+              "--test",
+              "--test-reporter=tap",
+              "packages/h2a/test/mh-l5-concurrency-oracles.test.js"
+            ],
+            "code": 0,
+            "signal": null,
+            "tests": 1,
+            "invalid": false,
+            "spawned": 17,
+            "leftovers": [],
+            "log": "docs/plan/mh-l5/evidence/mh-l5-concurrency-oracles.test.js-node22-mutation-negotiation-loss-green.log",
+            "sha256": "7ba547b9eeb8715f21adf838569cccf94c67552564aaca22dbcc178512f1809e"
+          }
+        },
+        {
+          "name": "presence-loss",
+          "red": {
+            "command": [
+              "/usr/bin/node",
+              "--test",
+              "--test-reporter=tap",
+              "packages/h2a/test/mh-l5-concurrency-oracles.test.js"
+            ],
+            "code": 1,
+            "signal": null,
+            "tests": 1,
+            "invalid": false,
+            "spawned": 17,
+            "leftovers": [],
+            "log": "docs/plan/mh-l5/evidence/mh-l5-concurrency-oracles.test.js-node22-mutation-presence-loss-red.log",
+            "sha256": "b18016d0f1a3fd7dda7ebfebb441efe34b0414e3713c038e6142b20e41b1076d"
+          },
+          "green": {
+            "command": [
+              "/usr/bin/node",
+              "--test",
+              "--test-reporter=tap",
+              "packages/h2a/test/mh-l5-concurrency-oracles.test.js"
+            ],
+            "code": 0,
+            "signal": null,
+            "tests": 1,
+            "invalid": false,
+            "spawned": 17,
+            "leftovers": [],
+            "log": "docs/plan/mh-l5/evidence/mh-l5-concurrency-oracles.test.js-node22-mutation-presence-loss-green.log",
+            "sha256": "1165551b25b8f7068e893ce4672dcb603d06d6d6d47a1c3471142b3f52b0a213"
+          }
+        },
+        {
+          "name": "blockage-loss",
+          "red": {
+            "command": [
+              "/usr/bin/node",
+              "--test",
+              "--test-reporter=tap",
+              "packages/h2a/test/mh-l5-concurrency-oracles.test.js"
+            ],
+            "code": 1,
+            "signal": null,
+            "tests": 1,
+            "invalid": false,
+            "spawned": 17,
+            "leftovers": [],
+            "log": "docs/plan/mh-l5/evidence/mh-l5-concurrency-oracles.test.js-node22-mutation-blockage-loss-red.log",
+            "sha256": "3dffe0ad54c4817cd49c3bd02c3b8eb015fcb4b676fcae9610b4dbcdd80401fd"
+          },
+          "green": {
+            "command": [
+              "/usr/bin/node",
+              "--test",
+              "--test-reporter=tap",
+              "packages/h2a/test/mh-l5-concurrency-oracles.test.js"
+            ],
+            "code": 0,
+            "signal": null,
+            "tests": 1,
+            "invalid": false,
+            "spawned": 17,
+            "leftovers": [],
+            "log": "docs/plan/mh-l5/evidence/mh-l5-concurrency-oracles.test.js-node22-mutation-blockage-loss-green.log",
+            "sha256": "01c194ed53cc154393faa6ad8961463122b7b11c33364059cefe5c1e6b5fdc84"
+          }
+        },
+        {
+          "name": "payload-loss",
+          "red": {
+            "command": [
+              "/usr/bin/node",
+              "--test",
+              "--test-reporter=tap",
+              "packages/h2a/test/mh-l5-concurrency-oracles.test.js"
+            ],
+            "code": 1,
+            "signal": null,
+            "tests": 1,
+            "invalid": false,
+            "spawned": 17,
+            "leftovers": [],
+            "log": "docs/plan/mh-l5/evidence/mh-l5-concurrency-oracles.test.js-node22-mutation-payload-loss-red.log",
+            "sha256": "a7588bb5d17763d9e59ce9d196561a1f1f565871e4ba92f8cd94142008883cef"
+          },
+          "green": {
+            "command": [
+              "/usr/bin/node",
+              "--test",
+              "--test-reporter=tap",
+              "packages/h2a/test/mh-l5-concurrency-oracles.test.js"
+            ],
+            "code": 0,
+            "signal": null,
+            "tests": 1,
+            "invalid": false,
+            "spawned": 17,
+            "leftovers": [],
+            "log": "docs/plan/mh-l5/evidence/mh-l5-concurrency-oracles.test.js-node22-mutation-payload-loss-green.log",
+            "sha256": "8969a60f11315923524d2589f9bb784c41ae27cfd8202ee0db11ff950ba020d9"
+          }
+        },
+        {
+          "name": "launch-loss",
+          "red": {
+            "command": [
+              "/usr/bin/node",
+              "--test",
+              "--test-reporter=tap",
+              "packages/h2a/test/mh-l5-concurrency-oracles.test.js"
+            ],
+            "code": 1,
+            "signal": null,
+            "tests": 1,
+            "invalid": false,
+            "spawned": 17,
+            "leftovers": [],
+            "log": "docs/plan/mh-l5/evidence/mh-l5-concurrency-oracles.test.js-node22-mutation-launch-loss-red.log",
+            "sha256": "78a929fa1f4794052684f5825433f534db8f4a9905fe5a0c4b83c8ac7af086c3"
+          },
+          "green": {
+            "command": [
+              "/usr/bin/node",
+              "--test",
+              "--test-reporter=tap",
+              "packages/h2a/test/mh-l5-concurrency-oracles.test.js"
+            ],
+            "code": 0,
+            "signal": null,
+            "tests": 1,
+            "invalid": false,
+            "spawned": 17,
+            "leftovers": [],
+            "log": "docs/plan/mh-l5/evidence/mh-l5-concurrency-oracles.test.js-node22-mutation-launch-loss-green.log",
+            "sha256": "b995deed52f3c5b085e4921ee1433bfbf14dbbc847e2effe4c5bd2d4b19fa237"
+          }
+        }
+      ]
+    },
+    {
+      "node": "v24.21.0",
+      "explicitFiles": 12,
+      "tests": 72,
+      "mutationPairs": 12,
+      "skipped": 0,
+      "cancelled": 0,
+      "remainingOwnChildren": 0,
+      "receipts": [
+        {
+          "command": [
+            "/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node",
+            "--test",
+            "--test-reporter=tap",
+            "packages/h2a/test/mh-l5-shim-recovery.test.js"
+          ],
+          "code": 0,
+          "signal": null,
+          "tests": 4,
+          "invalid": false,
+          "spawned": 1,
+          "leftovers": [],
+          "log": "docs/plan/mh-l5/evidence/mh-l5-shim-recovery.test.js-node24-argon-qualified.log",
+          "sha256": "8e22c57ad105bc108c0b58dfe967312617b25d6d2652bf42a095d60d457d7b34"
+        },
+        {
+          "command": [
+            "/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node",
+            "--test",
+            "--test-reporter=tap",
+            "packages/h2a/test/mh-l5-concurrency-oracles.test.js"
+          ],
+          "code": 0,
+          "signal": null,
+          "tests": 1,
+          "invalid": false,
+          "spawned": 17,
+          "leftovers": [],
+          "log": "docs/plan/mh-l5/evidence/mh-l5-concurrency-oracles.test.js-node24-argon-qualified.log",
+          "sha256": "da69e10a2efa0c8000745fda6871ff810c3601f734b3e2898a7d069a5a7b4b12"
+        },
+        {
+          "command": [
+            "/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node",
+            "--test",
+            "--test-reporter=tap",
+            "packages/h2a/test/mh-l5-v1.test.js"
+          ],
+          "code": 0,
+          "signal": null,
+          "tests": 10,
+          "invalid": false,
+          "spawned": 41,
+          "leftovers": [],
+          "log": "docs/plan/mh-l5/evidence/mh-l5-v1.test.js-node24-argon-qualified.log",
+          "sha256": "ccf2acf9a721352a9203313c96286ca15d739efe47f6a01c19cba758cd865bac"
+        },
+        {
+          "command": [
+            "/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node",
+            "--test",
+            "--test-reporter=tap",
+            "packages/h2a/test/mh-l5-legacy-writer.test.js"
+          ],
+          "code": 0,
+          "signal": null,
+          "tests": 2,
+          "invalid": false,
+          "spawned": 5,
+          "leftovers": [],
+          "log": "docs/plan/mh-l5/evidence/mh-l5-legacy-writer.test.js-node24-argon-qualified.log",
+          "sha256": "8831f859e743ed10471f993ddebbb31d1760b82cba0739c9633b0e0475cbf852"
+        },
+        {
+          "command": [
+            "/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node",
+            "--test",
+            "--test-reporter=tap",
+            "packages/h2a/test/mh-l3-transfer.test.js"
+          ],
+          "code": 0,
+          "signal": null,
+          "tests": 1,
+          "invalid": false,
+          "spawned": 7,
+          "leftovers": [],
+          "log": "docs/plan/mh-l5/evidence/mh-l3-transfer.test.js-node24-argon-qualified.log",
+          "sha256": "e83c23d3c92ccbe09ae35d2f96a7988577396af8ae34a49e66db52ed67c05906"
+        },
+        {
+          "command": [
+            "/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node",
+            "--test",
+            "--test-reporter=tap",
+            "packages/h2a/test/mh-l3-network.test.js"
+          ],
+          "code": 0,
+          "signal": null,
+          "tests": 7,
+          "invalid": false,
+          "spawned": 3,
+          "leftovers": [],
+          "log": "docs/plan/mh-l5/evidence/mh-l3-network.test.js-node24-argon-qualified.log",
+          "sha256": "7b0dcfbb32219d4b3140440241cc208f6963218c4d47957635d377fe131147ba"
+        },
+        {
+          "command": [
+            "/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node",
+            "--test",
+            "--test-reporter=tap",
+            "packages/h2a/test/mh-l3-argon.test.js"
+          ],
+          "code": 0,
+          "signal": null,
+          "tests": 5,
+          "invalid": false,
+          "spawned": 1,
+          "leftovers": [],
+          "log": "docs/plan/mh-l5/evidence/mh-l3-argon.test.js-node24-argon-qualified.log",
+          "sha256": "271e0883cfc9e205960888369dbd93c6c371e714e972d99ec66204164b1ef270"
+        },
+        {
+          "command": [
+            "/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node",
+            "--test",
+            "--test-reporter=tap",
+            "packages/h2a/test/mh-l3-recovery.test.js"
+          ],
+          "code": 0,
+          "signal": null,
+          "tests": 1,
+          "invalid": false,
+          "spawned": 65,
+          "leftovers": [],
+          "log": "docs/plan/mh-l5/evidence/mh-l3-recovery.test.js-node24-argon-qualified.log",
+          "sha256": "4fd9761c8eab1da48f919d60693498a2c0846629ef9d9110e4329145e94c137f"
+        },
+        {
+          "command": [
+            "/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node",
+            "--test",
+            "--test-reporter=tap",
+            "packages/h2a/test/mh-l3-central.test.js"
+          ],
+          "code": 0,
+          "signal": null,
+          "tests": 4,
+          "invalid": false,
+          "spawned": 2,
+          "leftovers": [],
+          "log": "docs/plan/mh-l5/evidence/mh-l3-central.test.js-node24-argon-qualified.log",
+          "sha256": "f684e3aff5660e446772736b82a8fd8322121f6f0df0490ee3dbf95684c87090"
+        },
+        {
+          "command": [
+            "/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node",
+            "--test",
+            "--test-reporter=tap",
+            "packages/h2a/test/mh-l2-integration.test.js"
+          ],
+          "code": 0,
+          "signal": null,
+          "tests": 3,
+          "invalid": false,
+          "spawned": 1,
+          "leftovers": [],
+          "log": "docs/plan/mh-l5/evidence/mh-l2-integration.test.js-node24-argon-qualified.log",
+          "sha256": "fdedbaee764b055403e6e6d1adc952f23616b682b64df01b7a545c60d1de07d5"
+        },
+        {
+          "command": [
+            "/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node",
+            "--test",
+            "--test-reporter=tap",
+            "packages/h2a/test/mh-l1-transport.test.js"
+          ],
+          "code": 0,
+          "signal": null,
+          "tests": 1,
+          "invalid": false,
+          "spawned": 1,
+          "leftovers": [],
+          "log": "docs/plan/mh-l5/evidence/mh-l1-transport.test.js-node24-argon-qualified.log",
+          "sha256": "dc2e04039d1a2518af67bc764f8294695b6ad14d3aa29a87bd671d2ea46edd80"
+        },
+        {
+          "command": [
+            "/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node",
+            "--test",
+            "--test-reporter=tap",
+            "packages/h2a/test/mcp-central-attachments.test.js"
+          ],
+          "code": 0,
+          "signal": null,
+          "tests": 33,
+          "invalid": false,
+          "spawned": 187,
+          "leftovers": [],
+          "log": "docs/plan/mh-l5/evidence/mcp-central-attachments.test.js-node24-argon-serial-qualified.log",
+          "sha256": "cdada566b6e7caec9356b978b267eb75add4c998626757402ebc054da46187ae"
+        }
+      ],
+      "mutations": [
+        {
+          "name": "backend-batch-lock",
+          "red": {
+            "command": [
+              "/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node",
+              "--test",
+              "--test-reporter=tap",
+              "packages/h2a/test/mh-l5-concurrency-oracles.test.js"
+            ],
+            "code": 1,
+            "signal": null,
+            "tests": 1,
+            "invalid": false,
+            "spawned": 17,
+            "leftovers": [],
+            "log": "docs/plan/mh-l5/evidence/mh-l5-concurrency-oracles.test.js-node24-mutation-backend-batch-lock-red.log",
+            "sha256": "e3c110c8aa7aebac2b8044a4b604e70fc67cd419d9d9b5f9596f45e212e044c6"
+          },
+          "green": {
+            "command": [
+              "/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node",
+              "--test",
+              "--test-reporter=tap",
+              "packages/h2a/test/mh-l5-concurrency-oracles.test.js"
+            ],
+            "code": 0,
+            "signal": null,
+            "tests": 1,
+            "invalid": false,
+            "spawned": 17,
+            "leftovers": [],
+            "log": "docs/plan/mh-l5/evidence/mh-l5-concurrency-oracles.test.js-node24-mutation-backend-batch-lock-green.log",
+            "sha256": "53cd413324d9edd711580c8480b2184824cd9ec0fe806412cfff3e4530cdb531"
+          }
+        },
+        {
+          "name": "legacy-loss-classification",
+          "red": {
+            "command": [
+              "/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node",
+              "--test",
+              "--test-reporter=tap",
+              "packages/h2a/test/mh-l5-shim-recovery.test.js"
+            ],
+            "code": 1,
+            "signal": null,
+            "tests": 1,
+            "invalid": false,
+            "spawned": 1,
+            "leftovers": [],
+            "log": "docs/plan/mh-l5/evidence/mh-l5-shim-recovery.test.js-node24-mutation-legacy-loss-classification-red.log",
+            "sha256": "5850e75c253a926d463a2cfaf37682f981bf9e3fe156b446202062660adb0347"
+          },
+          "green": {
+            "command": [
+              "/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node",
+              "--test",
+              "--test-reporter=tap",
+              "packages/h2a/test/mh-l5-shim-recovery.test.js"
+            ],
+            "code": 0,
+            "signal": null,
+            "tests": 1,
+            "invalid": false,
+            "spawned": 1,
+            "leftovers": [],
+            "log": "docs/plan/mh-l5/evidence/mh-l5-shim-recovery.test.js-node24-mutation-legacy-loss-classification-green.log",
+            "sha256": "97e75195b72cc8ca4c78d0134cc6fb5cfb442f65cd813fa8f966dbc40d3e8c2d"
+          }
+        },
+        {
+          "name": "legacy-supervision-classification",
+          "red": {
+            "command": [
+              "/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node",
+              "--test",
+              "--test-reporter=tap",
+              "packages/h2a/test/mh-l5-shim-recovery.test.js"
+            ],
+            "code": 1,
+            "signal": null,
+            "tests": 1,
+            "invalid": false,
+            "spawned": 1,
+            "leftovers": [],
+            "log": "docs/plan/mh-l5/evidence/mh-l5-shim-recovery.test.js-node24-mutation-legacy-supervision-classification-red.log",
+            "sha256": "13fb4b7839e5df88de8c29a07443fe3c4d80acf70fe089446f233e2c44f78778"
+          },
+          "green": {
+            "command": [
+              "/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node",
+              "--test",
+              "--test-reporter=tap",
+              "packages/h2a/test/mh-l5-shim-recovery.test.js"
+            ],
+            "code": 0,
+            "signal": null,
+            "tests": 1,
+            "invalid": false,
+            "spawned": 1,
+            "leftovers": [],
+            "log": "docs/plan/mh-l5/evidence/mh-l5-shim-recovery.test.js-node24-mutation-legacy-supervision-classification-green.log",
+            "sha256": "446d71a5152a923d332465b6c43de7294627f2deb83fc9c4df9c88c57b268111"
+          }
+        },
+        {
+          "name": "legacy-transient-overwrite",
+          "red": {
+            "command": [
+              "/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node",
+              "--test",
+              "--test-reporter=tap",
+              "packages/h2a/test/mh-l5-shim-recovery.test.js"
+            ],
+            "code": 1,
+            "signal": null,
+            "tests": 4,
+            "invalid": false,
+            "spawned": 1,
+            "leftovers": [],
+            "log": "docs/plan/mh-l5/evidence/mh-l5-shim-recovery.test.js-node24-mutation-legacy-transient-overwrite-red.log",
+            "sha256": "7d214c90c7a116801cbbafeafb9ac4a58617748d62f302b73a7691b0550d8c70"
+          },
+          "green": {
+            "command": [
+              "/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node",
+              "--test",
+              "--test-reporter=tap",
+              "packages/h2a/test/mh-l5-shim-recovery.test.js"
+            ],
+            "code": 0,
+            "signal": null,
+            "tests": 4,
+            "invalid": false,
+            "spawned": 1,
+            "leftovers": [],
+            "log": "docs/plan/mh-l5/evidence/mh-l5-shim-recovery.test.js-node24-mutation-legacy-transient-overwrite-green.log",
+            "sha256": "008c3126b143bf8d64e5e903d2a9a36ed342c0e78a4499503ea31f4de7dcd4ee"
+          }
+        },
+        {
+          "name": "legacy-success-reset",
+          "red": {
+            "command": [
+              "/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node",
+              "--test",
+              "--test-reporter=tap",
+              "packages/h2a/test/mh-l5-shim-recovery.test.js"
+            ],
+            "code": 1,
+            "signal": null,
+            "tests": 4,
+            "invalid": false,
+            "spawned": 1,
+            "leftovers": [],
+            "log": "docs/plan/mh-l5/evidence/mh-l5-shim-recovery.test.js-node24-mutation-legacy-success-reset-red.log",
+            "sha256": "859744fa4f517aff573aea0c2643c102a334361f0fb9203f69122cdd3929cf13"
+          },
+          "green": {
+            "command": [
+              "/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node",
+              "--test",
+              "--test-reporter=tap",
+              "packages/h2a/test/mh-l5-shim-recovery.test.js"
+            ],
+            "code": 0,
+            "signal": null,
+            "tests": 4,
+            "invalid": false,
+            "spawned": 1,
+            "leftovers": [],
+            "log": "docs/plan/mh-l5/evidence/mh-l5-shim-recovery.test.js-node24-mutation-legacy-success-reset-green.log",
+            "sha256": "952ebda9a9b323d9c517aba8ec7cefe1e68eb154f4d415f8154669ba76181ae0"
+          }
+        },
+        {
+          "name": "registry-loss",
+          "red": {
+            "command": [
+              "/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node",
+              "--test",
+              "--test-reporter=tap",
+              "packages/h2a/test/mh-l5-concurrency-oracles.test.js"
+            ],
+            "code": 1,
+            "signal": null,
+            "tests": 1,
+            "invalid": false,
+            "spawned": 17,
+            "leftovers": [],
+            "log": "docs/plan/mh-l5/evidence/mh-l5-concurrency-oracles.test.js-node24-mutation-registry-loss-red.log",
+            "sha256": "a39d4521cd0ca99c31b17afbd8d1bcb10bc4ab29541967eca806b945cbc40e17"
+          },
+          "green": {
+            "command": [
+              "/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node",
+              "--test",
+              "--test-reporter=tap",
+              "packages/h2a/test/mh-l5-concurrency-oracles.test.js"
+            ],
+            "code": 0,
+            "signal": null,
+            "tests": 1,
+            "invalid": false,
+            "spawned": 17,
+            "leftovers": [],
+            "log": "docs/plan/mh-l5/evidence/mh-l5-concurrency-oracles.test.js-node24-mutation-registry-loss-green.log",
+            "sha256": "b22db2b6b2b3e20bae28146e3fb09a3afbfa4daa47c7f8babe5e6f39368411aa"
+          }
+        },
+        {
+          "name": "inbox-loss",
+          "red": {
+            "command": [
+              "/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node",
+              "--test",
+              "--test-reporter=tap",
+              "packages/h2a/test/mh-l5-concurrency-oracles.test.js"
+            ],
+            "code": 1,
+            "signal": null,
+            "tests": 1,
+            "invalid": false,
+            "spawned": 17,
+            "leftovers": [],
+            "log": "docs/plan/mh-l5/evidence/mh-l5-concurrency-oracles.test.js-node24-mutation-inbox-loss-red.log",
+            "sha256": "914351744a122e157729f1a1734022614ac5dd1e735d4caf535590f43437c373"
+          },
+          "green": {
+            "command": [
+              "/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node",
+              "--test",
+              "--test-reporter=tap",
+              "packages/h2a/test/mh-l5-concurrency-oracles.test.js"
+            ],
+            "code": 0,
+            "signal": null,
+            "tests": 1,
+            "invalid": false,
+            "spawned": 17,
+            "leftovers": [],
+            "log": "docs/plan/mh-l5/evidence/mh-l5-concurrency-oracles.test.js-node24-mutation-inbox-loss-green.log",
+            "sha256": "05554043c5d6a89ea996a1a285c5bc442d6ee2a3dd95132293060bb5f8ba8282"
+          }
+        },
+        {
+          "name": "negotiation-loss",
+          "red": {
+            "command": [
+              "/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node",
+              "--test",
+              "--test-reporter=tap",
+              "packages/h2a/test/mh-l5-concurrency-oracles.test.js"
+            ],
+            "code": 1,
+            "signal": null,
+            "tests": 1,
+            "invalid": false,
+            "spawned": 17,
+            "leftovers": [],
+            "log": "docs/plan/mh-l5/evidence/mh-l5-concurrency-oracles.test.js-node24-mutation-negotiation-loss-red.log",
+            "sha256": "dd269fed918cd5599de0706107b2640b4e68fd63e239b17f2076c4d962573003"
+          },
+          "green": {
+            "command": [
+              "/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node",
+              "--test",
+              "--test-reporter=tap",
+              "packages/h2a/test/mh-l5-concurrency-oracles.test.js"
+            ],
+            "code": 0,
+            "signal": null,
+            "tests": 1,
+            "invalid": false,
+            "spawned": 17,
+            "leftovers": [],
+            "log": "docs/plan/mh-l5/evidence/mh-l5-concurrency-oracles.test.js-node24-mutation-negotiation-loss-green.log",
+            "sha256": "15393946f9ab51715c3c308f2df4cd6c107732eafcde77d7f28bf514c67dad01"
+          }
+        },
+        {
+          "name": "presence-loss",
+          "red": {
+            "command": [
+              "/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node",
+              "--test",
+              "--test-reporter=tap",
+              "packages/h2a/test/mh-l5-concurrency-oracles.test.js"
+            ],
+            "code": 1,
+            "signal": null,
+            "tests": 1,
+            "invalid": false,
+            "spawned": 17,
+            "leftovers": [],
+            "log": "docs/plan/mh-l5/evidence/mh-l5-concurrency-oracles.test.js-node24-mutation-presence-loss-red.log",
+            "sha256": "1423a3857b2eb75bdfc5ba14a1ea3a8f85b6e3f590ec818fb01386755bd45c0f"
+          },
+          "green": {
+            "command": [
+              "/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node",
+              "--test",
+              "--test-reporter=tap",
+              "packages/h2a/test/mh-l5-concurrency-oracles.test.js"
+            ],
+            "code": 0,
+            "signal": null,
+            "tests": 1,
+            "invalid": false,
+            "spawned": 17,
+            "leftovers": [],
+            "log": "docs/plan/mh-l5/evidence/mh-l5-concurrency-oracles.test.js-node24-mutation-presence-loss-green.log",
+            "sha256": "9cb52ae90c749b65009bb406a8e1e634f54c113008bbbc028446b207935983f0"
+          }
+        },
+        {
+          "name": "blockage-loss",
+          "red": {
+            "command": [
+              "/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node",
+              "--test",
+              "--test-reporter=tap",
+              "packages/h2a/test/mh-l5-concurrency-oracles.test.js"
+            ],
+            "code": 1,
+            "signal": null,
+            "tests": 1,
+            "invalid": false,
+            "spawned": 17,
+            "leftovers": [],
+            "log": "docs/plan/mh-l5/evidence/mh-l5-concurrency-oracles.test.js-node24-mutation-blockage-loss-red.log",
+            "sha256": "563f8b5317d3b262617127dce1a7ec155218a50ae74acc2b56123540ee43350f"
+          },
+          "green": {
+            "command": [
+              "/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node",
+              "--test",
+              "--test-reporter=tap",
+              "packages/h2a/test/mh-l5-concurrency-oracles.test.js"
+            ],
+            "code": 0,
+            "signal": null,
+            "tests": 1,
+            "invalid": false,
+            "spawned": 17,
+            "leftovers": [],
+            "log": "docs/plan/mh-l5/evidence/mh-l5-concurrency-oracles.test.js-node24-mutation-blockage-loss-green.log",
+            "sha256": "f6c2aa80d72165325431cb83b5941304faa4f3aeb08a851bb5e1e05a774abfd6"
+          }
+        },
+        {
+          "name": "payload-loss",
+          "red": {
+            "command": [
+              "/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node",
+              "--test",
+              "--test-reporter=tap",
+              "packages/h2a/test/mh-l5-concurrency-oracles.test.js"
+            ],
+            "code": 1,
+            "signal": null,
+            "tests": 1,
+            "invalid": false,
+            "spawned": 17,
+            "leftovers": [],
+            "log": "docs/plan/mh-l5/evidence/mh-l5-concurrency-oracles.test.js-node24-mutation-payload-loss-red.log",
+            "sha256": "89d48ef84157d6f997c96fae1a4c758e7e81eb9daadd293e28bfd3292f73371e"
+          },
+          "green": {
+            "command": [
+              "/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node",
+              "--test",
+              "--test-reporter=tap",
+              "packages/h2a/test/mh-l5-concurrency-oracles.test.js"
+            ],
+            "code": 0,
+            "signal": null,
+            "tests": 1,
+            "invalid": false,
+            "spawned": 17,
+            "leftovers": [],
+            "log": "docs/plan/mh-l5/evidence/mh-l5-concurrency-oracles.test.js-node24-mutation-payload-loss-green.log",
+            "sha256": "180b05ae9d08a4f2098b8c4da25530f7b623964a9199bd0e8df19e125c437647"
+          }
+        },
+        {
+          "name": "launch-loss",
+          "red": {
+            "command": [
+              "/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node",
+              "--test",
+              "--test-reporter=tap",
+              "packages/h2a/test/mh-l5-concurrency-oracles.test.js"
+            ],
+            "code": 1,
+            "signal": null,
+            "tests": 1,
+            "invalid": false,
+            "spawned": 17,
+            "leftovers": [],
+            "log": "docs/plan/mh-l5/evidence/mh-l5-concurrency-oracles.test.js-node24-mutation-launch-loss-red.log",
+            "sha256": "796887a3665018461cdfcba02f45189e130c049b9146a1e878ee83901d619089"
+          },
+          "green": {
+            "command": [
+              "/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node",
+              "--test",
+              "--test-reporter=tap",
+              "packages/h2a/test/mh-l5-concurrency-oracles.test.js"
+            ],
+            "code": 0,
+            "signal": null,
+            "tests": 1,
+            "invalid": false,
+            "spawned": 17,
+            "leftovers": [],
+            "log": "docs/plan/mh-l5/evidence/mh-l5-concurrency-oracles.test.js-node24-mutation-launch-loss-green.log",
+            "sha256": "0708de42e2f4f25840bb12907bdad7ebe7eeec966bb1d6939510cc27b90ba1ea"
+          }
+        }
+      ]
+    }
+  ],
+  "baseline": [
+    {
+      "red": {
+        "command": [
+          "/usr/bin/node",
+          "--test",
+          "--test-reporter=tap",
+          "packages/h2a/test/mh-l5-shim-recovery.test.js"
+        ],
+        "code": 1,
+        "signal": null,
+        "tests": 4,
+        "invalid": false,
+        "spawned": 1,
+        "leftovers": [],
+        "log": "docs/plan/mh-l5/evidence/mh-l5-shim-recovery.test.js-node22-argon-before.log",
+        "sha256": "b05ff9a2032319076a813916c5997cec135a9d9220d49279d2f3b37a9d5575dd"
+      },
+      "green": {
+        "command": [
+          "/usr/bin/node",
+          "--test",
+          "--test-reporter=tap",
+          "packages/h2a/test/mh-l5-shim-recovery.test.js"
+        ],
+        "code": 0,
+        "signal": null,
+        "tests": 4,
+        "invalid": false,
+        "spawned": 1,
+        "leftovers": [],
+        "log": "docs/plan/mh-l5/evidence/mh-l5-shim-recovery.test.js-node22-argon-after.log",
+        "sha256": "2e66c57b200cb4a218d2dc0ad24f679f95a956f2fa1c8efbd088a74e07a4c903"
+      }
+    },
+    {
+      "red": {
+        "command": [
+          "/usr/bin/node",
+          "--test",
+          "--test-reporter=tap",
+          "packages/h2a/test/mh-l5-concurrency-oracles.test.js"
+        ],
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "invalid": false,
+        "spawned": 17,
+        "leftovers": [],
+        "log": "docs/plan/mh-l5/evidence/mh-l5-concurrency-oracles.test.js-node22-argon-before.log",
+        "sha256": "ef11370c6e7ca8a53851678252558b97affbe0c5f8e806396f63f427625bdc5b"
+      },
+      "green": {
+        "command": [
+          "/usr/bin/node",
+          "--test",
+          "--test-reporter=tap",
+          "packages/h2a/test/mh-l5-concurrency-oracles.test.js"
+        ],
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "invalid": false,
+        "spawned": 17,
+        "leftovers": [],
+        "log": "docs/plan/mh-l5/evidence/mh-l5-concurrency-oracles.test.js-node22-argon-after.log",
+        "sha256": "2d84333e1a0e545e86e33657441cd130fb3d080873fb469d6dabce20a2acd1b6"
+      }
+    }
+  ],
+  "typecheck": {
+    "log": "docs/plan/mh-l5/evidence/argon-typecheck.log",
+    "sha256": "bd3ab11bd78699cefb691536d17218b9816c3a86d36d59ef77c2312bdbb07795"
+  },
+  "M17": {
+    "qualified": false,
+    "coverage": "backend-only",
+    "deferredGate": "docs/plan/mh-l8/BRANCH.md",
+    "longBackendCampaignRerun": false
+  },
+  "M18": {
+    "productH4ProducerDelivered": false,
+    "trackedIn": "docs/plan/mh-l6/BRANCH.md"
+  },
+  "diagnostics": [
+    "parallel Node 22/24 attachments attempts: EADDRINUSE on the fixed fixture port; sequential reruns retained separately",
+    "source and TypeScript emission have different formatting and separate hashes; only source/copy hashes are compared for equality"
+  ],
+  "independentReReview": "conductor; not claimed by builder"
+}
