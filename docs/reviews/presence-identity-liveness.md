@@ -1,6 +1,6 @@
 ---
 status: selection-failed
-target-ref: 87d88fa1110365be2a58a020ab4a4b82faa5390b
+target-ref: 7271e66251ccb2a346c5a1c1fb1c889b316d5b7b
 review-author:
   host: codex
   model: unknown
@@ -73,3 +73,33 @@ The harness-review skill still requires "Launch only through the installed h2a
 MCP server's `h2a_run` tool", forbidden by owner confinement; no peer was launched,
 no consensus is claimed and the selection-failed status remains. Node 22.22.1 only
 in this round; previous field/E2E/platform/endurance limitations remain.
+
+## Owner-supplied independent re-review and round 4
+
+`revpresence3.md`: NON-FUSIONNABLE on one P2 at send.ts:138. Accepted:
+the diagnostic fallback still used TTL-filtered presence. Fixed in the exact
+target above. Atomic instance/name hints now survive publication expiry,
+session close/reap and restart; deletion preserves pre-upgrade publications too.
+The diagnostic combines hints, expired records and registration names and may
+only throw a refusal. It never supplies admission or a dormant inbox deposit.
+Living candidates keep priority; duplicate known instances collapse and distinct
+historical candidates remain ambiguous. CLI/API dormant behavior is unchanged.
+
+The final 45-test admission file against exact pre-fix `a2297c25` yields
+30 expected failures and 15 controls passing, zero skips (`eIl6Gs`). The same
+tests pass in the final nine-file run: 140/140, zero skips (`ikccGb`). Four
+isolated typechecks exit 0; 183 recorded test PIDs checked, none alive. Commands,
+full TAP, source hashes, temporary environments and the intermediate fixture
+error are retained in scratch `presence-evidence/tour4/`.
+
+Manual review checked all four changed files, pre-side-effect refusals on both
+backends, TTL without PID death, removed/collected names, rename isolation,
+legacy data, unknown/malformed errors, live precedence, ambiguity and recovery.
+No independent peer was dispatched. [harness-review](/home/antoinefa/.codex/plugins/cache/sentropic/h2a/0.98.6/skills/harness/review/SKILL.md)
+requires "Launch only through the installed h2a MCP server's `h2a_run` tool";
+the owner's prohibition takes precedence. Author metadata remains unavailable;
+selection-failed stands, with no consensus or merge approval claimed.
+
+Node 22 only in this round. No full suite, owner state, field/endurance or
+cross-CLI E2E qualification. Hints are retained without TTL for diagnostics;
+already erased pre-upgrade evidence cannot be recovered without another source.

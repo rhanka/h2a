@@ -109,3 +109,41 @@ are in the owner's scratch report, Tour 3, and `presence-evidence/tour3/`.
 No full suite, real owner state, installed h2a, Python or independent consensus
 review. Node 24, other OSes, nine-hour endurance and cross-CLI delivery remain
 unqualified in this round. The installed MCP review launch path remains forbidden.
+
+## Review fix — round 4
+
+Owner-supplied `revpresence3.md`: NON-FUSIONNABLE, one P2. A known display name
+lost `recipient_not_live` after TTL expiry. Fixed in `7271e66251ccb2a346c5a1c1fb1c889b316d5b7b`.
+
+Addressing evidence now survives independently of session liveness in
+`<root>/recipient-hints/`: atomic, deduplicated instance/name records, retained
+without a TTL. Publications remember their recipient; explicit close/reap also
+preserves legacy publications before unlink. Only the refusal path reads hints,
+expired publications and registration names. Live resolution retains priority;
+historical resolution can only throw `recipient_not_live`, never admit delivery.
+Duplicate evidence for one canonical instance is one diagnostic candidate;
+distinct historical identities remain ambiguous. Dormant CLI/API unchanged.
+
+| Isolated targeted verification | Observed output |
+|---|---|
+| Initial table on unchanged round-3 source, `ZcRA35` | 27 tests, 15 pass, 12 expected failures, 0 skipped; exit 1 |
+| Complete regression file on exact `a2297c25`, `eIl6Gs` | 45 tests, 15 pass, 30 expected failures, 0 skipped; exit 1 |
+| Nine explicitly named files on final sources, `ikccGb` | 140 tests, 140 pass, 0 fail, 0 skipped; exit 0 |
+| Typechecks of that temporary build | track, remote-protocol, h2a, h2a-runtime: exit 0 each |
+| Audit of all six campaigns' recorded test PIDs | 183 checked, none alive |
+
+The table covers bare/legacy-prefixed names, local/mesh, fresh-dead/expired/
+removed/GC-swept sessions, success with the real child owner alive, no refusal
+side effects, reopened stores and recovery. Controls cover TTL alone with a
+living PID, renamed living instances, pre-upgrade records, registration-only
+names, unregistered aliases, duplicate evidence, ambiguity and unknown targets.
+One intermediate run had two missing-directory fixture errors; excluded from
+product regression proof and recorded in scratch `presence-evidence/tour4/runs.md`.
+Source hashes, full TAP, environments and process audit accompany that file.
+
+No full suite, owner state, installed h2a, Python or process discovery. Node
+22.22.1 only; other runtimes/OSes, field incident, endurance and cross-CLI E2E
+remain unqualified. Already erased pre-upgrade names absent from registrations
+cannot be reconstructed. New hints intentionally outlive session collection;
+they contain no PID, heartbeat, key or launch context. No new independent
+consensus review: installed MCP dispatch remains forbidden by the owner.
