@@ -1,0 +1,40 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l5-cold.test.js
+node: v22.22.1
+private root: /tmp/mh-l5-test-EIJ598
+case: M23 M24 cold process crash at after-directory-sync must preserve the irreversible boundary
+TAP version 13
+# Subtest: M23 M24 cold process crash at after-directory-sync must preserve the irreversible boundary
+not ok 1 - M23 M24 cold process crash at after-directory-sync must preserve the irreversible boundary
+  ---
+  duration_ms: 233.037247
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/test/mh-l5-cold.test.js:10:94'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    + actual - expected
+    
+    + undefined
+    - 'stop_irreversible'
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 'stop_irreversible'
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/test/mh-l5-cold.test.js:43:16)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 0
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 336.527224
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l5-cold.test.js"],"code":1,"signal":null,"tests":1,"invalid":false,"spawned":5,"leftovers":[]}

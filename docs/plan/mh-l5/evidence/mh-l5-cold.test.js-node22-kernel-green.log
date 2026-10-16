@@ -1,0 +1,64 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l5-cold.test.js
+node: v22.22.1
+private root: /tmp/mh-l5-test-TYYsTR
+case: all cases in explicit file
+TAP version 13
+# Subtest: M23 M24 cold process crash at before-file-sync must preserve the irreversible boundary
+ok 1 - M23 M24 cold process crash at before-file-sync must preserve the irreversible boundary
+  ---
+  duration_ms: 206.268154
+  type: 'test'
+  ...
+# Subtest: M23 M24 cold process crash at after-file-sync must preserve the irreversible boundary
+ok 2 - M23 M24 cold process crash at after-file-sync must preserve the irreversible boundary
+  ---
+  duration_ms: 213.494444
+  type: 'test'
+  ...
+# Subtest: M23 M24 cold process crash at after-rename must preserve the irreversible boundary
+ok 3 - M23 M24 cold process crash at after-rename must preserve the irreversible boundary
+  ---
+  duration_ms: 228.635367
+  type: 'test'
+  ...
+# Subtest: M23 M24 cold process crash at after-directory-sync must preserve the irreversible boundary
+ok 4 - M23 M24 cold process crash at after-directory-sync must preserve the irreversible boundary
+  ---
+  duration_ms: 204.515117
+  type: 'test'
+  ...
+# Subtest: M23 M24 cold process crash at listener-close must preserve the irreversible boundary
+ok 5 - M23 M24 cold process crash at listener-close must preserve the irreversible boundary
+  ---
+  duration_ms: 228.133463
+  type: 'test'
+  ...
+# Subtest: M23 M24 cold process crash at marker-cleanup must preserve the irreversible boundary
+ok 6 - M23 M24 cold process crash at marker-cleanup must preserve the irreversible boundary
+  ---
+  duration_ms: 222.120485
+  type: 'test'
+  ...
+# Subtest: M22 pause during a barrier must stay armed through restart and stop only after the admitted call drains
+ok 7 - M22 pause during a barrier must stay armed through restart and stop only after the admitted call drains
+  ---
+  duration_ms: 217.584145
+  type: 'test'
+  ...
+# Subtest: M24 M25 eight starters must share a crash-consumed three-attempt budget and refuse an unknown candidate
+ok 8 - M24 M25 eight starters must share a crash-consumed three-attempt budget and refuse an unknown candidate
+  ---
+  duration_ms: 648.681577
+  type: 'test'
+  ...
+1..8
+# tests 8
+# suites 0
+# pass 8
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 2288.716103
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l5-cold.test.js"],"code":0,"signal":null,"tests":8,"invalid":false,"spawned":83,"leftovers":[]}
