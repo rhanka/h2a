@@ -4,11 +4,14 @@ import fs from 'node:fs';
 import { tmpdir } from 'node:os';
 import { isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import { QualificationBudget, VIBE_QUALIFICATION_PLAN, PHASE2_RECIPE } from './qualification-budget.mjs';
 import { qualifyVibe } from './qualification-vibe.mjs';
+import { qualifyVibeProbe } from './qualification-probe.mjs';
 import { clearQualificationRecords, ownedRecordSnapshot } from './qualification-cleanup.mjs';
-import { snapshot } from '../dist/hosts/native-files.js';
+import { atomicNativeWrite, digest, jsonBytes, snapshot } from '../dist/hosts/native-files.js';
+import { planVibeEquipment } from '../dist/hosts/vibe-equipment.js';
+import { parseNativeToml } from '../dist/hosts/native-toml.js';
 const flags = {};
 for (let i = 2; i < process.argv.length; i++) {
   const key = process.argv[i]; if (!key.startsWith('--')) throw new Error('named flags required');
@@ -32,10 +35,20 @@ const instance = `h2a-qualification-${randomUUID()}`;
 const entrypoint = fileURLToPath(new URL('../dist/bin.js', import.meta.url));
 const evidence = [], cleanup = { sessions: [], deleted: [], incomplete: false, instances: [] };
 const budget = new QualificationBudget();
+if (phase === 2) {
+  if (!flags.previous) throw new Error('phase 2 requires --previous <phase-1 attempt.json>');
+  const previous = JSON.parse(fs.readFileSync(flags.previous, 'utf8'));
+  if (previous.host !== flags.host || previous.busRoot !== busRoot || previous.profileHome !== flags.home || previous.phase !== 1) throw new Error('phase-1 profile/bus mismatch');
+  for (const entry of previous.accounting ?? []) {
+    if (!VIBE_QUALIFICATION_PLAN.some(e => e.id === entry.id && e.phase === 1) || entry.iterations > 3 || entry.price > 0.25) throw new Error('invalid prior accounting');
+    budget.executions.set(entry.id, entry);
+  }
+  budget.start -= previous.elapsedMilliseconds ?? 0;
+}
 const controller = new AbortController(), interrupt = () => controller.abort();
 process.once('SIGINT', interrupt); process.once('SIGTERM', interrupt);
 const watchdog = setTimeout(interrupt, 450_000);
-const report = { ...plan, status: 'partial', fixture: flags.fixture === true, phase, instance, busRoot, cleanup, evidence, results: {} };
+const report = { ...plan, status: 'partial', fixture: flags.fixture === true, phase, instance, busRoot, profileHome: flags.home, cleanup, evidence, results: {} };
 try {
   if (flags.host !== 'vibe') {
     report.limit = 'The native Muse/agy model accounting and session trace contracts are unverified. No unbounded model invocation is launched; M-B remains required.';
@@ -49,16 +62,38 @@ try {
       if (ownedRecordSnapshot(busRoot, flags['owned-instance']).own) throw new Error('qualification instance already has a record');
       cleanup.instances.push(flags['owned-instance']);
     }
+    const profileRoot = env.VIBE_HOME || join(flags.home, '.vibe');
+    const manifest = JSON.parse(fs.readFileSync(join(profileRoot, '.h2a-install/manifest.json'), 'utf8'));
+    const requiredResources = Object.entries(manifest.files).filter(([path, entry]) => path.includes('/assets/') && entry.selected).map(([path]) => ({ path, bytes: fs.readFileSync(path, 'utf8') }));
     report.results = await qualifyVibe({ command: flags['app-server'] ?? 'vibe-app-server', args: [], env,
-      workspaces: [join(lane, 'workspace-a'), join(lane, 'workspace-b')], phase, budget, signal: controller.signal, evidence, cleanup, components,
+      workspaces: [join(lane, 'workspace-a'), join(lane, 'workspace-b')], busRoot, phase, budget, signal: controller.signal, evidence, cleanup, components, requiredResources,
       clearRecords: () => clearQualificationRecords({ root: busRoot, instances: cleanup.instances, entrypoint, env }),
       recordSnapshot: () => ownedRecordSnapshot(busRoot, flags['owned-instance']) });
+    if (phase === 1) report.probe = await qualifyVibeProbe({ command: flags.vibe ?? 'vibe', appServer: flags['app-server'] ?? 'vibe-app-server', cwd: join(lane, 'workspace-a'), env,
+      tools: report.results.probeTools ?? [], budget, signal: controller.signal, evidence, cleanup, directory: lane });
+    if (flags.record && flags.metadata && !cleanup.incomplete) {
+      const metadata = fs.readFileSync(flags.metadata, 'utf8'), version = /^Version: (.+)$/m.exec(metadata)?.[1];
+      if (!/Name: mistral[-_]vibe/i.test(metadata) || version !== report.results.runtimeVersion) throw new Error('mistral-vibe wheel metadata does not match the native runtime');
+      const state = join(profileRoot, '.h2a-install'), config = parseNativeToml(fs.readFileSync(join(profileRoot, 'config.toml'), 'utf8'));
+      const installed = planVibeEquipment({ root: profileRoot, state, version: manifest.version, config, mcpAvailable: (config.mcp_servers ?? []).length > 0, repair: false });
+      const previous = snapshot(join(state, 'qualification.json'));
+      const receipt = previous ? JSON.parse(previous.bytes.toString()) : { schema: 1, host: 'vibe', root: profileRoot, components: {} };
+      if (previous && receipt.fixture !== report.fixture) receipt.components = {};
+      receipt.fixture = report.fixture; receipt.recordedAt = new Date().toISOString();
+      receipt.runtime = { distribution: 'mistral-vibe', version, recordPath: resolve(flags.record), metadataPath: resolve(flags.metadata), recordSha256: digest(fs.readFileSync(flags.record)) };
+      const dependencies = { MCP: ['MCP', 'profile', 'node', 'entrypoint'], context: ['MCP', 'profile', 'node', 'entrypoint'],
+        skills: ['skills', 'filters', 'profile'], guard: ['guard', 'node', 'entrypoint', 'masking', 'guardBlock', 'MCP'], lifecycle: ['lifecycle', 'node', 'entrypoint', 'lifecycleSelection', 'lifecycleBlock'] };
+      for (const component of components) receipt.components[component] = { status: report.results[component] === 'observed' ? 'qualified' : 'partial', dependencies: Object.fromEntries(dependencies[component].map(key => [key, installed.observed[key]])),
+        evidence: [join(output, 'qualification-attempt.json')], scope: phase === 2 ? 'explicit lifecycle; parent non-forked only' : 'two isolated native sessions; observed direct MCP is non migrated' };
+      atomicNativeWrite(join(state, 'qualification.json'), jsonBytes(receipt), { state, expected: previous });
+    }
     report.limit = 'Native observations are partial until resource resolution, CLI probe, context and per-component oracles all agree; no fixture qualifies the target host.';
   }
 } catch (error) { report.error = String(error.message).replace(/[\r\n]/g, ' ').slice(0, 500); }
 finally {
   clearTimeout(watchdog); process.removeListener('SIGINT', interrupt); process.removeListener('SIGTERM', interrupt);
   report.accounting = [...budget.executions.values()];
+  report.elapsedMilliseconds = Date.now() - budget.start;
   // Persist only bounded metadata/hashes, never prompts, model output, stderr or credentials.
   const path = join(output, 'qualification-attempt.json'); fs.writeFileSync(path, JSON.stringify(report, null, 2) + '\n', { mode: 0o600 });
   if (!cleanup.incomplete) fs.rmSync(lane, { recursive: true, force: true });
