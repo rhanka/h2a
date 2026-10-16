@@ -15,7 +15,8 @@ test("runtime builds clean their distribution before emitting renamed modules", 
   assert.match(runtime.scripts?.build ?? "", /clean-workspace-dist/);
   const root = JSON.parse(readFileSync(new URL("../../../package.json", import.meta.url), "utf8"));
   assert.doesNotMatch(root.scripts.build, /npm run build -w @sentropic\/h2a-runtime/);
-  assert.match(root.scripts.build, /npm exec -w @sentropic\/h2a-runtime --call "node [^&]*clean-workspace-dist\.mjs" && tsc -b --force( && node scripts\/copy-vendored-engram-live\.mjs)?$/);
+  assert.match(root.scripts.build, /npm exec -w @sentropic\/h2a-runtime --call "node [^&]*clean-workspace-dist\.mjs" && tsc -b --force && node scripts\/copy-vendored-engram-live\.mjs$/);
+  assert.equal(root.scripts["build:h2a"], "tsc -b && node scripts/copy-vendored-engram-live.mjs");
   for (const filename of [["llm", "mesh.js"].join("-"), ["llm", "routing", "config.js"].join("-"), ["llm", "gateway", "runtime"].join("-")]) {
     assert.ok(!existsSync(new URL(`../../h2a-runtime/dist/${filename}`, import.meta.url)), filename);
   }
