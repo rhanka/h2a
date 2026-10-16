@@ -103,7 +103,7 @@ export class PassiveLiveSource {
     // Missing/foreign/concordant-but-uncommitted publications all forbid reopen.
     return false;
   }
-  publication(tx, publicationDigest, firstAcceptance = true) {
+  publication(tx, publicationDigest, firstAcceptance = true, checkParticipants = true) {
     const { hash, value } = this.reservation(tx);
     const publication = this.record('publication', publicationDigest);
     if (firstAcceptance) this.revalidate(tx);
@@ -111,13 +111,16 @@ export class PassiveLiveSource {
     if (publication.authorizationDigest !== hash || publication.markerDigest !== digest(value.targetPublication) ||
         !current || digest(current) !== publication.markerDigest || !tx.checkpointReferences.length ||
         digest(publication.checkpointReferences) !== digest(tx.checkpointReferences)) throw new Error('live_publication_mismatch');
-    if (tx.state !== 'RETIRED') this.participants.checkTransfer(tx, value.targetPublication);
+    if (checkParticipants && tx.state !== 'RETIRED') this.participants.checkTransfer(tx, value.targetPublication);
     return { publicationDigest, markerDigest: publication.markerDigest };
   }
   verifyAuthority(tx) {
     if (!tx || tx.mode !== 'live-transfer' || this.sourcePublished(tx)) return false;
     const publication = Object.values(tx.stepResults).map(s => s.result).find(r => r?.publicationDigest && ['PUBLISHED', 'RETIRED'].includes(r.state));
-    if (publication) this.publication(tx, publication.publicationDigest, false);
+    // This is the pure publication-authority read before reconciliation. The
+    // registry may still be indeterminate; every retirement/fence checks the
+    // participants after their required fsync/reconciliation has completed.
+    if (publication) this.publication(tx, publication.publicationDigest, false, false);
     else if (digest(readState(this.markerPath, 'marker')?.value ?? null) !== digest(this.reservation(tx).value.targetPublication)) throw new Error('live_publication_mismatch');
     return true;
   }

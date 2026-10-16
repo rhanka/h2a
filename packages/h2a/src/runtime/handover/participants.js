@@ -111,7 +111,12 @@ export class Participants {
   commit() { updateWriterControl(this.root, { gate: 'CLOSED' }); }
   checkTransfer(tx, target) {
     return this.registry.withLock(() => {
-      if (this.writerControl().handoverId !== tx.handoverId || this.writerControl().gate !== 'BARRIER') throw new Error('barrier_required');
+      const gate = this.writerControl();
+      const control = readState(join(this.directory, 'component-control.json'), 'componentControl')?.value;
+      const targetOpen = target && ['PUBLISHED', 'RETIRED'].includes(tx.state) && gate.gate === 'OPEN' &&
+        [null, tx.handoverId].includes(gate.handoverId) && control?.sourceGeneration === target.generation &&
+        control.ownerState === 'ACTIVE' && digest(control.ownerIdentity) === digest(target.processIdentity);
+      if (!(gate.handoverId === tx.handoverId && gate.gate === 'BARRIER') && !targetOpen) throw new Error('barrier_required');
       if (!this.attachments.size) {
         if (tx.checkpointReferences.length !== 1) throw new Error('attachment_checkpoint_missing');
         const reference = tx.checkpointReferences[0];
@@ -159,10 +164,15 @@ export class Participants {
   drain() {
     if (this.registry.indeterminate) return { revision: this.registry.revision(), calls: 0, children: 0, briefs: 0, callbacks: 0, effects: 1, complete: false };
     return this.registry.withLock(() => {
-      LaunchJournal.reconcileAll(this.registry, this.ledger);
-      const drain = this.ledger.drain();
+      const control = readState(join(this.directory, 'component-control.json'), 'componentControl')?.value;
+      const tx = control?.activeTransaction ? readState(join(this.directory, control.activeTransaction), 'componentTransaction')?.value : undefined;
+      const scope = tx?.mode === 'live-transfer' && tx.source.generation === this.marker.generation && ['PUBLISHED', 'RETIRED'].includes(tx.state)
+        ? { generation: this.marker.generation, processIdentity: this.marker.processIdentity } : undefined;
+      LaunchJournal.reconcileAll(this.registry, this.ledger, scope);
+      const drain = this.ledger.drain(scope);
       for (const name of fs.readdirSync(this.directory).filter(p => /^launch-[a-f0-9]+\.json$/.test(p))) {
         const memo = readState(join(this.directory, name), 'launchMemo').value;
+        if (scope && digest(memo.executionOwner) !== digest(scope.processIdentity)) continue;
         if (memo.state === 'completed') continue;
         const operations = this.ledger.operations();
         for (const [kind, key] of [['child', 'children'], ['brief', 'briefs']]) {
