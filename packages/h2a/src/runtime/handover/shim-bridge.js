@@ -45,7 +45,13 @@ export async function bridgeCentralMcpStdio(options) {
   let viewOrigin = { generation: null, buildId: buildInfo.buildId, profileId: `linux-${process.arch}-node${process.versions.node.split('.')[0]}` };
   let transportState = 'CONNECTING', buffer = '', discarding = false, eventOwner;
   let leasing = false, nextRecovery = 0, failures = 0, recoveryStarted, healthySince, unavailableReason = 'central_unavailable';
-  const recover = () => {
+  const recover = observed => {
+    // Classify the replacement before arming recovery's first backoff. A
+    // transient discovery failure cannot erase an already observed v1 owner.
+    try {
+      const marker = observed ?? readCentralClientMarker(markerPath);
+      if (marker.schemaVersion !== 2 || marker.protocol !== 2) unavailableReason = 'legacy_requires_cold_upgrade';
+    } catch { /* Missing or invalid discovery is not evidence of a v2 recovery. */ }
     // Loss is the first recovery event, even before connect() has failed.
     // Both supervision and downstream demand must leave the first backoff
     // interval available to an externally restarted central before autostart.
@@ -290,11 +296,11 @@ export async function bridgeCentralMcpStdio(options) {
       }
       notifications(current); return current;
     })().then(owner => { healthySince ??= Date.now(); unavailableReason = 'central_unavailable'; return owner; }).catch(e => {
-      unavailableReason = e.message === 'legacy_requires_cold_upgrade' ? 'legacy_requires_cold_upgrade' : 'central_unavailable';
+      if (e.message === 'legacy_requires_cold_upgrade') unavailableReason = e.message;
       transportState = 'DEGRADED_TRANSPORT'; healthySince = undefined; recoveryStarted ??= Date.now(); failures++;
       const degraded = Date.now() - recoveryStarted >= 60000;
       nextRecovery = Date.now() + (degraded ? 30000 * (0.8 + Math.random() * 0.4) : [1000, 2000, 4000, 8000, 15000][Math.min(failures - 1, 4)] * (0.5 + Math.random() / 2));
-      throw e;
+      throw unavailableReason === 'legacy_requires_cold_upgrade' ? new Error(unavailableReason, { cause: e }) : e;
     }).finally(() => { connecting = undefined; });
     return connecting;
   };
@@ -411,8 +417,9 @@ export async function bridgeCentralMcpStdio(options) {
       }
       if (healthySince && Date.now() - healthySince >= 10000) { failures = 0; recoveryStarted = undefined; }
       const observed = readCentralClientMarker(markerPath);
+      if (observed.schemaVersion !== 2 || observed.protocol !== 2) { recover(observed); return; }
       await pollOffer(current);
-      if (observed.generation !== current.marker.generation) { recover(); return; }
+      if (observed.generation !== current.marker.generation) { recover(observed); return; }
       if (Date.now() - (current.lastLease ?? 0) >= 5000) {
         const response = await request(current, `/_h2a-central/lease/${current.sessionId}`, { headers: headers(current) });
         if (!response.ok) throw new Error('lease_unavailable');
@@ -420,7 +427,7 @@ export async function bridgeCentralMcpStdio(options) {
         if (options.attachment && status.state === 'identity_ready' && status.instance) options.attachment.expectedInstance = status.instance;
         current.lastLease = Date.now(); notifications(current);
       }
-    })().catch(recover).finally(() => { leasing = false; }));
+    })().catch(() => recover()).finally(() => { leasing = false; }));
   }, 1000);
   supervision.unref(); await ended;
   clearInterval(supervision); options.signal?.removeEventListener('abort', stop);
