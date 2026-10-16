@@ -1,6 +1,8 @@
 import type { ChildProcess } from "node:child_process";
 import { once } from "node:events";
 import { mkdirSync, readFileSync, readdirSync } from "node:fs";
+import { createRequire } from "node:module";
+import { spawnSync } from "node:child_process";
 import { lstat, rm, stat } from "node:fs/promises";
 import { createConnection } from "node:net";
 import { dirname, join } from "node:path";
@@ -125,6 +127,7 @@ async function npmInstall(args: string[], prefix: string, cache: string): Promis
     "install",
     "--prefix",
     prefix,
+    "--ignore-scripts",
     ...args,
     "--cache",
     cache,
@@ -135,6 +138,17 @@ async function npmInstall(args: string[], prefix: string, cache: string): Promis
   const output = captureOutput(install);
   const [code] = await once(install, "exit");
   expect(code, `npm install ${args.join(" ")} failed: ${output.stderr}`).toBe(0);
+  // The owner forbids Python. npm's node-pty install script normally invokes
+  // node-gyp: build that unchanged N-API source directly in this private prefix.
+  const require = createRequire(join(prefix, "package.json"));
+  const ptyRoot = dirname(require.resolve("node-pty/package.json"));
+  const addonRoot = dirname(require.resolve("node-addon-api/package.json", { paths: [ptyRoot] }));
+  mkdirSync(join(ptyRoot, "build/Release"), { recursive: true });
+  const compiled = spawnSync("/usr/bin/g++", ["-std=c++17", "-shared", "-fPIC", "-O2", "-pthread",
+    "-DNAPI_CPP_EXCEPTIONS", `-I${process.env.XCLI_NODE_HEADERS ?? "/usr/include/node"}`, `-I${addonRoot}`,
+    join(ptyRoot, "src/unix/pty.cc"), "-o", join(ptyRoot, "build/Release/pty.node"), "-lutil"],
+  { env: process.env, encoding: "utf8" });
+  expect(compiled.status, `private node-pty build failed: ${compiled.stderr}`).toBe(0);
 }
 
 type LeaseSnapshot = Readonly<{ token: string; heartbeatAt: string; expiresAt: string }>;
@@ -341,7 +355,7 @@ describe.skipIf(process.platform !== "linux")("native terminal upgrade (scenario
     // failed qualification, never a skip.
     const packDir = createPrivateTestDirectory("upgrade-pack-");
     prefixes.add(packDir);
-    const pack = spawn(npmCommand, npmArgs(["pack", "--pack-destination", packDir]), {
+    const pack = spawn(npmCommand, npmArgs(["pack", "--ignore-scripts", "--pack-destination", packDir]), {
       cwd: workspacePackageDir,
       env: { ...process.env, PATH: buildToolPath },
       stdio: ["ignore", "pipe", "pipe"],
@@ -352,9 +366,26 @@ describe.skipIf(process.platform !== "linux")("native terminal upgrade (scenario
     expect(packCode, `npm pack of the candidate failed: ${packOutput.stderr}`).toBe(0);
     const tarball = readdirSync(packDir).find((name) => name.endsWith(".tgz"));
     expect(tarball, "the candidate pack contains no tarball").toBeDefined();
+    // The candidate runtime imports its core peer during lease/supervision.
+    // Install the matching source-built core, never an owner's installed dist.
+    const candidateTarballs = [join(packDir, tarball!)];
+    for (const dependency of ["h2a", "track"]) {
+      const before = new Set(readdirSync(packDir));
+      const dependencyPack = spawn(npmCommand, npmArgs(["pack", "--ignore-scripts", "--pack-destination", packDir]), {
+        cwd: join(workspacePackageDir, "..", dependency),
+        env: { ...process.env, PATH: buildToolPath }, stdio: ["ignore", "pipe", "pipe"],
+      });
+      children.add(dependencyPack);
+      const dependencyOutput = captureOutput(dependencyPack);
+      const [dependencyCode] = await once(dependencyPack, "exit");
+      expect(dependencyCode, `npm pack of candidate ${dependency} failed: ${dependencyOutput.stderr}`).toBe(0);
+      const dependencyTarball = readdirSync(packDir).find((name) => name.endsWith(".tgz") && !before.has(name));
+      expect(dependencyTarball, `the matching candidate ${dependency} pack is mandatory`).toBeDefined();
+      candidateTarballs.push(join(packDir, dependencyTarball!));
+    }
     candidatePrefix = createPrivateTestDirectory("upgrade-candidate-");
     prefixes.add(candidatePrefix);
-    await npmInstall([join(packDir, tarball!)], candidatePrefix, cache);
+    await npmInstall(candidateTarballs, candidatePrefix, cache);
     candidateRoot = join(candidatePrefix, "node_modules", "@sentropic", "h2a-runtime", "dist");
     candidateEntry = join(candidateRoot, "native-terminal", "process.js");
 

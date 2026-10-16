@@ -1,0 +1,211 @@
+{
+  "version": 1,
+  "mode": "simulated-model",
+  "sha": "575dd129deb50f6c668ea8b0242ca11aa564eb6a",
+  "node": "v22.22.1",
+  "command": "node scripts/qualify-cross-cli.mjs --simulated --pair claude:gemini --timeout-ms 30000 --output docs/2026-10-15-cross-cli-gemini-green.json",
+  "root": "/tmp/h2a-qual-unm14U",
+  "build": {
+    "path": "/tmp/h2a-qual-unm14U/build",
+    "sourceDigest": "60a94617a06603abcb549f11232ab9a5613019264de927cb02f5f8b5c51f765f",
+    "nativeBuild": {
+      "command": [
+        "/usr/bin/g++",
+        "-std=c++17",
+        "-shared",
+        "-fPIC",
+        "-O2",
+        "-pthread",
+        "-DNAPI_CPP_EXCEPTIONS",
+        "-I/usr/include/node",
+        "-I/home/antoinefa/src/h2a/tmp/worktrees/xcli/node_modules/node-addon-api",
+        "/tmp/h2a-qual-unm14U/build/node_modules/node-pty/src/unix/pty.cc",
+        "-o",
+        "/tmp/h2a-qual-unm14U/build/node_modules/node-pty/build/Release/pty.node",
+        "-lutil"
+      ],
+      "exitCode": 0
+    }
+  },
+  "harnessDigests": {
+    "qualify-cross-cli.mjs": "82af57d831db7700c5e390d1e2b37a9d147310b5a91aa9e807da99ae79323f9e",
+    "xcli-lab.mjs": "55baeebc6773984c89fc9d3da8eb4718c74ca62db7d5263cbe886a100fc3576a",
+    "xcli-proxy.mjs": "eb75ca156b1ab1973465c07f3f2058dbd99378f7055d25ed0f1a829af56ec9e3",
+    "xcli-simulated-model.mjs": "3c56bd6aae926cf9f31674c9002a8d8ce88d4c9982f1b994c2acc625f9deb2c3"
+  },
+  "cells": [
+    {
+      "sender": "claude",
+      "receiver": "gemini",
+      "status": "simulated-OK",
+      "senderMcp": true,
+      "receiverMcp": true,
+      "sent": true,
+      "delivered": true,
+      "received": true,
+      "woke": true,
+      "replied": true,
+      "replyDelivered": true,
+      "evidence": [
+        {
+          "event": "host-setup",
+          "role": "receiver",
+          "exitCode": 0
+        },
+        {
+          "event": "session-created",
+          "role": "receiver",
+          "pid": 19292,
+          "id": "h2a-receiver"
+        },
+        {
+          "event": "receiver-idle-barrier",
+          "at": 1792122745255,
+          "instance": "gemini:workspace:47652980efa4"
+        },
+        {
+          "event": "host-setup",
+          "role": "sender",
+          "exitCode": 2
+        },
+        {
+          "event": "session-created",
+          "role": "sender",
+          "pid": 19386,
+          "id": "h2a-sender"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122740145,
+          "event": "proxy-start",
+          "pid": 19301,
+          "childPid": 19308
+        },
+        {
+          "role": "receiver",
+          "at": 1792122740478,
+          "event": "initialize",
+          "ok": true
+        },
+        {
+          "role": "receiver",
+          "at": 1792122740481,
+          "event": "tools",
+          "ok": true,
+          "messaging": true
+        },
+        {
+          "role": "receiver",
+          "at": 1792122740483,
+          "event": "identity",
+          "ok": true,
+          "ready": false,
+          "state": "identity_pending"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122741195,
+          "event": "wake-armed"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122741205,
+          "event": "identity",
+          "ok": true,
+          "ready": true,
+          "instance": "gemini:workspace:47652980efa4",
+          "state": "identity_ready"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122747115,
+          "event": "inbox",
+          "ok": true,
+          "instance": "gemini:workspace:47652980efa4",
+          "envelopes": [
+            {
+              "id": "env:send:e6d85d10-9f3c-43e7-8151-50f33cce92c7",
+              "from": "claude:workspace:70830d74d6a4",
+              "to": "gemini:workspace:47652980efa4",
+              "kind": "probe"
+            }
+          ]
+        },
+        {
+          "role": "receiver",
+          "at": 1792122747118,
+          "event": "send",
+          "ok": true,
+          "kind": "reply",
+          "envelopeId": "env:send:00f4102f-e3b2-4f27-8ae8-ab40ed3d4bc5",
+          "from": "gemini:workspace:47652980efa4",
+          "to": "claude:workspace:70830d74d6a4"
+        },
+        {
+          "role": "sender",
+          "at": 1792122746168,
+          "event": "proxy-start",
+          "pid": 19395,
+          "childPid": 19402
+        },
+        {
+          "role": "sender",
+          "at": 1792122746432,
+          "event": "initialize",
+          "ok": true
+        },
+        {
+          "role": "sender",
+          "at": 1792122746434,
+          "event": "tools",
+          "ok": true,
+          "messaging": true
+        },
+        {
+          "role": "sender",
+          "at": 1792122746436,
+          "event": "identity",
+          "ok": true,
+          "ready": false,
+          "state": "identity_pending"
+        },
+        {
+          "role": "sender",
+          "at": 1792122746863,
+          "event": "wake-armed"
+        },
+        {
+          "role": "sender",
+          "at": 1792122746900,
+          "event": "identity",
+          "ok": true,
+          "ready": true,
+          "instance": "claude:workspace:70830d74d6a4",
+          "state": "identity_ready"
+        },
+        {
+          "role": "sender",
+          "at": 1792122746907,
+          "event": "send",
+          "ok": true,
+          "kind": "probe",
+          "envelopeId": "env:send:e6d85d10-9f3c-43e7-8151-50f33cce92c7",
+          "from": "claude:workspace:70830d74d6a4",
+          "to": "gemini:workspace:47652980efa4"
+        }
+      ],
+      "startedAt": "2026-10-16T03:52:18.228Z",
+      "credentialsCopied": {
+        "receiver": [],
+        "sender": []
+      },
+      "noPostSendHarnessInput": true,
+      "elapsedMs": 8928
+    }
+  ],
+  "counts": {
+    "simulated-OK": 1,
+    "simulated-KO": 0,
+    "blocked": 0
+  }
+}
