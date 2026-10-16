@@ -33,7 +33,7 @@
     "dist"
   ],
   "dependencies": {
-    "@sentropic/h2a": "^0.98.6"
+    "@sentropic/h2a": "0.98.6"
   },
   "publishConfig": {
     "access": "public"

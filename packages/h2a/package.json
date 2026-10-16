@@ -35,10 +35,10 @@
     "dist",
     "fixtures",
     "skills",
-    "hooks",
-    "scripts",
     "schema",
-    "focus-app"
+    "focus-app",
+    "hooks",
+    "scripts"
   ],
   "publishConfig": {
     "access": "public"
@@ -47,7 +47,7 @@
     "h2a": "dist/bin.js"
   },
   "scripts": {
-    "build": "node ../../scripts/clean-workspace-dist.mjs && tsc -b --force",
+    "build": "node ../../scripts/clean-workspace-dist.mjs && tsc -b --force && node ../../scripts/copy-vendored-engram-live.mjs",
     "prepack": "node ../../scripts/check-focus-app.mjs && chmod +x dist/bin.js"
   },
   "dependencies": {
@@ -57,11 +57,11 @@
     "@sentropic/cluster-mesh": "0.13.3",
     "@sentropic/contracts": "^0.3.0",
     "@sentropic/events": "^0.2.0",
-    "@sentropic/track": "^0.98.6",
+    "@sentropic/track": "0.98.6",
     "hono": "^4.13.7",
     "toml-eslint-parser": "0.10.1"
   },
   "peerDependencies": {
-    "@sentropic/h2a-runtime": "^0.98.6"
+    "@sentropic/h2a-runtime": "0.98.6"
   }
 }

@@ -10,11 +10,11 @@
  *        - `package.json` (root, private)
  *        - `package-lock.json`
  *        - `packages/h2a/package.json` (also aligns the
- *          `@sentropic/track` dependency caret to `^X.Y.Z`)
+ *          `@sentropic/track` dependency pin to `X.Y.Z`)
  *        - `packages/h2a/.claude-plugin/plugin.json` and
  *          `packages/h2a/.codex-plugin/plugin.json`
  *        - `packages/h2a-cli/package.json` (also aligns the
- *          `@sentropic/h2a` dependency caret to `^X.Y.Z`)
+ *          `@sentropic/h2a` dependency pin to `X.Y.Z`)
  *        - `packages/h2a-runtime/package.json` (heavy runtime, lockstep)
  *        - `packages/track/package.json` (record-only system of record, lockstep)
  *        - `scripts/smoke-artifact.mjs` (rewrites the `PINNED_RUNTIME_VERSION`
@@ -80,15 +80,12 @@ const PACKAGE_FILES = [
 const CORE_PACKAGE_NAME = "@sentropic/h2a";
 
 /**
- * Workspace package names whose inter-package dependency carets are kept in
- * lockstep with the release version. When any workspace manifest depends on one
- * of these, its `"^X.Y.Z"` range is rewritten to the new version so a published
- * `@sentropic/h2a@X.Y.Z` pulls `@sentropic/track@^X.Y.Z`, requires
- * `@sentropic/h2a-runtime@^X.Y.Z`, and `@sentropic/h2a-cli` pulls
- * `@sentropic/h2a@^X.Y.Z`, never a stale minor.
+ * Public siblings must resolve to the exact same release, including peers.
+ * A caret admits newer runtimes whose imports may be absent from an older core.
  */
 const LOCKSTEP_DEP_NAMES = [
   CORE_PACKAGE_NAME,
+  "@sentropic/h2a-cli",
   "@sentropic/track",
   "@sentropic/h2a-runtime"
 ];
@@ -140,9 +137,8 @@ export function parseVersion(value) {
  * Side-effects on the parsed object:
  * - Sets `.version` to `newVersion`.
  * - For every lockstep sibling in `.dependencies` or `.peerDependencies` (see
- *   `LOCKSTEP_DEP_NAMES`, currently `@sentropic/h2a`, `@sentropic/track`, and
- *   `@sentropic/h2a-runtime`), rewrites the range to
- *   `"^X.Y.Z"` of the same version so the workspace ships in lockstep.
+ *   `LOCKSTEP_DEP_NAMES`), rewrites the requirement to
+ *   `"X.Y.Z"` of the same version so npm cannot mix releases.
  *
  * @param {string} jsonContent - Raw JSON content of a `package.json` file.
  * @param {string} newVersion - Target version, validated by `parseVersion`.
@@ -158,7 +154,7 @@ export function bumpPackageJsonContent(jsonContent, newVersion) {
     if (!declared || typeof declared !== "object") continue;
     for (const dep of LOCKSTEP_DEP_NAMES) {
       if (Object.prototype.hasOwnProperty.call(declared, dep)) {
-        declared[dep] = `^${newVersion}`;
+        declared[dep] = newVersion;
       }
     }
   }
@@ -192,7 +188,7 @@ export function bumpPackageLockContent(jsonContent, newVersion) {
         packages[key].version = newVersion;
       }
     }
-    // Rewrite lockstep dependency carets wherever a workspace manifest declares
+    // Rewrite exact lockstep dependencies wherever a workspace manifest declares
     // one (e.g. packages/h2a → @sentropic/track and runtime peer,
     // packages/h2a-cli → @sentropic/h2a). The private root ("") has no
     // such deps; skip it.
@@ -205,7 +201,7 @@ export function bumpPackageLockContent(jsonContent, newVersion) {
         if (!declared || typeof declared !== "object") continue;
         for (const dep of LOCKSTEP_DEP_NAMES) {
           if (Object.prototype.hasOwnProperty.call(declared, dep)) {
-            declared[dep] = `^${newVersion}`;
+            declared[dep] = newVersion;
           }
         }
       }

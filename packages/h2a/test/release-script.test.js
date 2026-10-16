@@ -8,7 +8,9 @@
 // / `npm` invocations, so unit-testing them directly is what matters.
 
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readFileSync, mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { spawnSync } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { dirname, resolve } from "node:path";
 import test from "node:test";
@@ -58,7 +60,7 @@ test("bumpPackageJsonContent updates the version field", () => {
   assert.equal(parsed.name, "@sentropic/h2a");
 });
 
-test("bumpPackageJsonContent rewrites the @sentropic/h2a dep to ^X.Y.Z", () => {
+test("bumpPackageJsonContent rewrites the @sentropic/h2a dep to exact X.Y.Z", () => {
   const input = JSON.stringify(
     {
       name: "@sentropic/h2a-cli",
@@ -71,10 +73,10 @@ test("bumpPackageJsonContent rewrites the @sentropic/h2a dep to ^X.Y.Z", () => {
   const out = bumpPackageJsonContent(input, "0.2.0");
   const parsed = JSON.parse(out);
   assert.equal(parsed.version, "0.2.0");
-  assert.equal(parsed.dependencies["@sentropic/h2a"], "^0.2.0");
+  assert.equal(parsed.dependencies["@sentropic/h2a"], "0.2.0");
 });
 
-test("bumpPackageJsonContent rewrites the @sentropic/track dep to ^X.Y.Z (lockstep)", () => {
+test("bumpPackageJsonContent rewrites the @sentropic/track dep to exact X.Y.Z (lockstep)", () => {
   const input = JSON.stringify(
     {
       name: "@sentropic/h2a",
@@ -90,7 +92,7 @@ test("bumpPackageJsonContent rewrites the @sentropic/track dep to ^X.Y.Z (lockst
   const out = bumpPackageJsonContent(input, "0.83.0");
   const parsed = JSON.parse(out);
   assert.equal(parsed.version, "0.83.0");
-  assert.equal(parsed.dependencies["@sentropic/track"], "^0.83.0");
+  assert.equal(parsed.dependencies["@sentropic/track"], "0.83.0");
   // Non-lockstep deps are left untouched.
   assert.equal(parsed.dependencies.hono, "^4.12.23");
 });
@@ -106,7 +108,7 @@ test("bumpPackageJsonContent keeps the required runtime peer in lockstep", () =>
     2
   );
   const parsed = JSON.parse(bumpPackageJsonContent(input, "0.94.0"));
-  assert.equal(parsed.peerDependencies["@sentropic/h2a-runtime"], "^0.94.0");
+  assert.equal(parsed.peerDependencies["@sentropic/h2a-runtime"], "0.94.0");
 });
 
 test("bumpPackageJsonContent leaves the @sentropic/h2a dep alone when absent", () => {
@@ -161,12 +163,12 @@ test("bumpPackageLockContent updates root and workspace package versions", () =>
   assert.equal(parsed.packages["packages/h2a-cli"].version, "0.2.0");
   assert.equal(
     parsed.packages["packages/h2a-cli"].dependencies["@sentropic/h2a"],
-    "^0.2.0"
+    "0.2.0"
   );
   assert.ok(out.endsWith("\n"));
 });
 
-test("bumpPackageLockContent bumps packages/track and rewrites its caret in packages/h2a", () => {
+test("bumpPackageLockContent bumps packages/track and pins its exact version in packages/h2a", () => {
   const input = `${JSON.stringify(
     {
       name: "h2a",
@@ -196,7 +198,7 @@ test("bumpPackageLockContent bumps packages/track and rewrites its caret in pack
   assert.equal(parsed.packages["packages/h2a"].version, "0.83.0");
   assert.equal(
     parsed.packages["packages/h2a"].dependencies["@sentropic/track"],
-    "^0.83.0"
+    "0.83.0"
   );
   assert.equal(parsed.packages["packages/h2a"].dependencies.hono, "^4.12.23");
   // The nested registry copy keeps its own version.
@@ -368,4 +370,65 @@ test("formatNextSteps describes branch push -> PR -> CI -> merge -> tag on merge
 test("formatNextSteps uses a signed tag when requested", () => {
   const text = formatNextSteps({ version: "0.2.0", branch: "feat/foo", signTag: true });
   assert.match(text, /git tag -s -a v0\.2\.0/);
+});
+
+const LOCKSTEP_PACKAGES = ['h2a', 'h2a-cli', 'h2a-runtime', 'track'];
+const LOCKSTEP_NAMES = LOCKSTEP_PACKAGES.map(name => '@sentropic/' + name);
+const ROOT = resolve(HERE, '../../..');
+
+test('published manifests and lockfile pin every internal dependency to its exact sibling version', () => {
+  const lock = JSON.parse(readFileSync(resolve(ROOT, 'package-lock.json'), 'utf8'));
+  const manifests = LOCKSTEP_PACKAGES.map(name => JSON.parse(readFileSync(resolve(ROOT, 'packages', name, 'package.json'), 'utf8')));
+  const versions = Object.fromEntries(manifests.map(pkg => [pkg.name, pkg.version]));
+  assert.equal(new Set(Object.values(versions)).size, 1, 'all four packages release together');
+  for (const pkg of manifests) {
+    const entry = lock.packages['packages/' + pkg.name.slice('@sentropic/'.length)];
+    assert.equal(entry.version, pkg.version);
+    for (const field of ['dependencies', 'peerDependencies']) {
+      assert.deepEqual(entry[field], pkg[field], pkg.name + ' lockfile ' + field);
+      for (const [dep, range] of Object.entries(pkg[field] ?? {})) {
+        if (dep in versions) assert.equal(range, versions[dep], pkg.name + ' -> ' + dep);
+      }
+    }
+  }
+});
+
+test('release bump pins all four sibling names in dependencies and peers, leaving external ranges untouched', () => {
+  const dependencies = Object.fromEntries(LOCKSTEP_NAMES.map(name => [name, '^0.98.5']));
+  dependencies.external = '^1.2.3';
+  const input = {name: '@sentropic/h2a', version: '0.98.5', dependencies, peerDependencies: {...dependencies}};
+  const manifest = JSON.parse(bumpPackageJsonContent(JSON.stringify(input), '0.98.7'));
+  const lock = JSON.parse(bumpPackageLockContent(JSON.stringify({version: '0.98.5', packages: {'packages/h2a': input}}), '0.98.7'));
+  for (const pkg of [manifest, lock.packages['packages/h2a']]) {
+    assert.equal(pkg.version, '0.98.7');
+    for (const field of ['dependencies', 'peerDependencies']) {
+      for (const name of LOCKSTEP_NAMES) assert.equal(pkg[field][name], '0.98.7', field + ' ' + name);
+      assert.equal(pkg[field].external, '^1.2.3');
+    }
+  }
+});
+
+
+test('release version gate refuses floating dependencies, peers and mismatched sibling versions', async () => {
+  const {checkLockstepVersions} = await import(pathToFileURL(resolve(ROOT, 'scripts/check-lockstep-versions.mjs')).href);
+  const dir = mkdtempSync(resolve(tmpdir(), 'lockstep-release-'));
+  const originals = LOCKSTEP_PACKAGES.map(name => JSON.parse(readFileSync(resolve(ROOT, 'packages', name, 'package.json'), 'utf8')));
+  const write = packages => packages.forEach((pkg, index) => {
+    const base = resolve(dir, 'packages', LOCKSTEP_PACKAGES[index]);
+    mkdirSync(base, {recursive: true});writeFileSync(resolve(base, 'package.json'), JSON.stringify(pkg));
+  });
+  try {
+    write(originals);assert.equal(checkLockstepVersions(dir), originals[0].version);
+    for (const name of LOCKSTEP_NAMES) for (const field of ['dependencies', 'peerDependencies']) {
+      const packages = structuredClone(originals);
+      packages[0][field] = {...packages[0][field], [name]: '^' + originals[0].version};
+      write(packages);
+      assert.throws(() => checkLockstepVersions(dir), /must be exactly/);
+    }
+    const packages = structuredClone(originals);packages[2].version = originals[0].version + '-mismatched';write(packages);
+    assert.throws(() => checkLockstepVersions(dir), /Lockstep package h2a-runtime/);
+    const run = spawnSync(process.execPath, [resolve(ROOT, 'scripts/check-lockstep-versions.mjs')], {cwd: dir, encoding: 'utf8'});
+    assert.equal(run.status, 1, run.stdout + run.stderr);
+    assert.match(run.stderr, /Lockstep package h2a-runtime/);
+  } finally {rmSync(dir, {recursive: true, force: true});}
 });
