@@ -847,5 +847,8 @@
   ],
   "packages/h2a/test/native-host-pilot-report.test.js": [
     "pilot CLI reports success only for all requested observed components and completed cleanup"
+  ],
+  "packages/h2a-runtime/src/gateway-host/live-registration.test.ts": [
+    "fixture commits launch no automatic Git maintenance in observed repositories"
   ]
 }
