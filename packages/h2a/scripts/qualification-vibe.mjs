@@ -11,7 +11,7 @@ export function nativeStats(stats) {
   if (![prompt, completion, cached, input, output].every(n => Number.isFinite(n) && n >= 0)) throw new Error('native price accounting unavailable');
   return { modelCalls: stats.steps, price: ((prompt - cached) * input + cached * (cachePrice ?? input) + completion * output) / 1_000_000 };
 }
-export async function qualifyVibe({ command = 'vibe-app-server', args = [], env, workspaces, phase, budget, signal, evidence, cleanup, components }) {
+export async function qualifyVibe({ command = 'vibe-app-server', args = [], env, workspaces, phase, budget, signal, evidence, cleanup, components, clearRecords = () => {}, recordSnapshot = () => undefined }) {
   const sessions = new Map(), history = new Map(), turns = new Map(), completedTurns = new Map(), calls = [];
   let rpc;
   const onEvent = message => {
@@ -83,9 +83,12 @@ export async function qualifyVibe({ command = 'vibe-app-server', args = [], env,
       if (!copy?.id || copy.parentSessionId !== origin) throw new Error('native fork context mismatch');
       cleanup.sessions.push(copy.id); result.sessions.push(copy.id);
       const originEntries = await turn(origin, 'Delegate exactly one brief read-only task to one subagent, then answer once. Do not use shell or mutate files.');
+      const parentRecord = recordSnapshot();
       await rpc.request('session/resume', { sessionId: copy.id, agentConfig: { cwd: workspaces[0], headless: true, maxTurns: allocation.maxIterations, maxPrice: allocation.maxPrice } });
       sessions.set(copy.id, { id: allocation.id, allocation, started: Date.now(), cwd: workspaces[0] });
       const copyEntries = await turn(copy.id, 'Run exactly printf vibe-guard-ok, then request h2a --version to exercise the installed guard, then answer once. Do not run other commands.');
+      result.lifecycleRecordUnchangedInFork = JSON.stringify(parentRecord) === JSON.stringify(recordSnapshot());
+      result.parentRecordPresent = !!parentRecord?.own;
       calls.push(...originEntries, ...copyEntries);
     }
     result.observedEntries = calls.map(e => ({ type: e.type, sessionId: e.sessionId, sha256: sha(e), detail: e.type === 'notice' ? { kind: e.detail?.kind, scope: e.detail?.scope, hookName: e.detail?.hookName, status: e.detail?.status, toolCallId: e.detail?.toolCallId } : undefined }));
@@ -93,7 +96,12 @@ export async function qualifyVibe({ command = 'vibe-app-server', args = [], env,
   } finally {
     // Stop producers before deleting only recorded qualification sessions.
     for (const id of [...new Set(cleanup.sessions)].reverse()) {
-      try { await rpc.request('session/stop', { sessionId: id }); await rpc.request('session/delete', { sessionId: id }); cleanup.deleted.push(id); }
+      try { await rpc.request('session/stop', { sessionId: id }); }
+      catch { cleanup.incomplete = true; }
+    }
+    try { await clearRecords(); } catch { cleanup.incomplete = true; }
+    for (const id of [...new Set(cleanup.sessions)].reverse()) {
+      try { await rpc.request('session/delete', { sessionId: id }); cleanup.deleted.push(id); }
       catch { cleanup.incomplete = true; }
     }
     await rpc.close();
