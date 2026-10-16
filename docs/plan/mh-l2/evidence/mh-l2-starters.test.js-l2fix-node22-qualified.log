@@ -1,0 +1,21 @@
+command: /usr/bin/node --test packages/h2a/test/mh-l2-starters.test.js
+node: v22.22.1
+private test root: /tmp/mh-l2-test-X23OEV
+TAP version 13
+# Subtest: QF A+B starters should verify absolute selected entry, reject pause and refuse implicit old-image fallback
+ok 1 - QF A+B starters should verify absolute selected entry, reject pause and refuse implicit old-image fallback
+  ---
+  duration_ms: 22.546644
+  type: 'test'
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 1
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 135.255475
+
+receipt: {"command":["/usr/bin/node","--test","packages/h2a/test/mh-l2-starters.test.js"],"code":0,"signal":null,"elapsedMs":216}

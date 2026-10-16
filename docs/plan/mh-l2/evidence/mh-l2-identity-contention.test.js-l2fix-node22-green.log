@@ -1,0 +1,33 @@
+command: /usr/bin/node --test packages/h2a/test/mh-l2-identity-contention.test.js
+node: v22.22.1
+private test root: /tmp/mh-l2-test-diTjbk
+TAP version 13
+# Subtest: identity should generate Ed25519 keys outside the global writer lock and recheck the gate before publishing
+ok 1 - identity should generate Ed25519 keys outside the global writer lock and recheck the gate before publishing
+  ---
+  duration_ms: 58.511761
+  type: 'test'
+  ...
+# Subtest: identity worker should retry mutation contention within its identity budget
+ok 2 - identity worker should retry mutation contention within its identity budget
+  ---
+  duration_ms: 7138.320225
+  type: 'test'
+  ...
+# Subtest: identity worker should classify exhausted mutation contention as identity_timeout
+ok 3 - identity worker should classify exhausted mutation contention as identity_timeout
+  ---
+  duration_ms: 5405.978811
+  type: 'test'
+  ...
+1..3
+# tests 3
+# suites 0
+# pass 3
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 12885.25163
+
+receipt: {"command":["/usr/bin/node","--test","packages/h2a/test/mh-l2-identity-contention.test.js"],"code":0,"signal":null,"elapsedMs":12974}
