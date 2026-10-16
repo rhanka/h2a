@@ -97,7 +97,8 @@ async function fixture(context, body) {
   async function legacyHost(socketPath, directBind = false) {
     // A real pre-directory-FD listener: same bind/link/unlink grammar, no
     // retained directory handle. Only its transport, not an old dist, is needed.
-    const script = join(root, "legacy-process.js");
+    // Keep CommonJS explicit even under the repository's ESM package scope.
+    const script = join(root, "legacy-process.cjs");
     writeFileSync(script, `
       const fs = require('node:fs'), net = require('node:net'), path = require('node:path');
       const published = process.argv[3], directory = path.dirname(published);
