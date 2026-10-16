@@ -1,0 +1,16 @@
+{
+  "command": [
+    "/usr/bin/node",
+    "scripts/mh-l2-mutate.mjs",
+    "precheck"
+  ],
+  "code": 0,
+  "signal": null,
+  "elapsedMs": 54855,
+  "umask": "022",
+  "redAssertion": true,
+  "redCode1": true,
+  "greenCode0": true,
+  "noSkips": true,
+  "initialFailedRestoration": "owner-A-node22-cold-mutation-precheck-campaign.log"
+}

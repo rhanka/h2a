@@ -1,0 +1,23 @@
+{"cmd":"git","args":["archive","HEAD","-o","/tmp/mh-l2-owner-A-final-Tcelt2/source.tar"],"cwd":"/home/antoinefa/src/h2a/tmp/worktrees/mh-l0"}
+
+exitCode: 0
+{"cmd":"tar","args":["-xf","/tmp/mh-l2-owner-A-final-Tcelt2/source.tar","-C","/tmp/mh-l2-owner-A-final-Tcelt2/source"]}
+
+exitCode: 0
+{"cmd":"npm","args":["ci","--ignore-scripts","--no-audit","--no-fund"],"cwd":"/tmp/mh-l2-owner-A-final-Tcelt2/source"}
+
+added 288 packages in 3s
+npm warn Unknown builtin config "globalignorefile". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+
+exitCode: 0
+{"cmd":"npm","args":["run","build","-w","@sentropic/track"],"cwd":"/tmp/mh-l2-owner-A-final-Tcelt2/source"}
+
+> @sentropic/track@0.98.5 build
+> node ../../scripts/clean-workspace-dist.mjs && tsc -p tsconfig.build.json
+
+npm warn Unknown builtin config "globalignorefile". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+
+exitCode: 0
+{"cmd":"/usr/bin/node","args":["node_modules/typescript/bin/tsc","-b","--force","--pretty","false"],"cwd":"/tmp/mh-l2-owner-A-final-Tcelt2/source"}
+
+exitCode: 0

@@ -1,0 +1,31 @@
+command: /usr/bin/node --test packages/h2a/test/mh-l2-live-central.test.js
+node: v22.22.1
+private test root: /tmp/mh-l2-test-UF6Ls4
+TAP version 13
+# {"event":"drive-consent.full-verification","durationMs":0.005240000000412692,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# Subtest: real .7 source should accept the external peer, preserve its admitted large reply and retire without deleting the successor marker
+not ok 1 - real .7 source should accept the external peer, preserve its admitted large reply and retire without deleting the successor marker
+  ---
+  duration_ms: 14636.185572
+  type: 'test'
+  location: '/tmp/mh-l2-live-release-BMQ5Hn/source/packages/h2a/test/mh-l2-live-central.test.js:15:1'
+  failureType: 'unhandledRejection'
+  error: 'socket hang up'
+  code: 'ECONNRESET'
+  stack: |-
+    Socket.socketOnEnd (node:_http_client:599:25)
+    Socket.emit (node:events:531:35)
+    endReadableNT (node:internal/streams/readable:1698:12)
+    process.processTicksAndRejections (node:internal/process/task_queues:89:21)
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 0
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 15087.454972
+
+receipt: {"command":["/usr/bin/node","--test","packages/h2a/test/mh-l2-live-central.test.js"],"code":1,"signal":null,"elapsedMs":15173}

@@ -1,0 +1,33 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l2-live.test.js
+node: v22.22.1
+explicit oracle: passive source should preserve exact acquired G1 ownership and reject foreign generation, epoch or process
+private root: /tmp/mh-l2-live-mutation-5vRTFf
+TAP version 13
+# Subtest: passive source should preserve exact acquired G1 ownership and reject foreign generation, epoch or process
+not ok 1 - passive source should preserve exact acquired G1 ownership and reject foreign generation, epoch or process
+  ---
+  duration_ms: 42297.198615
+  type: 'test'
+  location: '/tmp/mh-l2-owner-A-final-Tcelt2/source/packages/h2a/test/mh-l2-live.test.js:17:77'
+  failureType: 'testCodeFailure'
+  error: 'Missing expected exception.'
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected:
+  operator: 'throws'
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/mh-l2-owner-A-final-Tcelt2/source/packages/h2a/test/mh-l2-live.test.js:294:16)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 0
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 42453.732337
+
+receipt: {"code":1,"signal":null}

@@ -1,0 +1,20 @@
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node --test packages/h2a/test/mh-l1-package.test.js
+node: v24.21.0
+private test root: /tmp/mh-l2-test-pN6HZo
+prototype a built: 11536 manifest entries
+prototype b built: 11536 manifest entries
+✔ MH-L1 prototype should pack/install twice offline with exact runtime, integrated transport and a real legacy node-pty probe (58033.448377ms)
+ℹ npm pack --offline --ignore-scripts --json => {"filename":"sentropic-h2a-mh-l1-prototype-0.98.7-mh-l1.0.tgz","files":10018,"integrity":"sha512-spDQcvV18snliaUMbHFOQ8rTNMgW2mKFfDYpUgTh1sB+Y3pQw6pRa36WHWzfAOS8PbQ9Y3oVEtYTfc+iVc6Wvw=="}
+ℹ npm install --prefix <install-a> --offline --umask=022 --ignore-scripts => added 1 package in 10s
+ℹ npm install --prefix <install-b> --offline --umask=022 --ignore-scripts => added 1 package in 15s
+ℹ payload manifests equal; files=11536; native=sha256:e3d039449e57d729532cd054d1efba023445338b6b54041a96bc630458c7e585; installed legacy probes=2; closure remains prototype-only
+ℹ tests 1
+ℹ suites 0
+ℹ pass 1
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 58112.650781
+
+receipt: {"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","--test","packages/h2a/test/mh-l1-package.test.js"],"code":0,"signal":null,"elapsedMs":58139}

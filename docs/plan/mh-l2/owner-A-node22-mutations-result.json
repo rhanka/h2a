@@ -1,0 +1,171 @@
+{
+  "node": "v22.22.1",
+  "phase": "mutations",
+  "commands": [
+    {
+      "command": [
+        "/usr/bin/node",
+        "scripts/mh-l2-live-mutate.mjs"
+      ],
+      "pid": 46011,
+      "code": 0,
+      "signal": null,
+      "elapsedMs": 316726
+    },
+    {
+      "command": [
+        "/usr/bin/node",
+        "scripts/mh-l2-live-central-mutate.mjs"
+      ],
+      "pid": 49156,
+      "code": 0,
+      "signal": null,
+      "elapsedMs": 184889
+    },
+    {
+      "command": [
+        "/usr/bin/node",
+        "scripts/mh-l2-mutate.mjs",
+        "unicode"
+      ],
+      "pid": 49489,
+      "code": 0,
+      "signal": null,
+      "elapsedMs": 1695
+    },
+    {
+      "command": [
+        "/usr/bin/node",
+        "scripts/mh-l2-mutate.mjs",
+        "durable"
+      ],
+      "pid": 49536,
+      "code": 0,
+      "signal": null,
+      "elapsedMs": 29127
+    },
+    {
+      "command": [
+        "/usr/bin/node",
+        "scripts/mh-l2-mutate.mjs",
+        "owner-record"
+      ],
+      "pid": 49682,
+      "code": 0,
+      "signal": null,
+      "elapsedMs": 41674
+    },
+    {
+      "command": [
+        "/usr/bin/node",
+        "scripts/mh-l2-mutate.mjs",
+        "compensation"
+      ],
+      "pid": 49874,
+      "code": 0,
+      "signal": null,
+      "elapsedMs": 2261
+    },
+    {
+      "command": [
+        "/usr/bin/node",
+        "scripts/mh-l2-mutate.mjs",
+        "pause"
+      ],
+      "pid": 49922,
+      "code": 0,
+      "signal": null,
+      "elapsedMs": 836
+    },
+    {
+      "command": [
+        "/usr/bin/node",
+        "scripts/mh-l2-mutate.mjs",
+        "mac"
+      ],
+      "pid": 49970,
+      "code": 0,
+      "signal": null,
+      "elapsedMs": 2068
+    },
+    {
+      "command": [
+        "/usr/bin/node",
+        "scripts/mh-l2-mutate.mjs",
+        "socket"
+      ],
+      "pid": 50017,
+      "code": 0,
+      "signal": null,
+      "elapsedMs": 3065
+    },
+    {
+      "command": [
+        "/usr/bin/node",
+        "scripts/mh-l2-mutate.mjs",
+        "owner"
+      ],
+      "pid": 50064,
+      "code": 0,
+      "signal": null,
+      "elapsedMs": 1901
+    },
+    {
+      "command": [
+        "/usr/bin/node",
+        "scripts/mh-l2-mutate.mjs",
+        "inode"
+      ],
+      "pid": 50125,
+      "code": 0,
+      "signal": null,
+      "elapsedMs": 1330
+    },
+    {
+      "command": [
+        "/usr/bin/node",
+        "scripts/mh-l2-mutate.mjs",
+        "precheck"
+      ],
+      "pid": 50186,
+      "code": 1,
+      "signal": null,
+      "elapsedMs": 37707
+    },
+    {
+      "command": [
+        "/usr/bin/node",
+        "scripts/mh-l2-mutate.mjs",
+        "stop"
+      ],
+      "pid": 50324,
+      "code": 0,
+      "signal": null,
+      "elapsedMs": 21631
+    },
+    {
+      "command": [
+        "/usr/bin/node",
+        "scripts/mh-l2-mutate.mjs",
+        "budget"
+      ],
+      "pid": 50388,
+      "code": 0,
+      "signal": null,
+      "elapsedMs": 44786
+    }
+  ],
+  "failures": [
+    {
+      "command": [
+        "/usr/bin/node",
+        "scripts/mh-l2-mutate.mjs",
+        "precheck"
+      ],
+      "pid": 50186,
+      "code": 1,
+      "signal": null,
+      "elapsedMs": 37707
+    }
+  ]
+}

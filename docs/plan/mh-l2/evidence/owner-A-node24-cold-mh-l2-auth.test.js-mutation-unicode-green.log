@@ -1,0 +1,16 @@
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node --test packages/h2a/test/mh-l2-auth.test.js
+node: v24.21.0
+private test root: /tmp/mh-l2-test-SxuCl7
+✔ M18c should never send an application body when a challenged TCP socket is replaced (53.798545ms)
+✔ authenticated SSE should preserve UTF-8 across fragmented source chunks before stdout forwarding (120.866429ms)
+✔ M03/M18b/c should bind challenges and every frame, reject decoy, replay, expiry and saturation (2.529361ms)
+ℹ tests 3
+ℹ suites 0
+ℹ pass 3
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 228.023029
+
+receipt: {"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","--test","packages/h2a/test/mh-l2-auth.test.js"],"code":0,"signal":null,"elapsedMs":254}

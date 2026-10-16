@@ -1,0 +1,15 @@
+{"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","scripts/mh-l2-test.mjs","packages/h2a/test/mh-l2-compensation.test.js","owner-A-node24-lot-regression"],"pid":37761,"code":0,"signal":null,"elapsedMs":200}
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node --test packages/h2a/test/mh-l2-compensation.test.js
+node: v24.21.0
+private test root: /tmp/mh-l2-test-e7HS0O
+✔ compensation should require new ACTIVE H4 authority, a verified source image and proven absence; never reopen G0 (108.746649ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 1
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 152.284517
+receipt: {"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","--test","packages/h2a/test/mh-l2-compensation.test.js"],"code":0,"signal":null,"elapsedMs":180}
+
