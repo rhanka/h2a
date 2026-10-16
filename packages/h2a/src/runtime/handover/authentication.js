@@ -5,6 +5,15 @@ import { validate } from './formats.js';
 const nonce = () => randomBytes(32).toString('hex');
 const unsigned = ({ mac, ...payload }) => payload;
 const context = m => ({ service: m.service, namespaceId: m.namespaceId, generation: m.generation });
+export function isControlRequest(path, wireBody) {
+  if (path.startsWith('/_h2a-central/')) return true;
+  try {
+    const message = JSON.parse(wireBody.body);
+    if (message?.method === 'initialize') return true;
+    const frames = Array.isArray(message) ? message : [message];
+    return frames.length > 0 && frames.every(m => m?.method === 'notifications/cancelled' && !Object.hasOwn(m, 'id'));
+  } catch { return false; }
+}
 
 // Socket keys are server-owned objects, never a client-supplied connection ID.
 export class ConnectionAuthentication {
@@ -13,18 +22,20 @@ export class ConnectionAuthentication {
     if (!Number.isSafeInteger(capacity) || capacity < 1 || !Number.isSafeInteger(validityMs) || validityMs < 1) throw new Error('authentication_bounds');
     this.marker = marker; this.key = rootKey; this.now = now;
     this.capacity = capacity; this.validityMs = validityMs;
-    this.connections = new Map(); this.nonces = new Map(); this.sequences = new Map();
+    this.connections = new Map(); this.nonces = new Map(); this.controlNonces = new Map(); this.sequences = new Map();
   }
   prune() {
     const now = this.now();
     for (const [socket, proof] of this.connections) if (proof.expiresAt <= now) this.connections.delete(socket);
     for (const [key, expires] of this.nonces) if (expires <= now) this.nonces.delete(key);
+    for (const [key, expires] of this.controlNonces) if (expires <= now) this.controlNonces.delete(key);
   }
   forget(socket) { this.connections.delete(socket); }
-  challenge(socket, clientNonce) {
+  challenge(socket, clientNonce, pool = 'data') {
     this.prune();
     if (typeof clientNonce !== 'string' || clientNonce.length < 1 || clientNonce.length > 256) throw new Error('challenge_invalid');
-    if (!this.connections.has(socket) && this.connections.size >= this.capacity) throw new Error('challenge_capacity');
+    if (!['data', 'control'].includes(pool)) throw new Error('challenge_pool_invalid');
+    if (!this.connections.has(socket) && [...this.connections.values()].filter(p => p.pool === pool).length >= this.capacity) throw new Error('challenge_capacity');
     const m = this.marker;
     const payload = { schemaVersion: 1, clientNonce, serverNonce: nonce(), connectionNonce: nonce(),
       service: m.service, namespaceId: m.namespaceId, generation: m.generation,
@@ -34,7 +45,7 @@ export class ConnectionAuthentication {
       mcpProtocolVersions: m.mcpProtocolVersions, descriptorDigest: m.descriptorDigest,
       contractDigest: m.contractDigest, capabilities: m.handoverCapabilities, challengeValidityMs: this.validityMs };
     const proof = validate('readiness', { ...payload, mac: sign(this.key, 'readiness', context(m), payload) });
-    this.connections.set(socket, { proof, expiresAt: this.now() + this.validityMs });
+    this.connections.set(socket, { proof, pool, expiresAt: this.now() + this.validityMs });
     return proof;
   }
   verifyChallenge(proof, clientNonce) {
@@ -72,10 +83,13 @@ export class ConnectionAuthentication {
     }
     this.prune();
     const id = request.requestNonce;
-    if (this.nonces.has(id)) throw new Error('nonce_replayed');
-    if (this.nonces.size >= this.capacity) throw new Error('nonce_capacity');
+    const control = isControlRequest(path, wireBody);
+    if (session.pool === 'control' && !control) throw new Error('control_class_mismatch');
+    if (this.nonces.has(id) || this.controlNonces.has(id)) throw new Error('nonce_replayed');
+    const nonces = control ? this.controlNonces : this.nonces;
+    if (nonces.size >= this.capacity) throw new Error('nonce_capacity');
     // Consume before dispatch. A failed application still consumes its nonce.
-    this.nonces.set(id, session.expiresAt);
+    nonces.set(id, session.expiresAt);
     return request;
   }
   frame(payload, { attachmentId, transportEpoch, channel, requestUid = null }) {

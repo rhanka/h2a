@@ -12,6 +12,13 @@ import { ConnectionAuthentication } from "./handover/authentication.js";
 import { createAuthenticatedServer } from "./handover/authenticated-http.js";
 import { ColdAdministration } from "./handover/administration.js";
 import { PassiveLiveSource } from "./handover/live-source.js";
+import { AttachmentTransports } from "./handover/attachment-transports.js";
+import { describeCatalogue } from "./handover/catalogue.js";
+import { H2A_CLI_MCP_TOOL_DESCRIPTORS } from "./mcp/tools.js";
+import { validate } from "./handover/formats.js";
+import { recordGenerationEnd } from "./handover/generation-end.js";
+import { EvidenceAcceptances, recordShimAcceptance } from "./handover/evidence.js";
+import { shimEvidenceOptions } from "./handover/shim-evidence.js";
 import { installationForEntry, physicalPrefixForEntry, starterPlan, resolveSelectedEntry } from "./handover/selection.js";
 import { checkStartupReservation, markStartupReady } from "./handover/launch.js";
 import { recordSuccessor, readySuccessor } from "./handover/successor.js";
@@ -113,7 +120,7 @@ async function centralToolResult(server: McpServer, name: string, args: Record<s
 function createCentralProtocolServer(mcp: McpServer, participant: import('./handover/participants.js').AttachmentParticipant): Server {
   const server = new Server(
     { name: "@sentropic/h2a", version: currentCliVersion() },
-    { capabilities: { tools: {} } }
+    { capabilities: { tools: { listChanged: true } } }
   );
   server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: mcp.listTools() }));
   server.setRequestHandler(
@@ -152,14 +159,22 @@ function createCentralApp(
   generation: string,
   administration: () => ColdAdministration | undefined,
   participants: () => Participants | undefined,
-  options: { requestStop(): void; idleTimeoutMs: number; sessionLeaseMs: number; precheck?: boolean; endpointPinned?: boolean; managedImage?: boolean; runExecutor?: H2aRunExecutor }
+  options: { requestStop(): void; idleTimeoutMs: number; sessionLeaseMs: number; maxAttachments: number; precheck?: boolean; endpointPinned?: boolean; managedImage?: boolean; runExecutor?: H2aRunExecutor }
 ): { app: Hono; ready(): void; inventory(): { revision: number; transports: unknown[] }; drain(): { revision: number; calls: number; children: number; briefs: number; callbacks: number; effects: number }; close(): Promise<void> } {
   const app = new Hono();
   const lag = monitorEventLoopDelay({ resolution: 20 });
   lag.enable();
   app.use(new URL(endpoint).pathname, bodyLimit({ maxSize: 4 * 1024 * 1024 }));
-  type Attachment = { participant: import("./handover/participants.js").AttachmentParticipant; transport: StreamableHTTPTransport; handle: CentralAttachmentHandle; touched: number; closing?: Promise<void> };
+  type Attachment = { participant: import("./handover/participants.js").AttachmentParticipant; transport: StreamableHTTPTransport; handle: CentralAttachmentHandle; touched: number; closing?: Promise<void>; logical?: any; disconnected?: boolean };
   const sessions = new Map<string, Attachment>();
+  const transports = new AttachmentTransports({ generation, capacity: options.maxAttachments });
+  const descriptor = describeCatalogue(JSON.parse(JSON.stringify(H2A_CLI_MCP_TOOL_DESCRIPTORS)));
+  const evidenceAcceptances = new EvidenceAcceptances(256);
+  const shimItem = (context: any) => {
+    const id = context.req.param('id'), a = transports.attachments.get(id);
+    if (!a || context.req.header('x-h2a-auth-attachment-id') !== id) throw new Error('attachment_context_mismatch');
+    return a;
+  };
   let lastBusy = Date.now();
   let ready = false;
   let closing = false;
@@ -173,6 +188,7 @@ function createCentralApp(
   const closeAttachment = (id: string, attachment: Attachment): Promise<void> => {
     attachment.closing ??= (async () => {
       sessions.delete(id);
+      if (attachment.logical) transports.close(attachment.logical.id);
       inventoryRevision++;
       await attachment.participant.close(() => attachment.handle.close());
       await attachment.transport.close();
@@ -184,9 +200,16 @@ function createCentralApp(
     if (!ready) return;
     const now = Date.now();
     const liveTransaction = administration()?.transaction()?.value;
+    const pendingAttachments = new Set(participants()?.ledger.operations().filter((op: any) => op.state !== 'completed').map((op: any) => op.attachmentId));
     for (const [id, attachment] of sessions) {
       if (!(liveTransaction?.mode === 'live-transfer' && !['ABORTED', 'RETIRED'].includes(liveTransaction.state)) &&
-          now - attachment.touched > options.sessionLeaseMs) void closeAttachment(id, attachment);
+          (attachment.disconnected || now - attachment.touched > options.sessionLeaseMs)) {
+        const liveness = attachment.disconnected ? 'dead' : ownerLiveness({ processIdentity: attachment.logical?.context.shimProcessIdentity }, currentIdentity());
+        if (attachment.logical) transports.detach(attachment.logical.id, liveness);
+        attachment.transport.detachNotifications();
+        const pending = pendingAttachments.has(attachment.participant.token.attachmentId);
+        if (liveness === 'dead' && !pending) void closeAttachment(id, attachment);
+      }
     }
     try { administration()?.expire(); administration()?.poll(); }
     catch (error) {
@@ -207,9 +230,98 @@ function createCentralApp(
     await next();
   });
   app.get(CENTRAL_PING_PATH, context => context.json({ generation }));
-  app.get("/_h2a-central/status", context => context.json({ generation, root, pid: process.pid, attachments: sessions.size, protocol: 2,
+  app.get("/_h2a-central/status", context => context.json({ generation, root, pid: process.pid, attachments: sessions.size, attachmentLimit: options.maxAttachments, protocol: 2,
+    transports: [...transports.attachments.values()].map(a => ({ attachmentId: a.id, transportEpoch: a.transportEpoch, state: a.state })),
     eventLoopLagMs: { p99: lag.percentile(99) / 1e6, max: lag.max / 1e6 }
   }));
+  app.get("/_h2a-central/catalogue", context => context.json({ ...descriptor, revision: 1 }));
+  app.get('/_h2a-central/shim/:id/status', context => {
+    try {
+      const a = shimItem(context), encoded = context.req.header('x-h2a-attachment');
+      if (!encoded || Number(context.req.header('x-h2a-auth-transport-epoch')) !== a.transportEpoch) throw new Error('transport_fenced');
+      const { resume, expectedInstance, ...immutable } = parseCentralAttachment(encoded, root);
+      if (digest(immutable) !== a.contextDigest) throw new Error('attachment_context_mismatch');
+      // This read grants no lease, resume, activation or business admission.
+      return context.json({ attachmentId: a.id, generation, transportEpoch: a.transportEpoch, expectedInstance: a.expectedInstance });
+    } catch (error) { return context.json({ error: (error as Error).message }, 409); }
+  });
+  app.post('/_h2a-central/shim/:id/register', async context => {
+    try {
+      if (!administration()?.admissionsOpen()) throw new Error('admission_closed');
+      const a = shimItem(context), advertisement = await context.req.json();
+      validate('shimInventoryItem', advertisement);
+      if (advertisement.attachmentId !== a.id || digest(advertisement.shimProcessIdentity) !== digest(a.context.shimProcessIdentity) ||
+          advertisement.servedDescriptorDigest !== descriptor.descriptorDigest || advertisement.servedContractDigest !== descriptor.contractDigest) throw new Error('shim_inventory_mismatch');
+      if (digest(a.advertisement ?? null) !== digest(advertisement)) { a.advertisement = advertisement; transports.revision++; }
+      a.challengeNonce ??= randomUUID();
+      a.sourceView = { generation, buildId: administration()!.marker.buildId, profileId: advertisement.clientQualification.profileId,
+        descriptorDigest: advertisement.servedDescriptorDigest, contractDigest: advertisement.servedContractDigest };
+      a.activation.participant.advertisement = advertisement;
+      return context.json({ challengeNonce: a.challengeNonce, sourceView: a.sourceView, inventoryRevision: transports.revision });
+    } catch (error) { return context.json({ error: (error as Error).message }, 409); }
+  });
+  // A delegated external controller offers; .7 never initiates a transaction.
+  app.post('/_h2a-central/shim/:id/offer', async context => {
+    try {
+      const a = transports.attachments.get(context.req.param('id'));
+      if (!a?.advertisement) throw new Error('shim_inventory_missing');
+      const admin = administration()!, live = admin.options.liveSource;
+      if (!live) throw new Error('live_authorization_unavailable');
+      const offer = await context.req.json();
+      if (a.offer && digest(a.offer) === digest(offer)) return context.json({ proofDigest: a.offerReceipt.proofDigest });
+      const options = shimEvidenceOptions(offer, { marker: admin.marker, markerPath: live.markerPath,
+        rootKey: live.rootKey, installation: live.installation, sourceView: a.sourceView, attachmentId: a.id,
+        inventoryRevision: transports.revision, challengeNonce: a.challengeNonce });
+      const receipt = evidenceAcceptances.accept(offer.proof, options);
+      if (a.offer && digest(a.offer) !== digest(offer)) throw new Error('shim_offer_conflict');
+      a.offer = offer; a.offerReceipt = receipt;
+      return context.json({ proofDigest: receipt.proofDigest });
+    } catch (error) { return context.json({ error: (error as Error).message }, 409); }
+  });
+  app.get('/_h2a-central/shim/:id/offer', context => {
+    try { const a = shimItem(context); return context.json({ offer: a.offer ?? null, challengeNonce: a.challengeNonce,
+      sourceView: a.sourceView, inventoryRevision: transports.revision, acceptance: a.acceptance ?? null }); }
+    catch (error) { return context.json({ error: (error as Error).message }, 409); }
+  });
+  app.post('/_h2a-central/shim/:id/ack', async context => {
+    try {
+      const a = shimItem(context), receipt = await context.req.json();
+      if (!a.offer || digest(receipt) !== digest(a.offerReceipt)) throw new Error('shim_ack_mismatch');
+      if (a.acceptance && digest(a.acceptance) !== digest(receipt)) throw new Error('shim_ack_conflict');
+      const live = administration()!.options.liveSource;
+      if (!live) throw new Error('live_authorization_unavailable');
+      recordShimAcceptance(administration()!.marker, live.rootKey, receipt);
+      a.acceptance = receipt; a.activation.participant.shimAcceptance = receipt;
+      return context.json(receipt);
+    } catch (error) { return context.json({ error: (error as Error).message }, 409); }
+  });
+  app.post("/_h2a-central/resume", async context => {
+    try {
+      if (!administration()?.admissionsOpen()) throw new Error('admission_closed');
+      const body = validate('resume', await context.req.json());
+      const a = transports.attachments.get(body.attachmentId);
+      const encoded = context.req.header('x-h2a-attachment');
+      const captured = encoded ? parseCentralAttachment(encoded, root) : a?.context;
+      if (!a || !captured || context.req.header('x-h2a-auth-attachment-id') !== a.id) throw new Error('attachment_context_mismatch');
+      const liveness = ownerLiveness({ processIdentity: a.context.shimProcessIdentity }, currentIdentity());
+      const result = transports.resume(body, captured, liveness);
+      a.resumeResults ??= new Map();
+      if (a.resumeResults.has(body.resumeAttemptId)) return context.json(a.resumeResults.get(body.resumeAttemptId));
+      const attachment = a.activation as Attachment;
+      attachment.transport.detachNotifications(); attachment.touched = Date.now();
+      const reply = { ...result, sessionId: attachment.transport.sessionId,
+        protocolVersion: attachment.participant.downstreamProtocol,
+        notificationGap: result.notificationGap && (!a.notifications?.length || body.lastAcceptedNotificationSequence < a.notifications[0].sequence - 1),
+        notifications: (a.notifications ?? []).filter((n: any) => n.sequence > body.lastAcceptedNotificationSequence).map((n: any) => n.message) };
+      a.resumeResultBytes ??= 0;
+      if (a.resumeResultBytes + Buffer.byteLength(JSON.stringify(reply)) > 1024 * 1024) {
+        reply.notifications = []; reply.notificationGap = a.sequence > body.lastAcceptedNotificationSequence;
+      }
+      a.resumeResultBytes += Buffer.byteLength(JSON.stringify(reply));
+      a.resumeResults.set(body.resumeAttemptId, reply);
+      return context.json(reply);
+    } catch (error) { return context.json({ error: (error as Error).message }, 409); }
+  });
   app.post("/_h2a-central/stop", context => {
     const admin = administration();
     if (!admin) return context.json({ error: "central MCP is starting" }, 503);
@@ -226,9 +338,13 @@ function createCentralApp(
   app.get("/_h2a-central/lease/:id", context => {
     const attachment = sessions.get(context.req.param("id"));
     if (!attachment) return context.json({ error: "unknown attachment" }, 404);
+    try { if (attachment.logical) transports.admit(attachment.logical.id, Number(context.req.header('x-h2a-auth-transport-epoch'))); }
+    catch { return context.json({ error: 'transport_fenced' }, 409); }
     attachment.touched = Date.now();
     const status = attachment.handle.mcp.callTool("h2a_identity_status", {}) as { content: Array<{ text: string }> };
-    return context.json(JSON.parse(status.content[0].text));
+    const value = JSON.parse(status.content[0].text);
+    if (attachment.logical && value.state === 'identity_ready') attachment.logical.expectedInstance = value.instance;
+    return context.json(value);
   });
   app.all(new URL(endpoint).pathname, async context => {
     activeCalls++; drainRevision++;
@@ -244,13 +360,25 @@ function createCentralApp(
           control = frames.length > 0 && frames.every(frame => frame?.method === 'notifications/cancelled' && !('id' in frame));
         } catch { control = false; }
       }
-      if (!control) return context.json({ error: "admission_closed", accepted: false, execution: "not_started" }, 409);
+      if (!control) { const tx = administration()?.transaction()?.value;
+        return context.json({ error: "admission_closed", accepted: false, execution: "not_started",
+          ...(tx ? { handoverId: tx.handoverId, transactionEpoch: tx.transactionEpoch } : {}) }, 409); }
     }
     const sharedStore = store();
     if (!sharedStore) return context.json({ error: "central MCP is starting" }, 503);
     const requestedSessionId = context.req.header("mcp-session-id");
     let attachment = requestedSessionId ? sessions.get(requestedSessionId) : undefined;
     if (requestedSessionId && !attachment) return context.json({ error: "central MCP session expired" }, 404);
+    if (attachment?.logical) {
+      try {
+        const authenticatedId = context.req.header('x-h2a-auth-attachment-id');
+        if (authenticatedId !== 'control' && authenticatedId !== attachment.logical.id) throw new Error('attachment_context_mismatch');
+        const message = context.req.method === 'POST' ? await context.req.json().catch(() => null) : null;
+        // Cancel already admitted work even after transport fencing.
+        if (context.req.method === 'DELETE' && Number(context.req.header('x-h2a-auth-transport-epoch')) !== attachment.logical.transportEpoch) throw new Error('transport_fenced');
+        if (message?.method !== 'notifications/cancelled' && context.req.method !== 'DELETE') transports.admit(attachment.logical.id, Number(context.req.header('x-h2a-auth-transport-epoch')));
+      } catch (error) { return context.json({ error: (error as Error).message }, 409); }
+    }
     if (!attachment) {
       if (context.req.method !== "POST") return context.json({ error: "initialize required" }, 400);
       let workspace = process.env.HOME ?? dirname(root);
@@ -261,7 +389,12 @@ function createCentralApp(
         workspace = captured?.workspace ?? decodeURIComponent(context.req.header("x-h2a-workspace") ?? workspace);
         if (!isAbsolute(workspace) || !statSync(workspace).isDirectory()) throw new Error("workspace must be an existing absolute directory");
         workspace = realpathSync(workspace);
+        const message = await context.req.json();
+        if (message?.method !== 'initialize' || message.id === undefined) throw new Error('initialize required');
       } catch (error) { return context.json({ error: (error as Error).message }, 400); }
+      const logicalId = captured?.id ?? context.req.header('x-h2a-attachment-id') ?? randomUUID();
+      if (transports.attachments.has(logicalId)) return context.json({ error: 'attachment_exists_resume_required' }, 409);
+      if (transports.attachments.size >= transports.capacity) return context.json({ error: 'attachment_capacity' }, 429);
       let created: Attachment | undefined;
       let protocol: Server | undefined;
       const transport = new StreamableHTTPTransport({
@@ -270,9 +403,19 @@ function createCentralApp(
         onsessioninitialized: id => { if (created) { sessions.set(id, created); inventoryRevision++; } },
         onsessionclosed: id => { const current = sessions.get(id); if (current) void closeAttachment(id, current); }
       });
-      const participant = participants()!.attach(randomUUID(), { workspace, ...(captured ? { attachment: captured } : {}) });
+      const participant = participants()!.attach(logicalId, { workspace, ...(captured ? { attachment: captured } : {}) });
       participant.initialized = false;
       const handle = participant.runOwner(() => openCentralAttachment(root, workspace, sharedStore, captured, async notification => {
+        const logical = created?.logical;
+        if (logical) {
+          logical.sequence++;
+          notification = { ...notification, params: { ...notification.params, _meta: { ...notification.params?._meta, h2aNotificationSequence: logical.sequence } } };
+          const size = Buffer.byteLength(JSON.stringify(notification));
+          logical.notifications ??= []; logical.notificationBytes ??= 0;
+          logical.notifications.push({ sequence: logical.sequence, message: notification, size }); logical.notificationBytes += size;
+          while (logical.notificationBytes > 3 * 1024 * 1024 || logical.notifications.length > 256) logical.notificationBytes -= logical.notifications.shift().size;
+          if (logical.state !== 'attached') return;
+        }
         if (protocol) {
           callbacks++; drainRevision++;
           const operation = participant.begin('callback');
@@ -283,10 +426,19 @@ function createCentralApp(
       }, runExecutor, participant));
       protocol = createCentralProtocolServer(handle.mcp, participant);
       attachment = created = { participant, transport, handle, touched: Date.now() };
+      attachment.logical = transports.attach(logicalId, captured ?? { id: logicalId, workspace }, () => attachment!);
       try { await protocol.connect(transport); }
       catch (error) { await participant.close(() => handle.close()); await transport.close(); throw error; }
     }
     attachment.touched = Date.now();
+    if (context.req.method === 'DELETE') {
+      attachment.disconnected = true;
+      if (attachment.logical) transports.detach(attachment.logical.id, 'dead');
+      attachment.transport.detachNotifications();
+      const pending = participants()?.ledger.operations().some((op: any) => op.attachmentId === attachment!.participant.token.attachmentId && op.state !== 'completed');
+      if (!pending) await closeAttachment(requestedSessionId!, attachment);
+      return context.body(null, 200);
+    }
     lastBusy = Date.now();
     let response;
     try { response = await attachment.transport.handleRequest(context); }
@@ -297,7 +449,10 @@ function createCentralApp(
     // The server owns identity; the shim only retains the expected resume id.
     const statusResult = attachment.handle.mcp.callTool("h2a_identity_status", {}) as { content: Array<{ text: string }> };
     const status = JSON.parse(statusResult.content[0].text) as { state?: string; instance?: string };
-    if (status.state === "identity_ready" && status.instance) context.header("x-h2a-instance", status.instance);
+    if (status.state === "identity_ready" && status.instance) {
+      context.header("x-h2a-instance", status.instance);
+      if (attachment.logical) attachment.logical.expectedInstance = status.instance;
+    }
     if (!requestedSessionId && response?.ok) {
       try {
         const initialized = await response.clone().json() as { result?: { protocolVersion?: string } };
@@ -311,7 +466,12 @@ function createCentralApp(
     return response ?? context.body(null, 202);
     } finally { activeCalls--; drainRevision++; }
   });
-  return { app, ready() { lastBusy = Date.now(); ready = true; }, inventory: () => ({ ...(participants()?.inventory() ?? { schemaVersion: 1, shims: [], transports: [], operations: [], quarantines: [], launches: [], writerRestrictions: ["precheck_admission_closed"] }), revision: inventoryRevision }),
+  return { app, ready() { lastBusy = Date.now(); ready = true; }, inventory: () => ({ ...(participants()?.inventory() ?? { schemaVersion: 1, shims: [], transports: [], operations: [], quarantines: [], launches: [], writerRestrictions: ["precheck_admission_closed"] }),
+    shims: [...transports.attachments.values()].flatMap(a => a.advertisement ? [a.advertisement] : []),
+    transports: [...transports.attachments.values()].map(a => ({ attachmentId: a.id, transportEpoch: a.transportEpoch, state: a.state,
+      ownershipEpoch: a.activation.participant.token.ownershipEpoch, ownerGeneration: generation,
+      retiredOperations: participants()?.ledger.operations().filter((o: any) => o.attachmentId === a.id && o.state !== 'completed').map((o: any) => o.operationId) ?? [] })),
+    quarantines: [...transports.attachments.values()].filter(a => a.state === 'quarantined').map(a => a.id), revision: transports.revision }),
     drain: () => {
       const durable = participants()?.drain() ?? { revision: 1, calls: 0, children: 0, briefs: 0, callbacks: 0, effects: 0 };
       return { ...durable, revision: drainRevision + durable.revision, calls: activeCalls + durable.calls, callbacks: callbacks + durable.callbacks };
@@ -447,6 +607,7 @@ export async function startCentralMcpServer(
         precheck: options.precheck,
         endpointPinned: Boolean(explicitEndpoint), managedImage: Boolean(installation),
         idleTimeoutMs: options.idleTimeoutMs ?? 60_000, sessionLeaseMs: options.sessionLeaseMs ?? 90_000,
+        maxAttachments: plan.manifest?.maxAttachments ?? 256,
         ...(options.runExecutor ? { runExecutor: options.runExecutor } : {}),
         requestStop() { setImmediate(() => void stopServer()); }
       });
@@ -462,7 +623,7 @@ export async function startCentralMcpServer(
       // Writer and catalogue are ready before durable marker publication.
       mkdirSync(root, { recursive: true, mode: 0o700 });
       if (!options.precheck) {
-        participants = new Participants({ root, directory: stateDirectory, marker, writerProof: options.writerProof });
+        participants = new Participants({ root, directory: stateDirectory, marker, writerProof: options.writerProof, authenticationKey: authority.rootKey });
         // The admission preclaim has already proved any previous owner dead.
         // A committed old writer gate is reopened only by this new authority.
         if (participants.writerControl().gate !== 'OPEN') {
@@ -474,8 +635,10 @@ export async function startCentralMcpServer(
       const catalogServer = createMcpServer({ root, store: sharedStore });
       const catalogue = JSON.parse(JSON.stringify(catalogServer.listTools())) as ReturnType<McpServer["listTools"]>;
       catalogServer.notifications.stop();
-      marker.descriptorDigest = digest({ tools: catalogue });
-      marker.contractDigest = digest({ tools: catalogue.map(({ description: _description, ...contract }) => contract) });
+      const described = describeCatalogue(catalogue);
+      marker.descriptorDigest = described.descriptorDigest;
+      marker.contractDigest = described.contractDigest;
+      marker.mcpProtocolVersions = described.protocolVersions;
       const nowControl = readState(join(stateDirectory, "component-control.json"), "componentControl");
       if (nowControl) replaceState(join(stateDirectory, "component-control.json"), { ...nowControl.value, revision: nowControl.value.revision + 1,
         sourceGeneration: marker.generation, ownerIdentity: identity, ownerState: "ACTIVE",
@@ -528,6 +691,8 @@ export async function startCentralMcpServer(
       try {
         await application!.close(); httpServer!.closeAllConnections();
         await new Promise<void>((resolve, reject) => httpServer!.close(error => error ? reject(error) : resolve()));
+        const drained = application!.drain();
+        if (['calls', 'children', 'briefs', 'callbacks', 'effects'].every(k => drained[k as keyof typeof drained] === 0)) recordGenerationEnd(authentication!.marker, authority.rootKey);
         const retiring = administration?.transaction()?.value;
         if (claim && !(retiring?.mode === 'live-transfer' && retiring.state === 'RETIRED')) removeMarker(markerPath, claim);
         const closeOwnControl = () => {

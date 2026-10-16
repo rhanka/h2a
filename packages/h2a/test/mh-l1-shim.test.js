@@ -53,6 +53,10 @@ test('C01 should route an exact fixture client through the real shim and central
     assert.ok((await shim.response('init')).result);
     const list = await shim.response('list'); assert.equal(list.error, undefined);
     assert.ok(list.result.tools.some(tool => tool.name === 'h2a_identity_status'));
+    // v7 initialize/list are local. An admitted call is the observable barrier
+    // for the asynchronous upstream activation; retain the one-owner oracle.
+    shim.send({ jsonrpc: '2.0', id: 'activation', method: 'tools/call', params: { name: 'h2a_identity_status', arguments: {} } });
+    assert.ok((await shim.response('activation')).result);
     assert.equal((await centralOperator('status', { runtimeBase: f.runtimeBase })).attachments, 1);
     assert.equal(shim.child.pid, pid); assert.equal(shim.child.exitCode, null);
     assert.ok(shim.frames.every(frame => frame && frame.jsonrpc === '2.0'));
