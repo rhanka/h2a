@@ -1,12 +1,12 @@
 command: /tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-selection.test.js
 node: v24.21.0
-private root: /tmp/mh-l6-test-X6JP51
+private root: /tmp/mh-l6-test-Zim4Nd
 case: all cases in explicit file
 TAP version 13
 # Subtest: U05 should exclude the actual legacy prefix lock and coalesce only the same request
 not ok 1 - U05 should exclude the actual legacy prefix lock and coalesce only the same request
   ---
-  duration_ms: 38.457269
+  duration_ms: 35.521612
   type: 'test'
   location: '/tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-selection.test.js:12:94'
   failureType: 'testCodeFailure'
@@ -30,6 +30,6 @@ not ok 1 - U05 should exclude the actual legacy prefix lock and coalesce only th
 # cancelled 0
 # skipped 0
 # todo 0
-# duration_ms 94.218969
+# duration_ms 87.792011
 
 receipt: {"command":["/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-selection.test.js"],"code":1,"signal":null,"tests":1,"invalid":false,"spawned":1,"leftovers":[]}
