@@ -1,5 +1,4 @@
-// Vendored types for the sibling .js — see its provenance header; do not hand-edit.
-import { type CapabilityId, type CapabilityStatus, type CoverageReport, type FactBatchDto, type GrammarCoverageDto, type ValidationResult, type WorkspaceDeclarationDto } from "./contracts.js";
+import { type CapabilityId, type CapabilityStatus, type CoverageReport, type FactBatchDto, type GrammarCoverageDto, type LiveScope, type ValidationResult, type WorkspaceDeclarationDto } from "./contracts.js";
 export interface GitPort {
     /** Bounded Git read seam; operations arrive with L2a/L2b. Unused in L1b. */
     readonly liveGitSeam: "host-git";
@@ -18,11 +17,51 @@ export interface ContentPort {
 }
 export interface FactSinkPort {
     /** Durable receipt of a fact batch; separate from publication (spec §3). */
-    deliver(batch: FactBatchDto): Promise<{
+    deliver(batch: FactBatchDto, fencingToken: ScopeFencingTokenDto): Promise<{
         received: true;
         batchId: string;
+        receiptId?: string;
     }>;
 }
+/**
+ * Mandatory scope fencing token threaded from E (L6b) across every write,
+ * cursor, and publication port to S (L3a/L3b-S) (Opus Amendment 2).
+ */
+export interface ScopeFencingTokenDto {
+    readonly tokenId: string;
+    readonly scope: LiveScope;
+    readonly epoch: number;
+    readonly epochId: string;
+    readonly declarationRevision: number;
+    readonly projectionIncarnation: string;
+    readonly issuedAt: number;
+    readonly expiresAt: number;
+}
+/**
+ * Required S-side storage contract for L3a / L3b-S (Opus Amendment 2):
+ * Every storage write, cursor update, and generation publication MUST atomically
+ * verify the caller's ScopeFencingTokenDto against the active writer lease and
+ * storage-owned projection incarnation P inside the storage transaction.
+ */
+export interface StorageIncarnationPort {
+    incarnation(): string;
+    hasGeneration(incarnation: string, generationId: string): boolean;
+    validateFencingToken(token: ScopeFencingTokenDto, nowMs: number): ValidationResult;
+}
+export declare const REQUIRED_STORAGE_FENCING_CONTRACT: {
+    readonly enforcedByLots: readonly ["L3a", "L3b-S"];
+    readonly requireAtomicLeaseCheckOnFactWrite: true;
+    readonly requireAtomicLeaseCheckOnCursorWrite: true;
+    readonly requireAtomicLeaseCheckOnGenerationPublish: true;
+    readonly requireStorageOwnedIncarnationBinding: true;
+    readonly requireAtomicLeaseCheckOnProgressReadWrite: true;
+    readonly requireAtomicLeaseCheckOnPark: true;
+    readonly requireAtomicLeaseCheckOnRelationRepair: true;
+    readonly requireAtomicLeaseCheckOnMarkerDelete: true;
+    readonly requireSourceAndProjectionEqualityOnGenerationPublish: true;
+    readonly requireSynchronousLeaseRevocationOnShutdown: true;
+};
+export declare function validateScopeFencingToken(candidate: unknown, expectedScope?: LiveScope, expectedIncarnation?: string, nowMs?: number): ValidationResult;
 export interface CachePort {
     /** Bounded, versioned cache seam; wired by L2b/L5. Unused in L1b. */
     readonly liveCacheSeam: "host-cache";
@@ -70,4 +109,3 @@ export declare function createLiveFactory(options: CreateLiveFactoryOptions): Li
 /** The advertised grammar matrix of this build, from the pinned manifest data. */
 export declare const ADVERTISED_GRAMMAR_LANGUAGES: readonly string[];
 export { deriveCloneIdentity, deriveWorktreeIdentity, deriveDeclarationIdentity, type DeclarationIdentityDto, type DeriveCloneIdentityInput, type DeriveWorktreeIdentityInput, type DeriveDeclarationIdentityInput, } from "./registration.js";
-//# sourceMappingURL=integration.d.ts.map
