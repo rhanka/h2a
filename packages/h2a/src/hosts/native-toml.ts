@@ -1,5 +1,6 @@
 import { getStaticTOMLValue, parseForESLint } from 'toml-eslint-parser';
 import { digest } from './native-files.js';
+import type { NativeManifest } from './native-files.js';
 export type VibeHook = { name: string; type: string; command: string; timeout: number; match?: string; strict?: boolean };
 export function parseNativeToml(text: string): Record<string, any> {
   return getStaticTOMLValue(parseForESLint(text, { tomlVersion: '1.0.0' }).ast) as Record<string, any>;
@@ -10,6 +11,14 @@ const canonical = (value: unknown): string => {
   return JSON.stringify(value);
 };
 export const semanticDigest = (value: unknown): string => digest(canonical(value));
+export function recoverNativeHooks(manifest: NativeManifest, pending: NativeManifest, text: string): void {
+  const actual = parseNativeToml(text).hooks ?? [];
+  for (const hook of actual) if (pending.hooks?.[hook.name] === semanticDigest(hook)) {
+    manifest.hooks = { ...manifest.hooks, [hook.name]: pending.hooks[hook.name] };
+    if (hook.name === 'sentropic-h2a-deny-manual-cli') manifest.guard = pending.guard;
+  }
+  if (pending.lifecycle) manifest.lifecycle = { ...pending.lifecycle };
+}
 export function renderVibeHook(hook: VibeHook): string {
   return '[[hooks]]\n' + Object.entries(hook).map(([key, value]) => `${key} = ${JSON.stringify(value)}`).join('\n') + '\n';
 }
