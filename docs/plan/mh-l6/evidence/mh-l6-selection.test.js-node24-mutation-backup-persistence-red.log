@@ -1,12 +1,12 @@
 command: /tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-selection.test.js
 node: v24.21.0
-private root: /tmp/mh-l6-test-LVmbFZ
+private root: /tmp/mh-l6-test-8c5ywc
 case: all cases in explicit file
 TAP version 13
 # Subtest: U05 should select once with canonical journal, history and pins across HOME changes
 not ok 1 - U05 should select once with canonical journal, history and pins across HOME changes
   ---
-  duration_ms: 60.717088
+  duration_ms: 55.485101
   type: 'test'
   location: '/tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-selection.test.js:12:94'
   failureType: 'testCodeFailure'
@@ -17,11 +17,11 @@ not ok 1 - U05 should select once with canonical journal, history and pins acros
     + undefined
     - {
     -   buildId: 'target',
-    -   canonicalPrefix: '/tmp/mh-l6-test-LVmbFZ/tmpdir/mh-l6-installation-zpmUtG',
+    -   canonicalPrefix: '/tmp/mh-l6-test-8c5ywc/tmpdir/mh-l6-installation-4lKYLz',
     -   entrypoint: 'entry.mjs',
     -   manifestDigest: 'sha256:834a92676f67495dbbb0ba80be5deac9ab88ad72546344ba2feec5fcc6ee6fa9',
     -   packageVersion: '0.98.7',
-    -   prefixId: 'sha256:fdec51d9f4715ee67995fac70faa8670cfc484740d89d854c58b017fee487af5',
+    -   prefixId: 'sha256:870e2718354ef8d9a42c58b8f30dbd13647023d5cbe0d6ff23570b1ea8c151d8',
     -   previousSelectionReference: null,
     -   schemaVersion: 1,
     -   selectionEpoch: 1,
@@ -33,11 +33,11 @@ not ok 1 - U05 should select once with canonical journal, history and pins acros
   name: 'AssertionError'
   expected:
     buildId: 'target'
-    canonicalPrefix: '/tmp/mh-l6-test-LVmbFZ/tmpdir/mh-l6-installation-zpmUtG'
+    canonicalPrefix: '/tmp/mh-l6-test-8c5ywc/tmpdir/mh-l6-installation-4lKYLz'
     entrypoint: 'entry.mjs'
     manifestDigest: 'sha256:834a92676f67495dbbb0ba80be5deac9ab88ad72546344ba2feec5fcc6ee6fa9'
     packageVersion: '0.98.7'
-    prefixId: 'sha256:fdec51d9f4715ee67995fac70faa8670cfc484740d89d854c58b017fee487af5'
+    prefixId: 'sha256:870e2718354ef8d9a42c58b8f30dbd13647023d5cbe0d6ff23570b1ea8c151d8'
     previousSelectionReference: ~
     schemaVersion: 1
     selectionEpoch: 1
@@ -59,6 +59,6 @@ not ok 1 - U05 should select once with canonical journal, history and pins acros
 # cancelled 0
 # skipped 0
 # todo 0
-# duration_ms 133.455584
+# duration_ms 106.950504
 
 receipt: {"command":["/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-selection.test.js"],"code":1,"signal":null,"tests":1,"invalid":false,"spawned":1,"leftovers":[]}
