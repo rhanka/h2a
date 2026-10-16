@@ -49,3 +49,11 @@ design readings are not a claim of a formal harness-review consensus.
 The shell's default bwrap runner cannot create its namespace in this
 confinement. Source reads and private test commands use explicit execution
 exceptions; they do not authorize contacting the real h2a host or state.
+
+Current outcome: phase 1 measured 0 OK, 5 KO, 31 blocked. CI has proven all
+36 simulated round trips on Node 22 and 24; this is no real-CLI support claim.
+Historical published-host fixtures now require a private PID namespace with
+an init reaper. The scoped new CI launcher supplies it. Running that fixture
+without the launcher fails closed; adapting the existing full npm-test/release
+entry points remains a pre-merge task, and those full gates are not qualified
+by the scoped cross-CLI workflow. No merge readiness is claimed.
