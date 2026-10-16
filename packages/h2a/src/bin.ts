@@ -1,11 +1,5 @@
 #!/usr/bin/env node
 /** Route MCP shims before importing the CLI, SDK, store or runtime. */
-import { canonicalCentralRoot, centralRoutingEnabled, shouldUseCentralMcp } from "./runtime/mcp-central-policy.js";
-import { runCentralShim } from "./runtime/mcp-central-shim.js";
-import { readCentralMcpMarker } from "./runtime/mcp-central-discovery.js";
-import { inspectFirstInitialize } from "./runtime/mcp-central-initialize.js";
-import { qualifiedClaudeInitialize } from "./runtime/mcp-central-qualification.js";
-
 import { routeSelectedEntrypoint } from "./runtime/handover/selection.js";
 
 const argv = process.argv.slice(2);
@@ -21,7 +15,13 @@ for (let i = 1; i < argv.length; i++) {
 
 try {
   if (await routeSelectedEntrypoint(import.meta.url)) { /* same-process selected entry owns execution */ }
-  else if (argv[0] === "mcp-central-precheck") {
+  else {
+  const { canonicalCentralRoot, centralRoutingEnabled, shouldUseCentralMcp } = await import("./runtime/mcp-central-policy.js");
+  const { runCentralShim } = await import("./runtime/mcp-central-shim.js");
+  const { readCentralMcpMarker } = await import("./runtime/mcp-central-discovery.js");
+  const { inspectFirstInitialize } = await import("./runtime/mcp-central-initialize.js");
+  const { qualifiedClaudeInitialize } = await import("./runtime/mcp-central-qualification.js");
+  if (argv[0] === "mcp-central-precheck") {
     const { readPrecheckManifest } = await import("./runtime/handover/precheck.js");
     const trial = readPrecheckManifest(flags["image-root"], flags["manifest-digest"]);
     const { startCentralMcpServer } = await import("./runtime/mcp-central.js");
@@ -89,6 +89,7 @@ try {
     process.exitCode = centralOperatorExitCode(result);
   } else {
     await import("./bin-heavy.js");
+  }
   }
   }
 } catch (error) {
