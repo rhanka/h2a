@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import { join, relative } from 'node:path';
 import { tmpdir } from 'node:os';
+import { createHash } from 'node:crypto';
 import { marker, identity, hash } from './mh-l0-fixtures.js';
 import { ColdAdministration } from '../../src/runtime/handover/administration.js';
 import { PassiveLiveSource, liveTransactionReference } from '../../src/runtime/handover/live-source.js';
@@ -62,6 +63,8 @@ export function liveFixture() {
     inventoryRevision: p.inventory().revision, selectionEpoch: 2, issuedAt: 1000, expiresAt: 3000 };
   const save = (kind, value, tamperMac = false) => {
     const context = { service: m.service, namespaceId: m.namespaceId, generation: m.generation };
+    if (kind === 'authorization' && !Object.hasOwn(value, 'ticketMac')) value = { ...value,
+      ticketMac: sign(createHash('sha256').update(ticket.ticketNonce).digest(), 'requests', context, { purpose: 'live-source-ticket', authorization: value }) };
     const signed = { ...value, mac: tamperMac ? '0'.repeat(64) : sign(rootKey, 'compatibility', context, value) };
     const hash = digest(signed);
     publishState(join(stateDirectory, `live-${kind}-${hash.slice(7)}.json`), signed, kind === 'authorization' ? 'liveSourceAuthorization' : 'liveSourcePublication');
