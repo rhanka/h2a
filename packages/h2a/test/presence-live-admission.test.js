@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { generateKeyPairSync } from 'node:crypto';
+import { once } from 'node:events';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -39,11 +40,63 @@ async function fixture(t) {
     writePresence(root, { instance: recipient.instance, sessionId: 'sess:recipient', pid: process.pid,
       startedAt: now, heartbeatAt: now, state: 'live', interests: { scopes: [], negotiations: [] }, subscribedTopics: [], ...extra });
   };
-  const send = backend => handleSend(store, signer, { to: recipient.instance, message: 'hello', backend }, { clusterMesh: mesh });
+  const send = (backend, to = recipient.instance) => handleSend(store, signer, { to, message: 'hello', backend }, { clusterMesh: mesh });
   return { root, store, signer, recipient, mesh, receiver, publish, send, puts: () => puts };
 }
 
 for (const backend of ['local', 'cluster-mesh']) {
+  for (const to of ['peer-display', 'h2a:peer-display']) {
+    test(backend + ' preserves typed refusal for known display name ' + to + ' after owner death', async t => {
+      const f = await fixture(t);
+      const owner = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
+      const exited = once(owner, 'exit');
+      t.after(async () => {
+        if (owner.exitCode === null && owner.signalCode === null) owner.kill();
+        await exited;
+      });
+      await once(owner, 'spawn');
+      f.publish({ name: 'peer-display', pid: owner.pid });
+      const sent = await f.send(backend, to);
+      assert.equal(sent.ok, true, 'the same display name works while its owner lives');
+      assert.equal(sent.recipient, f.recipient.instance);
+      if (backend === 'cluster-mesh') assert.deepEqual((await f.receiver.drain()).accepted, [sent.messageId]);
+      const inbox = f.store.readInbox(f.recipient.instance);
+      const puts = f.puts();
+
+      owner.kill();
+      await exited;
+      assert.throws(() => process.kill(owner.pid, 0), { code: 'ESRCH' });
+      const refused = await f.send(backend, to);
+      assert.equal(refused.code, 'recipient_not_live', JSON.stringify(refused));
+      assert.equal(refused.retryable, true);
+      assert.ok(refused.error.includes(f.recipient.instance));
+      assert.deepEqual(f.store.readInbox(f.recipient.instance), inbox);
+      assert.equal(f.puts(), puts, 'no mesh dispatch after owner death');
+      assert.deepEqual(await f.receiver.drain(), { accepted: [], rejected: [] });
+
+      f.publish({ name: 'peer-display' });
+      assert.equal((await f.send(backend, to)).ok, true, 'a live attachment restores the name');
+    });
+  }
+
+  test(backend + ' preserves typed refusal for an unregistered dead owner addressed by alias', async t => {
+    const f = await fixture(t);
+    const dead = spawnSync(process.execPath, ['-e', ''], { stdio: 'ignore' });
+    assert.equal(dead.status, 0);
+    const now = new Date().toISOString();
+    const instance = 'claude:unregistered:333333333333';
+    writePresence(f.root, { instance, sessionId: 'sess:unregistered', pid: dead.pid,
+      startedAt: now, heartbeatAt: now, state: 'live',
+      interests: { scopes: [], negotiations: [] }, subscribedTopics: [] });
+    const refused = await f.send(backend, 'claude:unregistered');
+    assert.equal(refused.code, 'recipient_not_live', JSON.stringify(refused));
+    assert.equal(refused.retryable, true);
+    assert.ok(refused.error.includes(instance));
+    assert.deepEqual(f.store.readInbox(instance), []);
+    assert.equal(f.puts(), 0);
+    assert.deepEqual(await f.receiver.drain(), { accepted: [], rejected: [] });
+  });
+
   test(backend + ' refuses fresh presence belonging to a process that actually exited', async t => {
     const f = await fixture(t);
     const dead = spawnSync(process.execPath, ['-e', ''], { stdio: 'ignore' });
@@ -75,6 +128,44 @@ for (const backend of ['local', 'cluster-mesh']) {
       assert.deepEqual((await f.receiver.drain()).accepted, [sent.messageId]);
     }
     assert.equal(f.store.readInbox(f.recipient.instance).length, 1);
+  });
+
+  test(backend + ' preserves live name precedence, ambiguity and unknown-target errors with dead records', async t => {
+    const f = await fixture(t);
+    const dead = spawnSync(process.execPath, ['-e', ''], { stdio: 'ignore' });
+    assert.equal(dead.status, 0);
+    f.publish({ name: 'peer-display' });
+    const now = new Date().toISOString();
+    const ghost = { instance: 'claude:ghost:333333333333', sessionId: 'sess:ghost', pid: dead.pid,
+      name: 'peer-display', startedAt: now, heartbeatAt: now, state: 'live',
+      interests: { scopes: [], negotiations: [] }, subscribedTopics: [] };
+    writePresence(f.root, ghost);
+    for (const to of ['peer-display', 'h2a:peer-display']) {
+      const sent = await f.send(backend, to);
+      assert.equal(sent.ok, true);
+      assert.equal(sent.recipient, f.recipient.instance, 'the live name wins over dead names');
+      if (backend === 'cluster-mesh') await f.receiver.drain();
+    }
+    writePresence(f.root, { ...ghost, pid: process.pid });
+    // A dead alias must not replace an ambiguity between two living display names.
+    writePresence(f.root, { ...ghost, instance: 'h2a:peer-display:444444444444', sessionId: 'sess:dead-alias', name: 'other' });
+    const inbox = f.store.readInbox(f.recipient.instance);
+    const puts = f.puts();
+    for (const to of ['peer-display', 'h2a:peer-display']) {
+      const ambiguous = await f.send(backend, to);
+      assert.match(ambiguous.error, /ambiguous/);
+      assert.equal(ambiguous.code, undefined);
+      assert.equal(ambiguous.retryable, undefined);
+    }
+    for (const to of ['unknown', 'h2a:unknown', 'claude:ghost:not-a-uuid']) {
+      const unknown = await f.send(backend, to);
+      assert.equal(typeof unknown.error, 'string');
+      assert.equal(unknown.code, undefined, 'unknown/malformed targets keep their addressing error');
+      assert.equal(unknown.retryable, undefined);
+    }
+    assert.deepEqual(f.store.readInbox(f.recipient.instance), inbox);
+    assert.equal(f.puts(), puts);
+    assert.deepEqual(await f.receiver.drain(), { accepted: [], rejected: [] });
   });
 }
 
