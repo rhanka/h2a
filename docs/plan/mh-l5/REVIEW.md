@@ -23,10 +23,9 @@ Les commandes, sorties rouges/vertes, premiers diagnostics et hashes exacts sont
 liés depuis [README.md](README.md) et [proof-audit.json](proof-audit.json).
 Ne pas transformer cette qualification en verdict de release ou de fusion.
 
-Réserve de couverture M17 à arbitrer en revue : la campagne compte huit processus
-et les vrais writers conformes, mais les rôles sont des drivers backend. Pour
-qualifier les huit surfaces ensemble, le conducteur devra exiger un fichier ciblé
-faisant coexister un central, le pair, quatre stdio, le janitor et la CLI réels sur
-le même store, avec au moins 10 000 mutations par domaine, réconciliation des ACK,
-chaînes valides, zéro double effet et refus préalable des admissions héritées.
-Estimation : 4–8 heures-agent et 1–2 tours, distincts de la revue du présent diff.
+La revue Argon de `4a4ca76c` a confirmé cette insuffisance M17. Sa fermeture
+suivant l'alternative autorisée par l'owner est documentée dans [ARGON.md](ARGON.md) :
+le défaut de verrou englobant est corrigé et la campagne complète est déclarée
+dans [le plan MH-L8](../mh-l8/BRANCH.md), comme gate release obligatoire et non
+comme une acceptation M17. Le producteur H4 de M18 est suivi en
+[MH-L6](../mh-l6/BRANCH.md). Aucun verdict de nouvelle revue n'est revendiqué.
