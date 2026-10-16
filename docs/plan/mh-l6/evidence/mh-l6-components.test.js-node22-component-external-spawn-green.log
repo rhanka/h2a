@@ -1,0 +1,22 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-components.test.js
+node: v22.22.1
+private root: /tmp/mh-l6-test-eEdl4L
+case: U12 should allow an external Node application to receive image data through spawn
+TAP version 13
+# Subtest: U12 should allow an external Node application to receive image data through spawn
+ok 1 - U12 should allow an external Node application to receive image data through spawn
+  ---
+  duration_ms: 2803.611261
+  type: 'test'
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 1
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 3078.022281
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-components.test.js"],"code":0,"signal":null,"tests":1,"invalid":false,"spawned":2,"leftovers":[]}
