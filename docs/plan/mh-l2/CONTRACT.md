@@ -121,6 +121,11 @@ successor-attempt contracts. Live acceptance additionally requires:
    and closes only the old listener/transports without deleting G1's marker or
    presence. No force, signal or retry replaces that drain.
 
+The partial PUBLISHED receipt is bound to the caller's retire stepId and full
+request digest. A lost ACK or a nonempty drain resumes that same step; no public
+stepId is reserved for internal bookkeeping. A final RETIRED receipt retains the
+publication digest, including when a second concordant retire step finishes it.
+
 Publication, including a concordant marker observed before its receipt can be
 reconciled, prohibits abort/expiration/operator-stop from reopening G0. A
 contradiction closes admissions and requires explicit reconciliation. Repeated
