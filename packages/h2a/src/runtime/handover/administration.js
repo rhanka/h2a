@@ -106,7 +106,13 @@ export class ColdAdministration {
       if (step.upgradeId !== tx.upgradeId || step.handoverId !== tx.handoverId || step.transactionEpoch !== tx.transactionEpoch ||
         step.mode !== tx.mode || digest(coordinator) !== digest(tx.coordinator)) throw new Error('transaction_authority_mismatch');
       const prior = tx.stepResults[step.stepId];
-      if (prior) { if (prior.payloadDigest !== step.payloadDigest) throw new Error('step_conflict'); return prior.result; }
+      if (prior) {
+        if (prior.payloadDigest !== step.payloadDigest) throw new Error('step_conflict');
+        if (operation === 'retire' && prior.result?.state === 'PUBLISHED') {
+          if (tx.state === 'RETIRED') return Object.values(tx.stepResults).map(s => s.result)
+            .find(r => r?.state === 'RETIRED' && r.publicationDigest === prior.result.publicationDigest);
+        } else return prior.result;
+      }
     }
     const observation = (result, changes = {}) => observed ? this.update(observed, changes, step, result) : result;
     if (operation === 'describe') return observation({ protocolVersion: 1, liveCoordinator: false,
@@ -174,16 +180,16 @@ export class ColdAdministration {
         if (tx.barrierDeadline <= this.now()) throw new Error('barrier_expired');
         const publication = this.options.liveSource.publication(tx, payload.publicationDigest);
         const result = { state: 'PUBLISHED', ...publication };
-        this.update(observed, { state: 'PUBLISHED' }, { stepId: 'live-publication', payloadDigest: digest(result) }, result);
+        this.update(observed, { state: 'PUBLISHED' }, step, result);
         observed = this.transaction();
       } else {
-        const receipt = Object.values(tx.stepResults).map(s => s.result).find(r => r?.state === 'PUBLISHED');
+        const receipt = Object.values(tx.stepResults).map(s => s.result).find(r => r?.publicationDigest && ['PUBLISHED', 'RETIRED'].includes(r.state));
         if (payload.publicationDigest !== receipt?.publicationDigest) throw new Error('live_publication_mismatch');
         this.options.liveSource.publication(tx, receipt.publicationDigest, false);
       }
       this.options.liveSource.fence(observed.value);
       if (!this.drain().complete) throw new Error('drain_blocked');
-      const result = this.update(observed, { state: 'RETIRED' }, step, { state: 'RETIRED', generation: m.generation });
+      const result = this.update(observed, { state: 'RETIRED' }, step, { state: 'RETIRED', generation: m.generation, publicationDigest: payload.publicationDigest });
       this.requestClose();
       return result;
     }
