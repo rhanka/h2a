@@ -130,13 +130,13 @@ jobs:
         run: node --test packages/h2a/test/run-test-gates.test.js
       - run: npm test
         shell: bash
-      # Build once, then smoke and upload these same three tarballs.
-      - name: Pack the three lockstep packages
+      # Build once, then smoke and upload these same four tarballs.
+      - name: Pack the four lockstep packages
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p dist-tarballs
-          for pkg in @sentropic/h2a @sentropic/h2a-runtime @sentropic/h2a-cli; do
+          for pkg in @sentropic/h2a @sentropic/h2a-runtime @sentropic/h2a-cli @sentropic/track; do
             npm pack --workspace "$pkg" --pack-destination dist-tarballs
           done
           (cd dist-tarballs && sha256sum *.tgz > sha256sums.txt && cat sha256sums.txt)

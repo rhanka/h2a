@@ -8,12 +8,14 @@
 // / `npm` invocations, so unit-testing them directly is what matters.
 
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { dirname, resolve } from "node:path";
 import test from "node:test";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const RELEASE_SCRIPT = resolve(HERE, "..", "..", "..", "scripts", "release.mjs");
+const SMOKE_SCRIPT = resolve(HERE, "..", "..", "..", "scripts", "smoke-artifact.mjs");
 
 // DEC-062: on Windows the absolute path starts with `D:\` and Node's ESM
 // loader rejects it as an unsupported protocol; the import must be a
@@ -21,6 +23,7 @@ const RELEASE_SCRIPT = resolve(HERE, "..", "..", "..", "scripts", "release.mjs")
 const {
   bumpPackageJsonContent,
   bumpPackageLockContent,
+  bumpSmokeArtifactPinContent,
   formatNextSteps,
   gitStatusIsClean,
   parseVersion,
@@ -208,6 +211,67 @@ test("bumpPackageLockContent bumps packages/track and rewrites its caret in pack
 test("bumpPackageLockContent validates the new version through parseVersion", () => {
   const input = JSON.stringify({ name: "h2a", version: "0.1.0", packages: {} });
   assert.throws(() => bumpPackageLockContent(input, "01.2.3"));
+});
+
+test("bumpSmokeArtifactPinContent rewrites the pinned literal to X.Y.Z", () => {
+  const input = [
+    "// SPEC 0.98.5 R8.3(4) pins the LITERAL",
+    "const PINNED_RUNTIME_VERSION = '0.98.5'",
+    "if (runtimeVersion !== PINNED_RUNTIME_VERSION) {",
+    "}\n"
+  ].join("\n");
+  const out = bumpSmokeArtifactPinContent(input, "0.98.6");
+  assert.match(out, /^const PINNED_RUNTIME_VERSION = '0\.98\.6'$/m);
+  // SPEC references are identifiers, not the train: they survive the bump.
+  assert.ok(out.includes("SPEC 0.98.5 R8.3(4)"));
+  // The pin stays a literal: no manifest read, no tree-version lookup.
+  assert.equal(out.includes("package.json"), false);
+  assert.equal(out.includes("readFileSync"), false);
+});
+
+test("bumpSmokeArtifactPinContent leaves every other byte untouched", () => {
+  const input = "const PINNED_RUNTIME_VERSION = '0.98.5'\nconsole.log('done')\n";
+  const out = bumpSmokeArtifactPinContent(input, "0.98.6");
+  assert.equal(out, "const PINNED_RUNTIME_VERSION = '0.98.6'\nconsole.log('done')\n");
+});
+
+test("bumpSmokeArtifactPinContent validates the new version through parseVersion", () => {
+  const input = "const PINNED_RUNTIME_VERSION = '0.98.5'\n";
+  assert.throws(() => bumpSmokeArtifactPinContent(input, "v0.98.6"));
+  assert.throws(() => bumpSmokeArtifactPinContent(input, "0.98"));
+});
+
+test("bumpSmokeArtifactPinContent refuses a script without the pin declaration", () => {
+  assert.throws(
+    () => bumpSmokeArtifactPinContent("const VERSION = '0.98.5'\n", "0.98.6"),
+    /expected exactly one.*found 0/
+  );
+});
+
+test("bumpSmokeArtifactPinContent refuses a script with the pin declared twice", () => {
+  const duplicated = [
+    "const PINNED_RUNTIME_VERSION = '0.98.6'",
+    "const PINNED_RUNTIME_VERSION = '0.98.6'",
+    "",
+  ].join("\n");
+  assert.throws(
+    () => bumpSmokeArtifactPinContent(duplicated, "0.98.7"),
+    /expected exactly one.*found 2/
+  );
+});
+
+test("bumpSmokeArtifactPinContent round-trips the real smoke script pin", () => {
+  const real = readFileSync(SMOKE_SCRIPT, "utf8");
+  const pinned = /^const PINNED_RUNTIME_VERSION = '([^']+)'$/m.exec(real)?.[1];
+  assert.ok(pinned, "the real smoke script must declare the pin");
+  assert.match(real, /^const PINNED_RUNTIME_VERSION = '[^']+'$/m);
+  const bumped = bumpSmokeArtifactPinContent(real, "9.9.9");
+  assert.match(bumped, /^const PINNED_RUNTIME_VERSION = '9\.9\.9'$/m);
+  // The SPEC identifier survives even a synthetic bump.
+  assert.ok(bumped.includes("SPEC 0.98.5 R8.3"));
+  // And back: the helper restores the exact current bytes.
+  const back = bumpSmokeArtifactPinContent(bumped, pinned);
+  assert.ok(back.includes(`const PINNED_RUNTIME_VERSION = '${pinned}'`));
 });
 
 test("gitStatusIsClean accepts empty porcelain output only", () => {
