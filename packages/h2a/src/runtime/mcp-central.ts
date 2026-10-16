@@ -248,14 +248,24 @@ function createCentralApp(
   app.post('/_h2a-central/shim/:id/register', async context => {
     try {
       if (!administration()?.admissionsOpen()) throw new Error('admission_closed');
-      const a = shimItem(context), advertisement = await context.req.json();
+      const a = shimItem(context), { sourceView: advertisedSource, ...advertisement } = await context.req.json();
+      if (Number(context.req.header('x-h2a-auth-transport-epoch')) !== a.transportEpoch) throw new Error('transport_fenced');
       validate('shimInventoryItem', advertisement);
-      if (advertisement.attachmentId !== a.id || digest(advertisement.shimProcessIdentity) !== digest(a.context.shimProcessIdentity) ||
-          advertisement.servedDescriptorDigest !== descriptor.descriptorDigest || advertisement.servedContractDigest !== descriptor.contractDigest) throw new Error('shim_inventory_mismatch');
-      if (digest(a.advertisement ?? null) !== digest(advertisement)) { a.advertisement = advertisement; transports.revision++; }
+      if (advertisement.attachmentId !== a.id || digest(advertisement.shimProcessIdentity) !== digest(a.context.shimProcessIdentity)) throw new Error('shim_inventory_mismatch');
+      // Inventory describes the shim's retained view, not compatibility with
+      // this central. Only H4 evidence can authorize installing a new contract.
+      // Legacy equal-catalogue registrations need no additional provenance.
+      if (!advertisedSource && (advertisement.servedDescriptorDigest !== descriptor.descriptorDigest ||
+          advertisement.servedContractDigest !== descriptor.contractDigest)) throw new Error('shim_source_view_required');
+      const sourceView = validate('catalogueSource', advertisedSource ?? { generation, buildId: administration()!.marker.buildId,
+        profileId: advertisement.clientQualification.profileId,
+        descriptorDigest: advertisement.servedDescriptorDigest, contractDigest: advertisement.servedContractDigest });
+      if (sourceView.descriptorDigest !== advertisement.servedDescriptorDigest || sourceView.contractDigest !== advertisement.servedContractDigest ||
+          sourceView.profileId !== advertisement.clientQualification.profileId) throw new Error('shim_inventory_mismatch');
+      if (digest(a.advertisement ?? null) !== digest(advertisement) || digest(a.sourceView ?? null) !== digest(sourceView)) {
+        a.advertisement = advertisement; a.sourceView = sourceView; transports.revision++;
+      }
       a.challengeNonce ??= randomUUID();
-      a.sourceView = { generation, buildId: administration()!.marker.buildId, profileId: advertisement.clientQualification.profileId,
-        descriptorDigest: advertisement.servedDescriptorDigest, contractDigest: advertisement.servedContractDigest };
       a.activation.participant.advertisement = advertisement;
       return context.json({ challengeNonce: a.challengeNonce, sourceView: a.sourceView, inventoryRevision: transports.revision });
     } catch (error) { return context.json({ error: (error as Error).message }, 409); }

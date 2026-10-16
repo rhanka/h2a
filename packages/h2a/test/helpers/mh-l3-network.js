@@ -17,7 +17,7 @@ import { H2A_CLI_MCP_TOOL_DESCRIPTORS } from '../../dist/runtime/mcp/tools.js';
 export const descriptor = describeCatalogue(JSON.parse(JSON.stringify(H2A_CLI_MCP_TOOL_DESCRIPTORS)));
 export const json = (value, session) => new Response(JSON.stringify(value), { headers: {
   'content-type': 'application/json', ...(session ? { 'mcp-session-id': session } : {}) } });
-export async function fixture(handler) {
+export async function fixture(handler, bridgeOptions = () => ({})) {
   const dir = fs.mkdtempSync(join(tmpdir(), 'mh-l3-net-'));
   const runtimeBase = join(dir, 'run'), root = join(dir, 'store'), directory = join(runtimeBase, 'h2a-mcp-central');
   fs.mkdirSync(directory, { recursive: true, mode: 0o700 }); fs.mkdirSync(root, { mode: 0o700 });
@@ -38,7 +38,8 @@ export async function fixture(handler) {
   const frames = [], input = new PassThrough(), output = new PassThrough(), abort = new AbortController();
   const reader = createInterface({ input: output }); reader.on('line', line => frames.push(JSON.parse(line)));
   const endpoint = server ? `http://127.0.0.1:${server.address().port}/mcp` : 'http://127.0.0.1:1/mcp';
-  const running = bridgeCentralMcpStdio({ endpoint, runtimeBase, stdin: input, stdout: output, signal: abort.signal, workspaceRoot: dir });
+  const running = bridgeCentralMcpStdio({ endpoint, runtimeBase, stdin: input, stdout: output, signal: abort.signal, workspaceRoot: dir,
+    ...bridgeOptions({ dir, root, runtimeBase }) });
   let failure; void running.catch(e => { failure = e; });
   const wait = async predicate => {
     for (let i = 0; i < 200; i++) { const found = frames.find(predicate); if (found) return found; if (failure) throw failure; await new Promise(r => setTimeout(r, 5)); }
