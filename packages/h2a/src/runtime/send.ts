@@ -5,7 +5,8 @@ import {
   signEnvelope,
   verifyEnvelopeSignature,
   type H2AEnvelope,
-  type H2ARole
+  type H2ARole,
+  type H2ASession
 } from "@sentropic/h2a";
 
 import {
@@ -94,6 +95,20 @@ function resolveRegisteredName(
     : { target, resolved: false };
 }
 
+/** Fresh mirrored records carry remote PIDs; only local owners can be probed here. */
+function hasLiveOwner(session: H2ASession): boolean {
+  if (session.mirroredAt !== undefined) return true;
+  const pid = session.pid;
+  if (pid === undefined || !Number.isSafeInteger(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    // EPERM proves existence; ESRCH and unknown failures cannot prove liveness.
+    return (error as NodeJS.ErrnoException).code === "EPERM";
+  }
+}
+
 /**
  * Prepare one authenticated message for either transport. The CLI and MCP
  * adapters share this primitive: resolution, signing and the
@@ -111,7 +126,10 @@ function prepareMessage(input: SendLocalMessageInput): SendLocalMessageResult {
     throw new Error(`h2a send: sender is not registered: ${input.signer.instance}`);
   }
   const registrations = input.store.listInstances();
-  const live = listPresence(input.store.paths.root);
+  const fresh = listPresence(input.store.paths.root);
+  // Filter before resolution too: a dead attachment must not create a live
+  // alias candidate or make an otherwise unique display name ambiguous.
+  const live = input.requireLive ? fresh.filter(hasLiveOwner) : fresh;
   const registeredName = resolveRegisteredName(requestedRecipient, registrations);
   const resolution = resolveRecipient({
     target: registeredName.target,
