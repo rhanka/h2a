@@ -1,0 +1,155 @@
+{
+  "version": 1,
+  "mode": "real-cli",
+  "sha": "680cf7d8bef00d4837d135bdc0d60c335d52f478",
+  "node": "v22.22.1",
+  "command": "node scripts/qualify-cross-cli.mjs --pair codex:codex --timeout-ms 60000 --auth-home /home/antoinefa --output docs/2026-10-16-cross-cli-resume-codex-color-after.json",
+  "root": "/tmp/h2a-qual-JsoSKH",
+  "build": {
+    "path": "/tmp/h2a-qual-JsoSKH/build",
+    "sourceDigest": "3269437cae6d64c8883fd34768d7b47c6bf5d9f62657d5b63f044b77ba836993",
+    "nativeBuild": {
+      "command": [
+        "/usr/bin/g++",
+        "-std=c++17",
+        "-shared",
+        "-fPIC",
+        "-O2",
+        "-pthread",
+        "-DNAPI_CPP_EXCEPTIONS",
+        "-I/usr/include/node",
+        "-I/home/antoinefa/src/h2a/tmp/worktrees/xcli/node_modules/node-addon-api",
+        "/tmp/h2a-qual-JsoSKH/build/node_modules/node-pty/src/unix/pty.cc",
+        "-o",
+        "/tmp/h2a-qual-JsoSKH/build/node_modules/node-pty/build/Release/pty.node",
+        "-lutil"
+      ],
+      "exitCode": 0
+    }
+  },
+  "harnessDigests": {
+    "qualify-cross-cli.mjs": "d4207f7006529c2a120a8726ee0ec49f6070091cdd78ad03c24266d20d9b894a",
+    "xcli-lab.mjs": "6968c3def782921fbb33e402ee3897543598b48c05b5754d6d4856beaf76db3f",
+    "xcli-proxy.mjs": "28354e7d0621bdae045f531f39a78941248fdde9e9d6ceaea41cd096b0a013a4",
+    "xcli-terminal.mjs": "59f609df5a91042c1c6c43cc646581c3ba3da1222545ad2bdf92df9f17a962bb",
+    "xcli-simulated-model.mjs": "3c56bd6aae926cf9f31674c9002a8d8ce88d4c9982f1b994c2acc625f9deb2c3"
+  },
+  "cells": [
+    {
+      "sender": "codex",
+      "receiver": "codex",
+      "status": "measured-KO",
+      "senderMcp": null,
+      "receiverMcp": false,
+      "sent": null,
+      "delivered": null,
+      "received": null,
+      "woke": null,
+      "replied": null,
+      "replyDelivered": null,
+      "evidence": [
+        {
+          "event": "host-setup",
+          "role": "receiver",
+          "exitCode": 2
+        },
+        {
+          "event": "session-created",
+          "role": "receiver",
+          "pid": 13273,
+          "id": "h2a-receiver"
+        },
+        {
+          "event": "startup-terminal-response",
+          "role": "receiver",
+          "count": 4,
+          "at": 1792155065546
+        },
+        {
+          "event": "startup-screen-facts",
+          "role": "receiver",
+          "facts": {
+            "matched": [
+              "permissions",
+              "Press",
+              "continue",
+              "MCP"
+            ],
+            "errorSignals": [],
+            "choices": [],
+            "qualificationDraft": true,
+            "wakeDraft": false,
+            "emptyComposer": false,
+            "interruptVisible": false,
+            "signedWakeVisible": false,
+            "inboxWakeVisible": false,
+            "toolApproval": false
+          }
+        },
+        {
+          "event": "readiness-deadline",
+          "role": "receiver",
+          "modelToolCallObserved": false,
+          "composerReady": true,
+          "mcpLoaded": false,
+          "wakeArmed": false
+        },
+        {
+          "event": "screen-signals",
+          "role": "receiver",
+          "signals": [
+            "permission",
+            "cursorQuery"
+          ]
+        },
+        {
+          "event": "terminal-queries",
+          "role": "receiver",
+          "kinds": [
+            "cursor-position",
+            "background-color",
+            "foreground-color",
+            "keyboard-flags"
+          ]
+        },
+        {
+          "event": "owned-process-states",
+          "role": "receiver",
+          "states": [
+            {
+              "pid": 13273,
+              "state": "S"
+            },
+            {
+              "pid": 13275,
+              "state": "S"
+            },
+            {
+              "pid": 13282,
+              "state": "S"
+            }
+          ]
+        },
+        {
+          "event": "cleanup-complete",
+          "ownedProcessesStopped": true,
+          "privateStateRemoved": true
+        }
+      ],
+      "startedAt": "2026-10-16T12:51:04.029Z",
+      "credentialsCopied": {
+        "receiver": [
+          ".codex/auth.json"
+        ]
+      },
+      "noPostSendHarnessInput": true,
+      "failure": "mcp-not-loaded-before-deadline",
+      "elapsedMs": 61562
+    }
+  ],
+  "counts": {
+    "measured-OK": 0,
+    "measured-KO": 1,
+    "blocked": 0
+  }
+}
