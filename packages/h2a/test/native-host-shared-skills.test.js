@@ -6,6 +6,7 @@ import test from 'node:test';
 import { runCli } from '../dist/index.js';
 import { parseNativeToml } from '../dist/hosts/native-toml.js';
 import { captureHostOperatorNotices } from '../dist/hosts/operator-notices.js';
+const PACKAGE_VERSION = JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version;
 function setup(t) {
   const home = fs.mkdtempSync(join(tmpdir(), 'shared-host-')), previous = { ...process.env };
   process.env.HOME = home; process.env.VIBE_HOME = '';
@@ -28,7 +29,7 @@ test('agy and Gemini share one command owner and resources outside command disco
   const commands = fs.readdirSync(join(home, '.gemini/commands'));
   assert.ok(commands.every(n => n.endsWith('.toml')));
   const prompt = fs.readFileSync(join(home, '.gemini/commands/present-decision.toml'), 'utf8');
-  assert.match(prompt, /\.h2a-install\/skill-resources\/track\/0\.98\.6\/present-decision\/assets\//);
+  assert.ok(prompt.includes(`.h2a-install/skill-resources/track/${PACKAGE_VERSION}/present-decision/assets/`));
   const custom = join(home, '.gemini/commands/h2a.toml'); fs.writeFileSync(custom, 'personal = true\n');
   assert.notEqual(cli(['install-skills', '--host', 'gemini']).code, 0);
   assert.equal(fs.readFileSync(custom, 'utf8'), 'personal = true\n');
