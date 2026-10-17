@@ -11,7 +11,32 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # GWRC-CI-V1 phase guard (L0): dependency-free classification before any
+  # install/build. A valid candidate input makes smoke-install inactive with
+  # `not-applicable (candidate-phase, committed lock)`; H0/published/none or
+  # an absent input restores the ordinary jobs. Invalid input fails here,
+  # before installation — never an inert/skip result.
+  consumer-phase:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      buildCommittedLock: ${{ steps.classify.outputs.buildCommittedLock }}
+      phase: ${{ steps.classify.outputs.phase }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      # The classifier records its own reason line; a valid candidate yields
+      # `not-applicable (candidate-phase, committed lock)` in the summary.
+      - id: classify
+        run: node scripts/gateway-consumer-ci.mjs classify >> "$GITHUB_OUTPUT"
+
   smoke-install:
+    needs: consumer-phase
+    if: needs.consumer-phase.outputs.buildCommittedLock == 'true'
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false

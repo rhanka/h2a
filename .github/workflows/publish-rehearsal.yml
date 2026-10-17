@@ -54,8 +54,32 @@ permissions:
   contents: read
 
 jobs:
+  # GWRC-CI-V1 phase guard (L0): same dependency-free classifier as smoke.yml.
+  # A valid candidate input makes rehearse-publish inactive with
+  # `not-applicable (candidate-phase, committed lock)`; H0/published/none or
+  # an absent input restores the ordinary dry-run.
+  consumer-phase:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      buildCommittedLock: ${{ steps.classify.outputs.buildCommittedLock }}
+      phase: ${{ steps.classify.outputs.phase }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      # The classifier records its own reason line; a valid candidate yields
+      # `not-applicable (candidate-phase, committed lock)` in the summary.
+      - id: classify
+        run: node scripts/gateway-consumer-ci.mjs classify >> "$GITHUB_OUTPUT"
+
   rehearse-publish:
     name: Publish rehearsal (dry-run)
+    needs: consumer-phase
+    if: needs.consumer-phase.outputs.buildCommittedLock == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:

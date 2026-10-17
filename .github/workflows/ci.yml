@@ -135,10 +135,21 @@ jobs:
         node: ["22", "24"]
     steps:
       - uses: actions/checkout@v4
+        with:
+          # GWRC-CI-V1 source binding (L0): fetch the merge commit plus both
+          # parents so the merge-parent check below can verify them.
+          fetch-depth: 2
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node }}
           cache: npm
+      # GWRC-CI-V1 source binding (GW4-m2): on PR merge checkouts the tested
+      # merge must have exactly base and head as its parents. Push/main events
+      # skip this check (no synthetic merge exists there). Runs before any
+      # install so a source-binding mismatch fails before dependencies.
+      - name: Verify merge parents are base and head
+        if: github.event_name == 'pull_request'
+        run: node scripts/gateway-consumer-ci.mjs check-merge-parents --merge ${{ github.sha }} --base ${{ github.event.pull_request.base.sha }} --head ${{ github.event.pull_request.head.sha }}
       - run: npm ci
       - run: npm run typecheck
       - name: Install the mandatory configuration oracles
