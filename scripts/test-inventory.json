@@ -874,5 +874,19 @@
   ],
   "packages/h2a-runtime/src/gateway-host/live-registration.test.ts": [
     "fixture commits launch no automatic Git maintenance in observed repositories"
+  ],
+  "packages/h2a-runtime/src/session-content-confirmation.test.ts": [
+    "session content confirmation should verify signed exact-target proof once and durably consume before returning",
+    "session content confirmation should reject forged signatures, token-selected keys and unsigned or unknown algorithms",
+    "session content confirmation should reject wrong identity, client, tenant, purpose and nonce without consuming",
+    "session content confirmation should reject missing expiry, stale authentication and incomplete MFA despite fresh issuance",
+    "session content confirmation should reject elapsed monotonic deadlines, unknown clock error and clock jumps",
+    "session content confirmation should refuse local denial and journal failure without returning permission",
+    "session content confirmation should cancel pending requests independently of quotas and reject foreign handles",
+    "session content confirmation should bound pending slots by verified owner and host and refill without refunding cancellations",
+    "session content confirmation should bind two outstanding challenges to distinct signed nonces in the same second",
+    "session content confirmation should reject caller mutation after staging and support pinned key rotation only",
+    "session content confirmation should bind pending quotas to the authenticated source rather than claimed source IDs",
+    "session content confirmation should reject duplicate JSON keys, invalid Unicode and noncanonical JWT encoding"
   ]
 }
