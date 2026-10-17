@@ -7,8 +7,11 @@ import { verifyImage } from '../handover/image.js';
 import { privateDirectory } from '../handover/state.js';
 
 export function assertImageRuntime(manifest) {
+  const glibc = process.report.getReport().header.glibcVersionRuntime;
+  const libc = typeof glibc === 'string' ? /^(\d+)\.(\d+)(?:\.\d+)?$/.exec(glibc) : null;
   if (typeof Module.registerHooks !== 'function' || process.platform !== 'linux' ||
-    ![22, 24].includes(Number(process.versions.node.split('.')[0])) || !process.report.getReport().header.glibcVersionRuntime ||
+    ![22, 24].includes(Number(process.versions.node.split('.')[0])) || !libc ||
+    Number(libc[1]) < 2 || (Number(libc[1]) === 2 && Number(libc[2]) < 31) ||
     manifest.profile.nodeMajor !== Number(process.versions.node.split('.')[0]) || manifest.profile.nodeAbi !== process.versions.modules ||
     manifest.profile.arch !== process.arch || manifest.profile.libc !== 'glibc') throw new Error('image_loader_unqualified');
 }
