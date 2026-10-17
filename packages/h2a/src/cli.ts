@@ -78,6 +78,8 @@ import { runHarnessCli, HARNESS_SKILLS } from "./vendor/harness/index.js";
 import { buildLaunchIndex } from "./runtime/local-files/launch-index.js";
 import { renderCommandMap } from "./cli-command-map.js";
 import { HostConfigConflict, writeHostMcpEntry } from "./hosts/config-writer.js";
+import { cmdHostedLock, cmdRegistry, cmdRegistryBridge } from "./registry/cli-registry.js";
+import { readInstallReceipt } from "./registry/host-bootstrap.js";
 import { executeH2aRunWithAsyncSpawn, type H2aRunExecutor } from "./runtime/mcp/agent-launch.js";
 import { captureCentralAttachment } from "./runtime/mcp-central-context.js";
 import { ensureCentralForShim } from "./runtime/mcp-central-start.js";
@@ -503,6 +505,9 @@ export function renderCliHelp(): string {
     "  h2a central residues [--workspace <repo>] [--agy-config <file>]   (report only; never rewrites or deletes residues)",
     "  h2a host setup --host <codex|claude|gemini|agy|hermes|opencode|muse|vibe> [--endpoint local|remote] [--url <https://…/mcp>] [--root <path>] [--print | --write <file>] [--allow-tracked] [--force] [--no-wake] [--remove]   (edits only the h2a entry, preserves surrounding bytes and creates a backup; tracked files require --allow-tracked; Muse/agy render nonrecommended historical direct paths pending registry bootstrap; Vibe --write installs the interim direct entry pending registry bootstrap (--remove clears it for migration))",
     "  h2a host status [--host <name>]",
+    "  h2a registry catalog   (registry publisher entries; metadata only, writes nothing)",
+    "  h2a registry bootstrap preview|install|uninstall --host <claude|codex|agy|muse|vibe> --config <file> [--profile <p>] [--lock <file>] [--dry-run]   (explicit operator-owned bridge install under server key h2a)",
+    "  h2a hosted-lock draft|verify|activate --lock <file> [--service <ref>] [--tenant <id> --repository <ref>] [--binding <key>=<contract>] [--active <file>]   (deployment-owned hosted lock; opaque refs only)",
     "  h2a host plugin --host <codex|claude|gemini|agy|hermes|opencode|muse|vibe> --instance <id> [--status <work-status>] [--root <path>] [--write <settings.json|hooks.toml> [--force]] [--scaffold <dir>] [--workspace-scope on|off]   (--write installs the Stop hook for claude|gemini|codex|hermes|opencode; --scaffold writes codex's full local marketplace + trust step; vibe writes its explicit parent-only wrapper to VIBE_HOME/hooks.toml; workspace scope is off by default and requires isolated lab qualification before opt-in)",
     "  h2a store migrate [--from <v>] [--to <v>] [--sanitize-paths] [--dry-run] [--root <path>]",
     "  h2a store index-launch --root <absolute-path> (derived indexes; original logs retained)",
@@ -4976,6 +4981,18 @@ function cmdHostSetup(
     return 1;
   }
 
+  // R5 writer cutover: a registry-migrated host config is owned by the
+  // registry bootstrap now. Launch/setup paths must not rewrite it here;
+  // the operator changes selection through the installer only.
+  const installReceipt = readInstallReceipt(targetPath);
+  if (installReceipt && installReceipt["host"] === host) {
+    streams.stderr.write(
+      `h2a host setup: ${host} at ${targetPath} is registry-managed (bridge installed via registry bootstrap); ` +
+      `host MCP config is owned by the installer now. Run \`h2a registry bootstrap preview|install --host ${host} --config ${targetPath}\` to change it.\n`
+    );
+    return 1;
+  }
+
   // Only the explicitly selected h2a entry is edited; preserve all other bytes.
   let backupPath: string | undefined;
   let replacedH2a = false;
@@ -8144,6 +8161,14 @@ export function runCli(
   if (command === "inbox") return cmdMailbox(argv.slice(1), "inbox", streams);
   if (command === "outbox") return cmdMailbox(argv.slice(1), "outbox", streams);
   if (command === "host") return cmdHost(argv.slice(1), streams, options);
+  if (command === "registry") return cmdRegistry(argv.slice(1), streams);
+  if (command === "registry-bridge") {
+    return cmdRegistryBridge(argv.slice(1), streams, {
+      delegateServe: (serveFlags) =>
+        runMcpServe(serveFlags, { stdin: process.stdin, stdout: process.stdout, stderr: process.stderr })
+    });
+  }
+  if (command === "hosted-lock") return cmdHostedLock(argv.slice(1), streams);
   if (command === "central") {
     const sub = argv[1];
     const { flags: centralFlags } = parseFlags(argv.slice(2));

@@ -1064,6 +1064,13 @@ function buildHappyArgv(verb, ctx) {
       // its usage (text) and exits 0 (help is not an error); deeper parity vs
       // the standalone `harness` bin is covered by harness-facade.test.js.
       return ["harness", "--help"];
+    case "registry catalog":
+      return ["registry", "catalog"];
+    case "registry bootstrap":
+      // Preview writes nothing, needs no lock, exits 0 with an action envelope.
+      return ["registry", "bootstrap", "preview", "--host", "claude", "--config", join(root, "mcp.json")];
+    case "hosted-lock":
+      return ["hosted-lock", "draft", "--lock", join(root, "hosted.lock.json")];
     default:
       throw new Error(`No happy-path argv for verb "${verb}"`);
   }
@@ -1649,7 +1656,11 @@ test("H2A_CLI_VERB_CONTRACTS covers every dispatchable verb (smoke)", () => {
     "conductor claim",
     "conductor release",
     "conductor-launch-check",
-    "conductor-launch"
+    "conductor-launch",
+    "registry catalog",
+    "registry bootstrap",
+    "registry-bridge serve",
+    "hosted-lock"
   ];
   assert.deepEqual([...declared].sort(), [...expected].sort());
   for (const c of H2A_CLI_VERB_CONTRACTS) {
