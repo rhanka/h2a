@@ -1,12 +1,12 @@
 command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-adoption.test.js
 node: v22.22.1
-private root: /tmp/mh-l6-test-DJLg73
+private root: /tmp/mh-l6-test-xQHeFW
 case: C2b should require adoption when the managed layout is unrecognized
 TAP version 13
 # Subtest: C2b should require adoption when the managed layout is unrecognized
 ok 1 - C2b should require adoption when the managed layout is unrecognized
   ---
-  duration_ms: 140.796945
+  duration_ms: 452.195915
   type: 'test'
   ...
 1..1
@@ -17,6 +17,6 @@ ok 1 - C2b should require adoption when the managed layout is unrecognized
 # cancelled 0
 # skipped 0
 # todo 0
-# duration_ms 250.308125
+# duration_ms 566.827392
 
 receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-adoption.test.js"],"code":0,"signal":null,"tests":1,"invalid":false,"spawned":1,"leftovers":[]}

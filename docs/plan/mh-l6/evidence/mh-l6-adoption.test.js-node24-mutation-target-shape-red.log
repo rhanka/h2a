@@ -1,14 +1,14 @@
 command: /tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-adoption.test.js
 node: v24.21.0
-private root: /tmp/mh-l6-test-GKTD1E
+private root: /tmp/mh-l6-test-GojZ2N
 case: C2b should refuse an invalid adoption assessment envelope
 TAP version 13
 # Subtest: C2b should refuse an invalid adoption assessment envelope
 not ok 1 - C2b should refuse an invalid adoption assessment envelope
   ---
-  duration_ms: 71.647393
+  duration_ms: 52.424412
   type: 'test'
-  location: '/tmp/mh-l3-qualification-c2b2-UwitJ6/packages/h2a/test/mh-l6-adoption.test.js:7:67'
+  location: '/tmp/mh-l3-qualification-c2b2c-fDnkpy/packages/h2a/test/mh-l6-adoption.test.js:17:67'
   failureType: 'testCodeFailure'
   error: 'Missing expected exception.'
   code: 'ERR_ASSERTION'
@@ -16,7 +16,7 @@ not ok 1 - C2b should refuse an invalid adoption assessment envelope
   expected:
   operator: 'throws'
   stack: |-
-    TestContext.<anonymous> (file:///tmp/mh-l3-qualification-c2b2-UwitJ6/packages/h2a/test/mh-l6-adoption.test.js:79:12)
+    TestContext.<anonymous> (file:///tmp/mh-l3-qualification-c2b2c-fDnkpy/packages/h2a/test/mh-l6-adoption.test.js:89:12)
     async Test.run (node:internal/test_runner/test:1409:7)
     async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3)
   ...
@@ -28,6 +28,6 @@ not ok 1 - C2b should refuse an invalid adoption assessment envelope
 # cancelled 0
 # skipped 0
 # todo 0
-# duration_ms 118.516449
+# duration_ms 96.519647
 
 receipt: {"command":["/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-adoption.test.js"],"code":1,"signal":null,"tests":1,"invalid":false,"spawned":1,"leftovers":[]}
