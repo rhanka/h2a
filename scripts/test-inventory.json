@@ -896,5 +896,9 @@
   "packages/h2a/test/candidate-artifacts.test.js": [
     "verify, rehearsal and cross-platform smoke consume the same closed candidate producer",
     "candidate tarballs include both verified payloads and the exact four-package cohort"
+  ],
+  "packages/h2a/test/node-test-order.test.js": [
+    "the production Node runner starts explicit files in priority order and records every real case",
+    "the production Node runner reports a failing child and still executes the other explicit file"
   ]
 }
