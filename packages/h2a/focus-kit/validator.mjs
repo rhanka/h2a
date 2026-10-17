@@ -46,6 +46,7 @@ var CHOICE_PATTERN = /\beither\b[\s\S]{0,160}?\bor\b|\bsoit\b[\s\S]{0,160}?\bsoi
 var SUBOPTION_PATTERN = /(?:^|[\n\r\u2028\u2029])\s*(?:[-*+•‣>]|\d+[.)]|[a-z][.)])\s+\S|\([a-z]\)[\s\S]*\([a-z]\)|\b(?:sub[- ]?options?|sous[- ]?options?)\b/i;
 var LINE_BREAK = /[\n\r\u2028\u2029]/;
 var blank = (text) => !text?.trim();
+var asRecord = (value) => value !== null && typeof value === "object" && !Array.isArray(value) ? value : {};
 var minutesFor = (texts) => (texts.join(" ").match(/\S+/gu)?.length ?? 0) / READABILITY_LIMITS.wordsPerMinute;
 var validateDecisionDossierReadability = (doc) => {
   const issues = [];
@@ -163,6 +164,14 @@ var validateDecisionDossierReadability = (doc) => {
       case "diagram":
         visible(section.alt, `${path}.alt`);
         visible(section.source, `${path}.source`);
+        for (const [family, field] of [["entities", "name"], ["relations", "label"]]) {
+          for (const [id, member] of Object.entries(asRecord(section.scene?.[family]))) {
+            const attribute = asRecord(asRecord(asRecord(member).attributes)[field]);
+            if (attribute.kind === "text" && typeof attribute.value === "string") {
+              visible(attribute.value, `${path}.scene.${family}.${id}.attributes.${field}.value`);
+            }
+          }
+        }
         break;
       case "amendmentTrace":
         checkSteps(section.steps, `${path}.steps`);
@@ -492,13 +501,16 @@ var checkSectionNode = (value, path, issues) => {
       const node = checkClosedObject(
         value,
         path,
-        ["kind", "id", "targetRef", "syntax", "source", "alt"],
+        ["kind", "id", "targetRef", "syntax", "source", "alt", "scene"],
         ["kind", "id", "targetRef", "syntax", "source", "alt"],
         ["id", "targetRef", "source", "alt"],
         issues
       );
       if (node === void 0) return void 0;
       checkEnum(node["syntax"], `${path}.syntax`, ["mermaid", "plantuml"], issues);
+      if (node["scene"] !== void 0 && !isRecord(node["scene"])) {
+        issues.push(issue(`${path}.scene`, "invalid_type", "expected a diagram-core SemanticDocument object"));
+      }
       if (issues.length !== start) return void 0;
       return {
         kind: "diagram",
@@ -506,7 +518,8 @@ var checkSectionNode = (value, path, issues) => {
         targetRef: node["targetRef"],
         syntax: node["syntax"],
         source: node["source"],
-        alt: node["alt"]
+        alt: node["alt"],
+        ...node["scene"] === void 0 ? {} : { scene: node["scene"] }
       };
     }
   }

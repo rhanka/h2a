@@ -5,8 +5,7 @@
 </script>
 
 <Handle type="target" position={Position.Top} />
-<Card class="ecosystem-node">
+<Card class={data.container ? 'ecosystem-container' : 'ecosystem-node'}>
   <strong>{data.label}</strong>
-  {#if data.detail}<p>{data.detail}</p>{/if}
 </Card>
 <Handle type="source" position={Position.Bottom} />

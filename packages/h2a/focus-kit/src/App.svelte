@@ -3,7 +3,7 @@
   import { SvelteMap } from 'svelte/reactivity';
   import { lightTheme, darkTheme } from './themes.js';
   import Canvas from './Canvas.svelte';
-  let { document: dossier, scenes } = $props();
+  let { document: dossier } = $props();
   let dark = $state(matchMedia('(prefers-color-scheme: dark)').matches);
   const selections = new SvelteMap();
   let questions = $derived(dossier.sections.filter(s => s.kind === 'question'));
@@ -49,7 +49,7 @@
               </div>
               <p class="selection" aria-live="polite">{selections.get(section.questionId) ? `Sélection locale : ${section.options.find(o => o.id === selections.get(section.questionId))?.label}. Communiquez ce choix au présentateur pour l’enregistrer.` : 'Sélectionnez une option pour préparer votre réponse.'}</p>
             {:else if section.kind === 'diagram'}
-              <Canvas scene={scenes[section.id]} {dark} alt={section.alt} />
+              <Canvas document={section.scene} {dark} alt={section.alt} />
             {:else if section.kind === 'outcome'}
               <Card><h3>Conclusion proposée</h3><p>{section.statement}</p></Card>
             {/if}

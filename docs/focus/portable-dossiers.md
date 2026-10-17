@@ -26,6 +26,8 @@ validation implementation. The builder calls `assertDecisionDossierDocument`, re
 literal owner quote, plain stakes, proportional total time, explicit self-contained questions,
 2–4 short options with consequences, recommendation, no opaque undefined codes or nested choices.
 The glossary is visible. Diagram labels and explanations also go through the readability gate.
+Visible diagram-core names and link labels use the same gate, including when they differ from the
+text fallback. Documents without the optional structured diagram field remain valid.
 The template is illustrative, never evidence of a real owner request or review.
 
 The gate checks structure and measurable readability. The present-decision self-audit still checks
@@ -52,7 +54,8 @@ Add at least one `diagram` section. Its `syntax` is `mermaid`, its `source` can 
 `packages/h2a/focus-kit/ecosystem.json` is a reusable versioned catalog with source paths. It depicts
 conceptual relationships, **not a live inventory**. Check the selected scene against the question and
 current implementation. A dossier can reference several scenes. Catalog references expand into ordinary
-Mermaid in the embedded document; xyflow renders the graph with pan, pinch zoom, zoom/fit controls,
+Mermaid plus a diagram-core `SemanticDocument` in the embedded document; xyflow consumes that document
+with pan, pinch zoom, zoom/fit controls,
 keyboard focus and a textual relationship list. The page fits phone widths without horizontal overflow.
 
 Custom diagrams accept this deliberately small Mermaid flowchart profile. Every declaration and edge
@@ -69,6 +72,34 @@ coordinator -->|travail et décisions| work
 Unknown catalog references, unresolved edges, empty/oversized graphs, PlantUML and other Mermaid
 constructs refuse before output. Full Mermaid/PlantUML rendering is outside this adapter's profile.
 Do not quietly substitute an image for the requested interactive canvas.
+
+### diagram-core contract (design-system addendum 2)
+
+`DiagramNode.scene` is an optional plain JSON object containing the DS diagram-core
+`SemanticDocument`, profile `generic@1`. This is the only structured graph in the HTML payload:
+`document.sections[].scene`; there is no parallel Focus node/edge model. A supplied `scene` is
+authoritative for rendering and is preserved unchanged on rebuild. `syntax`, `source` and `alt`
+remain required for backward-compatible text fallbacks. Catalog references and supported custom
+flowcharts generate `scene` automatically.
+
+The exact envelope has `documentId: "document:<id>"`, `schemaVersion: {major:1,minor:1}`,
+`revision: 0`, `profileRefs: ["generic@1"]`, `typeDefinitions: {}`, `entities: {…}`,
+`relations: {…}`, `ports: {}`, `resources: {}` and `extensions: []`. Entity/relation records are
+keyed by their IDs. Entities have `{id:"entity:<id>", profile:"generic@1", type:"node"|"container",
+attributes:{name:{kind:"text",value:"<label>"}}}`. Links have `{id:"relation:<id>",
+profile:"generic@1", type:"link", endpoints:[{role:"source",target:"entity:a"},
+{role:"target",target:"entity:b"}], attributes:{label:{kind:"text",value:"…"}}}`; a missing label
+uses `attributes:{}`. Nesting uses `type:"contains"`, roles `parent` and `child`, with a container
+parent and at most one parent per child, without cycles. The PR description freezes a complete example.
+
+No view, geometry, position, direction or layout hint belongs in `scene`. Layout rules L-R1..L-R11
+belong to the DS engine. The disposable xyflow adapter computes a simple grid and nested container
+bounds in memory; it does not implement those rules or serialize a view. The canonical Focus validator
+checks only that `scene` is an object and preserves it. The builder bounds its interim consumer to
+1–80 entities, at most 240 relations, node/container entities, binary links and a containment tree;
+nonempty type definitions, ports, resources and extensions are outside that renderer's profile.
+No dependency on the private diagram-core package is added. Pin its authoritative JSON Schema when
+the design-system publishes it; the current consumer bounds do not claim full diagram-core validation.
 
 ## Thin consumer and maintenance
 
