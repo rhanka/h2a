@@ -32,3 +32,40 @@ Local evidence (targeted only, no skip):
 Full local suites were not run. Safari/iOS hardware, Firefox, Windows and macOS browser behavior,
 arbitrary Mermaid/PlantUML and independently attested human decisions are not covered. The four ecosystem
 scenes are conceptual, sourced component relationships rather than a live inventory.
+
+## Tour 2 — diagram-core
+
+- status: selection-failed
+- target-ref: 131f38b7517cb816e6cc344a51b0a1d66b6f2800
+- observed-failure: Exact author model/effort unavailable; owner confinement forbids installed h2a/mesh reviewer selection and dispatch. No peer was selected; no consensus verdict is claimed.
+
+DiagramNode.scene carries the DS generic@1 SemanticDocument as plain JSON. The catalog and
+custom-flowchart builder emit semantic records; xyflow reads section.scene directly, including
+link roles, optional labels and containment trees. Coordinates exist only in the disposable
+adapter. No view, geometry or layout hint is serialized; L-R1..L-R11 remain DS-owned.
+
+| Targeted evidence | Red | Green |
+| --- | --- | --- |
+| Focus schema | 39/41; scene refused and missing in schema | 41/41 |
+| Catalog semantics + CLI rebuild | 8/11; no scene, supplied scene refused | 12/12 including readability regression |
+| Supplied semantic name/link bypass | 11/12; opaque-code names passed build | 12/12; undefined_code, previous output preserved |
+| Browser semantic tree | supplied scene refused | 2/2, nested bounds, optional labels, desktop/phone offline pinch |
+| Focus schema/readability + skill | — | 120/120, including after rebase |
+
+Final post-rebase command: node --test packages/h2a/test/focus-build.test.js
+packages/h2a/test/dispatch-characterization-goldens.test.js packages/h2a/test/native-question-mode.test.js
+packages/h2a/focus-kit/test/browser.test.mjs — 67 passed, 0 failed, 0 skipped.
+node node_modules/vitest/vitest.mjs run packages/focus/tests/schema.spec.ts
+packages/focus/tests/readability.spec.ts packages/track/src/cli/present-decision-skill.test.ts
+— 120 passed. npm run typecheck — exit 0. node scripts/build-focus-dossier.mjs --check
+— Focus dossier renderer sources and portable asset: verified.
+
+HOME/XDG/H2A_ROOT were temporary; PLAYWRIGHT_BROWSERS_PATH selected the allowed test cache.
+The first browser run exposed a missing browser under temporary HOME, then used that cache;
+a mistaken edge-text selector was corrected to xyflow's actual edge-label class.
+The final fetch included #364: BRANCH.md conflicted and was resolved to this branch's scope.
+An initial retry was aborted after a documentation step ran too early; the clean rebase
+was repeated. Range-diff confirms feature code unchanged, and targeted checks passed afterward.
+
+No full local suite or installed binary was run. Private DS schema, DS layout, arbitrary
+diagram-core types/ports/resources/extensions and Safari/iOS hardware remain outside verification.
