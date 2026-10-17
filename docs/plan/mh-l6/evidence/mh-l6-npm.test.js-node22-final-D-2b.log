@@ -1,0 +1,64 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-npm.test.js
+node: v22.22.1
+private root: /tmp/mh-l6-test-7Ndt0J
+case: all cases in explicit file
+TAP version 13
+# Subtest: D should report a managed command link
+ok 1 - D should report a managed command link
+  ---
+  duration_ms: 4.516231
+  type: 'test'
+  ...
+# Subtest: D should report a legacy command link awaiting adoption
+ok 2 - D should report a legacy command link awaiting adoption
+  ---
+  duration_ms: 0.82875
+  type: 'test'
+  ...
+# Subtest: D should report a missing command link after uninstall
+ok 3 - D should report a missing command link after uninstall
+  ---
+  duration_ms: 0.710748
+  type: 'test'
+  ...
+# Subtest: D should report a foreign command link for diagnosis
+ok 4 - D should report a foreign command link for diagnosis
+  ---
+  duration_ms: 0.825675
+  type: 'test'
+  ...
+# Subtest: D should report a dangling command link for diagnosis
+ok 5 - D should report a dangling command link for diagnosis
+  ---
+  duration_ms: 1.192995
+  type: 'test'
+  ...
+# Subtest: D should require force where a plain file occupies the command path
+ok 6 - D should require force where a plain file occupies the command path
+  ---
+  duration_ms: 0.958895
+  type: 'test'
+  ...
+# Subtest: D should refuse an invalid command assessment envelope
+ok 7 - D should refuse an invalid command assessment envelope
+  ---
+  duration_ms: 1.08331
+  type: 'test'
+  ...
+# Subtest: D should classify a genuine npm-installed link as legacy
+ok 8 - D should classify a genuine npm-installed link as legacy
+  ---
+  duration_ms: 573.553616
+  type: 'test'
+  ...
+1..8
+# tests 8
+# suites 0
+# pass 8
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 692.559079
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-npm.test.js"],"code":0,"signal":null,"tests":8,"invalid":false,"spawned":3,"leftovers":[]}

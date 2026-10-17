@@ -68,6 +68,36 @@ deux émissions liées par SHA, 21 tests et 16 paires/profil. Preuve :
 
 | NOT covered restant | Gate |
 |---|---|
-| Pilote CLI/auto consommant `management_opted_out`, vrais `npm install/force/uninstall/up/down`, dérives `external_install_detected` réelles | D-2b/F-2 |
-| Observateurs B2-3, autres entrées, smoke CI, gel .6, activation M18 | B2-3/E2b3/E3b2b/E3c/F-2, M18 toujours ouvert |
+| Pilote CLI/auto consommant `management_opted_out`, vrais `npm install/force/uninstall/up/down`, dérives `external_install_detected` réelles | D-2b/F-2b |
+| Observateurs B2-3, autres entrées, smoke CI, gel .6, activation M18 | B2-3/E2b3/E3b2b/E3c/F-2b, M18 toujours ouvert |
+| Revue indépendante | Conducteur ; aucun consensus revendiqué |
+
+## D-2b — diagnostic de la commande npm (livré)
+
+`assessNpmCommand({ commandPath, managedLauncher, legacyEntry })` dans
+`packages/h2a/src/runtime/upgrade/npm-command.js` : lecture seule du lien
+de commande — manquant (désinstallation), géré, héritage à adopter,
+étranger ou pendant avec cible réelle (diagnostic), occupant fichier ou
+dossier (EEXIST : `force-required`, jamais remplacé silencieusement).
+L'installateur (C2b-2b) et la désadoption (D-1) consomment cette
+classification ; le pilote CLI (F-2b) décidera installer/forcer/diagnostiquer.
+
+| Commande ciblée | Node 22.22.1 | Node 24.21.0 |
+|---|---|---:|
+| `node scripts/mh-l6-test.mjs packages/h2a/test/mh-l6-npm.test.js final-D-2b` | 8/8, exit 0 | 8/8, exit 0 |
+| `mh-l6-mutate.mjs npm-command` (géré, héritage, manquant, occupant, pendant) | 5 rouges ERR_ASSERTION / 5 verts | 5 / 5 |
+| Skips / annulations / enfants restants | 0 / 0 / 0 | 0 / 0 / 0 |
+
+Un test installe un vrai paquet fixture avec le binaire npm 11
+(`pack` + `install --prefix` en répertoires privés) et classe le lien
+réel en héritage. Rouge initial : classificateur absent
+(`ERR_ASSERTION`, 1 test, exit 1), conservé. Audit :
+`node scripts/mh-l6-d2b-audit.mjs /tmp/mh-l3-qualification-d2b-*/source`,
+exit 0 ; 4 fichiers identiques, émission compilée liée par SHA, 8 tests
+et 5 paires/profil. Preuve : `proof-D-2b.json`.
+
+| NOT covered restant | Gate |
+|---|---|
+| Pilote CLI consommant la classification (installer/forcer/diagnostiquer), vrais round-trips EEXIST/force/uninstall/up/down, dérives réelles | F-2b |
+| Observateurs B2-3, autres entrées, smoke CI, gel .6, activation M18 | B2-3/E2b3/E3b2b/E3c/F-2b, M18 toujours ouvert |
 | Revue indépendante | Conducteur ; aucun consensus revendiqué |
