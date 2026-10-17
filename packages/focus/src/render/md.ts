@@ -7,7 +7,7 @@
  * (or passed through an optional host `renderMarkdown` hook for normalization).
  */
 
-import { assertDecisionDossierForPresentation } from "../validation/index.js";
+import { preparePresentation } from "./presentation.js";
 
 import type {
   Affordance,
@@ -91,7 +91,7 @@ export const renderMd = (
   doc: DecisionDossierDocument,
   hooks: MdRenderHooks = {},
 ): string => {
-  assertDecisionDossierForPresentation(doc);
+  doc = preparePresentation(doc);
   const r = doc.readability!;
   const blocks: string[] = [
     `# ${doc.title}`,

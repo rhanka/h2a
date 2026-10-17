@@ -8,7 +8,7 @@
  * emission. The renderer core owns structure only; hosts own sanitization/styling.
  */
 
-import { assertDecisionDossierForPresentation } from "../validation/index.js";
+import { preparePresentation } from "./presentation.js";
 
 import type {
   Affordance,
@@ -114,7 +114,7 @@ export const renderHtml = (
   doc: DecisionDossierDocument,
   hooks: HtmlRenderHooks,
 ): string => {
-  assertDecisionDossierForPresentation(doc);
+  doc = preparePresentation(doc);
   const r = doc.readability!;
   const readability = `<section class="focus-readability"><h2>Owner request</h2><blockquote>${escapeHtml(r.ownerRequestQuote!)}</blockquote>` +
     `<h2>Stakes</h2><p>${escapeHtml(r.stakes!)}</p><p>Reading budget: ${r.readingBudgetMinutes} min (${escapeHtml(r.stakesLevel!)} stakes)</p>` +

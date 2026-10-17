@@ -173,6 +173,26 @@ describe("presentation cannot bypass the public readability gate", () => {
     expect(text).toContain("The city permit file number for this garden work.");
     expect(text).toMatch(/2 min/);
   });
+  it.each(surfaces)("$name names the recommended option even when the reason does not", ({ render }) => {
+    const doc = mutate((d) => { d.sections[1].recommendedAnswer = "This best protects your comfort and the terrace view."; });
+    expect(render(doc)).toMatch(/préco: Along the side wall/);
+  });
+  it.each(surfaces)("$name groups linked options with their question regardless of source order", ({ render }) => {
+    const doc = mutate((d) => {
+      const question = { ...d.sections[1], id: "q-visit", targetRef: "q-visit", question: "When should we visit the possible spots?", recommendedOptionId: "visit-now" };
+      const options = { ...d.sections[2], id: "visit-options", targetRef: "visit-options", questionId: "q-visit", options: [
+        { ...d.sections[2].options[0], id: "visit-now", targetRef: "visit-now", label: "Visit this week" },
+        { ...d.sections[2].options[1], id: "visit-later", targetRef: "visit-later", label: "Visit next week" },
+      ] };
+      d.readability.readingBudgetMinutes = 8;
+      d.sections = [d.sections[0], d.sections[1], question, options, d.sections[2], d.sections[3]];
+    });
+    const before = JSON.stringify(doc);
+    const text = render(doc);
+    expect(text.indexOf("Back of the garden")).toBeLessThan(text.indexOf("When should we visit"));
+    expect(text.match(/Back of the garden/g)).toHaveLength(1);
+    expect(JSON.stringify(doc)).toBe(before);
+  });
   it("refuses before calling host rendering hooks", () => {
     const renderMarkdown = vi.fn((text: string) => text);
     const sanitizeHtml = vi.fn((text: string) => text);

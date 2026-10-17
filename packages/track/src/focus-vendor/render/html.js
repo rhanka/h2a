@@ -7,7 +7,7 @@
  * dep, NO mdast core); the full document HTML is run through the host `sanitizeHtml` hook before
  * emission. The renderer core owns structure only; hosts own sanitization/styling.
  */
-import { assertDecisionDossierForPresentation } from "../validation/index.js";
+import { preparePresentation } from "./presentation.js";
 /** Minimal HTML text escaping for attribute/text content the renderer itself emits. */
 const escapeHtml = (value) => value
     .replace(/&/g, "&amp;")
@@ -78,7 +78,7 @@ const renderAffordances = (affordances) => {
 };
 /** Render a decision-dossier document to a sanitized HTML string. */
 export const renderHtml = (doc, hooks) => {
-    assertDecisionDossierForPresentation(doc);
+    doc = preparePresentation(doc);
     const r = doc.readability;
     const readability = `<section class="focus-readability"><h2>Owner request</h2><blockquote>${escapeHtml(r.ownerRequestQuote)}</blockquote>` +
         `<h2>Stakes</h2><p>${escapeHtml(r.stakes)}</p><p>Reading budget: ${r.readingBudgetMinutes} min (${escapeHtml(r.stakesLevel)} stakes)</p>` +

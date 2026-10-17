@@ -9,7 +9,7 @@
  * this stays a pure string builder with no ANSI/color side effects.
  */
 
-import { assertDecisionDossierForPresentation } from "../validation/index.js";
+import { preparePresentation } from "./presentation.js";
 
 import type {
   Affordance,
@@ -102,7 +102,7 @@ export const renderTerminal = (
   doc: DecisionDossierDocument,
   opts: TerminalRenderOptions = {},
 ): string => {
-  assertDecisionDossierForPresentation(doc);
+  doc = preparePresentation(doc);
   const r = doc.readability!;
   const width = opts.width ?? 72;
   const blocks: string[] = [
