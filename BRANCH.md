@@ -1,60 +1,32 @@
-# Claude seat on the common seat model (realign 2026-10-13, r8)
+# Workspace scope guard
 
-Branch: `feat/claude-seat-h2a-lots` (worktree `claude-seat-lots`).
-Scope: Claude subscription seat for llm-mesh, realigned on the model every
-other seat follows (owner decision 2026-10-13, DEC-118): same facade
-enrollment shape, mesh-side storage/refresh, gateway registry wiring, same
-test families — nothing Claude-specific.
+## Objective
+- [ ] Enforce workspace ownership in shipped development hooks.
 
-State: **enrolled seats route through the mesh; serving needs the official
-`claude` CLI on `PATH`**. The gateway always composes mesh
-`ClaudeCodeRuntimeClient` on the h2a runner into the provider registry via
-`AnthropicAdapter`, with no per-seat configuration. The runner resolves
-`claude` from `PATH` per attempt (generic spawn safety only: no version
-pin, no digest, no attestation). A seat with no enrolled account (or no
-`claude` on `PATH`) never serves a route — fail-closed per attempt, like
-every other seat. The pre-acquire seam halt is gone — account locking
-lives in the mesh directory like every other seat.
+## Scope / Guardrails
+- [x] Own worktree only; no live h2a state, installed binary or full local suite.
+- [x] No version bump, attribution or main mutation.
 
-Removed without replacement (no other seat carries them): egress/netns
-guard (`egressNetnsReader`, `H2A_CLAUDE_EGRESS_ENFORCED`, `/proc` netns
-checks), org-proof handoff, managed-config + registry/MDM guards, h2a-side
-account lease lock, seam-gate attempt binding, seat-qualification env
-configuration (`H2A_CLAUDE_BINARY_PATH` / `H2A_CLAUDE_BINARY_DIGEST`),
-version pin + digest/attestation machinery.
+## Branch Scope Boundaries
+- [x] Allowed: packages/h2a/hooks/**, targeted scope tests, hosts/plugin.ts,
+  hosts/vibe-equipment.ts, hosts/vibe-discovery.ts, hosts/native-convergence.ts,
+  hosts/native-files.ts, hosts/native-toml.ts, cli.ts, plugin manifests,
+  test/native-host-convergence.test.js, test/native-host-review-regressions.test.js,
+  docs/workspace-scope-guard.md, docs/specs/SPEC_EVOL_WORKSPACE_SCOPE_GUARD.md,
+  docs/reviews/workspace-scope-guard/**, BRANCH.md.
+- [x] Forbidden: live host state, unrelated sources, dependency/version changes.
 
-Kept: facade enrollment (OAuth default + `--from cli` official store +
-`--from token` secret-manager pipe, DEC-119), mesh keyring
-storage/refresh, transport-specific hygiene of the CLI seat
-(identity-proven sweep, sandbox transport, cleanup blocking the result,
-root-level static error boundary (inherited by every subcommand —
-commander never prints its own text: `outputError` is a no-op,
-`exitOverride` writes a static message chosen ONLY from `err.code`
-(unknown option, unknown command, too many arguments, missing argument,
-option argument missing, required option not specified, conflicting option,
-invalid argument, fallback); no declared name kept, no counts, no suggestion;
-multi-line values ending a line with `'` or `.`, unknown commands with
-newline, `remove` with a dotted first line all static; proven by a 34-form
-property canary with exact static-shape asserts for every form),
-masked TTY input / piped-token boundary (never
-argv, never logged). The startup sweep runs at every gateway
-composition even with no Claude account enrolled.
+## Lot 1
+- [x] Classifier, signed grants, typed audit and owner command.
+- [x] Red/green: workspace-scope-guard.test.js.
 
-Import note (differs from muse by mesh limitation 0.25.0): `--from cli`
-is a point-in-time COPY — the mesh never writes the official store file,
-but its copy refreshes independently, so re-run `--from cli` when the
-grant rotates. Linux store file only; macOS keychain unverified.
+## Lot 2
+- [x] Host plumbing and targeted workspace-scope-hosts.test.js.
 
-Follow-ups (not built here, other seats unchanged): `--from cli` on
-codex/cloud-code/mistral-vibe, `--from token` on
-codex/cloud-code/mistral-vibe/muse, a mesh-side Claude store leg
-(CLI sole writer, mesh re-reads at refresh), the shared GitHub-secret +
-cron refresh/re-enroll circuit (exists for NO seat today).
+## Lot 3
+- [ ] Documentation, review, push, PR and each CI job report.
 
-Validation: `tsc -b` clean; seat suites green
-(`claude-code-cli-*`, `claude-seat-input`, `llm-mesh-accounts`,
-`gateway-host/claude-code-seat-wiring`, `gateway-host/host`,
-`runtime-llm-mesh-account`); `gh pr checks 327 -R rhanka/h2a` green.
-Reports under `.h2a/` stay untracked; the r8 report lives in
-`.h2a/build/claude_seat_r8_report.md` (untracked) and the seat-model
-inventory in `.h2a/build/seat_model_inventory.md` (untracked).
+## Feedback Loop
+- [x] Independent security/coverage design reviews: pin launch identity, inspect
+  remote destinations and committed bumps, preserve private packages.
+- [x] h2a consensus unavailable: no h2a MCP in confinement; do not reach live host.
