@@ -1,7 +1,7 @@
 # Workspace scope guard
 
 ## Objective
-- [ ] Enforce workspace ownership in shipped development hooks.
+- [x] Enforce workspace ownership in shipped development hooks.
 
 ## Scope / Guardrails
 - [x] Own worktree only; no live h2a state, installed binary or full local suite.
@@ -24,7 +24,7 @@
 - [x] Host plumbing and targeted workspace-scope-hosts.test.js.
 
 ## Lot 3
-- [ ] Documentation, review, push, PR and each CI job report.
+- [x] Documentation, review outcome, push, PR and individual CI reporting.
 
 ## Feedback Loop
 - [x] Independent security/coverage design reviews: pin launch identity, inspect
