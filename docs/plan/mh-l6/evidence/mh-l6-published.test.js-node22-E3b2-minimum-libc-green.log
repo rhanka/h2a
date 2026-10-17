@@ -1,0 +1,22 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-published.test.js
+node: v22.22.1
+private root: /tmp/mh-l6-test-WMPwOh
+case: U10 should reject a libc below the pinned native baseline before any image preparation
+TAP version 13
+# Subtest: U10 should reject a libc below the pinned native baseline before any image preparation
+ok 1 - U10 should reject a libc below the pinned native baseline before any image preparation
+  ---
+  duration_ms: 5.186871
+  type: 'test'
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 1
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 122.497728
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-published.test.js"],"code":0,"signal":null,"tests":1,"invalid":false,"spawned":1,"leftovers":[]}
