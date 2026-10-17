@@ -1,7 +1,12 @@
-import { spawn, spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 
 import type { CliProfile } from "./protocol-local.js";
-import { resetClientTerminal, SIGNAL_NUMBERS } from "./terminal-reset.js";
+import {
+  resetClientTerminal,
+  restoreTtyState,
+  saveTtyState,
+  SIGNAL_NUMBERS,
+} from "./terminal-reset.js";
 
 /**
  * The local enrollment command for each profile that ships a non-interactive
@@ -23,6 +28,13 @@ export function getLoginCommand(profile: CliProfile): LoginCommand | undefined {
 }
 
 export type RunInteractive = (cmd: LoginCommand) => Promise<number>;
+
+/**
+ * rev351r2-4: how long the login waits for a forwarded parent signal to take
+ * effect before escalating to SIGKILL. Cooperative children die in
+ * milliseconds; only a signal-ignoring child ever sees the SIGKILL.
+ */
+const LOGIN_SIGNAL_GRACE_MS = 500;
 
 export type InteractiveLoginDeps = {
   readonly spawnImpl?: (
@@ -63,67 +75,46 @@ export function runInteractiveLogin(
       );
     });
   const stdin = deps.stdin ?? process.stdin;
-  const wasRaw = (stdin as { isRaw?: boolean }).isRaw === true;
-  const stdinFd = (stdin as { fd?: unknown }).fd;
-  const savedTty =
-    stdin.isTTY === true &&
-    typeof stdinFd === "number" &&
-    process.platform !== "win32"
-      ? (() => {
-          try {
-            return spawnSync("stty", ["-g"], {
-              stdio: [stdinFd, "pipe", "ignore"],
-              encoding: "utf8",
-            });
-          } catch {
-            return undefined;
-          }
-        })()
-      : undefined;
+  // rev351r2-2: shared save/restore home (terminal-reset.ts), no local copy.
+  const ttyState = saveTtyState(stdin);
   const restore = (): void => {
-    try {
-      doReset();
-    } catch {
-      // Best effort.
-    }
-    try {
-      if (stdin.isTTY) stdin.setRawMode?.(wasRaw);
-    } catch {
-      // Never mask the login outcome.
-    }
-    try {
-      const saved = savedTty as
-        | { status?: number; stdout?: unknown }
-        | undefined;
-      if (
-        saved?.status === 0 &&
-        typeof saved.stdout === "string" &&
-        saved.stdout.trim() &&
-        typeof stdinFd === "number"
-      ) {
-        spawnSync("stty", [saved.stdout.trim()], {
-          stdio: [stdinFd, "ignore", "ignore"],
-        });
-      }
-    } catch {
-      // Best effort.
-    }
+    restoreTtyState(ttyState, stdin, doReset);
   };
   return new Promise((resolve) => {
     let settled = false;
-    const finish = (code: number): void => {
-      if (settled) return;
-      settled = true;
-      uninstallSignals();
-      restore();
-      resolve(code);
-    };
+    // rev351r2-4: set once a parent signal arrives; the child `close` below
+    // then exits 128+n instead of resolving the login promise, and `finish`
+    // stays out of the way so a late spawn error cannot resolve after exit.
+    let signaled: { readonly number: number } | null = null;
+    let graceTimer: NodeJS.Timeout | null = null;
     const signalHandlers = new Map<string, () => void>();
     const uninstallSignals = (): void => {
       for (const [signal, handler] of signalHandlers) {
         process.removeListener(signal, handler);
       }
       signalHandlers.clear();
+    };
+    const exitAfterSignal = (): void => {
+      const pending = signaled;
+      if (!pending) return;
+      signaled = null;
+      if (graceTimer) {
+        clearTimeout(graceTimer);
+        graceTimer = null;
+      }
+      try {
+        restore();
+      } finally {
+        uninstallSignals();
+        process.exit(128 + pending.number);
+      }
+    };
+    const finish = (code: number): void => {
+      if (settled || signaled) return;
+      settled = true;
+      uninstallSignals();
+      restore();
+      resolve(code);
     };
     let child:
       | { kill?(signal?: NodeJS.Signals): boolean }
@@ -136,28 +127,58 @@ export function runInteractiveLogin(
       finish(127);
       return;
     }
+    const childEvents = child as unknown as {
+      on(event: string, listener: (...args: never[]) => void): unknown;
+    };
     for (const signal of ["SIGHUP", "SIGINT", "SIGQUIT", "SIGTERM"] as const) {
       const handler = (): void => {
+        if (signaled) {
+          // Second signal during the grace wait: escalate and leave at once.
+          if (graceTimer) {
+            clearTimeout(graceTimer);
+            graceTimer = null;
+          }
+          try {
+            child?.kill?.("SIGKILL");
+          } catch {
+            // Best effort escalation before exiting.
+          }
+          exitAfterSignal();
+          return;
+        }
+        signaled = { number: SIGNAL_NUMBERS[signal] ?? 0 };
         try {
           child?.kill?.(signal);
         } catch {
-          // Best effort forwarding before exiting.
+          // Best effort forwarding before waiting for the child.
         }
-        try {
-          restore();
-        } finally {
-          uninstallSignals();
-          process.exit(128 + (SIGNAL_NUMBERS[signal] ?? 0));
-        }
+        if (!signaled) return;
+        // rev351r2-4: wait for the forwarded signal to take effect instead of
+        // exiting at once — a child that ignores it (trap '' TERM) would
+        // otherwise survive orphaned and scribble after the prompt returns.
+        graceTimer = setTimeout(() => {
+          graceTimer = null;
+          try {
+            child?.kill?.("SIGKILL");
+          } catch {
+            // Best effort escalation; the close below exits.
+          }
+          // A real child always reports close after SIGKILL; never hang the
+          // login if it somehow does not.
+          graceTimer = setTimeout(exitAfterSignal, LOGIN_SIGNAL_GRACE_MS);
+          graceTimer.unref?.();
+        }, LOGIN_SIGNAL_GRACE_MS);
+        graceTimer.unref?.();
       };
       signalHandlers.set(signal, handler);
       process.on(signal, handler);
     }
-    const childEvents = child as unknown as {
-      on(event: string, listener: (...args: never[]) => void): unknown;
-    };
     childEvents.on("error", () => finish(127));
     childEvents.on("close", (code: number | null, signal?: NodeJS.Signals) => {
+      if (signaled) {
+        exitAfterSignal();
+        return;
+      }
       if (signal) finish(128 + (SIGNAL_NUMBERS[signal] ?? 0));
       else finish(code ?? 1);
     });
