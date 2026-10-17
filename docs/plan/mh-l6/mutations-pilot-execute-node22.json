@@ -1,0 +1,27 @@
+{
+  "node": "v22.22.1",
+  "files": [
+    {
+      "path": "packages/h2a/src/runtime/upgrade/adoption-execute.js",
+      "sha256": "c9f4e0fbf705c9058906e7310ccda55e331625b99eef535099d978aaebd9081e"
+    },
+    {
+      "path": "packages/h2a/dist/runtime/upgrade/adoption-execute.js",
+      "sha256": "d2fe93d8492c24c01626720ce106360d40cdd140470162cebab126caa6e5aac1"
+    }
+  ],
+  "results": [
+    {
+      "name": "execute-shape",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-pilot-force.test.js-node22-mutation-execute-shape-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-pilot-force.test.js-node22-mutation-execute-shape-green.log",
+      "restored": true
+    },
+    {
+      "name": "execute-forward",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-pilot-force.test.js-node22-mutation-execute-forward-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-pilot-force.test.js-node22-mutation-execute-forward-green.log",
+      "restored": true
+    }
+  ]
+}
