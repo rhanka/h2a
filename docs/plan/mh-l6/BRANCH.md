@@ -20,7 +20,8 @@
 - [x] C2b-2c — Exécution de l'adoption jusqu'à la sélection durable (`executeAdoption`, transfert du verrou, already_adopted sans mutation) ; `mh-l6-adoption.test.js`, 11 tests et 12 mutations par Node 22/24, preuve-C2b-2c.json.
 - [x] C2b-2d — Préparation d'image indépendante sous session (`prepareAdoptionImage`, digest/conflit/profil) ; `mh-l6-image-prepare.test.js`, 7 tests et 4 mutations par Node 22/24, preuve-C2b-2d.json. Délégation : primitif B1, orchestration en F.
 - [x] D-1 — Désadoption conditionnelle (lien restauré, marqueur opt-out, images/pins conservés) ; `mh-l6-unmanage.test.js`, 6 tests et 4 mutations par Node 22/24, preuve-D-1.json.
-- [ ] D-2 — Opt-out automatique câblé, vrais npm force/uninstall/up/down contre les images et dérives `external_install_detected` ; `mh-l6-npm.test.js`.
+- [x] D-2a — Bouclage opt-out décisionnel (`readManagementOptOut` + `management_opted_out` avant toute évaluation) ; 21 tests et 16 mutations par Node 22/24, preuve-D-2a.json.
+- [ ] D-2b — Pilote CLI/auto consommant l'opt-out, vrais npm force/uninstall/up/down contre les images et dérives `external_install_detected` ; `mh-l6-npm.test.js`.
 - [x] E1 — Lecteur de modules lié au manifeste et installé dans le lanceur ; prérequis avant journal H4 ; ESM/CJS/createRequire/leurres/modes/métadonnées/probe PTY réel. Node 22/24 : quatre fichiers, 47 tests et 11 paires de mutation, zéro skip/enfant ; chaîne native locale non qualifiée release.
 - [x] E2a — Préchargeur autonome adressé par SHA, propagation aux descendants fichier du lanceur ; 37 tests et dix paires de mutation par Node 22/24, preuve-E2a ; détails et limites dans E2a.md.
 - [x] E2b1 — Garde sur vraie entrée directe et routeur npm avant modules applicatifs ; descripteur fermé, préchargeur vérifié avant sa première instruction, argv sélectionné/même PID ; 42 tests ciblés et cinq paires par Node 22/24, preuve-E2b1.json.

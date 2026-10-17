@@ -1,0 +1,38 @@
+command: /tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-adoption.test.js
+node: v24.21.0
+private root: /tmp/mh-l6-test-s1rvrj
+case: D should require no automatic adoption while management opted out
+TAP version 13
+# Subtest: D should require no automatic adoption while management opted out
+not ok 1 - D should require no automatic adoption while management opted out
+  ---
+  duration_ms: 47.929882
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-d2-0l6ViG/packages/h2a/test/mh-l6-adoption.test.js:17:67'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    
+    false !== true
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: true
+  actual: false
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/mh-l3-qualification-d2-0l6ViG/packages/h2a/test/mh-l6-adoption.test.js:97:10)
+    async Test.run (node:internal/test_runner/test:1409:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3)
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 0
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 95.457978
+
+receipt: {"command":["/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-adoption.test.js"],"code":1,"signal":null,"tests":1,"invalid":false,"spawned":1,"leftovers":[]}

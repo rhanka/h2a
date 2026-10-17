@@ -90,6 +90,21 @@ test('C2b should refuse an invalid adoption assessment envelope', async t => {
   }
 });
 
+test('D should require no automatic adoption while management opted out', async t => {
+  const { assessAdoptionNeed } = await api(), { f, target, selection } = selected(t);
+  const managed = { prefixId: f.layout.prefixId, selection }, physical = { prefixId: f.layout.prefixId };
+  const verdict = assessAdoptionNeed({ managed, physical, target, management: { optedOut: true } });
+  assert.equal(verdict.needed, true);
+  assert.equal(verdict.reason, 'management_opted_out');
+});
+
+test('D should report opt-out even when nothing is managed yet', async t => {
+  const { assessAdoptionNeed } = await api(), { f, target } = selected(t);
+  const verdict = assessAdoptionNeed({ managed: null, physical: { prefixId: f.layout.prefixId }, target, management: { optedOut: true } });
+  assert.equal(verdict.needed, true);
+  assert.equal(verdict.reason, 'management_opted_out');
+});
+
 async function executeApi() {
   const module = await import('../dist/runtime/upgrade/adoption-execute.js').catch(error => {
     if (error.code !== 'ERR_MODULE_NOT_FOUND') throw error; return {};

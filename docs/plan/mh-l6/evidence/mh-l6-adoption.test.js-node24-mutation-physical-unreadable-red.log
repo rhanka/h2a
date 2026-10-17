@@ -1,14 +1,14 @@
 command: /tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-adoption.test.js
 node: v24.21.0
-private root: /tmp/mh-l6-test-kBxVXc
+private root: /tmp/mh-l6-test-blkaaf
 case: C2b should require adoption when the physical installation is unreadable
 TAP version 13
 # Subtest: C2b should require adoption when the physical installation is unreadable
 not ok 1 - C2b should require adoption when the physical installation is unreadable
   ---
-  duration_ms: 57.071088
+  duration_ms: 56.077249
   type: 'test'
-  location: '/tmp/mh-l3-qualification-c2b2c-fDnkpy/packages/h2a/test/mh-l6-adoption.test.js:17:67'
+  location: '/tmp/mh-l3-qualification-d2-0l6ViG/packages/h2a/test/mh-l6-adoption.test.js:17:67'
   failureType: 'testCodeFailure'
   error: |-
     Expected values to be strictly equal:
@@ -23,7 +23,7 @@ not ok 1 - C2b should require adoption when the physical installation is unreada
   actual: 'already_adopted'
   operator: 'strictEqual'
   stack: |-
-    TestContext.<anonymous> (file:///tmp/mh-l3-qualification-c2b2c-fDnkpy/packages/h2a/test/mh-l6-adoption.test.js:67:10)
+    TestContext.<anonymous> (file:///tmp/mh-l3-qualification-d2-0l6ViG/packages/h2a/test/mh-l6-adoption.test.js:67:10)
     async Test.run (node:internal/test_runner/test:1409:7)
     async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3)
   ...
@@ -35,6 +35,6 @@ not ok 1 - C2b should require adoption when the physical installation is unreada
 # cancelled 0
 # skipped 0
 # todo 0
-# duration_ms 101.821637
+# duration_ms 101.526582
 
 receipt: {"command":["/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-adoption.test.js"],"code":1,"signal":null,"tests":1,"invalid":false,"spawned":1,"leftovers":[]}

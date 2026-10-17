@@ -1,12 +1,12 @@
 command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-unmanage.test.js
 node: v22.22.1
-private root: /tmp/mh-l6-test-0gBQYA
+private root: /tmp/mh-l6-test-FFsAnc
 case: D should refuse an unrestorable original link without touching the command
 TAP version 13
 # Subtest: D should refuse an unrestorable original link without touching the command
 ok 1 - D should refuse an unrestorable original link without touching the command
   ---
-  duration_ms: 69.192446
+  duration_ms: 14.844563
   type: 'test'
   ...
 1..1
@@ -17,6 +17,6 @@ ok 1 - D should refuse an unrestorable original link without touching the comman
 # cancelled 0
 # skipped 0
 # todo 0
-# duration_ms 184.488257
+# duration_ms 126.875849
 
 receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-unmanage.test.js"],"code":0,"signal":null,"tests":1,"invalid":false,"spawned":1,"leftovers":[]}
