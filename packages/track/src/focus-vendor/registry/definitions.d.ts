@@ -146,9 +146,10 @@ export declare const resolveFocusPresentation: (params: FocusParameters, gate: P
  * Called explicitly by the host; importing this module alone reads nothing.
  *
  * The compiled snapshot vendored into `@sentropic/track`
- * (`packages/track/src/focus-vendor/`) ships no adjacent manifest, so the
- * package-relative path misses there: fall back to the publisher-owned
- * manifest through the installed `@sentropic/focus` package.
+ * (`packages/track/src/focus-vendor/registry/entries.v1.json`) ships the
+ * pinned 1.0.0 manifest alongside the compiled helper, so the vendor never
+ * resolves a foreign `@sentropic/focus` copy: package layout first,
+ * vendor-adjacent manifest second, and no cross-package fallback.
  */
 export declare const loadFocusSkillDescriptor: () => unknown;
 /** Recompute every asset/schema digest over the supplied bytes. */
