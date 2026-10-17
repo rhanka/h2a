@@ -22,6 +22,12 @@ Owner request: 2026-10-17 following cross-workspace integration #327.
   1.4.10-R6427.1 artifact; native startup/dispatch run only on temporary profiles.
   Vibe's global profile binds each native session independently, retains explicit
   trust selections, and supports subsequent launches in other workspaces.
+- D7 (conductor, review #364, tour 4): Target honest agents making mistakes.
+  Refuse protected write intent whenever workspace resolution is uncertain;
+  request a plain explicit form or an exact owner grant. Do not interpret
+  heredoc scripts, shell `-c`/`-s`, substitutions or dynamic sensitive argv.
+  Preserve explicit own operations and compare complete package manifests
+  against the pinned publication baseline, including proposed patch contents.
 
 Independent design reviews: scope_design_security (authority/bypasses),
 scope_design_coverage (host plumbing/false positives). Reconciled into D1–D6.

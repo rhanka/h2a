@@ -4,13 +4,12 @@ import { homedir } from 'node:os';
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { appendRecord, canonical, findGrant, inside, options, readRecords, stateDir } from './workspace-scope-state.mjs';
-import { branchBump, classify, git, patchBump, prBump, publishedBump, repository } from './workspace-scope-shell.mjs';
+import { branchBump, classify, git, manifestAtBaseline, patchContent, prBump, publishedBump, repository, uncertainPath } from './workspace-scope-shell.mjs';
 
 let context, host = 'claude';
 const quoteShell = value => "'" + value.replace(/'/g, "'\\''") + "'";
 function literal(value) {
-  if (/^"(?:[^"\\]|\\.)*"$/.test(value)) return JSON.parse(value);
-  if (/^'(?:[^'\\]|\\[\s\S])*'$/.test(value) || /^`(?:[^`\\]|\\[\s\S])*`$/.test(value) && !value.includes('${')) {
+  if (/^"(?:[^"\\]|\\[\s\S])*"$/.test(value) || /^'(?:[^'\\]|\\[\s\S])*'$/.test(value) || /^`(?:[^`\\]|\\[\s\S])*`$/.test(value) && !value.includes('${')) {
     const body=value.slice(1,-1); let decoded='';
     for (let i=0;i<body.length;i++) {
       if (body[i]!=='\\') { decoded+=body[i]; continue; }
@@ -32,20 +31,21 @@ function literal(value) {
   throw new Error('Dynamic command envelope');
 }
 function fields(source) {
-  const result = {}; let start = 1, depth = 0, quote = '', escaped = false;
-  for (let i = 1; i < source.length; i++) {
-    const ch = source[i];
-    if (escaped) { escaped = false; continue; }
-    if (quote) { if (ch === '\\') escaped = true; else if (ch === quote) quote = ''; continue; }
-    if ('"\'`'.includes(ch)) { quote = ch; continue; }
-    if ('{[('.includes(ch)) depth++;
-    if ('}])'.includes(ch)) depth--;
-    if (ch === ',' && depth === 0 || depth === -1) {
-      const pair = source.slice(start, i).match(/^\s*(?:"(\w+)"|(\w+))\s*:\s*([\s\S]*)$/);
-      if (pair) result[pair[1] ?? pair[2]] = pair[3].trim();
-      else if (source.slice(start, i).trim()) throw new Error('Unsupported command object member');
-      start = i + 1;
-      if (depth === -1) return { result, end: i + 1 };
+  const tokens=jsTokens(source), result={}; let start=1, depth=0;
+  if (tokens[0]?.value !== '{') throw new Error('Expected command object');
+  for (let i=1;i<tokens.length;i++) {
+    const token=tokens[i];
+    if (!token.string && ['{','[','('].includes(token.value)) depth++;
+    if (!token.string && ['}',']',')'].includes(token.value)) depth--;
+    if (!token.string && (token.value === ',' && depth === 0 || depth === -1)) {
+      if (i>start) {
+        const key=tokens[start].value;
+        if (!/^\w+$/.test(key) || tokens[start+1]?.value !== ':' || i<start+3 || Object.hasOwn(result,key))
+          throw new Error('Unsupported or duplicate command object member');
+        result[key]=source.slice(tokens[start+2].start,tokens[i-1].end);
+      }
+      start=i+1;
+      if (depth === -1) return {result,end:token.end};
     }
   }
   throw new Error('Unclosed command envelope');
@@ -72,7 +72,7 @@ function jsTokens(source) {
 }
 function refuse(code, request = {}, detail = '') {
   const selectors = { repo: request.repo ?? '', action: request.action ?? '', ref: request.ref ?? '', session: context.session ?? '' };
-  const reason = `[H2A_SCOPE:${code}] ${request.action ?? 'Tool action'} refused. ${JSON.stringify(selectors)} Hand this action to the owning conductor; only an exact recorded owner grant can authorize an exception.${detail ? ' ' + detail : ''}`;
+  const reason = `[H2A_SCOPE:${code}] ${request.action ?? 'Tool action'} refused. ${JSON.stringify(selectors)} Hand this action to the owning conductor; use the plain explicit form or request an exact recorded owner grant.${detail ? ' ' + detail : ''}`;
   let auditCode = code;
   try { appendRecord(context.workspace, 'audit.jsonl', { at: new Date().toISOString(), type: 'refusal',
     workspace: context.workspace, session: context.session, ...request, code }); }
@@ -115,13 +115,6 @@ try {
     }
     if (host === 'agy' && args['initialize-session'] === 'true') { process.stdout.write('{}'); process.exit(0); }
   }
-  // Keep the first observed baseline for this native session. Mutable local
-  // main/origin/main refs cannot erase a package bump already in its branch.
-  const baselines = readRecords(workspace, 'baselines.jsonl');
-  const baseline = baselines.find(row => row.session === context.session && row.path === context.path)?.base ??
-    git(context.path, ['merge-base', 'origin/main', 'HEAD']) ?? git(context.path, ['merge-base', 'main', 'HEAD']);
-  if (baseline && !baselines.some(row => row.session === context.session && row.path === context.path))
-    appendRecord(workspace, 'baselines.jsonl', { session: context.session, path: context.path, base: baseline });
   if (!args.workspace && !sessionStore) {
     if (!context.session) refuse('UNVERIFIABLE', {}, 'Missing host session identity.');
     if (args['initialize-session'] === 'true') {
@@ -135,6 +128,14 @@ try {
     } catch { /* Missing binding refuses; foreign cwd cannot become a new workspace. */ }
     if (!bound) refuse('UNVERIFIABLE', {}, 'No SessionStart binding in this workspace; reload the session plugin.');
   }
+  // Establish authority before recording a baseline. Publication status comes
+  // from this pinned tree, so a temporary private:true cannot launder a bump.
+  const baselines = readRecords(workspace, 'baselines.jsonl');
+  const baseline = baselines.find(row => row.session === context.session && row.path === context.path)?.base ??
+    git(context.path, ['merge-base', 'origin/main', 'HEAD']) ?? git(context.path, ['merge-base', 'main', 'HEAD']);
+  if (baseline && !baselines.some(row => row.session === context.session && row.path === context.path))
+    appendRecord(workspace, 'baselines.jsonl', { session: context.session, path: context.path, base: baseline });
+  context.baseline=baseline;
   const toolName = payload.tool_name ?? payload.toolCall?.name ?? '';
   let input = payload.tool_input ?? payload.arguments ?? payload.toolCall?.args ?? {};
   if (typeof input === 'string' && !/patch|exec$/.test(toolName)) {
@@ -150,7 +151,8 @@ try {
     start_line: input.StartLine, end_line: input.EndLine,
     edits: input.edits ?? input.ReplacementChunks?.map(edit => ({ old_string: edit.TargetContent, new_string: edit.ReplacementContent,
       replace_all: edit.AllowMultiple, start_line: edit.StartLine, end_line: edit.EndLine })) };
-  const targetCwd = canonical(resolve(workspace, input.workdir ?? input.cwd ?? payload.cwd ?? (sessionStore && host !== 'agy' ? hookCwd : workspace)));
+  const targetPath = resolve(workspace, input.workdir ?? input.cwd ?? payload.cwd ?? (sessionStore && host !== 'agy' ? hookCwd : workspace));
+  const targetCwd = canonical(targetPath);
   context.toolEnv = input.env && typeof input.env === 'object' ? input.env : {};
   const requests = [];
   const envelopePatches = [];
@@ -174,7 +176,9 @@ try {
         const command=literal(result.cmd ?? result.command ?? '');
         const cwd=result.workdir ?? result.cwd;
         const env=result.env ? Object.fromEntries(Object.entries(fields(result.env).result).map(([k,v])=>[k,literal(v)])) : {};
-        requests.push(...classify(command,cwd?canonical(resolve(targetCwd,literal(cwd))):targetCwd,{...context,toolEnv:env}));
+        const selected=cwd?resolve(targetCwd,literal(cwd)):targetCwd;
+        requests.push(...classify(command,canonical(selected),{...context,toolEnv:env}).map(request=>
+          ({...request,uncertain:request.uncertain || uncertainPath(selected)})));
       } else if (argument.value==='{') envelopePatches.push(literal(fields(rest).result.patch ?? ''));
       else {
         if (!argument.string || tokens[open+2]?.value!==')') throw new Error('Dynamic patch');
@@ -190,7 +194,7 @@ try {
   const edits = [];
   if (typeof input.file_path === 'string' || typeof input.path === 'string') {
     if (/edit|write|patch|create|replace/i.test(toolName)) {
-      const path = canonical(resolve(targetCwd, input.file_path ?? input.path));
+      const selected = resolve(targetCwd, input.file_path ?? input.path), path = canonical(selected);
       let old = ''; try { old = fs.readFileSync(path, 'utf8'); } catch { /* new file */ }
       let content = input.content ?? old;
       // Native ranges refer to the original file. Apply from bottom to top so
@@ -206,21 +210,31 @@ try {
           content=[...lines.slice(0,start-1),replace(selected),...lines.slice(end)].join('\n');
         } else content=replace(content);
       }
-      edits.push({ path, old, content });
+      edits.push({ path, old, content, uncertain: uncertainPath(selected) });
     }
   }
   for (const patch of [typeof input === 'string' && !envelopePatches.length ? input : input.patch ?? input.input, ...envelopePatches]) {
     if (typeof patch !== 'string') continue;
     for (const line of patch.split('\n')) {
       const match = line.match(/^\*\*\* (?:Add File|Update File|Delete File|Move to): (.+)$/);
-      if (match) edits.push({ path: canonical(resolve(targetCwd, match[1])), patch });
+      if (match) {
+        const selected=resolve(targetCwd,match[1]), path=canonical(selected);
+        edits.push({ path, patch, uncertain:uncertainPath(selected) });
+      }
     }
   }
   for (const edit of edits) {
     const repo = repository(dirname(edit.path));
-    requests.push({ action: 'file.write', repo: repo.repo, ref: edit.path, foreign: !inside(workspace, edit.path) || repo.path !== context.path,
+    let bump=false;
+    if (basename(edit.path) === 'package.json') {
+      const content=edit.patch ? patchContent(edit.path,edit.patch,targetCwd) : edit.content;
+      const old=edit.old ?? (fs.existsSync(edit.path) ? fs.readFileSync(edit.path,'utf8') : '{}');
+      const base=manifestAtBaseline(edit.path,repo.path === context.path ? baseline : undefined);
+      bump=publishedBump(base ?? old,content) || publishedBump(old,content);
+    }
+    requests.push({ action: 'file.write', repo: repo.repo, ref: edit.path, uncertain:edit.uncertain, foreign: !inside(workspace, edit.path) || repo.path !== context.path,
       code: inside(stateDir(workspace), edit.path) ? 'OWNER_ONLY' :
-        basename(edit.path) === 'package.json' && (edit.patch ? patchBump(edit.path, edit.patch, targetCwd) : publishedBump(edit.old, edit.content)) ? 'VERSION_BUMP' : undefined });
+        bump ? 'VERSION_BUMP' : undefined });
   }
   function authorize(code, request) {
     const authorization = findGrant(context, { ...request,
@@ -235,7 +249,9 @@ try {
     ...[workspace,homedir()].flatMap(root=>['.muse/hooks.json','.muse/.h2a-scope-install','.claude/settings.json',
       '.claude/settings.local.json','.agents/hooks.json','.vibe/hooks.toml','.gemini/config/hooks.json'].map(path=>join(root,path)))].map(canonical);
   for (const request of requests) {
-    if (request.action.startsWith('file.') && trustPaths.some(path=>inside(path,request.ref) || inside(request.ref,path))) request.code = 'OWNER_ONLY';
+    if (uncertainPath(targetPath)) request.uncertain=true;
+    if (request.action.startsWith('file.') && trustPaths.some(path=>inside(path,request.ref) ||
+      ['file.rm','file.chmod','file.chown'].includes(request.action) && inside(request.ref,path))) request.code = 'OWNER_ONLY';
     if (request.action === 'owner.grant' || request.code === 'OWNER_ONLY') refuse('OWNER_ONLY', request);
     if (request.uncertain) refuse('UNVERIFIABLE', request);
     if (request.foreign) authorize('FOREIGN_WORKSPACE', request);

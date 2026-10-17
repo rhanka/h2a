@@ -8,7 +8,7 @@ import test from 'node:test';
 
 const hook = resolve('packages/h2a/hooks/workspace-scope-guard.mjs');
 const grantCommand = resolve('packages/h2a/hooks/workspace-scope-grant.mjs');
-function fixture(t) {
+function fixture(t, { privatePackage = false } = {}) {
   const root = fs.mkdtempSync(join(tmpdir(), 'h2a-scope-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const own = join(root, 'own'), foreign = join(root, 'foreign');
@@ -30,7 +30,7 @@ else process.stdout.write(fs.readFileSync(root + '/pr.diff'));
   for (const dir of [own, foreign]) {
     fs.mkdirSync(dir); git(dir, 'init', '-b', 'main');
     git(dir, 'config', 'user.email', 'test@example.invalid'); git(dir, 'config', 'user.name', 'Test');
-    fs.writeFileSync(join(dir, 'package.json'), '{"name":"published-fixture","version":"1.0.0"}\n');
+    fs.writeFileSync(join(dir, 'package.json'), JSON.stringify({name:'published-fixture',version:'1.0.0',...(privatePackage?{private:true}:{})})+'\n');
     git(dir, 'add', 'package.json'); git(dir, 'commit', '-qm', 'initial');
     git(dir, 'remote', 'add', 'origin', `https://github.com/fixture/${dir === own ? 'own' : 'foreign'}.git`);
     git(dir, 'update-ref', 'refs/remotes/origin/main', 'HEAD');
@@ -80,10 +80,10 @@ test('foreign git, GitHub, npm and release mutations are denied and audited', t 
     `cd '${f.foreign}' && node scripts/release.mjs`, `bash -c "git -C '${f.foreign}' push"`,
     `GIT_WORK_TREE='${f.foreign}' git push`, `git --git-dir='${f.foreign}/.git' push`,
     'git push https://github.com/fixture/foreign.git HEAD:main'];
-  for (const command of commands) denied(f.invoke(command));
+  for (const command of commands) denied(f.invoke(command), /bash -c|--git-dir/.test(command)?'UNVERIFIABLE':'FOREIGN_WORKSPACE');
   const events = fs.readFileSync(join(f.state, 'audit.jsonl'), 'utf8').trim().split('\n').map(JSON.parse);
   assert.equal(events.length, commands.length);
-  assert.ok(events.every(e => e.code === 'FOREIGN_WORKSPACE' && e.session === 'session-test'));
+  assert.ok(events.every(e => ['FOREIGN_WORKSPACE','UNVERIFIABLE'].includes(e.code) && e.session === 'session-test'));
 });
 
 test('a sibling worktree and a symlink to a foreign workspace remain foreign', t => {
@@ -91,7 +91,7 @@ test('a sibling worktree and a symlink to a foreign workspace remain foreign', t
   f.git(f.own, 'worktree', 'add', '-b', 'feat/sibling', sibling);
   fs.symlinkSync(f.foreign, join(f.own, 'foreign-link'), 'dir');
   denied(f.invoke(`git -C '${sibling}' push`));
-  denied(f.invoke('git -C foreign-link push'));
+  denied(f.invoke('git -C foreign-link push'),'UNVERIFIABLE');
 });
 
 test('valid exact owner grant is accepted and its use audited', t => {
@@ -126,8 +126,9 @@ test('published package version edits and release commands require release autho
   const ordinary = f.invoke({ tool_name: 'Edit', tool_input: { file_path: join(f.own, 'package.json'),
     old_string: 'published-fixture', new_string: 'renamed-fixture' } });
   assert.equal(ordinary.status, 0, ordinary.stderr);
-  fs.writeFileSync(join(f.own, 'package.json'), '{"name":"private","version":"1.0.0","private":true}');
-  const privateEdit = f.invoke({ tool_name: 'Write', tool_input: { file_path: join(f.own, 'package.json'),
+  fs.mkdirSync(join(f.own,'private'));
+  fs.writeFileSync(join(f.own, 'private/package.json'), '{"name":"private","version":"1.0.0","private":true}');
+  const privateEdit = f.invoke({ tool_name: 'Write', tool_input: { file_path: join(f.own, 'private/package.json'),
     content: '{"name":"private","version":"1.0.1","private":true}' } });
   assert.equal(privateEdit.status, 0, privateEdit.stderr);
 });
@@ -234,12 +235,12 @@ test('packaged session binding rejects missing or changed workspace binding', t 
   denied(run(f.foreign, [], { tool_input: { command: 'git push' } }), 'UNVERIFIABLE');
 });
 
-test('ordinary own heredocs, read-only copy sources and null redirections remain allowed', t => {
+test('heredocs refuse uncertainty while explicit own copies and null redirections pass', t => {
   const f = fixture(t);
-  for (const command of [`cat <<'EOF' > test.txt\ngh pr merge -R fixture/foreign 327\nEOF`,
-    `cp '${f.foreign}/package.json' fixture.json`, 'git push origin HEAD:feat/test > /dev/null'])
+  denied(f.invoke(`cat <<'EOF' > test.txt\ngh pr merge -R fixture/foreign 327\nEOF`),'UNVERIFIABLE');
+  for (const command of [`cp '${f.foreign}/package.json' fixture.json`, 'git push origin HEAD:feat/test > /dev/null'])
     assert.equal(f.invoke(command).status, 0, command);
-  denied(f.invoke(`bash <<'EOF'\ngit -C '${f.foreign}' push\nEOF`));
+  denied(f.invoke(`bash <<'EOF'\ngit -C '${f.foreign}' push\nEOF`),'UNVERIFIABLE');
 });
 
 test('push default overrides and additional push destinations stay within the repository', t => {
@@ -325,7 +326,7 @@ test('the read-only npm version query remains allowed in the owning workspace', 
 });
 
 test('npm version on a private owning package does not require published-package release authority', t => {
-  const f = fixture(t);
+  const f = fixture(t,{privatePackage:true});
   fs.writeFileSync(join(f.own, 'package.json'), '{"name":"private-fixture","version":"1.0.0","private":true}');
   const r = f.invoke('npm version patch'); assert.equal(r.status, 0, r.stderr);
 });
@@ -372,7 +373,7 @@ const indirectForeign = [
   ...['pnpm -C', 'yarn --cwd', 'bun --cwd'].map(pm => [pm + ' shorthand', f => `${pm} '${f.foreign}' build`]),
 ];
 for (const [name, command] of indirectForeign) test('R2 should deny foreign ' + name, t => {
-  const f = fixture(t); denied(f.invoke(command(f)));
+  const f = fixture(t); denied(f.invoke(command(f)),name.includes('heredoc')?'UNVERIFIABLE':'FOREIGN_WORKSPACE');
 });
 for (const pm of ['npm run-script', 'pnpm', 'yarn', 'bun']) test('R2 should inspect script alias ' + pm, t => {
   const f = fixture(t);
@@ -440,12 +441,15 @@ test('R5 should use the startup owner key for packaged sessions', t => {
   const r = run([]); assert.equal(r.status,0,r.stderr);
 });
 for (const command of ["git commit -m 'fix: handle $PATH'", "git commit -m 'fix \u0060foo\u0060'",
-  `git commit -m "$(cat <<'EOF'\nfix: handle $PATH\nEOF\n)"`,
-  'tmp=$(mktemp -d); HOME=$tmp npm run build', 'git add --all', 'git commit --all -m msg',
+  'git add --all', 'git commit --all -m msg',
   'node --test packages/h2a/test/publish-rehearsal.test.js','node --test test/release-check.test.js','gh pr ready'])
   test('R6 should allow ordinary own command ' + command, t => {
     const f = fixture(t), r = f.invoke(command); assert.equal(r.status,0,r.stderr);
   });
+for (const command of [`git commit -m "$(cat <<'EOF'\nfix: handle $PATH\nEOF\n)"`,
+  'tmp=$(mktemp -d); HOME=$tmp npm run build']) test('T4 should request explicit form for dynamic own command ' + command, t => {
+  const f=fixture(t);denied(f.invoke(command),'UNVERIFIABLE');
+});
 for (const option of ['--show-current','--contains','--merged','--no-merged','--color'])
   test('R6 should allow foreign branch reads ' + option, t => {
     const f = fixture(t), r = f.invoke(`git -C '${f.foreign}' branch ${option}`); assert.equal(r.status,0,r.stderr);
@@ -478,7 +482,7 @@ test('R5 should bind each Vibe native session once in the profile and reject cwd
 test('R2 should resolve executable heredocs and substitutions in their actual command cwd', t => {
   const f=fixture(t);
   for (const command of [`cd '${f.foreign}' && /bin/sh <<'EOF'\ngit push\nEOF`,
-    `cd '${f.foreign}' && echo $(git push)`]) denied(f.invoke(command));
+    `cd '${f.foreign}' && echo $(git push)`]) denied(f.invoke(command),'UNVERIFIABLE');
 });
 test('R3 should reject dynamic redirection destinations and indirect tool references', t => {
   const f=fixture(t);
@@ -523,7 +527,7 @@ test('R2 should preserve cwd and environment across wrappers and subshells', t =
   const f=fixture(t);
   for(const command of [`cd '${f.foreign}' && env -C '${f.own}' echo ok; git push`,
     'GH_REPO=fixture/foreign; (GH_REPO=fixture/own); gh pr close 327',
-    'GH_REPO=fixture/foreign bash -c "gh pr close 327"']) denied(f.invoke(command));
+    'GH_REPO=fixture/foreign bash -c "gh pr close 327"']) denied(f.invoke(command),command.includes('bash -c')?'UNVERIFIABLE':'FOREIGN_WORKSPACE');
 });
 test('R6 should keep release scripts gated when a test-looking argument follows the script', t => {
   const f=fixture(t);denied(f.invoke('node scripts/release.mjs --test'),'RELEASE_ONLY');
@@ -599,7 +603,7 @@ for (const command of ['{ rm -rf .h2a/workspace-scope; }', '{ node workspace-sco
   'cp -t .h2a/workspace-scope package.json', 'cp --target-directory=.h2a/workspace-scope package.json',
   'dd of=.h2a/workspace-scope/grants.jsonl', 'ln -sf package.json .h2a/workspace-scope/grants.jsonl',
   'git clean -fdx .h2a/workspace-scope', 'git clean -fdx', 'git apply forged.diff'])
-  test('T3 R3 should protect trust from ' + command, t => { const f = fixture(t); denied(f.invoke(command), 'OWNER_ONLY'); });
+  test('T3 R3 should protect trust from ' + command, t => { const f = fixture(t); denied(f.invoke(command),command.includes('<<')?'UNVERIFIABLE':'OWNER_ONLY'); });
 for (const path of ['.muse/hooks.json', '.muse/.h2a-scope-install/manifest.json', '.claude/settings.json', '.agents/hooks.json', '.vibe/hooks.toml'])
   test('T3 R3 should protect project hook ' + path, t => {
     const f = fixture(t); denied(f.invoke({tool_name:'Write',tool_input:{file_path:join(f.own,path),content:'{}'}}), 'OWNER_ONLY');
@@ -624,7 +628,7 @@ for (const flag of ['--branches', '--tags']) test('T3 R4 should inspect every pu
 test('T3 R4 should select exact manifest patch sections in a monorepo', t => {
   const f=fixture(t); fs.mkdirSync(join(f.own,'packages/sub'),{recursive:true});
   fs.writeFileSync(join(f.own,'packages/sub/package.json'),'{"name":"sub","version":"1.0.0"}');
-  denied(f.invoke({tool_name:'apply_patch',tool_input:'*** Begin Patch\n*** Update File: package.json\n@@\n- "description": "before"\n+ "description": "after"\n*** Update File: packages/sub/package.json\n@@\n- "version": "1.0.0"\n+ "version": "1.0.1"\n*** End Patch'}),'VERSION_BUMP');
+  denied(f.invoke({tool_name:'apply_patch',tool_input:'*** Begin Patch\n*** Update File: package.json\n@@\n-{"name":"published-fixture","version":"1.0.0"}\n+{"name":"published-fixture","version":"1.0.0","description":"after"}\n*** Update File: packages/sub/package.json\n@@\n-{"name":"sub","version":"1.0.0"}\n+{"name":"sub","version":"1.0.1"}\n*** End Patch'}),'VERSION_BUMP');
 });
 for (const multi of [false,true]) test('T3 R4 should honor agy line ranges ' + multi, t => {
   const f=fixture(t), path=join(f.own,'package.json');
@@ -684,4 +688,116 @@ test('T3 R2 should not erase the initial foreign cwd after a skipped cd', t => {
 for (const command of ['true && NODE_ENV=production npm run build', 'true && git commit -m cd'])
   test('T3 R5 should allow own command data without treating it as shell state: ' + command, t => {
     const f=fixture(t),r=f.invoke(command);assert.equal(r.status,0,r.stderr);
+  });
+
+// Tour 4: examples are inspected by the hook, never executed as shell scripts.
+const failClosedShell = [
+  ['comment heredoc', f => `# <<true\ngit -C '${f.foreign}' push\ntrue`],
+  ['quoted heredoc', f => `echo "<<true"\ngit -C '${f.foreign}' push\ntrue`],
+  ['comment trust heredoc', () => '# <<true\nrm -rf .h2a/workspace-scope\ntrue'],
+  ['sh options', f => `sh -c -- "git -C '${f.foreign}' push"`],
+  ['bash options', f => `bash -c -e "git -C '${f.foreign}' push"`],
+  ...['sh -s arg','sh /dev/stdin','sh /proc/self/fd/0','node','bun','tsx','ts-node'].map(exe =>
+    ['stdin ' + exe, f => `echo "git -C '${f.foreign}' push" | ${exe}`]),
+  ['deno eval', () => `deno eval "Deno.removeSync('.h2a/workspace-scope')"`],
+  ['ts heredoc', () => `ts-node <<EOF\nfs.rmSync('.h2a/workspace-scope')\nEOF`],
+  ['variable git', f => `P=push; git -C '${f.foreign}' $P`],
+  ...['$"push"', "$'push'", '$(echo push)'].map(word => [word, f => `git -C '${f.foreign}' ${word}`]),
+  ['variable gh', () => 'V=merge; gh pr $V -R fixture/foreign 327'],
+  ['variable npm', () => 'P=publish; npm $P'],
+  ['variable shell flag', f => `C=-c; sh $C "git -C '${f.foreign}' push"`],
+  ['variable trust path', () => 'D=.h2a/workspace-scope; rm -rf $D'],
+  ['variable foreign path', f => `D='${f.foreign}'; rm -rf $D`],
+  ['variable helper', () => 'S=workspace-scope-grant.mjs; node $S --owner x'],
+  ['variable eval', () => `E=-e; node $E "fs.appendFileSync('.h2a/workspace-scope/grants.jsonl','x')"`],
+  ['variable executable directory', f => `DIR='${f.foreign}'; $DIR/outil push`],
+  ['conflicting git selectors', f => `git -C '${f.foreign}' --git-dir='${f.own}/.git' reset --hard`],
+  ['remote flags', () => 'git remote -v set-url origin https://github.com/fixture/foreign.git && git push'],
+  ['send-pack', () => 'git send-pack https://github.com/fixture/foreign.git HEAD:refs/heads/main'],
+];
+for (const [name, command] of failClosedShell) test('T4 should refuse uncertainty: ' + name, t => {
+  const f=fixture(t), r=f.invoke(command(f));
+  denied(r, 'UNVERIFIABLE'); assert.match(JSON.parse(r.stdout).reason, /plain explicit form.*grant/i);
+});
+for (const command of ['cp package.json .h2a/workspace-scope/grants.jsonl -S .bak',
+  'install package.json .h2a/workspace-scope/grants.jsonl -m 600',
+  'ln -sf package.json .h2a/workspace-scope/grants.jsonl -S .bak',
+  'git clean -fdx -- .h2a/workspace-scope -n']) test('T4 should protect explicit trust destination: ' + command, t => {
+    const f=fixture(t); denied(f.invoke(command),'OWNER_ONLY');
+  });
+for (const sub of ['restore .','worktree remove wt','config --unset user.name']) test('T4 should protect foreign git ' + sub, t => {
+  const f=fixture(t); denied(f.invoke(`git -C '${f.foreign}' ${sub}`),sub.startsWith('config')?'UNVERIFIABLE':'FOREIGN_WORKSPACE');
+});
+for (const comment of ['// }\n','/* } */']) test('T4 should parse JS object comments ' + comment, t => {
+  const f=fixture(t); denied(f.invoke({tool_name:'functions.exec',tool_input:
+    `await tools.exec_command({cmd:"git status", x:1 ${comment}, cmd:"git -C ${f.foreign} push"})`}),'UNVERIFIABLE');
+});
+for (const command of ['cp package.json .','mv sub/file.txt .','mkdir -p .',
+  'git status && cd . && git status','mkdir -p build && cd build && npm test',
+  'git status && cd sub && git push origin HEAD:feat/test']) test('T4 should allow explicit own operation: ' + command, t => {
+    const f=fixture(t);fs.mkdirSync(join(f.own,'sub'));fs.writeFileSync(join(f.own,'sub/file.txt'),'ok');
+    const r=f.invoke(command);assert.equal(r.status,0,r.stderr);
+  });
+for (const escape of ["\\'",'\\x66','\\u0066','\\v','\\0','\\\n']) test('T4 should allow double quoted JS escape ' + escape, t => {
+  const f=fixture(t),command=escape==="\\'"?"git commit -m \\'fix\\'":`git commit -m '${escape}fix'`;
+  const r=f.invoke({tool_name:'functions.exec',tool_input:`await tools.exec_command({cmd:"${command}"})`});
+  assert.equal(r.status,0,r.stderr);
+});
+test('T4 should inspect explicit push refspecs together with tags', t => {
+  const f=fixture(t);fs.writeFileSync(join(f.own,'package.json'),'{"name":"published-fixture","version":"1.0.1"}');
+  f.git(f.own,'add','package.json');f.git(f.own,'commit','-qm','bump');
+  denied(f.invoke('git push origin HEAD:feat/test --tags'),'VERSION_BUMP');
+});
+for (const duplicate of [false,true]) test('T4 should diff full proposed manifest for patch ' + duplicate, t => {
+  const f=fixture(t),path=join(f.own,'package.json');
+  fs.writeFileSync(path,'{\n"name":"published-fixture",\n"version":"1.0.0"\n}\n');
+  const prefix=duplicate?'*** Update File: package.json\n@@\n-"name":"published-fixture",\n+"name":"published-fixture-renamed",\n':'';
+  const patch=`*** Begin Patch\n${prefix}*** Update File: package.json\n@@\n-"version":"1.0.0"\n+"version":\n+"1.0.1"\n*** End Patch`;
+  denied(f.invoke({tool_name:'apply_patch',tool_input:patch}),'VERSION_BUMP');
+});
+for (const tool of ['Write','Edit','apply_patch','npm']) test('T4 should retain baseline publication after private toggle: ' + tool, t => {
+  const f=fixture(t),path=join(f.own,'package.json'),original=fs.readFileSync(path,'utf8');
+  const privateContent=JSON.stringify({...JSON.parse(original),private:true});
+  assert.equal(f.invoke({tool_name:'Write',tool_input:{file_path:path,content:privateContent}}).status,0);
+  fs.writeFileSync(path,privateContent);
+  if(tool==='npm') { denied(f.invoke('npm version patch'),'RELEASE_ONLY');return; }
+  const input=tool==='Write'?{file_path:path,content:original.replace('1.0.0','1.0.1')}:
+    tool==='Edit'?{file_path:path,old_string:'1.0.0',new_string:'1.0.1'}:
+    `*** Begin Patch\n*** Update File: package.json\n@@\n-${privateContent}\n+${privateContent.replace('1.0.0','1.0.1')}\n*** End Patch`;
+  denied(f.invoke({tool_name:tool,tool_input:input}),'VERSION_BUMP');
+});
+test('T4 should refuse an unbound session before writing its baseline', t => {
+  const f=fixture(t),r=spawnSync(process.execPath,[hook],{cwd:f.own,env:f.env,encoding:'utf8',input:JSON.stringify({session_id:'unbound',tool_name:'Bash',tool_input:{command:'git status'}})});
+  denied(r,'UNVERIFIABLE');assert.equal(fs.existsSync(join(f.state,'baselines.jsonl')),false);
+});
+for (const command of ['git -C own-link push','cd own-link && git push','touch own-link/new-file',
+  'echo ok > own-link/new-file','GIT_WORK_TREE=own-link git push']) test('T4 should refuse symlink uncertainty: ' + command, t => {
+  const f=fixture(t);fs.symlinkSync(f.own,join(f.own,'own-link'),'dir');denied(f.invoke(command),'UNVERIFIABLE');
+});
+test('T4 should check both own cwd alternatives before a relative git selector', t => {
+  const f=fixture(t);fs.mkdirSync(join(f.own,'sub'));
+  denied(f.invoke('true && cd sub; git -C ../foreign push'),'UNVERIFIABLE');
+});
+test('T4 should compare full PR manifests with a multiline version value', t => {
+  const f=fixture(t);fs.writeFileSync(join(f.root,'pr.diff'),'diff --git a/package.json b/package.json\n@@\n-"version":"1.0.0"\n+"version":\n+"1.0.1"\n');
+  fs.writeFileSync(join(f.root,'pr.head.json'),'{"name":"published-fixture","version":"1.0.1"}');
+  denied(f.invoke('gh pr merge 327'),'VERSION_BUMP');
+});
+for (const command of ['git push origin --all','git merge main','git tag local-test','git branch -D old',
+  'git rebase main && git push origin HEAD:feat/test','gh pr close 327','gh pr review 327 --approve'])
+  test('T4 should allow explicit own protected action: ' + command, t => {
+    const f=fixture(t),r=f.invoke(command);assert.equal(r.status,0,r.stderr);
+  });
+for (const kind of ['cwd','file']) test('T4 should refuse a native symlink ' + kind, t => {
+  const f=fixture(t);fs.symlinkSync(f.own,join(f.own,'own-link'),'dir');
+  const input=kind==='cwd'?{tool_name:'exec_command',tool_input:{cmd:'git push',workdir:join(f.own,'own-link')}}:
+    {tool_name:'Write',tool_input:{file_path:join(f.own,'own-link/README.md'),content:'ok'}};
+  denied(f.invoke(input),'UNVERIFIABLE');
+});
+for (const command of ['env -C own-link git push','npm --prefix own-link publish','cp sub/file.txt .'])
+  test('T4 should retain uncertainty across destination resolution: ' + command, t => {
+    const f=fixture(t);fs.symlinkSync(f.own,join(f.own,'own-link'),'dir');
+    fs.mkdirSync(join(f.own,'sub'));fs.writeFileSync(join(f.own,'sub/file.txt'),'ok');
+    fs.symlinkSync(join(f.own,'README.md'),join(f.own,'file.txt'));
+    denied(f.invoke(command),'UNVERIFIABLE');
   });
