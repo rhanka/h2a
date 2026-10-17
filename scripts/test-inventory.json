@@ -889,6 +889,8 @@
     "RC install smoke refuses install propagation lag and broken doctor; only completion emits proof",
     "tag validation and manifest drift fail before any RC file is written; stable prepare leaves source unchanged",
     "focus alone must have the intended next tag and verified RC bytes",
-    "stable refuses an RC proof missing focus or carrying a wrong focus version"
+    "stable refuses an RC proof missing focus or carrying a wrong focus version",
+    "publish sanity refuses legacy four-package preparation and stale focus versions before publication",
+    "five-package prepare hands the independent focus version to the publication sanity gate"
   ]
 }

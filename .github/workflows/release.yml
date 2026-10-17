@@ -267,11 +267,19 @@ jobs:
           cli_version="$(node -p "require('./packages/h2a-cli/package.json').version")"
           runtime_version="$(node -p "require('./packages/h2a-runtime/package.json').version")"
           track_version="$(node -p "require('./packages/track/package.json').version")"
+          focus_version="$(node -p "require('./packages/focus/package.json').version")"
+          # A backfill can check out an older four-package prepare helper.
+          # It cannot authorize publishing focus, even if its old RC gate passes.
+          if [[ "$focus_version" != "${FOCUS_RELEASE_VERSION:-}" ]]; then
+            echo "::error::@sentropic/focus was not prepared by the five-package release helper; refusing legacy or mismatched publication." >&2
+            exit 1
+          fi
           echo "Tag version           : $tag_version"
           echo "@sentropic/h2a        : $h2a_version"
           echo "@sentropic/h2a-cli    : $cli_version"
           echo "@sentropic/h2a-runtime: $runtime_version"
           echo "@sentropic/track      : $track_version"
+          echo "@sentropic/focus      : $focus_version (independent version)"
           if [[ "$h2a_version" != "$tag_version" ]]; then
             echo "::error::packages/h2a/package.json version ($h2a_version) does not match tag ($tag_version). Run 'npm run release -- --version $tag_version' before tagging." >&2
             exit 1
