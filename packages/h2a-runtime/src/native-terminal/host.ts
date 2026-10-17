@@ -1134,7 +1134,7 @@ export class NativeTerminalHost {
     return this.#snapshot(this.#requireSession(id));
   }
 
-  get contentCapability(): string | undefined { return this.#contentFactory||[...this.#sessions.values()].some(s=>s.content) ? "h2a.session-content/2" : undefined; }
+  get contentCapability(): string | undefined { return [...this.#sessions.values()].some(s=>s.content) ? "h2a.session-content/2" : undefined; }
   /** Trusted in-process bootstrap only: replace expired source authority, preserving the live PTY. */
   rebindContent(id:string,content:import('../session-content-consent.js').SessionContentConsent):void{
     const record=this.#requireSession(id);if(!record.pty.onRawData)throw new Error('unsupported_source');
