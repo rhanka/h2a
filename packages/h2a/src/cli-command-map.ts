@@ -277,6 +277,7 @@ const RUNTIME_VERBS: readonly {
   { group: "OBSERVE", verb: "agents", summary: "Read-only projection of remote-visible agents." },
   { group: "OBSERVE", verb: "diff", summary: "Is a session in sync with local (conversation, or --files)?" },
   { group: "OBSERVE", verb: "sync-status", summary: "Last recorded sync result for the current session." },
+  { group: "OBSERVE", verb: "logs", summary: "Show the last crash-log incidents across native host, cli, attach and mcp-server." },
 
   { group: "COORDINATE", verb: "delegate", summary: "Hand a task to a live agent in a detached session; returns a job id." },
   { group: "COORDINATE", verb: "jobs", summary: "Supervise delegated agent jobs; drain the queue." },
