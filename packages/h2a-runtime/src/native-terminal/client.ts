@@ -137,6 +137,13 @@ export class NativeTerminalClient {
   ping(timeoutMs = this.#requestTimeoutMs): Promise<NativeTerminalPing> {
     return this.#request("ping", undefined, timeoutMs) as Promise<NativeTerminalPing>;
   }
+  contentStatus(id: string): Promise<unknown> { return this.#request("content-status",{id}); }
+  contentPrepare(id: string, proposalId: string): Promise<unknown> { return this.#request("content-prepare",{id,proposalId},30000); }
+  contentRenew(id: string, proposalId: string): Promise<unknown> { return this.#request("content-renew",{id,proposalId},30000); }
+  contentConfirm(id: string, idToken: string): Promise<unknown> { return this.#request("content-confirm",{id,idToken},15000); }
+  contentFlush(id: string, channel: "terminal.live" | "terminal.cache"): Promise<unknown> { return this.#request("content-flush",{id,channel},15000); }
+  contentExclude(id: string, target: "session" | "project" = "session"): Promise<unknown> { return this.#request("content-exclude",{id,target}); }
+  contentClear(id: string, target: "session" | "project" = "session"): Promise<unknown> { return this.#request("content-clear",{id,target}); }
 
   create(options: NativeTerminalCreateOptions): Promise<NativeTerminalSessionState> {
     return this.#request("create", options) as Promise<NativeTerminalSessionState>;

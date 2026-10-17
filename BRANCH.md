@@ -771,3 +771,9 @@ the root concurrency defect is fixed without introducing a persistent global loc
 - [x] All 25 v2 message fixtures, strict structural schema, semantic validator, signed JWT/digest vectors, unsupported legacy capability guard, build-copy wiring.
 - [x] 5/5 named cases on Node 22/24; isolated full track/core/runtime compilation and packed capsule byte comparison.
 - [ ] Contract freeze, full transition-vector breadth and Sentropic adapter execution wait on A and the receiving repository. Synthetic tuple is never advertised as supported.
+
+### CM2-F2 continuation — C native live boundary
+- [x] Pinned HTTPS grant/policy resolution, native signed confirmation, exact staged/committed ACK and renewal, fixed old expiry until commit.
+- [x] Raw host hook before reset/replay, default-off capture, durable local exclusion, bounded aggregate queues, cancellation and no legacy fallback.
+- [x] Real temporary node-pty + native socket/client/server + HTTPS synthetic adapter refusal/positive/exclusion witness; 102/102 named cases on Node 22 and 24.
+- [ ] Production bootstrap/deployed service composition, control SSE, future-child inheritance and complete saturation/endurance qualification remain open. Native histories explicitly refuse unsupported_format without a qualified provider.

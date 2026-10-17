@@ -15,7 +15,11 @@
     "src/session-content-fence.test.ts",
     "src/session-content-contract.ts",
     "src/session-content-contract.test.ts",
-    "src/native-terminal/protocol.test.ts"
+    "src/native-terminal/protocol.test.ts",
+    "src/session-content-consent.ts",
+    "src/session-content-consent.test.ts",
+    "src/session-content-export.ts",
+    "src/session-content-export.test.ts"
   ],
   "exclude": []
 }
