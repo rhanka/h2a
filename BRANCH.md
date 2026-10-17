@@ -1,3 +1,25 @@
+# CI job budget — owner request 2026-10-17
+
+Branch: `fix/ci-job-budget`, base `origin/main` at `596363908`.
+
+Scope: `.github/workflows/ci.yml`, `docs/ci-job-budget.md`, this scope record,
+`scripts/{report-test-durations,node-evidence-reporter,run-test-gates,run-tests}.mjs`
+and `packages/h2a/test/{run-test-gates.test.js,helpers/node-track-observation-lab.js}`
+only (the isolated observation lab must resolve the added diagnostic module).
+Measure recent main runs,
+preserve the complete test commands and required-check names, raise the two
+integration job budgets to 25 minutes, and report slow suites from existing
+execution evidence before cleanup. No product change or new dependency.
+
+Targeted tests only, disposable HOME/XDG/TMP roots, Node 22/24, red before
+green. No installed h2a, native host, owner state, full local suite or `.track`
+write. The conductor retains the integration run. Push this feature branch and
+open an English PR to main; retain measurements and the French owner report
+at the requested scratchpad path.
+
+Harness review dispatch requires installed h2a/mesh, prohibited by the owner's
+confinement. Record selection-failed locally and claim no peer consensus.
+
 # P1 — GitHub transport for the injected engram PR sync port
 
 Branch: `feat/live-git-p1-github`; base: `origin/main` (`d2e0cfdc`).
