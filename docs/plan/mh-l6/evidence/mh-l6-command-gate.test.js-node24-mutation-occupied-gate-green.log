@@ -1,12 +1,12 @@
 command: /tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-command-gate.test.js
 node: v24.21.0
-private root: /tmp/mh-l6-test-kSUO39
+private root: /tmp/mh-l6-test-JTpQjX
 case: F should refuse a plain-file occupant instead of replacing it
 TAP version 13
 # Subtest: F should refuse a plain-file occupant instead of replacing it
 ok 1 - F should refuse a plain-file occupant instead of replacing it
   ---
-  duration_ms: 119.904262
+  duration_ms: 297.797368
   type: 'test'
   ...
 1..1
@@ -17,6 +17,6 @@ ok 1 - F should refuse a plain-file occupant instead of replacing it
 # cancelled 0
 # skipped 0
 # todo 0
-# duration_ms 157.351575
+# duration_ms 332.228975
 
 receipt: {"command":["/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-command-gate.test.js"],"code":0,"signal":null,"tests":1,"invalid":false,"spawned":1,"leftovers":[]}
