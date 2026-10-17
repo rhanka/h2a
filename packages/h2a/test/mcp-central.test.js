@@ -29,6 +29,19 @@ import {
 } from "../dist/index.js";
 import { renderH2aMcpServer } from "../dist/hosts/codex.js";
 
+import { authenticatedHttpRequest } from "../dist/runtime/handover/authenticated-http.js";
+import { currentIdentity } from "../dist/runtime/handover/admission.js";
+
+async function seedDeadMarker(runtimeBase, root) {
+  const server = await startCentralMcpServer({ runtimeBase, root, env: {} });
+  const value = JSON.parse(readFileSync(server.markerPath, "utf8"));
+  await server.stop();
+  // Same PID with another birth time is proven dead, without probing a foreign PID.
+  value.processIdentity.startTime += 1;
+  writeFileSync(server.markerPath, JSON.stringify(value) + "\n", { mode: 0o600 });
+  return value;
+}
+
 const linux = process.platform === "linux" ? {} : { skip: "central MCP marker requires Linux uid/runtime semantics" };
 
 function currentUid() {
@@ -154,7 +167,7 @@ try {
     runtimeBase,
     env: { H2A_MCP_CENTRAL_ENDPOINT: endpoint },
     ...(pingResponseDelayMs === "" ? {} : { pingResponseDelayMs: Number(pingResponseDelayMs) }),
-    ...(raceIndex === undefined ? {} : {
+    ...(raceIndex === undefined || reclaimRaceDirectory === "" ? {} : {
       beforeMarkerReclaimReplace: async () => {
         writeFileSync(join(reclaimRaceDirectory, "ready-" + raceIndex), "ready\\n", { flag: "wx" });
         await waitForRaceFile(join(reclaimRaceDirectory, "go-" + raceIndex));
@@ -354,12 +367,14 @@ async function initializeRenderedCentralConfig(config) {
   }
 
   assert.equal(config.command, "h2a");
+  const base = config.args[config.args.indexOf("--runtime-base") + 1];
+  const fixtureRoot = JSON.parse(readFileSync(join(base, "h2a-mcp-central", "marker.json"), "utf8")).root;
   const child = spawn(
     process.execPath,
     [fileURLToPath(new URL("../dist/bin.js", import.meta.url)), ...config.args],
     {
       cwd: process.cwd(),
-      env: { ...process.env, REMOTE_CLI_CONFIG_HOME: process.env.REMOTE_CLI_CONFIG_HOME ?? tmpdir() },
+      env: { ...process.env, H2A_ROOT: fixtureRoot, REMOTE_CLI_CONFIG_HOME: process.env.REMOTE_CLI_CONFIG_HOME ?? tmpdir() },
       stdio: ["pipe", "pipe", "pipe"]
     }
   );
@@ -540,12 +555,11 @@ test("F1 negative: cross-origin MCP requests are refused even with the marker to
       env: envFor(requested)
     });
     const stored = JSON.parse(readFileSync(started.markerPath, "utf8"));
-    const response = await fetch(requested, {
+    const response = await authenticatedHttpRequest(started.markerPath, stored, requested, {
       method: "POST",
       headers: {
         "content-type": "application/json",
         accept: "application/json, text/event-stream",
-        authorization: `Bearer ${stored.token ?? "current-code-has-no-token"}`,
         origin: "http://attacker.invalid"
       },
       body: JSON.stringify({
@@ -576,7 +590,7 @@ test("M1 negative: an unexpected marker mode is refused without a write", linux,
 
     await assert.rejects(
       startCentralMcpServer({ root: f.root, runtimeBase: f.runtimeBase, env: envFor(requested) }),
-      /marker must have mode 0600/
+      /private_state_required/
     );
 
     assert.equal(readFileSync(markerPath, "utf8"), before);
@@ -587,59 +601,30 @@ test("M1 negative: an unexpected marker mode is refused without a write", linux,
   }
 });
 
-test("a protected malformed marker is reclaimable rather than a permanent startup loop", linux, async () => {
+test("a protected malformed marker refuses without erasing unknown owner evidence", linux, async () => {
   const f = fixture();
-  let started;
   try {
-    const requested = await endpoint();
-    const markerPath = centralMcpMarkerPath({ runtimeBase: f.runtimeBase });
-    mkdirSync(dirname(markerPath), { mode: 0o700 });
-    chmodSync(dirname(markerPath), 0o700);
-    writeFileSync(markerPath, "{not-json\n", { mode: 0o600 });
-    chmodSync(markerPath, 0o600);
-
-    started = await startCentralMcpServer({
-      root: f.root,
-      runtimeBase: f.runtimeBase,
-      env: envFor(requested)
-    });
-    assert.equal(started.kind, "started");
-    assert.equal(JSON.parse(readFileSync(markerPath, "utf8")).endpoint, requested);
-  } finally {
-    await stop(started);
-    rmSync(f.directory, { recursive: true, force: true });
-  }
+    const path = centralMcpMarkerPath({ runtimeBase: f.runtimeBase });
+    mkdirSync(dirname(path), { mode: 0o700 });
+    writeFileSync(path, "{not-json\n", { mode: 0o600 });
+    const before = snapshotTree(f.directory);
+    await assert.rejects(startCentralMcpServer({ root: f.root, runtimeBase: f.runtimeBase, env: {} }), SyntaxError);
+    assert.equal(readFileSync(path, "utf8"), "{not-json\n");
+    assert.deepEqual(snapshotTree(f.directory), before);
+  } finally { rmSync(f.directory, { recursive: true, force: true }); }
 });
-
-test("a protected malformed reclaim lock is reclaimed rather than wedging central startup", linux, async () => {
-  const f = fixture();
-  let started;
+test("v2 preclaim reclaims a proven-dead owner without interpreting a legacy reclaim lock", linux, async () => {
+  const f = fixture(); let started;
   try {
-    const requested = await endpoint();
-    const markerPath = centralMcpMarkerPath({ runtimeBase: f.runtimeBase });
-    const lockPath = join(dirname(markerPath), "reclaim.lock");
-    mkdirSync(dirname(markerPath), { mode: 0o700 });
-    chmodSync(dirname(markerPath), 0o700);
-    writeFileSync(markerPath, marker(await endpoint(), "dead-generation"), { mode: 0o600 });
-    chmodSync(markerPath, 0o600);
-    writeFileSync(lockPath, "{truncated", { mode: 0o600 });
-    chmodSync(lockPath, 0o600);
-
-    started = await startCentralMcpServer({
-      root: f.root,
-      runtimeBase: f.runtimeBase,
-      env: envFor(requested)
-    });
-
+    await seedDeadMarker(f.runtimeBase, f.root);
+    const path = join(f.runtimeBase, "h2a-mcp-central", "reclaim.lock");
+    writeFileSync(path, "{truncated", { mode: 0o600 });
+    started = await startCentralMcpServer({ root: f.root, runtimeBase: f.runtimeBase, env: {} });
     assert.equal(started.kind, "started");
-    assert.equal(await centralGeneration(requested), started.generation);
-    assert.equal(existsSync(lockPath), false, "the abandoned malformed lock is removed after reclaim");
-  } finally {
-    await stop(started);
-    rmSync(f.directory, { recursive: true, force: true });
-  }
+    assert.equal(await centralGeneration(started.endpoint), started.generation);
+    assert.equal(readFileSync(path, "utf8"), "{truncated", "v2 never invents legacy lock provenance");
+  } finally { await stop(started); rmSync(f.directory, { recursive: true, force: true }); }
 });
-
 test("M2: a live divergent endpoint refuses sterilely and names both endpoints", linux, async () => {
   const f = fixture();
   let first;
@@ -647,7 +632,7 @@ test("M2: a live divergent endpoint refuses sterilely and names both endpoints",
     const firstEndpoint = await endpoint();
     const secondEndpoint = await endpoint();
     first = await startCentralMcpServer({
-      root: join(f.directory, "first-store"),
+      root: f.root,
       runtimeBase: f.runtimeBase,
       env: envFor(firstEndpoint)
     });
@@ -656,7 +641,7 @@ test("M2: a live divergent endpoint refuses sterilely and names both endpoints",
     const beforeEntries = readdirSync(dirname(first.markerPath));
 
     const duplicate = await startCentralMcpServer({
-      root: join(f.directory, "duplicate-store"),
+      root: f.root,
       runtimeBase: f.runtimeBase,
       env: envFor(firstEndpoint)
     });
@@ -666,7 +651,7 @@ test("M2: a live divergent endpoint refuses sterilely and names both endpoints",
 
     await assert.rejects(
       startCentralMcpServer({
-        root: join(f.directory, "second-store"),
+        root: f.root,
         runtimeBase: f.runtimeBase,
         env: envFor(secondEndpoint)
       }),
@@ -694,7 +679,7 @@ test("concurrent different endpoints leave exactly one live, marked central serv
     const firstEndpoint = await endpoint();
     const secondEndpoint = await endpoint();
     firstPromise = startCentralMcpServer({
-      root: join(f.directory, "first-store"),
+      root: f.root,
       runtimeBase: f.runtimeBase,
       env: envFor(firstEndpoint),
       afterMarkerClaim: async () => {
@@ -705,7 +690,7 @@ test("concurrent different endpoints leave exactly one live, marked central serv
     await firstClaimed.promise;
 
     secondPromise = startCentralMcpServer({
-      root: join(f.directory, "second-store"),
+      root: f.root,
       runtimeBase: f.runtimeBase,
       env: envFor(secondEndpoint)
     });
@@ -721,7 +706,7 @@ test("concurrent different endpoints leave exactly one live, marked central serv
       outcomes.some((outcome) => outcome.status === "fulfilled" && outcome.value.kind === "reused") ||
       outcomes.some(
         (outcome) => outcome.status === "rejected" &&
-          /LIVE central MCP server is registered on/.test(String(outcome.reason))
+          /authority_lock_unavailable/.test(String(outcome.reason))
       ),
       "the losing launcher reuses or refuses the live owner"
     );
@@ -754,14 +739,14 @@ async function assertSingleConcurrentReclaimer(directory, round) {
     const markerPath = centralMcpMarkerPath({ runtimeBase });
     mkdirSync(dirname(markerPath), { mode: 0o700 });
     chmodSync(dirname(markerPath), 0o700);
-    writeFileSync(markerPath, marker(await endpoint(), "dead-generation"), { mode: 0o600 });
+    await seedDeadMarker(runtimeBase, join(directory, `reclaim-${round}-store`));
     chmodSync(markerPath, 0o600);
 
     const endpoints = await Promise.all(Array.from({ length: 24 }, () => endpoint()));
     for (const [index, endpointValue] of endpoints.entries()) {
       launchers.push(launchCentralProcess({
         endpoint: endpointValue,
-        root: join(directory, `reclaim-${round}-launcher-${index}`),
+        root: join(directory, `reclaim-${round}-store`),
         runtimeBase,
         waitForStart: true
       }));
@@ -790,148 +775,56 @@ async function assertSingleConcurrentReclaimer(directory, round) {
   }
 }
 
-test("finding-1: an in-progress reclaim lock never admits a second live owner", linux, async () => {
-  const f = fixture();
-  const launchers = [];
-  const contenderCount = 4;
+test("finding-1: an in-progress preclaim never admits a second live owner", linux, async () => {
+  const f = fixture(); const launchers = [];
   try {
-    const exclusiveRaceDirectory = join(f.directory, "exclusive-publish-race");
-    const reclaimRaceDirectory = join(f.directory, "reclaim-replace-race");
-    mkdirSync(exclusiveRaceDirectory, { mode: 0o700 });
-    mkdirSync(reclaimRaceDirectory, { mode: 0o700 });
-    chmodSync(exclusiveRaceDirectory, 0o700);
-    chmodSync(reclaimRaceDirectory, 0o700);
-
-    const markerPath = centralMcpMarkerPath({ runtimeBase: f.runtimeBase });
-    mkdirSync(dirname(markerPath), { mode: 0o700 });
-    chmodSync(dirname(markerPath), 0o700);
-    writeFileSync(markerPath, marker(await endpoint(), "dead-generation"), { mode: 0o600 });
-    chmodSync(markerPath, 0o600);
-    const endpoints = await Promise.all(Array.from({ length: contenderCount }, () => endpoint()));
-
-    // Release every contender only after it has staged a full lock payload.
-    // On the historical wx implementation this same barrier instead follows
-    // O_EXCL creation, exposing a zero-byte lock for the next contender to
-    // identity-CAS-unlink. It therefore deterministically puts every child
-    // through the pre-rename barrier and produces several live servers.
-    for (const [index, endpointValue] of endpoints.entries()) {
-      launchers.push(launchCentralProcess({
-        endpoint: endpointValue,
-        root: join(f.directory, `finding-1-store-${index}`),
-        runtimeBase: f.runtimeBase,
-        reclaimRaceDirectory,
-        reclaimRaceIndex: index,
-        exclusiveRaceDirectory,
-        waitForStart: true
-      }));
-      // Process bootstrap is outside the publication race. Start its measured
-      // phase only after the child has loaded the server and installed its gate.
-      await launchers[index].ready;
-      launchers[index].release();
-      // Observe publication itself: loading the process is not evidence that
-      // its exclusive payload has been staged. Early result/exit must fail.
-      await Promise.race([
-        launchers[index].staged,
-        launchers[index].result.then((outcome) => assert.fail(`contender ${index} returned before staging: ${JSON.stringify(outcome)}`))
-      ]);
-      assert.equal(
-        existsSync(join(exclusiveRaceDirectory, `ready-${index}`)),
-        true,
-        `contender ${index} staged its exclusive publication`
-      );
+    await seedDeadMarker(f.runtimeBase, f.root);
+    const gate = join(f.directory, "publication-gate"); mkdirSync(gate);
+    const endpoints = await Promise.all(Array.from({ length: 4 }, () => endpoint()));
+    launchers.push(launchCentralProcess({ endpoint: endpoints[0], root: f.root, runtimeBase: f.runtimeBase,
+      exclusiveRaceDirectory: gate, reclaimRaceIndex: 0 }));
+    await launchers[0].staged;
+    for (const value of endpoints.slice(1)) launchers.push(launchCentralProcess({ endpoint: value,
+      root: f.root, runtimeBase: f.runtimeBase }));
+    const followers = await Promise.all(launchers.slice(1).map(p => p.result));
+    assert.equal(followers.length, 3);
+    for (const result of followers) {
+      assert.equal(result.kind, "error"); assert.equal(result.message, "authority_lock_unavailable");
     }
-
-    writeFileSync(join(exclusiveRaceDirectory, "go-0"), "go\n", { flag: "wx" });
-    assert.equal(await waitForFiles([join(reclaimRaceDirectory, "ready-0")], 3_000), true);
-    for (let index = 1; index < contenderCount; index += 1) {
-      writeFileSync(join(exclusiveRaceDirectory, `go-${index}`), "go\n", { flag: "wx" });
-    }
-
-    // A wx create/write rollback makes all contenders pass identity-CAS before
-    // any marker replacement. The existing per-claim cascade then starts each
-    // one. With temp+link, only contender zero can reach this barrier because
-    // all followers observe its complete, live reclaim lock.
-    const everyContenderReachedReplace = await waitForFiles(
-      Array.from({ length: contenderCount }, (_, index) => join(reclaimRaceDirectory, `ready-${index}`)),
-      3_000
-    );
-    writeFileSync(join(reclaimRaceDirectory, "go-0"), "go\n", { flag: "wx" });
-
-    const outcomes = await Promise.all(launchers.map((launcher) => launcher.result));
-    const started = outcomes.filter((outcome) => outcome.kind === "result" && outcome.result === "started");
-    assert.equal(
-      started.length,
-      1,
-      "a complete reclaim lock permits exactly one successor, never the wx multi-start partition"
-    );
-    assert.equal(everyContenderReachedReplace, false, "followers never treat a live staged lock as malformed");
-
-    const live = (await Promise.all(endpoints.map(async (endpointValue) => ({
-      endpoint: endpointValue,
-      generation: await centralGeneration(endpointValue)
-    })))).filter((observation) => observation.generation !== undefined);
-    assert.equal(live.length, 1, "only one candidate endpoint has a live central server");
-  } finally {
-    await Promise.all(launchers.map((launcher) => stopCentralProcess(launcher)));
-    rmSync(f.directory, { recursive: true, force: true });
-  }
+    assert.equal(existsSync(join(f.runtimeBase, "h2a-mcp-central", "marker.json")), false,
+      "the dead marker was removed under preclaim but no successor is published before readiness");
+    writeFileSync(join(gate, "go-0"), "go");
+    const winner = await launchers[0].result;
+    assert.equal(winner.result, "started");
+    const live = (await Promise.all(endpoints.map(centralGeneration))).filter(Boolean);
+    assert.deepEqual(live, [winner.generation]);
+  } finally { await Promise.all(launchers.map(stopCentralProcess)); rmSync(f.directory, { recursive: true, force: true }); }
 });
-
-test("F3 lock: a controlled 24-process reclaim race elects one verified reclaimer", linux, async () => {
-  const f = fixture();
-  const launchers = [];
+test("F3 lock: a controlled 24-process preclaim race elects one verified reclaimer", linux, async () => {
+  const f = fixture(); const launchers = [];
   try {
-    const raceDirectory = join(f.directory, "controlled-race");
-    mkdirSync(raceDirectory, { mode: 0o700 });
-    chmodSync(raceDirectory, 0o700);
-    const markerPath = centralMcpMarkerPath({ runtimeBase: f.runtimeBase });
-    mkdirSync(dirname(markerPath), { mode: 0o700 });
-    chmodSync(dirname(markerPath), 0o700);
-    writeFileSync(markerPath, marker(await endpoint(), "dead-generation"), { mode: 0o600 });
-    chmodSync(markerPath, 0o600);
+    await seedDeadMarker(f.runtimeBase, f.root);
+    const gate = join(f.directory, "publication-gate"); mkdirSync(gate);
     const endpoints = await Promise.all(Array.from({ length: 24 }, () => endpoint()));
-
-    launchers.push(launchCentralProcess({
-      endpoint: endpoints[0],
-      root: join(f.directory, "first-store"),
-      runtimeBase: f.runtimeBase,
-      reclaimRaceDirectory: raceDirectory,
-      reclaimRaceIndex: 0,
-      waitForStart: true
-    }));
-    await launchers[0].ready;
-    launchers[0].release();
-    assert.equal(await waitForFiles([join(raceDirectory, "ready-0")], 3_000), true);
-
-    for (const [index, endpointValue] of endpoints.slice(1).entries()) {
-      launchers.push(launchCentralProcess({
-        endpoint: endpointValue,
-        root: join(f.directory, `controlled-${index + 1}-store`),
-        runtimeBase: f.runtimeBase,
-        waitForStart: true,
-        reclaimRaceDirectory: raceDirectory,
-        reclaimRaceIndex: index + 1
-      }));
+    launchers.push(launchCentralProcess({ endpoint: endpoints[0], root: f.root, runtimeBase: f.runtimeBase,
+      exclusiveRaceDirectory: gate, reclaimRaceIndex: 0 }));
+    await launchers[0].staged;
+    for (const value of endpoints.slice(1)) launchers.push(launchCentralProcess({ endpoint: value,
+      root: f.root, runtimeBase: f.runtimeBase }));
+    const followers = await Promise.all(launchers.slice(1).map(p => p.result));
+    assert.equal(followers.length, 23);
+    for (const result of followers) {
+      assert.equal(result.kind, "error"); assert.equal(result.message, "authority_lock_unavailable");
     }
-    await Promise.all(launchers.slice(1).map((launcher) => launcher.ready));
-    launchers.slice(1).forEach((launcher) => launcher.release());
-    // With the lock removed every child reaches its pre-rename hook before
-    // process zero is released; the hooks then publish in a forced sequence.
-    await waitForFiles(
-      Array.from({ length: 24 }, (_, index) => join(raceDirectory, `ready-${index}`)),
-      2_000
-    );
-    writeFileSync(join(raceDirectory, "go-0"), "go\n", { flag: "wx" });
-
-    const outcomes = await Promise.all(launchers.map((launcher) => launcher.result));
-    const started = outcomes.filter((outcome) => outcome.kind === "result" && outcome.result === "started");
-    assert.equal(started.length, 1, "the O_EXCL reclaim lock admits only one verified reclaimer");
-  } finally {
-    await Promise.all(launchers.map((launcher) => stopCentralProcess(launcher)));
-    rmSync(f.directory, { recursive: true, force: true });
-  }
+    assert.equal(existsSync(join(f.runtimeBase, "h2a-mcp-central", "marker.json")), false,
+      "the dead marker was removed under preclaim but no successor is published before readiness");
+    writeFileSync(join(gate, "go-0"), "go");
+    const winner = await launchers[0].result;
+    assert.equal(winner.result, "started");
+    const live = (await Promise.all(endpoints.map(centralGeneration))).filter(Boolean);
+    assert.deepEqual(live, [winner.generation]);
+  } finally { await Promise.all(launchers.map(stopCentralProcess)); rmSync(f.directory, { recursive: true, force: true }); }
 });
-
 test("F3 negative: two 24-process reclaim races elect exactly one dead-marker successor", linux, async () => {
   const f = fixture();
   try {
@@ -945,57 +838,24 @@ test("F3 negative: two 24-process reclaim races elect exactly one dead-marker su
   }
 });
 
-test("F4 negative: a liveness-budget-exhausting central ping is ambiguous and never reclaimed", linux, async () => {
-  const f = fixture();
-  let first;
-  let second;
-  let proxy;
+test("F4 negative: a slow HTTP ping never overrides a proven-live process owner", linux, async () => {
+  const f = fixture(); let first; let proxy;
   try {
-    const firstEndpoint = await endpoint();
-    const secondEndpoint = await endpoint();
-    first = launchCentralProcess({
-      endpoint: firstEndpoint,
-      root: join(f.directory, "first-store"),
-      runtimeBase: f.runtimeBase
-    });
-    const firstResult = await first.result;
-    assert.deepEqual(firstResult.kind === "result" ? firstResult.result : firstResult.kind, "started");
-    assert.ok(await centralGeneration(firstEndpoint), "the first launcher is a real central server");
-
-    // This exceeds all three liveness attempts plus their backoff budget. A
-    // timeout is ambiguous, never proof the original registration is dead.
-    proxy = await slowPingProxy(firstEndpoint, 6_000);
-    const firstMarker = JSON.parse(readFileSync(centralMcpMarkerPath({ runtimeBase: f.runtimeBase }), "utf8"));
-    writeFileSync(
-      centralMcpMarkerPath({ runtimeBase: f.runtimeBase }),
-      marker(proxy.endpoint, firstMarker.generation, firstMarker.pid, firstMarker.startedAt, firstMarker.token),
-      { mode: 0o600 }
-    );
-    chmodSync(centralMcpMarkerPath({ runtimeBase: f.runtimeBase }), 0o600);
-
-    second = launchCentralProcess({
-      endpoint: secondEndpoint,
-      root: join(f.directory, "second-store"),
-      runtimeBase: f.runtimeBase
-    });
-    const secondResult = await second.result;
-    assert.equal(secondResult.kind, "error", "an ambiguous registration must refuse rather than reclaim");
-    assert.match(secondResult.message, /liveness .* ambiguous/);
-
-    const live = (await Promise.all([firstEndpoint, secondEndpoint].map(async (endpointValue) => ({
-      endpoint: endpointValue,
-      generation: await centralGeneration(endpointValue)
-    })))).filter((observation) => observation.generation !== undefined);
-    assert.equal(live.length, 1, "the slow original server remains the only live central server");
-    assert.equal(live[0].endpoint, firstEndpoint);
-  } finally {
-    if (proxy) await proxy.stop();
-    await stopCentralProcess(second);
-    await stopCentralProcess(first);
-    rmSync(f.directory, { recursive: true, force: true });
-  }
+    first = await startCentralMcpServer({ root: f.root, runtimeBase: f.runtimeBase, env: {} });
+    proxy = await slowPingProxy(first.endpoint, 6000);
+    const saved = readFileSync(first.markerPath, "utf8");
+    const value = JSON.parse(saved); value.endpoint = proxy.endpoint;
+    writeFileSync(first.markerPath, JSON.stringify(value), { mode: 0o600 });
+    try {
+      const before = readFileSync(first.markerPath, "utf8");
+      const next = await endpoint();
+      await assert.rejects(startCentralMcpServer({ root: f.root, runtimeBase: f.runtimeBase, env: envFor(next) }), /LIVE central MCP server is registered on/);
+      assert.equal(readFileSync(first.markerPath, "utf8"), before);
+      assert.equal(await centralGeneration(first.endpoint), first.generation);
+      assert.equal(await centralGeneration(next), undefined);
+    } finally { writeFileSync(first.markerPath, saved, { mode: 0o600 }); }
+  } finally { await proxy?.stop(); await stop(first); rmSync(f.directory, { recursive: true, force: true }); }
 });
-
 test("concurrent same-endpoint launchers reuse the listener that won the bind", linux, async () => {
   const f = fixture();
   const firstClaimed = deferred();
@@ -1006,7 +866,7 @@ test("concurrent same-endpoint launchers reuse the listener that won the bind", 
   try {
     const requested = await endpoint();
     firstPromise = startCentralMcpServer({
-      root: join(f.directory, "first-store"),
+      root: f.root,
       runtimeBase: f.runtimeBase,
       env: envFor(requested),
       afterMarkerClaim: async () => {
@@ -1017,7 +877,7 @@ test("concurrent same-endpoint launchers reuse the listener that won the bind", 
     await firstClaimed.promise;
 
     secondPromise = startCentralMcpServer({
-      root: join(f.directory, "second-store"),
+      root: f.root,
       runtimeBase: f.runtimeBase,
       env: envFor(requested)
     });
@@ -1031,10 +891,12 @@ test("concurrent same-endpoint launchers reuse the listener that won the bind", 
       "one launcher owns the endpoint"
     );
     assert.equal(
-      outcomes.filter((outcome) => outcome.status === "fulfilled" && outcome.value.kind === "reused").length,
+      outcomes.filter((outcome) => outcome.status === "rejected" && outcome.reason.message === "authority_lock_unavailable").length,
       1,
-      "the EADDRINUSE launcher reuses the marked live server"
+      "the contender cannot bypass the pending publication's preclaim"
     );
+    const reused = await startCentralMcpServer({ root: f.root, runtimeBase: f.runtimeBase, env: envFor(requested) });
+    assert.equal(reused.kind, "reused", "the ready generation is reused after the preclaim is released");
     assert.equal(await centralGeneration(requested), JSON.parse(readFileSync(
       centralMcpMarkerPath({ runtimeBase: f.runtimeBase }),
       "utf8"
@@ -1051,80 +913,19 @@ test("concurrent same-endpoint launchers reuse the listener that won the bind", 
   }
 });
 
-test("M3: endpoint generation alone decides liveness, never marker PID or age", linux, async () => {
+test("M3: legacy PID and HTTP facts never invent durable owner provenance", linux, async () => {
   const f = fixture();
-  let reclaimed;
-  let live;
-  let replacement;
-  const unrelated = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"]);
   try {
-    const deadEndpoint = await endpoint();
-    const markerPath = centralMcpMarkerPath({ runtimeBase: f.runtimeBase });
-    mkdirSync(dirname(markerPath), { mode: 0o700 });
-    chmodSync(dirname(markerPath), 0o700);
-    writeFileSync(
-      markerPath,
-      marker(deadEndpoint, "dead-generation", unrelated.pid, new Date().toISOString()),
-      { mode: 0o600 }
-    );
-    chmodSync(markerPath, 0o600);
-
-    // The unrelated process is live, but no endpoint returns this generation:
-    // identity says dead and the exact endpoint is reclaimed.
-    reclaimed = await startCentralMcpServer({
-      root: join(f.directory, "reclaimed-store"),
-      runtimeBase: f.runtimeBase,
-      env: envFor(deadEndpoint)
-    });
-    assert.equal(reclaimed.kind, "started");
-    assert.notEqual(reclaimed.generation, "dead-generation");
-    assert.equal(JSON.parse(readFileSync(markerPath, "utf8")).pid, process.pid);
-    await stop(reclaimed);
-    reclaimed = undefined;
-
-    // A marker can be ancient and still be live: its matching generation must
-    // be adopted rather than reclaimed or rejected as stale by age.
-    const liveEndpoint = await endpoint();
-    live = await startCentralMcpServer({
-      root: join(f.directory, "live-store"),
-      runtimeBase: f.runtimeBase,
-      env: envFor(liveEndpoint)
-    });
-    assert.equal(live.kind, "started");
-    const oldLiveMarker = marker(liveEndpoint, live.generation, unrelated.pid);
-    writeFileSync(markerPath, oldLiveMarker, { mode: 0o600 });
-    chmodSync(markerPath, 0o600);
-    const adopted = await startCentralMcpServer({
-      root: join(f.directory, "adopted-store"),
-      runtimeBase: f.runtimeBase,
-      env: envFor(liveEndpoint)
-    });
-    assert.equal(adopted.kind, "reused", "an old matching generation remains live");
-    assert.equal(adopted.generation, live.generation);
-    assert.equal(readFileSync(markerPath, "utf8"), oldLiveMarker, "liveness never rewrites an old live marker");
-    assert.equal(existsSync(join(f.directory, "adopted-store")), false);
-
-    // A real server answering a different generation is equally not the marker's
-    // referent. The new server must reclaim, not silently reuse it.
-    writeFileSync(markerPath, marker(liveEndpoint, "forged-different-generation"), { mode: 0o600 });
-    chmodSync(markerPath, 0o600);
-    const replacementEndpoint = await endpoint();
-    replacement = await startCentralMcpServer({
-      root: join(f.directory, "replacement-store"),
-      runtimeBase: f.runtimeBase,
-      env: envFor(replacementEndpoint)
-    });
-    assert.equal(replacement.kind, "started", "a mismatched live generation is never adopted");
-    assert.notEqual(replacement.generation, "forged-different-generation");
-  } finally {
-    unrelated.kill("SIGTERM");
-    await stop(replacement);
-    await stop(live);
-    await stop(reclaimed);
-    rmSync(f.directory, { recursive: true, force: true });
-  }
+    const requested = await endpoint();
+    const path = centralMcpMarkerPath({ runtimeBase: f.runtimeBase }); mkdirSync(dirname(path), { mode: 0o700 });
+    const bytes = marker(requested, "legacy-generation", process.pid, new Date().toISOString());
+    writeFileSync(path, bytes, { mode: 0o600 });
+    await assert.rejects(startCentralMcpServer({ root: f.root, runtimeBase: f.runtimeBase, env: envFor(requested) }), /owner_liveness_unknown/);
+    assert.equal(readFileSync(path, "utf8"), bytes);
+    assert.equal(await centralGeneration(requested), undefined);
+    assert.equal(existsSync(f.root), false);
+  } finally { rmSync(f.directory, { recursive: true, force: true }); }
 });
-
 test("M4: an absent preferred runtime base refuses without a /tmp fallback", linux, async () => {
   const directory = mkdtempSync(join(tmpdir(), "h2a-mcp-central-no-base-"));
   const previousTmpdir = process.env.TMPDIR;
@@ -1174,7 +975,7 @@ test("central client config reconnects after token rotation without rendering a 
     );
     assert.throws(
       () => centralMcpClientEndpoint({ [H2A_MCP_CENTRAL_ENV]: "true" }),
-      new RegExp(H2A_MCP_CENTRAL_ENDPOINT_ENV)
+      { code: "ENOENT" }
     );
     const ephemeral = await startCentralMcpServer({ root: f.root, runtimeBase: f.runtimeBase, env: {} });
     assert.equal(ephemeral.kind, "started");
@@ -1183,7 +984,7 @@ test("central client config reconnects after token rotation without rendering a 
     await ephemeral.stop();
 
     first = await startCentralMcpServer({
-      root: join(f.directory, "first-store"),
+      root: f.root,
       runtimeBase: f.runtimeBase,
       env: envFor(requested)
     });
@@ -1198,7 +999,7 @@ test("central client config reconnects after token rotation without rendering a 
     first = undefined;
 
     second = await startCentralMcpServer({
-      root: join(f.directory, "second-store"),
+      root: f.root,
       runtimeBase: f.runtimeBase,
       env: envFor(requested)
     });

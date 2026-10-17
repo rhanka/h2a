@@ -1106,12 +1106,7 @@ for (const phase of ["F1", "F2", "F3"]) {
     );
 
     const concurrent = await exerciseFault(phase, "concurrent");
-    assert.equal(concurrent.attempts.length, 2);
-    assert.notEqual(
-      concurrent.attempts[0],
-      concurrent.attempts[1],
-      "the same source envelope is re-signed with a new nonce and has no stable native request identity",
-    );
+    assert.equal(concurrent.attempts.length, 1, "overlapping ticks share one pending wake");
     assert.deepEqual(
       {
         effects: concurrent.effects.length,
@@ -1120,8 +1115,8 @@ for (const phase of ["F1", "F2", "F3"]) {
       phase === "F1"
         ? { effects: 0, simulatedReceipts: 0 }
         : phase === "F2"
-          ? { effects: 2, simulatedReceipts: 0 }
-          : { effects: 2, simulatedReceipts: 2 },
+          ? { effects: 1, simulatedReceipts: 0 }
+          : { effects: 1, simulatedReceipts: 1 },
     );
   });
 }
@@ -1194,11 +1189,11 @@ for (const hostKind of ["local-tmux", "local-native"]) {
       await Promise.all([handler(), handler()]);
       await eventually(
         () => terminalInputs(readCapture(target.capturePath).subarray(beforeConcurrent)).length,
-        (count) => count === 2,
-        `${hostKind} concurrent lost-receipt replays`,
+        (count) => count === 1,
+        `${hostKind} concurrent lost-receipt retry`,
       );
-      const retryLines = recorded.requests.slice(-2).map((request) => request.instructionLine);
-      assert.notEqual(retryLines[0], retryLines[1]);
+      assert.equal(recorded.requests.length, 2, "two overlapping retries emit one additional wake");
+      assert.notEqual(recorded.requests[0].instructionLine, recorded.requests[1].instructionLine);
     } finally {
       if (previousActivity === undefined) delete process.env.H2A_WAKE_DEFER_ACTIVITY_MS;
       else process.env.H2A_WAKE_DEFER_ACTIVITY_MS = previousActivity;
