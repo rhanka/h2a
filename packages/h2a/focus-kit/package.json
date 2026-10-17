@@ -1,0 +1,22 @@
+{
+  "name": "h2a-focus-dossier-renderer",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "build": "node ../../../scripts/build-focus-dossier.mjs"
+  },
+  "dependencies": {
+    "@sentropic/design-system-svelte": "0.34.69",
+    "@sentropic/design-system-themes": "0.11.0",
+    "@xyflow/svelte": "1.6.5",
+    "svelte": "5.56.4"
+  },
+  "devDependencies": {
+    "@sveltejs/vite-plugin-svelte": "6.2.4",
+    "esbuild": "0.25.12",
+    "playwright": "1.63.0",
+    "typescript": "5.9.3",
+    "vite": "7.3.6"
+  }
+}

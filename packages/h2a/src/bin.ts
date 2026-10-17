@@ -205,6 +205,8 @@ if (argv[0] === "--version" || argv[0] === "-v" || argv[0] === "version") {
   runAsync("sysml verify", runSysmlVerify(parseFlagsFrom(2)));
 } else if (argv[0] === "keepalive") {
   runAsync("keepalive", cmdKeepalive(parseFlagsFrom(1), { stdout: process.stdout, stderr: process.stderr }));
+} else if (argv[0] === "focus" && (argv[1] === "build" || argv[1] === "template")) {
+  runAsync(`focus ${argv[1]}`, import("./focus-build.js").then(({ runFocusBuildCli }) => runFocusBuildCli(argv.slice(1))));
 } else if (argv[0] === "focus" && (argv[1] === "serve" || argv[1] === "web")) {
   // Intercept the production web server before the bare `focus` facade can delegate to `track focus`.
   // Every other `h2a focus ...` invocation keeps the existing Track behavior unchanged.

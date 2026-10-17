@@ -1,0 +1,385 @@
+{
+  "version": 1,
+  "description": "Conceptual component relationships, not a live deployment inventory. Recheck against the dossier scope before presenting.",
+  "sources": [
+    "packages/h2a/package.json",
+    "packages/h2a-runtime/package.json",
+    "packages/h2a/src/runtime/drive/cluster-mesh-outer.ts",
+    "packages/h2a-runtime/src/gateway-host/host.ts",
+    "apps/focus/package.json"
+  ],
+  "scenes": {
+    "overview": {
+      "title": "Écosystème Sentropic",
+      "nodes": [
+        {
+          "id": "h2a",
+          "label": "h2a",
+          "detail": "Coordonne les agents et les décisions",
+          "position": {
+            "x": 0,
+            "y": 0
+          }
+        },
+        {
+          "id": "cluster-mesh",
+          "label": "cluster-mesh",
+          "detail": "Relie services et identités",
+          "position": {
+            "x": 340,
+            "y": 0
+          }
+        },
+        {
+          "id": "llm-gateway",
+          "label": "llm-gateway",
+          "detail": "Achemine les demandes de modèles",
+          "position": {
+            "x": 0,
+            "y": 160
+          }
+        },
+        {
+          "id": "llm-mesh",
+          "label": "llm-mesh",
+          "detail": "Gère comptes et fournisseurs de modèles",
+          "position": {
+            "x": 340,
+            "y": 160
+          }
+        },
+        {
+          "id": "track",
+          "label": "track",
+          "detail": "Conserve travail et décisions",
+          "position": {
+            "x": 0,
+            "y": 320
+          }
+        },
+        {
+          "id": "engram",
+          "label": "engram",
+          "detail": "Apporte la mémoire des agents",
+          "position": {
+            "x": 340,
+            "y": 320
+          }
+        },
+        {
+          "id": "design-system",
+          "label": "design-system",
+          "detail": "Fournit les composants visuels",
+          "position": {
+            "x": 0,
+            "y": 480
+          }
+        },
+        {
+          "id": "sentropic-apps",
+          "label": "Applications Sentropic",
+          "detail": "Composent les briques de l’écosystème",
+          "position": {
+            "x": 340,
+            "y": 480
+          }
+        },
+        {
+          "id": "codex",
+          "label": "Codex",
+          "detail": "Commande officielle pour agents",
+          "position": {
+            "x": 0,
+            "y": 640
+          }
+        },
+        {
+          "id": "claude",
+          "label": "Claude Code",
+          "detail": "Commande officielle pour agents",
+          "position": {
+            "x": 340,
+            "y": 640
+          }
+        },
+        {
+          "id": "vibe",
+          "label": "Vibe",
+          "detail": "Commande officielle pour agents",
+          "position": {
+            "x": 0,
+            "y": 800
+          }
+        },
+        {
+          "id": "sentropic-cli",
+          "label": "Commandes Sentropic",
+          "detail": "h2a, track et commandes du socle",
+          "position": {
+            "x": 340,
+            "y": 800
+          }
+        }
+      ],
+      "edges": [
+        {
+          "source": "h2a",
+          "target": "cluster-mesh",
+          "label": "coordination distribuée"
+        },
+        {
+          "source": "h2a",
+          "target": "llm-gateway",
+          "label": "exécution via le runtime"
+        },
+        {
+          "source": "llm-gateway",
+          "target": "llm-mesh",
+          "label": "routage des modèles"
+        },
+        {
+          "source": "h2a",
+          "target": "track",
+          "label": "travail et décisions"
+        },
+        {
+          "source": "h2a",
+          "target": "engram",
+          "label": "mémoire via le runtime"
+        },
+        {
+          "source": "design-system",
+          "target": "sentropic-apps",
+          "label": "composants visuels"
+        },
+        {
+          "source": "sentropic-apps",
+          "target": "cluster-mesh",
+          "label": "socle de services"
+        },
+        {
+          "source": "llm-mesh",
+          "target": "codex",
+          "label": "comptes et exécution"
+        },
+        {
+          "source": "llm-mesh",
+          "target": "claude",
+          "label": "comptes et exécution"
+        },
+        {
+          "source": "llm-mesh",
+          "target": "vibe",
+          "label": "comptes et exécution"
+        },
+        {
+          "source": "sentropic-cli",
+          "target": "h2a",
+          "label": "commandes de coordination"
+        }
+      ]
+    },
+    "models": {
+      "title": "Du coordinateur aux modèles",
+      "nodes": [
+        {
+          "id": "h2a",
+          "label": "h2a",
+          "detail": "Coordonne les agents et les décisions",
+          "position": {
+            "x": 0,
+            "y": 0
+          }
+        },
+        {
+          "id": "llm-gateway",
+          "label": "llm-gateway",
+          "detail": "Achemine les demandes de modèles",
+          "position": {
+            "x": 0,
+            "y": 160
+          }
+        },
+        {
+          "id": "llm-mesh",
+          "label": "llm-mesh",
+          "detail": "Gère comptes et fournisseurs de modèles",
+          "position": {
+            "x": 340,
+            "y": 160
+          }
+        },
+        {
+          "id": "codex",
+          "label": "Codex",
+          "detail": "Commande officielle pour agents",
+          "position": {
+            "x": 0,
+            "y": 640
+          }
+        },
+        {
+          "id": "claude",
+          "label": "Claude Code",
+          "detail": "Commande officielle pour agents",
+          "position": {
+            "x": 340,
+            "y": 640
+          }
+        },
+        {
+          "id": "vibe",
+          "label": "Vibe",
+          "detail": "Commande officielle pour agents",
+          "position": {
+            "x": 0,
+            "y": 800
+          }
+        }
+      ],
+      "edges": [
+        {
+          "source": "h2a",
+          "target": "llm-gateway",
+          "label": "exécution via le runtime"
+        },
+        {
+          "source": "llm-gateway",
+          "target": "llm-mesh",
+          "label": "routage des modèles"
+        },
+        {
+          "source": "llm-mesh",
+          "target": "codex",
+          "label": "comptes et exécution"
+        },
+        {
+          "source": "llm-mesh",
+          "target": "claude",
+          "label": "comptes et exécution"
+        },
+        {
+          "source": "llm-mesh",
+          "target": "vibe",
+          "label": "comptes et exécution"
+        }
+      ]
+    },
+    "knowledge": {
+      "title": "Travail et mémoire",
+      "nodes": [
+        {
+          "id": "h2a",
+          "label": "h2a",
+          "detail": "Coordonne les agents et les décisions",
+          "position": {
+            "x": 0,
+            "y": 0
+          }
+        },
+        {
+          "id": "track",
+          "label": "track",
+          "detail": "Conserve travail et décisions",
+          "position": {
+            "x": 0,
+            "y": 320
+          }
+        },
+        {
+          "id": "engram",
+          "label": "engram",
+          "detail": "Apporte la mémoire des agents",
+          "position": {
+            "x": 340,
+            "y": 320
+          }
+        }
+      ],
+      "edges": [
+        {
+          "source": "h2a",
+          "target": "track",
+          "label": "travail et décisions"
+        },
+        {
+          "source": "h2a",
+          "target": "engram",
+          "label": "mémoire via le runtime"
+        }
+      ]
+    },
+    "interfaces": {
+      "title": "Applications et commandes",
+      "nodes": [
+        {
+          "id": "h2a",
+          "label": "h2a",
+          "detail": "Coordonne les agents et les décisions",
+          "position": {
+            "x": 0,
+            "y": 0
+          }
+        },
+        {
+          "id": "cluster-mesh",
+          "label": "cluster-mesh",
+          "detail": "Relie services et identités",
+          "position": {
+            "x": 340,
+            "y": 0
+          }
+        },
+        {
+          "id": "design-system",
+          "label": "design-system",
+          "detail": "Fournit les composants visuels",
+          "position": {
+            "x": 0,
+            "y": 480
+          }
+        },
+        {
+          "id": "sentropic-apps",
+          "label": "Applications Sentropic",
+          "detail": "Composent les briques de l’écosystème",
+          "position": {
+            "x": 340,
+            "y": 480
+          }
+        },
+        {
+          "id": "sentropic-cli",
+          "label": "Commandes Sentropic",
+          "detail": "h2a, track et commandes du socle",
+          "position": {
+            "x": 340,
+            "y": 800
+          }
+        }
+      ],
+      "edges": [
+        {
+          "source": "h2a",
+          "target": "cluster-mesh",
+          "label": "coordination distribuée"
+        },
+        {
+          "source": "design-system",
+          "target": "sentropic-apps",
+          "label": "composants visuels"
+        },
+        {
+          "source": "sentropic-apps",
+          "target": "cluster-mesh",
+          "label": "socle de services"
+        },
+        {
+          "source": "sentropic-cli",
+          "target": "h2a",
+          "label": "commandes de coordination"
+        }
+      ]
+    }
+  }
+}
