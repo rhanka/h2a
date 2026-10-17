@@ -40,7 +40,10 @@ const BIN = join(REPO_ROOT, "packages", "h2a", "dist", "bin.js");
 // launch-index-era 13,649-byte stream and its SHA-256.
 // Native equipment adds the registry transition, strict Vibe write policy and
 // doctor host/skip/guard/lifecycle flags (+134 bytes); all routing checks stay exact.
-const CORE_HELP_SHA256 = "63e46708775f6f7865a4f0ef5150d3a09c2b52f7ae29bf43be30dbcc1374065e";
+// Updated for the interim direct Vibe MCP entry (owner 16/10, derogation spec-astra-v9 O7.2):
+// host setup usage line documents Vibe --write (interim direct) / --remove (migration)
+// instead of refusing every --write (+77 bytes, cli.ts renderCliHelp only).
+const CORE_HELP_SHA256 = "c4d7949e207d2989345c9c62dca935ad0adeabfbc11f13e72db50b40373d3dee";
 const RUNTIME_MISSING =
   "ce verbe requiert le runtime h2a (sessions / k8s / tunnel).\n" +
   "  Répare l'installation lockstep : npm i -g @sentropic/h2a@latest\n";
@@ -136,8 +139,10 @@ function assertCoreHelp(result) {
   // + 62 for the two 0.98 ` [--backend local|cluster-mesh]` usage flags,
   // + 90 for the explicit launch-index maintenance wording,
   // + 32 for the vibe host (four `|vibe` usage alternatives, poll-only note, Hosts line),
-  // + 52 for the vibe plugin surface (post_agent hook note replacing the poll-only listing).
-  assert.equal(Buffer.byteLength(result.stdout), 13867);
+  // + 52 for the vibe plugin surface (post_agent hook note replacing the poll-only listing),
+  // + 77 for the interim direct Vibe MCP entry (owner 16/10, derogation O7.2):
+  // the host setup usage line now documents Vibe --write/--remove instead of refusing every --write.
+  assert.equal(Buffer.byteLength(result.stdout), 13944);
 }
 
 function assertMissingRuntime(result, firstToken) {
