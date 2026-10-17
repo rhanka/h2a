@@ -36,7 +36,7 @@ function io(cwd: string): CliIO {
 const DECISION_TITLE = 'Ship track focus CLI'
 
 /** Seed a `.track` log with ONE decision (kind=commitment, outcome=go) over a fixture target item. */
-function seed(): { decisionId: string } {
+function seed(readable = false): { decisionId: string } {
   const track = new Track(new EventStore(eventsPath), { by: 'human:t@t' })
   const targetId = track.createItem({ kind: 'feature', title: 'Adopt focus', workspace: 'ws-1' })
   const decisionId = track.createDecision({
@@ -44,7 +44,7 @@ function seed(): { decisionId: string } {
     title: DECISION_TITLE,
     workspace: 'ws-1',
     targets: [targetId],
-    dossier: { context: 'We need a render path', options: [{ id: 'a', title: 'Option A', summary: 'first option' }, { id: 'b', title: 'Option B', summary: 'second option' }], qa: [], recommendation: { optionId: 'a', rationale: 'Option A is recommended' } },
+    dossier: readable ? JSON.parse(readFileSync(new URL('../../../focus/tests/readable-track.fixture.json', import.meta.url), 'utf8')) : { context: 'We need a render path', options: [{ id: 'a', title: 'Option A', summary: 'first option' }, { id: 'b', title: 'Option B', summary: 'second option' }], qa: [], recommendation: { optionId: 'a', rationale: 'Option A is recommended' } },
   })
   track.selectDecisionOption(decisionId, 'a')
   return { decisionId }
@@ -64,41 +64,34 @@ afterEach(() => {
 })
 
 describe('track focus', () => {
-  it('renders the decision dossier to the terminal (default format) — contains the title + outcome', async () => {
-    const { decisionId } = seed()
-    const code = await runCli(['focus', decisionId, '--workspace', 'ws-1', '--baseline-commit', 'c1'], io(root))
-    expect(code).toBe(0)
+  it.each(['terminal', 'md', 'html'])('renders readable %s decisions without writing the log', async (format) => {
+    const { decisionId } = seed(true)
+    const before = readFileSync(eventsPath, 'utf8')
+    expect(await runCli(['focus', decisionId, '--workspace', 'ws-1', '--baseline-commit', 'c1', '--format', format], io(root))).toBe(0)
     const text = out.join('')
-    expect(text.length).toBeGreaterThan(0)
+    expect(err).toEqual([])
     expect(text).toContain(DECISION_TITLE)
-    // the `go` outcome is surfaced as a rendered outcome line (focus's GO ratification text)
-    expect(text).toMatch(/GO/i)
+    expect(text).toContain('Keep the shed handy without spoiling the terrace view.')
+    expect(text).toContain('A short walk and a clear terrace view.')
+    expect(text).toContain('préco: Along the side wall, because')
+    if (format === 'html') {
+      expect(text).toContain('&lt;script&gt;alert(&quot;shed&quot;)&lt;/script&gt; &amp; comfort')
+      expect(text).not.toContain('<script>')
+    }
+    expect(readFileSync(eventsPath, 'utf8')).toBe(before)
   })
 
-  it('--format md dispatches the markdown renderer (markdown headings, contains the title)', async () => {
+  it.each(['terminal', 'md', 'html'])('blocks %s presentation when the stored dossier lacks readability information', async (format) => {
     const { decisionId } = seed()
+    const before = readFileSync(eventsPath, 'utf8')
     const code = await runCli(
-      ['focus', decisionId, '--workspace', 'ws-1', '--baseline-commit', 'c1', '--format', 'md'],
-      io(root),
+      ['focus', decisionId, '--workspace', 'ws-1', '--baseline-commit', 'c1', '--format', format], io(root),
     )
-    expect(code).toBe(0)
-    const md = out.join('')
-    expect(md).toContain(DECISION_TITLE)
-    expect(md).toMatch(/^#/m) // an ATX markdown heading — proves renderMd, not renderTerminal
-  })
-
-  it('--format html dispatches the html renderer (HTML markup, escaped prose <pre>, contains the title)', async () => {
-    const { decisionId } = seed()
-    const code = await runCli(
-      ['focus', decisionId, '--workspace', 'ws-1', '--baseline-commit', 'c1', '--format', 'html'],
-      io(root),
-    )
-    expect(code).toBe(0)
-    const html = out.join('')
-    expect(html).toContain(DECISION_TITLE)
-    expect(html).toMatch(/<[a-z]/i) // an HTML tag — proves renderHtml, not terminal/md
-    // the HTML_HOOKS markdown hook wraps prose in a recognizable <pre class="focus-md-raw">
-    expect(html).toContain('focus-md-raw')
+    expect(code).toBe(1)
+    expect(out).toEqual([])
+    expect(err.join('')).toContain('$.readability.ownerRequestQuote')
+    expect(err.join('')).toContain('owner request')
+    expect(readFileSync(eventsPath, 'utf8')).toBe(before)
   })
 
   it('missing --workspace → rc=2 + usage (workspace is REQUIRED, like the decision-id positional)', async () => {
@@ -137,7 +130,7 @@ describe('track focus', () => {
   })
 
   it('runCli returns a Promise that resolves to the rc for the async focus path', async () => {
-    const { decisionId } = seed()
+    const { decisionId } = seed(true)
     const result = runCli(['focus', decisionId, '--workspace', 'ws-1', '--baseline-commit', 'c1'], io(root))
     expect(typeof (result as Promise<number>).then).toBe('function') // it's a thenable
     await expect(Promise.resolve(result)).resolves.toBe(0)

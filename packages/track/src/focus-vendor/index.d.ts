@@ -7,7 +7,7 @@
  * `@sentropic/track/read` `DecisionDossierView` + `amendmentTrace` (L2 replaced L1's local
  * `DecisionDossierViewFixture` type + mapper).
  */
-export type { Affordance, AmendmentStep, AmendmentTraceNode, ComprehensionEvidence, DecisionDossierDocument, DiagramNode, DiagramSyntax, FocusNode, FocusProvenance, FocusRef, OptionAnnotationState, OptionNode, OptionSetNode, OutcomeModality, OutcomeNode, ProseNode, QuestionNode, QuestionValidationState, TargetRef, } from "./model.js";
+export type { Affordance, AmendmentStep, AmendmentTraceNode, ComprehensionEvidence, DecisionDossierDocument, DiagramNode, DiagramSyntax, DossierReadability, FocusNode, FocusProvenance, FocusRef, GlossaryEntry, OptionAnnotationState, OptionNode, OptionSetNode, OutcomeModality, OutcomeNode, ProseNode, QuestionNode, QuestionValidationState, TargetRef, } from "./model.js";
 export type { HtmlRenderHooks, MdRenderHooks, RenderMarkdown, SanitizeHtml, } from "./render/hooks.js";
 export { renderTerminal } from "./render/terminal.js";
 export type { TerminalRenderOptions } from "./render/terminal.js";

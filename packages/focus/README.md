@@ -5,6 +5,15 @@ A **focused-session document runtime** — the read-only **FocusSnapshot** rende
 to orient/steer it (decide being one modality among orient / amend / comment). See
 `spec/SPEC_VOL_FOCUS.md`.
 
+Decision presentation now requires the [readability gate](READABILITY.md): a literal
+owner request, plain stakes, short explicit questions/options, a recommendation,
+reading estimates and a visible glossary for codes. Public renderers refuse before
+host hooks run. `@sentropic/focus/validate` exports
+`validateDecisionDossierForPresentation` and `assertDecisionDossierForPresentation`.
+The schema additions are optional, and `validateDecisionDossierDocument` still
+accepts historical data. Legacy Track projections cannot be presented until they
+supply this information; Focus never invents an owner request to pass the gate.
+
 This package is **private** (`"private": true`) and **app-local-first**: it is not yet published.
 It is extracted to `@sentropic/focus` on npm only once a real external consumer wires it
 (repo real-consumption rule).

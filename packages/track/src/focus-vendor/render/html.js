@@ -7,6 +7,7 @@
  * dep, NO mdast core); the full document HTML is run through the host `sanitizeHtml` hook before
  * emission. The renderer core owns structure only; hosts own sanitization/styling.
  */
+import { preparePresentation } from "./presentation.js";
 /** Minimal HTML text escaping for attribute/text content the renderer itself emits. */
 const escapeHtml = (value) => value
     .replace(/&/g, "&amp;")
@@ -18,6 +19,10 @@ const renderQuestion = (q) => {
     const parts = [
         `<p class="focus-q"><strong>Q:</strong> ${escapeHtml(q.question)} <em>(${escapeHtml(q.state)})</em></p>`,
     ];
+    if (q.context !== undefined)
+        parts.push(`<p class="focus-context">${escapeHtml(q.context)}</p>`);
+    if (q.readingTimeMinutes !== undefined)
+        parts.push(`<p class="focus-reading-time">Reading time: ${q.readingTimeMinutes} min</p>`);
     if (q.recommendedAnswer !== undefined) {
         parts.push(`<p class="focus-preco">préco: ${escapeHtml(q.recommendedAnswer)}</p>`);
     }
@@ -37,7 +42,7 @@ const renderOptionSet = (s) => {
         const body = o.body !== undefined
             ? `<div class="focus-option-body">${escapeHtml(o.body)}</div>`
             : "";
-        return `<li class="focus-option" data-annotation="${escapeHtml(o.annotation)}"><strong>${escapeHtml(o.label)}</strong>${comment}${body}</li>`;
+        return `<li class="focus-option" data-annotation="${escapeHtml(o.annotation)}"><strong>${escapeHtml(o.label)}</strong><p class="focus-consequence">${escapeHtml(o.consequence ?? "")}</p>${comment}${body}</li>`;
     });
     return `<section class="focus-optionset">${head}<ul>${items.join("")}</ul></section>`;
 };
@@ -73,6 +78,11 @@ const renderAffordances = (affordances) => {
 };
 /** Render a decision-dossier document to a sanitized HTML string. */
 export const renderHtml = (doc, hooks) => {
+    doc = preparePresentation(doc);
+    const r = doc.readability;
+    const readability = `<section class="focus-readability"><h2>Owner request</h2><blockquote>${escapeHtml(r.ownerRequestQuote)}</blockquote>` +
+        `<h2>Stakes</h2><p>${escapeHtml(r.stakes)}</p><p>Reading budget: ${r.readingBudgetMinutes} min (${escapeHtml(r.stakesLevel)} stakes)</p>` +
+        (r.glossary?.length ? `<h2>Glossary</h2><dl>${r.glossary.map((entry) => `<dt>${escapeHtml(entry.term)}</dt><dd>${escapeHtml(entry.definition)}</dd>`).join("")}</dl>` : "") + "</section>";
     const header = `<header class="focus-header"><h1>${escapeHtml(doc.title)}</h1>` +
         `<p class="focus-meta">subject: ${escapeHtml(doc.subject)} · ref: <code>${escapeHtml(doc.ref)}</code> · cursor: <code>${escapeHtml(doc.cursor)}</code></p></header>`;
     const sections = doc.sections.map((node) => renderNode(node, hooks)).join("");
@@ -80,6 +90,7 @@ export const renderHtml = (doc, hooks) => {
     const affordances = renderAffordances(doc.interactions);
     const html = `<article class="focus-document" data-ref="${escapeHtml(doc.ref)}">` +
         header +
+        readability +
         sections +
         amendment +
         affordances +

@@ -13,7 +13,33 @@ import { renderHtml, renderMd, renderTerminal } from "../src/index.js";
 import type { HtmlRenderHooks } from "../src/index.js";
 import { decisionDossierFixture } from "./fixture.data.js";
 
-const doc = decisionDossierFixture;
+const doc = {
+  ...decisionDossierFixture,
+  readability: {
+    ownerRequestQuote: "Keep the renderer private until a real consumer needs a public package.",
+    stakes: "Publishing early commits us to supporting an interface before a user has tried it.",
+    stakesLevel: "medium" as const,
+    readingBudgetMinutes: 4,
+    glossary: [
+      { term: "M1", definition: "First delivery stage: a reusable document renderer." },
+      { term: "L1", definition: "First step: render fixed example documents." },
+      { term: "L4", definition: "Fourth step: add authorized live changes." },
+    ],
+  },
+  sections: decisionDossierFixture.sections.map((section) => {
+    if (section.kind === "question") return {
+      ...section, context: "A private package lets us try the interface before making a public support commitment.",
+      readingTimeMinutes: 2, recommendedOptionId: "opt-private",
+    };
+    if (section.kind === "optionSet") return {
+      ...section, questionId: "q-publish", options: section.options.map((option, index) => ({
+        ...option, consequence: ["Try the interface without a public support commitment.", "Commit to supporting a public interface now.", "Keep one copy inside the application, making reuse harder."][index],
+      })),
+    };
+    if (section.kind === "outcome") return { ...section, questionId: "q-publish", statement: section.statement.replace("PRIVATE", "private") };
+    return section;
+  }),
+};
 
 // A trivial host markdown hook (NOT marked — proves injection). Wraps content in a marker.
 const hooks: HtmlRenderHooks = {

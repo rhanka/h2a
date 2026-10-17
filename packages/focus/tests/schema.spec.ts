@@ -294,14 +294,14 @@ describe("published JSON Schema parity with the TS validator (rev352-F3)", () =>
   const checkClosedObjectDef = (
     doc: unknown,
     name: string,
-    required: readonly string[],
+    required: readonly string[] | undefined,
     properties: readonly string[],
   ): void => {
     const def = defsOf(doc)[name];
     expect(def, `$defs.${name} exists`).toBeDefined();
     expect(def["type"]).toBe("object");
     expect(def["additionalProperties"]).toBe(false);
-    expect(def["required"]).toEqual([...required]);
+    expect(def["required"]).toEqual(required === undefined ? undefined : [...required]);
     expect(Object.keys(def["properties"] as Record<string, unknown>).sort()).toEqual(
       [...properties].sort(),
     );
@@ -321,7 +321,7 @@ describe("published JSON Schema parity with the TS validator (rev352-F3)", () =>
       "sections", "interactions", "provenance", "amendmentTrace",
     ]);
     expect(Object.keys(defsOf(doc)).sort()).toEqual(
-      ["amendmentStep", "amendmentTraceNode", "comprehensionEvidence", "diagramNode", "interaction", "optionNode", "optionSetNode", "outcomeNode", "proseNode", "provenance", "questionNode", "section"],
+      ["amendmentStep", "amendmentTraceNode", "comprehensionEvidence", "diagramNode", "glossaryEntry", "interaction", "optionNode", "optionSetNode", "outcomeNode", "proseNode", "provenance", "questionNode", "readability", "section"],
     );
     expect(defsOf(doc)["section"]!["oneOf"]).toEqual([
       { $ref: "#/$defs/proseNode" },
@@ -343,7 +343,7 @@ describe("published JSON Schema parity with the TS validator (rev352-F3)", () =>
     expect(rootProps["provenance"]).toEqual({ $ref: "#/$defs/provenance" });
     expect(rootProps["amendmentTrace"]).toEqual({ type: "array", items: { $ref: "#/$defs/amendmentStep" } });
 
-    checkClosedObjectDef(doc, "proseNode", ["kind", "id", "targetRef", "markdown"], ["kind", "id", "targetRef", "markdown"]);
+    checkClosedObjectDef(doc, "proseNode", ["kind", "id", "targetRef", "markdown"], ["kind", "id", "targetRef", "markdown", "questionId"]);
     expect(propsOf(doc, "proseNode")["kind"]).toEqual({ const: "prose" });
     expect(propsOf(doc, "proseNode")["id"]).toEqual({ type: "string" });
     expect(propsOf(doc, "proseNode")["targetRef"]).toEqual({ type: "string" });
@@ -391,14 +391,14 @@ describe("published JSON Schema parity with the TS validator (rev352-F3)", () =>
     expect(propsOf(doc, "amendmentStep")["at"]).toEqual({ type: "string" });
     expect(propsOf(doc, "amendmentStep")["author"]).toEqual({ type: "string" });
     expect(propsOf(doc, "amendmentStep")["summary"]).toEqual({ type: "string" });
-    checkClosedObjectDef(doc, "questionNode", ["kind", "id", "targetRef", "question", "state"], ["kind", "id", "targetRef", "question", "recommendedAnswer", "answer", "state"]);
-    checkClosedObjectDef(doc, "optionNode", ["kind", "id", "targetRef", "label", "annotation"], ["kind", "id", "targetRef", "label", "body", "annotation", "annotationComment"]);
-    checkClosedObjectDef(doc, "optionSetNode", ["kind", "id", "targetRef", "options"], ["kind", "id", "targetRef", "title", "options"]);
+    checkClosedObjectDef(doc, "questionNode", ["kind", "id", "targetRef", "question", "state"], ["kind", "id", "targetRef", "question", "recommendedAnswer", "answer", "state", "context", "readingTimeMinutes", "recommendedOptionId"]);
+    checkClosedObjectDef(doc, "optionNode", ["kind", "id", "targetRef", "label", "annotation"], ["kind", "id", "targetRef", "label", "body", "annotation", "annotationComment", "consequence"]);
+    checkClosedObjectDef(doc, "optionSetNode", ["kind", "id", "targetRef", "options"], ["kind", "id", "targetRef", "title", "options", "questionId"]);
     expect(propsOf(doc, "optionSetNode")["options"]).toEqual({
       type: "array",
       items: { $ref: "#/$defs/optionNode" },
     });
-    checkClosedObjectDef(doc, "outcomeNode", ["kind", "id", "targetRef", "modality", "statement"], ["kind", "id", "targetRef", "modality", "statement"]);
+    checkClosedObjectDef(doc, "outcomeNode", ["kind", "id", "targetRef", "modality", "statement"], ["kind", "id", "targetRef", "modality", "statement", "questionId"]);
     checkClosedObjectDef(doc, "amendmentTraceNode", ["kind", "id", "targetRef", "steps"], ["kind", "id", "targetRef", "steps"]);
     checkClosedObjectDef(doc, "diagramNode", ["kind", "id", "targetRef", "syntax", "source", "alt"], ["kind", "id", "targetRef", "syntax", "source", "alt"]);
     checkClosedObjectDef(doc, "interaction", ["name", "targetRef", "label", "enabled"], ["name", "targetRef", "label", "enabled"]);
@@ -410,6 +410,14 @@ describe("published JSON Schema parity with the TS validator (rev352-F3)", () =>
     });
     checkClosedObjectDef(doc, "amendmentStep", ["at", "author", "summary"], ["at", "author", "summary"]);
 
+    checkClosedObjectDef(doc, "readability", undefined, ["ownerRequestQuote", "noOwnerRequest", "stakes", "stakesLevel", "readingBudgetMinutes", "glossary"]);
+    checkClosedObjectDef(doc, "glossaryEntry", ["term", "definition"], ["term", "definition"]);
+    for (const field of ["ownerRequestQuote", "stakes"]) expect(propsOf(doc, "readability")[field]).toEqual({ type: "string" });
+    expect(propsOf(doc, "readability")["noOwnerRequest"]).toEqual({ type: "boolean" });
+    expect(propsOf(doc, "readability")["readingBudgetMinutes"]).toEqual({ type: "number" });
+    expect(propsOf(doc, "readability")["glossary"]).toEqual({ type: "array", items: { $ref: "#/$defs/glossaryEntry" } });
+    for (const field of ["term", "definition"]) expect(propsOf(doc, "glossaryEntry")[field]).toEqual({ type: "string" });
+    checkEnum(doc, "readability", "stakesLevel", ["low", "medium", "high"]);
     checkEnum(doc, "questionNode", "state", ["open", "answered", "validated"]);
     checkEnum(doc, "optionNode", "annotation", ["none", "accept", "reject", "comment"]);
     checkEnum(doc, "outcomeNode", "modality", ["decision", "orientation", "amendment", "comment"]);
@@ -426,6 +434,15 @@ describe("published JSON Schema parity with the TS validator (rev352-F3)", () =>
   }
 
   const drifts: readonly SchemaDrift[] = [
+    ...["readability", "glossaryEntry"].flatMap((name) => [
+      { name: "opened " + name, mutate: (doc: Record<string, unknown>) => { defsOf(doc)[name]!["additionalProperties"] = true; } },
+      { name: "changed required " + name, mutate: (doc: Record<string, unknown>) => { defsOf(doc)[name]!["required"] = ["invented"]; } },
+      { name: "added property " + name, mutate: (doc: Record<string, unknown>) => { propsOf(doc, name)["invented"] = { type: "string" }; } },
+    ]),
+    { name: "changed stakes enum", mutate: (doc) => { propsOf(doc, "readability")["stakesLevel"]!["enum"] = ["low"]; } },
+    { name: "changed glossary definition type", mutate: (doc) => { propsOf(doc, "glossaryEntry")["definition"] = { type: "number" }; } },
+    { name: "changed reading budget type", mutate: (doc) => { propsOf(doc, "readability")["readingBudgetMinutes"] = { type: "string" }; } },
+    { name: "retargeted glossary entries", mutate: (doc) => { propsOf(doc, "readability")["glossary"] = { type: "array", items: { $ref: "#/$defs/interaction" } }; } },
     {
       name: "narrowed question state enum",
       mutate: (doc) => { propsOf(doc, "questionNode")["state"]!["enum"] = ["open"]; },

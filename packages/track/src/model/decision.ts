@@ -17,12 +17,17 @@ export interface Option {
   summary: string
   pros?: string[]
   cons?: string[]
+  questionId?: string
 }
 
 export interface QAEntry {
   id: string
   question: string
   answer?: string
+  context?: string
+  readingTimeMinutes?: number
+  recommendedOptionId?: string
+  recommendedAnswer?: string
 }
 
 /**
@@ -65,6 +70,17 @@ export type DossierArtifact =
 /** Typed decision dossier (SPEC §2.7). `outcome` is NOT duplicated here (single source = the Decision). */
 export interface Dossier {
   context: string
+  /** Explicit presentation metadata; absent on historical dossiers. Never inferred. */
+  subject?: string
+  questionId?: string // question addressed by the shared context and overall outcome
+  readability?: {
+    ownerRequestQuote?: string
+    noOwnerRequest?: boolean
+    stakes?: string
+    stakesLevel?: 'low' | 'medium' | 'high'
+    readingBudgetMinutes?: number
+    glossary?: { term: string; definition: string }[]
+  }
   options: Option[]
   qa: QAEntry[]
   selectedOptionId?: string
