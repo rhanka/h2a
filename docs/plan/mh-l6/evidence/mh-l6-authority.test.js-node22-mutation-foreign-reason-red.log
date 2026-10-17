@@ -1,0 +1,47 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-authority.test.js
+node: v22.22.1
+private root: /tmp/mh-l6-test-Vp76Xt
+case: F should refuse a foreign controller with a CLI-level reason
+TAP version 13
+# Subtest: F should refuse a foreign controller with a CLI-level reason
+not ok 1 - F should refuse a foreign controller with a CLI-level reason
+  ---
+  duration_ms: 141.240049
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-f2b-YWVgcA/packages/h2a/test/mh-l6-authority.test.js:8:67'
+  failureType: 'testCodeFailure'
+  error: |-
+    The input did not match the regular expression /upgrade_authority_foreign/. Input:
+    
+    'Error: upgrade_authority_revoked'
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected:
+  actual:
+  error: 'upgrade_authority_revoked'
+  stack: |-
+    assertUpgradeAuthority (file:///tmp/mh-l3-qualification-f2b-YWVgcA/packages/h2a/dist/runtime/upgrade/upgrade-authority.js:20:15)
+    file:///tmp/mh-l3-qualification-f2b-YWVgcA/packages/h2a/test/mh-l6-authority.test.js:42:23
+    getActual (node:assert:609:5)
+    Function.throws (node:assert:757:24)
+    TestContext.<anonymous> (file:///tmp/mh-l3-qualification-f2b-YWVgcA/packages/h2a/test/mh-l6-authority.test.js:42:10)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+  operator: 'throws'
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/mh-l3-qualification-f2b-YWVgcA/packages/h2a/test/mh-l6-authority.test.js:42:10)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 0
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 249.166216
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-authority.test.js"],"code":1,"signal":null,"tests":1,"invalid":false,"spawned":1,"leftovers":[]}
