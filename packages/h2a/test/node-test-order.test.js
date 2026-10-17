@@ -4,6 +4,17 @@ import fs from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { prioritizeNodeTestFiles } from '../../../scripts/run-tests.mjs';
+
+test('both real package suites start before the remaining Node files without dropping any file', () => {
+  const core = resolve('packages/h2a/test/mh-l6-package.test.js');
+  const runtime = resolve('packages/h2a/test/mh-l6-runtime-package.test.js');
+  const others = [resolve('packages/h2a/test/abc.test.js'), resolve('packages/h2a/test/mcp-central.test.js')];
+  const files = prioritizeNodeTestFiles([others[0], core, others[1], runtime]);
+  assert.deepEqual(files.slice(0, 2), [core, runtime]);
+  assert.deepEqual(files.slice(2), others);
+  assert.equal(files.length, 4);
+});
 
 function scenario(t, failing = false) {
   const root = fs.mkdtempSync(join(tmpdir(), 'ordered-node-tests-'));
