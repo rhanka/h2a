@@ -10,7 +10,9 @@
     "src/session-content-confirmation.ts",
     "src/session-content-confirmation.test.ts",
     "src/session-content-auth.ts",
-    "src/session-content-auth.test.ts"
+    "src/session-content-auth.test.ts",
+    "src/session-content-fence.ts",
+    "src/session-content-fence.test.ts"
   ],
   "exclude": []
 }

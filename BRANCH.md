@@ -762,3 +762,7 @@ the root concurrency defect is fixed without introducing a persistent global loc
 - [ ] Sentropic auth implementer: deployed issuer/client/policy, login-session introspection and atomic UV-event/code binding required for A acceptance; mocks are not qualification.
 - [ ] Conductor: candidate version allocation and integrated 0.98.8 head required before publication/E.
 - [ ] Independent review: installed h2a MCP dispatch forbidden by owner confinement; no consensus claimed.
+
+### CM2-F2 continuation — A durable primitive
+- [x] Explicit private-directory fsync proof journal, durable denial floors, stale-fence and restart tests.
+- [ ] A deployed IdP/login and actual provider tuple remain external acceptance gates; continue B–D preparation without declaring contract freeze.
