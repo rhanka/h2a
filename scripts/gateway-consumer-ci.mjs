@@ -85,11 +85,30 @@ const ACTIVE_KEYS = [
   "contractSha256",
   "releaseLockSha256",
   "artifactManifest",
+  "artifactManifestText",
   "packages",
+  "candidateBundle",
   "mode",
+  "scopes",
   "profiles",
   "programCoverage",
 ];
+const MANIFEST_KEYS = new Set(["sha256", "path"]);
+const BUNDLE_KEYS = new Set(["root", "indexPath", "bundleSha256"]);
+const PACKAGE_KEYS = new Set([
+  "lockLocation",
+  "name",
+  "version",
+  "resolved",
+  "integrity",
+  "tarballSha256",
+  "sourceIdentity",
+]);
+const COVERAGE_KEYS = new Set(["program", "phase", "contractSha256", "profiles"]);
+
+function unknownKeys(record, allowed) {
+  return Object.keys(record).filter((k) => !allowed.has(k));
+}
 const BUNDLE_PHASES =
   "(pr1-candidate|pr2-candidate|pr3-candidate|r4-candidate|r5-candidate|r6-candidate|r7b-candidate)";
 const BUNDLE_ROOT = new RegExp(
@@ -137,6 +156,9 @@ export function validateInput(input) {
     for (const key of ACTIVE_KEYS) {
       if (input[key] !== undefined) errors.push(`phase none forbids "${key}"`);
     }
+    if (Object.keys(input).length !== 3) {
+      errors.push('phase none is exactly {schemaVersion, program, phase}');
+    }
     return errors;
   }
   // Active phases.
@@ -153,6 +175,11 @@ export function validateInput(input) {
   if (!isRecord(input.artifactManifest) || !HEX64.test(input.artifactManifest.sha256 ?? "")) {
     errors.push("artifactManifest.sha256 must be a full lowercase 64-hex SHA-256");
   }
+  if (isRecord(input.artifactManifest)) {
+    for (const k of unknownKeys(input.artifactManifest, MANIFEST_KEYS)) {
+      errors.push(`artifactManifest has unknown key "${k}"`);
+    }
+  }
   if (isCandidate) {
     if (typeof input.artifactManifest?.path !== "string" || !BUNDLE_MANIFEST.test(input.artifactManifest.path)) {
       errors.push("candidate artifactManifest.path must resolve under the candidate bundle root");
@@ -164,8 +191,14 @@ export function validateInput(input) {
     if (!isRecord(b)) {
       errors.push("candidate requires candidateBundle {root, indexPath, bundleSha256}");
     } else {
+      for (const k of unknownKeys(b, BUNDLE_KEYS)) {
+        errors.push(`candidateBundle has unknown key "${k}"`);
+      }
       if (typeof b.root !== "string" || !BUNDLE_ROOT.test(b.root)) {
         errors.push("candidateBundle.root must be .github/gateway-candidates/<phase>/<bundle-sha256>/");
+      }
+      if (typeof b.root === "string" && !b.root.startsWith(`.github/gateway-candidates/${input.phase}/`)) {
+        errors.push("candidateBundle.root must resolve under the active candidate phase");
       }
       if (typeof b.indexPath !== "string" || !BUNDLE_INDEX.test(b.indexPath)) {
         errors.push("candidateBundle.indexPath must be <root>bundle-index.json");
@@ -203,8 +236,15 @@ export function validateInput(input) {
     errors.push("packages must be an array");
   } else {
     input.packages.forEach((row, i) => {
+      if (!isRecord(row)) {
+        errors.push(`packages[${i}] must be an object`);
+        return;
+      }
+      for (const k of unknownKeys(row, PACKAGE_KEYS)) {
+        errors.push(`packages[${i}] has unknown key "${k}"`);
+      }
       for (const f of ["lockLocation", "name", "version", "resolved", "integrity"]) {
-        if (typeof row?.[f] !== "string" || row[f].length === 0) {
+        if (typeof row[f] !== "string" || row[f].length === 0) {
           errors.push(`packages[${i}].${f} is required`);
         }
       }
@@ -246,23 +286,39 @@ export function validateInput(input) {
         errors.push(`programCoverage[${i}] needs program and phase`);
         return;
       }
+      for (const k of unknownKeys(row, COVERAGE_KEYS)) {
+        errors.push(`programCoverage[${i}] has unknown key "${k}"`);
+      }
       const rowPhases = row.program === "gateway" ? GATEWAY_PHASES : REGISTRY_PHASES;
       if (!rowPhases.has(row.phase)) errors.push(`programCoverage[${i}] mismatched program/phase pair`);
       if (!HEX64.test(row.contractSha256 ?? "")) errors.push(`programCoverage[${i}].contractSha256 must be 64-hex`);
-      if (!Array.isArray(row.profiles) || row.profiles.length === 0 || !sortedUnique(row.profiles)) {
-        errors.push(`programCoverage[${i}].profiles must be a sorted unique nonempty list`);
+      if (
+        !Array.isArray(row.profiles) ||
+        row.profiles.length === 0 ||
+        !sortedUnique(row.profiles) ||
+        !row.profiles.every((p) => PROFILES.has(p))
+      ) {
+        errors.push(
+          `programCoverage[${i}].profiles must be a sorted unique nonempty list from the finite profile map`,
+        );
       }
       seen.add(`${row.program}/${row.phase}`);
     });
     const activeRow = `${input.program}/${input.phase}`;
     if (!seen.has(activeRow)) errors.push("programCoverage must contain the active program/phase row");
     const active = input.programCoverage.find((r) => `${r?.program}/${r?.phase}` === activeRow);
-    if (
-      isRecord(active) &&
-      (active.contractSha256 !== input.contractSha256 ||
-        JSON.stringify(active.profiles) !== JSON.stringify(input.profiles))
-    ) {
-      errors.push("programCoverage active row must match top-level contract/profiles");
+    if (isRecord(active) && active.contractSha256 !== input.contractSha256) {
+      errors.push("programCoverage active row must match top-level contract");
+    }
+    const union = Array.from(
+      new Set(
+        input.programCoverage
+          .filter(isRecord)
+          .flatMap((r) => (Array.isArray(r.profiles) ? r.profiles : [])),
+      ),
+    ).sort();
+    if (JSON.stringify(input.profiles) !== JSON.stringify(union)) {
+      errors.push("profiles must be the sorted union of programCoverage row profiles");
     }
   }
   return errors;
