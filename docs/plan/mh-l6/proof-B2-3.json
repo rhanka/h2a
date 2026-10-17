@@ -1,0 +1,61 @@
+{
+  "source": "/tmp/mh-l3-qualification-b23",
+  "worktree": "/home/antoinefa/src/h2a/tmp/worktrees/mh-l0",
+  "files": [
+    {
+      "path": "packages/h2a/test/mh-l6-observers.test.js",
+      "sha256": "08e82332b84cbc8c025d29295c46c2798950dcad7c8e3f3713b4dc57bb77f5c3"
+    },
+    {
+      "path": "packages/h2a/src/runtime/upgrade/legacy-observers.js",
+      "sha256": "41ce06b3b2151d2f94cf76382eb9363f0f2cd64ec6d32383f50d9edd2fe6c9eb"
+    },
+    {
+      "path": "packages/h2a/src/runtime/upgrade/legacy-exclusion.js",
+      "sha256": "84d2849a9a5fa7d4362eda790095852527ab63a518bbfc812609feb4ceb5ec50"
+    },
+    {
+      "path": "scripts/mh-l6-mutate.mjs",
+      "sha256": "aebc695240de799bb9546626e1f4d33c2a7cd7e4a976970b49ef2bb364e46d50"
+    },
+    {
+      "path": "scripts/mh-l6-test.mjs",
+      "sha256": "499fa0af002d05ef5dd7b8d36adb0679351c0542aa852cec13bceb8fbc23bd7d"
+    },
+    {
+      "path": "scripts/mh-l6-legacy-fixtures.mjs",
+      "sha256": "5669565da46d29b3f17f976eb6a0cda1b41c301cebc3c74b2c5bcdaa7c941617"
+    },
+    {
+      "path": "docs/plan/mh-l6/legacy-integrity.json",
+      "sha256": "43c85e14001abeafef4f437f16460dd426faed73932e32f912d7282358ed1731"
+    }
+  ],
+  "compiled": [
+    {
+      "path": "packages/h2a/dist/runtime/upgrade/legacy-observers.js",
+      "sha256": "763d10d63d73bcf00a1019b90cf8c1ff0cd8a712ad18975ee5b065f57e713d76"
+    },
+    {
+      "path": "packages/h2a/dist/runtime/upgrade/legacy-exclusion.js",
+      "sha256": "c9fef27878592324225116c646297e6e5c7faf4cacf84ec6a2cf5f009b9797e5"
+    }
+  ],
+  "integrity": {
+    "bytes": 2037152,
+    "integrity": "sha512-3e56L3hp1tMH0Cuu/WWFcaLYmWCJ8ffuutuEbNxWL2s7q0CJ4NNncqrXllJ+TmqFvkWur//5TKQND1YXdR2pRg==",
+    "sha256": "aa7553a50f502b18e894d30b7ff063a100ecb8b48b279b910d15b87dd544e814"
+  },
+  "profiles": [
+    {
+      "major": 22,
+      "tests": 20,
+      "mutations": 7
+    },
+    {
+      "major": 24,
+      "tests": 20,
+      "mutations": 7
+    }
+  ]
+}
