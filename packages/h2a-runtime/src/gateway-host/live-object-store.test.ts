@@ -359,6 +359,28 @@ describe("private live root retention R1", () => {
     expect(await store.pending()).toEqual([]);
   });
 
+  for (const algorithm of ["sha1", "sha256"] as const) {
+    it(`acquires a new root when retained exclusions exceed 1 MiB (${algorithm})`, async () => {
+      const f = fixture(algorithm); const store = createLiveObjectStore(f.options);
+      await store.recordRequest(f.request(f.base));
+      // Packed aliases isolate enumeration volume from object/history volume.
+      // All exclusions resolve to a real commit already in the private store.
+      const count = algorithm === "sha1" ? 27_000 : 17_000;
+      expect(Buffer.byteLength(`${f.base}\n`) * count).toBeGreaterThan(1024 * 1024);
+      writeFileSync(join(store.gitDir, "packed-refs"), "# pack-refs with: sorted\n" +
+        Array.from({ length: count }, (_, i) =>
+          `${f.base} refs/h2a/retained/${i.toString(16).padStart(f.base.length, "0")}\n`).join(""));
+      const before = inventory(f.repo);
+      await store.recordRequest(f.request());
+      expect((await store.loadReceipts({ scope, algorithm })).receipts.map(r => r.oid).sort())
+        .toEqual([f.base, f.oid].sort());
+      expect(await store.pending()).toEqual([]);
+      expect(f.git(`--git-dir=${store.gitDir}`, "show", `${f.oid}:file.txt`)).toBe("protected history");
+      expect(existsSync(store.acquisitionLockPath)).toBe(false);
+      expect(inventory(f.repo)).toEqual(before);
+    }, 30_000);
+  }
+
   it("excludes a retained root even after source GC and acquires a new sibling", async () => {
     const f = fixture(); const store = createLiveObjectStore(f.options);
     await store.recordRequest(f.request());
