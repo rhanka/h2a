@@ -1,0 +1,130 @@
+{
+  "format": "sentropic.registry-package/v1",
+  "entries": [
+    {
+      "format": "sentropic.registry-entry/v1",
+      "contractVersion": "1.1.4",
+      "kind": "mcp",
+      "id": "sentropic.track",
+      "name": "track",
+      "description": "Track read-only MCP: report, snapshot, query, validation and provenance reads over the per-request authorized repository.",
+      "entryVersion": "1.0.0",
+      "publisher": {
+        "packageName": "@sentropic/track",
+        "packageVersion": "0.98.5"
+      },
+      "compatibility": {
+        "entryContract": "1.1.4",
+        "packages": [],
+        "schemaProfiles": [
+          "sentropic.parameters/2020-12-bounded-v1"
+        ],
+        "requiredHostFeatures": [
+          "stdio"
+        ],
+        "optionalHostFeatures": [
+          "streamable-http"
+        ]
+      },
+      "parameters": {
+        "schemaVersion": "1.0.0",
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "$id": "urn:sentropic:registry:parameters:sentropic.track:1.0.0",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "access",
+            "repositoryBindingRef"
+          ],
+          "properties": {
+            "access": {
+              "const": "read-only"
+            },
+            "repositoryBindingRef": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 96,
+              "pattern": "^[a-z0-9][a-z0-9._-]*$"
+            }
+          }
+        },
+        "defaults": {
+          "access": "read-only"
+        }
+      },
+      "bindings": [
+        {
+          "key": "h2a-attachment-workspace",
+          "contract": "h2a.workspace/v1",
+          "required": true
+        }
+      ],
+      "assets": [
+        {
+          "role": "manifest",
+          "path": "registry/manifest.track.json",
+          "mediaType": "application/json",
+          "sha256": "f5f83e7028f8ae757fa4b2596cb69ea79f1eb805b10a847c9eebbc4bbb54cddf"
+        }
+      ],
+      "mcp": {
+        "manifestAsset": "registry/manifest.track.json",
+        "connectorIds": [
+          "track-read"
+        ],
+        "transportProfiles": [
+          {
+            "id": "attachment-stdio",
+            "mode": "binding",
+            "bindingKey": "h2a-attachment-workspace",
+            "protocolVersions": [
+              "2025-06-18"
+            ],
+            "requiredHostFeatures": [
+              "stdio"
+            ]
+          },
+          {
+            "id": "hosted-read-only-http",
+            "mode": "streamable-http",
+            "protocolVersions": [
+              "2025-06-18"
+            ],
+            "requiredHostFeatures": [
+              "streamable-http"
+            ]
+          }
+        ],
+        "protocolVersions": [
+          "2025-06-18"
+        ],
+        "capabilityProfiles": [
+          {
+            "id": "read-only",
+            "tools": [
+              "track_report",
+              "track_snapshot",
+              "track_query",
+              "track_validate",
+              "track_audit",
+              "track_branch_provenance",
+              "track_freshness",
+              "track_external_deps",
+              "track_status",
+              "track_verification_runs",
+              "track_scope_validate",
+              "track_cursor",
+              "track_canevas",
+              "track_amendment_trace",
+              "track_workspace_activity"
+            ],
+            "resources": [],
+            "prompts": [],
+            "readOnly": true
+          }
+        ]
+      }
+    }
+  ]
+}

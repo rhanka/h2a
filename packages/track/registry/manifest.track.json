@@ -1,0 +1,358 @@
+{
+  "providerId": "sentropic.track",
+  "version": "1.0.0",
+  "appId": "@sentropic/track",
+  "tools": [
+    {
+      "name": "track_report",
+      "description": "Legacy deterministic backlog projection. JSON/text/Markdown outputs are compatibility reads and never invoke AI; use track_snapshot for the canonical factual contract and CLI `track report --wp --decisions` for the complete local conductor.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "baselineCommit": {
+            "type": "string",
+            "description": "Commit the report is evaluated against (acceptance/staleness)."
+          },
+          "requireAccepted": {
+            "type": "boolean",
+            "description": "A done item counts as DONE only if acceptance=pass."
+          },
+          "decisions": {
+            "type": "boolean",
+            "description": "Include the decisions view (defaults on for text/md, off for json)."
+          },
+          "format": {
+            "type": "string",
+            "enum": [
+              "json",
+              "text",
+              "md"
+            ],
+            "description": "Legacy deterministic render format. Default json; text/md remain frozen compatibility diagnostics."
+          }
+        },
+        "required": [
+          "baselineCommit"
+        ]
+      }
+    },
+    {
+      "name": "track_snapshot",
+      "description": "Canonical deterministic Track snapshot. Provider-free factual state only; never invokes AI and never represents a human interpretation.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "baselineCommit": {
+            "type": "string",
+            "description": "Resolved commit used for acceptance/staleness."
+          },
+          "requireAccepted": {
+            "type": "boolean",
+            "description": "A done item counts as DONE only if acceptance=pass."
+          },
+          "format": {
+            "type": "string",
+            "enum": [
+              "json",
+              "text",
+              "md"
+            ],
+            "description": "Default json; text/md are diagnostics."
+          }
+        },
+        "required": [
+          "baselineCommit"
+        ]
+      }
+    },
+    {
+      "name": "track_query",
+      "description": "Flat, filtered query over the non-decision report rows, as JSON.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "baselineCommit": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "feature",
+              "bug",
+              "chore"
+            ]
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "workpackage",
+              "spec-phase",
+              "stream"
+            ]
+          },
+          "workspace": {
+            "type": "string"
+          },
+          "bucket": {
+            "type": "string",
+            "enum": [
+              "AWAITED",
+              "DROPPED",
+              "DONE",
+              "TO-DO"
+            ]
+          },
+          "realization": {
+            "type": "string",
+            "enum": [
+              "to-do",
+              "in-progress",
+              "done",
+              "cancelled",
+              "rejected"
+            ]
+          },
+          "acceptance": {
+            "type": "string",
+            "enum": [
+              "pass",
+              "fail",
+              "unknown",
+              "stale",
+              "waived"
+            ]
+          }
+        },
+        "required": [
+          "baselineCommit"
+        ]
+      }
+    },
+    {
+      "name": "track_validate",
+      "description": "Recompute the append-only integrity chain (detect-only). Returns {ok, findings}. NOTE: integrity only — unlike the CLI `validate`, it does NOT include prose↔log desync (that would read arbitrary cwd files, breaking the read-only contract).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "track_audit",
+      "description": "DESIGN R4 — deterministic structural audit over the folded log, as JSON AuditFinding[] (orphan, empty-wp, duplicate, cross-workspace-subtree, singleton-workspace). PURE, read-only, no clock; byte-identical to the CLI `audit --format json`. `severity` action=resolve via the restructuration plan flow, info=expected/structural.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "track_branch_provenance",
+      "description": "Latest branch.imported provenance for a BRANCH.md locator (or null).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "locator": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "locator"
+        ]
+      }
+    },
+    {
+      "name": "track_freshness",
+      "description": "Is the sidecar structurally current with the given BRANCH.md content for a locator?",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "locator": {
+            "type": "string"
+          },
+          "content": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "locator",
+          "content"
+        ]
+      }
+    },
+    {
+      "name": "track_external_deps",
+      "description": "Open external (scope:extra) dependencies awaiting an h2a ENGAGEMENT, as JSON [{blockerId, targetId, engagementRef, openedAt}]. What an h2a bridge watches to resolve when an engagement settles.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "track_status",
+      "description": "status(level) projection (Scope §A/§B): rolls leaf buckets up to a scope tier {spec|plan|wp|lot|task}, as JSON {level, groups:[{id,title,label,depth,status,done,active,dropped,pct}]}. wp ≡ the computeWpTree forest; task = leaf buckets; lot|plan|spec = the same rollup over WP-nesting tiers (SUM not mean; dropped excluded; 0/0⇒n/a). Read-only.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "level": {
+            "type": "string",
+            "enum": [
+              "spec",
+              "plan",
+              "wp",
+              "lot",
+              "task"
+            ],
+            "description": "The scope tier to roll up to."
+          },
+          "baselineCommit": {
+            "type": "string",
+            "description": "Commit AWAITED/acceptance are evaluated against."
+          },
+          "requireAccepted": {
+            "type": "boolean",
+            "description": "A done leaf counts as DONE only if acceptance=pass."
+          }
+        },
+        "required": [
+          "level",
+          "baselineCommit"
+        ]
+      }
+    },
+    {
+      "name": "track_verification_runs",
+      "description": "Recorded path-scope VerificationRuns (Scope §B(c)) — the EVIDENCE a future `scope validate` reads, as JSON [{runId,runner,commit,env?,verdict,wpRef?,violations?,at}]. EVIDENCE-ONLY: a path verdict never becomes an item. `violations` are the harness verbatim offending paths (track never glob-matches). Optional `wpRef` filters to one WP/phase.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "wpRef": {
+            "type": "string",
+            "description": "Filter to runs for this WP/phase item id."
+          }
+        }
+      }
+    },
+    {
+      "name": "track_scope_validate",
+      "description": "Scope §B(b) — PURE, read-only, fail-closed, ADVISORY scope validation, as JSON {status:pass|fail|stale|missing, findings[], perWp[], scopeRevisionHash?}. NEVER glob-matches (string-level set logic), NEVER ingests, NEVER a commit gate. Flags scope-undeclared / incoherent (allowed∩forbidden) / illegal-nesting / claim-out-of-phase, and surfaces the latest ingested VerificationRun verdict per WP (read, never recomputed). If `content`+`locator` are supplied, requireFresh runs FIRST (a stale/altered/not-imported sidecar ⇒ status:stale, no partial verdict). Optional opt-in inferDeliveredOutOfScope.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "workspace": {
+            "type": "string",
+            "description": "The workspace whose WP/spec-phase scope is validated."
+          },
+          "baselineCommit": {
+            "type": "string",
+            "description": "Commit AWAITED/realization-active are evaluated against."
+          },
+          "content": {
+            "type": "string",
+            "description": "Live BRANCH.md content for the fail-closed freshness gate (with locator)."
+          },
+          "locator": {
+            "type": "string",
+            "description": "BRANCH.md locator for the fail-closed freshness gate (with content)."
+          },
+          "claimedItemId": {
+            "type": "string",
+            "description": "Optional claimed item id — flagged if not a descendant of a declared phase."
+          },
+          "inferDeliveredOutOfScope": {
+            "type": "boolean",
+            "description": "Opt-in: flag a done WP whose latest verification is a violation (a read flag)."
+          }
+        },
+        "required": [
+          "workspace",
+          "baselineCommit"
+        ]
+      }
+    },
+    {
+      "name": "track_cursor",
+      "description": "M5 (canevas) — a cheap change cursor over the log tail, as JSON {head, count}. `head` = the log-tail event contentHash (null when empty); `count` = the event count. O(tail). The host's liveness primitive: poll this, re-read track_canevas / track_amendment_trace when it moves. Read-only.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "track_canevas",
+      "description": "M5 (canevas) — the materialized canevas for ONE workspace, as JSON {workspace, report, prov, affordances, dossier?}. report = the bucketed report + WP rollup forest (workspace-scoped); prov = per-aggregate latest-write provenance lineage {origin:human|machine, …}; affordances = per-aggregate legal next WorkEvent kinds (open-action affordances). With `decisionId`, also includes the full decision dossier. PURE (no clock, no socket — the host owns liveness).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "workspace": {
+            "type": "string",
+            "description": "The workspace to materialize the canevas for."
+          },
+          "baselineCommit": {
+            "type": "string",
+            "description": "Commit AWAITED/acceptance are evaluated against."
+          },
+          "requireAccepted": {
+            "type": "boolean",
+            "description": "A done leaf counts as DONE only if acceptance=pass."
+          },
+          "decisionId": {
+            "type": "string",
+            "description": "Optional decision id — includes its full dossier (context/options/qa/outcome/artifacts)."
+          }
+        },
+        "required": [
+          "workspace",
+          "baselineCommit"
+        ]
+      }
+    },
+    {
+      "name": "track_amendment_trace",
+      "description": "M5 (canevas) — the human/machine diff for ONE aggregate, as JSON [{seq, at, by, kind, prov, origin, summary?, patchRef?, proposalRef?, selectedOptionId?}]. An ordered (by seq), prov-tagged projection over the aggregate's spec.amended / dossier.revised / decision.artifact-added / decision.option-selected / decision.outcome events. `origin` derives PURELY from prov.proposed (true=machine, false=human). An AI proposal + a human acceptance both appear — the machine origin is never laundered. PURE replay.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "aggregateId": {
+            "type": "string",
+            "description": "The item/decision aggregate id to trace."
+          }
+        },
+        "required": [
+          "aggregateId"
+        ]
+      }
+    },
+    {
+      "name": "track_workspace_activity",
+      "description": "Poll-able activity signal for ONE workspace (h2a conductor-launch gating), as JSON {workspace, pending, pendingItems[], stalled[], latestEventAt?}. PURE: the caller supplies `now` (and optional `idleMs`, default 24h) — track holds no clock. `pending` = TO-DO+AWAITED count and `pendingItems` lists the concrete open leaves; `stalled` = items/decisions durably stuck (awaited-open-blocker | pending-decision | in-progress-idle | todo-idle).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "workspace": {
+            "type": "string",
+            "description": "The workspace to scope the signal to."
+          },
+          "baselineCommit": {
+            "type": "string",
+            "description": "Commit AWAITED is evaluated against."
+          },
+          "now": {
+            "type": "string",
+            "description": "Caller-supplied ISO-8601 \"current\" time (track holds no clock)."
+          },
+          "idleMs": {
+            "type": "number",
+            "description": "Staleness window in ms (default 86400000 = 24h)."
+          }
+        },
+        "required": [
+          "workspace",
+          "baselineCommit",
+          "now"
+        ]
+      }
+    }
+  ],
+  "resources": [],
+  "prompts": []
+}
