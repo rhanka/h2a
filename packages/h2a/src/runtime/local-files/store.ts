@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import {
   appendFileSync,
   openSync, closeSync, fsyncSync,
@@ -1648,6 +1649,20 @@ export function createLocalStore(options: CreateLocalStoreOptions): LocalStore {
     return join(dir, `${safePathSegment(envelopeId)}.json`);
   }
 
+  // Readers do not take the writer lock. Publish a complete file with one rename;
+  // the .tmp suffix keeps unfinished bytes out of inbox/outbox discovery.
+  function publishEnvelope(file: string, envelope: H2AEnvelope): void {
+    const temp = `${file}.${randomUUID()}.tmp`;
+    const fd = openSync(temp, "wx");
+    try {
+      try { writeFileSync(fd, JSON.stringify(envelope, null, 2), "utf8"); }
+      finally { closeSync(fd); }
+      renameSync(temp, file);
+    } finally {
+      if (existsSync(temp)) unlinkSync(temp);
+    }
+  }
+
   function readEnvelopesFrom(dir: string): H2AEnvelope[] {
     if (!existsSync(dir)) return [];
     const files = readdirSync(dir).filter((f) => f.endsWith(".json")).sort();
@@ -1672,7 +1687,7 @@ export function createLocalStore(options: CreateLocalStoreOptions): LocalStore {
     lock(
       inboxLock(actor),
       () => {
-        writeFileSync(envelopeFile(dir, envelope.id), JSON.stringify(envelope, null, 2), "utf8");
+        publishEnvelope(envelopeFile(dir, envelope.id), envelope);
       },
       lockOpts
     );
@@ -1743,7 +1758,7 @@ export function createLocalStore(options: CreateLocalStoreOptions): LocalStore {
     lock(
       outboxLock(actor),
       () => {
-        writeFileSync(envelopeFile(dir, envelope.id), JSON.stringify(envelope, null, 2), "utf8");
+        publishEnvelope(envelopeFile(dir, envelope.id), envelope);
       },
       lockOpts
     );
