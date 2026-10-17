@@ -63,7 +63,7 @@ export type LiveDisclosureAuthorization = Refused | Readonly<{
   ok: true; claims: LiveDisclosureClaims; state: LiveDisclosureState;
 }>;
 export interface LiveDisclosureAuth {
-  authorize(capability: unknown, operation: DisclosureOperation, repositoryId: string): LiveDisclosureAuthorization;
+  authorize(capability: unknown, operation: DisclosureOperation, repositoryId?: string): LiveDisclosureAuthorization;
 }
 
 const nonempty = (v: unknown): v is string => typeof v === "string" && v.length > 0 && !v.includes("\0");
@@ -103,13 +103,19 @@ export function createLiveDisclosureAuth(options: LiveDisclosureAuthOptions = {}
       if (revoked === true) return refuse("capability-revoked");
       if (revoked !== false) return refuse("authority-unavailable");
       if (!c.operations.includes(operation)) return refuse("operation-denied");
-      const state = options.readState(repositoryId);
-      if (!state || c.repositoryId !== repositoryId || state.repositoryId !== repositoryId
-        || ["principal", "hostId", "tenant", "declarationId", "declarationRevision"].some(
+      // Revocation authenticates the signed owner/repository, without requiring
+      // the declaration, roots or content policy that it is trying to revoke.
+      const target = repositoryId ?? (operation === "revoke" ? c.repositoryId : undefined);
+      if (c.repositoryId !== target) return refuse("scope-mismatch");
+      const state = options.readState(target);
+      if (!state || state.repositoryId !== target
+        || ["principal", "hostId", "tenant"].some(
+          (key) => c[key as keyof LiveDisclosureClaims] !== state[key as keyof LiveDisclosureState])) return refuse("scope-mismatch");
+      if (operation !== "revoke" && (["declarationId", "declarationRevision"].some(
           (key) => c[key as keyof LiveDisclosureClaims] !== state[key as keyof LiveDisclosureState])
         || JSON.stringify(c.authorizedRoots) !== JSON.stringify(state.authorizedRoots)
-        || !nonempty(state.stateRevision)) return refuse("scope-mismatch");
-      if (state.policyVersion !== c.policyVersion) return refuse("policy-changed");
+        || !nonempty(state.stateRevision))) return refuse("scope-mismatch");
+      if (operation !== "revoke" && state.policyVersion !== c.policyVersion) return refuse("policy-changed");
       Object.freeze(c.authorizedRoots); Object.freeze(c.operations);
       return Object.freeze({ ok: true, claims: Object.freeze(c),
         state: Object.freeze({ ...state, authorizedRoots: Object.freeze([...state.authorizedRoots]) }) });
