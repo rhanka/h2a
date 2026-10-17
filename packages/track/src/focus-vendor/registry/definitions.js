@@ -32,6 +32,19 @@ const definitionIssue = (path, code, message) => ({ path, code, message });
 const isRecord = (value) => typeof value === "object" && value !== null && !Array.isArray(value);
 const SEMVER = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
 const HEX64 = /^[0-9a-f]{64}$/;
+/** Exact §5.4 parameter values pinned by entry 1.0.0 (closed: any drift refuses). */
+const FOCUS_PRESENTATIONS = ["terminal", "markdown", "html", "mcp-app"];
+const FOCUS_LOCALES = ["en", "fr"];
+const FOCUS_PARAMETER_KEYS = ["mode", "preferredPresentation", "locale"];
+const FOCUS_PARAMETERS_SCHEMA_ID = "urn:sentropic:registry:parameters:sentropic.focus:1.0.0";
+const FOCUS_PARAMETERS_SCHEMA_DRAFT = "https://json-schema.org/draft/2020-12/schema";
+/** Capability and schema references pinned by entry 1.0.0. */
+const FOCUS_CAPABILITY_ID = "sentropic.focus.decision-dossier";
+const FOCUS_DOSSIER_SCHEMA_ID = "urn:sentropic:focus:DecisionDossierDocument:1.0.0";
+const FOCUS_DOSSIER_SCHEMA_VERSION = "1.0.0";
+const sameStrings = (value, expected) => Array.isArray(value) &&
+    value.length === expected.length &&
+    value.every((item, index) => item === expected[index]);
 const stringArray = (value, path, issues) => {
     if (!Array.isArray(value) || value.some((item) => typeof item !== "string")) {
         issues.push(definitionIssue(path, "invalid_parameters", "expected an array of strings"));
@@ -54,6 +67,16 @@ export const validateFocusEntryDescriptor = (value) => {
         issues.push(definitionIssue(path, code, message));
         valid = false;
     };
+    const rejectUnknownKeys = (record, allowed, basePath, ignore = []) => {
+        for (const key of Object.keys(record)) {
+            if (!allowed.includes(key) && !ignore.includes(key)) {
+                fail(`${basePath}.${key}`, "unknown_field", `unknown field "${key}"`);
+            }
+        }
+    };
+    rejectUnknownKeys(value, ["format", "contractVersion", "kind", "id", "name", "description", "entryVersion", "publisher", "compatibility", "parameters", "bindings", "assets", "skill"], "$", 
+    // `mcp` keeps its dedicated arm diagnostic below (exactly one issue).
+    ["mcp"]);
     if (value["format"] !== "sentropic.registry-entry/v1")
         fail(at("format"), "invalid_entry", "expected sentropic.registry-entry/v1");
     if (value["contractVersion"] !== FOCUS_CONTRACT_VERSION)
@@ -62,8 +85,8 @@ export const validateFocusEntryDescriptor = (value) => {
         fail(at("kind"), "invalid_entry", 'expected "skill"');
     if (value["id"] !== FOCUS_SKILL_ID)
         fail(at("id"), "invalid_entry", `expected "${FOCUS_SKILL_ID}"`);
-    if (typeof value["name"] !== "string" || value["name"].length === 0)
-        fail(at("name"), "invalid_entry", "expected a nonempty name");
+    if (value["name"] !== "focus")
+        fail(at("name"), "invalid_entry", 'expected name "focus"');
     if (typeof value["description"] !== "string" || value["description"].length === 0) {
         fail(at("description"), "invalid_entry", "expected a nonempty description");
     }
@@ -82,15 +105,23 @@ export const validateFocusEntryDescriptor = (value) => {
         !SEMVER.test(publisher["packageVersion"])) {
         fail(at("publisher"), "invalid_entry", "expected the @sentropic/focus package identity with an exact version");
     }
+    if (isRecord(publisher)) {
+        rejectUnknownKeys(publisher, ["packageName", "packageVersion"], at("publisher"));
+    }
     const compatibility = value["compatibility"];
     if (!isRecord(compatibility) || compatibility["entryContract"] !== FOCUS_CONTRACT_VERSION) {
         fail(at("compatibility"), "incompatible_version", "expected the pinned entry-contract version");
     }
     else {
+        rejectUnknownKeys(compatibility, ["entryContract", "packages", "schemaProfiles", "requiredHostFeatures", "optionalHostFeatures"], at("compatibility"));
         const packages = compatibility["packages"];
         if (!Array.isArray(packages) ||
-            packages.some((row) => !isRecord(row) || typeof row["name"] !== "string" || typeof row["range"] !== "string")) {
-            fail("$.compatibility.packages", "invalid_entry", "expected package peer rows");
+            packages.length === 0 ||
+            packages.some((row) => !isRecord(row) ||
+                typeof row["name"] !== "string" ||
+                typeof row["range"] !== "string" ||
+                Object.keys(row).some((key) => key !== "name" && key !== "range"))) {
+            fail("$.compatibility.packages", "invalid_entry", "expected a nonempty list of closed package peer rows");
         }
         const profiles = stringArray(compatibility["schemaProfiles"], "$.compatibility.schemaProfiles", issues);
         if (profiles === undefined)
@@ -108,22 +139,39 @@ export const validateFocusEntryDescriptor = (value) => {
         fail(at("parameters"), "unsupported_schema_profile", `expected parameter schema version ${FOCUS_PARAMETERS_SCHEMA_VERSION}`);
     }
     else {
+        rejectUnknownKeys(parameters, ["schemaVersion", "schema", "defaults"], at("parameters"));
         const schema = parameters["schema"];
         if (!isRecord(schema)) {
             fail("$.parameters.schema", "unsupported_schema_profile", "expected a schema object");
         }
         else {
+            rejectUnknownKeys(schema, ["$schema", "$id", "type", "additionalProperties", "required", "properties"], "$.parameters.schema");
+            if (schema["$schema"] !== FOCUS_PARAMETERS_SCHEMA_DRAFT) {
+                fail("$.parameters.schema.$schema", "unsupported_schema_profile", `expected ${FOCUS_PARAMETERS_SCHEMA_DRAFT}`);
+            }
+            if (schema["$id"] !== FOCUS_PARAMETERS_SCHEMA_ID) {
+                fail("$.parameters.schema.$id", "unsupported_schema_profile", `expected ${FOCUS_PARAMETERS_SCHEMA_ID}`);
+            }
             const properties = schema["properties"];
             if (schema["type"] !== "object" ||
                 schema["additionalProperties"] !== false ||
-                !isRecord(properties) ||
-                !isRecord(properties["mode"]) ||
-                properties["mode"]["const"] !== "snapshot" ||
-                !isRecord(properties["preferredPresentation"]) ||
-                !Array.isArray(properties["preferredPresentation"]["enum"]) ||
-                !isRecord(properties["locale"]) ||
-                !Array.isArray(properties["locale"]["enum"])) {
+                !sameStrings(schema["required"], [...FOCUS_PARAMETER_KEYS]) ||
+                !isRecord(properties)) {
                 fail("$.parameters.schema", "unsupported_schema_profile", "expected the exact §5.4 focus parameter shape");
+            }
+            else {
+                rejectUnknownKeys(properties, [...FOCUS_PARAMETER_KEYS], "$.parameters.schema.properties");
+                const mode = properties["mode"];
+                const preferredPresentation = properties["preferredPresentation"];
+                const locale = properties["locale"];
+                if (!isRecord(mode) ||
+                    mode["const"] !== "snapshot" ||
+                    !isRecord(preferredPresentation) ||
+                    !sameStrings(preferredPresentation["enum"], [...FOCUS_PRESENTATIONS]) ||
+                    !isRecord(locale) ||
+                    !sameStrings(locale["enum"], [...FOCUS_LOCALES])) {
+                    fail("$.parameters.schema", "unsupported_schema_profile", "expected the exact §5.4 focus parameter shape");
+                }
             }
         }
         const defaults = parameters["defaults"];
@@ -133,9 +181,13 @@ export const validateFocusEntryDescriptor = (value) => {
             defaults["locale"] !== FOCUS_PARAMETER_DEFAULTS.locale) {
             fail("$.parameters.defaults", "invalid_parameters", "expected the exact §5.4 defaults");
         }
+        else {
+            rejectUnknownKeys(defaults, [...FOCUS_PARAMETER_KEYS], "$.parameters.defaults");
+        }
     }
-    if (!Array.isArray(value["bindings"]))
-        fail(at("bindings"), "invalid_entry", "expected a bindings array");
+    if (!Array.isArray(value["bindings"]) || value["bindings"].length !== 0) {
+        fail(at("bindings"), "invalid_entry", "instruction-only entries carry no bindings");
+    }
     const assets = value["assets"];
     if (!Array.isArray(assets) || assets.length === 0) {
         fail(at("assets"), "invalid_entry", "expected a nonempty asset list");
@@ -151,13 +203,29 @@ export const validateFocusEntryDescriptor = (value) => {
                 !HEX64.test(asset["sha256"])) {
                 fail(path, "invalid_entry", "expected { role, path, mediaType, sha256 } with a full SHA-256 hex digest");
             }
+            else {
+                rejectUnknownKeys(asset, ["role", "path", "mediaType", "sha256"], path);
+            }
         });
+        if (assets.every((asset) => isRecord(asset) && typeof asset["path"] === "string")) {
+            for (const safeIssue of assertSafeAssetPaths({ assets: assets })) {
+                issues.push(safeIssue);
+                valid = false;
+            }
+        }
     }
+    const declaredAssetPaths = new Set(Array.isArray(assets)
+        ? assets
+            .filter((asset) => isRecord(asset))
+            .map((asset) => asset["path"])
+            .filter((path) => typeof path === "string")
+        : []);
     const skill = value["skill"];
     if (!isRecord(skill) || value["mcp"] !== undefined) {
         fail(at("skill"), "invalid_entry", "expected exactly the skill payload (no mcp arm)");
     }
     else {
+        rejectUnknownKeys(skill, ["profile", "metadata", "instructionsAsset", "capabilities", "tools", "documentSchemas", "dependencies"], at("skill"));
         if (skill["profile"] !== "instructions")
             fail("$.skill.profile", "invalid_entry", 'expected the instruction-only profile');
         const metadata = skill["metadata"];
@@ -167,30 +235,74 @@ export const validateFocusEntryDescriptor = (value) => {
             metadata["toolNames"].length !== 0) {
             fail("$.skill.metadata", "invalid_entry", "expected category metadata with empty toolNames");
         }
-        if (typeof skill["instructionsAsset"] !== "string")
+        else {
+            rejectUnknownKeys(metadata, ["category", "contextFilters", "permissions", "toolNames"], "$.skill.metadata");
+            if (stringArray(metadata["contextFilters"], "$.skill.metadata.contextFilters", issues) === undefined)
+                valid = false;
+            if (stringArray(metadata["permissions"], "$.skill.metadata.permissions", issues) === undefined)
+                valid = false;
+        }
+        if (typeof skill["instructionsAsset"] !== "string") {
             fail("$.skill.instructionsAsset", "invalid_entry", "expected one SKILL.md asset path");
+        }
+        else if (!declaredAssetPaths.has(skill["instructionsAsset"])) {
+            fail("$.skill.instructionsAsset", "invalid_entry", "instruction asset is not a declared entry asset");
+        }
         const capabilities = skill["capabilities"];
-        if (!Array.isArray(capabilities) ||
-            !capabilities.some((capability) => isRecord(capability) &&
-                capability["id"] === "sentropic.focus.decision-dossier" &&
-                capability["effect"] === "read-only")) {
-            fail("$.skill.capabilities", "invalid_entry", "expected the read-only sentropic.focus.decision-dossier capability");
+        if (!Array.isArray(capabilities) || capabilities.length !== 1) {
+            fail("$.skill.capabilities", "invalid_entry", `expected exactly the read-only ${FOCUS_CAPABILITY_ID} capability`);
+        }
+        else {
+            const capability = capabilities[0];
+            if (!isRecord(capability) ||
+                capability["id"] !== FOCUS_CAPABILITY_ID ||
+                capability["effect"] !== "read-only") {
+                fail("$.skill.capabilities", "invalid_entry", `expected exactly the read-only ${FOCUS_CAPABILITY_ID} capability`);
+            }
+            else {
+                rejectUnknownKeys(capability, ["id", "description", "effect", "permissions", "inputSchemaRef", "outputSchemaRef"], "$.skill.capabilities[0]");
+                if (typeof capability["description"] !== "string" ||
+                    capability["description"].length === 0 ||
+                    stringArray(capability["permissions"], "$.skill.capabilities[0].permissions", issues) === undefined) {
+                    if (typeof capability["description"] !== "string" || capability["description"].length === 0) {
+                        fail("$.skill.capabilities[0].description", "invalid_entry", "expected a nonempty capability description");
+                    }
+                    valid = false;
+                }
+                if (capability["inputSchemaRef"] !== FOCUS_DOSSIER_SCHEMA_ID ||
+                    capability["outputSchemaRef"] !== FOCUS_DOSSIER_SCHEMA_ID) {
+                    fail("$.skill.capabilities[0]", "invalid_entry", `expected schema refs bound to ${FOCUS_DOSSIER_SCHEMA_ID}`);
+                }
+            }
         }
         if (!Array.isArray(skill["tools"]) || skill["tools"].length !== 0) {
             fail("$.skill.tools", "invalid_entry", "instruction-only entries carry no tools");
         }
         const schemas = skill["documentSchemas"];
-        if (!Array.isArray(schemas) ||
-            !schemas.some((schema) => isRecord(schema) &&
-                schema["name"] === "DecisionDossierDocument" &&
-                schema["schemaId"] === "urn:sentropic:focus:DecisionDossierDocument:1.0.0" &&
-                typeof schema["assetPath"] === "string" &&
-                typeof schema["sha256"] === "string" &&
-                HEX64.test(schema["sha256"]))) {
-            fail("$.skill.documentSchemas", "invalid_entry", "expected the digest-bound DecisionDossierDocument schema reference");
+        if (!Array.isArray(schemas) || schemas.length !== 1) {
+            fail("$.skill.documentSchemas", "invalid_entry", "expected exactly the digest-bound DecisionDossierDocument schema reference");
         }
-        if (!Array.isArray(skill["dependencies"]))
-            fail("$.skill.dependencies", "invalid_entry", "expected a dependencies array");
+        else {
+            const schema = schemas[0];
+            if (!isRecord(schema) ||
+                schema["name"] !== "DecisionDossierDocument" ||
+                schema["schemaId"] !== FOCUS_DOSSIER_SCHEMA_ID ||
+                schema["version"] !== FOCUS_DOSSIER_SCHEMA_VERSION ||
+                typeof schema["assetPath"] !== "string" ||
+                typeof schema["sha256"] !== "string" ||
+                !HEX64.test(schema["sha256"])) {
+                fail("$.skill.documentSchemas", "invalid_entry", "expected exactly the digest-bound DecisionDossierDocument schema reference");
+            }
+            else {
+                rejectUnknownKeys(schema, ["name", "schemaId", "version", "assetPath", "sha256"], "$.skill.documentSchemas[0]");
+                if (!declaredAssetPaths.has(schema["assetPath"])) {
+                    fail("$.skill.documentSchemas[0].assetPath", "invalid_entry", "schema asset is not a declared entry asset");
+                }
+            }
+        }
+        if (!Array.isArray(skill["dependencies"]) || skill["dependencies"].length !== 0) {
+            fail("$.skill.dependencies", "invalid_entry", "instruction-only entries carry no dependencies");
+        }
     }
     if (!valid)
         return { ok: false, issues };
@@ -257,11 +369,11 @@ export const resolveFocusPresentation = (params, gate, loadInstructions) => {
             }
             return { ok: true, instructions: loadInstructions() };
         case "mcp-app":
-            if (!gate.uiSelectedAndQualified) {
+            if (!gate.uiRegistered || !gate.uiSelected || !gate.uiQualified) {
                 return {
                     ok: false,
                     code: "unsupported_presentation",
-                    message: "mcp-app presentation requires the separately selected and qualified UI entry",
+                    message: "mcp-app presentation requires the separately registered, selected and qualified UI entry",
                 };
             }
             return { ok: true, instructions: loadInstructions() };
@@ -271,8 +383,20 @@ const packageRequire = createRequire(import.meta.url);
 /**
  * Read the package-owned registry manifest (`registry/entries.v1.json`).
  * Called explicitly by the host; importing this module alone reads nothing.
+ *
+ * The compiled snapshot vendored into `@sentropic/track`
+ * (`packages/track/src/focus-vendor/`) ships no adjacent manifest, so the
+ * package-relative path misses there: fall back to the publisher-owned
+ * manifest through the installed `@sentropic/focus` package.
  */
-export const loadFocusSkillDescriptor = () => packageRequire("../../registry/entries.v1.json");
+export const loadFocusSkillDescriptor = () => {
+    try {
+        return packageRequire("../../registry/entries.v1.json");
+    }
+    catch {
+        return packageRequire("@sentropic/focus/registry/manifest");
+    }
+};
 /** Recompute every asset/schema digest over the supplied bytes. */
 export const verifyAssetDigests = (entry, readFile) => {
     const issues = [];
