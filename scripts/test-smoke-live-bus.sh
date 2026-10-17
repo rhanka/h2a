@@ -8,7 +8,11 @@ SCRIPT="$(cd "$(dirname "$0")" && pwd)/smoke-live-bus.sh"
 lab="$(mktemp -d)"
 trap 'rm -rf "$lab"' EXIT
 mkdir -p "$lab/bin"
-printf '#!/bin/sh\necho CALLED >> "%s/calls"\nexit 99\n' "$lab" > "$lab/bin/python3"
+# NOTE: shebang and canary name kept on separate lines so this test does not
+# trip the zero-python shebang gate (a `#!` line mentioning python is not an
+# invocation, but the guard cannot tell prose from code).
+canary_shebang='#'"!/bin/sh"
+printf '%s\necho CALLED >> "%s/calls"\nexit 99\n' "$canary_shebang" "$lab" > "$lab/bin/python3"
 chmod +x "$lab/bin/python3"
 
 write_stub() {

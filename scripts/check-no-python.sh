@@ -18,7 +18,11 @@ fi
 
 # 2) No invocations: python/pip shebangs, or python/pip used as a command.
 # Full-line `#` comments are not invocations (`#!` shebangs still checked).
-hits="$(git -C "$ROOT" grep -nE -e '#!.*python' -e '(^|[[:space:];{}()|&])(python3?|pip3?)([[:space:]]|$)' -- . 2>/dev/null | grep -vE '^[^:]+:[0-9]+:[[:space:]]*#' || true)"
+# The allowlist registry itself is exempt (it necessarily quotes excused text).
+# NOTE: the shebang pattern is assembled by concatenation so this file does
+# not literally contain it and trip its own gate.
+p_shebang='#'"!'.*python"
+hits="$(git -C "$ROOT" grep -nE -e "$p_shebang" -e '(^|[[:space:];{}()|&])(python3?|pip3?)([[:space:]]|$)' -- . ':!scripts/no-python-allowlist.txt' 2>/dev/null | grep -vE '^[^:]+:[0-9]+:[[:space:]]*#' || true)"
 unexcused="$hits"
 if [ -f "$ALLOW" ]; then
   while IFS= read -r entry || [ -n "$entry" ]; do
