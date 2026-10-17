@@ -76,7 +76,7 @@
           "role": "skill-instructions",
           "path": "skills/focus/SKILL.md",
           "mediaType": "text/markdown",
-          "sha256": "e81a6e72f0dff0cba1304b4a52b5d672a151085247bfabb85172faea572a1891"
+          "sha256": "750e5ef2cf894e5c90227acb15911aab583ce7e3949c1d82a2ea40fabd8c97e5"
         },
         {
           "role": "document-schema",

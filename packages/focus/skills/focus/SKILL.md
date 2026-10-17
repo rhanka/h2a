@@ -29,8 +29,8 @@ change dossier content, schema semantics or authority.
 - `terminal` / `markdown`: always available; no UI entry required.
 - `html`: requires the host HTML sanitization hook. Without it, refuse with
   `unsupported_presentation` before reading any instruction.
-- `mcp-app`: requires the separately selected AND qualified UI entry
-  (`sentropic.h2a.ui`). A registered-but-unselected or
+- `mcp-app`: requires the separately registered, selected AND qualified UI
+  entry (`sentropic.h2a.ui`). A registered-but-unselected or
   selected-but-unqualified UI still refuses with `unsupported_presentation`
   before reading any instruction. Never fall back silently to another
   presentation: a deliberate host choice is a new configuration.
