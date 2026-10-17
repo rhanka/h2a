@@ -1,0 +1,76 @@
+{
+  "source": "/tmp/mh-l3-qualification-f2c5-Eikccj",
+  "worktree": "/home/antoinefa/src/h2a/tmp/worktrees/mh-l0",
+  "files": [
+    {
+      "path": "packages/h2a/test/mh-l6-pilot-force.test.js",
+      "sha256": "93f670c9ba27b9bf714ced77351a4af8c9fd966c646c0b496cadaa0aacb99b63"
+    },
+    {
+      "path": "packages/h2a/src/runtime/upgrade/upgrade-run.js",
+      "sha256": "a26faa7f756f00dee09a2ef278aca21aba47d13177296fb84a7d4489b1062f3a"
+    },
+    {
+      "path": "packages/h2a/src/runtime/upgrade/adoption-execute.js",
+      "sha256": "c9f4e0fbf705c9058906e7310ccda55e331625b99eef535099d978aaebd9081e"
+    },
+    {
+      "path": "scripts/mh-l6-mutate.mjs",
+      "sha256": "045ed54ce04de2fb4ff0de41cb389ceea5f0f69ef6a9232ad0a0bcb37f030451"
+    },
+    {
+      "path": "scripts/mh-l6-test.mjs",
+      "sha256": "499fa0af002d05ef5dd7b8d36adb0679351c0542aa852cec13bceb8fbc23bd7d"
+    }
+  ],
+  "compiled": [
+    {
+      "path": "packages/h2a/dist/runtime/upgrade/upgrade-run.js",
+      "sha256": "e7630a5008fcf7b33b5842d9adf74f8000530de67ea059e871f45fe3cd2f3c49"
+    },
+    {
+      "path": "packages/h2a/dist/runtime/upgrade/adoption-execute.js",
+      "sha256": "d2fe93d8492c24c01626720ce106360d40cdd140470162cebab126caa6e5aac1"
+    }
+  ],
+  "profiles": [
+    {
+      "major": 22,
+      "tests": 3,
+      "requalified": [
+        6,
+        13,
+        6
+      ],
+      "pairs": [
+        {
+          "group": "pilot-run",
+          "mutations": 2
+        },
+        {
+          "group": "pilot-execute",
+          "mutations": 2
+        }
+      ]
+    },
+    {
+      "major": 24,
+      "tests": 3,
+      "requalified": [
+        6,
+        13,
+        6
+      ],
+      "pairs": [
+        {
+          "group": "pilot-run",
+          "mutations": 2
+        },
+        {
+          "group": "pilot-execute",
+          "mutations": 2
+        }
+      ]
+    }
+  ]
+}

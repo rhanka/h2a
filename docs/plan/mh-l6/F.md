@@ -190,3 +190,35 @@ et 4+4 paires/profil. Preuve : `proof-F-2c4.json`.
 | Branchement `--force` du pilote, compensation, orchestration de la délégation, activation M18 après preuve externe | F-2c (suite) |
 | Observateurs B2-3, autres entrées, smoke CI, gel .6 | B2-3/E2b3/E3b2b/E3c, M18 toujours ouvert |
 | Revue indépendante | Conducteur ; aucun consensus revendiqué |
+
+## F-2c5 — branchement `--force` du pilote (livré)
+
+`runUpgradeOnce` et `executeAdoption` acceptent `explicit` (booléen
+strict, refusé sinon) et le transmettent jusqu'à
+`installManagedLauncher` : `explicit: true` contourne l'opt-out ET le
+refus occupant (tracé `forced`), sans jamais contourner le besoin ni le
+verdict d'exclusion. Sans override, le refus occupant typé remonte tel
+quel après `begin`/`prepare` (transaction PREPARED conservée pour
+diagnostic). Compensation, orchestration de la délégation et M18
+restent F-2c (suite).
+
+| Commande ciblée | Node 22.22.1 | Node 24.21.0 |
+|---|---|---:|
+| `node scripts/mh-l6-test.mjs packages/h2a/test/mh-l6-pilot-force.test.js final-F-2c5` | 3/3, exit 0 | 3/3, exit 0 |
+| Requals run (6) + adoption (13) + install (6) | 6 + 13 + 6, exit 0 | 6 + 13 + 6, exit 0 |
+| `mh-l6-mutate.mjs pilot-run` (2) + `pilot-execute` (2) | 4 rouges / 4 verts | 4 / 4 |
+| `node scripts/mh-l6-f2c5-audit.mjs /tmp/mh-l3-qualification-f2c5-*` | exit 0 | exit 0 |
+| Skips / annulations / enfants restants | 0 / 0 / 0 | 0 / 0 / 0 |
+
+Rouge initial : filet neutralisé par `stash` (`ERR_ASSERTION`, 1 test,
+exit 1), restauré à l'identique. Une vraie faute trouvée et corrigée
+avant vert : le second `begin` du test butait sur la transaction vivante
+du premier essai (second montage). Audit : 5 fichiers identiques, deux
+émissions liées par SHA, 3 tests + 6/13/6 requalifiés et 2+2
+paires/profil. Preuve : `proof-F-2c5.json`.
+
+| NOT covered restant | Gate |
+|---|---|
+| Compensation, orchestration de la délégation, activation M18 après preuve externe | F-2c (suite) |
+| Observateurs B2-3, autres entrées, smoke CI, gel .6 | B2-3/E2b3/E3b2b/E3c, M18 toujours ouvert |
+| Revue indépendante | Conducteur ; aucun consensus revendiqué |
