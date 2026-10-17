@@ -1,7 +1,10 @@
+import { spawnSync } from "node:child_process";
+
 import type { RemoteEventEnvelope } from "./protocol-local.js";
 
 import { authHeaders, DEFAULT_SESSION_TARGET } from "./config.js";
 import { ensureConnected } from "./tunnel.js";
+import { resetClientTerminal } from "./terminal-reset.js";
 
 export type InputRetryOptions = {
   readonly maxAttempts?: number;
@@ -127,9 +130,59 @@ export async function attach(options: AttachOptions): Promise<AttachResult> {
     finishedResolve = resolve;
   });
 
+  // rev351-2/3.2: the remote session drives the REAL client terminal via
+  // relayed VT bytes (plus raw stdin). Every close path — detach, remote
+  // exit, 404, give-up — must emit the VT reset and restore termios/raw,
+  // even when the live session keeps running server-side and emits no
+  // closing sequence of its own.
   const wasRaw = stdin.isTTY
     ? Boolean((stdin as { isRaw?: boolean }).isRaw)
     : false;
+  const stdinFd = (stdin as { fd?: unknown }).fd;
+  const savedTty =
+    stdin.isTTY === true &&
+    typeof stdinFd === "number" &&
+    process.platform !== "win32"
+      ? (() => {
+          try {
+            return spawnSync("stty", ["-g"], {
+              stdio: [stdinFd, "pipe", "ignore"],
+              encoding: "utf8",
+            });
+          } catch {
+            return undefined;
+          }
+        })()
+      : undefined;
+  const restoreClientTerminal = (): void => {
+    try {
+      resetClientTerminal(stdout);
+    } catch {
+      // Best effort; raw/termios restore below still runs.
+    }
+    try {
+      if (stdin.isTTY) stdin.setRawMode?.(wasRaw);
+    } catch {
+      // Never mask the attach outcome.
+    }
+    try {
+      const saved = savedTty as
+        | { status?: number; stdout?: unknown }
+        | undefined;
+      if (
+        saved?.status === 0 &&
+        typeof saved.stdout === "string" &&
+        saved.stdout.trim() &&
+        typeof stdinFd === "number"
+      ) {
+        spawnSync("stty", [saved.stdout.trim()], {
+          stdio: [stdinFd, "ignore", "ignore"],
+        });
+      }
+    } catch {
+      // Best effort.
+    }
+  };
   if (stdin.isTTY) stdin.setRawMode?.(true);
   stdin.resume();
 
@@ -271,10 +324,27 @@ export async function attach(options: AttachOptions): Promise<AttachResult> {
   stdin.on("data", onStdin);
   stdout.on?.("resize", onResize);
 
+  // Async relay: the event loop runs, so handlers CAN execute (unlike the
+  // blocking spawnSync wrappers). On a fatal signal, reset synchronously and
+  // preserve signal-death semantics via 128+n.
+  const SIGNAL_NUMBERS: Readonly<Record<string, number>> = {
+    SIGHUP: 1,
+    SIGINT: 2,
+    SIGQUIT: 3,
+    SIGTERM: 15,
+  };
+  const signalHandlers = new Map<string, () => void>();
+  const uninstallSignals = (): void => {
+    for (const [signal, handler] of signalHandlers) {
+      process.removeListener(signal, handler);
+    }
+    signalHandlers.clear();
+  };
   let closed = false;
   const close = async () => {
     if (closed) return;
     closed = true;
+    uninstallSignals();
     if (detachTimer) {
       clearTimeout(detachTimer);
       detachTimer = null;
@@ -288,10 +358,31 @@ export async function attach(options: AttachOptions): Promise<AttachResult> {
     aborted = true;
     controller.abort();
     stdout.off?.("resize", onResize);
-    if (stdin.isTTY) stdin.setRawMode?.(wasRaw);
+    restoreClientTerminal();
     stdin.pause();
     finishedResolve();
   };
+  for (const [signal, number] of Object.entries(SIGNAL_NUMBERS)) {
+    const handler = (): void => {
+      if (closed) {
+        process.exit(128 + (number as number));
+        return;
+      }
+      try {
+        restoreClientTerminal();
+      } finally {
+        uninstallSignals();
+        try {
+          controller.abort();
+        } catch {
+          // Best effort before exiting.
+        }
+        process.exit(128 + (number as number));
+      }
+    };
+    signalHandlers.set(signal, handler);
+    process.on(signal, handler);
+  }
 
   (async () => {
     let buffer = "";
