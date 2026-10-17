@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { getStaticTOMLValue, parseForESLint } from 'toml-eslint-parser'
 
 import { runCli, type CliIO } from './index.js'
 
@@ -35,6 +36,36 @@ afterEach(() => {
   rmSync(repo, { recursive: true, force: true })
   if (SAVED_HOME === undefined) delete process.env['TRACK_INSTALL_HOME']
   else process.env['TRACK_INSTALL_HOME'] = SAVED_HOME
+})
+
+describe('native decision resources for translated commands', () => {
+  const cases = ['gemini', 'agy', 'all'].flatMap(host =>
+    ['user', 'project'].flatMap(scope => [false, true].map(quoted => ({ host, scope, quoted }))))
+  it.each(cases)('$host $scope quoted=$quoted resolves resources and preserves local edits', ({ host, scope, quoted }) => {
+    const base = join(scope === 'user' ? home : repo, quoted ? "owner's ''' $& directory" : 'install')
+    mkdirSync(base)
+    if (scope === 'user') process.env['TRACK_INSTALL_HOME'] = base
+    else io = { ...io, cwd: base }
+    const args = ['install-skills', '--host', host, '--scope', scope]
+    expect(runCli(args, io)).toBe(0)
+    const command = join(base, '.gemini/commands/present-decision.toml')
+    const first = readFileSync(command, 'utf8')
+    const { prompt } = getStaticTOMLValue(parseForESLint(first, { tomlVersion: '1.0.0' }).ast) as { prompt: string }
+    const resource = prompt.match(/`([^`]*assets\/native-questions.md)`/)?.[1]
+    expect(resource).toBeDefined()
+    expect(resource).toMatch(/^\//)
+    const canonical = readFileSync(resource!, 'utf8')
+    expect(canonical).toContain('| gemini | `ask_user` |')
+    expect(canonical).toContain('| agy | `ask_question` |')
+    expect(runCli(args, io)).toBe(0)
+    expect(readFileSync(command, 'utf8')).toBe(first)
+    writeFileSync(resource!, 'LOCAL RESOURCE\n')
+    expect(runCli(args, io)).toBe(0)
+    expect(readFileSync(resource!, 'utf8')).toBe('LOCAL RESOURCE\n')
+    expect(out.join('')).toContain(resource!)
+    expect(runCli([...args, '--force'], io)).toBe(0)
+    expect(readFileSync(resource!, 'utf8')).toBe(canonical)
+  })
 })
 
 describe('track install-skills — discovery (all skills under skills/)', () => {

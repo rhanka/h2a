@@ -74,8 +74,8 @@ Run `assets/self-audit.md`, fix failures and re-check before presenting.
 If a necessary fact, criterion or review is missing, label **Incomplete** and ask for that input,
 not approval of the decision.
 
-Present the context and options before one final ask using the host's question tool or numbered
-prose. A bare option menu is insufficient for consequential decisions. Decide-and-trace needs no ask.
+Before asking, read `assets/native-questions.md`: use the exposed native question tool after a decision
+dossier with a diagram. If unavailable, leave consequential decisions pending. Decide-and-trace needs no ask.
 
 Record when `.track/` exists or the owner approves tracking:
 
