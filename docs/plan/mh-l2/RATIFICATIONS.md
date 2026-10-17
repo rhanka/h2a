@@ -5,8 +5,8 @@ Source: supplied `DECISIONS-owner.md`, owner task and spec v7 §§8.2,
 
 | Decision | Ratified contract | Gate / owner |
 |---|---|---|
-| QF = A+B | External launcher for first protected installation; npm bin router from 0.98.7, loading selected absolute entry in the same process. L2 integrates entry and starters; bootstrap/adoption/npm lifecycle remain MH-L6. | MH-L6 |
-| QC | Publish 0.98.7 outside npm latest, opt-in until real Claude U07/U11 qualification; promote afterwards. No publication in L2. | MH-L8 / conductor |
+| QF = A+B | External launcher for first protected installation; npm bin router from 0.98.8, loading selected absolute entry in the same process. L2 integrates entry and starters; bootstrap/adoption/npm lifecycle remain MH-L6. | MH-L6 |
+| QC | Publish 0.98.8 outside npm latest, opt-in until real Claude U07/U11 qualification; promote afterwards. No publication in L2. | MH-L8 / conductor |
 | R4 | Confined independent third-party conductor reviews count as lot review. Installed h2a/MCP dispatch is forbidden. | Conductor reviews exact pushed L2 SHA |
 | R5 | Real Claude qualification belongs to MH-L8, not L1/L2. Production qualification stays empty. | MH-L8 |
 
