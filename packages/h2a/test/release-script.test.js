@@ -463,3 +463,11 @@ test('release version gate refuses floating dependencies, peers and mismatched s
     assert.match(run.stderr, /Lockstep package h2a-runtime/);
   } finally {rmSync(dir, {recursive: true, force: true});}
 });
+
+test('release instructions include independent focus RC and stable qualification and merge commits', () => {
+  const text = formatNextSteps({ version: '0.98.7', branch: 'feat/focus-publish', focusVersion: '0.5.0' });
+  assert.match(text, /@sentropic\/focus@0\.5\.0-rc\.1/);
+  assert.match(text, /@sentropic\/focus@0\.5\.0(?:\s|$)/);
+  assert.match(text, /--merge/);
+  assert.ok(!text.includes('--squash'));
+});

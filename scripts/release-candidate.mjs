@@ -18,19 +18,31 @@ const version = tag.slice(1), base = version.split('-')[0], rc = version !== bas
 const command = (bin, args) => execFileSync(bin, args, { encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 }).trim()
 const tree = () => command('git', ['rev-parse', 'HEAD^{tree}'])
 const repository = process.env.GITHUB_REPOSITORY
-const packages = Object.fromEntries(names.map(name => ['@sentropic/' + name, version]))
+// Focus joins the release wave, but keeps its own stable version in Git.
+const focusPath = 'packages/focus/package.json'
+const focus = JSON.parse(readFileSync(focusPath, 'utf8'))
+if (focus.name !== '@sentropic/focus' || !new RegExp(`^${triple}(-rc\\.(0|[1-9]\\d*))?$`).test(focus.version)) {
+  throw new Error('focus must have its own valid release version')
+}
+const focusBase = focus.version.split('-')[0]
+const packageVersions = releaseVersion => ({
+  ...Object.fromEntries(names.map(name => ['@sentropic/' + name, releaseVersion])),
+  '@sentropic/focus': focusBase + releaseVersion.slice(releaseVersion.split('-')[0].length),
+})
+const packages = packageVersions(version)
 
 function prepare() {
   if (checkLockstepVersions(process.cwd()) !== base) throw new Error('tag base must match the stable lockstep release train')
   const smokePath = 'scripts/smoke-artifact.mjs'
   const smoke = readFileSync(smokePath, 'utf8'), pin = `const PINNED_RUNTIME_VERSION = '${base}'`
   if (smoke.split(pin).length !== 2) throw new Error('smoke pin must match the release train exactly once')
+  if (focus.version !== focusBase) throw new Error('focus must keep its stable version in the source checkout')
   if (rc) {
-    for (const name of names) {
+    for (const name of [...names, 'focus']) {
       const path = join('packages', name, 'package.json'), manifest = JSON.parse(readFileSync(path, 'utf8'))
-      manifest.version = version
+      manifest.version = packages[manifest.name]
       for (const field of ['dependencies', 'peerDependencies', 'optionalDependencies', 'devDependencies']) {
-        for (const dep of Object.keys(manifest[field] ?? {})) if (Object.hasOwn(packages, dep)) manifest[field][dep] = version
+        for (const dep of Object.keys(manifest[field] ?? {})) if (Object.hasOwn(packages, dep)) manifest[field][dep] = packages[dep]
       }
       writeFileSync(path, JSON.stringify(manifest, null, 2) + '\n')
     }
@@ -50,14 +62,14 @@ function attest() {
   context()
   if (rc) {
     if (process.env.RC_SMOKE_PASSED !== 'true') throw new Error('RC post-publish install smoke must actually pass before attestation')
-    for (const name of Object.keys(packages)) {
-      if (JSON.parse(command('npm', ['view', name, 'dist-tags.next', '--json'])) !== version) {
-        throw new Error(`${name}: next must point to ${version} before attestation`)
+    for (const [name, packageVersion] of Object.entries(packages)) {
+      if (JSON.parse(command('npm', ['view', name, 'dist-tags.next', '--json'])) !== packageVersion) {
+        throw new Error(`${name}: next must point to ${packageVersion} before attestation`)
       }
       // An idempotent skip must not certify bytes published from another tree.
-      const bytes = readFileSync(join('dist-tarballs', `sentropic-${name.slice('@sentropic/'.length)}-${version}.tgz`))
+      const bytes = readFileSync(join('dist-tarballs', `sentropic-${name.slice('@sentropic/'.length)}-${packageVersion}.tgz`))
       const integrity = 'sha512-' + createHash('sha512').update(bytes).digest('base64')
-      if (JSON.parse(command('npm', ['view', `${name}@${version}`, 'dist.integrity', '--json'])) !== integrity) {
+      if (JSON.parse(command('npm', ['view', `${name}@${packageVersion}`, 'dist.integrity', '--json'])) !== integrity) {
         throw new Error(`${name}: registry integrity differs from the verify-built RC tarball`)
       }
     }
@@ -99,7 +111,7 @@ function requireRc() {
       const record = JSON.parse(readFileSync(join(dir, 'attestation.json'), 'utf8'))
       const expected = { schema: 1, kind: 'rc', repository, runId: String(run.id), runAttempt: String(run.run_attempt),
         version: candidate, sourceSha: run.head_sha, sourceTree, registryTag: 'next', smokePassed: true,
-        packages: Object.fromEntries(names.map(name => ['@sentropic/' + name, candidate])) }
+        packages: packageVersions(candidate) }
       if (!isDeepStrictEqual(record, expected)) continue
       // Check the source digest against GitHub's Git object, not just the assertion.
       if (api(`repos/${repository}/git/commits/${run.head_sha}`).tree?.sha !== sourceTree) continue
