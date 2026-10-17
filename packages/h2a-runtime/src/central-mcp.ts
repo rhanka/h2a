@@ -12,6 +12,8 @@ import {
   mkdirSync,
   openSync,
   readFileSync,
+  renameSync,
+  statSync,
   unlinkSync,
   writeFileSync,
 } from "node:fs";
@@ -19,6 +21,7 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
 import { getH2aConfig, resolveConfigPath, setH2aConfig } from "./config.js";
+import { appendCrashLog, MAX_CRASH_LOG_BYTES } from "./crash-log.js";
 
 const CENTRAL_PORT_BASE = 47_000;
 const CENTRAL_PORT_SPAN = 10_000;
@@ -113,6 +116,13 @@ function configuredCentralEndpoint(): string | undefined {
 function centralLogFile(): string {
   const path = join(dirname(resolveConfigPath()), "mcp-central.log");
   mkdirSync(dirname(path), { recursive: true });
+  // Bounded: rotate the raw server output instead of growing it forever.
+  try {
+    if (existsSync(path) && statSync(path).size >= MAX_CRASH_LOG_BYTES) {
+      try { unlinkSync(`${path}.1`); } catch { /* missing rotation is fine */ }
+      renameSync(path, `${path}.1`);
+    }
+  } catch { /* rotation is best-effort; the spawn below still proceeds */ }
   return path;
 }
 
@@ -124,7 +134,10 @@ async function waitForCentralStart(
   const deadline = Date.now() + CENTRAL_START_TIMEOUT_MS;
   while (Date.now() < deadline) {
     const failure = spawnFailure();
-    if (failure) throw failure;
+    if (failure) {
+      appendCrashLog("mcp-server", { event: "childExit", reason: "spawn-failed", detail: failure.message });
+      throw failure;
+    }
     const ping = await core.centralMcpPing(endpoint, CENTRAL_START_POLL_MS);
     if (ping.kind === "generation") {
       const marker = core.readCentralMcpMarker();
@@ -134,6 +147,7 @@ async function waitForCentralStart(
     }
     await delay(CENTRAL_START_POLL_MS);
   }
+  appendCrashLog("mcp-server", { event: "childExit", reason: "readiness-timeout", detail: endpoint });
   throw new Error(`central MCP did not become ready at ${endpoint} within ${CENTRAL_START_TIMEOUT_MS}ms`);
 }
 
@@ -152,12 +166,14 @@ export async function ensureCentralMcp(
   if (marker) {
     const ping = await core.centralMcpPing(marker.endpoint);
     if (ping.kind === "ambiguous") {
+      appendCrashLog("mcp-server", { event: "refusal", instanceId: marker.generation, reason: "ambiguous-liveness", detail: marker.endpoint });
       throw new Error(`central MCP liveness at ${marker.endpoint} is ambiguous; refusing to start another server`);
     }
     if (ping.kind === "generation") {
       if (marker.endpoint === endpoint && ping.generation === marker.generation) {
         return { endpoint, generation: marker.generation };
       }
+      appendCrashLog("mcp-server", { event: "refusal", instanceId: marker.generation, reason: "marker-listener-mismatch", detail: marker.endpoint });
       throw new Error(
         `central MCP marker/listener mismatch (${marker.endpoint}, generation ${marker.generation}); refusing to replace a live server`,
       );

@@ -2,6 +2,7 @@ import type { RemoteEventEnvelope } from "./protocol-local.js";
 
 import { authHeaders, DEFAULT_SESSION_TARGET } from "./config.js";
 import { ensureConnected } from "./tunnel.js";
+import { appendCrashLog } from "./crash-log.js";
 
 export type InputRetryOptions = {
   readonly maxAttempts?: number;
@@ -114,6 +115,7 @@ export async function attach(options: AttachOptions): Promise<AttachResult> {
     },
   );
   if (!sseResponse.ok || !sseResponse.body) {
+    appendCrashLog("attach", { event: "refusal", sessionId, reason: "sse-open-failed", detail: `${sseResponse.status} ${sseResponse.statusText}` });
     throw new Error(
       `attach: SSE stream returned ${sseResponse.status} ${sseResponse.statusText}`,
     );
@@ -330,6 +332,7 @@ export async function attach(options: AttachOptions): Promise<AttachResult> {
                   streamProgressed = true;
                 }
               } else if (envelope.type === "terminal.exited") {
+                appendCrashLog("attach", { event: "sessionExit", sessionId, detail: "terminal.exited" });
                 await close();
                 return;
               }
@@ -371,6 +374,7 @@ export async function attach(options: AttachOptions): Promise<AttachResult> {
               `instead of reconnecting in a loop. The session may still be alive: ` +
               `retry with h2a attach ${sessionId}.\r\n`,
           );
+          appendCrashLog("attach", { event: "refusal", sessionId, reason: "reconnect-give-up", detail: `${futileCycles} futile cycles, last stream ${lifetimeMs}ms` });
           await close();
           return;
         }
@@ -402,6 +406,7 @@ export async function attach(options: AttachOptions): Promise<AttachResult> {
           );
           if (resp.status === 404) {
             stderr.write("[h2a] session ended\r\n");
+            appendCrashLog("attach", { event: "sessionExit", sessionId, reason: "http-404" });
             await close();
             return;
           }
@@ -420,6 +425,7 @@ export async function attach(options: AttachOptions): Promise<AttachResult> {
         await new Promise((r) => setTimeout(r, 1000));
       }
       if (!reopened) {
+        appendCrashLog("attach", { event: "childExit", sessionId, reason: "reconnect-failed" });
         await close();
         return;
       }
