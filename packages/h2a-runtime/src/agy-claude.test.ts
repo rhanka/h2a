@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { describe, expect, it } from "vitest";
+import { renderTerminalScreen } from "./native-terminal/screen.js";
 
 import {
   AGY_CLAUDE_QUOTA_CODE,
@@ -130,6 +131,22 @@ describe("detectAgyClaudeQuotaExhaustion (fail-closed pool signal)", () => {
     expect(error.quota.resetsAt).toBe(detected.resetsAt);
     expect(error.retryable).toBe(false);
     expect(error.retrySafe).toBe(false);
+  });
+  it.each([80,160])("detects the real AGY_ERROR wrapped by a %i-column terminal", async cols => {
+    const now=Date.parse("2026-10-17T14:55:00Z");
+    const diagnostic='AGY_ERROR {"short_error":"RESOURCE_EXHAUSTED (code 429): Individual quota reached. Please upgrade your subscription to increase your limits. Resets in 156h32m24s.","status":"RESOURCE_EXHAUSTED","error_code":429,"code_kind":"http","retryable":true}';
+    const screen=await renderTerminalScreen(`AGY Claude\r\n${diagnostic}\r\n❯ `,cols);
+    expect(screen).not.toContain(diagnostic);
+    expect(detectAgyClaudeQuotaExhaustion(screen,now)).toEqual({exhausted:true,signature:"agy-claude:http-429",
+      resetsAt:new Date(now+(156*3600+32*60+24)*1000).toISOString()});
+  });
+  it("does not complete a partial AGY_ERROR with another diagnostic or quoted model JSON", () => {
+    const partial='AGY_ERROR {"short_error":"RESOURCE_EXHAUSTED (code 429): Resets in 2';
+    expect(detectAgyClaudeQuotaExhaustion(partial).exhausted).toBe(false);
+    const quoted=JSON.stringify({event:"assistant",message:{content:'h."}'}});
+    expect(detectAgyClaudeQuotaExhaustion(`${partial}\n${quoted}`).exhausted).toBe(false);
+    expect(detectAgyClaudeQuotaExhaustion(`${partial}\nError: 429 quota exceeded`).exhausted).toBe(true);
+    expect(detectAgyClaudeQuotaExhaustion(`${partial}\nError: 429 quota exceeded`).resetsAt).toBeUndefined();
   });
 });
 

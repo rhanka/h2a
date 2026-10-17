@@ -6569,7 +6569,6 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           let promptDelivery: PromptDeliveryResult | undefined;
           let launchGuard: LaunchGuard | undefined;
           let launchOwnership: LaunchOwnership | undefined;
-          const launchStartedAt = Date.now();
           if (opts.headless) {
             const runDir = join(cwd, ".h2a", "runs", label!);
             mkdirSync(runDir, { recursive: true });
@@ -6786,8 +6785,10 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
               const quotaDiagnostic = promptDelivery.state === "submitted-idle" ? "" : `${promptDelivery.reason}\n${promptDelivery.capture ?? ""}`;
               const quotaVerdict = profile === "agy" && isAgyClaudeModel(opts.model)
                 ? detectAgyClaudeQuotaExhaustion(quotaDiagnostic) : { exhausted: false };
-              const quotaFailure = quotaVerdict.exhausted
-                ? agyClaudeQuotaError(quotaVerdict.signature!, quotaDiagnostic) : undefined;
+              const quotaFailure = profile === "agy" && isAgyClaudeModel(opts.model) &&
+                promptDelivery.state === "provider-blocked" && promptDelivery.providerError
+                ? promptDelivery.providerError : quotaVerdict.exhausted
+                  ? agyClaudeQuotaError(quotaVerdict.signature!, quotaDiagnostic) : undefined;
               if (quotaFailure) try { writeAgyClaudeQuotaStatus(quotaFailure.quota); } catch { /* Response still carries the observation. */ }
               cleanupHeadlessPromptFile(promptFile);
               // Only claim the session is gone when the kill actually reported
@@ -6837,7 +6838,9 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             if (!(profile === "agy" && isAgyClaudeModel(opts.model) && opts.headless && resultJson)) return false;
             try {
               const completed = JSON.parse(readFileSync(resultJson, "utf8"));
-              if (statSync(resultJson).mtimeMs < launchStartedAt || !["h2a.run.failure", "h2a.run.completion"].includes(completed.kind)) return false;
+              // The previous result was removed before this supervisor started.
+              // Filesystem and wall-clock timestamps cannot prove generation.
+              if (!["h2a.run.failure", "h2a.run.completion"].includes(completed.kind)) return false;
               launchGuard?.complete();
               if (opts.json) process.stdout.write(`${JSON.stringify({ ...completed, launchId: slug, result: { path: resultJson }, logs: { path: outputLog } })}\n`);
               else process.stderr.write(`[h2a] ${completed.error ?? "AGY run completed"}\n`);
