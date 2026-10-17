@@ -1,0 +1,22 @@
+command: /home/antoinefa/.nvm/versions/node/v24.18.0/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-observers.test.js
+node: v24.18.0
+private root: /tmp/mh-l6-test-dJa8wG
+case: B2 should refuse a legacy tree outside the expected published version
+TAP version 13
+# Subtest: B2 should refuse a legacy tree outside the expected published version
+ok 1 - B2 should refuse a legacy tree outside the expected published version
+  ---
+  duration_ms: 33.13708
+  type: 'test'
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 1
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 73.997487
+
+receipt: {"command":["/home/antoinefa/.nvm/versions/node/v24.18.0/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-observers.test.js"],"code":0,"signal":null,"tests":1,"invalid":false,"spawned":1,"leftovers":[]}
