@@ -26,6 +26,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./agy-claude": {
+      "types": "./dist/runtime/agy-claude.d.ts",
+      "import": "./dist/runtime/agy-claude.js"
     }
   },
   "files": [

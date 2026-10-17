@@ -1,3 +1,56 @@
+# AGY Claude 5.5 model and quota contract
+
+## PR 359 — Tour 3
+
+- Owner scope: reconcile `rev359-r2.md` P1/P2 under the existing confinement.
+- [x] Reproduce filesystem-clock result loss in CLI/MCP, including a fast canonical completion and an old custom result path.
+- [x] Reproduce the real 251-character AGY_ERROR through 80/160-column terminal rendering and loss beyond the six-line capture tail.
+- [x] Remove cross-clock freshness comparisons; retain old-generation exclusion and baseline custom executor paths at handoff.
+- [x] Reassemble complete anchored AGY_ERROR JSON and carry the full-screen typed quota error through prompt delivery.
+- [x] Rebase onto origin/main `596363908` (already up to date); targeted Node 22.22.1 / 24.18.0: eight runtime files 303/303 and three CLI/MCP files 41/41 per version, zero skips; four isolated package typechecks per version.
+- [x] Final publication rebased again onto `ed0c09f64` after PR #360 advanced main during CI; preserve both BRANCH.md contexts. AGY sources unchanged; runtime 303/303 and CLI/MCP plus the CI-budget guard 83/83 per version, zero skips.
+- [x] Preserve Claude-pool attribution when an AGY model is not Claude: two additional red regressions, then green on both hosts.
+- Publication and each CI job are recorded in the owner's report under Tour 3.
+- No installed h2a/native host/provider access, Track writes, full local suite or unattended child process.
+
+## PR 359 — Tour 2
+
+- [x] Reproduce all five owner-supplied review findings with offline AGY/host fakes.
+- [x] Inspect interactive AGY quota before accepting CPU activity; preserve typed quota/reset on both hosts.
+- [x] Retire old headless results before launch; MCP excludes the prior file generation and checks freshness on one descriptor.
+- [x] Re-read completion after the PID probe; consume complete model/quota events before bounding buffers.
+- [x] Enrich preliminary quota with reset observations; return typed non-zero provider exits; validate embedded Claude effort tokens.
+- [x] Four named runtime files: 89/103 pass on original sources, then 103/103; MCP 8/11 then 12/12 after the additional stale-generation regression (11/12 red).
+- [x] Rebase on origin/main `596363908`; retain both BRANCH.md contexts; no Track diff.
+- [x] Final Node 22.22.1 / 24.18.0: eight named runtime files 292/292 and three CLI/MCP files 38/38 per version, zero skips; four isolated package typechecks per version. Trust-root file 38/38; zero-Python guard exit 0.
+- [x] Push with lease and append the per-job CI snapshot to the owner's Tour 2 report; CI conclusions remain tracked there.
+- Owner confinement remains mandatory. No installed h2a, real provider/native host, Track writes or full local suite.
+
+Current owner task: `feat/agy-claude-models`, resumed from `bd29f7b43` with
+two uncommitted regression files. Scope: core MCP/doctor, runtime launch argv
+and headless supervision, named tests, test inventory, documentation. Historical
+branch sections below are inherited context, not this branch's task.
+
+- [x] Explicit Opus/Sonnet 5.5 launch model, stdin prompt, max→high and typed xhigh refusal.
+- [x] Build-role opt-in for the AGY Claude pool; reviews/challenges first.
+- [x] Quota error/reset/status, no fallback/retry, declared output-file absence.
+- [x] Offline fake AGY regressions, MCP late completion polling and doctor status.
+- [x] Final Node 22/24: six named runtime files 223/223 per version, three
+  CLI/MCP files 34/34 per version; four isolated package typechecks per version.
+- [x] Trust-root test file 38/38 on Node 22; zero-Python guard exit 0.
+- [x] CI export guard: retain the closed public export list with the new AGY
+  contract, packed-dist scan and seam import refusal; targeted red 4/5,
+  then green 5/5 on Node 22 and 24, zero skips.
+- [x] Quoted quota diagnostics in model JSON do not invent pool exhaustion:
+  reproduced 26/27 before anchoring diagnostics to the start of a line.
+- [ ] Commit, fast-forward push, English PR and per-job CI report.
+- No Track writes or installed h2a/native host/provider access; only temporary
+  test roots. Full local suite forbidden; CI/conductor owns integration.
+- Review: selection-failed under confinement; no consensus claimed. See
+  `docs/reviews/agy-claude-models.md` and `docs/agy-claude-models.md`.
+
+# Inherited branch context from origin/main
+
 # CI job budget — owner request 2026-10-17
 
 Branch: `fix/ci-job-budget`, base `origin/main` at `596363908`.
