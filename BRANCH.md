@@ -1638,7 +1638,7 @@ selection-failed. Node 24, other OSes, field/endurance and cross-CLI end-to-end
 remain outside this round. Capacity/failure may lose optional historical detail;
 the root concurrency defect is fixed without introducing a persistent global lock.
 
-# MH-L0 — 0.98.7 contract foundations
+# MH-L0 — 0.98.8 contract foundations
 
 ## Objective
 - [x] Deliver only spec v7 §12 MH-L0, including the measured npm BX correction.
