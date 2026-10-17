@@ -1,8 +1,3 @@
-// Vendored from @sentropic/engram-live 0.1.0 dist/integration.js — same
-// provenance as the sibling contracts.js header (graphify@70ebdfee, pinned
-// tarball sha512 in the GUARD test). Only the derive* re-exports are
-// consumed by H; the factory reads grammars lazily through injected ports.
-// Portable: node: builtins plus siblings only. Do not hand-edit.
 // @sentropic/engram-live/integration — executable neutral factory
 // (spec/SPEC_LIVE_GIT_INDEXING.md §2–3, §11; plan/09 L1b).
 //
@@ -20,6 +15,69 @@ import { createHash } from "node:crypto";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { ADVERTISED_LANGUAGES, CAPABILITY_IDS, CAPABILITY_PLANNED_LOTS, GRAMMAR_UNAVAILABLE_REASON, NOT_IMPLEMENTED_REASON, validateFactBatch, validateWorkspaceDeclaration, } from "./contracts.js";
+export const REQUIRED_STORAGE_FENCING_CONTRACT = {
+    enforcedByLots: ["L3a", "L3b-S"],
+    requireAtomicLeaseCheckOnFactWrite: true,
+    requireAtomicLeaseCheckOnCursorWrite: true,
+    requireAtomicLeaseCheckOnGenerationPublish: true,
+    requireStorageOwnedIncarnationBinding: true,
+    requireAtomicLeaseCheckOnProgressReadWrite: true,
+    requireAtomicLeaseCheckOnPark: true,
+    requireAtomicLeaseCheckOnRelationRepair: true,
+    requireAtomicLeaseCheckOnMarkerDelete: true,
+    requireSourceAndProjectionEqualityOnGenerationPublish: true,
+    requireSynchronousLeaseRevocationOnShutdown: true,
+};
+export function validateScopeFencingToken(candidate, expectedScope, expectedIncarnation, nowMs) {
+    const errors = [];
+    if (typeof candidate !== "object" || candidate === null) {
+        return { ok: false, errors: ["fencing token must be a non-null object"] };
+    }
+    const t = candidate;
+    if (!t.scope || typeof t.scope.tenant !== "string" || typeof t.scope.clone !== "string" || typeof t.scope.worktree !== "string")
+        errors.push("fencing token requires a complete scope");
+    if (!Number.isSafeInteger(t.declarationRevision) || (t.declarationRevision ?? 0) < 1)
+        errors.push("fencing token requires declaration revision");
+    if (typeof t.epochId !== "string" || !t.epochId)
+        errors.push("fencing token requires epoch identity");
+    for (const value of [t.tokenId, t.epochId, t.projectionIncarnation, t.scope?.tenant, t.scope?.clone, t.scope?.worktree])
+        if (typeof value !== "string" || value.length < 1 || value.length > 1024)
+            errors.push("fencing identity must be bounded");
+    if (typeof t.tokenId !== "string" || t.tokenId.length === 0) {
+        errors.push("fencing token requires a non-empty tokenId");
+    }
+    if (typeof t.epoch !== "number" || !Number.isSafeInteger(t.epoch) || t.epoch < 1) {
+        errors.push("fencing token requires a positive integer epoch");
+    }
+    if (typeof t.projectionIncarnation !== "string" || t.projectionIncarnation.length === 0) {
+        errors.push("fencing token requires a non-empty projectionIncarnation");
+    }
+    if (typeof t.issuedAt !== "number" ||
+        typeof t.expiresAt !== "number" ||
+        !Number.isFinite(t.issuedAt) ||
+        !Number.isFinite(t.expiresAt) ||
+        t.expiresAt <= t.issuedAt) {
+        errors.push("fencing token requires finite issuedAt < expiresAt");
+    }
+    if (expectedScope !== undefined && t.scope !== undefined) {
+        if (t.scope.tenant !== expectedScope.tenant ||
+            t.scope.clone !== expectedScope.clone ||
+            t.scope.worktree !== expectedScope.worktree) {
+            errors.push("fencing token scope does not match target scope");
+        }
+    }
+    if (expectedIncarnation !== undefined &&
+        t.projectionIncarnation !== undefined &&
+        t.projectionIncarnation !== expectedIncarnation) {
+        errors.push("fencing token projectionIncarnation does not match active storage incarnation P");
+    }
+    if (nowMs !== undefined && typeof t.expiresAt === "number" && nowMs >= t.expiresAt) {
+        errors.push("fencing token is expired");
+    }
+    if (nowMs !== undefined && typeof t.issuedAt === "number" && t.issuedAt > nowMs)
+        errors.push("fencing token is not yet valid");
+    return { ok: errors.length === 0, errors };
+}
 function decodeJson(bytes) {
     return JSON.parse(new TextDecoder().decode(bytes));
 }

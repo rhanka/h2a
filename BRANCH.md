@@ -1,3 +1,116 @@
+# P1 — GitHub transport for the injected engram PR sync port
+
+Branch: `feat/live-git-p1-github`; base: `origin/main` (`d2e0cfdc`).
+Authority: owner request 2026-10-16, engram plan/09 P1 and LIVE §5,
+engram PR #366 (`e432240f`). Cluster-mesh mapping is excluded.
+
+## Scope amendment before implementation
+
+The two host paths in plan/09 are extended only for the explicitly authorized
+vendored entry refresh. Fourteen exact files are necessary across a vendoring
+prerequisite (11 files) and the host change (3 files). Each commit stays below
+the twelve-file ceiling; the complete shared contract closure stays together:
+
+- `BRANCH.md`
+- `packages/h2a-runtime/src/gateway-host/live-github.ts`
+- `packages/h2a-runtime/src/gateway-host/live-github.test.ts`
+- `packages/h2a-runtime/src/gateway-host/live-registration.test.ts` (pinned integrity guard)
+- `packages/h2a/src/vendor/engram-live/contracts.js`
+- `packages/h2a/src/vendor/engram-live/contracts.d.ts`
+- `packages/h2a-runtime/src/vendor/engram-live/contracts.js`
+- `packages/h2a-runtime/src/vendor/engram-live/contracts.d.ts`
+- `packages/h2a-runtime/src/vendor/engram-live/registration.js`
+- `packages/h2a-runtime/src/vendor/engram-live/registration.d.ts`
+- `packages/h2a-runtime/src/vendor/engram-live/integration.js`
+- `packages/h2a-runtime/src/vendor/engram-live/integration.d.ts`
+- `packages/h2a-runtime/src/vendor/engram-live/pr-sync.js`
+- `packages/h2a-runtime/src/vendor/engram-live/pr-sync.d.ts`
+
+Source: read-only engram `origin/main` at `545a57b8`; fetch is refused by its
+read-only mount. Compile the named four neutral entries with TypeScript,
+preserve byte identity between core/runtime contracts, pin all runtime entry
+digests. No dependency/lockfile change or cross-checkout runtime import.
+
+## Implementation and verification
+
+- Implement `GithubPrTransportPort` using host-approved `gh api`; authentication
+  remains wholly in gh. No credential read, token field or stderr disclosure.
+- REST all-state listing, no PR ceiling, repository/filter-bound continuations,
+  checked Link evidence, strict facts, conditional validators per position,
+  safe 304 replay, typed failures and bounded request duration/concurrency.
+- Exercise the actual vendored neutral sync engine against a local fake GitHub
+  through a temporary fake gh executable. No external network during tests.
+- Red before green, guard mutations, targeted Node 22/24 checks only. Every
+  fixture uses temporary HOME/XDG roots; close servers and owned children.
+- Metadata transport does not acquire Git objects or acknowledge object jobs;
+  private-store acquisition/retention and cluster-mesh mappings stay external.
+- Push this branch and open an English PR to main; record each CI job and
+  remaining gaps in the requested French scratchpad report.
+
+## Review limitation
+
+The harness review requires installed h2a/mesh dispatch, which the owner
+explicitly prohibits in this confinement. No external consensus is claimed.
+
+## Evidence
+
+- Vendor refresh RED: 1 failed / 21 passed (new pinned entry set absent).
+- Unimplemented transport RED: 39 failed; implemented baseline: 61 passed
+  across the transport and L6a registration files on Node 22 and 24.
+- Headerless secondary-limit RED: 3 failed / 40 passed; corrected handling
+  covers secondary limits and GitHub's abuse-detection refusal without
+  exposing response bodies or gh stderr.
+- A cached HTTP 304's old terminator was rejected by 2 new RED cases: current
+  Link evidence is checked, or pagination is re-proven by unconditional GET.
+- Final targeted set: 45 transport cases + 22 registration cases; isolated
+  Node 22.22.1 and 24.21.0 runs. No full local suite was invoked.
+- Eleven deliberate mutations killed: all-state filter, pagination proof,
+  foreign row identity, cursor scope, ETag position, timeout, concurrency,
+  secondary throttling, nonzero gh exit on 304, runtime digest, core parity.
+- Repository typecheck and strict focused typecheck passed; packed runtime
+  is exercised offline and vendor source/dist bytes are compared.
+- The exact commands, outputs, pushed SHA, PR and individual CI jobs are
+  preserved in the owner's requested `l6p1-report.md` and evidence directory.
+- First PR CI correctly refused duplicate HTTP-403 test identities despite
+  passing assertions. A focused JSON report reproduced the production
+  execution verifier's refusal. Include the headers in parameterized case
+  names; re-run that unchanged verifier on the targeted reports.
+
+## Remaining qualification
+
+Production GitHub/gh credentials, installed-host composition/supervision,
+private Git object acquisition/retention, 1501-commit traversal, merge-strategy
+attribution and cluster-mesh receipts are not qualified by this metadata
+transport. The separate receiving lots and conductor integration retain
+those gates. No merge, package publication or production activation occurs.
+
+## Co-review gr-conductor — owner scope 2026-10-17
+
+Close every PR #342 finding in the engram owner's co-review:
+
+- Use one newest-first filter for requests and Link validation. A fake server
+  actually re-sorts 150 PRs after updating a read row: the old ascending
+  transport reports complete with 149 unique PRs, losing the unchanged boundary.
+- Accept GitHub's numeric repositories Link path only with matching observed
+  base repository ids. Keep that identity with cached pages to validate 304s;
+  re-fetch if an empty cached body cannot attest the numeric repository.
+- Require prev/first proof after page 1 and terminate only without next on
+  that proven page. Preserve GitHub's headerless single-page response and
+  unconditional revalidation when a 304 strips current Link evidence.
+- Classify bare gh exit 4 as auth_required, bound the page cache to 32 entries,
+  and import PrSyncErrorKind from the vendored neutral contract.
+
+Only live-github.ts, its targeted test and this scope record change. Preserve
+the interrupted attempt's work; merge origin/main normally, including #350
+crash logs, without modifying main. No vendor conflict is expected: the
+incoming registration maintenance guard and both provenance sets are retained.
+Red/green commands, exact outputs, each CI job and the new head are appended
+under "Co-revue gr-conductor" in the owner's existing scratchpad report.
+Tests use disposable HOME/XDG directories and loopback fake GitHub only.
+Installed h2a/mesh review dispatch remains prohibited by owner confinement;
+no new independent consensus or production qualification is claimed.
+
+
 # Vibe native equipment and registry transition
 
 ## Objective

@@ -1,7 +1,3 @@
-// Vendored from @sentropic/engram-live 0.1.0 dist/registration.js — same
-// provenance as the sibling contracts.js header (graphify@70ebdfee, pinned
-// tarball sha512 in the GUARD test). Portable: node:crypto plus the sibling
-// contracts.js only. Do not hand-edit.
 // @sentropic/engram-live/registration — pure neutral registration helpers
 // (spec/SPEC_LIVE_GIT_INDEXING.md §§2–3, 10, 12; plan/09 L6a; owner Q4 A).
 //
