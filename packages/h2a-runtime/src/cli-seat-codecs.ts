@@ -244,12 +244,13 @@ export function writePrivateSeatFile(path: string, content: string): void {
   try { writeFileSync(fd, content, { encoding: "utf8" }); } finally { closeSync(fd); }
 }
 
-export function readPrivateSeatFile(path: string): string {
+export function readPrivateSeatFile(path: string, maxBytes = Number.POSITIVE_INFINITY): string {
   assertNoSymlinkPath(path);
   const fd = openSync(path, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
   try {
     const stat = fstatSync(fd);
     if (!stat.isFile() || stat.nlink !== 1 || (stat.mode & 0o777) !== 0o600 || (process.geteuid && stat.uid !== process.geteuid())) throw new Error("private file refused");
+    if (stat.size > maxBytes) throw new Error("private file exceeds input bound");
     return readFileSync(fd, "utf8");
   } finally { closeSync(fd); }
 }

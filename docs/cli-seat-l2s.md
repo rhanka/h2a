@@ -82,17 +82,37 @@ Vibe MCP env uses an inline table that the actual native TOML editor can update
 and remove. sanitizeEnvJson checks values only against explicit secrets;
 short values of excluded keys cannot erase unrelated environment variables.
 
-Finding 3 remains OPEN beyond the public exports. Reinspection of npm
-llm-mesh 0.26.1 and cluster-mesh 0.18.0 confirms no consumer SeatBundle import
-or persisted external-refresh policy. The latter facade re-exports the former.
-The existing Claude/Muse cli/token product import paths retain their historical
-mesh refresh behavior; they are not a compliant shared-seat circuit. No fake
-facade method, duplicate credential store, or successful enrollment receipt was
-introduced. The required L1 reference was requested from the conductor.
-Owner: Sentropic L1 (public receiver/policy), then h2a (ten source/provider
-imports and CLI wiring). Acceptance remains the ten offline imports and zero
-refresh/mint/fallback on expiry or 401, including reload and explicit refresh.
-This PR remains non-mergeable for that requirement.
+Finding 3 is wired against the real L1 contract in Sentropic
+[PR 681](https://github.com/rhanka/sentropic/pull/681), pinned to
+7293130ee3f6bfc6dd1e2fefcc07b3bd4d751a99. The public facade method is
+importSeatBundle({ bundle, ownerScope }); the enrollment entry exports
+parseCliSeatProfile and parseTokenSeatEnvelope. h2a validates the bounded
+consumer envelope, requested provider and owner, access projection, expiry
+and refreshAuthority none, then delegates persistence and lineage to L1.
+There is no h2a account store or refresh implementation.
+
+All five CLI providers and aliases now route --from cli|token (including
+--cli/--token) exclusively through enrollSeatConsumerViaFacade. --from cli
+requires --seat-profile <path>: a private 0600 L1 CliSeatProfileInput JSON
+record/manifest, explicitly selected by its trusted caller. It is the L1
+parser-only input, not a claim that native access-only auth is executable.
+--from token reads the consumer SeatBundle over bounded stdin or masked input
+(48 KiB, never argv). Both paths refuse missing expiry/capability metadata
+and refresh-bearing projections before import. Actual elapsed expiry remains
+a classified L1 acquisition refusal; importing a replacement never refreshes.
+The older product SDK enrollViaFacade remains compatible for existing product
+callers, but CLI shared-seat imports never call it or its renewable import legs.
+OAuth still uses the product circuit.
+
+Publication remains a release/integration gate: npm llm-mesh 0.26.1 and
+cluster-mesh 0.18.0 do not expose this API. The currently pinned dependencies
+fail closed before reading input when it is absent, with no product fallback.
+No unpublished dependency version was installed into the checkout or written
+to its lock. Source integration was exercised against the exact PR implementation
+in a disposable package tree: ten imports through its actual public facade and
+parsers, idempotency, reload, external marker, expiry/401, explicit refresh
+refusal and stale lineage, with zero provider calls. This proves the pinned
+source contract, not registry publication, deployed delivery or live credentials.
 
 The exact pinned upstream validator distinguishes nested-refresh-field and
 authority-escalation. Contrary to the review's line references, that commit

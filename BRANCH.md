@@ -14,9 +14,12 @@ No main, Track, scanner, allowlist, real native host or installed h2a access.
 - Native Vibe TOML editor update/removal regression; 16 serialized matrix cells
   with disposal, capture and persisted clearance; strict lifecycle validation.
 - Public fixture/codec/materialization exports have a runtime red/green test.
-- Finding 3 remains OPEN: npm llm-mesh 0.26.1 has no consumer import/external
-  refresh policy, cluster-mesh 0.18.0 re-exports it. Reference requested; no
-  speculative facade/store was implemented. Details: docs/cli-seat-l2s.md.
+- Finding 3: real L1 PR 681@7293130ee3f6 discovered and pinned. All five
+  CLI cli/token sources route to its consumer parser/importSeatBundle API,
+  never to renewable product imports. Private profile and bounded stdin only.
+  Ten imports/reload/expiry/401/explicit-refresh tested against pinned L1
+  sources with zero provider calls. Publication remains an external gate;
+  older installed APIs refuse before input. Details: docs/cli-seat-l2s.md.
 - Sources/declarations and native op compiled only into disposable proof dirs.
   No full local suite. No peer consensus: installed/native dispatch forbidden.
 
