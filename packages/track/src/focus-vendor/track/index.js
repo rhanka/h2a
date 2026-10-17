@@ -66,7 +66,7 @@ const optionBody = (option) => {
     if (option.cons !== undefined && option.cons.length > 0) {
         parts.push(`cons: ${option.cons.join("; ")}`);
     }
-    return parts.length > 0 ? parts.join("\n") : undefined;
+    return parts.length > 0 ? parts.join("; ") : undefined;
 };
 /**
  * Extract the comprehension evidence carried VERBATIM on the dossier's
@@ -114,21 +114,30 @@ const buildSections = (view) => {
         id: `${view.id}:context`,
         targetRef: `${view.id}:context`,
         markdown: dossier.context,
+        ...(dossier.questionId !== undefined ? { questionId: dossier.questionId } : {}),
     });
     for (const qa of dossier.qa) {
-        sections.push(mapQa(view.id, qa));
+        sections.push(mapQa(qa));
     }
-    if (dossier.options.length > 0) {
+    const groups = new Map();
+    for (const option of dossier.options) {
+        const questionId = option.questionId ?? dossier.questionId;
+        groups.set(questionId, [...(groups.get(questionId) ?? []), option]);
+    }
+    for (const [questionId, options] of groups) {
+        const id = `${view.id}:options${questionId === undefined ? "" : `:${questionId}`}`;
         sections.push({
             kind: "optionSet",
-            id: `${view.id}:options`,
-            targetRef: `${view.id}:options`,
+            id,
+            targetRef: id,
             title: "Options",
-            options: dossier.options.map((opt) => ({
+            ...(questionId !== undefined ? { questionId } : {}),
+            options: options.map((opt) => ({
                 kind: "option",
                 id: opt.id,
                 targetRef: opt.id,
                 label: opt.title,
+                consequence: opt.summary,
                 ...(optionBody(opt) !== undefined ? { body: optionBody(opt) } : {}),
                 // The annotation reflects the dossier's selection/recommendation, NOT a live action:
                 // the selected option is 'accept'; the others are 'none' in this read-only snapshot.
@@ -145,17 +154,21 @@ const buildSections = (view) => {
         targetRef: `${view.id}:outcome`,
         modality: "decision",
         statement: outcomeStatement(view.outcome),
+        ...(dossier.questionId !== undefined ? { questionId: dossier.questionId } : {}),
     });
     return sections;
 };
-const mapQa = (decisionId, qa) => ({
+const mapQa = (qa) => ({
     kind: "question",
     id: qa.id,
     targetRef: qa.id,
     question: qa.question,
+    ...(qa.context !== undefined ? { context: qa.context } : {}),
+    ...(qa.readingTimeMinutes !== undefined ? { readingTimeMinutes: qa.readingTimeMinutes } : {}),
+    ...(qa.recommendedOptionId !== undefined ? { recommendedOptionId: qa.recommendedOptionId } : {}),
+    ...(qa.recommendedAnswer !== undefined ? { recommendedAnswer: qa.recommendedAnswer } : {}),
     ...(qa.answer !== undefined ? { answer: qa.answer } : {}),
-    // A QA entry carries no separate préco field in the track contract; an answered entry is
-    // 'answered', an open one is 'open'. (The validated state is only reachable via a live write.)
+    // Snapshot state follows the recorded answer; reading metadata is carried verbatim.
     state: qa.answer !== undefined ? "answered" : "open",
 });
 /**
@@ -168,8 +181,9 @@ export const toDecisionDossierDocument = (view, amendmentTrace, meta) => {
     const firstComprehension = comprehension[0];
     return {
         ref: view.id,
-        subject: view.workspace,
+        subject: view.dossier.subject ?? view.workspace,
         title: view.title,
+        ...(view.dossier.readability !== undefined ? { readability: view.dossier.readability } : {}),
         // The dossier hash is the integrity tag the attester signed over; surface the first one as the
         // snapshot hash when present, else fall back to the read cursor.
         hash: firstComprehension?.dossierHash ?? meta.cursor,

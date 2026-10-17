@@ -18,14 +18,19 @@
  * Every recorded issue is a refusal — the schema is closed.
  */
 
+import { validateDecisionDossierReadability } from "./readability.js";
+export { READABILITY_LIMITS, READABILITY_BUDGETS, validateDecisionDossierReadability } from "./readability.js";
+
 import type {
   Affordance,
   AmendmentStep,
   ComprehensionEvidence,
   DecisionDossierDocument,
   DiagramSyntax,
+  DossierReadability,
   FocusNode,
   FocusProvenance,
+  GlossaryEntry,
   OptionAnnotationState,
   OptionNode,
   OutcomeModality,
@@ -59,7 +64,7 @@ export class DecisionDossierValidationError extends Error {
   constructor(issues: readonly ValidationIssue[]) {
     super(
       `invalid DecisionDossierDocument: ${issues
-        .map((issue) => `${issue.path} ${issue.code}`)
+        .map((issue) => `${issue.path} ${issue.code}: ${issue.message}`)
         .join("; ")}`,
     );
     this.name = "DecisionDossierValidationError";
@@ -137,6 +142,8 @@ const TOP_REQUIRED = [
   "amendmentTrace",
 ] as const;
 const TOP_STRINGS = ["ref", "subject", "title", "hash", "cursor"] as const;
+/** Backward-compatible readability fields: optional at schema level, enforced by the gate. */
+const TOP_ALLOWED = [...TOP_REQUIRED, "readability"] as const;
 
 const checkOptionNode = (
   value: unknown,
@@ -147,9 +154,9 @@ const checkOptionNode = (
   const node = checkClosedObject(
     value,
     path,
-    ["kind", "id", "targetRef", "label", "body", "annotation", "annotationComment"],
+    ["kind", "id", "targetRef", "label", "body", "annotation", "annotationComment", "consequence"],
     ["kind", "id", "targetRef", "label", "annotation"],
-    ["id", "targetRef", "label", "body", "annotationComment"],
+    ["id", "targetRef", "label", "body", "annotationComment", "consequence"],
     issues,
   );
   if (node === undefined) return undefined;
@@ -168,6 +175,7 @@ const checkOptionNode = (
     ...(typeof node["annotationComment"] === "string"
       ? { annotationComment: node["annotationComment"] }
       : {}),
+    ...(typeof node["consequence"] === "string" ? { consequence: node["consequence"] } : {}),
   };
 };
 
@@ -211,22 +219,25 @@ const checkSectionNode = (
     case "prose": {
       const node = checkClosedObject(
         value, path,
-        ["kind", "id", "targetRef", "markdown"], ["kind", "id", "targetRef", "markdown"], ["id", "targetRef", "markdown"],
+        ["kind", "id", "targetRef", "markdown", "questionId"], ["kind", "id", "targetRef", "markdown"], ["id", "targetRef", "markdown", "questionId"],
         issues,
       );
       if (node === undefined || issues.length !== start) return undefined;
-      return { kind: "prose", id: node["id"] as string, targetRef: node["targetRef"] as string, markdown: node["markdown"] as string };
+      return { kind: "prose", id: node["id"] as string, targetRef: node["targetRef"] as string, markdown: node["markdown"] as string, ...(typeof node["questionId"] === "string" ? { questionId: node["questionId"] } : {}) };
     }
     case "question": {
       const node = checkClosedObject(
         value, path,
-        ["kind", "id", "targetRef", "question", "recommendedAnswer", "answer", "state"],
+        ["kind", "id", "targetRef", "question", "recommendedAnswer", "answer", "state", "context", "readingTimeMinutes", "recommendedOptionId"],
         ["kind", "id", "targetRef", "question", "state"],
-        ["id", "targetRef", "question", "recommendedAnswer", "answer"],
+        ["id", "targetRef", "question", "recommendedAnswer", "answer", "context", "recommendedOptionId"],
         issues,
       );
       if (node === undefined) return undefined;
       checkEnum(node["state"], `${path}.state`, ["open", "answered", "validated"], issues);
+      if (node["readingTimeMinutes"] !== undefined && (typeof node["readingTimeMinutes"] !== "number" || !Number.isFinite(node["readingTimeMinutes"]))) {
+        issues.push(issue(`${path}.readingTimeMinutes`, "invalid_type", "expected a finite number"));
+      }
       if (issues.length !== start) return undefined;
       return {
         kind: "question",
@@ -236,14 +247,17 @@ const checkSectionNode = (
         ...(typeof node["recommendedAnswer"] === "string" ? { recommendedAnswer: node["recommendedAnswer"] } : {}),
         ...(typeof node["answer"] === "string" ? { answer: node["answer"] } : {}),
         state: node["state"] as QuestionValidationState,
+        ...(typeof node["context"] === "string" ? { context: node["context"] } : {}),
+        ...(typeof node["recommendedOptionId"] === "string" ? { recommendedOptionId: node["recommendedOptionId"] } : {}),
+        ...(typeof node["readingTimeMinutes"] === "number" ? { readingTimeMinutes: node["readingTimeMinutes"] } : {}),
       };
     }
     case "optionSet": {
       const node = checkClosedObject(
         value, path,
-        ["kind", "id", "targetRef", "title", "options"],
+        ["kind", "id", "targetRef", "title", "options", "questionId"],
         ["kind", "id", "targetRef", "options"],
-        ["id", "targetRef", "title"],
+        ["id", "targetRef", "title", "questionId"],
         issues,
       );
       if (node === undefined) return undefined;
@@ -263,14 +277,15 @@ const checkSectionNode = (
         targetRef: node["targetRef"] as string,
         ...(typeof node["title"] === "string" ? { title: node["title"] } : {}),
         options,
+        ...(typeof node["questionId"] === "string" ? { questionId: node["questionId"] } : {}),
       };
     }
     case "outcome": {
       const node = checkClosedObject(
         value, path,
+        ["kind", "id", "targetRef", "modality", "statement", "questionId"],
         ["kind", "id", "targetRef", "modality", "statement"],
-        ["kind", "id", "targetRef", "modality", "statement"],
-        ["id", "targetRef", "statement"],
+        ["id", "targetRef", "statement", "questionId"],
         issues,
       );
       if (node === undefined) return undefined;
@@ -282,6 +297,7 @@ const checkSectionNode = (
         targetRef: node["targetRef"] as string,
         modality: node["modality"] as OutcomeModality,
         statement: node["statement"] as string,
+        ...(typeof node["questionId"] === "string" ? { questionId: node["questionId"] } : {}),
       };
     }
     case "amendmentTrace": {
@@ -362,12 +378,74 @@ const checkInteraction = (
   };
 };
 
+const checkGlossaryEntry = (
+  value: unknown,
+  path: string,
+  issues: ValidationIssue[],
+): GlossaryEntry | undefined => {
+  const start = issues.length;
+  const entry = checkClosedObject(
+    value, path,
+    ["term", "definition"], ["term", "definition"], ["term", "definition"],
+    issues,
+  );
+  if (entry === undefined || issues.length !== start) return undefined;
+  return { term: entry["term"] as string, definition: entry["definition"] as string };
+};
+
+/** Closed-object check for the optional dossier-level readability statement. */
+const checkReadability = (
+  value: unknown,
+  path: string,
+  issues: ValidationIssue[],
+): DossierReadability | undefined => {
+  const start = issues.length;
+  const block = checkClosedObject(
+    value, path,
+    ["ownerRequestQuote", "noOwnerRequest", "stakes", "stakesLevel", "readingBudgetMinutes", "glossary"],
+    [],
+    ["ownerRequestQuote", "stakes"],
+    issues,
+  );
+  if (block === undefined) return undefined;
+  if (block["stakesLevel"] !== undefined) {
+    checkEnum(block["stakesLevel"], `${path}.stakesLevel`, ["low", "medium", "high"], issues);
+  }
+  if (block["noOwnerRequest"] !== undefined && typeof block["noOwnerRequest"] !== "boolean") {
+    issues.push(issue(`${path}.noOwnerRequest`, "invalid_type", "expected a boolean"));
+  }
+  if (block["readingBudgetMinutes"] !== undefined && (typeof block["readingBudgetMinutes"] !== "number" || !Number.isFinite(block["readingBudgetMinutes"]))) {
+    issues.push(issue(`${path}.readingBudgetMinutes`, "invalid_type", "expected a finite number"));
+  }
+  let glossary: GlossaryEntry[] | undefined;
+  if (block["glossary"] !== undefined) {
+    glossary = [];
+    if (!Array.isArray(block["glossary"])) {
+      issues.push(issue(`${path}.glossary`, "invalid_type", "expected an array"));
+    } else {
+      (block["glossary"] as unknown[]).forEach((entry: unknown, index: number) => {
+        const checked = checkGlossaryEntry(entry, `${path}.glossary[${index}]`, issues);
+        if (checked !== undefined) glossary!.push(checked);
+      });
+    }
+  }
+  if (issues.length !== start) return undefined;
+  return {
+    ...(typeof block["ownerRequestQuote"] === "string" ? { ownerRequestQuote: block["ownerRequestQuote"] } : {}),
+    ...(typeof block["noOwnerRequest"] === "boolean" ? { noOwnerRequest: block["noOwnerRequest"] } : {}),
+    ...(typeof block["stakes"] === "string" ? { stakes: block["stakes"] } : {}),
+    ...(block["stakesLevel"] !== undefined ? { stakesLevel: block["stakesLevel"] as "low" | "medium" | "high" } : {}),
+    ...(typeof block["readingBudgetMinutes"] === "number" ? { readingBudgetMinutes: block["readingBudgetMinutes"] } : {}),
+    ...(glossary !== undefined ? { glossary } : {}),
+  };
+};
+
 /** Structural layer: closed shape check against the published schema. */
 export const validateDecisionDossierStructure = (
   value: unknown,
 ): ValidationResult<DecisionDossierDocument> => {
   const issues: ValidationIssue[] = [];
-  const doc = checkClosedObject(value, "$", [...TOP_REQUIRED], [...TOP_REQUIRED], [...TOP_STRINGS], issues);
+  const doc = checkClosedObject(value, "$", [...TOP_ALLOWED], [...TOP_REQUIRED], [...TOP_STRINGS], issues);
   if (doc === undefined) return { ok: false, issues };
 
   const sections: FocusNode[] = [];
@@ -430,8 +508,13 @@ export const validateDecisionDossierStructure = (
     });
   }
 
+  let readability: DossierReadability | undefined;
+  if (doc["readability"] !== undefined) {
+    readability = checkReadability(doc["readability"], "$.readability", issues);
+  }
+
   // Every recorded issue is a refusal: the schema is closed.
-  if (issues.length > 0 || provenance === undefined) {
+  if (issues.length > 0 || provenance === undefined || (doc["readability"] !== undefined && readability === undefined)) {
     return { ok: false, issues };
   }
   if (
@@ -455,6 +538,7 @@ export const validateDecisionDossierStructure = (
       interactions,
       provenance,
       amendmentTrace,
+      ...(readability !== undefined ? { readability } : {}),
     },
   };
 };
@@ -542,6 +626,21 @@ export const assertDecisionDossierDocument = (
   value: unknown,
 ): DecisionDossierDocument => {
   const result = validateDecisionDossierDocument(value);
+  if (!result.ok) throw new DecisionDossierValidationError(result.issues);
+  return result.value;
+};
+
+/** Presentation requires the backward-compatible structure AND the readability gate. */
+export const validateDecisionDossierForPresentation = (value: unknown): ValidationResult<DecisionDossierDocument> => {
+  const result = validateDecisionDossierDocument(value);
+  if (!result.ok) return result;
+  const issues = validateDecisionDossierReadability(result.value);
+  return issues.length > 0 ? { ok: false, issues } : result;
+};
+
+/** Refuse before any presentation or host rendering hook runs. */
+export const assertDecisionDossierForPresentation = (value: unknown): DecisionDossierDocument => {
+  const result = validateDecisionDossierForPresentation(value);
   if (!result.ok) throw new DecisionDossierValidationError(result.issues);
   return result.value;
 };

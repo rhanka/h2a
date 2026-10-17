@@ -3,8 +3,8 @@
  *
  * Runs the CLI `run([...])` end-to-end against the L2 `.track` fixture event log
  * (`tests/.track/events.jsonl`, decision `01JFOCUSDECISION00000000000`, workspace `focus`) for each
- * `--format` (terminal / md / html), asserting exit 0 + the captured stdout contains the decision
- * title + outcome. Also asserts the non-zero exit codes + clear stderr message on a missing
+ * `--format` (terminal / md / html), asserting legacy dossiers refuse presentation with readable
+ * diagnostics and no stdout. Also asserts the non-zero exit codes + clear stderr message on a missing
  * decision-id, an unknown decision, a missing --workspace, and an unknown --format. READ-ONLY: the
  * CLI never writes a track event (the fixture is unchanged between runs).
  */
@@ -12,14 +12,20 @@
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
-import { describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it } from "vitest";
+import { copyFileSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+
+import { Track, EventStore } from "@sentropic/track";
 
 import { run } from "../src/cli/index.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
-const eventsPath = join(here, ".track", "events.jsonl");
+const fixtureDir = mkdtempSync(join(tmpdir(), "focus-read-fixture-"));
+const eventsPath = join(fixtureDir, "events.jsonl");
+copyFileSync(join(here, ".track", "events.jsonl"), eventsPath);
+afterAll(() => rmSync(fixtureDir, { recursive: true, force: true }));
 const DECISION_ID = "01JFOCUSDECISION00000000000";
-const TITLE = "Should focus bind to @sentropic/track/read at L2?";
 
 /** Capture stdout + stderr into buffers so the CLI can be asserted without touching globals. */
 function capture(): {
@@ -56,45 +62,19 @@ const baseArgs = (format: string): string[] => [
   format,
 ];
 
-describe("focus CLI — renders a real decision dossier read-only", () => {
-  it("renders the terminal surface (exit 0, title + outcome in stdout)", async () => {
+describe("focus CLI — blocks legacy decision presentation without inventing missing information", () => {
+  it.each(["terminal", "md", "html"])("refuses %s with an actionable diagnostic and no stdout", async (format) => {
     const c = capture();
-    const code = await run(baseArgs("terminal"), c.deps);
-    expect(code).toBe(0);
-    expect(c.err).toBe("");
-    expect(c.out).toContain(TITLE);
-    expect(c.out).toContain("Outcome [decision]:");
-    expect(c.out).toContain("GO");
+    expect(await run(baseArgs(format), c.deps)).toBe(1);
+    expect(c.out).toBe("");
+    expect(c.err).toContain("owner request");
+    expect(c.err).toContain("$.readability.ownerRequestQuote");
   });
-
-  it("renders the md surface (exit 0, H1 title + outcome heading)", async () => {
+  it("also enforces the gate for the default terminal presentation", async () => {
     const c = capture();
-    const code = await run(baseArgs("md"), c.deps);
-    expect(code).toBe(0);
-    expect(c.err).toBe("");
-    expect(c.out).toContain(`# ${TITLE}`);
-    expect(c.out).toContain("### Outcome (decision)");
-    expect(c.out).toContain("GO");
-  });
-
-  it("renders the html surface (exit 0, article header + outcome section)", async () => {
-    const c = capture();
-    const code = await run(baseArgs("html"), c.deps);
-    expect(code).toBe(0);
-    expect(c.err).toBe("");
-    expect(c.out).toContain(`<h1>${TITLE}</h1>`);
-    expect(c.out).toContain('class="focus-outcome"');
-    expect(c.out).toContain("GO");
-  });
-
-  it("defaults to the terminal format when --format is omitted", async () => {
-    const c = capture();
-    const code = await run(
-      [DECISION_ID, "--workspace", "focus", "--events-path", eventsPath],
-      c.deps,
-    );
-    expect(code).toBe(0);
-    expect(c.out).toContain("Outcome [decision]:");
+    expect(await run([DECISION_ID, "--workspace", "focus", "--events-path", eventsPath], c.deps)).toBe(1);
+    expect(c.out).toBe("");
+    expect(c.err).toContain("missing_owner_request");
   });
 });
 
@@ -141,5 +121,30 @@ describe("focus CLI — error handling (non-zero + clear stderr)", () => {
     expect(code).toBe(3);
     expect(c.err).toContain("not found");
     expect(c.out).toBe("");
+  });
+});
+
+describe("focus CLI — readable Track decisions", () => {
+  it.each(["terminal", "md", "html", "default"])("renders %s, escapes HTML and leaves the log untouched", async (format) => {
+    const path = join(mkdtempSync(join(fixtureDir, "readable-" + format + "-")), "events.jsonl");
+    const track = new Track(new EventStore(path), { by: "owner" });
+    const target = track.createItem({ kind: "feature", title: "Garden shed", workspace: "garden" });
+    const dossier = JSON.parse(readFileSync(new URL("./readable-track.fixture.json", import.meta.url), "utf8"));
+    const id = track.createDecision({ decisionKind: "orientation", title: "Choose the garden shed location", workspace: "garden", targets: [target], dossier });
+    const before = readFileSync(path, "utf8");
+    const c = capture();
+    const args = [id, "--workspace", "garden", "--events-path", path];
+    if (format !== "default") args.push("--format", format);
+    expect(await run(args, c.deps)).toBe(0);
+    expect(c.err).toBe("");
+    expect(c.out).toContain("Choose the garden shed location");
+    expect(c.out).toContain(dossier.readability.ownerRequestQuote);
+    expect(c.out).toContain("A short walk and a clear terrace view.");
+    expect(c.out).toContain("préco: Along the side wall, because");
+    if (format === "html") {
+      expect(c.out).toContain('&lt;script&gt;alert("shed")&lt;/script&gt; &amp; comfort');
+      expect(c.out).not.toContain('<script>');
+    }
+    expect(readFileSync(path, "utf8")).toBe(before);
   });
 });

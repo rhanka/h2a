@@ -7,6 +7,8 @@
  * (or passed through an optional host `renderMarkdown` hook for normalization).
  */
 
+import { preparePresentation } from "./presentation.js";
+
 import type {
   Affordance,
   AmendmentStep,
@@ -19,6 +21,8 @@ const renderQuestion = (
   q: Extract<FocusNode, { kind: "question" }>,
 ): string => {
   const lines = [`**Q:** ${q.question} _(${q.state})_`];
+  if (q.context !== undefined) lines.push(q.context);
+  if (q.readingTimeMinutes !== undefined) lines.push(`Reading time: ${q.readingTimeMinutes} min`);
   if (q.recommendedAnswer !== undefined) {
     lines.push(`- préco: ${q.recommendedAnswer}`);
   }
@@ -37,7 +41,7 @@ const renderOptionSet = (
     const comment =
       o.annotationComment !== undefined ? ` — ${o.annotationComment}` : "";
     const body = o.body !== undefined ? `\n  ${o.body}` : "";
-    return `- ${mark} **${o.label}**${comment}${body}`;
+    return `- ${mark} **${o.label}** — ${o.consequence ?? ""}${comment}${body}`;
   });
   return [head, ...opts].join("\n");
 };
@@ -87,10 +91,16 @@ export const renderMd = (
   doc: DecisionDossierDocument,
   hooks: MdRenderHooks = {},
 ): string => {
+  doc = preparePresentation(doc);
+  const r = doc.readability!;
   const blocks: string[] = [
     `# ${doc.title}`,
     `> subject: ${doc.subject}  ·  ref: \`${doc.ref}\`  ·  cursor: \`${doc.cursor}\``,
   ];
+
+  blocks.push(`### Owner request\n\n${r.ownerRequestQuote!.split("\n").map((line) => `> ${line}`).join("\n")}`);
+  blocks.push(`### Stakes\n\n${r.stakes}\n\nReading budget: ${r.readingBudgetMinutes} min (${r.stakesLevel} stakes)`);
+  if (r.glossary?.length) blocks.push("### Glossary\n\n" + r.glossary.map((entry) => `- **${entry.term}**: ${entry.definition}`).join("\n"));
 
   for (const node of doc.sections) {
     blocks.push(renderNode(node, hooks));
