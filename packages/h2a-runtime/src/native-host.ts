@@ -38,6 +38,7 @@ import { readProcessTreeCpuMs, readWorkerPid, parseProcStat } from "./proc-cpu.j
 import { sleepSync, type PromptDeliveryDeps } from "./prompt-delivery.js";
 import { SESSION_CLASS_ENV, type SessionClass } from "./session-class.js";
 import { withAttachTerminalRecovery } from "./native-terminal/attach-recovery.js";
+import { appendCrashLog } from "./crash-log.js";
 
 const OP_TIMEOUT_MS = 15_000;
 const H2A_NATIVE_TARGET_SESSION_ENV = "H2A_NATIVE_TARGET_SESSION";
@@ -124,6 +125,7 @@ function runOp(
     timeout: OP_TIMEOUT_MS,
   });
   if (r.error) {
+    appendCrashLog("cli", { event: "childExit", reason: `op:${args[0] ?? "unknown"}`, detail: r.error.message });
     throw new Error(
       `native host operation ${args.join(" ")} failed: ${r.error.message}`,
       { cause: r.error },
@@ -141,8 +143,12 @@ function runOp(
   }
   if (status !== 0 && options.allowFailure !== true) {
     const diagnostic = payload as ConstructorParameters<typeof NativeLaunchAdmissionError>[0] | undefined;
-    if (args[0] === "ensure-host" && diagnostic?.code === "native-inventory-unknown") throw new NativeLaunchAdmissionError(diagnostic);
+    if (args[0] === "ensure-host" && diagnostic?.code === "native-inventory-unknown") {
+      appendCrashLog("cli", { event: "refusal", reason: diagnostic.code, detail: `ensure-host refused (${args[0]})` });
+      throw new NativeLaunchAdmissionError(diagnostic);
+    }
     const detail = (r.stderr ?? "").trim() || (r.stdout ?? "").trim();
+    appendCrashLog("cli", { event: "childExit", reason: `op:${args[0] ?? "unknown"}`, exitCode: status, detail });
     throw new Error(`native host operation ${args[0]} failed: ${detail}`);
   }
   return { status, payload };
@@ -176,6 +182,7 @@ function admitNativeCreation(name: string, sidecar?: string, launchSocket?: stri
     ...(launchSocket ? ["--launch-socket", launchSocket] : [])]);
   const diagnostic = payload as { admitted?: boolean; code?: "native-name-collision" | "native-inventory-unknown" } | undefined;
   if (diagnostic?.admitted === true) return;
+  appendCrashLog("cli", { event: "refusal", sessionId: name, reason: diagnostic?.code ?? "native-inventory-unknown", detail: "launch refused before creation" });
   throw new NativeLaunchAdmissionError(diagnostic?.code ? diagnostic as ConstructorParameters<typeof NativeLaunchAdmissionError>[0]
     : { code: "native-inventory-unknown" });
 }
@@ -218,7 +225,10 @@ export function preflightNativeLaunch(name: string, sidecar = nativeSidecarName(
   const selected = ownerSocket ? runOp(["ensure-host"], { socketPath: ownerSocket }).payload as ReturnType<typeof ensureNativeHost>
     : ensureNativeHost({ fenced: true });
   const { launchFence, hostPid, socketPath, generation } = selected;
-  if (!launchFence) throw new NativeHostCapabilityMismatchError({ generation, hostPid, socketPath });
+  if (!launchFence) {
+    appendCrashLog("cli", { event: "refusal", sessionId: name, instanceId: generation, reason: "native-host-capability-mismatch", detail: socketPath });
+    throw new NativeHostCapabilityMismatchError({ generation, hostPid, socketPath });
+  }
   admitNativeCreation(name, sidecar, socketPath);
   return selected;
 }
@@ -229,7 +239,10 @@ function prepareNativeOwnership(name: string, beforeCreate?: (value: NativeLaunc
     : ownerSocket ? runOp(["ensure-host"], { socketPath: ownerSocket }).payload as ReturnType<typeof ensureNativeHost>
     : ensureNativeHost({ fenced: true });
   const { generation, launchFence, hostPid, socketPath } = selected;
-  if (!launchFence) throw new NativeHostCapabilityMismatchError({ generation, hostPid, socketPath });
+  if (!launchFence) {
+    appendCrashLog("cli", { event: "refusal", sessionId: name, instanceId: generation, reason: "native-host-capability-mismatch", detail: socketPath });
+    throw new NativeHostCapabilityMismatchError({ generation, hostPid, socketPath });
+  }
   if (sidecar === undefined) admitNativeCreation(name, undefined, socketPath);
   const incarnation = randomUUID();
   beforeCreate({ name, generation, incarnation, socketPath });
@@ -340,6 +353,7 @@ export function startNativeSession(
   if (existing.state === "unknown" && !metadata.beforeCreate) {
     // An unprovable host state must never be read as absence: creating here
     // could fabricate a twin over a live session (fail closed).
+    appendCrashLog("cli", { event: "refusal", sessionId: name, reason: "unknown-host-state", detail: existing.reason });
     throw new Error(
       `native session ${slug}: host state is unknown (${existing.reason}); refusing to create over an unprovable session`,
     );

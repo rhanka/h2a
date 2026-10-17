@@ -137,7 +137,7 @@ export const H2A_RUNTIME_HELP_GROUPS: readonly H2aRuntimeHelpGroup[] = [
     // > | See the big picture | `h2a status --human` |
     id: "OBSERVE",
     heading: "Observe — see what is running and what needs attention:",
-    commands: ["ls", "status", "agents", "diff", "sync-status"],
+    commands: ["ls", "status", "agents", "diff", "sync-status", "logs"],
   },
   {
     // Vendored excerpt 3, § "Daily operator surface — top level", these rows:

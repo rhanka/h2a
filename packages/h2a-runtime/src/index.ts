@@ -58,6 +58,12 @@ import {
   prepareCentralMcpForLaunch,
   prepareCentralMcpForRestore,
 } from "./central-mcp.js";
+import {
+  CRASH_LOG_COMPONENTS,
+  readRecentCrashLogs,
+  resolveCrashLogDir,
+} from "./crash-log.js";
+import { readHostJournal, resolveHostJournalPath } from "./native-terminal/journal.js";
 import { ensureConnected, stopTunnel } from "./tunnel.js";
 import { detectToolAuth, KNOWN_TOOLS, partitionTools } from "./auth-tools.js";
 import { transmittedSecrets, secretsSummary } from "./secrets.js";
@@ -10917,6 +10923,77 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           ? `[h2a] lineage ${id} resumed\n`
           : `[h2a] lineage ${id} was not suspended (no-op)\n`,
       );
+    });
+
+  // ---------------------------------------------------------------------------
+  // logs — last crash-log incidents (native host journal + per-component logs)
+  // ---------------------------------------------------------------------------
+
+  program
+    .command("logs")
+    .description(
+      "Show the last crash-log incidents: native host journal plus cli/attach/mcp-server logs.",
+    )
+    .option("--component <name>", "only this component (native-host|cli|attach|mcp-server)")
+    .option("-n, --lines <n>", "number of rows to show", "50")
+    .option("--json", "emit JSON rows instead of human lines")
+    .action((opts: { component?: string; lines?: string; json?: boolean }) => {
+      const dir = resolveCrashLogDir();
+      const lines = Math.max(1, parseInt(opts.lines ?? "50", 10) || 50);
+      const only = (opts.component ?? "").trim();
+      const wantHost = only === "" || only === "native-host";
+      const wanted = CRASH_LOG_COMPONENTS.filter((c) => only === "" || only === c);
+      if (!wantHost && wanted.length === 0) {
+        process.stderr.write(
+          "h2a logs: --component must be native-host|cli|attach|mcp-server\n",
+        );
+        process.exitCode = 1;
+        return;
+      }
+      const rows = readRecentCrashLogs(wanted, lines).map((row) => ({
+        timestamp: row.timestamp,
+        component: row.component,
+        version: row.version,
+        pid: row.pid,
+        event: row.event,
+        ...(row.sessionId ? { sessionId: row.sessionId } : {}),
+        ...(row.instanceId ? { instanceId: row.instanceId } : {}),
+        ...(row.reason ? { reason: row.reason } : {}),
+        ...(row.exitCode !== undefined ? { exitCode: row.exitCode } : {}),
+        ...(row.signal ? { signal: row.signal } : {}),
+      }));
+      const hostRows = wantHost
+        ? readHostJournal(resolveHostJournalPath())
+            .slice(-lines)
+            .map((entry) => ({
+              timestamp: (entry as { timestamp?: string }).timestamp ?? "unknown",
+              component: "native-host",
+              ...entry,
+            }))
+        : [];
+      const merged = [...hostRows, ...rows]
+        .sort((a, b) => (a.timestamp < b.timestamp ? -1 : a.timestamp > b.timestamp ? 1 : 0))
+        .slice(-lines);
+      if (merged.length === 0) {
+        process.stdout.write(`[h2a] no crash-log incidents in ${dir}\n`);
+        return;
+      }
+      if (opts.json) {
+        process.stdout.write(`${merged.map((row) => JSON.stringify(row)).join("\n")}\n`);
+        return;
+      }
+      for (const row of merged) {
+        const record = row as Record<string, unknown>;
+        const parts = [
+          String(record["timestamp"] ?? "unknown"),
+          String(record["component"] ?? "?"),
+          String(record["event"] ?? "?"),
+        ];
+        for (const key of ["sessionId", "instanceId", "reason", "exitCode", "signal", "cause", "code", "version", "pid"]) {
+          if (record[key] !== undefined) parts.push(`${key}=${String(record[key])}`);
+        }
+        process.stdout.write(`${parts.join(" ")}\n`);
+      }
     });
 
   // Help layout only — assign every top-level command an intention group and
