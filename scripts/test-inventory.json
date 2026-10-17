@@ -981,7 +981,9 @@
   "packages/h2a/test/node-test-order.test.js": [
     "the production Node runner starts explicit files in priority order and records every real case",
     "the production Node runner reports a failing child and still executes the other explicit file",
-    "both real package suites start before the remaining Node files without dropping any file"
+    "both real package suites start before the remaining Node files without dropping any file",
+    "two reported CPUs execute two waiting files together instead of reserving one CPU",
+    "the runner reports its own pending file and PID before that file completes"
   ],
   "packages/h2a/test/native-cleanse-oracle.test.js": [
     "L0 contracts: only the committed state and exact failure signature are accepted",
