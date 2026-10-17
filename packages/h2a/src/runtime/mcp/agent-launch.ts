@@ -1,6 +1,6 @@
 import { spawn, type SpawnSyncOptionsWithStringEncoding, type SpawnSyncReturns } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { appendFileSync, mkdirSync, readFileSync, realpathSync, statSync } from "node:fs";
+import { appendFileSync, closeSync, fstatSync, mkdirSync, openSync, readFileSync, realpathSync, statSync, type Stats } from "node:fs";
 import { isAbsolute, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -472,7 +472,7 @@ export function executeH2aRunWithSpawn(
       if (isPreCreateNativeFailure(failure, request.name, result.stderr ?? "")) return failure;
       if (failure.kind === "h2a.run.failure" && request.profile === "agy" &&
           failure.retrySafe === false && typeof failure.code === "string" &&
-          ["agy-effort-unsupported", "agy-claude-build-requires-opt-in", "agy-claude-quota-exhausted", "agy-output-missing", "agy-model-mismatch"].includes(failure.code)) return failure;
+          ["agy-effort-unsupported", "agy-claude-build-requires-opt-in", "agy-claude-quota-exhausted", "agy-output-missing", "agy-model-mismatch", "agy-process-failed"].includes(failure.code)) return failure;
       const prompt = failure.prompt as Record<string, unknown> | undefined;
       if (failure.kind === "h2a.run.failure" && failure.version === 1 &&
           failure.state === "provider-blocked" && failure.launchId === request.name &&
@@ -565,6 +565,8 @@ export function createH2aRunLauncher(
   onCompleted?: (request: H2aRunRequest, result: Record<string, unknown>) => void,
 ): H2aRunExecutor {
   const launches = new Map<string, Record<string, unknown>>();
+  const launchedAt = new Map<string, number>();
+  const previousResults = new Map<string, Stats>();
   return request => {
     const existing = launches.get(request.name);
     if (existing) {
@@ -573,17 +575,32 @@ export function createH2aRunLauncher(
       if (request.profile === "agy" && request.headless && isAgyClaudeModel(request.model) && existing.state === "started") {
         const resultPath = (existing.result as { path?: unknown } | undefined)?.path;
         if (typeof resultPath === "string") try {
-          const completed = JSON.parse(readFileSync(resultPath, "utf8"));
-          if (["h2a.run.failure", "h2a.run.completion"].includes(completed.kind)) {
-            const final = { ...completed, launchId: request.name, result: existing.result, logs: existing.logs };
-            launches.set(request.name, final);
-            return final;
-          }
+          // Bind bytes and freshness to the same inode: a supervisor publishes
+          // atomically and may replace the path between a read and a stat.
+          const fd = openSync(resultPath, "r");
+          try {
+            const current = fstatSync(fd);
+            const previous = previousResults.get(request.name);
+            const unchanged = previous && previous.dev === current.dev && previous.ino === current.ino &&
+              previous.mtimeMs === current.mtimeMs && previous.ctimeMs === current.ctimeMs && previous.size === current.size;
+            const completed = JSON.parse(readFileSync(fd, "utf8"));
+            if (!unchanged && current.mtimeMs >= launchedAt.get(request.name)! &&
+                ["h2a.run.failure", "h2a.run.completion"].includes(completed.kind)) {
+              const final = { ...completed, launchId: request.name, result: existing.result, logs: existing.logs };
+              launches.set(request.name, final);
+              return final;
+            }
+          } finally { closeSync(fd); }
         } catch { /* Still running, no fabricated completion. */ }
       }
       return existing;
     }
     const launching = { state: "launching", launchId: request.name, retrySafe: false };
+    launchedAt.set(request.name, Date.now());
+    if (request.profile === "agy" && request.headless && isAgyClaudeModel(request.model)) {
+      try { previousResults.set(request.name, statSync(join(request.workspace, ".h2a", "runs", request.name, "result.json"))); }
+      catch { /* No previous generation to exclude. */ }
+    }
     launches.set(request.name, launching);
     const finish = (result: unknown): Record<string, unknown> => {
       const current = result && typeof result === "object" ? result as Record<string, unknown>

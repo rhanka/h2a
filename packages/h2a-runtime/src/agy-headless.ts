@@ -31,13 +31,17 @@ export async function runAgyClaudeHeadless(options: {
     log.write(chunk);
     // Preserve a quota observation even if later output fills the bounded tail.
     // Keep the streams separate: stderr JSON can span chunks interleaved with stdout.
-    diagnostic[stream] = (diagnostic[stream] + chunk.toString("utf8")).slice(-65_536);
-    const verdict = detectAgyClaudeQuotaExhaustion(diagnostic[stream]);
-    if (verdict.exhausted && !quotaError) quotaError = agyClaudeQuotaError(verdict.signature!, diagnostic[stream]);
+    const collected = diagnostic[stream] + chunk.toString("utf8");
+    const verdict = detectAgyClaudeQuotaExhaustion(collected);
+    if (verdict.exhausted && (!quotaError || (!quotaError.resetsAt && verdict.resetsAt))) {
+      quotaError = agyClaudeQuotaError(verdict.signature!, collected);
+    }
+    diagnostic[stream] = collected.slice(-65_536);
     if (stream !== "stdout") return;
-    pendingLine = (pendingLine + chunk.toString("utf8")).slice(-65_536);
-    const lines = pendingLine.split("\n");
-    pendingLine = lines.pop()!;
+    const lines = (pendingLine + chunk.toString("utf8")).split("\n");
+    // Consume complete events before bounding the unfinished line. A large
+    // following event must not erase a preceding model declaration.
+    pendingLine = lines.pop()!.slice(-65_536);
     for (const line of lines) observeModel(line);
   };
   const completion = await new Promise<{ exitCode: number; spawnError?: string }>((done) => {
@@ -70,13 +74,13 @@ export async function runAgyClaudeHeadless(options: {
     return { path: options.outputFile, state: !priorOutput || current.mtimeMs !== priorOutput.mtimeMs || current.ctimeMs !== priorOutput.ctimeMs ? "written" : "unchanged" };
   })() : { state: "not-requested" };
   const mismatch = modelMismatch;
-  const code = quotaError?.code ?? (mismatch ? "agy-model-mismatch" : output.state === "missing" || output.state === "unchanged" ? "agy-output-missing" : undefined);
+  const code = quotaError?.code ?? (mismatch ? "agy-model-mismatch" : output.state === "missing" || output.state === "unchanged" ? "agy-output-missing" : completion.exitCode !== 0 ? "agy-process-failed" : undefined);
   const result = {
     kind: code ? "h2a.run.failure" : "h2a.run.completion", version: 1,
     state: code || completion.exitCode !== 0 ? "failed" : "done",
     ...completion, model: options.model, modelSource: "launch-argument",
     effectiveModel: observedModel ?? "unknown", quota, output,
-    ...(code ? { code, error: quotaError?.message ?? (mismatch ? "AGY reported a different model; no fallback permitted" : "AGY exited without writing the expected output file"), retrySafe: false, retryable: false,
+    ...(code ? { code, error: quotaError?.message ?? (mismatch ? "AGY reported a different model; no fallback permitted" : code === "agy-process-failed" ? completion.spawnError ?? `AGY exited with code ${completion.exitCode}` : "AGY exited without writing the expected output file"), retrySafe: false, retryable: false,
       ...(quotaError?.resetsAt ? { resetsAt: quotaError.resetsAt } : {}) } : {}),
   };
   const temporary = `${options.resultPath}.${process.pid}.tmp`;
