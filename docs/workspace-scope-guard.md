@@ -12,21 +12,41 @@ PreToolUse hooks. SessionStart records the host session identity in the launch
 workspace; changing tool cwd cannot initialize another workspace. A missing
 binding refuses until the plugin is reloaded.
 
-`h2a host plugin --host claude|codex|gemini --instance SESSION --workspace WORKSPACE
+`h2a host plugin --host claude|codex|gemini|agy|muse --instance SESSION --workspace WORKSPACE
 --owner-key /owner-controlled/scope-public.pem --write SETTINGS` installs a command
 with a fixed workspace, session and verification key. `--scaffold DIR` on Codex
 includes that command in the generated marketplace plugin. Run installation from
 the owner's terminal, substituting one host and concrete paths. The key option is
 optional: without a pinned key no grant can authorize an exception. No automatic
-trust enrollment or environment-supplied verification key exists.
+trust enrollment exists. Packaged Claude/Codex plugins also accept
+`H2A_SCOPE_OWNER_KEY` from the owner-controlled host startup environment. Tool
+payloads, command environment assignments and journal rows cannot select that key.
 
 Vibe installation copies the guard and its helpers and registers a separate strict
-`pre_tool` hook. It does not depend on MCP guard qualification. Its initial
-workspace/session/key binding is retained in the managed installation manifest;
-doctor does not silently rebind it to another cwd. Use a dedicated Vibe profile
-for that workspace/session. Host execution qualification remains separate from
-configuration tests. agy and muse expose no verified pre-action hook: rendering
-and installation reports explicitly say that workspace scope is **not enforced**.
+`pre_tool` hook. It does not depend on MCP guard qualification. Each native session
+is bound once to the hook's launch cwd in the profile's protected
+`.h2a/workspace-scope/sessions.jsonl` journal beneath `.h2a-install`; later tool
+cwd changes cannot rebind it. A second native session can use another repository
+in the same profile. Explicit owner-key selections update the managed manifest;
+ordinary convergence retains them. `--instance` selects lifecycle recording;
+scope grants use the native session identity shown in refusals.
+
+agy convergence installs `SessionStart` and all-tool `PreToolUse` in
+`~/.gemini/config/hooks.json` as a named hook definition, independently of
+lifecycle polling. Its `conversationId` and `toolCall.name/args` payloads are
+translated to the shared policy, including `ReplacementChunks`. Startup handlers
+use agy's flat handler list. It returns `decision: allow|deny`, exit 0. The schema
+and default paths follow [Google's hook contract](https://antigravity.google/docs/hooks).
+
+Muse loads project `WORKSPACE/.muse/hooks.json`. Run `h2a install-skills --host
+muse --owner-key /owner-controlled/scope-public.pem` from each workspace to install
+its SessionStart binding and PreToolUse guard, retaining unrelated hooks. The
+guard/helper copies live in Muse's managed user profile; the project hook has its
+own manifest and conflict checks. Native Muse `1.4.10-R6427.1` was verified with
+a public checksum-verified binary in a disposable profile, including actual
+startup and plugin hook dispatch. User-global `hooks.json` is not assumed to load.
+Muse refusals use `hookSpecificOutput.permissionDecision: deny` and exit 2.
+Other native execution qualification remains separate from configuration tests.
 
 ## Owner grant: one explicit command
 
@@ -76,15 +96,23 @@ multiple push URLs and URL rewrite rules. Sibling worktrees and nested repositor
 remain foreign even if they share a Git common directory or origin.
 
 Published `package.json` version changes are checked in proposed edits/patches,
-the commit index, pushed trees/refspecs and incoming merge refs. Before PR merge
+the commit index/worktree, pushed trees/refspecs and incoming merge refs. A session
+pins its first observed Git baseline in protected `baselines.jsonl`; moving local
+`main`/`origin/main` refs cannot erase a bump. Direct `git update-ref` is owner-only.
+Manifest diffs run from the repository root, including when a command selects a
+child cwd. Before PR merge
 or ready, read-only `gh` calls inspect the diff; candidate changes are verified
 against full base/head manifests to distinguish private packages and nested
 metadata. Missing baseline, unavailable PR inspection and dynamic sensitive
-commands fail closed. Ordinary own-repo commands and quoted prose pass through.
+commands fail closed. Static shell substitutions are inspected in their command's
+cwd; subshell/pipeline cwd and environment changes do not leak into the parent.
+Opaque inline runtime programs fail closed rather than receiving filesystem
+authority from the executable name. Ordinary own-repo commands and quoted prose pass through.
 Read-only `npm version` queries and versioning an explicitly private own package
 remain allowed; foreign package operations still require a scope grant.
 
-Refusals have `[H2A_SCOPE:CODE]`, machine-readable `code`, an explicit handoff to
+Refusals have `[H2A_SCOPE:CODE]`, machine-readable `code`, exact
+`repo`/`action`/`ref`/`session` selectors in stdout and stderr, an explicit handoff to
 the owning conductor, and an appended record in
 `WORKSPACE/.h2a/workspace-scope/audit.jsonl`. Accepted grants are recorded there
 with their signed authorization. Codes include `FOREIGN_WORKSPACE`, `VERSION_BUMP`,
