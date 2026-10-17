@@ -42,8 +42,8 @@ cli-seat-runtime-wiring.test.ts, this record and docs/cli-seat-l2s.md.
 - Real materializer matrix, independent diagonal actors, lab billing admission.
 - Exclusive family journal, unique stream ids, exact persisted handoff.
 - Scenario/codec tool gate, adversarial canaries, precedence/base64/401 guards.
-- Targeted baseline controls retain 60/69 red regressions, 13/13 wiring red
-  and 20/20 diagonal failures; final tests/typechecks are in the owner report.
+- Targeted baseline controls retain 71/80 red regressions, 13/13 wiring red,
+  20/20 diagonal failures and a cross-process admission failure; final tests/typechecks are in the owner report.
 - Finding 3 remains partially blocked by the published L1 facade: no generic
   five-provider cli/token import with external refresh policy. Preserve its
   refusal, do not fabricate an API or duplicate the store. Explicit owner,
