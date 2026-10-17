@@ -1638,4 +1638,4 @@ export const embeddedTools = [
     }
   }
 ];
-export const embeddedPackageVersion = "0.98.7";
+export const embeddedPackageVersion = "0.98.8";
