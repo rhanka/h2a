@@ -282,7 +282,188 @@ describe("semantic validation (R4-AC05, R4-AC06)", () => {
       result.issues.some((issue) => issue.code === "unresolved_target"),
     ).toBe(true);
   });
+});
 
+describe("published JSON Schema parity with the TS validator (rev352-F3)", () => {
+  const defsOf = (doc: unknown): Record<string, Record<string, unknown>> =>
+    (doc as Record<string, unknown>)["$defs"] as Record<string, Record<string, unknown>>;
+
+  const propsOf = (doc: unknown, defName: string): Record<string, Record<string, unknown>> =>
+    defsOf(doc)[defName]!["properties"] as Record<string, Record<string, unknown>>;
+
+  const checkClosedObjectDef = (
+    doc: unknown,
+    name: string,
+    required: readonly string[],
+    properties: readonly string[],
+  ): void => {
+    const def = defsOf(doc)[name];
+    expect(def, `$defs.${name} exists`).toBeDefined();
+    expect(def["type"]).toBe("object");
+    expect(def["additionalProperties"]).toBe(false);
+    expect(def["required"]).toEqual([...required]);
+    expect(Object.keys(def["properties"] as Record<string, unknown>).sort()).toEqual(
+      [...properties].sort(),
+    );
+  };
+
+  const checkEnum = (doc: unknown, defName: string, field: string, values: readonly string[]): void => {
+    expect(propsOf(doc, defName)[field], `${defName}.${field} exists`).toBeDefined();
+    expect(propsOf(doc, defName)[field]!["enum"]).toEqual([...values]);
+  };
+
+  const checkParity = (doc: unknown): void => {
+    const schema = doc as Record<string, unknown>;
+    expect(schema["type"]).toBe("object");
+    expect(schema["additionalProperties"]).toBe(false);
+    expect(schema["required"]).toEqual([
+      "ref", "subject", "title", "hash", "cursor",
+      "sections", "interactions", "provenance", "amendmentTrace",
+    ]);
+    expect(Object.keys(defsOf(doc)).sort()).toEqual(
+      ["amendmentStep", "amendmentTraceNode", "comprehensionEvidence", "diagramNode", "interaction", "optionNode", "optionSetNode", "outcomeNode", "proseNode", "provenance", "questionNode", "section"],
+    );
+    expect(defsOf(doc)["section"]!["oneOf"]).toEqual([
+      { $ref: "#/$defs/proseNode" },
+      { $ref: "#/$defs/questionNode" },
+      { $ref: "#/$defs/optionSetNode" },
+      { $ref: "#/$defs/outcomeNode" },
+      { $ref: "#/$defs/amendmentTraceNode" },
+      { $ref: "#/$defs/diagramNode" },
+    ]);
+
+    checkClosedObjectDef(doc, "proseNode", ["kind", "id", "targetRef", "markdown"], ["kind", "id", "targetRef", "markdown"]);
+    expect(propsOf(doc, "proseNode")["kind"]).toEqual({ const: "prose" });
+    checkClosedObjectDef(doc, "questionNode", ["kind", "id", "targetRef", "question", "state"], ["kind", "id", "targetRef", "question", "recommendedAnswer", "answer", "state"]);
+    checkClosedObjectDef(doc, "optionNode", ["kind", "id", "targetRef", "label", "annotation"], ["kind", "id", "targetRef", "label", "body", "annotation", "annotationComment"]);
+    checkClosedObjectDef(doc, "optionSetNode", ["kind", "id", "targetRef", "options"], ["kind", "id", "targetRef", "title", "options"]);
+    expect(propsOf(doc, "optionSetNode")["options"]).toEqual({
+      type: "array",
+      items: { $ref: "#/$defs/optionNode" },
+    });
+    checkClosedObjectDef(doc, "outcomeNode", ["kind", "id", "targetRef", "modality", "statement"], ["kind", "id", "targetRef", "modality", "statement"]);
+    checkClosedObjectDef(doc, "amendmentTraceNode", ["kind", "id", "targetRef", "steps"], ["kind", "id", "targetRef", "steps"]);
+    checkClosedObjectDef(doc, "diagramNode", ["kind", "id", "targetRef", "syntax", "source", "alt"], ["kind", "id", "targetRef", "syntax", "source", "alt"]);
+    checkClosedObjectDef(doc, "interaction", ["name", "targetRef", "label", "enabled"], ["name", "targetRef", "label", "enabled"]);
+    expect(propsOf(doc, "interaction")["enabled"]).toEqual({ const: false });
+    checkClosedObjectDef(doc, "comprehensionEvidence", ["subject", "dossierHash"], ["subject", "dossierHash", "signature"]);
+    checkClosedObjectDef(doc, "provenance", ["source", "readAt"], ["source", "readAt", "comprehensionEvidence"]);
+    expect(propsOf(doc, "provenance")["comprehensionEvidence"]).toEqual({
+      $ref: "#/$defs/comprehensionEvidence",
+    });
+    checkClosedObjectDef(doc, "amendmentStep", ["at", "author", "summary"], ["at", "author", "summary"]);
+
+    checkEnum(doc, "questionNode", "state", ["open", "answered", "validated"]);
+    checkEnum(doc, "optionNode", "annotation", ["none", "accept", "reject", "comment"]);
+    checkEnum(doc, "outcomeNode", "modality", ["decision", "orientation", "amendment", "comment"]);
+    checkEnum(doc, "diagramNode", "syntax", ["mermaid", "plantuml"]);
+  };
+
+  it("published asset matches the validator contract", () => {
+    checkParity(schemaDoc);
+  });
+
+  interface SchemaDrift {
+    readonly name: string;
+    readonly mutate: (doc: Record<string, unknown>) => void;
+  }
+
+  const drifts: readonly SchemaDrift[] = [
+    {
+      name: "narrowed question state enum",
+      mutate: (doc) => { propsOf(doc, "questionNode")["state"]!["enum"] = ["open"]; },
+    },
+    {
+      name: "dropped question state required",
+      mutate: (doc) => {
+        defsOf(doc)["questionNode"]!["required"] = ["kind", "id", "targetRef", "question"];
+      },
+    },
+    {
+      name: "opened proseNode",
+      mutate: (doc) => { defsOf(doc)["proseNode"]!["additionalProperties"] = true; },
+    },
+    {
+      name: "relaxed interaction enabled",
+      mutate: (doc) => { propsOf(doc, "interaction")["enabled"]!["const"] = true; },
+    },
+  ];
+
+  it.each(drifts)("$name breaks parity while the old identity test stays green", ({ mutate }) => {
+    const drifted = JSON.parse(JSON.stringify(schemaDoc)) as Record<string, unknown>;
+    mutate(drifted);
+    expect(() => checkParity(drifted)).toThrow();
+    expect(drifted["$id"]).toBe(schemaDoc.$id);
+    expect(drifted["$schema"]).toBe(schemaDoc.$schema);
+  });
+
+  interface DossierEnumMutant {
+    readonly name: string;
+    readonly mutate: (doc: Record<string, unknown>) => void;
+  }
+
+  // allFamiliesFixture sections: 0 prose, 1 question, 4 optionSet, 6 outcome, 10 diagram.
+  const enumMutants: readonly DossierEnumMutant[] = [
+    {
+      name: "question state",
+      mutate: (doc) => { ((doc["sections"] as Array<Record<string, unknown>>)[1]!)["state"] = "draft"; },
+    },
+    {
+      name: "option annotation",
+      mutate: (doc) => {
+        (((doc["sections"] as Array<Record<string, unknown>>)[4]!)["options"] as Array<Record<string, unknown>>)[0]!["annotation"] = "maybe";
+      },
+    },
+    {
+      name: "outcome modality",
+      mutate: (doc) => { ((doc["sections"] as Array<Record<string, unknown>>)[6]!)["modality"] = "verdict"; },
+    },
+    {
+      name: "diagram syntax",
+      mutate: (doc) => { ((doc["sections"] as Array<Record<string, unknown>>)[10]!)["syntax"] = "dot"; },
+    },
+  ];
+
+  it.each(enumMutants)("$name refuses with invalid_enum", ({ mutate }) => {
+    const doc = clone(allFamiliesFixture()) as unknown as Record<string, unknown>;
+    mutate(doc);
+    const result = validateDecisionDossierDocument(doc);
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.issues.some((issue) => issue.code === "invalid_enum")).toBe(true);
+  });
+});
+
+describe("provenance source and interaction targets (rev352-F5)", () => {
+  it("empty and blank provenance sources validate: the published schema binds any string", () => {
+    for (const source of ["", "   "]) {
+      const mutated = clone(decisionDossierFixture) as {
+        provenance: { source: string };
+      };
+      mutated.provenance.source = source;
+      expect(validateDecisionDossierDocument(mutated).ok).toBe(true);
+    }
+  });
+
+  it("the dossier ref itself resolves as an interaction target (whole-dossier amend)", () => {
+    expect(decisionDossierFixture.interactions[1]!.targetRef).toBe(
+      decisionDossierFixture.ref,
+    );
+    expect(validateDecisionDossierDocument(clone(decisionDossierFixture)).ok).toBe(true);
+  });
+
+  it("a section id distinct from its targetRef resolves as an interaction target", () => {
+    const doc = clone(allFamiliesFixture()) as {
+      sections: Array<{ id: string }>;
+      interactions: Array<{ targetRef: string }>;
+    };
+    doc.sections[0]!.id = "renamed-prose";
+    doc.interactions[0]!.targetRef = "renamed-prose";
+    expect(validateDecisionDossierDocument(doc).ok).toBe(true);
+  });
+});
+
+describe("semantic validation (R4-AC05, R4-AC06, continued)", () => {
   it("evidence attester is preserved verbatim; forged evidence refuses", () => {
     const result = validateDecisionDossierDocument(
       clone(decisionDossierFixture),
