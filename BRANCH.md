@@ -32,3 +32,4 @@
 - [x] h2a consensus unavailable: no h2a MCP in confinement; do not reach live host.
 
 - [x] Preserve read-only npm version and private package versioning; published siblings still require release authority.
+- [x] Restrict helper execution and manual session initialization while preserving source inspection.
