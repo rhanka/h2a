@@ -169,7 +169,7 @@ export const STEPS = [
     command: process.execPath,
     args: ['scripts/run-tests.mjs'],
     requiresBuild: true,
-    // Node, Track, AgentStats and the identity lane run sequentially, each
+    // Node, Track, AgentStats, Focus and the identity lane run sequentially, each
     // with a ten-minute deadline in run-tests.mjs. Allow all runs plus report
     // verification; the integrated inventory alone exceeds the former
     // four-minute outer budget.
@@ -324,6 +324,13 @@ export function describeScope() {
   }
   const { total, underRuntimeSrc, underTrackSrc, underAgentStatsTests } = countTestTsFiles(REPO_ROOT)
   const notRun = Math.max(total - underRuntimeSrc - underTrackSrc - underAgentStatsTests, 0)
+  let focusSpecs = 0
+  try {
+    focusSpecs = readdirSync(join(REPO_ROOT, 'packages', 'focus', 'tests'), { withFileTypes: true })
+      .filter((entry) => entry.isFile() && entry.name.endsWith('.spec.ts')).length
+  } catch {
+    focusSpecs = 0
+  }
   return (
     '\n  scope of this run (counted now, not hard-coded):\n' +
     `    ran         ${ran} *.test.js files, discovered in ${TEST_DIRS.join(' and ')}\n` +
@@ -331,6 +338,7 @@ export function describeScope() {
     `${underRuntimeSrc} *.test.ts files under packages/h2a-runtime/src, via the h2a-runtime step\n` +
     `    ran         ${underTrackSrc} *.test.ts files under packages/track/src, via the Track vitest suite\n` +
     `    ran         ${underAgentStatsTests} *.test.ts files under packages/agent-stats/tests, via the AgentStats vitest suite\n` +
+    `    ran         ${focusSpecs} *.spec.ts files under packages/focus/tests, via the Focus vitest suite\n` +
     `    NOT run     ${notRun} *.test.ts files elsewhere in the tree\n` +
     '    h2a-runtime tsconfig still excludes every *.test.ts from type-checking;\n' +
     '    the h2a-runtime step EXECUTES them but proves no type-level property.\n'
