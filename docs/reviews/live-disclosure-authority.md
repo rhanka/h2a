@@ -4,7 +4,7 @@ review-author:
   host: codex
   model: unknown
   effort: unknown
-target-ref: 4419dafd5ecb80373877d94ed9e40839a5437a59
+target-ref: da1446321cf3eecd5c9678583c7e0623b2cc2b7a
 observed-failure: >-
   Exact author model/effort are not exposed in this session. The prescribed
   installed h2a/mesh reviewer launch is forbidden by the owner's confinement.
@@ -45,11 +45,11 @@ Behavioural RED evidence: initial auth 14 failures and initial disclosure 39
 failures. Additional real regression failures preceded fixes for final-policy
 latest-state replacement, async audit acceptance, throwing clock, revoked
 issuing proof with fresh emission proof, grant start-time rollback, and
-independent read authority missing from emission.
-Two TypeScript failures were also fixed; they are not behavioural RED proof.
+independent read authority missing from emission, and late provider redirection.
+Compiler/test-type failures were also fixed; they are not behavioural RED proof.
 
-Targeted qualification: auth (14), disclosure (52), registration (23), all
-89 passing on Linux Node 22.22.1 and Node 24.18.0 with zero skips. The disclosure
+Targeted qualification: auth (14), disclosure (53), registration (23), all
+90 passing on Linux Node 22.22.1 and Node 24.18.0 with zero skips. The disclosure
 file compiles the consumer into a temporary installation and runs it in a
 separate Node process; absent L8 returns `policy-unavailable` before any
 evidence/transport port. Repository and explicit strict test typechecks pass.
