@@ -82,6 +82,8 @@ a reopening is flagged and falls back to dev. Stage links are item-specific, nev
 | 🔵 | Owner decision awaited (`decision-awaited`); exact question, options with each consequence, ≤2 minute reading summary, and clickable dossier link. |
 
 Effective dependency/manual blockers or failed acceptance force red even over stale declared green.
+Reopening a previously green request makes its old conformity declaration orange until requalified by
+a newer report event (`status-predates-reopening`); an older green cannot hide a recorded regression.
 Pending linked decisions force blue unless a separate blocker/failed acceptance forces red. Conflicts
 are visibly flagged. Expectations for pending native decisions use the current dossier's subject/title,
 options' titles/summaries, `readability.readingBudgetMinutes` and rendered-view artifact (or `dossier`
