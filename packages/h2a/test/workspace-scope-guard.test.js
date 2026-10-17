@@ -339,3 +339,13 @@ test('a published workspace cannot inherit a private sibling release exemption',
   }
   denied(f.invoke('npm version patch --workspaces'), 'RELEASE_ONLY');
 });
+
+test('reading the owner helper is ordinary work, while manual session initialization is owner-only', t => {
+  const f = fixture(t);
+  const read = f.invoke(`cat '${grantCommand}'`); assert.equal(read.status, 0, read.stderr);
+});
+
+test('agents cannot call the session initializer to establish a different workspace binding', t => {
+  const f = fixture(t);
+  denied(f.invoke(`cd '${f.foreign}' && node '${hook}' --initialize-session true`), 'OWNER_ONLY');
+});
