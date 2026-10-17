@@ -151,7 +151,7 @@ export function classify(command, initialCwd, context, depth = 0) {
     if (words.some(w => basename(w) === 'workspace-scope-grant.mjs') || exe === 'workspace-scope-grant.mjs') {
       requests.push({ action: 'owner.grant', code: 'OWNER_ONLY', ref: '', repo: '' }); continue;
     }
-    let target = cwd, additionalTargets = [], action, ref = '', remote, extraRemotes = [], checkVersions = false, revision, versionRefs;
+    let target = cwd, additionalTargets = [], action, ref = '', remote, extraRemotes = [], checkVersions = false, privateVersion = false, revision, versionRefs;
     if (exe === 'git') {
       if (env.GIT_WORK_TREE) target = resolve(cwd, env.GIT_WORK_TREE);
       else if (env.GIT_DIR) target = dirname(resolve(cwd, env.GIT_DIR));
@@ -216,11 +216,17 @@ export function classify(command, initialCwd, context, depth = 0) {
       if (scriptTargets.length) [target, ...additionalTargets] = scriptTargets;
       const pos = positional(words, ['--prefix', '--cwd', '-C', '--workspace', '-w']);
       const [sub, script] = pos;
+      if (sub === 'version' && !script) continue; // npm version without an argument only prints versions.
       if (sub === 'pkg' && script === 'set' && pos.slice(2).some(w => /^version=/.test(w))) {
         action = `${exe}.version`; ref = pos.slice(2).join(' '); checkVersions = true;
       } else if (['publish', 'version'].includes(sub) || sub === 'run' && /(?:^|[:/-])(release|publish|version|bump)(?:$|[:/-])/.test(script ?? '')) {
         action = `${exe}.${sub}`; ref = script ?? sub; checkVersions = true;
       } else if (['run', 'install', 'ci', 'add', 'remove'].includes(sub)) { action = `${exe}.${sub}`; ref = script ?? sub; }
+      if (action === `${exe}.version`) {
+        try { privateVersion = JSON.parse(fs.readFileSync(join(target, 'package.json'), 'utf8')).private === true; }
+        catch { /* Unknown publication status keeps the release gate. */ }
+        if (privateVersion) checkVersions = false;
+      }
       if (sub === 'run' && script) {
         for (const directory of scriptTargets) {
           try {
@@ -254,14 +260,22 @@ export function classify(command, initialCwd, context, depth = 0) {
     const destination = remote ? repoIdentity(remote, target) : repo.repo;
     const request = { action, ref, repo: destination, cwd: canonical(target), checkVersions, revision, versionRefs,
       foreign: repo.path !== context.path || !inside(context.workspace, canonical(target)) || destination !== context.repo,
-      release: /^(?:npm|pnpm|yarn|bun)\.(publish|version)$/.test(action) || action === 'script.release' ||
+      release: /^(?:npm|pnpm|yarn|bun)\.publish$/.test(action) ||
+        /^(?:npm|pnpm|yarn|bun)\.version$/.test(action) && !privateVersion || action === 'script.release' ||
         action.endsWith('.run') && /release|publish|version|bump/.test(ref) || action.startsWith('gh.release.'),
       uncertain: parsed.uncertain || Object.keys(env).some(k => /^(?:GIT_CONFIG|GIT_COMMON_DIR)/.test(k)) ||
         exe === 'git' && words.some(w => w === '-c' || w.startsWith('--config-env') || ['--mirror', '--all'].includes(w)) };
     requests.push(request);
     for (const path of additionalTargets) {
       const repo = repository(path);
-      requests.push({ ...request, cwd: path, repo: repo.repo, foreign: repo.path !== context.path || !inside(context.workspace, path) || repo.repo !== context.repo });
+      let release = request.release, checkVersions = request.checkVersions;
+      if (/^(?:npm|pnpm|yarn|bun)\.version$/.test(action)) {
+        let privatePackage = false;
+        try { privatePackage = JSON.parse(fs.readFileSync(join(path, 'package.json'), 'utf8')).private === true; } catch { /* Keep release gate. */ }
+        release = checkVersions = !privatePackage;
+      }
+      requests.push({ ...request, cwd: path, repo: repo.repo, release, checkVersions,
+        foreign: repo.path !== context.path || !inside(context.workspace, path) || repo.repo !== context.repo });
     }
     for (const locator of extraRemotes) {
       const repo = repoIdentity(locator, target);
