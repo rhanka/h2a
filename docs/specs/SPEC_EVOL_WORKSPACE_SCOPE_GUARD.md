@@ -4,6 +4,9 @@ Owner request: 2026-10-17 following cross-workspace integration #327.
 
 - D1: Pin canonical session worktree in hook command. Payload cwd is a target,
   never authority. Sibling worktrees remain foreign even with the same origin.
+  Global agy hooks pin a protected session journal instead: the single absolute
+  host `workspacePaths` entry at SessionStart binds its native conversation once.
+  Tool arguments and subsequent events cannot replace that binding.
 - D2: Resolve shell cwd, repository selectors and remote destinations without
   executing tool commands; also inspect explicit file edits and patches.
 - D3: Foreign mutations require exact expiring Ed25519 grants bound to workspace,

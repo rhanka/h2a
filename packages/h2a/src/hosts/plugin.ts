@@ -15,7 +15,8 @@
 
 import { VIBE_LIFECYCLE_SCOPE, VIBE_RESTART } from './native-paths.js';
 import { realpathSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { homedir } from 'node:os';
+import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 export function renderWorkspaceScope(host: string, workspace = process.cwd(), session?: string, ownerKey?: string) {
@@ -24,8 +25,8 @@ export function renderWorkspaceScope(host: string, workspace = process.cwd(), se
   };
   const quote = (s: string) => "'" + s.replace(/'/g, "'\\''") + "'";
   const args = [process.execPath, fileURLToPath(new URL('../../hooks/workspace-scope-guard.mjs', import.meta.url)),
-    '--workspace', realpathSync(workspace), '--host', host];
-  if (session) args.push('--session', session);
+    '--host', host, ...(host === 'agy' ? ['--session-store',join(homedir(),'.gemini/.h2a-install-agy')] : ['--workspace', realpathSync(workspace)])];
+  if (session && host !== 'agy') args.push('--session', session);
   if (ownerKey) args.push('--owner-key', resolve(ownerKey));
   return { supported: true as const, command: args.map(quote).join(' '),
     reason: 'Pre-action workspace policy; host execution qualification is separate.' };
