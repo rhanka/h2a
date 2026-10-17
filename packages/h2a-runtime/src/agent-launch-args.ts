@@ -1,3 +1,5 @@
+import { normalizeAgyEffort, resolveAgyModel } from "./agy-claude.js";
+
 export const AGENT_LAUNCH_PROFILES = ["claude", "codex", "agy", "muse", "vibe"] as const;
 export type AgentLaunchProfile = (typeof AGENT_LAUNCH_PROFILES)[number];
 
@@ -94,9 +96,6 @@ export function buildAgentLaunchArgs(options: AgentLaunchArgsOptions): string[] 
   if (options.headless && options.resumeId) {
     throw new Error("headless agent launch cannot resume a conversation");
   }
-  if (options.profile === "agy" && options.effort === "xhigh") {
-    throw new Error("AGY effort must be low|medium|high");
-  }
 
   if (options.profile === "claude") {
     return [
@@ -109,10 +108,12 @@ export function buildAgentLaunchArgs(options: AgentLaunchArgsOptions): string[] 
   }
 
   if (options.profile === "agy") {
+    const effort = normalizeAgyEffort(options.effort);
+    const model = resolveAgyModel(options.model, effort);
     return [
       ...(options.agent ? ["--agent", options.agent] : []),
-      ...(options.model ? ["--model", options.model] : []),
-      ...(options.effort ? ["--effort", options.effort] : []),
+      ...(model ? ["--model", model] : []),
+      ...(effort ? ["--effort", effort] : []),
       ...(options.headless
         ? [
             "--input-format",

@@ -1,5 +1,7 @@
 {
   "packages/h2a-runtime/src/agent-launch-args.test.ts": [],
+  "packages/h2a-runtime/src/agy-claude.test.ts": [],
+  "packages/h2a-runtime/src/agy-headless.test.ts": [],
   "packages/h2a-runtime/src/agents-projection.test.ts": [],
   "packages/h2a-runtime/src/attach-reconnect-livelock.test.ts": [],
   "packages/h2a-runtime/src/attach.test.ts": [],
@@ -351,6 +353,7 @@
   "packages/h2a/test/cli-negotiate-sign-stabilize.test.js": [],
   "packages/h2a/test/cli-negotiate-typed.test.js": [],
   "packages/h2a/test/cli-negotiate.test.js": [],
+  "packages/h2a/test/agy-claude-run.test.js": [],
   "packages/h2a/test/cli-runtime.test.js": [],
   "packages/h2a/test/cluster-mesh-messaging.test.js": [],
   "packages/h2a/test/cluster-mesh-outer.test.js": [],

@@ -27,6 +27,7 @@ import {
 } from "node:fs";
 import { basename, join } from "node:path";
 import { homedir, tmpdir } from "node:os";
+import { fileURLToPath } from "node:url";
 
 import {
   readProcessObservation,
@@ -158,6 +159,20 @@ else
 fi
 if [ "$code" -eq 0 ]; then state=done; else state=failed; fi
 printf '{"state":"%s","exitCode":%s}\\n' "$state" "$code" >"$result"`;
+
+/** Keep both terminal hosts on the same quota-aware run-once contract. */
+export function headlessCommand(
+  profile: string, command: string, args: ReadonlyArray<string>, result: string, log: string,
+  prompt: string, outputFile?: string,
+): string[] {
+  const modelIndex = args.indexOf("--model");
+  const model = modelIndex < 0 ? undefined : args[modelIndex + 1];
+  if (profile === "agy" && model?.startsWith("claude-")) {
+    return [process.execPath, fileURLToPath(new URL("./agy-headless.js", import.meta.url)),
+      result, log, prompt, model, outputFile ?? "", command, ...args];
+  }
+  return ["/bin/bash", "-lc", HEADLESS_WRAPPER, result, log, prompt, command, ...args];
+}
 
 /**
  * The `remote run …` line that recreates this exact local session — shown when
@@ -1135,6 +1150,7 @@ export function startHeadlessSession(
   refuseExisting = false,
   sessionClass?: SessionClass,
   onCreateAttempt?: () => void,
+  outputFile?: string,
 ): StartLocalResult {
   const slug = slugify(label);
   const name = localSessionName(slug);
@@ -1178,14 +1194,7 @@ export function startHeadlessSession(
       "-c",
       cwd,
       ...anthopicEnvUnsetCommandPrefix(),
-      "/bin/bash",
-      "-lc",
-      HEADLESS_WRAPPER,
-      resultJson,
-      outputLog,
-      promptFile,
-      command,
-      ...args,
+      ...headlessCommand(profile, command, args, resultJson, outputLog, promptFile, outputFile),
     ],
     {
       encoding: "utf8",
