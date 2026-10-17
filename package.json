@@ -23,7 +23,7 @@
     "check:focus-app": "node scripts/check-focus-app.mjs",
     "audit:security": "node scripts/audit-security-debt.mjs && npm run audit:security:focus",
     "audit:security:focus": "npm --prefix apps/focus audit --audit-level=moderate",
-    "typecheck": "npm run build -w @sentropic/track && tsc -b --pretty false && node scripts/copy-session-content-capsule.mjs",
+    "typecheck": "npm run build -w @sentropic/track && tsc -b --pretty false",
     "lint:focus-imports": "node apps/focus/scripts/check-imports.mjs",
     "smoke:artifact": "node scripts/smoke-artifact.mjs",
     "test": "node scripts/run-test-gates.mjs"

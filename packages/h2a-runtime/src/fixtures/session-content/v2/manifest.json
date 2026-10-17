@@ -104,8 +104,8 @@
     },
     {
       "path": "schema.json",
-      "sha256": "48e0c75ba2e89c902caecdd93ae7745a1aeb31a128883cc016e5eae61e58ea1b",
-      "bytes": 70468
+      "sha256": "ab748ec454b0d4768a8645463bde95593cf8f61ec682e16f965203f8c329e90c",
+      "bytes": 82479
     },
     {
       "path": "source-ack.v2.json",

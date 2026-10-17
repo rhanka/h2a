@@ -1,4 +1,16 @@
 /** Raw post-ACK bytes only. No replay, VT screen, reset relay or history reader is imported. */
+/** Native admission metadata advances independently of the optional F2 content subscription. */
+export class NativeRawAdmission {
+  private seq=0;
+  private listener:((seq:number,bytes:Buffer)=>void)|null=null;
+  get sequence():number{return this.seq;}
+  get subscriptions():number{return this.listener?1:0;}
+  admit(bytes:Buffer):void{this.seq++;this.listener?.(this.seq,bytes);}
+  subscribe(listener:(seq:number,bytes:Buffer)=>void):{dispose:()=>void}{
+    if(this.listener)throw new Error('resource_busy');this.listener=listener;
+    return {dispose:()=>{if(this.listener===listener)this.listener=null;}};
+  }
+}
 export class ContentQueueBudget {
   private used = 0;
   get bytes(): number { return this.used; }
@@ -17,8 +29,8 @@ export class SessionContentExport {
   constructor(private readonly budget: ContentQueueBudget) {}
   reset(epoch: number): void { this.clear(); this.epoch = epoch; }
   clear(): void { this.budget.release(this.bytes); this.bytes = 0; this.queue = []; this.inFlight = null; }
-  admit(rawSeq: number, data: string): boolean {
-    const bytes = Buffer.byteLength(data);
+  admit(rawSeq: number, data: string|Buffer): boolean {
+    const bytes = typeof data==='string'?Buffer.byteLength(data):data.length;
     if (!bytes) return true;
     if (bytes > 1048576 || this.bytes + bytes > 1048576 || this.queue.length >= 4096 || !this.budget.reserve(bytes)) { this.clear(); return false; }
     this.bytes += bytes; this.queue.push({rawSeq,data:Buffer.from(data),offset:0}); return true;

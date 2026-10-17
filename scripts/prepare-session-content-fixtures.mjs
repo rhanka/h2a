@@ -70,6 +70,19 @@ add('source-admission',{method:literal('POST'),path:{type:'string',minLength:1,m
 const counters={sourceContentReads:0,contentSubscriptions:0,serializedContentBytes:0,exportBytes:0,ingressBodyReads:0,storedBytes:0,importCommits:0,nativeWrites:0,processStarts:0,keyboardAcquires:0};
 add('refusals',{cases:arr(obj({name:str,fixture:str,mutation:obj({pointer:str,value:union(str,num,bool,nul)}),expected:obj({code:str,...Object.fromEntries(Object.keys(counters).map(k=>[k,num]))})}),256,1)});
 const schema={$schema:'https://json-schema.org/draft/2020-12/schema',$id:'https://h2a.invalid/session-content/2/schema.json',$defs:defs,oneOf:Object.values(schemas)};
+// Keep state combinations in the public JSON Schema, as well as in the semantic verifier.
+const policyBase=defs.Policy.properties;
+defs.Policy=union(...[
+  [false,'none',0,0],[true,'existing-at-activation',0,0],[true,'selected',256,1],
+].map(([enabled,mode,max,min])=>obj({...policyBase,channels:obj({...policyBase.channels.properties,nativeHistory:literal(enabled)}),history:obj({mode:literal(mode),selected:arr(ref('HistorySelector'),max,min)})})));
+const selectorBase=defs.HistorySelector.properties;
+defs.HistorySelector=union(obj({...selectorBase,fromRecord:nul,toRecord:nul}),obj({...selectorBase,fromRecord:num,toRecord:num}));
+const ackIndex=schema.oneOf.indexOf(schemas['source-ack']),ackBase=schemas['source-ack'].properties;
+schema.oneOf[ackIndex]=union(
+  obj({...ackBase,status:literal('refused'),boundary:nul,lease:nul,reason:str}),
+  obj({...ackBase,status:literal('applied'),operation:literal('revoke'),boundary:nul,lease:nul}),
+  obj({...ackBase,status:literal('staged'),operation:enumOf('activate','renew','amend'),boundary:ref('Boundary'),lease:ref('Lease'),reason:nul}),
+);
 const jcs=x=>x===null||typeof x!=='object'?JSON.stringify(x):Array.isArray(x)?'['+x.map(jcs).join(',')+']':'{'+Object.keys(x).sort().map(k=>JSON.stringify(k)+':'+jcs(x[k])).join(',')+'}';
 const sha=x=>createHash('sha256').update(x).digest('hex');
 const digest=(p,x)=>sha('h2a.session-content/2/'+p+'\n'+jcs(x));

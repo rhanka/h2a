@@ -211,57 +211,82 @@
       ]
     },
     "HistorySelector": {
-      "type": "object",
-      "properties": {
-        "lineageId": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 256
-        },
-        "checkpointId": {
-          "oneOf": [
-            {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "lineageId": {
               "type": "string",
               "minLength": 1,
               "maxLength": 256
             },
-            {
+            "checkpointId": {
+              "oneOf": [
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 256
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "fromRecord": {
+              "type": "null"
+            },
+            "toRecord": {
               "type": "null"
             }
-          ]
+          },
+          "required": [
+            "lineageId",
+            "checkpointId",
+            "fromRecord",
+            "toRecord"
+          ],
+          "additionalProperties": false
         },
-        "fromRecord": {
-          "oneOf": [
-            {
+        {
+          "type": "object",
+          "properties": {
+            "lineageId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            },
+            "checkpointId": {
+              "oneOf": [
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 256
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "fromRecord": {
               "type": "integer",
               "minimum": 0,
               "maximum": 9007199254740991
             },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "toRecord": {
-          "oneOf": [
-            {
+            "toRecord": {
               "type": "integer",
               "minimum": 0,
               "maximum": 9007199254740991
-            },
-            {
-              "type": "null"
             }
-          ]
+          },
+          "required": [
+            "lineageId",
+            "checkpointId",
+            "fromRecord",
+            "toRecord"
+          ],
+          "additionalProperties": false
         }
-      },
-      "required": [
-        "lineageId",
-        "checkpointId",
-        "fromRecord",
-        "toRecord"
-      ],
-      "additionalProperties": false
+      ]
     },
     "Range": {
       "type": "object",
@@ -712,144 +737,416 @@
       "additionalProperties": false
     },
     "Policy": {
-      "type": "object",
-      "properties": {
-        "id": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 256
-        },
-        "revision": {
-          "type": "integer",
-          "minimum": 0,
-          "maximum": 9007199254740991
-        },
-        "owner": {
-          "$ref": "#/$defs/Owner"
-        },
-        "project": {
-          "$ref": "#/$defs/Project"
-        },
-        "destination": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 256
-        },
-        "sources": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/Source"
-          },
-          "minItems": 1,
-          "maxItems": 256,
-          "uniqueItems": true
-        },
-        "sessions": {
+      "oneOf": [
+        {
           "type": "object",
           "properties": {
-            "selected": {
+            "id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            },
+            "revision": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "owner": {
+              "$ref": "#/$defs/Owner"
+            },
+            "project": {
+              "$ref": "#/$defs/Project"
+            },
+            "destination": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            },
+            "sources": {
               "type": "array",
               "items": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 256
+                "$ref": "#/$defs/Source"
               },
-              "minItems": 0,
+              "minItems": 1,
               "maxItems": 256,
               "uniqueItems": true
             },
-            "future": {
-              "type": "boolean"
-            }
-          },
-          "required": [
-            "selected",
-            "future"
-          ],
-          "additionalProperties": false
-        },
-        "channels": {
-          "type": "object",
-          "properties": {
-            "terminalLive": {
-              "type": "boolean"
+            "sessions": {
+              "type": "object",
+              "properties": {
+                "selected": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                  },
+                  "minItems": 0,
+                  "maxItems": 256,
+                  "uniqueItems": true
+                },
+                "future": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "selected",
+                "future"
+              ],
+              "additionalProperties": false
             },
-            "terminalCache": {
-              "type": "boolean"
+            "channels": {
+              "type": "object",
+              "properties": {
+                "terminalLive": {
+                  "type": "boolean"
+                },
+                "terminalCache": {
+                  "type": "boolean"
+                },
+                "nativeHistory": {
+                  "const": false
+                }
+              },
+              "required": [
+                "terminalLive",
+                "terminalCache",
+                "nativeHistory"
+              ],
+              "additionalProperties": false
             },
-            "nativeHistory": {
-              "type": "boolean"
-            }
-          },
-          "required": [
-            "terminalLive",
-            "terminalCache",
-            "nativeHistory"
-          ],
-          "additionalProperties": false
-        },
-        "history": {
-          "type": "object",
-          "properties": {
-            "mode": {
-              "enum": [
-                "none",
-                "existing-at-activation",
+            "history": {
+              "type": "object",
+              "properties": {
+                "mode": {
+                  "const": "none"
+                },
+                "selected": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/HistorySelector"
+                  },
+                  "minItems": 0,
+                  "maxItems": 0,
+                  "uniqueItems": true
+                }
+              },
+              "required": [
+                "mode",
                 "selected"
-              ]
+              ],
+              "additionalProperties": false
             },
-            "selected": {
-              "type": "array",
-              "items": {
-                "$ref": "#/$defs/HistorySelector"
+            "retentionByChannel": {
+              "type": "object",
+              "properties": {
+                "terminalCache": {
+                  "$ref": "#/$defs/Retention"
+                },
+                "nativeHistory": {
+                  "$ref": "#/$defs/Retention"
+                }
               },
-              "minItems": 0,
-              "maxItems": 256,
-              "uniqueItems": true
+              "required": [
+                "terminalCache",
+                "nativeHistory"
+              ],
+              "additionalProperties": false
+            },
+            "exclusionRevision": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
             }
           },
           "required": [
-            "mode",
-            "selected"
+            "id",
+            "revision",
+            "owner",
+            "project",
+            "destination",
+            "sources",
+            "sessions",
+            "channels",
+            "history",
+            "retentionByChannel",
+            "exclusionRevision"
           ],
           "additionalProperties": false
         },
-        "retentionByChannel": {
+        {
           "type": "object",
           "properties": {
-            "terminalCache": {
-              "$ref": "#/$defs/Retention"
+            "id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
             },
-            "nativeHistory": {
-              "$ref": "#/$defs/Retention"
+            "revision": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "owner": {
+              "$ref": "#/$defs/Owner"
+            },
+            "project": {
+              "$ref": "#/$defs/Project"
+            },
+            "destination": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            },
+            "sources": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/Source"
+              },
+              "minItems": 1,
+              "maxItems": 256,
+              "uniqueItems": true
+            },
+            "sessions": {
+              "type": "object",
+              "properties": {
+                "selected": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                  },
+                  "minItems": 0,
+                  "maxItems": 256,
+                  "uniqueItems": true
+                },
+                "future": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "selected",
+                "future"
+              ],
+              "additionalProperties": false
+            },
+            "channels": {
+              "type": "object",
+              "properties": {
+                "terminalLive": {
+                  "type": "boolean"
+                },
+                "terminalCache": {
+                  "type": "boolean"
+                },
+                "nativeHistory": {
+                  "const": true
+                }
+              },
+              "required": [
+                "terminalLive",
+                "terminalCache",
+                "nativeHistory"
+              ],
+              "additionalProperties": false
+            },
+            "history": {
+              "type": "object",
+              "properties": {
+                "mode": {
+                  "const": "existing-at-activation"
+                },
+                "selected": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/HistorySelector"
+                  },
+                  "minItems": 0,
+                  "maxItems": 0,
+                  "uniqueItems": true
+                }
+              },
+              "required": [
+                "mode",
+                "selected"
+              ],
+              "additionalProperties": false
+            },
+            "retentionByChannel": {
+              "type": "object",
+              "properties": {
+                "terminalCache": {
+                  "$ref": "#/$defs/Retention"
+                },
+                "nativeHistory": {
+                  "$ref": "#/$defs/Retention"
+                }
+              },
+              "required": [
+                "terminalCache",
+                "nativeHistory"
+              ],
+              "additionalProperties": false
+            },
+            "exclusionRevision": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
             }
           },
           "required": [
-            "terminalCache",
-            "nativeHistory"
+            "id",
+            "revision",
+            "owner",
+            "project",
+            "destination",
+            "sources",
+            "sessions",
+            "channels",
+            "history",
+            "retentionByChannel",
+            "exclusionRevision"
           ],
           "additionalProperties": false
         },
-        "exclusionRevision": {
-          "type": "integer",
-          "minimum": 0,
-          "maximum": 9007199254740991
+        {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            },
+            "revision": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "owner": {
+              "$ref": "#/$defs/Owner"
+            },
+            "project": {
+              "$ref": "#/$defs/Project"
+            },
+            "destination": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            },
+            "sources": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/Source"
+              },
+              "minItems": 1,
+              "maxItems": 256,
+              "uniqueItems": true
+            },
+            "sessions": {
+              "type": "object",
+              "properties": {
+                "selected": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                  },
+                  "minItems": 0,
+                  "maxItems": 256,
+                  "uniqueItems": true
+                },
+                "future": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "selected",
+                "future"
+              ],
+              "additionalProperties": false
+            },
+            "channels": {
+              "type": "object",
+              "properties": {
+                "terminalLive": {
+                  "type": "boolean"
+                },
+                "terminalCache": {
+                  "type": "boolean"
+                },
+                "nativeHistory": {
+                  "const": true
+                }
+              },
+              "required": [
+                "terminalLive",
+                "terminalCache",
+                "nativeHistory"
+              ],
+              "additionalProperties": false
+            },
+            "history": {
+              "type": "object",
+              "properties": {
+                "mode": {
+                  "const": "selected"
+                },
+                "selected": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/HistorySelector"
+                  },
+                  "minItems": 1,
+                  "maxItems": 256,
+                  "uniqueItems": true
+                }
+              },
+              "required": [
+                "mode",
+                "selected"
+              ],
+              "additionalProperties": false
+            },
+            "retentionByChannel": {
+              "type": "object",
+              "properties": {
+                "terminalCache": {
+                  "$ref": "#/$defs/Retention"
+                },
+                "nativeHistory": {
+                  "$ref": "#/$defs/Retention"
+                }
+              },
+              "required": [
+                "terminalCache",
+                "nativeHistory"
+              ],
+              "additionalProperties": false
+            },
+            "exclusionRevision": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            }
+          },
+          "required": [
+            "id",
+            "revision",
+            "owner",
+            "project",
+            "destination",
+            "sources",
+            "sessions",
+            "channels",
+            "history",
+            "retentionByChannel",
+            "exclusionRevision"
+          ],
+          "additionalProperties": false
         }
-      },
-      "required": [
-        "id",
-        "revision",
-        "owner",
-        "project",
-        "destination",
-        "sources",
-        "sessions",
-        "channels",
-        "history",
-        "retentionByChannel",
-        "exclusionRevision"
-      ],
-      "additionalProperties": false
+      ]
     },
     "Limits": {
       "type": "object",
@@ -1734,97 +2031,211 @@
       "additionalProperties": false
     },
     {
-      "type": "object",
-      "properties": {
-        "protocol": {
-          "const": "h2a.session-content"
-        },
-        "protocolVersion": {
-          "const": 2
-        },
-        "kind": {
-          "const": "source-ack"
-        },
-        "requestId": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 256
-        },
-        "requestDigest": {
-          "type": "string",
-          "pattern": "^[a-f0-9]{64}$"
-        },
-        "connectionId": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 256
-        },
-        "operation": {
-          "enum": [
-            "activate",
-            "renew",
-            "amend",
-            "revoke"
-          ]
-        },
-        "status": {
-          "enum": [
-            "staged",
-            "applied",
-            "refused"
-          ]
-        },
-        "scope": {
-          "$ref": "#/$defs/Scope"
-        },
-        "boundary": {
-          "oneOf": [
-            {
-              "$ref": "#/$defs/Boundary"
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "protocol": {
+              "const": "h2a.session-content"
             },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "lease": {
-          "oneOf": [
-            {
-              "$ref": "#/$defs/Lease"
+            "protocolVersion": {
+              "const": 2
             },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "reason": {
-          "oneOf": [
-            {
+            "kind": {
+              "const": "source-ack"
+            },
+            "requestId": {
               "type": "string",
               "minLength": 1,
               "maxLength": 256
             },
-            {
+            "requestDigest": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "connectionId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            },
+            "operation": {
+              "enum": [
+                "activate",
+                "renew",
+                "amend",
+                "revoke"
+              ]
+            },
+            "status": {
+              "const": "refused"
+            },
+            "scope": {
+              "$ref": "#/$defs/Scope"
+            },
+            "boundary": {
+              "type": "null"
+            },
+            "lease": {
+              "type": "null"
+            },
+            "reason": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            }
+          },
+          "required": [
+            "protocol",
+            "protocolVersion",
+            "kind",
+            "requestId",
+            "requestDigest",
+            "connectionId",
+            "operation",
+            "status",
+            "scope",
+            "boundary",
+            "lease",
+            "reason"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "protocol": {
+              "const": "h2a.session-content"
+            },
+            "protocolVersion": {
+              "const": 2
+            },
+            "kind": {
+              "const": "source-ack"
+            },
+            "requestId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            },
+            "requestDigest": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "connectionId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            },
+            "operation": {
+              "const": "revoke"
+            },
+            "status": {
+              "const": "applied"
+            },
+            "scope": {
+              "$ref": "#/$defs/Scope"
+            },
+            "boundary": {
+              "type": "null"
+            },
+            "lease": {
+              "type": "null"
+            },
+            "reason": {
+              "oneOf": [
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 256
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "protocol",
+            "protocolVersion",
+            "kind",
+            "requestId",
+            "requestDigest",
+            "connectionId",
+            "operation",
+            "status",
+            "scope",
+            "boundary",
+            "lease",
+            "reason"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "protocol": {
+              "const": "h2a.session-content"
+            },
+            "protocolVersion": {
+              "const": 2
+            },
+            "kind": {
+              "const": "source-ack"
+            },
+            "requestId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            },
+            "requestDigest": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "connectionId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            },
+            "operation": {
+              "enum": [
+                "activate",
+                "renew",
+                "amend"
+              ]
+            },
+            "status": {
+              "const": "staged"
+            },
+            "scope": {
+              "$ref": "#/$defs/Scope"
+            },
+            "boundary": {
+              "$ref": "#/$defs/Boundary"
+            },
+            "lease": {
+              "$ref": "#/$defs/Lease"
+            },
+            "reason": {
               "type": "null"
             }
-          ]
+          },
+          "required": [
+            "protocol",
+            "protocolVersion",
+            "kind",
+            "requestId",
+            "requestDigest",
+            "connectionId",
+            "operation",
+            "status",
+            "scope",
+            "boundary",
+            "lease",
+            "reason"
+          ],
+          "additionalProperties": false
         }
-      },
-      "required": [
-        "protocol",
-        "protocolVersion",
-        "kind",
-        "requestId",
-        "requestDigest",
-        "connectionId",
-        "operation",
-        "status",
-        "scope",
-        "boundary",
-        "lease",
-        "reason"
-      ],
-      "additionalProperties": false
+      ]
     },
     {
       "type": "object",
