@@ -30,6 +30,29 @@
 - [x] Feedback: installed h2a/mesh review launch is forbidden by confinement;
   record selection failure and claim no independent consensus or merge gate.
 
+## Tour 2 — independent review rev367
+
+- [x] Rebased onto origin/main; no merge of main. Push uses the owner-required
+  force-with-lease exception for this rebase, only on our feature branch.
+- [x] L4b-2 exhaustive deterministic exclusions at engram e417c33c: five secret
+  rules, all protected basenames/prefix/suffix/segments, secret-bearing paths;
+  each rule/alternative on all surfaces and every two-fragment split.
+- [x] Final emission requires one host snapshot lease spanning authority,
+  revocation, state, read access, content decisions, clock and bound transport.
+  Data-only validation and synchronous send share that lease; no unlocked fallback.
+- [x] Correct refusal codes and attempt ordering; authentication before grant
+  lookup, correlated revoke refusals, revoke survives policy/declaration drift;
+  no foreign state lookup before signed repository scope verification.
+- [x] Complete evidence ID coverage is required, including composed fragments.
+- [x] RED baseline: 65 behavioural failures / 170 tests, zero skips; execution
+  proof also rejects the old duplicate test names. GREEN: 170/170 on Linux
+  Node 22.22.1 and 24.18.0, zero skips; production execution-proof verifier
+  accepts each three-file targeted report; strict test and repo types pass.
+- [x] Fixed the duplicate parameterized secret-test identity that caused the
+  three previous CI execution-not-proven failures; no gate was weakened.
+- [x] No production snapshot adapter or independent peer consensus claimed;
+  missing snapshot authority denies emission and G4 stays policy-unavailable.
+
 # Inherited branch context
 
 # Focus publication — owner decision 2026-10-17

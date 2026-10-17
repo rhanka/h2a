@@ -4,66 +4,110 @@ review-author:
   host: codex
   model: unknown
   effort: unknown
-target-ref: da1446321cf3eecd5c9678583c7e0623b2cc2b7a
+target-ref: 8f4b1fb4881387e8deee822466ca5cb741159c45
 observed-failure: >-
   Exact author model/effort are not exposed in this session. The prescribed
   installed h2a/mesh reviewer launch is forbidden by the owner's confinement.
   No reviewer was launched and no independent consensus is claimed.
 ---
 
-# Live disclosure authority qualification
+# Live disclosure authority qualification — Tour 2
 
-Reference: rhanka/engram e417c33c, plan/09 Δ-L7a/L8/G4 and
+Reference: rhanka/engram e417c33c, plan/09 Δ-L7a/L8/G4,
 SPEC_LIVE_GIT_INDEXING §§8–10, 12 and Read side (2026-10-17).
+This revision addresses all five findings in the owner's rev367 review.
 
-The new disclosure authority verifies registered Ed25519 host proofs with a
-separate live audience. Trust records, revocations and current declarations
-are injected host ports; missing inputs deny. Explicit grant calls bind one
-opaque clone identity, provider, exact source paths, output surfaces and an
-exclusive expiry bounded by the issuing proof. Activation, enrollment,
-sessions and read/MCP access never mint grants. No signing key is created here.
+## Exclusions and batch integrity
 
-An independent verified read gate is required before loading evidence and
-again at handoff; missing, denied, throwing or revoked read authority refuses.
-Every emission reloads host evidence, including warm-cache provenance, and
-rechecks both the issuing proof and the emission proof. All composed origins
-must fit one grant. Current declaration/policy/latest-state revisions, L4b
-withheld provenance, protected paths and mandatory host secret policy are
-checked before handoff. Known-token scanning is additional defence only.
-The synchronous transport handoff is the tested boundary; later routing or
-fallback must obtain a separate authorization for its actual destination.
+The independent L4b-2 floor now includes all five normative secret rules:
+AWS access keys, GitHub tokens, private-key blocks (including digits and
+multiple algorithm words), credential assignments and credentialed URLs.
+The existing additional sk-token protection remains. There are no word-boundary
+anchors that would hide tokens when fragments concatenate. Every fragment
+and the complete concatenation pass both the deterministic floor and the
+mandatory host policy; composed origins are preserved for that policy.
 
-Audit append is synchronous and fail-closed, with opaque grant/event IDs and
-constant refusal codes. `emit-attempt` does not assert delivery. Refusals
-correlate only known host-minted grant IDs. Content, paths, exceptions and
-proofs never enter receipts. Grants/proofs stay in memory; restart loses all
-grants and denies old IDs. No content cache or snapshot archive is created.
-The injected audit sink must provide durable append; the test exercises a
-flushed temporary file, not a production host receipt backend.
+Protected paths include the .env prefix, .pem/.key suffixes, id_rsa/id_dsa/
+id_ecdsa/id_ed25519, credentials.json, secrets.json, service-account.json,
+the secret/secrets/credentials segments, and secret-bearing path text.
+Existing stricter .ssh/.p12/.pfx/case-insensitive exclusions remain. Explicit
+consent never overrides exclusions or withheld provenance.
 
-Behavioural RED evidence: initial auth 14 failures and initial disclosure 39
-failures. Additional real regression failures preceded fixes for final-policy
-latest-state replacement, async audit acceptance, throwing clock, revoked
-issuing proof with fresh emission proof, grant start-time rollback, and
-independent read authority missing from emission, and late provider redirection.
-Compiler/test-type failures were also fixed; they are not behavioural RED proof.
+Every returned evidence fragment carries its host evidenceId. All requested
+IDs must be represented, and unrequested IDs are refused even at equal counts.
+Several fragments may belong to one requested ID; an incomplete composed batch
+never reaches transport. Evidence and the copied request are frozen.
 
-Targeted qualification: auth (14), disclosure (53), registration (23), all
-90 passing on Linux Node 22.22.1 and Node 24.18.0 with zero skips. The disclosure
-file compiles the consumer into a temporary installation and runs it in a
-separate Node process; absent L8 returns `policy-unavailable` before any
-evidence/transport port. Repository and explicit strict test typechecks pass.
+## Atomic emission boundary
+
+A sequence of independently mutable screen/check callbacks cannot establish
+atomicity. The final handoff therefore requires acquireEmissionSnapshot: a
+host-owned coherent read transaction covering both verified proofs and their
+revocation/trust, declaration/latest state, independent read permission,
+policy decisions for each fragment and their concatenation, time and actual
+provider routing. Its lease must fence all relevant writers, including
+reentrant audit callbacks, until synchronous send returns. The send method
+must be bound to the snapshot's provider; later unguarded routing is forbidden.
+
+The authority validates only copied snapshot data, records emit-attempt after
+all final refusals, checks local reentrant grant revocation and immediately
+hands the same frozen texts to the leased send method. It never calls mutable
+auth/read/policy/route/clock ports again on the successful handoff path.
+The lease ends at synchronous handoff; awaiting delivery does not hold it.
+Missing or failed snapshot acquisition returns authority-unavailable; there
+is no legacy unlocked fallback. Host policy acquisition failures remain
+policy-unavailable, route/send failures transport-failed. A release failure
+is contained and may be reported after an already-audited handoff: an attempt
+receipt is never a delivery acknowledgement.
+
+The isolated test host owns and fences its temporary in-memory state. Tests
+prove that state/clock/policy/read/route/proof changes during audit are refused,
+and that no mutable ports are consulted between snapshot validation and send.
+The production host adapter is not implemented or qualified here. As before,
+G4 remains closed with policy-unavailable until the actual L8 contract exists;
+it does not substitute caller booleans for publication authority.
+
+## Authentication and audit
+
+Only registered Ed25519 host proofs with the live audience may grant/revoke/
+emit. Session/enrollment/read access never creates disclosure authority.
+Authentication precedes grant lookup, so unverified callers cannot probe IDs.
+Refusal receipts correlate known opaque grant IDs, including denied revokes.
+A revoke still verifies proof validity, trusted owner/host/tenant, signed
+repository and revoke operation; declaration/root/policy evolution does not
+prevent the same owner from revoking. Foreign repository requests are rejected
+before readState is consulted. Revocation remains effective if audit fails.
+
+Audit requires durable synchronous append. No content, path, proof or raw
+exception enters receipts. Grants/proofs are memory-only and restart denies
+old IDs. No snapshot archive or content cache is introduced.
+
+## Verification
+
+Three targeted files only: gateway-host/live-auth.test.ts (15),
+live-disclosure.test.ts (132), live-registration.test.ts (23).
+Linux Node 22.22.1 and 24.18.0: **170/170 each, zero skipped**, exit 0.
+verifyRuntimeExecution accepts both reports with zero proof failures. The
+previous four same-named secret cases now have unique parameterized names;
+this fixes the observed execution-not-proven CI failures without changing gates.
+
+Replaying the new tests on the pre-fix rebased source produces **65 behavioural
+failures, 105 passes, zero skips** (exit 1). This includes every reported race,
+missing exclusion, evidence mismatch, refusal/audit and revoke regression.
+The baseline execution proof additionally rejects three duplicate identities.
+Strict explicit test typecheck and npm run typecheck exit 0; git diff --check
+exits 0. Compiler annotation errors were fixed separately and are not RED proof.
+The G4 test compiles into a disposable directory and probes a separate Node
+process without reading installed h2a or owner state. Test HOME/XDG/TMP roots
+are temporary; no provider call, Python, installed h2a or third-party process.
 
 ## Unverified boundaries
 
-- L8 publication policy is absent in the supplied sentropic checkout. G4 is
-  deliberately closed; no caller-supplied allow flag substitutes for it.
-- Full installed L7a supervision, actual identity/key custody, production
-  declaration/latest-state and audit adapters, L4b storage/key lifecycle, and
-  application MCP/provider wiring await their owning integration lots. The
-  existing registration default remains unverifiedLocalLiveAuthority.
-- No actual provider call, Postgres/web publication, full local suite,
-  macOS/Windows qualification, independent peer consensus or owner UAT.
-- First commit invocation disabled hooks temporarily; that commit was replaced
-  using a normal amend with the configured hooks, and every retained commit
-  used the normal hook path. No hook or guard file was changed.
+- Production snapshot transaction/fence and complete L7a identity/key custody,
+  declaration/read adapters and durable audit backend await host integration.
+- L8 publication policy and actual MCP/provider wiring remain unavailable;
+  G4 stays closed. Storage/key/SQLite/WAL/Postgres/web lifecycles are outside scope.
+- No full local suite, local macOS/Windows run, real provider, independent peer
+  consensus or owner UAT. Per-job CI results belong in the requested owner report.
+- First-tour hook bypass was replaced before its original push. Tour 2 commits
+  use the configured hooks, conventional English subjects and no attribution.
