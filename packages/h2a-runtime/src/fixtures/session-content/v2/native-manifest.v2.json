@@ -1,0 +1,66 @@
+{
+  "protocol": "h2a.session-content",
+  "protocolVersion": 2,
+  "kind": "native-manifest",
+  "scope": {
+    "authorityEpoch": "epoch",
+    "owner": {
+      "issuer": "https://synthetic-idp.invalid",
+      "subject": "synthetic-owner"
+    },
+    "project": {
+      "tenantId": "tenant",
+      "workspaceId": "workspace",
+      "workspaceIncarnation": "workspace-incarnation",
+      "projectId": "project"
+    },
+    "source": {
+      "workstationId": "workstation",
+      "bindingId": "binding",
+      "bindingVersion": 1,
+      "sourceId": "source",
+      "sourceGeneration": "generation",
+      "sourceBootId": "boot"
+    },
+    "sessionId": "session",
+    "sessionIncarnation": "incarnation",
+    "policyId": "policy",
+    "policyRevision": 1,
+    "consentRevision": 1,
+    "exclusionRevision": 0,
+    "grantId": "grant",
+    "grantVersion": 1
+  },
+  "connectionId": "connection",
+  "leaseId": "lease",
+  "archive": "h2a.session-archive/1",
+  "snapshotId": "snapshot",
+  "policyDigest": "08fc651043cee52ad207235b626d686b342d1981be90cb75f2b387634a3f4165",
+  "provider": {
+    "provider": "claude",
+    "cliVersion": "synthetic-unqualified",
+    "formatVersion": "synthetic-jsonl/1",
+    "exporterVersion": "synthetic/1",
+    "importerVersion": "synthetic/1"
+  },
+  "ranges": [
+    {
+      "lineageId": "lineage",
+      "checkpointId": "checkpoint",
+      "fromRecord": 0,
+      "toRecord": 0,
+      "inventoryHash": "c3e1919b990362bd942a27b2d117ce41afa06495c3daf33fe5084bba03b57657"
+    }
+  ],
+  "files": [
+    {
+      "path": "records/history.jsonl",
+      "role": "records",
+      "bytes": 49,
+      "sha256": "c3e1919b990362bd942a27b2d117ce41afa06495c3daf33fe5084bba03b57657"
+    }
+  ],
+  "complete": true,
+  "resumable": false,
+  "manifestHash": "87acdbae31d06b3cbec4cc2ea3a1191dd585e84cc02ef659d28f9ea09478b2b9"
+}

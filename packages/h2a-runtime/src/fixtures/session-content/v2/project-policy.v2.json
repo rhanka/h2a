@@ -1,0 +1,71 @@
+{
+  "protocol": "h2a.session-content",
+  "protocolVersion": 2,
+  "kind": "project-policy",
+  "policy": {
+    "id": "policy",
+    "revision": 1,
+    "owner": {
+      "issuer": "https://synthetic-idp.invalid",
+      "subject": "synthetic-owner"
+    },
+    "project": {
+      "tenantId": "tenant",
+      "workspaceId": "workspace",
+      "workspaceIncarnation": "workspace-incarnation",
+      "projectId": "project"
+    },
+    "destination": "https://synthetic-sentropic.invalid",
+    "sources": [
+      {
+        "workstationId": "workstation",
+        "bindingId": "binding",
+        "bindingVersion": 1,
+        "sourceId": "source",
+        "sourceGeneration": "generation",
+        "sourceBootId": "boot"
+      }
+    ],
+    "sessions": {
+      "selected": [
+        "session"
+      ],
+      "future": false
+    },
+    "channels": {
+      "terminalLive": true,
+      "terminalCache": true,
+      "nativeHistory": true
+    },
+    "history": {
+      "mode": "selected",
+      "selected": [
+        {
+          "lineageId": "lineage",
+          "checkpointId": null,
+          "fromRecord": null,
+          "toRecord": null
+        }
+      ]
+    },
+    "retentionByChannel": {
+      "terminalCache": {
+        "mode": "duration",
+        "durationSeconds": 604800
+      },
+      "nativeHistory": {
+        "mode": "unbounded"
+      }
+    },
+    "exclusionRevision": 0
+  },
+  "policyDigest": "08fc651043cee52ad207235b626d686b342d1981be90cb75f2b387634a3f4165",
+  "confirmation": {
+    "id": "confirmation",
+    "challengeId": "challenge",
+    "proofDigest": "ed2d98b042cdc24926031998956f5553db3ea3d13ecfa47606e4812599e24f62",
+    "authSessionRef": "login",
+    "purpose": "share",
+    "confirmedAt": 1800000000000
+  }
+}
