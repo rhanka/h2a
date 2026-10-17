@@ -10,9 +10,11 @@
 // inventory enumerates all five CLIs (agy, codex, vibe, muse, claude);
 // gemini is not a member of this circuit.
 import assert from "node:assert/strict";
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import test from "node:test";
 
 const CLIS = ["agy", "codex", "vibe", "muse", "claude"];
@@ -81,4 +83,46 @@ test("missing credential yields an unavailable receipt, never a passing skip", (
   const receipt = { sender: "claude", receiver: "codex", scenario: "message", outcome: "unavailable" };
   assert.equal(receipt.outcome, "unavailable");
   assert.notEqual(receipt.outcome, "synthetic-pass");
+});
+
+test("live stub refuses missing receipts without resolving installed provider packages", () => {
+  const root = mkdtempSync(join(tmpdir(), "h2a-seat-stub-"));
+  try {
+    const resolutions = join(root, "resolutions.jsonl");
+    writeFileSync(resolutions, "");
+    const probe = join(root, "resolution-probe.mjs");
+    writeFileSync(probe, `
+      import Module, { isBuiltin } from "node:module";
+      import { appendFileSync } from "node:fs";
+      const original = Module._resolveFilename;
+      Module._resolveFilename = function(request, ...args) {
+        if (!isBuiltin(request)) {
+          appendFileSync(${JSON.stringify(resolutions)}, JSON.stringify(request) + "\\n");
+          throw new Error("provider package resolution refused in synthetic lane");
+        }
+        return original.call(this, request, ...args);
+      };
+    `);
+    const env = { PATH: process.env.PATH, HOME: join(root, "home"), TMPDIR: root,
+      XDG_CONFIG_HOME: join(root, "config"), XDG_STATE_HOME: join(root, "state"),
+      XDG_CACHE_HOME: join(root, "cache"), XDG_DATA_HOME: join(root, "data"),
+      XDG_RUNTIME_DIR: join(root, "runtime") };
+    for (const dir of Object.values(env).filter(value => value?.startsWith(root))) {
+      mkdirSync(dir, { recursive: true, mode: 0o700 });
+    }
+    const script = new URL("../../../scripts/e2e-cli-seats-direct.mjs", import.meta.url);
+    const result = spawnSync(process.execPath, ["--import", probe, fileURLToPath(script),
+      "--cli", "all", "--scenario", "all", "--platform", "linux"],
+    { env, cwd: root, encoding: "utf8", timeout: 5_000 });
+    assert.ifError(result.error);
+    assert.equal(result.signal, null);
+    assert.equal(result.status, 2);
+    assert.equal(result.stdout, "");
+    assert.match(result.stderr, /refusing live execution: L2-s is synthetic only/);
+    assert.match(result.stderr, /missing receipt: L1 seat contract/);
+    assert.match(result.stderr, /missing receipt: L2a runner qualification/);
+    assert.equal(readFileSync(resolutions, "utf8"), "", "a package version cannot substitute for an L1 receipt");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });

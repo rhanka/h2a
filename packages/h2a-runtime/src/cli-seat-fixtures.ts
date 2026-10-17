@@ -3,14 +3,14 @@
 // Synthetic L2-s fixtures for the five CLI seats (agy, codex, vibe, muse,
 // claude). No real credential, no live call, no home/keyring/network access.
 //
-// Sentropic contract pin: @sentropic/llm-mesh 0.26.1 was NOT available on npm
-// on 2026-10-17 (latest observed: 0.26.0). The envelope constants below are a
-// test-fixture copy pinned to sentropic commit
+// Sentropic contract pin: the envelope constants below are a test-fixture
+// copy pinned to sentropic commit
 // fb5e92a6ae4928066e181716fdffbfb490b0b4f3,
 // packages/llm-mesh/src/enrollment/seat-bundle.ts and
-// packages/llm-mesh/tests/enrollment/seat-bundle.test.ts. Consume the
-// published package once 0.26.1 (or later) is available; until then this pin
-// is the authority for the synthetic envelope shape.
+// packages/llm-mesh/tests/enrollment/seat-bundle.test.ts. This pin is the
+// authority for the synthetic envelope shape; public L1 consumption belongs
+// to the live integration lot. Publication evidence and the upstream package
+// coordinates are recorded in docs/cli-seat-l2s.md (no provider dependency here).
 
 export const SENTROPIC_SEAT_CONTRACT_PIN = {
   commit: "fb5e92a6ae4928066e181716fdffbfb490b0b4f3",
@@ -19,7 +19,7 @@ export const SENTROPIC_SEAT_CONTRACT_PIN = {
   packageVersion: "0.26.1",
   npmLatestObserved: "0.26.0",
   npmObservedAt: "2026-10-17",
-  note: "fixture copy; consume the published package once 0.26.1 is available",
+  note: "fixture copy; public L1 consumption belongs to the live integration lot",
 } as const;
 
 /** Fixture copy of SEAT_BUNDLE_SCHEMA_VERSION (see pin above). */
