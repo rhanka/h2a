@@ -8,7 +8,9 @@
 - [x] Re-read completion after the PID probe; consume complete model/quota events before bounding buffers.
 - [x] Enrich preliminary quota with reset observations; return typed non-zero provider exits; validate embedded Claude effort tokens.
 - [x] Four named runtime files: 89/103 pass on original sources, then 103/103; MCP 8/11 then 12/12 after the additional stale-generation regression (11/12 red).
-- [ ] Rebase on origin/main, final targeted Node 22/24 validation, push with lease, and per-job CI report.
+- [x] Rebase on origin/main `596363908`; retain both BRANCH.md contexts; no Track diff.
+- [x] Final Node 22.22.1 / 24.18.0: eight named runtime files 292/292 and three CLI/MCP files 38/38 per version, zero skips; four isolated package typechecks per version. Trust-root file 38/38; zero-Python guard exit 0.
+- [x] Push with lease and append the per-job CI snapshot to the owner's Tour 2 report; CI conclusions remain tracked there.
 - Owner confinement remains mandatory. No installed h2a, real provider/native host, Track writes or full local suite.
 
 Current owner task: `feat/agy-claude-models`, resumed from `bd29f7b43` with
