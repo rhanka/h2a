@@ -81,6 +81,7 @@ import { resolveHostConfigRoot } from "./runtime/host-config-root.js";
 import { isNativeHost, NATIVE_HOSTS, REGISTRY_WAITING, stateRoot, vibeHome } from "./hosts/native-paths.js";
 import { convergeNativeHost } from "./hosts/native-convergence.js";
 import { nativeSkillArtifacts } from "./hosts/native-skills.js";
+import { NATIVE_QUESTION_GUIDANCE } from "./hosts/native-questions.js";
 import { assertNativePath, atomicNativeWrite, snapshot as snapshotNativeFile } from "./hosts/native-files.js";
 import { clearVibeDirectRemoved, editVibeMcpServers, setVibeDirectRemoved, VIBE_MCP_NAME, type VibeMcpEntry } from "./hosts/vibe-mcp.js";
 import { convergeAfterExplicitUpgrade } from "./hosts/upgrade-equipment.js";
@@ -7149,7 +7150,7 @@ function cmdInstallSkills(
   if (scope === 'user' && (isNativeHost(host) || host === 'gemini')) {
     try {
       const result = nativeHostReport(host, flags, true, true, dirname(targetBase), cwd());
-      streams.stdout.write(`${JSON.stringify({ ...result, scope, targetBase, installed: 'changed' in result ? result.changed : [], sources: collection.sources,
+      streams.stdout.write(`${JSON.stringify({ ...result, scope, targetBase, nativeQuestionHint: NATIVE_QUESTION_GUIDANCE, installed: 'changed' in result ? result.changed : [], sources: collection.sources,
         prunedLegacy: [], skipped: 'conflicts' in result ? result.conflicts.map(path => ({ path, reason: 'customized or unknown provenance; preserved' })) : [],
         ...(host === 'muse' ? { verifyHint: 'muse skills list   # project scope requires workspace trust' } : {}),
         ...(host === 'vibe' ? { verifyHint: 'vibe   # skills load at session open; nouvelle session ou reprise propre' } : {}),
@@ -7179,15 +7180,13 @@ function cmdInstallSkills(
       continue;
     }
     try {
-      let targetPath: string;
-      if (scope === 'project' && (isNativeHost(host) || host === 'gemini')) {
-        const artifacts = nativeSkillArtifacts({ host, root: dirname(targetBase), project: true, version: currentCliVersion(), skills: [skill], renderGemini: renderSkillAsGeminiToml, historicalHashes: () => [] });
-        for (const artifact of artifacts) {
-          assertNativePath(artifact.path); mkdirSync(dirname(artifact.path), { recursive: true }); writeFileSync(artifact.path, artifact.bytes);
-        }
-        targetPath = probeTarget;
-      } else targetPath = spec.write(targetBase, skillName, skill.parsed, skill.raw);
-      installed.push(targetPath);
+      // Every host needs referenced resources, including the native-question
+      // instructions used by present-decision. Keep both scopes on one renderer.
+      const artifacts = nativeSkillArtifacts({ host, root: dirname(targetBase), project: scope === 'project', version: currentCliVersion(), skills: [skill], renderGemini: renderSkillAsGeminiToml, historicalHashes: () => [] });
+      for (const artifact of artifacts) {
+        assertNativePath(artifact.path); mkdirSync(dirname(artifact.path), { recursive: true }); writeFileSync(artifact.path, artifact.bytes);
+      }
+      installed.push(probeTarget);
     } catch (error) {
       streams.stderr.write(
         `h2a install-skills: failed to write ${probeTarget} (${(error as Error).message})\n`
@@ -7203,6 +7202,7 @@ function cmdInstallSkills(
         host,
         scope,
         targetBase,
+        nativeQuestionHint: NATIVE_QUESTION_GUIDANCE,
         installed,
         skipped,
         prunedLegacy,
