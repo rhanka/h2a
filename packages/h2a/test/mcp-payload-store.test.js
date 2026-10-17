@@ -7,12 +7,13 @@
 
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { mkdtempSync, rmSync, statSync } from "node:fs";
+import fs, { mkdtempSync, rmSync, statSync } from "node:fs";
+import { syncBuiltinESMExports } from 'node:module';
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { createPayloadStore, PAYLOAD_MAX_READ_BYTES } from "../dist/runtime/mcp/payload-store.js";
+import { createPayloadStore, PAYLOAD_MAX_READ_BYTES, PAYLOAD_ROOT_QUOTA_BYTES } from "../dist/runtime/mcp/payload-store.js";
 
 function freshRoot() {
   return mkdtempSync(join(tmpdir(), "h2a-payload-"));
@@ -21,6 +22,69 @@ function freshRoot() {
 function sha256(buf) {
   return `sha256:${createHash("sha256").update(buf).digest("hex")}`;
 }
+
+test('writes below quota avoid expiry metadata scans while pressure reclaims only expired bytes', t => {
+  const root=freshRoot(), directory=join(root,'mcp-payloads');
+  t.after(()=>rmSync(root,{recursive:true,force:true}));
+  const original=fs.readFileSync;
+  let metadataReads=0;
+  t.mock.method(fs,'readFileSync',function(path,...args){
+    if(typeof path==='string'&&path.startsWith(directory+'/')&&path.endsWith('.json'))metadataReads++;
+    return Reflect.apply(original,this,[path,...args]);
+  });
+  syncBuiltinESMExports();
+  t.after(()=>{t.mock.restoreAll();syncBuiltinESMExports();});
+  t.mock.method(performance,'now',()=>0);
+  const store=createPayloadStore(root), first=store.persistOutput(Buffer.from('first'));
+  const second=store.persistOutput(Buffer.from('live'));
+  assert.equal(metadataReads,0,'ordinary writes must measure bytes without parsing all expiry records');
+  const bin=join(directory,first.ref+'.bin'), meta=join(directory,first.ref+'.json');
+  fs.truncateSync(bin,PAYLOAD_ROOT_QUOTA_BYTES);
+  assert.throws(()=>store.persistOutput(Buffer.from('refused')),error=>error.cause==='quota_exceeded');
+  assert.ok(metadataReads>0,'quota pressure must run the real expiry sweep');
+  assert.equal(fs.existsSync(bin),true,'a live oversized payload must never be evicted');
+  const expired=JSON.parse(original(meta,'utf8'));
+  fs.writeFileSync(meta,JSON.stringify({...expired,expiresAt:new Date(0).toISOString()}));
+  const accepted=store.persistOutput(Buffer.from('accepted'));
+  assert.equal(fs.existsSync(bin),false);
+  assert.equal(store.readPayload(first.ref,0,1024).error,'payload_not_found');
+  assert.equal(Buffer.from(store.readPayload(second.ref,0,1024).data,'base64').toString(),'live');
+  assert.equal(Buffer.from(store.readPayload(accepted.ref,0,1024).data,'base64').toString(),'accepted');
+});
+
+test('automatic expiry maintenance advances monotonically and explicit sweeps stay immediate', t => {
+  const root=freshRoot(), directory=join(root,'mcp-payloads');
+  t.after(()=>rmSync(root,{recursive:true,force:true}));
+  let clock=0;
+  t.mock.method(performance,'now',()=>clock);
+  const store=createPayloadStore(root), first=store.persistOutput(Buffer.from('expired'));
+  const expire=ref=>{
+    const path=join(directory,ref.ref+'.json'), meta=JSON.parse(fs.readFileSync(path,'utf8'));
+    fs.writeFileSync(path,JSON.stringify({...meta,expiresAt:new Date(0).toISOString()}));
+  };
+  expire(first);
+  const live=store.persistOutput(Buffer.from('live'));
+  assert.equal(store.readPayload(first.ref,0,1024).error,'payload_expired');
+  clock=30001;
+  const third=store.persistOutput(Buffer.from('third'));
+  assert.equal(store.readPayload(first.ref,0,1024).error,'payload_not_found');
+  expire(third);
+  assert.equal(store.sweepExpired(),1);
+  assert.equal(store.readPayload(third.ref,0,1024).error,'payload_not_found');
+  assert.equal(Buffer.from(store.readPayload(live.ref,0,1024).data,'base64').toString(),'live');
+  const read=fs.readFileSync;
+  let reads=0;
+  t.mock.method(fs,'readFileSync',function(path,...args){
+    if(typeof path==='string'&&path.startsWith(directory+'/')&&path.endsWith('.json')){clock+=60000;reads++;}
+    return Reflect.apply(read,this,[path,...args]);
+  });
+  syncBuiltinESMExports();
+  t.after(()=>{t.mock.restoreAll();syncBuiltinESMExports();});
+  store.sweepExpired();
+  const before=reads;
+  store.persistOutput(Buffer.from('after a slow sweep'));
+  assert.equal(reads,before,'the next write must measure its interval from sweep completion');
+});
 
 /** Read a ref end-to-end in chunks and reassemble the bytes. */
 function readAll(store, ref, chunk = PAYLOAD_MAX_READ_BYTES) {
