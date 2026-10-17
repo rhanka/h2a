@@ -33,7 +33,8 @@
 - [ ] E3b2b — Smoke CI sur propres artefacts PR, diagnostics CLI communs hors profil, backfills anciens tags et conditionnement final .7 après le bump de branche. E3b reste ouvert.
 - [ ] E3c — Gel comparatif du dist .6 publié / fermeture transitive ou relancements réels U07/U11. Premier diagnostic : cinq des six entrées comparées diffèrent ; aucun gel ni relancement qualifié déduit des sources inchangées depuis MH-L6.
 - [x] F-1 — Rapport `upgrade status` commun (préparé/sélectionné/chargé, activation dont `deferred` câblé à l'exclusion, provenance vérifiée) ; `mh-l6-status.test.js`, 6 tests et 5 mutations par Node 22/24, preuve-F-1.json.
-- [ ] F-2 — Codes/strict/reprise/abandon/compensation CLI, autorité inter-transactions, orchestration de la délégation et preuve H4 externe M18 sur vrais .5/.6 ; tests CLI et v1 ciblés.
+- [x] F-2a — Pilote de passe unique (`runUpgradeOnce`, opt-out/besoin/exclusion) sans parsing CLI ; `mh-l6-upgrade-run.test.js`, 6 tests et 4 mutations par Node 22/24, preuve-F-2a.json.
+- [ ] F-2b — Parsing CLI, codes/strict/reprise/abandon/compensation, autorité inter-transactions, orchestration de la délégation et preuve H4 externe M18 sur vrais .5/.6 ; tests CLI et v1 ciblés.
 - [ ] F/M17 — Raccorder les sous-commandes CLI convergées aux droits de writer et aux primitives de mutation communes ; fournir à MH-L8 ses vrais acteurs CLI. L’admission maintenue et le retour d’éligibilité après héritage restent une réalisation MH-L6, jamais un scan/PID absent.
 - [ ] Gate par sous-lot : commandes/sorties conservées, zéro skip/enfant, mutations tuées puis restaurées, vérification des références affectées, commit conventionnel anglais sans trailer, push fast-forward propre branche, rapport français mis à jour.
 - [ ] Revue indépendante confiée au conducteur ; aucune invocation de dispatch installé et aucun verdict de consensus inventé.
