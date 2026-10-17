@@ -1638,7 +1638,7 @@ export function resolutionLines(view: ReportView): string[] {
   return lines
 }
 
-function renderReportView(view: ReportView, format: Format): string {
+export function renderReportView(view: ReportView, format: Format): string {
   assertReportFormat(format)
   if (format === 'json') return JSON.stringify(view, null, 2) + '\n'
   // The builder already redacts owner cells for every format. Rendering only escapes Markdown metacharacters;
