@@ -10,7 +10,11 @@ import { authenticatedHttpRequest } from '../src/runtime/handover/authenticated-
 import { readState } from '../src/runtime/handover/state.js';
 import { spawnShim } from './helpers/mh-l1-shim.js';
 
-test('32 real shims should retain their PIDs and activations across 20 transport recoveries with G0 alive', async () => {
+test('32 real shims should retain their PIDs and activations across 20 transport recoveries with G0 alive', async t => {
+  // Startup and ping of the 32 real children must finish before expiry starts.
+  // Then drive expiry explicitly while observing the real recovery traffic.
+  let now = Date.now();
+  t.mock.method(Date, 'now', () => now);
   const dir = fs.mkdtempSync(join(tmpdir(), 'mh-l3-recovery-')), shims = []; let source;
   try {
     const root = join(dir, 'store'), runtime = join(dir, 'run'); fs.mkdirSync(runtime, { mode: 0o700 });
@@ -28,8 +32,9 @@ test('32 real shims should retain their PIDs and activations across 20 transport
     }
     const pids = shims.map(s => s.child.pid);
     let value;
-    const deadline = Date.now() + 45000;
-    while (Date.now() < deadline) {
+    const deadline = performance.now() + 45000;
+    while (performance.now() < deadline) {
+      now += 121;
       value = await status();
       assert.equal(value.attachments, 32);
       if (value.transports.every(t => t.transportEpoch >= 21)) break;

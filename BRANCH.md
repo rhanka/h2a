@@ -788,6 +788,13 @@ full pinned Git history, private XDG cache/data, actual Node toolcache headers,
 and closed-image-aware native test instrumentation. Owner reports retain every
 job log, regression receipts and explicit coverage gaps.
 
+CI follow-up: the public Node test API preserves the expensive package file's
+priority (the CLI lexically reorders files), with both execution reporters and
+the unchanged 600s backstop. Real child ordering and failed-child propagation
+have mandatory regression cases. Short-lease recovery fixtures control expiry
+after their actual children are ready; all 32 PIDs and 20 recoveries remain
+required. The copied late PTY preload retains its original module imports.
+
 # Focus publication — owner decision 2026-10-17
 
 Branch: feat/focus-publish. Implement the accepted release-wave decision:
