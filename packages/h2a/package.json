@@ -30,6 +30,14 @@
     "./agy-claude": {
       "types": "./dist/runtime/agy-claude.d.ts",
       "import": "./dist/runtime/agy-claude.js"
+    },
+    "./registry/manifest": {
+      "types": "./dist/registry/manifest.d.ts",
+      "import": "./dist/registry/manifest.js"
+    },
+    "./registry/definitions": {
+      "types": "./dist/registry/definitions.d.ts",
+      "import": "./dist/registry/definitions.js"
     }
   },
   "files": [
@@ -38,6 +46,7 @@
     ".mcp.json",
     "dist",
     "fixtures",
+    "registry",
     "skills",
     "schema",
     "focus-app",
@@ -52,7 +61,7 @@
   },
   "scripts": {
     "build": "node ../../scripts/clean-workspace-dist.mjs && tsc -b --force && node ../../scripts/copy-vendored-engram-live.mjs",
-    "prepack": "node ../../scripts/check-focus-app.mjs && chmod +x dist/bin.js"
+    "prepack": "node ../../scripts/check-focus-app.mjs && node ../../scripts/check-publish-payload.mjs && chmod +x dist/bin.js"
   },
   "dependencies": {
     "@hono/mcp": "^0.3.0",

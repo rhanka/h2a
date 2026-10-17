@@ -1,0 +1,93 @@
+{
+  "node": "v22.22.1",
+  "results": [
+    {
+      "name": "registry-loss",
+      "red": "docs/plan/mh-l5/evidence/mh-l5-concurrency-oracles.test.js-node22-mutation-registry-loss-red.log",
+      "green": "docs/plan/mh-l5/evidence/mh-l5-concurrency-oracles.test.js-node22-mutation-registry-loss-green.log",
+      "restored": true,
+      "files": [
+        {
+          "path": "packages/h2a/dist/runtime/local-files/store.js",
+          "sha256": "cf98c2c1e5398f6749185985909547180dff766853b02ad0f55f14d6af3140f2"
+        }
+      ]
+    },
+    {
+      "name": "inbox-loss",
+      "red": "docs/plan/mh-l5/evidence/mh-l5-concurrency-oracles.test.js-node22-mutation-inbox-loss-red.log",
+      "green": "docs/plan/mh-l5/evidence/mh-l5-concurrency-oracles.test.js-node22-mutation-inbox-loss-green.log",
+      "restored": true,
+      "files": [
+        {
+          "path": "packages/h2a/dist/runtime/local-files/store.js",
+          "sha256": "cf98c2c1e5398f6749185985909547180dff766853b02ad0f55f14d6af3140f2"
+        }
+      ]
+    },
+    {
+      "name": "negotiation-loss",
+      "red": "docs/plan/mh-l5/evidence/mh-l5-concurrency-oracles.test.js-node22-mutation-negotiation-loss-red.log",
+      "green": "docs/plan/mh-l5/evidence/mh-l5-concurrency-oracles.test.js-node22-mutation-negotiation-loss-green.log",
+      "restored": true,
+      "files": [
+        {
+          "path": "packages/h2a/dist/runtime/local-files/store.js",
+          "sha256": "cf98c2c1e5398f6749185985909547180dff766853b02ad0f55f14d6af3140f2"
+        }
+      ]
+    },
+    {
+      "name": "presence-loss",
+      "red": "docs/plan/mh-l5/evidence/mh-l5-concurrency-oracles.test.js-node22-mutation-presence-loss-red.log",
+      "green": "docs/plan/mh-l5/evidence/mh-l5-concurrency-oracles.test.js-node22-mutation-presence-loss-green.log",
+      "restored": true,
+      "files": [
+        {
+          "path": "packages/h2a/dist/runtime/local-files/presence.js",
+          "sha256": "9758fc91a804001839658a92dd72fd93494a2aac608f57b125183e3d4a750001"
+        }
+      ]
+    },
+    {
+      "name": "blockage-loss",
+      "red": "docs/plan/mh-l5/evidence/mh-l5-concurrency-oracles.test.js-node22-mutation-blockage-loss-red.log",
+      "green": "docs/plan/mh-l5/evidence/mh-l5-concurrency-oracles.test.js-node22-mutation-blockage-loss-green.log",
+      "restored": true,
+      "files": [
+        {
+          "path": "packages/h2a/dist/runtime/blockage/registry.js",
+          "sha256": "421a025c9ff9ce74d21909a403830b3c35c0232f7c2884a20fc96e133d052a96"
+        }
+      ]
+    },
+    {
+      "name": "payload-loss",
+      "red": "docs/plan/mh-l5/evidence/mh-l5-concurrency-oracles.test.js-node22-mutation-payload-loss-red.log",
+      "green": "docs/plan/mh-l5/evidence/mh-l5-concurrency-oracles.test.js-node22-mutation-payload-loss-green.log",
+      "restored": true,
+      "files": [
+        {
+          "path": "packages/h2a/dist/runtime/mcp/payload-store.js",
+          "sha256": "ce1df5a8d0b79f2e1d1279ce38b55c19e1ebe05d89ed02c205164ff3d20f3b24"
+        }
+      ]
+    },
+    {
+      "name": "launch-loss",
+      "red": "docs/plan/mh-l5/evidence/mh-l5-concurrency-oracles.test.js-node22-mutation-launch-loss-red.log",
+      "green": "docs/plan/mh-l5/evidence/mh-l5-concurrency-oracles.test.js-node22-mutation-launch-loss-green.log",
+      "restored": true,
+      "files": [
+        {
+          "path": "packages/h2a/src/runtime/handover/launch-memo.js",
+          "sha256": "44bf4ac74e5d1a5e8b61fb47189fd87fd4afa2eb5de019b10f157f0390a7cd8d"
+        },
+        {
+          "path": "packages/h2a/dist/runtime/handover/launch-memo.js",
+          "sha256": "21a25642153e081311363aa4da675e7047a300755a404c76568caee162868f28"
+        }
+      ]
+    }
+  ]
+}

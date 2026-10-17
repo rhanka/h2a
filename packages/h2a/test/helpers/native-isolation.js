@@ -6,6 +6,9 @@ import { once } from "node:events";
 import fs, { closeSync, constants, lstatSync, mkdirSync, mkdtempSync, openSync, readlinkSync, rmSync, symlinkSync, unlinkSync } from "node:fs";
 import os from "node:os";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { createHash } from 'node:crypto';
+import { verifyImage } from '../../src/runtime/handover/image.js';
+import { digest } from '../../src/runtime/handover/wire.js';
 
 // Test-only short root for deep worktrees whose AF_UNIX paths would overflow.
 // The runner creates it with mkdtemp; every child carries the same boundary.
@@ -178,13 +181,101 @@ const privateProcessRoots = childProcess.ChildProcess.prototype[guardInstalled]?
 const privateChildren = childProcess.ChildProcess.prototype[guardInstalled]?.children ?? new Map();
 const privatePins = childProcess.ChildProcess.prototype[guardInstalled]?.pins ?? new Map();
 const closedProcessRoots = childProcess.ChildProcess.prototype[guardInstalled]?.closedRoots ?? new Set();
+const builtImages = childProcess.ChildProcess.prototype[guardInstalled]?.builtImages ?? new Set();
+const builtLaunchers = childProcess.ChildProcess.prototype[guardInstalled]?.builtLaunchers ?? new Set();
+const builtRouters = childProcess.ChildProcess.prototype[guardInstalled]?.builtRouters ?? new Set();
+const imageTestEntries = childProcess.ChildProcess.prototype[guardInstalled]?.imageTestEntries ?? new Map();
+const receiptKey = Symbol.for('h2a.test.closedBuildReceipt');
+if (!globalThis[receiptKey]) Object.defineProperty(globalThis, receiptKey, { value: receipt => {
+  if (!/^sha256:[0-9a-f]{64}$/.test(receipt?.digest)) throw new Error('invalid test build receipt');
+  if (receipt.kind === 'image') {
+    builtImages.add(receipt.digest);
+    if (receipt.entrypoints) {
+      assert.ok(Array.isArray(receipt.entrypoints) && receipt.entrypoints.every(path =>
+        typeof path === 'string' && !isAbsolute(path) && !path.split('/').includes('..')));
+      imageTestEntries.set(receipt.digest, new Set(receipt.entrypoints));
+    }
+  }
+  else if (receipt.kind === 'launcher') builtLaunchers.add(receipt.digest);
+  else if (receipt.kind === 'router') builtRouters.add(receipt.digest);
+  else throw new Error('invalid test build receipt kind');
+} });
+const closedInvocations = new WeakSet();
+
+function assertNeutralFixturePath(path) {
+  assert.ok(typeof path === 'string' && isAbsolute(path));
+  let boundary;
+  if (path.startsWith(nativeQualificationRoot + '/')) boundary = nativeQualificationRoot;
+  else if (path.startsWith('/tmp/')) boundary = '/tmp/' + path.slice(5).split('/')[0];
+  else {
+    const repo = resolve(import.meta.dirname, '../../../..');
+    const parent = [join(repo, 'tmp/test-runtime'), join(repo, '.qual-tmp')]
+      .find(root => path.startsWith(root + '/'));
+    assert.ok(parent);
+    if (parent.endsWith('/tmp/test-runtime')) assert.ok(path.startsWith(parent + '/h2a-test-root-'));
+    boundary = join(parent, relative(parent, path).split('/')[0]);
+  }
+  const info = lstatSync(boundary);
+  assert.ok(info.isDirectory() && !info.isSymbolicLink() && info.uid === process.getuid() && (info.mode & 0o077) === 0);
+  assertPrivateQualificationPath(path, boundary);
+}
+
+function closedBuildInvocation(command, args, env) {
+  if (!isNode(command)) return false;
+  const argv = args[0] === command ? args.slice(1) : args;
+  const entry = argv.find((value, index) => argv.slice(0, index).every(arg => /^--max-old-space-size=[0-9]+$/.test(arg)) && !value.startsWith('-'));
+  if (typeof entry !== 'string' || !isAbsolute(entry) || !/\.[cm]?js$/.test(entry)) return false;
+  try {
+    // The builder receipt alone grants nothing about paths or mutable bytes.
+    // Check the private fixture and reverify the actual installed image. These
+    // entries enforce their own closed-image loader policy, which deliberately
+    // refuses any additional preload (including this test instrumentation).
+    assertNeutralFixturePath(entry);
+    for (const key of ['HOME', 'XDG_RUNTIME_DIR', 'XDG_STATE_HOME', 'XDG_CONFIG_HOME']) assertNeutralFixturePath(env[key]);
+    const entryHash = 'sha256:' + createHash('sha256').update(fs.readFileSync(entry)).digest('hex');
+    if (builtLaunchers.has(entryHash) || builtRouters.has(entryHash)) return true;
+    for (let root = dirname(entry), depth = 0; depth < 8; root = dirname(root), depth++) {
+      assertNeutralFixturePath(root);
+      const path = join(root, 'manifest.json');
+      let document;
+      try { document = JSON.parse(fs.readFileSync(path, 'utf8')); }
+      catch (error) { if (error.code === 'ENOENT') continue; return false; }
+      const manifests = document.kind === 'h2a-published-payload' ? Object.values(document.manifests) : [document];
+      for (const manifest of manifests) {
+        const hash = digest(manifest);
+        const relativeEntry = relative(root, entry);
+        const declared = Object.values(manifest.entrypoints).includes(relativeEntry) || imageTestEntries.get(hash)?.has(relativeEntry);
+        if (!builtImages.has(hash) || !declared || !manifest.files.some(file => file.path === relativeEntry && file.type === 'file')) continue;
+        verifyImage(root, manifest, hash);
+        return true;
+      }
+      return false;
+    }
+  } catch { /* Missing receipts, changed bytes or foreign paths keep the guard. */ }
+  return false;
+}
 
 function isNode(command) {
   return command === process.execPath || /(?:^|[/\\])node(?:js|\.exe)?$/.test(command);
 }
 
+function preloadedArguments(command, args, env) {
+  if (closedInvocations.has(env)) return args;
+  if (!isNode(command) || args.includes(preload) || env.NODE_OPTIONS?.includes(preload)) return args;
+  // Keep deliberately neutral child environments neutral. The test boundary
+  // belongs to the invocation, not NODE_OPTIONS (closed images reject loaders
+  // injected through that ambient variable).
+  return args[0] === command ? [args[0], preload, ...args.slice(1)] : [preload, ...args];
+}
+
 function guardedEnvironment(command, args, env, cwd = process.cwd()) {
-  if ([command, ...args].some(arg => nativeEntry.test(String(arg))
+  if (closedBuildInvocation(command, args, env)) { closedInvocations.add(env); return env; }
+  const argv = args[0] === command ? args.slice(1) : args;
+  // Reading a pinned Git blob named process.ts/op.ts executes no native host.
+  // Keep the exception exact: no options, aliases, abbreviated refs or shell.
+  const pinnedBlobRead = /(?:^|[/\\])git(?:\.exe)?$/.test(command) && argv.length === 2 &&
+    argv[0] === 'show' && /^[0-9a-f]{40}:[^\r\n]+$/.test(argv[1]);
+  if (!pinnedBlobRead && [command, ...args].some(arg => nativeEntry.test(String(arg))
     || nativeEntry.test(resolve(cwd, String(arg))))) {
     try { guardSpawn(args, { env }); }
     catch (error) {
@@ -196,9 +287,7 @@ function guardedEnvironment(command, args, env, cwd = process.cwd()) {
   assert.ok(!closedProcessRoots.has(env.H2A_TEST_OWNED_PROC_ROOT), "REFUSING spawn after native fixture teardown");
   if (!isNode(command)) return env;
   // Carry the boundary through CLI/worker children even with a minimal env.
-  const options = env.NODE_OPTIONS ?? "";
-  const prepared = privateProcessEnvironment({ ...env,
-    NODE_OPTIONS: options.includes(preload) ? options : `${options} ${preload}`.trim() });
+  const prepared = privateProcessEnvironment(env);
   assert.ok(!closedProcessRoots.has(prepared.H2A_TEST_OWNED_PROC_ROOT), "REFUSING spawn after native fixture teardown");
   return prepared;
 }
@@ -317,6 +406,7 @@ export function installNativeTestSpawnGuard() {
     }));
     const guarded = guardedEnvironment(options.file, options.args, env, options.cwd ?? process.cwd());
     const result = actualSpawn.call(this, { ...options,
+      args: preloadedArguments(options.file, options.args, guarded),
       envPairs: Object.entries(guarded).map(([key, value]) => `${key}=${value}`) });
     if (this.pid) {
       const release = registerPrivateProcess(this.pid, guarded);
@@ -332,13 +422,13 @@ export function installNativeTestSpawnGuard() {
   childProcess.spawnSync = function (command, args, options) {
     if (!Array.isArray(args)) { options = args; args = []; }
     const env = guardedEnvironment(command, args, options?.env ?? process.env, options?.cwd);
-    return actualSpawnSync(command, args, { ...options, env });
+    return actualSpawnSync(command, preloadedArguments(command, args, env), { ...options, env });
   };
   // Node's sync exec helpers retain an internal spawnSync reference.
   childProcess.execFileSync = function (command, args, options) {
     if (!Array.isArray(args)) { options = args; args = []; }
     const env = guardedEnvironment(command, args, options?.env ?? process.env, options?.cwd);
-    return actualExecFileSync(command, args, { ...options, env });
+    return actualExecFileSync(command, preloadedArguments(command, args, env), { ...options, env });
   };
   childProcess.execSync = function (command, options) {
     const env = guardedEnvironment(command, [], options?.env ?? process.env, options?.cwd);
@@ -349,6 +439,10 @@ export function installNativeTestSpawnGuard() {
   state.children = privateChildren;
   state.pins = privatePins;
   state.closedRoots = closedProcessRoots;
+  state.builtImages = builtImages;
+  state.builtLaunchers = builtLaunchers;
+  state.builtRouters = builtRouters;
+  state.imageTestEntries = imageTestEntries;
   Object.defineProperty(prototype, guardInstalled, { value: state });
   const failUnexpected = () => {
     if (state.violations.length) {

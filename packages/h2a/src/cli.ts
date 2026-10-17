@@ -77,6 +77,13 @@ import { runCli as runTrackCli, type CliIO } from "@sentropic/track";
 import { runHarnessCli, HARNESS_SKILLS } from "./vendor/harness/index.js";
 import { buildLaunchIndex } from "./runtime/local-files/launch-index.js";
 import { renderCommandMap } from "./cli-command-map.js";
+import { HostConfigConflict, writeHostMcpEntry } from "./hosts/config-writer.js";
+import { cmdHostedLock, cmdRegistry, cmdRegistryBridge } from "./registry/cli-registry.js";
+import { readInstallReceipt } from "./registry/host-bootstrap.js";
+import { executeH2aRunWithAsyncSpawn, type H2aRunExecutor } from "./runtime/mcp/agent-launch.js";
+import { captureCentralAttachment } from "./runtime/mcp-central-context.js";
+import { ensureCentralForShim } from "./runtime/mcp-central-start.js";
+import { centralOperator, centralOperatorExitCode, centralFailureExitCode, centralResidueReport } from "./runtime/mcp-central-operator.js";
 import { resolveHostConfigRoot } from "./runtime/host-config-root.js";
 import { isNativeHost, NATIVE_HOSTS, REGISTRY_WAITING, stateRoot, vibeHome } from "./hosts/native-paths.js";
 import { convergeNativeHost } from "./hosts/native-convergence.js";
@@ -215,6 +222,7 @@ import {
   type H2ARelauncherKind,
   type ReflexiveDecider
 } from "./runtime/drumbeat/index.js";
+import { createRelauncherRuntime } from "./runtime/drumbeat/relaunchers.js";
 import { gatherNhiSnapshot } from "./runtime/nhi.js";
 import {
   raiseBlockage,
@@ -302,7 +310,9 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const SKILLS_DIR = resolvePath(HERE, "..", "skills");
 
 /**
- * Source of the DETACHED boot auto-upgrade worker (launched via
+ * @deprecated Compatibility source for external consumers of this export.
+ * Production boot uses runtime/upgrade/boot-worker.js, an image-bound entry.
+ * The historical detached worker was launched via
  * `node --input-type=module --eval <this> -- <moduleUrl> <root> <ttl> <mode>`). It imports
  * the upgrade module by URL and runs the check/upgrade in the background. The body is wrapped
  * in a catch — a boot-upgrade failure must never affect the MCP server. Exported (module-level,
@@ -476,8 +486,14 @@ export function renderCliHelp(): string {
     "  h2a drumbeat escalations [--root <path>]",
     "  h2a drumbeat relance-inbox [--instance <id>] [--relauncher logging|local-tmux|headless|auto] [--root <path>]",
     "  h2a drumbeat watch [--interval-ms <n>] [--max-relances <n>] [--relauncher logging|local-tmux|remote|headless|auto] [--instance <signer> --private-key <pem>] [--decider logging|<command>] [--decider-after <k>] [--decider-enforce] [--root <path>]",
-    "  h2a host setup --host <codex|claude|gemini|agy|hermes|opencode|muse|vibe> [--endpoint local|remote] [--url <https://…/mcp>] [--root <path>] [--print | --write <file>] [--force] [--no-wake]   (selects one endpoint; Muse/agy render nonrecommended historical direct paths pending registry bootstrap; Vibe --write installs the interim direct entry pending registry bootstrap (--remove clears it for migration))",
+    "  h2a central status|stop   (authenticated control; stop persists MCP pause and drains without force)",
+    "                           (pause_active_stop_deferred remains armed; explicit serve resumes before commit)",
+    "  h2a central residues [--workspace <repo>] [--agy-config <file>]   (report only; never rewrites or deletes residues)",
+    "  h2a host setup --host <codex|claude|gemini|agy|hermes|opencode|muse|vibe> [--endpoint local|remote] [--url <https://…/mcp>] [--root <path>] [--print | --write <file>] [--allow-tracked] [--force] [--no-wake] [--remove]   (edits only the h2a entry, preserves surrounding bytes and creates a backup; tracked files require --allow-tracked; Muse/agy render nonrecommended historical direct paths pending registry bootstrap; Vibe --write installs the interim direct entry pending registry bootstrap (--remove clears it for migration))",
     "  h2a host status [--host <name>]",
+    "  h2a registry catalog   (registry publisher entries; metadata only, writes nothing)",
+    "  h2a registry bootstrap preview|install|uninstall --host <claude|codex|agy|muse|vibe> --config <file> [--profile <p>] [--lock <file>] [--dry-run]   (explicit operator-owned bridge install under server key h2a)",
+    "  h2a hosted-lock draft|verify|activate --lock <file> [--service <ref>] [--tenant <id> --repository <ref>] [--binding <key>=<contract>] [--active <file>]   (deployment-owned hosted lock; opaque refs only)",
     "  h2a host plugin --host <codex|claude|gemini|agy|hermes|opencode|muse|vibe> --instance <id> [--status <work-status>] [--root <path>] [--write <settings.json|hooks.toml> [--force]] [--scaffold <dir>]   (--write installs the Stop hook for claude|gemini|codex|hermes|opencode; --scaffold writes codex's full local marketplace + trust step; vibe writes its explicit parent-only wrapper to VIBE_HOME/hooks.toml; agy and muse have no qualified native hooks)",
     "  h2a store migrate [--from <v>] [--to <v>] [--sanitize-paths] [--dry-run] [--root <path>]",
     "  h2a store index-launch --root <absolute-path> (derived indexes; original logs retained)",
@@ -1960,6 +1976,14 @@ export async function runMcpServe(
     upgradeRuntime?: UpgradeRuntime;
     /** Graceful-shutdown signal; bin.ts wires SIGTERM/SIGINT/SIGHUP to it. */
     signal?: AbortSignal;
+    /** Internal central attachment adapter. */
+    sharedStore?: ReturnType<typeof createLocalStore>;
+    participant?: import('./runtime/handover/participants.js').AttachmentParticipant;
+    onServer?: RunMcpStdioOptions["onServer"];
+    reclaimOnly?: boolean;
+    expectedInstance?: string;
+    centralAttachment?: boolean;
+    runExecutor?: H2aRunExecutor;
   } = {
     stdin: process.stdin,
     stdout: process.stdout,
@@ -1979,9 +2003,13 @@ export async function runMcpServe(
   // no lock wait, no ~17 MB registry parse on this event loop (the #249
   // "move-don't-shrink" trap is avoided by not resolving synchronously at all).
   // `--auto-open` absent → no identity (the explicit mode, unchanged).
-  const identityRequest =
-    flags["auto-open"] !== undefined ? buildMcpIdentityRequest(flags, cwd) : undefined;
   const readinessEnv = io.env ?? process.env;
+  const identityRequest = flags["auto-open"] !== undefined ? {
+    ...buildMcpIdentityRequest(flags, cwd),
+    providerEnv: Object.fromEntries(Object.entries(readinessEnv).filter((entry): entry is [string, string] => entry[1] !== undefined)),
+    ...(io.reclaimOnly ? { reclaimOnly: true } : {}),
+    ...(io.expectedInstance ? { expectedInstance: io.expectedInstance } : {})
+  } : undefined;
   const readyFile = readinessEnv[H2A_MCP_READY_FILE_ENV];
   const readyNonce = readinessEnv[H2A_MCP_READY_NONCE_ENV];
   let readiness: { file: string; nonce: string } | undefined;
@@ -2010,7 +2038,7 @@ export async function runMcpServe(
   const wantAutoUpgrade = flags["auto-upgrade"] !== undefined;
   const wantCheckOnly = flags["upgrade-check"] !== undefined;
   if (
-    (wantAutoUpgrade || wantCheckOnly) &&
+    (wantAutoUpgrade || wantCheckOnly) && !io.centralAttachment &&
     process.env[H2A_REEXEC_GUARD_ENV] === undefined
   ) {
     try {
@@ -2060,11 +2088,7 @@ export async function runMcpServe(
         const worker = spawn(
           process.execPath,
           [
-            "--input-type=module",
-            "--eval",
-            MCP_UPGRADE_WORKER_SOURCE,
-            "--",
-            new URL("./runtime/upgrade/index.js", import.meta.url).href,
+            fileURLToPath(new URL("./runtime/upgrade/boot-worker.js", import.meta.url)),
             root,
             String(ttlMs),
             wantAutoUpgrade ? "auto" : "check"
@@ -2149,12 +2173,13 @@ export async function runMcpServe(
       const log = (line: string) => io.stderr.write(`${line}\n`);
       const driver =
         wakeKind === "auto"
-          ? chainDriver(nativePtyBackchannelDriver(log), localTmuxDriver({ log }))
+          ? chainDriver(nativePtyBackchannelDriver(log, readinessEnv), localTmuxDriver({ log, runtime: createRelauncherRuntime(readinessEnv) }))
           : buildDriveDriver(
               nativeSessionId !== undefined && wakeKind === "local-tmux"
                 ? "native"
                 : (wakeKind as H2ADriverKind),
-              log
+              log,
+              readinessEnv
             );
       void host;
       return {
@@ -2169,8 +2194,8 @@ export async function runMcpServe(
   };
 
   try {
-    const backend = messageBackend(flags.backend ?? process.env.H2A_MESSAGE_BACKEND);
-    const modulePath = process.env.H2A_CLUSTER_MESH_MODULE;
+    const backend = messageBackend(flags.backend ?? readinessEnv.H2A_MESSAGE_BACKEND);
+    const modulePath = readinessEnv.H2A_CLUSTER_MESH_MODULE;
     if (backend === "cluster-mesh") {
       if (!identityRequest) throw new Error("cluster-mesh requires --auto-open and a local signing key");
       if (!modulePath || !isAbsolute(modulePath)) throw new Error("cluster-mesh requires an absolute H2A_CLUSTER_MESH_MODULE");
@@ -2186,7 +2211,14 @@ export async function runMcpServe(
     await runMcpStdio({
       root,
       messageBackend: backend,
-      workspaceRoot: process.cwd(),
+      workspaceRoot: cwd(),
+      sessionEnv: readinessEnv,
+      ...(io.sharedStore ? { store: io.sharedStore } : {}),
+      ...(io.participant ? { participant: io.participant } : {}),
+      ...(io.onServer ? { onServer: io.onServer } : {}),
+      ...(io.runExecutor ? { runExecutor: io.runExecutor } : io.centralAttachment ? {
+        runExecutor: request => executeH2aRunWithAsyncSpawn(request, spawn, undefined, readinessEnv)
+      } : {}),
       stdin: io.stdin as never,
       stdout: io.stdout as never,
       stderr: io.stderr as never,
@@ -2223,7 +2255,11 @@ export async function runCentralMcpServe(
   try {
     const started = await startCentralMcpServer({
       root,
-      env: io.env ?? process.env
+      env: io.env ?? process.env,
+      automatic: flags["auto-start"] === "true",
+      ...(flags["handover-id"] ? { successor: { handoverId: flags["handover-id"],
+        transactionEpoch: Number(flags["transaction-epoch"]), attempt: Number(flags["successor-attempt"]) } } : {}),
+      runtimeBase: flags["runtime-base"]
     });
     if (started.kind === "reused") {
       io.stderr.write(
@@ -2234,14 +2270,8 @@ export async function runCentralMcpServe(
     io.stderr.write(
       `h2a mcp-central-serve: listening on ${started.endpoint} (generation ${started.generation})\n`
     );
-    if (!io.signal) {
-      await new Promise<void>(() => {
-        // The bin entry always supplies a signal. Keeping this pending preserves
-        // the server for direct programmatic invocation too.
-      });
-    } else if (!io.signal.aborted) {
-      await once(io.signal, "abort");
-    }
+    if (!io.signal) await started.closed;
+    else if (!io.signal.aborted) await Promise.race([once(io.signal, "abort"), started.closed]);
     await started.stop();
     return 0;
   } catch (error) {
@@ -2261,6 +2291,8 @@ export async function runCentralMcpConnect(
     stdin: NodeJS.ReadableStream;
     stdout: NodeJS.WritableStream;
     stderr: NodeJS.WritableStream;
+    cwd?: () => string;
+    env?: NodeJS.ProcessEnv;
     signal?: AbortSignal;
   } = {
     stdin: process.stdin,
@@ -2281,6 +2313,10 @@ export async function runCentralMcpConnect(
       endpoint: flags.endpoint,
       stdin: io.stdin as never,
       stdout: io.stdout as never,
+      workspaceRoot: io.cwd?.() ?? process.cwd(),
+      ...(flags.host === "claude" ? { attachment: captureCentralAttachment(
+        resolveRoot(flags, io.cwd ?? (() => process.cwd())), io.cwd?.() ?? process.cwd(), flags, io.env ?? process.env
+      ), ensure: async () => { await ensureCentralForShim(false, flags["runtime-base"] ? { runtimeBase: flags["runtime-base"] } : {}); } } : {}),
       ...(flags["runtime-base"] ? { runtimeBase: flags["runtime-base"] } : {}),
       ...(io.signal ? { signal: io.signal } : {})
     });
@@ -3744,23 +3780,24 @@ function latestLaunchContext(root: string, instance: string): H2ALaunchContext |
     .sort((a, b) => Date.parse(b.heartbeatAt) - Date.parse(a.heartbeatAt))[0]?.launchContext;
 }
 
-function buildDriveDriver(kind: H2ADriverKind, log: (line: string) => void): H2ADriver {
+function buildDriveDriver(kind: H2ADriverKind, log: (line: string) => void, env: NodeJS.ProcessEnv = process.env): H2ADriver {
+  const runtime = createRelauncherRuntime(env);
   switch (kind) {
     case "logging":
       return loggingDriver(log);
     case "native":
-      return nativePtyBackchannelDriver(log);
+      return nativePtyBackchannelDriver(log, env);
     case "local-tmux":
-      return localTmuxDriver({ log });
+      return localTmuxDriver({ log, runtime });
     case "headless":
-      return headlessDriver({ log });
+      return headlessDriver({ log, runtime });
     case "auto":
       return {
         drive(request) {
           for (const driver of [
-            nativePtyBackchannelDriver(log),
-            localTmuxDriver({ log }),
-            headlessDriver({ log })
+            nativePtyBackchannelDriver(log, env),
+            localTmuxDriver({ log, runtime }),
+            headlessDriver({ log, runtime })
           ]) {
             const result = driver.drive(request);
             if (result === true) return true;
@@ -3800,9 +3837,10 @@ function nativeTerminalOpPath(): string | undefined {
   return existsSync(operation) ? operation : undefined;
 }
 
-function nativePtyBackchannelDriver(log: (line: string) => void): H2ADriver {
+function nativePtyBackchannelDriver(log: (line: string) => void, env: NodeJS.ProcessEnv = process.env): H2ADriver {
   return nativeBackchannelDriver({
     log,
+    runtime: createRelauncherRuntime(env),
     send(request) {
       const operation = nativeTerminalOpPath();
       if (operation === undefined) {
@@ -3819,7 +3857,7 @@ function nativePtyBackchannelDriver(log: (line: string) => void): H2ADriver {
           "--b64",
           Buffer.from(request.instructionLine, "utf8").toString("base64"),
         ],
-        { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
+        { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], env },
       );
       let outcome: string | undefined;
       if (result.status === 0) {
@@ -3831,9 +3869,9 @@ function nativePtyBackchannelDriver(log: (line: string) => void): H2ADriver {
           outcome = undefined;
         }
       }
-      if (outcome === "unresolved") return undefined;
       const ok = outcome === "driven";
       log(`drive[native-pty]: ${request.to} (${ok ? "ok" : "failed"})`);
+      if (outcome === "unresolved") return undefined;
       return ok;
     },
   });
@@ -4277,39 +4315,6 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   );
 }
 
-function configsEqual(a: unknown, b: unknown): boolean {
-  return JSON.stringify(a) === JSON.stringify(b);
-}
-
-/** A host must not keep a second, standalone Track MCP beside its h2a endpoint. */
-function isStandaloneTrackMcpServer(_name: string, config: unknown): boolean {
-  // Names are not identity: `track-metrics`, for example, may be a third-party
-  // server. Remove only a server whose executable/arguments prove it is the
-  // legacy standalone Sentropic Track MCP.
-  if (!isPlainObject(config)) return false;
-  const values = [config.command, ...(Array.isArray(config.args) ? config.args : [])];
-  return values.some(
-    (value) =>
-      typeof value === "string" &&
-      (value === "track-mcp" ||
-        /[\\/]track-mcp(?:\.cmd|\.exe)?$/i.test(value) ||
-        /@sentropic[\\/]track[\\/].*[\\/]mcp[\\/]/i.test(value))
-  );
-}
-
-/** A host config may contain only one h2a MCP, even if an old installer named it differently. */
-function isH2aMcpServer(name: string, config: unknown): boolean {
-  if (/^h2a(?:[-_.]|$)/i.test(name)) return true;
-  if (!isPlainObject(config)) return false;
-  const command = config.command;
-  const args = Array.isArray(config.args) ? config.args : [];
-  return (
-    typeof command === "string" &&
-    (command === "h2a" || /[\\/]h2a(?:\.cmd|\.exe)?$/i.test(command)) &&
-    args.some((arg) => arg === "mcp-serve")
-  );
-}
-
 /** Native YAML/JSONC parsers are intentionally not guessed by the JSON writer. */
 function isUnsupportedHostWritePath(host: string, path: string): boolean {
   const normalized = path.toLowerCase();
@@ -4611,96 +4616,33 @@ function cmdHostSetup(
     return 1;
   }
 
-  // --write path: merge into the target file.
-  let existing: Record<string, unknown> = {};
-  if (existsSync(targetPath)) {
-    let raw;
-    try {
-      raw = readFileSync(targetPath, "utf8");
-    } catch (error) {
-      streams.stderr.write(
-        `h2a host setup: cannot read ${targetPath} (${(error as Error).message})\n`
-      );
-      // File/OS error — exit code 3 per DEC-034.
-      return 3;
-    }
-    if (raw.trim().length > 0) {
-      try {
-        const parsed = JSON.parse(raw);
-        if (!isPlainObject(parsed)) {
-          streams.stderr.write(
-            `h2a host setup: ${targetPath} is valid JSON but not a JSON object; refusing to merge.\n`
-          );
-          // Pre-existing on-disk state we refuse to overwrite — state conflict.
-          return 2;
-        }
-        existing = parsed;
-      } catch (error) {
-        streams.stderr.write(
-          `h2a host setup: ${targetPath} is not valid JSON (${(error as Error).message}). Use --force to overwrite intentionally.\n`
-        );
-        if (flags.force !== "true") {
-          // Pre-existing malformed file refused without --force — state conflict.
-          return 2;
-        }
-        existing = {};
-      }
-    }
-  }
-
-  if (existing.mcpServers !== undefined && !isPlainObject(existing.mcpServers)) {
+  // R5 writer cutover: a registry-migrated host config is owned by the
+  // registry bootstrap now. Launch/setup paths must not rewrite it here;
+  // the operator changes selection through the installer only.
+  const installReceipt = readInstallReceipt(targetPath);
+  if (installReceipt && installReceipt["host"] === host) {
     streams.stderr.write(
-      `h2a host setup: ${targetPath} has a non-object mcpServers value; refusing to replace it.\n`
+      `h2a host setup: ${host} at ${targetPath} is registry-managed (bridge installed via registry bootstrap); ` +
+      `host MCP config is owned by the installer now. Run \`h2a registry bootstrap preview|install --host ${host} --config ${targetPath}\` to change it.\n`
     );
-    return 2;
+    return 1;
   }
-  const existingMcpServers = isPlainObject(existing.mcpServers)
-    ? existing.mcpServers
-    : {};
-  const incoming = snippet.config.mcpServers.h2a;
-  const existingH2aMcpServers = Object.keys(existingMcpServers).filter((name) =>
-    isH2aMcpServer(name, existingMcpServers[name])
-  );
-  const previous = existingMcpServers.h2a;
-  const replacedH2a =
-    existingH2aMcpServers.length > 0 &&
-    (existingH2aMcpServers.some((name) => name !== "h2a") || !configsEqual(previous, incoming));
-  const removedH2aMcpServers = existingH2aMcpServers.filter((name) => name !== "h2a");
-  const removedTrackMcpServers = Object.keys(existingMcpServers).filter(
-    (name) => !isH2aMcpServer(name, existingMcpServers[name]) && isStandaloneTrackMcpServer(name, existingMcpServers[name])
-  );
-  const retainedMcpServers = Object.fromEntries(
-    Object.entries(existingMcpServers).filter(
-      ([name, config]) =>
-        !isH2aMcpServer(name, config) && !removedTrackMcpServers.includes(name)
-    )
-  );
 
-  const merged: Record<string, unknown> = {
-    ...existing,
-    mcpServers: {
-      ...retainedMcpServers,
-      h2a: incoming
-    }
-  };
-
+  // Only the explicitly selected h2a entry is edited; preserve all other bytes.
+  let backupPath: string | undefined;
+  let replacedH2a = false;
   try {
-    const dir = dirname(targetPath);
-    if (dir && !existsSync(dir)) {
-      mkdirSync(dir, { recursive: true });
+    if (existsSync(targetPath)) {
+      const existing = JSON.parse(readFileSync(targetPath, "utf8")) as Record<string, unknown>;
+      replacedH2a = isPlainObject(existing?.mcpServers) && existing.mcpServers.h2a !== undefined;
     }
-    writeFileSync(targetPath, `${JSON.stringify(merged, null, 2)}\n`, { mode: 0o600 });
-    // `mode` applies only when a file is created. Enforce privacy for an
-    // existing config too: a rendered central command contains no token, but
-    // host config is still owner-private defense in depth.
-    chmodSync(targetPath, 0o600);
+    ({ backupPath } = writeHostMcpEntry(targetPath, snippet.config.mcpServers.h2a, flags["allow-tracked"] === "true"));
   } catch (error) {
-    streams.stderr.write(
-      `h2a host setup: cannot write ${targetPath} (${(error as Error).message})\n`
-    );
-    // File/OS error — exit code 3 per DEC-034.
-    return 3;
+    streams.stderr.write(`h2a host setup: cannot write ${targetPath} (${(error as Error).message})\n`);
+    return error instanceof HostConfigConflict || error instanceof SyntaxError ? 2 : 3;
   }
+  const removedH2aMcpServers: string[] = [];
+  const removedTrackMcpServers: string[] = [];
 
   const coherent = reportHostSetupCoherence(host, streams, options);
   streams.stdout.write(
@@ -4712,6 +4654,7 @@ function cmdHostSetup(
         path: targetPath,
         merged: true,
         replacedH2a,
+        ...(backupPath ? { backupPath } : {}),
         removedH2aMcpServers,
         removedTrackMcpServers,
         ...(isNativeHost(host) ? { migration: "voie directe — non migrée" } : {}),
@@ -7795,6 +7738,29 @@ export function runCli(
   if (command === "inbox") return cmdMailbox(argv.slice(1), "inbox", streams);
   if (command === "outbox") return cmdMailbox(argv.slice(1), "outbox", streams);
   if (command === "host") return cmdHost(argv.slice(1), streams, options);
+  if (command === "registry") return cmdRegistry(argv.slice(1), streams);
+  if (command === "registry-bridge") {
+    return cmdRegistryBridge(argv.slice(1), streams, {
+      delegateServe: (serveFlags) =>
+        runMcpServe(serveFlags, { stdin: process.stdin, stdout: process.stdout, stderr: process.stderr })
+    });
+  }
+  if (command === "hosted-lock") return cmdHostedLock(argv.slice(1), streams);
+  if (command === "central") {
+    const sub = argv[1];
+    const { flags: centralFlags } = parseFlags(argv.slice(2));
+    if (sub === "stop" && centralFlags.force !== undefined) { streams.stderr.write("h2a central stop: no force mode\n"); return 1; }
+    if (sub === "residues") {
+      streams.stdout.write(JSON.stringify(centralResidueReport(centralFlags.workspace ?? streams.cwd?.() ?? process.cwd(), centralFlags["agy-config"]), null, 2) + "\n");
+      return 0;
+    }
+    if (sub === "status" || sub === "stop") return centralOperator(sub, centralFlags["runtime-base"] ? { runtimeBase: centralFlags["runtime-base"] } : {}).then(result => {
+      streams.stdout.write(JSON.stringify(result, null, 2) + "\n");
+      return centralOperatorExitCode(result);
+    }).catch(error => { streams.stderr.write(`h2a central ${sub}: ${(error as Error).message}\n`); return centralFailureExitCode(error); });
+    streams.stderr.write("h2a central: use status, stop or residues\n");
+    return 1;
+  }
   if (command === "store") return cmdStore(argv.slice(1), streams);
   if (command === "thread") return cmdThread(flags, streams);
   if (command === "sessions") return cmdSessions(flags, streams);

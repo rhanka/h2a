@@ -43,7 +43,7 @@ const BIN = join(REPO_ROOT, "packages", "h2a", "dist", "bin.js");
 // Updated for the interim direct Vibe MCP entry (owner 16/10, derogation spec-astra-v9 O7.2):
 // host setup usage line documents Vibe --write (interim direct) / --remove (migration)
 // instead of refusing every --write (+77 bytes, cli.ts renderCliHelp only).
-const CORE_HELP_SHA256 = "c4d7949e207d2989345c9c62dca935ad0adeabfbc11f13e72db50b40373d3dee";
+const CORE_HELP_SHA256 = "c41b384608f9d6a03a593b872da06b2d5063da1a1f4ac7b9914be64efac28a94";
 const RUNTIME_MISSING =
   "ce verbe requiert le runtime h2a (sessions / k8s / tunnel).\n" +
   "  Répare l'installation lockstep : npm i -g @sentropic/h2a@latest\n";
@@ -142,7 +142,7 @@ function assertCoreHelp(result) {
   // + 52 for the vibe plugin surface (post_agent hook note replacing the poll-only listing),
   // + 77 for the interim direct Vibe MCP entry (owner 16/10, derogation O7.2):
   // the host setup usage line now documents Vibe --write/--remove instead of refusing every --write.
-  assert.equal(Buffer.byteLength(result.stdout), 13944);
+  assert.equal(Buffer.byteLength(result.stdout), 14895);
 }
 
 function assertMissingRuntime(result, firstToken) {

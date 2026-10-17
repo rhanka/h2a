@@ -1,0 +1,81 @@
+{
+  "node": "v24.21.0",
+  "results": [
+    {
+      "name": "stop-irreversible",
+      "red": "docs/plan/mh-l5/evidence/mh-l5-cold.test.js-node24-mutation-stop-irreversible-red.log",
+      "green": "docs/plan/mh-l5/evidence/mh-l5-cold.test.js-node24-mutation-stop-irreversible-green.log",
+      "restored": true,
+      "files": [
+        {
+          "path": "packages/h2a/src/runtime/handover/administration.js",
+          "sha256": "0d2239c384366bf97c479d93c87001160b0f46db339922da83cec9bf224f4b2f"
+        },
+        {
+          "path": "packages/h2a/dist/runtime/handover/administration.js",
+          "sha256": "f426bdd74d6e95d388cc5c87aceca2918b1c8d7e17cc81d52ae8805622eae48f"
+        }
+      ]
+    },
+    {
+      "name": "successor-unknown",
+      "red": "docs/plan/mh-l5/evidence/mh-l5-cold.test.js-node24-mutation-successor-unknown-red.log",
+      "green": "docs/plan/mh-l5/evidence/mh-l5-cold.test.js-node24-mutation-successor-unknown-green.log",
+      "restored": true,
+      "files": [
+        {
+          "path": "packages/h2a/src/runtime/handover/successor.js",
+          "sha256": "a48eb50afb94ea4a403d3084f4926741cc5938d7fb0148736a5fab6e172d17c5"
+        },
+        {
+          "path": "packages/h2a/dist/runtime/handover/successor.js",
+          "sha256": "3513b00b5fa94f511b23b0c4b01855092ca9f0aa50ed8a036cfac6e3a237bd0f"
+        }
+      ]
+    },
+    {
+      "name": "attempt-budget",
+      "red": "docs/plan/mh-l5/evidence/mh-l5-cold.test.js-node24-mutation-attempt-budget-red.log",
+      "green": "docs/plan/mh-l5/evidence/mh-l5-cold.test.js-node24-mutation-attempt-budget-green.log",
+      "restored": true,
+      "files": [
+        {
+          "path": "packages/h2a/src/runtime/handover/successor.js",
+          "sha256": "a48eb50afb94ea4a403d3084f4926741cc5938d7fb0148736a5fab6e172d17c5"
+        },
+        {
+          "path": "packages/h2a/dist/runtime/handover/successor.js",
+          "sha256": "3513b00b5fa94f511b23b0c4b01855092ca9f0aa50ed8a036cfac6e3a237bd0f"
+        }
+      ]
+    },
+    {
+      "name": "compensation-epoch",
+      "red": "docs/plan/mh-l5/evidence/mh-l5-compensation.test.js-node24-mutation-compensation-epoch-red.log",
+      "green": "docs/plan/mh-l5/evidence/mh-l5-compensation.test.js-node24-mutation-compensation-epoch-green.log",
+      "restored": true,
+      "files": [
+        {
+          "path": "packages/h2a/src/runtime/handover/compensation.js",
+          "sha256": "476a05bdd96d8bd144848af9c050f93aeed151ed0865ea493c34c735c0f4861a"
+        },
+        {
+          "path": "packages/h2a/dist/runtime/handover/compensation.js",
+          "sha256": "a1e480f8f152de9e3d364d5b50e6abd855e3c3ab97f84847ec6dc40cc060cb5a"
+        }
+      ]
+    },
+    {
+      "name": "compensation-new-generation",
+      "red": "docs/plan/mh-l5/evidence/mh-l5-compensation.test.js-node24-mutation-compensation-new-generation-red.log",
+      "green": "docs/plan/mh-l5/evidence/mh-l5-compensation.test.js-node24-mutation-compensation-new-generation-green.log",
+      "restored": true,
+      "files": [
+        {
+          "path": "packages/h2a/dist/runtime/mcp-central.js",
+          "sha256": "96a8c41ab27154a3e93522b62786e0c4b534c0d912d7bbcf69ac5e181ab9563b"
+        }
+      ]
+    }
+  ]
+}

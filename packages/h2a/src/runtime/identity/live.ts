@@ -1,6 +1,6 @@
+import { withWriterMutation } from "../handover/mutation.js";
 import { createHash, generateKeyPairSync } from "node:crypto";
 import {
-  copyFileSync,
   existsSync,
   mkdirSync,
   readFileSync,
@@ -101,6 +101,8 @@ export interface ResolveLiveIdentityInput {
   readonly host: string;
   readonly cwd: string;
   readonly explicitInstance?: string;
+  readonly reclaimOnly?: boolean;
+  readonly expectedInstance?: string;
   readonly name?: string;
   readonly scopes?: readonly string[];
   /**
@@ -216,31 +218,21 @@ function ensureKeypair(
   instance: string,
   adoptFromInstance?: string
 ): { publicKeyPem: string; privateKeyPath: string; publicKeyPath: string } {
-  const existing = readKeypair(root, instance);
-  if (existing) {
-    syncFile(existing.privateKeyPath); syncFile(existing.publicKeyPath);
-    return {
-      publicKeyPem: existing.publicKeyPem,
-      privateKeyPath: existing.privateKeyPath,
-      publicKeyPath: existing.publicKeyPath
-    };
-  }
-
-  const paths = identityKeyPaths(root, instance);
-  ensureDurableDirectory(join(root, "keys"));
-  const adopted = adoptFromInstance ? readKeypair(root, adoptFromInstance) : undefined;
-  if (adopted) {
-    copyFileSync(adopted.privateKeyPath, paths.privateKeyPath);
-    copyFileSync(adopted.publicKeyPath, paths.publicKeyPath);
+  // Prepare expensive cryptography before taking the store-wide lock. A
+  // concurrent publisher may win meanwhile; re-read its keys under the gate.
+  const prepared = readKeypair(root, instance) ??
+    (adoptFromInstance ? readKeypair(root, adoptFromInstance) : undefined) ?? generateKeypair();
+  return withWriterMutation(root, 'registry', () => {
+    const existing = readKeypair(root, instance);
+    if (existing) { syncFile(existing.privateKeyPath); syncFile(existing.publicKeyPath); return { publicKeyPem: existing.publicKeyPem,
+      privateKeyPath: existing.privateKeyPath, publicKeyPath: existing.publicKeyPath }; }
+    const paths = identityKeyPaths(root, instance);
+    ensureDurableDirectory(join(root, "keys"));
+    writeFileSync(paths.privateKeyPath, prepared.privateKeyPem, { encoding: "utf8", mode: 0o600 });
+    writeFileSync(paths.publicKeyPath, prepared.publicKeyPem, "utf8");
     syncFile(paths.privateKeyPath); syncFile(paths.publicKeyPath);
-    return { publicKeyPem: adopted.publicKeyPem, ...paths };
-  }
-
-  const generated = generateKeypair();
-  writeFileSync(paths.privateKeyPath, generated.privateKeyPem, { encoding: "utf8", mode: 0o600 });
-  writeFileSync(paths.publicKeyPath, generated.publicKeyPem, "utf8");
-  syncFile(paths.privateKeyPath); syncFile(paths.publicKeyPath);
-  return { publicKeyPem: generated.publicKeyPem, ...paths };
+    return { publicKeyPem: prepared.publicKeyPem, ...paths };
+  });
 }
 
 function keypairSourceStamp(paths: { privateKeyPath: string; publicKeyPath: string }): string {
@@ -259,7 +251,7 @@ function keypairSourceStamp(paths: { privateKeyPath: string; publicKeyPath: stri
  * the registry growth L3 compaction addresses) and are left for L3. Best-effort:
  * a failure never affects the resolved identity.
  */
-function cleanupOrphanKeypair(root: string, instance: string): void {
+function cleanupOrphanKeypairUnfenced(root: string, instance: string): void {
   const paths = identityKeyPaths(root, instance);
   for (const p of [paths.privateKeyPath, paths.publicKeyPath]) {
     try {
@@ -609,6 +601,9 @@ async function resolveLiveIdentityAsyncInternal(
   input: ResolveLiveIdentityInput,
   options: ResolveLiveIdentityAsyncOptions
 ): Promise<ResolvedLiveIdentity> {
+  // Prepublication and the binding lock must use the same candidate even for
+  // direct callers that do not supply the worker's cross-attempt memo.
+  const mintMemo: NonNullable<ResolveLiveIdentityAsyncOptions["mintMemo"]> = options.mintMemo ?? {};
   const started=performance.now();
   const host = input.host || "agent";
   if (input.explicitInstance) {
@@ -674,14 +669,14 @@ async function resolveLiveIdentityAsyncInternal(
   const P = cache.prepared;
 
   const mint = () => {
-    if (options.mintMemo?.value) return options.mintMemo.value;
+    if (mintMemo.value) return mintMemo.value;
     const agentUuid = mintAgentUuid();
     const minted = { agentUuid, instance: deriveInstanceId({ host, label: P.name, uuid: agentUuid }) };
-    if (options.mintMemo) options.mintMemo.value = minted;
+    mintMemo.value = minted;
     return minted;
   };
   const mintRemote = () => {
-    if (options.mintMemo?.value) return options.mintMemo.value;
+    if (mintMemo.value) return mintMemo.value;
     const agentUuid = mintAgentUuid();
     const minted = {
       agentUuid,
@@ -689,7 +684,7 @@ async function resolveLiveIdentityAsyncInternal(
         ? remoteBridgeInstance(P.provider.providerSessionId)
         : deriveInstanceId({ host, label: P.name, uuid: agentUuid })
     };
-    if (options.mintMemo) options.mintMemo.value = minted;
+    mintMemo.value = minted;
     return minted;
   };
 
@@ -753,7 +748,7 @@ async function resolveLiveIdentityAsyncInternal(
   } else {
     const willReclaim = Boolean(P.preBinding && P.preProof);
     let mintKeypair: typeof keypair | undefined;
-    if (!willReclaim) {
+    if (!willReclaim && !input.reclaimOnly) {
       // Mint likely: publish keyring / registration / alias BEFORE the binding
       // append — window closure BY ORDER (a reader can only observe the binding
       // after its keyring is durable). Done OUTSIDE the tiny identity-lock
@@ -779,6 +774,9 @@ async function resolveLiveIdentityAsyncInternal(
         //  - positive on a retry: a key may have been revoked during contention.
         //  - a changed binding: the cache is for a different row.
         verifyProof: (binding) => {
+          if (input.expectedInstance && binding.instance !== input.expectedInstance) {
+            throw new Error("identity proof failed: resumed conversation binding changed");
+          }
           const trustCache =
             (options.attempt ?? 0) === 0 &&
             binding.instance === P.preBinding?.instance &&
@@ -787,7 +785,9 @@ async function resolveLiveIdentityAsyncInternal(
             ? true
             : step("identity_proof", () => provesLocalKey(input.root, binding.instance));
         },
-        mint,
+        mint: input.reclaimOnly
+          ? () => { throw new Error("identity proof failed: resume requires the existing conversation binding"); }
+          : mint,
         now
       },
       {
@@ -808,8 +808,8 @@ async function resolveLiveIdentityAsyncInternal(
       // orphan registration with no binding — allowed (never a keyless binding).
       // F5: unlink the unused candidate's orphan KEYPAIR (cheap); the append-only
       // registration/alias rows are left for L3 compaction.
-      if (mintKeypair && options.mintMemo?.value && options.mintMemo.value.instance !== result.instance) {
-        cleanupOrphanKeypair(input.root, options.mintMemo.value.instance);
+      if (mintKeypair && mintMemo.value && mintMemo.value.instance !== result.instance) {
+        cleanupOrphanKeypair(input.root, mintMemo.value.instance);
       }
       keypair = publishIdentity(result.instance, result.agentUuid, "reclaim");
     }
@@ -835,4 +835,8 @@ async function resolveLiveIdentityAsyncInternal(
         ? `identity migration: ${result.instance} reads legacy ${P.legacyInstance}; ${P.legacyDecision.reason}`
         : undefined
   };
+}
+
+function cleanupOrphanKeypair(...args: Parameters<typeof cleanupOrphanKeypairUnfenced>): ReturnType<typeof cleanupOrphanKeypairUnfenced> {
+  return withWriterMutation(args[0], 'registry', () => cleanupOrphanKeypairUnfenced(...args));
 }

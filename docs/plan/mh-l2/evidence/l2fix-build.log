@@ -1,0 +1,11 @@
+command: npm run build -w @sentropic/track
+
+> @sentropic/track@0.98.5 build
+> node ../../scripts/clean-workspace-dist.mjs && tsc -p tsconfig.build.json
+
+npm warn Unknown builtin config "globalignorefile". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+
+exit: 0
+command: /usr/bin/node node_modules/typescript/bin/tsc -b --pretty false
+
+exit: 0

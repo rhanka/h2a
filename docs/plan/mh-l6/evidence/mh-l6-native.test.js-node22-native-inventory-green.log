@@ -1,0 +1,22 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-native.test.js
+node: v22.22.1
+private root: /tmp/mh-l6-test-UnHgv4
+case: U10 should refuse an unrecorded file and a changed payload mode
+TAP version 13
+# Subtest: U10 should refuse an unrecorded file and a changed payload mode
+ok 1 - U10 should refuse an unrecorded file and a changed payload mode
+  ---
+  duration_ms: 23.972517
+  type: 'test'
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 1
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 168.631354
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-native.test.js"],"code":0,"signal":null,"tests":1,"invalid":false,"spawned":1,"leftovers":[]}

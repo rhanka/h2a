@@ -1,0 +1,82 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-launcher.test.js
+node: v22.22.1
+private root: /tmp/mh-l6-test-36V5qc
+case: all cases in explicit file
+TAP version 13
+# Subtest: U04 should import the verified absolute image in the launcher PID without npm imports
+ok 1 - U04 should import the verified absolute image in the launcher PID without npm imports
+  ---
+  duration_ms: 9294.558249
+  type: 'test'
+  ...
+# Subtest: U12 should remove NODE_PATH and refuse external loading flags from env or node argv
+ok 2 - U12 should remove NODE_PATH and refuse external loading flags from env or node argv
+  ---
+  duration_ms: 727.492453
+  type: 'test'
+  ...
+# Subtest: U06 should keep status read-only and use verified history only for diagnostics when selection is corrupt
+ok 3 - U06 should keep status read-only and use verified history only for diagnostics when selection is corrupt
+  ---
+  duration_ms: 598.081231
+  type: 'test'
+  ...
+# Subtest: U06 should reject altered payload and foreign selection before importing code
+ok 4 - U06 should reject altered payload and foreign selection before importing code
+  ---
+  duration_ms: 706.35239
+  type: 'test'
+  ...
+# Subtest: U09 should diagnose PATH shadowing and a changed command link without rewriting either
+ok 5 - U09 should diagnose PATH shadowing and a changed command link without rewriting either
+  ---
+  duration_ms: 637.241983
+  type: 'test'
+  ...
+# Subtest: U06 should never import an older fallback during an engaged selection transaction
+ok 6 - U06 should never import an older fallback during an engaged selection transaction
+  ---
+  duration_ms: 777.358375
+  type: 'test'
+  ...
+# Subtest: U06 should reject a corrupt history payload as a diagnostic recovery candidate
+ok 7 - U06 should reject a corrupt history payload as a diagnostic recovery candidate
+  ---
+  duration_ms: 669.558212
+  type: 'test'
+  ...
+# Subtest: U06 should keep an in-progress selection available only for diagnosis until reconciled
+ok 8 - U06 should keep an in-progress selection available only for diagnosis until reconciled
+  ---
+  duration_ms: 908.34881
+  type: 'test'
+  ...
+# Subtest: U06 should refuse to claim a reliable status for an unknown journal without repairing it
+ok 9 - U06 should refuse to claim a reliable status for an unknown journal without repairing it
+  ---
+  duration_ms: 531.733444
+  type: 'test'
+  ...
+# Subtest: U10 should refuse a runtime outside the qualified glibc profile before importing any image
+ok 10 - U10 should refuse a runtime outside the qualified glibc profile before importing any image
+  ---
+  duration_ms: 405.995558
+  type: 'test'
+  ...
+# Subtest: U12 should install the closed reader before the selected entry can import outside its image
+ok 11 - U12 should install the closed reader before the selected entry can import outside its image
+  ---
+  duration_ms: 503.341442
+  type: 'test'
+  ...
+1..11
+# tests 11
+# suites 0
+# pass 11
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 15877.10665
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-launcher.test.js"],"code":0,"signal":null,"tests":11,"invalid":false,"spawned":2,"leftovers":[]}

@@ -1,0 +1,50 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-package.test.js
+node: v22.22.1
+private root: /tmp/mh-l6-test-71v1dL
+case: all cases in explicit file
+TAP version 13
+# Subtest: U10 U12 should publish @sentropic/h2a with exact lockstep and install twice offline without a compiler
+not ok 1 - U10 U12 should publish @sentropic/h2a with exact lockstep and install twice offline without a compiler
+  ---
+  duration_ms: 19894.916797
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-package.test.js:11:96'
+  failureType: 'testCodeFailure'
+  error: 'release_dependency_not_exact:@aws-sdk/core'
+  code: 'ERR_TEST_FAILURE'
+  stack: |-
+    verifyPublishablePayload (file:///tmp/mh-l3-qualification-YeHHOv/source/scripts/check-publish-payload.mjs:33:85)
+    packRelease (file:///tmp/mh-l3-qualification-YeHHOv/source/scripts/package-release.mjs:26:22)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async packageScenario (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-package.test.js:37:14)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+  ...
+# Subtest: U10 U12 should publish @sentropic/h2a-runtime with exact lockstep and install twice offline without a compiler
+not ok 2 - U10 U12 should publish @sentropic/h2a-runtime with exact lockstep and install twice offline without a compiler
+  ---
+  duration_ms: 19348.489582
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-package.test.js:11:96'
+  failureType: 'testCodeFailure'
+  error: 'release_dependency_not_exact:@aws-sdk/core'
+  code: 'ERR_TEST_FAILURE'
+  stack: |-
+    verifyPublishablePayload (file:///tmp/mh-l3-qualification-YeHHOv/source/scripts/check-publish-payload.mjs:33:85)
+    packRelease (file:///tmp/mh-l3-qualification-YeHHOv/source/scripts/package-release.mjs:26:22)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async packageScenario (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-package.test.js:37:14)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+1..2
+# tests 2
+# suites 0
+# pass 0
+# fail 2
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 39352.579381
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-package.test.js"],"code":1,"signal":null,"tests":2,"invalid":false,"spawned":5,"leftovers":[]}

@@ -1,0 +1,40 @@
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node --test --test-reporter=tap packages/h2a/test/mh-l2-identity-contention.test.js
+node: v24.21.0
+private root: /tmp/mh-l3-test-stTAHG
+case: all cases in explicit file
+TAP version 13
+# Subtest: identity should generate Ed25519 keys outside the global writer lock and recheck the gate before publishing
+ok 1 - identity should generate Ed25519 keys outside the global writer lock and recheck the gate before publishing
+  ---
+  duration_ms: 45.857497
+  type: 'test'
+  ...
+# Subtest: identity should preserve a competing keypair published while its candidate is generated
+ok 2 - identity should preserve a competing keypair published while its candidate is generated
+  ---
+  duration_ms: 22.23403
+  type: 'test'
+  ...
+# Subtest: identity worker should retry mutation contention within its identity budget
+ok 3 - identity worker should retry mutation contention within its identity budget
+  ---
+  duration_ms: 7061.987557
+  type: 'test'
+  ...
+# Subtest: identity worker should classify exhausted mutation contention as identity_timeout
+ok 4 - identity worker should classify exhausted mutation contention as identity_timeout
+  ---
+  duration_ms: 5234.82318
+  type: 'test'
+  ...
+1..4
+# tests 4
+# suites 0
+# pass 4
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 12558.209293
+
+receipt: {"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l2-identity-contention.test.js"],"code":0,"signal":null,"tests":4,"invalid":false,"spawned":5,"leftovers":[]}

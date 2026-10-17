@@ -1,0 +1,309 @@
+command: /usr/bin/node --test packages/h2a/test/mcp-central-attachments.test.js
+node: v22.22.1
+private test root: /tmp/mh-l2-test-b9gnTc
+TAP version 13
+# Subtest: R20 auto wake probes and submits only on the client tmux socket with identical pane IDs
+ok 1 - R20 auto wake probes and submits only on the client tmux socket with identical pane IDs
+  ---
+  duration_ms: 2064.505858
+  type: 'test'
+  ...
+# Subtest: R20 local-tmux wake probes and submits only on the client tmux socket with identical pane IDs
+ok 2 - R20 local-tmux wake probes and submits only on the client tmux socket with identical pane IDs
+  ---
+  duration_ms: 1866.522031
+  type: 'test'
+  ...
+# Subtest: R21 auto wake inventories and writes only the client native socket with identical session names
+ok 3 - R21 auto wake inventories and writes only the client native socket with identical session names
+  ---
+  duration_ms: 1324.104304
+  type: 'test'
+  ...
+# Subtest: R21 native wake inventories and writes only the client native socket with identical session names
+ok 4 - R21 native wake inventories and writes only the client native socket with identical session names
+  ---
+  duration_ms: 1335.555896
+  type: 'test'
+  ...
+# Subtest: R21 local-tmux wake inventories and writes only the client native socket with identical session names
+ok 5 - R21 local-tmux wake inventories and writes only the client native socket with identical session names
+  ---
+  duration_ms: 1325.525638
+  type: 'test'
+  ...
+# Subtest: qualification guards reject paths resolving outside .qual-tmp
+ok 6 - qualification guards reject paths resolving outside .qual-tmp
+  ---
+  duration_ms: 1.373915
+  type: 'test'
+  ...
+# R6 default Claude: protocol=2 attachments=1 bytesEqual=true metadataEqual=true gitStatusEqual=true sha256=984069aaed26cd2ce888dc692a4400f9c9c1cbb5add9c86fedbed3fc6b3d5470
+# Subtest: R6 Claude defaults to central without configuration and preserves the exact incident bytes
+ok 7 - R6 Claude defaults to central without configuration and preserves the exact incident bytes
+  ---
+  duration_ms: 838.944387
+  type: 'test'
+  ...
+# Subtest: R3 unqualified v1 connector leaves live central attachments unchanged with an inherited Claude ID
+not ok 8 - R3 unqualified v1 connector leaves live central attachments unchanged with an inherited Claude ID
+  ---
+  duration_ms: 12.927889
+  type: 'test'
+  location: '/home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/test/mcp-central-attachments.test.js:306:1'
+  failureType: 'testCodeFailure'
+  error: 'prefix_owner_mismatch'
+  code: 'ERR_TEST_FAILURE'
+  stack: |-
+    prepareAuthority (file:///home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/dist/runtime/handover/admission.js:128:15)
+    startCentralMcpServer (file:///home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/dist/runtime/mcp-central.js:370:29)
+    TestContext.<anonymous> (file:///home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/test/mcp-central-attachments.test.js:312:20)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: R18 v1 unqualified connector selects stdio before reading invalid JSON central configuration
+ok 9 - R18 v1 unqualified connector selects stdio before reading invalid JSON central configuration
+  ---
+  duration_ms: 359.744072
+  type: 'test'
+  ...
+# Subtest: R18 v1 codex connector selects stdio before reading invalid JSON central configuration
+ok 10 - R18 v1 codex connector selects stdio before reading invalid JSON central configuration
+  ---
+  duration_ms: 367.999171
+  type: 'test'
+  ...
+# Subtest: R18 v1 agy connector selects stdio before reading invalid JSON central configuration
+ok 11 - R18 v1 agy connector selects stdio before reading invalid JSON central configuration
+  ---
+  duration_ms: 351.134966
+  type: 'test'
+  ...
+# Subtest: R18 v1 unqualified connector selects stdio before reading unreadable central configuration
+ok 12 - R18 v1 unqualified connector selects stdio before reading unreadable central configuration
+  ---
+  duration_ms: 376.916625
+  type: 'test'
+  ...
+# Subtest: R18 v1 codex connector selects stdio before reading unreadable central configuration
+ok 13 - R18 v1 codex connector selects stdio before reading unreadable central configuration
+  ---
+  duration_ms: 379.824786
+  type: 'test'
+  ...
+# Subtest: R18 v1 agy connector selects stdio before reading unreadable central configuration
+ok 14 - R18 v1 agy connector selects stdio before reading unreadable central configuration
+  ---
+  duration_ms: 365.295875
+  type: 'test'
+  ...
+# Subtest: R19 manual daemon native launcher context never becomes the target of a client without terminal context
+ok 15 - R19 manual daemon native launcher context never becomes the target of a client without terminal context
+  ---
+  duration_ms: 3439.507828
+  type: 'test'
+  ...
+# Subtest: R19 manual daemon tmux launcher context never becomes the target of a client without terminal context
+ok 16 - R19 manual daemon tmux launcher context never becomes the target of a client without terminal context
+  ---
+  duration_ms: 3241.368078
+  type: 'test'
+  ...
+# Subtest: missing systemd runtime chooses a fixed UID fallback, with private namespaces for isolation
+ok 17 - missing systemd runtime chooses a fixed UID fallback, with private namespaces for isolation
+  ---
+  duration_ms: 0.435359
+  type: 'test'
+  ...
+# Subtest: an orphaned HTTP attachment is purged and the central exits idle
+not ok 18 - an orphaned HTTP attachment is purged and the central exits idle
+  ---
+  duration_ms: 5.604452
+  type: 'test'
+  location: '/home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/test/mcp-central-attachments.test.js:436:1'
+  failureType: 'testCodeFailure'
+  error: 'prefix_owner_mismatch'
+  code: 'ERR_TEST_FAILURE'
+  stack: |-
+    prepareAuthority (file:///home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/dist/runtime/handover/admission.js:128:15)
+    startCentralMcpServer (file:///home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/dist/runtime/mcp-central.js:370:29)
+    TestContext.<anonymous> (file:///home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/test/mcp-central-attachments.test.js:440:20)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: two attached repos route Track and h2a_run to their own workspace, sharing only state
+not ok 19 - two attached repos route Track and h2a_run to their own workspace, sharing only state
+  ---
+  duration_ms: 7.863012
+  type: 'test'
+  location: '/home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/test/mcp-central-attachments.test.js:451:1'
+  failureType: 'testCodeFailure'
+  error: 'prefix_owner_mismatch'
+  code: 'ERR_TEST_FAILURE'
+  stack: |-
+    prepareAuthority (file:///home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/dist/runtime/handover/admission.js:128:15)
+    startCentralMcpServer (file:///home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/dist/runtime/mcp-central.js:370:29)
+    TestContext.<anonymous> (file:///home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/test/mcp-central-attachments.test.js:459:20)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: a live shim survives central token rotation with the same identity and no added binding
+not ok 20 - a live shim survives central token rotation with the same identity and no added binding
+  ---
+  duration_ms: 6.838364
+  type: 'test'
+  location: '/home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/test/mcp-central-attachments.test.js:484:1'
+  failureType: 'testCodeFailure'
+  error: 'prefix_owner_mismatch'
+  code: 'ERR_TEST_FAILURE'
+  stack: |-
+    prepareAuthority (file:///home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/dist/runtime/handover/admission.js:128:15)
+    startCentralMcpServer (file:///home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/dist/runtime/mcp-central.js:370:29)
+    TestContext.<anonymous> (file:///home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/test/mcp-central-attachments.test.js:489:19)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: resume with a missing signing key fails closed without minting another binding
+not ok 21 - resume with a missing signing key fails closed without minting another binding
+  ---
+  duration_ms: 5.923032
+  type: 'test'
+  location: '/home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/test/mcp-central-attachments.test.js:503:1'
+  failureType: 'testCodeFailure'
+  error: 'prefix_owner_mismatch'
+  code: 'ERR_TEST_FAILURE'
+  stack: |-
+    prepareAuthority (file:///home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/dist/runtime/handover/admission.js:128:15)
+    startCentralMcpServer (file:///home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/dist/runtime/mcp-central.js:370:29)
+    TestContext.<anonymous> (file:///home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/test/mcp-central-attachments.test.js:508:19)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: a lost mutation reply is outcome_unknown and is never replayed during recovery
+ok 22 - a lost mutation reply is outcome_unknown and is never replayed during recovery
+  ---
+  duration_ms: 58.601087
+  type: 'test'
+  ...
+# Subtest: SIGTERM of the real central leaves host stdio open and resumes the same binding
+ok 23 - SIGTERM of the real central leaves host stdio open and resumes the same binding
+  ---
+  duration_ms: 2142.104683
+  type: 'test'
+  ...
+# Subtest: operator stop is authenticated, leaves shims open, and residue detection never changes files
+not ok 24 - operator stop is authenticated, leaves shims open, and residue detection never changes files
+  ---
+  duration_ms: 6.506589
+  type: 'test'
+  location: '/home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/test/mcp-central-attachments.test.js:608:1'
+  failureType: 'testCodeFailure'
+  error: 'prefix_owner_mismatch'
+  code: 'ERR_TEST_FAILURE'
+  stack: |-
+    prepareAuthority (file:///home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/dist/runtime/handover/admission.js:128:15)
+    startCentralMcpServer (file:///home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/dist/runtime/mcp-central.js:370:29)
+    TestContext.<anonymous> (file:///home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/test/mcp-central-attachments.test.js:613:20)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: mcp-serve defaults Claude to one ephemeral central without project writes; other hosts and opt-outs use stdio
+ok 25 - mcp-serve defaults Claude to one ephemeral central without project writes; other hosts and opt-outs use stdio
+  ---
+  duration_ms: 4749.283998
+  type: 'test'
+  ...
+# Subtest: full MCP handshake through the shim consumes 202 without emitting invalid null frames
+not ok 26 - full MCP handshake through the shim consumes 202 without emitting invalid null frames
+  ---
+  duration_ms: 7.08117
+  type: 'test'
+  location: '/home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/test/mcp-central-attachments.test.js:692:1'
+  failureType: 'testCodeFailure'
+  error: 'prefix_owner_mismatch'
+  code: 'ERR_TEST_FAILURE'
+  stack: |-
+    prepareAuthority (file:///home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/dist/runtime/handover/admission.js:128:15)
+    startCentralMcpServer (file:///home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/dist/runtime/mcp-central.js:370:29)
+    TestContext.<anonymous> (file:///home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/test/mcp-central-attachments.test.js:698:20)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: a network cutoff during initialize recovers cleanly and returns the handshake result without HTTP 400
+ok 27 - a network cutoff during initialize recovers cleanly and returns the handshake result without HTTP 400
+  ---
+  duration_ms: 26.438264
+  type: 'test'
+  ...
+# Subtest: v1 residual configurations without --host route to stdio on missing marker or opt-outs, and can be explicitly repaired
+not ok 28 - v1 residual configurations without --host route to stdio on missing marker or opt-outs, and can be explicitly repaired
+  ---
+  duration_ms: 2195.758022
+  type: 'test'
+  location: '/home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/test/mcp-central-attachments.test.js:766:1'
+  failureType: 'testCodeFailure'
+  error: 'prefix_owner_mismatch'
+  code: 'ERR_TEST_FAILURE'
+  stack: |-
+    prepareAuthority (file:///home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/dist/runtime/handover/admission.js:128:15)
+    startCentralMcpServer (file:///home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/dist/runtime/mcp-central.js:370:29)
+    TestContext.<anonymous> (file:///home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/test/mcp-central-attachments.test.js:836:30)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: relative H2A_ROOT deterministically selects stdio and never derives central root from cwd
+ok 29 - relative H2A_ROOT deterministically selects stdio and never derives central root from cwd
+  ---
+  duration_ms: 673.237598
+  type: 'test'
+  ...
+# Subtest: central stop when daemon is already absent writes the pause inhibition
+ok 30 - central stop when daemon is already absent writes the pause inhibition
+  ---
+  duration_ms: 5.45912
+  type: 'test'
+  ...
+# Subtest: runtime-base namespace is strictly isolated across discovery, auto-start, policy, operator and exercises reconnection in real shim
+ok 31 - runtime-base namespace is strictly isolated across discovery, auto-start, policy, operator and exercises reconnection in real shim
+  ---
+  duration_ms: 2336.676551
+  type: 'test'
+  ...
+# Subtest: structured sidecar launches with readiness challenge stay on stdio and acknowledge without initial MCP request
+ok 32 - structured sidecar launches with readiness challenge stay on stdio and acknowledge without initial MCP request
+  ---
+  duration_ms: 719.839003
+  type: 'test'
+  ...
+# Subtest: H2A_MCP_CENTRAL=0 acts as independent escape hatch before reading configuration, even with invalid JSON or unreadable file
+ok 33 - H2A_MCP_CENTRAL=0 acts as independent escape hatch before reading configuration, even with invalid JSON or unreadable file
+  ---
+  duration_ms: 3.361503
+  type: 'test'
+  ...
+1..33
+# tests 33
+# suites 0
+# pass 25
+# fail 8
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 31026.021198
+
+receipt: {"command":["/usr/bin/node","--test","packages/h2a/test/mcp-central-attachments.test.js"],"code":1,"signal":null,"elapsedMs":31120}

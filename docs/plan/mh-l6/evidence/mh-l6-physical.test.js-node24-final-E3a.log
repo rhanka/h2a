@@ -1,0 +1,137 @@
+command: /tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-physical.test.js
+node: v24.21.0
+private root: /tmp/mh-l6-test-vgiRvh
+case: all cases in explicit file
+TAP version 13
+# Subtest: U07 should derive physical prefix and original npm link without preparing managed state
+ok 1 - U07 should derive physical prefix and original npm link without preparing managed state
+  ---
+  duration_ms: 11.634041
+  type: 'test'
+  ...
+# Subtest: U07 should accept physical prefix aliases but reject a different caller npm prefix
+ok 2 - U07 should accept physical prefix aliases but reject a different caller npm prefix
+  ---
+  duration_ms: 2.732772
+  type: 'test'
+  ...
+# Subtest: U07 should reject a different physical prefix used by the legacy engine
+ok 3 - U07 should reject a different physical prefix used by the legacy engine
+  ---
+  duration_ms: 0.862152
+  type: 'test'
+  ...
+# Subtest: U07 should verify the npm package identity and declared command entry
+ok 4 - U07 should verify the npm package identity and declared command entry
+  ---
+  duration_ms: 354.805156
+  type: 'test'
+  ...
+# Subtest: U07 should reject a metadata file alias even when it names identical bytes
+ok 5 - U07 should reject a metadata file alias even when it names identical bytes
+  ---
+  duration_ms: 1.48766
+  type: 'test'
+  ...
+# Subtest: U07 should reject hardlinked npm code before adoption
+ok 6 - U07 should reject hardlinked npm code before adoption
+  ---
+  duration_ms: 0.886048
+  type: 'test'
+  ...
+# Subtest: U07 should reject a code directory alias to an external installation
+ok 7 - U07 should reject a code directory alias to an external installation
+  ---
+  duration_ms: 0.592635
+  type: 'test'
+  ...
+# Subtest: U07 should reject a writable physical package directory
+ok 8 - U07 should reject a writable physical package directory
+  ---
+  duration_ms: 0.631528
+  type: 'test'
+  ...
+# Subtest: U07 should reject writable npm metadata and entry bytes
+ok 9 - U07 should reject writable npm metadata and entry bytes
+  ---
+  duration_ms: 0.810876
+  type: 'test'
+  ...
+# Subtest: U07 should require the current command to be the direct original npm symlink
+ok 10 - U07 should require the current command to be the direct original npm symlink
+  ---
+  duration_ms: 83.742964
+  type: 'test'
+  ...
+# Subtest: U07 should preserve physical evidence when compatible lock and staging directories are created
+ok 11 - U07 should preserve physical evidence when compatible lock and staging directories are created
+  ---
+  duration_ms: 3.112005
+  type: 'test'
+  ...
+# Subtest: U07 should derive evidence from a real private offline global npm install
+ok 12 - U07 should derive evidence from a real private offline global npm install
+  ---
+  duration_ms: 1186.578587
+  type: 'test'
+  ...
+# npm 11.19.0: pack/install --offline --ignore-scripts => added 1 package in 162ms
+# Subtest: U07 should reject a shadowed npm command even when the chosen entry is real
+ok 13 - U07 should reject a shadowed npm command even when the chosen entry is real
+  ---
+  duration_ms: 1.018456
+  type: 'test'
+  ...
+# Subtest: U07 should detect changed entry bytes before a subsequent adoption mutation
+ok 14 - U07 should detect changed entry bytes before a subsequent adoption mutation
+  ---
+  duration_ms: 10.535745
+  type: 'test'
+  ...
+# Subtest: U07 should detect an identical-byte inode replacement of the original command
+ok 15 - U07 should detect an identical-byte inode replacement of the original command
+  ---
+  duration_ms: 1.94007
+  type: 'test'
+  ...
+# Subtest: U07 should detect alias retargeting after a physical observation
+ok 16 - U07 should detect alias retargeting after a physical observation
+  ---
+  duration_ms: 1.138341
+  type: 'test'
+  ...
+# Subtest: U07 should not accept a same-path substituted file between lstat and read
+ok 17 - U07 should not accept a same-path substituted file between lstat and read
+  ---
+  duration_ms: 0.704936
+  type: 'test'
+  ...
+# Subtest: U07 should recheck metadata after observing the command link
+ok 18 - U07 should recheck metadata after observing the command link
+  ---
+  duration_ms: 1.123193
+  type: 'test'
+  ...
+# Subtest: U07 should recheck the legacy prefix alias before returning an observation
+ok 19 - U07 should recheck the legacy prefix alias before returning an observation
+  ---
+  duration_ms: 1.026772
+  type: 'test'
+  ...
+# Subtest: U07 should detect replaced npm metadata even when its version remains identical
+ok 20 - U07 should detect replaced npm metadata even when its version remains identical
+  ---
+  duration_ms: 8.782385
+  type: 'test'
+  ...
+1..20
+# tests 20
+# suites 0
+# pass 20
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 1882.794195
+
+receipt: {"command":["/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-physical.test.js"],"code":0,"signal":null,"tests":20,"invalid":false,"spawned":4,"leftovers":[]}

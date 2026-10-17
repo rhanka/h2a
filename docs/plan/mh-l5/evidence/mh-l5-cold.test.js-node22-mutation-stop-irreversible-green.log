@@ -1,0 +1,22 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l5-cold.test.js
+node: v22.22.1
+private root: /tmp/mh-l5-test-3kVAwk
+case: M23 M24 cold process crash at after-directory-sync must preserve the irreversible boundary
+TAP version 13
+# Subtest: M23 M24 cold process crash at after-directory-sync must preserve the irreversible boundary
+ok 1 - M23 M24 cold process crash at after-directory-sync must preserve the irreversible boundary
+  ---
+  duration_ms: 240.458525
+  type: 'test'
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 1
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 339.353564
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l5-cold.test.js"],"code":0,"signal":null,"tests":1,"invalid":false,"spawned":5,"leftovers":[]}

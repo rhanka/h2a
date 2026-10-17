@@ -1,0 +1,57 @@
+{
+  "node": "v24.18.0",
+  "files": [
+    {
+      "path": "packages/h2a/src/runtime/upgrade/legacy-observers.js",
+      "sha256": "41ce06b3b2151d2f94cf76382eb9363f0f2cd64ec6d32383f50d9edd2fe6c9eb"
+    },
+    {
+      "path": "packages/h2a/dist/runtime/upgrade/legacy-observers.js",
+      "sha256": "763d10d63d73bcf00a1019b90cf8c1ff0cd8a712ad18975ee5b065f57e713d76"
+    }
+  ],
+  "results": [
+    {
+      "name": "envelope-message",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-observers.test.js-node24-mutation-envelope-message-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-observers.test.js-node24-mutation-envelope-message-green.log",
+      "restored": true
+    },
+    {
+      "name": "legacy-version",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-observers.test.js-node24-mutation-legacy-version-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-observers.test.js-node24-mutation-legacy-version-green.log",
+      "restored": true
+    },
+    {
+      "name": "legacy-proof-absence",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-observers.test.js-node24-mutation-legacy-proof-absence-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-observers.test.js-node24-mutation-legacy-proof-absence-green.log",
+      "restored": true
+    },
+    {
+      "name": "workers-proc-scan",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-observers.test.js-node24-mutation-workers-proc-scan-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-observers.test.js-node24-mutation-workers-proc-scan-green.log",
+      "restored": true
+    },
+    {
+      "name": "relaunch-scan",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-observers.test.js-node24-mutation-relaunch-scan-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-observers.test.js-node24-mutation-relaunch-scan-green.log",
+      "restored": true
+    },
+    {
+      "name": "routing-check",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-observers.test.js-node24-mutation-routing-check-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-observers.test.js-node24-mutation-routing-check-green.log",
+      "restored": true
+    },
+    {
+      "name": "reintroduction-scan",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-observers.test.js-node24-mutation-reintroduction-scan-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-observers.test.js-node24-mutation-reintroduction-scan-green.log",
+      "restored": true
+    }
+  ]
+}

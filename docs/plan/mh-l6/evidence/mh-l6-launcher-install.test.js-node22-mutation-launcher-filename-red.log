@@ -1,0 +1,40 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-launcher-install.test.js
+node: v22.22.1
+private root: /tmp/mh-l6-test-YmoKPz
+case: C2b should install the managed launcher and link the command atomically
+TAP version 13
+# Subtest: C2b should install the managed launcher and link the command atomically
+not ok 1 - C2b should install the managed launcher and link the command atomically
+  ---
+  duration_ms: 74.713184
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-c2b2b-Iojb4n/packages/h2a/test/mh-l6-launcher-install.test.js:9:67'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    + actual - expected
+    
+    + '/tmp/mh-l6-test-YmoKPz/tmpdir/mh-l6-launcher-install-T6vEzZ/managed/launcher/h2a.cjs'
+    - '/tmp/mh-l6-test-YmoKPz/tmpdir/mh-l6-launcher-install-T6vEzZ/managed/launcher/h2a.mjs'
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: '/tmp/mh-l6-test-YmoKPz/tmpdir/mh-l6-launcher-install-T6vEzZ/managed/launcher/h2a.mjs'
+  actual: '/tmp/mh-l6-test-YmoKPz/tmpdir/mh-l6-launcher-install-T6vEzZ/managed/launcher/h2a.cjs'
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/mh-l3-qualification-c2b2b-Iojb4n/packages/h2a/test/mh-l6-launcher-install.test.js:51:10)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 0
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 184.856133
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-launcher-install.test.js"],"code":1,"signal":null,"tests":1,"invalid":false,"spawned":1,"leftovers":[]}

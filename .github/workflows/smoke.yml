@@ -11,7 +11,26 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  build-candidate:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: npm ci
+      - run: npm run build
+      - run: node scripts/pack-candidate.mjs dist-tarballs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: smoke-candidate
+          path: dist-tarballs/*.tgz
+          if-no-files-found: error
+
   smoke-install:
+    needs: build-candidate
+    if: always() && (needs.build-candidate.result == 'success' || github.event_name != 'pull_request')
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -38,28 +57,18 @@ jobs:
       #   tarball was an empty stub, so this half stays as a post-publish
       #   check, not as a PR gate (a PR's own diff has nothing to do with
       #   what npm currently serves as "latest").
-      - name: Build and pack this PR's lockstep packages
+      - uses: actions/download-artifact@v4
+        if: github.event_name == 'pull_request'
+        with:
+          name: smoke-candidate
+          path: dist-tarballs
+
+      - name: Locate this PR's verified lockstep packages
         if: github.event_name == 'pull_request'
         shell: bash
         run: |
           set -euo pipefail
-          npm ci
-          npm run build
-          # packages/h2a's `prepack` (scripts/check-focus-app.mjs) asserts
-          # the vendored packages/h2a/focus-app bundle is fresh against
-          # apps/focus/src. That is a real, separate, pre-existing
-          # invariant about publish-readiness of the bundled web app, not
-          # about CLI correctness, which is all this job gates. Skip that
-          # lifecycle script here rather than let its unrelated staleness
-          # fail every PR's smoke check for a reason that has nothing to
-          # do with the PR's own code; the push/publish path below still
-          # exercises a real `npm publish`, which runs prepack for real.
-          chmod +x packages/h2a/dist/bin.js
-          pack_dir="$(mktemp -d)"
-          npm pack --workspace @sentropic/h2a --ignore-scripts --pack-destination "$pack_dir"
-          npm pack --workspace @sentropic/track --pack-destination "$pack_dir"
-          npm pack --workspace @sentropic/h2a-cli --pack-destination "$pack_dir"
-          npm pack --workspace @sentropic/h2a-runtime --pack-destination "$pack_dir"
+          pack_dir="$PWD/dist-tarballs"
           echo "PACKED_H2A_TARBALL=$(ls "$pack_dir"/sentropic-h2a-[0-9]*.tgz)" >> "$GITHUB_ENV"
           echo "PACKED_TRACK_TARBALL=$(ls "$pack_dir"/sentropic-track-*.tgz)" >> "$GITHUB_ENV"
           echo "PACKED_H2A_CLI_TARBALL=$(ls "$pack_dir"/sentropic-h2a-cli-*.tgz)" >> "$GITHUB_ENV"

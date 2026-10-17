@@ -1,0 +1,57 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-pilot-force.test.js
+node: v22.22.1
+private root: /tmp/mh-l6-test-IMO1xG
+case: F should force an occupied command link through the pilot only on explicit override
+TAP version 13
+# Subtest: F should force an occupied command link through the pilot only on explicit override
+not ok 1 - F should force an occupied command link through the pilot only on explicit override
+  ---
+  duration_ms: 389.748406
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-f2c5-Eikccj/packages/h2a/test/mh-l6-pilot-force.test.js:14:67'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    + actual - expected
+    
+    + Error: bootstrap_launcher_command_occupied
+    +     at installManagedLauncher (file:///tmp/mh-l3-qualification-f2c5-Eikccj/packages/h2a/dist/runtime/upgrade/launcher-install.js:51:15)
+    +     at executeAdoption (file:///tmp/mh-l3-qualification-f2c5-Eikccj/packages/h2a/dist/runtime/upgrade/adoption-execute.js:38:26)
+    +     at runUpgradeOnce (file:///tmp/mh-l3-qualification-f2c5-Eikccj/packages/h2a/dist/runtime/upgrade/upgrade-run.js:35:12)
+    +     at file:///tmp/mh-l3-qualification-f2c5-Eikccj/packages/h2a/test/mh-l6-pilot-force.test.js:80:32
+    +     at attempt (file:///tmp/mh-l3-qualification-f2c5-Eikccj/packages/h2a/test/mh-l6-pilot-force.test.js:70:26)
+    +     at TestContext.<anonymous> (file:///tmp/mh-l3-qualification-f2c5-Eikccj/packages/h2a/test/mh-l6-pilot-force.test.js:80:18)
+    +     at async Test.run (node:internal/test_runner/test:1054:7)
+    +     at async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+    - undefined
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  actual:
+  error: 'bootstrap_launcher_command_occupied'
+  stack: |-
+    installManagedLauncher (file:///tmp/mh-l3-qualification-f2c5-Eikccj/packages/h2a/dist/runtime/upgrade/launcher-install.js:51:15)
+    executeAdoption (file:///tmp/mh-l3-qualification-f2c5-Eikccj/packages/h2a/dist/runtime/upgrade/adoption-execute.js:38:26)
+    runUpgradeOnce (file:///tmp/mh-l3-qualification-f2c5-Eikccj/packages/h2a/dist/runtime/upgrade/upgrade-run.js:35:12)
+    file:///tmp/mh-l3-qualification-f2c5-Eikccj/packages/h2a/test/mh-l6-pilot-force.test.js:80:32
+    attempt (file:///tmp/mh-l3-qualification-f2c5-Eikccj/packages/h2a/test/mh-l6-pilot-force.test.js:70:26)
+    TestContext.<anonymous> (file:///tmp/mh-l3-qualification-f2c5-Eikccj/packages/h2a/test/mh-l6-pilot-force.test.js:80:18)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/mh-l3-qualification-f2c5-Eikccj/packages/h2a/test/mh-l6-pilot-force.test.js:81:10)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 0
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 513.167101
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-pilot-force.test.js"],"code":1,"signal":null,"tests":1,"invalid":false,"spawned":1,"leftovers":[]}

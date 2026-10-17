@@ -1,0 +1,194 @@
+{
+  "format": "sentropic.registry-package/v1",
+  "entries": [
+    {
+      "format": "sentropic.registry-entry/v1",
+      "contractVersion": "1.1.4",
+      "kind": "mcp",
+      "id": "sentropic.h2a",
+      "name": "h2a",
+      "description": "h2a coordination MCP: instances, negotiations, inbox, drive consent, loops and blockages over the shared central or hosted read-only transports.",
+      "entryVersion": "1.0.0",
+      "publisher": {
+        "packageName": "@sentropic/h2a",
+        "packageVersion": "0.98.7"
+      },
+      "compatibility": {
+        "entryContract": "1.1.4",
+        "packages": [
+          {
+            "name": "@sentropic/h2a-runtime",
+            "range": "0.98.5"
+          }
+        ],
+        "schemaProfiles": [
+          "sentropic.parameters/2020-12-bounded-v1"
+        ],
+        "requiredHostFeatures": [
+          "stdio"
+        ],
+        "optionalHostFeatures": [
+          "streamable-http"
+        ]
+      },
+      "parameters": {
+        "schemaVersion": "1.1.0",
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "$id": "urn:sentropic:registry:parameters:sentropic.h2a:1.1.0",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "mode",
+            "serviceBindingRef"
+          ],
+          "properties": {
+            "mode": {
+              "enum": [
+                "shared-central",
+                "hosted-read-only"
+              ]
+            },
+            "serviceBindingRef": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 96,
+              "pattern": "^[a-z0-9][a-z0-9._-]*$"
+            }
+          }
+        },
+        "defaults": {
+          "mode": "shared-central"
+        }
+      },
+      "bindings": [
+        {
+          "key": "h2a-local-central",
+          "contract": "h2a.central-attachment/v2",
+          "required": true
+        },
+        {
+          "key": "h2a-attachment-workspace",
+          "contract": "h2a.workspace/v1",
+          "required": true
+        },
+        {
+          "key": "h2a-hosted-service",
+          "contract": "h2a.hosted-service/v1",
+          "required": false
+        }
+      ],
+      "assets": [
+        {
+          "role": "manifest",
+          "path": "registry/manifest.h2a.json",
+          "mediaType": "application/json",
+          "sha256": "8b393dcba17b07ee4e41df3fcbef19e4ade48b9403b423f18a8478d220a0b11a"
+        }
+      ],
+      "mcp": {
+        "manifestAsset": "registry/manifest.h2a.json",
+        "connectorIds": [
+          "h2a-coordination"
+        ],
+        "transportProfiles": [
+          {
+            "id": "shared-central-stdio",
+            "mode": "binding",
+            "bindingKey": "h2a-local-central",
+            "protocolVersions": [
+              "2025-06-18"
+            ],
+            "requiredHostFeatures": [
+              "stdio"
+            ]
+          },
+          {
+            "id": "hosted-read-only-http",
+            "mode": "streamable-http",
+            "protocolVersions": [
+              "2025-06-18"
+            ],
+            "requiredHostFeatures": [
+              "streamable-http"
+            ]
+          }
+        ],
+        "protocolVersions": [
+          "2025-06-18"
+        ],
+        "capabilityProfiles": [
+          {
+            "id": "shared-central",
+            "tools": [
+              "h2a_drive_consent_request",
+              "h2a_drive_consent_respond",
+              "h2a_drive_consent_cosign",
+              "h2a_drive_consent_revoke",
+              "h2a_drive_consent_status",
+              "h2a_register_instance",
+              "h2a_discover_instances",
+              "h2a_read_payload",
+              "h2a_identity_status",
+              "h2a_open_negotiation",
+              "h2a_offer",
+              "h2a_counteroffer",
+              "h2a_sign",
+              "h2a_stabilize",
+              "h2a_attest_comprehension",
+              "h2a_declare_conflit_interet",
+              "h2a_conflict_posture",
+              "h2a_inbox",
+              "h2a_send",
+              "h2a_append_journal",
+              "h2a_escalate",
+              "h2a_session_open",
+              "h2a_session_close",
+              "h2a_discover_sessions",
+              "h2a_nhi_report",
+              "h2a_nhi_inventory",
+              "h2a_nhi_attest",
+              "h2a_nhi_offboard",
+              "h2a_nhi_export",
+              "h2a_blockage_raise",
+              "h2a_blockage_list",
+              "h2a_blockage_resolve",
+              "h2a_conductor",
+              "h2a_conductor_claim",
+              "h2a_conductor_release",
+              "h2a_conductor_launch_check",
+              "h2a_conductor_launch",
+              "h2a_loop_create",
+              "h2a_loop_join",
+              "h2a_loop_report",
+              "h2a_loop_done",
+              "h2a_loop_stop",
+              "h2a_loop_list",
+              "h2a_loop_status",
+              "h2a_run"
+            ],
+            "resources": [],
+            "prompts": [],
+            "readOnly": false
+          },
+          {
+            "id": "hosted-read-only",
+            "tools": [
+              "h2a_discover_instances",
+              "h2a_read_payload",
+              "h2a_identity_status",
+              "h2a_discover_sessions",
+              "h2a_nhi_inventory",
+              "h2a_nhi_report",
+              "h2a_conflict_posture",
+              "h2a_blockage_list"
+            ],
+            "resources": [],
+            "prompts": [],
+            "readOnly": true
+          }
+        ]
+      }
+    }
+  ]
+}
