@@ -130,3 +130,33 @@ par SHA, 9 tests et 7 paires/profil. Preuve : `proof-F-2c.json`.
 | Dispatch restant : reprise/abandon sur l'autorité, compensation, orchestration de la délégation, activation M18 après preuve externe | F-2c (suite) |
 | Observateurs B2-3, autres entrées, smoke CI, gel .6 | B2-3/E2b3/E3b2b/E3c, M18 toujours ouvert |
 | Revue indépendante | Conducteur ; aucun consensus revendiqué |
+
+## F-2c2 — reprise/abandon sur l'autorité (livré)
+
+`resumeUpgrade({ store, upgradeId, controller })` et `abortUpgrade(...)`
+dans `packages/h2a/src/runtime/upgrade/upgrade-dispatch.js` : l'autorité
+CLI est vérifiée d'abord (étranger/révoqué avec raisons propres), puis le
+moteur revérifie l'identité courante et réconcilie ou abandonne. La reprise
+ne fait jamais avancer une phase d'elle-même (PREPARED reste PREPARED,
+SELECTED se referme), l'abandon ne ferme qu'une transaction réversible et
+reste idempotent, l'après-sélection refuse `selection_irreversible`.
+Sans compensation ni orchestration de la délégation : F-2c (suite).
+
+| Commande ciblée | Node 22.22.1 | Node 24.21.0 |
+|---|---|---:|
+| `node scripts/mh-l6-test.mjs packages/h2a/test/mh-l6-dispatch.test.js final-F-2c2` | 7/7, exit 0 | 7/7, exit 0 |
+| `mh-l6-mutate.mjs dispatch` (autorité ×2, appels ×2, enveloppe, gel) | 6 rouges ERR_ASSERTION / 6 verts | 6 / 6 |
+| `node scripts/mh-l6-f2c2-audit.mjs /tmp/mh-l3-qualification-f2c2-*` | exit 0 | exit 0 |
+| Skips / annulations / enfants restants | 0 / 0 / 0 | 0 / 0 / 0 |
+
+Rouge initial : module absent (`ERR_ASSERTION`, 1 test, exit 1),
+conservé. Preuve d'ordre : sur transaction révoquée le refus est
+`upgrade_authority_revoked` (raison CLI), jamais l'erreur moteur.
+Audit : 4 fichiers identiques, émission compilée liée par SHA, 7 tests et
+6 paires/profil. Preuve : `proof-F-2c2.json`.
+
+| NOT covered restant | Gate |
+|---|---|
+| Compensation, orchestration de la délégation, activation M18 après preuve externe | F-2c (suite) |
+| Observateurs B2-3, autres entrées, smoke CI, gel .6 | B2-3/E2b3/E3b2b/E3c, M18 toujours ouvert |
+| Revue indépendante | Conducteur ; aucun consensus revendiqué |
