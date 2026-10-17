@@ -152,9 +152,13 @@ test('an already enabled guard suspends when a project hook masks it', t => {
   const config = { mcp_servers: [{ name: 'h2a', transport: 'stdio', command: 'private-test', args: ['mcp-serve'] }] };
   fs.writeFileSync(join(root, 'config.toml'), '[[mcp_servers]]\nname="h2a"\ntransport="stdio"\ncommand="private-test"\nargs=["mcp-serve"]\n');
   const plan = planVibeEquipment({ root, state, cwd, version: '0.98.6', config, mcpAvailable: true, repair: false }); proofFor(root, plan.observed, ['MCP']);
-  assert.equal(doctor(['--guard', 'on']).code, 0);
+  const enabled = doctor(['--guard', 'on']); assert.equal(enabled.code, 0, enabled.out + enabled.err);
+  assert.match(fs.readFileSync(join(root, 'config.toml'), 'utf8'), /private-test/, 'a valid custom binary is preserved by guard activation');
+  assert.match(fs.readFileSync(join(root, 'hooks.toml'), 'utf8'), /pre_tool/);
+  assert.equal(enabled.json().checks.nativeHostInstallations.hosts[0].guard.active, true);
   fs.mkdirSync(join(cwd, '.vibe'), { recursive: true }); fs.writeFileSync(join(cwd, '.vibe/hooks.toml'), '[[hooks]]\nname="sentropic-h2a-deny-manual-cli"\ntype="pre_tool"\ncommand="true"\n');
   const result = doctor([]); assert.equal(result.code, 0, result.err);
   assert.equal(result.json().checks.nativeHostInstallations.hosts[0].guard.active, false);
+  assert.equal(result.json().checks.nativeHostInstallations.hosts[0].guard.reason, 'project hook masking');
   assert.doesNotMatch(fs.readFileSync(join(root, 'hooks.toml'), 'utf8'), /pre_tool/);
 });
