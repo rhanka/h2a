@@ -270,33 +270,13 @@ export function pinPrivateNativeProcess(pid, env = process.env) {
   assertIsolatedEnvironment(env);
   const prepared = privateProcessEnvironment(env);
   if (process.platform !== "linux") return registerPrivateProcess(pid, prepared, true, true);
-  const releases = [], queue = [pid], seen = new Set(), reaped = [];
+  const releases = [], queue = [pid], seen = new Set();
   try {
     for (const child of queue) {
       if (seen.has(child)) continue;
       seen.add(child);
       assert.ok(seen.size <= 64, "private fixture process tree exceeds 64 children");
-      let release;
-      try {
-        release = registerPrivateProcess(child, prepared, true, true);
-      } catch (error) {
-        if (error.code !== "ENOENT" && error.code !== "ESRCH") throw error;
-        // The process exited before it could be pinned (outer pin races the
-        // inner fixture teardown). Prove it is truly reaped with an
-        // independent kill probe instead of ignoring it: a recycled live PID
-        // must still throw.
-        try {
-          process.kill(child, 0);
-        } catch (killError) {
-          if (killError.code === "ESRCH") {
-            reaped.push(child);
-            continue;
-          }
-          throw error;
-        }
-        throw error;
-      }
-      releases.push(release);
+      releases.push(registerPrivateProcess(child, prepared, true, true));
       let children;
       try {
         children = fs.readFileSync(join(prepared.H2A_TEST_OWNED_PROC_ROOT, child + ".pin", "task", String(child), "children"), "utf8");
@@ -309,7 +289,6 @@ export function pinPrivateNativeProcess(pid, env = process.env) {
   } catch (error) { for (const release of releases.reverse()) release(); throw error; }
   const release = () => { for (const release of releases.reverse()) release(); };
   release.pids = [...seen];
-  release.reaped = [...reaped];
   return release;
 }
 
