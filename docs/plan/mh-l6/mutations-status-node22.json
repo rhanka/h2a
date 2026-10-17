@@ -1,0 +1,45 @@
+{
+  "node": "v22.22.1",
+  "files": [
+    {
+      "path": "packages/h2a/src/runtime/upgrade/status-report.js",
+      "sha256": "d22be2a4823b3bebe89f8a66882426a53dd62bae0bc3897cb730b7e8723755ac"
+    },
+    {
+      "path": "packages/h2a/dist/runtime/upgrade/status-report.js",
+      "sha256": "fd7dc174ddd6ab53a91999ee4c0e23c06f57caab23f14e5604d5a9ea70a974c3"
+    }
+  ],
+  "results": [
+    {
+      "name": "deferred-wiring",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-status.test.js-node22-mutation-deferred-wiring-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-status.test.js-node22-mutation-deferred-wiring-green.log",
+      "restored": true
+    },
+    {
+      "name": "aborted-mapping",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-status.test.js-node22-mutation-aborted-mapping-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-status.test.js-node22-mutation-aborted-mapping-green.log",
+      "restored": true
+    },
+    {
+      "name": "unknown-default",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-status.test.js-node22-mutation-unknown-default-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-status.test.js-node22-mutation-unknown-default-green.log",
+      "restored": true
+    },
+    {
+      "name": "selection-provenance",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-status.test.js-node22-mutation-selection-provenance-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-status.test.js-node22-mutation-selection-provenance-green.log",
+      "restored": true
+    },
+    {
+      "name": "reason-wiring",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-status.test.js-node22-mutation-reason-wiring-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-status.test.js-node22-mutation-reason-wiring-green.log",
+      "restored": true
+    }
+  ]
+}
