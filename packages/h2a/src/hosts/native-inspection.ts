@@ -52,7 +52,7 @@ export function inspectNativeHost(host: NativeHost, root = nativeRoot(host)) {
     registryDiagnostic: host === 'vibe' && !mcpAvailable ? MISSING_VIBE_MCP : undefined,
     installationRoute: host === 'vibe' && !mcpAvailable ? 'Voie directe intérimaire disponible : h2a host setup --host vibe --write (dérogation transitoire O7.2, migration R5/R7 attendue) ; bootstrap B attendu pour la voie registre.' : undefined,
     restart: host === 'vibe' ? VIBE_RESTART : 'Restart the host after changing its native components.',
-    lifecycleScope: host === 'vibe' ? VIBE_LIFECYCLE_SCOPE : 'Aucune surface native de hooks vérifiée; M-B reste le critère de clôture.',
+    lifecycleScope: host === 'vibe' ? VIBE_LIFECYCLE_SCOPE : 'SessionStart/PreToolUse disponibles pour le périmètre; cycle de vie et qualification native distincts.',
     import: host === 'agy' ? { status: importStatus, commands: ['agy plugin import gemini', 'agy plugin enable h2a'], sharedGeminiEffect: true } : undefined,
     filters: { enabled: config.enabled_skills ?? [], disabled: config.disabled_skills ?? [], skillPaths: config.skill_paths ?? [], disabledTools: disabled, enabledTools: config.enabled_tools ?? [] }
   };
