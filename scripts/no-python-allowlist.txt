@@ -1,9 +1,12 @@
 # Zero-Python allowlist (owner-approved only).
-# Format per line: FILE|LITERAL_SUBSTRING — a guard hit `FILE:lineno:text` is
-# excused only when the file matches AND the line contains the literal.
+# Format per line: FILE|FULL_LINE[|COUNT]
+# A guard hit is excused only when the tracked FILE AND the complete trimmed
+# line BOTH equal the entry exactly (substring prefixes do NOT excuse), and
+# every entry must be observed EXACTLY COUNT times (default 1): a stale entry
+# (0 hits) or a duplicated/injected line both fail the gate.
 # Lines starting with `#` and empty lines are ignored.
 #
 # Pending owner supply-chain decision (node-pty build): the Dockerfile builder
 # stage installs `python3 make g++` for node-gyp (node-pty 1.1.0 has no Linux
 # prebuild). Options documented in the zero-python report; Dockerfile unchanged.
-Dockerfile|apk add --no-cache python3 make g++
+Dockerfile|RUN apk add --no-cache python3 make g++|1

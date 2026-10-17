@@ -31,7 +31,17 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
       - run: bash scripts/check-no-python.sh
+      - name: Guard self-tests (positive and negative fixtures)
+        run: node --test scripts/check-no-python.test.mjs
+      - name: Replacement-script tests (smoke-live-bus, git-dogfood guard)
+        run: |
+          bash scripts/test-smoke-live-bus.sh
+          # Absolute hook path: the test cd's into a temp dir before exec'ing it.
+          bash packages/track/.claude/hooks/test-git-dogfood-guard.sh "$GITHUB_WORKSPACE/packages/track/.claude/hooks/pre-bash-git-dogfood-guard.sh"
 
   host-oracle:
     # The two independent review legs of PR #94 converged on this: configuration tests
