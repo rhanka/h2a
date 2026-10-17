@@ -22,7 +22,9 @@ export async function packCandidate(output, { buildId } = {}) {
       const result = await packRelease(join(stage, name), { packageName: '@sentropic/' + name, buildId });
       fs.copyFileSync(result.filename, join(output, result.filename.split('/').at(-1)), fs.constants.COPYFILE_EXCL);
     }
-    for (const name of ['track', 'h2a-cli']) {
+    // Focus joins the release wave at its own manifest version. It must use
+    // the same artifact/sha proof as the four lockstep packages.
+    for (const name of ['track', 'h2a-cli', 'focus']) {
       await exec('npm', ['pack', '--workspace', '@sentropic/' + name, '--pack-destination', output], {
         cwd: repo, timeout: 120_000, maxBuffer: 16 * 1024 * 1024,
       });
