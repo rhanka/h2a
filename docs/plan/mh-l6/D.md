@@ -138,3 +138,39 @@ Audit : 4 fichiers identiques, émission compilée liée par SHA, 5 tests +
 | Forçage explicite opérateur, round-trips EEXIST/force/uninstall/up/down, dérives réelles | F-2c (suite) |
 | Observateurs B2-3, autres entrées, smoke CI, gel .6, activation M18 | B2-3/E2b3/E3b2b/E3c, M18 toujours ouvert |
 | Revue indépendante | Conducteur ; aucun consensus revendiqué |
+
+## D-2d — grille EEXIST de la désadoption (livré)
+
+`unmanageInstallation` dans
+`packages/h2a/src/runtime/upgrade/unmanage.js` consulte
+`assessNpmCommand` après le contrôle du lien restaurable et avant toute
+écriture : occupant/pendant/étranger refusés typés
+(`unmanage_command_*`) sans rien toucher, manquant/géré/déjà-original
+passent. La référence gérée suit la convention installateur
+(`managedDir/launcher/h2a.mjs`, pas `managedRoot`) et la référence legacy
+est `originalTarget`. `explicit: true` (booléen strict) lève le refus et
+est tracé `forced` dans le résultat et le marqueur ; sinon `forced:
+false`. Champs ajoutés seuls, assertions existantes champ à champ
+inchangées.
+
+| Commande ciblée | Node 22.22.1 | Node 24.21.0 |
+|---|---|---:|
+| `node scripts/mh-l6-test.mjs packages/h2a/test/mh-l6-unmanage-gate.test.js final-D-2d` | 6/6, exit 0 | 6/6, exit 0 |
+| Requal `mh-l6-unmanage.test.js` (8) | 8/8, exit 0 | 8/8, exit 0 |
+| `mh-l6-mutate.mjs unmanage-gate` (appel, 3 grilles, forme, force) | 6 rouges ERR_ASSERTION / 6 verts | 6 / 6 |
+| `node scripts/mh-l6-d2d-audit.mjs /tmp/mh-l3-qualification-d2d-*` | exit 0 | exit 0 |
+| Skips / annulations / enfants restants | 0 / 0 / 0 | 0 / 0 / 0 |
+
+Rouge initial : lien étranger remplacé sans refus (`ERR_ASSERTION`,
+1 test, exit 1), conservé. Vraie régression trouvée et corrigée avant
+vert : la référence gérée dérivée de `managedRoot` classait étranger le
+lien géré des fixtures D-1 (qui séparent `managedDir`) — convention
+installateur `managedDir` adoptée, existants de nouveau verts sans
+retouche. Audit : 4 fichiers identiques, émission compilée liée par SHA,
+6 tests + 8 requalifiés et 6 paires/profil. Preuve : `proof-D-2d.json`.
+
+| NOT covered restant | Gate |
+|---|---|
+| Round-trips EEXIST/force/uninstall/up/down, dérives réelles | D/F-2c (suite) |
+| Observateurs B2-3, autres entrées, smoke CI, gel .6, activation M18 | B2-3/E2b3/E3b2b/E3c, M18 toujours ouvert |
+| Revue indépendante | Conducteur ; aucun consensus revendiqué |
