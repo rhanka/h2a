@@ -60,6 +60,7 @@ export interface SyntheticSeatLifecycle {
   generation: number;
   operationId: string;
   issuedAt: string;
+  providerExpiry?: string;
   localExpiryPolicy: string;
   refreshAuthority: "custody" | "none";
 }
@@ -75,6 +76,7 @@ export interface SyntheticSeatBundleV1 {
     issuingClientRef: string;
     endpointFamily: string;
     credentialFormatVersion: string;
+    nativeCliVersion?: string;
     os?: "linux" | "macos" | "windows";
   };
   provenance: {
@@ -97,23 +99,23 @@ export function makeSyntheticCanary(cli: SeatCli5): string {
   return `${SYNTHETIC_CANARY_PREFIX}-${cli}-01`;
 }
 
-function baseBundle(cli: SeatCli5): SyntheticSeatBundleV1 {
-  return {
+function baseBundle(cli: SeatCli5, serial = "01"): SyntheticSeatBundleV1 {
+  const bundle: SyntheticSeatBundleV1 = {
     identity: {
       schemaVersion: 1,
-      seatRef: `seat-synth-${cli}-01`,
-      refreshFamilyRef: `family-synth-${cli}-01`,
+      seatRef: `seat-synth-${cli}-${serial}`,
+      refreshFamilyRef: `family-synth-${cli}-${serial}`,
       ownerScope: "owner-synth-01",
       cli,
       packageProviderId: SEAT_PACKAGE_PROVIDER_ID[cli],
-      issuingClientRef: `client-synth-${cli}-01`,
-      endpointFamily: `endpoint-synth-${cli}-01`,
+      issuingClientRef: `client-synth-${cli}-${serial}`,
+      endpointFamily: `endpoint-synth-${cli}-${serial}`,
       credentialFormatVersion: "v1",
       os: "linux",
     },
     provenance: {
       enrollmentSource: "cli",
-      accountBinding: `binding-synth-${cli}-01`,
+      accountBinding: `binding-synth-${cli}-${serial}`,
       entitlementClass: "lab-seat",
     },
     authority: "custodian",
@@ -121,15 +123,24 @@ function baseBundle(cli: SeatCli5): SyntheticSeatBundleV1 {
     lifecycle: {
       epoch: 1,
       generation: 1,
-      operationId: `op-synth-${cli}-01`,
+      operationId: `op-synth-${cli}-${serial}`,
       issuedAt: "2026-10-15T00:00:00.000Z",
       localExpiryPolicy: "synthetic-policy-01",
       refreshAuthority: "custody",
     },
-    canonical: { kind: "renewable-material", materialRef: `material-synth-${cli}-01` },
-    nativeUse: { kind: "access", accessRef: `access-synth-${cli}-01` },
-    meshUse: { kind: "access", accessRef: `access-synth-${cli}-01` },
+    canonical: { kind: "renewable-material", materialRef: `material-synth-${cli}-${serial}` },
+    nativeUse: { kind: "access", accessRef: `access-synth-${cli}-${serial}` },
+    meshUse: { kind: "access", accessRef: `access-synth-${cli}-${serial}` },
   };
+  if (cli === "vibe") {
+    bundle.credentialClass = "static-key";
+    delete bundle.identity.refreshFamilyRef;
+    bundle.lifecycle.refreshAuthority = "none";
+    bundle.canonical = { kind: "static-key-material", materialRef: `material-synth-vibe-${serial}` };
+    bundle.nativeUse = { kind: "static-key", accessRef: `access-synth-vibe-${serial}` };
+    bundle.meshUse = { kind: "static-key", accessRef: `access-synth-vibe-${serial}` };
+  }
+  return bundle;
 }
 
 export type SyntheticBundleOverrides = {
@@ -148,14 +159,14 @@ export function makeSyntheticSeatBundle(cli: SeatCli5, overrides?: SyntheticBund
 }
 
 /** Refresh-less consumer projection derived from the synthetic canonical bundle. */
-export function makeSyntheticConsumerBundle(cli: SeatCli5): SyntheticSeatBundleV1 {
-  const bundle = baseBundle(cli);
+export function makeSyntheticConsumerBundle(cli: SeatCli5, serial = "01"): SyntheticSeatBundleV1 {
+  const bundle = baseBundle(cli, serial);
   bundle.authority = "consumer";
   bundle.credentialClass = cli === "vibe" ? "static-key" : "access-only";
   bundle.lifecycle = { ...bundle.lifecycle, refreshAuthority: "none" };
   delete bundle.canonical;
   const kind = cli === "vibe" ? "static-key" : "access";
-  bundle.nativeUse = { kind, accessRef: `access-synth-${cli}-01` };
-  bundle.meshUse = { kind, accessRef: `access-synth-${cli}-01` };
+  bundle.nativeUse = { kind, accessRef: `access-synth-${cli}-${serial}` };
+  bundle.meshUse = { kind, accessRef: `access-synth-${cli}-${serial}` };
   return bundle;
 }

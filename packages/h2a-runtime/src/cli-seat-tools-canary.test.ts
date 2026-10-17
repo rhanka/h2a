@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { SEAT_CLIS_5, makeSyntheticCanary } from "./cli-seat-fixtures.js";
+import { SEAT_CLIS_5, makeSyntheticCanary, type SeatScenario } from "./cli-seat-fixtures.js";
 import {
   SEAT_ALLOWED_MCP_OPS,
   evaluateCredentialRequest,
@@ -20,7 +20,8 @@ describe("cli-seat-tools-canary", () => {
       expect(evaluateToolRequest(cli, tool)).toBe("deny");
     }
     for (const op of SEAT_ALLOWED_MCP_OPS) {
-      expect(evaluateToolRequest(cli, `h2a.${op}`)).toBe("allow");
+      expect(evaluateToolRequest(cli, `h2a.${op}`, op as SeatScenario)).toBe("allow");
+      expect(evaluateToolRequest(cli, `h2a.${op}`)).toBe("deny");
     }
   });
 
