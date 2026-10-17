@@ -48,12 +48,13 @@ ChildProcess.prototype.spawn = function (options) {
 const progress = setInterval(() => process.stderr.write(`[node-test-progress] ${JSON.stringify({ concurrency, completed,
   active: [...pending].map(([child, row]) => ({ file: row.file, pid: child.pid, elapsedMs: Math.round(performance.now() - row.started),
     exitCode: child.exitCode, signalCode: child.signalCode })) })}\n`), interval).unref();
-// This suite qualifies cold daemon startup within five seconds. Run it before
-// npm's large offline installations and the 32-process recovery campaign can
-// consume the machine. Keep every file and every individual deadline intact.
-const startup = files.filter(file => basename(file) === 'mcp-central-attachments.test.js');
-const remaining = files.filter(file => !startup.includes(file));
-const phases = [startup, remaining].filter(group => group.length);
+// These fixtures qualify bounded cold startup and authenticated handover.
+// Give each its own phase before npm installs and the 32-process campaign;
+// their internal concurrent admissions and every deadline remain unchanged.
+const standalone = ['mcp-central-attachments.test.js', 'mh-l3-transfer.test.js']
+  .flatMap(name => files.filter(file => basename(file) === name));
+const remaining = files.filter(file => !standalone.includes(file));
+const phases = [...standalone.map(file => [file]), remaining].filter(group => group.length);
 const events = Readable.from((async function* () {
   for (const group of phases) {
     const source = run({ files: group, isolation: 'process', concurrency,
