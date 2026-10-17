@@ -1,4 +1,5 @@
 import type { TrackEvent } from '../events/types.js'
+import type { ItemReportStatus } from '../model/report-status.js'
 import type {
   CriterionState,
   EvidenceKind,
@@ -126,6 +127,11 @@ function applyItemRaci(item: ItemState, payload: ItemRaciUpdate): void {
 
 function applyEvent(state: State, event: TrackEvent): void {
   switch (event.type) {
+    case 'item.report-updated': {
+      const item = state.items.get(event.aggregateId)
+      if (item) item.report = event.payload as ItemReportStatus
+      break
+    }
     case 'item.created': {
       const payload = event.payload as unknown as ItemCreatedPayload
       const item: ItemState = {
