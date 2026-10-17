@@ -1,0 +1,50 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-package.test.js
+node: v22.22.1
+private root: /tmp/mh-l6-test-ZvhSY7
+case: U10 should install @sentropic/h2a for off-profile diagnostics while refusing H4 preparation
+TAP version 13
+# Subtest: U10 should install @sentropic/h2a for off-profile diagnostics while refusing H4 preparation
+not ok 1 - U10 should install @sentropic/h2a for off-profile diagnostics while refusing H4 preparation
+  ---
+  duration_ms: 53823.353935
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-package.test.js:14:96'
+  failureType: 'testCodeFailure'
+  error: |-
+    npm error code EBADPLATFORM
+    npm error notsup Unsupported platform for @sentropic/h2a@0.98.7: wanted {"os":"linux","cpu":"x64"} (current: {"os":"darwin","cpu":"arm64"})
+    npm error notsup Valid os:   linux
+    npm error notsup Actual os:  darwin
+    npm error notsup Valid cpu:  x64
+    npm error notsup Actual cpu: arm64
+    npm error A complete log of this run can be found in: /tmp/mh-l6-test-ZvhSY7/tmpdir/mh-l6-package-sLqETH/npm-cache/_logs/2026-10-17T01_21_58_252Z-debug-0.log
+    
+    
+    1 !== 0
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 0
+  actual: 1
+  operator: 'strictEqual'
+  stack: |-
+    checkedExec (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-package.test.js:80:12)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async packageScenario (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-package.test.js:115:22)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+  ...
+# npm scripts-enabled positive control: postinstall actually executed in a separate private fixture
+# {"npm":"pack --offline --json","filename":"sentropic-h2a-0.98.7.tgz","integrity":"sha512-WfEW6nn9WUXtq/kyOa4K4h+h64ES3R6Ua6M4EqzDIvrqrWVgoqzJ3iAg+WxGVAHBx26mArcb43fqK1dU7459rg==","files":10075}
+# npm required-profile fixture control: incompatible linux/x64 package rejected with EBADPLATFORM
+1..1
+# tests 1
+# suites 0
+# pass 0
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 53984.094322
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-package.test.js"],"code":1,"signal":null,"tests":1,"invalid":false,"spawned":12,"leftovers":[]}

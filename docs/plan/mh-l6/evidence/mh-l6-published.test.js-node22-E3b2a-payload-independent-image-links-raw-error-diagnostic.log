@@ -1,0 +1,36 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-published.test.js
+node: v22.22.1
+private root: /tmp/mh-l6-test-HHtbSK
+case: U10 should preserve internal link bytes and execute the copied image after the mutable source disappears
+TAP version 13
+# Subtest: U10 should preserve internal link bytes and execute the copied image after the mutable source disappears
+not ok 1 - U10 should preserve internal link bytes and execute the copied image after the mutable source disappears
+  ---
+  duration_ms: 18.552242
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-published.test.js:10:96'
+  failureType: 'testCodeFailure'
+  error: 'image_link_outside'
+  code: 'ERR_TEST_FAILURE'
+  stack: |-
+    walk (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/src/runtime/handover/image.js:20:42)
+    payload (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/src/runtime/handover/image.js:32:3)
+    verifyImage (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/src/runtime/handover/image.js:64:61)
+    preparePublishedImage (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/src/runtime/upgrade/published-payload.js:69:5)
+    TestContext.<anonymous> (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-published.test.js:94:17)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.start (node:internal/test_runner/test:944:17)
+    startSubtestAfterBootstrap (node:internal/test_runner/harness:296:17)
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 0
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 152.856337
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-published.test.js"],"code":1,"signal":null,"tests":1,"invalid":false,"spawned":1,"leftovers":[]}
