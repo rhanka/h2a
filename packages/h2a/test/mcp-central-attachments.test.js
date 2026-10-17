@@ -30,6 +30,7 @@ import { qualifiedEnvironment, qualificationRoot, assertQualifiedPath } from "./
 import { qualifiedShim, fixtureQualification, initialize as fixtureInitialize } from "./helpers/mh-l1-shim.js";
 import { describeCatalogue } from '../src/runtime/handover/catalogue.js';
 import { H2A_CLI_MCP_TOOL_DESCRIPTORS } from '../dist/runtime/mcp/tools.js';
+import { nativeQualificationRoot, nativeTestEnvironment } from './helpers/native-isolation.js';
 
 // Exact fixture clients exercise routing without qualifying any release Claude.
 const testManifest = { ...fixtureQualification, clients: [
@@ -41,14 +42,21 @@ const shimDirectory = mkdtempSync(join(tmpdir(), "mh-l1-qualified-"));
 const bin = qualifiedShim(join(shimDirectory, "light"), testManifest);
 test.after(() => rmSync(shimDirectory, { recursive: true, force: true }));
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
-function fixture({ temporary = true } = {}) {
-  const base = temporary ? tmpdir() : join(qualificationRoot, "mcp-attachment-tests");
+function fixture({ temporary = true, native = false } = {}) {
+  const base = native ? nativeQualificationRoot : temporary ? tmpdir() : join(qualificationRoot, "mcp-attachment-tests");
   mkdirSync(base, { recursive: true });
   const dir = mkdtempSync(join(base, "case-"));
   for (const name of ["home", "runtime", "config", "repo-a", "repo-b"]) mkdirSync(join(dir, name), { mode: 0o700 });
   const root = join(dir, "state");
   const runtimeBase = join(dir, "runtime");
-  const env = { ...qualifiedEnvironment(dir), H2A_ROOT: root, H2A_MCP_CENTRAL: "1" };
+  const qualified = native ? nativeTestEnvironment(dir, {
+    PATH: process.env.PATH, NODE_OPTIONS: process.env.NODE_OPTIONS ?? '--max-old-space-size=256',
+    XDG_RUNTIME_DIR: runtimeBase, XDG_STATE_HOME: join(dir, 'xdg-state'),
+    XDG_CONFIG_HOME: join(dir, 'xdg-config'), XDG_CACHE_HOME: join(dir, 'xdg-cache'),
+    CODEX_HOME: join(dir, 'codex'), H2A_NATIVE_SOCKET: join(dir, 'unused-native.sock')
+  }) : qualifiedEnvironment(dir);
+  if (native) for (const key of ['XDG_CACHE_HOME', 'CODEX_HOME']) mkdirSync(qualified[key], { recursive: true, mode: 0o700 });
+  const env = { ...qualified, H2A_ROOT: root, H2A_MCP_CENTRAL: "1" };
   return { dir, root, runtimeBase, env, cleanup() { rmSync(dir, { recursive: true, force: true }); } };
 }
 async function endpoint() {
@@ -127,15 +135,16 @@ const jsonResponse = (body, session) => new Response(JSON.stringify(body),
 const sseResponse = () => new Response(": connected\n\n", { headers: { "content-type": "text/event-stream" } });
 
 async function startWakeDaemon(f, env, children, onStderr) {
+  let stderr = '';
   const daemon = spawn(process.execPath, [bin, "mcp-central-serve", "--root", f.root], {
     env: { ...f.env, ...env }, cwd: f.env.HOME, stdio: ["ignore", "ignore", "pipe"]
   });
   children.push(daemon);
-  daemon.stderr.on("data", data => onStderr(data.toString()));
+  daemon.stderr.on("data", data => { stderr += data.toString(); onStderr(data.toString()); });
   const markerPath = join(f.runtimeBase, "h2a-mcp-central", "marker.json");
   const deadline = Date.now() + 5000;
   while (!existsSync(markerPath) && Date.now() < deadline && daemon.exitCode === null) await delay(25);
-  assert.ok(existsSync(markerPath), "fixture daemon must publish its marker");
+  assert.ok(existsSync(markerPath), "fixture daemon must publish its marker: " + stderr);
   assert.equal(JSON.parse(readFileSync(markerPath, "utf8")).pid, daemon.pid);
 }
 
@@ -168,7 +177,7 @@ async function nativeWakeSocket(socketPath, session) {
 
 for (const wake of ["auto", "local-tmux"])
   test(`R20 ${wake} wake probes and submits only on the client tmux socket with identical pane IDs`, async () => {
-    const f = fixture();
+    const f = fixture({ native: true });
     const children = [];
     const tmuxSockets = [];
     let channel;
@@ -221,7 +230,7 @@ for (const wake of ["auto", "local-tmux"])
 
 for (const wake of ["auto", "native", "local-tmux"])
   test(`R21 ${wake} wake inventories and writes only the client native socket with identical session names`, async () => {
-    const f = fixture();
+    const f = fixture({ native: true });
     const children = [];
     const hosts = [];
     let channel;
@@ -373,7 +382,7 @@ for (const configState of ["invalid JSON", "unreadable"])
 for (const terminal of ["native", "tmux"])
   test(`R19 manual daemon ${terminal} launcher context never becomes the target of a client without terminal context`, async () => {
     // A short socket path exercises unresolved native delivery on every host.
-    const f = fixture({ temporary: true });
+    const f = fixture({ native: true });
     const children = [];
     let channel;
     let stderr = "";
