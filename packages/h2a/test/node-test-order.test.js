@@ -106,3 +106,30 @@ test('bounded daemon and handover qualifications each finish alone before the pa
   assert.equal(evidence.numPassedTests, 3);
   for (const file of files) assert.ok(evidence.testResults.some(row => row.name === file && row.assertionResults.some(a => a.status === 'passed')));
 });
+
+test('bulk package and backend campaigns wait for bounded protocol qualification and all execute together', t => {
+  const root = fs.mkdtempSync(join(tmpdir(), 'node-bulk-phase-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const started = join(root, 'started.jsonl'), finished = join(root, 'protocol-finished'), report = join(root, 'evidence.json');
+  const names = ['protocol.test.js', 'mh-l6-package.test.js', 'mh-l6-runtime-package.test.js', 'mh-l5-concurrency.test.js', 'candidate-artifacts.test.js'];
+  const files = names.map(name => join(root, name));
+  for (const [index, file] of files.entries()) fs.writeFileSync(file, `
+    const {test}=require('node:test'),fs=require('node:fs'),assert=require('node:assert/strict');
+    fs.appendFileSync(${JSON.stringify(started)},${JSON.stringify(index + '\n')});
+    test('actual phase case ${index}',async()=>{
+      ${index === 0 ? `await new Promise(r=>setTimeout(r,100));assert.equal(fs.readFileSync(${JSON.stringify(started)},'utf8'),'0\\n');fs.writeFileSync(${JSON.stringify(finished)},'done');`
+        : `assert.equal(fs.readFileSync(${JSON.stringify(finished)},'utf8'),'done');const end=Date.now()+2000;while(fs.readFileSync(${JSON.stringify(started)},'utf8').trim().split('\\n').length<5){if(Date.now()>end)throw Error('bulk files did not run together');await new Promise(r=>setTimeout(r,5));}`}
+    });`);
+  const env = {...process.env}; delete env.NODE_TEST_CONTEXT;
+  const result = spawnSync(process.execPath, [resolve('scripts/run-node-tests.mjs'),'--test','--test-concurrency=4',
+    '--test-reporter=spec',`--test-reporter=${resolve('scripts/node-evidence-reporter.mjs')}`,
+    '--test-reporter-destination=stdout',`--test-reporter-destination=${report}`,...files],{env,encoding:'utf8',timeout:15_000});
+  assert.equal(result.status,0,result.stdout+result.stderr);
+  const rows=fs.readFileSync(started,'utf8').trim().split('\n').map(Number);
+  assert.equal(rows[0],0);
+  assert.deepEqual(rows.slice(1).sort(),[1,2,3,4]);
+  const evidence=JSON.parse(fs.readFileSync(report,'utf8'));
+  assert.equal(evidence.success,true);
+  assert.equal(evidence.numPassedTests,5);
+  for(const file of files)assert.ok(evidence.testResults.some(row=>row.name===file&&row.assertionResults.some(a=>a.status==='passed')));
+});
