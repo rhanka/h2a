@@ -1,0 +1,64 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-command-gate.test.js
+node: v22.22.1
+private root: /tmp/mh-l6-test-hgyLfI
+case: all cases in explicit file
+TAP version 13
+# Subtest: F should refuse a plain-file occupant instead of replacing it
+ok 1 - F should refuse a plain-file occupant instead of replacing it
+  ---
+  duration_ms: 33.567941
+  type: 'test'
+  ...
+# Subtest: F should refuse a directory occupant as force-required
+ok 2 - F should refuse a directory occupant as force-required
+  ---
+  duration_ms: 18.175169
+  type: 'test'
+  ...
+# Subtest: F should refuse a foreign command link instead of replacing it
+ok 3 - F should refuse a foreign command link instead of replacing it
+  ---
+  duration_ms: 14.639373
+  type: 'test'
+  ...
+# Subtest: F should refuse a dangling command link for diagnosis
+ok 4 - F should refuse a dangling command link for diagnosis
+  ---
+  duration_ms: 17.496682
+  type: 'test'
+  ...
+# Subtest: F should adopt the legacy link and reinstall the managed link
+ok 5 - F should adopt the legacy link and reinstall the managed link
+  ---
+  duration_ms: 96.414169
+  type: 'test'
+  ...
+# Subtest: F should force an occupied command link only on explicit override
+ok 6 - F should force an occupied command link only on explicit override
+  ---
+  duration_ms: 8.787169
+  type: 'test'
+  ...
+# Subtest: F should force foreign and dangling links only on explicit override
+ok 7 - F should force foreign and dangling links only on explicit override
+  ---
+  duration_ms: 10.287944
+  type: 'test'
+  ...
+# Subtest: F should record an unforced installation without overriding
+ok 8 - F should record an unforced installation without overriding
+  ---
+  duration_ms: 5.766192
+  type: 'test'
+  ...
+1..8
+# tests 8
+# suites 0
+# pass 8
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 304.341856
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-command-gate.test.js"],"code":0,"signal":null,"tests":8,"invalid":false,"spawned":1,"leftovers":[]}
