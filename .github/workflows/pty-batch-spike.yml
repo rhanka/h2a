@@ -1,0 +1,24 @@
+name: PTY batch spike (Linux and macOS)
+on:
+  push:
+    branches: [spike/pty-batch-handover]
+    paths:
+      - 'spike/pty-batch-handover/**'
+      - '.github/workflows/pty-batch-spike.yml'
+permissions:
+  contents: read
+jobs:
+  portable-spike:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Run only the isolated PTY handover test
+        run: node spike/pty-batch-handover/run.mjs
