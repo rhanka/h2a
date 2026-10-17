@@ -7166,27 +7166,25 @@ function cmdInstallSkills(
 
   for (const skill of collection.skills) {
     const skillName = skill.installName;
-    // Probe the would-be target file before writing so existing files are
-    // surfaced as skipped (mirrors the previous Claude-only behavior).
+    // Keep existing entrypoints protected, while installing missing resources.
     const probeTarget =
       spec.host === "gemini" || spec.host === "agy"
         ? join(targetBase, `${skillName}.toml`)
         : join(targetBase, skillName, "SKILL.md");
-    if (existsSync(probeTarget) && flags.force !== "true") {
-      skipped.push({
-        name: skillName,
-        reason: `${probeTarget} already exists (use --force to overwrite)`
-      });
-      continue;
-    }
     try {
       // Every host needs referenced resources, including the native-question
       // instructions used by present-decision. Keep both scopes on one renderer.
       const artifacts = nativeSkillArtifacts({ host, root: dirname(targetBase), project: scope === 'project', version: currentCliVersion(), skills: [skill], renderGemini: renderSkillAsGeminiToml, historicalHashes: () => [] });
       for (const artifact of artifacts) {
-        assertNativePath(artifact.path); mkdirSync(dirname(artifact.path), { recursive: true }); writeFileSync(artifact.path, artifact.bytes);
+        assertNativePath(artifact.path);
+        if (existsSync(artifact.path) && flags.force !== "true") {
+          // The guard applies to every artifact, even with no SKILL.md/.toml.
+          skipped.push({ name: skillName, reason: `${artifact.path} already exists (use --force to overwrite)` });
+          continue;
+        }
+        mkdirSync(dirname(artifact.path), { recursive: true }); writeFileSync(artifact.path, artifact.bytes);
+        installed.push(artifact.path);
       }
-      installed.push(probeTarget);
     } catch (error) {
       streams.stderr.write(
         `h2a install-skills: failed to write ${probeTarget} (${(error as Error).message})\n`

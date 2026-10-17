@@ -13,6 +13,12 @@ const read = (file: string) => readFileSync(join(bundle, file), 'utf8').replace(
 
 // Pin the owner contract in the instructions, reusable question and audit independently.
 describe('present-decision readability contract', () => {
+  it.each(['assets/dossier-template.md', 'assets/self-audit.md'])('%s requires a diagram before the native question and pending fallback', (file) => {
+    const text = read(file)
+    expect(text).toMatch(/diagram.*before.*native question tool/i)
+    expect(text).toMatch(/unavailable.*decision pending/i)
+    expect(text).toMatch(/never a bare text question/i)
+  })
   it.each(['SKILL.md', 'assets/dossier-template.md', 'assets/self-audit.md'])('%s keeps the question short and complete', (file) => {
     const text = read(file)
     for (const clause of ['decision object', 'plain words', '<title>', '1.25rem', 'thin band', 'hero',
