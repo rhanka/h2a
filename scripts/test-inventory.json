@@ -790,7 +790,7 @@
   "packages/h2a/test/native-host-equipment.test.js": [
     "Vibe installs resources under VIBE_HOME, requires force for managed edits and preserves unknown skills",
     "doctor and status expose the mandatory missing-MCP diagnostic without a write workaround",
-    "Vibe setup refuses MCP writes including JSON and force",
+    "Vibe setup refuses JSON MCP writes while the TOML direct path stays available",
     "native diagnostics redact provider/server secrets and classify every observed direct entry"
   ],
   "packages/h2a/test/native-host-oracles.test.js": [
@@ -840,6 +840,19 @@
   "packages/h2a/test/vibe-native-hooks.test.js": [
     "Vibe guard allows benign quoted text, denies CLI invocations, and fails open on malformed input",
     "Vibe lifecycle records only explicit parent null, never touches the record for forks or malformed payloads"
+  ],
+  "packages/h2a/test/vibe-mcp-direct.test.js": [
+    "setup --write installs the interim direct h2a entry with host-parity args",
+    "setup --write is idempotent and backs up the previous config",
+    "setup --write preserves user entries and converges degraded h2a duplicates to canonical",
+    "setup --write refuses invalid TOML even with --force (code 2), and JSON targets (code 1)",
+    "setup --remove clears the direct entry for registry migration and refuses non-TOML targets",
+    "doctor --repair installs the direct entry and status reports the non-migrated way",
+    "bare --write and --remove without a path resolve to <VIBE_HOME>/config.toml",
+    "doctor reports MCP drift as action necessary without writing, then repair writes once with fresh observation",
+    "doctor --repair converges a degraded h2a entry to the canonical transport and args",
+    "--remove persists across doctor --repair and install-skills until an explicit --write",
+    "--endpoint remote writes a streamable-http url entry without command or args"
   ],
   "packages/h2a/test/native-host-review-regressions.test.js": [
     "explicit Vibe skills installation also ships its hook scripts",

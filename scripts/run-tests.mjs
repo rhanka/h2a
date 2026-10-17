@@ -181,6 +181,7 @@ function main() {
   const VITEST_SUITES = [
     { name: "Track", dir: "packages/track", config: "vitest.config.ts" },
     { name: "AgentStats", dir: "packages/agent-stats", testDir: "tests", config: "vitest.config.ts" },
+    { name: "Focus", dir: "packages/focus", testDir: "tests", config: "vitest.config.ts" },
   ];
 
   function discoverVitestTests(dir, relative = "") {
