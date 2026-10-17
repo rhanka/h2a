@@ -441,6 +441,142 @@ describe("closed entry descriptor validation (rev352-F1)", () => {
   });
 });
 
+describe("closed entry descriptor residual drifts (rev352r2-F1)", () => {
+  const base = (): Record<string, unknown> =>
+    JSON.parse(
+      JSON.stringify((packageManifest as { entries: unknown[] }).entries[0]),
+    ) as Record<string, unknown>;
+
+  const atPath = (
+    entry: Record<string, unknown>,
+    path: readonly string[],
+  ): Record<string, unknown> => {
+    let node: unknown = entry;
+    for (const key of path) node = (node as Record<string, unknown>)[key];
+    return node as Record<string, unknown>;
+  };
+
+  interface ClosedCase {
+    readonly name: string;
+    readonly mutate: (entry: Record<string, unknown>) => void;
+  }
+
+  const cases: readonly ClosedCase[] = [
+    {
+      name: "metadata permissions escalated to write",
+      mutate: (e) => { atPath(e, ["skill", "metadata"])["permissions"] = ["track.dossier.write"]; },
+    },
+    {
+      name: "capability permissions escalated to write",
+      mutate: (e) => {
+        ((atPath(e, ["skill"])["capabilities"] as Array<Record<string, unknown>>)[0]!)["permissions"] = [
+          "track.dossier.write",
+        ];
+      },
+    },
+    {
+      name: "unknown required host feature",
+      mutate: (e) => { atPath(e, ["compatibility"])["requiredHostFeatures"] = ["shell-exec"]; },
+    },
+    {
+      name: "extra schema profile",
+      mutate: (e) => {
+        (atPath(e, ["compatibility"])["schemaProfiles"] as unknown[]).push("unbounded-v9");
+      },
+    },
+    {
+      name: "evil peer replaces track",
+      mutate: (e) => {
+        atPath(e, ["compatibility"])["packages"] = [{ name: "@evil/track", range: "*" }];
+      },
+    },
+    {
+      name: "non-SemVer peer range",
+      mutate: (e) => {
+        atPath(e, ["compatibility"])["packages"] = [{ name: "@sentropic/track", range: "not-a-range" }];
+      },
+    },
+    {
+      name: "instructionsAsset swapped to the schema JSON",
+      mutate: (e) => {
+        atPath(e, ["skill"])["instructionsAsset"] = "schemas/decision-dossier-document.v1.schema.json";
+      },
+    },
+    {
+      name: "document-schema assetPath swapped to SKILL.md",
+      mutate: (e) => {
+        ((atPath(e, ["skill"])["documentSchemas"] as Array<Record<string, unknown>>)[0]!)["assetPath"] =
+          "skills/focus/SKILL.md";
+      },
+    },
+    {
+      name: "document-schema sha diverges from the asset digest",
+      mutate: (e) => {
+        ((atPath(e, ["skill"])["documentSchemas"] as Array<Record<string, unknown>>)[0]!)["sha256"] =
+          "0".repeat(64);
+      },
+    },
+    {
+      name: "parameter mode leaf carries an extra default",
+      mutate: (e) => {
+        (atPath(e, ["parameters", "schema", "properties"])["mode"] as Record<string, unknown>)["default"] = "live";
+      },
+    },
+    {
+      name: "parameter locale leaf carries an extra not",
+      mutate: (e) => {
+        (atPath(e, ["parameters", "schema", "properties"])["locale"] as Record<string, unknown>)["not"] = {};
+      },
+    },
+  ];
+
+  it.each(cases)("$name refuses", ({ mutate }) => {
+    const entry = base();
+    mutate(entry);
+    expect(validateFocusEntryDescriptor(entry).ok).toBe(false);
+  });
+});
+
+describe("mcp-app gate isolates every bit (rev352r2-F4)", () => {
+  it("qualified without session selection refuses", () => {
+    const params = mcpAppParams("mcp-app");
+    expect(params.ok).toBe(true);
+    if (!params.ok) return;
+    let loads = 0;
+    const resolved = resolveFocusPresentation(
+      params.value,
+      { uiRegistered: true, uiSelected: false, uiQualified: true, htmlSanitizerAvailable: true },
+      () => {
+        loads += 1;
+        return "instructions";
+      },
+    );
+    expect(resolved.ok).toBe(false);
+    if (resolved.ok) return;
+    expect(resolved.code).toBe("unsupported_presentation");
+    expect(loads).toBe(0);
+  });
+
+  it("selected and qualified without registration refuses", () => {
+    const params = mcpAppParams("mcp-app");
+    expect(params.ok).toBe(true);
+    if (!params.ok) return;
+    let loads = 0;
+    const resolved = resolveFocusPresentation(
+      params.value,
+      { uiRegistered: false, uiSelected: true, uiQualified: true, htmlSanitizerAvailable: true },
+      () => {
+        loads += 1;
+        return "instructions";
+      },
+    );
+    expect(resolved.ok).toBe(false);
+    if (resolved.ok) return;
+    expect(resolved.code).toBe("unsupported_presentation");
+    expect(loads).toBe(0);
+  });
+});
+
 describe("selection gates instruction access (R4-AC11)", () => {
   it("only the authorized resolve loads instructions, and never mutates parameters", () => {
     const params = mcpAppParams("terminal");
