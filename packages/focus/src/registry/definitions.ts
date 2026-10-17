@@ -79,6 +79,22 @@ const FOCUS_CAPABILITY_ID = "sentropic.focus.decision-dossier";
 const FOCUS_DOSSIER_SCHEMA_ID = "urn:sentropic:focus:DecisionDossierDocument:1.0.0";
 const FOCUS_DOSSIER_SCHEMA_VERSION = "1.0.0";
 
+/** Authority, liaison and asset bindings pinned by entry 1.0.0 (closed). */
+const FOCUS_PERMISSIONS = ["track.dossier.read"] as const;
+const FOCUS_CONTEXT_FILTERS = ["decision-dossier"] as const;
+const FOCUS_CATEGORY = "decision";
+const FOCUS_SCHEMA_PROFILES = ["sentropic.parameters/2020-12-bounded-v1"] as const;
+const FOCUS_REQUIRED_HOST_FEATURES: readonly string[] = [];
+const FOCUS_OPTIONAL_HOST_FEATURES = ["terminal", "markdown", "html-sanitization", "mcp-app-ui"] as const;
+const FOCUS_TRACK_PEER_NAME = "@sentropic/track";
+const FOCUS_TRACK_PEER_RANGE = "^0.98.6";
+const FOCUS_INSTRUCTIONS_ASSET = "skills/focus/SKILL.md";
+const FOCUS_SCHEMA_ASSET = "schemas/decision-dossier-document.v1.schema.json";
+const FOCUS_INSTRUCTIONS_ROLE = "skill-instructions";
+const FOCUS_SCHEMA_ROLE = "document-schema";
+const FOCUS_INSTRUCTIONS_MEDIA = "text/markdown";
+const FOCUS_SCHEMA_MEDIA = "application/schema+json";
+
 const sameStrings = (value: unknown, expected: readonly string[]): boolean =>
   Array.isArray(value) &&
   value.length === expected.length &&
@@ -237,24 +253,29 @@ export const validateFocusEntryDescriptor = (
     const packages = compatibility["packages"];
     if (
       !Array.isArray(packages) ||
-      packages.length === 0 ||
-      packages.some(
-        (row) =>
-          !isRecord(row) ||
-          typeof row["name"] !== "string" ||
-          typeof row["range"] !== "string" ||
-          Object.keys(row).some((key) => key !== "name" && key !== "range"),
-      )
+      packages.length !== 1 ||
+      !isRecord(packages[0]) ||
+      packages[0]["name"] !== FOCUS_TRACK_PEER_NAME ||
+      packages[0]["range"] !== FOCUS_TRACK_PEER_RANGE ||
+      Object.keys(packages[0]).length !== 2
     ) {
-      fail("$.compatibility.packages", "invalid_entry", "expected a nonempty list of closed package peer rows");
+      fail("$.compatibility.packages", "invalid_entry", "expected exactly the pinned @sentropic/track peer");
     }
     const profiles = stringArray(compatibility["schemaProfiles"], "$.compatibility.schemaProfiles", issues);
     if (profiles === undefined) valid = false;
-    else if (!profiles.includes("sentropic.parameters/2020-12-bounded-v1")) {
-      fail("$.compatibility.schemaProfiles", "unsupported_schema_profile", "expected the bounded parameters profile");
+    else if (!sameStrings(profiles, [...FOCUS_SCHEMA_PROFILES])) {
+      fail("$.compatibility.schemaProfiles", "unsupported_schema_profile", "expected exactly the bounded parameters profile");
     }
-    if (stringArray(compatibility["requiredHostFeatures"], "$.compatibility.requiredHostFeatures", issues) === undefined) valid = false;
-    if (stringArray(compatibility["optionalHostFeatures"], "$.compatibility.optionalHostFeatures", issues) === undefined) valid = false;
+    const requiredFeatures = stringArray(compatibility["requiredHostFeatures"], "$.compatibility.requiredHostFeatures", issues);
+    if (requiredFeatures === undefined) valid = false;
+    else if (!sameStrings(requiredFeatures, [...FOCUS_REQUIRED_HOST_FEATURES])) {
+      fail("$.compatibility.requiredHostFeatures", "unsupported_host_feature", "unknown required host feature");
+    }
+    const optionalFeatures = stringArray(compatibility["optionalHostFeatures"], "$.compatibility.optionalHostFeatures", issues);
+    if (optionalFeatures === undefined) valid = false;
+    else if (!sameStrings(optionalFeatures, [...FOCUS_OPTIONAL_HOST_FEATURES])) {
+      fail("$.compatibility.optionalHostFeatures", "invalid_entry", "expected exactly the pinned optional host features");
+    }
   }
 
   const parameters = value["parameters"];
@@ -292,10 +313,13 @@ export const validateFocusEntryDescriptor = (
         const locale = properties["locale"];
         if (
           !isRecord(mode) ||
+          Object.keys(mode).length !== 1 ||
           mode["const"] !== "snapshot" ||
           !isRecord(preferredPresentation) ||
+          Object.keys(preferredPresentation).length !== 1 ||
           !sameStrings(preferredPresentation["enum"], [...FOCUS_PRESENTATIONS]) ||
           !isRecord(locale) ||
+          Object.keys(locale).length !== 1 ||
           !sameStrings(locale["enum"], [...FOCUS_LOCALES])
         ) {
           fail("$.parameters.schema", "unsupported_schema_profile", "expected the exact §5.4 focus parameter shape");
@@ -320,29 +344,37 @@ export const validateFocusEntryDescriptor = (
   }
 
   const assets = value["assets"];
-  if (!Array.isArray(assets) || assets.length === 0) {
-    fail(at("assets"), "invalid_entry", "expected a nonempty asset list");
+  if (!Array.isArray(assets) || assets.length !== 2) {
+    fail(at("assets"), "invalid_entry", "expected exactly the two pinned entry assets");
   } else {
+    const expectedAssets = [
+      { role: FOCUS_INSTRUCTIONS_ROLE, path: FOCUS_INSTRUCTIONS_ASSET, mediaType: FOCUS_INSTRUCTIONS_MEDIA },
+      { role: FOCUS_SCHEMA_ROLE, path: FOCUS_SCHEMA_ASSET, mediaType: FOCUS_SCHEMA_MEDIA },
+    ] as const;
     assets.forEach((asset: unknown, index: number) => {
       const path = `$.assets[${index}]`;
+      const expected = expectedAssets[index]!;
       if (
         !isRecord(asset) ||
-        typeof asset["role"] !== "string" ||
-        typeof asset["path"] !== "string" ||
-        typeof asset["mediaType"] !== "string" ||
+        asset["role"] !== expected.role ||
+        asset["path"] !== expected.path ||
+        asset["mediaType"] !== expected.mediaType ||
         typeof asset["sha256"] !== "string" ||
         !HEX64.test(asset["sha256"])
       ) {
-        fail(path, "invalid_entry", "expected { role, path, mediaType, sha256 } with a full SHA-256 hex digest");
+        fail(path, "invalid_entry", "expected the pinned asset role, path, mediaType and SHA-256 digest");
       } else {
         rejectUnknownKeys(asset, ["role", "path", "mediaType", "sha256"], path);
       }
     });
-    if (assets.every((asset: unknown) => isRecord(asset) && typeof asset["path"] === "string")) {
-      for (const safeIssue of assertSafeAssetPaths({ assets: assets as FocusEntryDescriptor["assets"] })) {
-        issues.push(safeIssue);
-        valid = false;
-      }
+  }
+  if (
+    Array.isArray(assets) &&
+    assets.every((asset: unknown) => isRecord(asset) && typeof asset["path"] === "string")
+  ) {
+    for (const safeIssue of assertSafeAssetPaths({ assets: assets as FocusEntryDescriptor["assets"] })) {
+      issues.push(safeIssue);
+      valid = false;
     }
   }
   const declaredAssetPaths = new Set<string>(
@@ -367,18 +399,26 @@ export const validateFocusEntryDescriptor = (
     const metadata = skill["metadata"];
     if (
       !isRecord(metadata) ||
-      typeof metadata["category"] !== "string" ||
+      metadata["category"] !== FOCUS_CATEGORY ||
       !Array.isArray(metadata["toolNames"]) ||
       metadata["toolNames"].length !== 0
     ) {
-      fail("$.skill.metadata", "invalid_entry", "expected category metadata with empty toolNames");
+      fail("$.skill.metadata", "invalid_entry", "expected decision metadata with empty toolNames");
     } else {
       rejectUnknownKeys(metadata, ["category", "contextFilters", "permissions", "toolNames"], "$.skill.metadata");
-      if (stringArray(metadata["contextFilters"], "$.skill.metadata.contextFilters", issues) === undefined) valid = false;
-      if (stringArray(metadata["permissions"], "$.skill.metadata.permissions", issues) === undefined) valid = false;
+      const contextFilters = stringArray(metadata["contextFilters"], "$.skill.metadata.contextFilters", issues);
+      if (contextFilters === undefined) valid = false;
+      else if (!sameStrings(contextFilters, [...FOCUS_CONTEXT_FILTERS])) {
+        fail("$.skill.metadata.contextFilters", "invalid_entry", "expected exactly the pinned context filters");
+      }
+      const metadataPermissions = stringArray(metadata["permissions"], "$.skill.metadata.permissions", issues);
+      if (metadataPermissions === undefined) valid = false;
+      else if (!sameStrings(metadataPermissions, [...FOCUS_PERMISSIONS])) {
+        fail("$.skill.metadata.permissions", "invalid_entry", "expected exactly the read-only dossier permission");
+      }
     }
-    if (typeof skill["instructionsAsset"] !== "string") {
-      fail("$.skill.instructionsAsset", "invalid_entry", "expected one SKILL.md asset path");
+    if (skill["instructionsAsset"] !== FOCUS_INSTRUCTIONS_ASSET) {
+      fail("$.skill.instructionsAsset", "invalid_entry", "expected the pinned SKILL.md asset path");
     } else if (!declaredAssetPaths.has(skill["instructionsAsset"])) {
       fail("$.skill.instructionsAsset", "invalid_entry", "instruction asset is not a declared entry asset");
     }
@@ -399,13 +439,18 @@ export const validateFocusEntryDescriptor = (
           ["id", "description", "effect", "permissions", "inputSchemaRef", "outputSchemaRef"],
           "$.skill.capabilities[0]",
         );
+        const capabilityPermissions = stringArray(capability["permissions"], "$.skill.capabilities[0].permissions", issues);
         if (
           typeof capability["description"] !== "string" ||
           capability["description"].length === 0 ||
-          stringArray(capability["permissions"], "$.skill.capabilities[0].permissions", issues) === undefined
+          capabilityPermissions === undefined ||
+          !sameStrings(capabilityPermissions, [...FOCUS_PERMISSIONS])
         ) {
           if (typeof capability["description"] !== "string" || capability["description"].length === 0) {
             fail("$.skill.capabilities[0].description", "invalid_entry", "expected a nonempty capability description");
+          }
+          if (capabilityPermissions !== undefined && !sameStrings(capabilityPermissions, [...FOCUS_PERMISSIONS])) {
+            fail("$.skill.capabilities[0].permissions", "invalid_entry", "expected exactly the read-only dossier permission");
           }
           valid = false;
         }
@@ -441,8 +486,21 @@ export const validateFocusEntryDescriptor = (
           ["name", "schemaId", "version", "assetPath", "sha256"],
           "$.skill.documentSchemas[0]",
         );
-        if (!declaredAssetPaths.has(schema["assetPath"])) {
+        if (schema["assetPath"] !== FOCUS_SCHEMA_ASSET) {
+          fail("$.skill.documentSchemas[0].assetPath", "invalid_entry", "expected the pinned schema asset path");
+        } else if (!declaredAssetPaths.has(schema["assetPath"])) {
           fail("$.skill.documentSchemas[0].assetPath", "invalid_entry", "schema asset is not a declared entry asset");
+        } else if (Array.isArray(assets)) {
+          const pinned = (assets as Array<Record<string, unknown>>).find(
+            (asset) => isRecord(asset) && asset["path"] === FOCUS_SCHEMA_ASSET,
+          );
+          if (
+            !isRecord(pinned) ||
+            pinned["sha256"] !== schema["sha256"] ||
+            pinned["role"] !== FOCUS_SCHEMA_ROLE
+          ) {
+            fail("$.skill.documentSchemas[0].sha256", "integrity_mismatch", "schema digest must match the pinned asset digest");
+          }
         }
       }
     }
@@ -557,15 +615,16 @@ const packageRequire = createRequire(import.meta.url);
  * Called explicitly by the host; importing this module alone reads nothing.
  *
  * The compiled snapshot vendored into `@sentropic/track`
- * (`packages/track/src/focus-vendor/`) ships no adjacent manifest, so the
- * package-relative path misses there: fall back to the publisher-owned
- * manifest through the installed `@sentropic/focus` package.
+ * (`packages/track/src/focus-vendor/registry/entries.v1.json`) ships the
+ * pinned 1.0.0 manifest alongside the compiled helper, so the vendor never
+ * resolves a foreign `@sentropic/focus` copy: package layout first,
+ * vendor-adjacent manifest second, and no cross-package fallback.
  */
 export const loadFocusSkillDescriptor = (): unknown => {
   try {
     return packageRequire("../../registry/entries.v1.json") as unknown;
   } catch {
-    return packageRequire("@sentropic/focus/registry/manifest") as unknown;
+    return packageRequire("./entries.v1.json") as unknown;
   }
 };
 
