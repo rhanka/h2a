@@ -18,8 +18,12 @@ export function isAgyClaudeModel(model: string | undefined): boolean {
 }
 export function resolveAgyModel(model: string | undefined, effort?: string): string | undefined {
   const level = normalizeAgyEffort(effort);
-  if (model && /^claude-(opus|sonnet)-5-5-(low|medium|high)$/.test(model) && level) {
-    return model.replace(/-(low|medium|high)$/, `-${level}`);
+  const claude = model && /^(claude-(?:opus|sonnet)-5-5)(?:-(.*))?$/.exec(model);
+  if (claude) {
+    // Validate a supplied suffix even when a separate effort overrides it.
+    const suffix = normalizeAgyEffort(claude[2]);
+    const resolved = level ?? suffix;
+    return resolved ? `${claude[1]}-${resolved}` : model;
   }
   return model;
 }
@@ -45,6 +49,7 @@ export type AgyClaudeQuotaStatus = {
 export function detectAgyClaudeQuotaExhaustion(output: string, now = Date.now()): {
   exhausted: boolean; signature?: string; resetsAt?: string;
 } {
+  let preliminary: { exhausted: boolean; signature?: string } = { exhausted: false };
   for (const line of output.split(/\r?\n/)) {
     // Provider diagnostics only: prose mentioning 429/quota is not evidence.
     if (!/^\s*(?:AGY_ERROR\s*\{|(?:API )?error\s*:)/i.test(line)) continue;
@@ -64,9 +69,10 @@ export function detectAgyClaudeQuotaExhaustion(output: string, now = Date.now())
     }
     const resetsAt = duration && Number.isFinite(now + ms) && ms < 8.64e15 - now
       ? new Date(now + ms).toISOString() : undefined;
-    return { exhausted: true, signature, ...(resetsAt ? { resetsAt } : {}) };
+    if (resetsAt) return { exhausted: true, signature, resetsAt };
+    preliminary = { exhausted: true, signature };
   }
-  return { exhausted: false };
+  return preliminary;
 }
 export class AgyClaudeQuotaExhaustedError extends Error {
   readonly code = AGY_CLAUDE_QUOTA_CODE;

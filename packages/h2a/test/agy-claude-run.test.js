@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -23,6 +23,58 @@ test("AGY MCP maps max to high in both the model suffix and effort, preserving s
   assert.ok(invocation.args.includes("--allow-claude-build"));
   assert.ok(invocation.args.includes("--output-file"));
   assert.ok(!invocation.args.some(arg => arg.includes(req.prompt)));
+}));
+
+test("AGY MCP normalizes bare and max model tokens and refuses unsupported suffixes before launch", () => workspace(dir => {
+  for (const family of ["opus", "sonnet"]) {
+    const model = `claude-${family}-5-5`;
+    assert.equal(validateH2aRunRequest({...request(dir),model,effort:"max"},dir).model,`${model}-high`);
+    assert.equal(validateH2aRunRequest({...request(dir),model:`${model}-max`},dir).model,`${model}-high`);
+    for (const suffix of ["xhigh","extreme"]) {
+      let calls=0;
+      const result=handleH2aRun({...request(dir),model:`${model}-${suffix}`},dir,()=>{calls++;});
+      assert.equal(result.code,"agy-effort-unsupported");
+      assert.equal(calls,0);
+    }
+  }
+}));
+
+test("AGY MCP ignores an old completion when a headless name is reused", () => workspace(dir => {
+  const req=validateH2aRunRequest(request(dir),dir);
+  const path=join(dir,"result.json");
+  const old={kind:"h2a.run.completion",version:1,state:"done",model:req.model,output:{state:"written"}};
+  writeFileSync(path,JSON.stringify(old));
+  utimesSync(path,new Date(0),new Date(0));
+  let calls=0;
+  const launch=createH2aRunLauncher(()=>{calls++;return {state:"started",result:{path}};});
+  assert.equal(launch(req).state,"started");
+  assert.equal(launch(req).state,"started");
+  const fresh={kind:"h2a.run.failure",version:1,state:"failed",code:"agy-claude-quota-exhausted",retrySafe:false,model:req.model};
+  writeFileSync(path,JSON.stringify(fresh));
+  assert.equal(launch(req).code,fresh.code);
+  assert.equal(calls,1);
+}));
+
+test("AGY MCP preserves a typed non-zero provider completion", () => workspace(dir => {
+  const req=validateH2aRunRequest(request(dir),dir);
+  const failure={kind:"h2a.run.failure",version:1,state:"failed",code:"agy-process-failed",retrySafe:false,retryable:false,exitCode:7,model:req.model};
+  assert.equal(executeH2aRunWithSpawn(req,()=>({status:1,stdout:JSON.stringify(failure),stderr:""})).code,failure.code);
+}));
+
+test("AGY MCP rejects the previous result generation even with a future timestamp", () => workspace(dir => {
+  const req=validateH2aRunRequest(request(dir),dir);
+  const runDir=join(dir,".h2a/runs",req.name);
+  mkdirSync(runDir,{recursive:true});
+  const path=join(runDir,"result.json");
+  const old={kind:"h2a.run.completion",version:1,state:"done",model:req.model};
+  writeFileSync(path,JSON.stringify(old));
+  utimesSync(path,new Date(Date.now()+60_000),new Date(Date.now()+60_000));
+  const launch=createH2aRunLauncher(()=>({state:"started",result:{path}}));
+  assert.equal(launch(req).state,"started");
+  assert.equal(launch(req).state,"started");
+  const fresh={kind:"h2a.run.failure",version:1,state:"failed",code:"agy-claude-quota-exhausted",retrySafe:false,model:req.model};
+  writeFileSync(path,JSON.stringify(fresh));
+  assert.equal(launch(req).code,fresh.code);
 }));
 
 test("AGY MCP refuses xhigh and builds without opt-in before executing", () => workspace(dir => {

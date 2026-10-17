@@ -7,6 +7,7 @@ import {
   readdirSync,
   readFileSync,
   realpathSync,
+  rmSync,
   statSync,
   writeFileSync,
 } from "node:fs";
@@ -6574,6 +6575,9 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             mkdirSync(runDir, { recursive: true });
             outputLog = join(runDir, "output.log");
             resultJson = join(runDir, "result.json");
+            // Name admission above has completed. Retire the previous result
+            // before returning a path or starting the new run-once supervisor.
+            if (profile === "agy" && isAgyClaudeModel(opts.model)) rmSync(resultJson, { force: true });
             const headlessPromptInput =
               structuredLaunch && isAgentLaunchProfile(profile)
                 ? buildAgentLaunchStdin({
@@ -6829,20 +6833,23 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
               return;
             }
           }
+          const reportAgyCompletion = (): boolean => {
+            if (!(profile === "agy" && isAgyClaudeModel(opts.model) && opts.headless && resultJson)) return false;
+            try {
+              const completed = JSON.parse(readFileSync(resultJson, "utf8"));
+              if (statSync(resultJson).mtimeMs < launchStartedAt || !["h2a.run.failure", "h2a.run.completion"].includes(completed.kind)) return false;
+              launchGuard?.complete();
+              if (opts.json) process.stdout.write(`${JSON.stringify({ ...completed, launchId: slug, result: { path: resultJson }, logs: { path: outputLog } })}\n`);
+              else process.stderr.write(`[h2a] ${completed.error ?? "AGY run completed"}\n`);
+              process.exitCode = completed.state === "done" ? 0 : 1;
+              return true;
+            } catch { return false; } // Still running; the durable result may appear later.
+          };
           if (profile === "agy" && isAgyClaudeModel(opts.model) && opts.headless && resultJson) {
             // A fast provider refusal may finish before the host PID probe.
             // Return that typed completion rather than a misleading PID error.
             for (let attempt = 0; attempt < 5; attempt++) {
-              try {
-                const completed = JSON.parse(readFileSync(resultJson, "utf8"));
-                if (statSync(resultJson).mtimeMs >= launchStartedAt && ["h2a.run.failure", "h2a.run.completion"].includes(completed.kind)) {
-                  launchGuard?.complete();
-                  if (opts.json) process.stdout.write(`${JSON.stringify({ ...completed, launchId: slug, result: { path: resultJson }, logs: { path: outputLog } })}\n`);
-                  else process.stderr.write(`[h2a] ${completed.error ?? "AGY run completed"}\n`);
-                  process.exitCode = completed.state === "done" ? 0 : 1;
-                  return;
-                }
-              } catch { /* Still running: completion remains available at result.path. */ }
+              if (reportAgyCompletion()) return;
               sleepSync(50);
             }
           }
@@ -6859,6 +6866,8 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
                 ? paneWorkerPid(agentPane)
                 : undefined;
           if (structuredLaunch && pid === undefined) {
+            // The supervisor can publish and exit DURING the PID probe.
+            if (reportAgyCompletion()) return;
             cleanupHeadlessPromptFile(promptFile);
             // OWN-CLEANUP, deliberately NOT resolver-derived (F1 sorting):
             // `name`/`sessionHost` are the session and host THIS command
