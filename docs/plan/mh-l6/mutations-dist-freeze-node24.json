@@ -1,0 +1,35 @@
+{
+  "node": "v24.18.0",
+  "files": [
+    {
+      "path": "packages/h2a/test/mh-l6-dist-freeze.test.js",
+      "sha256": "0f8d392001ea770ccb32346999b6dd70fdc686c4d7dc1ea244127d50ff54b915"
+    }
+  ],
+  "results": [
+    {
+      "name": "closure-match",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-dist-freeze.test.js-node24-mutation-closure-match-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-dist-freeze.test.js-node24-mutation-closure-match-green.log",
+      "restored": true
+    },
+    {
+      "name": "six-identical",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-dist-freeze.test.js-node24-mutation-six-identical-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-dist-freeze.test.js-node24-mutation-six-identical-green.log",
+      "restored": true
+    },
+    {
+      "name": "six-differing",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-dist-freeze.test.js-node24-mutation-six-differing-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-dist-freeze.test.js-node24-mutation-six-differing-green.log",
+      "restored": true
+    },
+    {
+      "name": "upgrade-pin",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-dist-freeze.test.js-node24-mutation-upgrade-pin-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-dist-freeze.test.js-node24-mutation-upgrade-pin-green.log",
+      "restored": true
+    }
+  ]
+}

@@ -1,0 +1,843 @@
+command: /home/antoinefa/.nvm/versions/node/v24.18.0/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-dist-freeze.test.js
+node: v24.18.0
+private root: /tmp/mh-l6-test-HfZ7Qm
+case: E3 should pin the full published runtime .6 dist closure byte for byte
+TAP version 13
+# Subtest: E3 should pin the full published runtime .6 dist closure byte for byte
+not ok 1 - E3 should pin the full published runtime .6 dist closure byte for byte
+  ---
+  duration_ms: 59.253756
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-b23/packages/h2a/test/mh-l6-dist-freeze.test.js:9:94'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly deep-equal:
+    + actual - expected
+    
+    + {
+    +   'agent-launch-args.d.ts': '60db83651b1f9cd4a15f60de2e05d254330e3fc81d922e3a9007577f0af936a5',
+    +   'agent-launch-args.d.ts.map': 'a59a01eb9327379895d94658886f11112b6ff4eab639023bbb5abb6cc896eb24',
+    +   'agent-launch-args.js': 'db75aa9ed1c461eb423b69937654156e9227c6ff1e50255036ae83bd408f0d47',
+    +   'agent-launch-args.js.map': '2f88c41f5b1fddbab5e7533cc1b6fc9584c2cb9c932c62596b184f6b6bb205c9',
+    +   'agents-projection.d.ts': '62fdd58a9c06e006dacd3dca9e29c93e8df10cb41dc3136319594884b1a7ddc6',
+    +   'agents-projection.d.ts.map': '23619f157dbf289485a76d8c77841fb07e19937bf9ed4d4ec4a07cbf6e9a90ba',
+    +   'agents-projection.js': '9ea86c328cc2a813d95d29b8cc2279405bdecff3d8b76920b5fca4c3c834f2ae',
+    +   'agents-projection.js.map': '1565db6d7dd4ed78dc3ab6ab9d2049d6d0556981217cf848e850abd1ac67924b',
+    +   'attach.d.ts': 'ede96089e61404eb03e4ed9793972ee751237e8b66c71e3be9c96a4d5dbb64a8',
+    +   'attach.d.ts.map': '507ac91cdfd4918ce9192af39cd010294065945840cae1349d5bfa4fa4c4ec4c',
+    +   'attach.js': 'a7d3ee16934c325bfaf9afeda1711b5dfdd74a53571829288506fd55a62ab8f6',
+    +   'attach.js.map': '2ae21c694a1b820c09b4a7fcc5f56e4c5817f8c5c24444bef65817c5fb88931f',
+    +   'auth-bundle.d.ts': '02555278769ffb4a628de13e64883554c985653391fbdbcace6a43af9bc2a3fd',
+    +   'auth-bundle.d.ts.map': '09dd9c3d8e62f0a64552d87b9629e70c96bb8f9742adcbe7c1c4a3493b629c24',
+    +   'auth-bundle.js': 'b0723a4f51bc46ae1705c4414cbaee14fd4493c3e5abb6f45339b6841c365c73',
+    +   'auth-bundle.js.map': '9187a20576732268c233b44fd61f4be2ec962e99596d7eaea177867f17983f15',
+    +   'auth-diagnostics.d.ts': '15f8405135652665e895f2b93a9e46a9575e357800d8c2bf8dc448474385060c',
+    +   'auth-diagnostics.d.ts.map': '421ce6941d64ec3764b4165f3ae36d797fb9a66a0fa4a89094c28fa4eb2cc56d',
+    +   'auth-diagnostics.js': 'a122297692335ac9e89a4d0580f1b32402431a6dedbffa6bcd1dd5989e081114',
+    +   'auth-diagnostics.js.map': '95c414b83ec7306b29533ec5f3539ad85f3a0969ebee5ef2bcde4594147bd8f9',
+    +   'auth-login.d.ts': 'ea2e3d79ffad836982138b366dbdb792d60e2ff463ad5db2a5fc3fd84f8102a6',
+    +   'auth-login.d.ts.map': '437d50cff093dfd3872d5e602da4ef2f886fea98eef2a59e17c31dbf6fc799e6',
+    +   'auth-login.js': 'e21bb77f31a75ae9feebaadb9ef9f3d5e39c0c460a2b2c47b5a66094fe40a7c9',
+    +   'auth-login.js.map': '21499d61ca7eb8bfca18985edc98c028325f8c153cdfc058a6054abf6196d3fe',
+    +   'auth-refresh.d.ts': '9d5903a59f19a725e5dda1f4f548a80d9781b240598201d61d8ec66557374a46',
+    +   'auth-refresh.d.ts.map': '844c28bc0ab90a2e6b62f6008726fc7a58ca66fb750ce9e67a554f09864b983d',
+    +   'auth-refresh.js': 'd632d729ab75781569f4ef6681f2009672adfecfb1f097ce5def62b1e526161c',
+    +   'auth-refresh.js.map': 'b28e3f2c6569460e82eba1bbd51be2fc454b0a3ab3e6484a9df6ecada49d9c4e',
+    +   'auth-tools.d.ts': '4149a82c7fc8b878ebcfe51c5cf2efa08361ea6e6fb07149eaee0b465becbc9e',
+    +   'auth-tools.d.ts.map': '1107467a2665f22f5d32226124ce9f5929a8f04e2429982d21df7c64b5d39199',
+    +   'auth-tools.js': '7dcfff056d77049ccbab0e2b429e76646d66e61cb2556b18e0dcde57e172bb74',
+    +   'auth-tools.js.map': '171f1b3edf0b3b8c4b00f7ff7445677d65422ff1085d7c3ddcd424442e179d20',
+    +   'browser-bridge-local.d.ts': 'b2d4421ac189a2db276895425c135100aab4c3442c400c80e3f9bfdf0da23df6',
+    +   'browser-bridge-local.d.ts.map': '1a43e6a40766d1ff22b016a93fe887ffed92d5dff9a919466ba31a80ef4610eb',
+    +   'browser-bridge-local.js': 'f77aaebe5e60dacd6135e12bfa892c1d8057403feea5dbaefd6a3aca9587f3f6',
+    +   'browser-bridge-local.js.map': 'e3549d4868dd2102c6fb76d801cf32f2a2dd27767e54b03c2a54be97f547c90e',
+    +   'browser.d.ts': 'f85fdf7d4a3cd68e23fd2cd4a8b978b8389a27df8a029dd7ba1223c5743d5541',
+    +   'browser.d.ts.map': '0842c648009dadb801c352755660664284804acfc16c03976e45dfbee3bd841f',
+    +   'browser.js': 'f74c711db9f6894cf55bef460ac7c2ffd592ad18aab5e1f0269b9772e2da3a90',
+    +   'browser.js.map': 'a5bdf9456c1312ec546f6ec02cae03a6a4aa023b9a4c323eb6dc6e66984ecf48',
+    +   'central-mcp.d.ts': '2c489fa1cc15b54e9432eb2dd5e11f264935c368937bda2f63db794e193a6a87',
+    +   'central-mcp.d.ts.map': 'b955b22f9909509a2ae3f0b589af8ce94d3e84c2965c34d997be8f6a0389b2d3',
+    +   'central-mcp.js': 'c77d48a3a84d49ed416e407ee1727d5e5cf111a029f0672f04179d54e27af063',
+    +   'central-mcp.js.map': 'd9a41fa9afeb38dbb3ebe946e04f4d8393619871714d995e59d85f91b104a1b7',
+    +   'cli-help-groups.d.ts': 'a9dbb461ac359a8ef9f5e3c217e8a3ced50b47e76174af6ae0de3baa032bdce6',
+    +   'cli-help-groups.d.ts.map': '319036a7e236ff065f0e7fe23508fe08af639ff633a3af7f69dc24b7820380cb',
+    +   'cli-help-groups.js': '0e40c425f5569fafd25737e99c390d0bc549edebe3d157b2b6316c79e7fb0363',
+    +   'cli-help-groups.js.map': 'f27f83d5b80eae665ad6da3c67732ce1c412cff43dbed9a48db9fc51a408391f',
+    +   'conductor-launch.d.ts': '62541aa732581ea76dbae08b18680213916d869bd66ea2c93e8842bfdb5c03dc',
+    +   'conductor-launch.d.ts.map': '6fc12d6ffc96b4cec8a391b30a5763da54023fa943548030eca89c1d0e828159',
+    +   'conductor-launch.js': '390eeb9c30b0b966d488ca97856577bd5e8ae71278e0b95f26d10601698dfac5',
+    +   'conductor-launch.js.map': '34b2c367a2a06b3bb8595763b8ef7084dc243638d8e2c9aa8740705c08b0c85d',
+    +   'config.d.ts': '038368e753b2cc212af4b2457ace167caa11b89ce3e5e779db9c9e8503ad4ff0',
+    +   'config.d.ts.map': 'a4da336fcb65a1072cbc52d8a782f0e49171c33607886ee16168148bcc80d6ab',
+    +   'config.js': '31c13a33d89f6a338e06677becad8693ee73693be629db0264803f7e9ec1cac4',
+    +   'config.js.map': 'aa21fbee3bca8580b994c4c8c4d4d985854a90e6c77d17e8a3f4d6944483a22d',
+    +   'conv-guard.d.ts': 'ec8695c2066c6c34fc5038e7a7351d65051703cd935afb5643e82ce0af349eb2',
+    +   'conv-guard.d.ts.map': '1d10e70eefbae2000e6acbdbab2fc358fe26f239cc1155bd3202e2f9b7ac4e12',
+    +   'conv-guard.js': '569e8449c676978103d1bebed247bb8d1e7736ff72a968fb90b9dc30f73d9fc0',
+    +   'conv-guard.js.map': 'e6eaa49582185cd3910a2ac23a7463f11d316d9ed7cf478944b8acb3d3c293d8',
+    +   'convsync.d.ts': '91f45d8747f25d2001759fb01b03c83caec0804f1e69b1986f4454f841952c01',
+    +   'convsync.d.ts.map': 'd2a113c416782a0944bf3033ef7a3ed3b03f60c65a3657e3383672cd919775a4',
+    +   'convsync.js': 'cb44085bd05db905c00c24723449d0451628175cc0be4abd0a8f2ad13f3069a3',
+    +   'convsync.js.map': 'f91f39019dfb4e451c0c12c7d44507baa406f81509fbe4f471786f7588459657',
+    +   'cred-health.d.ts': '4e75ba6b1d923a17068b6cdb55d6d99a14c68e309996441410d657c77f4dc7b0',
+    +   'cred-health.d.ts.map': '59359c4f0200987f788796fed1787ef847e6e958ab0577928f35c8aa4ff7a396',
+    +   'cred-health.js': 'fa0d7c31da23b90f083a086ae513ecb1f8d395c1f6f1097927bfc401757fcd3b',
+    +   'cred-health.js.map': '5ea6ee0d0334a68aa1a62bd82cbadd88fbf79dbbbb1af2d7e4e3715b6b9bae5d',
+    +   'delegate.d.ts': '32bb068b4c5f6343a531d2fbd66c169f16865d002c13d712e4e627c9bc92bcda',
+    +   'delegate.d.ts.map': '00706aa05e2d27e5ff0e7a75f3574e9203323fbe15a8fcf81a3539b0ab0b0e0b',
+    +   'delegate.js': '1999c080bf0e7001404c773b961551480ac54c3a8ba436429f991405cd230baf',
+    +   'delegate.js.map': '0e99fbcd9d7c4a1134f699844afedf4d2eb38b7de606eb59953b39f114313ded',
+    +   'enroll.d.ts': 'a795d0863c257c2e346420923035cf6f50e1585f8f5482e05646b7fec8ebeee0',
+    +   'enroll.d.ts.map': 'b0f308cc393e21def8a52c19d1e274ef55fae9001b819d588818c79cc2356d8d',
+    +   'enroll.js': '953e46b0cda4cc1959c6b5b6367b4a5361031b767aab5a506f2c5943eeeee6b9',
+    +   'enroll.js.map': '36ba06e4e67ce507404ea4aaa9988e59ecd824a319919f1e4b9052cbeb294d51',
+    +   'fanout.d.ts': '665dd9d71ac5723d3ecab53d83d19902916611872b847f8b3374cf71219a1b8d',
+    +   'fanout.d.ts.map': '6e0b312a2d05259a5bff03ee7a21d00ab8b925e82ef9a1a100391a54dfd37d1b',
+    +   'fanout.js': '7fef5cae112140bc47e3083636d530649acd3443c73253f24f5f0882c73d7f08',
+    +   'fanout.js.map': 'edf24eef03723f9d52981deb282b45643188a4e1bdd2fda498d3ca40a07966a7',
+    +   'file-lock.d.ts': '81825bbcf98845a5806bb13f8a3a32a9ee16bc15ecb09a603bea90b86a82d653',
+    +   'file-lock.d.ts.map': 'b73534d18911d878f74fe3b4cc98bd10b55eccb9f07d45524e728fc1103b86c5',
+    +   'file-lock.js': 'a4334cb960ed73d3b4b662d90e6d08c5ff5e322e440ab79e6d1b498d2ad771d9',
+    +   'file-lock.js.map': 'a0eade9a1712ee12636570df63b941c23c11b72b6260ee7036e0f614119767ba',
+    +   'forward.d.ts': '7bd4f0775f2634b071bfe4c14bb0e0171e59e3ef6443409331db72da33466e5a',
+    +   'forward.d.ts.map': '08cb39b8ee74391a04162263f80489a2e8c73d06f95a3d1aa3e3abe06a78abce',
+    +   'forward.js': '184352a35ff65f91f6410e73286c0e391cc99b1b6747489e5f3c3b2971d136e2',
+    +   'forward.js.map': '8e2e0f4739d04ce69a31e512a1e1f83de398fbb4e6f266f78c292660b615d899',
+    +   'gateway-host/config-file.d.ts': '8485fe5a22ee2c6898f121f1eb40cb8da95031c18b195adb1ecedb58dc1f2b0e',
+    +   'gateway-host/config-file.d.ts.map': '8c80bb53ddbe1b9872a7b199eccc595ae59537f908d854f9b7ff9990c1d92323',
+    +   'gateway-host/config-file.js': 'fabaa9245bd470ed09c1a8de8d17c753c5cc762e0f8d46616965521d2478a503',
+    +   'gateway-host/config-file.js.map': 'e77586aca9caaa23c93478155846dacb2e39a95438eb76246883237105f28d71',
+    +   'gateway-host/daemon.d.ts': '7b65d921b9dd9c3b594063beea798aa0d8d8f41f5befac62ca5caabe5a32c3d0',
+    +   'gateway-host/daemon.d.ts.map': '4cec7f6a3dca18fb13d67197f1f25c972d92a2355ca7aa88016686ff262247e0',
+    +   'gateway-host/daemon.js': 'f2d4559ead287e4195dda5f21d845cbd3a3d4353453a72603742b7be26d7e29c',
+    +   'gateway-host/daemon.js.map': '69c5e7a028a67917af90ce9b440568dbb0c5d2064d524e96b7f4103a848e5477',
+    +   'gateway-host/host.d.ts': '0a5a434a45c93e5e767fc45fc9c3f3ca683ff955959eff7968b2496c887baa68',
+    +   'gateway-host/host.d.ts.map': '7e69abeb89730d08910515b475104cfef797a00dcebaac4516ee149e12dcc98e',
+    +   'gateway-host/host.js': '0cee7e280799bdcb95ba264ebd2dd51da42f09007b7f4f1dd7fa34da7642077c',
+    +   'gateway-host/host.js.map': 'ecd109b11423cb45178945a03902a42c5155468b7b2b0419bda7768557fe6f50',
+    +   'gateway-host/ledger.d.ts': '51157cc284e55d164eb29f4bf9a31a89dbb96e236ba35ca3c246c04e0b4fd814',
+    +   'gateway-host/ledger.d.ts.map': '269d15359746d3b00d551338afe8664a787f4bd677bb919a3f90be77515e932e',
+    +   'gateway-host/ledger.js': '13024b954fcba6662ecdde66c86bd4223c46f910d098c3867deb1449f8aa4f0c',
+    +   'gateway-host/ledger.js.map': 'f89524a6c3c6ecd3d3346af78fe56dfb22abce1ff9b49d3251948cbdc4a7c8bd',
+    +   'gateway-host/sessions.d.ts': '3d56ac17b4bfe9d85c942120972cc82c7fb3b76591acd93bd3a5c55ed6219697',
+    +   'gateway-host/sessions.d.ts.map': '331e5119d7c977bd8acfd386c5066b193690b4cb31d67df477860ee4d8e9b753',
+    +   'gateway-host/sessions.js': '43aa865532db463f229c18cb919116e0ae04942be23cd7da28aa628d355e9f9f',
+    +   'gateway-host/sessions.js.map': '746e2c69e380579b0647912fdce68fbee3e24002589ef05341063e3811958d71',
+    +   'gitdiff.d.ts': '09649b611dcb84864f7ddcfc08ee381f6eb9ee4c3a036ecadca951ea41a64684',
+    +   'gitdiff.d.ts.map': '8bf56d904ae5b8aeff751531e8575c823a8e2b4562db8c045b78bea921a79387',
+    +   'gitdiff.js': 'd83bf45bd32ab519e70d4a9400b88e9b99881153b1ba3cddfb9e352c6efd925f',
+    +   'gitdiff.js.map': 'd451d15b364f3270f55918ec37b83a18a8fefb63d620655577c7b9eba532c325',
+    +   'h2a-bridge.d.ts': '3c496f8970d7ee2d3a4f41b0beddba103eb4e4a3601bbbc8995d92cd5dadbefe',
+    +   'h2a-bridge.d.ts.map': 'c7838eb4142a6b6c5ff77c1a8ae8c46e3ad5094cfd0c1cc45701d46cabada873',
+    +   'h2a-bridge.js': '2d1567fda650b987fd61f450787a9bb5b0ae4a4c366f7ad068573d24a2eecf6f',
+    +   'h2a-bridge.js.map': '5710770638f4311f151bbec088867e34454216a9241ce44087c4f500cb4ff148',
+    +   'h2a-jobs.d.ts': 'bfb3ee1bcdeb8e435073bdb225d36bd58a90a72ee8710bb0181cc9234d7caa0d',
+    +   'h2a-jobs.d.ts.map': 'ce51236ba41518ee59d069d7cdbd50172175a7ecaacf22c8390f4135b9c79757',
+    +   'h2a-jobs.js': '577e4fd2954e8707012fc934cd805cacbb24a5b71dd51c38c5755e4f36949aef',
+    +   'h2a-jobs.js.map': '322c747285215830ab6c81e0ee3f4dac317d69dc107f69eb6cb8feee8fc124da',
+    +   'h2a-ping.d.ts': 'a06f1a268c524f2a0e1130e99511471c759e98f1d771190e81a7b90626496f75',
+    +   'h2a-ping.d.ts.map': '1e530d4eb60cd93ecffc5c28ea197c7acf30c481130082d8166064d85d1f2b02',
+    +   'h2a-ping.js': '831013d74420c4001e79945dbd7c5bcdae316a68efaa0b7cae47f871e2844192',
+    +   'h2a-ping.js.map': '232b8b54a350d8b58f7de12c71518615cac1584ac70087bcf34d1ba147f5dc29',
+    +   'identity-cull/cull.d.ts': '2cde29c693fe0dc7c125fb7bce335b1799c047ff4cfe3c307ea888bebe6264b6',
+    +   'identity-cull/cull.d.ts.map': '6c72c87cb7c843e2d08c5ae15086d02d9279cdb492f9f7b285a876e5d5132064',
+    +   'identity-cull/cull.js': '1e9686fe303331a15790a71af4b669553831a9da7a90f78ad72be65f55595d2c',
+    +   'identity-cull/cull.js.map': '207f6a7268cf8233cb32ce768167463a704faa837b24061fd95a3949d8d8fefa',
+    +   'index.d.ts': '34a370f9a8c54f17d166ac708272616766482c7212c2c6236dbd8107e1a323de',
+    +   'index.d.ts.map': 'f2ef033bf0a1b76c02949828d831d116c84990d2f8d210e1db9623ba329d02f9',
+    +   'index.js': '1cdabc5dc4beb2faca5d1604e19cfdab0f7faebb54f7aa768fee89a59935adbb',
+    +   'index.js.map': '1e6fefd2c6c8396cee00b53eb751da4479237f70493ed85225a22bf65d7f5335',
+    +   'interactive-throttle.d.ts': '27c3bbaa79634a7d69a081c22be579e318df0fbab5b6f3f7b7181c92f36c5b82',
+    +   'interactive-throttle.d.ts.map': '83a7c64280f631f9e91ae9294785eba9fdc3f168b0af5bd3b4ea2ae03a7ffff1',
+    +   'interactive-throttle.js': 'd1b6d120e0ce5d8df244c80894ed885352abc3db9b70d2fdf23e3a282abb5011',
+    +   'interactive-throttle.js.map': '89b8110a3ada9130ca8c5a6a747137fb0dc3016ae439b2d881c6ce9c21f69f61',
+    +   'launch-context.d.ts': '57336919992aba51be2bce639f1ef86a1b055716970f8027e6cc71002a8985ba',
+    +   'launch-context.d.ts.map': 'd7a0178a16c161690ea4e1db797129a400f81c0ea2cb75f37ca7f1a3a26438ef',
+    +   'launch-context.js': '3b692ca2046361b7c3ec61ded67da7208a8d2a05eeb2c6aaff4cf38fdfad6233',
+    +   'launch-context.js.map': 'ef9a0195ecaae1cfa1c758dc5d4c8826b273ef559ab5d06f83c0ad331b04db22',
+    +   'launch-guard.d.ts': '0ebf412fde7581e5659a46c3d7a6e1b97312eca28e65da0b7c4eebbbce0191ab',
+    +   'launch-guard.d.ts.map': '17405c253efdf700757baef0173756d23a536a8c8d5cb4d943ea6212dfd1befc',
+    +   'launch-guard.js': '86418ff55b49fec17ce00bc74e3dc7631d43f5b5ec570de641a485655b1916dc',
+    +   'launch-guard.js.map': '8739df01dc23f057988e25608623f7ed8670bd6498bb3a15593e4c212a0803e2',
+    +   'launch-layout.d.ts': '0682523cb74b1a37f0c2527459e12f9c0287851895466e9d07f5790a82a00397',
+    +   'launch-layout.d.ts.map': 'd341352f768fae4ceef27822a450e71448583360348c6adb0adddd2b9b1b794a',
+    +   'launch-layout.js': 'b848580235a27954f556dcb0256c0f150b4b24a4dce8b7742cffe617f024edf8',
+    +   'launch-layout.js.map': '96a4296f2af49d811ec82078c167e642545f4f7eae6409602d224a159ef6668f',
+    +   'lineage-client.d.ts': 'db03bac2d594008d0e547465ac19db4441401fa9904d96d405b41d0b55b08051',
+    +   'lineage-client.d.ts.map': '2beda35afd0a61840d7db99b0b232a32c7db7f78f1364d5d3c7f4389a4cbf0db',
+    +   'lineage-client.js': '3fc93b6d4ade5c16a2723515516c7217b1dc2d6c6abec00c2df7a12fdc9f689c',
+    +   'lineage-client.js.map': 'a41b290479acda3c97a8e5fba3ef0f1eb81de428bab57e598d887f15a46381c6',
+    +   'lineage-lease.d.ts': '8a27954add4bfbc6cf44d844b048109f9fdb63887875e7d297689596ae87327e',
+    +   'lineage-lease.d.ts.map': 'ddf3fce431de231714ef016e709a6e743edc2d0c526c95b4e051a2e0cd0e6360',
+    +   'lineage-lease.js': '172caa1b83f4a3a51c91ec8f496664d477653dfeaa24662fd2b8bf0c82689149',
+    +   'lineage-lease.js.map': 'be452bb5506b0fd55c2d78b8e1863421f3145fe8e26ca11721aaf5546d377424',
+    +   'llm-mesh-accounts.d.ts': '71d88b608193d2bbe502b4a4ad8b3c09aed85202b6684c99ce98b542dca9501a',
+    +   'llm-mesh-accounts.d.ts.map': '4f7dfdc8f8415bb00b0c23482a4db1b5581aeeb1ef2396147881d1dd133ee5f4',
+    +   'llm-mesh-accounts.js': '5d507fe2c5f08dee936df1112c7efd80d62790e227cdeb38083dc378b8cdea7f',
+    +   'llm-mesh-accounts.js.map': 'b6a081c6d7234f1585ecb7346cca9e184994ba03887d9132ada427f755032b4d',
+    +   'migrate-candidates.d.ts': '2eafc5d884799019239c6a7c0c917448b968cc5816ebd363cd154d256608cad9',
+    +   'migrate-candidates.d.ts.map': '674768014671e9840f79a4bd960bc3812e8aa4e368a2203c36e58280cb89fa45',
+    +   'migrate-candidates.js': 'fc4a306dc8482bc19ecc760001a5154a0fd90979fd8767f97d95a5b9641ad046',
+    +   'migrate-candidates.js.map': '2a941cc68bc20c7f753824fc06cc86dec9edcc4909f7584d69744ba604e1cfec',
+    +   'migrate.d.ts': 'e16528c2fc6957dfce2dfedfcaeb94c469966bf1e6ba2f3f8d6769baec53cd48',
+    +   'migrate.d.ts.map': '91e88b9c6cffc1f3b60182632bef2de17feeadfadf39bd5e946c3545e37e0995',
+    +   'migrate.js': '04297b1627ec2ebe80db024bad8e80b2c13938f7e2a18782517ab3fe2ae56fed',
+    +   'migrate.js.map': 'ddf9dce537ad4a1f641db6d3f3974f22fd55db72c45f4128509c7a4242330c08',
+    +   'native-host.d.ts': '212421caf3370d911de0453283d9ea1b0eef9e7e715d6b60c912dc50ceed1acc',
+    +   'native-host.d.ts.map': 'aa3bf6948ae49b4d48cde67f39b00bc2a15bf8aa2e17ef2491d9706f2d521610',
+    +   'native-host.js': '91ea3d984755a64e4737dbb9905cd6bdc37ae61c3a927335fc302c70c20deb24',
+    +   'native-host.js.map': 'e7df45a9481690edda11dabea6e73f5e356b322a3afcf74c20bad2f957433694',
+    +   'native-restart.d.ts': '74199df1221d03607c99372455a4aa8c04aed752dfdbd10f7f0a6ababcd53d1d',
+    +   'native-restart.d.ts.map': '4f50a140e3bc8cad7cba6fc72d405d07a64eefe96911ba9b45e7b86aab6a376e',
+    +   'native-restart.js': 'c818c9090c467a87f1aaee28c7054728c9fd3e6292c5da578a76854f7d51e078',
+    +   'native-restart.js.map': '95ef4d22cacb79ed23b56f2e3723ae5f463a3800229144b4714d51ab1626a036',
+    +   'native-terminal/attach-recovery.d.ts': '04f0ae6cc7fa11bba2ef9b7dde40e097724c92b42ff06ec18eb087f65a32a019',
+    +   'native-terminal/attach-recovery.d.ts.map': 'cbdfad60b4e810fcf3cba11f8b71e915fa681f4735276e78bdf165bd2b92c0b3',
+    +   'native-terminal/attach-recovery.js': 'fcb1db959107f8284913f9478f0492985281c71fa68d125eca5e6b9d49a68060',
+    +   'native-terminal/attach-recovery.js.map': 'baafe82797517f25332a3699b63be064bfdd24819054c6655914c8e369f6648e',
+    +   'native-terminal/client.d.ts': '81bd0cd95fa89acfe8eb8929843ff42bc44e4c20c43d03acc2e6764046e3530d',
+    +   'native-terminal/client.d.ts.map': '041c3f6f7ea1e43916d32a832070f871d21672c4f8fb0bfd2b889a10503b791b',
+    +   'native-terminal/client.js': '330459453585222434fafb587f85a819ee9cb7f5ade57959e73f2d97da03abdc',
+    +   'native-terminal/client.js.map': '23bfb24d878e58d1a3ca1388110b3aa7419c2f777cfe36bdfe28bca406728de9',
+    +   'native-terminal/crash-safe-log.d.ts': '37c2a7b30377382bb95036328522acb1595426d89033d250a8931a854ea5da11',
+    +   'native-terminal/crash-safe-log.d.ts.map': 'fecbc5e441fd0f76b5ef03ebf2443a01ed414bc9d44ed47f3806c24d66160766',
+    +   'native-terminal/crash-safe-log.js': '034b2e69d19efaf9215c8bffeec5127e3cac2ac05decc037e0604ab5526078ca',
+    +   'native-terminal/crash-safe-log.js.map': 'e12e138ee55c9d08337256d7140bc9423be9a8ad36345d57f41a32c6cc984e1f',
+    +   'native-terminal/fault-counters.d.ts': '602070e10182541858d6805a47b7d0d5d023c4f33344283d72ef6c4e96d527b2',
+    +   'native-terminal/fault-counters.d.ts.map': '25c0bf8602b8bec72e5519fab694c93fa592f3a08bb6f09f8261557926986ab7',
+    +   'native-terminal/fault-counters.js': 'a9d2d64e771da91e9c10d78108eaa747e524bd08183016698180f945726641b4',
+    +   'native-terminal/fault-counters.js.map': '33fbcc4a9702123c11086b6be94c2f6ee1bc8662bc6011fe6b1409e11f6c6568',
+    +   'native-terminal/fleet.d.ts': 'c7956edbd015eaa88dc5d26507a084d6cfc68c7b1a32ea5768c987e8c21a747f',
+    +   'native-terminal/fleet.d.ts.map': '255bcf8b8e6845c4af118a308d55981458fdaae0ba961b7aaf8c038303fca25d',
+    +   'native-terminal/fleet.js': '8fa3d16428c6ce3f47c8f7c640da7e527b34fda031bc5ed0476a89436a06ca82',
+    +   'native-terminal/fleet.js.map': 'b13f4a5db383a829a0dc1a9b238e81d82019f6fbd912b780b73644c84f0d5a0f',
+    +   'native-terminal/host.d.ts': '7be9e7f984b40eed2073048ea65bea9e8888127ca7bfd2b67afa459ba9b52764',
+    +   'native-terminal/host.d.ts.map': '7e821e1d092f1253987724db5f81d2622c477fc2514930e3d488ba435f417d71',
+    +   'native-terminal/host.js': '83d2912a007d9dd97d62ef5565eef32e12b187b66129857218217f29ef4635df',
+    +   'native-terminal/host.js.map': '01728c16c3e4d1f61ca8e2e7f796debfcafeebcc90b8a1f942bad40bce5f773b',
+    +   'native-terminal/journal.d.ts': '93c6b25695d2ce705cbcc33c01250878433d6955ab4d314d4c751d7e9ed8c22d',
+    +   'native-terminal/journal.d.ts.map': '1dacc778e9c7575f180a119de0325c43f5f5ec2b778bfec3bb2a4ab48caf3f11',
+    +   'native-terminal/journal.js': 'f7af111f70bcbf67ede734dd0237ae27d2721ea683f4638aa348979394ce5405',
+    +   'native-terminal/journal.js.map': '6209dca5e9cda41e1bc80cab81fa6fb4771872d36c19441cf9fae167a2e9cdb0',
+    +   'native-terminal/op.d.ts': 'b8247a7a141fc21501d2c1c3618a1cb7bf1a50a1f0c914e739ca2df586cba0ea',
+    +   'native-terminal/op.d.ts.map': 'b1a4c21f259d5c26056d6bc913d62c6b6c463f157c5614866df941b3a9efe2bb',
+    +   'native-terminal/op.js': 'e0f4efc4318ef16d5b7e4dbe7f6ffa16aff131eb5faf8d0beb6587cd30e10069',
+    +   'native-terminal/op.js.map': '92a4e00d23afb8e2e0b963297def04dccc9eed0e7d02a8b3a5778b5fb92d344f',
+    +   'native-terminal/process.d.ts': 'a4025b1dd23a666e010670eced259f6ff36bf1c432b2d6c00fe5c783143727bb',
+    +   'native-terminal/process.d.ts.map': '07c44da36250eb3deb0caa6a650a5ddfe3dd34050f26794b0989aa4487eee210',
+    +   'native-terminal/process.js': '328df5a1668cba5eaf1fece00ef70721a2c51d3038e19c825f0196a4b16963bc',
+    +   'native-terminal/process.js.map': '253150c5f64e3aa83c3e241b9dfa852b3671df6ebf3c698d87c28f95c4883023',
+    +   'native-terminal/protocol.d.ts': 'fd98a3c75fca2c9c9280c451d33b427943b4e3c531a1c3ebf5e677dd3bae1899',
+    +   'native-terminal/protocol.d.ts.map': '6fd5d0c1a2daff1b7e3fa342ce22a12fd7ff89ca9468487c22d941c56dd9d23b',
+    +   'native-terminal/protocol.js': '203bb85950baa3166dd7f8f101cd9eb49f73267fcd28c56b3e9c25a32af82a66',
+    +   'native-terminal/protocol.js.map': '8f9dfb6aae15e2d369d2e30d083f6a06eabf648627fbc46a0fcec74c47ad8ab4',
+    +   'native-terminal/publication-refusal.d.ts': 'f1be8db0217fee6b496c77925135e432ab7b40d21465c94ef8313d818b031197',
+    +   'native-terminal/publication-refusal.d.ts.map': '1fbfcb4f642d4ea3d423720a0d4a6a9a494e5b8793146f7c60db3b077d20a3c2',
+    +   'native-terminal/publication-refusal.js': 'da9afdcbdb930eb3fff439f270c39f10d5f09a5f8c40f01c3c3c5ecfcc566557',
+    +   'native-terminal/publication-refusal.js.map': '583666009977a7650f84c1125b6145d7085b293470bbb65ab31b5718f2f26d68',
+    +   'native-terminal/replay-buffer.d.ts': '8ec8e57462b85a6c9e1aea2d69b9b06b07ecff58f7474045d344309e80665786',
+    +   'native-terminal/replay-buffer.d.ts.map': '9324d484c80c13fb2293666e104b4276c52a04e764d2562f419e90b127db6bba',
+    +   'native-terminal/replay-buffer.js': '4e188d46360b3db6167d087e240079e107d2e2605c5d50f8081b27e473a659c3',
+    +   'native-terminal/replay-buffer.js.map': 'ebde547eee8a8becdb3d26c7baa0e6c110671868287b94a0ba4b92b40145fd4b',
+    +   'native-terminal/reset-relay.d.ts': 'e3250b68203815981c140f4b462077a035377e959fdba67565cfd7cacb1e03ca',
+    +   'native-terminal/reset-relay.d.ts.map': '641b286d0b2aa8b3269c7c7ce8d30c57f0afaac68eea725f739b9141dac6e4bf',
+    +   'native-terminal/reset-relay.js': '2afa542b926dfd1615202a5654b57afc52fa5f668a6ccdf21ca2e1d981959efe',
+    +   'native-terminal/reset-relay.js.map': '6c497fd8f26a69a1d4bf2ce205ca7e9e2d6feadc0d4493298d7abedd03b9328a',
+    +   'native-terminal/screen.d.ts': '77cae3f09f4cbd96cba0ec63b044311f0fbf9edb26e9ff042b46ece7ad3ad1a8',
+    +   'native-terminal/screen.d.ts.map': '41f613d2f5d7f405923d42dc1a5d576bd4bc79b82aeadae85f391d258af5c930',
+    +   'native-terminal/screen.js': 'af720467834f0085763cd796896c05da16242ccbaab7fba024f25c1b48170947',
+    +   'native-terminal/screen.js.map': 'ef12e4bf287a406028b5c3233f0268cee7ea724e31c55a7b03e6c94db2f89263',
+    +   'native-terminal/server.d.ts': 'f740d30bf91560ee9895f11db6102f893722fbb007192cc54f0f2ae940ed13e0',
+    +   'native-terminal/server.d.ts.map': '74efc11201b17a8d11540ec4cfedcc1ee733a4166df0158032776bf75db0685c',
+    +   'native-terminal/server.js': '1a1d48845ec83be25911d07f3b24928be0e234470c6449fce082dfee2d4b616e',
+    +   'native-terminal/server.js.map': 'feecf50eea39da72feb4fe274fa4aa3ff37903c343b1c02f0dcc3c1e33b9e3b8',
+    +   'native-terminal/socket-path.d.ts': '413671f81780c1aed27d5f356182d667163dfa0dd216274d6187cb44635888f5',
+    +   'native-terminal/socket-path.d.ts.map': '53d9255839de7e6f8302a2b3b225d33b457e6889dddb63e9b8bd0069f0ae4fc1',
+    +   'native-terminal/socket-path.js': '4b6e5ceb4e9d73f48cf1ea63697fbb9daaaba25782bf51e09bcea69fe20a33a5',
+    +   'native-terminal/socket-path.js.map': '3d2214d9e419944e0df64997e5d85b3b7f11e65ebd5f7e27a18b6122d15825f7',
+    +   'native-terminal/supervisor.d.ts': '86ee7f2d71f4c4dde2a54bb93d1cdb07abacdde820304f9f2623c6b05bf69eab',
+    +   'native-terminal/supervisor.d.ts.map': '3b3b840a104479a9a61ff3c3870ad9867d43d6249eb1b049f436a90c98dfabf9',
+    +   'native-terminal/supervisor.js': '778a7f6a7a49d557ef0f37728e3898ccf1fe76891962ac1cbc081304f9663340',
+    +   'native-terminal/supervisor.js.map': '46d22665378ca7cc93f066c9e2c057eb79342d4688916366dc56eccfffe26430',
+    +   'native-terminal/terminal-modes.d.ts': 'c02c25f16c712dc917fd4c60064628949190d4b728ed6264a8b3b0354b7e65f3',
+    +   'native-terminal/terminal-modes.d.ts.map': '0cc746afea112987f71a7263f8d147e6b80b43e693439cf56195c81401b5f572',
+    +   'native-terminal/terminal-modes.js': 'f2ad38ed832cd9405a64892f0bed8a0d8ba985059b0fe5de80207f8b5600c7bc',
+    +   'native-terminal/terminal-modes.js.map': '7a3e4d99311d1a50c59727f5e7eff8a3e50d12d269fa5ac36f1c21899eb9a2a0',
+    +   'plugin-manifest.d.ts': '96915cd0783018aab6df6bb2a745cf3b54611e84155ad0b8bfb16e9646c0f880',
+    +   'plugin-manifest.d.ts.map': '823cbfaaa85a6c6b9935127393bcbec6625cd16fd981d7e14216c498ac3ee974',
+    +   'plugin-manifest.js': 'd1edb7d4fbf395c6f530777c69d5dbe7887187badeab52551775d5fcdc1c3fe9',
+    +   'plugin-manifest.js.map': 'acdb929b24eedc097c3a8757f9cab69c31cbe1b014d10781a6c0036e651b472a',
+    +   'plugin.d.ts': '6205807577cf0990450f73afbd398ad349e136ae625b4144997b948a869e30fc',
+    +   'plugin.d.ts.map': 'f20d70cc7c63a1f89a234f6c0341c792968e7d07ca3cecc4de79f7cdf839a1b2',
+    +   'plugin.js': '4c48fcae6a38bddd331288d388f7032a5ba5c747a50d8c92f88909a85ca47ff5',
+    +   'plugin.js.map': '70a6e0079be77dc637793b0ba59781697e0259dbea644f04841dacaf3c2962d0',
+    +   'pod-liveness.d.ts': '150676ed918aefd0ed35134352a92bf80121d43035b63596f5a47599647aa51a',
+    +   'pod-liveness.d.ts.map': 'b65ff20d884d43d6443a2fcbbb874a691102cf48e75486cd067e6a3ebc66ed74',
+    +   'pod-liveness.js': 'd76434ad8fc5a69adf4383278604c49179e0269bb76f5cd13128a99a587082e1',
+    +   'pod-liveness.js.map': '0b00e89cd7c8e5598814bb3c1c45828f7e68e11c0102fc42d86fb88be7589fb3',
+    +   'proc-cpu.d.ts': '05b0b73f1c6cd8016a801aba111df0a9ac97039e79e405f50921ad027f535363',
+    +   'proc-cpu.d.ts.map': 'b324ff0005b548253324401cdbccefe3c053bfe1d5ca0becdf934a44389d3420',
+    +   'proc-cpu.js': '536b2ff1949588ba0dcd45f158672fb47328501d1cd3d7cb288f52b2ad022b06',
+    +   'proc-cpu.js.map': 'c71834fefeed987e07d951cfad95abd22b5508739f75d3b3ff195888d3d74aef',
+    +   'proc-identity.d.ts': 'd8789b2fd7f8455d3516ac6a990b9e80e0ff47848e3c528e84dbda6f3ba08fbf',
+    +   'proc-identity.d.ts.map': 'ce37b9611fa9127f9ffcfa4086dc9b4198b25da734b37837c7bb2e32b8c7c677',
+    +   'proc-identity.js': 'e44f163a1247413a3c4e089adf317770bcb0bfe009d73b736fa2d59bc1608245',
+    +   'proc-identity.js.map': 'f8c30cf253c4e9d91bff0be911b626e2b8483d154698a1d15f9807a49006f785',
+    +   'profile-menu.d.ts': '5fde00d26027cf09a5c7a374f79c6425b3776db5ebe5e7cb9877ae767004814d',
+    +   'profile-menu.d.ts.map': '00bc0fb6b2bd5f9077d0c5f0fa4a4b596b6586f256ef938e480631b246556665',
+    +   'profile-menu.js': 'e7d0bb593e4a0a32fa239c7bad0ad85f4c10416399dd86b8187cc7e7ce8dac46',
+    +   'profile-menu.js.map': '3561790a8fa6d74df536ec250b0ca09b3b7ce777d8348a1f2ec68eecc4d0b4d0',
+    +   'profiles.d.ts': '8b86bac622cbfd214e9d68bbe4cb2075ee7d89addd08ef729100d4a59224b286',
+    +   'profiles.d.ts.map': '32ff2e6a784caa63701bd32c237c0994671795039f03ad20d905132f62bec315',
+    +   'profiles.js': '58c9696746b955811482d73e1451ad01e85ca4686809215075fde41bfe3229a5',
+    +   'profiles.js.map': '7dc71e9225bd37ba1d3820e91532543d6c44d92257325e27190eec564268900a',
+    +   'prompt-delivery.d.ts': 'b5f6dd7b5878a7e63abf3f01d5b20c2ae8d29f7eb101222f04366f669123b46e',
+    +   'prompt-delivery.d.ts.map': 'f78775026633686a91299faa13ecd20be1f9e92af48cd3aa260f9bdd978f399a',
+    +   'prompt-delivery.js': '48638dff724fc8833b1120f965dee9e4619806fc8dcb5b16d80cc740daf0dcc0',
+    +   'prompt-delivery.js.map': '4076255ac3cb2c42623a65c2974bc0b4a7324f8af3a4f8005849ed233f78ee2d',
+    +   'protocol-local.d.ts': '386a84373ae44f9ac7b7e52b7a66d891d543846d7def08afd21bf886b18b3676',
+    +   'protocol-local.d.ts.map': '369b5f86c45cd62d445095f1786edfc3f58a742a17b551d6044f8ec9bf35925d',
+    +   'protocol-local.js': '009b9adc6ea686b96e705fa4ae74825e0c1c12eeabad337634ff5e8cd41ee0d7',
+    +   'protocol-local.js.map': '5c8728a69d317b57a499435b4553d555a0f0b8e4e740acbfceb63369a731c6f7',
+    +   'pty.d.ts': '3338c5280a9c9435fc3d67e480d770e2f2ee3c8c9311f61c8be55e174a70e56c',
+    +   'pty.d.ts.map': '68eb8a067f85338ba50e205371e4ca4cd859b8c42705f870d22716a9512d5f18',
+    +   'pty.js': '5261695c69c3a7a9f9749360ad83fef874ea292431c75e6de060a9f7b342eb1e',
+    +   'pty.js.map': '12aebb75b4e59b301930114237d5aaf55f3d211ef4a2974bf7d87fc58fd283f3',
+    +   'readiness.d.ts': '0e9f625d3ee7c2565f4d6f2d3e862ed7cc7e3045beb97e521f60c51f4d96f639',
+    +   'readiness.d.ts.map': '3891f02ad47537537bb82bbc2f3790e7172c4ce69a3d296fe3ffb35293855599',
+    +   'readiness.js': '6b36be1f7b6ab97867a9e92e5424bfb32b63207d89b1f8c558ccdfaa0556b9b8',
+    +   'readiness.js.map': '040f933c500f402d6e3905773d3b586f502005ac76b6d329ef412aba4a7158d6',
+    +   'registry.d.ts': 'c0a64163236fadb0d0d389c5497e641ff5b1548260b24cc304eecb20a11fd78b',
+    +   'registry.d.ts.map': '5276f692b9e01afbba5b291eedc28e405645388eae96935600a9f38e750a6f75',
+    +   'registry.js': '7d88950f590f3bc87af79842d8ead960bf4867f9191282aa2dbd0d33991bb5ae',
+    +   'registry.js.map': '5de2905a409ac992a7c4b602cd5d94f79e064d9989428baafd6948f0888f7cb6',
+    +   'relaunch.d.ts': '8546ecf88fb93db54de3db907f7822e5360dc77e6c9f74343406dca2848a3b54',
+    +   'relaunch.d.ts.map': '5fdcb381a20d8b2f81350ce3150a0c39ed824d8e15189fd53007d471172a1030',
+    +   'relaunch.js': '03e5d56c2b06d18ee50f3a2fce808cb5d4b75660167c8a3ae2469f1dad5de795',
+    +   'relaunch.js.map': 'ee6760d1aed7383edd68293c113b1b3c50e27584d941f5ce9fb0f683f9696786',
+    +   'restore.d.ts': '1382ad85ceee98bed495bd7f7318ab0d4553f8ef3600371e4847515df107a2f5',
+    +   'restore.d.ts.map': '31e63a178d97bdb30c00062a9878a0521ea352543fed0287a5ae2931f2c8cd2c',
+    +   'restore.js': '1b010b853efe58bf646ecc774f57b465ada31678563650c7edda35e6bfcbba59',
+    +   'restore.js.map': 'c810235f801148648a720d6ef14a0620d3c792e30854fa6e8fd26acb6b842674',
+    +   'resume-launch-options.d.ts': '3773514042d26479dcd65768a60c641ef9fdb218499131b357dd7a694c04ba92',
+    +   'resume-launch-options.d.ts.map': '968ce94b3603287e99ba6bfad0573ffcdf6dd7b3f91156afa4da7e3be02aee93',
+    +   'resume-launch-options.js': '86348a005c41df3f4b854d1aa5d2bf9ad764d557c31a3b6abf37c86e89e0ca0f',
+    +   'resume-launch-options.js.map': '8ca0a5f4a9fb9da9eb6eb18fcda255ce3d3b3f384eddad1602715726fbc9e2ff',
+    +   'routing-preferences.d.ts': 'f9c2ba40207a661f7484bb7f8f1f187ae986f4d9323b9bfe2c8952529ee808e5',
+    +   'routing-preferences.d.ts.map': '1871e69c27de3727a5673fe09d4a379ae4427597a52234efcae6542853bc61c3',
+    +   'routing-preferences.js': '37d40dc1293f899862461efb675f3b2ddead16ed0ab3b1b1aa369553658f2aca',
+    +   'routing-preferences.js.map': '568070833f8b7361d3a07a37ec35f439bd20ae80c5b7e044f10489efd7520d32',
+    +   'run.d.ts': '5cd307cc1f4122d55a9eb6e841a03e4863826857cc7ab86906363380bf308d2a',
+    +   'run.d.ts.map': '8b608269cd881c7c27b7ea2e35f418f4e4f7b63a162665677b7a5df643ab5943',
+    +   'run.js': 'f0fbad534f4c74d7aef365943725a2f891ae7c2f0bd0120cb6e0873a7bc1bd43',
+    +   'run.js.map': 'e6745b889a35ed10eaafae7c706a057d85bb27052a1c5d65f93e53084453a6c8',
+    +   'secrets.d.ts': '1f03a55b88ca19ce58c07e71c4452d34357ffcffe403d2a5785f22192d143ee6',
+    +   'secrets.d.ts.map': 'dceac07b13e700ce5fef2ee9acf2ab5adb5463c19282f03cd93daaa1368f65b4',
+    +   'secrets.js': '11ac967906d46f1aa2ac9270f438fad0114693251b56d8791bc8b99bed371bca',
+    +   'secrets.js.map': '1d7aa7035e75aaf03c7cd18daf1c326648f17f6439d334d4a4d31dded49e936b',
+    +   'sentropic/auth-token.d.ts': '1e618a0b5e09b72aab9a36c58f58d3d4677255df2831b7d40f5c9f8671698960',
+    +   'sentropic/auth-token.d.ts.map': '4d3ca585e44048564ed6f47e461cbc151246bd8056df9f74f32c7e2bc6858285',
+    +   'sentropic/auth-token.js': '3f5ad071e70c5455470b58f40a5c920146ba3f5d1a1408c33506f5af232646cd',
+    +   'sentropic/auth-token.js.map': 'bd271f9888eb901e14fe15d8e7d1b63b17a6905a41feac09e059eb624a306f30',
+    +   'sentropic/bind-decision.d.ts': '456aed877e4eddf506954d1462ae7fac1ac7ec01721d06b81cb1b90f1a734048',
+    +   'sentropic/bind-decision.d.ts.map': '0833a945a638b823a18ea5b7e4d0de3f6e5f2c443540cf281cd7098716cb51dd',
+    +   'sentropic/bind-decision.js': 'a443a0aaced9b3f1516d6faf7909b70747cbf4a19f52ae28d581189eb0cfe0a3',
+    +   'sentropic/bind-decision.js.map': '468ec3c41d80f72fa2775aae03fff427325e905c1a94cac210aa54f724785dfb',
+    +   'sentropic/enroll-flow.d.ts': 'd1be45257c6fbebf9cee52a8fe3f139b60208820ed161892bd2a46d4c799535b',
+    +   'sentropic/enroll-flow.d.ts.map': 'e923bb515aa179c0b794295bf7e0e80fde5a0b3e9926446db9faee4bdb5f5e57',
+    +   'sentropic/enroll-flow.js': '60d0581f94511e60089663d0c684e65eb04ebe9b5e29f87adf70522e92020040',
+    +   'sentropic/enroll-flow.js.map': '74af74ad84b5c8a0757218020c2cb8e55fca460df88252fa4a8f97f338e31e25',
+    +   'session-class.d.ts': '3badbbb624507c99ec0a3b2cb859d7e6f6bc668565e5b865789fb317d2bbf398',
+    +   'session-class.d.ts.map': '9f15f64d5390f48083596c449eb68d2c4192567f9abe396e343dfc5fc448eee1',
+    +   'session-class.js': '3801aeed5dd7d74f525ea2093ae6692523e52d0b687339e7b57832ddaf9721f5',
+    +   'session-class.js.map': '0af7d3eaea3da652771284c0f81d408bc2f2522ed46f3ff85d58238ff9df86b7',
+    +   'session-lease.d.ts': '9b1f44ec00a92feead4c38cc548f119b69a2a2456eeff25f11a4234a0e257719',
+    +   'session-lease.d.ts.map': 'a52e6e5c3f6592b1d8c002cbb82bd75e4e9d04be9f056e7bcc6c780b0430006f',
+    +   'session-lease.js': '526866a023a3a74c3271766ddbd8c98dce5244e77506a915863a2358be8d82a1',
+    +   'session-lease.js.map': '5c7b68df2be9a32cd2f19543b766a1b5a97687243e86dcc32d5ccff196a3aea9',
+    +   'session-restore.d.ts': 'd6a8ccdbd39afb9b391cf1a7e9cde3bcfb3d625f1eb1d24e3d506ce0d5d303a0',
+    +   'session-restore.d.ts.map': 'dba3c0cc503a755fdbc6174c30b2222fedba64f76fbfcde71a299ef7c5d2305f',
+    +   'session-restore.js': '8ce8f45f3152ab1a31380e5cb9edfc1ef571cd1ee4f63616e5d3580ae56fae4c',
+    +   'session-restore.js.map': 'ba165f73b110ae86894bbffcce6f46e85c7ce86fb9b32e5c5bc646f398fbcec5',
+    +   'skills-sync.d.ts': 'e325934963b439c52b6ccbd8a4330d4368866ead5fb16fad6885ff5ac10493a6',
+    +   'skills-sync.d.ts.map': '9e4b100a0d0bb40176c8059a441ced9bc00bf95d12912566846026935005737c',
+    +   'skills-sync.js': '71d2149a8fab81b6a3b7766dd0b82ad49e9d65c881b0c7e02d10416fbef094f3',
+    +   'skills-sync.js.map': 'dfe75d958651f66c64878d2976e7db46cd9b1fd9cd92497ffa7432b4bf325d1b',
+    +   'smoke.d.ts': '0ac0893523cb428345ce6699a8c71273340cdac089f6799654eac88b67fe5108',
+    +   'smoke.d.ts.map': '7fe1dc7ce5cf48b7aab758f6412060b2e1b14957c31e7fb1abfd963771d022c9',
+    +   'smoke.js': '1966834dd3e35147c517f044352512142415f39f14a9fdfa627fd31ffbc73843',
+    +   'smoke.js.map': 'c098e7988020e5372be5e3efd842a1207b9370bca3cf958bdd7c5f1bc7092333',
+    +   'soft-refresh.d.ts': '79bc6a76ba0962618dbb8fe4153bd53d615ea87f31a21c55384799fc3d3c6106',
+    +   'soft-refresh.d.ts.map': 'c97efd2150896fbbf6733c6be5202df2e6a8648f725dbc33aa4fd7cf5d30d65d',
+    +   'soft-refresh.js': '50ad5d41160075812bc7a46385af9baca3c29faef9d01539eca39859e87f2adc',
+    +   'soft-refresh.js.map': 'eaaca6752c599fece88af7241d5c49f99d2bcc517be7822fab2016b659dc4151',
+    +   'status-projection.d.ts': 'e17ecd3a64bf99beb85e60de2f65f875753266ae423249f3470b91a318b75b38',
+    +   'status-projection.d.ts.map': 'b69427bf5717c09c5633d7624b21d92fcf6336d071dcd29f0fd86633e7a0e50e',
+    +   'status-projection.js': '683e776e00202bb4b71e30f38980afa7e3c43e859d53955c64d03c8e9e9c61ab',
+    +   'status-projection.js.map': '43b3f80c945abf87aa7f774b97a4863311624f8c70d99b8027c9dd595055dca0',
+    +   'sync-status.d.ts': '5ec373fe697ebc8131a60508e5885ef5ec7d050445e07054fe993e3dd2526017',
+    +   'sync-status.d.ts.map': 'e70b0b6725d50b8df1574d37f05c2d1e10e49ba5e8af282f9b860f309ab2572e',
+    +   'sync-status.js': 'f61fc4711e04e98ab0549dab77a754d04690f6872bc9b9a116bf05d26ac23e2f',
+    +   'sync-status.js.map': '4ad340bdfa40de9957c0cbf1a0aa6f038b5187f148f58c8049f40db578b8b450',
+    +   'sync.d.ts': '55f520a3c816366a9dc51a649c1e781e9c417f05600d1cc2a7b9ff2b1975890c',
+    +   'sync.d.ts.map': 'b53f8b7f9839a81c95442f2b709841cacf7b078df62aa0b6879ca0e41d5c696c',
+    +   'sync.js': 'c1be72bdacd1bb99e95651ad3e8c69606d10701909236fc2af3f8cb55c8e7b29',
+    +   'sync.js.map': 'cfd361f32f5b2ce270b12d1befe1d4032763b952602a926d4510b26ecbba4fdc',
+    +   'throttle-signatures.d.ts': 'a87644dd3e7f7c1bd3e57a25f7b2b595259fd9b174ad6c7db6312818f2e295b7',
+    +   'throttle-signatures.d.ts.map': '2b36de85fcbdf2f449b0a6f9be0cb441b43684195beb982c3f1ea7986d8ce122',
+    +   'throttle-signatures.js': 'affae600bb0fd9e967127fe30504131924c9c0b47a7a6c6d6e6afad2dfe0e0b2',
+    +   'throttle-signatures.js.map': '19e89c90350947a4054af0400e8208ecb112c1156db0898c39be7c5e375387b0',
+    +   'tmux-name-migration.d.ts': 'ef2a4d13f024b3254ee673dc312c94c5e1572ea0c3e1fc5cf1e2eda4d6836a2b',
+    +   'tmux-name-migration.d.ts.map': '63be6511c5313ad5ed8c265170394455687325e8dd2a79f8c18738d44fca68dc',
+    +   'tmux-name-migration.js': '3e5486583130efdd65a190956aeb7441b2d7b20308eaa1fbe24eb3177d5847a6',
+    +   'tmux-name-migration.js.map': '6951dec7e22d8e9bd71e2d8cb7d2ef522b1fa4ae0bbb813f97cf67eb80f1428e',
+    +   'tmux.d.ts': 'fde4058614b1e02f25bca592e5505337893c44c94ff23f10eaf993a1ae6e2c4f',
+    +   'tmux.d.ts.map': 'c37f8a46c6b950aa6f475070be4da439665f39dd6b8538f42aa3cc28d3bc6cc6',
+    +   'tmux.js': 'e6a6d2ec0db672e59ff8c1f98168d13101651f1c64b39f1ed6eaabea3cde98c5',
+    +   'tmux.js.map': '1f924e5442d4b36cfc3cac2a1807c9c24ddfe3d92d4bb1e28e2e499b6708f71c',
+    +   'tunnel.d.ts': '33e69b66c2ce1a25d4461d1f5653b82427a595bf23b7cb7b60832c8f62969a60',
+    +   'tunnel.d.ts.map': '2cb766c379b9aba95d1043b1e92a8281e864ac75f2a9aff7838c14dec3151f6c',
+    +   'tunnel.js': '66df1134e21c0697ac5db3c148071b5d881dce078a97a8a41a004f04bff75d57',
+    +   'tunnel.js.map': '0769d2722bcdea69c5f494de783fb1a1ff47fed71dcec449c3db739fc503e4c0',
+    +   'workspace-merge.d.ts': '440b10d5bb271542a6da262dbceb0f3f1cb9e8b14539403489f5c461f15f5937',
+    +   'workspace-merge.d.ts.map': 'a6c69cce30433aa804a689d610e11256eab3c2c0f53dc9e335171849577222f8',
+    +   'workspace-merge.js': 'b58eb54c6d7154656490b0443443e53fb7fcb4748fa816d521dea25f506128b2',
+    +   'workspace-merge.js.map': '96c61a6268e60be1c66f112bde71817efe31084c891b321047ce7d0b3a5de526',
+    +   'workspace-sync-incremental.d.ts': '3dfd79d00096948ef4b2e02c46c7b9d772a0aafe6b1d93659c6682d0cf67fc03',
+    +   'workspace-sync-incremental.d.ts.map': '740157ba332b4216e4d1c36225ad61634bd87050160744edc12bcc4cd3fa1798',
+    +   'workspace-sync-incremental.js': '54e6748573d8a18e6f32c0ffe000216bf98a4a889ecff844b4cddab5adcf2915',
+    +   'workspace-sync-incremental.js.map': 'd1aa7215a01f985f0bbcb2f0df72d46261b1b545758d4ddd8ea541ff8d2dcb83',
+    +   'workspace-sync.d.ts': 'a8e4e18148f109398c593c7e3c1b2b7b539c415a695b196deced7464bc078e8e',
+    +   'workspace-sync.d.ts.map': '1e1ff90db72a72a5d6fed3b0f3c4849a5a59eca31d6a16dd4a6edf581cf55f02',
+    +   'workspace-sync.js': '3e2b1c6a9cf36c6b64a2778218655738a3425f86ed192ccdd174b3a645e50130',
+    +   'workspace-sync.js.map': 'c40731e65ccf8b4226d3a036e917946068a4f789a21e2c548b63b77666c66b01',
+    +   'workspace.d.ts': '79e7f1be69c095d61a77bb2d92a8aa9a1cca9745cd1589929c2df5840db3a842',
+    +   'workspace.d.ts.map': 'd05dceb408adca5d568b5c7b93fe32e5601c17cc66addbffb699dde69c4e0096',
+    +   'workspace.js': 'bc28ec8f9d1c1eb51fd827b070341735d8214549283b6c800ff1b20d252f4e1b',
+    +   'workspace.js.map': 'f28fe06d15b7a322ab9b1aeaa8b73b8237201b9f2b273be61533f4546d517ea7'
+    + }
+    - {}
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected:
+  actual:
+    agent-launch-args.d.ts: '60db83651b1f9cd4a15f60de2e05d254330e3fc81d922e3a9007577f0af936a5'
+    agent-launch-args.d.ts.map: 'a59a01eb9327379895d94658886f11112b6ff4eab639023bbb5abb6cc896eb24'
+    agent-launch-args.js: 'db75aa9ed1c461eb423b69937654156e9227c6ff1e50255036ae83bd408f0d47'
+    agent-launch-args.js.map: '2f88c41f5b1fddbab5e7533cc1b6fc9584c2cb9c932c62596b184f6b6bb205c9'
+    agents-projection.d.ts: '62fdd58a9c06e006dacd3dca9e29c93e8df10cb41dc3136319594884b1a7ddc6'
+    agents-projection.d.ts.map: '23619f157dbf289485a76d8c77841fb07e19937bf9ed4d4ec4a07cbf6e9a90ba'
+    agents-projection.js: '9ea86c328cc2a813d95d29b8cc2279405bdecff3d8b76920b5fca4c3c834f2ae'
+    agents-projection.js.map: '1565db6d7dd4ed78dc3ab6ab9d2049d6d0556981217cf848e850abd1ac67924b'
+    attach.d.ts: 'ede96089e61404eb03e4ed9793972ee751237e8b66c71e3be9c96a4d5dbb64a8'
+    attach.d.ts.map: '507ac91cdfd4918ce9192af39cd010294065945840cae1349d5bfa4fa4c4ec4c'
+    attach.js: 'a7d3ee16934c325bfaf9afeda1711b5dfdd74a53571829288506fd55a62ab8f6'
+    attach.js.map: '2ae21c694a1b820c09b4a7fcc5f56e4c5817f8c5c24444bef65817c5fb88931f'
+    auth-bundle.d.ts: '02555278769ffb4a628de13e64883554c985653391fbdbcace6a43af9bc2a3fd'
+    auth-bundle.d.ts.map: '09dd9c3d8e62f0a64552d87b9629e70c96bb8f9742adcbe7c1c4a3493b629c24'
+    auth-bundle.js: 'b0723a4f51bc46ae1705c4414cbaee14fd4493c3e5abb6f45339b6841c365c73'
+    auth-bundle.js.map: '9187a20576732268c233b44fd61f4be2ec962e99596d7eaea177867f17983f15'
+    auth-diagnostics.d.ts: '15f8405135652665e895f2b93a9e46a9575e357800d8c2bf8dc448474385060c'
+    auth-diagnostics.d.ts.map: '421ce6941d64ec3764b4165f3ae36d797fb9a66a0fa4a89094c28fa4eb2cc56d'
+    auth-diagnostics.js: 'a122297692335ac9e89a4d0580f1b32402431a6dedbffa6bcd1dd5989e081114'
+    auth-diagnostics.js.map: '95c414b83ec7306b29533ec5f3539ad85f3a0969ebee5ef2bcde4594147bd8f9'
+    auth-login.d.ts: 'ea2e3d79ffad836982138b366dbdb792d60e2ff463ad5db2a5fc3fd84f8102a6'
+    auth-login.d.ts.map: '437d50cff093dfd3872d5e602da4ef2f886fea98eef2a59e17c31dbf6fc799e6'
+    auth-login.js: 'e21bb77f31a75ae9feebaadb9ef9f3d5e39c0c460a2b2c47b5a66094fe40a7c9'
+    auth-login.js.map: '21499d61ca7eb8bfca18985edc98c028325f8c153cdfc058a6054abf6196d3fe'
+    auth-refresh.d.ts: '9d5903a59f19a725e5dda1f4f548a80d9781b240598201d61d8ec66557374a46'
+    auth-refresh.d.ts.map: '844c28bc0ab90a2e6b62f6008726fc7a58ca66fb750ce9e67a554f09864b983d'
+    auth-refresh.js: 'd632d729ab75781569f4ef6681f2009672adfecfb1f097ce5def62b1e526161c'
+    auth-refresh.js.map: 'b28e3f2c6569460e82eba1bbd51be2fc454b0a3ab3e6484a9df6ecada49d9c4e'
+    auth-tools.d.ts: '4149a82c7fc8b878ebcfe51c5cf2efa08361ea6e6fb07149eaee0b465becbc9e'
+    auth-tools.d.ts.map: '1107467a2665f22f5d32226124ce9f5929a8f04e2429982d21df7c64b5d39199'
+    auth-tools.js: '7dcfff056d77049ccbab0e2b429e76646d66e61cb2556b18e0dcde57e172bb74'
+    auth-tools.js.map: '171f1b3edf0b3b8c4b00f7ff7445677d65422ff1085d7c3ddcd424442e179d20'
+    browser-bridge-local.d.ts: 'b2d4421ac189a2db276895425c135100aab4c3442c400c80e3f9bfdf0da23df6'
+    browser-bridge-local.d.ts.map: '1a43e6a40766d1ff22b016a93fe887ffed92d5dff9a919466ba31a80ef4610eb'
+    browser-bridge-local.js: 'f77aaebe5e60dacd6135e12bfa892c1d8057403feea5dbaefd6a3aca9587f3f6'
+    browser-bridge-local.js.map: 'e3549d4868dd2102c6fb76d801cf32f2a2dd27767e54b03c2a54be97f547c90e'
+    browser.d.ts: 'f85fdf7d4a3cd68e23fd2cd4a8b978b8389a27df8a029dd7ba1223c5743d5541'
+    browser.d.ts.map: '0842c648009dadb801c352755660664284804acfc16c03976e45dfbee3bd841f'
+    browser.js: 'f74c711db9f6894cf55bef460ac7c2ffd592ad18aab5e1f0269b9772e2da3a90'
+    browser.js.map: 'a5bdf9456c1312ec546f6ec02cae03a6a4aa023b9a4c323eb6dc6e66984ecf48'
+    central-mcp.d.ts: '2c489fa1cc15b54e9432eb2dd5e11f264935c368937bda2f63db794e193a6a87'
+    central-mcp.d.ts.map: 'b955b22f9909509a2ae3f0b589af8ce94d3e84c2965c34d997be8f6a0389b2d3'
+    central-mcp.js: 'c77d48a3a84d49ed416e407ee1727d5e5cf111a029f0672f04179d54e27af063'
+    central-mcp.js.map: 'd9a41fa9afeb38dbb3ebe946e04f4d8393619871714d995e59d85f91b104a1b7'
+    cli-help-groups.d.ts: 'a9dbb461ac359a8ef9f5e3c217e8a3ced50b47e76174af6ae0de3baa032bdce6'
+    cli-help-groups.d.ts.map: '319036a7e236ff065f0e7fe23508fe08af639ff633a3af7f69dc24b7820380cb'
+    cli-help-groups.js: '0e40c425f5569fafd25737e99c390d0bc549edebe3d157b2b6316c79e7fb0363'
+    cli-help-groups.js.map: 'f27f83d5b80eae665ad6da3c67732ce1c412cff43dbed9a48db9fc51a408391f'
+    conductor-launch.d.ts: '62541aa732581ea76dbae08b18680213916d869bd66ea2c93e8842bfdb5c03dc'
+    conductor-launch.d.ts.map: '6fc12d6ffc96b4cec8a391b30a5763da54023fa943548030eca89c1d0e828159'
+    conductor-launch.js: '390eeb9c30b0b966d488ca97856577bd5e8ae71278e0b95f26d10601698dfac5'
+    conductor-launch.js.map: '34b2c367a2a06b3bb8595763b8ef7084dc243638d8e2c9aa8740705c08b0c85d'
+    config.d.ts: '038368e753b2cc212af4b2457ace167caa11b89ce3e5e779db9c9e8503ad4ff0'
+    config.d.ts.map: 'a4da336fcb65a1072cbc52d8a782f0e49171c33607886ee16168148bcc80d6ab'
+    config.js: '31c13a33d89f6a338e06677becad8693ee73693be629db0264803f7e9ec1cac4'
+    config.js.map: 'aa21fbee3bca8580b994c4c8c4d4d985854a90e6c77d17e8a3f4d6944483a22d'
+    conv-guard.d.ts: 'ec8695c2066c6c34fc5038e7a7351d65051703cd935afb5643e82ce0af349eb2'
+    conv-guard.d.ts.map: '1d10e70eefbae2000e6acbdbab2fc358fe26f239cc1155bd3202e2f9b7ac4e12'
+    conv-guard.js: '569e8449c676978103d1bebed247bb8d1e7736ff72a968fb90b9dc30f73d9fc0'
+    conv-guard.js.map: 'e6eaa49582185cd3910a2ac23a7463f11d316d9ed7cf478944b8acb3d3c293d8'
+    convsync.d.ts: '91f45d8747f25d2001759fb01b03c83caec0804f1e69b1986f4454f841952c01'
+    convsync.d.ts.map: 'd2a113c416782a0944bf3033ef7a3ed3b03f60c65a3657e3383672cd919775a4'
+    convsync.js: 'cb44085bd05db905c00c24723449d0451628175cc0be4abd0a8f2ad13f3069a3'
+    convsync.js.map: 'f91f39019dfb4e451c0c12c7d44507baa406f81509fbe4f471786f7588459657'
+    cred-health.d.ts: '4e75ba6b1d923a17068b6cdb55d6d99a14c68e309996441410d657c77f4dc7b0'
+    cred-health.d.ts.map: '59359c4f0200987f788796fed1787ef847e6e958ab0577928f35c8aa4ff7a396'
+    cred-health.js: 'fa0d7c31da23b90f083a086ae513ecb1f8d395c1f6f1097927bfc401757fcd3b'
+    cred-health.js.map: '5ea6ee0d0334a68aa1a62bd82cbadd88fbf79dbbbb1af2d7e4e3715b6b9bae5d'
+    delegate.d.ts: '32bb068b4c5f6343a531d2fbd66c169f16865d002c13d712e4e627c9bc92bcda'
+    delegate.d.ts.map: '00706aa05e2d27e5ff0e7a75f3574e9203323fbe15a8fcf81a3539b0ab0b0e0b'
+    delegate.js: '1999c080bf0e7001404c773b961551480ac54c3a8ba436429f991405cd230baf'
+    delegate.js.map: '0e99fbcd9d7c4a1134f699844afedf4d2eb38b7de606eb59953b39f114313ded'
+    enroll.d.ts: 'a795d0863c257c2e346420923035cf6f50e1585f8f5482e05646b7fec8ebeee0'
+    enroll.d.ts.map: 'b0f308cc393e21def8a52c19d1e274ef55fae9001b819d588818c79cc2356d8d'
+    enroll.js: '953e46b0cda4cc1959c6b5b6367b4a5361031b767aab5a506f2c5943eeeee6b9'
+    enroll.js.map: '36ba06e4e67ce507404ea4aaa9988e59ecd824a319919f1e4b9052cbeb294d51'
+    fanout.d.ts: '665dd9d71ac5723d3ecab53d83d19902916611872b847f8b3374cf71219a1b8d'
+    fanout.d.ts.map: '6e0b312a2d05259a5bff03ee7a21d00ab8b925e82ef9a1a100391a54dfd37d1b'
+    fanout.js: '7fef5cae112140bc47e3083636d530649acd3443c73253f24f5f0882c73d7f08'
+    fanout.js.map: 'edf24eef03723f9d52981deb282b45643188a4e1bdd2fda498d3ca40a07966a7'
+    file-lock.d.ts: '81825bbcf98845a5806bb13f8a3a32a9ee16bc15ecb09a603bea90b86a82d653'
+    file-lock.d.ts.map: 'b73534d18911d878f74fe3b4cc98bd10b55eccb9f07d45524e728fc1103b86c5'
+    file-lock.js: 'a4334cb960ed73d3b4b662d90e6d08c5ff5e322e440ab79e6d1b498d2ad771d9'
+    file-lock.js.map: 'a0eade9a1712ee12636570df63b941c23c11b72b6260ee7036e0f614119767ba'
+    forward.d.ts: '7bd4f0775f2634b071bfe4c14bb0e0171e59e3ef6443409331db72da33466e5a'
+    forward.d.ts.map: '08cb39b8ee74391a04162263f80489a2e8c73d06f95a3d1aa3e3abe06a78abce'
+    forward.js: '184352a35ff65f91f6410e73286c0e391cc99b1b6747489e5f3c3b2971d136e2'
+    forward.js.map: '8e2e0f4739d04ce69a31e512a1e1f83de398fbb4e6f266f78c292660b615d899'
+    gateway-host/config-file.d.ts: '8485fe5a22ee2c6898f121f1eb40cb8da95031c18b195adb1ecedb58dc1f2b0e'
+    gateway-host/config-file.d.ts.map: '8c80bb53ddbe1b9872a7b199eccc595ae59537f908d854f9b7ff9990c1d92323'
+    gateway-host/config-file.js: 'fabaa9245bd470ed09c1a8de8d17c753c5cc762e0f8d46616965521d2478a503'
+    gateway-host/config-file.js.map: 'e77586aca9caaa23c93478155846dacb2e39a95438eb76246883237105f28d71'
+    gateway-host/daemon.d.ts: '7b65d921b9dd9c3b594063beea798aa0d8d8f41f5befac62ca5caabe5a32c3d0'
+    gateway-host/daemon.d.ts.map: '4cec7f6a3dca18fb13d67197f1f25c972d92a2355ca7aa88016686ff262247e0'
+    gateway-host/daemon.js: 'f2d4559ead287e4195dda5f21d845cbd3a3d4353453a72603742b7be26d7e29c'
+    gateway-host/daemon.js.map: '69c5e7a028a67917af90ce9b440568dbb0c5d2064d524e96b7f4103a848e5477'
+    gateway-host/host.d.ts: '0a5a434a45c93e5e767fc45fc9c3f3ca683ff955959eff7968b2496c887baa68'
+    gateway-host/host.d.ts.map: '7e69abeb89730d08910515b475104cfef797a00dcebaac4516ee149e12dcc98e'
+    gateway-host/host.js: '0cee7e280799bdcb95ba264ebd2dd51da42f09007b7f4f1dd7fa34da7642077c'
+    gateway-host/host.js.map: 'ecd109b11423cb45178945a03902a42c5155468b7b2b0419bda7768557fe6f50'
+    gateway-host/ledger.d.ts: '51157cc284e55d164eb29f4bf9a31a89dbb96e236ba35ca3c246c04e0b4fd814'
+    gateway-host/ledger.d.ts.map: '269d15359746d3b00d551338afe8664a787f4bd677bb919a3f90be77515e932e'
+    gateway-host/ledger.js: '13024b954fcba6662ecdde66c86bd4223c46f910d098c3867deb1449f8aa4f0c'
+    gateway-host/ledger.js.map: 'f89524a6c3c6ecd3d3346af78fe56dfb22abce1ff9b49d3251948cbdc4a7c8bd'
+    gateway-host/sessions.d.ts: '3d56ac17b4bfe9d85c942120972cc82c7fb3b76591acd93bd3a5c55ed6219697'
+    gateway-host/sessions.d.ts.map: '331e5119d7c977bd8acfd386c5066b193690b4cb31d67df477860ee4d8e9b753'
+    gateway-host/sessions.js: '43aa865532db463f229c18cb919116e0ae04942be23cd7da28aa628d355e9f9f'
+    gateway-host/sessions.js.map: '746e2c69e380579b0647912fdce68fbee3e24002589ef05341063e3811958d71'
+    gitdiff.d.ts: '09649b611dcb84864f7ddcfc08ee381f6eb9ee4c3a036ecadca951ea41a64684'
+    gitdiff.d.ts.map: '8bf56d904ae5b8aeff751531e8575c823a8e2b4562db8c045b78bea921a79387'
+    gitdiff.js: 'd83bf45bd32ab519e70d4a9400b88e9b99881153b1ba3cddfb9e352c6efd925f'
+    gitdiff.js.map: 'd451d15b364f3270f55918ec37b83a18a8fefb63d620655577c7b9eba532c325'
+    h2a-bridge.d.ts: '3c496f8970d7ee2d3a4f41b0beddba103eb4e4a3601bbbc8995d92cd5dadbefe'
+    h2a-bridge.d.ts.map: 'c7838eb4142a6b6c5ff77c1a8ae8c46e3ad5094cfd0c1cc45701d46cabada873'
+    h2a-bridge.js: '2d1567fda650b987fd61f450787a9bb5b0ae4a4c366f7ad068573d24a2eecf6f'
+    h2a-bridge.js.map: '5710770638f4311f151bbec088867e34454216a9241ce44087c4f500cb4ff148'
+    h2a-jobs.d.ts: 'bfb3ee1bcdeb8e435073bdb225d36bd58a90a72ee8710bb0181cc9234d7caa0d'
+    h2a-jobs.d.ts.map: 'ce51236ba41518ee59d069d7cdbd50172175a7ecaacf22c8390f4135b9c79757'
+    h2a-jobs.js: '577e4fd2954e8707012fc934cd805cacbb24a5b71dd51c38c5755e4f36949aef'
+    h2a-jobs.js.map: '322c747285215830ab6c81e0ee3f4dac317d69dc107f69eb6cb8feee8fc124da'
+    h2a-ping.d.ts: 'a06f1a268c524f2a0e1130e99511471c759e98f1d771190e81a7b90626496f75'
+    h2a-ping.d.ts.map: '1e530d4eb60cd93ecffc5c28ea197c7acf30c481130082d8166064d85d1f2b02'
+    h2a-ping.js: '831013d74420c4001e79945dbd7c5bcdae316a68efaa0b7cae47f871e2844192'
+    h2a-ping.js.map: '232b8b54a350d8b58f7de12c71518615cac1584ac70087bcf34d1ba147f5dc29'
+    identity-cull/cull.d.ts: '2cde29c693fe0dc7c125fb7bce335b1799c047ff4cfe3c307ea888bebe6264b6'
+    identity-cull/cull.d.ts.map: '6c72c87cb7c843e2d08c5ae15086d02d9279cdb492f9f7b285a876e5d5132064'
+    identity-cull/cull.js: '1e9686fe303331a15790a71af4b669553831a9da7a90f78ad72be65f55595d2c'
+    identity-cull/cull.js.map: '207f6a7268cf8233cb32ce768167463a704faa837b24061fd95a3949d8d8fefa'
+    index.d.ts: '34a370f9a8c54f17d166ac708272616766482c7212c2c6236dbd8107e1a323de'
+    index.d.ts.map: 'f2ef033bf0a1b76c02949828d831d116c84990d2f8d210e1db9623ba329d02f9'
+    index.js: '1cdabc5dc4beb2faca5d1604e19cfdab0f7faebb54f7aa768fee89a59935adbb'
+    index.js.map: '1e6fefd2c6c8396cee00b53eb751da4479237f70493ed85225a22bf65d7f5335'
+    interactive-throttle.d.ts: '27c3bbaa79634a7d69a081c22be579e318df0fbab5b6f3f7b7181c92f36c5b82'
+    interactive-throttle.d.ts.map: '83a7c64280f631f9e91ae9294785eba9fdc3f168b0af5bd3b4ea2ae03a7ffff1'
+    interactive-throttle.js: 'd1b6d120e0ce5d8df244c80894ed885352abc3db9b70d2fdf23e3a282abb5011'
+    interactive-throttle.js.map: '89b8110a3ada9130ca8c5a6a747137fb0dc3016ae439b2d881c6ce9c21f69f61'
+    launch-context.d.ts: '57336919992aba51be2bce639f1ef86a1b055716970f8027e6cc71002a8985ba'
+    launch-context.d.ts.map: 'd7a0178a16c161690ea4e1db797129a400f81c0ea2cb75f37ca7f1a3a26438ef'
+    launch-context.js: '3b692ca2046361b7c3ec61ded67da7208a8d2a05eeb2c6aaff4cf38fdfad6233'
+    launch-context.js.map: 'ef9a0195ecaae1cfa1c758dc5d4c8826b273ef559ab5d06f83c0ad331b04db22'
+    launch-guard.d.ts: '0ebf412fde7581e5659a46c3d7a6e1b97312eca28e65da0b7c4eebbbce0191ab'
+    launch-guard.d.ts.map: '17405c253efdf700757baef0173756d23a536a8c8d5cb4d943ea6212dfd1befc'
+    launch-guard.js: '86418ff55b49fec17ce00bc74e3dc7631d43f5b5ec570de641a485655b1916dc'
+    launch-guard.js.map: '8739df01dc23f057988e25608623f7ed8670bd6498bb3a15593e4c212a0803e2'
+    launch-layout.d.ts: '0682523cb74b1a37f0c2527459e12f9c0287851895466e9d07f5790a82a00397'
+    launch-layout.d.ts.map: 'd341352f768fae4ceef27822a450e71448583360348c6adb0adddd2b9b1b794a'
+    launch-layout.js: 'b848580235a27954f556dcb0256c0f150b4b24a4dce8b7742cffe617f024edf8'
+    launch-layout.js.map: '96a4296f2af49d811ec82078c167e642545f4f7eae6409602d224a159ef6668f'
+    lineage-client.d.ts: 'db03bac2d594008d0e547465ac19db4441401fa9904d96d405b41d0b55b08051'
+    lineage-client.d.ts.map: '2beda35afd0a61840d7db99b0b232a32c7db7f78f1364d5d3c7f4389a4cbf0db'
+    lineage-client.js: '3fc93b6d4ade5c16a2723515516c7217b1dc2d6c6abec00c2df7a12fdc9f689c'
+    lineage-client.js.map: 'a41b290479acda3c97a8e5fba3ef0f1eb81de428bab57e598d887f15a46381c6'
+    lineage-lease.d.ts: '8a27954add4bfbc6cf44d844b048109f9fdb63887875e7d297689596ae87327e'
+    lineage-lease.d.ts.map: 'ddf3fce431de231714ef016e709a6e743edc2d0c526c95b4e051a2e0cd0e6360'
+    lineage-lease.js: '172caa1b83f4a3a51c91ec8f496664d477653dfeaa24662fd2b8bf0c82689149'
+    lineage-lease.js.map: 'be452bb5506b0fd55c2d78b8e1863421f3145fe8e26ca11721aaf5546d377424'
+    llm-mesh-accounts.d.ts: '71d88b608193d2bbe502b4a4ad8b3c09aed85202b6684c99ce98b542dca9501a'
+    llm-mesh-accounts.d.ts.map: '4f7dfdc8f8415bb00b0c23482a4db1b5581aeeb1ef2396147881d1dd133ee5f4'
+    llm-mesh-accounts.js: '5d507fe2c5f08dee936df1112c7efd80d62790e227cdeb38083dc378b8cdea7f'
+    llm-mesh-accounts.js.map: 'b6a081c6d7234f1585ecb7346cca9e184994ba03887d9132ada427f755032b4d'
+    migrate-candidates.d.ts: '2eafc5d884799019239c6a7c0c917448b968cc5816ebd363cd154d256608cad9'
+    migrate-candidates.d.ts.map: '674768014671e9840f79a4bd960bc3812e8aa4e368a2203c36e58280cb89fa45'
+    migrate-candidates.js: 'fc4a306dc8482bc19ecc760001a5154a0fd90979fd8767f97d95a5b9641ad046'
+    migrate-candidates.js.map: '2a941cc68bc20c7f753824fc06cc86dec9edcc4909f7584d69744ba604e1cfec'
+    migrate.d.ts: 'e16528c2fc6957dfce2dfedfcaeb94c469966bf1e6ba2f3f8d6769baec53cd48'
+    migrate.d.ts.map: '91e88b9c6cffc1f3b60182632bef2de17feeadfadf39bd5e946c3545e37e0995'
+    migrate.js: '04297b1627ec2ebe80db024bad8e80b2c13938f7e2a18782517ab3fe2ae56fed'
+    migrate.js.map: 'ddf9dce537ad4a1f641db6d3f3974f22fd55db72c45f4128509c7a4242330c08'
+    native-host.d.ts: '212421caf3370d911de0453283d9ea1b0eef9e7e715d6b60c912dc50ceed1acc'
+    native-host.d.ts.map: 'aa3bf6948ae49b4d48cde67f39b00bc2a15bf8aa2e17ef2491d9706f2d521610'
+    native-host.js: '91ea3d984755a64e4737dbb9905cd6bdc37ae61c3a927335fc302c70c20deb24'
+    native-host.js.map: 'e7df45a9481690edda11dabea6e73f5e356b322a3afcf74c20bad2f957433694'
+    native-restart.d.ts: '74199df1221d03607c99372455a4aa8c04aed752dfdbd10f7f0a6ababcd53d1d'
+    native-restart.d.ts.map: '4f50a140e3bc8cad7cba6fc72d405d07a64eefe96911ba9b45e7b86aab6a376e'
+    native-restart.js: 'c818c9090c467a87f1aaee28c7054728c9fd3e6292c5da578a76854f7d51e078'
+    native-restart.js.map: '95ef4d22cacb79ed23b56f2e3723ae5f463a3800229144b4714d51ab1626a036'
+    native-terminal/attach-recovery.d.ts: '04f0ae6cc7fa11bba2ef9b7dde40e097724c92b42ff06ec18eb087f65a32a019'
+    native-terminal/attach-recovery.d.ts.map: 'cbdfad60b4e810fcf3cba11f8b71e915fa681f4735276e78bdf165bd2b92c0b3'
+    native-terminal/attach-recovery.js: 'fcb1db959107f8284913f9478f0492985281c71fa68d125eca5e6b9d49a68060'
+    native-terminal/attach-recovery.js.map: 'baafe82797517f25332a3699b63be064bfdd24819054c6655914c8e369f6648e'
+    native-terminal/client.d.ts: '81bd0cd95fa89acfe8eb8929843ff42bc44e4c20c43d03acc2e6764046e3530d'
+    native-terminal/client.d.ts.map: '041c3f6f7ea1e43916d32a832070f871d21672c4f8fb0bfd2b889a10503b791b'
+    native-terminal/client.js: '330459453585222434fafb587f85a819ee9cb7f5ade57959e73f2d97da03abdc'
+    native-terminal/client.js.map: '23bfb24d878e58d1a3ca1388110b3aa7419c2f777cfe36bdfe28bca406728de9'
+    native-terminal/crash-safe-log.d.ts: '37c2a7b30377382bb95036328522acb1595426d89033d250a8931a854ea5da11'
+    native-terminal/crash-safe-log.d.ts.map: 'fecbc5e441fd0f76b5ef03ebf2443a01ed414bc9d44ed47f3806c24d66160766'
+    native-terminal/crash-safe-log.js: '034b2e69d19efaf9215c8bffeec5127e3cac2ac05decc037e0604ab5526078ca'
+    native-terminal/crash-safe-log.js.map: 'e12e138ee55c9d08337256d7140bc9423be9a8ad36345d57f41a32c6cc984e1f'
+    native-terminal/fault-counters.d.ts: '602070e10182541858d6805a47b7d0d5d023c4f33344283d72ef6c4e96d527b2'
+    native-terminal/fault-counters.d.ts.map: '25c0bf8602b8bec72e5519fab694c93fa592f3a08bb6f09f8261557926986ab7'
+    native-terminal/fault-counters.js: 'a9d2d64e771da91e9c10d78108eaa747e524bd08183016698180f945726641b4'
+    native-terminal/fault-counters.js.map: '33fbcc4a9702123c11086b6be94c2f6ee1bc8662bc6011fe6b1409e11f6c6568'
+    native-terminal/fleet.d.ts: 'c7956edbd015eaa88dc5d26507a084d6cfc68c7b1a32ea5768c987e8c21a747f'
+    native-terminal/fleet.d.ts.map: '255bcf8b8e6845c4af118a308d55981458fdaae0ba961b7aaf8c038303fca25d'
+    native-terminal/fleet.js: '8fa3d16428c6ce3f47c8f7c640da7e527b34fda031bc5ed0476a89436a06ca82'
+    native-terminal/fleet.js.map: 'b13f4a5db383a829a0dc1a9b238e81d82019f6fbd912b780b73644c84f0d5a0f'
+    native-terminal/host.d.ts: '7be9e7f984b40eed2073048ea65bea9e8888127ca7bfd2b67afa459ba9b52764'
+    native-terminal/host.d.ts.map: '7e821e1d092f1253987724db5f81d2622c477fc2514930e3d488ba435f417d71'
+    native-terminal/host.js: '83d2912a007d9dd97d62ef5565eef32e12b187b66129857218217f29ef4635df'
+    native-terminal/host.js.map: '01728c16c3e4d1f61ca8e2e7f796debfcafeebcc90b8a1f942bad40bce5f773b'
+    native-terminal/journal.d.ts: '93c6b25695d2ce705cbcc33c01250878433d6955ab4d314d4c751d7e9ed8c22d'
+    native-terminal/journal.d.ts.map: '1dacc778e9c7575f180a119de0325c43f5f5ec2b778bfec3bb2a4ab48caf3f11'
+    native-terminal/journal.js: 'f7af111f70bcbf67ede734dd0237ae27d2721ea683f4638aa348979394ce5405'
+    native-terminal/journal.js.map: '6209dca5e9cda41e1bc80cab81fa6fb4771872d36c19441cf9fae167a2e9cdb0'
+    native-terminal/op.d.ts: 'b8247a7a141fc21501d2c1c3618a1cb7bf1a50a1f0c914e739ca2df586cba0ea'
+    native-terminal/op.d.ts.map: 'b1a4c21f259d5c26056d6bc913d62c6b6c463f157c5614866df941b3a9efe2bb'
+    native-terminal/op.js: 'e0f4efc4318ef16d5b7e4dbe7f6ffa16aff131eb5faf8d0beb6587cd30e10069'
+    native-terminal/op.js.map: '92a4e00d23afb8e2e0b963297def04dccc9eed0e7d02a8b3a5778b5fb92d344f'
+    native-terminal/process.d.ts: 'a4025b1dd23a666e010670eced259f6ff36bf1c432b2d6c00fe5c783143727bb'
+    native-terminal/process.d.ts.map: '07c44da36250eb3deb0caa6a650a5ddfe3dd34050f26794b0989aa4487eee210'
+    native-terminal/process.js: '328df5a1668cba5eaf1fece00ef70721a2c51d3038e19c825f0196a4b16963bc'
+    native-terminal/process.js.map: '253150c5f64e3aa83c3e241b9dfa852b3671df6ebf3c698d87c28f95c4883023'
+    native-terminal/protocol.d.ts: 'fd98a3c75fca2c9c9280c451d33b427943b4e3c531a1c3ebf5e677dd3bae1899'
+    native-terminal/protocol.d.ts.map: '6fd5d0c1a2daff1b7e3fa342ce22a12fd7ff89ca9468487c22d941c56dd9d23b'
+    native-terminal/protocol.js: '203bb85950baa3166dd7f8f101cd9eb49f73267fcd28c56b3e9c25a32af82a66'
+    native-terminal/protocol.js.map: '8f9dfb6aae15e2d369d2e30d083f6a06eabf648627fbc46a0fcec74c47ad8ab4'
+    native-terminal/publication-refusal.d.ts: 'f1be8db0217fee6b496c77925135e432ab7b40d21465c94ef8313d818b031197'
+    native-terminal/publication-refusal.d.ts.map: '1fbfcb4f642d4ea3d423720a0d4a6a9a494e5b8793146f7c60db3b077d20a3c2'
+    native-terminal/publication-refusal.js: 'da9afdcbdb930eb3fff439f270c39f10d5f09a5f8c40f01c3c3c5ecfcc566557'
+    native-terminal/publication-refusal.js.map: '583666009977a7650f84c1125b6145d7085b293470bbb65ab31b5718f2f26d68'
+    native-terminal/replay-buffer.d.ts: '8ec8e57462b85a6c9e1aea2d69b9b06b07ecff58f7474045d344309e80665786'
+    native-terminal/replay-buffer.d.ts.map: '9324d484c80c13fb2293666e104b4276c52a04e764d2562f419e90b127db6bba'
+    native-terminal/replay-buffer.js: '4e188d46360b3db6167d087e240079e107d2e2605c5d50f8081b27e473a659c3'
+    native-terminal/replay-buffer.js.map: 'ebde547eee8a8becdb3d26c7baa0e6c110671868287b94a0ba4b92b40145fd4b'
+    native-terminal/reset-relay.d.ts: 'e3250b68203815981c140f4b462077a035377e959fdba67565cfd7cacb1e03ca'
+    native-terminal/reset-relay.d.ts.map: '641b286d0b2aa8b3269c7c7ce8d30c57f0afaac68eea725f739b9141dac6e4bf'
+    native-terminal/reset-relay.js: '2afa542b926dfd1615202a5654b57afc52fa5f668a6ccdf21ca2e1d981959efe'
+    native-terminal/reset-relay.js.map: '6c497fd8f26a69a1d4bf2ce205ca7e9e2d6feadc0d4493298d7abedd03b9328a'
+    native-terminal/screen.d.ts: '77cae3f09f4cbd96cba0ec63b044311f0fbf9edb26e9ff042b46ece7ad3ad1a8'
+    native-terminal/screen.d.ts.map: '41f613d2f5d7f405923d42dc1a5d576bd4bc79b82aeadae85f391d258af5c930'
+    native-terminal/screen.js: 'af720467834f0085763cd796896c05da16242ccbaab7fba024f25c1b48170947'
+    native-terminal/screen.js.map: 'ef12e4bf287a406028b5c3233f0268cee7ea724e31c55a7b03e6c94db2f89263'
+    native-terminal/server.d.ts: 'f740d30bf91560ee9895f11db6102f893722fbb007192cc54f0f2ae940ed13e0'
+    native-terminal/server.d.ts.map: '74efc11201b17a8d11540ec4cfedcc1ee733a4166df0158032776bf75db0685c'
+    native-terminal/server.js: '1a1d48845ec83be25911d07f3b24928be0e234470c6449fce082dfee2d4b616e'
+    native-terminal/server.js.map: 'feecf50eea39da72feb4fe274fa4aa3ff37903c343b1c02f0dcc3c1e33b9e3b8'
+    native-terminal/socket-path.d.ts: '413671f81780c1aed27d5f356182d667163dfa0dd216274d6187cb44635888f5'
+    native-terminal/socket-path.d.ts.map: '53d9255839de7e6f8302a2b3b225d33b457e6889dddb63e9b8bd0069f0ae4fc1'
+    native-terminal/socket-path.js: '4b6e5ceb4e9d73f48cf1ea63697fbb9daaaba25782bf51e09bcea69fe20a33a5'
+    native-terminal/socket-path.js.map: '3d2214d9e419944e0df64997e5d85b3b7f11e65ebd5f7e27a18b6122d15825f7'
+    native-terminal/supervisor.d.ts: '86ee7f2d71f4c4dde2a54bb93d1cdb07abacdde820304f9f2623c6b05bf69eab'
+    native-terminal/supervisor.d.ts.map: '3b3b840a104479a9a61ff3c3870ad9867d43d6249eb1b049f436a90c98dfabf9'
+    native-terminal/supervisor.js: '778a7f6a7a49d557ef0f37728e3898ccf1fe76891962ac1cbc081304f9663340'
+    native-terminal/supervisor.js.map: '46d22665378ca7cc93f066c9e2c057eb79342d4688916366dc56eccfffe26430'
+    native-terminal/terminal-modes.d.ts: 'c02c25f16c712dc917fd4c60064628949190d4b728ed6264a8b3b0354b7e65f3'
+    native-terminal/terminal-modes.d.ts.map: '0cc746afea112987f71a7263f8d147e6b80b43e693439cf56195c81401b5f572'
+    native-terminal/terminal-modes.js: 'f2ad38ed832cd9405a64892f0bed8a0d8ba985059b0fe5de80207f8b5600c7bc'
+    native-terminal/terminal-modes.js.map: '7a3e4d99311d1a50c59727f5e7eff8a3e50d12d269fa5ac36f1c21899eb9a2a0'
+    plugin-manifest.d.ts: '96915cd0783018aab6df6bb2a745cf3b54611e84155ad0b8bfb16e9646c0f880'
+    plugin-manifest.d.ts.map: '823cbfaaa85a6c6b9935127393bcbec6625cd16fd981d7e14216c498ac3ee974'
+    plugin-manifest.js: 'd1edb7d4fbf395c6f530777c69d5dbe7887187badeab52551775d5fcdc1c3fe9'
+    plugin-manifest.js.map: 'acdb929b24eedc097c3a8757f9cab69c31cbe1b014d10781a6c0036e651b472a'
+    plugin.d.ts: '6205807577cf0990450f73afbd398ad349e136ae625b4144997b948a869e30fc'
+    plugin.d.ts.map: 'f20d70cc7c63a1f89a234f6c0341c792968e7d07ca3cecc4de79f7cdf839a1b2'
+    plugin.js: '4c48fcae6a38bddd331288d388f7032a5ba5c747a50d8c92f88909a85ca47ff5'
+    plugin.js.map: '70a6e0079be77dc637793b0ba59781697e0259dbea644f04841dacaf3c2962d0'
+    pod-liveness.d.ts: '150676ed918aefd0ed35134352a92bf80121d43035b63596f5a47599647aa51a'
+    pod-liveness.d.ts.map: 'b65ff20d884d43d6443a2fcbbb874a691102cf48e75486cd067e6a3ebc66ed74'
+    pod-liveness.js: 'd76434ad8fc5a69adf4383278604c49179e0269bb76f5cd13128a99a587082e1'
+    pod-liveness.js.map: '0b00e89cd7c8e5598814bb3c1c45828f7e68e11c0102fc42d86fb88be7589fb3'
+    proc-cpu.d.ts: '05b0b73f1c6cd8016a801aba111df0a9ac97039e79e405f50921ad027f535363'
+    proc-cpu.d.ts.map: 'b324ff0005b548253324401cdbccefe3c053bfe1d5ca0becdf934a44389d3420'
+    proc-cpu.js: '536b2ff1949588ba0dcd45f158672fb47328501d1cd3d7cb288f52b2ad022b06'
+    proc-cpu.js.map: 'c71834fefeed987e07d951cfad95abd22b5508739f75d3b3ff195888d3d74aef'
+    proc-identity.d.ts: 'd8789b2fd7f8455d3516ac6a990b9e80e0ff47848e3c528e84dbda6f3ba08fbf'
+    proc-identity.d.ts.map: 'ce37b9611fa9127f9ffcfa4086dc9b4198b25da734b37837c7bb2e32b8c7c677'
+    proc-identity.js: 'e44f163a1247413a3c4e089adf317770bcb0bfe009d73b736fa2d59bc1608245'
+    proc-identity.js.map: 'f8c30cf253c4e9d91bff0be911b626e2b8483d154698a1d15f9807a49006f785'
+    profile-menu.d.ts: '5fde00d26027cf09a5c7a374f79c6425b3776db5ebe5e7cb9877ae767004814d'
+    profile-menu.d.ts.map: '00bc0fb6b2bd5f9077d0c5f0fa4a4b596b6586f256ef938e480631b246556665'
+    profile-menu.js: 'e7d0bb593e4a0a32fa239c7bad0ad85f4c10416399dd86b8187cc7e7ce8dac46'
+    profile-menu.js.map: '3561790a8fa6d74df536ec250b0ca09b3b7ce777d8348a1f2ec68eecc4d0b4d0'
+    profiles.d.ts: '8b86bac622cbfd214e9d68bbe4cb2075ee7d89addd08ef729100d4a59224b286'
+    profiles.d.ts.map: '32ff2e6a784caa63701bd32c237c0994671795039f03ad20d905132f62bec315'
+    profiles.js: '58c9696746b955811482d73e1451ad01e85ca4686809215075fde41bfe3229a5'
+    profiles.js.map: '7dc71e9225bd37ba1d3820e91532543d6c44d92257325e27190eec564268900a'
+    prompt-delivery.d.ts: 'b5f6dd7b5878a7e63abf3f01d5b20c2ae8d29f7eb101222f04366f669123b46e'
+    prompt-delivery.d.ts.map: 'f78775026633686a91299faa13ecd20be1f9e92af48cd3aa260f9bdd978f399a'
+    prompt-delivery.js: '48638dff724fc8833b1120f965dee9e4619806fc8dcb5b16d80cc740daf0dcc0'
+    prompt-delivery.js.map: '4076255ac3cb2c42623a65c2974bc0b4a7324f8af3a4f8005849ed233f78ee2d'
+    protocol-local.d.ts: '386a84373ae44f9ac7b7e52b7a66d891d543846d7def08afd21bf886b18b3676'
+    protocol-local.d.ts.map: '369b5f86c45cd62d445095f1786edfc3f58a742a17b551d6044f8ec9bf35925d'
+    protocol-local.js: '009b9adc6ea686b96e705fa4ae74825e0c1c12eeabad337634ff5e8cd41ee0d7'
+    protocol-local.js.map: '5c8728a69d317b57a499435b4553d555a0f0b8e4e740acbfceb63369a731c6f7'
+    pty.d.ts: '3338c5280a9c9435fc3d67e480d770e2f2ee3c8c9311f61c8be55e174a70e56c'
+    pty.d.ts.map: '68eb8a067f85338ba50e205371e4ca4cd859b8c42705f870d22716a9512d5f18'
+    pty.js: '5261695c69c3a7a9f9749360ad83fef874ea292431c75e6de060a9f7b342eb1e'
+    pty.js.map: '12aebb75b4e59b301930114237d5aaf55f3d211ef4a2974bf7d87fc58fd283f3'
+    readiness.d.ts: '0e9f625d3ee7c2565f4d6f2d3e862ed7cc7e3045beb97e521f60c51f4d96f639'
+    readiness.d.ts.map: '3891f02ad47537537bb82bbc2f3790e7172c4ce69a3d296fe3ffb35293855599'
+    readiness.js: '6b36be1f7b6ab97867a9e92e5424bfb32b63207d89b1f8c558ccdfaa0556b9b8'
+    readiness.js.map: '040f933c500f402d6e3905773d3b586f502005ac76b6d329ef412aba4a7158d6'
+    registry.d.ts: 'c0a64163236fadb0d0d389c5497e641ff5b1548260b24cc304eecb20a11fd78b'
+    registry.d.ts.map: '5276f692b9e01afbba5b291eedc28e405645388eae96935600a9f38e750a6f75'
+    registry.js: '7d88950f590f3bc87af79842d8ead960bf4867f9191282aa2dbd0d33991bb5ae'
+    registry.js.map: '5de2905a409ac992a7c4b602cd5d94f79e064d9989428baafd6948f0888f7cb6'
+    relaunch.d.ts: '8546ecf88fb93db54de3db907f7822e5360dc77e6c9f74343406dca2848a3b54'
+    relaunch.d.ts.map: '5fdcb381a20d8b2f81350ce3150a0c39ed824d8e15189fd53007d471172a1030'
+    relaunch.js: '03e5d56c2b06d18ee50f3a2fce808cb5d4b75660167c8a3ae2469f1dad5de795'
+    relaunch.js.map: 'ee6760d1aed7383edd68293c113b1b3c50e27584d941f5ce9fb0f683f9696786'
+    restore.d.ts: '1382ad85ceee98bed495bd7f7318ab0d4553f8ef3600371e4847515df107a2f5'
+    restore.d.ts.map: '31e63a178d97bdb30c00062a9878a0521ea352543fed0287a5ae2931f2c8cd2c'
+    restore.js: '1b010b853efe58bf646ecc774f57b465ada31678563650c7edda35e6bfcbba59'
+    restore.js.map: 'c810235f801148648a720d6ef14a0620d3c792e30854fa6e8fd26acb6b842674'
+    resume-launch-options.d.ts: '3773514042d26479dcd65768a60c641ef9fdb218499131b357dd7a694c04ba92'
+    resume-launch-options.d.ts.map: '968ce94b3603287e99ba6bfad0573ffcdf6dd7b3f91156afa4da7e3be02aee93'
+    resume-launch-options.js: '86348a005c41df3f4b854d1aa5d2bf9ad764d557c31a3b6abf37c86e89e0ca0f'
+    resume-launch-options.js.map: '8ca0a5f4a9fb9da9eb6eb18fcda255ce3d3b3f384eddad1602715726fbc9e2ff'
+    routing-preferences.d.ts: 'f9c2ba40207a661f7484bb7f8f1f187ae986f4d9323b9bfe2c8952529ee808e5'
+    routing-preferences.d.ts.map: '1871e69c27de3727a5673fe09d4a379ae4427597a52234efcae6542853bc61c3'
+    routing-preferences.js: '37d40dc1293f899862461efb675f3b2ddead16ed0ab3b1b1aa369553658f2aca'
+    routing-preferences.js.map: '568070833f8b7361d3a07a37ec35f439bd20ae80c5b7e044f10489efd7520d32'
+    run.d.ts: '5cd307cc1f4122d55a9eb6e841a03e4863826857cc7ab86906363380bf308d2a'
+    run.d.ts.map: '8b608269cd881c7c27b7ea2e35f418f4e4f7b63a162665677b7a5df643ab5943'
+    run.js: 'f0fbad534f4c74d7aef365943725a2f891ae7c2f0bd0120cb6e0873a7bc1bd43'
+    run.js.map: 'e6745b889a35ed10eaafae7c706a057d85bb27052a1c5d65f93e53084453a6c8'
+    secrets.d.ts: '1f03a55b88ca19ce58c07e71c4452d34357ffcffe403d2a5785f22192d143ee6'
+    secrets.d.ts.map: 'dceac07b13e700ce5fef2ee9acf2ab5adb5463c19282f03cd93daaa1368f65b4'
+    secrets.js: '11ac967906d46f1aa2ac9270f438fad0114693251b56d8791bc8b99bed371bca'
+    secrets.js.map: '1d7aa7035e75aaf03c7cd18daf1c326648f17f6439d334d4a4d31dded49e936b'
+    sentropic/auth-token.d.ts: '1e618a0b5e09b72aab9a36c58f58d3d4677255df2831b7d40f5c9f8671698960'
+    sentropic/auth-token.d.ts.map: '4d3ca585e44048564ed6f47e461cbc151246bd8056df9f74f32c7e2bc6858285'
+    sentropic/auth-token.js: '3f5ad071e70c5455470b58f40a5c920146ba3f5d1a1408c33506f5af232646cd'
+    sentropic/auth-token.js.map: 'bd271f9888eb901e14fe15d8e7d1b63b17a6905a41feac09e059eb624a306f30'
+    sentropic/bind-decision.d.ts: '456aed877e4eddf506954d1462ae7fac1ac7ec01721d06b81cb1b90f1a734048'
+    sentropic/bind-decision.d.ts.map: '0833a945a638b823a18ea5b7e4d0de3f6e5f2c443540cf281cd7098716cb51dd'
+    sentropic/bind-decision.js: 'a443a0aaced9b3f1516d6faf7909b70747cbf4a19f52ae28d581189eb0cfe0a3'
+    sentropic/bind-decision.js.map: '468ec3c41d80f72fa2775aae03fff427325e905c1a94cac210aa54f724785dfb'
+    sentropic/enroll-flow.d.ts: 'd1be45257c6fbebf9cee52a8fe3f139b60208820ed161892bd2a46d4c799535b'
+    sentropic/enroll-flow.d.ts.map: 'e923bb515aa179c0b794295bf7e0e80fde5a0b3e9926446db9faee4bdb5f5e57'
+    sentropic/enroll-flow.js: '60d0581f94511e60089663d0c684e65eb04ebe9b5e29f87adf70522e92020040'
+    sentropic/enroll-flow.js.map: '74af74ad84b5c8a0757218020c2cb8e55fca460df88252fa4a8f97f338e31e25'
+    session-class.d.ts: '3badbbb624507c99ec0a3b2cb859d7e6f6bc668565e5b865789fb317d2bbf398'
+    session-class.d.ts.map: '9f15f64d5390f48083596c449eb68d2c4192567f9abe396e343dfc5fc448eee1'
+    session-class.js: '3801aeed5dd7d74f525ea2093ae6692523e52d0b687339e7b57832ddaf9721f5'
+    session-class.js.map: '0af7d3eaea3da652771284c0f81d408bc2f2522ed46f3ff85d58238ff9df86b7'
+    session-lease.d.ts: '9b1f44ec00a92feead4c38cc548f119b69a2a2456eeff25f11a4234a0e257719'
+    session-lease.d.ts.map: 'a52e6e5c3f6592b1d8c002cbb82bd75e4e9d04be9f056e7bcc6c780b0430006f'
+    session-lease.js: '526866a023a3a74c3271766ddbd8c98dce5244e77506a915863a2358be8d82a1'
+    session-lease.js.map: '5c7b68df2be9a32cd2f19543b766a1b5a97687243e86dcc32d5ccff196a3aea9'
+    session-restore.d.ts: 'd6a8ccdbd39afb9b391cf1a7e9cde3bcfb3d625f1eb1d24e3d506ce0d5d303a0'
+    session-restore.d.ts.map: 'dba3c0cc503a755fdbc6174c30b2222fedba64f76fbfcde71a299ef7c5d2305f'
+    session-restore.js: '8ce8f45f3152ab1a31380e5cb9edfc1ef571cd1ee4f63616e5d3580ae56fae4c'
+    session-restore.js.map: 'ba165f73b110ae86894bbffcce6f46e85c7ce86fb9b32e5c5bc646f398fbcec5'
+    skills-sync.d.ts: 'e325934963b439c52b6ccbd8a4330d4368866ead5fb16fad6885ff5ac10493a6'
+    skills-sync.d.ts.map: '9e4b100a0d0bb40176c8059a441ced9bc00bf95d12912566846026935005737c'
+    skills-sync.js: '71d2149a8fab81b6a3b7766dd0b82ad49e9d65c881b0c7e02d10416fbef094f3'
+    skills-sync.js.map: 'dfe75d958651f66c64878d2976e7db46cd9b1fd9cd92497ffa7432b4bf325d1b'
+    smoke.d.ts: '0ac0893523cb428345ce6699a8c71273340cdac089f6799654eac88b67fe5108'
+    smoke.d.ts.map: '7fe1dc7ce5cf48b7aab758f6412060b2e1b14957c31e7fb1abfd963771d022c9'
+    smoke.js: '1966834dd3e35147c517f044352512142415f39f14a9fdfa627fd31ffbc73843'
+    smoke.js.map: 'c098e7988020e5372be5e3efd842a1207b9370bca3cf958bdd7c5f1bc7092333'
+    soft-refresh.d.ts: '79bc6a76ba0962618dbb8fe4153bd53d615ea87f31a21c55384799fc3d3c6106'
+    soft-refresh.d.ts.map: 'c97efd2150896fbbf6733c6be5202df2e6a8648f725dbc33aa4fd7cf5d30d65d'
+    soft-refresh.js: '50ad5d41160075812bc7a46385af9baca3c29faef9d01539eca39859e87f2adc'
+    soft-refresh.js.map: 'eaaca6752c599fece88af7241d5c49f99d2bcc517be7822fab2016b659dc4151'
+    status-projection.d.ts: 'e17ecd3a64bf99beb85e60de2f65f875753266ae423249f3470b91a318b75b38'
+    status-projection.d.ts.map: 'b69427bf5717c09c5633d7624b21d92fcf6336d071dcd29f0fd86633e7a0e50e'
+    status-projection.js: '683e776e00202bb4b71e30f38980afa7e3c43e859d53955c64d03c8e9e9c61ab'
+    status-projection.js.map: '43b3f80c945abf87aa7f774b97a4863311624f8c70d99b8027c9dd595055dca0'
+    sync-status.d.ts: '5ec373fe697ebc8131a60508e5885ef5ec7d050445e07054fe993e3dd2526017'
+    sync-status.d.ts.map: 'e70b0b6725d50b8df1574d37f05c2d1e10e49ba5e8af282f9b860f309ab2572e'
+    sync-status.js: 'f61fc4711e04e98ab0549dab77a754d04690f6872bc9b9a116bf05d26ac23e2f'
+    sync-status.js.map: '4ad340bdfa40de9957c0cbf1a0aa6f038b5187f148f58c8049f40db578b8b450'
+    sync.d.ts: '55f520a3c816366a9dc51a649c1e781e9c417f05600d1cc2a7b9ff2b1975890c'
+    sync.d.ts.map: 'b53f8b7f9839a81c95442f2b709841cacf7b078df62aa0b6879ca0e41d5c696c'
+    sync.js: 'c1be72bdacd1bb99e95651ad3e8c69606d10701909236fc2af3f8cb55c8e7b29'
+    sync.js.map: 'cfd361f32f5b2ce270b12d1befe1d4032763b952602a926d4510b26ecbba4fdc'
+    throttle-signatures.d.ts: 'a87644dd3e7f7c1bd3e57a25f7b2b595259fd9b174ad6c7db6312818f2e295b7'
+    throttle-signatures.d.ts.map: '2b36de85fcbdf2f449b0a6f9be0cb441b43684195beb982c3f1ea7986d8ce122'
+    throttle-signatures.js: 'affae600bb0fd9e967127fe30504131924c9c0b47a7a6c6d6e6afad2dfe0e0b2'
+    throttle-signatures.js.map: '19e89c90350947a4054af0400e8208ecb112c1156db0898c39be7c5e375387b0'
+    tmux-name-migration.d.ts: 'ef2a4d13f024b3254ee673dc312c94c5e1572ea0c3e1fc5cf1e2eda4d6836a2b'
+    tmux-name-migration.d.ts.map: '63be6511c5313ad5ed8c265170394455687325e8dd2a79f8c18738d44fca68dc'
+    tmux-name-migration.js: '3e5486583130efdd65a190956aeb7441b2d7b20308eaa1fbe24eb3177d5847a6'
+    tmux-name-migration.js.map: '6951dec7e22d8e9bd71e2d8cb7d2ef522b1fa4ae0bbb813f97cf67eb80f1428e'
+    tmux.d.ts: 'fde4058614b1e02f25bca592e5505337893c44c94ff23f10eaf993a1ae6e2c4f'
+    tmux.d.ts.map: 'c37f8a46c6b950aa6f475070be4da439665f39dd6b8538f42aa3cc28d3bc6cc6'
+    tmux.js: 'e6a6d2ec0db672e59ff8c1f98168d13101651f1c64b39f1ed6eaabea3cde98c5'
+    tmux.js.map: '1f924e5442d4b36cfc3cac2a1807c9c24ddfe3d92d4bb1e28e2e499b6708f71c'
+    tunnel.d.ts: '33e69b66c2ce1a25d4461d1f5653b82427a595bf23b7cb7b60832c8f62969a60'
+    tunnel.d.ts.map: '2cb766c379b9aba95d1043b1e92a8281e864ac75f2a9aff7838c14dec3151f6c'
+    tunnel.js: '66df1134e21c0697ac5db3c148071b5d881dce078a97a8a41a004f04bff75d57'
+    tunnel.js.map: '0769d2722bcdea69c5f494de783fb1a1ff47fed71dcec449c3db739fc503e4c0'
+    workspace-merge.d.ts: '440b10d5bb271542a6da262dbceb0f3f1cb9e8b14539403489f5c461f15f5937'
+    workspace-merge.d.ts.map: 'a6c69cce30433aa804a689d610e11256eab3c2c0f53dc9e335171849577222f8'
+    workspace-merge.js: 'b58eb54c6d7154656490b0443443e53fb7fcb4748fa816d521dea25f506128b2'
+    workspace-merge.js.map: '96c61a6268e60be1c66f112bde71817efe31084c891b321047ce7d0b3a5de526'
+    workspace-sync-incremental.d.ts: '3dfd79d00096948ef4b2e02c46c7b9d772a0aafe6b1d93659c6682d0cf67fc03'
+    workspace-sync-incremental.d.ts.map: '740157ba332b4216e4d1c36225ad61634bd87050160744edc12bcc4cd3fa1798'
+    workspace-sync-incremental.js: '54e6748573d8a18e6f32c0ffe000216bf98a4a889ecff844b4cddab5adcf2915'
+    workspace-sync-incremental.js.map: 'd1aa7215a01f985f0bbcb2f0df72d46261b1b545758d4ddd8ea541ff8d2dcb83'
+    workspace-sync.d.ts: 'a8e4e18148f109398c593c7e3c1b2b7b539c415a695b196deced7464bc078e8e'
+    workspace-sync.d.ts.map: '1e1ff90db72a72a5d6fed3b0f3c4849a5a59eca31d6a16dd4a6edf581cf55f02'
+    workspace-sync.js: '3e2b1c6a9cf36c6b64a2778218655738a3425f86ed192ccdd174b3a645e50130'
+    workspace-sync.js.map: 'c40731e65ccf8b4226d3a036e917946068a4f789a21e2c548b63b77666c66b01'
+    workspace.d.ts: '79e7f1be69c095d61a77bb2d92a8aa9a1cca9745cd1589929c2df5840db3a842'
+    workspace.d.ts.map: 'd05dceb408adca5d568b5c7b93fe32e5601c17cc66addbffb699dde69c4e0096'
+    workspace.js: 'bc28ec8f9d1c1eb51fd827b070341735d8214549283b6c800ff1b20d252f4e1b'
+    workspace.js.map: 'f28fe06d15b7a322ab9b1aeaa8b73b8237201b9f2b273be61533f4546d517ea7'
+  operator: 'deepStrictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/mh-l3-qualification-b23/packages/h2a/test/mh-l6-dist-freeze.test.js:56:10)
+    Test.runInAsyncScope (node:async_hooks:227:14)
+    Test.run (node:internal/test_runner/test:1325:25)
+    Test.start (node:internal/test_runner/test:1191:17)
+    startSubtestAfterBootstrap (node:internal/test_runner/harness:385:17)
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 0
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 94.374821
+
+receipt: {"command":["/home/antoinefa/.nvm/versions/node/v24.18.0/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-dist-freeze.test.js"],"code":1,"signal":null,"tests":1,"invalid":false,"spawned":1,"leftovers":[]}
