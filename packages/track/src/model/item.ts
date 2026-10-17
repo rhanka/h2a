@@ -1,5 +1,6 @@
 import type { ActorId, Ulid } from '../events/types.js'
 import type { PriorityAssessment } from './priority.js'
+import type { ItemReportStatus } from './report-status.js'
 
 export type ItemId = Ulid
 export type BlockerId = Ulid
@@ -93,6 +94,7 @@ export interface ReopenPayload {
 }
 
 export interface ItemState {
+  report?: ItemReportStatus
   id: ItemId
   kind: ItemKind
   title: string

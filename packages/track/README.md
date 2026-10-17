@@ -88,3 +88,13 @@ See [`INTENTION.md`](./INTENTION.md) for the full model, boundaries, and rationa
 ## License
 
 MIT — see [`LICENSE`](./LICENSE).
+# Owner status table
+
+`track report --status-table --format md` renders exactly `# · Ta demande · Étape · Statut · Où ça en
+est / prochaine action`, most urgent first, and retains DÉCISIONS and decision expectations. Scope it
+with `--scope <container-id|code|label>`; text and JSON are also supported. The default report is unchanged.
+
+`track item report-set <item-id> --json '<object>'` records stage, status, proposal and decision
+expectations in an additive event. It replaces all prior report metadata; `{}` clears only metadata.
+See [the report skill](skills/track-report/SKILL.md) for the normalized vocabulary, evidence rules,
+four colors, mandatory red proposals and blue decision dossiers. Legacy missing information is flagged.
