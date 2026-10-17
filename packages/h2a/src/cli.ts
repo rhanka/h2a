@@ -81,7 +81,7 @@ import { isNativeHost, NATIVE_HOSTS, REGISTRY_WAITING, stateRoot, vibeHome } fro
 import { convergeNativeHost } from "./hosts/native-convergence.js";
 import { nativeSkillArtifacts } from "./hosts/native-skills.js";
 import { assertNativePath, atomicNativeWrite, snapshot as snapshotNativeFile } from "./hosts/native-files.js";
-import { editVibeMcpServers, VIBE_MCP_NAME, type VibeMcpEntry } from "./hosts/vibe-mcp.js";
+import { clearVibeDirectRemoved, editVibeMcpServers, setVibeDirectRemoved, VIBE_MCP_NAME, type VibeMcpEntry } from "./hosts/vibe-mcp.js";
 import { convergeAfterExplicitUpgrade } from "./hosts/upgrade-equipment.js";
 import { captureHostOperatorNotices } from "./hosts/operator-notices.js";
 
@@ -4370,8 +4370,12 @@ function resolveVibeSetupTarget(flags: Record<string, string>): string {
 
 function vibeWantedEntry(snippet: ReturnType<typeof H2A_VIBE_HOST.renderMcpConfig>): VibeMcpEntry {
   const incoming = snippet.config.mcpServers.h2a as { command?: string; args?: string[]; url?: string };
-  if (typeof incoming.url === "string") return { name: VIBE_MCP_NAME, url: incoming.url };
-  return { name: VIBE_MCP_NAME, command: incoming.command ?? "h2a", args: [...(incoming.args ?? ["mcp-serve"])] };
+  if (typeof incoming.url === "string") return { name: VIBE_MCP_NAME, transport: "streamable-http", url: incoming.url };
+  return { name: VIBE_MCP_NAME, transport: "stdio", command: incoming.command ?? "h2a", args: [...(incoming.args ?? ["mcp-serve"])] };
+}
+
+function vibeStateForTarget(targetPath: string): string {
+  return stateRoot("vibe", dirname(resolvePath(targetPath)));
 }
 
 function cmdVibeSetupWrite(flags: Record<string, string>, streams: H2ACliStreams, snippet: ReturnType<typeof H2A_VIBE_HOST.renderMcpConfig>, endpoint: string): number {
@@ -4403,20 +4407,21 @@ function cmdVibeSetupWrite(flags: Record<string, string>, streams: H2ACliStreams
     return 2;
   }
   if (!edited.changed) {
+    clearVibeDirectRemoved(vibeStateForTarget(targetPath));
     streams.stdout.write(
       `${JSON.stringify({ ok: true, host: "vibe", endpoint, path: targetPath, merged: false, replacedH2a: false, removedH2aMcpServers: [], migration: "voie directe — non migrée" }, null, 2)}\n`
     );
     return 0;
   }
   try {
-    const root = vibeHome();
-    atomicNativeWrite(targetPath, edited.text, { state: stateRoot("vibe", root), expected: snapshotNativeFile(targetPath) });
+    atomicNativeWrite(targetPath, edited.text, { state: vibeStateForTarget(targetPath), expected: snapshotNativeFile(targetPath) });
   } catch (error) {
     streams.stderr.write(
       `h2a host setup: cannot write ${targetPath} (${(error as Error).message})\n`
     );
     return 3;
   }
+  clearVibeDirectRemoved(vibeStateForTarget(targetPath));
   streams.stdout.write(
     `${JSON.stringify({ ok: true, host: "vibe", endpoint, path: targetPath, merged: true, replacedH2a: edited.replacedH2a, removedH2aMcpServers: edited.removed, migration: "voie directe — non migrée" }, null, 2)}\n`
   );
@@ -4428,6 +4433,12 @@ function cmdVibeSetupWrite(flags: Record<string, string>, streams: H2ACliStreams
 
 function cmdVibeSetupRemove(flags: Record<string, string>, streams: H2ACliStreams): number {
   const targetPath = resolveVibeSetupTarget(flags);
+  if (!targetPath.toLowerCase().endsWith(".toml")) {
+    streams.stderr.write(
+      `h2a host setup: --remove for Vibe MCP supports TOML only and will not rewrite ${targetPath}. Use the default <VIBE_HOME>/config.toml.\n`
+    );
+    return 1;
+  }
   let original;
   try {
     if (!existsSync(targetPath)) original = "";
@@ -4448,20 +4459,21 @@ function cmdVibeSetupRemove(flags: Record<string, string>, streams: H2ACliStream
     return 2;
   }
   if (!edited.changed) {
+    setVibeDirectRemoved(vibeStateForTarget(targetPath));
     streams.stdout.write(
       `${JSON.stringify({ ok: true, host: "vibe", path: targetPath, removed: false, migration: REGISTRY_WAITING }, null, 2)}\n`
     );
     return 0;
   }
   try {
-    const root = vibeHome();
-    atomicNativeWrite(targetPath, edited.text, { state: stateRoot("vibe", root), expected: snapshotNativeFile(targetPath) });
+    atomicNativeWrite(targetPath, edited.text, { state: vibeStateForTarget(targetPath), expected: snapshotNativeFile(targetPath) });
   } catch (error) {
     streams.stderr.write(
       `h2a host setup: cannot write ${targetPath} (${(error as Error).message})\n`
     );
     return 3;
   }
+  setVibeDirectRemoved(vibeStateForTarget(targetPath));
   streams.stdout.write(
     `${JSON.stringify({ ok: true, host: "vibe", path: targetPath, removed: true, removedH2aMcpServers: edited.removed, migration: REGISTRY_WAITING }, null, 2)}\n`
   );

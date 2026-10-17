@@ -1,11 +1,52 @@
+import { mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { getStaticTOMLValue, parseForESLint } from 'toml-eslint-parser';
 import { semanticDigest } from './native-toml.js';
 
 export interface VibeMcpEntry {
   name: string;
+  // Mandatory Vibe discriminator (vibe/core/config/models.py: MCPServer is a
+  // Pydantic union discriminated on `transport` with no default): `stdio`
+  // for a spawned command, `streamable-http` for a remote `url`. An entry
+  // without it crashes vibe at startup (union_tag_not_found).
+  transport: 'stdio' | 'streamable-http' | 'http';
   command?: string;
   args?: string[];
   url?: string;
+}
+
+export const VIBE_MCP_REMOVAL_MARKER = 'vibe-mcp-direct-removed.json';
+
+export const vibeDirectRemovalPath = (state: string): string =>
+  ((): string => {
+    const sep = state.endsWith('/') ? '' : '/';
+    return `${state}${sep}${VIBE_MCP_REMOVAL_MARKER}`;
+  })();
+
+export function isVibeDirectRemoved(state: string): boolean {
+  try {
+    const raw = readFileSync(vibeDirectRemovalPath(state), 'utf8');
+    const parsed = JSON.parse(raw) as { removed?: unknown };
+    return parsed.removed === true;
+  } catch {
+    return false;
+  }
+}
+
+export function setVibeDirectRemoved(state: string): void {
+  mkdirSync(state, { recursive: true, mode: 0o700 });
+  writeFileSync(
+    vibeDirectRemovalPath(state),
+    JSON.stringify({ removed: true, at: new Date().toISOString() }, null, 2) + '\n',
+    { mode: 0o600 }
+  );
+}
+
+export function clearVibeDirectRemoved(state: string): void {
+  try {
+    unlinkSync(vibeDirectRemovalPath(state));
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+  }
 }
 
 export const VIBE_MCP_NAME = 'h2a';
@@ -29,8 +70,10 @@ export function isVibeH2aServer(server: unknown): boolean {
 export function renderVibeMcpEntry(entry: VibeMcpEntry): string {
   const lines = ['[[mcp_servers]]', `name = ${JSON.stringify(entry.name)}`];
   if (entry.url !== undefined) {
+    lines.push(`transport = ${JSON.stringify(entry.transport ?? 'streamable-http')}`);
     lines.push(`url = ${JSON.stringify(entry.url)}`);
   } else {
+    lines.push(`transport = ${JSON.stringify(entry.transport ?? 'stdio')}`);
     lines.push(`command = ${JSON.stringify(entry.command ?? 'h2a')}`);
     lines.push(`args = ${JSON.stringify(entry.args ?? ['mcp-serve'])}`);
   }
@@ -80,11 +123,17 @@ export function editVibeMcpServers(
   let replacedH2a = false;
   let placed = false;
 
+  // The digest covers the Vibe discriminator (`transport`) and the enabled
+  // state (`disabled`): an entry missing `transport` or carrying
+  // `disabled = true` never digests like the canonical wanted entry, so the
+  // upsert path repairs it instead of keeping it.
   const entryDigest = (server: any): string => {
     const slim: Record<string, unknown> = { name: server.name };
+    if (server.transport !== undefined) slim.transport = server.transport;
     if (server.url !== undefined) slim.url = server.url;
     if (server.command !== undefined) slim.command = server.command;
     if (server.args !== undefined) slim.args = server.args;
+    if (server.disabled !== undefined) slim.disabled = server.disabled;
     return semanticDigest(slim);
   };
 
