@@ -22,6 +22,10 @@ questions. It is not a reason to produce a longer dossier.
 
 ## Prepare a dossier the owner can read on its own
 
+- Write `title` and `subject` as non-empty single lines of at most 100
+  characters. Name the concrete subject and what the owner must decide:
+  “Garden shed — choose its location”, not “Ratify the plan”. Review their
+  meaning against the request; the gate checks length and form, not meaning.
 - Quote the owner's literal request in `readability.ownerRequestQuote`.
   Preserve their words and trace how the questions serve them. Never invent
   a quotation. If no request exists, set `noOwnerRequest: true`; this blocks
@@ -37,6 +41,8 @@ questions. It is not a reason to produce a longer dossier.
   `recommendedOptionId`, and a short reason in `recommendedAnswer`. Context
   must explain the situation, scope and trade-off without making the reader
   chase another document or decode an identifier.
+  Keep questions and recommendations to one line of at most 300 characters,
+  option-set titles to 100. No nested lists or inline a/b branches.
 - Each option needs a one-line `consequence` for the owner. Labels are at most
   100 characters, consequences 160, optional bodies/comments 300. Keep them
   flat: no nested lists, inline a/b branches or multiple decisions in one
@@ -53,7 +59,8 @@ questions. It is not a reason to produce a longer dossier.
 - Prefer plain words to codes such as `L06b`, `MH-L3`, `R5` or build identifiers,
   and to unexplained acronyms. If necessary, define each term in
   `readability.glossary` with a meaning the owner understands. The renderers show
-  this glossary. Do not replace one acronym with another unexplained acronym.
+  this glossary. Each definition must stand alone in plain words, with no
+  self-reference or other code, even one defined elsewhere in the glossary.
 
 Bad: “Ratify L06b under MH-L3? A: migrate, with a/b variants. B: defer.”
 The request, stakes, consequences and recommendation are missing; several
@@ -84,7 +91,11 @@ content and present the complete dossier; do not silently omit refused material.
 New fields stay optional in schema version 1 so historical data still parses
 through `validateDecisionDossierDocument`. Structural validity is insufficient
 for presentation. Legacy Track projections lacking readability information are
-blocked; never synthesize an owner request to make them pass.
+blocked; never synthesize an owner request to make them pass. New Track dossiers
+carry `subject`, `readability`, `questionId` for shared context/outcome, and
+question context, reading time and recommendation on `qa`. Each option summary
+is its consequence; `options[].questionId` overrides the shared question link
+when a dossier contains several questions.
 
 The gate checks structure, code definitions, reading lengths and explicit links.
 It cannot prove a quotation is authentic, prose is clear, stakes are honest,
