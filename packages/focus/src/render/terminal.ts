@@ -9,6 +9,8 @@
  * this stays a pure string builder with no ANSI/color side effects.
  */
 
+import { assertDecisionDossierForPresentation } from "../validation/index.js";
+
 import type {
   Affordance,
   AmendmentStep,
@@ -27,6 +29,8 @@ const renderQuestion = (
   q: Extract<FocusNode, { kind: "question" }>,
 ): string => {
   const lines = [`Q: ${q.question}  [${q.state}]`];
+  if (q.context !== undefined) lines.push(`   Context: ${q.context}`);
+  if (q.readingTimeMinutes !== undefined) lines.push(`   Reading time: ${q.readingTimeMinutes} min`);
   if (q.recommendedAnswer !== undefined) {
     lines.push(`   préco: ${q.recommendedAnswer}`);
   }
@@ -45,7 +49,7 @@ const renderOptionSet = (
     const comment =
       o.annotationComment !== undefined ? ` — ${o.annotationComment}` : "";
     const body = o.body !== undefined ? `\n      ${o.body}` : "";
-    return `  ${mark} ${o.label}${comment}${body}`;
+    return `  ${mark} ${o.label} — ${o.consequence ?? ""}${comment}${body}`;
   });
   return [head, ...opts].join("\n");
 };
@@ -98,6 +102,8 @@ export const renderTerminal = (
   doc: DecisionDossierDocument,
   opts: TerminalRenderOptions = {},
 ): string => {
+  assertDecisionDossierForPresentation(doc);
+  const r = doc.readability!;
   const width = opts.width ?? 72;
   const blocks: string[] = [
     rule(width),
@@ -106,6 +112,10 @@ export const renderTerminal = (
     `ref: ${doc.ref}  cursor: ${doc.cursor}`,
     rule(width),
   ];
+
+  blocks.push(`Owner request: “${r.ownerRequestQuote}”`);
+  blocks.push(`Stakes: ${r.stakes}\nReading budget: ${r.readingBudgetMinutes} min (${r.stakesLevel} stakes)`);
+  if (r.glossary?.length) blocks.push("Glossary:\n" + r.glossary.map((entry) => `  ${entry.term}: ${entry.definition}`).join("\n"));
 
   for (const node of doc.sections) {
     blocks.push(renderNode(node));

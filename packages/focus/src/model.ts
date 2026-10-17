@@ -45,6 +45,8 @@ interface FocusNodeBase {
 export interface ProseNode extends FocusNodeBase {
   readonly kind: "prose";
   readonly markdown: string;
+  /** Explicit question covered by any choice discussed in this prose. */
+  readonly questionId?: string;
 }
 
 /** A question with a recommended answer (préco) and a validation state. */
@@ -53,9 +55,22 @@ export interface QuestionNode extends FocusNodeBase {
   readonly question: string;
   /** The recommended answer (préco). Optional — a question may be open with no préco yet. */
   readonly recommendedAnswer?: string;
+  /** Recommended option among those linked to this question; reason in recommendedAnswer. */
+  readonly recommendedOptionId?: string;
   /** The actual answer, when answered. */
   readonly answer?: string;
   readonly state: QuestionValidationState;
+  /**
+   * Readability: the decision context in plain words (what the owner needs to
+   * know to answer in ~2 minutes). Optional at schema level; the readability
+   * gate requires it before presentation.
+   */
+  readonly context?: string;
+  /**
+   * Readability: estimated reading time for this question (minutes, ≤ 2).
+   * Optional at schema level; the readability gate requires it.
+   */
+  readonly readingTimeMinutes?: number;
 }
 
 /** A single option/proposal/alternative with a Claude-style annotation state. */
@@ -66,6 +81,11 @@ export interface OptionNode extends FocusNodeBase {
   readonly annotation: OptionAnnotationState;
   /** Optional free-text comment carried with a `comment` annotation. */
   readonly annotationComment?: string;
+  /**
+   * Readability: the one-line consequence of this option for the owner.
+   * Optional at schema level; the readability gate requires it.
+   */
+  readonly consequence?: string;
 }
 
 /** A set of mutually-related options/proposals. */
@@ -73,6 +93,12 @@ export interface OptionSetNode extends FocusNodeBase {
   readonly kind: "optionSet";
   readonly title?: string;
   readonly options: readonly OptionNode[];
+  /**
+   * Readability: the id of the explicit question these options answer.
+   * Optional at schema level; the readability gate requires it so no choice
+   * is ever implied without an explicit question (no hidden decision).
+   */
+  readonly questionId?: string;
 }
 
 /** The modality-tagged outcome of the focus. */
@@ -80,6 +106,8 @@ export interface OutcomeNode extends FocusNodeBase {
   readonly kind: "outcome";
   readonly modality: OutcomeModality;
   readonly statement: string;
+  /** The explicit question this decision, orientation or amendment resolves. */
+  readonly questionId?: string;
 }
 
 /** One ordered step of the amendment trace. */
@@ -151,6 +179,39 @@ export interface FocusProvenance {
   readonly comprehensionEvidence?: ComprehensionEvidence;
 }
 
+/** One glossary entry: an opaque code mapped to plain words for the reader. */
+export interface GlossaryEntry {
+  readonly term: string;
+  readonly definition: string;
+}
+
+/**
+ * Dossier-level readability statement: owner traceability, plain-words stakes,
+ * the reading budget the per-question times must fit, and the glossary that
+ * defines every code shown to the reader. Entirely optional at schema level
+ * (backward compatible); the readability gate requires it before presentation.
+ */
+export interface DossierReadability {
+  /**
+   * The owner's literal request this dossier serves, quoted verbatim
+   * (traceability). Exactly one of `ownerRequestQuote` / `noOwnerRequest`.
+   */
+  readonly ownerRequestQuote?: string;
+  /**
+   * Explicit flag: no owner request backs this dossier. Blocks presentation
+   * until a request is quoted — never present a dossier carrying it.
+   */
+  readonly noOwnerRequest?: boolean;
+  /** Why this matters to the owner, in plain words (not internal jargon). */
+  readonly stakes?: string;
+  /** Declared impact: low (reversible), medium (cost/disruption), high (lasting impact). */
+  readonly stakesLevel?: "low" | "medium" | "high";
+  /** Total reading budget in minutes (≤ 30), proportionate to the stakes. */
+  readonly readingBudgetMinutes?: number;
+  /** Every code shown to the reader, defined in plain words. */
+  readonly glossary?: readonly GlossaryEntry[];
+}
+
 /**
  * The CONCRETE decision-dossier document — a FocusDocument whose primary outcome modality is a
  * decision. Maps to track `DecisionDossierView{outcome,dossier,comprehensionEvidence}` +
@@ -169,4 +230,10 @@ export interface DecisionDossierDocument {
   readonly interactions: readonly Affordance[];
   readonly provenance: FocusProvenance;
   readonly amendmentTrace: readonly AmendmentStep[];
+  /**
+   * Readability statement. Optional at schema level (backward compatible);
+   * the readability gate (`@sentropic/focus/validate`) requires it and
+   * refuses presentation without it.
+   */
+  readonly readability?: DossierReadability;
 }

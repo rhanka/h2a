@@ -7,7 +7,7 @@
       "kind": "skill",
       "id": "sentropic.focus",
       "name": "focus",
-      "description": "Prepare, explain and review a read-only decision-dossier snapshot (DecisionDossierDocument v1): sections, options, outcome, disabled affordances and verbatim comprehension evidence. Snapshot only — no decisions, signatures, amendments or Track writes.",
+      "description": "Prepare and review readable decision dossiers that trace the owner's request, expose real stakes and offer short explicit choices. Read-only snapshots; no decisions, signatures, amendments or Track writes.",
       "entryVersion": "1.0.0",
       "publisher": {
         "packageName": "@sentropic/focus",
@@ -76,13 +76,13 @@
           "role": "skill-instructions",
           "path": "skills/focus/SKILL.md",
           "mediaType": "text/markdown",
-          "sha256": "750e5ef2cf894e5c90227acb15911aab583ce7e3949c1d82a2ea40fabd8c97e5"
+          "sha256": "1b7d64da9c829bce5ff966fc4a9d77b5adcf5906333f1f3073f122bbdc01d7a9"
         },
         {
           "role": "document-schema",
           "path": "schemas/decision-dossier-document.v1.schema.json",
           "mediaType": "application/schema+json",
-          "sha256": "4b56940212f5a10d01572f7fa6404238a683e5fc1ebde75c5492edb3916c9f5d"
+          "sha256": "f7cd501d602ac76aeb9582fb6a76d6a4488763f7d97368284f252071470071b2"
         }
       ],
       "skill": {
@@ -117,7 +117,7 @@
             "schemaId": "urn:sentropic:focus:DecisionDossierDocument:1.0.0",
             "version": "1.0.0",
             "assetPath": "schemas/decision-dossier-document.v1.schema.json",
-            "sha256": "4b56940212f5a10d01572f7fa6404238a683e5fc1ebde75c5492edb3916c9f5d"
+            "sha256": "f7cd501d602ac76aeb9582fb6a76d6a4488763f7d97368284f252071470071b2"
           }
         ],
         "dependencies": []
