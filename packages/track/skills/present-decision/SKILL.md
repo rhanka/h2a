@@ -42,7 +42,7 @@ or global rules without authorization.
 Quote the **literal owner request**, with date/source, and map each demand to the question,
 option or acceptance criterion that addresses it. Quote the relevant passage without paraphrasing;
 link longer context. Flag any departure from the request explicitly.
-Use [assets/owner-criteria.template.md](assets/owner-criteria.template.md) for applicable criteria.
+Use `assets/owner-criteria.template.md` for applicable criteria.
 
 For complex design decisions, obtain independent Codex + Opus reviews before recommending.
 Use the host's available second-opinion tool; surface disagreements. Reviews bound risks and
@@ -51,7 +51,7 @@ check owner intent; they must not inflate the dossier. A missing required review
 
 ## 3. Write a short, self-contained question
 
-Use [assets/dossier-template.md](assets/dossier-template.md). In plain words, include:
+Use `assets/dossier-template.md`. In plain words, include:
 
 - the exact decision and boundary, the owner's expected benefit and risk;
 - representative context: current behavior, a concrete problem/scenario, affected people,
@@ -70,7 +70,7 @@ failure scenario. Integrate these safeguards into the question; no mandatory lon
 
 ## 4. Audit, present, record
 
-Run [assets/self-audit.md](assets/self-audit.md), fix failures and re-check before presenting.
+Run `assets/self-audit.md`, fix failures and re-check before presenting.
 If a necessary fact, criterion or review is missing, label **Incomplete** and ask for that input,
 not approval of the decision.
 
@@ -79,7 +79,12 @@ prose. A bare option menu is insufficient for consequential decisions. Decide-an
 
 Record when `.track/` exists or the owner approves tracking:
 
-- Prepare with `track decision dossier <decisionId> --context <c>`.
+- Create: `track decision new --kind <kind> --title <title> --workspace <workspace> --targets <targets> --context <c> --options-json <json> --recommendation <optionId> --rationale <r>`.
+- Revise or migrate: `track decision dossier <decisionId> --context <c> --options-json <json> --recommendation <optionId> --rationale <r>`.
+  JSON contains 2–4 options with `id`, `title`, `summary`; recommendation names one.
+  Context-only edits require an already structured dossier.
+- Record the owner's choice: `track decision select <decisionId> <optionId>` (default `go`;
+  use `--outcome no-go` for rejection). Defer with `track decision outcome <decisionId> deferred`.
 - Append evidence with `track decision add-artifact`, not a dossier rewrite.
   For a human-facing dossier use `--kind rendered-view --view-ref <stable-id>`
   (optionally `--source-dossier-hash <h>`).
