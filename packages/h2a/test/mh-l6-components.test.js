@@ -12,16 +12,18 @@ let shared;after(async()=>{if(shared)await shared.close();});
 async function fixture(){
  if(shared)return shared;
  const f=await managedImage();shared=f;
+ const version=f.payload.coreVersion.split('.').map(Number);version[2]++;f.availableVersion=version.join('.');
  fs.copyFileSync(new URL('./helpers/mh-l6-execution-harness.mjs',import.meta.url),join(f.image,'execution-harness.mjs'));
  fs.writeFileSync(join(f.image,'unguarded-child.mjs'),"if(process.env.EXTERNAL_MODULE_URL)await import(process.env.EXTERNAL_MODULE_URL);process.stdout.write(JSON.stringify({verified:Boolean(globalThis[Symbol.for('sentropic.h2a.image-context/v1')]),nodePath:process.env.NODE_PATH??null})+'\\n');");
  const manifest=createManifest(f.image,f.payload.manifest),manifestDigest=digest(manifest),root=join(f.installation.managedRoot,'images',manifestDigest.slice(7));
  fs.writeFileSync(join(f.image,'manifest.json'),JSON.stringify(manifest)+'\n');fs.renameSync(f.image,root);f.image=root;f.payload={...f.payload,root,manifest,manifestDigest};
+ globalThis[Symbol.for('h2a.test.closedBuildReceipt')]?.({kind:'image',digest:manifestDigest,entrypoints:['execution-harness.mjs']});
  const old=readState(f.selectionPath,'selection');replaceState(f.selectionPath,{...old.value,selectionEpoch:old.value.selectionEpoch+1,manifestDigest},'selection',old);
  return f;
 }
 function run(f,mode,extra={}){
  fs.writeFileSync(join(f.dir,'external-app.mjs'),"import fs from'node:fs';import{basename}from'node:path';process.stdout.write(JSON.stringify({label:basename(process.argv[2]),hasBytes:fs.readFileSync(process.argv[2]).length>0,restricted:Boolean(globalThis[Symbol.for('sentropic.h2a.image-context/v1')])})+'\\n');");
- fs.rmSync(join(f.dir,'unverified-worker'),{force:true});const cache=join(f.root,'upgrade-check.json');fs.writeFileSync(cache,JSON.stringify({checkedAt:Date.now(),latest:mode==='boot-auto'?f.payload.coreVersion:'0.98.6'}));
+ fs.rmSync(join(f.dir,'unverified-worker'),{force:true});const cache=join(f.root,'upgrade-check.json');fs.writeFileSync(cache,JSON.stringify({checkedAt:Date.now(),latest:mode==='boot-auto'?f.payload.coreVersion:f.availableVersion}));
  const env={...process.env,H2A_ROOT:f.root,EXECUTION_MARKER:join(f.dir,'unverified-worker'),JOURNAL_LOG:join(f.dir,mode==='journal-alter'?'altered-journal.log':'journal.log'),npm_config_prefix:f.dir,npm_config_cache:join(f.dir,'npm-cache'),npm_config_offline:'true',EXTERNAL_PROGRAM:join(f.dir,'external-app.mjs'),...extra};delete env.NODE_OPTIONS;delete env.NODE_PATH;delete env.H2A_UPGRADE_REEXECED;
  const r=spawnSync(process.execPath,[join(f.image,'execution-harness.mjs'),mode],{env,cwd:f.dir,encoding:'utf8',timeout:20000});
  assert.equal(r.error,undefined,r.stderr);assert.equal(r.signal,null);assert.equal(r.status,0,r.stderr);return JSON.parse(r.stdout);
@@ -57,7 +59,7 @@ for(const method of ['spawn','execFile','execFileSync'])test('U12 should refuse 
 });
 for(const mode of ['boot-check','boot-auto'])test('U12 should run the real file boot worker in '+mode+' mode without network or prefix escape',async()=>{
  const f=await fixture(),r=run(f,mode);assert.equal(r.code,0,r.stderr);assert.equal(r.stdout,'');
- if(mode==='boot-check')assert.match(r.stderr,/0\.98\.6 available \(current 0\.98\.5\)/);
+ if(mode==='boot-check')assert.ok(r.stderr.includes(`${f.availableVersion} available (current ${f.payload.coreVersion})`),r.stderr);
  else{assert.equal(r.stderr,'');assert.equal(r.cache.lastOutcome,'ok');assert.equal(r.cache.lastAttemptVersion,f.payload.coreVersion);assert.ok(r.cache.lastAttemptAt>0);}
 });
 
