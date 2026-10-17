@@ -60,7 +60,7 @@ guard and cannot manufacture a signature without the owner key.
 For a foreign PR containing a published version bump, two explicit grants are
 required: `gh.pr.merge` for the foreign operation and `release` for that same PR.
 An ordinary foreign grant never authorizes release. An owning release lane also
-needs `action: "release"`, bound to its exact repo/ref. For `npm version patch`,
+needs `action: "release"`, bound to its exact repo/ref. For a published package's `npm version patch`,
 the reference is `patch`; for an edited manifest, its absolute canonical path;
 for a PR, its number; for a push, the supplied refspecs joined by one space, or
 the current branch when omitted. Typed denial records expose the exact requested
@@ -81,6 +81,8 @@ or ready, read-only `gh` calls inspect the diff; candidate changes are verified
 against full base/head manifests to distinguish private packages and nested
 metadata. Missing baseline, unavailable PR inspection and dynamic sensitive
 commands fail closed. Ordinary own-repo commands and quoted prose pass through.
+Read-only `npm version` queries and versioning an explicitly private own package
+remain allowed; foreign package operations still require a scope grant.
 
 Refusals have `[H2A_SCOPE:CODE]`, machine-readable `code`, an explicit handoff to
 the owning conductor, and an appended record in
