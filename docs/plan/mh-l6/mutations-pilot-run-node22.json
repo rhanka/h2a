@@ -1,0 +1,27 @@
+{
+  "node": "v22.22.1",
+  "files": [
+    {
+      "path": "packages/h2a/src/runtime/upgrade/upgrade-run.js",
+      "sha256": "a26faa7f756f00dee09a2ef278aca21aba47d13177296fb84a7d4489b1062f3a"
+    },
+    {
+      "path": "packages/h2a/dist/runtime/upgrade/upgrade-run.js",
+      "sha256": "e7630a5008fcf7b33b5842d9adf74f8000530de67ea059e871f45fe3cd2f3c49"
+    }
+  ],
+  "results": [
+    {
+      "name": "run-shape",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-pilot-force.test.js-node22-mutation-run-shape-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-pilot-force.test.js-node22-mutation-run-shape-green.log",
+      "restored": true
+    },
+    {
+      "name": "run-forward",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-pilot-force.test.js-node22-mutation-run-forward-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-pilot-force.test.js-node22-mutation-run-forward-green.log",
+      "restored": true
+    }
+  ]
+}
