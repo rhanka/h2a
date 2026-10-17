@@ -1,6 +1,9 @@
 import { EventEmitter } from "node:events";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type {
   NativeTerminalControllerLease,
@@ -14,7 +17,8 @@ import {
 import {
   NATIVE_TERMINAL_INTERACTIVE_READ_TIMEOUT_MS,
 } from "./protocol.js";
-import { runAttach, type NativeTerminalAttachRuntime } from "./op.js";
+import { runAttach, sessionExitCrashEntry, type NativeTerminalAttachRuntime } from "./op.js";
+import { readCrashLog, resolveCrashLogPath } from "../crash-log.js";
 import { TerminalModeTracker } from "./terminal-modes.js";
 import { NATIVE_TERMINAL_RESET_MARKER } from "./reset-relay.js";
 
@@ -302,4 +306,115 @@ describe("native terminal attach recovery", () => {
       expect(reads.filter((read) => read.connection === 2).length).toBeLessThan(8);
     },
   );
+});
+
+describe("session exit crash records (revcrashlog constat 2)", () => {
+  let root = "";
+  let previousStateHome: string | undefined;
+
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), "h2a-sessionexit-"));
+    previousStateHome = process.env["XDG_STATE_HOME"];
+    process.env["XDG_STATE_HOME"] = join(root, "state");
+  });
+
+  afterEach(() => {
+    if (previousStateHome === undefined) delete process.env["XDG_STATE_HOME"];
+    else process.env["XDG_STATE_HOME"] = previousStateHome;
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  function attachRows() {
+    return readCrashLog("attach", resolveCrashLogPath("attach", { XDG_STATE_HOME: join(root, "state") }));
+  }
+
+  it("maps a natural exit to its real code with no signal", () => {
+    const entry = sessionExitCrashEntry(
+      { exit: { exitCode: 3 }, stopSignal: null },
+      { sessionId: "h2a-x" },
+    );
+    expect(entry).toMatchObject({ event: "sessionExit", sessionId: "h2a-x", exitCode: 3 });
+    expect("signal" in entry).toBe(false);
+  });
+
+  it("maps a killed session to its code and its stop signal", () => {
+    const entry = sessionExitCrashEntry(
+      { exit: { exitCode: 137, signal: 9 }, stopSignal: "SIGKILL" },
+      { sessionId: "h2a-x" },
+    );
+    expect(entry).toMatchObject({ event: "sessionExit", exitCode: 137, signal: "SIGKILL" });
+  });
+
+  it("omits the code (never invents 0) when a stopped session reports none", () => {
+    const entry = sessionExitCrashEntry(
+      { exit: null, stopSignal: "SIGTERM" },
+      { sessionId: "h2a-x" },
+    );
+    expect(entry).toMatchObject({ event: "sessionExit", signal: "SIGTERM" });
+    expect("exitCode" in entry).toBe(false);
+  });
+
+  it("names a numeric pty signal on a natural signal exit", () => {
+    const entry = sessionExitCrashEntry(
+      { exit: { exitCode: 0, signal: 15 }, stopSignal: null },
+      { sessionId: "h2a-x" },
+    );
+    expect(entry).toMatchObject({ event: "sessionExit", exitCode: 0, signal: "SIGTERM" });
+  });
+
+  it("logs an already-exited session with its real code and signal", async () => {
+    const stopped = {
+      ...running(false),
+      status: "exited",
+      stopSignal: "SIGKILL",
+      exit: { exitCode: 137, signal: 9 },
+    } as NativeTerminalSessionState;
+    const client = {
+      async state() { return stopped; },
+      async acquireController() { throw new Error("must not acquire an exited session"); },
+      async releaseController() {},
+      async readOutput() { throw new Error("must not read an exited session"); },
+      async write() {}, async resize() {}, close() {},
+    };
+    const code = await runAttach("h2a-alpha", {
+      connect: async () => client as never,
+      stdin: new FakeInput() as unknown as NodeJS.ReadStream,
+      stdout: new FakeOutput() as unknown as NodeJS.WriteStream,
+      now: () => 0,
+      delay: async () => {},
+      onResize: () => {},
+      offResize: () => {},
+    });
+    expect(code).toBe(137);
+    const rows = attachRows();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ event: "sessionExit", sessionId: "h2a-alpha", exitCode: 137, signal: "SIGKILL" });
+  });
+
+  it("logs a definitive absence with no invented exit code", async () => {
+    const { NativeTerminalRemoteError } = await import("./protocol.js");
+    const missing = new NativeTerminalRemoteError({ code: "operation-failed", message: "unknown terminal session h2a-gone" });
+    const client = {
+      async state(): Promise<NativeTerminalSessionState> { throw missing; },
+      async acquireController() { throw missing; },
+      async releaseController() {},
+      async readOutput(): Promise<never> { throw missing; },
+      async write() {}, async resize() {}, close() {},
+    };
+    const stdout = new FakeOutput();
+    const code = await runAttach("h2a-gone", {
+      connect: async () => client as never,
+      stdin: new FakeInput() as unknown as NodeJS.ReadStream,
+      stdout: stdout as unknown as NodeJS.WriteStream,
+      now: () => 0,
+      delay: async () => {},
+      onResize: () => {},
+      offResize: () => {},
+    });
+    expect(code).toBe(1);
+    const rows = attachRows();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ event: "sessionExit", sessionId: "h2a-gone", reason: "definitive-absence" });
+    expect("exitCode" in rows[0]!).toBe(false);
+  });
 });

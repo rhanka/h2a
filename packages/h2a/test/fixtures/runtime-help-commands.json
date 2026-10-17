@@ -1,5 +1,5 @@
 {
-  "commandCount": 51,
+  "commandCount": 52,
   "descriptionsWrapped": false,
   "rootDescriptionContains": [
     "The unified sentropic CLI and core",
@@ -105,6 +105,11 @@
       "group": "Observe — see what is running and what needs attention:",
       "term": "ls [options] [url]",
       "description": "List sessions — LOCAL (tmux) and REMOTE (control-plane) — uniformly"
+    },
+    {
+      "group": "Observe — see what is running and what needs attention:",
+      "term": "logs [options]",
+      "description": "Show the last crash-log incidents: native host journal plus cli/attach/mcp-server logs."
     },
     {
       "group": "Coordinate — hand work to agents and talk to peers:",
