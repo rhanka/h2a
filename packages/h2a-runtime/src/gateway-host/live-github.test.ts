@@ -9,6 +9,8 @@ import { PR_END_PROOF, type PrObjectJobDto, type PrSyncCursorDto, type PullReque
 
 const repository = { owner: "acme", repo: "project" };
 const request: PrPageRequest = { repository, cursor: null, updatedAtSince: null, etag: null };
+// Numeric repository identity as GitHub's repositories-shaped Link exposes it.
+const TEST_REPO_ID = 1242516751;
 const oid = (n: number) => n.toString(16).padStart(40, "0");
 function pr(n: number, extra: Record<string, unknown> = {}) {
   return {
@@ -16,13 +18,17 @@ function pr(n: number, extra: Record<string, unknown> = {}) {
     updated_at: "2026-10-16T12:00:00Z", merged_at: n % 3 === 0 ? "2026-10-16T11:00:00Z" : null,
     merge_commit_sha: n % 3 === 0 ? oid(n + 3000) : null,
     url: `https://api.github.com/repos/acme/project/pulls/${n}`,
-    base: { sha: oid(1), ref: "main", repo: { full_name: "acme/project" } },
+    base: { sha: oid(1), ref: "main", repo: { id: TEST_REPO_ID, full_name: "acme/project" } },
     head: { sha: oid(n + 1000), ref: `topic-${n}`, repo: { full_name: "fork/project" } },
     ...extra,
   };
 }
+// Real GitHub Link shape: repositories path with the numeric id, newest first.
 const link = (page: number, rel = "next", extra = "") =>
-  `<https://api.github.com/repos/acme/project/pulls?state=all&sort=updated&direction=asc&per_page=100&page=${page}${extra}>; rel="${rel}"`;
+  `<https://api.github.com/repositories/${TEST_REPO_ID}/pulls?state=all&sort=updated&direction=desc&per_page=100&page=${page}${extra}>; rel="${rel}"`;
+// Legacy repos path, still accepted for the same repository.
+const canonical = (page: number, rel = "next", extra = "") =>
+  `<https://api.github.com/repos/acme/project/pulls?state=all&sort=updated&direction=desc&per_page=100&page=${page}${extra}>; rel="${rel}"`;
 type Reply = { status?: number; headers?: Record<string, string>; body?: unknown; delay?: number; raw?: string; exitCode?: number };
 let root: string;
 let ghPath: string;
@@ -110,12 +116,12 @@ function memoryPersistence() {
 }
 
 describe("live GitHub transport", () => {
-  it("should consume every page and state through the real neutral engine while retaining moved heads and failed jobs", async () => {
+  it("should consume every page newest-first through the real neutral engine while retaining moved heads and failed jobs", async () => {
     handler = url => {
       const page = Number(url.searchParams.get("page"));
-      return page === 1 ? { headers: { link: link(2) }, body: Array.from({ length: 100 }, (_, i) => pr(i + 1)) }
-        : page === 2 ? { headers: { link: link(3) }, body: [pr(100), ...Array.from({ length: 99 }, (_, i) => pr(i + 101))] }
-        : { headers: { link: link(2, "prev") }, body: Array.from({ length: 52 }, (_, i) => pr(i + 200)) };
+      return page === 1 ? { headers: { link: `${link(2)}, ${link(3, "last")}` }, body: Array.from({ length: 100 }, (_, i) => pr(i + 1)) }
+        : page === 2 ? { headers: { link: `${link(3)}, ${link(1, "prev")}, ${link(1, "first")}, ${link(3, "last")}` }, body: [pr(100), ...Array.from({ length: 99 }, (_, i) => pr(i + 101))] }
+        : { headers: { link: `${link(2, "prev")}, ${link(1, "first")}` }, body: Array.from({ length: 52 }, (_, i) => pr(i + 200)) };
     };
     const store = memoryPersistence();
     const first = await runPrSyncPass({ repository, now: 1800000000000, sweepKind: "full" }, { transport, persistence: store.persistence });
@@ -135,6 +141,7 @@ describe("live GitHub transport", () => {
       const endpoint = new URL(trace.args.find(arg => arg.startsWith("repos/"))!, "https://api.github.com/");
       expect(endpoint.pathname).toBe("/repos/acme/project/pulls");
       expect(endpoint.searchParams.get("state")).toBe("all");
+      expect(endpoint.searchParams.get("direction")).toBe("desc");
       expect(trace.args).toContain("--include");
       expect(trace.args).not.toContain("--paginate");
       expect(trace.cwd).toBe(root);
@@ -145,10 +152,45 @@ describe("live GitHub transport", () => {
     }
   });
 
+  it("should never skip an unchanged boundary PR when a read PR moves during pagination", async () => {
+    const initial = Date.parse("2026-10-16T12:00:00Z");
+    const rows = Array.from({ length: 150 }, (_, i) => pr(i + 1, {
+      updated_at: new Date(initial + i * 1000).toISOString(),
+    }));
+    let moved = false;
+    handler = url => {
+      const page = Number(url.searchParams.get("page"));
+      const direction = url.searchParams.get("direction");
+      const sorted = [...rows].sort((a, b) => Date.parse(a.updated_at) - Date.parse(b.updated_at));
+      if (direction === "desc") sorted.reverse();
+      const body = sorted.slice((page - 1) * 100, page * 100).map(row => structuredClone(row));
+      if (page === 1 && !moved) {
+        // Move an already-read row to newest, shifting the page boundary.
+        // With asc, unread PR 101 falls into page 1 and is lost forever;
+        // with desc, the updated row stays in the already-read region.
+        sorted[99]!.updated_at = "2026-10-18T12:00:00Z";
+        moved = true;
+      }
+      const shaped = (n: number, rel: string) => canonical(n, rel).replace("direction=desc", `direction=${direction}`);
+      return { headers: { link: page === 1 ? `${shaped(2, "next")}, ${shaped(2, "last")}`
+        : `${shaped(1, "prev")}, ${shaped(1, "first")}` }, body };
+    };
+    const store = memoryPersistence();
+    const result = await runPrSyncPass({ repository, now: 1800000000000, sweepKind: "full" }, { transport, persistence: store.persistence });
+    expect(result.state).toBe("complete");
+    expect(result.stats).toMatchObject({ pages: 2, unique: 150, duplicates: 0 });
+    expect(result.observations.map(item => item.number).sort((a, b) => a - b))
+      .toEqual(Array.from({ length: 150 }, (_, i) => i + 1));
+    // Keep the same server: the incremental pass must recover the moved head.
+    const second = await runPrSyncPass({ repository, now: 1800000001000, sweepKind: "incremental" }, { transport, persistence: store.persistence });
+    expect(second.state).toBe("complete");
+    expect(second.observations.some(item => item.number === 51 && item.updatedAt === Date.parse("2026-10-18T12:00:00Z"))).toBe(true);
+  });
+
   it("should bind continuations and termination to repository and filter, even for empty filtered pages", async () => {
     handler = url => Number(url.searchParams.get("page")) === 1
       ? { headers: { link: link(2) }, body: [pr(1)] }
-      : { body: [pr(2, { updated_at: "2026-10-17T12:00:00Z" })] };
+      : { headers: { link: `${link(1, "prev")}, ${link(1, "first")}` }, body: [pr(2, { updated_at: "2026-10-17T12:00:00Z" })] };
     const filtered = { ...request, updatedAtSince: Date.parse("2026-10-17T00:00:00Z") };
     const first = await transport.fetchPage(filtered);
     expect(first.ok).toBe(true);
@@ -163,11 +205,70 @@ describe("live GitHub transport", () => {
     expect(last).toMatchObject({ ok: true, page: { hasMore: false, nextCursor: null, endProof: PR_END_PROOF, items: [{ number: 2 }] } });
   });
 
+  it("should require Link proof beyond the first page instead of accepting a missing header as the end", async () => {
+    const firstPage = (url: URL) => ({ headers: { link: canonical(2).replace("direction=desc", `direction=${url.searchParams.get("direction")}`) }, body: [pr(1)] });
+    handler = url => Number(url.searchParams.get("page")) === 1 ? firstPage(url) : { body: [pr(2)] };
+    const first = await transport.fetchPage(request);
+    expect(first.ok).toBe(true);
+    if (!first.ok) throw new Error(first.kind);
+    const second = { ...request, cursor: first.page.nextCursor };
+    // GitHub always sends prev/first from page 2: a stripped header truncates silently.
+    expect(await transport.fetchPage(second)).toMatchObject({ ok: false, kind: "protocol" });
+    handler = url => Number(url.searchParams.get("page")) === 1 ? firstPage(url) : { headers: { link: link(3) }, body: [pr(2)] };
+    expect(await transport.fetchPage(second)).toMatchObject({ ok: false, kind: "protocol" });
+    handler = url => Number(url.searchParams.get("page")) === 1 ? firstPage(url) : { headers: { link: `${link(1, "prev")}, ${link(1, "first")}` }, body: [pr(2)] };
+    await expect(transport.fetchPage(second)).resolves.toMatchObject({ ok: true, page: { hasMore: false, endProof: PR_END_PROOF } });
+  });
+
+  it("should bind the repositories Link shape to the observed repository id", async () => {
+    handler = () => ({ headers: { link: link(2).replace(`repositories/${TEST_REPO_ID}`, "repositories/999999") }, body: [pr(1)] });
+    expect(await transport.fetchPage(request)).toMatchObject({ ok: false, kind: "protocol" });
+    handler = () => ({ headers: { link: link(2) }, body: [pr(1, { base: { sha: oid(1), ref: "main", repo: { id: 999999, full_name: "acme/project" } } })] });
+    expect(await transport.fetchPage(request)).toMatchObject({ ok: false, kind: "protocol" });
+    handler = () => ({ headers: { link: canonical(2) }, body: [pr(1)] });
+    expect(await transport.fetchPage(request)).toMatchObject({ ok: true, page: { hasMore: true } });
+  });
+
+  it("should refuse ascending pagination evidence", async () => {
+    handler = () => ({ headers: { link: link(2).replace("direction=desc", "direction=asc") }, body: [pr(1)] });
+    expect(await transport.fetchPage(request)).toMatchObject({ ok: false, kind: "protocol" });
+  });
+
+  it("should classify an unauthenticated gh without HTTP envelope as auth_required", async () => {
+    handler = () => ({ raw: "", exitCode: 4 });
+    expect(await transport.fetchPage(request)).toMatchObject({ ok: false, kind: "auth_required" });
+    const store = memoryPersistence();
+    const controlled = createLiveGithubTransport({ ghPath, hostDirectory: root });
+    const stale = await runPrSyncPass({ repository, now: 1800000000000, sweepKind: "full" }, { transport: controlled, persistence: store.persistence });
+    expect(stale).toMatchObject({ state: "stale", cursor: { pendingRetry: { kind: "auth_required" } } });
+    expect(stale.coverage.find(c => c.axis === "pr-metadata")?.state).toBe("unavailable");
+    // Any other bare failure without an envelope stays offline, never auth.
+    handler = () => ({ raw: "", exitCode: 1 });
+    expect(await transport.fetchPage(request)).toMatchObject({ ok: false, kind: "offline" });
+  });
+
+  it("should bound the in-memory page cache", { timeout: 60000 }, async () => {
+    handler = (_url, headers) => headers["if-none-match"]
+      ? { status: 304, headers: { link: link(1, "last") } }
+      : { headers: { etag: '"v"' }, body: [pr(1)] };
+    const total = 40;
+    for (let i = 1; i <= total; i++) {
+      expect(await transport.fetchPage({ ...request, updatedAtSince: i })).toMatchObject({ ok: true });
+    }
+    // The earliest position was evicted: its validator is no longer sent.
+    expect(await transport.fetchPage({ ...request, updatedAtSince: 1, etag: '"v"' })).toMatchObject({ ok: true });
+    expect(traces.at(-1)?.args.some(a => a.startsWith("If-None-Match:"))).toBe(false);
+    // A recent position is still cached: its validator is replayed.
+    expect(await transport.fetchPage({ ...request, updatedAtSince: total, etag: '"v"' })).toMatchObject({ ok: true });
+    expect(traces.at(-1)?.args.some(a => a.startsWith("If-None-Match:"))).toBe(true);
+  });
+
   it.each([
     ["foreign host", link(2).replace("api.github.com", "evil.invalid")],
-    ["foreign repository", link(2).replace("acme/project", "foreign/project")],
+    ["foreign repository id", link(2).replace(`repositories/${TEST_REPO_ID}`, "repositories/999999")],
     ["foreign state", link(2, "next", "&state=open")],
     ["wrong filter", link(2).replace("sort=updated", "sort=created")],
+    ["wrong direction", link(2).replace("direction=desc", "direction=asc")],
     ["backward page", link(1)],
     ["skipped page", link(3)],
     ["duplicate next", `${link(2)}, ${link(3)}`],
@@ -184,7 +285,8 @@ describe("live GitHub transport", () => {
 
   it.each([
     ["foreign row", [pr(1, { url: "https://api.github.com/repos/other/project/pulls/1" })]],
-    ["foreign base", [pr(1, { base: { sha: oid(1), ref: "main", repo: { full_name: "foreign/project" } } })]],
+    ["foreign base", [pr(1, { base: { sha: oid(1), ref: "main", repo: { id: TEST_REPO_ID, full_name: "foreign/project" } } })]],
+    ["foreign repository id", [pr(1, { base: { sha: oid(1), ref: "main", repo: { id: 999999, full_name: "acme/project" } } })]],
     ["missing identity", [pr(1, { url: undefined })]],
     ["invalid oid", [pr(1, { head: { sha: "bad", ref: "topic" } })]],
     ["invalid date", [pr(1, { updated_at: "bad" })]],
@@ -193,7 +295,7 @@ describe("live GitHub transport", () => {
     ["non-array", { message: "truncated" }],
     ["oversized page", Array.from({ length: 101 }, (_, i) => pr(i + 1))],
   ])("should refuse %s facts before filtering or persistence", async (_label, body) => {
-    handler = () => ({ body });
+    handler = () => ({ headers: { link: link(2) }, body });
     const store = memoryPersistence();
     const result = await runPrSyncPass({ repository, now: 1800000000000, sweepKind: "full" }, { transport, persistence: store.persistence });
     expect(result).toMatchObject({ state: "stale", cursor: { lastSuccessAt: null, pendingRetry: { kind: "protocol" } } });
@@ -217,7 +319,9 @@ describe("live GitHub transport", () => {
     const replay = await transport.fetchPage({ ...request, etag: '"same"' });
     expect(replay.ok && replay.page.items).toHaveLength(1);
     for (const changed of [{ updatedAtSince: 1 }, { repository: { owner: "other", repo: "project" } }, { cursor: first.page.nextCursor }]) {
-      handler = () => ({ body: [] });
+      // Page 1 ends without Link; page 2 always carries prev/first.
+      handler = url => Number(url.searchParams.get("page")) === 1 ? { body: [] }
+        : { headers: { link: `${link(1, "prev")}, ${link(1, "first")}` }, body: [] };
       expect((await transport.fetchPage({ ...request, ...changed, etag: '"same"' })).ok).toBe(true);
       expect(traces.at(-1)?.args.some(a => a.startsWith("If-None-Match:"))).toBe(false);
     }
@@ -256,6 +360,41 @@ describe("live GitHub transport", () => {
     await transport.fetchPage(request);
     handler = () => ({ status: 304, headers: { link: link(2).replace("api.github.com", "foreign.invalid") } });
     expect(await transport.fetchPage({ ...request, etag: '"cached"' })).toMatchObject({ ok: false, kind: "protocol" });
+  });
+
+  it("should reject a foreign numeric repository on a cached HTTP 304", async () => {
+    handler = () => ({ headers: { etag: '"cached"' }, body: [pr(1)] });
+    await transport.fetchPage(request);
+    handler = () => ({ status: 304, headers: { link: link(2).replace(`repositories/${TEST_REPO_ID}`, "repositories/999999") } });
+    expect(await transport.fetchPage({ ...request, etag: '"cached"' })).toMatchObject({ ok: false, kind: "protocol" });
+  });
+
+  it("should revalidate numeric 304 evidence when the cached body has no repository identity", async () => {
+    handler = () => ({ headers: { etag: '"empty"' }, body: [] });
+    await transport.fetchPage(request);
+    handler = (_url, headers) => headers["if-none-match"]
+      ? { status: 304, headers: { link: link(2) } }
+      : { headers: { link: link(2) }, body: [pr(1)] };
+    expect(await transport.fetchPage({ ...request, etag: '"empty"' })).toMatchObject({ ok: true, page: { items: [{ number: 1 }], hasMore: true } });
+    expect(traces).toHaveLength(3);
+    expect(traces.at(-1)?.args.some(a => a.startsWith("If-None-Match:"))).toBe(false);
+  });
+
+  it("should revalidate a secondary-page 304 without Link and reject a stripped terminator", async () => {
+    handler = () => ({ headers: { link: link(2) }, body: [pr(1)] });
+    const first = await transport.fetchPage(request);
+    if (!first.ok) throw new Error(first.kind);
+    const second = { ...request, cursor: first.page.nextCursor };
+    handler = () => ({ headers: { etag: '"terminal"', link: `${link(1, "prev")}, ${link(1, "first")}` }, body: [pr(2)] });
+    const terminal = await transport.fetchPage(second);
+    expect(terminal).toMatchObject({ ok: true, page: { endProof: PR_END_PROOF } });
+    handler = () => ({ status: 304, headers: { link: `${link(1, "prev")}, ${link(1, "first")}` } });
+    expect(await transport.fetchPage({ ...second, etag: '"terminal"' })).toEqual(terminal);
+    handler = (_url, headers) => headers["if-none-match"] ? { status: 304 } : { body: [pr(2)] };
+    const before = traces.length;
+    expect(await transport.fetchPage({ ...second, etag: '"terminal"' })).toMatchObject({ ok: false, kind: "protocol" });
+    expect(traces).toHaveLength(before + 2);
+    expect(traces.at(-1)?.args.some(a => a.startsWith("If-None-Match:"))).toBe(false);
   });
 
   it.each(["You have exceeded a secondary rate limit", "API rate limit exceeded", "You have triggered an abuse detection mechanism"])(
