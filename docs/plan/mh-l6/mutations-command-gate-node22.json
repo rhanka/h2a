@@ -1,0 +1,39 @@
+{
+  "node": "v22.22.1",
+  "files": [
+    {
+      "path": "packages/h2a/src/runtime/upgrade/launcher-install.js",
+      "sha256": "40d2c49bbb1ea9a37967bacf641cce479437f4e704305a0c9721b5c134d33486"
+    },
+    {
+      "path": "packages/h2a/dist/runtime/upgrade/launcher-install.js",
+      "sha256": "e9aa03145c1c91369e9cbe2462649ec65f95f91dec691f8ced3edf4118664b6c"
+    }
+  ],
+  "results": [
+    {
+      "name": "gate-call",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-command-gate.test.js-node22-mutation-gate-call-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-command-gate.test.js-node22-mutation-gate-call-green.log",
+      "restored": true
+    },
+    {
+      "name": "occupied-gate",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-command-gate.test.js-node22-mutation-occupied-gate-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-command-gate.test.js-node22-mutation-occupied-gate-green.log",
+      "restored": true
+    },
+    {
+      "name": "foreign-gate",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-command-gate.test.js-node22-mutation-foreign-gate-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-command-gate.test.js-node22-mutation-foreign-gate-green.log",
+      "restored": true
+    },
+    {
+      "name": "dangling-gate",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-command-gate.test.js-node22-mutation-dangling-gate-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-command-gate.test.js-node22-mutation-dangling-gate-green.log",
+      "restored": true
+    }
+  ]
+}

@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import { createHash } from 'node:crypto';
 import { dirname, isAbsolute, join } from 'node:path';
 import { assertBootstrapSessionUnchanged } from './bootstrap-session.js';
+import { assessNpmCommand } from './npm-command.js';
 
 // Conditional launcher installation (§8.6.5–6, §8.2): under the held
 // bootstrap session, write the managed launcher with fixed modes, fsync
@@ -26,6 +27,13 @@ export function installManagedLauncher(envelope = {}) {
     if (!fs.lstatSync(parent).isDirectory()) throw new Error('unusable');
   } catch { throw new Error('bootstrap_launcher_command_unusable'); }
   assertBootstrapSessionUnchanged(session);
+  const launcherPath = join(managedDir, 'launcher', 'h2a.mjs');
+  const legacyEntry = session.evidence?.commandPath;
+  if (typeof legacyEntry !== 'string' || !isAbsolute(legacyEntry)) throw new Error('bootstrap_launcher_install_invalid');
+  const verdict = assessNpmCommand({ commandPath, managedLauncher: launcherPath, legacyEntry });
+  if (verdict.state === 'occupied') throw new Error('bootstrap_launcher_command_occupied');
+  if (verdict.state === 'dangling') throw new Error('bootstrap_launcher_command_dangling');
+  if (verdict.state === 'foreign') throw new Error('bootstrap_launcher_command_foreign');
   let bytes;
   try {
     if (!fs.lstatSync(launcherSource).isFile()) throw new Error('unreadable');
@@ -35,7 +43,6 @@ export function installManagedLauncher(envelope = {}) {
   const launcherDir = join(managedDir, 'launcher');
   fs.mkdirSync(launcherDir, { recursive: true, mode: 0o700 });
   syncDirectory(managedDir);
-  const launcherPath = join(launcherDir, 'h2a.mjs');
   fs.writeFileSync(launcherPath, bytes, { mode: 0o755 });
   const fd = fs.openSync(launcherPath, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
   try { fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
