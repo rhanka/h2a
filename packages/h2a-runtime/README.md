@@ -61,6 +61,8 @@ prefix below is `/api/v1/auth/session/content/{bindingId}`.
 | GET `/source/sessions/{id}/control` | Bounded SSE metadata: grant, refresh, revoke, confirmation proof |
 | POST `/source/sessions/{id}/challenges` | Native metadata challenge; exact stored challenge echo, no authority added |
 | POST `/fragments` | Exact content length and hashed `X-H2A-Source-Meta` → scoped ingest ACK |
+| POST `/source/snapshots`, `/source/segments` | Bounded canonical JSON manifest/part with exact hashed admission → scoped native ingest ACK |
+| POST `/source/acks` | Metadata-only terminal gap → exact idempotent gap echo |
 | GET `/history/authorizations/{id}` | Current login/read authority → exact `history-read`, independent of source online state |
 | GET `/history/admissions/{descriptorHash}` | Current login → server-stored immutable archive admission |
 
@@ -85,10 +87,24 @@ and native metadata catalog. Bookmarks inspect metadata only. Content is read
 in bounded workers after activation; changed files, incomplete JSONL, missing
 or unconsented companions and unsafe paths refuse a complete export. This
 generic catalog does not qualify Claude's real checkpoint/reference semantics.
-Without a qualified native record index, partial record ranges refuse before
-reading; records larger than 256 KiB refuse. Source snapshot reads and staging
-re-reads both consume the cumulative work budget. An archive sink stages data;
-the receiving service owns atomic complete publication and admission.
+Existing-at-activation bookmarks include the frozen lineage/checkpoint selectors.
+Inclusive record ranges are indexed in the bounded snapshot worker across the
+metadata-frozen file order; records larger than 256 KiB refuse. The 256 MiB
+archive budget counts source bytes once; staging re-reads retain their separate
+part and memory bounds. `exportToSource` sends every manifest/part through native
+consent and authenticated HTTPS, cancels on exclusion or source invalidation,
+and requires the final immutable archive admission. An explicit archive sink
+remains available for adapters; the receiving service owns atomic publication.
+
+Pauses retain metadata-only gaps with the last acknowledged contiguous raw
+sequence per channel. Reapplication reports dropped and outage ranges before
+committing a fresh boundary; it never replays their content. Control proposals
+are serialized in a bounded queue, and an incoming proposal preempts obsolete
+preparation/confirmation. Local denial remains a synchronous reserved path.
+
+On the qualified Linux host, `ContentFence` requires `flock` on PATH. Its lock
+is held by an open file description and released by the kernel on exit/crash;
+lockfile age never authorizes takeover and proof/denial files remain durable.
 
 `SessionContentImport` resolves current authenticated read authority and the
 server-stored descriptor, validates every policy/manifest/admission/retention

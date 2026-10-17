@@ -470,7 +470,9 @@ function consumeFrames(host: NativeTerminalHost, context: ConnectionContext, chu
         context.pendingContent++;
         void Promise.resolve(result).then(value=>{
           if(!context.socket.destroyed) writeResponse(context,{version:NATIVE_TERMINAL_PROTOCOL_VERSION,id:request.id,ok:true,result:value ?? null});
-        },()=>{ if(!context.socket.destroyed) writeError(context,request.id,"operation-failed",new Error("content_refused")); })
+        },error=>{
+          const code=error instanceof Error&&["resource_busy","rate_limited","excluded","confirmation_expired","outcome_unknown","fence_storage_failed","unsupported_format","unsupported_source","content_unavailable"].includes(error.message)?error.message:"content_refused";
+          if(!context.socket.destroyed) writeError(context,request.id,"operation-failed",new Error(code)); })
           .finally(()=>{context.pendingContent--;});
         continue;
       }

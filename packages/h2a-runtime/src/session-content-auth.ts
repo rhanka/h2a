@@ -22,7 +22,7 @@ interface Config {
   measuredClockErrorMs?: number;
 }
 interface LoginAttempt { verifier: string; state: string; start: number }
-interface Login { accessToken: string; start: number; deadline: number; authSessionRef?: string; authSessionVersion?: number; busy: boolean }
+interface Login { accessToken: string; start: number; deadline: number; authSessionRef?: string; authSessionVersion?: number; busy: boolean; streams:Set<AbortController> }
 interface SourceMetadata {
   sourceSessionId: string; owner: ConfirmationChallenge["owner"]; authSessionRef: string; authSessionVersion: number;
   authSessionExpiresAt: number; source: Source; connectionId: string; issuedAt: number; expiresAt: number;
@@ -128,7 +128,7 @@ export class SessionContentAuth {
       // No decoded ID token establishes identity. The source service resolves the access token
       // with confidential session-aware introspection; native never receives that client secret.
       const login = Object.freeze({});
-      this.logins.set(login, { accessToken: response.access_token, start, deadline, busy: false }); return login;
+      this.logins.set(login, { accessToken: response.access_token, start, deadline, busy: false, streams:new Set() }); return login;
     } finally { this.inFlight--; }
   }
   async openSource(loginHandle: object): Promise<object> {
@@ -166,7 +166,7 @@ export class SessionContentAuth {
       return handle;
     } catch {
       // A failed authority check pauses all dependent handles, not just the current request.
-      login.deadline = -1;
+      for(const stream of login.streams)stream.abort();login.streams.clear();login.deadline = -1;
       return fail();
     } finally { this.inFlight--; login.busy = false; }
   }
@@ -227,6 +227,42 @@ export class SessionContentAuth {
       const response = await post(url, canonicalJson(ack), "application/json", this.config.ca, session.token);
       validateContentMessage(response); this.metadata(handle); return response;
     } catch { this.invalidate(handle); return fail(); } finally { this.inFlight--; }
+  }
+  /** Metadata survives an interrupted capture boundary; it contains no terminal bytes. */
+  async sendGap(handle:object,gap:Record<string,unknown>):Promise<void>{
+    const meta=this.metadata(handle),session=this.sessions.get(handle)!;validateContentMessage(gap);
+    if(gap.kind!=='terminal-gap'||!same((gap.scope as Scope).source,meta.source)||this.inFlight>=4)return fail();
+    this.inFlight++;
+    try{const response=await requestJson('POST',new URL('/api/v1/auth/session/content/'+meta.source.bindingId+'/source/acks',this.config.sourceServer),canonicalJson(gap),'application/json',this.config.ca,session.token);this.metadata(handle);if(!same(response,gap))return fail();}
+    finally{this.inFlight--;}
+  }
+  async sendSnapshot(handle:object,manifest:Record<string,unknown>,signal:AbortSignal):Promise<Record<string,unknown>>{
+    return this.sendNative(handle,manifest,'native-manifest','snapshots',signal);
+  }
+  async sendSegment(handle:object,part:Record<string,unknown>,signal:AbortSignal):Promise<Record<string,unknown>>{
+    return this.sendNative(handle,part,'native-part','segments',signal);
+  }
+  private async sendNative(handle:object,message:Record<string,unknown>,kind:string,route:string,signal:AbortSignal):Promise<Record<string,unknown>>{
+    const meta=this.metadata(handle),session=this.sessions.get(handle)!;validateContentMessage(message);
+    const scope=message.scope as Scope;
+    if(message.kind!==kind||message.connectionId!==meta.connectionId||!same(scope.source,meta.source)||!same(scope.owner,meta.owner)||this.inFlight>=4)return fail();
+    signal.throwIfAborted();
+    const body=canonicalJson(message),path='/api/v1/auth/session/content/'+meta.source.bindingId+'/source/'+route;
+    const admission=envelope('source-admission',{method:'POST',path,sourceSessionId:meta.sourceSessionId,connectionId:meta.connectionId,
+      requestId:randomBytes(32).toString('base64url'),scopeDigest:contentDigest('scope',scope),leaseId:message.leaseId,bodyBytes:Buffer.byteLength(body),bodyHash:sha256(body)});
+    const header=Buffer.from(canonicalJson(admission)).toString('base64url');if(header.length>8192)return fail();
+    const abort=new AbortController(),cancel=()=>abort.abort();signal.addEventListener('abort',cancel,{once:true});session.login.streams.add(abort);
+    const timer=setTimeout(cancel,Math.max(0,Math.min(session.deadline,session.login.deadline)-this.now()));timer.unref();this.inFlight++;
+    try{
+      this.metadata(handle);signal.throwIfAborted();
+      const response=await requestJson('POST',new URL(path,this.config.sourceServer),body,'application/json',this.config.ca,session.token,{admission:header,signal:abort.signal});
+      this.metadata(handle);abort.signal.throwIfAborted();validateContentMessage(response);
+      const coverage=response.coverage as Record<string,unknown>;
+      if(response.kind!=='ingest-ack'||response.requestId!==admission.requestId||response.scopeDigest!==admission.scopeDigest||response.connectionId!==meta.connectionId
+        ||!['accepted','duplicate'].includes(String(response.status))||coverage?.kind!=='native'||coverage.snapshotId!==message.snapshotId
+        ||(kind==='native-part'&&(coverage.fileSha256!==message.fileSha256||coverage.acceptedThroughByteOffset!==(message.byteOffset as number)+(message.byteLength as number))))return fail();
+      return response;
+    }finally{clearTimeout(timer);signal.removeEventListener('abort',cancel);session.login.streams.delete(abort);this.inFlight--;}
   }
   async sendFragment(handle: object, fragment: Record<string, unknown>, signal: AbortSignal): Promise<Record<string, unknown>> {
     const meta = this.metadata(handle), session = this.sessions.get(handle)!;
@@ -324,7 +360,7 @@ export class SessionContentAuth {
   /** Observed invalidation is immediate locally. No reconnect or silent login reparenting. */
   invalidate(handle: object): void {
     const session = this.sessions.get(handle);
-    if (session) { session.deadline = -1; session.login.deadline = -1; this.sessions.delete(handle); }
+    if (session) { for(const stream of session.login.streams)stream.abort();session.login.streams.clear();session.deadline = -1; session.login.deadline = -1; this.sessions.delete(handle); }
   }
 }
 

@@ -5,7 +5,7 @@ import { createServer, type Server } from "node:https";
 import type { ServerResponse } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterAll, beforeAll, it, expect } from "vitest";
+import { afterAll, beforeAll, it, expect, vi } from "vitest";
 // @ts-ignore Shared confinement helper; private roots and owned child process guards.
 import { setupNativeTestEnvironment, createPrivateTestDirectory } from "../../h2a/test/helpers/native-isolation.js";
 setupNativeTestEnvironment(afterAll);
@@ -29,9 +29,11 @@ const {privateKey,publicKey}=generateKeyPairSync('rsa',{modulusLength:2048});
 const jwk={...publicKey.export({format:'jwk'}),kid:'test-only',alg:'RS256',use:'sig'};
 let root:string,server:Server,origin:string,ca:string;
 let policy=fixture('project-policy').policy, scope=fixture('grant-activate').scope;
-let mode='valid',stored:Buffer[]=[],bodyReads=0,acks=0;
+let mode='valid',stored:Buffer[]=[],bodyReads=0,acks=0,gaps:Record<string,unknown>[]=[];
 let ackBarrier: (()=>Promise<void>) | undefined;
 let archiveCopy:ArchiveBundle|undefined;
+let uploadManifest:any,uploadParts:ArchivePart[]=[],lastContentAck:any;
+let uploadBarrier:(()=>Promise<void>)|undefined;
 let controlResponse:ServerResponse|undefined,autoProof=true,observedChallenge:unknown;
 beforeAll(async()=>{
   root=mkdtempSync(join(tmpdir(),'f2-consent-'));
@@ -65,12 +67,26 @@ beforeAll(async()=>{
       if(req.url?.endsWith('/source/sessions') || req.url?.endsWith('/source/sessions/source-session/renew')) {
         const now=Date.now();end(envelope('source-session',{requestId:input.requestId,requestNonce:input.requestNonce,sourceSessionId:'source-session',sourceToken:'synthetic-source',owner:{issuer:origin,subject:'synthetic-owner'},authSessionRef:'login',authSessionVersion:1,authSessionExpiresAt:now+300000,source:scope.source,connectionId:'connection',issuedAt:now,expiresAt:now+60000,operations:['source-control','content-upload','source-ack']}));return;
       }
+      if(req.url?.endsWith('/source/snapshots')||req.url?.endsWith('/source/segments')){
+        const meta=JSON.parse(Buffer.from(req.headers['x-h2a-source-meta'] as string,'base64url').toString());
+        if(meta.bodyHash!==sha256(body)||meta.bodyBytes!==Buffer.byteLength(body)||meta.path!==req.url)throw Error('admission mismatch');
+        if(input.kind==='native-manifest')uploadManifest=input;else {uploadParts.push(input);await uploadBarrier?.();}
+        const last=input.kind==='native-part'&&input.final&&input.fileSha256===uploadManifest.files.at(-1).sha256;
+        if(last){const retained={retainedId:'retained-upload',originScopeDigest:contentDigest('scope',scope),acceptedAt:Date.now(),expiresAt:null};
+          const base={archive:'h2a.session-archive/1' as const,snapshotId:uploadManifest.snapshotId,manifestHash:uploadManifest.manifestHash,policyDigest:uploadManifest.policyDigest,channel:'nativeHistory' as const,retention:policy.retentionByChannel.nativeHistory,retained};
+          archiveCopy={policy:structuredClone(policy),manifest:uploadManifest,admission:{...base,descriptorHash:contentDigest('archive-admission',base)}};
+        }
+        end(envelope('ingest-ack',{requestId:meta.requestId,scopeDigest:meta.scopeDigest,connectionId:'connection',status:'accepted',coverage:{kind:'native',snapshotId:input.snapshotId,fileSha256:input.fileSha256??input.manifestHash,acceptedThroughByteOffset:input.kind==='native-part'?input.byteOffset+input.byteLength:0},retained:last?archiveCopy!.admission.retained:null,archiveAdmission:last?archiveCopy!.admission:null,reason:null}));return;
+      }
+      if(req.url?.endsWith('/source/acks')&&input.kind==='terminal-gap'){gaps.push(input);end(input);return;}
       if(req.url?.endsWith('/acks')) {
-        acks++;await ackBarrier?.();end(envelope('control-result',{requestId:input.requestId,requestDigest:input.requestDigest,sourceAckDigest:mode==='wrong-ack'?'0'.repeat(64):contentDigest('ack',input),connectionId:'connection',status:'committed',reason:null}));return;
+        lastContentAck=input;acks++;await ackBarrier?.();end(envelope('control-result',{requestId:input.requestId,requestDigest:input.requestDigest,sourceAckDigest:mode==='wrong-ack'?'0'.repeat(64):contentDigest('ack',input),connectionId:'connection',status:'committed',reason:null}));return;
       }
       if(req.url?.endsWith('/fragments')) {
+        if(input.kind==='terminal-gap'){gaps.push(input);end(input);return;}
         const meta=JSON.parse(Buffer.from(req.headers['x-h2a-source-meta'] as string,'base64url').toString());
         if(meta.bodyHash!==sha256(body)||meta.bodyBytes!==Buffer.byteLength(body)) throw Error('body mismatch');
+        if(mode==='quota-full'){end(envelope('ingest-ack',{requestId:meta.requestId,scopeDigest:contentDigest('scope',scope),connectionId:'connection',status:'refused',coverage:{kind:'terminal',cursor:{scopeDigest:contentDigest('scope',scope),connectionId:'connection',channel:input.channel,rawSeq:input.rawSeq,byteOffset:0}},retained:null,archiveAdmission:null,reason:'quota_full'}));return;}
         stored.push(Buffer.from(input.payloadB64,'base64url'));
         end(envelope('ingest-ack',{requestId:meta.requestId,scopeDigest:contentDigest('scope',scope),connectionId:'connection',status:'accepted',coverage:{kind:'terminal',cursor:{scopeDigest:contentDigest('scope',scope),connectionId:'connection',channel:input.channel,rawSeq:input.rawSeq,byteOffset:input.byteOffset+input.byteLength}},retained:null,archiveAdmission:null,reason:null}));return;
       }
@@ -82,7 +98,7 @@ beforeAll(async()=>{
 });
 afterAll(async()=>{server.closeAllConnections();await new Promise<void>(resolve=>server.close(()=>resolve()));rmSync(root,{recursive:true,force:true});});
 async function setup(monotonicNow?:()=>number,history?:NativeHistoryProvider){
-  mode='valid';stored=[];bodyReads=0;acks=0;ackBarrier=undefined;autoProof=true;observedChallenge=undefined;
+  mode='valid';stored=[];bodyReads=0;acks=0;gaps=[];uploadManifest=undefined;uploadParts=[];lastContentAck=undefined;uploadBarrier=undefined;ackBarrier=undefined;autoProof=true;observedChallenge=undefined;
   policy=fixture('project-policy').policy;policy.owner.issuer=origin;policy.destination=origin;policy.channels.nativeHistory=false;policy.history={mode:'none',selected:[]};
   scope=fixture('grant-activate').scope;scope.owner.issuer=origin;scope.sessionIncarnation='11111111-1111-4111-8111-111111111111';
   const auth=new SessionContentAuth({issuer:origin,authorizeUrl:origin+'/authorize',tokenUrl:origin+'/token',clientId:'source-client',audience:'source-audience',redirectUri:'http://127.0.0.1:3210/callback',sourceServer:origin,owner:policy.owner,source:scope.source,runtime:fixture('capabilities').runtime,capabilitiesDigest:'a'.repeat(64),ca,measuredClockErrorMs:0,...(monotonicNow?{monotonicNow}:{})});
@@ -227,4 +243,69 @@ it('should apply a confirmed amendment to an already covered future child withou
   policy.revision=2;policy.channels.terminalCache=false;scope={...parent,policyRevision:2};
   const amended=await consent.prepare('parent-amend');expect(child.status().state).toBe('paused');await consent.confirm(proof(amended));
   scope={...scope,sessionId:'child',sessionIncarnation:'child-incarnation'};await child.applyAcceptedPolicy('child-amend');expect(child.status().state).toBe('active');
+});
+
+it('should preempt an obsolete control preparation and process a concurrent restrictive amendment',async()=>{
+  const {consent,auth}=await setup();const first=await consent.prepare('initial');await consent.confirm(proof(first));
+  let arrived!:()=>void,release!:()=>void;const seen=new Promise<void>(r=>arrived=r),blocked=new Promise<void>(r=>release=r);
+  const original=auth.resolveGrant.bind(auth),observed:string[]=[];
+  const spy=vi.spyOn(auth,'resolveGrant').mockImplementation(async(handle,id)=>{observed.push(id);if(id==='blocked'){arrived();await blocked;}return original(handle,id);});
+  try{consent.acceptControl({...fixture('grant-activate'),requestId:'blocked',scope});await seen;
+    policy.revision=2;policy.channels.terminalCache=false;scope.policyRevision=2;
+    consent.acceptControl({...fixture('grant-refresh'),requestId:'narrow',operation:'amend',previousScope:scope,nextScope:scope});
+    expect(consent.status().state).not.toBe('active');release();
+    const until=performance.now()+1500;while(!observed.includes('narrow')&&performance.now()<until)await new Promise(r=>setTimeout(r,5));
+    expect(observed).toContain('narrow');
+  }finally{release();await new Promise(r=>setTimeout(r,30));consent.disconnect();spy.mockRestore();}
+});
+it('should report lost terminal ranges and acknowledged continuity after overflow and disconnection',async()=>{
+ const {consent,auth}=await setup();const ch=await consent.prepare('initial');await consent.confirm(proof(ch));
+ consent.onRaw('accepted');await consent.flush('terminal.live');consent.onRaw('lost');consent.onRaw('x'.repeat(1048577));
+ await consent.applyAcceptedPolicy('reconnect');await consent.flush('terminal.live');
+ expect(gaps).toContainEqual(expect.objectContaining({kind:'terminal-gap',channel:'terminal.live',fromSeq:2,toSeq:3,contiguousThroughSeq:1,reason:'evicted'}));
+ consent.onRaw('lost-again');consent.disconnect();await consent.applyAcceptedPolicy('reconnect');await consent.flush('terminal.live');
+ expect(gaps).toContainEqual(expect.objectContaining({fromSeq:4,toSeq:4,reason:'partition'}));
+ consent.disconnect();
+});
+
+it('should publish an archive through authenticated source routes only while native consent remains active',async()=>{
+ const work=mkdtempSync(join(root,'https-archive-')),file=join(work,'records');writeFileSync(file,'{"n":1}\n');
+ const provider=fixture('native-manifest').provider,history=new NativeHistoryProvider({project:fixture('project-policy').policy.project,provider,qualifiedProviders:[provider],catalog:[{lineageId:'lineage',checkpointId:'checkpoint',companions:[],files:[{path:'records/a.jsonl',localPath:file,role:'records'}]}]});
+ const {consent}=await setup(undefined,history);policy.channels.nativeHistory=true;policy.history={mode:'existing-at-activation',selected:[]};
+ const exporter=new SessionContentArchiveExport({workRoot:work,budget:new ArchiveBudget()});
+ await expect(exporter.exportToSource(consent)).rejects.toThrow();expect(uploadParts).toHaveLength(0);
+ const challenge=await consent.prepare('native');await consent.confirm(proof(challenge));
+ expect(lastContentAck.boundary.native.selections).toEqual([{lineageId:'lineage',checkpointId:'checkpoint',fromRecord:null,toRecord:null}]);
+ const manifest=await exporter.exportToSource(consent);expect(manifest.manifestHash).toBe(archiveCopy!.admission.manifestHash);expect(uploadParts).toHaveLength(1);
+ let release!:()=>void,arrived!:()=>void;const seen=new Promise<void>(r=>arrived=r);
+ uploadBarrier=()=>{arrived();return new Promise<void>(r=>release=r);};
+ const pending=exporter.exportToSource(consent),rejected=expect(pending).rejects.toThrow();
+ try{await seen;consent.exclude();await rejected;}finally{release?.();uploadBarrier=undefined;}
+ await expect(exporter.exportToSource(consent)).rejects.toThrow();expect(uploadParts).toHaveLength(2);
+});
+
+it('should keep a newer control amendment alive when an older confirmation ACK finishes late',async()=>{
+ const {consent}=await setup();let release!:()=>void,arrived!:()=>void;const seen=new Promise<void>(r=>arrived=r);let first=true;
+ ackBarrier=()=>{if(!first)return Promise.resolve();first=false;arrived();return new Promise<void>(r=>release=r);};
+ const control=consent.connectControl();
+ const wait=async(p:()=>boolean)=>{const until=performance.now()+1500;while(!p()){if(performance.now()>=until)throw Error('missing amendment witness');await new Promise(r=>setTimeout(r,5));}};
+ try{await control.ready;controlResponse!.write('data: '+JSON.stringify({...fixture('grant-activate'),requestId:'old',scope})+'\n\n');await seen;
+   const previous=structuredClone(scope);policy.revision=2;scope.policyRevision=2;policy.channels.terminalCache=false;
+   controlResponse!.write('data: '+JSON.stringify({...fixture('grant-refresh'),requestId:'new',operation:'amend',previousScope:previous,nextScope:scope})+'\n\n');
+   await wait(()=>((observedChallenge as any)?.challenge?.target?.policyDigest===contentDigest('policy',policy)));release();await wait(()=>consent.status().state==='active');
+   expect(consent.status().state).toBe('active');
+ }finally{release?.();control.close();await new Promise(r=>setTimeout(r,30));}
+});
+
+it('should report outage ranges even when no bytes were queued at disconnection',async()=>{
+ const {consent}=await setup();const ch=await consent.prepare('initial');await consent.confirm(proof(ch));
+ consent.onRaw('accepted');await consent.flush('terminal.live');consent.disconnect();consent.onRaw('outage');
+ await consent.applyAcceptedPolicy('reconnect');
+ expect(gaps).toContainEqual(expect.objectContaining({fromSeq:2,toSeq:2,contiguousThroughSeq:1,reason:'partition',channel:'terminal.live'}));consent.disconnect();
+});
+
+it('should report a quota refusal as an evicted range without advancing acknowledged coverage',async()=>{
+ const {consent}=await setup();const ch=await consent.prepare('initial');await consent.confirm(proof(ch));consent.onRaw('quota-lost');mode='quota-full';
+ await expect(consent.flush('terminal.live')).rejects.toThrow();expect(consent.status().state).toBe('paused');mode='valid';await consent.applyAcceptedPolicy('reconnect');
+ expect(gaps).toContainEqual(expect.objectContaining({channel:'terminal.live',reason:'evicted',fromSeq:1,toSeq:1,contiguousThroughSeq:0}));consent.disconnect();
 });
