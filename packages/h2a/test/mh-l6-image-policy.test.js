@@ -53,6 +53,56 @@ function fixture(t, files) {
 const dep = { 'node_modules/dep/package.json': '{"name":"dep","type":"module","main":"./index.js"}',
   'node_modules/dep/index.js': "export default 'internal';" };
 
+test('U12 should bind the image root SDK and its public subpath for an internal ESM dependency', t => {
+  const f = fixture(t, {
+    'package.json': JSON.stringify({ name: 'dep', type: 'module', exports: { '.': './sdk.mjs', './public': './public.mjs' } }),
+    'entry.mjs': "export {default} from './node_modules/consumer/index.mjs';",
+    'sdk.mjs': "export default 'root-sdk';", 'public.mjs': "export default 'root-public';",
+    'node_modules/consumer/package.json': '{"name":"consumer","type":"module"}',
+    'node_modules/consumer/index.mjs': "export default [(await import('dep')).default,(await import('dep/public')).default];"
+  });
+  f.decoy(join(f.directory, 'node_modules'));
+  fs.writeFileSync(join(f.directory, 'node_modules/dep/public.js'), `import fs from'node:fs';fs.writeFileSync(${JSON.stringify(f.marker)},'loaded');export default 'outside';`);
+  const result = f.run(); assert.equal(result.status, 0, JSON.stringify(result.json));
+  assert.deepEqual(result.json.value, ['root-sdk', 'root-public']); assert.equal(fs.existsSync(f.marker), false);
+});
+test('U12 should preserve require conditions when an internal dependency loads the image root SDK', t => {
+  const f = fixture(t, {
+    'package.json': JSON.stringify({ name: 'dep', type: 'module', exports: { '.': { import: './sdk.mjs', require: './sdk.cjs' } } }),
+    'entry.mjs': "export {default} from './node_modules/consumer/index.mjs';",
+    'sdk.mjs': "export default 'esm';", 'sdk.cjs': "module.exports='root-require';",
+    'node_modules/consumer/package.json': '{"name":"consumer","type":"module"}',
+    'node_modules/consumer/index.mjs': "import{createRequire}from'node:module';export default createRequire(import.meta.url)('dep');"
+  });
+  f.decoy(join(f.directory, 'node_modules'), 'commonjs');
+  const result = f.run(); assert.equal(result.status, 0, JSON.stringify(result.json));
+  assert.equal(result.json.value, 'root-require'); assert.equal(fs.existsSync(f.marker), false);
+});
+test('U12 should refuse a forged external require base even when its package name matches the image root SDK', t => {
+  const f = fixture(t, {
+    'package.json': '{"name":"dep","exports":"./sdk.cjs"}', 'sdk.cjs': "module.exports='root';",
+    'entry.mjs': "import{createRequire}from'node:module';export default createRequire(process.env.IMAGE_REQUIRE_BASE)('dep');"
+  });
+  f.decoy(join(f.directory, 'node_modules'), 'commonjs');
+  const result = f.run('none', { IMAGE_REQUIRE_BASE: join(f.directory, 'external.cjs') });
+  assert.equal(result.status, 1); assert.match(result.json.error, /image_external_module/);
+  assert.equal(fs.existsSync(f.marker), false);
+});
+test('U12 should preserve root SDK export restrictions instead of loading a declared private file', t => {
+  const f = fixture(t, {
+    'package.json': '{"name":"dep","type":"module","exports":{".":"./sdk.mjs"}}',
+    'entry.mjs': "export {default} from './node_modules/consumer/index.mjs';", 'sdk.mjs': 'export default 1;',
+    'private.mjs': "import fs from'node:fs';fs.writeFileSync(process.env.IMAGE_PRIVATE_MARKER,'loaded');export default 'private';",
+    'node_modules/consumer/package.json': '{"name":"consumer","type":"module"}',
+    'node_modules/consumer/index.mjs': "export default (await import('dep/private.js')).default;"
+  });
+  f.decoy(join(f.directory, 'node_modules'));
+  fs.writeFileSync(join(f.directory, 'node_modules/dep/private.js'), `import fs from'node:fs';fs.writeFileSync(${JSON.stringify(f.marker)},'loaded');export default 'outside';`);
+  const result = f.run('none', { IMAGE_PRIVATE_MARKER: f.marker });
+  assert.equal(result.status, 1); assert.equal(fs.existsSync(f.marker), false);
+  assert.match(result.json.error, /image_external_module|image_dependency_missing/);
+});
+
 test('U12 should load verified relative and package modules through the real ESM and CJS readers', t => {
   const f = fixture(t, { 'entry.mjs': "import value from 'dep';import cjs from './local.cjs';export default [value,cjs];",
     'local.cjs': "module.exports=require('node:path').basename('/a/b');", ...dep });
