@@ -947,6 +947,7 @@
     "should reject legacy and incompatible content hosts without changing native transport version"
   ],
   "packages/h2a-runtime/src/session-content-consent.test.ts": [
+    "should refuse unqualified native history before any confirmation challenge or content delivery",
     "should keep actual native PTY refusal at zero content bytes then export only the post-ACK sentinel",
     "should refuse forged confirmation and let exclusion win while an activation ACK is pending",
     "should refuse a mismatched ACK and discard queued bytes on lost source authority",
@@ -994,7 +995,9 @@
     "should preserve exact UTF-8 source bytes including an initial BOM in exported records"
   ],
   "packages/h2a-runtime/src/native-terminal/content-errors.test.ts": [
-    "should preserve typed content refusals on IPC while hiding arbitrary error text"
+    "should preserve typed content refusals on IPC while hiding arbitrary error text",
+    "should hide synchronous content errors on every IPC entry while preserving typed refusals",
+    "should omit unavailable content capability and refuse every unwired IPC entry without legacy fallback"
   ],
   "packages/h2a/test/session-content-capsule-checkout.test.js": [
     "capsule keeps exact hashed bytes under a Windows CRLF checkout"
