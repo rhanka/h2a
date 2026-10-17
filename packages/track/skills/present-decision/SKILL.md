@@ -1,101 +1,90 @@
 ---
 name: present-decision
-description: Use when an agent must present a complex, irreversible, cross-owner, security/contract-affecting, costly, or genuinely balanced decision to a human owner — or must choose between decide-and-trace, a quick ask, and a full decision dossier. The agent presents at the level of the stakes, never sells its preferred option, and records the decision in track. This is agent→human; it is NOT h2a (h2a ATTENTION is the inter-agent presenter).
+description: Present consequential human decisions with a readable dossier, or choose decide-and-trace or a quick ask for smaller stakes. Covers irreversible, costly, security, contract, cross-owner and genuinely balanced choices; records the outcome in track. Agent-to-human, not h2a inter-agent negotiation.
 ---
 
 # Present Decision
 
-Present human decisions **at the level of the stakes**. Do not sell your preferred option. Do not outsource this to h2a — h2a ATTENTION/MANDATAIRE is the *inter-agent* neutral presenter in a negotiation; this skill is the agent's own *agent→human* working method.
+## Titles first
 
-This skill is **tool-neutral**. Where it names a capability ("your code-search tool", "your modal-ask tool", "your second-opinion agent"), use your host's equivalent — see **Per-agent mapping** at the end.
+Name the subject and decision object in plain words, short enough to distinguish 50 dossiers.
+Example: **Décision CI/CD Sentropic — sélection des tests et graphe des dépendances**.
+Use one line; no slogan or thesis sentence. In HTML, the visible title and `<title>` must be identical.
+Render it in small type in a thin band (at most 1.25rem), never a hero or a large heading occupying the screen.
 
-## Step 1 — Calibrate (the trigger scorecard)
+## 1. Choose the right effort
 
-Score the decision *before* asking anything. Pick exactly one path.
+Start with what changes for the owner and what risk they bear. Keep their intention central;
+an agent's technical inconvenience alone does not justify a dossier.
 
-**Decide + trace** — when ALL are true: local scope, reversible in ≤ one focused work block, no security/privacy/data-loss/frozen-contract/cross-owner impact, an existing repo pattern is clear, and no genuine equipoise. → Decide, state the reversible assumption out loud, keep moving. (Optionally record via track.) **Do not** stage a complaisant menu for a call you can reverse.
+- **Decide + trace:** local, readily reversible, clear existing pattern, no meaningful security,
+  privacy, data-loss, frozen-contract or cross-owner impact, no genuinely balanced alternatives.
+  State the assumption and proceed within existing authorization.
+- **Quick ask:** one missing owner preference, 2–3 clear options, cheap rollback, no hard trigger.
+  Give each option a one-line consequence.
+- **Dossier:** irreversible or costly rollback; public/frozen contract or data-schema change;
+  security, privacy, access control, migration or retention; cross-repo/owner/agent impact;
+  meaningful cost, schedule or scope impact; strong disagreement or balanced alternatives;
+  unknown validation criteria that could change the outcome; or explicit owner request.
+  Two moderate triggers also qualify. Explain the concrete owner impact, not just the trigger.
 
-**Quick ask** — when exactly one owner preference is missing, there are 2–3 clear options, rollback is cheap, and no hard trigger below applies. → Use your modal-ask tool with one-sentence impact per option.
+Declare a total reading-time budget proportional to the stakes. Each question, including its
+context, options and recommendation, must be readable in **2 minutes** (aim for at most 400 words).
+Prefer one question. For several, state their count and total time; make each self-contained.
+Keep supporting evidence separate and optional to read, without hiding a choice or material risk there.
 
-**Full dossier** — when ANY hard trigger applies:
-- irreversible, or rollback > one focused work block
-- public / frozen contract; event / read / write schema
-- auth / security / privacy / IAM
-- migration / data retention
-- cross-repo / cross-owner / cross-agent
-- meaningful cost / timeline / workpackage impact; high blast radius
-- strong reviewer disagreement; genuine equipoise
-- unknown owner validation criteria that could change the outcome
-- the owner asks for validation at stake level
+## 2. Ground the decision
 
-Two *medium* triggers (moderate cost, partial reversibility, one repo but a shared module, mild reviewer disagreement) also mean **dossier**. When in doubt, escalate the path, not the ceremony — a dossier can be short, but it must be honest.
+Read the request, applicable repo rules and existing decisions; verify claims against sources.
+When `.track/` exists, read its state using the repo's reporting workflow. Do not edit other repos
+or global rules without authorization.
 
-## Step 2 — Gather inputs (full-dossier path)
+Quote the **literal owner request**, with date/source, and map each demand to the question,
+option or acceptance criterion that addresses it. Quote the relevant passage without paraphrasing;
+link longer context. Flag any departure from the request explicitly.
+Use [assets/owner-criteria.template.md](assets/owner-criteria.template.md) for applicable criteria.
 
-1. **Local context first.** User request; repo entrypoints (`AGENTS.md`, then the host-specific pointer); applicable repo rules; existing track state when `.track/` exists; and **`track report`** (default table: fait / à-faire %·WP / attendus) when track is available. When showing that report to the human, preserve the table verbatim in a fenced code block. Use your code-search tool to ground claims in the actual code, not memory.
-2. **The double-instruction (standing rule).** For a complex *design* decision, get **independent Codex + Opus passes** via your second-opinion tool before recommending. **Synthesize — do not blend away disagreements.** If a hard-trigger decision lacks the second pass, mark the dossier **Incomplete** and ask whether to wait or proceed provisionally; only reversible prep may continue meanwhile.
-3. **Owner criteria.** Seed from `assets/owner-criteria.template.md`; source the live criteria from the request, repo rules, prior owner decisions, existing track decisions/dossiers, and the `track report` attendus.
+For complex design decisions, obtain independent Codex + Opus reviews before recommending.
+Use the host's available second-opinion tool; surface disagreements. Reviews bound risks and
+check owner intent; they must not inflate the dossier. A missing required review makes it
+**Incomplete**; only reversible preparation may continue, and no final validation is requested.
 
-## Step 3 — Build the 8-section dossier
+## 3. Write a short, self-contained question
 
-Use `assets/dossier-template.md`. In order, no ornamental sections:
+Use [assets/dossier-template.md](assets/dossier-template.md). In plain words, include:
 
-1. **Decision asked** — one sentence, option IDs, exact scope.
-2. **Context** — facts, assumptions, and unknowns kept separate.
-3. **Stakes** — why this is dossier-level; affected repos / WPs / contracts / users.
-4. **Options** — table: `id · choice · strongest case FOR · strongest case AGAINST · cost · reversibility · what would make it win`. One row per option, including rejected ones.
-5. **Recommendation + rationale** — one recommended option (or "defer"), with the decisive judgment.
-6. **Reversibility / cost** — rollback path, sunk cost, migration / cleanup cost, time estimate.
-7. **Attendus** (the human's validation criteria) — checklist `criterion · source · covered by · gap`.
-8. **What I need from you** — the smallest valid decision or the one missing criterion.
+- the exact decision and boundary, the owner's expected benefit and risk;
+- representative context: current behavior, a concrete problem/scenario, affected people,
+  constraints, sourced facts, assumptions and unknowns;
+- **2–4 short options**, each with a one-line owner consequence including its main tradeoff,
+  cost and rollback; make every implied choice explicit, with **no nested sub-options**;
+- one recommendation and why, its strongest objection and what would overturn it;
+- the smallest answer needed and acceptance criteria tied to the owner's words.
 
-## Step 4 — SELF-AUDIT GATE (loop before presenting)
+Spell out necessary acronyms on first use. Replace opaque codes such as `L06b` with meaningful
+names; keep tracking identifiers in source links. A reader must understand the question without
+opening those links. Separate `[FACT]` (with source) from `[JUDGMENT]` on decisive claims.
+Present each alternative's strongest honest case, including a rejected alternative; avoid padding
+pros to match counts. State presenter convenience separately from owner value, and include a brief
+failure scenario. Integrate these safeguards into the question; no mandatory long appendix.
 
-Run `assets/self-audit.md` as a checklist. **Do not present a dossier as complete until every item passes.** If any item fails, fix the dossier and re-run the gate — loop, don't ship.
+## 4. Audit, present, record
 
-- **FACT / JUDGMENT tags** — every load-bearing claim is tagged `[FACT]` (verifiable, with a source) or `[JUDGMENT]` (your read). No untagged assertions.
-- **Count-symmetry on pros** — each option has roughly as many genuine "case FOR" points as the others; you have not starved alternatives to flatter your pick. Steelman every option, including rejected ones.
-- **Strongest case AGAINST my recommendation** — a required, non-empty section. Make it the best version, not a strawman.
-- **What would overturn it** — what would have to be true for the owner to reject your recommendation.
-- **Pre-mortem** — one paragraph: "six months later this failed because…".
-- **Agent-interest disclosure** — name what is easiest / faster / less risky *for you, the presenter*, and flag any place the recommendation benefits you more than the owner. State the owner interest (value, integrity, risk, future optionality, cost) separately.
+Run [assets/self-audit.md](assets/self-audit.md), fix failures and re-check before presenting.
+If a necessary fact, criterion or review is missing, label **Incomplete** and ask for that input,
+not approval of the decision.
 
-If any item cannot be honestly completed, label the dossier **Incomplete** and ask for the missing fact/criterion — never ask for validation of an incomplete dossier.
+Present the context and options before one final ask using the host's question tool or numbered
+prose. A bare option menu is insufficient for consequential decisions. Decide-and-trace needs no ask.
 
-## Step 5 — Present, then capture the choice
+Record when `.track/` exists or the owner approves tracking:
 
-- **Decide + trace:** no question — state the assumption and proceed.
-- **Quick ask:** your modal-ask tool is the right surface.
-- **Full dossier:** present the dossier as **prose first**, scannable. **Then** end with ONE modal-ask whose options carry IDs (e.g. *approve recommendation / choose B / defer*) to capture the decision. **Never present a chip/option menu alone for a complex decision** — prose then a final ask, not a bare menu.
+- Prepare with `track decision dossier <decisionId> --context <c>`.
+- Append evidence with `track decision add-artifact`, not a dossier rewrite.
+  For a human-facing dossier use `--kind rendered-view --view-ref <stable-id>`
+  (optionally `--source-dossier-hash <h>`).
+- Use `--kind h2a-decision-dossier --negotiation-ref <n> --dossier-hash <h>` only for real
+  negotiation evidence. Never fabricate `comprehension[]`: a chat reply is not a signed attestation.
+  Never record a bridge/relay principal as the human decider.
 
-## Step 6 — Record in track
-
-Record when `.track/` exists or the owner approves tracking. **Never fabricate evidence.**
-
-- Use `track decision dossier <decisionId> --context <c>` for structured dossier prep.
-- After presentation/validation, append artifact evidence with **`track decision add-artifact`** — never rewrite the whole dossier just to append:
-  - **h2a negotiation dossier:** `--kind h2a-decision-dossier --negotiation-ref <n> --dossier-hash <h>` — only with a *real* negotiationRef + dossierHash (and real comprehension evidence recorded via the h2a/ingest seam, never minted here).
-  - **agent↔human text/view dossier** (before a DS renderer exists): `--kind rendered-view --view-ref <stable-id> [--source-dossier-hash <h>]`.
-- **Do NOT fake `comprehension[]`.** A chat reply is validation *context*, not a signed h2a attestation. The CLI does not let you mint one — and you must not.
-- **Do NOT record the bridge/relay principal as the human decider.** The attester (who comprehended) is distinct from the channel that relayed the write.
-
-## DON'T
-
-- A 4-option chip menu on an irreversible / cross-repo / security / frozen-contract call (the exact mistake this skill exists to prevent).
-- "Which do you prefer?" with no stakes, costs, recommendation, or attendus.
-- Selling the preferred option by weakening alternatives.
-- False neutrality when you should just decide a reversible choice.
-- Hiding presenter convenience as owner value.
-- Faking `comprehension[]`, or recording a bridge principal as the decider.
-- Initializing or editing another repo, global rules, or entrypoints without explicit owner approval. When invoked in a repo, insert gracefully into that repo's existing methods and *recommend* tracking via track — never impose a global standard.
-
-## Per-agent mapping (tool-neutral)
-
-| Capability | Claude | Codex | Gemini-agy |
-| --- | --- | --- | --- |
-| skill entrypoint | `~/.claude/skills/present-decision/SKILL.md` | `~/.codex/skills/present-decision/SKILL.md` (project entry `AGENTS.md`) | `~/.gemini/commands/present-decision.toml` (project entry `GEMINI.md`) |
-| modal-ask tool | `AskUserQuestion` | a numbered prose Q/R | a numbered prose Q/R |
-| code-search tool | Grep / Glob / Read | ripgrep / read | ripgrep / read |
-| second-opinion tool | sub-agent / `codex` + `opus` CLIs | `opus` CLI | second-model CLI |
-
-`AGENTS.md` is the canonical entrypoint; `CLAUDE.md` / `GEMINI.md` point back to it. Existing repo methods win on conflict.
+This is the agent's human-facing method; h2a negotiations remain inter-agent. Existing repo methods win.
