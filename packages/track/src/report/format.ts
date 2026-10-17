@@ -558,7 +558,9 @@ export interface ReportViewTable {
    * How the section is rendered: `padded` = the aligned terminal table (default), `drawn` = the
    * box-drawn table the owner validated for DÉCISIONS, `prose` = `lines` instead of rows.
    */
-  render?: 'padded' | 'drawn' | 'prose'
+  render?: 'padded' | 'drawn' | 'prose' | 'pipe'
+  /** Structured links are escaped with their cell, never concatenated after cell sanitization. */
+  links?: readonly { row: number; column: string; label: string; destination: string }[]
   /** Prose sections (RECOMMANDATION) carry ordered lines rather than a grid. */
   lines?: readonly string[]
 }
@@ -865,7 +867,7 @@ function redactOwnerText(value: string): string {
   return value.replace(ULID, 'référence interne')
 }
 
-function redactOwnerTable(table: ReportViewTable): ReportViewTable {
+export function redactOwnerTable(table: ReportViewTable): ReportViewTable {
   const ownerColumns = new Set(table.columns.map((column) => column.id))
   return {
     ...table,
@@ -873,6 +875,7 @@ function redactOwnerTable(table: ReportViewTable): ReportViewTable {
       Object.entries(row).map(([key, value]) => [key, ownerColumns.has(key) ? redactOwnerText(value) : value]),
     )),
     ...(table.lines === undefined ? {} : { lines: table.lines.map(redactOwnerText) }),
+    ...(table.links === undefined ? {} : { links: table.links.map(link => ({ ...link, label: redactOwnerText(link.label), destination: redactOwnerText(link.destination) })) }),
   }
 }
 
@@ -1652,6 +1655,17 @@ export function renderReportView(view: ReportView, format: Format): string {
       // Renderer-authored French sentences interpolating only derived labels, handles and D-numbers —
       // never a raw user title, so there is nothing to escape and nothing to inject.
       lines.push(...(section.lines ?? []))
+    } else if (section.render === 'pipe') {
+      lines.push(...(section.lines ?? []), '',
+        `| ${section.columns.map(c => c.label).join(' | ')} |`,
+        `| ${section.columns.map(() => '---').join(' | ')} |`,
+        ...section.rows.map((row, index) => `| ${section.columns.map(c => {
+          const text = esc(row[c.id] ?? '').replace(/\n/gu, ' ')
+          const links = (section.links ?? []).filter(link => link.row === index && link.column === c.id).map(link => reportCellLink(link.label, link.destination, format))
+          const cell = [text, ...links].join(' ')
+          return format === 'md' ? cell : cell.replace(/\|/gu, '\\|')
+        }).join(' | ')} |`),
+      )
     } else if (section.render === 'drawn') {
       // The box-drawn table is emitted verbatim; `md` fences it so the alignment survives.
       const drawn = drawTable(
@@ -1681,6 +1695,17 @@ export function renderReportView(view: ReportView, format: Format): string {
   lines.push(...resolution)
   if (format === 'md') lines.push(resolutionFence)
   return lines.join('\n').trimEnd() + '\n'
+}
+
+function reportCellLink(label: string, ref: string, format: Format): string {
+  const trimmed = ref.trim()
+  if (format !== 'md' || /^(?!https?:)[a-z][a-z\d+.-]*:/iu.test(trimmed)) {
+    return `${displayCell(label, format)} : ${displayCell(cleanDisplayText(trimmed), format)}`
+  }
+  // Preserve valid percent escapes, encoding raw bytes and Markdown destination delimiters once.
+  const destination = trimmed.split(/(%[a-f\d]{2})/giu).map((part, index) => index % 2 === 1 ? part : encodeURI(part))
+    .join('').replace(/[<>()|\\]/gu, c => `%${c.charCodeAt(0).toString(16)}`)
+  return `[${displayCell(label, format)}](${destination})`
 }
 
 /**
