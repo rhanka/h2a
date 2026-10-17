@@ -120,6 +120,9 @@ Only renderer maintainers need the repo's Node 22+ toolchain:
 
 ```sh
 npm --prefix packages/h2a/focus-kit ci
+# After changing canonical Focus schema/validation, refresh the shared delivery copies:
+npm run registry:sync -w @sentropic/focus
+npm run vendor:focus
 node scripts/build-focus-dossier.mjs
 node scripts/build-focus-dossier.mjs --check
 node --test packages/h2a/test/focus-build.test.js

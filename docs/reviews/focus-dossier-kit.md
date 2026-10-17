@@ -69,3 +69,15 @@ was repeated. Range-diff confirms feature code unchanged, and targeted checks pa
 
 No full local suite or installed binary was run. Private DS schema, DS layout, arbitrary
 diagram-core types/ports/resources/extensions and Safari/iOS hardware remain outside verification.
+
+### Delivery closure
+
+The canonical schema/source extension also requires generated delivery copies.
+npm run check:focus-vendor was red (8 differing files); npm run registry:sync -w @sentropic/focus
+and npm run vendor:focus regenerated only the pinned schema digests and corresponding Track vendor.
+The same check then reported focus-vendor OK: byte-identical to a fresh build.
+Targeted packages/focus/tests/packaging.spec.ts was red 8/9 (two integrity_mismatch issues for
+the schema), then green 9/9. An earlier concurrent invocation was inconclusive because the
+Track build temporarily removed its dist; verification was rerun sequentially.
+Targeted packages/track/src/cli/focus.test.ts passed 15/15 after regeneration.
+npm run typecheck and node scripts/build-focus-dossier.mjs --check also passed after synchronization.
