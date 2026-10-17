@@ -1,0 +1,22 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/package-plugin-manifest.test.js
+node: v22.22.1
+private root: /tmp/mh-l6-test-YruCGm
+case: all cases in explicit file
+TAP version 13
+# Subtest: the published h2a package carries a singleton h2a MCP endpoint
+ok 1 - the published h2a package carries a singleton h2a MCP endpoint
+  ---
+  duration_ms: 2.759674
+  type: 'test'
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 1
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 131.275092
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/package-plugin-manifest.test.js"],"code":0,"signal":null,"tests":1,"invalid":false,"spawned":1,"leftovers":[]}
