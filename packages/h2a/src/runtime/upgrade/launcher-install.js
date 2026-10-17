@@ -8,7 +8,9 @@ import { assessNpmCommand } from './npm-command.js';
 // bootstrap session, write the managed launcher with fixed modes, fsync
 // file and directories, then swap the command link atomically (tmp symlink
 // + rename) and verify the result. Any drift refuses before writing
-// anything; the npm tree is never modified.
+// anything; the npm tree is never modified. An occupied, dangling or
+// foreign command link refuses unless the operator explicitly overrides
+// (`explicit: true`, recorded as `forced`); nothing else bypasses.
 function syncDirectory(path) {
   const fd = fs.openSync(path, fs.constants.O_RDONLY | fs.constants.O_DIRECTORY | fs.constants.O_NOFOLLOW);
   try { fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
@@ -16,11 +18,12 @@ function syncDirectory(path) {
 
 export function installManagedLauncher(envelope = {}) {
   if (!envelope || typeof envelope !== 'object' || Array.isArray(envelope)) throw new Error('bootstrap_launcher_install_invalid');
-  const { session, launcherSource, managedDir, commandPath } = envelope;
+  const { session, launcherSource, managedDir, commandPath, explicit } = envelope;
   for (const path of [launcherSource, managedDir, commandPath]) {
     if (typeof path !== 'string' || !isAbsolute(path)) throw new Error('bootstrap_launcher_install_invalid');
   }
   if (!session || typeof session !== 'object') throw new Error('bootstrap_launcher_install_invalid');
+  if (explicit !== undefined && typeof explicit !== 'boolean') throw new Error('bootstrap_launcher_install_invalid');
   let parent;
   try {
     parent = dirname(commandPath);
@@ -31,9 +34,10 @@ export function installManagedLauncher(envelope = {}) {
   const legacyEntry = session.evidence?.commandPath;
   if (typeof legacyEntry !== 'string' || !isAbsolute(legacyEntry)) throw new Error('bootstrap_launcher_install_invalid');
   const verdict = assessNpmCommand({ commandPath, managedLauncher: launcherPath, legacyEntry });
-  if (verdict.state === 'occupied') throw new Error('bootstrap_launcher_command_occupied');
-  if (verdict.state === 'dangling') throw new Error('bootstrap_launcher_command_dangling');
-  if (verdict.state === 'foreign') throw new Error('bootstrap_launcher_command_foreign');
+  const forced = explicit === true;
+  if (!forced && verdict.state === 'occupied') throw new Error('bootstrap_launcher_command_occupied');
+  if (!forced && verdict.state === 'dangling') throw new Error('bootstrap_launcher_command_dangling');
+  if (!forced && verdict.state === 'foreign') throw new Error('bootstrap_launcher_command_foreign');
   let bytes;
   try {
     if (!fs.lstatSync(launcherSource).isFile()) throw new Error('unreadable');
@@ -53,5 +57,5 @@ export function installManagedLauncher(envelope = {}) {
   fs.renameSync(tmp, commandPath);
   syncDirectory(parent);
   if (fs.readlinkSync(commandPath) !== launcherPath) throw new Error('bootstrap_launcher_link_unverified');
-  return Object.freeze({ launcherPath, commandPath, digest });
+  return Object.freeze({ launcherPath, commandPath, digest, forced });
 }
