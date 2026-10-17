@@ -68,15 +68,24 @@ const cases = [
   ['bootstrap', 'drift-revalidation', 'return assertLegacyInstallationUnchanged(session.evidence);', 'return session.evidence;', 'C2b should refuse drift observed after the session opened'],
   ['bootstrap', 'target-eligibility', 'const eligible = checkTarget(target);', 'const eligible = target;', 'C2b should refuse an ineligible bootstrap target before holding anything'],
   ['bootstrap', 'lock-release', 'release() { if (!released) { released = true; lease.release(); } }', 'release() { released = true; }', 'C2b should hold compatible exclusion while the session is open'],
+  ['adoption', 'default-needed', 'needed: true', 'needed: false', 'C2b should require adoption when no managed selection exists'],
+  ['adoption', 'absent-installation', "need('managed_installation_absent')", "need('already_adopted')", 'C2b should require adoption when the managed layout is unrecognized'],
+  ['adoption', 'absent-selection', "need('managed_selection_absent')", "need('already_adopted')", 'C2b should require adoption when no managed selection exists'],
+  ['adoption', 'prefix-foreign', "need('managed_prefix_foreign')", "need('already_adopted')", 'C2b should require adoption when the managed layout is unrecognized'],
+  ['adoption', 'selection-malformed', "need('managed_selection_malformed')", "need('already_adopted')", 'C2b should require adoption when the managed layout is unrecognized'],
+  ['adoption', 'target-mismatch', "need('target_mismatch')", "need('already_adopted')", 'C2b should require adoption when the selection targets another build'],
+  ['adoption', 'physical-unreadable', "need('physical_installation_unreadable')", "need('already_adopted')", 'C2b should require adoption when the physical installation is unreadable'],
+  ['adoption', 'target-shape', 'checkTargetShape(target);', '', 'C2b should refuse an invalid adoption assessment envelope'],
 ];
 const files = group === 'launcher' ? ['packages/h2a/src/runtime/upgrade/managed-launcher.js'] :
   group === 'exclusion' ? ['packages/h2a/src/runtime/upgrade/legacy-exclusion.js', 'packages/h2a/dist/runtime/upgrade/legacy-exclusion.js'] :
   group === 'bootstrap' ? ['packages/h2a/src/runtime/upgrade/bootstrap-session.js', 'packages/h2a/dist/runtime/upgrade/bootstrap-session.js'] :
+  group === 'adoption' ? ['packages/h2a/src/runtime/upgrade/adoption-need.js', 'packages/h2a/dist/runtime/upgrade/adoption-need.js'] :
   ['packages/h2a/src/runtime/upgrade/h4-store.js', 'packages/h2a/dist/runtime/upgrade/h4-store.js'];
 const originals = files.map(path => ({ path, bytes: fs.readFileSync(path) }));
 const selected = cases.filter(c => c[0] === group && (!process.env.MH_L6_MUTATION || c[1] === process.env.MH_L6_MUTATION));
 if (!selected.length) throw new Error('unknown_mutation_group');
-const testFile = { delegation: 'delegation', launcher: 'launcher', exclusion: 'exclusion', deferral: 'exclusion', bootstrap: 'bootstrap' }[group] ?? 'selection';
+const testFile = { delegation: 'delegation', launcher: 'launcher', exclusion: 'exclusion', deferral: 'exclusion', bootstrap: 'bootstrap', adoption: 'adoption' }[group] ?? 'selection';
 const file = `packages/h2a/test/mh-l6-${testFile}.test.js`;
 const results = [];
 for (const [, name, from, to, scenario] of selected) {

@@ -1,0 +1,33 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-adoption.test.js
+node: v22.22.1
+private root: /tmp/mh-l6-test-VyO73q
+case: C2b should refuse an invalid adoption assessment envelope
+TAP version 13
+# Subtest: C2b should refuse an invalid adoption assessment envelope
+not ok 1 - C2b should refuse an invalid adoption assessment envelope
+  ---
+  duration_ms: 180.273067
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-c2b2-UwitJ6/packages/h2a/test/mh-l6-adoption.test.js:7:67'
+  failureType: 'testCodeFailure'
+  error: 'Missing expected exception.'
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected:
+  operator: 'throws'
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/mh-l3-qualification-c2b2-UwitJ6/packages/h2a/test/mh-l6-adoption.test.js:79:12)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 0
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 306.699765
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-adoption.test.js"],"code":1,"signal":null,"tests":1,"invalid":false,"spawned":1,"leftovers":[]}

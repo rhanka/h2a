@@ -1,0 +1,63 @@
+{
+  "node": "v22.22.1",
+  "files": [
+    {
+      "path": "packages/h2a/src/runtime/upgrade/adoption-need.js",
+      "sha256": "a2d8592bed11becae47a04eb3406ab30815e008d9df964760ab778dee9d5dc63"
+    },
+    {
+      "path": "packages/h2a/dist/runtime/upgrade/adoption-need.js",
+      "sha256": "e1d0214e974ea37cf5779541423a36e557027c4ba18109ae29800e1f9792fc63"
+    }
+  ],
+  "results": [
+    {
+      "name": "default-needed",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-adoption.test.js-node22-mutation-default-needed-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-adoption.test.js-node22-mutation-default-needed-green.log",
+      "restored": true
+    },
+    {
+      "name": "absent-installation",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-adoption.test.js-node22-mutation-absent-installation-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-adoption.test.js-node22-mutation-absent-installation-green.log",
+      "restored": true
+    },
+    {
+      "name": "absent-selection",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-adoption.test.js-node22-mutation-absent-selection-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-adoption.test.js-node22-mutation-absent-selection-green.log",
+      "restored": true
+    },
+    {
+      "name": "prefix-foreign",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-adoption.test.js-node22-mutation-prefix-foreign-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-adoption.test.js-node22-mutation-prefix-foreign-green.log",
+      "restored": true
+    },
+    {
+      "name": "selection-malformed",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-adoption.test.js-node22-mutation-selection-malformed-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-adoption.test.js-node22-mutation-selection-malformed-green.log",
+      "restored": true
+    },
+    {
+      "name": "target-mismatch",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-adoption.test.js-node22-mutation-target-mismatch-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-adoption.test.js-node22-mutation-target-mismatch-green.log",
+      "restored": true
+    },
+    {
+      "name": "physical-unreadable",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-adoption.test.js-node22-mutation-physical-unreadable-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-adoption.test.js-node22-mutation-physical-unreadable-green.log",
+      "restored": true
+    },
+    {
+      "name": "target-shape",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-adoption.test.js-node22-mutation-target-shape-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-adoption.test.js-node22-mutation-target-shape-green.log",
+      "restored": true
+    }
+  ]
+}
