@@ -11,7 +11,7 @@
       "entryVersion": "1.0.0",
       "publisher": {
         "packageName": "@sentropic/h2a",
-        "packageVersion": "0.98.5"
+        "packageVersion": "0.98.7"
       },
       "compatibility": {
         "entryContract": "1.1.4",
@@ -83,7 +83,7 @@
           "role": "manifest",
           "path": "registry/manifest.h2a.json",
           "mediaType": "application/json",
-          "sha256": "41d4daaf451c015d647ccf763c5fa24412425dafe52f6c1bd7231ba2bd2178ff"
+          "sha256": "8b393dcba17b07ee4e41df3fcbef19e4ade48b9403b423f18a8478d220a0b11a"
         }
       ],
       "mcp": {
