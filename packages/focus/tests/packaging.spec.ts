@@ -18,6 +18,7 @@ import {
   readdirSync,
   rmSync,
   statSync,
+  symlinkSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -294,11 +295,33 @@ describe("archive round-trips every node family (R4-AC13)", () => {
   });
 });
 
-describe("publish builds dist first (rev352-F6)", () => {
+describe("publish builds dist first (rev352-F6, rev352r2-F5)", () => {
   it("prepack rebuilds dist so a manual publish never ships a dist-less tarball", () => {
     const scripts = (packageJson as { scripts?: Record<string, string> }).scripts ?? {};
-    expect(scripts["prepack"]).toBeDefined();
-    expect(scripts["prepack"] as string).toMatch(/build/);
+    expect(scripts["prepack"]).toBe("npm run build");
+    expect(scripts["build"]).toBe("tsc -p tsconfig.json");
+  });
+
+  it("a tree without dist rebuilds it through the prepack chain", () => {
+    const root = mkdtempSync(join(tmpdir(), "focus-prepack-rebuild-"));
+    try {
+      const copy = spawnSync("cp", ["-a", `${pkgRoot}/.`, root], { encoding: "utf8" });
+      expect(copy.status).toBe(0);
+      rmSync(join(root, "dist"), { recursive: true, force: true });
+      rmSync(join(root, "node_modules"), { recursive: true, force: true });
+      expect(existsSync(join(root, "dist", "registry", "definitions.js"))).toBe(false);
+      symlinkSync(join(pkgRoot, "..", "..", "node_modules"), join(root, "node_modules"), "dir");
+      const npm = npmCommand();
+      const build = spawnSync(npm.command, [...npm.prefixArgs, "run", "build", "--silent"], {
+        cwd: root,
+        encoding: "utf8",
+      });
+      expect(build.status).toBe(0);
+      expect(existsSync(join(root, "dist", "registry", "definitions.js"))).toBe(true);
+      expect(existsSync(join(root, "dist", "validation", "index.js"))).toBe(true);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });
 
