@@ -7,7 +7,7 @@
 // Uses temp dirs only; never touches real state or installed binaries.
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -15,7 +15,9 @@ import {
   ALLOWLIST_REL,
   applyAllowlist,
   classifyFile,
+  isPyCommandWord,
   parseAllowlist,
+  readScanEntry,
   scanFileHits,
   scanShellSnippet,
 } from './check-no-python.mjs';
@@ -289,6 +291,57 @@ describe('classifier', () => {
     assert.equal(classifyFile('.githooks/commit-msg', '#!/usr/bin/env bash\n'), 'shell');
     assert.equal(classifyFile('a.ts', ''), 'js');
     assert.equal(classifyFile('docs/note.md', ''), null);
+  });
+});
+
+describe('symlinks (CI dangling-link case)', () => {
+  it('a dangling link with a neutral name is silent', () => {
+    const lab = mkdtempSync(join(tmpdir(), 'check-no-python-link-'));
+    try {
+      symlinkSync('/nonexistent-target-xyz/4d257e5f.json', join(lab, 'odd.json'));
+      assert.equal(readScanEntry(lab, 'odd.json').status, 'skipped');
+    } finally {
+      rmSync(lab, { recursive: true, force: true });
+    }
+  });
+  it('a link NAMED like an interpreter is a hit even when dangling', () => {
+    const lab = mkdtempSync(join(tmpdir(), 'check-no-python-link-'));
+    try {
+      symlinkSync('/nonexistent-target-xyz/real', join(lab, 'python3'));
+      const e = readScanEntry(lab, 'python3');
+      assert.equal(e.status, 'hit');
+    } finally {
+      rmSync(lab, { recursive: true, force: true });
+    }
+  });
+  it('a link TARGETING an interpreter is a hit', () => {
+    const lab = mkdtempSync(join(tmpdir(), 'check-no-python-link-'));
+    try {
+      symlinkSync('/usr/bin/python3', join(lab, 'tool'));
+      assert.equal(readScanEntry(lab, 'tool').status, 'hit');
+    } finally {
+      rmSync(lab, { recursive: true, force: true });
+    }
+  });
+  it('a readable link is content-scanned', () => {
+    const lab = mkdtempSync(join(tmpdir(), 'check-no-python-link-'));
+    try {
+      writeFileSync(join(lab, 'real.sh'), '#!/bin/sh\npy -c "print(1)"\n');
+      symlinkSync(join(lab, 'real.sh'), join(lab, 'link.sh'));
+      const e = readScanEntry(lab, 'link.sh');
+      assert.equal(e.status, 'content');
+      assert.equal(scanFileHits('link.sh', e.content).length, 1);
+    } finally {
+      rmSync(lab, { recursive: true, force: true });
+    }
+  });
+  it('command-word vocabulary stays exact', () => {
+    for (const w of ['python', 'python3', 'python3.12', 'py', '/usr/bin/python3', 'pip', 'pip3']) {
+      assert.equal(isPyCommandWord(w), true, w);
+    }
+    for (const w of ['check-no-python.sh', 'CPython', 'pipeline', 'node', 'tool', 'odd.json']) {
+      assert.equal(isPyCommandWord(w), false, w);
+    }
   });
 });
 
