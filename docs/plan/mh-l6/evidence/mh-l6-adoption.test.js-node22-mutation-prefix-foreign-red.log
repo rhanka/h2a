@@ -1,14 +1,14 @@
 command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-adoption.test.js
 node: v22.22.1
-private root: /tmp/mh-l6-test-oA8Laq
+private root: /tmp/mh-l6-test-HuKfSi
 case: C2b should require adoption when the managed layout is unrecognized
 TAP version 13
 # Subtest: C2b should require adoption when the managed layout is unrecognized
 not ok 1 - C2b should require adoption when the managed layout is unrecognized
   ---
-  duration_ms: 255.188261
+  duration_ms: 65.230569
   type: 'test'
-  location: '/tmp/mh-l3-qualification-c2b2c-fDnkpy/packages/h2a/test/mh-l6-adoption.test.js:17:67'
+  location: '/tmp/mh-l3-qualification-d2-0l6ViG/packages/h2a/test/mh-l6-adoption.test.js:17:67'
   failureType: 'testCodeFailure'
   error: |-
     Expected values to be strictly equal:
@@ -23,7 +23,7 @@ not ok 1 - C2b should require adoption when the managed layout is unrecognized
   actual: 'already_adopted'
   operator: 'strictEqual'
   stack: |-
-    TestContext.<anonymous> (file:///tmp/mh-l3-qualification-c2b2c-fDnkpy/packages/h2a/test/mh-l6-adoption.test.js:78:12)
+    TestContext.<anonymous> (file:///tmp/mh-l3-qualification-d2-0l6ViG/packages/h2a/test/mh-l6-adoption.test.js:78:12)
     async Test.run (node:internal/test_runner/test:1054:7)
     async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
   ...
@@ -35,6 +35,6 @@ not ok 1 - C2b should require adoption when the managed layout is unrecognized
 # cancelled 0
 # skipped 0
 # todo 0
-# duration_ms 380.882179
+# duration_ms 172.465014
 
 receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-adoption.test.js"],"code":1,"signal":null,"tests":1,"invalid":false,"spawned":1,"leftovers":[]}

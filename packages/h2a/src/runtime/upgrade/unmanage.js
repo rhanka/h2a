@@ -16,6 +16,19 @@ function syncDirectory(path) {
   try { fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
 }
 
+export function readManagementOptOut(managedDir) {
+  if (typeof managedDir !== 'string' || !isAbsolute(managedDir)) throw new Error('unmanage_install_invalid');
+  let raw;
+  try { raw = fs.readFileSync(join(managedDir, 'unmanaged.json'), 'utf8'); } catch { return Object.freeze({ optedOut: false }); }
+  try {
+    const marker = JSON.parse(raw);
+    if (!marker || typeof marker !== 'object' || marker.schemaVersion !== 1 || typeof marker.reason !== 'string') {
+      throw new Error('unreadable');
+    }
+    return Object.freeze({ optedOut: true, reason: marker.reason, unmanagedAt: marker.unmanagedAt ?? null });
+  } catch { return Object.freeze({ optedOut: true, reason: 'marker_unreadable' }); }
+}
+
 export function unmanageInstallation(envelope = {}) {
   if (!envelope || typeof envelope !== 'object' || Array.isArray(envelope)) throw new Error('unmanage_install_invalid');
   const { store, commandPath, originalTarget, managedDir } = envelope;
