@@ -49,6 +49,11 @@ cp.spawnSync=(command,args,options)=>{
   if (args.join(' ') === 'config get cache') return {status:0, stdout:resolve(root,'prepared-cache')+'\\n'};
   ${preparedNpmCache ? `if(options.env.npm_config_cache!==resolve(root,'prepared-cache')) throw Error('Prepared npm cache lost during HOME isolation: '+options.env.npm_config_cache);
   if(!options.env.HOME.startsWith(resolve(root,'tmp/test-runtime'))) throw Error('Test HOME must remain isolated');` : ''}
+  if (typeof args[0] === 'string' && args[0].endsWith('prepare-mh-test-fixtures.mjs')) {
+    if(command!==process.execPath) throw Error('fixture producer must use the candidate Node');
+    observed.push('Fixtures');writeFileSync(${JSON.stringify(markers)},JSON.stringify(observed));
+    return {status:0,stdout:JSON.stringify({env:{MH_L5_ARTIFACTS:root+'/published',MH_L6_NATIVE_ASSETS:root+'/native'},owned:[]})};
+  }
   if (typeof args[0] === 'string' && args[0].endsWith('identity-isolated-run.mjs')) {
     if(command!==process.execPath || args.some((arg)=>/name-pattern|skip-pattern|test-only/.test(arg)) || JSON.stringify(args.slice(1))!==JSON.stringify(laneFiles)) throw Error('lane suite omitted or filtered required lane files');
     observed.push('Lane');writeFileSync(${JSON.stringify(markers)},JSON.stringify(observed));

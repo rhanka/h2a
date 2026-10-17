@@ -341,7 +341,8 @@ describe.skipIf(process.platform !== "linux")("native terminal upgrade (scenario
     // failed qualification, never a skip.
     const packDir = createPrivateTestDirectory("upgrade-pack-");
     prefixes.add(packDir);
-    const pack = spawn(npmCommand, npmArgs(["pack", "--pack-destination", packDir]), {
+    const pack = spawn(process.execPath, [join(workspacePackageDir, "../../scripts/package-release.mjs"),
+      "--package", "@sentropic/h2a-runtime", "--output", join(packDir, "closed")], {
       cwd: workspacePackageDir,
       env: { ...process.env, PATH: buildToolPath },
       stdio: ["ignore", "pipe", "pipe"],
@@ -350,11 +351,11 @@ describe.skipIf(process.platform !== "linux")("native terminal upgrade (scenario
     const packOutput = captureOutput(pack);
     const [packCode] = await once(pack, "exit");
     expect(packCode, `npm pack of the candidate failed: ${packOutput.stderr}`).toBe(0);
-    const tarball = readdirSync(packDir).find((name) => name.endsWith(".tgz"));
+    const tarball = readdirSync(join(packDir, "closed/artifacts")).find((name) => name.endsWith(".tgz"));
     expect(tarball, "the candidate pack contains no tarball").toBeDefined();
     candidatePrefix = createPrivateTestDirectory("upgrade-candidate-");
     prefixes.add(candidatePrefix);
-    await npmInstall([join(packDir, tarball!)], candidatePrefix, cache);
+    await npmInstall([join(packDir, "closed/artifacts", tarball!)], candidatePrefix, cache);
     candidateRoot = join(candidatePrefix, "node_modules", "@sentropic", "h2a-runtime", "dist");
     candidateEntry = join(candidateRoot, "native-terminal", "process.js");
 
