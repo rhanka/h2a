@@ -29,7 +29,9 @@ EOF
 }
 
 run_smoke() {
-  PATH="$lab/bin:/usr/bin:/bin" bash "$SCRIPT" >"$lab/out" 2>&1
+  # `node` may live outside /usr/bin:/bin (e.g. setup-node toolcache) while
+  # $lab/bin must stay first so the canary shadows any real interpreter.
+  PATH="$lab/bin:$(dirname "$(command -v node)"):/usr/bin:/bin" bash "$SCRIPT" >"$lab/out" 2>&1
 }
 
 # Case 1: healthy bus -> OK, and python3 must never run.
