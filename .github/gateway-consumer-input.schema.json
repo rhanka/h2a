@@ -297,6 +297,47 @@
       "else": {
         "properties": { "scopes": false }
       }
+    },
+    {
+      "if": {
+        "properties": {
+          "phase": {
+            "enum": [
+              "pr1-candidate",
+              "pr2-candidate",
+              "pr3-candidate",
+              "r4-candidate",
+              "r5-candidate",
+              "r6-candidate",
+              "r7b-candidate"
+            ]
+          }
+        }
+      },
+      "then": {
+        "properties": { "artifactKind": { "const": "candidate" } }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "phase": {
+            "enum": [
+              "baseline-662",
+              "pr1-published",
+              "pr2-published",
+              "pr3-published",
+              "r4-published",
+              "r5-published",
+              "r6-published",
+              "r7b-published"
+            ]
+          }
+        }
+      },
+      "then": {
+        "properties": { "artifactKind": { "const": "published" } }
+      }
     }
   ]
 }
