@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { serve } from "@hono/node-server";
 import {
+  AnthropicAdapter,
+  type AnthropicAdapterClient,
   CloudCodeRuntimeClient,
   CodexRuntimeClient,
   GeminiAdapter,
@@ -33,6 +35,7 @@ import {
   createCliLlmMeshFacade,
   llmMeshOwnerScopeRef,
 } from "../llm-mesh-accounts.js";
+import { createClaudeSeatClient } from "./claude-seat-client.js";
 import {
   parseLlmMeshRoutingConfig,
   routingProfiles,
@@ -53,6 +56,7 @@ import {
   listPublicSessions,
   sessionCount,
 } from "./sessions.js";
+import { sweepOrphanSandboxes } from "../claude-code-cli-lifecycle.js";
 
 /** Pending upstream U3: legacy config ports are inert on the planner-routed path. */
 const legacyPortReached = (): never => { throw new Error("Inert legacy gateway port reached (pending upstream U3)"); };
@@ -69,12 +73,13 @@ const routingConfigFromEnvironment = (): LlmMeshRoutingConfig | undefined => {
   return raw ? parseLlmMeshRoutingConfig(raw) : undefined;
 };
 
-const runtimeMesh = () => createLlmMesh({
+const runtimeMesh = (claudeClient: AnthropicAdapterClient) => createLlmMesh({
   registry: createProviderRegistry([
     new OpenAIAdapter({ client: new CodexRuntimeClient() }),
     new GeminiAdapter({ client: new CloudCodeRuntimeClient() }),
     new MistralAdapter({ client: new MistralRuntimeClient() }),
     new MuseAdapter({ client: new MuseRuntimeClient() }),
+    new AnthropicAdapter({ client: claudeClient }),
   ]),
 });
 
@@ -108,6 +113,11 @@ export interface LocalGatewayAppOptions {
   readonly ownerScopeRef?: string;
   /** Composition injection for readiness and fail-before-bind qualification. */
   readonly prepareNamespace?: typeof createGatewayNamespaceModule;
+  /**
+   * Explicit Claude seat client override (test seam). When absent, the host
+   * composes the PATH-resolved seat like every other seat in the registry.
+   */
+  readonly claudeClient?: AnthropicAdapterClient;
 }
 
 function publicSessionLedger(): SessionLedgerEntry[] {
@@ -136,6 +146,9 @@ function publicSessionLedger(): SessionLedgerEntry[] {
 export function createGatewayHost(options: LocalGatewayAppOptions = {}): { app: Hono; ready: Promise<void> } {
   let composed = false;
   const readiness = { async isReady() { return composed; } };
+  // Claude seat like every other seat: an explicit override wins (test seam),
+  // otherwise compose the PATH-resolved seat unconditionally.
+  const claudeClient = options.claudeClient ?? createClaudeSeatClient();
   const routing = options.routing ?? routingConfigFromEnvironment();
   const currentRouting = (): LlmMeshRoutingConfig | undefined => {
     if (options.routing) return options.routing;
@@ -147,7 +160,7 @@ export function createGatewayHost(options: LocalGatewayAppOptions = {}): { app: 
   const ownerScopeRef = options.ownerScopeRef ?? llmMeshOwnerScopeRef();
   const facade = createCliLlmMeshFacade();
   const profiles = routingProfiles(routing);
-  const planner = observablePlanner(facade.createRoutePlanner(runtimeMesh(), {
+  const planner = observablePlanner(facade.createRoutePlanner(runtimeMesh(claudeClient), {
     ...(routing?.council ? { council: routing.council } : {}),
     ...(profiles ? { profiles } : {}),
   }));
@@ -223,6 +236,24 @@ export function createGatewayHost(options: LocalGatewayAppOptions = {}): { app: 
     ? gatewayPlugin.fetch(c.req.raw, c.env)
     : c.json({ error: "gateway composition incomplete" }, 503));
   const ready = (async () => {
+    // The Claude seat is always composed, so its startup orphan sweep
+    // always runs (best-effort hygiene over the private runtime root).
+    try {
+      const sweepResult = await sweepOrphanSandboxes(undefined, {
+        onUnprovenChild: (unproven) => {
+          process.stderr.write(
+            `[claude-orphan-sweep] unproven child ${unproven.childPid} in ${unproven.runDir} skipped: ${unproven.reason}\n`,
+          );
+        },
+      });
+      if (sweepResult.skippedUnprovenChild) {
+        process.stderr.write(
+          `[claude-orphan-sweep] skipped ${sweepResult.skippedUnprovenChild} unproven child process(es)\n`,
+        );
+      }
+    } catch {
+      // Best-effort startup sweep
+    }
     const modules = createClusterMeshModules();
     const namespace = await (options.prepareNamespace ?? createGatewayNamespaceModule)(modules, {
       enabled: true,
