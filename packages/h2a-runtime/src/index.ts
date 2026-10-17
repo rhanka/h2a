@@ -7,6 +7,7 @@ import {
   readdirSync,
   readFileSync,
   realpathSync,
+  rmSync,
   statSync,
   writeFileSync,
 } from "node:fs";
@@ -15,6 +16,7 @@ import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
 import { Command, Help } from "commander";
+import { agyClaudeQuotaError, assertAgyClaudeBuildAllowed, detectAgyClaudeQuotaExhaustion, isAgyClaudeModel, normalizeAgyEffort, readAgyClaudeQuotaStatus, resolveAgyModel, writeAgyClaudeQuotaStatus } from "./agy-claude.js";
 
 import {
   applyRuntimeHelpGroups,
@@ -6048,13 +6050,16 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
     )
     .option("--agent <agent>", "AGY agent override (for example: stp)")
     .option("--model <model>", "Claude/Codex/AGY model override")
+    .option("--role <role>", "launch purpose: review|challenge|build; AGY Claude builds require explicit opt-in")
+    .option("--allow-claude-build", "explicitly spend the reserved AGY Claude pool on a build")
+    .option("--output-file <path>", "expected AGY Claude headless artifact; report missing or unchanged output at exit")
     .option(
       "--effort <level>",
-      "reasoning effort: low|medium|high|xhigh (AGY supports low|medium|high)",
+      "reasoning effort: low|medium|high|xhigh (AGY: low|medium|high, max maps to high)",
     )
     .option(
       "--headless",
-      "run once and exit (Claude -p / Codex exec / AGY --print), recording output under .h2a/runs/<name>",
+      "run once and exit (Claude -p / Codex exec / AGY stream-json), recording output under .h2a/runs/<name>",
     )
     .option(
       "--background",
@@ -6092,6 +6097,9 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           promptStdin?: boolean;
           agent?: string;
           model?: string;
+          role?: string;
+          allowClaudeBuild?: boolean;
+          outputFile?: string;
           effort?: string;
           headless?: boolean;
           background?: boolean;
@@ -6119,15 +6127,28 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           process.exitCode = 2;
           return;
         }
+        try {
+          if (profile === "agy") {
+            const effort = normalizeAgyEffort(opts.effort);
+            if (effort !== undefined) opts.effort = effort;
+            const model = resolveAgyModel(opts.model, effort);
+            if (model !== undefined) opts.model = model;
+          }
+          assertAgyClaudeBuildAllowed({ profile, model: opts.model, role: opts.role, allowClaudeBuild: opts.allowClaudeBuild });
+          if (opts.outputFile && !(profile === "agy" && isAgyClaudeModel(opts.model) && opts.headless)) {
+            throw new Error("--output-file requires an AGY Claude headless run");
+          }
+        } catch (error) {
+          process.stderr.write(`[h2a] ${(error as Error).message}\n`);
+          if (opts.json) process.stdout.write(`${JSON.stringify({ kind: "h2a.run.failure", version: 1, state: "not-started",
+            code: (error as { code?: string }).code ?? "invalid-agy-launch", error: (error as Error).message, retrySafe: false })}\n`);
+          process.exitCode = 2;
+          return;
+        }
         if (opts.effort !== undefined && !isAgentLaunchEffort(opts.effort)) {
           process.stderr.write(
             `[h2a] --effort must be low|medium|high|xhigh\n`,
           );
-          process.exitCode = 2;
-          return;
-        }
-        if (profile === "agy" && opts.effort === "xhigh") {
-          process.stderr.write("[h2a] AGY --effort must be low|medium|high\n");
           process.exitCode = 2;
           return;
         }
@@ -6553,6 +6574,9 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             mkdirSync(runDir, { recursive: true });
             outputLog = join(runDir, "output.log");
             resultJson = join(runDir, "result.json");
+            // Name admission above has completed. Retire the previous result
+            // before returning a path or starting the new run-once supervisor.
+            if (profile === "agy" && isAgyClaudeModel(opts.model)) rmSync(resultJson, { force: true });
             const headlessPromptInput =
               structuredLaunch && isAgentLaunchProfile(profile)
                 ? buildAgentLaunchStdin({
@@ -6580,6 +6604,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
                   launchOwnership = { host: "native", sessions: [owned] };
                   launchGuard = startLaunchGuard(runDir, launchOwnership);
                 } : undefined,
+                opts.outputFile ? resolve(cwd, opts.outputFile) : undefined,
               ));
             } else {
               ({ name, slug, agentPane, promptFile } = startHeadlessSession(
@@ -6595,6 +6620,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
                 structuredLaunch,
                 sessionClass,
                 onCreateAttempt,
+                opts.outputFile ? resolve(cwd, opts.outputFile) : undefined,
               ));
             }
           } else if (sessionHost === "native") {
@@ -6756,6 +6782,14 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
                   now: () => Date.now(),
                 }, { profile });
             if (promptDelivery.state !== "working") {
+              const quotaDiagnostic = promptDelivery.state === "submitted-idle" ? "" : `${promptDelivery.reason}\n${promptDelivery.capture ?? ""}`;
+              const quotaVerdict = profile === "agy" && isAgyClaudeModel(opts.model)
+                ? detectAgyClaudeQuotaExhaustion(quotaDiagnostic) : { exhausted: false };
+              const quotaFailure = profile === "agy" && isAgyClaudeModel(opts.model) &&
+                promptDelivery.state === "provider-blocked" && promptDelivery.providerError
+                ? promptDelivery.providerError : quotaVerdict.exhausted
+                  ? agyClaudeQuotaError(quotaVerdict.signature!, quotaDiagnostic) : undefined;
+              if (quotaFailure) try { writeAgyClaudeQuotaStatus(quotaFailure.quota); } catch { /* Response still carries the observation. */ }
               cleanupHeadlessPromptFile(promptFile);
               // Only claim the session is gone when the kill actually reported
               // success. "nothing is left running" over an unchecked call is the
@@ -6789,13 +6823,37 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
                     : ""),
               );
               process.exitCode = 1;
-              if (opts.json && promptDelivery.state === "provider-blocked") {
+              if (opts.json && (promptDelivery.state === "provider-blocked" || quotaFailure)) {
                 process.stdout.write(`${JSON.stringify({ kind: "h2a.run.failure", version: 1,
-                  state: "provider-blocked", launchId: slug, error: promptDelivery.reason,
-                  stopped, retrySafe: false, prompt: { delivered: true, waitedMs: promptDelivery.waitedMs },
+                  state: "provider-blocked", launchId: slug, error: quotaFailure?.message ?? (promptDelivery.state === "submitted-idle" ? "agent idle after submission" : promptDelivery.reason),
+                  stopped, retrySafe: false, prompt: { delivered: promptDelivery.state === "provider-blocked", ...("waitedMs" in promptDelivery ? { waitedMs: promptDelivery.waitedMs } : {}) },
+                  ...(quotaFailure ? { code: quotaFailure.code, error: quotaFailure.message, quota: quotaFailure.quota,
+                    resetsAt: quotaFailure.resetsAt, retryable: false, model: opts.model } : {}),
                 })}\n`);
               }
               return;
+            }
+          }
+          const reportAgyCompletion = (): boolean => {
+            if (!(profile === "agy" && isAgyClaudeModel(opts.model) && opts.headless && resultJson)) return false;
+            try {
+              const completed = JSON.parse(readFileSync(resultJson, "utf8"));
+              // The previous result was removed before this supervisor started.
+              // Filesystem and wall-clock timestamps cannot prove generation.
+              if (!["h2a.run.failure", "h2a.run.completion"].includes(completed.kind)) return false;
+              launchGuard?.complete();
+              if (opts.json) process.stdout.write(`${JSON.stringify({ ...completed, launchId: slug, result: { path: resultJson }, logs: { path: outputLog } })}\n`);
+              else process.stderr.write(`[h2a] ${completed.error ?? "AGY run completed"}\n`);
+              process.exitCode = completed.state === "done" ? 0 : 1;
+              return true;
+            } catch { return false; } // Still running; the durable result may appear later.
+          };
+          if (profile === "agy" && isAgyClaudeModel(opts.model) && opts.headless && resultJson) {
+            // A fast provider refusal may finish before the host PID probe.
+            // Return that typed completion rather than a misleading PID error.
+            for (let attempt = 0; attempt < 5; attempt++) {
+              if (reportAgyCompletion()) return;
+              sleepSync(50);
             }
           }
           const pid =
@@ -6811,6 +6869,8 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
                 ? paneWorkerPid(agentPane)
                 : undefined;
           if (structuredLaunch && pid === undefined) {
+            // The supervisor can publish and exit DURING the PID probe.
+            if (reportAgyCompletion()) return;
             cleanupHeadlessPromptFile(promptFile);
             // OWN-CLEANUP, deliberately NOT resolver-derived (F1 sorting):
             // `name`/`sessionHost` are the session and host THIS command
@@ -6882,6 +6942,8 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
                 tmuxSession: only.name,
                 host: sessionHost === "native" ? "native" : "tmux",
                 profile,
+                ...(opts.model ? { model: opts.model, modelSource: "launch-argument", effectiveModel: "unknown" } : {}),
+                ...(profile === "agy" && isAgyClaudeModel(opts.model) ? { quota: readAgyClaudeQuotaStatus() } : {}),
                 workspace: cwd,
                 mode: opts.headless ? "headless" : "interactive",
                 background: opts.background === true,

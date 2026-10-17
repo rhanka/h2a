@@ -1,10 +1,11 @@
 import { spawn, type SpawnSyncOptionsWithStringEncoding, type SpawnSyncReturns } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { appendFileSync, mkdirSync, readFileSync, realpathSync, statSync } from "node:fs";
+import { appendFileSync, closeSync, fstatSync, mkdirSync, openSync, readFileSync, realpathSync, statSync, type Stats } from "node:fs";
 import { isAbsolute, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { isOsTemporaryPath } from "../path-safety.js";
+import { assertAgyClaudeBuildAllowed, isAgyClaudeModel, normalizeAgyEffort, resolveAgyModel } from "../agy-claude.js";
 
 export const H2A_RUN_PROFILES = ["claude", "codex", "agy", "muse", "vibe"] as const;
 export type H2aRunProfile = (typeof H2A_RUN_PROFILES)[number];
@@ -28,6 +29,9 @@ export type H2aRunRequest = {
   agent?: string;
   model?: string;
   effort?: H2aRunEffort;
+  role?: "review" | "challenge" | "build";
+  allowClaudeBuild?: boolean;
+  outputFile?: string;
   /** Server-attested launch provenance; never supplied by the MCP caller. */
   delegation?: H2aRunDelegation;
 };
@@ -53,6 +57,7 @@ const ALLOWED_KEYS = new Set([
   "agent",
   "model",
   "effort",
+  "role", "allowClaudeBuild", "outputFile",
 ]);
 const SAFE_NAME = /^[A-Za-z0-9_-]{1,64}$/;
 const SAFE_MODEL = /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$/;
@@ -232,10 +237,11 @@ export function validateH2aRunRequest(
     throw new Error("h2a_run: 'bare' must be boolean");
   }
 
-  const model = args.model;
-  if (model !== undefined && (typeof model !== "string" || !SAFE_MODEL.test(model))) {
+  const rawModel = args.model;
+  if (rawModel !== undefined && (typeof rawModel !== "string" || !SAFE_MODEL.test(rawModel))) {
     throw new Error("h2a_run: invalid 'model' token");
   }
+  let model = rawModel as string | undefined;
   const agent = args.agent;
   if (agent !== undefined && (typeof agent !== "string" || !SAFE_MODEL.test(agent))) {
     throw new Error("h2a_run: invalid 'agent' token");
@@ -243,7 +249,12 @@ export function validateH2aRunRequest(
   if (agent !== undefined && profile !== "agy") {
     throw new Error("h2a_run: 'agent' is supported only for profile agy");
   }
-  const effort = args.effort;
+  let effort = args.effort;
+  if (profile === "agy") {
+    if (effort !== undefined && typeof effort !== "string") throw new Error("h2a_run: invalid AGY effort");
+    effort = normalizeAgyEffort(effort as string | undefined);
+    model = resolveAgyModel(model as string | undefined, effort as string | undefined);
+  }
   if (
     effort !== undefined &&
     (typeof effort !== "string" ||
@@ -251,8 +262,12 @@ export function validateH2aRunRequest(
   ) {
     throw new Error("h2a_run: 'effort' must be low|medium|high|xhigh");
   }
-  if (profile === "agy" && effort === "xhigh") {
-    throw new Error("h2a_run: AGY effort must be low|medium|high");
+  const { role, allowClaudeBuild, outputFile } = args;
+  if (allowClaudeBuild !== undefined && typeof allowClaudeBuild !== "boolean") throw new Error("h2a_run: 'allowClaudeBuild' must be boolean");
+  if (role !== undefined && typeof role !== "string") throw new Error("h2a_run: invalid agy run role");
+  assertAgyClaudeBuildAllowed({ profile, model: model as string | undefined, role: role as string | undefined, allowClaudeBuild: allowClaudeBuild as boolean | undefined });
+  if (outputFile !== undefined && (typeof outputFile !== "string" || !isAbsolute(outputFile) || outputFile.includes("\0") || !headless || profile !== "agy" || !isAgyClaudeModel(model as string | undefined))) {
+    throw new Error("h2a_run: outputFile must be an absolute path for an AGY Claude headless run");
   }
 
   return {
@@ -268,6 +283,9 @@ export function validateH2aRunRequest(
     ...(agent !== undefined ? { agent } : {}),
     ...(model !== undefined ? { model } : {}),
     ...(effort !== undefined ? { effort: effort as H2aRunEffort } : {}),
+    ...(role !== undefined ? { role: role as H2aRunRequest["role"] } : {}),
+    ...(allowClaudeBuild !== undefined ? { allowClaudeBuild: allowClaudeBuild as boolean } : {}),
+    ...(outputFile !== undefined ? { outputFile: outputFile as string } : {}),
   };
 }
 
@@ -310,6 +328,9 @@ export function buildH2aRunInvocation(
       ...(request.model ? ["--model", request.model] : []),
       ...(request.effort ? ["--effort", request.effort] : []),
       ...(request.headless ? ["--headless"] : []),
+      ...(request.role ? ["--role", request.role] : []),
+      ...(request.allowClaudeBuild ? ["--allow-claude-build"] : []),
+      ...(request.outputFile ? ["--output-file", request.outputFile] : []),
     ],
     cwd: request.workspace,
     input: request.prompt,
@@ -321,6 +342,10 @@ function contractResult(value: unknown, request: H2aRunRequest): unknown {
     throw new Error("incompatible h2a runtime: launch output is not an object");
   }
   const result = value as Record<string, unknown>;
+  if (result.kind === "h2a.run.completion" && request.profile === "agy" && request.headless && isAgyClaudeModel(request.model) &&
+      result.version === 1 && result.state === "done" && result.exitCode === 0 && result.modelSource === "launch-argument" &&
+      result.model === resolveAgyModel(request.model, request.effort) &&
+      (result.effectiveModel === "unknown" || result.effectiveModel === result.model)) return result;
   const session = result.session as Record<string, unknown> | undefined;
   const expectedMode = request.headless ? "headless" : "interactive";
   // Owner decision (2026-09): a launch is direct unless the gateway is asked for
@@ -365,6 +390,9 @@ function contractResult(value: unknown, request: H2aRunRequest): unknown {
     session.tmuxSession.length === 0 ||
     !paneOk ||
     session.profile !== request.profile ||
+    (request.profile === "agy" && isAgyClaudeModel(request.model) &&
+      (session.model !== resolveAgyModel(request.model, request.effort) || session.modelSource !== "launch-argument" ||
+        (session.effectiveModel !== "unknown" && session.effectiveModel !== session.model))) ||
     session.workspace !== request.workspace ||
     session.mode !== expectedMode ||
     session.background !== true ||
@@ -442,6 +470,9 @@ export function executeH2aRunWithSpawn(
     try {
       const failure = JSON.parse(result.stdout ?? "") as Record<string, unknown>;
       if (isPreCreateNativeFailure(failure, request.name, result.stderr ?? "")) return failure;
+      if (failure.kind === "h2a.run.failure" && request.profile === "agy" &&
+          failure.retrySafe === false && typeof failure.code === "string" &&
+          ["agy-effort-unsupported", "agy-claude-build-requires-opt-in", "agy-claude-quota-exhausted", "agy-output-missing", "agy-model-mismatch", "agy-process-failed"].includes(failure.code)) return failure;
       const prompt = failure.prompt as Record<string, unknown> | undefined;
       if (failure.kind === "h2a.run.failure" && failure.version === 1 &&
           failure.state === "provider-blocked" && failure.launchId === request.name &&
@@ -534,14 +565,57 @@ export function createH2aRunLauncher(
   onCompleted?: (request: H2aRunRequest, result: Record<string, unknown>) => void,
 ): H2aRunExecutor {
   const launches = new Map<string, Record<string, unknown>>();
+  const previousResults = new Map<string, Stats>();
   return request => {
     const existing = launches.get(request.name);
-    if (existing) return existing;
+    if (existing) {
+      // A run-once launch outlives the initial MCP response. Read its durable
+      // completion on polling; never launch again or return stale "started".
+      if (request.profile === "agy" && request.headless && isAgyClaudeModel(request.model) && existing.state === "started") {
+        const resultPath = (existing.result as { path?: unknown } | undefined)?.path;
+        if (typeof resultPath === "string") try {
+          // Bind bytes and freshness to the same inode: a supervisor publishes
+          // atomically and may replace the path between a read and a stat.
+          const fd = openSync(resultPath, "r");
+          try {
+            const current = fstatSync(fd);
+            const previous = previousResults.get(request.name);
+            const unchanged = previous && previous.dev === current.dev && previous.ino === current.ino &&
+              previous.mtimeMs === current.mtimeMs && previous.ctimeMs === current.ctimeMs && previous.size === current.size;
+            const completed = JSON.parse(readFileSync(fd, "utf8"));
+            if (!unchanged &&
+                ["h2a.run.failure", "h2a.run.completion"].includes(completed.kind)) {
+              const final = { ...completed, launchId: request.name, result: existing.result, logs: existing.logs };
+              launches.set(request.name, final);
+              return final;
+            }
+          } finally { closeSync(fd); }
+        } catch { /* Still running, no fabricated completion. */ }
+      }
+      return existing;
+    }
     const launching = { state: "launching", launchId: request.name, retrySafe: false };
+    const canonicalResultPath = join(request.workspace, ".h2a", "runs", request.name, "result.json");
+    if (request.profile === "agy" && request.headless && isAgyClaudeModel(request.model)) {
+      // Compare file generations, never filesystem timestamps with Date.now():
+      // a newly written inode can legitimately lag the wall clock on Linux.
+      try { previousResults.set(request.name, statSync(canonicalResultPath)); }
+      catch { /* No previous generation to exclude. */ }
+    }
     launches.set(request.name, launching);
     const finish = (result: unknown): Record<string, unknown> => {
       const current = result && typeof result === "object" ? result as Record<string, unknown>
         : { error: "h2a_run: launcher returned no structured result", state: "unknown", launchId: request.name, retrySafe: false };
+      const resultPath = (current.result as { path?: unknown } | undefined)?.path;
+      if (request.profile === "agy" && request.headless && isAgyClaudeModel(request.model) &&
+          current.state === "started" && typeof resultPath === "string" && resultPath !== canonicalResultPath) {
+        // An injected executor's custom path is first known at handoff. Treat
+        // any file already there as its baseline; an already finished executor
+        // must return a completion rather than a "started" receipt.
+        previousResults.delete(request.name);
+        try { previousResults.set(request.name, statSync(resultPath)); }
+        catch { /* No previous generation at the custom path. */ }
+      }
       launches.set(request.name, current);
       onCompleted?.(request, current);
       return current;
@@ -621,6 +695,7 @@ export function handleH2aRun(
     }
     return result as Record<string, unknown>;
   } catch (error) {
-    return { error: error instanceof Error ? error.message : String(error) };
+    return { error: error instanceof Error ? error.message : String(error),
+      ...((error as { code?: string })?.code ? { code: (error as { code: string }).code, retrySafe: false } : {}) };
   }
 }

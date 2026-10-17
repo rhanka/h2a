@@ -23,7 +23,7 @@ import { fileURLToPath } from "node:url";
 import { nativePtyRequirements } from "./pty.js";
 import {
   HEADLESS_TERMINAL_SIZE,
-  HEADLESS_WRAPPER,
+  headlessCommand,
   LOCAL_WRAPPER,
   STRUCTURED_LOCAL_WRAPPER,
   localRelaunchCommand,
@@ -588,6 +588,7 @@ export function startNativeHeadlessSession(
   sessionClass?: SessionClass,
   onCreateAttempt?: () => void,
   beforeCreate?: (value: NativeLaunchOwnership) => void,
+  outputFile?: string,
 ): NativeStartResult & { promptFile?: string } {
   const slug = slugify(label);
   const name = localSessionName(slug);
@@ -615,16 +616,7 @@ export function startNativeHeadlessSession(
       flag: "wx",
     });
   }
-  const agentCommand = [
-    "/bin/bash",
-    "-lc",
-    HEADLESS_WRAPPER,
-    resultJson,
-    outputLog,
-    promptFile,
-    command,
-    ...args,
-  ];
+  const agentCommand = headlessCommand(profile, command, args, resultJson, outputLog, promptFile, outputFile);
   const env: Record<string, string> = {};
   for (const [key, value] of Object.entries(process.env)) {
     if (value !== undefined) env[key] = value;

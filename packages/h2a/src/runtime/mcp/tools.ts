@@ -742,7 +742,7 @@ const H2A_COORDINATION_TOOL_DESCRIPTORS: McpToolDescriptor[] = [
   {
     name: "h2a_run",
     description:
-      "Launch one background Claude, Codex, AGY, Muse or Vibe agent in an existing workspace through the canonical h2a run runtime. AGY, Muse and Vibe are direct (no llm-mesh gateway); AGY supports run-once mode through --print. Muse is interactive/background only (muse exec has no stdin prompt contract, so headless is rejected); Vibe is interactive/background only (vibe -p takes the prompt as argv, and prompts are never serialized into argv, so headless is rejected). Responds within 50 seconds: returns verified session metadata when finished, otherwise {state:\"launching\",launchId,retrySafe:false} while the server continues launching. Repeat h2a_run with the same name to read its current state; that name is idempotent for this MCP server lifetime, including after completion or caller cancellation, and never launches or delivers the brief again. Never creates a branch or worktree.",
+      "Launch one background Claude, Codex, AGY, Muse or Vibe agent in an existing workspace through the canonical h2a run runtime. AGY, Muse and Vibe are direct (no llm-mesh gateway); AGY supports run-once mode through stream-json stdin/output. Claude models use a reserved review/challenge pool; build requires allowClaudeBuild:true. Quota failures never retry or fall back; repeat the same name to read a headless completion. Muse is interactive/background only (muse exec has no stdin prompt contract, so headless is rejected); Vibe is interactive/background only (vibe -p takes the prompt as argv, and prompts are never serialized into argv, so headless is rejected). Responds within 50 seconds: returns verified session metadata when finished, otherwise {state:\"launching\",launchId,retrySafe:false} while the server continues launching. Repeat h2a_run with the same name to read its current state; that name is idempotent for this MCP server lifetime, including after completion or caller cancellation, and never launches or delivers the brief again. Never creates a branch or worktree.",
     inputSchema: {
       type: "object",
       properties: {
@@ -785,9 +785,12 @@ const H2A_COORDINATION_TOOL_DESCRIPTORS: McpToolDescriptor[] = [
         },
         effort: {
           type: "string",
-          enum: ["low", "medium", "high", "xhigh"],
-          description: "AGY accepts low, medium or high; xhigh is rejected. Muse maps effort to its native --reasoning-effort."
+          enum: ["low", "medium", "high", "xhigh", "max"],
+          description: "AGY accepts low, medium or high, maps max to high, and rejects xhigh with a typed error. Other profiles accept low|medium|high|xhigh. Muse maps effort to its native --reasoning-effort."
         },
+        role: { type: "string", enum: ["review", "challenge", "build"], description: "AGY Claude credits: reviews and adversarial challenges first; build requires allowClaudeBuild:true." },
+        allowClaudeBuild: { type: "boolean", description: "Explicit opt-in to spend the reserved AGY Claude pool on a build role." },
+        outputFile: { type: "string", description: "Absolute expected AGY Claude headless artifact path. Completion reports missing or unchanged output separately from captured logs." },
         bare: {
           type: "boolean",
           description: "Claude under the gateway only: true opts into bare mode (skips onboarding but strips Claude's native tools/hooks/skills); omitted or false keeps the native tools (the default)."

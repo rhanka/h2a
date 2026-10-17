@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { renderTerminalScreen } from "./native-terminal/screen.js";
 
 import {
   CLAUDE_LONG_CONTEXT_CONFIRM_REASON,
@@ -767,6 +768,42 @@ describe("ready profile CPU calibration",()=>{
 });
 
 describe("provider rejection after delivery",()=>{
+ it("should retain the typed quota observation when the capture tail drops the diagnostic",()=>{
+  const {deps,calls}=fakePane({screen:"AGY Claude\nReview workspace\n❯ Ready",workCpuPerSec:1000});
+  const capture=deps.capturePane;
+  const diagnostic='AGY_ERROR {"short_error":"RESOURCE_EXHAUSTED (code 429): Individual quota reached. Please upgrade your subscription to increase your limits. Resets in 156h32m24s.","status":"RESOURCE_EXHAUSTED","error_code":429,"code_kind":"http","retryable":true}';
+  const result=deliverInitialPrompt("agy","review witness",{...deps,
+   capturePane:pane=>calls.submits?`${diagnostic}\n1\n2\n3\n4\n5\n❯`:capture(pane),
+  },{profile:"agy"});
+  expect(result.state).toBe("provider-blocked");
+  expect("capture" in result && result.capture).not.toContain("AGY_ERROR");
+  expect("providerError" in result && result.providerError).toMatchObject({code:"agy-claude-quota-exhausted",retryable:false,retrySafe:false});
+  if (result.state !== "provider-blocked" || !result.providerError) throw new Error("missing typed quota observation");
+  expect(result.providerError.resetsAt).toBe(new Date(Date.parse(result.providerError.quota.observedAt!)+(156*3600+32*60+24)*1000).toISOString());
+ });
+ it("should reject the real 160-column quota screen before accepting CPU activity",async()=>{
+  const {deps,calls}=fakePane({screen:"AGY Claude\nReview workspace\n❯ Ready",workCpuPerSec:1000});
+  const capture=deps.capturePane;
+  const diagnostic='AGY_ERROR {"short_error":"RESOURCE_EXHAUSTED (code 429): Individual quota reached. Please upgrade your subscription to increase your limits. Resets in 156h32m24s.","status":"RESOURCE_EXHAUSTED","error_code":429,"code_kind":"http","retryable":true}';
+  const screen=await renderTerminalScreen(`AGY Claude\r\n${diagnostic}\r\n❯`);
+  const result=deliverInitialPrompt("agy","review witness",{...deps,
+   capturePane:pane=>calls.submits?screen:capture(pane),
+  },{profile:"agy"});
+  expect(result.state).toBe("provider-blocked");
+  expect(calls.submits).toBe(1);
+ });
+ it.each([0, 1000])("should report AGY Claude quota before CPU activity (%i ms/s)", workCpuPerSec=>{
+  const {deps,calls}=fakePane({screen:"AGY Claude\nReview workspace\n❯ Ready",workCpuPerSec});
+  const capture=deps.capturePane;
+  const diagnostic='AGY_ERROR {"short_error":"RESOURCE_EXHAUSTED (code 429): Individual quota reached. Resets in 156h32m24s."}';
+  const result=deliverInitialPrompt("agy","review witness",{...deps,
+   capturePane:pane=>calls.submits?`AGY\n${diagnostic}\n❯`:capture(pane),
+  },{profile:"agy"});
+  expect(result.state).toBe("provider-blocked");
+  expect("capture" in result && result.capture).toContain(diagnostic);
+  expect(calls.pastes).toEqual(["review witness"]);
+  expect(calls.submits).toBe(1);
+ });
  it("should distinguish a Muse quota refusal after one submitted prompt",()=>{
   const {deps,calls}=fakePane({screen:"❯\nmuse-spark-1.3-contributor · xhigh · ~/repo",idleCpuPerSec:600});
   const capture=deps.capturePane;
