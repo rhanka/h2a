@@ -160,6 +160,12 @@ const cases = [
   return frozen(store.delegate(upgradeId, candidate));`, `assertUpgradeAuthority({ store, upgradeId, controller });
   return frozen({ transaction: store.status(upgradeId) });`, 'F should hand a selected transaction to the exact candidate once'],
   ['delegate', 'candidate-shape', "!candidate || typeof candidate !== 'object' || Array.isArray(candidate)", '(false)', 'F should refuse an invalid delegation envelope instead of guessing'],
+  ['unmanage-gate', 'gate-call', 'const verdict = assessNpmCommand({ commandPath, managedLauncher, legacyEntry: originalTarget });', "const verdict = { state: 'missing' };", 'D should refuse a foreign command link instead of replacing it'],
+  ['unmanage-gate', 'occupied-gate', "if (!forced && verdict.state === 'occupied') throw new Error('unmanage_command_occupied');", '', 'D should refuse an occupied command link without touching it'],
+  ['unmanage-gate', 'foreign-gate', "if (!forced && verdict.state === 'foreign') throw new Error('unmanage_command_foreign');", '', 'D should refuse a foreign command link instead of replacing it'],
+  ['unmanage-gate', 'dangling-gate', "if (!forced && verdict.state === 'dangling') throw new Error('unmanage_command_dangling');", '', 'D should refuse a dangling command link for diagnosis'],
+  ['unmanage-gate', 'explicit-shape', "if (explicit !== undefined && typeof explicit !== 'boolean') throw new Error('unmanage_install_invalid');", '', 'D should restore a foreign link only on explicit override'],
+  ['unmanage-gate', 'force-foreign', "if (!forced && verdict.state === 'foreign') throw new Error('unmanage_command_foreign');", "if (verdict.state === 'foreign') throw new Error('unmanage_command_foreign');", 'D should restore a foreign link only on explicit override'],
 ];
 const files = group === 'launcher' ? ['packages/h2a/src/runtime/upgrade/managed-launcher.js'] :
   group === 'exclusion' ? ['packages/h2a/src/runtime/upgrade/legacy-exclusion.js', 'packages/h2a/dist/runtime/upgrade/legacy-exclusion.js'] :
@@ -180,11 +186,12 @@ const files = group === 'launcher' ? ['packages/h2a/src/runtime/upgrade/managed-
   group === 'pilot-run' ? ['packages/h2a/src/runtime/upgrade/upgrade-run.js', 'packages/h2a/dist/runtime/upgrade/upgrade-run.js'] :
   group === 'pilot-execute' ? ['packages/h2a/src/runtime/upgrade/adoption-execute.js', 'packages/h2a/dist/runtime/upgrade/adoption-execute.js'] :
   group === 'delegate' ? ['packages/h2a/src/runtime/upgrade/upgrade-delegate.js', 'packages/h2a/dist/runtime/upgrade/upgrade-delegate.js'] :
+  group === 'unmanage-gate' ? ['packages/h2a/src/runtime/upgrade/unmanage.js', 'packages/h2a/dist/runtime/upgrade/unmanage.js'] :
   ['packages/h2a/src/runtime/upgrade/h4-store.js', 'packages/h2a/dist/runtime/upgrade/h4-store.js'];
 const originals = files.map(path => ({ path, bytes: fs.readFileSync(path) }));
 const selected = cases.filter(c => c[0] === group && (!process.env.MH_L6_MUTATION || c[1] === process.env.MH_L6_MUTATION));
 if (!selected.length) throw new Error('unknown_mutation_group');
-const testFile = { delegation: 'delegation', launcher: 'launcher', exclusion: 'exclusion', deferral: 'exclusion', bootstrap: 'bootstrap', adoption: 'adoption', 'launcher-install': 'launcher-install', 'adoption-execute': 'adoption', unmanage: 'unmanage', 'adoption-image': 'image-prepare', status: 'status', 'upgrade-run': 'upgrade-run', 'npm-command': 'npm', authority: 'authority', cli: 'cli', dispatch: 'dispatch', 'command-gate': 'command-gate', 'command-force': 'command-gate', 'pilot-run': 'pilot-force', 'pilot-execute': 'pilot-force', delegate: 'delegate' }[group] ?? 'selection';
+const testFile = { delegation: 'delegation', launcher: 'launcher', exclusion: 'exclusion', deferral: 'exclusion', bootstrap: 'bootstrap', adoption: 'adoption', 'launcher-install': 'launcher-install', 'adoption-execute': 'adoption', unmanage: 'unmanage', 'adoption-image': 'image-prepare', status: 'status', 'upgrade-run': 'upgrade-run', 'npm-command': 'npm', authority: 'authority', cli: 'cli', dispatch: 'dispatch', 'command-gate': 'command-gate', 'command-force': 'command-gate', 'pilot-run': 'pilot-force', 'pilot-execute': 'pilot-force', delegate: 'delegate', 'unmanage-gate': 'unmanage-gate' }[group] ?? 'selection';
 const file = `packages/h2a/test/mh-l6-${testFile}.test.js`;
 const results = [];
 for (const [, name, from, to, scenario] of selected) {
