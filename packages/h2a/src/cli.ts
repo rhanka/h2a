@@ -146,6 +146,7 @@ import { H2A_CLI_MCP_TOOL_NAMES } from "./mcp.js";
 import {
   renderStopHook,
   claudeStopHookEntry,
+  renderWorkspaceScope,
   claudeDriveReceiveHookEntry,
   isH2ADriveReceiveHook,
   isH2ARecordHook,
@@ -4854,6 +4855,8 @@ function cmdHostPlugin(flags: Record<string, string>, streams: H2ACliStreams): n
     );
     return 1;
   }
+  const workspaceScope = renderWorkspaceScope(flags.host, flags.workspace ?? streams.cwd?.() ?? process.cwd(), flags.instance, flags['owner-key']);
+  const scopeCommand = workspaceScope.supported ? workspaceScope.command : undefined;
 
   // DEC-113 (D6 done): --scaffold <dir> writes codex's FULL local marketplace —
   // verified live, codex installs a plugin only from a marketplace dir, NOT a
@@ -4883,7 +4886,8 @@ function cmdHostPlugin(flags: Record<string, string>, streams: H2ACliStreams): n
       render.record,
       render.receive,
       flags.force === "true",
-      streams
+      streams,
+      scopeCommand
     );
     if (typeof hooksMerge === "number") return hooksMerge;
     // Manifests are stable identities — rewriting them is idempotent (same bytes).
@@ -4954,7 +4958,8 @@ function cmdHostPlugin(flags: Record<string, string>, streams: H2ACliStreams): n
       render.record,
       render.receive,
       flags.force === "true",
-      streams
+      streams,
+      scopeCommand
     );
     if (typeof merge === "number") return merge;
     streams.stdout.write(
@@ -4985,7 +4990,7 @@ function cmdHostPlugin(flags: Record<string, string>, streams: H2ACliStreams): n
     return 0;
   }
 
-  streams.stdout.write(`${JSON.stringify(render, null, 2)}\n`);
+  streams.stdout.write(`${JSON.stringify({ ...render, workspaceScope }, null, 2)}\n`);
   return 0;
 }
 
@@ -5002,7 +5007,8 @@ function mergeStopHooksFile(
   record: string,
   receive: string,
   force: boolean,
-  streams: H2ACliStreams
+  streams: H2ACliStreams,
+  scopeCommand?: string
 ): number | undefined {
   let existing: Record<string, unknown> = {};
   if (existsSync(targetPath)) {
@@ -5049,6 +5055,11 @@ function mergeStopHooksFile(
     ...existing,
     hooks: {
       ...existingHooks,
+      ...(scopeCommand ? { PreToolUse: [
+        ...(Array.isArray(existingHooks.PreToolUse) ? existingHooks.PreToolUse : []).filter(
+          (e: unknown) => !JSON.stringify(e).includes('workspace-scope-guard.mjs')),
+        { matcher: '.*', hooks: [{ type: 'command', command: scopeCommand, timeout: 15 }] }
+      ] } : {}),
       Stop: mergedStop,
       UserPromptSubmit: mergedUserPromptSubmit
     }
@@ -7099,7 +7110,7 @@ function nativeHostReport(host: string, flags: Record<string, string>, repair: b
   return convergeNativeHost({ host, root, cwd, version: currentCliVersion(), skills: collection.skills, renderGemini: renderSkillAsGeminiToml,
     sourcesComplete: collection.sources.every(s => s.dir !== null && s.count > 0), repair, explicitInstall,
     dryRun: flags['dry-run'] === 'true', force: flags.force === 'true', guard: flags.guard, lifecycle: flags.lifecycle,
-    instance: flags.instance, busRoot: flags.root, status: flags.status });
+    instance: flags.instance, busRoot: flags.root, status: flags.status, ownerKey: flags['owner-key'] });
 }
 
 function cmdInstallSkills(
