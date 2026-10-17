@@ -16,11 +16,8 @@ git commit -qm init
 
 run_hook() {
   local cmd="$1"
-  printf '{"tool_input":{"command":%s}}' "$(python3 - <<PY
-import json
-print(json.dumps('$cmd'))
-PY
-)" | "$HOOK" >/tmp/guard-test.out 2>/tmp/guard-test.err
+  # Zero-Python rule: JSON-encoding via Node (was a python3 heredoc).
+  printf '{"tool_input":{"command":%s}}' "$(node -e 'process.stdout.write(JSON.stringify(process.argv[1]))' "$cmd")" | "$HOOK" >/tmp/guard-test.out 2>/tmp/guard-test.err
 }
 
 expect_pass() {
@@ -55,5 +52,8 @@ expect_block 'git reset --hard HEAD'
 expect_block 'cd /tmp && git -C .'"$tmp"' reset --hard HEAD'
 expect_block 'set -e; git checkout main'
 expect_block 'git clean -fd'
+# Backslash-newline continuation must not dodge the detector.
+expect_block $'git reset \\\n--hard HEAD'
+expect_pass $'git status \\\n--short'
 
 echo 'git dogfood guard tests: ok'
