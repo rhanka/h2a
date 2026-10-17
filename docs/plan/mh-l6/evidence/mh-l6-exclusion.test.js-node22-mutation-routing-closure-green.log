@@ -1,12 +1,12 @@
 command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-exclusion.test.js
 node: v22.22.1
-private root: /tmp/mh-l6-test-9c475G
+private root: /tmp/mh-l6-test-13lDjn
 case: B2 should report unfenced when future starts are not routed
 TAP version 13
 # Subtest: B2 should report unfenced when future starts are not routed
 ok 1 - B2 should report unfenced when future starts are not routed
   ---
-  duration_ms: 1.723636
+  duration_ms: 1.834734
   type: 'test'
   ...
 1..1
@@ -17,6 +17,6 @@ ok 1 - B2 should report unfenced when future starts are not routed
 # cancelled 0
 # skipped 0
 # todo 0
-# duration_ms 107.483042
+# duration_ms 129.724395
 
 receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-exclusion.test.js"],"code":0,"signal":null,"tests":1,"invalid":false,"spawned":1,"leftovers":[]}
