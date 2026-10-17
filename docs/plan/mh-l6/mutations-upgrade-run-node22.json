@@ -1,0 +1,39 @@
+{
+  "node": "v22.22.1",
+  "files": [
+    {
+      "path": "packages/h2a/src/runtime/upgrade/upgrade-run.js",
+      "sha256": "5df62544a0ede58cbba502d9ffd35e2d151e23140c624cef3ece07dd197dbafb"
+    },
+    {
+      "path": "packages/h2a/dist/runtime/upgrade/upgrade-run.js",
+      "sha256": "ae9d0ddcc2ab781ec764bbb80b7d4a567de5e29b3d2fd527dc39540fe9ef0f12"
+    }
+  ],
+  "results": [
+    {
+      "name": "opt-out-skip",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-upgrade-run.test.js-node22-mutation-opt-out-skip-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-upgrade-run.test.js-node22-mutation-opt-out-skip-green.log",
+      "restored": true
+    },
+    {
+      "name": "need-report",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-upgrade-run.test.js-node22-mutation-need-report-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-upgrade-run.test.js-node22-mutation-need-report-green.log",
+      "restored": true
+    },
+    {
+      "name": "execute-skip",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-upgrade-run.test.js-node22-mutation-execute-skip-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-upgrade-run.test.js-node22-mutation-execute-skip-green.log",
+      "restored": true
+    },
+    {
+      "name": "exclusion-forward",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-upgrade-run.test.js-node22-mutation-exclusion-forward-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-upgrade-run.test.js-node22-mutation-exclusion-forward-green.log",
+      "restored": true
+    }
+  ]
+}
