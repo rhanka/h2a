@@ -679,19 +679,13 @@ describe("gateway-host live registration (L6a H)", () => {
         "second",
       ]);
 
-      // Git may leave transient *.lock files (for example
-      // .git/objects/maintenance.lock) that appear or disappear independently
-      // of activation while background housekeeping settles. The product under
-      // test only runs --no-optional-locks plumbing, so ignore those internal
-      // locks here; every other byte still proves activation writes nothing.
-      const isTransientGitLock = (rel: string): boolean => rel.endsWith(".lock");
       const inventory = (root: string): Map<string, number> => {
         const files = new Map<string, number>();
         const walk = (dir: string, rel: string): void => {
           for (const entry of readdirSync(dir, { withFileTypes: true })) {
             const childRel = rel ? `${rel}/${entry.name}` : entry.name;
             if (entry.isDirectory()) walk(join(dir, entry.name), childRel);
-            else if (!isTransientGitLock(childRel)) files.set(childRel, statSync(join(dir, entry.name)).size);
+            else files.set(childRel, statSync(join(dir, entry.name)).size);
           }
         };
         walk(root, "");
