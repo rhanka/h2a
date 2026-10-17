@@ -1,6 +1,6 @@
 # Targeted validation
 
-Target implementation: 74b52dea7350f7e731dfe9cb5f56dbc87d6eafb6.
+Target implementation: e1cc9af08e60569f870451ce4d49d01a092cdc99.
 
 All regressions ran before their corresponding implementation, then passed in
 final verification. Temporary repositories/profiles only; fake GitHub readers;
@@ -8,9 +8,10 @@ no installed h2a binary or live owner configuration. No full local suite.
 
 | Command | Before policy/fix (pass/fail) | Final |
 | --- | --- | --- |
-| node --test packages/h2a/test/workspace-scope-guard.test.js | No-op policy: 1/15 | 32/0 |
-| Same file: grant/preflight/envelope hardening | 17/4, 22/2, 24/3, 26/2, 28/2, 30/1 across successive test additions | 32/0 |
-| node --test --test-name-pattern='literal Codex patch' packages/h2a/test/workspace-scope-guard.test.js | 0/1 | Included in 32/0 |
+| node --test packages/h2a/test/workspace-scope-guard.test.js | No-op policy: 1/15 | 33/0 |
+| Same file: grant/preflight/envelope hardening | 17/4, 22/2, 24/3, 26/2, 28/2, 30/1 across successive test additions | 33/0 |
+| node --test --test-name-pattern='literal Codex patch' packages/h2a/test/workspace-scope-guard.test.js | 0/1 | Included in 33/0 |
+| node --test --test-name-pattern='own monorepo' packages/h2a/test/workspace-scope-guard.test.js | 0/1 | Included in 33/0 |
 | node --test packages/h2a/test/workspace-scope-hosts.test.js | 0/5 | 6/0 |
 | node --test --test-name-pattern='project hook masks' packages/h2a/test/workspace-scope-hosts.test.js | 0/1 | Included in 6/0 |
 | node --test packages/h2a/test/native-host-convergence.test.js packages/h2a/test/native-host-review-regressions.test.js | 16/3: old assertions conflated scope and MCP guard hooks | 19/0 |
@@ -30,9 +31,9 @@ node --test packages/h2a/test/workspace-scope-guard.test.js packages/h2a/test/wo
 ```
 
 ```text
-1..96
-# tests 96
-# pass 96
+1..97
+# tests 97
+# pass 97
 # fail 0
 # cancelled 0
 # skipped 0
