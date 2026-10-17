@@ -1,0 +1,35 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-image-policy.test.js
+node: v22.22.1
+private root: /tmp/mh-l6-test-maPdhS
+case: U10 should refuse selection before journaling when the runtime has no qualified image reader
+TAP version 13
+# Subtest: U10 should refuse selection before journaling when the runtime has no qualified image reader
+not ok 1 - U10 should refuse selection before journaling when the runtime has no qualified image reader
+  ---
+  duration_ms: 90.330505
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-image-policy.test.js:17:94'
+  failureType: 'testCodeFailure'
+  error: 'Missing expected exception.'
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected:
+  operator: 'throws'
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-image-policy.test.js:167:12)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.start (node:internal/test_runner/test:944:17)
+    startSubtestAfterBootstrap (node:internal/test_runner/harness:296:17)
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 0
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 217.779781
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-image-policy.test.js"],"code":1,"signal":null,"tests":1,"invalid":false,"spawned":1,"leftovers":[]}
