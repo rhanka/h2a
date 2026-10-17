@@ -37,7 +37,8 @@ function decode(part: string): Buffer {
   return bytes;
 }
 function claimsPart(part: string): Record<string, unknown> {
-  return object(parseStrictJson(new TextDecoder("utf-8", { fatal: true }).decode(decode(part)), 16384));
+  try { return object(parseStrictJson(new TextDecoder("utf-8", { fatal: true }).decode(decode(part)), 16384)); }
+  catch { return refused(); }
 }
 
 /** One shared instance per native host, not per connection or claimed source. */
@@ -77,6 +78,7 @@ export class ConfirmationVerifier {
   private readonly wallNow: () => number;
   private readonly monotonicNow: () => number;
   private readonly config: Config;
+  get issuer(): string { return this.config.issuer; }
   constructor(config: Config) {
     this.config = { ...config, source: structuredClone(config.source) };
     this.wallNow = config.wallNow ?? Date.now;
