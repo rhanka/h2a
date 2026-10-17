@@ -1,200 +1,162 @@
-# Model assignment for spec, review and build
+# Affectation des modèles : conception, construction, relecture
 
-Owner directive, 2026-08-20. Track item `01M0GT68VZZ06ANK889AKHC4A1`.
-Owned by the harness lane; the conductor tracks and dispatches, it does not decide here.
+**Politique owner du 2026-09-19** (dossier « Rôles h2a », décision D3=B et commentaire de
+l'owner). Elle remplace les tableaux de la directive du 2026-08-20 (sujet Track
+`01M0GT68VZZ06ANK889AKHC4A1`), qui nommaient `gpt-5.6-sol`, `gpt-5.6-terra`, `claude-fable-5`
+et `gemini-3.7`. Les règles d'indépendance, d'attestation et de compilation de cette directive
+sont conservées ci-dessous (sections B à D).
 
-This file says which models may write a spec, which may review it, which may build,
-and in what order. It also says **where each rule stops** — a rule whose enforcement
-is not stated is a habit wearing the clothes of a guarantee.
+Tenue par le rôle Cadre et assurance (`arch`, qui reprend les flux S6 et S8 de l'ancienne lane
+harness). Le conducteur applique et délègue ; il ne décide pas ici. **Toute évolution de cette
+politique passe par une qualification séparée, puis par une décision de l'owner (D3=B).**
 
----
-
-## A · Spec and review
-
-**Permitted models — this list is exhaustive.**
-
-| | model |
-|---|---|
-| prime | `gpt-5.6-sol` at `xhigh` |
-| second | `claude-fable-5` |
-| third | `gemini-3.7` |
-
-**Excluded, without exception:** every `opus`, every `spark`, `gpt-5.5`, and any `gemini`
-below `3.7`.
-
-The permitted list above is exhaustive, so anything absent from it is already excluded —
-`gpt-5.5` is named here anyway because it is the model that actually got through. On
-2026-08-22 a review leg was launched on `gpt-5.5` for the MCP-central work, and nothing
-refused it. Naming a model in the exclusion list does not refuse it either (see section C);
-it only removes the excuse of ambiguity.
-
-Priority is prime → fallback: reach for `sol xhigh` first; use `fable-5` when it is
-unavailable; use `gemini-3.7` when neither is. Availability means *reachable now*, not
-*preferred* — a fallback taken for convenience is a fallback taken wrongly.
-
-**Consensus is two legs, on two DIFFERENT models drawn from the three permitted above**,
-and three rules bound it:
-
-1. **The builder is never a reviewer.** Whoever produced the artefact cannot be a leg on it.
-2. **The two legs must be different models from each other.** Not "at least one differs
-   from the producer" — that wording permitted exactly what this section condemns: two
-   legs both on `gemini-3.7` reviewing a `terra` build would satisfy it while returning
-   two signatures and one verification.
-3. **Every leg must be drawn from the permitted list.** Being different from the producer
-   is not enough on its own: a model that is outside the pool but happens to differ from
-   the producer would otherwise pass the filter — which is precisely the `gpt-5.5` vector.
-
-Read together: two legs, both in the pool, different from each other and from the builder.
-
-### Why rule 2 exists, and why it is not about any model being weak
-
-On 2026-08-20, **four passes by `fable`** let a Base64 bypass through the cluster-mesh
-spec. `sol` found it on the first look.
-
-The lesson is not that `fable` is weak. It is that **two legs sharing a model share its
-blind spots** — they return two signatures and one verification. This is the same shape
-as two defects already measured in this repository:
-
-- *two agents agreeing is not a measurement* — it can be one claim travelling twice;
-- *two runs on the same host are not two measurements* — the independent observer
-  inherited the observed environment, and the deciding variable was a `PATH`.
-
-Here the shared variable is **the model**. Independence of the reviewer is worth nothing
-when the reviewer shares the thing that decides.
-
-**Conductor's recommendation, ratified here by the harness lane** (the owner has not
-ruled on it; this is the accountable lane exercising its mandate, and it is reversible).
-
-### Where rule 2 stops — read this before quoting it
-
-**Nothing records which model produced which leg** — measured, not supposed. Full scan of
-`.track/events.jsonl`, 2026-08-20, all 1 333 events:
-
-- **fourteen** top-level keys and no others: `aggregate`, `aggregateId`, `at`, `by`,
-  `clientToken`, `cmd`, `cmdId`, `contentHash`, `id`, `payload`, `prevHash`, `prov`,
-  `seq`, `type`. **No model, effort or reasoning field exists anywhere.**
-- `by` holds **one single value across all 1 333 events** — the human identity. Not a
-  per-actor value, let alone a per-model one.
-- `prov` — the field where attribution would naturally live — carries only `auth`,
-  `proposed` and `transport`, in two shapes (`cli`, `import`). It does not name the actor.
-
-Git does not carry it either, though not for the reason a first draft of this file
-claimed. Measured: `git log` shows **eight distinct author identities**, not one. But
-1 481 of the 1 487 commits are the human's three addresses, and the remaining five
-identities are variants of "Codex" (`codex@local.invalid`, `codex@openai.com`,
-`codex@example.com`, `Codex Operator`) which name a **tool, never a model or an effort**.
-So the conclusion survives its own correction, and is stronger for it: even where an
-agent does commit under its own identity, that identity does not say which model ran.
-
-So a cross-model leg is **asserted, never verified** — a measured fact, not a caution.
-
-And the remedy is smaller than it looks: `prov` already exists and is already written on
-every event. Raising this rule from convention to attestation means adding the producing
-and reviewing model to a record that is already there, not inventing a new one.
-
-Worse, and measured on the harness lane itself: **an agent cannot reliably observe the
-model serving it.** A session may hold two conflicting statements — its system context
-naming one model, a local command having selected another — with no means of
-introspection to settle it. This lane delivered two review legs with that ambiguity
-stated out loud rather than papered over: `rhanka/sentropic#542` (LLM routing integrity
-contract) and `rhanka/h2a#223` (its runtime consumer). Both are named with their
-repository, because "#542" alone points at nothing in this one.
-
-Therefore:
-
-- a leg declares its model; it does **not** claim to have observed it;
-- a declaration is usable only when it establishes **both** things at once:
-  **membership** — every candidate the declaration leaves open is inside the permitted
-  list — **and distinctness** from the other leg and from the builder. Distinctness alone
-  is not enough. A model outside the pool is trivially distinct from the producer, and
-  admitting it on that basis is exactly how a `gpt-5.5` leg gets accepted;
-- an ambiguous declaration is therefore usable only if **every** model it could mean is
-  permitted. This is not hypothetical, and the example is this lane's own: both legs
-  cited above were declared as "`claude-opus-5` or `claude-opus-4.8`, neither of which is
-  the other leg's model". That establishes distinctness — and **fails membership**, since
-  every `opus` is excluded from review. By the rule as now written, **those two legs were
-  not attestable**, and they were accepted on distinctness alone. That is the same hole
-  the `gpt-5.5` leg went through, found in this lane's own work rather than someone
-  else's;
-- when either condition cannot be established, the leg is **not attestable**, and another
-  leg is required. Saying so costs one leg; hiding it costs the whole consensus.
-
-This rule is at the **spec-line** rung. What would raise it: an attestation field that
-records the producing and reviewing model per artefact. Until that exists, this section
-is a convention, and it is written here as one.
-
-### Gateway legs
-
-Review legs run **no-gw** (gateway off) and must be attestable. A session routed through
-the gateway cannot attest its model: the gateway remaps `claude-*` and the served model
-is not the requested one. A leg produced under the gateway is not a leg.
-
-### A leg that says "build green" must have built the way CI builds
-
-**`npm ci`** at the repository root — the literal command, not "a clean install", because
-`npm install` over an existing `node_modules` is defensible-sounding and is not the same
-thing — then `npm run build` / `npm run typecheck`. A tree assembled any other way makes
-the types of a peer dependency present that `npm ci` would not, so it hides exactly the
-class of defect a build is supposed to catch: peer-dependency wiring, project references,
-lazy type-resolution of peers.
-
-Hand-linked `node_modules` is only the vector that was caught. Others produce the same
-masking and are worth naming, because each of them looks harmless in isolation:
-
-- `npm link`, and `npm install` layered over a tree that already has the peer;
-- `NODE_PATH` pointing anywhere outside the checkout;
-- **a worktree nested under an ancestor that has its own `node_modules`** — Node walks up
-  until it finds one, so a worktree missing its own install silently resolves against the
-  parent repository's, with no signal at all. This is not hypothetical here: this lane's
-  worktree sits under a checkout that has `node_modules`, and it was verified by resolving
-  `vitest` and `typescript` and confirming both land inside the worktree, not the parent;
-- stale `dist/*.d.ts` from an earlier build, which satisfy a type-resolution that a fresh
-  build would fail.
-
-Measured on `rhanka/h2a#231`: **both** review legs and the preliminary pass built in a
-hand-linked worktree and all three reported 20/20 green. Clean CI failed deterministically
-on `packages/h2a/src/runtime/mcp-central.ts:72` — a literal-specifier
-`import("@sentropic/h2a-runtime")` makes `tsc` type-resolve a lazy peer (TS2307), which
-breaks the rule that `@sentropic/h2a` never type-resolves `@sentropic/h2a-runtime`. Three
-independent verifications, one shared environment, zero verification.
-
-This is the same shape as the rest of this section, with the shared variable moved again:
-it was the model in rule 2, a `PATH` in the host case, and here it is the **install**.
-The harness lane produced its own instance while writing this file — seven test failures
-that looked like pre-existing breakage were caused by handing one suite's `TMPDIR` to
-every suite. What separated the two was changing one variable at a time, not judging
-which story was more plausible.
-
-**Where this stops:** nothing verifies that a leg built cleanly. Like every rule in this
-section it is declared, not enforced — the clean CI run at the SHA is the only oracle, so
-a leg's build claim is worth exactly as much as the CI conclusion it can point to.
+Ce fichier dit quels modèles peuvent concevoir, construire et relire, et **où chaque règle
+s'arrête** — une règle dont l'application n'est pas décrite est une habitude habillée en
+garantie.
 
 ---
 
-## B · Build
+## A · Politique de l'owner
 
-| | model |
-|---|---|
-| prime | `gpt-5.6-terra` at `xhigh` |
-| second | `gemini-3.7` at `high` |
-| third | `opus-5` at `xhigh` |
+Commentaire de l'owner, verbatim (2026-09-19, réponse D3=B) :
 
-**Simple builds**, only when nothing above is available: `gpt-5.3-spark` at `xhigh`, or
-`sonnet-5`.
+> « on va passer a astra-medium pour le build, astra xhigh pour le design, on oublie les autres
+> codex. pour le build côté opus on reste sur opus5, design fable5.1, et gemini : same all the
+> way 3.8 high »
 
-**The builder is never a reviewer, and never a leg of consensus** — on its own work, in
-either direction. This is the same rule as in section A and it is repeated deliberately:
-the build list and the review list overlap (`gemini-3.7`, and `opus-5` is a permitted
-builder while being an excluded reviewer), so "it is on a list" never authorises a leg.
+| Famille | Construction (build) | Conception (design) |
+|---|---|---|
+| Codex | `gpt-6-astra` · effort `medium` | `gpt-6-astra` · effort `xhigh` |
+| Claude | Opus 5 (`claude-opus-5`) | Fable 5.1 (`claude-fable-5-1`) |
+| Gemini | `gemini-3.8-flash-high` | `gemini-3.8-flash-high` |
+
+- **Codex : les autres modèles sont abandonnés** — notamment `gpt-5.6-sol`, `gpt-5.6-terra`,
+  `gpt-5.6-luna`, `gpt-5.3-spark` et `gpt-5.5`. Ils ne servent plus ni à concevoir, ni à
+  construire, ni à relire.
+- **La table est exhaustive.** Un modèle absent de la table n'est pas autorisé, même s'il est
+  disponible dans un catalogue : `claude-fable-5`, `gemini-3.7`, `sonnet-5` et les anciens
+  replis « cas simples » en font partie.
+- **Gemini** : le même modèle pour tout. L'owner a écrit « 3.8 high » ; l'identifiant retenu
+  est `gemini-3.8-flash-high`, tel que le catalogue local le nomme.
+- **Efforts non fixés** : l'owner ne fixe pas d'effort pour Opus 5 et Fable 5.1. Aucun effort
+  n'est imposé ici ; le fixer relève de la qualification séparée (section E).
+- **Conducteur** : cette politique ne fixe pas le modèle du conducteur.
 
 ---
 
-## C · What this document does not decide
+## B · Relecture
 
-- **Routing.** Which target actually serves a request is the routing contract's business,
-  not this file's. This file says who may be *asked*; the contract says what is *served*.
-- **Model capability.** Nothing here asserts a model is good at a task. It assigns
-  authority, not competence.
-- **Enforcement.** No check reads this file. Every rule in it is applied by the actors
-  who read it. That is the honest statement of its rung, and it is the reason section A
-  spells out where its own key rule stops.
+**Relecture par une autre famille que l'auteur.** Une jambe de relecture n'appartient jamais à
+la famille du modèle qui a produit l'artefact. Elle utilise le profil de conception de sa
+famille (`gpt-6-astra` · `xhigh`, Fable 5.1 ou `gemini-3.8-flash-high`).
+
+Trois règles bornent un consensus de deux jambes :
+
+1. **Le constructeur n'est jamais relecteur.** Qui a produit l'artefact ne peut pas en être une
+   jambe — y compris lorsqu'il s'agit d'un constructeur délégué.
+2. **Les deux jambes sont de modèles différents entre eux**, et chacune d'une famille différente
+   de celle de l'auteur. Avec trois familles, une fusion est donc relue par les deux familles
+   qui ne l'ont pas produite : un build Codex est relu par Fable 5.1 et `gemini-3.8-flash-high` ;
+   un build Claude par `gpt-6-astra` · `xhigh` et `gemini-3.8-flash-high` ; un build Gemini par
+   `gpt-6-astra` · `xhigh` et Fable 5.1.
+3. **Chaque jambe est tirée de la table de la section A.** Être différent de l'auteur ne suffit
+   pas : un modèle hors table mais différent du producteur passerait sinon le filtre — c'est le
+   vecteur par lequel une jambe `gpt-5.5` a été acceptée le 2026-08-22.
+
+### Pourquoi la règle 2 existe
+
+Le 2026-08-20, **quatre passes de `fable`** ont laissé passer un contournement Base64 dans la
+spécification cluster-mesh ; `sol` l'a trouvé au premier regard. La leçon n'est
+pas qu'un modèle est faible : **deux jambes qui partagent un modèle partagent ses angles
+morts** — deux signatures, une seule vérification. C'est la même forme que deux défauts déjà
+mesurés ici : deux agents d'accord ne font pas une mesure, et deux exécutions sur le même hôte
+ne font pas deux mesures.
+
+### Où la règle 2 s'arrête — à lire avant de la citer
+
+**Rien n'enregistre quel modèle a produit quelle jambe** — mesuré le 2026-08-20 sur les
+1 333 événements de `.track/events.jsonl` : aucun champ de modèle ou d'effort ; `by` porte une
+seule valeur (l'identité humaine) ; `prov` ne porte que `auth`, `proposed` et `transport`. Git
+ne le porte pas non plus : les identités d'auteur agent (« Codex ») nomment un outil, jamais un
+modèle ni un effort. Une jambe inter-familles est donc **déclarée, jamais vérifiée**.
+
+De plus, **un agent ne peut pas observer de façon fiable le modèle qui le sert.** Par
+conséquent :
+
+- une jambe déclare son modèle ; elle ne prétend pas l'avoir observé ;
+- une déclaration n'est utilisable que si elle établit **à la fois** l'**appartenance** (chaque
+  modèle qu'elle laisse ouvert figure dans la table) et la **distinction** (vis-à-vis de
+  l'autre jambe et de l'auteur, au niveau de la famille) ;
+- une déclaration ambiguë n'est utilisable que si **tous** les modèles qu'elle peut désigner
+  sont autorisés et d'une autre famille que l'auteur ;
+- quand l'une des conditions ne peut être établie, la jambe n'est **pas attestable** et une
+  autre jambe est requise.
+
+Cette règle est au barreau « ligne de spécification ». Ce qui l'élèverait : un champ
+d'attestation qui enregistre le modèle producteur et le modèle relecteur par artefact — `prov`
+existe déjà sur chaque événement.
+
+### Jambes et passerelle
+
+Les jambes de relecture tournent **sans passerelle** (no-gw) et doivent être attestables. Une
+session routée par la passerelle ne peut pas attester son modèle : la passerelle réécrit les
+`claude-*` et le modèle servi n'est pas le modèle demandé. Une jambe produite sous passerelle
+n'est pas une jambe.
+
+### Une jambe qui annonce « build vert » doit avoir construit comme la CI
+
+**`npm ci`** à la racine du dépôt — la commande littérale, pas « une installation propre » —
+puis `npm run build` / `npm run typecheck`. Un arbre assemblé autrement peut rendre présents les
+types d'une dépendance pair que `npm ci` n'installerait pas, et masque exactement la classe de
+défauts qu'un build doit attraper.
+
+Vecteurs de masquage connus : `node_modules` lié à la main ; `npm link` ou `npm install`
+par-dessus un arbre qui a déjà la dépendance ; `NODE_PATH` pointant hors du checkout ; **un
+worktree imbriqué sous un ancêtre qui a son propre `node_modules`** (Node remonte jusqu'à en
+trouver un) ; des `dist/*.d.ts` périmés.
+
+Mesuré sur `rhanka/h2a#231` : les deux jambes et la passe préliminaire ont construit dans un
+worktree lié à la main et annoncé 20/20 vert ; la CI propre a échoué de façon déterministe sur
+`packages/h2a/src/runtime/mcp-central.ts:72` (TS2307). Trois vérifications, un environnement
+partagé, zéro vérification.
+
+**Où cela s'arrête** : rien ne vérifie qu'une jambe a construit proprement. La CI à la révision
+exacte est le seul oracle ; l'affirmation d'une jambe vaut ce que vaut la conclusion de CI
+qu'elle peut citer.
+
+---
+
+## C · Construction
+
+La construction utilise le profil de construction d'une des trois familles (section A). Il n'y
+a plus de liste de replis ni de « cas simples » : les modèles qui les remplissaient sont
+abandonnés ou hors table.
+
+**Le constructeur n'est jamais relecteur, ni jambe de consensus** — sur son propre travail,
+dans un sens comme dans l'autre. Figurer dans la table n'autorise jamais une jambe : la famille
+du constructeur est exclue de la relecture de son artefact.
+
+---
+
+## D · Ce que ce document ne décide pas
+
+- **Le routage.** Quelle cible sert réellement une requête relève du contrat de routage. Ce
+  fichier dit qui peut être *sollicité* ; le contrat dit ce qui est *servi*.
+- **La compétence des modèles.** Rien ici n'affirme qu'un modèle est bon pour une tâche. Ce
+  fichier attribue une autorisation, pas une compétence.
+- **L'application.** Aucun contrôle ne lit ce fichier. Chaque règle est appliquée par les
+  acteurs qui le lisent : c'est son barreau, et c'est pourquoi la section B dit où sa règle
+  principale s'arrête.
+
+---
+
+## E · Évolution de la politique (D3=B)
+
+L'owner a retenu D3=B : **toute évolution future de cette politique passe par une
+qualification séparée** — ajout ou retrait d'un modèle, changement d'effort, changement de
+profil de relecture, remplacement d'un identifiant. La qualification est portée par Cadre et
+assurance (`arch`) et relue selon la section B ; elle ne confère aucun droit par elle-même.
+Seule une décision de l'owner, tracée dans Track, modifie la section A.
+
+Un modèle disponible dans un catalogue, ou nommé dans un brief pour une mission ponctuelle,
+n'est pas autorisé de façon permanente tant qu'il n'a pas été qualifié puis décidé.
