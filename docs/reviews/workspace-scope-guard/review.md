@@ -1,6 +1,6 @@
 ---
 status: selection-failed
-target-ref: e1cc9af08e60569f870451ce4d49d01a092cdc99
+target-ref: a1ac9df43eb91abb3e685d478420d0147c45ced5
 observed-failure: No h2a MCP is available in this confined session; the exact author model and effort are not supplied. Owner forbids reaching real host h2a state. No eligible review legs can be dispatched.
 ---
 
@@ -22,3 +22,6 @@ See the targeted test files and the delivery report for exact commands/results.
 
 Post-push self-inspection additionally reproduced and corrected ordinary monorepo
 workspace builds and release prose false positives (targeted red 0/1, final 97/0).
+
+Private npm package/query controls: targeted red 0/2, mixed private/published
+workspace regression red 0/1; final targeted verification 100 passed, no skips.
