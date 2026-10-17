@@ -346,7 +346,7 @@ test("R8.2: the sha256 manifest covers the FOUR lockstep tarballs — generation
   // integrity control in a mkdtemp lab with a fake npm (no install, no
   // registry, no publication — only local files): the manifest the pack
   // step actually GENERATES must cover h2a, h2a-runtime, h2a-cli and track,
-  // and the publish control must refuse EACH of the four tarballs once its
+  // and the publish control must refuse EACH of the five tarballs once its
   // bytes are corrupted. Under the round-5 mutation (a manifest covering
   // the CLI only) the corrupted runtime passes with exit 0 — exactly the
   // property this test forces to stay red.
@@ -369,11 +369,11 @@ test("R8.2: the sha256 manifest covers the FOUR lockstep tarballs — generation
     // Run the real version gate too: the lab contains a coherent package set.
     mkdirSync(join(lab, 'scripts'));
     writeFileSync(join(lab, 'scripts/check-lockstep-versions.mjs'), readFileSync(join(REPO_ROOT, 'scripts/check-lockstep-versions.mjs')));
-    for (const name of ['h2a', 'h2a-cli', 'h2a-runtime', 'track']) {
+    for (const name of ['h2a', 'h2a-cli', 'h2a-runtime', 'track', 'focus']) {
       const base=join(lab, 'packages', name);mkdirSync(base, {recursive:true});
       writeFileSync(join(base, 'package.json'), readFileSync(join(REPO_ROOT, 'packages', name, 'package.json')));
     }
-    // A fake npm producing the four tarballs `npm pack` would: purely local
+    // A fake npm producing the five tarballs `npm pack` would: purely local
     // file writes inside the lab, no network and no real npm involved.
     const bin = join(lab, "bin");
     mkdirSync(bin);
@@ -392,7 +392,7 @@ test("R8.2: the sha256 manifest covers the FOUR lockstep tarballs — generation
       'printf "candidate original bytes: %s\\n" "$name" > "${dest}/sentropic-${name}-0.98.5.tgz"',
       "",
     ].join("\n"), { mode: 0o700 });
-    writeFileSync(join(lab, "scripts/pack-candidate.mjs"), 'import {execFileSync} from "node:child_process"; for (const name of ["h2a", "h2a-runtime", "h2a-cli", "track"]) execFileSync("npm", ["pack", "--workspace", "@sentropic/"+name, "--pack-destination", process.argv[2]]);\n');
+    writeFileSync(join(lab, "scripts/pack-candidate.mjs"), 'import {execFileSync} from "node:child_process"; for (const name of ["h2a", "h2a-runtime", "h2a-cli", "track", "focus"]) execFileSync("npm", ["pack", "--workspace", "@sentropic/"+name, "--pack-destination", process.argv[2]]);\n');
     const runWorkflowScript = (script, name) => {
       const file = join(lab, name);
       // The only ${{ }} expressions in these two scripts resolve to the one
@@ -426,7 +426,7 @@ test("R8.2: the sha256 manifest covers the FOUR lockstep tarballs — generation
     const intact = runWorkflowScript(integrity.run, "integrity.sh");
     assert.equal(intact.status, 0, `positive control failed:\n${intact.stdout}\n${intact.stderr}`);
     // The guarded property, per tarball: corrupt the bytes, the publish
-    // control must refuse EACH of the four (exit non-zero), then restore.
+    // control must refuse EACH of the five (exit non-zero), then restore.
     for (const tarball of covered) {
       const path = join(lab, "dist-tarballs", tarball);
       const original = readFileSync(path);
