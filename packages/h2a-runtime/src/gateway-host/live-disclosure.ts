@@ -165,7 +165,7 @@ export function createLiveDisclosureAuthority(options: LiveDisclosureOptions): L
     try { return options.auth.authorize(capability, operation, repositoryId); }
     catch { return refuse("authority-unavailable"); }
   };
-  const check = (r: EmitDisclosureRequest): Refused | { ok: true; grant: Grant; stateRevision: string } => {
+  const check = (r: EmitDisclosureRequest): Refused | { ok: true; grant: Grant; claims: LiveDisclosureClaims; stateRevision: string } => {
     const auth = authorize(r.capability, "emit", r.repositoryId);
     if (!auth.ok) return auth;
     const g = r.grantId === undefined ? undefined : grants.get(r.grantId);
@@ -193,7 +193,7 @@ export function createLiveDisclosureAuthority(options: LiveDisclosureOptions): L
     const finalTime = now();
     if (!Number.isSafeInteger(finalTime)) return refuse("authority-unavailable");
     if (finalTime >= g.expiresAt || finalTime < g.startsAt) return refuse("grant-expired");
-    return { ok: true, grant: g, stateRevision: latest.state.stateRevision };
+    return { ok: true, grant: g, claims: latest.claims, stateRevision: latest.state.stateRevision };
   };
   return {
     grant(input) {
@@ -295,6 +295,7 @@ export function createLiveDisclosureAuthority(options: LiveDisclosureOptions): L
         if (!auth.ok) return reject(auth.reason);
         if (!issuer.ok) return reject(issuer.reason);
         const g = permitted.grant;
+        if (auth.claims.id !== permitted.claims.id || issuer.claims.id !== g.claims.id) return reject("scope-mismatch");
         // Bind both proofs and their states to this grant. No live authority,
         // read, clock, policy or route callbacks run during this validation.
         for (const verified of [auth, issuer]) {
