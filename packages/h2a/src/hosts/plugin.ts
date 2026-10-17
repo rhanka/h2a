@@ -19,7 +19,7 @@ import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 export function renderWorkspaceScope(host: string, workspace = process.cwd(), session?: string, ownerKey?: string) {
-  if (!['claude', 'codex', 'gemini', 'vibe'].includes(host)) return {
+  if (!['claude', 'codex', 'gemini', 'vibe', 'agy', 'muse'].includes(host)) return {
     supported: false as const, reason: 'No verified PreToolUse surface; workspace scope is not enforced on this host.'
   };
   const quote = (s: string) => "'" + s.replace(/'/g, "'\\''") + "'";
@@ -29,6 +29,13 @@ export function renderWorkspaceScope(host: string, workspace = process.cwd(), se
   if (ownerKey) args.push('--owner-key', resolve(ownerKey));
   return { supported: true as const, command: args.map(quote).join(' '),
     reason: 'Pre-action workspace policy; host execution qualification is separate.' };
+}
+
+/** Antigravity's named-hook schema; startup handlers are flat, unlike tool matchers. */
+export function agyWorkspaceScopeDefinition(command: string, initialize = false) {
+  return { enabled: true,
+    ...(initialize ? { SessionStart: [{ type: 'command', command: command + ' --initialize-session true', timeout: 15 }] } : {}),
+    PreToolUse: [{ matcher: '.*', hooks: [{ type: 'command', command, timeout: 15 }] }] };
 }
 
 export type H2AHostPluginMechanism =
@@ -80,7 +87,7 @@ export const H2A_HOST_PLUGIN_TARGETS: Readonly<Record<string, H2AHostPluginTarge
     resumeCommand: "agy -c",
     mechanism: "agy-plugin-poll",
     push: false,
-    hint: "agy has no background daemon: import the h2a plugin and poll `h2a drumbeat scan` / `h2a blockage list`. Run the record command on clean quit where a hook exists."
+    hint: "agy has named SessionStart/PreToolUse hooks in ~/.gemini/config/hooks.json for workspace scope. Lifecycle recording still uses the poll path: import the h2a plugin and poll `h2a drumbeat scan` / `h2a blockage list`."
   },
   hermes: {
     host: "hermes",
@@ -101,7 +108,7 @@ export const H2A_HOST_PLUGIN_TARGETS: Readonly<Record<string, H2AHostPluginTarge
     resumeCommand: "muse resume --last",
     mechanism: "muse-poll",
     push: false,
-    hint: "muse exposes no verified stop-hook surface: poll `h2a drumbeat scan` / `h2a blockage list`, and run the record command on clean quit where a hook exists. Skills install to $CONFIG_DIR/skills (verified) via `h2a install-skills --host muse`."
+    hint: "Muse loads SessionStart/PreToolUse from WORKSPACE/.muse/hooks.json. Scope hooks install with `h2a install-skills --host muse`; lifecycle recording remains on the poll path."
   },
   // Vibe ships lifecycle hooks (verified against the shipped CLI v2.26.0):
   // `~/.vibe/hooks.toml` `[[hooks]]` with type `post_agent` runs a shell command

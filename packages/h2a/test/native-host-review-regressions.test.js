@@ -72,7 +72,7 @@ test('obsolete managed artifacts are removed only at their known hash, with back
 test('an incomplete source inventory reports failure without retiring previously installed skills', t => {
   const { home } = lane(t), root = join(home, '.config/muse'), resourceDir = join(home, 'source'); fs.mkdirSync(resourceDir);
   const skill = { installName: 'keep', raw: 'installed skill', source: 'h2a', resourceDir, parsed: { name: 'keep', description: 'keep', body: 'installed skill' } };
-  const options = { host: 'muse', root, explicitInstall: true, repair: true, renderGemini: () => '' };
+  const options = { host: 'muse', root, cwd: join(home, 'project'), explicitInstall: true, repair: true, renderGemini: () => '' };
   assert.equal(convergeNativeHost({ ...options, version: '1', skills: [skill], sourcesComplete: true }).ok, true);
   const result = convergeNativeHost({ ...options, version: '2', skills: [], sourcesComplete: false });
   assert.equal(result.ok, false); assert.equal(result.missingSources, true);
