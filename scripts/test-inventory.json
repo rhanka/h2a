@@ -922,5 +922,10 @@
     "session content source authentication should load only the pinned issuer JWKS with bounded refresh and no token-selected URL",
     "session content source authentication should keep exchanging confirmations inside the pending bound and cancel their results",
     "session content source authentication should reject a JWKS loader whose pinned issuer differs from the native verifier"
+  ],
+  "packages/h2a-runtime/src/session-content-fence.test.ts": [
+    "should retain denial and consumed proofs across native restarts",
+    "should let exclusion win against stale async acceptance and independent fence instances",
+    "should refuse corrupt or uncertain proof journals while keeping durable denial available"
   ]
 }
