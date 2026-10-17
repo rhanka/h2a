@@ -1,5 +1,7 @@
 import { test as nodeTest } from 'node:test';
 import assert from 'node:assert/strict';
+import { installationFixture } from './helpers/mh-l6-installation.js';
+import { UpgradeStore } from '../dist/runtime/upgrade/h4-store.js';
 const { assessLegacyExclusion } = await import('../dist/runtime/upgrade/legacy-exclusion.js').catch(e => {
   if (e.code !== 'ERR_MODULE_NOT_FOUND') throw e; return {};
 });
@@ -73,4 +75,37 @@ test('B2 should tolerate forward-compatible extra closures once the four are est
   const verdict = assessLegacyExclusion({ ...full(), admissionSourcesDrained: { established: true, detail: 'future gate' } });
   assert.equal(verdict.fenced, true);
   assert.equal(verdict.reason, 'legacy_exclusion_verified');
+});
+
+function prepared(t, upgradeId) {
+  const f = installationFixture(); t.after(() => f.close());
+  const store = new UpgradeStore(f.layout), target = f.image();
+  store.begin({ upgradeId, target, origin: 'bootstrap', artifactDigests: { tarball: target.manifestDigest } });
+  store.prepare(upgradeId);
+  return store;
+}
+
+test('B2 should defer qualified selection while legacy exclusion is unfenced', t => {
+  const store = prepared(t, 'deferred');
+  const open = { ...full(), workersTerminated: { established: false, detail: 'worker still alive' } };
+  assert.throws(() => store.select('deferred', { exclusion: open }), /selection_deferred:legacy_installer_unfenced/);
+  const tx = store.status('deferred');
+  assert.equal(tx.installationState, 'PREPARED');
+  assert.equal(tx.verification.legacyExclusion.fenced, false);
+  assert.equal(tx.verification.legacyExclusion.reason, 'legacy_installer_unfenced');
+  assert.deepEqual(tx.verification.legacyExclusion.missing, ['workersTerminated']);
+});
+
+test('B2 should select once legacy exclusion evidence is fenced', t => {
+  const store = prepared(t, 'guarded');
+  const selected = store.select('guarded', { exclusion: full() });
+  assert.equal(selected.installationState, 'SELECTED');
+  assert.equal(store.status('guarded').verification.legacyExclusion.fenced, true);
+});
+
+test('B2 should select without exclusion evidence until live observers land', t => {
+  const store = prepared(t, 'plain');
+  const selected = store.select('plain');
+  assert.equal(selected.installationState, 'SELECTED');
+  assert.equal(store.status('plain').verification.legacyExclusion, undefined);
 });

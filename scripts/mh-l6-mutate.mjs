@@ -60,6 +60,10 @@ const cases = [
   ['exclusion', 'strict-established', 'entry.established !== true', '!entry.established', 'B2 should report unfenced when a closure lacks its stated basis'],
   ['exclusion', 'envelope-rejection', "throw new Error('legacy_exclusion_evidence_invalid');", "return Object.freeze({ fenced: true, reason: 'legacy_exclusion_verified', missing: Object.freeze([]) });", 'B2 should refuse an invalid exclusion envelope instead of verdicting'],
   ['exclusion', 'default-unfenced', "fenced: false, reason: 'legacy_installer_unfenced'", "fenced: true, reason: 'legacy_exclusion_verified'", 'B2 should report unfenced when legacy workers may still terminate late'],
+  ['deferral', 'selection-deferral', 'if (exclusion && !exclusion.fenced) throw new Error(`selection_deferred:${exclusion.reason}`);', '', 'B2 should defer qualified selection while legacy exclusion is unfenced'],
+  ['deferral', 'verdict-persistence', 'legacyExclusion: assessLegacyExclusion(exclusionEvidence)', 'legacyExclusion: { fenced: true, reason: \'legacy_exclusion_verified\', missing: [] }', 'B2 should defer qualified selection while legacy exclusion is unfenced'],
+  ['deferral', 'exclusion-ignored', 'if (exclusionEvidence !== undefined) {', 'if (false) {', 'B2 should defer qualified selection while legacy exclusion is unfenced'],
+  ['deferral', 'fenced-flag-ignored', '!exclusion.fenced', 'false', 'B2 should defer qualified selection while legacy exclusion is unfenced'],
 ];
 const files = group === 'launcher' ? ['packages/h2a/src/runtime/upgrade/managed-launcher.js'] :
   group === 'exclusion' ? ['packages/h2a/src/runtime/upgrade/legacy-exclusion.js', 'packages/h2a/dist/runtime/upgrade/legacy-exclusion.js'] :
@@ -67,7 +71,7 @@ const files = group === 'launcher' ? ['packages/h2a/src/runtime/upgrade/managed-
 const originals = files.map(path => ({ path, bytes: fs.readFileSync(path) }));
 const selected = cases.filter(c => c[0] === group && (!process.env.MH_L6_MUTATION || c[1] === process.env.MH_L6_MUTATION));
 if (!selected.length) throw new Error('unknown_mutation_group');
-const file = `packages/h2a/test/mh-l6-${['delegation', 'launcher', 'exclusion'].includes(group) ? group : 'selection'}.test.js`;
+const file = `packages/h2a/test/mh-l6-${group === 'deferral' ? 'exclusion' : (['delegation', 'launcher', 'exclusion'].includes(group) ? group : 'selection')}.test.js`;
 const results = [];
 for (const [, name, from, to, scenario] of selected) {
   const run = color => {
