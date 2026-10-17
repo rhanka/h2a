@@ -31,6 +31,32 @@ if (typeof cmd === \"string\" && cmd.trim()) {
   if (/(^|[\s;&|])TRACK_ALLOW_DESTRUCTIVE_GIT=1([\s;&|]|$)/.test(cmd)) {
     kind = \"BYPASS\";
   } else {
+    // Join backslash-at-end-of-line continuations BEFORE splitting: otherwise
+    // a reset with the double-dash hard flag on the next line lands in two
+    // segments and the destructive pattern never matches. Single-quoted
+    // spans keep the backslash literally (POSIX); double-quoted ones join
+    // like unquoted.
+    const joinContinuations = (s) => {
+      let out = \"\";
+      let i = 0;
+      let q = null;
+      while (i < s.length) {
+        const c = s[i];
+        if (q === \"'\") { out += c; if (c === \"'\") q = null; i += 1; continue; }
+        if (q === '\"') {
+          out += c;
+          if (c === \"\\\\\" && i + 1 < s.length) { out += s[i + 1]; i += 2; continue; }
+          if (c === '\"') q = null; i += 1; continue;
+        }
+        if (c === \"'\" || c === '\"') { q = c; out += c; i += 1; continue; }
+        if (c === \"\\\\\" && (s[i + 1] === \"\\n\" || (s[i + 1] === \"\\r\" && s[i + 2] === \"\\n\"))) {
+          i += s[i + 1] === \"\\r\" ? 3 : 2; continue;
+        }
+        out += c; i += 1;
+      }
+      return out;
+    };
+    cmd = joinContinuations(cmd);
     // Split common shell command separators while preserving enough text for grep-able diagnostics.
     const segments = [];
     for (const line of cmd.split(/\r\n|[\n\r\v\f]/)) {
