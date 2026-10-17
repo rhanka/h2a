@@ -23,6 +23,7 @@
 
 import { spawnSync } from "node:child_process";
 import { writeSync } from "node:fs";
+import { constants as osConstants } from "node:os";
 
 const ESC = "\x1b";
 
@@ -73,8 +74,15 @@ export function resetClientTerminal(
   }
 }
 
-/** POSIX signal numbers for the 128+n exit-code mapping. */
-export const SIGNAL_NUMBERS: Readonly<Record<string, number>> = {
+/**
+ * rev351r2-6: signal numbers for the 128+n exit-code mapping, read from the
+ * running platform (`os.constants.signals`) with a Linux fallback for names
+ * the platform does not know. A frozen literal got macOS/BSD numbers wrong
+ * (SIGBUS 10 not 7, SIGUSR1 30 not 10, SIGCHLD 20, SIGSTOP 17, ...); the
+ * operational signals (HUP/INT/QUIT/KILL/TERM/SEGV/ABRT) agree everywhere,
+ * but crash-code mapping should still use the platform's own table.
+ */
+const FALLBACK_SIGNAL_NUMBERS: Readonly<Record<string, number>> = {
   SIGHUP: 1,
   SIGINT: 2,
   SIGQUIT: 3,
@@ -108,6 +116,23 @@ export const SIGNAL_NUMBERS: Readonly<Record<string, number>> = {
   SIGSYS: 31,
 };
 
+function platformSignalNumber(name: string): number {
+  const fromOs = (osConstants.signals as Record<string, number | undefined>)[
+    name
+  ];
+  if (typeof fromOs === "number") return fromOs;
+  return FALLBACK_SIGNAL_NUMBERS[name] ?? 0;
+}
+
+/** POSIX signal numbers for the 128+n exit-code mapping. */
+export const SIGNAL_NUMBERS: Readonly<Record<string, number>> =
+  Object.fromEntries(
+    Object.keys(FALLBACK_SIGNAL_NUMBERS).map((name) => [
+      name,
+      platformSignalNumber(name),
+    ]),
+  );
+
 export type SpawnResultLike = {
   readonly status: number | null;
   readonly signal: NodeJS.Signals | null;
@@ -127,9 +152,114 @@ export function statusFromSpawnResult(result: SpawnResultLike): number {
   return result.status ?? 1;
 }
 
-type StdinLike = Pick<NodeJS.ReadStream, "isTTY" | "isRaw" | "setRawMode"> & {
+export type TtyStdin = Pick<
+  NodeJS.ReadStream,
+  "isTTY" | "isRaw" | "setRawMode"
+> & {
   readonly fd?: unknown;
 };
+
+export type SttySaveResult = {
+  readonly status?: number | null;
+  readonly stdout?: unknown;
+};
+
+/**
+ * rev351r2-2: injectable `stty` runner so the save/restore logic is
+ * unit-testable without a real TTY. The default shells out like before.
+ */
+export type SttySpawn = (
+  args: ReadonlyArray<string>,
+  options: { readonly stdinFd: number; readonly capture: boolean },
+) => SttySaveResult;
+
+const defaultSttySpawn: SttySpawn = (args, { stdinFd, capture }) => {
+  const result = spawnSync("stty", [...args], {
+    stdio: [stdinFd, capture ? "pipe" : "ignore", "ignore"],
+    encoding: "utf8",
+  });
+  return result as SttySaveResult;
+};
+
+export type TtyState = {
+  readonly stdinFd: number | undefined;
+  readonly wasRaw: boolean;
+  readonly saved: SttySaveResult | undefined;
+};
+
+/**
+ * rev351r2-2: single home for the termios save every client-terminal owner
+ * (`withClientTerminalReset`, `run`, `attach`, `auth login`) used to copy.
+ * Captures stdin raw mode plus `stty -g` on a real TTY; elsewhere (or when
+ * `stty` fails) the save is empty and the restore below degrades to the VT
+ * reset plus the raw-mode restore.
+ */
+export function saveTtyState(
+  stdin: TtyStdin,
+  stty: SttySpawn = defaultSttySpawn,
+): TtyState {
+  const wasRaw = (stdin as { isRaw?: boolean }).isRaw === true;
+  const fd = (stdin as { fd?: unknown }).fd;
+  const stdinFd = typeof fd === "number" ? fd : undefined;
+  if (
+    stdin.isTTY !== true ||
+    stdinFd === undefined ||
+    process.platform === "win32"
+  ) {
+    return { stdinFd, wasRaw, saved: undefined };
+  }
+  try {
+    return { stdinFd, wasRaw, saved: stty(["-g"], { stdinFd, capture: true }) };
+  } catch {
+    return { stdinFd, wasRaw, saved: undefined };
+  }
+}
+
+/**
+ * rev351r2-2: single home for the termios restore. Emits the VT reset, puts
+ * stdin raw mode back the way it was, then re-applies the saved `stty` state
+ * when there is one. Every step is best effort so teardown never masks the
+ * session outcome.
+ */
+export function restoreTtyState(
+  state: TtyState,
+  stdin: TtyStdin,
+  doReset: () => void,
+  stty: SttySpawn = defaultSttySpawn,
+): void {
+  try {
+    doReset();
+  } catch {
+    // Best effort on teardown; the caller's own outcome takes precedence.
+  }
+  try {
+    if (stdin.isTTY === true) {
+      try {
+        stdin.setRawMode?.(state.wasRaw);
+      } catch {
+        // Restoring raw must never mask the caller's outcome.
+      }
+    }
+  } catch {
+    // Best effort on teardown.
+  }
+  try {
+    const saved = state.saved;
+    if (
+      saved?.status === 0 &&
+      typeof saved.stdout === "string" &&
+      saved.stdout.trim() &&
+      state.stdinFd !== undefined
+    ) {
+      stty([saved.stdout.trim()], {
+        stdinFd: state.stdinFd,
+        capture: false,
+      });
+    }
+  } catch {
+    // Best effort; the VT reset above already ran.
+  }
+}
 
 /**
  * Run `run` (usually one blocking inherit-stdio child) and restore the client
@@ -144,60 +274,12 @@ export function withClientTerminalReset<T>(
   reset: () => void = () => {
     resetClientTerminal();
   },
-  stdin: StdinLike = process.stdin,
+  stdin: TtyStdin = process.stdin,
 ): T {
-  const wasRaw = stdin.isRaw === true;
-  const stdinFd = (stdin as { fd?: unknown }).fd;
-  const ttyState =
-    stdin.isTTY === true &&
-    typeof stdinFd === "number" &&
-    process.platform !== "win32"
-      ? (() => {
-          try {
-            return spawnSync("stty", ["-g"], {
-              stdio: [stdinFd, "pipe", "ignore"],
-              encoding: "utf8",
-            });
-          } catch {
-            return undefined;
-          }
-        })()
-      : undefined;
+  const state = saveTtyState(stdin);
   try {
     return run();
   } finally {
-    try {
-      reset();
-    } catch {
-      // Best effort on teardown; run's own outcome takes precedence.
-    }
-    try {
-      if (stdin.isTTY === true) {
-        try {
-          stdin.setRawMode?.(wasRaw);
-        } catch {
-          // Restoring raw must never mask run's outcome.
-        }
-      }
-      const saved = ttyState as
-        | { status?: number; stdout?: unknown }
-        | undefined;
-      if (
-        saved?.status === 0 &&
-        typeof saved.stdout === "string" &&
-        saved.stdout.trim() &&
-        typeof stdinFd === "number"
-      ) {
-        try {
-          spawnSync("stty", [saved.stdout.trim()], {
-            stdio: [stdinFd, "ignore", "ignore"],
-          });
-        } catch {
-          // Best effort; the VT reset above already ran.
-        }
-      }
-    } catch {
-      // Best effort on teardown; run's own outcome takes precedence.
-    }
+    restoreTtyState(state, stdin, reset);
   }
 }
