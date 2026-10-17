@@ -197,6 +197,9 @@ static napi_value receive_packet(napi_env env, napi_callback_info info) {
   struct msghdr msg = { .msg_iov = &iov, .msg_iovlen = 1, .msg_control = control, .msg_controllen = sizeof(control) };
   ssize_t n = recvmsg(number(env, args[0]), &msg, MSG_CMSG_CLOEXEC);
   if (n < 0 && (errno == EAGAIN || errno == EINTR)) return nothing(env);
+  /* Darwin reports a closed connected datagram peer as ECONNRESET. There
+     cannot be ancillary FDs on this failed receive. Linux returns EAGAIN. */
+  if (n < 0 && errno == ECONNRESET) { n = 0; msg.msg_controllen = 0; }
   if (n < 0) return fail(env, "recvmsg");
   int fds[MAX_FDS], count = 0;
   for (struct cmsghdr *c = CMSG_FIRSTHDR(&msg); c; c = CMSG_NXTHDR(&msg, c)) {

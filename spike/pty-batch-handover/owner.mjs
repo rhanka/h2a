@@ -122,7 +122,9 @@ else {
       }
       staged.delete(message.batch);
       emit('batch', { batch: message.batch, ids: batch.sessions.map(s => s.id),
-        ms: now() - batch.started, stageMs: now() - batch.received });
+        ms: now() - batch.started, stageMs: now() - batch.received,
+        sendMs: message.sendMs, payloadBytes: message.payloadBytes,
+        fdCount: batch.sessions.length * 2 });
     } else if (message.event) {
       if (message.event === 'guardian-reaped') guardians.delete(message.pid);
       process.send(message);
@@ -211,14 +213,18 @@ async function command(message) {
     for (const s of ss) s.frozen = true;
     const fds = ss.flatMap(s => [s.master, s.control]);
     if (message.fault === 'ebadf') fds[0] = -1;
+    let sendMs, payloadBytes;
     try {
-      native.send(transferFd, JSON.stringify({ ...message,
-        sessions: ss.map(({ master, control, ...meta }) => meta) }), fds);
+      const body = JSON.stringify({ ...message, sessions: ss.map(({ master, control, ...meta }) => meta) });
+      payloadBytes = Buffer.byteLength(body);
+      const sendStarted = now();
+      native.send(transferFd, body, fds);
+      sendMs = now() - sendStarted;
     } catch (error) {
       for (const s of ss) s.frozen = false;
       return { ok: false, why: error.message };
     }
-    return new Promise(resolve => outgoing.set(message.batch, { ss, resolve }));
+    return new Promise(resolve => outgoing.set(message.batch, { ss, resolve, sendMs, payloadBytes }));
   }
   if (op === 'drop') {
     if (old || routes.get(id) !== 2) throw new Error('drop requires migrated session');
@@ -251,7 +257,7 @@ process.on('message', message => {
       batch.resolve({ ok: false, why: 'receiver rejected staged batch' });
     } else {
       for (const s of batch.ss) { closeSession(s); sessions.delete(s.id); }
-      process.send({ type: 'commit', batch: message.batch });
+      process.send({ type: 'commit', batch: message.batch, sendMs: batch.sendMs, payloadBytes: batch.payloadBytes });
       batch.resolve({ ok: true });
     }
     return;

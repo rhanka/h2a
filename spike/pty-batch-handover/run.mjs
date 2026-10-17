@@ -11,7 +11,7 @@ for (const [key, dir] of Object.entries({ HOME: 'home', TMPDIR: 'tmp', XDG_RUNTI
   XDG_CONFIG_HOME: 'config', XDG_STATE_HOME: 'state', XDG_CACHE_HOME: 'cache' })) {
   env[key] = join(root, dir); mkdirSync(env[key], { mode: 0o700 });
 }
-for (const key of ['SPIKE_LEGACY_PARENT_DEATH', 'SPIKE_DISABLE_EXIT_CHANNEL', 'SPIKE_NODE_INCLUDE']) {
+for (const key of ['SPIKE_LEGACY_PARENT_DEATH', 'SPIKE_DISABLE_EXIT_CHANNEL', 'SPIKE_NODE_INCLUDE', 'SPIKE_STAGE_DELAY']) {
   if (process.env[key]) env[key] = process.env[key];
 }
 const args = ['--test', ...process.argv.slice(2), fileURLToPath(new URL('handover.test.mjs', import.meta.url))];
