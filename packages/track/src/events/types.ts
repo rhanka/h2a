@@ -17,6 +17,7 @@ export const AGGREGATES = ['item', 'decision', 'blocker', 'verification', 'deman
 export type Aggregate = (typeof AGGREGATES)[number]
 
 export const EVENT_TYPES = [
+  'item.report-updated', // additive, full replacement of owner-facing report metadata
   'item.created',
   'spec.transition',
   'realization.transition',
