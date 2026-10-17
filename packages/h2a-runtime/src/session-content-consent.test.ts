@@ -90,7 +90,7 @@ async function setup(monotonicNow?:()=>number,history?:NativeHistoryProvider){
   const fenceRoot=mkdtempSync(join(root,'fence-'));
   const verifier=new ConfirmationVerifier({issuer:origin,clientId:'confirmation-client',tenantId:scope.project.tenantId,subject:scope.owner.subject,source:scope.source,keys:[jwk],measuredClockErrorMs:0,budget:new ConfirmationBudget()});
   const fence=new ContentFence(fenceRoot),budget=new ContentQueueBudget();
-  const makeSession=(sessionId:string,sessionIncarnation:string)=>new SessionContentConsent({auth,sourceSession,verifier,fence,budget,sessionId,sessionIncarnation,project:scope.project,...(monotonicNow?{monotonicNow}:{}),...(history?{history}:{})});
+  const makeSession=(sessionId:string,sessionIncarnation:string,confirmationVerifier=verifier)=>new SessionContentConsent({auth,sourceSession,verifier:confirmationVerifier,fence,budget,sessionId,sessionIncarnation,project:scope.project,...(monotonicNow?{monotonicNow}:{}),...(history?{history}:{})});
   const consent=makeSession(scope.sessionId,scope.sessionIncarnation);
   return {consent,auth,sourceSession,login,makeSession,budget};
 }
@@ -100,7 +100,7 @@ function proof(challenge:ConfirmationChallenge){
   return h+'.'+c+'.'+sign('RSA-SHA256',Buffer.from(h+'.'+c),privateKey).toString('base64url');
 }
 it('should keep actual native PTY refusal at zero content bytes then export only the post-ACK sentinel',async()=>{
-  const {consent,budget}=await setup();let pty:PtyHandle|undefined,local='',exited=false;
+  const configured=await setup(),budget=configured.budget;let consent=configured.consent,pty:PtyHandle|undefined,local='',exited=false;
   const saturated:SessionContentExport[]=[];
   const socketRoot=createPrivateTestDirectory('c-'); let hostServer:NativeTerminalHostServer|undefined,client:NativeTerminalClient|undefined;
   const host=new NativeTerminalHost({generation:'generation',registryPath:join(root,'registry.json'),replayBytesPerSession:4096,
@@ -120,6 +120,9 @@ it('should keep actual native PTY refusal at zero content bytes then export only
     await client.contentConfirm('session',proof(challenge));expect(consent.counters.contentSubscriptions).toBe(1);pty!.write('a');await wait('AFTER_F2_SENTINEL');
     while(await client.contentFlush('session','terminal.live')){}
     const outbound=Buffer.concat(stored).toString();expect(outbound).toContain('AFTER_F2_SENTINEL');expect(outbound).not.toContain('BEFORE_F2_SENTINEL');expect(outbound).not.toContain('1049');expect(outbound).not.toContain('€');expect(local).toContain('€');
+    const old=consent,replacement=configured.makeSession('session','11111111-1111-4111-8111-111111111111');
+    host.rebindContent('session',replacement);consent=replacement;expect(old.status().state).toBe('paused');expect(old.counters.contentSubscriptions).toBe(0);
+    await consent.applyAcceptedPolicy('reconnect');expect(consent.reserve()).toBeNull();
     for(let i=0;i<4;i++){const queue=new SessionContentExport(budget);queue.reset(1);expect(queue.admit(1,'x'.repeat(1048576))).toBe(true);saturated.push(queue);}
     const ioStart=performance.now();pty!.write('s');await wait('SATURATED_F2_SENTINEL');expect(performance.now()-ioStart).toBeLessThan(1000);
     const before=bodyReads;const started=performance.now();await client.contentExclude('session');expect(performance.now()-started).toBeLessThan(1000);
@@ -202,4 +205,26 @@ it('should keep metadata revocation reachable while a source confirmation is pen
     controlResponse!.write('data: '+JSON.stringify(envelope('content-revoke',{requestId:'exclude',connectionId:'connection',target:{kind:'session',scope},effect:'capture',denyRevision:1,reason:'excluded'}))+'\n\n');
     await wait(()=>consent.status().state==='denied');consent.onRaw('DENIED_SECRET');expect(consent.reserve()).toBeNull();expect(bodyReads).toBe(0);expect(acks).toBe(0);
   }finally{control.close();}
+});
+it('should refuse source and confirmation client conflation before any content capture',async()=>{
+  const {makeSession}=await setup(),wrong=new ConfirmationVerifier({issuer:origin,clientId:'source-client',tenantId:scope.project.tenantId,subject:scope.owner.subject,source:scope.source,keys:[jwk],measuredClockErrorMs:0,budget:new ConfirmationBudget()});
+  expect(()=>makeSession('wrong-client','wrong-incarnation',wrong)).toThrow('invalid_confirmation_configuration');expect(bodyReads).toBe(0);expect(stored).toEqual([]);
+});
+it('should refuse an older broader policy while a narrowing amendment is pending and after it commits',async()=>{
+  const {consent}=await setup(),oldPolicy=structuredClone(policy),oldScope=structuredClone(scope);
+  const first=await consent.prepare('initial');await consent.confirm(proof(first));
+  policy.revision=2;policy.channels.terminalCache=false;scope.policyRevision=2;
+  const nextPolicy=structuredClone(policy),nextScope=structuredClone(scope);await consent.prepare('narrow-pending');
+  policy=oldPolicy;scope=oldScope;await expect(consent.applyAcceptedPolicy('rollback-pending')).rejects.toThrow('stale_policy');
+  policy=nextPolicy;scope=nextScope;const fresh=await consent.prepare('narrow-confirmed');await consent.confirm(proof(fresh));
+  policy=oldPolicy;scope=oldScope;await expect(consent.applyAcceptedPolicy('rollback-committed')).rejects.toThrow('stale_policy');
+  expect(consent.reserve()).toBeNull();expect(bodyReads).toBe(0);
+});
+it('should apply a confirmed amendment to an already covered future child without another proof',async()=>{
+  const {consent,makeSession}=await setup();policy.sessions.future=true;const parent=structuredClone(scope);
+  const first=await consent.prepare('parent');await consent.confirm(proof(first));const child=makeSession('child','child-incarnation');
+  scope={...parent,sessionId:'child',sessionIncarnation:'child-incarnation'};await child.applyAcceptedPolicy('child');
+  policy.revision=2;policy.channels.terminalCache=false;scope={...parent,policyRevision:2};
+  const amended=await consent.prepare('parent-amend');expect(child.status().state).toBe('paused');await consent.confirm(proof(amended));
+  scope={...scope,sessionId:'child',sessionIncarnation:'child-incarnation'};await child.applyAcceptedPolicy('child-amend');expect(child.status().state).toBe('active');
 });

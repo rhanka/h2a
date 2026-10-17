@@ -3,7 +3,7 @@ import { Worker } from "node:worker_threads";
 import { lstat, readdir, open, mkdtemp, rename, rm, readFile } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
 import { SessionContentAuth } from "./session-content-auth.js";
-import { ArchiveBudget } from "./session-content-archive.js";
+import { ArchiveBudget,safeArchivePath } from "./session-content-archive.js";
 import { envelope, validateContentMessage, same, type Policy, type Manifest, type ArchiveAdmission, type Provider } from "./session-content-contract.js";
 export interface ArchiveBundle { policy:Policy; manifest:Manifest; admission:ArchiveAdmission }
 export interface ImportRequest { protocol:"h2a.session-content";protocolVersion:2;kind:"import-request";requestId:string;authorizationId:string;
@@ -18,7 +18,8 @@ export class SessionContentImport {
     this.providers=structuredClone(config.qualifiedProviders);
   }
   private now():number{return (this.config.now??Date.now)();}
-  private async authorized(request:ImportRequest,bundle:ArchiveBundle):Promise<void>{
+  private async authorized(request:ImportRequest,bundle:ArchiveBundle):Promise<()=>void>{
+    if(!this.providers.some(p=>same(p,request.provider)))throw new Error('unsupported_format');
     const read=await this.config.auth.authorizeHistoryRead(this.config.login,request.authorizationId);
     const coverage=read.coverage as Record<string,unknown>;
     const stored=await this.config.auth.resolveArchiveAdmission(this.config.login,request.descriptorHash);
@@ -26,8 +27,9 @@ export class SessionContentImport {
       || !same(bundle.admission.retained,request.retained) || coverage.snapshotId!==request.snapshotId || coverage.manifestHash!==request.manifestHash
       || coverage.descriptorHash!==request.descriptorHash || bundle.admission.snapshotId!==request.snapshotId
       || bundle.admission.manifestHash!==request.manifestHash || bundle.admission.descriptorHash!==request.descriptorHash
-      || !same(bundle.manifest.provider,request.provider) || !this.providers.some(p=>same(p,request.provider))
+      || !same(bundle.manifest.provider,request.provider)
       || !same(read.owner,bundle.policy.owner) || (read.readExpiresAt as number)<=this.now())refuse();
+    const assert=()=>{this.config.auth.assertHistoryRead(read);if((read.readExpiresAt as number)<=this.now())refuse();};assert();return assert;
   }
   private async root():Promise<void>{
     const info=await lstat(this.config.managedRoot);
@@ -71,21 +73,24 @@ export class SessionContentImport {
         if(next.done)break;const part=next.value;
         signal?.throwIfAborted();job.cancellation.signal.throwIfAborted();
         // Check encoded bounds before decoding; every decoded byte counts, including duplicates/retries.
-        if(typeof part.payloadB64!=='string'||part.payloadB64.length>1048576||!/^[A-Za-z0-9_-]*$/.test(part.payloadB64))refuse();
+        if(typeof part.payloadB64!=='string'||part.payloadB64.length>1048576||part.payloadB64.length%4===1
+          || Math.floor(part.payloadB64.length*3/4)>262144||!/^[A-Za-z0-9_-]*$/.test(part.payloadB64))refuse();
         const bytes=Uint8Array.from(Buffer.from(part.payloadB64,'base64url'));job.consume(bytes.length);
         if(bytes.length>262144||Buffer.from(bytes).toString('base64url')!==part.payloadB64)refuse();
         const {payloadB64:_encoded,...metadata}=part;
         await call('part',{part:metadata,bytes},[bytes.buffer]);
       }} finally {void iterator.return?.().catch(()=>{});}
-      await this.authorized(request,bundle);signal?.throwIfAborted();job.consume(0);
+      const assertRead=await this.authorized(request,bundle);signal?.throwIfAborted();job.consume(0);
       const descriptor={localImportId,authorizationId:request.authorizationId,snapshotId:request.snapshotId,manifestHash:request.manifestHash,descriptorHash:request.descriptorHash,
         resumable:false,processStarted:false,keyboardAcquired:false};
       await call('finish',{descriptor,now:this.now()});
-      signal?.throwIfAborted();job.consume(0);
+      signal?.throwIfAborted();job.consume(0);assertRead();
       if(bundle.admission.retained.expiresAt!==null && this.now()>=bundle.admission.retained.expiresAt)refuse();
       await worker.terminate();worker=undefined;
+      assertRead();
       await rename(stage,join(this.config.managedRoot,localImportId));stage=undefined;committed=true;
       const dir=await open(this.config.managedRoot,'r');try{await dir.sync();}finally{await dir.close();}
+      assertRead();if(bundle.admission.retained.expiresAt!==null&&this.now()>=bundle.admission.retained.expiresAt)refuse();
       succeeded=true;return envelope('import-result',{requestId:request.requestId,snapshotId:request.snapshotId,manifestHash:request.manifestHash,descriptorHash:request.descriptorHash,
         status:'imported',reason:null,localImportId,expiresAt:bundle.admission.retained.expiresAt,resumable:false,processStarted:false,keyboardAcquired:false});
     }finally{
@@ -100,5 +105,39 @@ export class SessionContentImport {
     if(Buffer.byteLength(raw)>8388608)refuse();const bundle=JSON.parse(raw);
     if(bundle.descriptor.expiresAt!==null&&this.now()>=bundle.descriptor.expiresAt)refuse();
     return bundle.descriptor;
+  }
+  /** Managed data reads keep their original deadline and independently recheck current read authority.
+   * A source connection/capture lease is never needed to read an already admitted copy.
+   */
+  async *readData(localImportId:string,path:string,authorizationId:string,signal?:AbortSignal):AsyncGenerator<Buffer>{
+    safeArchivePath(path);await this.describe(localImportId);signal?.throwIfAborted();
+    const directory=join(this.config.managedRoot,localImportId),stored=JSON.parse(await readFile(join(directory,'bundle.json'),'utf8'));
+    const bundle:ArchiveBundle={policy:stored.policy,manifest:stored.manifest,admission:stored.admission};
+    const request=envelope('import-request',{requestId:'read-'+randomUUID(),authorizationId,retained:bundle.admission.retained,
+      snapshotId:bundle.manifest.snapshotId,manifestHash:bundle.manifest.manifestHash,descriptorHash:bundle.admission.descriptorHash,
+      provider:bundle.manifest.provider,mode:'isolated-data' as const});
+    await this.authorized(request,bundle);signal?.throwIfAborted();
+    const file=bundle.manifest.files.find(f=>f.path===path);if(!file)refuse();
+    const release=this.config.budget.reserveMemory(2*Buffer.byteLength(JSON.stringify(bundle))+2097152);
+    const source=import.meta.url.endsWith('.ts'),worker=new Worker(new URL(source?'./session-content-archive-worker.ts':'./session-content-archive-worker.js',import.meta.url),{
+      execArgv:source?['--import',new URL('./session-content-test-loader.mjs',import.meta.url).href]:[]});
+    let sequence=0,failed=false;worker.on('error',()=>{failed=true;});worker.on('exit',()=>{failed=true;});
+    const abort=()=>{failed=true;void worker.terminate();};signal?.addEventListener('abort',abort,{once:true});
+    const call=(operation:string,data:unknown)=>new Promise<any>((resolve,reject)=>{
+      if(failed){reject(new Error('managed_read_refused'));return;}
+      const id=++sequence,cleanup=()=>{worker.off('message',message);worker.off('error',error);worker.off('exit',error);};
+      const error=()=>{cleanup();reject(new Error('managed_read_refused'));};
+      const message=(m:{id:number;ok:boolean;result:unknown})=>{if(m.id===id){cleanup();m.ok?resolve(m.result):error();}};
+      worker.on('message',message);worker.once('error',error);worker.once('exit',error);worker.postMessage({id,operation,data});
+    });
+    try{
+      await call('initialize',{...bundle,stage:directory,now:this.now()});let offset=0;
+      do{
+        await this.describe(localImportId);const assertRead=await this.authorized(request,bundle);signal?.throwIfAborted();
+        const part=await call('read-part',{stage:directory,path,totalBytes:file.bytes,byteOffset:offset});
+        await this.describe(localImportId);signal?.throwIfAborted();assertRead();
+        const bytes=Buffer.from(part.payloadB64,'base64url');offset+=bytes.length;yield bytes;
+      }while(offset<file.bytes);
+    }finally{signal?.removeEventListener('abort',abort);await worker.terminate();release();}
   }
 }

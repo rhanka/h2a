@@ -37,6 +37,12 @@ cover its selected native incarnations and, only when explicitly selected,
 future sessions born after activation. Clearing a local denial returns to off;
 an older acceptance cannot clear that denial. Disconnect drops unsent content,
 and policy reapplication creates an empty boundary without backfill.
+Policy revision/digest floors advance at staging, so an older broader policy
+cannot revive during or after narrowing. Existing future-session coverage is
+preserved across confirmed amendments while its source/future selection remains
+continuous. For a fresh source connection after expiry, trusted bootstrap can
+use `NativeTerminalHost.rebindContent` with a new verified source handle; this
+pauses sharing and installs a fresh boundary without replacing the live PTY.
 
 ## Preparatory receiving paths
 
@@ -90,6 +96,8 @@ link, verifies all bounded parts in a worker and atomically publishes into a
 new managed data directory. It starts no process, acquires no keyboard and
 returns `resumable:false`. It preserves original expiry. It cannot restore
 hooks/configuration into a live provider directory or invoke migration/resume.
+Its managed `readData` stream rechecks current retained-read authority and the
+original deadline between bounded worker chunks, without a source connection.
 
 ## Remaining production qualification
 

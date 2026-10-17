@@ -11,30 +11,50 @@ import { envelope, same, sha256, retentionDeadline, type Scope, type Policy, typ
 import { contentDigest } from "./session-content-json.js";
 import type { NativeHistoryProvider,HistoryBookmark } from "./session-content-history.js";
 interface Pending { epoch: number; projectRevision: number; sessionRevision: number; handle: object|null;
-  request: Record<string, unknown>; policy: Policy; scope: Scope; lease: Lease; deadline: number; purpose:'share'|'amend'; challengeId?:string;challengeDigest?:string; bookmark?:HistoryBookmark }
+  request: Record<string, unknown>; policy: Policy;policyToken:object; scope: Scope; lease: Lease; deadline: number; purpose:'share'|'amend'; challengeId?:string;challengeDigest?:string; bookmark?:HistoryBookmark }
 /** One per native host/fence, populated only after native verification and the committed ACK.
  * Boot/generation changes alter the hashed policy; a new host inherits no acceptance by importing data.
  */
 export class NativeContentPolicies {
   private sequence=0;
-  private sessions=new Map<string,{id:string;projectKey:string;birth:number}>();
-  private accepted=new Map<string,{projectKey:string;revision:number;at:number;selected:Map<string,number>}>();
-  register(key:string,id:string,projectKey:string):number{
-    const old=this.sessions.get(key);if(old)return old.birth;
+  private sessions=new Map<string,{id:string;projectKey:string;birth:number;invalidate:(policy:Policy)=>void}>();
+  private accepted=new Map<string,{projectKey:string;revision:number;at:number;identity:string;policyRevision:number;futureSince:Map<string,number>;selected:Map<string,number>}>();
+  private floors=new Map<string,{revision:number;digest:string}>();
+  private tokens=new WeakMap<object,{key:string;revision:number;digest:string}>();
+  private identity(policy:Policy):string{return contentDigest('local-policy',{id:policy.id,owner:policy.owner,project:policy.project});}
+  current(policy:Policy):boolean{
+    const floor=this.floors.get(this.identity(policy));return !!floor&&floor.revision===policy.revision&&floor.digest===contentDigest('policy',policy);
+  }
+  currentToken(token:object):boolean{const value=this.tokens.get(token),floor=value&&this.floors.get(value.key);return !!value&&!!floor&&floor.revision===value.revision&&floor.digest===value.digest;}
+  stage(policy:Policy):object{
+    const key=this.identity(policy),digest=contentDigest('policy',policy),old=this.floors.get(key);
+    if(old&&(policy.revision<old.revision||(policy.revision===old.revision&&digest!==old.digest)))throw new Error('stale_policy');
+    if(!old&&this.floors.size>=256)throw new Error('resource_busy');
+    if(!old||policy.revision>old.revision){this.floors.set(key,{revision:policy.revision,digest});for(const session of this.sessions.values())session.invalidate(policy);}
+    const token=Object.freeze({});this.tokens.set(token,{key,revision:policy.revision,digest});return token;
+  }
+  register(key:string,id:string,projectKey:string,invalidate:(policy:Policy)=>void):number{
+    const old=this.sessions.get(key);if(old){old.invalidate=invalidate;return old.birth;}
     if(this.sessions.size>=256)throw new Error('resource_busy');const birth=++this.sequence;
-    this.sessions.set(key,{id,projectKey,birth});return birth;
+    this.sessions.set(key,{id,projectKey,birth,invalidate});return birth;
   }
   remember(policy:Policy,projectKey:string,revision:number,fence:ContentFence):void{
+    if(!this.current(policy))throw new Error('stale_policy');
     const digest=contentDigest('policy',policy),old=this.accepted.get(digest);
     if(!old&&this.accepted.size>=256)throw new Error('resource_busy');
-    const value=old&&old.revision===revision?old:{projectKey,revision,at:++this.sequence,selected:new Map<string,number>()};
+    const identity=this.identity(policy),prior=[...this.accepted.values()].filter(p=>p.identity===identity&&p.revision===revision&&p.policyRevision<policy.revision).sort((a,b)=>b.policyRevision-a.policyRevision)[0];
+    const at=++this.sequence;
+    const value=old&&old.revision===revision?old:{projectKey,revision,at,identity,policyRevision:policy.revision,futureSince:new Map<string,number>(),selected:new Map<string,number>()};
+    if(policy.sessions.future)for(const source of policy.sources){const key=contentDigest('source',source);value.futureSince.set(key,prior?.futureSince.get(key)??value.futureSince.get(key)??at);}
     for(const [key,s] of this.sessions)if(s.projectKey===projectKey&&policy.sessions.selected.includes(s.id))value.selected.set(key,fence.revision(key));
     this.accepted.set(digest,value);
   }
-  permits(policy:Policy,projectKey:string,projectRevision:number,sessionKey:string,sessionRevision:number,birth:number):boolean{
+  permits(policy:Policy,projectKey:string,projectRevision:number,sessionKey:string,sessionRevision:number,birth:number,source:Scope['source']):boolean{
+    if(!this.current(policy))return false;
     const a=this.accepted.get(contentDigest('policy',policy));
     if(!a||a.projectKey!==projectKey||a.revision!==projectRevision)return false;
-    return a.selected.get(sessionKey)===sessionRevision || (policy.sessions.future&&birth>a.at&&sessionRevision===0);
+    const futureSince=a.futureSince.get(contentDigest('source',source));
+    return a.selected.get(sessionKey)===sessionRevision || (policy.sessions.future&&futureSince!==undefined&&birth>futureSince&&sessionRevision===0);
   }
 }
 const hostPolicies=new WeakMap<ContentFence,NativeContentPolicies>();
@@ -62,12 +82,15 @@ export class SessionContentConsent {
   constructor(private readonly config: { auth: SessionContentAuth; sourceSession: object; verifier: ConfirmationVerifier;
     fence: ContentFence; budget: ContentQueueBudget; sessionId: string; sessionIncarnation: string; project: Project;
     monotonicNow?: () => number; wallNow?: () => number; history?:NativeHistoryProvider;policies?:NativeContentPolicies }) {
+    if(config.verifier.clientId===config.auth.sourceClientId||config.verifier.issuer!==config.auth.issuer)throw new Error('invalid_confirmation_configuration');
     this.now = config.monotonicNow ?? (()=>performance.now()); this.wall = config.wallNow ?? Date.now;
     this.queue = new SessionContentExport(config.budget);
     this.projectKey = contentDigest("local-project",config.project);
     this.sessionKey = contentDigest("local-session",{project:config.project,sessionId:config.sessionId,sessionIncarnation:config.sessionIncarnation});
     this.policies=config.policies??hostPolicies.get(config.fence)??new NativeContentPolicies();hostPolicies.set(config.fence,this.policies);
-    this.birth=this.policies.register(this.sessionKey,config.sessionId,this.projectKey);
+    this.birth=this.policies.register(this.sessionKey,config.sessionId,this.projectKey,policy=>{
+      if([this.active,this.pending].some(p=>p&&p.policy.id===policy.id&&same(p.policy.owner,policy.owner)&&same(p.policy.project,policy.project)&&p.policy.revision<policy.revision))this.pause();
+    });
   }
   private denied(): boolean { return this.config.fence.denied(this.projectKey) || this.config.fence.denied(this.sessionKey); }
   bindRawAdmission(admission:NativeRawAdmission):void{
@@ -102,7 +125,7 @@ export class SessionContentConsent {
   }
   disconnect(): void { this.pause(); this.config.verifier.cancelAll(); }
   private fresh(p: Pending): boolean {
-    if (p.epoch !== this.epoch || this.now() >= p.deadline || this.denied()
+    if (p.epoch !== this.epoch || this.now() >= p.deadline || this.denied() || !this.policies.currentToken(p.policyToken)
       || this.config.fence.revision(this.projectKey) !== p.projectRevision || this.config.fence.revision(this.sessionKey) !== p.sessionRevision) return false;
     try { this.config.auth.metadata(this.config.sourceSession); return true; } catch { return false; }
   }
@@ -132,17 +155,18 @@ export class SessionContentConsent {
         || scope.exclusionRevision!==policy.exclusionRevision || (!reuse&&!policy.sessions.selected.includes(scope.sessionId))) throw new Error("scope_refused");
       // Native history requires an independently qualified provider barrier, never legacy capture/mtime.
       if (policy.channels.nativeHistory && !this.config.history) throw new Error("unsupported_format");
+      const policyToken=this.policies.stage(policy);
       const purpose=r.kind==='grant-activate'?'share' as const:'amend' as const;
       if(reuse){
-        if(!this.policies.permits(policy,this.projectKey,projectRevision,this.sessionKey,sessionRevision,this.birth))throw new Error('unconfirmed_policy');
-        const p:Pending={epoch,projectRevision,sessionRevision,handle:null,request:r,policy,scope,lease:r.lease as Lease,deadline:resolved.deadline,purpose};
+        if(!this.policies.permits(policy,this.projectKey,projectRevision,this.sessionKey,sessionRevision,this.birth,scope.source))throw new Error('unconfirmed_policy');
+        const p:Pending={epoch,projectRevision,sessionRevision,handle:null,request:r,policy,policyToken,scope,lease:r.lease as Lease,deadline:resolved.deadline,purpose};
         this.pending=p;await this.activate(p);return null;
       }
       const input: Omit<ConfirmationChallenge,"issuedAt"|"expiresAt">={id:randomUUID(),owner:scope.owner,project:scope.project,source:scope.source,
         clientId:this.config.verifier.clientId,purpose:r.kind==="grant-activate"?"share":"amend",target:{kind:"policy",policyDigest:r.policyDigest as string},
         random:randomBytes(32).toString("base64url")};
       const {handle,challenge}=this.config.verifier.create(input,Math.floor(Math.min(60000,Math.max(0,resolved.deadline-this.now()))));
-      this.pending={epoch,projectRevision,sessionRevision,handle,request:r,policy,scope,lease:r.lease as Lease,deadline:resolved.deadline,purpose,
+      this.pending={epoch,projectRevision,sessionRevision,handle,request:r,policy,policyToken,scope,lease:r.lease as Lease,deadline:resolved.deadline,purpose,
         challengeId:challenge.id,challengeDigest:contentDigest('confirmation',challenge)};
       return structuredClone(challenge);
     } catch(e) { if(epoch===this.epoch) this.pause(); throw e; }

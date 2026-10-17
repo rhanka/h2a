@@ -45,6 +45,9 @@ parentPort!.on('message',(message:{id:number;operation:string;data:any})=>{
     }else if(message.operation==='read-part'){
       const input=openSync(join(d.stage,safeArchivePath(d.path)),constants.O_RDONLY|constants.O_NOFOLLOW);
       try{
+        const stat=fstatSync(input);
+        if(!stat.isFile()||stat.nlink!==1||stat.size!==d.totalBytes||d.byteOffset<0||d.byteOffset>d.totalBytes
+          || (manifest&&!manifest.files.some(f=>f.path===d.path&&f.bytes===d.totalBytes)))refuse();
         const length=Math.min(262144,d.totalBytes-d.byteOffset),bytes=Buffer.alloc(length);
         if(readSync(input,bytes,0,length,d.byteOffset)!==length)refuse();
         const result={byteOffset:d.byteOffset,byteLength:length,totalBytes:d.totalBytes,payloadB64:bytes.toString('base64url'),payloadHash:sha256(bytes),final:d.byteOffset+length===d.totalBytes};
