@@ -980,7 +980,8 @@
   ],
   "packages/h2a/test/node-test-order.test.js": [
     "the production Node runner starts explicit files in priority order and records every real case",
-    "the production Node runner reports a failing child and still executes the other explicit file"
+    "the production Node runner reports a failing child and still executes the other explicit file",
+    "both real package suites start before the remaining Node files without dropping any file"
   ],
   "packages/h2a/test/native-cleanse-oracle.test.js": [
     "L0 contracts: only the committed state and exact failure signature are accepted",
@@ -1013,7 +1014,14 @@
   ],
   "packages/h2a/test/native-foreign-host-probe.test.js": [
     "should tolerate a closed legacy descriptor without hiding pinned directories or access errors"
-
-
+  ],
+  "packages/h2a/test/mh-l6-package.test.js": [
+    "U10 U12 should publish @sentropic/h2a with exact lockstep and install twice offline without a compiler",
+    "U10 should build the actual closed dependency graph from pinned prebuilds before invoking npm",
+    "U10 should install @sentropic/h2a for off-profile diagnostics while refusing H4 preparation"
+  ],
+  "packages/h2a/test/mh-l6-runtime-package.test.js": [
+    "U10 U12 should publish @sentropic/h2a-runtime with exact lockstep and install twice offline without a compiler",
+    "U10 should install @sentropic/h2a-runtime for off-profile diagnostics while refusing H4 preparation"
   ]
 }
