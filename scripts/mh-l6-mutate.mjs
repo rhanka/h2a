@@ -147,6 +147,10 @@ const cases = [
   ['command-force', 'explicit-shape', "if (explicit !== undefined && typeof explicit !== 'boolean') throw new Error('bootstrap_launcher_install_invalid');", '', 'F should force an occupied command link only on explicit override'],
   ['command-force', 'force-occupied', "if (!forced && verdict.state === 'occupied') throw new Error('bootstrap_launcher_command_occupied');", "if (verdict.state === 'occupied') throw new Error('bootstrap_launcher_command_occupied');", 'F should force an occupied command link only on explicit override'],
   ['command-force', 'force-foreign', "if (!forced && verdict.state === 'foreign') throw new Error('bootstrap_launcher_command_foreign');", "if (verdict.state === 'foreign') throw new Error('bootstrap_launcher_command_foreign');", 'F should force foreign and dangling links only on explicit override'],
+  ['pilot-run', 'run-shape', "if (explicit !== undefined && typeof explicit !== 'boolean') throw new Error('upgrade_run_invalid');", '', 'F should refuse a non-boolean pilot override instead of guessing'],
+  ['pilot-run', 'run-forward', 'managedDir, commandPath, exclusion, explicit });', 'managedDir, commandPath, exclusion });', 'F should force an occupied command link through the pilot only on explicit override'],
+  ['pilot-execute', 'execute-shape', "if (explicit !== undefined && typeof explicit !== 'boolean') throw new Error('adoption_execute_invalid');", '', 'F should refuse a non-boolean pilot override instead of guessing'],
+  ['pilot-execute', 'execute-forward', 'managedDir, commandPath, explicit });', 'managedDir, commandPath });', 'F should force an occupied command link through the pilot only on explicit override'],
 ];
 const files = group === 'launcher' ? ['packages/h2a/src/runtime/upgrade/managed-launcher.js'] :
   group === 'exclusion' ? ['packages/h2a/src/runtime/upgrade/legacy-exclusion.js', 'packages/h2a/dist/runtime/upgrade/legacy-exclusion.js'] :
@@ -164,11 +168,13 @@ const files = group === 'launcher' ? ['packages/h2a/src/runtime/upgrade/managed-
   group === 'dispatch' ? ['packages/h2a/src/runtime/upgrade/upgrade-dispatch.js', 'packages/h2a/dist/runtime/upgrade/upgrade-dispatch.js'] :
   group === 'command-gate' ? ['packages/h2a/src/runtime/upgrade/launcher-install.js', 'packages/h2a/dist/runtime/upgrade/launcher-install.js'] :
   group === 'command-force' ? ['packages/h2a/src/runtime/upgrade/launcher-install.js', 'packages/h2a/dist/runtime/upgrade/launcher-install.js'] :
+  group === 'pilot-run' ? ['packages/h2a/src/runtime/upgrade/upgrade-run.js', 'packages/h2a/dist/runtime/upgrade/upgrade-run.js'] :
+  group === 'pilot-execute' ? ['packages/h2a/src/runtime/upgrade/adoption-execute.js', 'packages/h2a/dist/runtime/upgrade/adoption-execute.js'] :
   ['packages/h2a/src/runtime/upgrade/h4-store.js', 'packages/h2a/dist/runtime/upgrade/h4-store.js'];
 const originals = files.map(path => ({ path, bytes: fs.readFileSync(path) }));
 const selected = cases.filter(c => c[0] === group && (!process.env.MH_L6_MUTATION || c[1] === process.env.MH_L6_MUTATION));
 if (!selected.length) throw new Error('unknown_mutation_group');
-const testFile = { delegation: 'delegation', launcher: 'launcher', exclusion: 'exclusion', deferral: 'exclusion', bootstrap: 'bootstrap', adoption: 'adoption', 'launcher-install': 'launcher-install', 'adoption-execute': 'adoption', unmanage: 'unmanage', 'adoption-image': 'image-prepare', status: 'status', 'upgrade-run': 'upgrade-run', 'npm-command': 'npm', authority: 'authority', cli: 'cli', dispatch: 'dispatch', 'command-gate': 'command-gate', 'command-force': 'command-gate' }[group] ?? 'selection';
+const testFile = { delegation: 'delegation', launcher: 'launcher', exclusion: 'exclusion', deferral: 'exclusion', bootstrap: 'bootstrap', adoption: 'adoption', 'launcher-install': 'launcher-install', 'adoption-execute': 'adoption', unmanage: 'unmanage', 'adoption-image': 'image-prepare', status: 'status', 'upgrade-run': 'upgrade-run', 'npm-command': 'npm', authority: 'authority', cli: 'cli', dispatch: 'dispatch', 'command-gate': 'command-gate', 'command-force': 'command-gate', 'pilot-run': 'pilot-force', 'pilot-execute': 'pilot-force' }[group] ?? 'selection';
 const file = `packages/h2a/test/mh-l6-${testFile}.test.js`;
 const results = [];
 for (const [, name, from, to, scenario] of selected) {
