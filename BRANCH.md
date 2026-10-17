@@ -1,3 +1,25 @@
+# AGY Claude 5.5 model and quota contract
+
+Current owner task: `feat/agy-claude-models`, resumed from `bd29f7b43` with
+two uncommitted regression files. Scope: core MCP/doctor, runtime launch argv
+and headless supervision, named tests, test inventory, documentation. Historical
+branch sections below are inherited context, not this branch's task.
+
+- [x] Explicit Opus/Sonnet 5.5 launch model, stdin prompt, max→high and typed xhigh refusal.
+- [x] Build-role opt-in for the AGY Claude pool; reviews/challenges first.
+- [x] Quota error/reset/status, no fallback/retry, declared output-file absence.
+- [x] Offline fake AGY regressions, MCP late completion polling and doctor status.
+- [x] Final Node 22/24: six named runtime files 222/222 per version, three
+  CLI/MCP files 34/34 per version; four isolated package typechecks per version.
+- [x] Trust-root test file 38/38 on Node 22; zero-Python guard exit 0.
+- [ ] Commit, fast-forward push, English PR and per-job CI report.
+- No Track writes or installed h2a/native host/provider access; only temporary
+  test roots. Full local suite forbidden; CI/conductor owns integration.
+- Review: selection-failed under confinement; no consensus claimed. See
+  `docs/reviews/agy-claude-models.md` and `docs/agy-claude-models.md`.
+
+# Inherited branch context from origin/main
+
 # CI job budget — owner request 2026-10-17
 
 Branch: `fix/ci-job-budget`, base `origin/main` at `596363908`.
