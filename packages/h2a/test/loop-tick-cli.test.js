@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -16,8 +16,30 @@ import { planLoopTick } from "../dist/runtime/loop/engine/decision.js";
 const ROOT = process.cwd();
 const BIN = join(ROOT, "packages/h2a/dist/bin.js");
 
+const TEST_ENV_ROOT = mkdtempSync(join(tmpdir(), "h2a-loop-tick-env-"));
+const ISOLATED_ENV = {
+  ...process.env,
+  HOME: join(TEST_ENV_ROOT, "home"),
+  XDG_CONFIG_HOME: join(TEST_ENV_ROOT, "config"),
+  XDG_RUNTIME_DIR: join(TEST_ENV_ROOT, "run"),
+  XDG_STATE_HOME: join(TEST_ENV_ROOT, "state"),
+  H2A_ROOT: join(TEST_ENV_ROOT, "h2a-root"),
+};
+mkdirSync(ISOLATED_ENV.HOME, { recursive: true, mode: 0o700 });
+mkdirSync(ISOLATED_ENV.XDG_CONFIG_HOME, { recursive: true, mode: 0o700 });
+mkdirSync(ISOLATED_ENV.XDG_RUNTIME_DIR, { recursive: true, mode: 0o700 });
+mkdirSync(ISOLATED_ENV.XDG_STATE_HOME, { recursive: true, mode: 0o700 });
+mkdirSync(ISOLATED_ENV.H2A_ROOT, { recursive: true, mode: 0o700 });
+
+test.after(() => {
+  rmSync(TEST_ENV_ROOT, { recursive: true, force: true });
+});
+
 function run(args) {
-  return spawnSync(process.execPath, [BIN, ...args], { encoding: "utf8" });
+  return spawnSync(process.execPath, [BIN, ...args], {
+    encoding: "utf8",
+    env: ISOLATED_ENV,
+  });
 }
 
 test("h2a loop tick produit un plan dry-run (resource) + code 0", () => {

@@ -27,6 +27,9 @@ test("should prove isolation guard fails if any environment variable resolves to
     "/home/antoinefa",
     "/home/antoinefa/.local/state",
     "/home/antoinefa/.config",
+    "/home/antoinefa/.config/sentropic/h2a",
+    "/home/antoinefa/h2a-workspace",
+    "/home/antoinefa/h2a-workspace/.h2a",
     "/home/antoinefa/.cache-tmp/h2a-test",
     "/tmp/outside-qualification",
   ];
@@ -37,6 +40,16 @@ test("should prove isolation guard fails if any environment variable resolves to
         XDG_RUNTIME_DIR: join(qualRoot, "rt"),
         XDG_STATE_HOME: join(qualRoot, "st"),
         XDG_CONFIG_HOME: join(qualRoot, "cfg"),
+      }, qualRoot),
+      /REFUSING/,
+    );
+    assert.throws(
+      () => assertIsolatedEnvironment({
+        HOME: join(qualRoot, "home"),
+        XDG_RUNTIME_DIR: join(qualRoot, "rt"),
+        XDG_STATE_HOME: join(qualRoot, "st"),
+        XDG_CONFIG_HOME: join(qualRoot, "cfg"),
+        H2A_ROOT: bad,
       }, qualRoot),
       /REFUSING/,
     );

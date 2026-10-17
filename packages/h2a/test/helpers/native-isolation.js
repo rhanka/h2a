@@ -4,6 +4,7 @@ import { syncBuiltinESMExports } from "node:module";
 import { isMainThread } from "node:worker_threads";
 import { once } from "node:events";
 import fs, { closeSync, constants, lstatSync, mkdirSync, mkdtempSync, openSync, readlinkSync, rmSync, symlinkSync, unlinkSync } from "node:fs";
+import os from "node:os";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 
 // Test-only short root for deep worktrees whose AF_UNIX paths would overflow.
@@ -19,12 +20,24 @@ if (shortQualificationRoot !== undefined) {
 // including a mkdtemp suffix and seven-digit PID in deeply nested worktrees.
 export const nativeQualificationRoot = shortQualificationRoot ?? resolve(import.meta.dirname, "../../../../.q");
 
+const ownerHome = os.userInfo?.()?.homedir ?? os.homedir();
+const ownerUid = os.userInfo?.()?.uid;
+const ownerRun = ownerUid !== undefined ? `/run/user/${ownerUid}` : undefined;
+
 function rejectOwnerPath(path) {
-  assert.ok(path !== "/home/antoinefa" && ![
-    "/run/user/1000", "/home/antoinefa/.local/state", "/home/antoinefa/.config",
-  ].some(root => path === root || path.startsWith(`${root}/`))
-    && !path.startsWith("/home/antoinefa/.cache-tmp/h2a-"),
-  `REFUSING owner path before filesystem access: ${path}`);
+  const exactForbidden = [ownerHome].filter(Boolean);
+  const prefixForbidden = [
+    ownerRun,
+    ownerHome ? join(ownerHome, ".local/state") : undefined,
+    ownerHome ? join(ownerHome, ".config") : undefined,
+    ownerHome ? join(ownerHome, "h2a-workspace") : undefined,
+  ].filter(Boolean);
+
+  assert.ok(
+    !exactForbidden.includes(path) &&
+    !prefixForbidden.some(root => path === root || path.startsWith(`${root}/`)) &&
+    (!ownerHome || !path.startsWith(join(ownerHome, ".cache-tmp/h2a-"))),
+    `REFUSING owner path before filesystem access: ${path}`);
 }
 
 // Resolve existing ancestors without following a symlink into owner state.

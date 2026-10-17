@@ -1,18 +1,44 @@
+import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createGatewayNamespaceModule } from "@sentropic/cluster-mesh/compose/gateway";
 import { createGatewayHost, createLocalGatewayApp, LEGACY_PORTS_INERT, startServer } from "./host.js";
 import { lookupToken, resetSessions } from "./sessions.js";
 import { resetSessionLedger } from "./ledger.js";
 
+vi.mock("../claude-code-cli-lifecycle.js", async (importOriginal) => {
+  const mod = await importOriginal<typeof import("../claude-code-cli-lifecycle.js")>();
+  return {
+    ...mod,
+    sweepOrphanSandboxes: vi
+      .fn()
+      .mockResolvedValue({ swept: 0, retained: 0, skippedAlive: 0 }),
+  };
+});
+
+let tempBase = "";
+
 beforeEach(() => {
+  // m4 (r8): every gateway composition runs in temp HOME/XDG/H2A_ROOT with
+  // an empty temp PATH — never the owner's real mesh store or real `claude`.
+  tempBase = mkdtempSync(join(tmpdir(), "h2a-gateway-host-"));
+  const emptyBin = join(tempBase, "bin");
+  mkdirSync(emptyBin, { recursive: true });
   vi.stubEnv("NODE_ENV", "test");
   vi.stubEnv("H2A_LLM_MESH_OWNER_SCOPE", "cli:test-owner");
+  vi.stubEnv("HOME", join(tempBase, "home"));
+  vi.stubEnv("XDG_RUNTIME_DIR", join(tempBase, "run"));
+  vi.stubEnv("H2A_ROOT", join(tempBase, "h2a-root"));
+  vi.stubEnv("PATH", emptyBin);
   resetSessions();
   resetSessionLedger();
 });
 
 afterEach(() => {
   vi.unstubAllEnvs();
+  if (tempBase) rmSync(tempBase, { recursive: true, force: true });
+  tempBase = "";
 });
 
 describe("embedded consumer-neutral gateway host", () => {
@@ -129,4 +155,55 @@ it("never reaches legacy pool, auth resolver or dispatch ports on routed request
     expect((await app.request("/v1/models", { headers: { "x-api-key": gatewayToken } })).status).toBe(200);
     for (const spy of spies) expect(spy).not.toHaveBeenCalled();
   } finally { for (const spy of spies) spy.mockRestore(); }
+});
+
+it("fails before serving without an enrolled Claude account, like every other seat", async () => {
+  const app = await createLocalGatewayApp();
+  const session = await app.request("/v1/session", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ sessionId: "unconfigured-claude-session" }),
+  });
+  const { gatewayToken } = await session.json() as { gatewayToken: string };
+
+  const response = await app.request("/v1/messages", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-api-key": gatewayToken,
+    },
+    body: JSON.stringify({
+      model: "claude-3-5-sonnet-20241022",
+      messages: [{ role: "user", content: "hello" }],
+    }),
+  });
+
+  // Without an enrolled account, routing fails safely before serving without crash
+  expect([404, 503]).toContain(response.status);
+  // The failure carries no seat/runner/lease material.
+  const failureText = await response.text();
+  expect(failureText).not.toMatch(/seat|runner|lease|credential|x-api-key/i);
+  const models = await app.request("/v1/models", {
+    headers: { "x-api-key": gatewayToken },
+  });
+  expect(models.status).toBe(200);
+});
+
+it("sweeps Claude orphans on every composition (the seat is always composed)", async () => {
+  const { sweepOrphanSandboxes } = await import("../claude-code-cli-lifecycle.js");
+  const failingPrepare = async (): Promise<never> => {
+    throw new Error("composition probe");
+  };
+  vi.mocked(sweepOrphanSandboxes).mockClear();
+
+  const plain = createGatewayHost({ prepareNamespace: failingPrepare });
+  await expect(plain.ready).rejects.toThrow("composition probe");
+  expect(vi.mocked(sweepOrphanSandboxes)).toHaveBeenCalledTimes(1);
+
+  const withClaude = createGatewayHost({
+    claudeClient: {} as never,
+    prepareNamespace: failingPrepare,
+  });
+  await expect(withClaude.ready).rejects.toThrow("composition probe");
+  expect(vi.mocked(sweepOrphanSandboxes)).toHaveBeenCalledTimes(2);
 });
