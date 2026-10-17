@@ -82,7 +82,7 @@
           "role": "document-schema",
           "path": "schemas/decision-dossier-document.v1.schema.json",
           "mediaType": "application/schema+json",
-          "sha256": "f7cd501d602ac76aeb9582fb6a76d6a4488763f7d97368284f252071470071b2"
+          "sha256": "725bc07e7c6b6ad51a1f720cc9fb02649d8f31bc54e71c61c350fd20058c8852"
         }
       ],
       "skill": {
@@ -117,7 +117,7 @@
             "schemaId": "urn:sentropic:focus:DecisionDossierDocument:1.0.0",
             "version": "1.0.0",
             "assetPath": "schemas/decision-dossier-document.v1.schema.json",
-            "sha256": "f7cd501d602ac76aeb9582fb6a76d6a4488763f7d97368284f252071470071b2"
+            "sha256": "725bc07e7c6b6ad51a1f720cc9fb02649d8f31bc54e71c61c350fd20058c8852"
           }
         ],
         "dependencies": []
