@@ -200,7 +200,12 @@ describe("second synthetic embedding host (R4-AC12)", () => {
           | { ok: false };
         resolveFocusPresentation: (
           params: Record<string, string>,
-          gate: { uiSelectedAndQualified: boolean; htmlSanitizerAvailable: boolean },
+          gate: {
+            uiRegistered: boolean;
+            uiSelected: boolean;
+            uiQualified: boolean;
+            htmlSanitizerAvailable: boolean;
+          },
           load: () => string,
         ) => { ok: boolean };
       }
@@ -229,7 +234,7 @@ describe("second synthetic embedding host (R4-AC12)", () => {
       let loads = 0;
       const resolved = definitions.resolveFocusPresentation(
         params.value,
-        { uiSelectedAndQualified: false, htmlSanitizerAvailable: false },
+        { uiRegistered: false, uiSelected: false, uiQualified: false, htmlSanitizerAvailable: false },
         () => {
           loads += 1;
           return skillText;
@@ -286,6 +291,14 @@ describe("archive round-trips every node family (R4-AC13)", () => {
       traced.value.sections.some((s) => s.kind === "amendmentTrace"),
     ).toBe(true);
     expect(JSON.parse(JSON.stringify(traced.value))).toEqual(withTraceNode);
+  });
+});
+
+describe("publish builds dist first (rev352-F6)", () => {
+  it("prepack rebuilds dist so a manual publish never ships a dist-less tarball", () => {
+    const scripts = (packageJson as { scripts?: Record<string, string> }).scripts ?? {};
+    expect(scripts["prepack"]).toBeDefined();
+    expect(scripts["prepack"] as string).toMatch(/build/);
   });
 });
 

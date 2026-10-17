@@ -1,6 +1,6 @@
 // `track focus <decision-id> --workspace <w> [--format terminal|md|html] [--baseline-commit <sha>]` —
 // a READ-ONLY render verb that projects a track decision into a focus DecisionDossierDocument and renders
-// it via the VENDORED render-core snapshot in `../focus-vendor/` (a compiled `@sentropic/focus@0.3.0` copy,
+// it via the VENDORED render-core snapshot in `../focus-vendor/` (a compiled `@sentropic/focus@0.5.0` copy,
 // consumed by `cmdFocus` through dynamic `import('../focus-vendor/index.js')` + `.../track/index.js` — there
 // is NO `@sentropic/focus` devDep). track resolves the store THE TRACK WAY (ctx.eventsPath, no `--events-path`),
 // then calls the vendored `readDecisionDossier` + dispatches renderTerminal/Md/Html. v1 is read-only: no write,
@@ -159,6 +159,18 @@ describe('track focus', () => {
       rmSync(unadopted, { recursive: true, force: true })
     }
   })
+
+  it('vendored registry helper loads the publisher manifest (rev352-F4)', async () => {
+    // The vendored snapshot ships no adjacent registry manifest: the helper
+    // must resolve the publisher-owned entries through the installed package
+    // instead of throwing MODULE_NOT_FOUND from a relocated relative path.
+    const definitions = (await import('../focus-vendor/registry/definitions.js')) as unknown as {
+      loadFocusSkillDescriptor: () => { entries: Array<{ id: string }> };
+    };
+    const manifest = definitions.loadFocusSkillDescriptor();
+    expect(manifest.entries).toHaveLength(1);
+    expect(manifest.entries[0]!.id).toBe('sentropic.focus');
+  });
 
   it('performs NO append — the event log is byte-identical after a render', async () => {
     const { decisionId } = seed()

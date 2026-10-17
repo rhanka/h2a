@@ -176,7 +176,7 @@ describe("mcp-app without a usable UI refuses before any instruction load", () =
     let loads = 0;
     const resolved = resolveFocusPresentation(
       params.value,
-      { uiSelectedAndQualified: false, htmlSanitizerAvailable: false },
+      { uiRegistered: false, uiSelected: false, uiQualified: false, htmlSanitizerAvailable: false },
       () => {
         loads += 1;
         return "instructions";
@@ -195,7 +195,7 @@ describe("mcp-app without a usable UI refuses before any instruction load", () =
     let loads = 0;
     const resolved = resolveFocusPresentation(
       params.value,
-      { uiSelectedAndQualified: false, htmlSanitizerAvailable: true },
+      { uiRegistered: true, uiSelected: false, uiQualified: false, htmlSanitizerAvailable: true },
       () => {
         loads += 1;
         return "instructions";
@@ -212,11 +212,11 @@ describe("mcp-app without a usable UI refuses before any instruction load", () =
     expect(params.ok).toBe(true);
     if (!params.ok) return;
     let loads = 0;
-    // Selected-but-unqualified is observed by the host as "not usable": the
-    // publisher gate receives false and must still refuse before loading.
+    // Selected-but-unqualified is a DISTINCT host state from
+    // registered-but-unselected above: selection alone must not open the gate.
     const resolved = resolveFocusPresentation(
       params.value,
-      { uiSelectedAndQualified: false, htmlSanitizerAvailable: true },
+      { uiRegistered: true, uiSelected: true, uiQualified: false, htmlSanitizerAvailable: true },
       () => {
         loads += 1;
         return "instructions";
@@ -226,6 +226,25 @@ describe("mcp-app without a usable UI refuses before any instruction load", () =
     if (resolved.ok) return;
     expect(resolved.code).toBe("unsupported_presentation");
     expect(loads).toBe(0);
+  });
+
+  it("R4-AC07d: UI registered, selected and qualified → mcp-app resolves, one load", () => {
+    const params = mcpAppParams("mcp-app");
+    expect(params.ok).toBe(true);
+    if (!params.ok) return;
+    let loads = 0;
+    const resolved = resolveFocusPresentation(
+      params.value,
+      { uiRegistered: true, uiSelected: true, uiQualified: true, htmlSanitizerAvailable: false },
+      () => {
+        loads += 1;
+        return "instructions";
+      },
+    );
+    expect(resolved.ok).toBe(true);
+    if (!resolved.ok) return;
+    expect(resolved.instructions).toBe("instructions");
+    expect(loads).toBe(1);
   });
 });
 
@@ -237,7 +256,7 @@ describe("html presentation requires the sanitizer hook (R4-AC08)", () => {
     let loads = 0;
     const resolved = resolveFocusPresentation(
       params.value,
-      { uiSelectedAndQualified: false, htmlSanitizerAvailable: false },
+      { uiRegistered: false, uiSelected: false, uiQualified: false, htmlSanitizerAvailable: false },
       () => {
         loads += 1;
         return "instructions";
@@ -257,7 +276,7 @@ describe("html presentation requires the sanitizer hook (R4-AC08)", () => {
     const skillText = readFileSync(join(pkgRoot, "skills/focus/SKILL.md"), "utf8");
     const resolved = resolveFocusPresentation(
       params.value,
-      { uiSelectedAndQualified: false, htmlSanitizerAvailable: false },
+      { uiRegistered: false, uiSelected: false, uiQualified: false, htmlSanitizerAvailable: false },
       () => {
         loads += 1;
         return skillText;
@@ -270,6 +289,158 @@ describe("html presentation requires the sanitizer hook (R4-AC08)", () => {
   });
 });
 
+describe("closed entry descriptor validation (rev352-F1)", () => {
+  const base = (): Record<string, unknown> =>
+    JSON.parse(
+      JSON.stringify((packageManifest as { entries: unknown[] }).entries[0]),
+    ) as Record<string, unknown>;
+
+  const atPath = (
+    entry: Record<string, unknown>,
+    path: readonly string[],
+  ): Record<string, unknown> => {
+    let node: unknown = entry;
+    for (const key of path) node = (node as Record<string, unknown>)[key];
+    return node as Record<string, unknown>;
+  };
+
+  interface ClosedCase {
+    readonly name: string;
+    readonly mutate: (entry: Record<string, unknown>) => void;
+  }
+
+  const cases: readonly ClosedCase[] = [
+    { name: "root unknown field", mutate: (e) => { e["surprise"] = 1; } },
+    {
+      name: "skill unknown field",
+      mutate: (e) => { atPath(e, ["skill"])["surprise"] = 1; },
+    },
+    {
+      name: "skill requiredExtensions",
+      mutate: (e) => { atPath(e, ["skill"])["requiredExtensions"] = ["x"]; },
+    },
+    {
+      name: "metadata unknown field",
+      mutate: (e) => { atPath(e, ["skill", "metadata"])["surprise"] = 1; },
+    },
+    {
+      name: "parameters unknown field",
+      mutate: (e) => { atPath(e, ["parameters"])["surprise"] = 1; },
+    },
+    {
+      name: "preferredPresentation enum replaced by [pdf]",
+      mutate: (e) => {
+        atPath(e, ["parameters", "schema", "properties", "preferredPresentation"])["enum"] = ["pdf"];
+      },
+    },
+    {
+      name: "locale enum replaced by [xx]",
+      mutate: (e) => {
+        atPath(e, ["parameters", "schema", "properties", "locale"])["enum"] = ["xx"];
+      },
+    },
+    {
+      name: "parameter schema $id drift",
+      mutate: (e) => { atPath(e, ["parameters", "schema"])["$id"] = "urn:other:params:9.9.9"; },
+    },
+    {
+      name: "asset traversal path",
+      mutate: (e) => {
+        ((e["assets"] as Array<Record<string, unknown>>)[0]!)["path"] = "../outside/SKILL.md";
+      },
+    },
+    {
+      name: "duplicated asset",
+      mutate: (e) => {
+        (e["assets"] as Array<Record<string, unknown>>).push({
+          ...(e["assets"] as Array<Record<string, unknown>>)[0],
+        });
+      },
+    },
+    {
+      name: "dangling instructionsAsset",
+      mutate: (e) => {
+        atPath(e, ["skill"])["instructionsAsset"] = "skills/focus/MISSING.md";
+      },
+    },
+    {
+      name: "dangling document-schema assetPath",
+      mutate: (e) => {
+        ((atPath(e, ["skill"])["documentSchemas"] as Array<Record<string, unknown>>)[0]!)["assetPath"] =
+          "schemas/MISSING.schema.json";
+      },
+    },
+    { name: "name is not focus", mutate: (e) => { e["name"] = "not-focus"; } },
+    { name: "bindings as strings", mutate: (e) => { e["bindings"] = ["bind"]; } },
+    { name: "nonempty bindings", mutate: (e) => { e["bindings"] = [{ target: "x" }]; } },
+    {
+      name: "extra defaults key",
+      mutate: (e) => { atPath(e, ["parameters", "defaults"])["extra"] = 1; },
+    },
+    {
+      name: "added mutation capability",
+      mutate: (e) => {
+        (atPath(e, ["skill"])["capabilities"] as Array<Record<string, unknown>>).push({
+          id: "sentropic.focus.escalate",
+          description: "extra",
+          effect: "mutation",
+          permissions: [],
+        });
+      },
+    },
+    {
+      name: "added second read-only capability",
+      mutate: (e) => {
+        const capabilities = atPath(e, ["skill"])["capabilities"] as Array<Record<string, unknown>>;
+        capabilities.push({ ...(capabilities[0] as Record<string, unknown>) });
+      },
+    },
+    {
+      name: "empty package peers",
+      mutate: (e) => { atPath(e, ["compatibility"])["packages"] = []; },
+    },
+    {
+      name: "open package peer row",
+      mutate: (e) => {
+        ((atPath(e, ["compatibility"])["packages"] as Array<Record<string, unknown>>)[0]!)["surprise"] = 1;
+      },
+    },
+    {
+      name: "nonempty dependencies",
+      mutate: (e) => { atPath(e, ["skill"])["dependencies"] = [{ name: "x" }]; },
+    },
+  ];
+
+  it.each(cases)("$name refuses", ({ mutate }) => {
+    const entry = base();
+    mutate(entry);
+    const result = validateFocusEntryDescriptor(entry);
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.issues.length).toBeGreaterThan(0);
+  });
+
+  it("traversal refuses with a path_escape diagnostic", () => {
+    const entry = base();
+    ((entry["assets"] as Array<Record<string, unknown>>)[0]!)["path"] = "../outside/SKILL.md";
+    const result = validateFocusEntryDescriptor(entry);
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.issues.some((issue) => issue.code === "path_escape")).toBe(true);
+  });
+
+  it("duplicated asset refuses with a duplicate_entry diagnostic", () => {
+    const entry = base();
+    (entry["assets"] as Array<Record<string, unknown>>).push({
+      ...(entry["assets"] as Array<Record<string, unknown>>)[0],
+    });
+    const result = validateFocusEntryDescriptor(entry);
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.issues.some((issue) => issue.code === "duplicate_entry")).toBe(true);
+  });
+});
+
 describe("selection gates instruction access (R4-AC11)", () => {
   it("only the authorized resolve loads instructions, and never mutates parameters", () => {
     const params = mcpAppParams("terminal");
@@ -279,7 +450,7 @@ describe("selection gates instruction access (R4-AC11)", () => {
     let loads = 0;
     const resolved = resolveFocusPresentation(
       params.value,
-      { uiSelectedAndQualified: false, htmlSanitizerAvailable: false },
+      { uiRegistered: false, uiSelected: false, uiQualified: false, htmlSanitizerAvailable: false },
       () => {
         loads += 1;
         return "instructions";
