@@ -303,10 +303,13 @@ export function planReleaseGitSteps({ version, currentBranch }) {
  * RC tag on the merged commit -> owner reboot qualification -> stable tag ->
  * explicit stable installation after successful publication.
  *
- * @param {{ version: string, branch: string, signTag?: boolean }} input
+ * @param {{ version: string, branch: string, signTag?: boolean, focusVersion?: string }} input
  * @returns {string}
  */
-export function formatNextSteps({ version, branch, signTag = false }) {
+export function formatNextSteps({
+  version, branch, signTag = false,
+  focusVersion = JSON.parse(readFileSync(join(REPO_ROOT, "packages/focus/package.json"), "utf8")).version
+}) {
   const tag = `v${version}`;
   const rcTag = `${tag}-rc.1`;
   const tagFlags = signTag ? "-s -a" : "-a";
@@ -320,7 +323,7 @@ export function formatNextSteps({ version, branch, signTag = false }) {
     "",
     "  # 2. Wait for the required CI checks to be green, then merge",
     `  gh pr checks ${branch} --watch --required`,
-    `  gh pr merge ${branch} --squash`,
+    `  gh pr merge ${branch} --merge`,
     "",
     "  # 3. Owner GO: cut an RC on the MERGED commit (never the pre-merge local commit)",
     "  git fetch origin main",
@@ -336,6 +339,9 @@ export function formatNextSteps({ version, branch, signTag = false }) {
     "  # 4. On the owner's machine, check next is the intended RC, then install",
     "  npm view @sentropic/h2a dist-tags.next",
     "  npm i -g @sentropic/h2a@next",
+    `  # Also qualify @sentropic/focus@${focusVersion}-rc.1 (use the matching rc.N)`,
+    "  npm view @sentropic/focus dist-tags.next",
+    `  npm install --prefix ./tmp/focus-consumer-test @sentropic/focus@${focusVersion}-rc.1`,
     "  # Perform a REAL machine reboot; verify startup, reconnection and normal work.",
     "  # Record owner acceptance and the RC run URL. If it fails, fix through a PR",
     "  # and repeat with the next unused rc.N on the new merged commit; never move tags.",
@@ -347,6 +353,7 @@ export function formatNextSteps({ version, branch, signTag = false }) {
     "  # 6. Wait for the entire stable release.yml run to succeed, then exit the RC",
     `  gh run list --workflow release.yml --branch ${tag}`,
     `  npm i -g @sentropic/h2a@${version}`,
+    `  npm install --prefix ./tmp/focus-consumer-test @sentropic/focus@${focusVersion}`,
     "  # h2a upgrade and automatic upgrade reject prerelease versions; install explicitly.",
     "",
     "On tag push, .github/workflows/release.yml runs:",
@@ -354,7 +361,7 @@ export function formatNextSteps({ version, branch, signTag = false }) {
     "  - typecheck + tests",
     "  - version sanity gate; RC versions and exact pins stamped only in CI",
     "  - stable publication requires a successful same-source-tree RC attestation",
-    "  - npm publish --access public via npm Trusted Publishing (four packages; RC uses next)",
+    "  - npm publish --access public via npm Trusted Publishing (five packages; focus version is independent; RC uses next)",
     "  - post-publish install/doctor smoke; RC attestation after registry verification",
     "  - gh release create --generate-notes",
     ""
@@ -384,8 +391,8 @@ function printHelp() {
     [
       "Usage: npm run release -- --version <X.Y.Z> [--dry-run]",
       "",
-      "Runs typecheck + tests, bumps every package to the same X.Y.Z and",
-      "commits `release: vX.Y.Z` on a branch (release/vX.Y.Z when run from",
+      "Runs typecheck + tests, bumps the four lockstep packages to X.Y.Z and",
+      "keeps focus at its independent version. Commits `release: vX.Y.Z` on a branch (release/vX.Y.Z when run from",
       "main; never on main). No tag is created: cut an RC on the merged commit,",
       "qualify it with an owner reboot, then tag stable on the same commit.",
       "Install stable explicitly after publication. Publish happens in CI on tag push",
