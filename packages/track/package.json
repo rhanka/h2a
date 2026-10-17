@@ -53,7 +53,7 @@
     "skills"
   ],
   "scripts": {
-    "build": "node ../../scripts/clean-workspace-dist.mjs && tsc -p tsconfig.build.json",
+    "build": "node ../../scripts/clean-workspace-dist.mjs && tsc -p tsconfig.build.json && node -e \"require('node:fs').mkdirSync('dist/focus-vendor/registry',{recursive:true});require('node:fs').copyFileSync('../focus/registry/entries.v1.json','dist/focus-vendor/registry/entries.v1.json')\"",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",

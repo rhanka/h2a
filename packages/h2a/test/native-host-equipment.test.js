@@ -52,7 +52,7 @@ test('doctor and status expose the mandatory missing-MCP diagnostic without a wr
     assert.doesNotMatch(result.out, /Merge the snippet|Translate the snippet/);
   }
 });
-test('Vibe setup refuses MCP writes including JSON and force', t => {
+test('Vibe setup refuses JSON MCP writes while the TOML direct path stays available', t => {
   const { dir } = fixture(t);
   const path = join(dir, 'mcp.json');
   const result = cli(['host', 'setup', '--host', 'vibe', '--write', path, '--force'], dir);
@@ -61,7 +61,7 @@ test('Vibe setup refuses MCP writes including JSON and force', t => {
 });
 test('native diagnostics redact provider/server secrets and classify every observed direct entry', t => {
   const { dir, vibe } = fixture(t);
-  const config = '[[providers]]\nname="private"\napi_key="must-never-print"\n[[mcp_servers]]\nname="h2a"\ncommand="h2a"\nargs=["mcp-serve"]\n';
+  const config = '[[providers]]\nname="private"\napi_key="must-never-print"\n[[mcp_servers]]\nname="h2a"\ntransport="stdio"\ncommand="h2a"\nargs=["mcp-serve"]\n';
   fs.writeFileSync(join(vibe, 'config.toml'), config);
   const result = cli(['host', 'status', '--host', 'vibe'], dir);
   assert.match(result.out, /voie directe — non migrée/);
