@@ -57,7 +57,10 @@ import {
 } from "./launch-context.js";
 import { SESSION_CLASS_ENV, type SessionClass } from "./session-class.js";
 import type { TunnelConfig } from "./config.js";
-import { withClientTerminalReset } from "./terminal-reset.js";
+import {
+  statusFromSpawnResult,
+  withClientTerminalReset,
+} from "./terminal-reset.js";
 
 const TMUX = "tmux";
 
@@ -2117,7 +2120,7 @@ export function attachLocalSession(name: string): number {
       ? ["switch-client", "-t", `=${name}`]
       : ["attach-session", "-t", `=${name}`];
     const r = spawnSync(TMUX, args, { stdio: "inherit" });
-    return r.status ?? 0;
+    return statusFromSpawnResult(r);
   });
 }
 
@@ -2133,7 +2136,7 @@ export function currentTmuxSessionIs(name: string): boolean {
 export function runLocalCliForeground(command: string, args: string[]): number {
   return withClientTerminalReset(() => {
     const r = spawnSync(command, args, { stdio: "inherit" });
-    return r.status ?? 0;
+    return statusFromSpawnResult(r);
   });
 }
 
@@ -2581,80 +2584,133 @@ export function procReaderDeps(): ProcReaderDeps {
   };
 }
 
+export type AttachPodTmuxDeps = {
+  readonly spawnKubectl?: (
+    args: ReadonlyArray<string>,
+    env: NodeJS.ProcessEnv,
+  ) => { status: number | null; signal: NodeJS.Signals | null; error?: unknown };
+  readonly sleepOnce?: () => {
+    status: number | null;
+    signal: NodeJS.Signals | null;
+  };
+  readonly reset?: () => void;
+  readonly stderr?: Pick<NodeJS.WriteStream, "write">;
+};
+
 /**
  * Attach the real terminal straight into the Pod's tmux session via
  * `kubectl exec -it`. The local terminal talks to tmux directly (no WS proxy),
  * so scrollback + copy-to-local-clipboard (OSC52) work natively. Requires a
  * tmux-backed session (Pod started by the tmux-wrapping agent). Blocks until
- * detach/exit; returns the kubectl exit status.
+ * detach/exit; returns the kubectl exit status (128+n when killed by signal).
+ *
+ * rev351-1: each `kubectl` spawn is wrapped individually (not the whole
+ * reconnect loop) so a killed `kubectl exec` resets the client terminal BEFORE
+ * the diagnostic + sleep. A kubectl killed by signal stops the loop and
+ * reports 128+n — never 0 (clean detach) and never a silent reconnect, so
+ * Ctrl-C stops instead of looping. With no signal trapping the wrapper itself
+ * also dies promptly on SIGINT/SIGTERM (no blocking).
  */
-export function attachPodTmux(tunnel: TunnelConfig, sessionId: string): number {
-  return withClientTerminalReset((): number => {
-    const env = { ...process.env };
-    if (tunnel.kubeconfig) env.KUBECONFIG = expandHome(tunnel.kubeconfig);
-    // The attach CLIENT must be UTF-8 or tmux transcodes accented output to "_"
-    // for it: the Pod's default locale is empty (ASCII), so we force it on the
-    // exec'd tmux client — `env LANG=C.UTF-8` (so tmux detects UTF-8) + `tmux -u`
-    // (force UTF-8 regardless of detection). (capture-pane never transcodes, which
-    // is why a capture test looked fine while the interactive attach showed "_".)
-    const args = [
-      "-n",
-      tunnel.namespace,
-      "exec",
-      "-it",
-      `session-${sessionId}`,
-      "-c",
-      "session-agent",
-      "--",
-      "env",
-      "LANG=C.UTF-8",
-      "LC_ALL=C.UTF-8",
-      "tmux",
-      "-u",
-      "new-session",
-      "-A",
-      "-s",
-      POD_TMUX_SESSION,
-    ];
-    // Long-lived `kubectl exec` streams corrupt over time ("tls: bad record MAC"
-    // / "next reader: local error" from the SPDY/WS executor): the terminal fills
-    // with garbage and the client dies, dumping the user back to their local
-    // shell. The Pod's tmux session SURVIVES that, so we auto-reconnect into it
-    // instead of leaving the user stranded — a clean detach (Ctrl-b d) exits the
-    // tmux client with status 0 and we stop; any non-zero exit is a dropped
-    // stream and we re-exec. If it dies almost instantly several times in a row
-    // the Pod is likely gone, so we give up rather than spin forever.
-    let quickFailures = 0;
-    for (;;) {
-      const startedAt = Date.now();
-      const r = spawnSync("kubectl", args, { stdio: "inherit", env });
-      const status = r.status ?? 0;
-      if (status === 0) {
-        // Clean detach (Ctrl-b d) or exit: the Pod session keeps running — tell
-        // the user how to get back in.
-        process.stderr.write(
-          `[h2a] detached from ${sessionId} — re-attach: h2a attach ${sessionId} --exec\n`,
-        );
-        return 0;
-      }
-      const ranMs = Date.now() - startedAt;
-      if (ranMs < 3000) {
-        quickFailures += 1;
-        if (quickFailures >= 5) {
-          process.stderr.write(
-            `[h2a] exec attach keeps failing immediately (status ${status}) — the Pod may be gone. ` +
-              `Re-run \`h2a attach ${sessionId} --exec\` once it's back.\n`,
-          );
-          return status;
-        }
-      } else {
-        quickFailures = 0; // a real session that ran a while then dropped
-      }
-      process.stderr.write(
-        `[h2a] exec stream dropped (status ${status} — e.g. "tls: bad record MAC" on a long kubectl exec). ` +
-          `Your Pod session is intact; reconnecting to its tmux… (Ctrl-C to stop)\n`,
-      );
-      spawnSync("sleep", ["1"], { stdio: "ignore" });
+export function attachPodTmux(
+  tunnel: TunnelConfig,
+  sessionId: string,
+  deps: AttachPodTmuxDeps = {},
+): number {
+  const env = { ...process.env };
+  if (tunnel.kubeconfig) env.KUBECONFIG = expandHome(tunnel.kubeconfig);
+  // The attach CLIENT must be UTF-8 or tmux transcodes accented output to "_"
+  // for it: the Pod's default locale is empty (ASCII), so we force it on the
+  // exec'd tmux client — `env LANG=C.UTF-8` (so tmux detects UTF-8) + `tmux -u`
+  // (force UTF-8 regardless of detection). (capture-pane never transcodes, which
+  // is why a capture test looked fine while the interactive attach showed "_".)
+  const args = [
+    "-n",
+    tunnel.namespace,
+    "exec",
+    "-it",
+    `session-${sessionId}`,
+    "-c",
+    "session-agent",
+    "--",
+    "env",
+    "LANG=C.UTF-8",
+    "LC_ALL=C.UTF-8",
+    "tmux",
+    "-u",
+    "new-session",
+    "-A",
+    "-s",
+    POD_TMUX_SESSION,
+  ];
+  const spawnKubectl =
+    deps.spawnKubectl ??
+    ((a, e) => spawnSync("kubectl", [...a], { stdio: "inherit", env: e }));
+  const sleepOnce =
+    deps.sleepOnce ?? (() => spawnSync("sleep", ["1"], { stdio: "ignore" }));
+  const stderr = deps.stderr ?? process.stderr;
+  const runReset = (run: () => { status: number | null; signal: unknown }): { status: number | null; signal: NodeJS.Signals | null; error?: unknown } => {
+    if (deps.reset !== undefined) {
+      return withClientTerminalReset(run, deps.reset) as unknown as {
+        status: number | null;
+        signal: NodeJS.Signals | null;
+      };
     }
-  });
+    return withClientTerminalReset(run) as unknown as {
+      status: number | null;
+      signal: NodeJS.Signals | null;
+    };
+  };
+  // Long-lived `kubectl exec` streams corrupt over time ("tls: bad record MAC"
+  // / "next reader: local error" from the SPDY/WS executor): the terminal fills
+  // with garbage and the client dies, dumping the user back to their local
+  // shell. The Pod's tmux session SURVIVES that, so we auto-reconnect into it
+  // instead of leaving the user stranded — a clean detach (Ctrl-b d) exits the
+  // tmux client with status 0 and we stop; any non-zero exit is a dropped
+  // stream and we re-exec. If it dies almost instantly several times in a row
+  // the Pod is likely gone, so we give up rather than spin forever.
+  let quickFailures = 0;
+  for (;;) {
+    const startedAt = Date.now();
+    const r = runReset(() => spawnKubectl(args, env));
+    if (r.signal) {
+      const status = statusFromSpawnResult(r);
+      stderr.write(
+        `[h2a] kubectl attach killed by ${String(r.signal)} (status ${status}) — not reconnecting. ` +
+          `Re-run \`h2a attach ${sessionId} --exec\` once ready.\n`,
+      );
+      return status;
+    }
+    const status = statusFromSpawnResult(r);
+    if (status === 0) {
+      // Clean detach (Ctrl-b d) or exit: the Pod session keeps running — tell
+      // the user how to get back in.
+      stderr.write(
+        `[h2a] detached from ${sessionId} — re-attach: h2a attach ${sessionId} --exec\n`,
+      );
+      return 0;
+    }
+    const ranMs = Date.now() - startedAt;
+    if (ranMs < 3000) {
+      quickFailures += 1;
+      if (quickFailures >= 5) {
+        stderr.write(
+          `[h2a] exec attach keeps failing immediately (status ${status}) — the Pod may be gone. ` +
+            `Re-run \`h2a attach ${sessionId} --exec\` once it's back.\n`,
+        );
+        return status;
+      }
+    } else {
+      quickFailures = 0; // a real session that ran a while then dropped
+    }
+    stderr.write(
+      `[h2a] exec stream dropped (status ${status} — e.g. "tls: bad record MAC" on a long kubectl exec). ` +
+        `Your Pod session is intact; reconnecting to its tmux… (Ctrl-C to stop)\n`,
+    );
+    const slept = runReset(sleepOnce);
+    if ((slept as { signal?: unknown }).signal) {
+      return statusFromSpawnResult(
+        slept as { status: number | null; signal: NodeJS.Signals | null },
+      );
+    }
+  }
 }
