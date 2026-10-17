@@ -1,3 +1,5 @@
+// Vendored from rhanka/engram@545a57b8911ab108e84fa1778e0f268fe11bf1de: engram-live/contracts.ts.
+// Compiled with TypeScript 5.9.3 (ES2022/NodeNext, declarations); do not hand-edit.
 // @sentropic/engram-live/contracts — built, data-pure contract export
 // (spec/SPEC_LIVE_GIT_INDEXING.md §3, §11; plan/09 L1b).
 //

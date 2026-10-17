@@ -16,10 +16,10 @@ const pause = () => {
 };
 
 // Stop AFTER update's revision reread returned its bytes, BEFORE the
-// atomic rename, or BETWEEN the two lock-acquisition mkdirs (cut
-// "acquire": after mkdir(lockDir), before mkdir(lockDir/token)). No fake
+// atomic rename, or after lock publication (cut "acquire"). The old mkdir
+// cut stays too, so the regression kills a return to two-step acquisition. No fake
 // filesystem, clock, module instance or lock is used.
-if (operation === "A" || cut === "hold") {
+if (operation === "A" || cut === "hold" || cut === "acquire") {
   let reads = 0;
   const read = fs.readFileSync;
   fs.readFileSync = function (file, ...args) {
@@ -36,7 +36,9 @@ if (operation === "A" || cut === "hold") {
   const rename = fs.renameSync;
   fs.renameSync = function (from, to) {
     if (String(to) === path && (cut === "rename" || cut === "hold")) pause();
-    return rename.call(this, from, to);
+    const result = rename.call(this, from, to);
+    if (String(to) === lockDir && cut === "acquire") pause();
+    return result;
   };
   syncBuiltinESMExports();
 }
