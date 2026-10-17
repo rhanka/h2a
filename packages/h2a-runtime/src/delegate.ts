@@ -762,13 +762,20 @@ export async function retainBeforeJobRemoval(
   const pinned = JSON.parse(JSON.stringify(request)) as typeof request;
   const { validateRetentionReceipt, validateRetentionRequest } = await import("./vendor/engram-live/contracts.js");
   if (!validateRetentionRequest(pinned).ok) throw new Error("invalid job retention request");
-  await retention.recordRequest(JSON.parse(JSON.stringify(pinned)) as typeof request);
-  const { receipts } = await retention.loadReceipts({ scope: { ...pinned.scope }, algorithm: pinned.algorithm });
-  if (!receipts.some((receipt) => validateRetentionReceipt(receipt).ok &&
-    receipt.scope.tenant === pinned.scope.tenant && receipt.scope.clone === pinned.scope.clone &&
-    receipt.scope.worktree === undefined && receipt.algorithm === pinned.algorithm && receipt.oid === pinned.oid)) {
-    return { removed: false, reason: "retention_gap" };
-  }
+  const { runRetentionPass } = await import("./vendor/engram-live/retention.js");
+  const result = await runRetentionPass({ scope: pinned.scope, now: pinned.requestedAt, roots: [{
+    rev: pinned.oid, qualifiedOid: { algorithm: pinned.algorithm, oid: pinned.oid },
+    sources: [{ signal: pinned.firstSignal, refName: pinned.refName, activityAt: null, worktreeId: null, generation: 1 }],
+  }] }, {
+    // Keep the cleanup request's original provenance; engram owns satisfaction.
+    recordRequest: () => retention.recordRequest(JSON.parse(JSON.stringify(pinned)) as typeof request),
+    recordReceipt: value => retention.recordReceipt(value),
+    async loadReceipts(query) {
+      const loaded = await retention.loadReceipts(query);
+      return { receipts: loaded.receipts.filter(receipt => validateRetentionReceipt(receipt).ok && receipt.scope.worktree === undefined) };
+    },
+  });
+  if (result.state !== "complete") return { removed: false, reason: "retention_gap" };
   await remove();
   return { removed: true };
 }
