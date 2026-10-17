@@ -1,0 +1,26 @@
+{
+  "protocol": "h2a.session-content",
+  "protocolVersion": 2,
+  "kind": "oidc-context",
+  "owner": {
+    "issuer": "https://synthetic-idp.invalid",
+    "subject": "synthetic-owner"
+  },
+  "tenantId": "tenant",
+  "clientId": "source-client",
+  "audience": "source-audience",
+  "authSessionRef": "login",
+  "authSessionVersion": 1,
+  "authSessionExpiresAt": 1800000300000,
+  "tokenExpiresAt": 1800000120000,
+  "acr": "urn:sentropic:loa:passkey-fresh",
+  "amr": [
+    "hwk",
+    "user",
+    "mfa"
+  ],
+  "authTime": 1800000000000,
+  "expiresAt": 1800000120000,
+  "clientPolicyRevision": 1,
+  "mfaEnrolled": true
+}

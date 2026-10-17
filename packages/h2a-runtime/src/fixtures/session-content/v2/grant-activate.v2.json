@@ -1,0 +1,44 @@
+{
+  "protocol": "h2a.session-content",
+  "protocolVersion": 2,
+  "kind": "grant-activate",
+  "requestId": "activate",
+  "requestNonce": "activate-nonce",
+  "connectionId": "connection",
+  "scope": {
+    "authorityEpoch": "epoch",
+    "owner": {
+      "issuer": "https://synthetic-idp.invalid",
+      "subject": "synthetic-owner"
+    },
+    "project": {
+      "tenantId": "tenant",
+      "workspaceId": "workspace",
+      "workspaceIncarnation": "workspace-incarnation",
+      "projectId": "project"
+    },
+    "source": {
+      "workstationId": "workstation",
+      "bindingId": "binding",
+      "bindingVersion": 1,
+      "sourceId": "source",
+      "sourceGeneration": "generation",
+      "sourceBootId": "boot"
+    },
+    "sessionId": "session",
+    "sessionIncarnation": "incarnation",
+    "policyId": "policy",
+    "policyRevision": 1,
+    "consentRevision": 1,
+    "exclusionRevision": 0,
+    "grantId": "grant",
+    "grantVersion": 1
+  },
+  "policyDigest": "08fc651043cee52ad207235b626d686b342d1981be90cb75f2b387634a3f4165",
+  "lease": {
+    "id": "lease",
+    "requestNonce": "lease-nonce",
+    "issuedAt": 1800000000000,
+    "expiresAt": 1800000060000
+  }
+}

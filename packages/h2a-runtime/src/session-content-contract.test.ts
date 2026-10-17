@@ -1,0 +1,58 @@
+import { readFileSync, readdirSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { describe, expect, it } from "vitest";
+import { validateContentMessage, capsuleDirectory } from "./session-content-contract.js";
+import { contentDigest, canonicalJson } from "./session-content-json.js";
+import { ConfirmationBudget, ConfirmationVerifier } from "./session-content-confirmation.js";
+const read = (name: string) => JSON.parse(readFileSync(new URL(name, capsuleDirectory), "utf8"));
+describe("session content capsule", () => {
+  it("should validate every positive fixture and refuse unknown nested fields and wire versions", () => {
+    for (const name of readdirSync(capsuleDirectory).filter(n => n.endsWith('.v2.json') && !n.includes('vectors'))) {
+      const value = read(name); validateContentMessage(value);
+      expect(() => validateContentMessage({ ...value, protocolVersion: 1 })).toThrow();
+      expect(() => validateContentMessage({ ...value, extra: true })).toThrow();
+    }
+    const policy = read('project-policy.v2.json'); policy.policy.owner.extra = true;
+    expect(() => validateContentMessage(policy)).toThrow();
+  });
+  it("should pin all capsule bytes and reproduce canonical digest vectors", () => {
+    const manifest = read('manifest.json');
+    expect(manifest.files.map((f: {path:string})=>f.path)).toEqual(readdirSync(capsuleDirectory).filter(n=>n.endsWith('.json')&&n!=='manifest.json').sort());
+    for (const file of manifest.files) {
+      const bytes = readFileSync(new URL(file.path, capsuleDirectory));
+      expect(bytes.length).toBe(file.bytes);
+      expect(createHash('sha256').update(bytes).digest('hex')).toBe(file.sha256);
+    }
+    for (const vector of read('vectors.v2.json').canonical) {
+      expect(canonicalJson(vector.input)).toBe(vector.canonicalUtf8);
+      expect(contentDigest(vector.purpose, vector.input)).toBe(vector.digest);
+    }
+    expect(read('capabilities.v2.json').native).toEqual([]);
+  });
+  it("should verify actual synthetic signed nonce bytes and reject forged or replayed proof", () => {
+    const v=read('confirmation-vectors.v2.json');
+    const verifier = new ConfirmationVerifier({ issuer:v.challenge.owner.issuer, subject:v.challenge.owner.subject,
+      tenantId:v.challenge.project.tenantId, clientId:v.challenge.clientId, source:v.challenge.source,
+      keys:v.jwks.keys, measuredClockErrorMs:v.measuredClockErrorMs, wallNow:()=>v.wallNow,
+      monotonicNow:()=>v.monotonicNow, budget:new ConfirmationBudget(()=>v.monotonicNow) });
+    const pending=verifier.stage(v.challenge); let consumed=0;
+    expect(()=>verifier.consume(pending,v.forged,{commit:()=>{consumed++;}})).toThrow();
+    verifier.consume(pending,v.valid,{commit:()=>{consumed++;}});
+    expect(()=>verifier.consume(pending,v.valid,{commit:()=>{consumed++;}})).toThrow();
+    expect(consumed).toBe(1);
+  });
+  it("should refuse digest substitutions, invalid bounds and partial archive receipts", () => {
+    for (const c of read('refusals.v2.json').cases) {
+      const value=read(c.fixture); const parts=c.mutation.pointer.slice(1).split('/');
+      let parent=value; for(const p of parts.slice(0,-1)) parent=parent[p];
+      parent[parts.at(-1)!]=c.mutation.value;
+      expect(()=>validateContentMessage(value, {policyDigest:read('project-policy.v2.json').policyDigest}),c.name).toThrow();
+    }
+    const ack=read('source-ack.v2.json'); ack.status='applied';
+    expect(()=>validateContentMessage(ack)).toThrow();
+    const part=read('terminal-fragment.v2.json'); part.byteLength++;
+    expect(()=>validateContentMessage(part)).toThrow();
+    const policy=read('project-policy.v2.json'); policy.policy.history.selected[0].toRecord=1;
+    expect(()=>validateContentMessage(policy)).toThrow();
+  });
+});

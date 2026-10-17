@@ -1,0 +1,64 @@
+{
+  "synthetic": true,
+  "session": {
+    "protocol": "h2a.session-content",
+    "protocolVersion": 2,
+    "kind": "oidc-session",
+    "authSessionRef": "login",
+    "owner": {
+      "issuer": "https://synthetic-idp.invalid",
+      "subject": "synthetic-owner"
+    },
+    "tenantId": "tenant",
+    "authenticatedAt": 1800000000000,
+    "sessionExpiresAt": 1800000300000,
+    "sessionVersion": 1,
+    "status": "active",
+    "credentialRefs": [
+      "synthetic-credential"
+    ],
+    "revokedAt": null,
+    "revocationReason": null,
+    "tokenRefs": [
+      "synthetic-token-reference"
+    ]
+  },
+  "tokenMapping": {
+    "access": "synthetic-access",
+    "refresh": "synthetic-refresh",
+    "authSessionRef": "login",
+    "sessionVersion": 1
+  },
+  "transitions": [
+    {
+      "event": "renew",
+      "expected": "allowed"
+    },
+    {
+      "event": "rotate-refresh",
+      "expected": "same-login-only"
+    },
+    {
+      "event": "other-login",
+      "expected": "refused"
+    },
+    {
+      "event": "revoke-before-renew-commit",
+      "expected": "refused"
+    },
+    {
+      "event": "logout",
+      "expected": "refused"
+    },
+    {
+      "event": "legacy-unmapped-token",
+      "expected": "refused"
+    },
+    {
+      "event": "credential-revocation",
+      "expected": "refused"
+    }
+  ],
+  "nativePauseNoLaterThan": 1800000060000,
+  "qualification": "requires-real-session-aware-service"
+}

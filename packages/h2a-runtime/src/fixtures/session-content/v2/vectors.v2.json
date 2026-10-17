@@ -1,0 +1,154 @@
+{
+  "synthetic": true,
+  "canonical": [
+    {
+      "purpose": "policy",
+      "input": {
+        "id": "policy",
+        "revision": 1,
+        "owner": {
+          "issuer": "https://synthetic-idp.invalid",
+          "subject": "synthetic-owner"
+        },
+        "project": {
+          "tenantId": "tenant",
+          "workspaceId": "workspace",
+          "workspaceIncarnation": "workspace-incarnation",
+          "projectId": "project"
+        },
+        "destination": "https://synthetic-sentropic.invalid",
+        "sources": [
+          {
+            "workstationId": "workstation",
+            "bindingId": "binding",
+            "bindingVersion": 1,
+            "sourceId": "source",
+            "sourceGeneration": "generation",
+            "sourceBootId": "boot"
+          }
+        ],
+        "sessions": {
+          "selected": [
+            "session"
+          ],
+          "future": false
+        },
+        "channels": {
+          "terminalLive": true,
+          "terminalCache": true,
+          "nativeHistory": true
+        },
+        "history": {
+          "mode": "selected",
+          "selected": [
+            {
+              "lineageId": "lineage",
+              "checkpointId": null,
+              "fromRecord": null,
+              "toRecord": null
+            }
+          ]
+        },
+        "retentionByChannel": {
+          "terminalCache": {
+            "mode": "duration",
+            "durationSeconds": 604800
+          },
+          "nativeHistory": {
+            "mode": "unbounded"
+          }
+        },
+        "exclusionRevision": 0
+      },
+      "canonicalUtf8": "{\"channels\":{\"nativeHistory\":true,\"terminalCache\":true,\"terminalLive\":true},\"destination\":\"https://synthetic-sentropic.invalid\",\"exclusionRevision\":0,\"history\":{\"mode\":\"selected\",\"selected\":[{\"checkpointId\":null,\"fromRecord\":null,\"lineageId\":\"lineage\",\"toRecord\":null}]},\"id\":\"policy\",\"owner\":{\"issuer\":\"https://synthetic-idp.invalid\",\"subject\":\"synthetic-owner\"},\"project\":{\"projectId\":\"project\",\"tenantId\":\"tenant\",\"workspaceId\":\"workspace\",\"workspaceIncarnation\":\"workspace-incarnation\"},\"retentionByChannel\":{\"nativeHistory\":{\"mode\":\"unbounded\"},\"terminalCache\":{\"durationSeconds\":604800,\"mode\":\"duration\"}},\"revision\":1,\"sessions\":{\"future\":false,\"selected\":[\"session\"]},\"sources\":[{\"bindingId\":\"binding\",\"bindingVersion\":1,\"sourceBootId\":\"boot\",\"sourceGeneration\":\"generation\",\"sourceId\":\"source\",\"workstationId\":\"workstation\"}]}",
+      "digest": "08fc651043cee52ad207235b626d686b342d1981be90cb75f2b387634a3f4165"
+    },
+    {
+      "purpose": "scope",
+      "input": {
+        "authorityEpoch": "epoch",
+        "owner": {
+          "issuer": "https://synthetic-idp.invalid",
+          "subject": "synthetic-owner"
+        },
+        "project": {
+          "tenantId": "tenant",
+          "workspaceId": "workspace",
+          "workspaceIncarnation": "workspace-incarnation",
+          "projectId": "project"
+        },
+        "source": {
+          "workstationId": "workstation",
+          "bindingId": "binding",
+          "bindingVersion": 1,
+          "sourceId": "source",
+          "sourceGeneration": "generation",
+          "sourceBootId": "boot"
+        },
+        "sessionId": "session",
+        "sessionIncarnation": "incarnation",
+        "policyId": "policy",
+        "policyRevision": 1,
+        "consentRevision": 1,
+        "exclusionRevision": 0,
+        "grantId": "grant",
+        "grantVersion": 1
+      },
+      "canonicalUtf8": "{\"authorityEpoch\":\"epoch\",\"consentRevision\":1,\"exclusionRevision\":0,\"grantId\":\"grant\",\"grantVersion\":1,\"owner\":{\"issuer\":\"https://synthetic-idp.invalid\",\"subject\":\"synthetic-owner\"},\"policyId\":\"policy\",\"policyRevision\":1,\"project\":{\"projectId\":\"project\",\"tenantId\":\"tenant\",\"workspaceId\":\"workspace\",\"workspaceIncarnation\":\"workspace-incarnation\"},\"sessionId\":\"session\",\"sessionIncarnation\":\"incarnation\",\"source\":{\"bindingId\":\"binding\",\"bindingVersion\":1,\"sourceBootId\":\"boot\",\"sourceGeneration\":\"generation\",\"sourceId\":\"source\",\"workstationId\":\"workstation\"}}",
+      "digest": "1c9acfc3d78f2b40977bedbee13d5089d9b116784a5b51237e9d9288995117ac"
+    }
+  ],
+  "transitions": [
+    {
+      "from": "off",
+      "event": "authenticate",
+      "to": "off",
+      "expected": {
+        "sourceContentReads": 0,
+        "contentSubscriptions": 0,
+        "serializedContentBytes": 0,
+        "exportBytes": 0,
+        "ingressBodyReads": 0,
+        "storedBytes": 0,
+        "importCommits": 0,
+        "nativeWrites": 0,
+        "processStarts": 0,
+        "keyboardAcquires": 0
+      }
+    },
+    {
+      "from": "pending",
+      "event": "exclude",
+      "to": "denied",
+      "expected": {
+        "sourceContentReads": 0,
+        "contentSubscriptions": 0,
+        "serializedContentBytes": 0,
+        "exportBytes": 0,
+        "ingressBodyReads": 0,
+        "storedBytes": 0,
+        "importCommits": 0,
+        "nativeWrites": 0,
+        "processStarts": 0,
+        "keyboardAcquires": 0
+      }
+    },
+    {
+      "from": "staged",
+      "event": "wrong-ack",
+      "to": "paused",
+      "expected": {
+        "sourceContentReads": 0,
+        "contentSubscriptions": 0,
+        "serializedContentBytes": 0,
+        "exportBytes": 0,
+        "ingressBodyReads": 0,
+        "storedBytes": 0,
+        "importCommits": 0,
+        "nativeWrites": 0,
+        "processStarts": 0,
+        "keyboardAcquires": 0
+      }
+    }
+  ]
+}

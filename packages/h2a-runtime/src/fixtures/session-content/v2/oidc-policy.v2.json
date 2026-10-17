@@ -1,0 +1,27 @@
+{
+  "protocol": "h2a.session-content",
+  "protocolVersion": 2,
+  "kind": "oidc-policy",
+  "issuer": "https://synthetic-idp.invalid",
+  "sourceClientId": "source-client",
+  "sourceAudience": "source-audience",
+  "confirmationClientId": "confirmation-client",
+  "confirmationAudience": "confirmation-client",
+  "requiredAcr": "urn:sentropic:loa:passkey-fresh",
+  "requiredAmr": [
+    "hwk",
+    "user",
+    "mfa"
+  ],
+  "forceReauthEveryAuthorization": true,
+  "bindUvEventToAuthorization": true,
+  "singleUseUvEvent": true,
+  "sourceSessionBinding": "idp-login-record",
+  "requireUserVerification": true,
+  "denyWeakFallback": true,
+  "policyRevision": 1,
+  "allowedSubject": "synthetic-owner",
+  "tenantId": "tenant",
+  "maxConfirmationSeconds": 60,
+  "maxClockErrorMs": 5000
+}

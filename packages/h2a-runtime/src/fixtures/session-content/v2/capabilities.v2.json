@@ -1,0 +1,39 @@
+{
+  "protocol": "h2a.session-content",
+  "protocolVersion": 2,
+  "kind": "capabilities",
+  "content": "h2a.session-content/2",
+  "archive": "h2a.session-archive/1",
+  "runtime": {
+    "packageVersion": "0.0.0-synthetic",
+    "gitSha": "0000000000000000000000000000000000000000",
+    "packageIntegrity": "sha512-synthetic-not-a-package",
+    "hostBuildHash": "0000000000000000000000000000000000000000000000000000000000000000",
+    "exporterBuildHash": "0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "terminal": true,
+  "native": [],
+  "importMode": "isolated-data",
+  "resumable": false,
+  "limits": {
+    "segmentDecodedBytes": 262144,
+    "segmentEncodedBytes": 1048576,
+    "queueBytes": 1048576,
+    "fileCount": 10000,
+    "fileBytes": 67108864,
+    "archiveBytes": 268435456,
+    "hostQueueBytes": 4194304,
+    "pendingConfirmationsPerOwnerSource": 4,
+    "pendingConfirmationsPerHost": 16,
+    "ownerChallengeStartsPerMinute": 6,
+    "ownerChallengeBurst": 4,
+    "hostChallengeStartsPerMinute": 24,
+    "hostChallengeBurst": 16,
+    "concurrentImportsPerWorkstation": 1,
+    "concurrentExportsPerWorkstation": 2,
+    "archiveStartsPer10MinutesPerHost": 4,
+    "archiveStartBurst": 3,
+    "archiveWorkerBufferBytesPerHost": 8388608,
+    "queuedArchiveJobs": 0
+  }
+}

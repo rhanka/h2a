@@ -1,0 +1,44 @@
+{
+  "protocol": "h2a.session-content",
+  "protocolVersion": 2,
+  "kind": "native-part",
+  "scope": {
+    "authorityEpoch": "epoch",
+    "owner": {
+      "issuer": "https://synthetic-idp.invalid",
+      "subject": "synthetic-owner"
+    },
+    "project": {
+      "tenantId": "tenant",
+      "workspaceId": "workspace",
+      "workspaceIncarnation": "workspace-incarnation",
+      "projectId": "project"
+    },
+    "source": {
+      "workstationId": "workstation",
+      "bindingId": "binding",
+      "bindingVersion": 1,
+      "sourceId": "source",
+      "sourceGeneration": "generation",
+      "sourceBootId": "boot"
+    },
+    "sessionId": "session",
+    "sessionIncarnation": "incarnation",
+    "policyId": "policy",
+    "policyRevision": 1,
+    "consentRevision": 1,
+    "exclusionRevision": 0,
+    "grantId": "grant",
+    "grantVersion": 1
+  },
+  "connectionId": "connection",
+  "leaseId": "lease",
+  "snapshotId": "snapshot",
+  "fileSha256": "c3e1919b990362bd942a27b2d117ce41afa06495c3daf33fe5084bba03b57657",
+  "byteOffset": 0,
+  "byteLength": 49,
+  "totalBytes": 49,
+  "payloadB64": "eyJ0eXBlIjoidXNlciIsInRleHQiOiJzeW50aGV0aWMgaW5lcnQgaGlzdG9yeSJ9Cg",
+  "payloadHash": "c3e1919b990362bd942a27b2d117ce41afa06495c3daf33fe5084bba03b57657",
+  "final": true
+}

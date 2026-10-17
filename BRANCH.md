@@ -766,3 +766,8 @@ the root concurrency defect is fixed without introducing a persistent global loc
 ### CM2-F2 continuation — A durable primitive
 - [x] Explicit private-directory fsync proof journal, durable denial floors, stale-fence and restart tests.
 - [ ] A deployed IdP/login and actual provider tuple remain external acceptance gates; continue B–D preparation without declaring contract freeze.
+
+### CM2-F2 continuation — B preparatory capsule
+- [x] All 25 v2 message fixtures, strict structural schema, semantic validator, signed JWT/digest vectors, unsupported legacy capability guard, build-copy wiring.
+- [x] 5/5 named cases on Node 22/24; isolated full track/core/runtime compilation and packed capsule byte comparison.
+- [ ] Contract freeze, full transition-vector breadth and Sentropic adapter execution wait on A and the receiving repository. Synthetic tuple is never advertised as supported.

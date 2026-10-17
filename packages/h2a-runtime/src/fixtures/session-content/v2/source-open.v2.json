@@ -1,0 +1,18 @@
+{
+  "protocol": "h2a.session-content",
+  "protocolVersion": 2,
+  "kind": "source-open",
+  "requestId": "open",
+  "requestNonce": "open-nonce",
+  "bindingId": "binding",
+  "sourceGeneration": "generation",
+  "sourceBootId": "boot",
+  "runtime": {
+    "packageVersion": "0.0.0-synthetic",
+    "gitSha": "0000000000000000000000000000000000000000",
+    "packageIntegrity": "sha512-synthetic-not-a-package",
+    "hostBuildHash": "0000000000000000000000000000000000000000000000000000000000000000",
+    "exporterBuildHash": "0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "capabilitiesDigest": "43efcd6ba40fac209167fe1c73ca1b076e53298f4220586e7a822530e3290859"
+}

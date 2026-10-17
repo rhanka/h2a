@@ -1,0 +1,40 @@
+{
+  "protocol": "h2a.session-content",
+  "protocolVersion": 2,
+  "kind": "terminal-gap",
+  "scope": {
+    "authorityEpoch": "epoch",
+    "owner": {
+      "issuer": "https://synthetic-idp.invalid",
+      "subject": "synthetic-owner"
+    },
+    "project": {
+      "tenantId": "tenant",
+      "workspaceId": "workspace",
+      "workspaceIncarnation": "workspace-incarnation",
+      "projectId": "project"
+    },
+    "source": {
+      "workstationId": "workstation",
+      "bindingId": "binding",
+      "bindingVersion": 1,
+      "sourceId": "source",
+      "sourceGeneration": "generation",
+      "sourceBootId": "boot"
+    },
+    "sessionId": "session",
+    "sessionIncarnation": "incarnation",
+    "policyId": "policy",
+    "policyRevision": 1,
+    "consentRevision": 1,
+    "exclusionRevision": 0,
+    "grantId": "grant",
+    "grantVersion": 1
+  },
+  "connectionId": "connection",
+  "channel": "terminal.live",
+  "fromSeq": 1,
+  "toSeq": 7,
+  "reason": "not-collected",
+  "contiguousThroughSeq": 0
+}

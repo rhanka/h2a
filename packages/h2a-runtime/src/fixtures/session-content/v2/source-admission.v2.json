@@ -1,0 +1,14 @@
+{
+  "protocol": "h2a.session-content",
+  "protocolVersion": 2,
+  "kind": "source-admission",
+  "method": "POST",
+  "path": "/api/v1/auth/session/content/binding/fragments",
+  "sourceSessionId": "source-session",
+  "connectionId": "connection",
+  "requestId": "fragment",
+  "scopeDigest": "1c9acfc3d78f2b40977bedbee13d5089d9b116784a5b51237e9d9288995117ac",
+  "leaseId": "lease",
+  "bodyBytes": 957,
+  "bodyHash": "779587e35e2bc84cb5dfbc0f1eb1b150a600a49e13acdad160dca096a26e630a"
+}
