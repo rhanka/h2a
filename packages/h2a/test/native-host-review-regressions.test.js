@@ -9,6 +9,7 @@ import { convergeNativeHost } from '../dist/hosts/native-convergence.js';
 import { digest, readNativeManifest } from '../dist/hosts/native-files.js';
 import { planVibeEquipment } from '../dist/hosts/vibe-equipment.js';
 import { createHash } from 'node:crypto';
+const PACKAGE_VERSION = JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version;
 function lane(t) {
   const home = fs.mkdtempSync(join(tmpdir(), 'review-native-')), previous = { ...process.env };
   Object.assign(process.env, { HOME: home, VIBE_HOME: '', MUSE_HOME: '', GEMINI_CLI_HOME: '' });
@@ -29,8 +30,8 @@ for (const host of ['vibe', 'muse', 'agy', 'gemini']) {
     assert.equal(fs.existsSync(join(home, '.vibe')), false);
     assert.ok(result.json().installed.length > 0);
     const shared = host === 'agy' || host === 'gemini';
-    assert.ok(fs.existsSync(shared ? join(base, 'skill-resources/track/0.98.6/branch-lifecycle/assets/check.sh') : join(base, 'skills/branch-lifecycle/assets/check.sh')));
-    if (shared) assert.match(fs.readFileSync(join(base, 'commands/present-decision.toml'), 'utf8'), /skill-resources\/track\/0\.98\.6\/present-decision\/assets\//);
+    assert.ok(fs.existsSync(shared ? join(base, `skill-resources/track/${PACKAGE_VERSION}/branch-lifecycle/assets/check.sh`) : join(base, 'skills/branch-lifecycle/assets/check.sh')));
+    if (shared) assert.ok(fs.readFileSync(join(base, 'commands/present-decision.toml'), 'utf8').includes(`skill-resources/track/${PACKAGE_VERSION}/present-decision/assets/`));
   });
   test(`${host} force restores a modified managed user skill but preserves unknown files`, t => {
     const { home, cli } = lane(t), args = ['install-skills', '--host', host];
