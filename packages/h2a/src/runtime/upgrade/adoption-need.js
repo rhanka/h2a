@@ -18,8 +18,12 @@ function checkTargetShape(target) {
 
 export function assessAdoptionNeed(envelope = {}) {
   if (!envelope || typeof envelope !== 'object' || Array.isArray(envelope)) throw new Error('adoption_assessment_invalid');
-  const { managed, physical, target } = envelope;
+  const { managed, physical, target, management } = envelope;
   checkTargetShape(target);
+  if (management !== undefined) {
+    if (!management || typeof management !== 'object' || Array.isArray(management)) throw new Error('adoption_assessment_invalid');
+    if (management.optedOut === true) return need('management_opted_out');
+  }
   if (managed == null || typeof managed !== 'object' || Array.isArray(managed)) return need('managed_installation_absent');
   if (managed.selection == null) return need('managed_selection_absent');
   if (typeof managed.prefixId === 'string' && typeof physical?.prefixId === 'string' &&

@@ -3,11 +3,11 @@
   "files": [
     {
       "path": "packages/h2a/src/runtime/upgrade/adoption-need.js",
-      "sha256": "a2d8592bed11becae47a04eb3406ab30815e008d9df964760ab778dee9d5dc63"
+      "sha256": "09a343154b5a6f1f2acb1d52e1bf5426c2a6714ae2384eec544546956ff5bf4c"
     },
     {
       "path": "packages/h2a/dist/runtime/upgrade/adoption-need.js",
-      "sha256": "e1d0214e974ea37cf5779541423a36e557027c4ba18109ae29800e1f9792fc63"
+      "sha256": "225a3547c949f2ed1da23977a687b49c37bb0940c9dd5094b61b6d6b224954d5"
     }
   ],
   "results": [
@@ -57,6 +57,18 @@
       "name": "target-shape",
       "red": "docs/plan/mh-l6/evidence/mh-l6-adoption.test.js-node24-mutation-target-shape-red.log",
       "green": "docs/plan/mh-l6/evidence/mh-l6-adoption.test.js-node24-mutation-target-shape-green.log",
+      "restored": true
+    },
+    {
+      "name": "opt-out-check",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-adoption.test.js-node24-mutation-opt-out-check-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-adoption.test.js-node24-mutation-opt-out-check-green.log",
+      "restored": true
+    },
+    {
+      "name": "opt-out-reason",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-adoption.test.js-node24-mutation-opt-out-reason-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-adoption.test.js-node24-mutation-opt-out-reason-green.log",
       "restored": true
     }
   ]

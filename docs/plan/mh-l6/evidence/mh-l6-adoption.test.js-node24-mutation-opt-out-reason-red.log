@@ -1,0 +1,40 @@
+command: /tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-adoption.test.js
+node: v24.21.0
+private root: /tmp/mh-l6-test-ExkRev
+case: D should report opt-out even when nothing is managed yet
+TAP version 13
+# Subtest: D should report opt-out even when nothing is managed yet
+not ok 1 - D should report opt-out even when nothing is managed yet
+  ---
+  duration_ms: 59.869768
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-d2-0l6ViG/packages/h2a/test/mh-l6-adoption.test.js:17:67'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    + actual - expected
+    
+    + 'already_adopted'
+    - 'management_opted_out'
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 'management_opted_out'
+  actual: 'already_adopted'
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/mh-l3-qualification-d2-0l6ViG/packages/h2a/test/mh-l6-adoption.test.js:105:10)
+    async Test.run (node:internal/test_runner/test:1409:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3)
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 0
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 106.678379
+
+receipt: {"command":["/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-adoption.test.js"],"code":1,"signal":null,"tests":1,"invalid":false,"spawned":1,"leftovers":[]}
