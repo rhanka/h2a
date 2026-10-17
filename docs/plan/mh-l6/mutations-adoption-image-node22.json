@@ -1,0 +1,39 @@
+{
+  "node": "v22.22.1",
+  "files": [
+    {
+      "path": "packages/h2a/src/runtime/upgrade/adoption-image.js",
+      "sha256": "0ba00922d952f2e9b7e6efd393c124003304409fefc55f83fac50d457200bbd6"
+    },
+    {
+      "path": "packages/h2a/dist/runtime/upgrade/adoption-image.js",
+      "sha256": "66d28ab467b41386b9844f4c30d300fcc1eba4b544b8f13dc0d68248fca40d05"
+    }
+  ],
+  "results": [
+    {
+      "name": "drift-check",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-image-prepare.test.js-node22-mutation-drift-check-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-image-prepare.test.js-node22-mutation-drift-check-green.log",
+      "restored": true
+    },
+    {
+      "name": "digest-check",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-image-prepare.test.js-node22-mutation-digest-check-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-image-prepare.test.js-node22-mutation-digest-check-green.log",
+      "restored": true
+    },
+    {
+      "name": "runtime-check",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-image-prepare.test.js-node22-mutation-runtime-check-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-image-prepare.test.js-node22-mutation-runtime-check-green.log",
+      "restored": true
+    },
+    {
+      "name": "conflict-check",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-image-prepare.test.js-node22-mutation-conflict-check-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-image-prepare.test.js-node22-mutation-conflict-check-green.log",
+      "restored": true
+    }
+  ]
+}
