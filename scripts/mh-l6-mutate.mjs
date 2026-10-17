@@ -52,13 +52,22 @@ const cases = [
   ['selection', 'backup-persistence', "if (!last) publishState(backup, intent, 'selection');", 'if (!last) {}', nominal],
   ['selection', 'pin-persistence', "if (!prior) publishState(path, pin, 'imagePin');", '', nominal],
   ['selection', 'selection-directory-sync', 'syncDirectory(this.state);', '', 'U05 should reconcile every selection persistence cut forward without a second epoch'],
+  ['exclusion', 'workers-closure', "'workersTerminated', 'relaunchSourcesClosed'", "'relaunchSourcesClosed'", 'B2 should report unfenced when legacy workers may still terminate late'],
+  ['exclusion', 'relaunch-closure', "'relaunchSourcesClosed', 'futureStartsRouted'", "'futureStartsRouted'", 'B2 should report unfenced when relaunch sources stay open'],
+  ['exclusion', 'routing-closure', "'futureStartsRouted', 'installerReintroductionBarred'", "'installerReintroductionBarred'", 'B2 should report unfenced when future starts are not routed'],
+  ['exclusion', 'installer-closure', "'futureStartsRouted', 'installerReintroductionBarred'", "'futureStartsRouted'", 'B2 should report unfenced when retained processes may reintroduce the installer'],
+  ['exclusion', 'stated-basis', "typeof entry.detail !== 'string' || !entry.detail", 'false', 'B2 should report unfenced when a closure lacks its stated basis'],
+  ['exclusion', 'strict-established', 'entry.established !== true', '!entry.established', 'B2 should report unfenced when a closure lacks its stated basis'],
+  ['exclusion', 'envelope-rejection', "throw new Error('legacy_exclusion_evidence_invalid');", "return Object.freeze({ fenced: true, reason: 'legacy_exclusion_verified', missing: Object.freeze([]) });", 'B2 should refuse an invalid exclusion envelope instead of verdicting'],
+  ['exclusion', 'default-unfenced', "fenced: false, reason: 'legacy_installer_unfenced'", "fenced: true, reason: 'legacy_exclusion_verified'", 'B2 should report unfenced when legacy workers may still terminate late'],
 ];
 const files = group === 'launcher' ? ['packages/h2a/src/runtime/upgrade/managed-launcher.js'] :
+  group === 'exclusion' ? ['packages/h2a/src/runtime/upgrade/legacy-exclusion.js', 'packages/h2a/dist/runtime/upgrade/legacy-exclusion.js'] :
   ['packages/h2a/src/runtime/upgrade/h4-store.js', 'packages/h2a/dist/runtime/upgrade/h4-store.js'];
 const originals = files.map(path => ({ path, bytes: fs.readFileSync(path) }));
 const selected = cases.filter(c => c[0] === group && (!process.env.MH_L6_MUTATION || c[1] === process.env.MH_L6_MUTATION));
 if (!selected.length) throw new Error('unknown_mutation_group');
-const file = `packages/h2a/test/mh-l6-${['delegation', 'launcher'].includes(group) ? group : 'selection'}.test.js`;
+const file = `packages/h2a/test/mh-l6-${['delegation', 'launcher', 'exclusion'].includes(group) ? group : 'selection'}.test.js`;
 const results = [];
 for (const [, name, from, to, scenario] of selected) {
   const run = color => {
