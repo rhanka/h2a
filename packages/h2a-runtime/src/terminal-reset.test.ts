@@ -1,8 +1,10 @@
+import { constants as osConstants } from "node:os";
 import { describe, expect, it } from "vitest";
 import { TerminalModeTracker } from "./native-terminal/terminal-modes.js";
 import {
   CLIENT_TERMINAL_RESET_SEQUENCE,
   resetClientTerminal,
+  SIGNAL_NUMBERS,
   statusFromSpawnResult,
   withClientTerminalReset,
 } from "./terminal-reset.js";
@@ -35,6 +37,17 @@ describe("client terminal reset", () => {
     // rev351-3.1: pop both Kitty keyboard stacks (alternate before leaving
     // it, main after): the two screens own independent stacks.
     expect(CLIENT_TERMINAL_RESET_SEQUENCE).toContain(`${E}[<16u`);
+    // rev351r2-3: pin the COUNT (2) and the ORDER around the
+    // alternate-screen exit — dropping the second pop leaves pushed Kitty
+    // flags stranded on the main screen.
+    const pops = CLIENT_TERMINAL_RESET_SEQUENCE.split(`${E}[<16u`).length - 1;
+    expect(pops).toBe(2);
+    expect(CLIENT_TERMINAL_RESET_SEQUENCE.indexOf(`${E}[<16u`)).toBeLessThan(
+      CLIENT_TERMINAL_RESET_SEQUENCE.indexOf(`${E}[?1049l`),
+    );
+    expect(
+      CLIENT_TERMINAL_RESET_SEQUENCE.lastIndexOf(`${E}[<16u`),
+    ).toBeGreaterThan(CLIENT_TERMINAL_RESET_SEQUENCE.indexOf(`${E}[?1049l`));
     // Explicit mouse + focus + paste + screen + cursor coverage (the DEC
     // loop above already covers them via the tracker, but pin them so a
     // narrowed sequence cannot slip through).
@@ -123,6 +136,21 @@ describe("client terminal reset", () => {
     expect(statusFromSpawnResult({ status: null, signal: "SIGHUP" })).toBe(129);
     expect(statusFromSpawnResult({ status: null, signal: "SIGKILL" })).toBe(137);
     expect(statusFromSpawnResult({ status: null, signal: null })).not.toBe(0);
+    // rev351r2-3: a spawn error reports 127, never the status fallback.
+    expect(
+      statusFromSpawnResult({
+        status: null,
+        signal: null,
+        error: new Error("ENOENT"),
+      }),
+    ).toBe(127);
+    expect(
+      statusFromSpawnResult({
+        status: 0,
+        signal: null,
+        error: new Error("EACCES"),
+      }),
+    ).toBe(127);
   });
 
   it("should restore stdin raw mode even when the child leaves it raw", () => {
@@ -168,5 +196,17 @@ describe("client terminal reset", () => {
   it("should not touch a non-TTY stdout", () => {
     expect(resetClientTerminal({ isTTY: false, fd: 1 })).toBe(false);
     expect(resetClientTerminal({ isTTY: undefined, fd: 1 })).toBe(false);
+  });
+
+  it("should read signal numbers from the running platform (rev351r2-6)", () => {
+    // A frozen Linux literal mis-maps macOS/BSD crash signals (SIGBUS,
+    // SIGUSR1, SIGCHLD, ...); the table must agree with os.constants.signals
+    // wherever the platform knows the name.
+    for (const [name, number] of Object.entries(osConstants.signals)) {
+      const mapped = SIGNAL_NUMBERS[name];
+      if (mapped !== undefined) expect(mapped, name).toBe(number);
+    }
+    expect(SIGNAL_NUMBERS["SIGTERM"]).toBe(osConstants.signals.SIGTERM);
+    expect(SIGNAL_NUMBERS["SIGINT"]).toBe(osConstants.signals.SIGINT);
   });
 });

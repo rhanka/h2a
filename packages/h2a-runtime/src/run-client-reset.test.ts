@@ -1,9 +1,32 @@
+import { createServer } from "node:net";
 import { describe, expect, it } from "vitest";
 
 import type { PtyHandle, PtySpawner } from "./pty.js";
 import { run } from "./run.js";
 
 const E = "\x1b";
+
+const CLIENT_SIGNALS = ["SIGHUP", "SIGINT", "SIGQUIT", "SIGTERM"] as const;
+
+function baselineListeners(): number[] {
+  return CLIENT_SIGNALS.map((s) => process.listenerCount(s));
+}
+
+function expectNoListenerLeak(before: number[]): void {
+  CLIENT_SIGNALS.forEach((s, i) => {
+    expect(process.listenerCount(s)).toBe(before[i]);
+  });
+}
+
+function removeExtraListeners(before: number[]): void {
+  CLIENT_SIGNALS.forEach((s, i) => {
+    const extra = process.listenerCount(s) - (before[i] ?? 0);
+    if (extra <= 0) return;
+    for (const listener of process.listeners(s).slice(-extra)) {
+      process.removeListener(s, listener);
+    }
+  });
+}
 
 type StubPty = PtyHandle & {
   emitData(chunk: string): void;
@@ -138,5 +161,71 @@ describe("run client terminal reset (rev351-2)", () => {
     expect(
       (stdin as unknown as { rawCalls: boolean[] }).rawCalls,
     ).toContain(false);
+  });
+
+  it("should reset, restore raw and exit 143 on SIGTERM (rev351r2-2)", async () => {
+    const { spawner, pty } = stubSpawner();
+    let killed = false;
+    (pty as unknown as { kill(): void }).kill = () => {
+      killed = true;
+    };
+    const stdin = ttyStdin();
+    const stdout = ttyStdout();
+    const before = baselineListeners();
+    const result = await run({
+      profile: "shell",
+      port: 0,
+      spawner,
+      stdin,
+      stdout,
+      initialSize: { cols: 80, rows: 24 },
+    });
+    const exitCodes: Array<number | undefined> = [];
+    const realExit = process.exit;
+    process.exit = ((code?: number) => {
+      exitCodes.push(code);
+      return undefined as never;
+    }) as typeof process.exit;
+    try {
+      process.emit("SIGTERM");
+    } finally {
+      process.exit = realExit;
+      removeExtraListeners(before);
+    }
+    expect(killed).toBe(true);
+    expect(exitCodes).toEqual([143]);
+    const out = stdout.written.join("");
+    expect(out).toContain(`${E}[?1004l`);
+    expect(stdin.rawCalls).toContain(false);
+    pty.emitExit(0);
+    await result.exit;
+    expectNoListenerLeak(before);
+  });
+
+  it("should restore the terminal when the control-plane listen fails (rev351r2-5)", async () => {
+    const holder = createServer();
+    await new Promise<void>((resolve) => holder.listen(0, "127.0.0.1", resolve));
+    const addr = holder.address();
+    if (!addr || typeof addr !== "object") throw new Error("probe has no port");
+    try {
+      const { spawner, pty } = stubSpawner();
+      let killed = false;
+      (pty as unknown as { kill(): void }).kill = () => {
+        killed = true;
+      };
+      const stdin = ttyStdin();
+      const stdout = ttyStdout();
+      const before = baselineListeners();
+      await expect(
+        run({ profile: "shell", port: addr.port, spawner, stdin, stdout }),
+      ).rejects.toThrow(/EADDRINUSE/);
+      const out = stdout.written.join("");
+      expect(out).toContain(`${E}[?1004l`);
+      expect(stdin.rawCalls).toContain(false);
+      expect(killed).toBe(true);
+      expectNoListenerLeak(before);
+    } finally {
+      holder.close();
+    }
   });
 });

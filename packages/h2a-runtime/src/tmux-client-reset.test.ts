@@ -40,13 +40,20 @@ describe("attachPodTmux client reset (rev351-1)", () => {
 
   it("should stop on kubectl SIGTERM and report 143", () => {
     const { stderr } = nullStderr();
+    let calls = 0;
     const code = attachPodTmux(tunnel, "sess-1", {
-      spawnKubectl: () => ({ status: null, signal: "SIGTERM" }),
+      spawnKubectl: () => {
+        calls += 1;
+        return { status: null, signal: "SIGTERM" };
+      },
       sleepOnce: () => ({ status: 0, signal: null }),
       reset: () => {},
       stderr,
     });
     expect(code).toBe(143);
+    // rev351r2-3: SIGTERM must stop at once, like SIGINT — looping and
+    // returning 143 anyway would still be green on the code alone.
+    expect(calls).toBe(1);
   });
 
   it("should reset the client terminal before reconnecting after a drop", () => {
