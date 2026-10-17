@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { readFileSync, mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { readFileSync, mkdtempSync, mkdirSync, writeFileSync, rmSync, appendFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { spawnSync } from "node:child_process";
@@ -98,9 +99,14 @@ for (const name of ['h2a-runtime', 'h2a']) {
   test(`release executes the closed ${name} tarball publication and preserves backfill and retry guards`, t => {
     const root = mkdtempSync(join(tmpdir(), 'mh-l6-publish-step-'));
     t.after(() => rmSync(root, { recursive: true, force: true }));
-    const bin = join(root, 'bin'), target = join(root, 'h2a-closed', name, 'artifacts', `sentropic-${name}-0.98.7.tgz`);
-    mkdirSync(bin); mkdirSync(join(root, 'packages', name), { recursive: true }); mkdirSync(join(root, 'h2a-closed', name, 'artifacts'), { recursive: true });
-    writeFileSync(target, 'private tar sentinel'); writeFileSync(join(root, 'packages', name, 'package.json'), JSON.stringify({ version: '0.98.7' }));
+    const bin = join(root, 'bin'), balls = join(root, 'dist-tarballs'), tarball = `sentropic-${name}-0.98.7.tgz`;
+    // The merged publish body addresses the verify-built tarball by ./-relative
+    // spec from the checkout root and re-checks its sha256 before publishing.
+    const target = `./dist-tarballs/${tarball}`;
+    mkdirSync(bin); mkdirSync(join(root, 'packages', name), { recursive: true }); mkdirSync(balls, { recursive: true });
+    writeFileSync(join(balls, tarball), 'private tar sentinel');
+    writeFileSync(join(balls, 'sha256sums.txt'), `${createHash('sha256').update('private tar sentinel').digest('hex')}  ${tarball}\n`);
+    writeFileSync(join(root, 'packages', name, 'package.json'), JSON.stringify({ version: '0.98.7' }));
     const marker = join(root, 'published'), log = join(root, 'calls');
     writeFileSync(join(bin, 'npm'), '#!' + process.execPath + '\n' + `
       const fs=require('node:fs'),args=process.argv.slice(2);
@@ -119,6 +125,9 @@ for (const name of ['h2a-runtime', 'h2a']) {
     const repeated = run(); assert.equal(repeated.status, 0, repeated.stderr); assert.match(repeated.stdout, /already on registry; skipping/);
     assert.equal(readFileSync(log, 'utf8').trim().split('\n').length, 1);
     rmSync(marker); const failed = run({ PROBE_FAIL: '1' }); assert.equal(failed.status, 1); assert.match(failed.stderr, /npm publish failed/);
-    t.diagnostic(`actual release shell for ${name}: exact closed tar selected; backfill, retry and failed publish observed with private npm stub`);
+    appendFileSync(join(balls, tarball), 'tampered');
+    const tampered = run(); assert.equal(tampered.status, 1, tampered.stderr);
+    assert.equal(readFileSync(log, 'utf8').trim().split('\n').length, 2, 'a tampered tarball must fail the sha256 re-check before any further publish call');
+    t.diagnostic(`actual release shell for ${name}: verified tarball with sha256 re-check; backfill, retry, failed publish and tamper refusal observed with private npm stub`);
   });
 }
