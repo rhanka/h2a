@@ -9,7 +9,7 @@ import type { QueryFilter, Report, ReportOptions } from '../report/build.js'
 import type { StatusLevel } from '../report/status-by-level.js'
 import type { WpNode } from '../report/rollup.js'
 import type { ReportSnapshot, TrackReader } from './contract.js'
-import { buildStatusTable, renderStatusTable } from '../report/status-table.js'
+import { buildStatusTable, buildStatusTableView, renderStatusTable } from '../report/status-table.js'
 
 /** A CLI-resolved selector. Dates are already absolute instants; refs are full commit ids when applicable. */
 export interface ReportPeriodSelection {
@@ -274,15 +274,16 @@ export function reportInline(
  * dossier. Without it a report the owner can read is a report they cannot act on; with it, no ULID has to
  * appear in a column to keep a row dispatchable.
  */
-export function resolveHandle(reader: TrackReader, options: ReportOptions, handle: string, scopeSelector?: string): string {
+export function resolveHandle(reader: TrackReader, options: ReportOptions, handle: string, scopeSelector?: string, statusTable = false): string {
   const snapshot = reader.reportSnapshot({ ...options, decisions: true, wpTree: true })
   const globalReport = snapshot.report
   const scoped = scopeSelector === undefined ? undefined : projectReportScope(globalReport, scopeSelector)
   const report = scoped?.report ?? globalReport
-  const view = buildWpConductorView(
+  const meta = conductorMeta(options, snapshot, undefined, undefined, scoped?.scope)
+  const view = statusTable ? buildStatusTableView(buildStatusTable(snapshot.events, report, options), report, meta) : buildWpConductorView(
     report.wpTree ?? [], report.decisions ?? [], report.outsideRollup,
     scoped === undefined ? 'global' : `${scoped.scope.label} (sous-arbre)`,
-    conductorMeta(options, snapshot, undefined, undefined, scoped?.scope),
+    meta,
   )
   const wanted = handle.trim().replace(/^\[|\]$/gu, '').toUpperCase()
   const hit = view.handles.find((h) => h.handle.toUpperCase() === wanted)

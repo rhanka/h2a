@@ -448,7 +448,7 @@ const REPORT_USAGE = `usage: track report [--status-table] [--scope <container-i
 
 --scope selects one exact role-container by its id, durable assigned code, or current derived label. The selected container and all descendants are rendered through the same four-section report; unknown or ambiguous selectors fail loudly.
 
---resolve <handle> resolves a report handle (a positional [n.m] row handle, or a D#/Q# dossier number) back to its item id. It is the one command the report documents for acting on a row without printing a ULID in a column. Handles are positional and per-report: resolve them against the same log and baseline the report was rendered from.
+--resolve <handle> resolves a report handle (a positional [n.m] row handle, or a D#/Q# dossier number) back to its item id. With --status-table, use the DEMANDES # number instead of [n.m]. It is the one command the report documents for acting on a row without printing a ULID in a column. Handles are positional and per-report: resolve them against the same log and baseline the report was rendered from.
 
 --sub-wp lists sub-WP rows beside their parent. Without it, sub-levels are aggregated into their parent on a long window (>= 14 days) and listed on a short one — the WP is the reading unit of a long report.
 
@@ -1152,12 +1152,12 @@ function cmdReport(args: string[], ctx: Ctx): number {
   for (const name of ['commit', 'format', 'level', 'width', 'resolve', 'now', 'scope', 'since', 'until', 'period']) assertValueFlag(flags, name)
   const scope = opt(flags, 'scope')
   const statusTable = assertBooleanFlag(flags, 'status-table')
-  if (statusTable && ['flat', 'inline', 'width', 'raw', 'level', 'resolve', 'active-roster'].some(k => flags[k] !== undefined)) {
-    throw new DomainError('--status-table rejects --flat/--inline/--width/--raw/--level/--resolve/--active-roster')
+  if (statusTable && ['flat', 'inline', 'width', 'raw', 'level', 'active-roster'].some(k => flags[k] !== undefined)) {
+    throw new DomainError('--status-table rejects --flat/--inline/--width/--raw/--level/--active-roster')
   }
   // Criterion 10b — the one documented command that turns a short report handle back into an item.
   if (opt(flags, 'resolve') !== undefined) {
-    assertOnlyFlags(flags, ['resolve', 'scope', 'commit', 'require-accepted'])
+    assertOnlyFlags(flags, ['resolve', 'scope', 'commit', 'require-accepted', 'status-table'])
     io.out(
       resolveHandle(
         new TrackReader(ctx.eventsPath),
@@ -1167,6 +1167,7 @@ function cmdReport(args: string[], ctx: Ctx): number {
         },
         req(flags, 'resolve'),
         scope,
+        statusTable,
       ),
     )
     return 0

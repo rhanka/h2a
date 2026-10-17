@@ -26,10 +26,11 @@ including completed and suspended requests. It does not silently omit an old req
 The owner report now uses `--status-table`. The earlier default four-section conductor remains available
 for compatibility. This view replaces its FAIT / À-FAIRE activity tables with DEMANDES and retains
 **DÉCISIONS** (including exact alternatives and recommendation) and **RECOMMANDATION**. Never remove the
-decision expectations to make the table shorter. `--flat`, `--inline`, `--width`, `--raw`, `--level`,
-`--resolve` and `--active-roster` cannot be combined with this view. Use the separate legacy report for
-legacy handle resolution; `#` in the status table is an ordinal, not a durable handle. JSON row `id` is
-the durable action identity.
+decision expectations to make the table shorter. `--flat`, `--inline`, `--width`, `--raw`, `--level`
+and `--active-roster` cannot be combined with this view. Resolve its `#` with
+`report --status-table --resolve <number>` using the same scope, baseline and journal revision. The
+machine resolution block maps these exact numbers, including completed requests. Numbers are positional
+for this report; JSON row `id` is the durable action identity. Legacy reports keep their `[n.m]` handles.
 
 ## Exactly five columns
 
@@ -37,11 +38,13 @@ the durable action identity.
 | --- | --- | --- | --- | --- |
 | 1 | Je veux retrouver mes agents (PR #42) | dev | 🔴 | La recette de reconnexion échoue. Proposition : corriger la résolution et rejouer cette recette. Ensuite : ouvrir le correctif. |
 
-- **#**: most urgent first: blocked, owner decision, unforeseen issue, progressing; within a class,
-  preserve canonical directive urgency, then priority, then stable item id. Do not reorder by version.
+- **#**: active requests before closed requests; then blocked, owner decision, unforeseen issue,
+  progressing. Within a class, apply canonical urgency to every request, then priority and stable item id,
+  including requests outside a WP or backed by an engagement. Do not reorder by version.
 - **Ta demande**: the owner's purpose in their words. Prefer the event's `ownerRequest`, then the linked
-  demand's immutable `raw.text`, then an explicitly labelled `Phrase owner : « … »` / `Phrases owner :
-  « … »` quote in the item body (first quote, verbatim). Otherwise keep the historical title and flag
+  demand's immutable `raw.text`, then an explicitly labelled `Phrase owner : « … »`, `Phrases owner :
+  « … »` or `Phrase(s) owner : « … »` quote, including parenthesized date/relay qualifiers. Use the first
+  nonblank quote, trimming its outer whitespace. Otherwise keep the historical title and flag
   its provenance in the action cell; investigate the actual quote before serving a contextual report.
   A version is never a subject. Versions and PR numbers support a purpose **in parentheses**. The
   renderer flags version/reference-only subjects `version-only-subject`; do not replace them with a
@@ -76,18 +79,22 @@ a reopening is flagged and falls back to dev. Stage links are item-specific, nev
 
 | Color | Meaning / obligation |
 | --- | --- |
-| 🟢 | Progressing and conforming, explicitly recorded as `progressing`. Absence of a blocker is not evidence of conformity. |
+| 🟢 | Progressing and conforming, explicitly recorded as `progressing`; also a cancelled/rejected request with no live gate, whose withdrawal is recorded. Absence of a blocker does not establish conformity for active or done requests. |
 | 🟠 | Unforeseen issue (`unforeseen`); name the issue and its treatment. Legacy missing classification is a documentary issue: “statut de conformité non renseigné”, then verify and record it. |
 | 🔴 | Blocked (`blocked`); **a concrete proposal is mandatory**. A missing proposal is flagged in the row and JSON (`missing-proposal`), never accepted as a conforming report. |
 | 🔵 | Owner decision awaited (`decision-awaited`); exact question, options with each consequence, ≤2 minute reading summary, and clickable dossier link. |
 
 Effective dependency/manual blockers or failed acceptance force red even over stale declared green.
-Reopening a previously green request makes its old conformity declaration orange until requalified by
-a newer report event (`status-predates-reopening`); an older green cannot hide a recorded regression.
-Pending linked decisions force blue unless a separate blocker/failed acceptance forces red. Conflicts
+Reopening invalidates every old report status, fact, action, proposal, wait, suspension and expectation;
+the owner request remains. Show the reopening reason and require renewed qualification
+(`status-predates-reopening`). A fresh report without an explicit stage uses dev instead of reviving old
+delivery links; a fresh evidenced stage can establish delivery again.
+Pending or deferred linked decisions force blue unless a separate blocker/failed acceptance forces red. Conflicts
 are visibly flagged. Expectations for pending native decisions use the current dossier's subject/title,
-options' titles/summaries, `readability.readingBudgetMinutes` and rendered-view artifact (or `dossier`
-link). If absent, explicit expectations may fill the gap **only when question/options match**. The live
+options' titles/summaries, `readability.readingBudgetMinutes` and latest rendered-view artifact (or `dossier`
+link). If absent, explicit expectations may fill the gap **only when question/options match** that decision.
+With multiple unresolved decisions, one supplied summary must match at least one; it cannot fill the others.
+The live
 dossier wins; a settled dossier cannot remain a blue decision. Never infer options from prose context.
 
 Every blue row must be answerable in two minutes: state the exact question, at least two distinct options,

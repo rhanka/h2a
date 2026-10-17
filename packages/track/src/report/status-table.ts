@@ -1,13 +1,13 @@
 import type { TrackEvent } from '../events/types.js'
 import { acceptanceStatus } from '../accept/status.js'
 import { assertDecisionExpectations, assertItemReportStatus, type DecisionExpectations, type ItemReportStatus, type ReportStage, type ReportStatus } from '../model/report-status.js'
-import type { DecisionState } from '../model/decision.js'
+import { isSettled, type DecisionState } from '../model/decision.js'
 import type { ItemState } from '../model/item.js'
 import { fold } from '../state/fold.js'
 import type { Report, ReportOptions } from './build.js'
 import { effectiveOpenBlockersForItem } from './blocker-status.js'
-import { buildDirectives } from './directive.js'
-import { buildWpConductorView, displayCell, renderReportView, type Format, type ConductorMeta } from './format.js'
+import { canonicalLeafUrgency } from './directive.js'
+import { buildWpConductorView, redactOwnerTable, renderReportView, type Format, type ConductorMeta, type ReportView } from './format.js'
 
 const COLORS: Record<ReportStatus, string> = { progressing: '🟢', unforeseen: '🟠', blocked: '🔴', 'decision-awaited': '🔵' }
 const URGENCY: Record<ReportStatus, number> = { blocked: 0, 'decision-awaited': 1, unforeseen: 2, progressing: 3 }
@@ -25,7 +25,7 @@ export function versionOnlySubject(value: string): boolean {
 }
 
 function nativeExpectations(d: DecisionState): DecisionExpectations | undefined {
-  const artifact = d.dossier.artifacts?.find(a => a.kind === 'rendered-view')
+  const artifact = d.dossier.artifacts?.filter(a => a.kind === 'rendered-view').at(-1)
   const dossier = artifact?.kind === 'rendered-view' ? artifact.viewRef : d.links?.find(l => l.kind === 'dossier')?.locator
   const value = {
     question: d.dossier.subject ?? d.title,
@@ -56,8 +56,6 @@ export interface StatusTable {
 
 export function buildStatusTable(events: readonly TrackEvent[], report: Report, options: ReportOptions): StatusTable {
   const state = fold(events)
-  const directives = buildDirectives(report.wpTree ?? [], report.decisions ?? [])
-  const directiveOrder = new Map(directives.map((d, i) => [d.target.id, i]))
   const sourceRows = Object.values(report.buckets).flat()
   const lastReopenById = new Map<string, number>()
   const lastReportById = new Map<string, number>()
@@ -70,17 +68,28 @@ export function buildStatusTable(events: readonly TrackEvent[], report: Report, 
     const issues: string[] = []
     let info: ItemReportStatus = item.report ?? {}
     try { assertItemReportStatus(info) } catch { issues.push('invalid-report-event'); info = {} }
+    const lastReopen = lastReopenById.get(item.id) ?? -1
+    const lastReport = lastReportById.get(item.id) ?? -1
+    const staleReport = lastReopen > lastReport
+    const recordedStage = info.stage
+    if (staleReport) {
+      issues.push('status-predates-reopening')
+      // The request remains the owner's request; lifecycle assertions need fresh qualification.
+      info = info.ownerRequest === undefined ? {} : { ownerRequest: info.ownerRequest }
+    }
     const demand = item.demandId === undefined ? undefined : state.demands.get(item.demandId)
-    const quote = item.body?.match(/Phrases? owner\s*:\s*«([^»]+)»/iu)?.[1]
+    const quote = [...(item.body ?? '').matchAll(/Phrase(?:s|\(s\))?\s+owner\s*(?:\([^)]*\)\s*)?:\s*«([^»]*)»/giu)]
+      .map(match => match[1]!.trim()).find(text => text.length > 0)
     const request = info.ownerRequest ?? demand?.raw.text ?? quote ?? item.title
     const requestSource = info.ownerRequest ? 'report-event' : demand ? 'demand' : quote ? 'owner-quote' : 'legacy-title'
     if (versionOnlySubject(request)) issues.push('version-only-subject')
     const blockers = effectiveOpenBlockersForItem(state, item.id, options.baselineCommit)
     const linked = [...state.decisions.values()].filter(d => d.targets.includes(item.id))
-    const pending = linked.filter(d => d.outcome === 'pending')
+    const pending = linked.filter(d => !isSettled(d.outcome))
     const failed = acceptanceStatus(state, item.id, options.baselineCommit) === 'fail'
-    let status: ReportStatus = info.status ?? 'unforeseen'
-    if (info.status === undefined && blockers.length === 0 && !failed) issues.push('unrecorded-status')
+    const dropped = source.bucket === 'DROPPED'
+    let status: ReportStatus = info.status ?? (dropped ? 'progressing' : 'unforeseen')
+    if (info.status === undefined && !staleReport && !dropped && blockers.length === 0 && !failed) issues.push('unrecorded-status')
     if (pending.length > 0 && status !== 'blocked') status = 'decision-awaited'
     if (blockers.some(b => b.kind !== 'decision') || failed) status = 'blocked'
     if (info.status === 'progressing' && status !== 'progressing') issues.push('status-contradicts-live-gate')
@@ -92,30 +101,26 @@ export function buildStatusTable(events: readonly TrackEvent[], report: Report, 
     const expectations: DecisionExpectations[] = []
     if (status === 'decision-awaited') {
       if (pending.length === 0 && info.decisionExpectations) expectations.push(info.decisionExpectations)
+      const supplied = info.decisionExpectations
+      const matches = (d: DecisionState): boolean => supplied !== undefined && supplied.question === (d.dossier.subject ?? d.title) &&
+        supplied.options.length === d.dossier.options.length && supplied.options.every((o, i) => o.label === d.dossier.options[i]!.title && o.consequence === d.dossier.options[i]!.summary)
+      if (supplied && pending.length > 0 && !pending.some(matches)) issues.push('decision-expectations-conflict')
       for (const d of pending) {
         const native = nativeExpectations(d)
-        const supplied = info.decisionExpectations
-        const matches = supplied && supplied.question === (d.dossier.subject ?? d.title) &&
-          supplied.options.length === d.dossier.options.length && supplied.options.every((o, i) => o.label === d.dossier.options[i]!.title && o.consequence === d.dossier.options[i]!.summary)
-        if (supplied && !matches) issues.push('decision-expectations-conflict')
         if (native) expectations.push(native)
-        else if (matches) expectations.push(supplied)
+        else if (supplied && matches(d)) expectations.push(supplied)
       }
       if (expectations.length < Math.max(1, pending.length)) issues.push('missing-decision-expectations')
     }
     const derived = deriveStage(item)
     let stage = info.stage?.value ?? derived.value
-    let evidence = info.stage?.evidence ?? derived.evidence
-    const lastReopen = lastReopenById.get(item.id) ?? -1
-    const lastReport = lastReportById.get(item.id) ?? -1
-    if (lastReopen > lastReport && status === 'progressing') {
-      status = 'unforeseen'
-      issues.push('status-predates-reopening')
-    }
-    if (lastReopen >= 0 && (lastReport < lastReopen || info.stage === undefined) && STAGES.indexOf(stage) > 1) {
-      stage = 'dev'; evidence = undefined; issues.push('stage-predates-reopening')
+    let evidence = info.stage === undefined ? derived.evidence : info.stage.evidence
+    if (lastReopen >= 0 && (staleReport || info.stage === undefined) && STAGES.indexOf(recordedStage?.value ?? derived.value) > 1) {
+      stage = 'dev'; evidence = undefined
+      if (staleReport) issues.push('stage-predates-reopening')
     }
     const facts = [
+      item.reopenings?.at(-1) ? `Réouverture : ${item.reopenings.at(-1)!.reason}.` : undefined,
       info.facts, `État enregistré : ${item.realization}.`,
       evidence ? `Preuve ${stage} : ${evidence}.` : undefined,
       ...blockers.map(b => `Attente enregistrée : ${b.reason}.`),
@@ -131,12 +136,14 @@ export function buildStatusTable(events: readonly TrackEvent[], report: Report, 
     ].filter(Boolean)
     const next = status === 'decision-awaited' ? (issues.includes('missing-decision-expectations') ? 'compléter les attendus et le lien du dossier avant de demander ton GO.' : 'ton GO sur la question et les options ci-dessus.')
       : status === 'blocked' ? info.nextAction ?? info.proposal ?? 'rédiger une proposition de déblocage.'
-      : info.nextAction ?? (issues.some(i => i === 'unrecorded-status' || i === 'status-predates-reopening') ? 'vérifier puis renseigner le statut de conformité.' : 'renseigner la prochaine action vérifiée.')
+      : info.nextAction ?? (issues.some(i => i === 'unrecorded-status' || i === 'status-predates-reopening') ? 'vérifier puis renseigner le statut de conformité.' : dropped ? 'aucune action : demande retirée.' : 'renseigner la prochaine action vérifiée.')
     const row: StatusTableRow = { id: item.id, n: '', request, requestSource, stage, ...(evidence ? { stageEvidence: evidence } : {}), status: COLORS[status], action: `${facts.join(' ')} Ensuite : ${next}`, issues: [...new Set(issues)], expectations, dossierRefs: expectations.map(e => e.dossier) }
-    return { row, urgency: URGENCY[status], priority: source.priority ?? -Infinity, directive: directiveOrder.get(item.id) ?? Infinity }
+    const terminal = (source.bucket === 'DONE' || dropped) && blockers.length === 0 && !['fail', 'stale'].includes(source.acceptance)
+    const canonical = canonicalLeafUrgency({ realization: item.realization, acceptance: source.acceptance, specStatus: item.specStatus ?? 'n/a', openBlockers: blockers.map(b => ({ ...b, blockerId: b.id })) })
+    return { row, terminal: Number(terminal), urgency: URGENCY[status], priority: source.priority ?? -Infinity, canonical }
   })
-  entries.sort((a, b) => a.urgency - b.urgency || a.directive - b.directive || b.priority - a.priority || a.row.id.localeCompare(b.row.id))
-  return { columns: COLUMNS, rows: entries.map(({ row }, i) => ({ ...row, n: String(i + 1) })), order: 'blocage, décision propriétaire, imprévu, progression ; puis urgence canonique, priorité, identifiant' }
+  entries.sort((a, b) => a.terminal - b.terminal || a.urgency - b.urgency || a.canonical - b.canonical || b.priority - a.priority || a.row.id.localeCompare(b.row.id))
+  return { columns: COLUMNS, rows: entries.map(({ row }, i) => ({ ...row, n: String(i + 1) })), order: 'demandes actives avant clôturées ; blocage, décision propriétaire, imprévu, progression ; puis urgence canonique, priorité, identifiant' }
 }
 
 function deriveStage(item: ItemState): { value: ReportStage; evidence?: string } {
@@ -162,11 +169,13 @@ function issueText(issue: string): string {
 }
 
 /** Keep the existing DÉCISIONS/attendus and recommendation, replacing only the activity tables. */
-export function renderStatusTable(statusTable: StatusTable, report: Report, format: Format, meta: ConductorMeta): string {
-  const view = buildWpConductorView(report.wpTree ?? [], report.decisions ?? [], report.outsideRollup, meta.scopeProjection?.label ?? 'global', meta)
+export function buildStatusTableView(statusTable: StatusTable, report: Report, meta: ConductorMeta): ReportView {
+  // Deferred decisions still await settlement. Keep legacy rendering unchanged outside this opt-in view.
+  const decisionsForView = (report.decisions ?? []).map(d => d.outcome === 'deferred' ? { ...d, outcome: 'pending' as const } : d)
+  const view = buildWpConductorView(report.wpTree ?? [], decisionsForView, report.outsideRollup, meta.scopeProjection?.label ?? 'global', meta)
   const decisions = view.tables.find(t => t.id === 'decisions')!
-  const pendingCount = report.decisions?.filter(d => d.outcome === 'pending').length ?? 0
-  const omitted = (report.decisions ?? []).filter(d => d.outcome !== 'pending').map(d => ({ label: d.title, reason: 'décision déjà tranchée' }))
+  const pendingCount = report.decisions?.filter(d => !isSettled(d.outcome)).length ?? 0
+  const omitted = (report.decisions ?? []).filter(d => isSettled(d.outcome)).map(d => ({ label: d.title, reason: 'décision déjà tranchée' }))
   const count = statusTable.rows.length + pendingCount + omitted.length
   const coverage = { projected: count, rendered: count - omitted.length, omitted, aggregated: [] }
   const recommendation = {
@@ -174,32 +183,28 @@ export function renderStatusTable(statusTable: StatusTable, report: Report, form
     lines: [
       'Traiter les lignes dans l’ordre indiqué ; toute NON CONFORME demande une vérification ou un complément avant action.',
       '🔴 : instruire la proposition de déblocage. 🔵 : Réponds à la question avec l’option choisie après lecture du dossier ; aucun GO implicite.',
-      ...(report.decisions ?? []).filter(d => d.outcome === 'pending' && !d.structured).map(d => `À structurer : ${d.title} — enregistrer les options, leurs conséquences et une recommandation avant de demander une réponse.`),
+      ...(report.decisions ?? []).filter(d => !isSettled(d.outcome) && !d.structured).map(d => `À structurer : ${d.title} — enregistrer les options, leurs conséquences et une recommandation avant de demander une réponse.`),
       ...view.tables.find(t => t.id === 'recommendation')!.lines!.filter(line => /^D\d+ /u.test(line)),
     ],
   }
-  const statusView = { ...view, coverage, header: { ...view.header, coverage, sources: [...view.header.sources, 'track report --status-table ; étapes et statuts enregistrés, sans vérification réseau'] }, tables: [decisions, recommendation] }
-  if (format === 'json') return `${JSON.stringify({ ...report, statusTable, view: statusView }, null, 2)}\n`
-  const rendered = renderReportView(statusView, format)
-  const lines = [format === "md" ? "## DEMANDES" : "DEMANDES", "",
-    `ordre : ${statusTable.order} ; ${statusTable.rows.length} demandes, aucune omission.`, "",
-    `| ${COLUMNS.map(c => c.label).join(" | ")} |`, `| ${COLUMNS.map(() => "---").join(" | ")} |`,
-    ...statusTable.rows.map(row => {
-      const cells = COLUMNS.map(c => {
-        const value = displayCell(row[c.id], format).replace(/\n/gu, format === 'md' ? '<br>' : ' ')
-        return format === 'md' ? value : value.replace(/\|/gu, '\\|')
-      })
-      const refs = row.dossierRefs.map(ref => dossierLink(ref, format))
-      if (refs.length > 0) cells[4] += ` ${refs.join(" ; ")}`
-      return `| ${cells.join(" | ")} |`
-    }), "", "",
+  const requests = redactOwnerTable({
+    id: 'requests', title: 'DEMANDES', render: 'pipe', columns: COLUMNS,
+    rows: statusTable.rows.map(row => Object.fromEntries(COLUMNS.map(c => [c.id, row[c.id]]))),
+    lines: [`ordre : ${statusTable.order} ; ${statusTable.rows.length} demandes, aucune omission.`],
+    links: statusTable.rows.flatMap((row, index) => row.dossierRefs.map(destination => ({ row: index, column: 'action', label: 'dossier', destination }))),
+  })
+  const handles = [
+    ...statusTable.rows.map(row => ({ handle: row.n, kind: 'item' as const, id: row.id, title: row.request })),
+    ...view.handles.filter(h => h.kind === 'decision'),
   ]
-  const marker = format === "md" ? "## DÉCISIONS" : "DÉCISIONS"
-  return rendered.replace(`\n${marker}\n`, `\n${lines.join('\n')}${marker}\n`)
+  return { ...view, handles, coverage, header: { ...view.header, coverage,
+    handleCommand: view.header.handleCommand.replace('track report', 'track report --status-table'),
+    sources: [...view.header.sources, 'track report --status-table ; étapes et statuts enregistrés, sans vérification réseau'],
+  }, tables: [requests, decisions, redactOwnerTable(recommendation)] }
 }
 
-function dossierLink(ref: string, format: Format): string {
-  if (format !== "md" || /^(?!https?:)[a-z][a-z\d+.-]*:/iu.test(ref)) return `dossier : ${displayCell(ref, format)}`
-  const destination = encodeURI(ref).replace(/[<>()|\\]/gu, c => `%${c.charCodeAt(0).toString(16)}`)
-  return `[dossier](${destination})`
+export function renderStatusTable(statusTable: StatusTable, report: Report, format: Format, meta: ConductorMeta): string {
+  const view = buildStatusTableView(statusTable, report, meta)
+  if (format === 'json') return `${JSON.stringify({ ...report, statusTable, view }, null, 2)}\n`
+  return renderReportView(view, format)
 }
