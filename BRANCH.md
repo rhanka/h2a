@@ -777,3 +777,10 @@ the root concurrency defect is fixed without introducing a persistent global loc
 - [x] Raw host hook before reset/replay, default-off capture, durable local exclusion, bounded aggregate queues, cancellation and no legacy fallback.
 - [x] Real temporary node-pty + native socket/client/server + HTTPS synthetic adapter refusal/positive/exclusion witness; 102/102 named cases on Node 22 and 24.
 - [ ] Production bootstrap/deployed service composition, control SSE, future-child inheritance and complete saturation/endurance qualification remain open. Native histories explicitly refuse unsupported_format without a qualified provider.
+
+### CM2-F2 continuation — D bounded archive primitives
+- [x] Post-ACK metadata bookmark, worker snapshot/hash/consistency checks, full manifest and bounded parts; explicit companion scope and provider allowlist.
+- [x] Authenticated retained-read/admission resolution independent of source-online state; policy/manifest/admission/expiry binding; isolated atomic data import with zero execution.
+- [x] Host-global import/export/start/memory/work budgets, cancellation, incomplete/corrupt/oversized/substituted archive refusals and staging cleanup.
+- [x] Synthetic native-confirmed checkpoint export/read/import round-trip; 54/54 targeted cases on Node 22/24.
+- [ ] Actual Claude tuple/catalog/reference semantics, indexed partial-history ranges, real store atomic publication and cross-repo adapter qualification remain unqualified. Native capability capsule stays native:[].

@@ -18,6 +18,8 @@ interface Config {
   runtime: Runtime; capabilitiesDigest: string;
   /** Optional private PKI root. Normal TLS hostname/certificate validation remains mandatory. */
   ca?: string; monotonicNow?: () => number;
+  /** Measured independently; absence disables absolute-deadline retained reads. */
+  measuredClockErrorMs?: number;
 }
 interface LoginAttempt { verifier: string; state: string; start: number }
 interface Login { accessToken: string; start: number; deadline: number; authSessionRef?: string; authSessionVersion?: number; busy: boolean }
@@ -239,6 +241,31 @@ export class SessionContentAuth {
       validateContentMessage(response); this.metadata(handle);
       if(response.requestId!==admission.requestId) return fail(); return response;
     } finally { this.inFlight--; }
+  }
+  async authorizeHistoryRead(loginHandle: object, authorizationId: string): Promise<Record<string,unknown>> {
+    const login=this.logins.get(loginHandle),now=this.now(),skew=this.config.measuredClockErrorMs;
+    if(!login || now<login.start || now>=login.deadline || !id(authorizationId) || this.inFlight>=4
+      || skew===undefined || !Number.isFinite(skew) || skew<0 || skew>5000) return fail();
+    this.inFlight++;
+    try {
+      const url=new URL(`/api/v1/auth/session/content/${this.config.source.bindingId}/history/authorizations/${authorizationId}`,this.config.sourceServer);
+      const response=await requestJson("GET",url,null,null,this.config.ca,login.accessToken);validateContentMessage(response);
+      if(response.kind!=="history-read" || response.authorizationId!==authorizationId || !same(response.owner,this.config.owner)
+        || !id(response.authSessionRef) || (login.authSessionRef!==undefined && response.authSessionRef!==login.authSessionRef)
+        || !integer(response.readExpiresAt) || response.readExpiresAt<=Date.now()+skew || this.now()>=login.deadline) return fail();
+      login.authSessionRef=response.authSessionRef;return response;
+    } finally {this.inFlight--;}
+  }
+  async resolveArchiveAdmission(loginHandle: object, descriptorHash: string): Promise<Record<string,unknown>> {
+    const login=this.logins.get(loginHandle),now=this.now();
+    if(!login || now<login.start || now>=login.deadline || !/^[a-f0-9]{64}$/.test(descriptorHash) || this.inFlight>=4) return fail();
+    this.inFlight++;
+    try {
+      const url=new URL(`/api/v1/auth/session/content/${this.config.source.bindingId}/history/admissions/${descriptorHash}`,this.config.sourceServer);
+      const response=await requestJson("GET",url,null,null,this.config.ca,login.accessToken);validateContentMessage(response);
+      if(response.kind!=="archive-admission" || (response.admission as Record<string,unknown>).descriptorHash!==descriptorHash || this.now()>=login.deadline) return fail();
+      return response;
+    } finally {this.inFlight--;}
   }
   /** Observed invalidation is immediate locally. No reconnect or silent login reparenting. */
   invalidate(handle: object): void {
