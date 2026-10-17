@@ -5,9 +5,9 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { createLlmMeshFacade, type LlmMeshAdministrativeFacade, type LlmMeshFacade } from "@sentropic/cluster-mesh/llm-mesh/facade";
 import type { AccountPublic } from "@sentropic/cluster-mesh/llm-mesh/enrollment";
-import { resolveSeatEnrollmentProvider } from "./cli-seat-codecs.js";
-import { SeatMaterializationError } from "./cli-seat-materialization.js";
-import type { SeatCli5 } from "./cli-seat-fixtures.js";
+import { readPrivateSeatFile, resolveSeatEnrollmentProvider } from "./cli-seat-codecs.js";
+import { SeatMaterializationError, validateSeatBundleForMaterialization } from "./cli-seat-materialization.js";
+import { SEAT_BUNDLE_MAX_BYTES, SEAT_PACKAGE_PROVIDER_ID, type SeatCli5, type SyntheticSeatBundleV1 } from "./cli-seat-fixtures.js";
 
 import {
   MAX_CLAUDE_INPUT_BYTES,
@@ -309,7 +309,92 @@ function defaultTokenReader(
   return readPipedCredentialInput();
 }
 
+/** Structural L1 boundary pinned to sentropic PR 681@7293130ee3f6.
+ * Published 0.26.1 predates it: absence fails closed before secret input.
+ * The receiver owns persistence, lineage and the external refresh policy.
+ */
+export interface LlmMeshSeatImporter {
+  importSeatBundle(input: { bundle: unknown; ownerScope: string }): Promise<{ accountId: string; seatRef: string; generation: number; idempotent: boolean }>;
+}
+/** Structural copy of L1 CliSeatProfileInput at the same pin. */
+export interface SeatConsumerProfileInput {
+  cli: SeatCli5;
+  seatRef: string;
+  refreshFamilyRef?: string;
+  ownerScope: string;
+  issuingClientRef: string;
+  endpointFamily: string;
+  accountBinding: string;
+  entitlementClass: string;
+  epoch: number;
+  generation: number;
+  operationId: string;
+  issuedAt: string;
+  providerExpiry?: string;
+  accessRef?: string;
+  accessKind?: "access" | "static-key" | "unavailable";
+  credentialFormatVersion?: string;
+  nativeCliVersion?: string;
+  os?: "linux" | "macos" | "windows";
+}
+export interface SeatConsumerParsers {
+  parseCliSeatProfile(input: SeatConsumerProfileInput): unknown;
+  parseTokenSeatEnvelope(input: { raw: string; ownerScope: string }): unknown;
+}
+export interface SeatConsumerEnrollmentOptions extends Pick<FacadeEnrollmentOptions, "ownerScope" | "readInput"> {
+  from: "cli" | "token";
+  /** Explicit private L1 CliSeatProfileInput, never an ambient daily store. */
+  seatProfile?: string;
+  facade?: LlmMeshFacade & Partial<LlmMeshSeatImporter>;
+  /** Trusted SDK/test seam for the same L1 parser exports. */
+  parsers?: Partial<SeatConsumerParsers>;
+}
+
+/** Shared-seat consumer path. Product OAuth/legacy import APIs stay separate. */
+export async function enrollSeatConsumerViaFacade(rawProvider: string, options: SeatConsumerEnrollmentOptions): Promise<LlmMeshEnrollmentAccount> {
+  const provider = resolveSeatEnrollmentProvider(rawProvider);
+  const ownerScope = (options.ownerScope ?? llmMeshOwnerScopeRef()).trim();
+  if (!ownerScope) throw new SeatMaterializationError("verified seat owner required", "owner-mismatch");
+  if (options.from !== "cli" && options.from !== "token") throw new SeatMaterializationError("seat source must be cli or token", "unknown-source-mode");
+  let facade: LlmMeshFacade & Partial<LlmMeshSeatImporter>;
+  try { facade = options.facade ?? createCliLlmMeshFacade(); }
+  catch { throw new SeatMaterializationError("L1 seat receiver unavailable", "seat-import-unavailable"); }
+  if (typeof facade.importSeatBundle !== "function") throw new SeatMaterializationError("L1 seat consumer import unavailable; requires importSeatBundle", "seat-import-unavailable");
+  let parsers: Partial<SeatConsumerParsers>;
+  try { parsers = options.parsers ?? await import("@sentropic/cluster-mesh/llm-mesh/enrollment") as Partial<SeatConsumerParsers>; }
+  catch { throw new SeatMaterializationError("L1 seat source parser unavailable", "seat-import-unavailable"); }
+  if (typeof parsers[options.from === "cli" ? "parseCliSeatProfile" : "parseTokenSeatEnvelope"] !== "function") throw new SeatMaterializationError("L1 seat source parser unavailable", "seat-import-unavailable");
+  let bundle: unknown;
+  try {
+    if (options.from === "cli") {
+      if (!options.seatProfile) throw new Error("missing selected profile");
+      const profile = JSON.parse(readPrivateSeatFile(options.seatProfile, SEAT_BUNDLE_MAX_BYTES));
+      if (!profile || typeof profile !== "object" || profile.ownerScope !== ownerScope) throw new Error("profile owner mismatch");
+      // This is the private parser-only profile/manifest specified by L1,
+      // including for CLIs whose native access-only profile is unavailable.
+      bundle = parsers.parseCliSeatProfile!(profile);
+    } else {
+      const readInput = options.readInput ?? (process.stdin.isTTY
+        ? () => readMaskedInput("[h2a] llm-mesh: paste consumer SeatBundle JSON: ", { multiline: true, maxBytes: SEAT_BUNDLE_MAX_BYTES })
+        : () => readPipedCredentialInput({ maxBytes: SEAT_BUNDLE_MAX_BYTES }));
+      const raw = await readInput("[h2a] llm-mesh: read consumer SeatBundle JSON: ", { multiline: true });
+      if (Buffer.byteLength(raw, "utf8") > SEAT_BUNDLE_MAX_BYTES) throw new Error("oversize envelope");
+      bundle = parsers.parseTokenSeatEnvelope!({ raw, ownerScope });
+    }
+  } catch { throw new SeatMaterializationError("seat consumer input refused", "seat-input-refused"); }
+  const validation = validateSeatBundleForMaterialization(bundle, { ownerScope, trustedAuthority: "consumer" });
+  if (!validation.ok) throw new SeatMaterializationError("seat consumer projection refused", validation.code);
+  const projection = bundle as SyntheticSeatBundleV1;
+  if (SEAT_PACKAGE_PROVIDER_ID[projection.identity.cli] !== provider || projection.authority !== "consumer" || !["access-only", "static-key"].includes(projection.credentialClass) || !projection.lifecycle.providerExpiry || !["access", "static-key"].includes(projection.meshUse.kind) || !projection.meshUse.accessRef?.trim()) throw new SeatMaterializationError("seat consumer projection unavailable", "seat-projection-unavailable");
+  try {
+    const result = await facade.importSeatBundle({ bundle, ownerScope });
+    return { accountId: result.accountId, provider, label: `Seat ${projection.identity.cli}` };
+  } catch { throw new SeatMaterializationError("seat consumer import failed", "seat-import-failed"); }
+}
+
 /**
+ * Legacy product enrollment API. Shared-seat CLI commands use
+ * enrollSeatConsumerViaFacade instead, including the --cli/--token aliases.
  * Enroll through the sentropic-owned OAuth state machine. H2A never receives
  * an authorization code or a provider token. Account records remain owned by
  * the facade/keyring and are not copied into h2a config.
