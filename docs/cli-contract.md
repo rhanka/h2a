@@ -288,10 +288,10 @@ Stderr lines always follow the form `h2a <verb> [sub]: <message>` so callers can
 
 ### Host wiring
 
-#### `h2a host setup --host <codex|claude|gemini|agy|hermes|opencode> [--endpoint local|remote] [--url <https://…/mcp>] [--root <path>] [--print | --write <file>] [--force] [--no-wake]`
+#### `h2a host setup --host <codex|claude|gemini|agy|hermes|opencode|muse|vibe> [--endpoint local|remote] [--url <https://…/mcp>] [--root <path>] [--print | --write <file>] [--force] [--no-wake] [--remove]`
 
 - **Required**: `--host`.
-- **Optional**: `--endpoint`, `--url`, `--root`, `--print`, `--write`, `--force`, `--no-wake`.
+- **Optional**: `--endpoint`, `--url`, `--root`, `--print`, `--write`, `--force`, `--no-wake`, `--remove` (vibe only: clears the interim direct entry for the R5/R7 registry migration; non-TOML targets refused with code `1`).
 - **Envelope (default / `--print`)**: `resource` — bare JSON of the `mcpServers.h2a` snippet on stdout, target path hint on stderr.
 - **Envelope (`--write <file>`)**: `action` — `{ "ok": true|false, "host": "<host>", "endpoint": "local|remote", "path": "<file>", "merged": true, "replacedH2a": true|false, "removedH2aMcpServers": [], "removedTrackMcpServers": [], "next"?: "h2a doctor --repair" }` on stdout.
 - **Exit codes**: `0`, `1`, `2`, `3`.

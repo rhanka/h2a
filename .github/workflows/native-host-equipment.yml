@@ -35,6 +35,7 @@ jobs:
           packages/h2a/test/native-host-proof.test.js
           packages/h2a/test/native-host-package.test.js
           packages/h2a/test/vibe-native-hooks.test.js
+          packages/h2a/test/vibe-mcp-direct.test.js
           packages/h2a/test/host-plugin.test.js
           packages/h2a/test/hosts-integration.test.js
           packages/h2a/test/install-skills-hosts.test.js

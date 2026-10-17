@@ -38,22 +38,42 @@ export function convergeNativeHost(options: NativeConvergenceOptions) {
   const result = convergeArtifacts({ state, root, host: shared ? 'gemini-commands' : host, version, artifacts, repair, dryRun,
     force: options.explicitInstall && options.force, prune: options.sourcesComplete !== false,
     ...(shared ? { manifestName: 'shared-owner.json' } : {}), configure: vibe?.configure, finalize: vibe?.finish });
+  // MCP drift (config.toml) is a first-class convergence input: `planned` is
+  // true when the file differs from the canonical entry, `changed` only when
+  // this call actually wrote it (`repair && !dryRun`). Read-only and dry-run
+  // probes never claim a write.
+  const mcpDrift = host === 'vibe' && !!vibe ? (vibe.mcp.planned as boolean) : false;
+  const mcpPath = host === 'vibe' && vibe ? (vibe.mcp.path as string) : undefined;
+  const mcpWrote = mcpDrift && repair && !dryRun;
+  if (mcpPath && mcpDrift && !result.changes.planned.includes(mcpPath)) result.changes.planned.push(mcpPath);
+  if (mcpPath && mcpWrote && !result.changes.changed.includes(mcpPath)) result.changes.changed.push(mcpPath);
+  // Re-read the effective Vibe state after a repair so doctor reports the
+  // installed interim direct entry (owner 16/10), never pre-repair absence.
+  let effectiveObservation = observation;
+  let effectivePublicObservation = publicObservation;
+  let effectiveDiscovery = discovery;
+  if (host === 'vibe' && repair && !dryRun) {
+    try {
+      const fresh = inspectNativeHost(host, root);
+      effectiveObservation = fresh;
+      effectivePublicObservation = fresh && (({ config, h2aServers, ...safe }) => safe)(fresh);
+      effectiveDiscovery = inspectVibeDiscovery(root, options.cwd ?? process.cwd(), fresh.config);
+    } catch { /* keep pre-repair observation */ }
+  }
   // Re-read committed artifacts and selections. Never report pre-repair proof freshness.
-  const installedVibe = vibeOptions && repair && !dryRun ? planVibeEquipment({ ...vibeOptions, guard: undefined, lifecycle: undefined, instance: undefined, repair: false }) : vibe;
+  const installedVibe = vibeOptions && repair && !dryRun
+    ? planVibeEquipment({ ...vibeOptions, config: effectiveObservation!.config, mcpAvailable: effectiveObservation!.mcpAvailable,
+      maskingHooks: effectiveDiscovery?.maskingHooks, guard: undefined, lifecycle: undefined, instance: undefined, repair: false })
+    : vibe;
   const missingSources = options.sourcesComplete === false;
   const ok = result.changes.conflicts.length === 0 && !missingSources;
   const pending = result.changes.planned.length > 0 && (!repair || dryRun);
-  // Re-read the effective MCP state after a repair so doctor reports the
-  // installed interim direct entry (owner 16/10), never pre-repair absence.
-  let freshMigration = observation?.migration;
-  if (host === 'vibe' && repair && !dryRun) {
-    try { freshMigration = inspectNativeHost(host, root).migration; } catch { /* keep pre-repair observation */ }
-  }
-  const installedMcp = installedVibe && 'mcp' in installedVibe ? (installedVibe as { mcp: unknown }).mcp : vibe?.mcp;
+  const freshMigration = effectiveObservation?.migration;
+  const reportedMcp = vibe ? { ...(vibe.mcp as Record<string, unknown>), planned: mcpDrift, changed: mcpWrote } : undefined;
   return { host, root, ok, installation: !ok ? 'conflict' : pending ? 'action necessary' : 'coherent',
     qualification: installedVibe?.qualification ?? { status: 'absent' }, migration: freshMigration ?? 'non migré',
-    coverage: 'convergence native couverte; qualification native distincte', observation: publicObservation, discovery,
+    coverage: 'convergence native couverte; qualification native distincte', observation: effectivePublicObservation, discovery: effectiveDiscovery,
     ...result.changes, missingSources, manifest: result.manifest, guard: installedVibe?.guard, lifecycle: installedVibe?.lifecycle,
-    ...(vibe ? { rendered: vibe.rendered, restart: vibe.restart, lifecycleScope: vibe.scope, mcp: installedMcp } : {}),
+    ...(vibe ? { rendered: vibe.rendered, restart: vibe.restart, lifecycleScope: vibe.scope, mcp: reportedMcp } : {}),
     ...(shared ? { sharedGeminiEffect: true, sharedOwner: join(state, 'shared-owner.json') } : {}) };
 }

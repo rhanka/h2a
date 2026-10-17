@@ -35,9 +35,9 @@ test('doctor dry-run is empty of writes; explicit lifecycle is independent of MC
 });
 test('guard rejects fixture qualification, retains stale-code choice, and suspends on observable MCP loss', t => {
   const { dir, root, state, doctor } = setup(t);
-  fs.writeFileSync(join(root, 'config.toml'), '[[mcp_servers]]\nname="h2a"\ncommand="h2a"\nargs=["mcp-serve"]\n');
+  fs.writeFileSync(join(root, 'config.toml'), '[[mcp_servers]]\nname="h2a"\ntransport="stdio"\ncommand="h2a"\nargs=["mcp-serve", "--auto-open", "--host", "vibe", "--auto-upgrade", "--wake", "auto"]\n');
   assert.equal(doctor([]).code, 0);
-  const config = { mcp_servers: [{ name: 'h2a', command: 'h2a', args: ['mcp-serve'] }] };
+  const config = { mcp_servers: [{ name: 'h2a', transport: 'stdio', command: 'h2a', args: ['mcp-serve', '--auto-open', '--host', 'vibe', '--auto-upgrade', '--wake', 'auto'] }] };
   const plan = planVibeEquipment({ root, state, cwd: dir, version: '0.98.6', config, mcpAvailable: true, repair: false });
   const dist = join(root, 'runtime/mistral_vibe-2.26.1.dist-info'); fs.mkdirSync(dist, { recursive: true });
   fs.mkdirSync(join(root, 'runtime/vibe')); fs.writeFileSync(join(root, 'runtime/vibe/runtime.mjs'), 'fixture');
@@ -57,13 +57,13 @@ test('guard rejects fixture qualification, retains stale-code choice, and suspen
   proof.components.MCP.dependencies.entrypoint = 'obsolete-code'; fs.writeFileSync(proofPath, JSON.stringify(proof));
   assert.equal(doctor([]).code, 0);
   assert.match(fs.readFileSync(join(root, 'hooks.toml'), 'utf8'), /pre_tool/);
-  fs.writeFileSync(join(root, 'config.toml'), 'enabled_tools=["read_file"]\n[[mcp_servers]]\nname="h2a"\ncommand="h2a"\nargs=["mcp-serve"]\n');
+  fs.writeFileSync(join(root, 'config.toml'), 'enabled_tools=["read_file"]\n[[mcp_servers]]\nname="h2a"\ntransport="stdio"\ncommand="h2a"\nargs=["mcp-serve", "--auto-open", "--host", "vibe", "--auto-upgrade", "--wake", "auto"]\n');
   assert.equal(doctor([]).code, 0);
   assert.doesNotMatch(fs.readFileSync(join(root, 'hooks.toml'), 'utf8'), /pre_tool/, 'an MCP allowlist change must suspend the old qualified binding');
-  fs.writeFileSync(join(root, 'config.toml'), '[[mcp_servers]]\nname="h2a"\ncommand="h2a"\nargs=["mcp-serve"]\n');
+  fs.writeFileSync(join(root, 'config.toml'), '[[mcp_servers]]\nname="h2a"\ntransport="stdio"\ncommand="h2a"\nargs=["mcp-serve", "--auto-open", "--host", "vibe", "--auto-upgrade", "--wake", "auto"]\n');
   assert.equal(doctor([]).code, 0);
   assert.match(fs.readFileSync(join(root, 'hooks.toml'), 'utf8'), /pre_tool/);
-  fs.writeFileSync(join(root, 'config.toml'), '[[mcp_servers]]\nname="h2a"\ncommand="changed-binding"\nargs=["mcp-serve"]\n');
+  fs.writeFileSync(join(root, 'config.toml'), '[[mcp_servers]]\nname="h2a"\ntransport="stdio"\ncommand="changed-binding"\nargs=["mcp-serve"]\n');
   assert.equal(doctor([]).code, 0);
   assert.doesNotMatch(fs.readFileSync(join(root, 'hooks.toml'), 'utf8'), /pre_tool/, 'observable binding drift must suspend the installed guard');
   fs.writeFileSync(join(root, 'config.toml'), 'mcp_servers=[]\n');

@@ -149,8 +149,8 @@ test('skill proof becomes obsolete when project discovery gains a collision', t 
 test('an already enabled guard suspends when a project hook masks it', t => {
   const { home, cwd, cli, doctor } = lane(t); assert.equal(cli(['install-skills', '--host', 'vibe']).code, 0);
   const root = join(home, '.vibe'), state = join(root, '.h2a-install');
-  const config = { mcp_servers: [{ name: 'h2a', command: 'private-test', args: ['mcp-serve'] }] };
-  fs.writeFileSync(join(root, 'config.toml'), '[[mcp_servers]]\nname="h2a"\ncommand="private-test"\nargs=["mcp-serve"]\n');
+  const config = { mcp_servers: [{ name: 'h2a', transport: 'stdio', command: 'private-test', args: ['mcp-serve'] }] };
+  fs.writeFileSync(join(root, 'config.toml'), '[[mcp_servers]]\nname="h2a"\ntransport="stdio"\ncommand="private-test"\nargs=["mcp-serve"]\n');
   const plan = planVibeEquipment({ root, state, cwd, version: '0.98.6', config, mcpAvailable: true, repair: false }); proofFor(root, plan.observed, ['MCP']);
   assert.equal(doctor(['--guard', 'on']).code, 0);
   fs.mkdirSync(join(cwd, '.vibe'), { recursive: true }); fs.writeFileSync(join(cwd, '.vibe/hooks.toml'), '[[hooks]]\nname="sentropic-h2a-deny-manual-cli"\ntype="pre_tool"\ncommand="true"\n');

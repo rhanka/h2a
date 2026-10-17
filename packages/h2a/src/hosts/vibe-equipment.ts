@@ -2,8 +2,8 @@ import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { atomicNativeWrite, digest, readNativeManifest, snapshot } from './native-files.js';
 import type { NativeManifest } from './native-files.js';
-import { editVibeHooks, parseNativeToml, recoverNativeHooks, renderVibeHook, semanticDigest } from './native-toml.js';
-import { editVibeMcpServers, isVibeH2aServer } from './vibe-mcp.js';
+import { editVibeHooks, recoverNativeHooks, renderVibeHook, semanticDigest } from './native-toml.js';
+import { editVibeMcpServers, isVibeDirectRemoved } from './vibe-mcp.js';
 import type { VibeHook } from './native-toml.js';
 import type { NativeArtifact } from './native-artifacts.js';
 import { fileFingerprint, inspectNativeQualification, mcpFingerprint } from './native-proof.js';
@@ -67,18 +67,18 @@ export function planVibeEquipment(options: VibeEquipmentOptions) {
   const mcpPath = join(options.root, 'config.toml');
   const mcpOriginal = snapshot(mcpPath);
   const mcpRaw = mcpOriginal?.bytes.toString() ?? '';
-  const mcpWanted = { name: 'h2a', command: 'h2a', args: ['mcp-serve', '--auto-open', '--host', 'vibe', '--auto-upgrade', '--wake', 'auto'] };
-  // Doctor/install convergence is additive: it installs the interim direct
-  // entry (owner 16/10) only when no h2a-managed server is present, and never
-  // rewrites a present entry (setup --write owns argument changes).
-  let mcpServers: any[] = [];
-  try { mcpServers = (parseNativeToml(mcpRaw).mcp_servers ?? []) as any[]; } catch { mcpServers = []; }
-  if (!Array.isArray(mcpServers)) throw new Error('incompatible MCP collection');
-  const mcpEdit = mcpServers.some(isVibeH2aServer)
-    ? { text: mcpRaw, changed: false, replacedH2a: false, removed: [] as string[] }
-    : editVibeMcpServers(mcpRaw, mcpWanted);
+  const mcpWanted = { name: 'h2a', transport: 'stdio' as const, command: 'h2a', args: ['mcp-serve', '--auto-open', '--host', 'vibe', '--auto-upgrade', '--wake', 'auto'] };
+  // Doctor/install convergence installs the interim direct entry (owner
+  // 16/10) and converges any present h2a slot toward the canonical entry
+  // (transport discriminator included): a degraded entry (missing transport,
+  // wrong args, duplicates, disabled) is repaired, not kept. An explicit
+  // `host setup --host vibe --remove` persists a removal marker that
+  // convergence respects until the next explicit `--write`.
+  const removed = isVibeDirectRemoved(options.state);
+  let mcpEdit = { text: mcpRaw, changed: false, replacedH2a: false, removed: [] as string[] };
+  if (!removed) mcpEdit = editVibeMcpServers(mcpRaw, mcpWanted);
   return { artifacts, hooks, rendered: hooks.map(renderVibeHook).join('\n'), qualification, observed,
-    mcp: { path: mcpPath, changed: mcpEdit.changed, replacedH2a: mcpEdit.replacedH2a },
+    mcp: { path: mcpPath, planned: mcpEdit.changed, changed: false, replacedH2a: mcpEdit.replacedH2a, removedDirect: removed },
     guard: { choice: guard ?? 'off', active: guardActive, suspended: guard === 'on' && !guardActive,
       reason: guard !== 'on' ? 'off' : maskingHooks.length ? 'project hook masking' : !options.mcpAvailable ? 'MCP absent' : guardBinding !== observed.MCP ? 'MCP binding changed' : 'active' }, lifecycle, restart: VIBE_RESTART, scope: VIBE_LIFECYCLE_SCOPE,
     configure: (current: NativeManifest) => {
