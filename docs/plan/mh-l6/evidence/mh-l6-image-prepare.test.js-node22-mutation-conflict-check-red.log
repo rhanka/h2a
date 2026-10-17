@@ -1,0 +1,48 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-image-prepare.test.js
+node: v22.22.1
+private root: /tmp/mh-l6-test-KBv77E
+case: C2b should refuse a conflicting image already occupying the digest address
+TAP version 13
+# Subtest: C2b should refuse a conflicting image already occupying the digest address
+not ok 1 - C2b should refuse a conflicting image already occupying the digest address
+  ---
+  duration_ms: 63.441471
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-c2b2d-nBN4gZ/packages/h2a/test/mh-l6-image-prepare.test.js:11:67'
+  failureType: 'testCodeFailure'
+  error: |-
+    The input did not match the regular expression /payload_mismatch/. Input:
+    
+    "Error: ENOTEMPTY: directory not empty, rename '/tmp/mh-l6-test-KBv77E/tmpdir/mh-l6-adoption-image-JDVuAU/stage-GHbT0i' -> '/tmp/mh-l6-test-KBv77E/tmpdir/mh-l6-adoption-image-JDVuAU/images/f09b605d7f9adc1cd6fc29282a3d61531eb63beeebdfb41fbeac03c6ba807c2f'"
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected:
+  actual:
+  error: "ENOTEMPTY: directory not empty, rename '/tmp/mh-l6-test-KBv77E/tmpdir/mh-l6-adoption-image-JDVuAU/stage-GHbT0i' -> '/tmp/mh-l6-test-KBv77E/tmpdir/mh-l6-adoption-image-JDVuAU/images/f09b605d7f9adc1cd6fc29282a3d61531eb63beeebdfb41fbeac03c6ba807c2f'"
+  stack: |-
+    Object.renameSync (node:fs:1012:11)
+    prepareAdoptionImage (file:///tmp/mh-l3-qualification-c2b2d-nBN4gZ/packages/h2a/dist/runtime/upgrade/adoption-image.js:60:8)
+    file:///tmp/mh-l3-qualification-c2b2d-nBN4gZ/packages/h2a/test/mh-l6-image-prepare.test.js:92:23
+    getActual (node:assert:609:5)
+    Function.throws (node:assert:757:24)
+    TestContext.<anonymous> (file:///tmp/mh-l3-qualification-c2b2d-nBN4gZ/packages/h2a/test/mh-l6-image-prepare.test.js:92:10)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+  operator: 'throws'
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/mh-l3-qualification-c2b2d-nBN4gZ/packages/h2a/test/mh-l6-image-prepare.test.js:92:10)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 0
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 176.517222
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-image-prepare.test.js"],"code":1,"signal":null,"tests":1,"invalid":false,"spawned":1,"leftovers":[]}

@@ -1,0 +1,22 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-image-prepare.test.js
+node: v22.22.1
+private root: /tmp/mh-l6-test-KIHt2l
+case: C2b should refuse a conflicting image already occupying the digest address
+TAP version 13
+# Subtest: C2b should refuse a conflicting image already occupying the digest address
+ok 1 - C2b should refuse a conflicting image already occupying the digest address
+  ---
+  duration_ms: 73.684943
+  type: 'test'
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 1
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 198.876501
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-image-prepare.test.js"],"code":0,"signal":null,"tests":1,"invalid":false,"spawned":1,"leftovers":[]}
