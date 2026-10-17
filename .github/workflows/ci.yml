@@ -21,6 +21,18 @@ jobs:
       - run: npm ci --ignore-scripts
       - run: npm run audit:security
 
+  zero-python:
+    # Owner standing rule: 0 Python in repos and jobs (supply-chain: a Python
+    # job means a new unvalidated container image). This gate fails on any
+    # tracked *.py file or python/pip invocation outside the explicit
+    # owner-approved allowlist (scripts/no-python-allowlist.txt — currently
+    # only the Dockerfile node-pty toolchain line, pending owner decision).
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - run: bash scripts/check-no-python.sh
+
   host-oracle:
     # The two independent review legs of PR #94 converged on this: configuration tests
     # cannot prove what the HOST serves. Both of that PR's real defects — codex still
