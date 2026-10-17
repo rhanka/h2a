@@ -7,7 +7,9 @@
 - [x] Reproduce the real 251-character AGY_ERROR through 80/160-column terminal rendering and loss beyond the six-line capture tail.
 - [x] Remove cross-clock freshness comparisons; retain old-generation exclusion and baseline custom executor paths at handoff.
 - [x] Reassemble complete anchored AGY_ERROR JSON and carry the full-screen typed quota error through prompt delivery.
-- [ ] Rebase onto origin/main, targeted Node 22/24 validation, isolated typechecks, push and per-job CI snapshot in the owner's Tour 3 report.
+- [x] Rebase onto origin/main `596363908` (already up to date); targeted Node 22.22.1 / 24.18.0: eight runtime files 303/303 and three CLI/MCP files 41/41 per version, zero skips; four isolated package typechecks per version.
+- [x] Preserve Claude-pool attribution when an AGY model is not Claude: two additional red regressions, then green on both hosts.
+- Publication and each CI job are recorded in the owner's report under Tour 3.
 - No installed h2a/native host/provider access, Track writes, full local suite or unattended child process.
 
 ## PR 359 — Tour 2
