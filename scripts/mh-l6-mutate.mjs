@@ -139,6 +139,10 @@ const cases = [
   ['dispatch', 'resume-frozen', `const tx = store.reconcile(upgradeId);
   return Object.freeze({ upgradeId, installationState: tx.installationState, controllerEpoch: grant.epoch });`, `const tx = store.reconcile(upgradeId);
   return Object.freeze({ upgradeId, installationState: 'SELECTED', controllerEpoch: grant.epoch });`, 'F should resume a prepared transaction without changing its phase'],
+  ['command-gate', 'gate-call', 'const verdict = assessNpmCommand({ commandPath, managedLauncher: launcherPath, legacyEntry });', "const verdict = { state: 'missing' };", 'F should refuse a plain-file occupant instead of replacing it'],
+  ['command-gate', 'occupied-gate', "if (verdict.state === 'occupied') throw new Error('bootstrap_launcher_command_occupied');", '', 'F should refuse a plain-file occupant instead of replacing it'],
+  ['command-gate', 'foreign-gate', "if (verdict.state === 'foreign') throw new Error('bootstrap_launcher_command_foreign');", '', 'F should refuse a foreign command link instead of replacing it'],
+  ['command-gate', 'dangling-gate', "if (verdict.state === 'dangling') throw new Error('bootstrap_launcher_command_dangling');", '', 'F should refuse a dangling command link for diagnosis'],
 ];
 const files = group === 'launcher' ? ['packages/h2a/src/runtime/upgrade/managed-launcher.js'] :
   group === 'exclusion' ? ['packages/h2a/src/runtime/upgrade/legacy-exclusion.js', 'packages/h2a/dist/runtime/upgrade/legacy-exclusion.js'] :
@@ -154,11 +158,12 @@ const files = group === 'launcher' ? ['packages/h2a/src/runtime/upgrade/managed-
   group === 'authority' ? ['packages/h2a/src/runtime/upgrade/upgrade-authority.js', 'packages/h2a/dist/runtime/upgrade/upgrade-authority.js'] :
   group === 'cli' ? ['packages/h2a/src/runtime/upgrade/upgrade-cli.js', 'packages/h2a/dist/runtime/upgrade/upgrade-cli.js'] :
   group === 'dispatch' ? ['packages/h2a/src/runtime/upgrade/upgrade-dispatch.js', 'packages/h2a/dist/runtime/upgrade/upgrade-dispatch.js'] :
+  group === 'command-gate' ? ['packages/h2a/src/runtime/upgrade/launcher-install.js', 'packages/h2a/dist/runtime/upgrade/launcher-install.js'] :
   ['packages/h2a/src/runtime/upgrade/h4-store.js', 'packages/h2a/dist/runtime/upgrade/h4-store.js'];
 const originals = files.map(path => ({ path, bytes: fs.readFileSync(path) }));
 const selected = cases.filter(c => c[0] === group && (!process.env.MH_L6_MUTATION || c[1] === process.env.MH_L6_MUTATION));
 if (!selected.length) throw new Error('unknown_mutation_group');
-const testFile = { delegation: 'delegation', launcher: 'launcher', exclusion: 'exclusion', deferral: 'exclusion', bootstrap: 'bootstrap', adoption: 'adoption', 'launcher-install': 'launcher-install', 'adoption-execute': 'adoption', unmanage: 'unmanage', 'adoption-image': 'image-prepare', status: 'status', 'upgrade-run': 'upgrade-run', 'npm-command': 'npm', authority: 'authority', cli: 'cli', dispatch: 'dispatch' }[group] ?? 'selection';
+const testFile = { delegation: 'delegation', launcher: 'launcher', exclusion: 'exclusion', deferral: 'exclusion', bootstrap: 'bootstrap', adoption: 'adoption', 'launcher-install': 'launcher-install', 'adoption-execute': 'adoption', unmanage: 'unmanage', 'adoption-image': 'image-prepare', status: 'status', 'upgrade-run': 'upgrade-run', 'npm-command': 'npm', authority: 'authority', cli: 'cli', dispatch: 'dispatch', 'command-gate': 'command-gate' }[group] ?? 'selection';
 const file = `packages/h2a/test/mh-l6-${testFile}.test.js`;
 const results = [];
 for (const [, name, from, to, scenario] of selected) {
