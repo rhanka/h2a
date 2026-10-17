@@ -4,21 +4,38 @@
  *
  * Scans TRACKED files only (`git ls-files`) and distinguishes EXECUTABLE
  * contexts from prose:
- *   - `#!` shebang lines are checked on EVERY tracked file;
- *   - tracked `*.py|*.pyw|*.pyi|*.pyx` sources always fail;
- *   - shell snippets (`.sh`/hooks, `package.json` scripts, workflow `run:`
- *     steps, `Dockerfile` RUN instructions) are parsed for a command in
- *     command position — quoted (`"…"`) and escaped (`\…`) forms included,
- *     `$(…)`/backtick bodies recursed into — so redirect targets, `echo`
- *     arguments and full-line `#` comments never match;
- *   - JS/TS files only match when a string literal that LOOKS LIKE a shell
+ *   - `#!` shebang lines are checked on EVERY tracked file (interpreter word
+ *     tested, `/usr/bin/env` flags skipped, so `pypy3` and `env -S` count);
+ *   - tracked `*.py|*.pyw|*.pyi|*.pyx` sources always fail (case-insensitive);
+ *   - shell snippets (`.sh`/hooks, extensionless non-dotfiles, `Makefile`s,
+ *     `package.json` scripts, workflow `run:`/`command:`/`script:`/`args:`
+ *     steps, `Dockerfile` RUN/CMD/ENTRYPOINT/ONBUILD instructions) are parsed
+ *     for a command in command position — quoted (`"…"`) and escaped (`\…`)
+ *     forms included, `$(…)`/backtick bodies recursed into, `sh -c` snippets
+ *     recursed into, wrapper options (`sudo -u`, `timeout 5`, `nice -n`, …)
+ *     skipped — so redirect targets, `echo` arguments and full-line `#`
+ *     comments never match;
+ *   - `Dockerfile` FROM images naming python and workflow `uses:` actions
+ *     referencing python fail; workflow `shell:` values are shell-scanned;
+ *   - installer lines (`apk add`, `apt-get install`, `brew install`, …) also
+ *     match python-ish package names (`python3-dev`, `py3-pip`,
+ *     `python@3.12`);
+ *   - JS/TS files match when a string literal that LOOKS LIKE a shell
  *     invocation is passed to a process-spawning call
- *     (`spawn`/`exec`/`execFile`/`fork`/`execa` and their `Sync` variants),
+ *     (`spawn`/`exec`/`execFile`/`fork`/`execa` and their `Sync` variants,
+ *     including `import`/`require` aliases and `const run = execSync`),
+ *     when a one-level `const cmd = "python3 …"` binding flows into such a
+ *     call, or when an `execa` tagged template carries one —
  *     so `//` comments, data strings and canary arrays stay silent;
  *   - Markdown/prose files are never content-scanned (shebang rule aside).
  *
  * Vocabulary is lowercase-only and matched as whole command words, so
  * `check-no-python`, `CPython`, `pipeline` or `"Python"` never match.
+ *
+ * KNOWN REMAINING LIMITS (fail-open, documented instead of assured):
+ * `cp.execSync`-style member-call sinks, re-assigned (multi-level) JS
+ * bindings, computed string assembly, exotic YAML exec spellings, and `//`
+ * inside JS regex literals.
  *
  * The allowlist (`scripts/no-python-allowlist.txt`, `FILE|FULL_LINE[|COUNT]`)
  * excuses a hit only on EXACT trimmed-line equality, and every entry must be
@@ -29,7 +46,7 @@
  * Exit 0 when clean, 1 on any unexcused hit / allowlist problem / I/O error.
  */
 import { spawnSync } from 'node:child_process';
-import { lstatSync, readFileSync, readlinkSync } from 'node:fs';
+import { lstatSync, readFileSync, readlinkSync, realpathSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -39,17 +56,37 @@ export const ALLOWLIST_REL = 'scripts/no-python-allowlist.txt';
 
 // Lowercase-only: real interpreter binaries are lowercase; capitalised prose
 // (`Python`, `Pip`) and hyphenated names (`check-no-python`) never match.
-const PY_BASE_RE = /^(?:python\d*(?:\.\d+)*|pythonw|pyw?|pip\d?)$/;
-const PY_TOOL_CMDS = new Set(['uv', 'pipx', 'poetry']);
-const SHELL_WRAPPERS = new Set(['sudo', 'command', 'exec', 'env', 'nohup', 'xargs']);
+const PY_BASE_RE = /^(?:python\d*(?:\.\d+)*|pythonw|pypy\d*(?:\.\d+)*|pyw?|pip\d*(?:\.\d+)*)$/;
+const PY_TOOL_CMDS = new Set(['uv', 'uvx', 'pipx', 'poetry']);
+const SHELL_WRAPPERS = new Set([
+  'sudo', 'command', 'exec', 'env', 'nohup', 'xargs', 'timeout', 'nice',
+  'time', 'stdbuf', 'eval', 'sh', 'bash', 'dash', 'zsh', 'ksh',
+]);
+const SHELL_NAMES = new Set(['sh', 'bash', 'dash', 'zsh', 'ksh']);
+// Wrapper flags that consume the FOLLOWING word as their value
+// (`sudo -u alice …`, `timeout -s KILL 5 …`, `nice -n 5 …`).
+const WRAPPER_VALUE_FLAGS = {
+  sudo: new Set(['-u', '-g', '-U', '-h', '-p', '-r', '-t', '-C', '--user', '--group', '--host', '--prompt', '--role', '--type']),
+  env: new Set(['-u', '--unset']),
+  timeout: new Set(['-s', '--signal']),
+  nice: new Set(['-n']),
+  time: new Set(['-o', '--output']),
+  stdbuf: new Set(['-o', '-e', '--output', '--error']),
+  xargs: new Set(['-I', '-n', '-P', '-s', '-a', '-d', '-E', '--max-args', '--max-procs']),
+  exec: new Set(['-a']),
+};
 const SHELL_KEYWORDS = new Set([
   'if', 'then', 'else', 'elif', 'fi', 'for', 'while', 'until', 'do', 'done',
   'case', 'esac', 'in', 'function', 'select', 'coproc', 'export', 'readonly',
   'local', 'declare', '!', '{', '}',
 ]);
 const INSTALL_RE = /\b(apk\s+add|apt-get\s+install|apt\s+install|dnf\s+install|yum\s+install|zypper\s+install|brew\s+install|pkg\s+install)\b/;
+// Python-ish distro package names on installer lines (`python3-dev`,
+// `py3-pip`, `python3-pip`, `python@3.12`); tested lowercased.
+const INSTALL_PKG_RE = /(^|[^a-z0-9])python\d*([^a-z0-9]|$)|^pip\d*([^a-z0-9]|$)|^pypy\d*([^a-z0-9]|$)|^py\d([^a-z0-9]|$)|^python@/;
 const REDIRECT_RE = /^(\d+)?(>>|>|<<-|<<|<<<|<>|>&|<&)/;
 const ASSIGN_RE = /^[A-Za-z_][A-Za-z0-9_]*\+?=/;
+const DURATION_RE = /^[\d.]+(ns|us|µs|ms|s|m|h|d)?$/;
 
 function stripQuotes(word) {
   let w = word;
@@ -71,6 +108,20 @@ function baseName(word) {
 
 export function isPyCommandWord(word) {
   return PY_BASE_RE.test(baseName(stripQuotes(word)));
+}
+
+/** Python-ish distro package name on an installer line (lowercased test). */
+export function isPyPackageWord(word) {
+  const w = baseName(stripQuotes(word));
+  if (PY_BASE_RE.test(w)) return true;
+  return INSTALL_PKG_RE.test(w.toLowerCase());
+}
+
+/** True when a Dockerfile image reference names a python image. */
+export function isPythonImage(ref) {
+  const seg = stripQuotes(ref).slice(stripQuotes(ref).lastIndexOf('/') + 1);
+  const name = seg.split(/[:@]/)[0];
+  return /python/i.test(name) || /^(pypy\d*|py\d)/i.test(name);
 }
 
 /**
@@ -252,7 +303,7 @@ function splitWords(seg) {
 function segmentInvokesPython(seg) {
   const words = splitWords(seg);
   if (words.length === 0) return false;
-  if (INSTALL_RE.test(seg) && words.some((w) => isPyCommandWord(w))) return true;
+  if (INSTALL_RE.test(seg) && words.some((w) => isPyPackageWord(w))) return true;
   let i = 0;
   while (i < words.length) {
     const w = words[i];
@@ -263,11 +314,37 @@ function segmentInvokesPython(seg) {
       continue;
     }
     const bare = stripQuotes(w);
+    if (bare === '-') { i++; continue; } // YAML `- item` list marker
     if (SHELL_KEYWORDS.has(bare)) { i++; continue; }
     if (bare.startsWith('-') && bare.length > 1) { i++; continue; }
     if (SHELL_WRAPPERS.has(bare)) {
       i++;
-      while (i < words.length && stripQuotes(words[i]).startsWith('-')) i++;
+      // Skip the wrapper's own options: assignments, flags, flag values
+      // (`sudo -u alice`), durations (`timeout 5`). `sh -c <snippet>` and
+      // quoted multi-word snippets (`eval "python3 -c x"`) are recursed into.
+      const valued = WRAPPER_VALUE_FLAGS[bare] || new Set();
+      while (i < words.length) {
+        const a = stripQuotes(words[i]);
+        if (ASSIGN_RE.test(words[i])) { i++; continue; }
+        if (SHELL_NAMES.has(bare) && (a === '-c' || a === '--command')) {
+          i++;
+          if (i < words.length && scanShellSnippet(stripQuotes(words[i]))) return true;
+          i++;
+          continue;
+        }
+        if (a.startsWith('-') && a.length > 1) {
+          i++;
+          if (valued.has(a) && i < words.length) i++;
+          continue;
+        }
+        if (DURATION_RE.test(a)) { i++; continue; }
+        if (a.includes(' ') || a.includes('\t')) {
+          if (scanShellSnippet(a)) return true;
+          i++;
+          continue;
+        }
+        break;
+      }
       continue;
     }
     const b = baseName(bare);
@@ -306,17 +383,41 @@ export function joinContinuations(content) {
   return out;
 }
 
-/** Extract the shell of every `run:` step in a workflow file (comments skipped). */
+/** Unwrap one YAML single-line scalar: `"…"` / `'…'` (plus trailing comment). */
+export function unquoteYamlScalar(s) {
+  const t = s.trim();
+  const m = t.match(/^(")(.*)"\s*(#.*)?$/) || t.match(/^(')(.*)'\s*(#.*)?$/);
+  if (m) return m[2];
+  return s;
+}
+
+/** Scan a YAML flow list (`["python3", "app.py"]`): any item that is a
+ * command word — or itself a shell snippet invoking python — is a hit. */
+export function scanFlowList(text) {
+  const toks = text.match(/"([^"\\]|\\.)*"|'([^'\\]|\\.)*'|[^\s,\[\]{}]+/g) || [];
+  return toks.some((t) => {
+    const u = stripQuotes(t);
+    return isPyCommandWord(u) || ((u.includes(' ') || u.includes('\t')) && scanShellSnippet(u));
+  });
+}
+
+/** Extract executable steps from a YAML file: `run:`, `command:`, `script:`,
+ * `args:` (shell-scanned), `shell:` (shell-scanned value) and `uses:`
+ * (flagged when it references python, e.g. `setup-python`). Block scalars
+ * and indented block lines are collected; comments skipped.
+ * `text` is the scanned fragment, `raw` the full trimmed line (hit identity),
+ * `flow` selects flow-list scanning for `[...]` forms. */
 export function extractWorkflowRuns(content) {
   const out = [];
   const lines = content.split('\n');
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     if (/^\s*#/.test(line)) continue;
-    const m = line.match(/^(\s*(?:-\s+)?)run:(.*)$/);
+    const m = line.match(/^(\s*(?:-\s+)?)(run|command|script|args|uses|shell)\s*:(.*)$/);
     if (!m) continue;
-    const keyIdx = line.indexOf('run:');
-    const inline = m[2].trim();
+    const key = m[2];
+    const keyIdx = line.indexOf(`${key}:`);
+    const inline = m[3].trim();
     // `text` is the scanned shell fragment, `raw` the full trimmed line used
     // for hit identity (exact allowlist matching).
     if (inline === '' || /^[|>][+-]?\d*\s*(#.*)?$/.test(inline)) {
@@ -326,34 +427,43 @@ export function extractWorkflowRuns(content) {
         const indent = bl.match(/^\s*/)[0].length;
         if (indent <= keyIdx) break;
         const t = bl.trim();
-        out.push({ text: t, raw: t, line: j + 1 });
+        out.push({ key, text: t, raw: t, line: j + 1, flow: /^(-\s*)?\[/.test(t) });
       }
     } else if (/^#/.test(inline)) {
       continue;
     } else {
-      out.push({ text: inline, raw: line.trim(), line: i + 1 });
+      out.push({ key, text: inline, raw: line.trim(), line: i + 1, flow: /^\[/.test(inline) });
     }
   }
   return out;
 }
 
-/** Extract `RUN` instructions (continuations joined) from a Dockerfile.
- * `text` is the scanned shell fragment, `raw` the full logical line. */
+/** Extract `RUN`/`CMD`/`ENTRYPOINT` instructions (optional `ONBUILD` prefix,
+ * continuations joined) from a Dockerfile.
+ * `text` is the scanned shell fragment, `raw` the full logical line,
+ * `flow` selects flow-list scanning for `["…", …]` exec-JSON forms. */
 export function extractDockerRuns(content) {
   const out = [];
-  const lines = content.split('\n');
-  for (let i = 0; i < lines.length; i++) {
-    const m = lines[i].match(/^\s*RUN\s+(.*)$/i);
+  for (const { text: logical, line } of joinContinuations(content)) {
+    const m = logical.match(/^\s*(?:ONBUILD\s+)?(RUN|CMD|ENTRYPOINT)\s+(.*)$/i);
     if (!m) continue;
-    let text = m[1];
-    let raw = lines[i].trim();
-    let j = i;
-    while (/\\$/.test(text) && !/\\\\$/.test(text) && j + 1 < lines.length) {
-      text = text.slice(0, -1) + ' ' + lines[j + 1].trim();
-      raw = raw.slice(0, -1).trim() + ' ' + lines[j + 1].trim();
-      j++;
-    }
-    out.push({ text, raw, line: i + 1 });
+    const rest = m[2];
+    const raw = logical.trim();
+    out.push({ text: rest, raw, line, flow: /^\[/.test(rest.trim()) });
+  }
+  return out;
+}
+
+/** Extract `FROM` image references (continuations joined) from a Dockerfile.
+ * `text` is the image reference (last word), `raw` the full logical line. */
+export function extractDockerFroms(content) {
+  const out = [];
+  for (const { text: logical, line } of joinContinuations(content)) {
+    const m = logical.match(/^\s*FROM\s+(.*)$/i);
+    if (!m) continue;
+    const words = splitWords(m[1]);
+    if (words.length === 0) continue;
+    out.push({ text: stripQuotes(words[words.length - 1]), raw: logical.trim(), line });
   }
   return out;
 }
@@ -468,7 +578,52 @@ function tokenizeJs(content) {
   return { code: out.join(''), literals };
 }
 
-const JS_SINK_RE = /\b(spawn|spawnSync|exec|execSync|execFile|execFileSync|fork|execa)\s*\(/g;
+const BASE_SINKS = ['spawn', 'spawnSync', 'exec', 'execSync', 'execFile', 'execFileSync', 'fork', 'execa'];
+
+function escapeRegExp(s) {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/** Process-spawning names visible in one JS/TS file: base sinks plus local
+ * aliases (`const run = execSync`, `import {execSync as run}`,
+ * `const {execSync: run} = require('child_process')`). */
+export function collectJsSinkAliases(content) {
+  const aliases = new Set();
+  const alt = BASE_SINKS.join('|');
+  let m;
+  const direct = new RegExp(`\\b(?:const|let|var)\\s+([A-Za-z_$][\\w$]*)\\s*=\\s*(${alt})\\b`, 'g');
+  while ((m = direct.exec(content)) !== null) aliases.add(m[1]);
+  const imp = /\bimport\s*\{([^}]*)\}\s*from\s*['"][^'"]*['"]/g;
+  while ((m = imp.exec(content)) !== null) {
+    for (const part of m[1].split(',')) {
+      const im = part.trim().match(/^([A-Za-z_$][\w$]*)(?:\s+as\s+([A-Za-z_$][\w$]*))?$/);
+      if (im && BASE_SINKS.includes(im[1])) aliases.add(im[2] || im[1]);
+    }
+  }
+  const destr = /(?:const|let|var)\s*\{([^}]*)\}\s*=\s*require\s*\(\s*['"][^'"]*child_process[^'"]*['"]\s*\)/g;
+  while ((m = destr.exec(content)) !== null) {
+    for (const part of m[1].split(',')) {
+      const dm = part.trim().match(/^([A-Za-z_$][\w$]*)(?:\s*:\s*([A-Za-z_$][\w$]*))?$/);
+      if (dm && BASE_SINKS.includes(dm[1])) aliases.add(dm[2] || dm[1]);
+    }
+  }
+  return aliases;
+}
+
+/** One-level `const name = "python3 …"` bindings whose string value looks
+ * like a shell invocation (re-assignment and computed assembly stay blind). */
+export function collectJsPyBindings(content) {
+  const bound = [];
+  const re = /\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*("([^"\\\n]|\\.)*"|'([^'\\\n]|\\.)*')/g;
+  let m;
+  while ((m = re.exec(content)) !== null) {
+    const inner = m[2].slice(1, -1);
+    if (scanShellSnippet(inner)) {
+      bound.push({ name: m[1], value: inner, line: content.slice(0, m.index).split('\n').length });
+    }
+  }
+  return bound;
+}
 
 function findClosingParen(code, openIdx) {
   let depth = 1;
@@ -484,29 +639,77 @@ function findClosingParen(code, openIdx) {
 }
 
 /** Scan a JS/TS file: string literals that look like shell invocations AND sit
- * inside a process-spawning call are hits. */
+ * inside a process-spawning call (aliases included) are hits, as are
+ * one-level python bindings passed to such calls and `execa` tagged
+ * templates carrying an invocation. */
 export function scanJsFile(rel, content) {
   const hits = [];
   const { code, literals } = tokenizeJs(content);
-  JS_SINK_RE.lastIndex = 0;
+  const sinkNames = [...BASE_SINKS, ...collectJsSinkAliases(content)];
+  const sinkRe = new RegExp(`\\b(${sinkNames.map(escapeRegExp).join('|')})\\s*\\(`, 'g');
+  const tagRe = new RegExp(`\\b(${sinkNames.map(escapeRegExp).join('|')})\\s*$`);
+  const ranges = [];
   let m = null;
-  while ((m = JS_SINK_RE.exec(code)) !== null) {
+  while ((m = sinkRe.exec(code)) !== null) {
     const openIdx = m.index + m[0].length - 1;
     let closeIdx = findClosingParen(code, openIdx);
     if (closeIdx < 0) closeIdx = openIdx + 2000;
-    for (const lit of literals) {
-      if (lit.start > openIdx && lit.start < closeIdx) {
+    ranges.push([openIdx, closeIdx]);
+  }
+  for (const lit of literals) {
+    if (tagRe.test(code.slice(Math.max(0, lit.start - 64), lit.start))) {
+      if (scanShellSnippet(lit.value)) {
+        hits.push({ file: rel, line: lit.line, text: lit.value.trim().slice(0, 220) });
+      }
+      continue;
+    }
+    for (const [a, b] of ranges) {
+      if (lit.start > a && lit.start < b) {
         if (scanShellSnippet(lit.value)) {
           hits.push({ file: rel, line: lit.line, text: lit.value.trim().slice(0, 220) });
         }
+        break;
       }
+    }
+  }
+  for (const bound of collectJsPyBindings(content)) {
+    const useRe = new RegExp(`\\b${escapeRegExp(bound.name)}\\b`);
+    if (ranges.some(([a, b]) => useRe.test(code.slice(a, b)))) {
+      hits.push({ file: rel, line: bound.line, text: bound.value.trim().slice(0, 220) });
     }
   }
   return hits;
 }
 
 export function isPythonSourceFile(rel) {
-  return /\.(py|pyw|pyi|pyx)$/.test(rel);
+  return /\.(py|pyw|pyi|pyx)$/i.test(rel);
+}
+
+/** True when a `#!` line selects a python interpreter (`/usr/bin/env` forms
+ * with flags like `-S` included; plain shells stay silent). */
+export function scanShebangLine(firstLine) {
+  const m = firstLine.match(/^#!\s*(.*)$/);
+  if (!m) return false;
+  const toks = splitWords(m[1]).map(stripQuotes);
+  if (toks.length === 0) return false;
+  let interp = baseName(toks[0]);
+  if (interp === 'env') {
+    let i = 1;
+    while (i < toks.length) {
+      const t = toks[i];
+      if (t === '-S' || t === '--split-string') { i++; continue; }
+      if (/^-/.test(t)) {
+        if (/^(-u|--unset|--block-signal|--default-signal|--ignore-signal)$/.test(t)) i += 2;
+        else i++;
+        continue;
+      }
+      if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(t)) { i++; continue; }
+      break;
+    }
+    if (i >= toks.length) return false;
+    interp = baseName(toks[i]);
+  }
+  return PY_BASE_RE.test(interp) || PY_TOOL_CMDS.has(interp);
 }
 
 /** Executable-content kind for a tracked path (null = prose: shebang rule only). */
@@ -517,7 +720,11 @@ export function classifyFile(rel, firstLine) {
   if (/\.(ya?ml)$/i.test(b)) return 'workflow';
   if (/\.(m?js|cjs|m?ts|cts|jsx|tsx)$/.test(b)) return 'js';
   if (/\.(sh|bash|zsh|ksh|dash)$/.test(b)) return 'shell';
+  if (/^(gnumakefile|makefile)$/i.test(b) || /\.(mk|mak|make)$/i.test(b)) return 'shell';
   if (/^#!.*\b(bash|sh|dash|zsh|ksh)\b/.test(firstLine)) return 'shell';
+  // Extensionless non-dotfiles (hooks/scripts without extension or shebang)
+  // are shell-scanned; a prose line almost never sits in command position.
+  if (!b.startsWith('.') && !b.includes('.')) return 'shell';
   return null;
 }
 
@@ -534,7 +741,7 @@ export function scanFileHits(rel, content) {
   }
   const nl = content.indexOf('\n');
   const firstLine = nl < 0 ? content : content.slice(0, nl);
-  if (/^#!.*python/.test(firstLine)) push(1, firstLine);
+  if (scanShebangLine(firstLine)) push(1, firstLine);
   const kind = classifyFile(rel, firstLine);
   if (kind === null) return hits;
   if (kind === 'shell') {
@@ -543,13 +750,22 @@ export function scanFileHits(rel, content) {
       if (scanShellSnippet(text)) push(line, text);
     }
   } else if (kind === 'workflow') {
-    for (const { text, raw, line } of extractWorkflowRuns(content)) {
+    for (const { key, text, raw, line, flow } of extractWorkflowRuns(content)) {
       if (/^\s*(#|$)/.test(text)) continue;
-      if (scanShellSnippet(text)) push(line, raw);
+      if (key === 'uses') {
+        if (/python/i.test(text)) push(line, raw);
+      } else if (flow) {
+        if (scanFlowList(text)) push(line, raw);
+      } else if (scanShellSnippet(unquoteYamlScalar(text))) {
+        push(line, raw);
+      }
     }
   } else if (kind === 'docker') {
-    for (const { text, raw, line } of extractDockerRuns(content)) {
-      if (scanShellSnippet(text)) push(line, raw);
+    for (const { text, raw, line, flow } of extractDockerRuns(content)) {
+      if (flow ? scanFlowList(text) : scanShellSnippet(text)) push(line, raw);
+    }
+    for (const { text, raw, line } of extractDockerFroms(content)) {
+      if (isPythonImage(text)) push(line, raw);
     }
   } else if (kind === 'pkgjson') {
     for (const h of scanPackageJson(rel, content)) hits.push(h);
@@ -661,6 +877,15 @@ function main() {
   process.exit(1);
 }
 
-const invokedAsMain =
-  process.argv[1] != null && resolve(process.cwd(), process.argv[1]) === fileURLToPath(import.meta.url);
+// Entry-point detection compares REAL paths: through a symlinked invocation
+// `argv[1]` and the module URL differ textually while naming the same file,
+// and a textual comparison would skip `main()` with a silent exit 0.
+const invokedAsMain = (() => {
+  try {
+    if (process.argv[1] == null) return false;
+    return realpathSync(resolve(process.cwd(), process.argv[1])) === realpathSync(fileURLToPath(import.meta.url));
+  } catch {
+    return false;
+  }
+})();
 if (invokedAsMain) main();
