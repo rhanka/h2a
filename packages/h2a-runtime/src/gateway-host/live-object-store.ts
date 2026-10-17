@@ -226,8 +226,6 @@ export function createLiveObjectStore(options: LiveObjectStoreOptions): LiveObje
     // Exclude retained history using only host-owned refs. The private store
     // is a read-only, ephemeral alternate for this command, so exclusions
     // also work after the corresponding root disappeared from the source.
-    const retained = git(gitDir, ["for-each-ref", "--format=%(objectname)", "refs/h2a/retained"]);
-    const revisions = [request.oid, ...retained.split("\n").filter(Boolean).map(oid => `^${oid}`)].join("\n") + "\n";
     const incoming = join(stage, "incoming.pack");
     const child = spawn("git", [...flags, `--git-dir=${stage}`, "pack-objects", "--stdout", "--revs",
       "--no-use-bitmap-index", "--no-reuse-delta", "--no-reuse-object"], {
@@ -236,20 +234,35 @@ export function createLiveObjectStore(options: LiveObjectStoreOptions): LiveObje
     const closed = new Promise<number | null>((resolve, reject) => {
       child.once("error", reject); child.once("close", resolve);
     });
+    // Stream exclusions with backpressure: the number of retained refs has no
+    // fixed ceiling and must never be limited by execFileSync's maxBuffer.
+    const retained = spawn("git", [...flags, `--git-dir=${gitDir}`, "for-each-ref",
+      "--format=^%(objectname)", "refs/h2a/retained"], {
+      cwd: metadataDir, env, stdio: ["ignore", "pipe", "pipe"],
+    });
+    const retainedClosed = new Promise<number | null>((resolve, reject) => {
+      retained.once("error", reject); retained.once("close", resolve);
+    });
     // Drain errors, but never retain/log potentially sensitive source text.
-    child.stderr.resume(); child.stdin.on("error", () => {}); child.stdin.end(revisions);
+    child.stderr.resume(); retained.stderr.resume();
+    child.stdin.on("error", () => {}); child.stdin.write(`${request.oid}\n`);
     let count = 0; let timedOut = false;
-    const timer = setTimeout(() => { timedOut = true; child.kill("SIGKILL"); }, 30_000);
-    try {
-      await pipeline(child.stdout, new Transform({ transform(chunk: Buffer, _encoding, callback) {
+    const timer = setTimeout(() => { timedOut = true; child.kill("SIGKILL"); retained.kill("SIGKILL"); }, 30_000);
+    const transfers = [
+      pipeline(retained.stdout, child.stdin),
+      pipeline(child.stdout, new Transform({ transform(chunk: Buffer, _encoding, callback) {
         count += chunk.length;
         callback(count > remaining ? new Error("quota_exhausted") : null, count > remaining ? undefined : chunk);
-      } }), createWriteStream(incoming, { flags: "wx", mode: 0o600 }));
-      if (await closed !== 0 || timedOut) throw new Error("objects_unavailable");
+      } }), createWriteStream(incoming, { flags: "wx", mode: 0o600 })),
+    ];
+    try {
+      const [code, retainedCode] = await Promise.all([closed, retainedClosed, ...transfers]);
+      if (code !== 0 || retainedCode !== 0 || timedOut) throw new Error("objects_unavailable");
     } finally {
       clearTimeout(timer);
       if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
-      await closed;
+      if (retained.exitCode === null && retained.signalCode === null) retained.kill("SIGKILL");
+      await Promise.allSettled([closed, retainedClosed, ...transfers]);
     }
     // index-pack writes alongside incoming; move the complete verified
     // pair into staging's object db before connectivity verification.
