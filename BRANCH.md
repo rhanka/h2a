@@ -1,3 +1,26 @@
+# Focus publication — owner decision 2026-10-17
+
+Branch: feat/focus-publish. Implement the accepted release-wave decision:
+focus 0.5.0 is independent of the h2a 0.98.7 train. RC suffix follows the
+h2a tag; all five verified tarballs and versions enter the same-tree proof.
+Scope: release/rehearsal workflows, release/candidate/rehearsal helpers and
+qualified execution snapshot, named release tests, release documentation.
+No tag, npm publication, installed h2a, owner state, Track writes or full
+local suite. Tests use disposable HOME/XDG/TMP directories.
+
+- [x] Red regression evidence: 48/61 then 25/32; no skips.
+- [x] Six targeted Node test files: 93/93, zero skips; actual focus tarball
+  dry-run without node_modules exit 0. Packed schema/validator and registry
+  digests checked; logs: /home/antoinefa/.cache/focuspub-{red,contract-red,green,rehearsal}.log.
+Publication: conventional commit, own-branch push and English PR; per-job
+CI outcomes are maintained in the owner-requested focuspub-report.md.
+
+Harness consensus review is selection-failed: the required installed h2a/mesh
+access is forbidden by the owner's confinement. No peer consensus claimed.
+See docs/reviews/focus-publish.md.
+
+# Inherited context
+
 # AGY Claude 5.5 model and quota contract
 
 ## PR 359 — Tour 3
