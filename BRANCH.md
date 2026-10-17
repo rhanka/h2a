@@ -1154,7 +1154,8 @@ Branch: `fix/presence-identity-liveness`. Base: `58f111b3` (origin/main at check
 - [x] C2b-1: protected bootstrap session (identified prefix, verified artifacts, held lock, eligible target); 6 targeted tests and 4 killed/restored pairs per Node 22/24; proof-C2b-1.json.
 - [x] C2b-2a: adoption-need gate before the already-current shortcut (typed reasons); 6 targeted tests and 8 killed/restored pairs per Node 22/24; proof-C2b-2a.json.
 - [x] C2b-2b: conditional managed launcher installation under session (atomic swap, digest); 6 targeted tests and 5 killed/restored pairs per Node 22/24; proof-C2b-2b.json.
-- [ ] B2-3/C2b-2c/D/E2b3/E3b2b/E3c/F: real legacy fencing observers, adoption execution, image preparation, unmanage/npm, all-entry closed loading, release packaging/native freeze and common CLI/automatic/M18 integration.
+- [x] C2b-2c: adoption execution to durable selection (lock handoff, mutation-free already_adopted); 11 targeted tests and 12 killed/restored pairs per Node 22/24; proof-C2b-2c.json.
+- [ ] B2-3/C2b-2d/D/E2b3/E3b2b/E3c/F: real legacy fencing observers, image preparation, adoption delegation, unmanage/npm, all-entry closed loading, release packaging/native freeze and common CLI/automatic/M18 integration.
 - [x] No installed h2a/dispatch, owner live state, main, .track, Python or full suite. Review selection cannot use the required installed dispatch under owner confinement; no consensus verdict claimed.
 - [ ] Independent conductor review and final MH-L6 acceptance remain required; A alone does not qualify U05/U06 or M18 end to end.
 
