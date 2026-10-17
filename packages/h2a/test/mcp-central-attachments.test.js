@@ -483,6 +483,7 @@ test("two attached repos route Track and h2a_run to their own workspace, sharing
       assert.match(JSON.stringify(track), new RegExp(`${name} only`));
       assert.doesNotMatch(JSON.stringify(track), new RegExp(`${name === "repo-a" ? "repo-b" : "repo-a"} only`));
       const run = await channel.call("tools/call", { name: "h2a_run", arguments: { profile: "claude", name: `fixture-${name}`, workspace: repo, prompt: "fixture", background: true } });
+      assert.ok(run.result, JSON.stringify(run));
       assert.equal(JSON.parse(run.result.content[0].text).workspace, repo);
       const wrong = await channel.call("tools/call", { name: "h2a_run", arguments: { profile: "claude", name: "cross-root", workspace: join(f.dir, name === "repo-a" ? "repo-b" : "repo-a"), prompt: "fixture", background: true } });
       assert.match(JSON.stringify(wrong), /startup workspace/);

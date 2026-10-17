@@ -546,9 +546,14 @@ export async function startCentralMcpServer(
   const root = canonicalRootPath(options.root);
   const env = options.env ?? process.env;
   const explicitEndpoint = env[H2A_MCP_CENTRAL_ENDPOINT_ENV];
+  if (explicitEndpoint) parseCentralMcpEndpoint(explicitEndpoint);
   const paths: CentralMcpPathsOptions = options.runtimeBase ? { runtimeBase: options.runtimeBase } : {};
+  const base = runtimeBase(paths);
+  if (!existsSync(base)) throw new Error(`${H2A_MCP_CENTRAL_ENDPOINT_ENV}: runtime base is absent`);
   const markerPath = options.precheck ? join(runtimeBase(paths), "h2a-mcp-central", "marker.json") : centralMcpMarkerPath(paths);
   const directory = dirname(markerPath);
+  // Refuse insecure or malformed evidence before publishing authority state.
+  if (existsSync(markerPath)) readMarkerObservation(markerPath);
   const identity = currentIdentity();
   const entrypoint = fileURLToPath(new URL("../bin.js", import.meta.url));
   const installation = options.precheck ? undefined : installationForEntry(entrypoint);
@@ -564,6 +569,9 @@ export async function startCentralMcpServer(
     const liveness = ownerLiveness(current.value, identity);
     if (liveness === "alive") {
       if (current.value.root !== root || current.value.protocol !== 2) throw new Error("owner_alive_incompatible");
+      if (explicitEndpoint && current.value.endpoint !== parseCentralMcpEndpoint(explicitEndpoint)) {
+        throw new Error(`LIVE central MCP server is registered on ${current.value.endpoint}; this launcher requests ${explicitEndpoint}`);
+      }
       return { kind: "reused", endpoint: current.value.endpoint, generation: current.value.generation, markerPath };
     }
     if (liveness !== "dead") throw new Error("owner_liveness_unknown");

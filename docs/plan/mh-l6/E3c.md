@@ -31,3 +31,7 @@ fichiers identiques, 3 tests et 4 paires/profil. Preuve : `proof-E3c.json`.
 | Vrais relancements U07/U11 sur artefacts convergés | MH-L8 (vrais runs Claude) |
 | Admission héritée fermée / activation M18 | MH-L8/conducteur |
 | Revue indépendante | Conducteur ; aucun consensus revendiqué |
+
+## Rebase vers la cible 0.98.8
+
+Le gel publié .6 (400 fichiers runtime + 4 fichiers installateur) reste identique. Le diagnostic local a été régénéré après rebase sur main : trois entrées identiques (`launch-guard.js`, `native-terminal/process.js`, `native-terminal/supervisor.js`) et trois différentes. Le test compare désormais aussi les six empreintes locales/publiées, en plus du verdict par entrée. Aucun bump de version.

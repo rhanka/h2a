@@ -1,5 +1,7 @@
 # MH-L6 — frontière H4 issue de M18
 
+Cible de livraison : **0.98.8** (décision owner du 17/10/2026). Les noms de branches historiques restent inchangés ; aucun bump de paquet dans ce lot.
+
 ## Réalisation MH-L6 — sous-lots
 
 - [x] Branche `feat/0.98.7-mh-l6` depuis MH-L5 relu ; confinement et règles owner prioritaires.

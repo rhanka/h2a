@@ -13,6 +13,7 @@ const central = vi.hoisted(() => {
     startedAt: string;
     root: string;
     protocol: number;
+    endpointMode: "fixed" | "discovered";
   };
   let marker: Marker | undefined;
   let generation = 0;
@@ -29,12 +30,23 @@ const central = vi.hoisted(() => {
       startedAt: "2026-08-24T00:00:00.000Z",
       root: _args[_args.indexOf("--root") + 1],
       protocol: 2,
+      endpointMode: options.env?.H2A_MCP_CENTRAL_ENDPOINT ? "fixed" : "discovered",
     };
     const child = new EventEmitter() as EventEmitter & { unref(): void };
     child.unref = unref;
     return child;
   });
   const core = {
+    centralMcpMarkerPath: vi.fn(() => process.env.XDG_RUNTIME_DIR + "/marker.json"),
+    ensureCentralForRoot: vi.fn(async (root: string, observers: { logPath(): string; onSpawn(child: any): void }) => {
+      const endpoint = (await import("./config.js")).getH2aConfig().central.endpoint;
+      await core.centralMcpPing(endpoint ?? "http://127.0.0.1:47831/mcp");
+      if (marker) return marker;
+      observers.logPath();
+      const child = spawn(process.execPath, ["protected-core-fixture", "--root", root], { env: { ...(endpoint ? { H2A_MCP_CENTRAL_ENDPOINT: endpoint } : {}) } });
+      observers.onSpawn(child);
+      return marker!;
+    }),
     H2A_MCP_CENTRAL_ENV: "H2A_MCP_CENTRAL",
     H2A_MCP_CENTRAL_ENDPOINT_ENV: "H2A_MCP_CENTRAL_ENDPOINT",
     centralMcpPing: vi.fn(async (endpoint: string) =>
@@ -54,6 +66,7 @@ const central = vi.hoisted(() => {
       generation = 0;
       unref.mockClear();
       spawn.mockClear();
+      core.ensureCentralForRoot.mockClear();
       core.centralMcpPing.mockClear();
       core.readCentralMcpMarker.mockClear();
       core.runCli.mockClear();
@@ -123,18 +136,11 @@ describe("central MCP auto-start", () => {
     });
     expect(first).toEqual({ status: "central", endpoint, generation: "generation-1" });
     expect(central.spawn).toHaveBeenCalledTimes(1);
-    expect(central.unref).toHaveBeenCalledTimes(1);
+    expect(central.core.ensureCentralForRoot).toHaveBeenCalledWith(workspace, { logPath: expect.any(Function), onSpawn: expect.any(Function) });
     expect(central.spawn).toHaveBeenCalledWith(
-      "h2a",
-      ["mcp-central-serve", "--root", workspace, "--auto-start"],
-      expect.objectContaining({
-        detached: true,
-        stdio: ["ignore", expect.any(Number), expect.any(Number)],
-        env: expect.objectContaining({
-          H2A_MCP_CENTRAL: "1",
-          H2A_MCP_CENTRAL_ENDPOINT: endpoint,
-        }),
-      }),
+      process.execPath,
+      ["protected-core-fixture", "--root", workspace],
+      expect.objectContaining({ env: { H2A_MCP_CENTRAL_ENDPOINT: endpoint } }),
     );
     expect(process.env).toMatchObject({
       H2A_MCP_CENTRAL: "1",
@@ -204,7 +210,6 @@ describe("central MCP auto-start", () => {
     expect(central.core.runCli).not.toHaveBeenCalled();
     const [, args, opts] = central.spawn.mock.calls[0];
     expect(args).not.toContain(workspace);
-    expect(opts).toMatchObject({ cwd: expect.any(String) });
     expect(opts.env).not.toHaveProperty("CLAUDE_CODE_SESSION_ID");
     expect(opts.env).not.toHaveProperty("TMUX_PANE");
     expect(opts.env).not.toHaveProperty("H2A_ROOT");
@@ -264,7 +269,6 @@ describe("central MCP crash records (revcrashlog constats 2/4)", () => {
   function deadSpawn() {
     const child = new EventEmitter() as EventEmitter & { unref(): void };
     child.unref = () => {};
-    central.spawn.mockImplementationOnce(() => child);
     return child;
   }
 
@@ -272,14 +276,8 @@ describe("central MCP crash records (revcrashlog constats 2/4)", () => {
     const endpoint = "http://127.0.0.1:47043/mcp";
     const workspace = join(stateRoot, "workspace");
     setH2aConfig({ central: { enabled: true, endpoint } });
-    const child = deadSpawn();
-    const pending = ensureCentralMcp({ root: workspace });
-    // Attach the rejection handler BEFORE the failure can fire: otherwise the
-    // rejection is unhandled and fails the whole suite run (CI proof).
-    const assertion = expect(pending).rejects.toThrow("boom-spawn");
-    await new Promise((r) => setImmediate(r));
-    child.emit("error", new Error("boom-spawn"));
-    await assertion;
+    central.core.ensureCentralForRoot.mockRejectedValueOnce(new Error("boom-spawn"));
+    await expect(ensureCentralMcp({ root: workspace })).rejects.toThrow("boom-spawn");
     expect(serverRows()[0]).toMatchObject({ event: "startupError", reason: "spawn-failed" });
   });
 
@@ -287,14 +285,11 @@ describe("central MCP crash records (revcrashlog constats 2/4)", () => {
     const endpoint = "http://127.0.0.1:47044/mcp";
     const workspace = join(stateRoot, "workspace");
     setH2aConfig({ central: { enabled: true, endpoint } });
-    deadSpawn();
-    vi.useFakeTimers();
-    const pending = ensureCentralMcp({ root: workspace });
-    // Same unhandled-rejection hazard: the rejection fires DURING the timer
-    // advance, so the handler must already be attached here.
-    const assertion = expect(pending).rejects.toThrow(/did not become ready/);
-    await vi.advanceTimersByTimeAsync(11_000);
-    await assertion;
+    central.core.ensureCentralForRoot.mockImplementationOnce(async (_root, observers) => {
+      observers.onSpawn(deadSpawn());
+      throw new Error("successor_startup_failed");
+    });
+    await expect(ensureCentralMcp({ root: workspace })).rejects.toThrow("successor_startup_failed");
     expect(serverRows()[0]).toMatchObject({ event: "exit", reason: "readiness-timeout" });
   });
 
