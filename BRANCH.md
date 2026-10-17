@@ -9,7 +9,7 @@
 - [x] Design: use h2a focus build, a native Focus extension, and bundle @sentropic/focus/validate unchanged.
 - [x] Lot 1: closed document template, ecosystem catalog, validator/build command; focus-build.test.js.
 - [x] Lot 2: DS Svelte renderer, light/dark, cards, pinch zoom, portable artifact; browser fixture.
-- [ ] Lot 3: default skill, exact command, documentation, targeted skill and schema tests.
+- [x] Lot 3: default skill, exact command, documentation, targeted skill and schema tests.
 - [ ] Lot 4: package verification, push own branch, English PR, per-job CI report.
 - [x] Feedback: harness review selection-failed; installed h2a/mesh access forbidden by owner.
 - [x] Feedback: no Track writes through installed tools; no consensus or review identity claimed.
