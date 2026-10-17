@@ -14,12 +14,13 @@ import test from "node:test";
 import { runCli } from "../dist/index.js";
 import { HARNESS_SKILLS } from "../dist/vendor/harness/index.js";
 
-// The four track skills @sentropic/track ships in `packages/track/skills/`.
+// The five track skills @sentropic/track ships in `packages/track/skills/`.
 const TRACK_SKILLS = [
   "branch-lifecycle",
   "present-decision",
   "propose-workpackages",
-  "track-operation"
+  "track-operation",
+  "track-report"
 ];
 // Every harness skill is rendered under the `harness-` prefix (anti-collision).
 const HARNESS_INSTALL_NAMES = HARNESS_SKILLS.map((s) => `harness-${s.name}`);
