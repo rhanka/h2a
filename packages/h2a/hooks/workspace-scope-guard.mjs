@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 import fs from 'node:fs';
-import { basename, dirname, resolve } from 'node:path';
+import { homedir } from 'node:os';
+import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { appendRecord, canonical, findGrant, inside, options, readRecords, stateDir } from './workspace-scope-state.mjs';
 import { branchBump, classify, git, patchBump, prBump, publishedBump, repository } from './workspace-scope-shell.mjs';
 
@@ -8,9 +10,24 @@ let context, host = 'claude';
 const quoteShell = value => "'" + value.replace(/'/g, "'\\''") + "'";
 function literal(value) {
   if (/^"(?:[^"\\]|\\.)*"$/.test(value)) return JSON.parse(value);
-  if (/^'(?:[^'\\]|\\.)*'$/.test(value)) return value.slice(1, -1).replace(/\\(['\\])/g, '$1');
-  if (/^`(?:[^`\\]|\\.)*`$/.test(value) && !value.includes('${')) {
-    return value.slice(1, -1).replace(/\\(n|r|t|`|\\)/g, (_, c) => ({ n: '\n', r: '\r', t: '\t' }[c] ?? c));
+  if (/^'(?:[^'\\]|\\[\s\S])*'$/.test(value) || /^`(?:[^`\\]|\\[\s\S])*`$/.test(value) && !value.includes('${')) {
+    const body=value.slice(1,-1); let decoded='';
+    for (let i=0;i<body.length;i++) {
+      if (body[i]!=='\\') { decoded+=body[i]; continue; }
+      const escape=body[++i];
+      if (escape==='\n') continue;
+      if (escape==='\r') { if(body[i+1]==='\n') i++; continue; }
+      if (escape==='x' || escape==='u') {
+        const braced=escape==='u' && body[i+1]==='{';
+        const end=braced?body.indexOf('}',i+2):i+(escape==='x'?2:4);
+        const digits=body.slice(i+(braced?2:1),end+(braced?0:1));
+        if (end<0 || !/^[a-f\d]+$/i.test(digits) || !braced && digits.length!==(escape==='x'?2:4)) throw new Error('Invalid JS escape');
+        decoded+=String.fromCodePoint(Number.parseInt(digits,16)); i=end; continue;
+      }
+      if (/[1-9]/.test(escape ?? '') || escape==='0' && /\d/.test(body[i+1] ?? '')) throw new Error('Legacy JS escape');
+      decoded+=({n:'\n',r:'\r',t:'\t',b:'\b',f:'\f',v:'\v',0:'\0'})[escape] ?? escape;
+    }
+    return decoded;
   }
   throw new Error('Dynamic command envelope');
 }
@@ -32,6 +49,26 @@ function fields(source) {
     }
   }
   throw new Error('Unclosed command envelope');
+}
+// Lex JavaScript without running it. Strings/comments cannot introduce calls;
+// every reference to the tools capability must be a direct, static invocation.
+function jsTokens(source) {
+  const tokens = [];
+  for (let i = 0; i < source.length;) {
+    if (/\s/.test(source[i])) { i++; continue; }
+    if (source.startsWith('//',i)) { while (i < source.length && source[i] !== '\n') i++; continue; }
+    if (source.startsWith('/*',i)) { const end=source.indexOf('*/',i+2); if(end<0) throw new Error('Unclosed comment'); i=end+2; continue; }
+    const start=i;
+    if ('"\'`'.includes(source[i])) {
+      const quote=source[i++]; let escaped=false;
+      while(i<source.length) { const c=source[i++]; if(escaped) escaped=false; else if(c==='\\') escaped=true; else if(c===quote) break; }
+      tokens.push({value:literal(source.slice(start,i)), string:true, start, end:i}); continue;
+    }
+    const name=source.slice(i).match(/^[\w$]+/);
+    i+=name?name[0].length:1;
+    tokens.push({value:source.slice(start,i),start,end:i});
+  }
+  return tokens;
 }
 function refuse(code, request = {}, detail = '') {
   const selectors = { repo: request.repo ?? '', action: request.action ?? '', ref: request.ref ?? '', session: context.session ?? '' };
@@ -57,16 +94,26 @@ try {
   const payload = JSON.parse(raw || '{}');
   // Host session id selects a grant, but cannot redefine the workspace/key.
   context.session ||= payload.session_id ?? payload.sessionId ?? payload.thread_id ?? payload.conversationId ?? '';
-  const sessionStore = args['session-store'] ? canonical(args['session-store']) : undefined;
+  const sessionStore = args['session-store'] ? canonical(args['session-store']) : host === 'agy' && !args.workspace ? hookCwd : undefined;
   if (sessionStore) {
     if (!context.session) refuse('UNVERIFIABLE', {}, 'Missing native session identity.');
     const bindings = readRecords(sessionStore, 'sessions.jsonl').filter(row => row.session === context.session);
-    if (!bindings.length) appendRecord(sessionStore, 'sessions.jsonl', { session: context.session, workspace, at: new Date().toISOString() });
+    if (!bindings.length) {
+      if (host === 'agy') {
+        if (args['initialize-session'] !== 'true' || !Array.isArray(payload.workspacePaths) || payload.workspacePaths.length !== 1 ||
+          typeof payload.workspacePaths[0] !== 'string' || !isAbsolute(payload.workspacePaths[0]) || !fs.statSync(payload.workspacePaths[0]).isDirectory())
+          refuse('UNVERIFIABLE', {}, 'Agy requires a single workspacePaths entry at SessionStart.');
+        workspace = canonical(payload.workspacePaths[0]);
+      }
+      appendRecord(sessionStore, 'sessions.jsonl', { session: context.session, workspace, at: new Date().toISOString() });
+      context = { ...context, workspace, ...repository(workspace) };
+    }
     else {
       if (new Set(bindings.map(row => row.workspace)).size !== 1) refuse('UNVERIFIABLE', {}, 'Conflicting native session bindings.');
       workspace = canonical(bindings[0].workspace);
       context = { ...context, workspace, ...repository(workspace) };
     }
+    if (host === 'agy' && args['initialize-session'] === 'true') { process.stdout.write('{}'); process.exit(0); }
   }
   // Keep the first observed baseline for this native session. Mutable local
   // main/origin/main refs cannot erase a package bump already in its branch.
@@ -79,6 +126,7 @@ try {
     if (!context.session) refuse('UNVERIFIABLE', {}, 'Missing host session identity.');
     if (args['initialize-session'] === 'true') {
       appendRecord(workspace, 'sessions.jsonl', { session: context.session, workspace, at: new Date().toISOString() });
+      if (host === 'agy') process.stdout.write('{}');
       process.exit(0);
     }
     let bound = false;
@@ -92,15 +140,17 @@ try {
   if (typeof input === 'string' && !/patch|exec$/.test(toolName)) {
     try { input = JSON.parse(input); } catch { /* raw custom tool input */ }
   }
-  // Antigravity's native camelCase tool payload (workspacePaths is never authority).
+  // Antigravity's native camelCase tool payload. workspacePaths belongs to the
+  // host event, not toolCall.args; only SessionStart can establish its binding.
   if (host === 'agy') input = { ...input, command: input.command ?? input.CommandLine,
     cwd: input.cwd ?? input.Cwd, file_path: input.file_path ?? input.TargetFile,
     content: input.content ?? input.CodeContent, old_string: input.old_string ?? input.TargetContent,
     new_string: input.new_string ?? input.ReplacementContent,
     replace_all: input.replace_all ?? input.AllowMultiple,
+    start_line: input.StartLine, end_line: input.EndLine,
     edits: input.edits ?? input.ReplacementChunks?.map(edit => ({ old_string: edit.TargetContent, new_string: edit.ReplacementContent,
-      replace_all: edit.AllowMultiple })) };
-  const targetCwd = canonical(resolve(workspace, input.workdir ?? input.cwd ?? payload.cwd ?? (sessionStore ? hookCwd : workspace)));
+      replace_all: edit.AllowMultiple, start_line: edit.StartLine, end_line: edit.EndLine })) };
+  const targetCwd = canonical(resolve(workspace, input.workdir ?? input.cwd ?? payload.cwd ?? (sessionStore && host !== 'agy' ? hookCwd : workspace)));
   context.toolEnv = input.env && typeof input.env === 'object' ? input.env : {};
   const requests = [];
   const envelopePatches = [];
@@ -108,27 +158,29 @@ try {
   if (/^(?:functions\.)?exec$/.test(toolName) && typeof envelope === 'string') {
     // Extract only literal commands from the JS orchestration envelope. Never
     // evaluate agent JS. Dynamic shell/tool expressions are unverifiable.
-    const execName = /(?:\bexec_command|\[\s*["']exec_command["']\s*\])\s*\(\s*/g;
-    const calls = [...envelope.matchAll(execName)];
-    for (const match of calls) {
-      const { result } = fields(envelope.slice(match.index + match[0].length));
-      const command = literal(result.cmd ?? result.command ?? '');
-      const cwd = result.workdir ?? result.cwd;
-      const env = result.env ? Object.fromEntries(Object.entries(fields(result.env).result).map(([k, v]) => [k, literal(v)])) : {};
-      requests.push(...classify(command, cwd ? canonical(resolve(targetCwd, literal(cwd))) : targetCwd, { ...context, toolEnv: env }));
-    }
-    const patchCalls = [...envelope.matchAll(/(?:\bapply_patch|\[\s*["']apply_patch["']\s*\])\s*\(\s*/g)];
-    for (const match of patchCalls) {
-      const rest = envelope.slice(match.index + match[0].length);
-      if (rest.startsWith('{')) envelopePatches.push(literal(fields(rest).result.patch ?? ''));
+    const tokens=jsTokens(envelope);
+    if (tokens.some(token=>!token.string && ['globalThis','Reflect','eval','Function','import','\\'].includes(token.value)))
+      throw new Error('Reflective command envelope');
+    for (let i=0;i<tokens.length;i++) {
+      if (tokens[i].string || tokens[i].value !== 'tools') continue;
+      let name, open;
+      if (tokens[i+1]?.value==='.' && !tokens[i+2]?.string) { name=tokens[i+2]?.value; open=i+3; }
+      else if (tokens[i+1]?.value==='[' && tokens[i+2]?.string && tokens[i+3]?.value===']') { name=tokens[i+2].value; open=i+4; }
+      if (!['exec_command','apply_patch'].includes(name) || tokens[open]?.value!=='(') throw new Error('Indirect tools capability');
+      const argument=tokens[open+1];
+      const rest=envelope.slice(argument.start);
+      if (name==='exec_command') {
+        const {result}=fields(rest);
+        const command=literal(result.cmd ?? result.command ?? '');
+        const cwd=result.workdir ?? result.cwd;
+        const env=result.env ? Object.fromEntries(Object.entries(fields(result.env).result).map(([k,v])=>[k,literal(v)])) : {};
+        requests.push(...classify(command,cwd?canonical(resolve(targetCwd,literal(cwd))):targetCwd,{...context,toolEnv:env}));
+      } else if (argument.value==='{') envelopePatches.push(literal(fields(rest).result.patch ?? ''));
       else {
-        const value = rest.match(/^("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|`(?:[^`\\]|\\.)*`)\s*\)/s);
-        envelopePatches.push(literal(value?.[1] ?? ''));
+        if (!argument.string || tokens[open+2]?.value!==')') throw new Error('Dynamic patch');
+        envelopePatches.push(argument.value);
       }
     }
-    if ([...envelope.matchAll(/\b(?:exec_command|apply_patch)\b/g)].length !== calls.length + patchCalls.length ||
-      /\btools\s*\[/.test(envelope.replace(/\[\s*["'](?:exec_command|apply_patch)["']\s*\]\s*\(/g, '(')))
-      requests.push({ action: 'shell.dynamic', code: 'UNVERIFIABLE', repo: context.repo, ref: '' });
   }
   let command = input.command ?? input.cmd;
   if (Array.isArray(command)) command = command.map(quoteShell).join(' ');
@@ -141,8 +193,19 @@ try {
       const path = canonical(resolve(targetCwd, input.file_path ?? input.path));
       let old = ''; try { old = fs.readFileSync(path, 'utf8'); } catch { /* new file */ }
       let content = input.content ?? old;
-      for (const edit of input.edits ?? [input]) if (typeof edit.old_string === 'string')
-        content = edit.replace_all ? content.split(edit.old_string).join(edit.new_string ?? '') : content.replace(edit.old_string, edit.new_string ?? '');
+      // Native ranges refer to the original file. Apply from bottom to top so
+      // an earlier chunk cannot shift the lines selected by a later chunk.
+      const replacements=[...(input.edits ?? [input])].sort((a,b)=>(b.start_line ?? 0)-(a.start_line ?? 0));
+      for (const edit of replacements) if (typeof edit.old_string === 'string') {
+        const replace = text => edit.replace_all ? text.split(edit.old_string).join(edit.new_string ?? '') : text.replace(edit.old_string,edit.new_string ?? '');
+        if (edit.start_line !== undefined || edit.end_line !== undefined) {
+          const lines=content.split('\n'), start=edit.start_line, end=edit.end_line;
+          if (!Number.isInteger(start) || !Number.isInteger(end) || start<1 || end<start || end>lines.length) throw new Error('Invalid edit range');
+          const selected=lines.slice(start-1,end).join('\n');
+          if (!selected.includes(edit.old_string)) throw new Error('Unmatched edit range');
+          content=[...lines.slice(0,start-1),replace(selected),...lines.slice(end)].join('\n');
+        } else content=replace(content);
+      }
       edits.push({ path, old, content });
     }
   }
@@ -157,7 +220,7 @@ try {
     const repo = repository(dirname(edit.path));
     requests.push({ action: 'file.write', repo: repo.repo, ref: edit.path, foreign: !inside(workspace, edit.path) || repo.path !== context.path,
       code: inside(stateDir(workspace), edit.path) ? 'OWNER_ONLY' :
-        basename(edit.path) === 'package.json' && (edit.patch ? patchBump(edit.path, edit.patch) : publishedBump(edit.old, edit.content)) ? 'VERSION_BUMP' : undefined });
+        basename(edit.path) === 'package.json' && (edit.patch ? patchBump(edit.path, edit.patch, targetCwd) : publishedBump(edit.old, edit.content)) ? 'VERSION_BUMP' : undefined });
   }
   function authorize(code, request) {
     const authorization = findGrant(context, { ...request,
@@ -167,11 +230,12 @@ try {
       workspace, session: context.session, request, authorization }); }
     catch { refuse('AUDIT_UNAVAILABLE', request); }
   }
+  const trustPaths = [stateDir(workspace), ...(sessionStore ? [stateDir(sessionStore)] : []),
+    ...(context.ownerKey ? [context.ownerKey] : []), fileURLToPath(new URL('.',import.meta.url)),
+    ...[workspace,homedir()].flatMap(root=>['.muse/hooks.json','.muse/.h2a-scope-install','.claude/settings.json',
+      '.claude/settings.local.json','.agents/hooks.json','.vibe/hooks.toml','.gemini/config/hooks.json'].map(path=>join(root,path)))].map(canonical);
   for (const request of requests) {
-    if (request.action.startsWith('file.') && (inside(stateDir(workspace), request.ref) ||
-      ['file.rm', 'file.mv', 'file.write', 'file.truncate'].includes(request.action) && inside(request.ref, stateDir(workspace)) ||
-      context.ownerKey && inside(request.ref, canonical(context.ownerKey)) ||
-      sessionStore && (inside(stateDir(sessionStore), request.ref) || inside(request.ref, stateDir(sessionStore))))) request.code = 'OWNER_ONLY';
+    if (request.action.startsWith('file.') && trustPaths.some(path=>inside(path,request.ref) || inside(request.ref,path))) request.code = 'OWNER_ONLY';
     if (request.action === 'owner.grant' || request.code === 'OWNER_ONLY') refuse('OWNER_ONLY', request);
     if (request.uncertain) refuse('UNVERIFIABLE', request);
     if (request.foreign) authorize('FOREIGN_WORKSPACE', request);

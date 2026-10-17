@@ -93,6 +93,9 @@ test('R1 should install and execute the agy all-tool hook with native payloads',
   assert.equal(hooks?.enabled,true);
   const entry = hooks.PreToolUse.find(e => JSON.stringify(e).includes('workspace-scope-guard'));
   assert.ok(entry); assert.equal(entry.matcher,'.*');
+  const start=spawnSync('sh',['-c',hooks.SessionStart[0].command],{cwd:f.dir,env:f.env,encoding:'utf8',
+    input:JSON.stringify({conversationId:'agy-session',workspacePaths:[f.dir]})});
+  assert.equal(start.status,0,start.stderr);assert.deepEqual(JSON.parse(start.stdout),{});
   for (const args of [{CommandLine:'gh pr close -R foreign/repo 3'}, {command:'git push',cwd:join(f.dir,'foreign')}]) {
     const r = spawnSync('sh',['-c',entry.hooks[0].command],{cwd:f.dir,env:f.env,encoding:'utf8',
       input:JSON.stringify({conversationId:'agy-session',workspacePaths:[f.dir],toolCall:{name:'run_command',args}})});
@@ -155,4 +158,37 @@ for(const host of ['agy','muse']) test('R5 should retain the explicit owner key 
   const next=f.cli(['install-skills','--host',host]);assert.equal(next.status,0,next.stderr);
   const path=host==='muse'?join(f.dir,'.muse/hooks.json'):join(f.dir,'.gemini/config/hooks.json');
   assert.ok(fs.readFileSync(path,'utf8').includes(key),'owner key selection was lost');
+});
+
+for (const install of ['install-skills','host-plugin']) test('T3 R1 should bind agy from workspacePaths at global hook cwd: ' + install, t => {
+  const f=fixture(t), configDir=join(f.dir,'.gemini/config'), path=join(configDir,'hooks.json');
+  fs.mkdirSync(configDir,{recursive:true});
+  const args=install==='install-skills'?['install-skills','--host','agy']:
+    ['host','plugin','--host','agy','--instance','installer-only','--workspace',f.dir,'--write',path];
+  const installed=f.cli(args); assert.equal(installed.status,0,installed.stderr);
+  const hooks=JSON.parse(fs.readFileSync(path,'utf8'))['sentropic-h2a-workspace-scope'];
+  assert.ok(hooks.SessionStart?.length,'missing agy SessionStart');
+  const pre=hooks.PreToolUse[0].hooks[0].command;
+  assert.ok(!pre.includes('--workspace')&&!pre.includes("'--session'"),pre);
+  const run=(command,payload)=>spawnSync('sh',['-c',command],{cwd:configDir,env:f.env,encoding:'utf8',input:JSON.stringify(payload)});
+  for (const name of ['one','two']) {
+    const workspace=join(f.dir,name);fs.mkdirSync(workspace);
+    const native={conversationId:name,workspacePaths:[workspace]};
+    const start=run(hooks.SessionStart[0].command,native);assert.equal(start.status,0,start.stderr);assert.deepEqual(JSON.parse(start.stdout),{});
+    const check=(tool,args)=>run(pre,{...native,toolCall:{name:tool,args}});
+    assert.equal(JSON.parse(check('write_to_file',{TargetFile:join(workspace,'src.js'),CodeContent:'x'}).stdout).decision,'allow');
+    assert.equal(JSON.parse(check('run_command',{Cwd:workspace,CommandLine:'echo own'}).stdout).decision,'allow');
+    assert.equal(JSON.parse(check('run_command',{CommandLine:'touch src.js'}).stdout).decision,'allow','agy defaults to the bound workspace, not the hook config cwd');
+    assert.equal(JSON.parse(check('write_to_file',{TargetFile:path,CodeContent:'{}'}).stdout).code,'OWNER_ONLY');
+    const changed=run(pre,{...native,workspacePaths:[f.dir],toolCall:{name:'write_to_file',args:{TargetFile:join(f.dir,'foreign.js'),CodeContent:'x'}}});
+    assert.equal(JSON.parse(changed.stdout).decision,'deny','payload cannot rebind an existing native session');
+  }
+  assert.equal(fs.existsSync(join(configDir,'.h2a/workspace-scope/sessions.jsonl')),false,'global cwd must not become workspace');
+});
+test('T3 R1 should not create Muse project hooks during user convergence', t => {
+  const f=fixture(t), profile=join(f.dir,'.config/muse');fs.mkdirSync(profile,{recursive:true});
+  const script=`import {convergeNativeHost} from ${JSON.stringify(join(root,'dist/hosts/native-convergence.js'))};
+    convergeNativeHost({host:'muse',root:${JSON.stringify(profile)},version:'test',skills:[],renderGemini:()=>'',repair:true});`;
+  const r=spawnSync(process.execPath,['--input-type=module','-e',script],{cwd:f.dir,env:f.env,encoding:'utf8'});
+  assert.equal(r.status,0,r.stderr);assert.equal(fs.existsSync(join(f.dir,'.muse')),false);
 });

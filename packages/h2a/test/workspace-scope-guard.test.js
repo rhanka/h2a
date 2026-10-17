@@ -543,3 +543,145 @@ test('R3 should reject spread members in Codex command objects', t => {
   const f=fixture(t);denied(f.invoke({tool_name:'functions.exec',tool_input:
     'await tools.exec_command({cmd:"git status", ...overrides})'}),'UNVERIFIABLE');
 });
+
+// Independent review #364, tour 3: the hook inspects these commands; none executes.
+const reviewShell = [
+  ['brace group', f => `{ git -C '${f.foreign}' push; }`],
+  ['if', f => `if true; then git -C '${f.foreign}' push; fi`],
+  ['for', f => `for x in 1; do git -C '${f.foreign}' push; done`],
+  ['while', f => `while true; do git -C '${f.foreign}' push; done`],
+  ['until', f => `until false; do git -C '${f.foreign}' push; done`],
+  ...['!', 'time', 'nice', 'nice -n 2', 'timeout 10', 'timeout -s TERM 10', 'stdbuf -oL', 'setsid', 'command --', 'builtin'].map(prefix =>
+    [prefix, f => `${prefix} git -C '${f.foreign}' push`]),
+  ['builtin cd', f => `builtin cd '${f.foreign}' && git push`],
+  ['function parens', f => `cd '${f.foreign}' && f() { :; } && git push`],
+  ['case parens', f => `cd '${f.foreign}' && case 1 in 1) ;; esac && git push`],
+  ['negated subshell', f => `cd '${f.foreign}' && ! (false) && git push`],
+  ['comment parens', f => `cd '${f.foreign}'\n# )\ngit push`],
+  ['cd oldpwd', f => `cd '${f.foreign}' && cd '${f.own}' && cd - && git push`],
+  ['cd home', f => `HOME='${f.foreign}'; cd; git push`],
+  ['pushd swap', f => `pushd '${f.foreign}' && pushd '${f.own}' && pushd && git push`],
+  ['git continuation', f => `git \\\n -C '${f.foreign}' push`],
+  ['gh continuation', () => 'gh \\\n pr merge -R fixture/foreign 327'],
+  ['eval', f => `eval "git -C '${f.foreign}' push"`],
+  ['eval cwd state', f => `eval "cd '${f.foreign}'"; git push`],
+  ['export repo state', () => 'export GH_REPO=fixture/foreign; gh pr close 327'],
+  ['readonly repo state', () => 'readonly GH_REPO=fixture/foreign; gh pr close 327'],
+  ['conditional cwd reset', f => `cd '${f.foreign}' || cd '${f.own}'; git push`],
+  ['conditional repo reset', () => 'GH_REPO=fixture/foreign; false && GH_REPO=fixture/own; gh pr close 327'],
+  ['brace expansion subcommand', f => `git -C '${f.foreign}' {pu,xx}sh`],
+  ['here string', f => `sh <<< "git -C '${f.foreign}' push"`],
+  ['pipeline stdin', f => `echo "git -C '${f.foreign}' push" | sh`],
+  ['pipeline stage cwd', f => `cd '${f.foreign}' && cd '${f.own}' | git push`],
+  ['pipeline nested cwd', f => `echo own | (cd '${f.foreign}'; git push)`],
+  ['quoted shell heredoc', f => `"bash" <<'EOF'\ngit -C '${f.foreign}' push\nEOF`],
+  ...['-ce', '-cu', '-cx'].map(flag => [flag, f => `sh ${flag} "git -C '${f.foreign}' push"`]),
+  ['variable executable', f => `CMD="git -C '${f.foreign}' push"; $CMD`],
+  ['git dir over worktree', f => `GIT_DIR='${f.foreign}/.git' GIT_WORK_TREE='${f.own}' git push`],
+  ['git dir over C', f => `git --git-dir='${f.foreign}/.git' -C '${f.own}' push`],
+  ['git attr source', f => `git --attr-source HEAD -C '${f.foreign}' push`],
+  ['remote mutation before push', () => 'git remote set-url origin https://github.com/fixture/foreign.git && git push origin HEAD:main'],
+];
+for (const [name, command] of reviewShell) test('T3 R2 should fail closed for ' + name, t => {
+  const f = fixture(t), r = f.invoke(command(f));
+  assert.equal(r.status, 2, r.stderr || command(f));
+  assert.ok(['FOREIGN_WORKSPACE', 'UNVERIFIABLE'].includes(JSON.parse(r.stdout).code));
+});
+for (const command of ['{ npm publish; }', 'npm \\\n publish']) test('T3 R2 should gate release ' + command, t => {
+  const f = fixture(t); denied(f.invoke(command), 'RELEASE_ONLY');
+});
+for (const command of ['{ rm -rf .h2a/workspace-scope; }', '{ node workspace-scope-grant.mjs --owner x; }',
+  `node --eval="fs.appendFileSync('.h2a/workspace-scope/grants.jsonl','x')"`,
+  `node -e"fs.appendFileSync('.h2a/workspace-scope/grants.jsonl','x')"`,
+  `node --print="fs.appendFileSync('.h2a/workspace-scope/grants.jsonl','x')"`,
+  `node -p"fs.appendFileSync('.h2a/workspace-scope/grants.jsonl','x')"`,
+  `true;node <<'EOF'\nfs.appendFileSync('.h2a/workspace-scope/grants.jsonl','x')\nEOF`,
+  'cp -t .h2a/workspace-scope package.json', 'cp --target-directory=.h2a/workspace-scope package.json',
+  'dd of=.h2a/workspace-scope/grants.jsonl', 'ln -sf package.json .h2a/workspace-scope/grants.jsonl',
+  'git clean -fdx .h2a/workspace-scope', 'git clean -fdx', 'git apply forged.diff'])
+  test('T3 R3 should protect trust from ' + command, t => { const f = fixture(t); denied(f.invoke(command), 'OWNER_ONLY'); });
+for (const path of ['.muse/hooks.json', '.muse/.h2a-scope-install/manifest.json', '.claude/settings.json', '.agents/hooks.json', '.vibe/hooks.toml'])
+  test('T3 R3 should protect project hook ' + path, t => {
+    const f = fixture(t); denied(f.invoke({tool_name:'Write',tool_input:{file_path:join(f.own,path),content:'{}'}}), 'OWNER_ONLY');
+  });
+test('T3 R3 should reject tool aliases and computed property names', t => {
+  const f = fixture(t);
+  for (const source of [`const t=tools; await t["exec_"+"command"]({cmd:"git -C ${f.foreign} push"})`,
+    `const {exec_command: run}=tools; await run({cmd:"git -C ${f.foreign} push"})`])
+    denied(f.invoke({tool_name:'functions.exec',tool_input:source}), 'UNVERIFIABLE');
+});
+for (const option of ['--author "A <a@b.c>"', '--date yesterday', '-F message.txt', '-C HEAD', '-c HEAD', '--cleanup strip', '--trailer "X: y"'])
+  test('T3 R4 should inspect the index with commit ' + option, t => {
+    const f = fixture(t), path=join(f.own,'package.json'), original=fs.readFileSync(path,'utf8');
+    fs.writeFileSync(path,original.replace('1.0.0','1.0.1')); f.git(f.own,'add','package.json'); fs.writeFileSync(path,original);
+    denied(f.invoke('git commit ' + option + ' -m bump'), 'VERSION_BUMP');
+  });
+for (const flag of ['--branches', '--tags']) test('T3 R4 should inspect every pushed ref with ' + flag, t => {
+  const f = fixture(t); fs.writeFileSync(join(f.own,'package.json'),'{"name":"fixture","version":"1.0.1"}');
+  f.git(f.own,'add','package.json'); f.git(f.own,'commit','-qm','bump'); f.git(f.own,'branch','bumped'); f.git(f.own,'tag','bumped-tag');
+  f.git(f.own,'reset','--hard','main'); denied(f.invoke('git push origin ' + flag),'VERSION_BUMP');
+});
+test('T3 R4 should select exact manifest patch sections in a monorepo', t => {
+  const f=fixture(t); fs.mkdirSync(join(f.own,'packages/sub'),{recursive:true});
+  fs.writeFileSync(join(f.own,'packages/sub/package.json'),'{"name":"sub","version":"1.0.0"}');
+  denied(f.invoke({tool_name:'apply_patch',tool_input:'*** Begin Patch\n*** Update File: package.json\n@@\n- "description": "before"\n+ "description": "after"\n*** Update File: packages/sub/package.json\n@@\n- "version": "1.0.0"\n+ "version": "1.0.1"\n*** End Patch'}),'VERSION_BUMP');
+});
+for (const multi of [false,true]) test('T3 R4 should honor agy line ranges ' + multi, t => {
+  const f=fixture(t), path=join(f.own,'package.json');
+  fs.writeFileSync(path,'{\n "name":"fixture",\n "description":"1.0.0",\n "version":"1.0.0"\n}\n');
+  const edit={StartLine:4,EndLine:4,TargetContent:'"1.0.0"',ReplacementContent:'"1.0.1"'};
+  const r=f.invoke({toolCall:{name:multi?'multi_replace_file_content':'replace_file_content',args:{TargetFile:path,...(multi?{ReplacementChunks:[edit]}:edit)}}},['--host','agy']);
+  assert.equal(JSON.parse(r.stdout).code,'VERSION_BUMP',r.stderr);
+});
+for (const word of ['apply_patch', 'exec_command']) test('T3 R5 should allow tool names in JS strings and comments ' + word, t => {
+  const f=fixture(t);
+  for (const code of [`await tools.exec_command({cmd:"git commit -m 'fix ${word}'"})`,
+    `// ${word}(\nawait tools.exec_command({cmd:"git status"})`,
+    `/* ${word} */ await tools["exec_command"]({cmd:"git status"})`]) {
+    const r=f.invoke({tool_name:'functions.exec',tool_input:code}); assert.equal(r.status,0,r.stderr);
+  }
+});
+
+for (const host of ['claude','codex','agy','muse','vibe']) test('T3 matrix should enforce the reviewed shell and trust boundary on ' + host, t => {
+  const f=fixture(t);
+  const code=r=>{assert.equal(r.status,['agy','vibe'].includes(host)?0:2,r.stderr);return JSON.parse(r.stdout).code;};
+  for (const [,command] of reviewShell) assert.ok(['FOREIGN_WORKSPACE','UNVERIFIABLE'].includes(code(f.invoke(command(f),['--host',host]))),command(f));
+  for (const command of ['{ rm -rf .h2a/workspace-scope; }','cp -t .h2a/workspace-scope package.json','git clean -fdx','git apply forged.diff'])
+    assert.equal(code(f.invoke(command,['--host',host])),'OWNER_ONLY',command);
+  for (const path of ['.muse/hooks.json','.claude/settings.json','.agents/hooks.json','.vibe/hooks.toml'])
+    assert.equal(code(f.invoke({tool_name:'Write',tool_input:{file_path:join(f.own,path),content:'{}'}},['--host',host])),'OWNER_ONLY');
+  const own=f.invoke({tool_name:'functions.exec',tool_input:'// apply_patch\nawait tools.exec_command({cmd:"git commit -m \'fix exec_command\'"})'},['--host',host]);
+  assert.equal(own.status,0,own.stderr);
+  assert.equal(f.invoke('{ git status; } # )',['--host',host]).status,0);
+  const path=join(f.own,'package.json'),original=fs.readFileSync(path,'utf8');
+  fs.writeFileSync(path,original.replace('1.0.0','1.0.1'));f.git(f.own,'add','package.json');fs.writeFileSync(path,original);
+  assert.equal(code(f.invoke('git commit --author "A <a@b.c>" -m bump',['--host',host])),'VERSION_BUMP');
+});
+test('T3 R3 should reject reflective and escaped JS capabilities', t => {
+  const f=fixture(t);
+  for (const source of ['const t=globalThis["to"+"ols"]; await t["exec_"+"command"]({cmd:"git push"})',
+    'await to\\u006fls.exec_command({cmd:"git push"})'])
+    denied(f.invoke({tool_name:'functions.exec',tool_input:source}),'UNVERIFIABLE');
+});
+test('T3 R2 should fail closed for unknown wrapper option operands', t => {
+  const f=fixture(t);
+  for (const prefix of ['sudo --user agent','nice --unknown value','command -x value']) {
+    const r=f.invoke(`${prefix} git -C '${f.foreign}' push`);assert.equal(r.status,2,r.stderr);
+  }
+});
+test('T3 R3 should not let git apply inspection flags authorize writes', t => {
+  const f=fixture(t);
+  for (const flag of ['--stat','--numstat','--summary','--check']) denied(f.invoke(`git apply ${flag} --apply forged.diff`),'OWNER_ONLY');
+});
+for (const quote of ["'",'`']) test('T3 R3 should decode JS escapes before classifying commands: ' + quote, t => {
+  const f=fixture(t);
+  denied(f.invoke({tool_name:'functions.exec',tool_input:`await tools.exec_command({cmd: ${quote}git -C ${f.foreign} pu\\x73h${quote}})`}));
+});
+test('T3 R2 should not erase the initial foreign cwd after a skipped cd', t => {
+  const f=fixture(t), r=f.invoke({tool_name:'exec_command',tool_input:{workdir:f.foreign,cmd:`false && cd '${f.own}'; git push`}});
+  assert.equal(r.status,2,r.stderr);
+});
+for (const command of ['true && NODE_ENV=production npm run build', 'true && git commit -m cd'])
+  test('T3 R5 should allow own command data without treating it as shell state: ' + command, t => {
+    const f=fixture(t),r=f.invoke(command);assert.equal(r.status,0,r.stderr);
+  });

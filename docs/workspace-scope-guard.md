@@ -12,7 +12,7 @@ PreToolUse hooks. SessionStart records the host session identity in the launch
 workspace; changing tool cwd cannot initialize another workspace. A missing
 binding refuses until the plugin is reloaded.
 
-`h2a host plugin --host claude|codex|gemini|agy|muse --instance SESSION --workspace WORKSPACE
+`h2a host plugin --host claude|codex|gemini|muse --instance SESSION --workspace WORKSPACE
 --owner-key /owner-controlled/scope-public.pem --write SETTINGS` installs a command
 with a fixed workspace, session and verification key. `--scaffold DIR` on Codex
 includes that command in the generated marketplace plugin. Run installation from
@@ -33,7 +33,14 @@ scope grants use the native session identity shown in refusals.
 
 agy convergence installs `SessionStart` and all-tool `PreToolUse` in
 `~/.gemini/config/hooks.json` as a named hook definition, independently of
-lifecycle polling. Its `conversationId` and `toolCall.name/args` payloads are
+lifecycle polling. `host plugin --host agy --write SETTINGS` installs the same
+startup contract, without pinning an installer session or workspace globally.
+The hook's cwd is the configuration directory. At SessionStart, exactly one
+absolute directory in the host event's `workspacePaths` selects the workspace;
+`conversationId` is bound once in the protected profile journal selected by
+`--session-store`. Later calls use that binding, regardless of tool cwd or a
+changed `workspacePaths`. Missing or ambiguous startup paths refuse. SessionStart
+returns `{}`. Its `conversationId` and `toolCall.name/args` payloads are
 translated to the shared policy, including `ReplacementChunks`. Startup handlers
 use agy's flat handler list. It returns `decision: allow|deny`, exit 0. The schema
 and default paths follow [Google's hook contract](https://antigravity.google/docs/hooks).
@@ -46,6 +53,8 @@ own manifest and conflict checks. Native Muse `1.4.10-R6427.1` was verified with
 a public checksum-verified binary in a disposable profile, including actual
 startup and plugin hook dispatch. User-global `hooks.json` is not assumed to load.
 Muse refusals use `hookSpecificOutput.permissionDecision: deny` and exit 2.
+User convergence (`doctor --repair`) maintains profile helpers without creating
+project hooks in its current directory. Project installation is explicit.
 Other native execution qualification remains separate from configuration tests.
 
 ## Owner grant: one explicit command
@@ -108,6 +117,24 @@ commands fail closed. Static shell substitutions are inspected in their command'
 cwd; subshell/pipeline cwd and environment changes do not leak into the parent.
 Opaque inline runtime programs fail closed rather than receiving filesystem
 authority from the executable name. Ordinary own-repo commands and quoted prose pass through.
+Unsupported shell control flow, functions, stateful builtins (`eval`, `export`,
+aliases and related commands), reflective JavaScript tool access,
+dynamic executable names and uninspectable shell stdin refuse with
+`UNVERIFIABLE`. Literal shell wrappers and line continuations preserve command
+boundaries; compound pipeline stages also refuse. JavaScript strings are decoded
+before shell classification. Strings and comments do not count as tool references;
+aliases of the tools capability refuse. Git configuration/remote mutations
+refuse when later commands could depend on their unexecuted effects.
+Unquoted brace expansions and ambiguous conditional cwd/environment resets also
+refuse; a skipped reset cannot erase a foreign context.
+Mutating `git apply`/`git am` requires owner execution because an opaque patch can
+replace trust files as well as published versions; inspection flags cannot
+override that protection when combined with `--apply`. `git clean` targets,
+project/global hook files, installer manifests, helper code, the pinned key and
+journals are protected from classified file mutations with `OWNER_ONLY`.
+Every commit checks the index, with an additional worktree check for path/`--all`
+commits. Multi-ref pushes inspect all selected branches/tags. Patch sections
+match canonical full paths, and agy replacement chunks honor their line ranges.
 Read-only `npm version` queries and versioning an explicitly private own package
 remain allowed; foreign package operations still require a scope grant.
 
@@ -135,5 +162,7 @@ interpreter, indirect executable or MCP mutation. Known dynamic sensitive comman
 envelopes refuse; arbitrary program semantics remain outside this guard. The
 tests use disposable repositories, profiles and local fake GitHub read responses;
 they do not qualify execution by real Claude/Codex/Vibe hosts or any live owner
-configuration. agy/muse enforcement and an external OS trust boundary remain
-uncovered. No package version is changed by this feature.
+configuration. Agy's global-cwd/startup contract and Muse's project installation
+are tested in disposable profiles; this does not qualify full native sessions.
+An external OS trust boundary remains uncovered. No package version is changed
+by this feature.
