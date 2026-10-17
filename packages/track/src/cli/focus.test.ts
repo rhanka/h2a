@@ -161,9 +161,9 @@ describe('track focus', () => {
   })
 
   it('vendored registry helper loads the publisher manifest (rev352-F4)', async () => {
-    // The vendored snapshot ships no adjacent registry manifest: the helper
-    // must resolve the publisher-owned entries through the installed package
-    // instead of throwing MODULE_NOT_FOUND from a relocated relative path.
+    // The vendored snapshot ships the pinned manifest alongside the helper,
+    // so it resolves without the publisher package instead of throwing
+    // MODULE_NOT_FOUND from a relocated relative path.
     const definitions = (await import('../focus-vendor/registry/definitions.js')) as unknown as {
       loadFocusSkillDescriptor: () => { entries: Array<{ id: string }> };
     };
