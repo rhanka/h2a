@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { spawn } from "node:child_process";
+import { EventEmitter } from "node:events";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -8,6 +9,7 @@ import {
   type LlmMeshFacade,
 } from "@sentropic/cluster-mesh/llm-mesh/facade";
 import { InMemoryKeyring } from "@sentropic/cluster-mesh/llm-mesh/node";
+import { EncryptedFileKeyring } from "@sentropic/cluster-mesh/llm-mesh/node";
 
 import { readLlmMeshConfig, writeLlmMeshConfig } from "./gateway-host/config-file.js";
 import {
@@ -24,7 +26,10 @@ import {
   formatLlmMeshAccountList,
   formatLlmMeshAccountError,
   listAccountsViaFacade,
+  readClaudeCliStoreCredential,
   removeAccountViaFacade,
+  resolveEnrollmentMode,
+  sanitizeClaudeEnrollmentError,
 } from "./llm-mesh-accounts.js";
 
 vi.mock("node:child_process", () => ({ spawn: vi.fn() }));
@@ -510,6 +515,726 @@ describe("facade account administration", () => {
       targetProviderId: "openai",
       transportProviderId: "codex",
     })).rejects.toThrow("No active codex account transport for openai");
+  });
+});
+
+describe("claude-code enrollment", () => {
+  it("dispatches browser enrollment with exact empty redirect and claude-code profile", async () => {
+    const facade = {
+      enroll: vi.fn().mockResolvedValue({
+        kind: "authorization-url",
+        enrollmentId: "enroll-claude-1",
+        url: "https://claude.com/cai/oauth/authorize?state=xyz",
+        expiresAt: "2026-10-12T20:00:00.000Z",
+      }),
+      completeClaudeEnrollment: vi.fn().mockResolvedValue({
+        accountId: "acct_claude_123",
+        label: "Claude (test@example.com)",
+      }),
+      cancel: vi.fn().mockResolvedValue(undefined),
+    } as unknown as LlmMeshFacade;
+
+    const openBrowser = vi.fn();
+    const readInput = vi.fn().mockResolvedValue("code123#xyz");
+    let stdoutData = "";
+    vi.spyOn(process.stdout, "write").mockImplementation((str) => {
+      stdoutData += String(str);
+      return true;
+    });
+
+    const result = await enrollViaFacade("claude-code", {
+      facade,
+      openBrowser,
+      readInput,
+      ownerScope: "cli:test-host",
+    });
+
+    expect(result).toEqual({
+      accountId: "acct_claude_123",
+      provider: "claude-code",
+      label: "Claude (test@example.com)",
+    });
+
+    expect(facade.enroll).toHaveBeenCalledWith("claude-code", {
+      configRef: "claude-code",
+      mode: "cli",
+      ownerScope: "cli:test-host",
+      redirectUri: "",
+    });
+    expect(openBrowser).toHaveBeenCalledWith(
+      "https://claude.com/cai/oauth/authorize?state=xyz",
+    );
+    expect(stdoutData).not.toContain("https://claude.com");
+    expect(stdoutData).not.toContain("code123#xyz");
+    expect(readInput).toHaveBeenCalled();
+    expect(facade.completeClaudeEnrollment).toHaveBeenCalledWith(
+      "enroll-claude-1",
+      "code123#xyz",
+      "cli:test-host",
+    );
+  });
+
+  it("fails closed when facade lacks completeClaudeEnrollment before secret input", async () => {
+    const facade = {
+      enroll: vi.fn().mockResolvedValue({
+        kind: "authorization-url",
+        enrollmentId: "enroll-claude-1",
+        url: "https://claude.com/cai/oauth/authorize?state=xyz",
+      }),
+    } as unknown as LlmMeshFacade;
+
+    const readInput = vi.fn();
+
+    await expect(
+      enrollViaFacade("claude-code", {
+        facade,
+        readInput,
+        ownerScope: "cli:test-host",
+      }),
+    ).rejects.toThrow(
+      /Claude enrollment requires facade\.completeClaudeEnrollment/,
+    );
+
+    expect(readInput).not.toHaveBeenCalled();
+  });
+
+  it("cancels enrollment session if input collection is cancelled", async () => {
+    const facade = {
+      enroll: vi.fn().mockResolvedValue({
+        kind: "authorization-url",
+        enrollmentId: "enroll-claude-cancel",
+        url: "https://claude.com/cai/oauth/authorize",
+      }),
+      completeClaudeEnrollment: vi.fn(),
+      cancel: vi.fn().mockResolvedValue(undefined),
+    } as unknown as LlmMeshFacade;
+
+    const readInput = vi.fn().mockRejectedValue(new Error("Claude enrollment cancelled"));
+
+    await expect(
+      enrollViaFacade("claude-code", {
+        facade,
+        readInput,
+        ownerScope: "cli:test-host",
+      }),
+    ).rejects.toThrow("Claude enrollment cancelled");
+
+    expect(facade.cancel).toHaveBeenCalledWith("enroll-claude-cancel");
+    expect(facade.completeClaudeEnrollment).not.toHaveBeenCalled();
+  });
+
+  it("cancels enrollment session if completion fails", async () => {
+    const facade = {
+      enroll: vi.fn().mockResolvedValue({
+        kind: "authorization-url",
+        enrollmentId: "enroll-claude-err",
+        url: "https://claude.com/cai/oauth/authorize",
+      }),
+      completeClaudeEnrollment: vi.fn().mockRejectedValue(new Error("invalid_grant")),
+      cancel: vi.fn().mockResolvedValue(undefined),
+    } as unknown as LlmMeshFacade;
+
+    const readInput = vi.fn().mockResolvedValue("bad-code#state");
+
+    await expect(
+      enrollViaFacade("claude-code", {
+        facade,
+        readInput,
+        ownerScope: "cli:test-host",
+      }),
+    ).rejects.toThrow();
+
+    expect(facade.cancel).toHaveBeenCalledWith("enroll-claude-err");
+  });
+
+  it("rejects session that is not authorization-url", async () => {
+    const facade = {
+      enroll: vi.fn().mockResolvedValue({
+        kind: "device-code",
+        enrollmentId: "enroll-claude-bad",
+      }),
+      completeClaudeEnrollment: vi.fn(),
+    } as unknown as LlmMeshFacade;
+
+    const readInput = vi.fn();
+
+    await expect(
+      enrollViaFacade("claude-code", {
+        facade,
+        readInput,
+        ownerScope: "cli:test-host",
+      }),
+    ).rejects.toThrow("Claude enrollment did not return an authorization URL");
+
+    expect(readInput).not.toHaveBeenCalled();
+  });
+
+  it("completes renewable credential import without starting browser or polling", async () => {
+    const facade = {
+      completeClaudeCredentialImport: vi.fn().mockResolvedValue({
+        accountId: "acct_claude_import_1",
+        label: "Claude (imported)",
+      }),
+      enroll: vi.fn(),
+      pollForCompletion: vi.fn(),
+      waitForCallback: vi.fn(),
+    } as unknown as LlmMeshFacade;
+
+    const fakeJson = JSON.stringify({
+      claudeAiOauth: {
+        accessToken: "test-access-token",
+        refreshToken: "test-refresh-token",
+        expiresAt: 1800000000000,
+        scopes: ["user:inference"],
+      },
+    });
+
+    const openBrowser = vi.fn();
+    const readInput = vi.fn().mockResolvedValue(fakeJson);
+
+    const result = await enrollViaFacade("claude-code", {
+      facade,
+      tokenImport: true,
+      openBrowser,
+      readInput,
+      ownerScope: "cli:test-host",
+    });
+
+    expect(result).toEqual({
+      accountId: "acct_claude_import_1",
+      provider: "claude-code",
+      label: "Claude (imported)",
+    });
+
+    expect(facade.enroll).not.toHaveBeenCalled();
+    expect(openBrowser).not.toHaveBeenCalled();
+    expect(facade.pollForCompletion).not.toHaveBeenCalled();
+    expect(facade.waitForCallback).not.toHaveBeenCalled();
+    expect(readInput).toHaveBeenCalledWith(
+      expect.stringContaining("paste renewable credential JSON"),
+      { multiline: true },
+    );
+    expect(facade.completeClaudeCredentialImport).toHaveBeenCalledWith(
+      fakeJson,
+      "cli:test-host",
+    );
+  });
+
+  it("fails closed when facade lacks completeClaudeCredentialImport before input", async () => {
+    const facade = {
+      enroll: vi.fn(),
+    } as unknown as LlmMeshFacade;
+
+    const readInput = vi.fn();
+
+    await expect(
+      enrollViaFacade("claude-code", {
+        facade,
+        tokenImport: true,
+        readInput,
+        ownerScope: "cli:test-host",
+      }),
+    ).rejects.toThrow(
+      /Claude credential import requires facade\.completeClaudeCredentialImport/,
+    );
+
+    expect(readInput).not.toHaveBeenCalled();
+  });
+
+  it("rejects blank or whitespace ownerScope before secret collection", async () => {
+    const facade = {
+      completeClaudeEnrollment: vi.fn(),
+      completeClaudeCredentialImport: vi.fn(),
+      enroll: vi.fn(),
+    } as unknown as LlmMeshFacade;
+    const readInput = vi.fn();
+
+    await expect(
+      enrollViaFacade("claude-code", {
+        facade,
+        readInput,
+        ownerScope: "   ",
+      }),
+    ).rejects.toThrow("ownerScope is required and cannot be blank");
+
+    expect(readInput).not.toHaveBeenCalled();
+    expect(facade.enroll).not.toHaveBeenCalled();
+  });
+
+  it("rejects incompatible flag combinations", async () => {
+    const facade = {
+      completeClaudeEnrollment: vi.fn(),
+      completeClaudeCredentialImport: vi.fn(),
+      enroll: vi.fn(),
+    } as unknown as LlmMeshFacade;
+
+    await expect(
+      enrollViaFacade("codex", { facade, cliImport: true }),
+    ).rejects.toThrow(/codex.*no CLI-store import.*muse, claude-code/);
+
+    await expect(
+      enrollViaFacade("muse", { facade, tokenImport: true }),
+    ).rejects.toThrow(/--token\/--from token is only valid for claude-code/);
+
+    await expect(
+      enrollViaFacade("codex", { facade, from: "token" }),
+    ).rejects.toThrow(/--token\/--from token is only valid for claude-code/);
+
+    await expect(
+      enrollViaFacade("claude-code", {
+        facade,
+        cliImport: true,
+        tokenImport: true,
+      }),
+    ).rejects.toThrow(/--cli and --token cannot be combined/);
+
+    await expect(
+      enrollViaFacade("claude-code", { facade, from: "cli", cliImport: true }),
+    ).rejects.toThrow(/--from cannot be combined with --cli/);
+
+    await expect(
+      enrollViaFacade("claude-code", {
+        facade,
+        from: "bogus" as never,
+      }),
+    ).rejects.toThrow(/--from must be one of oauth, cli, token/);
+  });
+
+  it("resolves the canonical --from selector and legacy booleans to one mode", () => {
+    expect(resolveEnrollmentMode({})).toBe("oauth");
+    expect(resolveEnrollmentMode({ from: "oauth" })).toBe("oauth");
+    expect(resolveEnrollmentMode({ from: "cli" })).toBe("cli");
+    expect(resolveEnrollmentMode({ from: "token" })).toBe("token");
+    expect(resolveEnrollmentMode({ cliImport: true })).toBe("cli");
+    expect(resolveEnrollmentMode({ tokenImport: true })).toBe("token");
+    expect(() =>
+      resolveEnrollmentMode({ from: "cli", tokenImport: true }),
+    ).toThrow(/--from cannot be combined/);
+    expect(() =>
+      resolveEnrollmentMode({ cliImport: true, tokenImport: true }),
+    ).toThrow(/--cli and --token cannot be combined/);
+  });
+
+  it("never echoes --from values in errors (m4 canary)", () => {
+    const canary = "canary-from-value-9f8e7d6c5b";
+    let message = "";
+    try {
+      resolveEnrollmentMode({ from: canary as never });
+    } catch (err) {
+      message = err instanceof Error ? err.message : String(err);
+    }
+    expect(message).toBe("--from must be one of oauth, cli, token");
+    expect(message).not.toContain(canary);
+  });
+
+  it("validates H2A_LLM_MESH_CONFIG_JSON for claude-code and refuses malformed JSON", async () => {
+    const facade = {
+      completeClaudeEnrollment: vi.fn(),
+      enroll: vi.fn(),
+    } as unknown as LlmMeshFacade;
+
+    process.env.H2A_LLM_MESH_CONFIG_JSON = "malformed { json string";
+
+    await expect(
+      enrollViaFacade("claude-code", { facade, ownerScope: "cli:test-host" }),
+    ).rejects.toThrow("Invalid H2A_LLM_MESH_CONFIG_JSON: configuration must be valid JSON");
+
+    // Scoped test: non-Claude provider ignores malformed config and collapses to {}
+    const codexFacade = {
+      enroll: vi.fn().mockResolvedValue({
+        kind: "device-code",
+        enrollmentId: "enroll-1",
+        userCode: "1234",
+        verificationUrl: "https://auth.example",
+      }),
+      pollForCompletion: vi.fn().mockResolvedValue({
+        accountId: "acct-1",
+        label: "Codex",
+      }),
+    } as unknown as LlmMeshFacade;
+
+    await expect(
+      enrollViaFacade("codex", { facade: codexFacade, ownerScope: "cli:test-host" }),
+    ).resolves.toBeDefined();
+
+    delete process.env.H2A_LLM_MESH_CONFIG_JSON;
+  });
+
+  it("persists Claude account across restart using EncryptedFileKeyring and enforces owner isolation", async () => {
+    const keyringDir = join(SCRATCH, "isolated-keyring");
+    mkdirSync(keyringDir, { recursive: true });
+
+    const createIsolatedFacade = (owner: string) => {
+      return createLlmMeshFacade({
+        configResolver: { async resolveConfig() { return {}; } },
+        keyring: new EncryptedFileKeyring(keyringDir),
+        mode: "cli",
+        legacyAccountOwnerScopeRef: owner,
+      });
+    };
+
+    const facade1 = createIsolatedFacade("cli:claude-owner-1");
+    const validJson = JSON.stringify({
+      claudeAiOauth: {
+        accessToken: "valid-access-token-1",
+        refreshToken: "valid-refresh-token-1",
+        expiresAt: Date.now() + 3600000,
+        scopes: ["user:inference", "user:profile"],
+      },
+    });
+
+    const enrolled = await facade1.completeClaudeCredentialImport!(
+      validJson,
+      "cli:claude-owner-1",
+    );
+    expect(enrolled.accountId).toMatch(/^acct_claude_/);
+
+    // Restart: simulate by creating a new facade instance pointing to same keyringDir
+    const facadeRestarted = createIsolatedFacade("cli:claude-owner-1");
+    const accounts = await facadeRestarted.listAccounts({
+      ownerScope: "cli:claude-owner-1",
+    });
+    expect(accounts).toHaveLength(1);
+    expect(accounts[0]?.accountId).toBe(enrolled.accountId);
+    expect(accounts[0]?.providerId).toBe("claude-code");
+    expect(JSON.stringify(accounts)).not.toContain("valid-access-token-1");
+    expect(JSON.stringify(accounts)).not.toContain("valid-refresh-token-1");
+
+    // Foreign owner isolation: foreign owner cannot see or remove account
+    const foreignFacade = createIsolatedFacade("cli:foreign-owner");
+    const foreignAccounts = await foreignFacade.listAccounts({
+      ownerScope: "cli:foreign-owner",
+    });
+    expect(foreignAccounts).toHaveLength(0);
+
+    await expect(
+      foreignFacade.removeAccount(enrolled.accountId, {
+        ownerScope: "cli:foreign-owner",
+      }),
+    ).rejects.toThrow(`Account '${enrolled.accountId}' not found`);
+
+    // Duplicate import refusal for same owner
+    await expect(
+      facadeRestarted.completeClaudeCredentialImport!(
+        validJson,
+        "cli:claude-owner-1",
+      ),
+    ).rejects.toThrow();
+
+    // Owner removal succeeds
+    await expect(
+      facadeRestarted.removeAccount(enrolled.accountId, {
+        ownerScope: "cli:claude-owner-1",
+      }),
+    ).resolves.toEqual({ accountId: enrolled.accountId, removed: true });
+
+    const accountsAfterRemoval = await facadeRestarted.listAccounts({
+      ownerScope: "cli:claude-owner-1",
+    });
+    expect(accountsAfterRemoval).toHaveLength(0);
+  });
+});
+
+describe("claude-code import modes (--from cli|token)", () => {
+  const CANARY_ACCESS = "canary-access-token-9f8e7d";
+  const CANARY_REFRESH = "canary-refresh-token-1a2b3c";
+
+  function writeStore(home: string, content: string): void {
+    const dir = join(home, ".claude");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, ".credentials.json"), content);
+  }
+
+  function storeHome(name: string): string {
+    const home = join(SCRATCH, name);
+    mkdirSync(home, { recursive: true });
+    return home;
+  }
+
+  function credentialImportFacade() {
+    return {
+      completeClaudeCredentialImport: vi.fn().mockResolvedValue({
+        accountId: "acct_claude_import_2",
+        label: "Claude (imported)",
+      }),
+      enroll: vi.fn(),
+    } as unknown as LlmMeshFacade;
+  }
+
+  it("imports from the official CLI store without browser or prompt (--from cli)", async () => {
+    const home = storeHome("cli-home");
+    const stored = JSON.stringify({
+      claudeAiOauth: {
+        accessToken: CANARY_ACCESS,
+        refreshToken: CANARY_REFRESH,
+        expiresAt: 1800000000000,
+        scopes: ["user:inference"],
+      },
+    });
+    writeStore(home, stored);
+    const facade = credentialImportFacade();
+    const readInput = vi.fn();
+
+    const result = await enrollViaFacade("claude-code", {
+      facade,
+      from: "cli",
+      cliStoreHome: home,
+      readInput,
+      ownerScope: "cli:test-host",
+    });
+
+    expect(result).toEqual({
+      accountId: "acct_claude_import_2",
+      provider: "claude-code",
+      label: "Claude (imported)",
+    });
+    expect(facade.enroll).not.toHaveBeenCalled();
+    expect(readInput).not.toHaveBeenCalled();
+    expect(facade.completeClaudeCredentialImport).toHaveBeenCalledWith(
+      stored,
+      "cli:test-host",
+    );
+  });
+
+  it("treats legacy --cli as --from cli for claude-code", async () => {
+    const home = storeHome("cli-legacy-home");
+    const stored = JSON.stringify({
+      accessToken: CANARY_ACCESS,
+      refreshToken: CANARY_REFRESH,
+      expiresAt: 1800000000000,
+      scopes: ["user:inference"],
+    });
+    writeStore(home, stored);
+    const facade = credentialImportFacade();
+
+    const result = await enrollViaFacade("claude-code", {
+      facade,
+      cliImport: true,
+      cliStoreHome: home,
+      ownerScope: "cli:test-host",
+    });
+
+    expect(result.provider).toBe("claude-code");
+    expect(facade.completeClaudeCredentialImport).toHaveBeenCalledWith(
+      stored,
+      "cli:test-host",
+    );
+  });
+
+  it("treats --from token and legacy --token as the token import leg", async () => {
+    for (const options of [{ from: "token" as const }, { tokenImport: true }]) {
+      const facade = credentialImportFacade();
+      const fakeJson = JSON.stringify({
+        claudeAiOauth: {
+          accessToken: CANARY_ACCESS,
+          refreshToken: CANARY_REFRESH,
+          expiresAt: 1800000000000,
+          scopes: ["user:inference"],
+        },
+      });
+      const result = await enrollViaFacade("claude-code", {
+        facade,
+        ...options,
+        readInput: vi.fn().mockResolvedValue(fakeJson),
+        ownerScope: "cli:test-host",
+      });
+      expect(result.provider).toBe("claude-code");
+      expect(facade.completeClaudeCredentialImport).toHaveBeenCalledWith(
+        fakeJson,
+        "cli:test-host",
+      );
+    }
+  });
+
+  it("fails closed on a missing store without leaking anything", async () => {
+    const home = storeHome("cli-missing-home");
+    const facade = credentialImportFacade();
+
+    await expect(
+      enrollViaFacade("claude-code", {
+        facade,
+        from: "cli",
+        cliStoreHome: home,
+        ownerScope: "cli:test-host",
+      }),
+    ).rejects.toThrow(/Claude CLI store not found/);
+    expect(facade.completeClaudeCredentialImport).not.toHaveBeenCalled();
+    expect(facade.enroll).not.toHaveBeenCalled();
+  });
+
+  it("refuses non-renewable or malformed store documents with static errors", async () => {
+    const facade = credentialImportFacade();
+    const cases: Array<[string, string]> = [
+      ["garbage", "not json at all {{{"],
+      ["access-only", JSON.stringify({ claudeAiOauth: { accessToken: CANARY_ACCESS } })],
+      ["empty", "   \n  "],
+    ];
+    for (const [name, content] of cases) {
+      const home = storeHome(`cli-bad-${name}`);
+      writeStore(home, content);
+      await expect(
+        enrollViaFacade("claude-code", {
+          facade,
+          from: "cli",
+          cliStoreHome: home,
+          ownerScope: "cli:test-host",
+        }),
+        name,
+      ).rejects.toThrow(/Claude CLI store holds no renewable credential/);
+    }
+    expect(facade.completeClaudeCredentialImport).not.toHaveBeenCalled();
+  });
+
+  it("reads the store shape directly and never surfaces canary material", async () => {
+    const home = storeHome("cli-shape-home");
+    const stored = JSON.stringify({
+      claudeAiOauth: {
+        accessToken: CANARY_ACCESS,
+        refreshToken: CANARY_REFRESH,
+        expiresAt: 1800000000000,
+        scopes: ["user:inference"],
+        extraField: "ignored",
+      },
+    });
+    writeStore(home, stored);
+    expect(await readClaudeCliStoreCredential(home)).toBe(stored);
+
+    const missing = await readClaudeCliStoreCredential(
+      join(SCRATCH, "definitely-absent-home"),
+    ).catch((err: unknown) => String(err));
+    expect(missing).toContain("Claude CLI store not found");
+    expect(missing).not.toContain(CANARY_ACCESS);
+    expect(missing).not.toContain(CANARY_REFRESH);
+  });
+
+  it("selects the muse CLI-store leg through --from cli like --cli", async () => {
+    const facade = {
+      enroll: vi.fn().mockResolvedValue({
+        kind: "local-import",
+        enrollmentId: "enroll-muse-from",
+        source: "muse-cli-auth-file",
+        expiresAt: "2026-08-07T01:00:00.000Z",
+      }),
+      completeMuseImport: vi.fn().mockResolvedValue({
+        accountId: "acct_muse_from",
+        label: "Muse (owner@example.com)",
+      }),
+    } as unknown as LlmMeshFacade;
+    vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+
+    await expect(
+      enrollViaFacade("muse", {
+        facade,
+        ownerScope: "cli:test-host",
+        from: "cli",
+      }),
+    ).resolves.toEqual({
+      accountId: "acct_muse_from",
+      provider: "muse",
+      label: "Muse (owner@example.com)",
+    });
+    expect(facade.completeMuseImport).toHaveBeenCalled();
+  });
+});
+
+describe("claude browser opener", () => {
+  const authUrl = "https://claude.com/cai/oauth/authorize?state=secret-state";
+  const claudeFacade = () =>
+    ({
+      enroll: vi.fn().mockResolvedValue({
+        kind: "authorization-url",
+        enrollmentId: "enroll-claude-browser",
+        url: authUrl,
+      }),
+      completeClaudeEnrollment: vi.fn().mockResolvedValue({
+        accountId: "acct_claude_browser",
+        label: "Claude",
+      }),
+      cancel: vi.fn().mockResolvedValue(undefined),
+    }) as unknown as LlmMeshFacade;
+
+  it("skips the argv exposure with H2A_NO_BROWSER, prints URL, and still completes", async () => {
+    vi.mocked(spawn).mockClear();
+    vi.stubEnv("H2A_NO_BROWSER", "1");
+    let stdoutOutput = "";
+    const stdoutSpy = vi.spyOn(process.stdout, "write").mockImplementation((str) => {
+      stdoutOutput += String(str);
+      return true;
+    });
+    try {
+      const result = await enrollViaFacade("claude-code", {
+        facade: claudeFacade(),
+        readInput: vi.fn().mockResolvedValue("code123#xyz"),
+        ownerScope: "cli:test-host",
+      });
+      expect(result.accountId).toBe("acct_claude_browser");
+      expect(vi.mocked(spawn)).not.toHaveBeenCalled();
+      expect(stdoutOutput).toContain(authUrl);
+      expect(stdoutOutput).toContain("browser launch skipped (H2A_NO_BROWSER=1)");
+    } finally {
+      stdoutSpy.mockRestore();
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("handles a missing opener asynchronously without leaking spawnargs", async () => {
+    vi.stubEnv("H2A_NO_BROWSER", "");
+    const openerChild = new EventEmitter() as EventEmitter & { unref: () => void };
+    openerChild.unref = vi.fn();
+    vi.mocked(spawn).mockReturnValueOnce(openerChild as never);
+    try {
+      const result = await enrollViaFacade("claude-code", {
+        facade: claudeFacade(),
+        readInput: vi.fn().mockResolvedValue("code123#xyz"),
+        ownerScope: "cli:test-host",
+      });
+      expect(result.accountId).toBe("acct_claude_browser");
+      // The async spawn failure path is listened to: no crash, no URL dump.
+      expect(openerChild.listenerCount("error")).toBe(1);
+      openerChild.emit("error", Object.assign(new Error("spawn xdg-open ENOENT"), { spawnargs: [authUrl] }));
+      await new Promise((r) => setTimeout(r, 10));
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+});
+
+describe("claude enrollment error boundary", () => {
+  it("keeps allowlisted static errors and collapses everything else", () => {
+    expect(
+      sanitizeClaudeEnrollmentError(new Error("Claude enrollment cancelled")).message,
+    ).toBe("Claude enrollment cancelled");
+  });
+
+  it("never surfaces mesh dynamic text carrying token fragments", () => {
+    const leaked = new Error(
+      "mesh store expired for user:inference: oauth_token sk-ant-canary " +
+        "https://auth.example/token?code=secret /var/lib/mesh/keyring.json " +
+        "Duplicate enrollment not found",
+    );
+    const sanitized = sanitizeClaudeEnrollmentError(leaked);
+    expect(sanitized.message).toBe("Claude enrollment failed");
+    expect(sanitized.message).not.toContain("sk-ant-canary");
+    expect(sanitized.message).not.toContain("auth.example");
+  });
+
+  it("keeps the import-mode static errors and collapses store-shaped leaks", () => {
+    expect(
+      sanitizeClaudeEnrollmentError(
+        new Error("Claude CLI store not found at /tmp/home/.claude/.credentials.json (run the official Claude CLI login first, or enroll with OAuth)"),
+      ).message,
+    ).toContain("Claude CLI store not found");
+    expect(
+      sanitizeClaudeEnrollmentError(
+        new Error("Claude token entry received empty input"),
+      ).message,
+    ).toBe("Claude token entry received empty input");
+    const leaked = new Error(
+      'import failed: {"claudeAiOauth":{"accessToken":"sk-ant-canary-store"}}',
+    );
+    const sanitized = sanitizeClaudeEnrollmentError(leaked);
+    expect(sanitized.message).toBe("Claude enrollment failed");
+    expect(sanitized.message).not.toContain("sk-ant-canary-store");
   });
 });
 

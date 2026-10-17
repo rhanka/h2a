@@ -22,7 +22,8 @@ import {
 } from "../registry.js";
 // The pid-namespace/boot/machine anchor a durable row is only re-provable
 // within — the SAME definition the row was written with (see proc-identity.ts).
-import { readBootId, readMachineId, readPidNamespaceId } from "../proc-identity.js";
+import { readBootId, readMachineId, readPidNamespaceId, readProcessStartTime } from "../proc-identity.js";
+export { readProcessStartTime };
 import {
   TerminalReplayBuffer,
   type TerminalOutputChunk,
@@ -147,27 +148,11 @@ function supportsProcessGroupSignals(): boolean {
  * non-Linux platform (no /proc); callers must treat "unavailable" the same
  * conservative way `posixProcessGroupReaper.isGroupAlive` treats EPERM: as
  * "cannot prove", never as "prove me dead".
+ *
+ * Single definition lives in ../proc-identity.js (imported at the top of
+ * this module and re-exported there) so lock, sweep, and terminal proofs
+ * share one parse.
  */
-export function readProcessStartTime(pid: number): number | undefined {
-  if (process.platform !== "linux") return undefined;
-  try {
-    const raw = readFileSync(`/proc/${pid}/stat`, "utf8");
-    const splitAt = raw.lastIndexOf(") ");
-    if (splitAt < 0) return undefined;
-    const rest = raw.slice(splitAt + 2).split(" ");
-    const starttime = Number(rest[19]);
-    if (!Number.isFinite(starttime) || starttime < 0) return undefined;
-    const uptimeRaw = readFileSync("/proc/uptime", "utf8");
-    const uptimeSeconds = Number(uptimeRaw.trim().split(/\s+/)[0]);
-    if (!Number.isFinite(uptimeSeconds) || starttime / 100 > uptimeSeconds) {
-      // Sanity check failed: refuse rather than answer from a shifted parse.
-      return undefined;
-    }
-    return starttime;
-  } catch {
-    return undefined;
-  }
-}
 
 /** Env var name the spawned tree's session token travels under (see `create()`). */
 export const H2A_SESSION_TOKEN_ENV_VAR = "H2A_SESSION_TOKEN";

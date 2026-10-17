@@ -93,3 +93,54 @@ Start the 0.98.0 daemon explicitly. Restore public preferences only if their
 format changed; do not replace keyrings or restore an expired bearer. Relaunch
 only the selected native sessions that need to acquire a fresh bearer, then
 compare the same public inventory and configuration recorded before migration.
+
+## Claude seat accounts (common seat model — DEC-118)
+
+Claude subscription accounts are supported as owner-scoped `llm-mesh` seats.
+
+### Enrollment and credential import
+
+Enrollment is available through three modes (owner decision 2026-10-13, DEC-119): OAuth by default, `--cli` (official CLI store), `--token` (secret-manager credential). The canonical selector is `--from oauth|cli|token` (default `oauth`); `--cli` / `--token` booleans are the same modes and cannot be combined with `--from`.
+
+1. **Browser OAuth flow (default):**
+   ```sh
+   h2a llm-mesh account enroll claude-code
+   h2a llm-mesh account enroll claude-code --from oauth
+   ```
+   Opens the Claude authorization URL in the local browser. The returned `<code>#<state>` string is entered via a trusted masked local terminal prompt that disables echo. Set `H2A_NO_BROWSER=1` to skip the browser opener entirely (no authorization URL in process arguments) and complete the flow at the prompt.
+
+2. **Official CLI-store import (`--from cli`):**
+   ```sh
+   h2a llm-mesh account enroll claude-code --from cli
+   ```
+   Reads the already-logged-in official CLI store (`~/.claude/.credentials.json`, which must hold a renewable grant with access + refresh tokens) once into the credential-import leg — no browser, no prompt. Fails closed with a static error when the store is absent or holds no renewable credential.
+   Platform scope: only that Linux file path is read. Where the official CLI keeps credentials outside that file (for example the macOS keychain, unverified here), `--from cli` fails closed — re-authenticate the official CLI or enroll with OAuth instead. Linux first; macOS, then Windows (owner N×N rule) — live-provider proof remains owner-run, currently unverified on all OS.
+   Lifecycle (differs from `enroll muse --cli`, mesh 0.25.0): muse lets the mesh re-read its CLI store at each refresh, so the official CLI stays the sole writer. The mesh ships no such store leg for Claude, so this import is a point-in-time COPY: the mesh never writes the official store file, but its copy refreshes independently through the token endpoint afterwards. If the provider rotates the refresh grant, the side that refreshes second loses it — re-run `--from cli` (re-authenticate the official CLI first when its own copy lapsed). A mesh-side Claude store leg is a recorded follow-up.
+
+3. **Secret-manager token import (`--from token`):**
+   ```sh
+   h2a llm-mesh account enroll claude-code --from token
+   secret-manager read ... | h2a llm-mesh account enroll claude-code --from token
+   ```
+   Accepts a renewable credential JSON document containing `claudeAiOauth` (or the inner grant). Interactive shells get the trusted masked multiline prompt; piped stdin (non-TTY) is read as the secret-manager output — the shape the future shared re-enrollment circuit will use. No secret value argument is accepted on argv, and nothing secret is ever logged.
+
+All paths persist credentials exclusively through the existing mesh-managed encrypted file keyring. No tokens or secrets are stored in h2a configurations or process arguments. Muse keeps its own `--from cli` (mesh CLI-store leg, CLI-owned refresh); `--from token` is refused for every provider except `claude-code` (gap recorded — other seats are not changed here).
+
+### Secret boundary and owner isolation
+
+- Masked TTY prompts cover OAuth and interactive `--from token` entry; nothing secret travels in argv and nothing secret is logged. `--from token` with piped stdin (non-TTY) reads the secret-manager output; `--from cli` reads no input (official CLI store file only).
+- The owner scope is bound to trusted host identity (`H2A_LLM_MESH_OWNER_SCOPE`, defaulting to `cli:<hostname>`). Foreign owners cannot inspect, acquire or remove the account.
+- The running gateway loads accounts at boot time only. After enrollment or import, restart the local gateway:
+  ```sh
+  h2a llm-mesh restart
+  ```
+
+### Status and limitations
+
+Current operational status: **same seat model as every other provider; serving needs the official `claude` CLI on `PATH`** (owner decision 2026-10-13, DEC-118: « je veux une connexion réelle au compte claude code exactement dans le meme modele que les autres sieges » — « tu fais comme pour les autres sieges, rien de spécifique a claude merci »). The Claude-only guards are gone: no egress/netns precondition, no managed-config or registry/MDM refusal, no org-proof gate, no h2a-side account lease, no serving halt, no per-seat environment configuration.
+
+- **Gateway composition:** the host always composes mesh `ClaudeCodeRuntimeClient` on the h2a runner into the provider registry via `AnthropicAdapter` — like the other four seats, with no configuration. A seat with no enrolled account (or no `claude` on `PATH`) simply never serves a route: fail-closed per attempt, never at composition.
+- **One-message capability scope:** The initial serving outcome covers one user text message and streamed response through the official CLI (`protocol: 'claude-code-stream-json-v1'`).
+- **Zero child refresh:** the projected credential carries access material only (no refresh token); a child that fails with an inference error is never retried and never refreshed by the runner — rotation stays a mesh-side parent operation.
+- **Seat spawn preconditions (fail closed):** the official `claude` CLI resolves from `PATH` (re-resolved at each attempt) and a real provider TTL window. No version pin, no digest fingerprint, no attestation — none verified, none claimed. The runner inherits no parent `PATH` (fixed minimal value scoped to the binary directory). Sandbox cleanup failure blocks the result; process identity is proven before any sweep signal (the sweep never signals on PID presence alone — the runner's abort/deadline path kills its own known child tree).
+- **History and tools:** Multi-turn history and caller tools remain unproven and `not-covered`. Requests with tools are refused at spawn until client-side tool transport (local MCP qualification) and end-to-end proofs are delivered; caller-provided tool names are never passed to `--tools` and built-in CLI tool names are rejected. The runner passes `--permission-mode dontAsk` (never `--dangerously-skip-permissions`).

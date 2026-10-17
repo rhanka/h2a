@@ -2257,7 +2257,7 @@ async function injectLlmMeshGatewayEnv(
     delete process.env.ANTHROPIC_AUTH_TOKEN;
     if (mode === "gateway") {
       throw new Error(
-        "llm-mesh gateway is required but unavailable; no agent was started. Run `h2a llm-mesh start` or `h2a llm-mesh account enroll codex|cloud-code|muse` first",
+        "llm-mesh gateway is required but unavailable; no agent was started. Run `h2a llm-mesh start` or `h2a llm-mesh account enroll codex|cloud-code|muse|claude-code` first",
       );
     }
     if (allowDirectFallback) {
@@ -2381,7 +2381,7 @@ export async function prepareStructuredGateway(
   const gateway = await inject(mode);
   if (mode === "gateway" && !gateway) {
     throw new Error(
-      "llm-mesh gateway is required but unavailable; no agent was started. Run `h2a llm-mesh start` or `h2a llm-mesh account enroll codex|cloud-code|muse` first",
+      "llm-mesh gateway is required but unavailable; no agent was started. Run `h2a llm-mesh start` or `h2a llm-mesh account enroll codex|cloud-code|muse|claude-code` first",
     );
   }
   return gateway;
@@ -2651,6 +2651,44 @@ function setAndReportDefaultRemote(url: string): void {
   process.stderr.write(`[h2a] default remote set to ${configured}\n`);
 }
 
+// Root commander error boundary (DEC-119): commander never prints its own
+// error text. `outputError` is a no-op so the commander-built message (which
+// echoes argv, possibly multi-line) is dropped; `exitOverride` writes a
+// static message chosen ONLY from `err.code` — never `err.message`, never
+// user-typed text. Registered on the ROOT program before any `.command()`
+// so the whole tree inherits it via `copyInheritedSettings`.
+function staticCommanderErrorForCode(code: string): string {
+  switch (code) {
+    case "commander.unknownOption":
+      return "error: unknown option\n";
+    case "commander.unknownCommand":
+      return "error: unknown command\n";
+    case "commander.excessArguments":
+      return "error: too many arguments\n";
+    case "commander.missingArgument":
+      return "error: missing required argument\n";
+    case "commander.optionMissingArgument":
+      return "error: option argument missing\n";
+    case "commander.missingMandatoryOptionValue":
+      return "error: required option not specified\n";
+    case "commander.conflictingOption":
+      return "error: conflicting option\n";
+    case "commander.invalidArgument":
+      return "error: invalid argument\n";
+    default:
+      return "error: command error\n";
+  }
+}
+
+function isCommanderNonErrorCode(code: string): boolean {
+  return (
+    code === "commander.help" ||
+    code === "commander.helpDisplayed" ||
+    code === "commander.version" ||
+    code === "commander.executeSubCommandAsync"
+  );
+}
+
 export async function main(argv: ReadonlyArray<string>): Promise<number> {
   // Passive fatal-path witness on the real entry path (see
   // installCliWitnessOnce): observes via uncaughtExceptionMonitor, so the
@@ -2715,6 +2753,25 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         "demand. h2a runs and coordinates agents; it is not itself an agent.",
     )
     .version("0.0.0");
+
+  // Root error boundary (DEC-119): commander never prints its own error
+  // text. `outputError` is a no-op (commander message dropped);
+  // `exitOverride` writes the static per-code message. Registered here —
+  // before any `.command()` — so the whole tree inherits it through
+  // `copyInheritedSettings`.
+  program.configureOutput({
+    writeErr: (str) => {
+      process.stderr.write(str);
+    },
+    outputError: () => {},
+  });
+  program.showHelpAfterError(false);
+  program.showSuggestionAfterError(false);
+  program.exitOverride((err) => {
+    if (isCommanderNonErrorCode(err.code)) throw err;
+    process.stderr.write(staticCommanderErrorForCode(err.code));
+    throw err;
+  });
 
   const identityCommand = program
     .command("identity")
@@ -10666,22 +10723,48 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
     .command("enroll <provider>")
     .description(
       "Enroll through the sentropic-owned OAuth state machine " +
-        "(cloud-code, codex, muse OAuth device flow, or mistral-vibe browser sign-in — alias: vibe). " +
-        "--cli imports credentials from the provider's local CLI store instead (muse only)",
+        "(cloud-code, codex, muse OAuth device flow, mistral-vibe browser sign-in — alias: vibe, or claude-code). " +
+        "--from oauth|cli|token selects the source (default oauth): cli imports from the provider's official CLI store (muse, claude-code), " +
+        "token imports a serialized credential from a secret manager via stdin pipe or masked prompt (claude-code only). " +
+        "--cli / --token are the same modes as booleans",
     )
     .option("--config-ref <ref>", "sentropic configuration reference for OAuth")
     .option(
-      "--cli",
-      "import credentials from the provider's local CLI store (muse only) instead of the OAuth flow",
+      "--from <mode>",
+      "enrollment source: oauth (default), cli (provider official CLI store) or token (secret-manager credential)",
     )
+    .option(
+      "--cli",
+      "import credentials from the provider's local CLI store (muse, claude-code) instead of the OAuth flow. Takes no value",
+    )
+    .option(
+      "--token",
+      "import a serialized credential from a secret manager into llm-mesh (claude-code only): pipe it on stdin, or enter it at the masked prompt. Takes no value; never argv, never logged",
+    )
+    .allowExcessArguments(true)
     .action(
       async (
         provider: string,
         opts: {
           configRef?: string;
+          from?: string;
           cli?: boolean;
+          token?: boolean;
         },
+        command: { args?: unknown },
       ) => {
+        // Static excess-argument refusal (m1): commander would otherwise echo
+        // every positional value (including a secret) on stderr before the
+        // action runs. Excess positionals are refused here without echoing
+        // any value. Token material travels on stdin only, never argv.
+        const positionalCount = Array.isArray(command?.args) ? command.args.length : 1;
+        if (positionalCount > 1) {
+          process.stderr.write(
+            "[h2a] llm-mesh account: too many arguments (expected provider only; never pass secrets in argv)\n",
+          );
+          process.exitCode = 1;
+          return;
+        }
         // "vibe" is the CLI-friendly alias of the mistral-vibe transport.
         const normalized = provider === "vibe" ? "mistral-vibe" : provider;
         if (normalized === "muse-code") {
@@ -10695,15 +10778,52 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           process.exitCode = 1;
           return;
         }
+        if (opts.from !== undefined && opts.from !== "oauth" && opts.from !== "cli" && opts.from !== "token") {
+          process.stderr.write(
+            "[h2a] llm-mesh account: --from must be one of oauth, cli, token\n",
+          );
+          process.exitCode = 1;
+          return;
+        }
+        if (opts.from !== undefined && (opts.cli || opts.token)) {
+          process.stderr.write(
+            "[h2a] llm-mesh account: --from cannot be combined with --cli or --token\n",
+          );
+          process.exitCode = 1;
+          return;
+        }
+        if (opts.cli && opts.token) {
+          process.stderr.write(
+            "[h2a] llm-mesh account: --cli and --token cannot be combined\n",
+          );
+          process.exitCode = 1;
+          return;
+        }
+        if ((opts.cli || opts.from === "cli") && normalized !== "muse" && normalized !== "claude-code") {
+          process.stderr.write(
+            "[h2a] llm-mesh account: provider has no CLI-store import; " +
+              "--cli/--from cli is only valid for providers with a local CLI import (muse, claude-code)\n",
+          );
+          process.exitCode = 1;
+          return;
+        }
+        if ((opts.token || opts.from === "token") && normalized !== "claude-code") {
+          process.stderr.write(
+            `[h2a] llm-mesh account: --token/--from token is only valid for claude-code\n`,
+          );
+          process.exitCode = 1;
+          return;
+        }
         if (
           normalized !== "cloud-code" &&
           normalized !== "codex" &&
           normalized !== "muse" &&
-          normalized !== "mistral-vibe"
+          normalized !== "mistral-vibe" &&
+          normalized !== "claude-code"
         ) {
           process.stderr.write(
-            `[h2a] llm-mesh account: unsupported provider "${provider}". ` +
-              "Supported: cloud-code, codex, muse (OAuth; --cli imports the CLI store), mistral-vibe (alias: vibe)\n",
+            "[h2a] llm-mesh account: unsupported provider. " +
+              "Supported: cloud-code, codex, muse (OAuth; --cli imports the CLI store), mistral-vibe (alias: vibe), claude-code (OAuth; --cli imports the CLI store; --token imports a secret-manager credential)\n",
           );
           process.exitCode = 1;
           return;
@@ -10711,7 +10831,9 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         try {
           const account = await enrollViaFacade(normalized, {
             ...(opts.configRef ? { configRef: opts.configRef } : {}),
+            ...(opts.from ? { from: opts.from as "oauth" | "cli" | "token" } : {}),
             ...(opts.cli ? { cliImport: true } : {}),
+            ...(opts.token ? { tokenImport: true } : {}),
           });
           process.stdout.write(
             `[h2a] llm-mesh account: enrolled ${account.provider}; ` +
@@ -11126,7 +11248,26 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
     "\nGrouped map of every h2a command (core + runtime): h2a explain\n",
   );
 
-  await program.parseAsync([...argv]);
+  try {
+    await program.parseAsync([...argv]);
+  } catch (err) {
+    // Commander errors already wrote their static per-code message in
+    // `exitOverride`; only set the exit code here, never `err.message`.
+    if (
+      err !== null &&
+      typeof err === "object" &&
+      "code" in err &&
+      typeof (err as { code: unknown }).code === "string"
+    ) {
+      const code = (err as { code: string }).code;
+      if (code.startsWith("commander.")) {
+        const exitCode = (err as { exitCode?: unknown }).exitCode;
+        process.exitCode = typeof exitCode === "number" ? exitCode : 1;
+        return process.exitCode;
+      }
+    }
+    throw err;
+  }
   const code = process.exitCode;
   return typeof code === "number" ? code : 0;
 }
