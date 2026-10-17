@@ -145,9 +145,7 @@ jobs:
           set -euo pipefail
           node scripts/check-lockstep-versions.mjs
           mkdir -p dist-tarballs
-          for pkg in @sentropic/h2a @sentropic/h2a-runtime @sentropic/h2a-cli @sentropic/track @sentropic/focus; do
-            npm pack --workspace "$pkg" --pack-destination dist-tarballs
-          done
+          node scripts/pack-candidate.mjs dist-tarballs
           (cd dist-tarballs && sha256sum *.tgz > sha256sums.txt && cat sha256sums.txt)
           # SPEC 0.98.5 R8.2: TIE the artifact manifest to the one resolved
           # SHA — the manifest travels with the bytes it describes, and
