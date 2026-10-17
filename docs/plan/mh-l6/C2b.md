@@ -32,6 +32,7 @@ comme diagnostic. Audit : `node scripts/mh-l6-c2b-audit.mjs
 
 | NOT covered restant | Gate |
 |---|---|
+| Revalidation interne à `open` non rejouable en monothread (aucune dérive intercalable entre observation et verrou sans second processus) ; elle partage le chemin prouvé d'`assertBootstrapSessionUnchanged`, tué/restauré ci-dessus | Noté ; C2b-2/F l'exerceront sur chemins vivants |
 | Préparation d'image indépendante, vérification graphe/binaires, installation conditionnelle du lanceur, sélection durable, délégation, adoption après remplacement et already-current | C2b-2/F ; la session ne prépare ni ne sélectionne rien |
 | Observateurs B2-3 alimentant `select({ exclusion })`, CLI/auto commune | B2-3/F, M18 toujours ouvert |
 | Revue indépendante | Conducteur ; aucun consensus revendiqué |
