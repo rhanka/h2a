@@ -41,6 +41,16 @@ function setup() {
 }
 
 describe("session content confirmation", () => {
+  it("should create and stage a native challenge using one clock sample without relaxing caller timestamp checks", () => {
+    let wall=now;
+    const verifier=new ConfirmationVerifier({issuer:challenge.owner.issuer,subject:challenge.owner.subject,tenantId:challenge.project.tenantId,
+      clientId:challenge.clientId,source:challenge.source,keys:[jwk],budget:new ConfirmationBudget(()=>1000),
+      measuredClockErrorMs:0,wallNow:()=>wall++,monotonicNow:()=>1000});
+    const {issuedAt:_issued,expiresAt:_expires,...input}=challenge;
+    const staged=verifier.create(input,60000);
+    expect(staged.challenge.issuedAt).toBe(now);expect(staged.challenge.expiresAt).toBe(now+60000);
+    expect(()=>verifier.stage(challenge)).toThrow();
+  });
   it("should verify signed exact-target proof once and durably consume before returning", () => {
     const s = setup();
     expect(s.consume()).toMatchObject({ challengeId: challenge.id, purpose: "share" });

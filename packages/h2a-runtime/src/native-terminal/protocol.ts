@@ -55,6 +55,7 @@ export type NativeTerminalOperation =
   | "list"
   | "state"
   | "read-output"
+  | "content-status" | "content-prepare" | "content-confirm" | "content-renew" | "content-flush" | "content-exclude" | "content-clear"
   | "attach-observer"
   | "acquire-controller"
   | "acquire-controller-if-no-recent-human"
@@ -93,6 +94,7 @@ export type NativeTerminalResponse =
   | NativeTerminalErrorResponse;
 
 export type NativeTerminalPing = Readonly<{
+  content?: string;
   launchFence?: boolean;
   generation: string;
   hostPid: number;
@@ -184,6 +186,7 @@ export function parseNativeTerminalRequest(value: unknown): NativeTerminalReques
     "list",
     "state",
     "read-output",
+    "content-status", "content-prepare", "content-confirm", "content-renew", "content-flush", "content-exclude", "content-clear",
     "attach-observer",
     "acquire-controller",
     "acquire-controller-if-no-recent-human",

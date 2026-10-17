@@ -83,6 +83,13 @@ async function login(auth: SessionContentAuth) {
 }
 
 describe("session content source authentication", () => {
+  it("should renew only the original source login and refuse renewal after observed revocation",async()=>{
+    mode="valid";let mono=0;
+    const auth=new SessionContentAuth({...config(),monotonicNow:()=>mono}),identity=await login(auth),handle=await auth.openSource(identity);
+    mono=20000;await auth.renewSource(handle);mono=60000;expect(auth.metadata(handle).authSessionRef).toBe('login-record');
+    mode='other-login';await expect(auth.renewSource(handle)).rejects.toThrow();expect(()=>auth.metadata(handle)).toThrow();
+    mode='valid';
+  });
   it("should perform real pinned HTTPS PKCE and send access credentials only in their intended exchange", async () => {
     mode = "valid"; requests = [];
     const auth = new SessionContentAuth(config());
