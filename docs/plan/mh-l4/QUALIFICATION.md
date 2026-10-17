@@ -1,4 +1,4 @@
-# Qualification MH-L4 — 0.98.7
+# Qualification MH-L4 — 0.98.8
 
 Source finale : le présent correctif flock/build-gate sur `feat/0.98.7-mh-l4` (base `c8a11016`, prédécesseur qualifié `008f2394c975ee84986dd9896be17a2b3fd0c95c`). Les contrats MH-L3 sont figés dans `CONTRACT.md`, l'audit des writers dans `WRITERS.md`.
 
