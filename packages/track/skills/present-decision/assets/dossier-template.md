@@ -14,6 +14,8 @@
 **Context:** <current behavior and representative problem/scenario; affected people and constraints>.
 **Facts [FACT]:** <decisive evidence with source>. **Assumptions / unknowns:** <what remains uncertain>.
 
+**Diagram:** <show the decision's flow, options or consequences before calling the native question tool>.
+
 | Option | Choice | Owner consequence: main benefit and drawback | Cost / rollback |
 | --- | --- | --- | --- |
 | A | <plain name> | <one line> | <brief> |
@@ -30,6 +32,8 @@ self-contained question within the declared total budget. Explain dependencies b
 
 **Request trace / acceptance:** <each demand → option or criterion; explicit gaps/departures>.
 **Answer needed:** <smallest concrete choice>.
+Use the exposed native question tool after presenting this dossier; never a bare text question.
+If unavailable, explain the limitation and leave the decision pending.
 
 Supporting evidence: <optional links; no choices or material risks hidden here>.
 Required reviews: <independent Codex + Opus findings/disagreement for complex design, if applicable>.

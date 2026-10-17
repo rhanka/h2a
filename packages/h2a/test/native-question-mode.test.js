@@ -17,7 +17,7 @@ const hosts = {
   gemini: ['ask_user', '.gemini'],
   vibe: ['ask_user_question', '.vibe']
 };
-const entrySkills = ['h2a', 'h2a-run', 'harness', 'harness-using-harness', 'present-decision'];
+const entrySkills = ['h2a', 'h2a-run', 'harness', 'harness-using-harness', 'present-decision', 'propose-workpackages'];
 
 function assertGuidance(text, host, tool) {
   assert.ok(text.includes(NATIVE_QUESTION_GUIDANCE), 'shared guidance stays synchronized across entry points');
@@ -68,7 +68,10 @@ for (const [host, [tool, userRoot, projectRoot = userRoot]] of Object.entries(ho
             : join(root, 'skills', skill, 'assets/native-questions.md');
           assert.ok(resource, 'decision skill links its native-question resource');
           assertGuidance(fs.readFileSync(resource, 'utf8'), host, tool);
-        } else assertGuidance(prompt, host, tool);
+        } else {
+          assertGuidance(prompt, host, tool);
+          assert.doesNotMatch(prompt, /a numbered prose Q\/R/);
+        }
       }
       assertGuidance(report.nativeQuestionHint, host, tool);
       if (host === 'agy') assert.match(report.importHint, /agy plugin import gemini/);
@@ -142,3 +145,53 @@ test('shared agy and Gemini commands retain both tools without rewriting on the 
   assertGuidance(prompt, 'agy', 'ask_question');
   assertGuidance(prompt, 'gemini', 'ask_user');
 });
+
+// Paths outside user-scope native convergence must guard every resource too.
+const guardedInstalls = [
+  ...['claude', 'codex', 'hermes', 'opencode'].map(host => [host, 'user']),
+  ...['claude', 'codex', 'hermes', 'opencode', 'gemini', 'agy', 'muse', 'vibe'].map(host => [host, 'project'])
+];
+for (const [host, scope] of guardedInstalls) {
+  for (const scenario of ['upgrade', 'orphan-resource']) {
+    test(host + ' ' + scope + ' preserves existing files and fills missing resources: ' + scenario, t => {
+      const dir = fixture(t);
+      const install = force => {
+        let out = '', err = '';
+        const code = runCli(['install-skills', '--host', host, '--scope', scope, ...(force ? ['--force'] : [])], {
+          cwd: () => dir, stdout: { write: s => { out += s; } }, stderr: { write: s => { err += s; } }
+        });
+        assert.ok(out, err);
+        return { code, report: JSON.parse(out) };
+      };
+      const first = install(false);
+      assert.equal(first.code, 0);
+      const toml = host === 'gemini' || host === 'agy';
+      const main = toml ? join(first.report.targetBase, 'present-decision.toml') : join(first.report.targetBase, 'present-decision/SKILL.md');
+      const mainBytes = fs.readFileSync(main, 'utf8');
+      const resource = toml ? parseNativeToml(mainBytes).prompt.match(/`([^`]*assets\/native-questions.md)`/)?.[1]
+        : join(first.report.targetBase, 'present-decision/assets/native-questions.md');
+      assert.ok(resource);
+      const canonical = fs.readFileSync(resource, 'utf8');
+      if (scenario === 'upgrade') {
+        fs.writeFileSync(main, 'PREVIOUS SKILL — preserve without force\n');
+        fs.rmSync(resource);
+      } else {
+        fs.rmSync(main);
+        fs.writeFileSync(resource, 'CUSTOM RESOURCE — preserve without force\n');
+      }
+      const second = install(false);
+      assert.equal(second.code, 2, 'existing artifacts remain reported as skipped');
+      if (scenario === 'upgrade') {
+        assert.equal(fs.readFileSync(resource, 'utf8'), canonical, 'missing resource must be installed even when SKILL.md exists');
+        assert.equal(fs.readFileSync(main, 'utf8'), 'PREVIOUS SKILL — preserve without force\n');
+      } else {
+        assert.equal(fs.readFileSync(resource, 'utf8'), 'CUSTOM RESOURCE — preserve without force\n', 'resource guard is independent of the entrypoint');
+        assert.ok(second.report.skipped.some(item => item.reason.includes(resource)), 'conflict names the protected resource');
+      }
+      const forced = install(true);
+      assert.equal(forced.code, 0);
+      assert.equal(fs.readFileSync(resource, 'utf8'), canonical);
+      assert.equal(fs.readFileSync(main, 'utf8'), mainBytes);
+    });
+  }
+}
