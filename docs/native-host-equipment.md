@@ -8,8 +8,10 @@ does not mean that the target host is fully equipped.
 All h2a MCP endpoints must ultimately use the cluster-mesh registry contract.
 The bootstrap installer, native attachment and accepted R5/R7 receipt interface
 belong to the registry integrator. No production receipt discovery API is
-invented here. Vibe currently has no MCP installation path until that bootstrap
-is delivered, with no established deadline. Doctor/status display:
+invented here. Until that bootstrap is delivered, Vibe uses the interim direct
+path below (owner 16/10, derogation O7.2); only the registry path still waits
+for the bootstrap, with no established deadline. Doctor/status display when no
+valid direct entry is observed:
 
 > Skills installées, outils MCP absents — bootstrap registre attendu
 
