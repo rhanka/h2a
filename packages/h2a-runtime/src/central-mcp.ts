@@ -4,7 +4,7 @@
  * a persisted endpoint, asks core for protected liveness facts, and starts the
  * existing foreground command as a detached child when necessary.
  */
-import { spawn } from "node:child_process";
+import type { ChildProcess } from "node:child_process";
 import {
   chmodSync,
   closeSync,
@@ -22,11 +22,9 @@ import {
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 
-import { getH2aConfig, resolveConfigPath, setH2aConfig } from "./config.js";
+import { getH2aConfig, resolveConfigPath } from "./config.js";
 import { appendCrashLog, MAX_CRASH_LOG_BYTES } from "./crash-log.js";
 
-const CENTRAL_START_TIMEOUT_MS = 10_000;
-const CENTRAL_START_POLL_MS = 100;
 
 type CentralMarker = Readonly<{
   endpoint: string;
@@ -44,7 +42,7 @@ type CentralPing =
   | Readonly<{ kind: "ambiguous" }>;
 
 type CoreCentralMcp = Readonly<{
-  ensureCentralForRoot(root: string): Promise<CentralMarker>;
+  ensureCentralForRoot(root: string, observers?: { onSpawn(child: ChildProcess): void; logPath(): string }): Promise<CentralMarker>;
   centralMcpMarkerPath(): string;
   H2A_MCP_CENTRAL_ENV: string;
   H2A_MCP_CENTRAL_ENDPOINT_ENV: string;
@@ -86,14 +84,6 @@ function loadCoreCentralMcp(): Promise<CoreCentralMcp> {
     return candidate as CoreCentralMcp;
   });
   return coreCentralMcp;
-}
-
-function delay(milliseconds: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, milliseconds));
-}
-
-function configuredCentralEndpoint(): string | undefined {
-  return getH2aConfig().central?.endpoint;
 }
 
 /** Raw (unstructured) central MCP server output. Read by `h2a logs`, rotated at spawn. */
@@ -158,31 +148,6 @@ function centralLogFile(): string {
   return path;
 }
 
-async function waitForCentralStart(
-  core: CoreCentralMcp,
-  endpoint: string | undefined,
-  spawnFailure: () => Error | undefined,
-): Promise<{ endpoint: string; generation: string }> {
-  const deadline = Date.now() + CENTRAL_START_TIMEOUT_MS;
-  while (Date.now() < deadline) {
-    const failure = spawnFailure();
-    if (failure) { appendCrashLog("mcp-server", { event: "startupError", reason: "spawn-failed", detail: failure.message }); throw failure; }
-    const marker = core.readCentralMcpMarker();
-    const candidate = endpoint ?? marker?.endpoint;
-    if (candidate && marker) {
-      const ping = await core.centralMcpPing(candidate, CENTRAL_START_POLL_MS);
-      if (ping.kind === "generation" && marker.endpoint === candidate && marker.generation === ping.generation) {
-        return { endpoint: candidate, generation: ping.generation };
-      }
-    }
-    await delay(CENTRAL_START_POLL_MS);
-  }
-  // No child exited: the launcher gave up waiting, so `exit` (not
-  // `childExit`) keeps the record honest.
-  appendCrashLog("mcp-server", { event: "exit", reason: "readiness-timeout", detail: endpoint });
-  throw new Error(`central MCP did not become ready at ${endpoint} within ${CENTRAL_START_TIMEOUT_MS}ms`);
-}
-
 /**
  * Ensure the persisted central endpoint is served. A live matching marker is
  * reused; dead registrations are reclaimed by the existing foreground serve
@@ -200,7 +165,26 @@ export async function ensureCentralMcp(
   const root = rawRoot ? resolve(rawRoot) : join(homedir(), "h2a-workspace", ".h2a");
   const core = await loadCoreCentralMcp();
   if (typeof core.ensureCentralForRoot !== "function") throw new Error("central_starter_unqualified");
-  return core.ensureCentralForRoot(root);
+  let spawned = false;
+  try {
+    const marker = await core.ensureCentralForRoot(root, {
+      logPath: centralLogFile,
+      onSpawn(child) {
+        spawned = true;
+        child.once("exit", (code, signal) => {
+          if (code === 0 || (code === null && signal === null)) return;
+          appendCrashLog("mcp-server", { event: "childExit", reason: "server-exit",
+            ...(typeof code === "number" ? { exitCode: code } : {}),
+            ...(typeof signal === "string" && signal.length ? { signal } : {}) });
+        });
+      },
+    });
+    return { endpoint: marker.endpoint, generation: marker.generation };
+  } catch (error) {
+    appendCrashLog("mcp-server", { event: spawned ? "exit" : "startupError",
+      reason: spawned ? "readiness-timeout" : "spawn-failed", detail: errorMessage(error) });
+    throw error;
+  }
 }
 
 function activateCentralMcpEnvironment(core: CoreCentralMcp, endpoint: string): void {

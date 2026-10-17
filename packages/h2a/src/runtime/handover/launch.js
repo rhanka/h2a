@@ -10,7 +10,7 @@ import { readState, publishState, replaceState } from './state.js';
 import { reserveSuccessorAttempt, recordSuccessor, failSuccessor, markSuccessorFailed } from './successor.js';
 
 /** @param {*} options */
-export async function launchCentral({ directory, root, installation, physicalPrefix, fallbackEntry, environment, kind = 'shim', onSpawn }) {
+export async function launchCentral({ directory, root, installation, physicalPrefix, fallbackEntry, environment, kind = 'shim', onSpawn, logPath }) {
   const identity = currentIdentity();
   const authority = await prepareAuthority({ directory, root, physicalPrefix: installation?.canonicalPrefix ?? physicalPrefix, frame: identity });
   let plan, child, ticket;
@@ -49,7 +49,7 @@ export async function launchCentral({ directory, root, installation, physicalPre
     const slot = { schemaVersion: 1, revision: (old?.value.revision ?? 0) + 1, starterIdentity: identity,
       candidateIdentity: null, entrypoint: plan.entrypoint, createdAt: Date.now(), state: 'RESERVED' };
     const reserved = old ? replaceState(slotPath, slot, 'startupReservation', old) : publishState(slotPath, slot, 'startupReservation');
-    const log = fs.openSync(join(directory, 'mcp-central.log'), 'a', 0o600);
+    const log = fs.openSync(logPath?.() ?? join(directory, 'mcp-central.log'), 'a', 0o600);
     try {
       child = spawn(process.execPath, ['--max-old-space-size=384', plan.entrypoint, 'mcp-central-serve', '--root', root,
         '--runtime-base', dirname(directory), '--auto-start', ...(ticket ? ['--handover-id', ticket.handoverId,
