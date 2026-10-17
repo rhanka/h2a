@@ -197,7 +197,14 @@ function gateCodeOfDep(b: WpLeafBlocker): DirectiveGateCode {
   return 'linked-dependency'
 }
 
-function tierOf(l: WpLeaf): Tier {
+type UrgencyFacts = Pick<WpLeaf, 'realization' | 'acceptance' | 'specStatus' | 'openBlockers'>
+
+/** The same urgency ladder for every request, including leaves outside a WP or engagement routing. */
+export function canonicalLeafUrgency(leaf: UrgencyFacts): number {
+  return tierOf(leaf).order
+}
+
+function tierOf(l: UrgencyFacts): Tier {
   const depBlocker = l.openBlockers.find((b) => b.kind === 'dependency')
   const blockerRefs = l.openBlockers.map((b) => b.blockerId)
   // 1. real blocking gate (dependency/manual blocker open) on a NON-in-progress leaf — P1_GATE.

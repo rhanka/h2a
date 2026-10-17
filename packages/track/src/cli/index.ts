@@ -14,6 +14,7 @@ import type { BlockerKind, BlockerScope, ResolutionRule } from '../model/blocker
 import type { DecisionKind, Dossier, DossierArtifact, Outcome } from '../model/decision.js'
 import { DomainError, type Disposition, type Gate, type ItemKind, type ItemRole, type Realization, type ReopenMotive, type ScopeDecl, type SpecStatus } from '../model/item.js'
 import type { Bucket } from '../report/buckets.js'
+import type { ItemReportStatus } from '../model/report-status.js'
 import { displayText, formatRows, type Format } from '../report/format.js'
 import { Track } from '../track.js'
 import type { ActorId, Provenance } from '../events/types.js'
@@ -75,6 +76,7 @@ const USAGE = `usage: track <command>
   item reparent <itemId> [--parent <pid>] [--detach]
   item set-raci <itemId> [--accountable <a>] [--responsible <a,a>] [--client-token <t>] (trimmed blank members are rejected, unlike item new)
   item set-role <itemId> <workpackage|stream>
+  item report-set <itemId> --json <report-metadata-json> (full replacement; {} clears metadata)
   item scope-declare <itemId> [--allowed <glob,glob>] [--forbidden <...>] [--conditional <...>] [--scope <json>]
   item spec-amend <itemId> --base-hash <h> --result-hash <h> --patch <json> [--decision-id <id>] [--live-doc-ref <r>] [--proposal-ref <r>] [--summary <s>] [--client-token <t>]
   item spec <itemId> <to-specify|specified>
@@ -100,7 +102,7 @@ const USAGE = `usage: track <command>
   accept waive <criterionId> --reason <r>
   consolidate --items <id,id> --commit <mergeCommit> [--client-token <t>]
   priority assess <itemId> --ubv <n> --tc <n> --rr <n> --js <n>
-  report [--scope <container-id|code|label>] [--since <sha|YYYY-MM-DD> [--until <sha|YYYY-MM-DD>]|--period <today|week|month|all>] [--decisions] [--require-accepted] [--active-roster] [--wp|--flat] [--inline] [--width <n>] [--level <spec|plan|wp|lot|task>] [--raw] [--resolve <handle>] [--sub-wp] [--format json|text|md] [--commit <sha>] [--now <iso>]
+  report [--status-table] [--scope <container-id|code|label>] [--since <sha|YYYY-MM-DD> [--until <sha|YYYY-MM-DD>]|--period <today|week|month|all>] [--decisions] [--require-accepted] [--active-roster] [--wp|--flat] [--inline] [--width <n>] [--level <spec|plan|wp|lot|task>] [--raw] [--resolve <handle>] [--sub-wp] [--format json|text|md] [--commit <sha>] [--now <iso>]
   snapshot [--require-accepted] [--format json|text|md] [--commit <sha>]
   export-graph [--repo-key <repo:key>] [--source-id <id>] [--observed-at <iso>]
   query [--kind <k>] [--role <workpackage|spec-phase|stream>] [--workspace <w>] [--bucket <AWAITED|DROPPED|DONE|TO-DO>] [--realization <r>] [--acceptance <a>] [--format json|text|md] [--commit <sha>]
@@ -440,11 +442,13 @@ function extractTrackDirFlag(argv: string[]): { trackDirFlag?: string; rest: str
   return trackDirFlag !== undefined ? { trackDirFlag, rest } : { rest }
 }
 
-const REPORT_USAGE = `usage: track report [--scope <container-id|code|label>] [--since <sha|YYYY-MM-DD> [--until <sha|YYYY-MM-DD>] | --period <today|week|month|all>] [--raw] [--wp] [--flat] [--inline|--width <40..240>] [--decisions] [--active-roster] [--require-accepted] [--resolve <handle>] [--commit <sha>] [--now <iso>] [--sub-wp] [--format json|text|md] [--track-dir <directory-containing-events.jsonl>]
+const REPORT_USAGE = `usage: track report [--status-table] [--scope <container-id|code|label>] [--since <sha|YYYY-MM-DD> [--until <sha|YYYY-MM-DD>] | --period <today|week|month|all>] [--raw] [--wp] [--flat] [--inline|--width <40..240>] [--decisions] [--active-roster] [--require-accepted] [--resolve <handle>] [--commit <sha>] [--now <iso>] [--sub-wp] [--format json|text|md] [--track-dir <directory-containing-events.jsonl>]
+
+--status-table renders owner requests with exactly five columns, stage evidence, four status colors and flagged missing proposals/decision expectations. It preserves DÉCISIONS and supports scoped Markdown. Historical missing status is orange with an explicit verification action.
 
 --scope selects one exact role-container by its id, durable assigned code, or current derived label. The selected container and all descendants are rendered through the same four-section report; unknown or ambiguous selectors fail loudly.
 
---resolve <handle> resolves a report handle (a positional [n.m] row handle, or a D#/Q# dossier number) back to its item id. It is the one command the report documents for acting on a row without printing a ULID in a column. Handles are positional and per-report: resolve them against the same log and baseline the report was rendered from.
+--resolve <handle> resolves a report handle (a positional [n.m] row handle, or a D#/Q# dossier number) back to its item id. With --status-table, use the DEMANDES # number instead of [n.m]. It is the one command the report documents for acting on a row without printing a ULID in a column. Handles are positional and per-report: resolve them against the same log and baseline the report was rendered from.
 
 --sub-wp lists sub-WP rows beside their parent. Without it, sub-levels are aggregated into their parent on a long window (>= 14 days) and listed on a short one — the WP is the reading unit of a long report.
 
@@ -643,6 +647,16 @@ function cmdItem(args: string[], ctx: Ctx): number {
   const sub = args[0]
   const { positional, flags } = parseFlags(args.slice(1))
   const track = writeTrack(ctx)
+  if (sub === 'report-set') {
+    assertOnlyFlags(flags, ['json'])
+    assertValueFlag(flags, 'json')
+    if (positional.length !== 1) throw new DomainError('item report-set requires one itemId')
+    let value: unknown
+    try { value = JSON.parse(req(flags, 'json')) } catch { throw new DomainError('--json must be valid JSON') }
+    track.setReportStatus(positional[0]!, value as ItemReportStatus)
+    io.out('ok\n')
+    return 0
+  }
   if (sub === 'new') {
     const id = track.createItem({
       kind: oneOf(req(flags, 'kind'), ITEM_KINDS, '--kind') as ItemKind,
@@ -827,7 +841,7 @@ function cmdItem(args: string[], ctx: Ctx): number {
     rowsOut(rows, fmt(flags), io)
     return 0
   }
-  io.err('usage: track item <new|reparent|set-raci|set-role|scope-declare|spec-amend|spec|realize|assign-code|show|ls>\n')
+  io.err('usage: track item <new|reparent|report-set|set-raci|set-role|scope-declare|spec-amend|spec|realize|assign-code|show|ls>\n')
   return 2
 }
 
@@ -1137,9 +1151,13 @@ function cmdReport(args: string[], ctx: Ctx): number {
   if (positional.length > 0) throw new DomainError(`unexpected report argument(s): ${positional.join(' ')}`)
   for (const name of ['commit', 'format', 'level', 'width', 'resolve', 'now', 'scope', 'since', 'until', 'period']) assertValueFlag(flags, name)
   const scope = opt(flags, 'scope')
+  const statusTable = assertBooleanFlag(flags, 'status-table')
+  if (statusTable && ['flat', 'inline', 'width', 'raw', 'level', 'active-roster'].some(k => flags[k] !== undefined)) {
+    throw new DomainError('--status-table rejects --flat/--inline/--width/--raw/--level/--active-roster')
+  }
   // Criterion 10b — the one documented command that turns a short report handle back into an item.
   if (opt(flags, 'resolve') !== undefined) {
-    assertOnlyFlags(flags, ['resolve', 'scope', 'commit', 'require-accepted'])
+    assertOnlyFlags(flags, ['resolve', 'scope', 'commit', 'require-accepted', 'status-table'])
     io.out(
       resolveHandle(
         new TrackReader(ctx.eventsPath),
@@ -1149,6 +1167,7 @@ function cmdReport(args: string[], ctx: Ctx): number {
         },
         req(flags, 'resolve'),
         scope,
+        statusTable,
       ),
     )
     return 0
@@ -1178,7 +1197,7 @@ function cmdReport(args: string[], ctx: Ctx): number {
   }
   assertOnlyFlags(flags, [
     'commit', 'require-accepted', 'decisions', 'active-roster', 'wp', 'flat', 'inline', 'width', 'format', 'now',
-    'sub-wp', 'scope', 'since', 'until', 'period',
+    'sub-wp', 'scope', 'since', 'until', 'period', 'status-table',
   ])
   const rawFormat = opt(flags, 'format')
   if (rawFormat !== undefined && !['json', 'text', 'md'].includes(rawFormat)) {
@@ -1205,7 +1224,7 @@ function cmdReport(args: string[], ctx: Ctx): number {
     if (width < 40 || width > 240) throw new DomainError('--width must be an integer in [40,240]')
   }
   if (scope !== undefined && inline) throw new DomainError('--scope preserves the validated report shape and rejects --inline/--width')
-  if (scope !== undefined && format === 'md') {
+  if (scope !== undefined && format === 'md' && !statusTable) {
     throw new DomainError('--scope currently supports the owner text report and JSON projection only')
   }
   // Every format is a deterministic read over the folded log. The default human view is
@@ -1218,8 +1237,8 @@ function cmdReport(args: string[], ctx: Ctx): number {
     requireAccepted,
     // The owner-facing conductor always classifies decision dossiers. JSON keeps its
     // established opt-in decision payload, while --flat retains the legacy opt-in.
-    decisions: scope !== undefined || requestedDecisions || (!flat && format !== 'json'),
-    wpTree: scope !== undefined || wp || (!flat && format !== 'json'),
+    decisions: statusTable || scope !== undefined || requestedDecisions || (!flat && format !== 'json'),
+    wpTree: statusTable || scope !== undefined || wp || (!flat && format !== 'json'),
     activeRoster,
   }
   // Criterion 21 — with no selector the report runs from the first event to the journal head; an injected
@@ -1238,7 +1257,7 @@ function cmdReport(args: string[], ctx: Ctx): number {
   if (inline) {
     io.out(reportInline(reader, options, width === undefined ? {} : { width }, nowArg, period))
   } else {
-    io.out(reportText(reader, options, format, nowArg, subWp, scope, period))
+    io.out(reportText(reader, options, format, nowArg, subWp, scope, period, statusTable))
   }
   return 0
 }
