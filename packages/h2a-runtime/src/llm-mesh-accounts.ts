@@ -5,6 +5,9 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { createLlmMeshFacade, type LlmMeshAdministrativeFacade, type LlmMeshFacade } from "@sentropic/cluster-mesh/llm-mesh/facade";
 import type { AccountPublic } from "@sentropic/cluster-mesh/llm-mesh/enrollment";
+import { resolveSeatEnrollmentProvider } from "./cli-seat-codecs.js";
+import { SeatMaterializationError } from "./cli-seat-materialization.js";
+import type { SeatCli5 } from "./cli-seat-fixtures.js";
 
 import {
   MAX_CLAUDE_INPUT_BYTES,
@@ -335,9 +338,10 @@ function defaultTokenReader(
  * follow-up, not built here.
  */
 export async function enrollViaFacade(
-  provider: "cloud-code" | "codex" | "muse" | "mistral-vibe" | "claude-code",
+  rawProvider: "cloud-code" | "codex" | "muse" | "mistral-vibe" | "claude-code" | SeatCli5,
   options: FacadeEnrollmentOptions = {},
 ): Promise<LlmMeshEnrollmentAccount> {
+  const provider = resolveSeatEnrollmentProvider(rawProvider);
   const rawOwner = options.ownerScope ?? llmMeshOwnerScopeRef();
   const ownerScope = rawOwner.trim();
   if (!ownerScope) {
@@ -345,13 +349,15 @@ export async function enrollViaFacade(
   }
   const mode = resolveEnrollmentMode(options);
   if (mode === "cli" && provider !== "muse" && provider !== "claude-code") {
-    throw new Error(
+    throw new SeatMaterializationError(
       `provider "${provider}" has no CLI-store import; --cli/--from cli is only valid for providers with a local CLI import (muse, claude-code)`,
+      "seat-import-unavailable",
     );
   }
   if (mode === "token" && provider !== "claude-code") {
-    throw new Error(
+    throw new SeatMaterializationError(
       `--token/--from token is only valid for claude-code`,
+      "seat-import-unavailable",
     );
   }
 
