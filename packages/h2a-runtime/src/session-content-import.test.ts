@@ -81,9 +81,11 @@ it('should cancel an active import and refuse excess parts without leaving a com
 });
 it('should release the import slot when cancellation interrupts a stalled part iterator',async()=>{
   const {importer,managedRoot}=await setup(),cancel=new AbortController();
-  const parts=(async function*(){yield part;cancel.abort();await new Promise<void>(()=>{});})();
-  const start=performance.now();await expect(importer.import(request,bundle,parts,cancel.signal)).rejects.toThrow();
-  expect(performance.now()-start).toBeLessThan(1000);expect(readdirSync(managedRoot).filter(n=>n!=='.h2a-session-imports')).toEqual([]);
+  let cancelledAt=0;
+  const parts=(async function*(){yield part;cancelledAt=performance.now();cancel.abort();await new Promise<void>(()=>{});})();
+  await expect(importer.import(request,bundle,parts,cancel.signal)).rejects.toThrow();
+  expect(cancelledAt).toBeGreaterThan(0);expect(performance.now()-cancelledAt).toBeLessThan(1000);expect(readdirSync(managedRoot).filter(n=>n!=='.h2a-session-imports')).toEqual([]);
+  expect(await importer.import(request,bundle,(async function*(){yield part;})())).toMatchObject({status:'imported'});
 });
 it('should read admitted data with the source offline and refuse revoked or expired managed reads',async()=>{
   let s=await setup();let result=await s.importer.import(request,bundle,(async function*(){yield part;})());
