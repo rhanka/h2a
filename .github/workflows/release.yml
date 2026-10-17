@@ -138,14 +138,14 @@ jobs:
         env:
           BACKFILL_VERSION: ${{ inputs.backfill-version }}
         run: node scripts/release-candidate.mjs prepare
-      # Build once, then smoke and upload these same four tarballs.
-      - name: Pack the four lockstep packages
+      # Build once, then smoke and upload these same five tarballs.
+      - name: Pack the five release packages
         shell: bash
         run: |
           set -euo pipefail
           node scripts/check-lockstep-versions.mjs
           mkdir -p dist-tarballs
-          for pkg in @sentropic/h2a @sentropic/h2a-runtime @sentropic/h2a-cli @sentropic/track; do
+          for pkg in @sentropic/h2a @sentropic/h2a-runtime @sentropic/h2a-cli @sentropic/track @sentropic/focus; do
             npm pack --workspace "$pkg" --pack-destination dist-tarballs
           done
           (cd dist-tarballs && sha256sum *.tgz > sha256sums.txt && cat sha256sums.txt)
@@ -267,11 +267,19 @@ jobs:
           cli_version="$(node -p "require('./packages/h2a-cli/package.json').version")"
           runtime_version="$(node -p "require('./packages/h2a-runtime/package.json').version")"
           track_version="$(node -p "require('./packages/track/package.json').version")"
+          focus_version="$(node -p "require('./packages/focus/package.json').version")"
+          # A backfill can check out an older four-package prepare helper.
+          # It cannot authorize publishing focus, even if its old RC gate passes.
+          if [[ "$focus_version" != "${FOCUS_RELEASE_VERSION:-}" ]]; then
+            echo "::error::@sentropic/focus was not prepared by the five-package release helper; refusing legacy or mismatched publication." >&2
+            exit 1
+          fi
           echo "Tag version           : $tag_version"
           echo "@sentropic/h2a        : $h2a_version"
           echo "@sentropic/h2a-cli    : $cli_version"
           echo "@sentropic/h2a-runtime: $runtime_version"
           echo "@sentropic/track      : $track_version"
+          echo "@sentropic/focus      : $focus_version (independent version)"
           if [[ "$h2a_version" != "$tag_version" ]]; then
             echo "::error::packages/h2a/package.json version ($h2a_version) does not match tag ($tag_version). Run 'npm run release -- --version $tag_version' before tagging." >&2
             exit 1
@@ -453,6 +461,47 @@ jobs:
               break
             fi
             echo "@sentropic/h2a-cli@$v is not visible on registry yet; retrying in 10 seconds (attempt $attempt/18)." >&2
+            sleep 10
+          done
+
+      # Independent version, same verified bytes and OIDC release identity.
+      # Owner: configure @sentropic/focus trust for rhanka/h2a + release.yml on npm.
+      - name: Publish @sentropic/focus (trusted publishing, public)
+        shell: bash
+        run: |
+          v="$(node -p "require('./packages/focus/package.json').version")"
+          if npm view "@sentropic/focus@$v" version >/dev/null 2>&1; then
+            echo "@sentropic/focus@$v already on registry; skipping."
+          else
+            tagArgs=""
+            latest="$(npm view "@sentropic/focus" dist-tags.latest 2>/dev/null || true)"
+            if [ -n "$latest" ] && [ "$v" != "$latest" ]; then
+              lowest="$(printf '%s\n%s\n' "$v" "$latest" | sort -V | head -n1)"
+              if [ "$lowest" = "$v" ]; then
+                tagArgs="--tag backfill"
+                echo "@sentropic/focus@$v is below latest ($latest); publishing with $tagArgs so the latest dist-tag stays untouched."
+              fi
+            fi
+            if [[ "$v" == *-rc.* ]]; then
+              tagArgs="--tag next"
+            fi
+            # SPEC 0.98.5 R8.2: publish the VERIFIED tarball bytes that verify
+            # packed from the gated SHA — never a fresh pack of a mutable ref.
+            (cd dist-tarballs && sha256sum --check --strict sha256sums.txt)
+            if ! npm publish "./dist-tarballs/sentropic-focus-${v}.tgz" --access public --provenance $tagArgs; then
+              echo "::error::@sentropic/focus@$v: npm publish failed (not published)." >&2
+              exit 1
+            fi
+          fi
+          for attempt in $(seq 1 18); do
+            if npm view "@sentropic/focus@$v" version >/dev/null 2>&1; then
+              break
+            fi
+            if [[ "$attempt" -eq 18 ]]; then
+              echo "::warning::@sentropic/focus@$v was published but is not visible on registry after 18 attempts — registry propagation lag; not failing the step." >&2
+              break
+            fi
+            echo "@sentropic/focus@$v is not visible on registry yet; retrying in 10 seconds (attempt $attempt/18)." >&2
             sleep 10
           done
 

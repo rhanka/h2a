@@ -29,6 +29,7 @@ for (const packageName of [
   "@sentropic/h2a-runtime",
   "@sentropic/h2a",
   "@sentropic/h2a-cli",
+  "@sentropic/focus",
 ]) {
   test(`release publication of ${packageName} is retry-safe and waits for registry visibility`, () => {
     const step = publishStep(packageName);
@@ -44,6 +45,7 @@ test("release publishes are backfill-safe: a version below latest gets --tag bac
     "@sentropic/h2a-runtime",
     "@sentropic/h2a",
     "@sentropic/h2a-cli",
+  "@sentropic/focus",
   ]) {
     const step = publishStep(packageName);
     assert.match(step, /dist-tags\.latest/, `${packageName}: publish must read the current latest dist-tag`);
@@ -61,6 +63,7 @@ test("release publishes the VERIFIED tarball bytes for all four packages (no wor
     ["@sentropic/h2a-runtime", "sentropic-h2a-runtime-"],
     ["@sentropic/h2a", "sentropic-h2a-"],
     ["@sentropic/h2a-cli", "sentropic-h2a-cli-"],
+    ["@sentropic/focus", "sentropic-focus-"],
   ]) {
     const step = publishStep(packageName);
     assert.match(step, new RegExp(`npm publish "\\./dist-tarballs/${tarball}\\$\\{v\\}\\.tgz"`), `${packageName}: publish must ship the verify-built tarball bytes via an unambiguous ./ file spec (0.98.6: the bare form parsed as git shorthand)`);

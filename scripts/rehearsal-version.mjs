@@ -24,22 +24,30 @@ for (const [i, { manifest }] of manifests.entries()) {
   }
 }
 const version = `${base}-rehearsal.${GITHUB_RUN_ID}.${GITHUB_RUN_ATTEMPT}`
+const focusPath = 'packages/focus/package.json'
+const focus = JSON.parse(readFileSync(focusPath, 'utf8'))
+if (focus.name !== '@sentropic/focus' || !/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(focus.version)) {
+  throw new Error('expected an independent stable focus version')
+}
+const focusVersion = `${focus.version}-rehearsal.${GITHUB_RUN_ID}.${GITHUB_RUN_ATTEMPT}`
+manifests.push({ path: focusPath, manifest: focus })
 const smokePath = 'scripts/smoke-artifact.mjs'
 const smoke = readFileSync(smokePath, 'utf8')
 const pin = `const PINNED_RUNTIME_VERSION = '${base}'`
 if (smoke.split(pin).length !== 2) throw new Error('smoke pin must match the release train exactly once')
 
-const internal = new Set(manifests.map(({ manifest }) => manifest.name))
+const internal = new Map(manifests.map(({ manifest }) => [manifest.name,
+  manifest.name === '@sentropic/focus' ? focusVersion : version]))
 for (const { path, manifest } of manifests) {
-  manifest.version = version
+  manifest.version = internal.get(manifest.name)
   for (const field of ['dependencies', 'peerDependencies', 'optionalDependencies', 'devDependencies']) {
     for (const name of Object.keys(manifest[field] ?? {})) {
       // Exact pins prevent a stable registry version from satisfying the smoke install.
-      if (internal.has(name)) manifest[field][name] = version
+      if (internal.has(name)) manifest[field][name] = internal.get(name)
     }
   }
   writeFileSync(path, JSON.stringify(manifest, null, 2) + '\n')
 }
 // Keep the independent literal proof; only its CI copy changes, never the release smoke.
 writeFileSync(smokePath, smoke.replace(pin, `const PINNED_RUNTIME_VERSION = '${version}'`))
-console.log(`rehearsal-version: stamped ${names.join(', ')} and smoke pin with ${version}`)
+console.log(`rehearsal-version: stamped ${names.join(', ')} and smoke pin with ${version}; focus with ${focusVersion}`)
