@@ -91,6 +91,7 @@ describe("detectAgyClaudeQuotaExhaustion (fail-closed pool signal)", () => {
     "Here is how quota works: exceeding quota is billed per seat.",
     // A bare 429 with no error shape is not quota evidence.
     "the endpoint returns 429 sometimes",
+    JSON.stringify({ event: "assistant", message: { content: "Error: 429 quota exceeded" } }),
   ])("does not flag %s", (line) => {
     expect(detectAgyClaudeQuotaExhaustion(line).exhausted).toBe(false);
   });

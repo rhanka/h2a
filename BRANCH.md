@@ -9,12 +9,14 @@ branch sections below are inherited context, not this branch's task.
 - [x] Build-role opt-in for the AGY Claude pool; reviews/challenges first.
 - [x] Quota error/reset/status, no fallback/retry, declared output-file absence.
 - [x] Offline fake AGY regressions, MCP late completion polling and doctor status.
-- [x] Final Node 22/24: six named runtime files 222/222 per version, three
+- [x] Final Node 22/24: six named runtime files 223/223 per version, three
   CLI/MCP files 34/34 per version; four isolated package typechecks per version.
 - [x] Trust-root test file 38/38 on Node 22; zero-Python guard exit 0.
 - [x] CI export guard: retain the closed public export list with the new AGY
   contract, packed-dist scan and seam import refusal; targeted red 4/5,
   then green 5/5 on Node 22 and 24, zero skips.
+- [x] Quoted quota diagnostics in model JSON do not invent pool exhaustion:
+  reproduced 26/27 before anchoring diagnostics to the start of a line.
 - [ ] Commit, fast-forward push, English PR and per-job CI report.
 - No Track writes or installed h2a/native host/provider access; only temporary
   test roots. Full local suite forbidden; CI/conductor owns integration.
