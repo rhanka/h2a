@@ -1,0 +1,23 @@
+command: /tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-preparation-profile.test.js
+node: v24.21.0
+private root: /tmp/mh-l6-test-uGCOLA
+case: all cases in explicit file
+TAP version 13
+# Subtest: diagnostic: measure actual closed payload copy and durable sync costs
+ok 1 - diagnostic: measure actual closed payload copy and durable sync costs
+  ---
+  duration_ms: 40165.328848
+  type: 'test'
+  ...
+# {"diagnosticOnly":true,"totalMs":33089.072745,"syncMs":31166.056249000132,"copyMs":232.17215699999997,"files":10075,"directories":1515}
+1..1
+# tests 1
+# suites 0
+# pass 1
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 40238.049933
+
+receipt: {"command":["/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-preparation-profile.test.js"],"code":0,"signal":null,"tests":1,"invalid":false,"spawned":2,"leftovers":[]}

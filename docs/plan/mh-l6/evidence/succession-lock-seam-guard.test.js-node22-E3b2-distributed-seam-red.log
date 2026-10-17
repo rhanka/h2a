@@ -1,0 +1,109 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/succession-lock-seam-guard.test.js
+node: v22.22.1
+private root: /tmp/mh-l6-test-A2AJYJ
+case: all cases in explicit file
+TAP version 13
+# Subtest: T-guard: no code outside tests depends on the separate lock seam
+not ok 1 - T-guard: no code outside tests depends on the separate lock seam
+  ---
+  duration_ms: 4851.613094
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/succession-lock-seam-guard.test.js:38:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly deep-equal:
+    + actual - expected
+    
+    + [
+    +   {
+    +     destination: 'succession-lock-test-',
+    +     file: 'scripts/mh-l1-package-prototype.mjs'
+    +   },
+    +   {
+    +     destination: 'packages/h2a/test/succession-lock-test-seam.mjs',
+    +     file: 'scripts/mh-l1-package-prototype.mjs'
+    +   },
+    +   {
+    +     destination: 'dist/runtime/local-files/succession-lock-test-seam.mjs',
+    +     file: 'scripts/mh-l1-package-prototype.mjs'
+    +   }
+    + ]
+    - []
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected:
+  actual:
+    0:
+      file: 'scripts/mh-l1-package-prototype.mjs'
+      destination: 'succession-lock-test-'
+    1:
+      file: 'scripts/mh-l1-package-prototype.mjs'
+      destination: 'packages/h2a/test/succession-lock-test-seam.mjs'
+    2:
+      file: 'scripts/mh-l1-package-prototype.mjs'
+      destination: 'dist/runtime/local-files/succession-lock-test-seam.mjs'
+  operator: 'deepStrictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/succession-lock-seam-guard.test.js:48:10)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.start (node:internal/test_runner/test:944:17)
+    startSubtestAfterBootstrap (node:internal/test_runner/harness:296:17)
+  ...
+# Subtest: T-guard: every literal destination is rejected regardless of import syntax
+ok 2 - T-guard: every literal destination is rejected regardless of import syntax
+  ---
+  duration_ms: 0.796448
+  type: 'test'
+  ...
+# Subtest: T-guard: split literals cannot reference the seam
+ok 3 - T-guard: split literals cannot reference the seam
+  ---
+  duration_ms: 0.129694
+  type: 'test'
+  ...
+# Subtest: T-guard: interpolated templates cannot reference the seam
+ok 4 - T-guard: interpolated templates cannot reference the seam
+  ---
+  duration_ms: 0.09569
+  type: 'test'
+  ...
+# Subtest: T-guard: dist, the npm pack tarball and package exports cannot load the seam
+not ok 5 - T-guard: dist, the npm pack tarball and package exports cannot load the seam
+  ---
+  duration_ms: 110587.348616
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/succession-lock-seam-guard.test.js:77:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    /tmp/mh-l6-test-A2AJYJ/tmpdir/h2a-seam-pack-vmw4DZ/package/dist/runtime/local-files/succession-lock-test-seam.mjs
+    
+    true !== false
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: false
+  actual: true
+  operator: 'strictEqual'
+  stack: |-
+    walk (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/succession-lock-seam-guard.test.js:84:16)
+    walk (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/succession-lock-seam-guard.test.js:82:32)
+    walk (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/succession-lock-seam-guard.test.js:82:32)
+    walk (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/succession-lock-seam-guard.test.js:82:32)
+    TestContext.<anonymous> (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/succession-lock-seam-guard.test.js:101:5)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+1..5
+# tests 5
+# suites 0
+# pass 3
+# fail 2
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 115776.686214
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/succession-lock-seam-guard.test.js"],"code":1,"signal":null,"tests":5,"invalid":false,"spawned":4,"leftovers":[]}

@@ -4,6 +4,8 @@ import fs from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 if (!fs.realpathSync('.').startsWith('/tmp/mh-l3-qualification-')) throw Error('private_qualification_copy_required');
+const phase = process.argv[2] ?? '';
+if (phase && !/^[A-Za-z0-9-]+$/.test(phase)) throw Error('invalid_evidence_phase');
 const stem = 'packages/h2a/', published = stem + 'src/runtime/upgrade/published-payload.js', policy = stem + 'src/runtime/upgrade/image-policy.js';
 const gate = 'scripts/check-publish-payload.mjs', native = 'scripts/build-release-native.mjs', prepare = 'scripts/prepare-workspace-native.mjs';
 const test = name => stem + 'test/mh-l6-' + name + '.test.js', u10 = text => 'U10 should ' + text, u12 = text => 'U12 should ' + text;
@@ -39,7 +41,7 @@ const paths = [...new Set(cases.map(row => row[1]))], originals = new Map(paths.
 const hash = bytes => createHash('sha256').update(bytes).digest('hex'), results = [], major = process.versions.node.split('.')[0];
 for (const [name, path, changes, file, scenario, count = 1] of cases) {
   const run = color => {
-    const label = `payload-${name}-${color}`, result = spawnSync(process.execPath, ['scripts/mh-l6-test.mjs', file, label], {
+    const label = `${phase ? phase + '-' : ''}payload-${name}-${color}`, result = spawnSync(process.execPath, ['scripts/mh-l6-test.mjs', file, label], {
       env: { ...process.env, ...(scenario ? { MH_L6_CASE: scenario } : {}) }, encoding: 'utf8', maxBuffer: 8 * 1024 * 1024 });
     const log = `docs/plan/mh-l6/evidence/${file.split('/').at(-1)}-node${major}-${label}.log`, text = fs.readFileSync(log, 'utf8'), receipt = JSON.parse(text.split('\nreceipt: ').at(-1));
     if (result.status !== (color === 'red' ? 1 : 0) || receipt.code !== result.status || receipt.invalid || receipt.signal || receipt.tests !== count ||
@@ -58,7 +60,7 @@ for (const [name, path, changes, file, scenario, count = 1] of cases) {
   const green = run('green');
   for (const [path, bytes] of originals) if (hash(fs.readFileSync(path)) !== hash(bytes)) throw Error('restore_failed:' + path);
   results.push({ name, red, green, restored: true });
-  fs.writeFileSync(`docs/plan/mh-l6/mutations-payload-node${major}.json`, JSON.stringify({ node: process.version,
+  fs.writeFileSync(`docs/plan/mh-l6/mutations-payload-${phase ? phase + '-' : ''}node${major}.json`, JSON.stringify({ node: process.version,
     files: [...originals].map(([path, bytes]) => ({ path, sha256: hash(bytes) })), results }, null, 2) + '\n');
   process.stdout.write(name + ': assertion red, restored green\n');
 }

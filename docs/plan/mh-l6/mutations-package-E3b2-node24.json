@@ -1,0 +1,67 @@
+{
+  "node": "v24.21.0",
+  "files": [
+    {
+      "path": "packages/h2a/src/runtime/upgrade/image-policy.js",
+      "sha256": "4b4846cb7b37465ade7bff3ea251f5140109678d679b8196bae13b83bf21e17a",
+      "mode": 436,
+      "privateFixture": false
+    },
+    {
+      "path": "scripts/mh-l1-package-prototype.mjs",
+      "sha256": "5319be5321a88619c211c9db09e799e275b1e4f04844ceb0ae31a04958c81dd3",
+      "mode": 436,
+      "privateFixture": false
+    },
+    {
+      "path": ".git/index",
+      "sha256": "022d522eda724a565121f0b501bdad2dc447a8e1f620f0c7b68763c26b469cde",
+      "mode": 436,
+      "privateFixture": true
+    }
+  ],
+  "results": [
+    {
+      "name": "minimum-libc",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-published.test.js-node24-E3b2-minimum-libc-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-published.test.js-node24-E3b2-minimum-libc-green.log",
+      "restored": true
+    },
+    {
+      "name": "unsupported-platform",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-published.test.js-node24-E3b2-unsupported-platform-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-published.test.js-node24-E3b2-unsupported-platform-green.log",
+      "restored": true
+    },
+    {
+      "name": "unsupported-architecture",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-published.test.js-node24-E3b2-unsupported-architecture-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-published.test.js-node24-E3b2-unsupported-architecture-green.log",
+      "restored": true
+    },
+    {
+      "name": "plugin-version",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-package.test.js-node24-E3b2-plugin-version-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-package.test.js-node24-E3b2-plugin-version-green.log",
+      "restored": true
+    },
+    {
+      "name": "diagnostic-installability",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-package.test.js-node24-E3b2-diagnostic-installability-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-package.test.js-node24-E3b2-diagnostic-installability-green.log",
+      "restored": true
+    },
+    {
+      "name": "distributed-seam",
+      "red": "docs/plan/mh-l6/evidence/succession-lock-seam-guard.test.js-node24-E3b2-distributed-seam-red.log",
+      "green": "docs/plan/mh-l6/evidence/succession-lock-seam-guard.test.js-node24-E3b2-distributed-seam-green.log",
+      "restored": true
+    },
+    {
+      "name": "nonempty-source-inventory",
+      "red": "docs/plan/mh-l6/evidence/succession-lock-seam-guard.test.js-node24-E3b2-nonempty-source-inventory-red.log",
+      "green": "docs/plan/mh-l6/evidence/succession-lock-seam-guard.test.js-node24-E3b2-nonempty-source-inventory-green.log",
+      "restored": true
+    }
+  ]
+}

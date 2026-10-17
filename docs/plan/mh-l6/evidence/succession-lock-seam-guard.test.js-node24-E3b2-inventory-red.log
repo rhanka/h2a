@@ -1,0 +1,105 @@
+command: /tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node --test --test-reporter=tap packages/h2a/test/succession-lock-seam-guard.test.js
+node: v24.21.0
+private root: /tmp/mh-l6-test-YfZmRR
+case: all cases in explicit file
+TAP version 13
+# > @sentropic/h2a@0.98.5 prepack
+# > node ../../scripts/check-focus-app.mjs && node ../../scripts/check-publish-payload.mjs && chmod +x dist/bin.js
+# Publish requires the closed payload tarball. Use node scripts/package-release.mjs --package @sentropic/h2a (or @sentropic/h2a-runtime). ENOENT: no such file or directory, lstat '/tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/manifest.json'
+# npm error code 1
+# npm error path /tmp/mh-l3-qualification-YeHHOv/source/packages/h2a
+# npm error command failed
+# npm error command sh -c node ../../scripts/check-focus-app.mjs && node ../../scripts/check-publish-payload.mjs && chmod +x dist/bin.js
+# npm notice
+# npm notice New major version of npm available! 11.19.0 -> 12.2.0
+# npm notice Changelog: https://github.com/npm/cli/releases/tag/v12.2.0
+# npm notice To update run: npm install -g npm@12.2.0
+# npm notice
+# npm error A complete log of this run can be found in: /tmp/mh-l6-test-YfZmRR/home/.npm/_logs/2026-10-17T01_14_41_517Z-debug-0.log
+# Subtest: T-guard: no code outside tests depends on the separate lock seam
+not ok 1 - T-guard: no code outside tests depends on the separate lock seam
+  ---
+  duration_ms: 5.730263
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/succession-lock-seam-guard.test.js:37:1'
+  failureType: 'testCodeFailure'
+  error: 'the source inventory must include the real lock implementation, never pass on an empty index'
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: true
+  actual: false
+  operator: '=='
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/succession-lock-seam-guard.test.js:39:10)
+    Test.runInAsyncScope (node:async_hooks:227:14)
+    Test.run (node:internal/test_runner/test:1402:25)
+    Test.start (node:internal/test_runner/test:1262:17)
+    startSubtestAfterBootstrap (node:internal/test_runner/harness:387:17)
+  ...
+# Subtest: T-guard: every literal destination is rejected regardless of import syntax
+ok 2 - T-guard: every literal destination is rejected regardless of import syntax
+  ---
+  duration_ms: 6.198995
+  type: 'test'
+  ...
+# Subtest: T-guard: split literals cannot reference the seam
+ok 3 - T-guard: split literals cannot reference the seam
+  ---
+  duration_ms: 0.299324
+  type: 'test'
+  ...
+# Subtest: T-guard: interpolated templates cannot reference the seam
+ok 4 - T-guard: interpolated templates cannot reference the seam
+  ---
+  duration_ms: 0.216548
+  type: 'test'
+  ...
+# Subtest: T-guard: dist, the npm pack tarball and package exports cannot load the seam
+not ok 5 - T-guard: dist, the npm pack tarball and package exports cannot load the seam
+  ---
+  duration_ms: 983.959946
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/succession-lock-seam-guard.test.js:76:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Command failed: npm pack --json --pack-destination /tmp/mh-l6-test-YfZmRR/tmpdir/h2a-seam-pack-M4CBM7
+    
+    > @sentropic/h2a@0.98.5 prepack
+    > node ../../scripts/check-focus-app.mjs && node ../../scripts/check-publish-payload.mjs && chmod +x dist/bin.js
+    
+    Publish requires the closed payload tarball. Use node scripts/package-release.mjs --package @sentropic/h2a (or @sentropic/h2a-runtime). ENOENT: no such file or directory, lstat '/tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/manifest.json'
+    npm error code 1
+    npm error path /tmp/mh-l3-qualification-YeHHOv/source/packages/h2a
+    npm error command failed
+    npm error command sh -c node ../../scripts/check-focus-app.mjs && node ../../scripts/check-publish-payload.mjs && chmod +x dist/bin.js
+    npm notice
+    npm notice New major version of npm available! 11.19.0 -> 12.2.0
+    npm notice Changelog: https://github.com/npm/cli/releases/tag/v12.2.0
+    npm notice To update run: npm install -g npm@12.2.0
+    npm notice
+    npm error A complete log of this run can be found in: /tmp/mh-l6-test-YfZmRR/home/.npm/_logs/2026-10-17T01_14_41_517Z-debug-0.log
+    
+  code: 'ERR_TEST_FAILURE'
+  stack: |-
+    genericNodeError (node:internal/errors:986:15)
+    wrappedFn (node:internal/errors:540:14)
+    checkExecSyncError (node:child_process:942:11)
+    execFileSync (node:child_process:978:15)
+    TestContext.<anonymous> (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/succession-lock-seam-guard.test.js:93:5)
+    Test.runInAsyncScope (node:async_hooks:227:14)
+    Test.run (node:internal/test_runner/test:1402:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:974:18)
+    Test.postRun (node:internal/test_runner/test:1542:19)
+    Test.run (node:internal/test_runner/test:1467:12)
+  ...
+1..5
+# tests 5
+# suites 0
+# pass 3
+# fail 2
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 1191.669654
+
+receipt: {"command":["/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node","--test","--test-reporter=tap","packages/h2a/test/succession-lock-seam-guard.test.js"],"code":1,"signal":null,"tests":5,"invalid":false,"spawned":5,"leftovers":[]}
