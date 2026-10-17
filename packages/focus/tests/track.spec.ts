@@ -16,7 +16,9 @@
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
-import { describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it } from "vitest";
+import { copyFileSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 
 import {
   DecisionNotFoundError,
@@ -29,7 +31,10 @@ import { renderHtml, renderMd, renderTerminal } from "../src/index.js";
 import type { HtmlRenderHooks } from "../src/index.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
-const eventsPath = join(here, ".track", "events.jsonl");
+const fixtureDir = mkdtempSync(join(tmpdir(), "focus-read-fixture-"));
+const eventsPath = join(fixtureDir, "events.jsonl");
+copyFileSync(join(here, ".track", "events.jsonl"), eventsPath);
+afterAll(() => rmSync(fixtureDir, { recursive: true, force: true }));
 const DECISION_ID = "01JFOCUSDECISION00000000000";
 const READ_AT = "2026-06-21T12:00:00.000Z";
 const query = {
@@ -128,17 +133,12 @@ describe("readDecisionDossier (real @sentropic/track/read binding)", () => {
     }
   });
 
-  it("is renderable on all three surfaces (terminal/md/html) from the real read", () => {
-    const text = renderTerminal(doc);
-    expect(text).toContain("Should focus bind to @sentropic/track/read at L2?");
-    expect(text).toContain("Outcome [decision]:");
-
-    const md = renderMd(doc);
-    expect(md).toContain("# Should focus bind to @sentropic/track/read at L2?");
-
-    const html = renderHtml(doc, hooks);
-    expect(html.startsWith("<!--sanitized-->")).toBe(true);
-    expect(html).toContain("<h1>Should focus bind to @sentropic/track/read at L2?</h1>");
+  it("preserves legacy data but blocks its presentation until readability information exists", () => {
+    expect(doc.title).toContain("Should focus bind");
+    expect(doc.readability).toBeUndefined();
+    for (const render of [renderTerminal, renderMd, (value: typeof doc) => renderHtml(value, hooks)]) {
+      expect(() => render(doc)).toThrow(/owner request/);
+    }
   });
 
   it("throws DecisionNotFoundError for an unknown decision id", () => {
@@ -171,5 +171,41 @@ describe("toDecisionDossierDocument (pure mapper over the real read types)", () 
     expect(doc.amendmentTrace).toHaveLength(0);
     // context prose + terminal outcome node only.
     expect(doc.sections.map((s) => s.kind)).toEqual(["prose", "outcome"]);
+  });
+});
+
+describe("readable Track projection", () => {
+  it("preserves the supplied presentation fields and renders all surfaces", () => {
+    const dossier = JSON.parse(readFileSync(new URL("./readable-track.fixture.json", import.meta.url), "utf8"));
+    const doc = toDecisionDossierDocument({ id: "shed", title: "Choose the garden shed location", workspace: "ws:opaque", outcome: "pending", dossier }, [], { source: "fixture", readAt: READ_AT, cursor: "count:1" });
+    expect(doc.subject).toBe(dossier.subject);
+    expect(doc.readability).toEqual(dossier.readability);
+    expect(doc.sections).toContainEqual(expect.objectContaining({ kind: "question", ...dossier.qa[0] }));
+    for (const render of [renderTerminal, renderMd, (value: typeof doc) => renderHtml(value, hooks)]) {
+      expect(render(doc)).toContain("A short walk and a clear terrace view.");
+    }
+  });
+
+  it("keeps each question's explicit options and recommendation together", () => {
+    const dossier = JSON.parse(readFileSync(new URL("./readable-track.fixture.json", import.meta.url), "utf8"));
+    dossier.qa.push({
+      id: "q-visit", question: "When should we visit the possible spots?",
+      context: "Both days are free; choose the day that suits your schedule.",
+      readingTimeMinutes: 1, recommendedOptionId: "visit-now",
+      recommendedAnswer: "Visit this week, so the work can start sooner.",
+    });
+    dossier.options.push(
+      { id: "visit-now", title: "Visit this week", summary: "Start work sooner.", questionId: "q-visit" },
+      { id: "visit-later", title: "Visit next week", summary: "Keep this week free.", questionId: "q-visit" },
+    );
+    const doc = toDecisionDossierDocument(
+      { id: "shed", title: "Choose the garden shed location", workspace: "garden", outcome: "pending", dossier },
+      [], { source: "fixture", readAt: READ_AT, cursor: "count:1" },
+    );
+    expect(doc.sections.filter((s) => s.kind === "optionSet").map((s) => [s.questionId, s.options.map((o) => o.id)]))
+      .toEqual([["q-spot", ["a", "b"]], ["q-visit", ["visit-now", "visit-later"]]]);
+    const text = renderMd(doc);
+    expect(text.indexOf("Back of the garden")).toBeLessThan(text.indexOf("When should we visit"));
+    expect(text).toContain("préco: Visit this week, so the work can start sooner.");
   });
 });
