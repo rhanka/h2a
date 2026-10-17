@@ -27,6 +27,7 @@ function fixture() {
   const wire: string[] = [];
   let evidence: LiveDisclosureEvidence[] = [{ ...state, originPaths: ["src/a.ts"], surface: "mcp", text: "allowed fixture", excluded: false }];
   const options: { -readonly [K in keyof LiveDisclosureOptions]: LiveDisclosureOptions[K] } = { auth, now: () => now, audit: (event) => { audit.push(event); },
+    readAccess: () => true,
     loadEvidence: vi.fn(async () => evidence), contentPolicy: () => ({ version: state.policyVersion, allows: () => true }),
     transport: (providerId) => ({ providerId, send: (texts) => { wire.push(...texts); } }),
   };
@@ -169,6 +170,21 @@ describe("Δ-L7a disclosure authority", () => {
   it("should not extend a grant backwards before its explicit start time", async () => {
     const f = fixture(); const id = f.grant(); f.setNow(950);
     expect(await f.emit(id)).toEqual({ ok: false, reason: "grant-expired" }); expect(f.wire).toEqual([]);
+  });
+  it("should not manufacture read permission from an otherwise valid disclosure grant", async () => {
+    const f = fixture(); const id = f.grant();
+    f.options.readAccess = () => false;
+    expect(await f.emit(id)).toEqual({ ok: false, reason: "read-denied" });
+    expect(f.options.loadEvidence).not.toHaveBeenCalled(); expect(f.wire).toEqual([]);
+  });
+  it("should deny absent throwing or revoked read authority on a warm grant", async () => {
+    const f = fixture(); const id = f.grant(); delete f.options.readAccess;
+    expect(await f.emit(id)).toEqual({ ok: false, reason: "read-denied" });
+    f.options.readAccess = () => { throw new Error("READ-CANARY"); };
+    expect(await f.emit(id)).toEqual({ ok: false, reason: "read-denied" });
+    let allowed = true; f.options.readAccess = () => allowed;
+    f.options.loadEvidence = async () => { await Promise.resolve(); allowed = false; return f.evidence; };
+    expect(await f.emit(id)).toEqual({ ok: false, reason: "read-denied" }); expect(f.wire).toEqual([]);
   });
   it("should refuse the whole composed batch if one origin belongs to another repository", async () => {
     const f = fixture(); const id = f.grant();

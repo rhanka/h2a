@@ -50,6 +50,10 @@ export interface LiveDisclosureOptions {
   /** Must durably append synchronously or throw; unavailable audit denies emission. */
   readonly audit?: (event: DisclosureAuditEvent) => void;
   readonly loadEvidence: (ids: readonly string[]) => Promise<readonly LiveDisclosureEvidence[]>;
+  /** Separate verified read authority; a disclosure grant cannot create it. */
+  readonly readAccess?: (request: Readonly<{
+    principal: string; repositoryId: string; evidenceIds: readonly string[];
+  }>) => boolean;
   /** Current host L4b exclusion policy. Absence/incompatibility never falls back. */
   readonly contentPolicy?: () => Readonly<{
     version: string; allows(evidence: LiveDisclosureEvidence): boolean;
@@ -142,7 +146,19 @@ export function createLiveDisclosureAuthority(options: LiveDisclosureOptions): L
     const time = now(); if (!Number.isSafeInteger(time)) return refuse("authority-unavailable");
     if (time >= g.expiresAt || time < g.startsAt) return refuse("grant-expired");
     if (g.providerId !== r.providerId) return refuse("provider-mismatch");
-    return { ok: true, grant: g, stateRevision: auth.state.stateRevision };
+    try {
+      if (options.readAccess?.(Object.freeze({ principal: auth.claims.principal, repositoryId: r.repositoryId,
+        evidenceIds: Object.freeze([...r.evidenceIds]) })) !== true) return refuse("read-denied");
+    } catch { return refuse("read-denied"); }
+    const lateIssuer = authorize(g.issuingCapability, "grant", r.repositoryId);
+    if (!lateIssuer.ok) return lateIssuer;
+    const latest = authorize(r.capability, "emit", r.repositoryId);
+    if (!latest.ok) return latest;
+    if (g.revoked) return refuse("grant-revoked");
+    const finalTime = now();
+    if (!Number.isSafeInteger(finalTime)) return refuse("authority-unavailable");
+    if (finalTime >= g.expiresAt || finalTime < g.startsAt) return refuse("grant-expired");
+    return { ok: true, grant: g, stateRevision: latest.state.stateRevision };
   };
   return {
     grant(input) {
