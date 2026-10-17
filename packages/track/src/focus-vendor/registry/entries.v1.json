@@ -1,0 +1,127 @@
+{
+  "format": "sentropic.registry-package/v1",
+  "entries": [
+    {
+      "format": "sentropic.registry-entry/v1",
+      "contractVersion": "1.1.4",
+      "kind": "skill",
+      "id": "sentropic.focus",
+      "name": "focus",
+      "description": "Prepare, explain and review a read-only decision-dossier snapshot (DecisionDossierDocument v1): sections, options, outcome, disabled affordances and verbatim comprehension evidence. Snapshot only — no decisions, signatures, amendments or Track writes.",
+      "entryVersion": "1.0.0",
+      "publisher": {
+        "packageName": "@sentropic/focus",
+        "packageVersion": "0.5.0"
+      },
+      "compatibility": {
+        "entryContract": "1.1.4",
+        "packages": [
+          {
+            "name": "@sentropic/track",
+            "range": "^0.98.6"
+          }
+        ],
+        "schemaProfiles": [
+          "sentropic.parameters/2020-12-bounded-v1"
+        ],
+        "requiredHostFeatures": [],
+        "optionalHostFeatures": [
+          "terminal",
+          "markdown",
+          "html-sanitization",
+          "mcp-app-ui"
+        ]
+      },
+      "parameters": {
+        "schemaVersion": "1.0.0",
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "$id": "urn:sentropic:registry:parameters:sentropic.focus:1.0.0",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "mode",
+            "preferredPresentation",
+            "locale"
+          ],
+          "properties": {
+            "mode": {
+              "const": "snapshot"
+            },
+            "preferredPresentation": {
+              "enum": [
+                "terminal",
+                "markdown",
+                "html",
+                "mcp-app"
+              ]
+            },
+            "locale": {
+              "enum": [
+                "en",
+                "fr"
+              ]
+            }
+          }
+        },
+        "defaults": {
+          "mode": "snapshot",
+          "preferredPresentation": "markdown",
+          "locale": "en"
+        }
+      },
+      "bindings": [],
+      "assets": [
+        {
+          "role": "skill-instructions",
+          "path": "skills/focus/SKILL.md",
+          "mediaType": "text/markdown",
+          "sha256": "750e5ef2cf894e5c90227acb15911aab583ce7e3949c1d82a2ea40fabd8c97e5"
+        },
+        {
+          "role": "document-schema",
+          "path": "schemas/decision-dossier-document.v1.schema.json",
+          "mediaType": "application/schema+json",
+          "sha256": "4b56940212f5a10d01572f7fa6404238a683e5fc1ebde75c5492edb3916c9f5d"
+        }
+      ],
+      "skill": {
+        "profile": "instructions",
+        "metadata": {
+          "category": "decision",
+          "contextFilters": [
+            "decision-dossier"
+          ],
+          "permissions": [
+            "track.dossier.read"
+          ],
+          "toolNames": []
+        },
+        "instructionsAsset": "skills/focus/SKILL.md",
+        "capabilities": [
+          {
+            "id": "sentropic.focus.decision-dossier",
+            "description": "Prepare, explain and review a read-only decision-dossier snapshot under the host's own permissions; never signs, amends or writes.",
+            "effect": "read-only",
+            "permissions": [
+              "track.dossier.read"
+            ],
+            "inputSchemaRef": "urn:sentropic:focus:DecisionDossierDocument:1.0.0",
+            "outputSchemaRef": "urn:sentropic:focus:DecisionDossierDocument:1.0.0"
+          }
+        ],
+        "tools": [],
+        "documentSchemas": [
+          {
+            "name": "DecisionDossierDocument",
+            "schemaId": "urn:sentropic:focus:DecisionDossierDocument:1.0.0",
+            "version": "1.0.0",
+            "assetPath": "schemas/decision-dossier-document.v1.schema.json",
+            "sha256": "4b56940212f5a10d01572f7fa6404238a683e5fc1ebde75c5492edb3916c9f5d"
+          }
+        ],
+        "dependencies": []
+      }
+    }
+  ]
+}
