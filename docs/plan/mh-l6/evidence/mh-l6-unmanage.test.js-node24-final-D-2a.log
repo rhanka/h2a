@@ -1,0 +1,64 @@
+command: /tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-unmanage.test.js
+node: v24.21.0
+private root: /tmp/mh-l6-test-KMcEJ6
+case: all cases in explicit file
+TAP version 13
+# Subtest: D should restore the original command link and mark the installation unmanaged
+ok 1 - D should restore the original command link and mark the installation unmanaged
+  ---
+  duration_ms: 54.15478
+  type: 'test'
+  ...
+# Subtest: D should refuse while a prepared transaction is still engaged
+ok 2 - D should refuse while a prepared transaction is still engaged
+  ---
+  duration_ms: 21.905094
+  type: 'test'
+  ...
+# Subtest: D should proceed once the engaged transaction aborted
+ok 3 - D should proceed once the engaged transaction aborted
+  ---
+  duration_ms: 26.877685
+  type: 'test'
+  ...
+# Subtest: D should refuse an unrestorable original link without touching the command
+ok 4 - D should refuse an unrestorable original link without touching the command
+  ---
+  duration_ms: 3.985773
+  type: 'test'
+  ...
+# Subtest: D should refuse an invalid unmanage envelope
+ok 5 - D should refuse an invalid unmanage envelope
+  ---
+  duration_ms: 2.573303
+  type: 'test'
+  ...
+# Subtest: D should report opt-out from the unmanaged marker
+ok 6 - D should report opt-out from the unmanaged marker
+  ---
+  duration_ms: 40.749476
+  type: 'test'
+  ...
+# Subtest: D should fail closed on an unreadable opt-out marker
+ok 7 - D should fail closed on an unreadable opt-out marker
+  ---
+  duration_ms: 2.942169
+  type: 'test'
+  ...
+# Subtest: D should refuse an unsafe journal instead of exiting management blindly
+ok 8 - D should refuse an unsafe journal instead of exiting management blindly
+  ---
+  duration_ms: 3.390944
+  type: 'test'
+  ...
+1..8
+# tests 8
+# suites 0
+# pass 8
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 204.524422
+
+receipt: {"command":["/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-unmanage.test.js"],"code":0,"signal":null,"tests":8,"invalid":false,"spawned":1,"leftovers":[]}

@@ -90,6 +90,29 @@ test('D should refuse an invalid unmanage envelope', async t => {
   }
 });
 
+test('D should report opt-out from the unmanaged marker', async t => {
+  const { unmanageInstallation, readManagementOptOut } = await api();
+  assert.equal(typeof readManagementOptOut, 'function');
+  const m = managed(t);
+  assert.deepEqual(readManagementOptOut(m.managedDir), { optedOut: false });
+  m.store.begin({ upgradeId: 'one', target: m.target });
+  m.store.prepare('one'); m.store.select('one');
+  unmanageInstallation({ store: m.store, commandPath: m.commandPath, originalTarget: m.originalTarget, managedDir: m.managedDir });
+  const reported = readManagementOptOut(m.managedDir);
+  assert.equal(reported.optedOut, true);
+  assert.equal(reported.reason, 'operator_unmanage');
+  assert.throws(() => readManagementOptOut(null), /unmanage_install_invalid/);
+});
+
+test('D should fail closed on an unreadable opt-out marker', async t => {
+  const { readManagementOptOut } = await api();
+  const m = managed(t);
+  fs.writeFileSync(join(m.managedDir, 'unmanaged.json'), 'not json');
+  const reported = readManagementOptOut(m.managedDir);
+  assert.equal(reported.optedOut, true);
+  assert.equal(reported.reason, 'marker_unreadable');
+});
+
 test('D should refuse an unsafe journal instead of exiting management blindly', async t => {
   const { unmanageInstallation } = await api(), m = managed(t);
   const valid = { store: m.store, commandPath: m.commandPath, originalTarget: m.originalTarget, managedDir: m.managedDir };
