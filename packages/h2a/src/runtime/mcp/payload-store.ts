@@ -48,6 +48,7 @@ export const PAYLOAD_ROOT_QUOTA_BYTES = 128 * 1024 * 1024;
 export const PAYLOAD_MAX_READ_BYTES = 65536;
 
 const REF_RE = /^[0-9a-f]{64}$/;
+const AUTO_SWEEP_INTERVAL_MS = 30_000;
 
 export interface PayloadRecoveryRef {
   /** Opaque 256-bit capability. */
@@ -134,6 +135,7 @@ function dirBytes(dir: string): number {
  */
 export function createPayloadStore(root: string, scope: string = root): PayloadStore {
   const dir = join(root, "mcp-payloads");
+  let lastSweepAt = Number.NEGATIVE_INFINITY;
 
   function ensureDir(): void {
     mkdirSync(dir, { recursive: true, mode: 0o700 });
@@ -170,6 +172,7 @@ export function createPayloadStore(root: string, scope: string = root): PayloadS
         /* a corrupt meta is left for a human sweep, never live source data */
       }
     }
+    lastSweepAt = performance.now();
     return removed;
   }
 
@@ -183,11 +186,18 @@ export function createPayloadStore(root: string, scope: string = root): PayloadS
         `cannot create payload store directory: ${(err as Error).message}`
       );
     }
-    // Reclaim expired space before enforcing the quota; never evict live data.
+    // Avoid reparsing every expiry record for every output in a burst.
+    // Explicit maintenance is immediate; quota pressure always reclaims
+    // expired space before refusal. Reads still enforce the TTL themselves.
     let used = 0;
     try {
-      sweepExpired();
+      const swept = performance.now() - lastSweepAt >= AUTO_SWEEP_INTERVAL_MS;
+      if (swept) sweepExpired();
       used = dirBytes(dir);
+      if (!swept && used + bytes.length > PAYLOAD_ROOT_QUOTA_BYTES) {
+        sweepExpired();
+        used = dirBytes(dir);
+      }
     } catch {
       used = 0;
     }
