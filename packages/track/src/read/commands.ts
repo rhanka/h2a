@@ -9,6 +9,7 @@ import type { QueryFilter, Report, ReportOptions } from '../report/build.js'
 import type { StatusLevel } from '../report/status-by-level.js'
 import type { WpNode } from '../report/rollup.js'
 import type { ReportSnapshot, TrackReader } from './contract.js'
+import { buildStatusTable, renderStatusTable } from '../report/status-table.js'
 
 /** A CLI-resolved selector. Dates are already absolute instants; refs are full commit ids when applicable. */
 export interface ReportPeriodSelection {
@@ -188,6 +189,7 @@ export function reportText(
   subWp?: boolean,
   scopeSelector?: string,
   periodSelection?: ReportPeriodSelection,
+  statusTable = false,
 ): string {
   assertReportFormat(format)
   const snapshot = reader.reportSnapshot(options)
@@ -198,6 +200,8 @@ export function reportText(
   const meta = conductorMeta(options, snapshot, now, subWp, scoped?.scope, projection, periodSelection !== undefined)
   const period = reportPeriod(meta)
   const payload = reportPeriodPayload(meta)
+
+  if (statusTable) return renderStatusTable(buildStatusTable(snapshot.events, report, options), report, format, meta)
 
   if (options.wpTree && report.wpTree !== undefined) {
     if (format === 'json') {
