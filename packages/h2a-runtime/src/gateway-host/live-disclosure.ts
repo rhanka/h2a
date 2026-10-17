@@ -238,6 +238,7 @@ export function createLiveDisclosureAuthority(options: LiveDisclosureOptions): L
         // callbacks, with no await between the last check and handoff.
         const lastRefusal = screen(); if (lastRefusal) return reject(lastRefusal.reason);
         const final = check(r); if (!final.ok) return reject(final.reason);
+        if (transport.providerId !== r.providerId) return reject("provider-mismatch");
         if (evidence.some((e) => e.stateRevision !== final.stateRevision)) return reject("stale-evidence");
         await send(Object.freeze(evidence.map((e) => e.text)));
       } catch { return reject(transport === undefined ? "policy-unavailable" : "transport-failed"); }
