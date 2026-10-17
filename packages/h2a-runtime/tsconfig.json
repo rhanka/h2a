@@ -17,6 +17,7 @@
   ],
   "exclude": [
     "**/*.test.ts",
+    "**/*.typecheck.ts",
     "src/vendor/engram-live/*.js"
   ]
 }

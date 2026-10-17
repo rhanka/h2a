@@ -36,6 +36,7 @@ import {
   NATIVE_TERMINAL_MAX_SESSIONS,
   type NativeTerminalStopSignal,
 } from "./protocol.js";
+import { NativeRawAdmission } from "../session-content-export.js";
 
 /**
  * Emits the FORCE signal to a whole process group from the PARENT (the host
@@ -722,6 +723,8 @@ export type NativeTerminalReapOutcome = Readonly<
 >;
 
 type SessionRecord = {
+  rawAdmission:import('../session-content-export.js').NativeRawAdmission;
+  rawSubscription?:{dispose():void};
   content?: import("../session-content-consent.js").SessionContentConsent;
   readonly id: string;
   readonly incarnation: string;
@@ -1008,6 +1011,7 @@ export class NativeTerminalHost {
     }
 
     const record: SessionRecord = {
+      rawAdmission:new NativeRawAdmission(),
       id: options.id,
       incarnation: options.launchFence?.incarnation ?? randomUUID(),
       pty,
@@ -1025,10 +1029,12 @@ export class NativeTerminalHost {
     this.#sessions.set(record.id, record);
     if (this.#contentFactory) {
       try {
+        if(!record.pty.onRawData)throw new Error('unsupported_source');
         const content = this.#contentFactory({id:record.id,incarnation:record.incarnation,generation:this.#generation});
-        content.assertNativeSession(record.id,record.incarnation,this.#generation); record.content=content;
+        content.assertNativeSession(record.id,record.incarnation,this.#generation);content.bindRawAdmission(record.rawAdmission);record.content=content;
       } catch { this.#log("native content unavailable"); }
     }
+    if(record.pty.onRawData)record.rawSubscription=record.pty.onRawData(bytes=>record.rawAdmission.admit(bytes));
 
     // Carry of the previous chunk so a DSR split across chunks is still seen.
     // At most 3 chars: a full 4-char query can never hide entirely in it.
@@ -1040,9 +1046,6 @@ export class NativeTerminalHost {
     record.dataSubscription = record.pty.onData((data) => {
       try {
         if (record.exit !== null || data.length === 0) return;
-        // F2 observes raw admission before reset relay/replay and never seeds its state from either.
-        try { record.content?.onRaw(data); }
-        catch { record.content?.disconnect(); }
         resetRelay.feed(data);
         // Answer Device Status Report cursor queries (ESC[6n) like a real
         // terminal/tmux: TUIs that require a cursor-position report (muse
@@ -1072,6 +1075,7 @@ export class NativeTerminalHost {
     });
     record.exitSubscription = record.pty.onExit((event) => {
       record.content?.disconnect();
+      record.rawSubscription?.dispose();
       try {
         if (record.exit !== null) return;
         resetRelay.flush();

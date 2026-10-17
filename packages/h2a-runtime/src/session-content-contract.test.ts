@@ -4,8 +4,22 @@ import { describe, expect, it } from "vitest";
 import { validateContentMessage, capsuleDirectory } from "./session-content-contract.js";
 import { contentDigest, canonicalJson } from "./session-content-json.js";
 import { ConfirmationBudget, ConfirmationVerifier } from "./session-content-confirmation.js";
+import { Ajv2020 } from "ajv/dist/2020.js";
 const read = (name: string) => JSON.parse(readFileSync(new URL(name, capsuleDirectory), "utf8"));
 describe("session content capsule", () => {
+  it("should typecheck the exact pinned message fixture bytes rather than a drifting duplicate",()=>{
+    const text=readFileSync(new URL('./session-content-fixture-types.typecheck.ts',import.meta.url),'utf8');
+    const typed=JSON.parse(text.slice(text.indexOf('const fixtures=')+'const fixtures='.length,text.indexOf(' as const satisfies')));
+    const names=readdirSync(capsuleDirectory).filter(n=>n.endsWith('.v2.json')&&!n.includes('vectors'));
+    expect(Object.keys(typed)).toHaveLength(names.length);
+    for(const name of names){const value=read(name);expect(typed[value.kind]).toEqual(value);}
+  });
+  it("should expose a strict interoperable JSON Schema with ACK and history-state combinations",()=>{
+    const validate=new Ajv2020({strict:true,allErrors:true}).compile(read('schema.json'));
+    for(const name of readdirSync(capsuleDirectory).filter(n=>n.endsWith('.v2.json')&&!n.includes('vectors')))expect(validate(read(name)),name+JSON.stringify(validate.errors)).toBe(true);
+    const ack=read('source-ack.v2.json');ack.status='applied';expect(validate(ack)).toBe(false);
+    const policy=read('project-policy.v2.json');policy.policy.history.mode='none';expect(validate(policy)).toBe(false);
+  });
   it("should validate every positive fixture and refuse unknown nested fields and wire versions", () => {
     for (const name of readdirSync(capsuleDirectory).filter(n => n.endsWith('.v2.json') && !n.includes('vectors'))) {
       const value = read(name); validateContentMessage(value);
