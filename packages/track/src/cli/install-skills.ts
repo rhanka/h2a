@@ -88,6 +88,7 @@ function parseSkill(raw: string): SkillFrontmatter {
 function renderGeminiToml(skill: SkillFrontmatter): string {
   const description = skill.description.replace(/"/g, '\\"')
   const prompt = `You are the ${skill.name} custom command for Gemini CLI.\n\n${skill.body}`
+  if (prompt.includes("'''")) return `description = ${JSON.stringify(skill.description)}\nprompt = ${JSON.stringify(prompt)}\n`
   return [`description = "${description}"`, `prompt = '''`, prompt, `'''`, ''].join('\n')
 }
 
@@ -155,10 +156,11 @@ function writeGuarded(target: string, content: string, force: boolean, result: I
 
 /**
  * Copy the whole SKILL.md tree (SKILL.md + assets/) into `destDir`, file by file, so the
- * idempotency / no-clobber guard applies per-file. Used for claude + codex (verbatim copy).
+ * idempotency / no-clobber guard applies per-file. Translated commands copy resources only.
  */
-function copySkillTree(srcDir: string, destDir: string, force: boolean, result: InstallResult): void {
+function copySkillTree(srcDir: string, destDir: string, force: boolean, result: InstallResult, resourcesOnly = false): void {
   for (const entry of readdirSync(srcDir, { withFileTypes: true })) {
+    if (resourcesOnly && entry.name === 'SKILL.md') continue
     const src = join(srcDir, entry.name)
     const dest = join(destDir, entry.name)
     if (entry.isDirectory()) {
@@ -279,7 +281,9 @@ function installOne(skillName: string, host: Host, scope: Scope, force: boolean,
   // gemini + agy share ~/.gemini/commands/<name>.toml (agy imports the gemini command).
   const skill = parseSkill(readFileSync(join(srcDir, 'SKILL.md'), 'utf8'))
   const target = join(base, '.gemini', 'commands', `${skillName}.toml`)
-  writeGuarded(target, renderGeminiToml(skill), force, result)
+  const resources = join(base, '.gemini', 'skill-resources', skillName)
+  copySkillTree(srcDir, resources, force, result, true)
+  writeGuarded(target, renderGeminiToml({ ...skill, body: skill.body.replace(/\bassets\//g, () => `${resources}/assets/`) }), force, result)
   if (scope === 'project') ensureGeminiPointer(repoRoot, result)
 }
 
