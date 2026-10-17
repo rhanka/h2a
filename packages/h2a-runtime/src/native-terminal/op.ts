@@ -53,6 +53,7 @@ import { renderTerminalScreen } from "./screen.js";
 import { TerminalModeTracker } from "./terminal-modes.js";
 import { publishAttachReset } from "./attach-recovery.js";
 import { TerminalResetRelay } from "./reset-relay.js";
+import { appendCrashLog } from "../crash-log.js";
 
 const DETACH_BYTE = 0x1c; // Ctrl-\
 
@@ -427,6 +428,8 @@ export async function runAttach(
       : "controller released or session replaced";
     stdout.write(`\r\n[h2a] ${reason}; attach detached\r\n`);
     exitCode = state.status === "exited" && !state.stopSignal ? state.exit?.exitCode ?? 0 : 0;
+    if (state.status === "exited") appendCrashLog("attach", { event: "sessionExit", sessionId: id, exitCode, detail: reason });
+    else appendCrashLog("attach", { event: "refusal", sessionId: id, reason: "controller-changed", detail: reason });
     terminalEnded = true;
     return true;
   };
@@ -462,6 +465,7 @@ export async function runAttach(
     if (active !== connection) return;
     if (error instanceof NativeTerminalRemoteError && error.message === "stale terminal controller lease") {
       stdout.write("\r\n[h2a] controller revoked by takeover or stop; attach detached\r\n");
+      appendCrashLog("attach", { event: "refusal", sessionId: id, reason: "stale-controller-lease" });
       terminalEnded = true;
       closeActive();
       return;
@@ -512,6 +516,7 @@ export async function runAttach(
         "\r\n[h2a] native attach input buffer full during reconnect; detaching " +
           "without stopping the session\r\n",
       );
+      appendCrashLog("attach", { event: "refusal", sessionId: id, reason: "input-buffer-full" });
       detached = true;
       closeActive();
       return;
@@ -566,7 +571,10 @@ export async function runAttach(
     if (isRawCapable) stdin.setRawMode(true);
     stdin.resume();
     const initial = await connectAndAcquire();
-    if (initial.status === "exited") return initial.exit?.exitCode ?? 0;
+    if (initial.status === "exited") {
+      appendCrashLog("attach", { event: "sessionExit", sessionId: id, exitCode: initial.exit?.exitCode ?? 0, detail: "session already exited at attach" });
+      return initial.exit?.exitCode ?? 0;
+    }
     let idlePollMs = ATTACH_IDLE_POLL_MIN_MS;
     let nextStatePollAt = runtime.now() + ATTACH_STATE_POLL_MS;
 
@@ -602,10 +610,12 @@ export async function runAttach(
           } catch (error) {
             if (error instanceof NativeTerminalRemoteError && error.message.includes("already has a controller")) {
               stdout.write(`\r\n[h2a] ${error.message}; attach detached\r\n`);
+              appendCrashLog("attach", { event: "refusal", sessionId: id, reason: "already-has-controller", detail: error.message });
               terminalEnded = true;
               break;
             }
             if (isDefinitiveNativeTerminalAbsence(error)) {
+              appendCrashLog("attach", { event: "sessionExit", sessionId: id, reason: "definitive-absence", exitCode: 1 });
               exitCode = 1;
               terminalEnded = true;
               break;
@@ -659,6 +669,7 @@ export async function runAttach(
           if (controllerChanged(state, current.lease)) break;
           if (state.status === "exited") {
             exitCode = state.exit?.exitCode ?? 0;
+            appendCrashLog("attach", { event: "sessionExit", sessionId: id, exitCode, detail: "session exited during attach" });
             break;
           }
         }
@@ -668,6 +679,7 @@ export async function runAttach(
           stdout.write(
             "\r\n[h2a] native session is no longer available; attach stopped\r\n",
           );
+          appendCrashLog("attach", { event: "sessionExit", sessionId: id, reason: "definitive-absence", exitCode: 1 });
           exitCode = 1;
           break;
         }
@@ -915,8 +927,14 @@ export async function runNativeTerminalOp(argv: ReadonlyArray<string>): Promise<
       const fenced = parsed.op.endsWith("-if-incarnation");
       const generation = fenced ? required(parsed, "generation") : before.generation;
       const incarnation = fenced ? required(parsed, "incarnation") : before.incarnation;
-      if (before.generation !== generation) throw new Error("stale terminal host generation");
-      if (before.incarnation !== incarnation) throw new Error("stale terminal session incarnation");
+      if (before.generation !== generation) {
+        appendCrashLog("cli", { event: "refusal", sessionId: id, instanceId: generation, reason: "stale-terminal-host-generation" });
+        throw new Error("stale terminal host generation");
+      }
+      if (before.incarnation !== incarnation) {
+        appendCrashLog("cli", { event: "refusal", sessionId: id, instanceId: generation, reason: "stale-terminal-session-incarnation" });
+        throw new Error("stale terminal session incarnation");
+      }
       if (before.status !== "exited") {
         await client.stopIfIncarnation(
           id,
@@ -947,17 +965,27 @@ export async function runNativeTerminalOp(argv: ReadonlyArray<string>): Promise<
       const after = await client.state(id);
       client.close();
       if (after.generation !== generation || after.incarnation !== incarnation) {
+        appendCrashLog("cli", { event: "refusal", sessionId: id, instanceId: generation, reason: "incarnation-changed-while-stopping" });
         throw new Error("native session changed incarnation while stopping; replacement was not stopped");
       }
       if (after.status !== "exited") {
+        appendCrashLog("cli", { event: "childExit", sessionId: id, instanceId: generation, reason: "kill-escalation-failed", detail: `status=${after.status}` });
         throw new Error(`native session ${id} pid=${after.pid} did not exit after ${signal} and SIGKILL (status=${after.status})`);
       }
+      appendCrashLog("cli", { event: "sessionExit", sessionId: id, instanceId: generation, reason: `killed-${signal}` });
       emit(after);
       return 0;
     }
     case "attach": {
       const id = required(parsed, "id");
-      const owner = await owningClient(parsed, id);
+      let owner: Awaited<ReturnType<typeof owningClient>>;
+      try {
+        owner = await owningClient(parsed, id);
+      } catch (error) {
+        const refusal = error instanceof NativeOwnerError ? error.refusal : undefined;
+        appendCrashLog("attach", { event: "refusal", sessionId: id, reason: refusal?.code ?? "owner-unproven", detail: refusal?.reason });
+        throw error;
+      }
       owner.client.close();
       // Reconnects retain this owner for the entire interactive operation.
       return runAttach(id, defaultAttachRuntime(owner.socketPath), { takeover: parsed.flags.get("takeover") === "true" });
