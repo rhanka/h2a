@@ -50,12 +50,28 @@ export function detectAgyClaudeQuotaExhaustion(output: string, now = Date.now())
   exhausted: boolean; signature?: string; resetsAt?: string;
 } {
   let preliminary: { exhausted: boolean; signature?: string } = { exhausted: false };
-  for (const line of output.split(/\r?\n/)) {
+  const lines = output.split(/\r?\n/);
+  for (let index = 0; index < lines.length; index++) {
+    let line = lines[index]!;
     // Provider diagnostics only: prose mentioning 429/quota is not evidence.
     if (!/^\s*(?:AGY_ERROR\s*\{|(?:API )?error\s*:)/i.test(line)) continue;
-    const structured = /AGY_ERROR\s*(\{.*)/.exec(line)?.[1];
+    let structured = /AGY_ERROR\s*(\{.*)/.exec(line)?.[1];
     if (structured) {
-      try { JSON.parse(structured); } catch { continue; } // A partial chunk is not a complete reset observation.
+      // Native/tmux screen captures insert newlines at visual column wraps,
+      // including inside JSON strings. Reassemble only an anchored diagnostic,
+      // require complete JSON, and never consume the next provider diagnostic.
+      let end = index;
+      for (;;) {
+        try { JSON.parse(structured); break; } catch {
+          const next = lines[end + 1];
+          if (next === undefined || /^\s*(?:AGY_ERROR\s*\{|(?:API )?error\s*:)/i.test(next)) break;
+          structured += next;
+          end++;
+        }
+      }
+      try { JSON.parse(structured); } catch { continue; } // Partial chunks still prove no complete reset.
+      line = `AGY_ERROR ${structured}`;
+      index = end;
     }
     let signature: string | undefined;
     if (/\b429\b/.test(line)) signature = "agy-claude:http-429";

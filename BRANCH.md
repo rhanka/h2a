@@ -1,5 +1,15 @@
 # AGY Claude 5.5 model and quota contract
 
+## PR 359 — Tour 3
+
+- Owner scope: reconcile `rev359-r2.md` P1/P2 under the existing confinement.
+- [x] Reproduce filesystem-clock result loss in CLI/MCP, including a fast canonical completion and an old custom result path.
+- [x] Reproduce the real 251-character AGY_ERROR through 80/160-column terminal rendering and loss beyond the six-line capture tail.
+- [x] Remove cross-clock freshness comparisons; retain old-generation exclusion and baseline custom executor paths at handoff.
+- [x] Reassemble complete anchored AGY_ERROR JSON and carry the full-screen typed quota error through prompt delivery.
+- [ ] Rebase onto origin/main, targeted Node 22/24 validation, isolated typechecks, push and per-job CI snapshot in the owner's Tour 3 report.
+- No installed h2a/native host/provider access, Track writes, full local suite or unattended child process.
+
 ## PR 359 — Tour 2
 
 - [x] Reproduce all five owner-supplied review findings with offline AGY/host fakes.

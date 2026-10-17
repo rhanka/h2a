@@ -565,7 +565,6 @@ export function createH2aRunLauncher(
   onCompleted?: (request: H2aRunRequest, result: Record<string, unknown>) => void,
 ): H2aRunExecutor {
   const launches = new Map<string, Record<string, unknown>>();
-  const launchedAt = new Map<string, number>();
   const previousResults = new Map<string, Stats>();
   return request => {
     const existing = launches.get(request.name);
@@ -584,7 +583,7 @@ export function createH2aRunLauncher(
             const unchanged = previous && previous.dev === current.dev && previous.ino === current.ino &&
               previous.mtimeMs === current.mtimeMs && previous.ctimeMs === current.ctimeMs && previous.size === current.size;
             const completed = JSON.parse(readFileSync(fd, "utf8"));
-            if (!unchanged && current.mtimeMs >= launchedAt.get(request.name)! &&
+            if (!unchanged &&
                 ["h2a.run.failure", "h2a.run.completion"].includes(completed.kind)) {
               const final = { ...completed, launchId: request.name, result: existing.result, logs: existing.logs };
               launches.set(request.name, final);
@@ -596,15 +595,27 @@ export function createH2aRunLauncher(
       return existing;
     }
     const launching = { state: "launching", launchId: request.name, retrySafe: false };
-    launchedAt.set(request.name, Date.now());
+    const canonicalResultPath = join(request.workspace, ".h2a", "runs", request.name, "result.json");
     if (request.profile === "agy" && request.headless && isAgyClaudeModel(request.model)) {
-      try { previousResults.set(request.name, statSync(join(request.workspace, ".h2a", "runs", request.name, "result.json"))); }
+      // Compare file generations, never filesystem timestamps with Date.now():
+      // a newly written inode can legitimately lag the wall clock on Linux.
+      try { previousResults.set(request.name, statSync(canonicalResultPath)); }
       catch { /* No previous generation to exclude. */ }
     }
     launches.set(request.name, launching);
     const finish = (result: unknown): Record<string, unknown> => {
       const current = result && typeof result === "object" ? result as Record<string, unknown>
         : { error: "h2a_run: launcher returned no structured result", state: "unknown", launchId: request.name, retrySafe: false };
+      const resultPath = (current.result as { path?: unknown } | undefined)?.path;
+      if (request.profile === "agy" && request.headless && isAgyClaudeModel(request.model) &&
+          current.state === "started" && typeof resultPath === "string" && resultPath !== canonicalResultPath) {
+        // An injected executor's custom path is first known at handoff. Treat
+        // any file already there as its baseline; an already finished executor
+        // must return a completion rather than a "started" receipt.
+        previousResults.delete(request.name);
+        try { previousResults.set(request.name, statSync(resultPath)); }
+        catch { /* No previous generation at the custom path. */ }
+      }
       launches.set(request.name, current);
       onCompleted?.(request, current);
       return current;
