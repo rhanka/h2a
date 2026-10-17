@@ -1,0 +1,31 @@
+* { box-sizing: border-box; }
+body { margin: 0; font: 16px/1.5 system-ui, sans-serif; }
+.focus-page { min-height: 100vh; background: var(--st-semantic-surface-default); color: var(--st-semantic-text-primary); color-scheme: light; }
+.focus-page[data-mode="dark"] { color-scheme: dark; }
+.title-band { display: flex; align-items: center; justify-content: space-between; gap: .5rem; padding: .5rem 1rem; border-bottom: 1px solid var(--st-semantic-border-subtle); }
+h1 { margin: 0; font-size: 1rem; font-weight: 600; overflow-wrap: anywhere; }
+h2 { font-size: 1.125rem; margin: .5rem 0; }
+h3 { font-size: 1rem; }
+main { max-width: 72rem; margin: auto; padding: 1rem 0 2rem; }
+p, blockquote { margin: .5rem 0; }
+blockquote { border-left: 1px solid var(--st-semantic-border-strong); padding-left: 1rem; }
+.reading-meta { margin-bottom: 1rem; }
+.dossier-section { margin: 1.25rem 0; overflow-wrap: anywhere; }
+.prose { white-space: pre-wrap; }
+.options { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 18rem), 1fr)); gap: .75rem; }
+.option-card { appearance: none; padding: 0; text-align: left; color: inherit; background: transparent; border: 0; border-radius: .5rem; cursor: pointer; font: inherit; }
+.option-card .st-card { height: 100%; box-shadow: none; border-width: 1px; }
+.option-card.selected .st-card { border-color: var(--st-semantic-border-interactive); background: var(--st-semantic-surface-subtle); }
+.option-card:focus-visible, summary:focus-visible { outline: 1px solid var(--st-semantic-border-interactive); outline-offset: 3px; }
+.option-card strong { display: block; margin-bottom: .5rem; }
+.muted, .canvas-hint, footer { color: var(--st-semantic-text-secondary); font-size: .875rem; }
+figure { margin: 0; }
+figcaption { font-weight: 600; }
+.canvas { height: 480px; width: 100%; border: 1px solid var(--st-semantic-border-subtle); border-radius: .5rem; overflow: hidden; }
+.ecosystem-node { width: 240px; min-height: 100px; box-shadow: none !important; border-width: 1px !important; }
+.ecosystem-node p { font-size: 14px; }
+.svelte-flow__edge-path { stroke-width: 1px !important; }
+.svelte-flow__controls-button { min-width: 40px; min-height: 40px; border-width: 0 0 1px; }
+details { margin-top: .75rem; } summary { cursor: pointer; } dt { font-weight: 600; } dd { margin-left: 1rem; }
+footer { border-top: 1px solid var(--st-semantic-border-subtle); padding-top: 1rem; }
+@media (max-width: 600px) { .canvas { height: 430px; } .title-band { align-items: flex-start; } main { padding-top: .75rem; } }
