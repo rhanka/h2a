@@ -10,8 +10,9 @@
  *      an enabled snapshot interaction all refuse);
  *   2. semantics — unique node IDs, interaction targets resolvable to the
  *      dossier ref, a section id/targetRef or a nested option id/targetRef,
- *      a nonempty provenance source binding, and comprehension evidence whose
- *      dossier hash still matches the snapshot hash.
+ *      an opaque provenance source binding (any string, per the published
+ *      schema), and comprehension evidence whose dossier hash still matches
+ *      the snapshot hash.
  *
  * Pure and dependency-free: no I/O, no clock, no mutation of the input.
  * Every recorded issue is a refusal — the schema is closed.
@@ -507,10 +508,9 @@ export const validateDecisionDossierSemantics = (
     }
   });
 
-  // The source binding selects the read backend; it must be an explicit value.
-  if (doc.provenance.source.trim() === "") {
-    issues.push(issue("$.provenance.source", "invalid_source", "provenance source binding is empty"));
-  }
+  // The source binding selects the read backend. It is opaque (e.g. a
+  // `track:<events-path>` binding): the published schema accepts any string,
+  // so the validator does too — no stricter refusal without a versioned change.
   // Comprehension evidence is carried verbatim: its dossier hash must still be
   // the hash the snapshot was taken over. A mismatch is forged evidence.
   const evidence = doc.provenance.comprehensionEvidence;

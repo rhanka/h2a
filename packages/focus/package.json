@@ -52,6 +52,7 @@
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "vitest run",
+    "prepack": "npm run build",
     "registry:sync": "node scripts/sync-registry-entry.mjs"
   },
   "dependencies": {
