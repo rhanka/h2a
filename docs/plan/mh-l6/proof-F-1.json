@@ -1,0 +1,38 @@
+{
+  "source": "/tmp/mh-l3-qualification-f1-dbW9MU",
+  "worktree": "/home/antoinefa/src/h2a/tmp/worktrees/mh-l0",
+  "files": [
+    {
+      "path": "packages/h2a/test/mh-l6-status.test.js",
+      "sha256": "bb67b1d5c6eb7984879807a32ca3033bbf6694cfaf2767616eccb06840183432"
+    },
+    {
+      "path": "packages/h2a/src/runtime/upgrade/status-report.js",
+      "sha256": "d22be2a4823b3bebe89f8a66882426a53dd62bae0bc3897cb730b7e8723755ac"
+    },
+    {
+      "path": "scripts/mh-l6-mutate.mjs",
+      "sha256": "d380057a99c3c0064652034c71cc9e1c92016e7f412da70775bfa1a1610868dc"
+    },
+    {
+      "path": "scripts/mh-l6-test.mjs",
+      "sha256": "499fa0af002d05ef5dd7b8d36adb0679351c0542aa852cec13bceb8fbc23bd7d"
+    }
+  ],
+  "compiled": {
+    "path": "packages/h2a/dist/runtime/upgrade/status-report.js",
+    "sha256": "fd7dc174ddd6ab53a91999ee4c0e23c06f57caab23f14e5604d5a9ea70a974c3"
+  },
+  "profiles": [
+    {
+      "major": 22,
+      "tests": 6,
+      "mutations": 5
+    },
+    {
+      "major": 24,
+      "tests": 6,
+      "mutations": 5
+    }
+  ]
+}
