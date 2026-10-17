@@ -129,7 +129,7 @@ function baseBundle(cli: SeatCli5, serial = "01"): SyntheticSeatBundleV1 {
       refreshAuthority: "custody",
     },
     canonical: { kind: "renewable-material", materialRef: `material-synth-${cli}-${serial}` },
-    nativeUse: { kind: "access", accessRef: `access-synth-${cli}-${serial}` },
+    nativeUse: { kind: "unavailable", reason: "serialized-only" },
     meshUse: { kind: "access", accessRef: `access-synth-${cli}-${serial}` },
   };
   if (cli === "vibe") {

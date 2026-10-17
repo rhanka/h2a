@@ -47,10 +47,10 @@ The independent review's unsafe synthetic behavior is reproduced and guarded:
 
 | Finding | Correction and remaining boundary |
 | --- | --- |
-| 1 — authority | Trusted channel context is explicit; neither source mode nor `delegate` grants custody. Renewable material also requires an exclusive family ticket. An unavailable native projection never creates a profile. |
+| 1 — authority | Trusted channel context is explicit; neither source mode nor `delegate` grants custody. Renewable material also requires an exclusive family ticket. An unavailable consumer native projection never creates a profile. Trusted renewable custody delegates canonical material with an exclusive family ticket, including serialized-only native markers. |
 | 2 — codecs/isolation | Claude/Vibe selectors match their credential paths; MCP is rendered at native JSON/TOML paths. Files use exclusive no-follow creation below a private XDG runtime root. Agy requires an injected isolated keyring adapter and never writes Gemini OAuth files. Native OS adapters remain L2a work. |
-| 3 — environment/integration | MCP uses a closed allowlist and separate empty profile, including native manifest overrides. All three native env.json writers sanitize raw/base64 secrets. Native launch helpers accept the materialized seat; enrollment shares the codec aliases. Generic five-CLI bundle enrollment is still unavailable in the published L1 facade, so its existing refusals remain and carry `seat-import-unavailable`. |
-| 4 — matrix | The Node test compiles the actual three seat modules into a disposable tree and exercises the materializer in every cell. Two independently invented seats/families replace shared diagonal grants. Missing input and lab billing/Q1 reserve/Q3 admission are executable refusals. |
+| 3 — environment/integration | MCP uses a closed allowlist and separate empty profile, including native manifest overrides. The interactive/headless env.json is private authentication IPC: non-seat launches retain their environment, while seat launches use the materializer childEnv. MCP keeps its closed environment. Enrollment shares the codec aliases. Generic five-CLI bundle enrollment is still unavailable in the published L1 facade, so its existing refusals remain and carry `seat-import-unavailable`. |
+| 4 — matrix | The Node test compiles the actual three seat modules into a disposable tree and exercises the materializer in every cell. Two independently invented seats/families replace shared diagonal grants. Sixteen additional serialized-only diagonal cells exercise admission, canonical materialization, disposal, capture and clearance. Missing input and lab billing/Q1 reserve/Q3 admission are executable refusals. |
 | 5 — envelope | Static-key fixtures have no refresh family. Validation checks byte limit, verified owner/client/predecessor, provider mapping, strict field lists, credential class, projection renewal fields and generation zero. |
 | 6 — stream | Random stream operation ids, atomic cross-process family admission, capture-before-clearance, cleanup/persisted-successor acknowledgement and exact handoff. Ambiguous outcomes retain their fence. The runtime journal contains metadata only, never credentials. |
 | 7 — tools/canary | Codec allow/deny and the exact active scenario are both required. Claude disables built-ins. Multiline, shell/env, parent-directory, keyring and auth-path requests are refused. Empty scans fail. Native tool enforcement remains a live qualification. |
@@ -68,3 +68,36 @@ draft until that requirement and the independent integration review are met.
 The matrix's budget and keyring adapters are synthetic fixtures. They do not
 attest production billing, OS keyrings, provider acceptance, actual messaging,
 PTY capture or model tool enforcement. No live receipt is emitted by L2-s.
+
+## Review 348 — Tour 3
+
+Round-2 findings 1, 2, 4, 5 and the requested validation invariants of 6
+have targeted red/green regressions. The public package entry now exports the
+fixture, codec and materialization APIs. Renewable fixtures publish the explicit
+serialized-only native marker; materialization consumes canonical.materialRef
+under a trusted custodian ticket. Consumer materialization consumes only
+nativeUse.accessRef. These remain invented stand-ins, including the injected
+agy keyring payload; they do not resolve live references or qualify native auth.
+Vibe MCP env uses an inline table that the actual native TOML editor can update
+and remove. sanitizeEnvJson checks values only against explicit secrets;
+short values of excluded keys cannot erase unrelated environment variables.
+
+Finding 3 remains OPEN beyond the public exports. Reinspection of npm
+llm-mesh 0.26.1 and cluster-mesh 0.18.0 confirms no consumer SeatBundle import
+or persisted external-refresh policy. The latter facade re-exports the former.
+The existing Claude/Muse cli/token product import paths retain their historical
+mesh refresh behavior; they are not a compliant shared-seat circuit. No fake
+facade method, duplicate credential store, or successful enrollment receipt was
+introduced. The required L1 reference was requested from the conductor.
+Owner: Sentropic L1 (public receiver/policy), then h2a (ten source/provider
+imports and CLI wiring). Acceptance remains the ten offline imports and zero
+refresh/mint/fallback on expiry or 401, including reload and explicit refresh.
+This PR remains non-mergeable for that requirement.
+
+The exact pinned upstream validator distinguishes nested-refresh-field and
+authority-escalation. Contrary to the review's line references, that commit
+still accepts custodian renewable bundles without canonical material and
+non-renewable custody refresh. h2a now rejects both to enforce the requested
+spec invariants; this is stricter local validation, not exact upstream parity.
+No independent harness consensus was dispatched: the owner's confinement
+forbids installed/native h2a access. Only disposable fixtures were used.

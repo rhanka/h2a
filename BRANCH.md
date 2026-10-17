@@ -1,4 +1,27 @@
 # Focus decision dossier kit
+# L2-s — PR 348 Tour 3
+
+Owner scope: rev348-r2.md, root corrections with targeted red/green evidence,
+rebase onto origin/main, own-branch push with lease, per-job CI and Tour 3 report.
+No main, Track, scanner, allowlist, real native host or installed h2a access.
+
+- Native interactive/headless IPC preserves non-seat authentication. Seat
+  launches consume the materializer environment; sanitization searches values
+  only for explicitly supplied secrets.
+- Serialized-only renewable fixtures delegate canonical references under
+  trusted custody and exclusive family tickets. Native access references and
+  canonical material reach the synthetic file/keyring payloads distinctly.
+- Native Vibe TOML editor update/removal regression; 16 serialized matrix cells
+  with disposal, capture and persisted clearance; strict lifecycle validation.
+- Public fixture/codec/materialization exports have a runtime red/green test.
+- Finding 3 remains OPEN: npm llm-mesh 0.26.1 has no consumer import/external
+  refresh policy, cluster-mesh 0.18.0 re-exports it. Reference requested; no
+  speculative facade/store was implemented. Details: docs/cli-seat-l2s.md.
+- Sources/declarations and native op compiled only into disposable proof dirs.
+  No full local suite. No peer consensus: installed/native dispatch forbidden.
+
+# Earlier branch records
+
 # Focus publication — owner decision 2026-10-17
 
 Branch: feat/focus-publish. Implement the accepted release-wave decision:

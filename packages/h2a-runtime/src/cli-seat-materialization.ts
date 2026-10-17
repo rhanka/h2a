@@ -27,6 +27,7 @@ import {
   writePrivateSeatFile,
   writeSeatMcpConfiguration,
   writeSyntheticCredentialFiles,
+  type SyntheticCredentialMaterial,
 } from "./cli-seat-codecs.js";
 
 export class SeatMaterializationError extends Error {
@@ -88,6 +89,7 @@ export type BundleValidationCode =
   | "epoch-replacement-required"
   | "authority-escalation"
   | "refresh-material-present"
+  | "nested-refresh-field"
   | "invalid-lifecycle";
 
 export type BundleValidationResult =
@@ -115,12 +117,20 @@ export interface SeatValidationContext {
   predecessor?: StreamPredecessor;
 }
 
-function hasRefreshShapedKeys(value: unknown): boolean {
-  if (Array.isArray(value)) return value.some(hasRefreshShapedKeys);
-  if (typeof value === "object" && value !== null) {
-    return Object.entries(value).some(([key, nested]) => REFRESH_KEY_PATTERN.test(key) || hasRefreshShapedKeys(nested));
+function refreshFieldDepth(value: unknown, depth = 0): number | undefined {
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const hit = refreshFieldDepth(item, depth + 1);
+      if (hit !== undefined) return hit;
+    }
+  } else if (typeof value === "object" && value !== null) {
+    for (const [key, nested] of Object.entries(value)) {
+      if (REFRESH_KEY_PATTERN.test(key)) return depth;
+      const hit = refreshFieldDepth(nested, depth + 1);
+      if (hit !== undefined) return hit;
+    }
   }
-  return false;
+  return undefined;
 }
 
 /** Consumer-channel validation: no refresh material, no authority upgrade from bundle data. */
@@ -167,13 +177,18 @@ export function validateSeatBundleForMaterialization(
   if (credentialClass === "static-key" ? identity.refreshFamilyRef !== undefined : !nonEmpty(identity.refreshFamilyRef)) return fail("schema-mismatch", "static keys have no refresh family; other classes require one");
   if (authority !== "custodian") {
     if (credentialClass === "renewable" || (credentialClass === "store-reference" && granted !== "native-store")) return fail("authority-escalation", "credential class exceeds granted authority");
-    if (lifecycle.refreshAuthority !== "none" || canonical !== undefined) return fail("refresh-material-present", "consumer payload carries refresh authority");
+    if (lifecycle.refreshAuthority !== "none" || canonical !== undefined) return fail("authority-escalation", "consumer payload carries refresh authority");
   }
   if (credentialClass === "renewable" && lifecycle.refreshAuthority !== "custody") return fail("invalid-lifecycle", "renewable custody requires refresh authority");
+  if (credentialClass !== "renewable" && lifecycle.refreshAuthority !== "none") return fail("invalid-lifecycle", "non-renewable material cannot hold refresh authority");
+  if (credentialClass === "renewable" && (!isRecord(canonical) || canonical.kind !== "renewable-material" || !nonEmpty(canonical.materialRef))) return fail("schema-mismatch", "renewable custody requires canonical material");
   for (const projection of [nativeUse, meshUse]) {
     if (projection === undefined) continue;
     if (!isRecord(projection)) return fail("schema-mismatch", "projection must be an object");
-    if (hasRefreshShapedKeys(projection)) return fail("refresh-material-present", "nested refresh field in projection");
+    const refreshDepth = refreshFieldDepth(projection);
+    if (refreshDepth !== undefined) {
+      return fail(refreshDepth === 0 ? "refresh-material-present" : "nested-refresh-field", "refresh field in projection");
+    }
     if (Object.keys(projection).some(k => !["kind", "accessRef", "reason"].includes(k))) return fail("unknown-field", "unknown projection field");
     if (!["access", "static-key", "unavailable"].includes(projection.kind as string) || (projection.accessRef !== undefined && typeof projection.accessRef !== "string") || (projection.reason !== undefined && typeof projection.reason !== "string")) return fail("schema-mismatch", "invalid projection");
   }
@@ -208,7 +223,7 @@ export interface MaterializeSeatOptions {
 }
 
 export interface SyntheticSeatKeyring {
-  materialize(input: { canary: string; runDir: string }): { profileRef: string; childEnv: Record<string, string>; dispose(): void };
+  materialize(input: { canary: string; runDir: string; material: SyntheticCredentialMaterial }): { profileRef: string; childEnv: Record<string, string>; dispose(): void };
 }
 const keyringDisposers = new WeakMap<MaterializedSeat, () => void>();
 
@@ -274,10 +289,13 @@ export function materializeSeatBundle(
       throw new SeatMaterializationError("serialized delegation requires an active family ticket", "stream-ticket-required");
     }
   }
-  if (!bundle.nativeUse || bundle.nativeUse.kind === "unavailable" || !nonEmpty(bundle.nativeUse.accessRef)) throw new SeatMaterializationError("native projection unavailable", "native-unavailable");
+  if (bundle.credentialClass !== "renewable" && (!bundle.nativeUse || bundle.nativeUse.kind === "unavailable" || !nonEmpty(bundle.nativeUse.accessRef))) throw new SeatMaterializationError("native projection unavailable", "native-unavailable");
   if (codec.cli === "agy" && !options.keyring) throw new SeatMaterializationError("isolated agy keyring adapter required", "keyring-unavailable");
 
   const canary = options.canary ?? makeSyntheticCanary(codec.cli);
+  const material: SyntheticCredentialMaterial = bundle.credentialClass === "renewable"
+    ? { kind: "renewable", materialRef: bundle.canonical!.materialRef }
+    : { kind: bundle.credentialClass === "static-key" ? "static-key" : "access-only", materialRef: bundle.nativeUse!.accessRef! };
   const secrets = [
     canary,
     bundle.canonical?.materialRef ?? "",
@@ -304,7 +322,7 @@ export function materializeSeatBundle(
     const scenarioRoot = join(runDir, "scenario");
     for (const dir of [homeDir, configDir, scenarioRoot]) mkdirSync(dir, { recursive: true, mode: 0o700 });
 
-    const credentialPaths = writeSyntheticCredentialFiles(codec.cli, { homeDir, configDir, canary });
+    const credentialPaths = writeSyntheticCredentialFiles(codec.cli, { homeDir, configDir, canary, material });
 
     const launch = {
       cli: codec.cli,
@@ -330,7 +348,7 @@ export function materializeSeatBundle(
     else if (codec.homeEnvVar === "CLAUDE_CONFIG_DIR") childEnv.CLAUDE_CONFIG_DIR = configDir;
     if (resolveCredentialPrecedence(codec.cli, childEnv).winner !== "file") throw new SeatMaterializationError("ambient credential override refused", "credential-precedence");
     if (codec.cli === "agy") {
-      const profile = options.keyring!.materialize({ canary, runDir });
+      const profile = options.keyring!.materialize({ canary, runDir, material });
       disposeKeyring = () => profile.dispose();
       if (!nonEmpty(profile.profileRef) || Object.keys(profile.childEnv).some(k => k !== "DBUS_SESSION_BUS_ADDRESS") || !nonEmpty(profile.childEnv.DBUS_SESSION_BUS_ADDRESS)) throw new SeatMaterializationError("invalid isolated keyring profile", "keyring-unavailable");
       Object.assign(childEnv, profile.childEnv);
@@ -417,10 +435,9 @@ export function sanitizeEnvJson(
   const clean: Record<string, string> = {};
   const removed: string[] = [];
   const secretName = /(?:TOKEN|SECRET|PASSWORD|PRIVATE_KEY|CREDENTIAL|API_KEY|AUTHORIZATION|CONFIG_JSON)/i;
-  const known = [...secrets, ...Object.entries(env).filter(([name]) => stripped.has(name) || secretName.test(name)).map(([, value]) => value ?? "")];
   for (const [name, value] of Object.entries(env)) {
     if (value === undefined) continue;
-    if (stripped.has(name) || secretName.test(name) || known.some((secret) => containsSecret(value, secret))) {
+    if (stripped.has(name) || secretName.test(name) || secrets.some((secret) => containsSecret(value, secret))) {
       removed.push(name);
       continue;
     }
@@ -663,15 +680,29 @@ export function runSyntheticSeatCell(sender: SeatCli5, receiver: SeatCli5, scena
   if (!first || !second) return refused("missing-credential");
   if (first.identity.cli !== sender || second.identity.cli !== receiver || first.provenance.entitlementClass !== "lab-seat" || second.provenance.entitlementClass !== "lab-seat" || first.identity.seatRef === second.identity.seatRef || (first.identity.refreshFamilyRef && first.identity.refreshFamilyRef === second.identity.refreshFamilyRef)) return refused("independent-seats-required");
   const materialized: MaterializedSeat[] = [];
+  const tickets: StreamTicket[] = [];
+  let scenarioFailed = true;
   const keyringEntries = new Map<string, string>();
   const keyring: SyntheticSeatKeyring = {
-    materialize({ canary, runDir }) {
-      const profileRef = randomUUID(); keyringEntries.set(profileRef, canary);
+    materialize({ canary, runDir, material }) {
+      const profileRef = randomUUID(); keyringEntries.set(profileRef, JSON.stringify({ canary, material }));
       return { profileRef, childEnv: { DBUS_SESSION_BUS_ADDRESS: `unix:path=${join(runDir, "runtime", "synthetic-keyring.sock")}` }, dispose() { keyringEntries.delete(profileRef); } };
     },
   };
   try {
-    for (const bundle of [first, second]) materialized.push(materializeSeatBundle(bundle, { parentDir: options.parentDir, mode: "token", labProfile: "lab-matrix", gateway: "off", keyring }));
+    for (const bundle of [first, second]) {
+      let streamTicket: StreamTicket | undefined;
+      if (bundle.credentialClass === "renewable") {
+        const validation = validateSeatBundleForMaterialization(bundle, { trustedAuthority: "custodian" });
+        if (!validation.ok) throw new SeatMaterializationError(validation.detail, validation.code);
+        streamTicket = beginSerializedStream(bundle.identity.refreshFamilyRef!, bundle.lifecycle);
+        tickets.push(streamTicket);
+      }
+      materialized.push(materializeSeatBundle(bundle, {
+        parentDir: options.parentDir, mode: "token", labProfile: "lab-matrix", gateway: "off", keyring,
+        ...(streamTicket ? { delegate: true, trustedContext: { trustedAuthority: "custodian" as const }, streamTicket } : {}),
+      }));
+    }
     const actors = materialized.map(seat => ({ ...seat.receipt, runId: seat.runId }));
     const turns = scenario === "loop" ? 4 : scenario === "negotiation" ? 2 : 1;
     const transcript: string[] = [];
@@ -685,6 +716,7 @@ export function runSyntheticSeatCell(sender: SeatCli5, receiver: SeatCli5, scena
       const surfaces = { transcript: transcript.join("\n"), mcp: JSON.stringify(mcpChildEnv(seat.childEnv)), receipt: JSON.stringify(seat.receipt) };
       if (scanSurfacesForCanary(surfaces, makeSyntheticCanary(seat.receipt.cli)).verdict !== "pass") return refused("canary-leak");
     }
+    scenarioFailed = false;
     return { sender, receiver, scenario, outcome: "synthetic-pass", gateway: "off", q1ConsumedUnits: admission.requestedUnits, actors, seatRef: first.identity.seatRef, peerRef: second.identity.seatRef, familyRef: first.identity.refreshFamilyRef ?? first.identity.seatRef, peerFamilyRef: second.identity.refreshFamilyRef ?? second.identity.seatRef };
   } catch (error) {
     if (error instanceof SeatMaterializationError) return refused(error.code);
@@ -692,5 +724,11 @@ export function runSyntheticSeatCell(sender: SeatCli5, receiver: SeatCli5, scena
   } finally {
     for (const seat of materialized) destroyMaterializedSeat(seat);
     if (keyringEntries.size !== 0) throw new SeatMaterializationError("keyring cleanup incomplete", "cleanup-failed");
+    // This offline exercise has no provider calls and cannot rotate material.
+    // Capture only after disposal; persist/ack the unchanged tuple before reuse.
+    for (const ticket of tickets) {
+      captureSerializedResult(ticket, { failed: scenarioFailed, changed: false, ambiguous: false });
+      if (!validateStreamClearance(ticket, { ...ticket, cleanupComplete: true }).cleared) throw new SeatMaterializationError("synthetic stream cleanup incomplete", "cleanup-failed");
+    }
   }
 }

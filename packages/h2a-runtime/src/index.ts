@@ -11305,6 +11305,11 @@ export { main as dispatchH2a };
 export { main as dispatch };
 export { ensureCentralMcp } from "./central-mcp.js";
 
+/** Offline five-CLI seat contract and run-scoped materialization. */
+export * from "./cli-seat-fixtures.js";
+export * from "./cli-seat-codecs.js";
+export * from "./cli-seat-materialization.js";
+
 /**
  * h2a-facing surface: the read-only remote-agents projection consumed by the
  * objective-loop tick's *agents adapter* in `@sentropic/h2a` (via lazy

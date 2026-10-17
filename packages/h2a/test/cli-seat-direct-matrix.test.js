@@ -86,6 +86,28 @@ test("100 synthetic directed cells with direct route and h2a MCP", async (t) => 
   assert.equal(cells, 100);
 });
 
+test("serialized-only diagonals execute and clear the full family cycle in all four scenarios", async t => {
+  for (const cli of CLIS.filter(cli => cli !== "vibe")) {
+    for (const scenario of SCENARIOS) await t.test(`${cli}>${cli}/${scenario}/serialized`, () => {
+      const root = mkdtempSync(join(runtimeRoot, "serialized-cell-"));
+      try {
+        const first = fixtures.makeSyntheticSeatBundle(cli), second = fixtures.makeSyntheticSeatBundle(cli);
+        second.identity.seatRef += "-peer";
+        second.identity.refreshFamilyRef += "-peer";
+        first.nativeUse = second.nativeUse = { kind: "unavailable", reason: "serialized-only" };
+        const receipt = seats.runSyntheticSeatCell(cli, cli, scenario, { parentDir: root, admission, bundles: [first, second] });
+        assert.equal(receipt.outcome, "synthetic-pass");
+        assert.deepEqual(receipt.actors.map(a => a.capability), ["serialized", "serialized"]);
+        for (const bundle of [first, second]) {
+          const ticket = seats.beginSerializedStream(bundle.identity.refreshFamilyRef, bundle.lifecycle);
+          seats.captureSerializedResult(ticket, { failed: false, changed: false, ambiguous: false });
+          assert.equal(seats.validateStreamClearance(ticket, { ...ticket, cleanupComplete: true }).cleared, true);
+        }
+      } finally { rmSync(root, { recursive: true, force: true }); }
+    });
+  }
+});
+
 test("missing credential yields an unavailable receipt, never a passing skip", () => {
   const root = mkdtempSync(join(tmpdir(), "h2a-seat-missing-"));
   try {
