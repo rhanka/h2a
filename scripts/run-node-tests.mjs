@@ -2,6 +2,8 @@
 // runner API to retain the production scheduler's priority order, with the same
 // process isolation, concurrency, spec output and execution-evidence reporter.
 import assert from 'node:assert/strict';
+import { ChildProcess } from 'node:child_process';
+import { availableParallelism } from 'node:os';
 import { createWriteStream } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { Duplex } from 'node:stream';
@@ -24,7 +26,28 @@ assert.ok(files.length > 0 && files.every(file => file.endsWith('.test.js')), 'e
 assert.equal(new Set(files).size, files.length, 'duplicate test files');
 assert.equal(args.length, fixed.size + destinations.length + concurrencyArgs.length + files.length, 'unsupported runner option');
 const reportPath = destinations[0].slice('--test-reporter-destination='.length);
-const events = run({ files, isolation: 'process', concurrency: concurrencyArgs.length ? Number(concurrencyArgs[0].split('=')[1]) : true,
+const concurrency = concurrencyArgs.length ? Number(concurrencyArgs[0].split('=')[1]) : availableParallelism();
+const interval = Number(process.env.H2A_TEST_NODE_PROGRESS_MS ?? 30_000);
+assert.ok(Number.isFinite(interval) && interval > 0, 'positive progress interval required');
+const pending = new Map(), fileSet = new Set(files);
+const originalSpawn = ChildProcess.prototype.spawn;
+let completed = 0;
+// Observe only children created by this runner. Close, rather than exit, also
+// exposes a descendant retaining a test child's stdout after that child exits.
+ChildProcess.prototype.spawn = function (options) {
+  const result = Reflect.apply(originalSpawn, this, [options]);
+  const file = options.args?.find(arg => fileSet.has(arg));
+  if (file) {
+    const started = performance.now();
+    pending.set(this, { file, started });
+    this.once('close', () => { pending.delete(this); completed++; });
+  }
+  return result;
+};
+const progress = setInterval(() => process.stderr.write(`[node-test-progress] ${JSON.stringify({ concurrency, completed,
+  active: [...pending].map(([child, row]) => ({ file: row.file, pid: child.pid, elapsedMs: Math.round(performance.now() - row.started),
+    exitCode: child.exitCode, signalCode: child.signalCode })) })}\n`), interval).unref();
+const events = run({ files, isolation: 'process', concurrency,
   execArgv: ['--import', fileURLToPath(new URL('../packages/h2a/test/helpers/native-isolation.js', import.meta.url))] });
 events.on('test:summary', data => { if (!data.success) process.exitCode = 1; });
 // Spec's final failure summary may never be reached when a different file
@@ -32,7 +55,12 @@ events.on('test:summary', data => { if (!data.success) process.exitCode = 1; });
 events.on('test:fail', data => {
   if (!data.todo && !data.skip) process.stderr.write(`[node-test-failure] ${data.file}: ${data.name}\n${inspect(data.details?.error, { depth: 6 })}\n`);
 });
-await Promise.all([
-  pipeline(events, new spec(), process.stdout),
-  pipeline(events, Duplex.from(evidenceReporter), createWriteStream(reportPath)),
-]);
+try {
+  await Promise.all([
+    pipeline(events, new spec(), process.stdout),
+    pipeline(events, Duplex.from(evidenceReporter), createWriteStream(reportPath)),
+  ]);
+} finally {
+  clearInterval(progress);
+  ChildProcess.prototype.spawn = originalSpawn;
+}
