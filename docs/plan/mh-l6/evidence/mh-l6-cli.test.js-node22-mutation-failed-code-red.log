@@ -1,0 +1,38 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-cli.test.js
+node: v22.22.1
+private root: /tmp/mh-l6-test-SQxtRk
+case: F should map success failure and deferral to exit codes
+TAP version 13
+# Subtest: F should map success failure and deferral to exit codes
+not ok 1 - F should map success failure and deferral to exit codes
+  ---
+  duration_ms: 2.042595
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-f2c-uqrFGd/packages/h2a/test/mh-l6-cli.test.js:5:67'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    
+    0 !== 1
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 1
+  actual: 0
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/mh-l3-qualification-f2c-uqrFGd/packages/h2a/test/mh-l6-cli.test.js:88:10)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 0
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 96.69627
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-cli.test.js"],"code":1,"signal":null,"tests":1,"invalid":false,"spawned":1,"leftovers":[]}
