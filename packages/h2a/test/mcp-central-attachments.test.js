@@ -207,6 +207,7 @@ for (const wake of ["auto", "local-tmux"])
       assert.ok((await channel.call("initialize")).result);
       const status = await ready(channel);
       const sent = await channel.call("tools/call", { name: "h2a_send", arguments: { to: status.instance, message: "r20-socket-probe" } });
+      assert.equal(sent.error, undefined, JSON.stringify(sent));
       assert.equal(sent.result.isError, false);
       const deadline = Date.now() + 5000;
       while (!stderr.includes("inbox-wake: 1 new envelope(s) → drive ok") && Date.now() < deadline) await delay(25);
@@ -252,6 +253,7 @@ for (const wake of ["auto", "native", "local-tmux"])
       assert.ok((await channel.call("initialize")).result);
       const status = await ready(channel);
       const sent = await channel.call("tools/call", { name: "h2a_send", arguments: { to: status.instance, message: "r21-socket-probe" } });
+      assert.equal(sent.error, undefined, JSON.stringify(sent));
       assert.equal(sent.result.isError, false);
       const deadline = Date.now() + 5000;
       while (!stderr.includes("inbox-wake: 1 new envelope(s) → drive ok") && Date.now() < deadline) await delay(25);
