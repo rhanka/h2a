@@ -904,7 +904,8 @@
     "two reported CPUs execute two waiting files together instead of reserving one CPU",
     "the runner reports its own pending file and PID before that file completes",
     "daemon startup qualification completes alone before the same runner executes every remaining file",
-    "a failed standalone daemon suite remains failed while every remaining file still executes"
+    "a failed standalone daemon suite remains failed while every remaining file still executes",
+    "bounded daemon and handover qualifications each finish alone before the parallel package phase"
   ],
   "packages/h2a/test/mh-l6-package.test.js": [
     "U10 U12 should publish @sentropic/h2a with exact lockstep and install twice offline without a compiler",
