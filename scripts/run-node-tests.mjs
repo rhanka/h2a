@@ -51,10 +51,17 @@ const progress = setInterval(() => process.stderr.write(`[node-test-progress] ${
 // These fixtures qualify bounded cold startup and authenticated handover.
 // Give each its own phase before npm installs and the 32-process campaign;
 // their internal concurrent admissions and every deadline remain unchanged.
-const standalone = ['mcp-central-attachments.test.js', 'mh-l3-transfer.test.js']
+const standalone = ['mcp-central-attachments.test.js', 'mh-l3-transfer.test.js', 'mh-l4-central.test.js']
   .flatMap(name => files.filter(file => basename(file) === name));
-const remaining = files.filter(file => !standalone.includes(file));
-const phases = [...standalone.map(file => [file]), remaining].filter(group => group.length);
+// Bulk filesystem campaigns must not consume the bounded protocol fixtures'
+// startup budgets. Start the longest backend campaign with the package pair,
+// so its 10,000 mutations per domain are not postponed until the pool's tail.
+const bulkNames = ['mh-l5-concurrency.test.js', 'mh-l6-package.test.js', 'mh-l6-runtime-package.test.js',
+  'drive-consent-index.test.js', 'candidate-artifacts.test.js', 'mh-l1-package.test.js',
+  'mh-l6-components.test.js', 'mh-l6-entry.test.js', 'mh-l6-native.test.js', 'mh-l6-native-copy.test.js'];
+const bulk = bulkNames.flatMap(name => files.filter(file => basename(file) === name));
+const remaining = files.filter(file => !standalone.includes(file) && !bulk.includes(file));
+const phases = [...standalone.map(file => [file]), remaining, bulk].filter(group => group.length);
 const events = Readable.from((async function* () {
   for (const group of phases) {
     const source = run({ files: group, isolation: 'process', concurrency,
