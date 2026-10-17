@@ -1,87 +1,65 @@
-# Focus publication — owner decision 2026-10-17
+# Workspace scope guard
 
-Branch: feat/focus-publish. Implement the accepted release-wave decision:
-focus 0.5.0 is independent of the h2a 0.98.7 train. RC suffix follows the
-h2a tag; all five verified tarballs and versions enter the same-tree proof.
-Backfills must refuse an older four-package prepare helper before publication.
-Scope: release/rehearsal workflows, release/candidate/rehearsal helpers and
-qualified execution snapshot, named release tests, release documentation.
-No tag, npm publication, installed h2a, owner state, Track writes or full
-local suite. Tests use disposable HOME/XDG/TMP directories.
+## Objective
+- [x] Enforce workspace ownership in shipped development hooks.
 
-- [x] Red regression evidence: 48/61 then 25/32; no skips.
-- [x] Initial six targeted Node test files: 93/93, zero skips; actual focus tarball
-  dry-run without node_modules exit 0. Packed schema/validator and registry
-  digests checked; logs: /home/antoinefa/.cache/focuspub-{red,contract-red,green,rehearsal}.log.
-- [x] Legacy-preparation regression: 12/14 red before the focus-version
-  handoff guard, then six files 95/95 green with zero skips; same-tree focus
-  preparation is required for RC and stable.
-Publication: conventional commits, own-branch push and English PR; per-job
-CI outcomes are maintained in the owner-requested focuspub-report.md.
+## Scope / Guardrails
+- [x] Own worktree only; no live h2a state, installed binary or full local suite.
+- [x] No version bump, attribution or main mutation.
 
-Harness consensus review is selection-failed: the required installed h2a/mesh
-access is forbidden by the owner's confinement. No peer consensus claimed.
-See docs/reviews/focus-publish.md.
+## Branch Scope Boundaries
+- [x] Allowed: packages/h2a/hooks/**, targeted scope tests, hosts/plugin.ts,
+  hosts/vibe-equipment.ts, hosts/vibe-discovery.ts, hosts/native-convergence.ts,
+  hosts/native-files.ts, hosts/native-toml.ts, hosts/native-inspection.ts, cli.ts, plugin manifests,
+  test/native-host-convergence.test.js, test/native-host-review-regressions.test.js,
+  test/host-plugin.test.js, test/native-host-shared-skills.test.js,
+  docs/workspace-scope-guard.md, docs/specs/SPEC_EVOL_WORKSPACE_SCOPE_GUARD.md,
+  docs/reviews/workspace-scope-guard/**, BRANCH.md.
+- [x] Direct CI blocker: scripts/test-inventory.json (host-plugin normative title).
+- [x] Forbidden: live host state, unrelated sources, dependency/version changes.
 
-# Inherited context from origin/main
+## Lot 1
+- [x] Classifier, signed grants, typed audit and owner command.
+- [x] Red/green: workspace-scope-guard.test.js.
 
-# Claude seat on the common seat model (realign 2026-10-13, r8)
+## Lot 2
+- [x] Host plumbing and targeted workspace-scope-hosts.test.js.
 
-Branch: `feat/claude-seat-h2a-lots` (worktree `claude-seat-lots`).
-Scope: Claude subscription seat for llm-mesh, realigned on the model every
-other seat follows (owner decision 2026-10-13, DEC-118): same facade
-enrollment shape, mesh-side storage/refresh, gateway registry wiring, same
-test families — nothing Claude-specific.
+## Lot 3
+- [x] Documentation, review outcome, push, PR and individual CI reporting.
 
-State: **enrolled seats route through the mesh; serving needs the official
-`claude` CLI on `PATH`**. The gateway always composes mesh
-`ClaudeCodeRuntimeClient` on the h2a runner into the provider registry via
-`AnthropicAdapter`, with no per-seat configuration. The runner resolves
-`claude` from `PATH` per attempt (generic spawn safety only: no version
-pin, no digest, no attestation). A seat with no enrolled account (or no
-`claude` on `PATH`) never serves a route — fail-closed per attempt, like
-every other seat. The pre-acquire seam halt is gone — account locking
-lives in the mesh directory like every other seat.
+## Feedback Loop
+- [x] Independent security/coverage design reviews: pin launch identity, inspect
+  remote destinations and committed bumps, preserve private packages.
+- [x] h2a consensus unavailable: no h2a MCP in confinement; do not reach live host.
 
-Removed without replacement (no other seat carries them): egress/netns
-guard (`egressNetnsReader`, `H2A_CLAUDE_EGRESS_ENFORCED`, `/proc` netns
-checks), org-proof handoff, managed-config + registry/MDM guards, h2a-side
-account lease lock, seam-gate attempt binding, seat-qualification env
-configuration (`H2A_CLAUDE_BINARY_PATH` / `H2A_CLAUDE_BINARY_DIGEST`),
-version pin + digest/attestation machinery.
+- [x] Preserve read-only npm version and private package versioning; published siblings still require release authority.
+- [x] Restrict helper execution and manual session initialization while preserving source inspection.
 
-Kept: facade enrollment (OAuth default + `--from cli` official store +
-`--from token` secret-manager pipe, DEC-119), mesh keyring
-storage/refresh, transport-specific hygiene of the CLI seat
-(identity-proven sweep, sandbox transport, cleanup blocking the result,
-root-level static error boundary (inherited by every subcommand —
-commander never prints its own text: `outputError` is a no-op,
-`exitOverride` writes a static message chosen ONLY from `err.code`
-(unknown option, unknown command, too many arguments, missing argument,
-option argument missing, required option not specified, conflicting option,
-invalid argument, fallback); no declared name kept, no counts, no suggestion;
-multi-line values ending a line with `'` or `.`, unknown commands with
-newline, `remove` with a dotted first line all static; proven by a 34-form
-property canary with exact static-shape asserts for every form),
-masked TTY input / piped-token boundary (never
-argv, never logged). The startup sweep runs at every gateway
-composition even with no Claude account enrolled.
+## Tour 2 — Independent review #364
+- [x] R1: agy native payloads and SessionStart/PreToolUse; Muse project hooks verified against the public Meta CLI; six-host enforcement/grant/version matrix.
+- [x] R2: scoped shell cwd/environment, executable heredocs/substitutions, git/gh options, package script aliases.
+- [x] R3: shell redirections before every executable/builtin; runtime/helper protection; static Codex envelopes and dynamic refusal.
+- [x] R4: root-relative manifests, pinned session baseline, path commits, matching refspecs, MultiEdit and separate foreign/release grants.
+- [x] R5: startup-pinned plugin key, normalized grant options/repositories, Vibe native-session journal and refreshed explicit trust.
+- [x] R6: quoted prose, own --all, native test runner flags, current PR resolution, branch reads, literal patch envelopes.
+- [x] R7: exact repo/action/ref/session in both refusal channels.
+- [ ] Fresh author-complementary h2a consensus: unavailable in confinement (no h2a MCP; no real-state access authorized).
 
-Import note (differs from muse by mesh limitation 0.25.0): `--from cli`
-is a point-in-time COPY — the mesh never writes the official store file,
-but its copy refreshes independently, so re-run `--from cli` when the
-grant rotates. Linux store file only; macOS keychain unverified.
+## Tour 3 — Independent review rev364-r2.md
+- [x] R1: agy global-hook cwd, native workspacePaths SessionStart binding, JSON startup output, multi-session --write installation; explicit Muse project installation only.
+- [x] R2: fail-closed shell grammar/state, wrappers, balanced cwd stacks, HOME/OLDPWD/directory stack, continuations, stdin/runtime paths and independent Git directory selectors.
+- [x] R3: protect hook configuration, installer metadata, helper code and journals; destination options, destructive Git commands and indirect/reflective JS capability access.
+- [x] R4: inspect index independently of commit operands, enumerate pushed refs, match full patch paths and honor native line ranges.
+- [x] R5: lex JS strings/comments separately and decode literals before shell classification; preserve legitimate commit messages.
+- [x] CI blocker: normative inventory follows the existing agy/Muse installation test, without removing its execution requirement.
+- [ ] Fresh h2a consensus remains unavailable; no independent verdict claimed for the new diff.
 
-Follow-ups (not built here, other seats unchanged): `--from cli` on
-codex/cloud-code/mistral-vibe, `--from token` on
-codex/cloud-code/mistral-vibe/muse, a mesh-side Claude store leg
-(CLI sole writer, mesh re-reads at refresh), the shared GitHub-secret +
-cron refresh/re-enroll circuit (exists for NO seat today).
-
-Validation: `tsc -b` clean; seat suites green
-(`claude-code-cli-*`, `claude-seat-input`, `llm-mesh-accounts`,
-`gateway-host/claude-code-seat-wiring`, `gateway-host/host`,
-`runtime-llm-mesh-account`); `gh pr checks 327 -R rhanka/h2a` green.
-Reports under `.h2a/` stay untracked; the r8 report lives in
-`.h2a/build/claude_seat_r8_report.md` (untracked) and the seat-model
-inventory in `.h2a/build/seat_model_inventory.md` (untracked).
+## Tour 4 — Fail closed on uncertainty (conductor decision)
+- [x] Remove heredoc preprocessing and executable substitution/shell-script interpretation; refuse opaque protected intent with a typed request for the plain explicit form or owner grant.
+- [x] Check dynamic sensitive argv before action selection; cover runtime stdin/eval, independent Git directories, symlinks, file destination options and Git mutation forms from rev364-r3.md.
+- [x] Preserve explicit own copy/move/mkdir operations, conditional own cwd alternatives, plain protected actions and valid JavaScript escapes; reject duplicate command members using the shared lexer.
+- [x] Compare complete proposed/base manifests, preserve baseline publication across private toggles, and inspect the union of explicit pushed refs and tags; bind sessions before recording baselines.
+- [x] Targeted regression proof: 76 T4 tests on original HEAD (7 pass, 69 fail, 0 skipped), then 76 pass, 0 fail, 0 skipped after correction.
+- [x] Centralize symlink uncertainty before canonicalization, including env/npm selectors and dangling effective copy destinations: three additional red/green regressions.
+- [ ] Full native sessions, remote mutations and independent h2a consensus remain outside confinement qualification; full repository suite is reserved for the conductor.

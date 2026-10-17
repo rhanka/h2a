@@ -147,6 +147,8 @@ import { H2A_CLI_MCP_TOOL_NAMES } from "./mcp.js";
 import {
   renderStopHook,
   claudeStopHookEntry,
+  renderWorkspaceScope,
+  agyWorkspaceScopeDefinition,
   claudeDriveReceiveHookEntry,
   isH2ADriveReceiveHook,
   isH2ARecordHook,
@@ -4855,6 +4857,8 @@ function cmdHostPlugin(flags: Record<string, string>, streams: H2ACliStreams): n
     );
     return 1;
   }
+  const workspaceScope = renderWorkspaceScope(flags.host, flags.workspace ?? streams.cwd?.() ?? process.cwd(), flags.instance, flags['owner-key']);
+  const scopeCommand = workspaceScope.supported ? workspaceScope.command : undefined;
 
   // DEC-113 (D6 done): --scaffold <dir> writes codex's FULL local marketplace —
   // verified live, codex installs a plugin only from a marketplace dir, NOT a
@@ -4884,7 +4888,9 @@ function cmdHostPlugin(flags: Record<string, string>, streams: H2ACliStreams): n
       render.record,
       render.receive,
       flags.force === "true",
-      streams
+      streams,
+      scopeCommand,
+      flags.host
     );
     if (typeof hooksMerge === "number") return hooksMerge;
     // Manifests are stable identities — rewriting them is idempotent (same bytes).
@@ -4928,8 +4934,8 @@ function cmdHostPlugin(flags: Record<string, string>, streams: H2ACliStreams): n
   // entry for the three hosts that accept it — **claude** + **gemini** (single
   // settings.json; gemini via `gemini hooks migrate --from-claude`) and **codex**
   // (its plugin `hooks.json` uses the identical Claude-format hooks object;
-  // verified against `~/.codex/.../hooks/hooks.json`). agy is poll-only (no
-  // daemon), so --write is refused for it and the rendered hook + hint surface.
+  // verified against `~/.codex/.../hooks/hooks.json`). agy and Muse install
+  // only their pre-action scope hook; their lifecycle still uses polling.
   if (flags.write) {
     // Vibe's hook file is `~/.vibe/hooks.toml` — TOML, and the JSON hook merger
     // is deliberately format-strict (same refusal as `host setup --write` for
@@ -4942,20 +4948,15 @@ function cmdHostPlugin(flags: Record<string, string>, streams: H2ACliStreams): n
       );
       return 1;
     }
-    if (flags.host === "agy" || flags.host === "muse") {
-      streams.stderr.write(
-        `h2a host plugin: --write is not available for ${flags.host} (poll-only, no verified stop-hook surface). ` +
-          `Use the poll path: ${render.poll}\n`
-      );
-      return 1;
-    }
     const targetPath = flags.write;
     const merge = mergeStopHooksFile(
       targetPath,
-      render.record,
-      render.receive,
+      ['agy', 'muse'].includes(flags.host) ? '' : render.record,
+      ['agy', 'muse'].includes(flags.host) ? '' : render.receive,
       flags.force === "true",
-      streams
+      streams,
+      scopeCommand,
+      flags.host
     );
     if (typeof merge === "number") return merge;
     streams.stdout.write(
@@ -4965,7 +4966,7 @@ function cmdHostPlugin(flags: Record<string, string>, streams: H2ACliStreams): n
           host: flags.host,
           written: targetPath,
           mechanism: render.mechanism,
-          hook: "hooks.Stop + hooks.UserPromptSubmit",
+          hook: ['agy', 'muse'].includes(flags.host) ? "hooks.PreToolUse" : "hooks.Stop + hooks.UserPromptSubmit + hooks.PreToolUse",
           // codex loads hooks via a plugin (manifest → ./hooks/hooks.json); the
           // file written above is a valid codex hooks.json, but codex still
           // needs the manifest + trust. `--scaffold <dir>` does the full job;
@@ -4986,7 +4987,7 @@ function cmdHostPlugin(flags: Record<string, string>, streams: H2ACliStreams): n
     return 0;
   }
 
-  streams.stdout.write(`${JSON.stringify(render, null, 2)}\n`);
+  streams.stdout.write(`${JSON.stringify({ ...render, workspaceScope }, null, 2)}\n`);
   return 0;
 }
 
@@ -5003,7 +5004,9 @@ function mergeStopHooksFile(
   record: string,
   receive: string,
   force: boolean,
-  streams: H2ACliStreams
+  streams: H2ACliStreams,
+  scopeCommand?: string,
+  scopeHost?: string
 ): number | undefined {
   let existing: Record<string, unknown> = {};
   if (existsSync(targetPath)) {
@@ -5046,12 +5049,19 @@ function mergeStopHooksFile(
     ...withoutDriveReceive,
     claudeDriveReceiveHookEntry(receive)
   ];
-  const merged: Record<string, unknown> = {
+  const merged: Record<string, unknown> = scopeHost === 'agy' && scopeCommand ? {
+    ...existing, 'sentropic-h2a-workspace-scope': agyWorkspaceScopeDefinition(scopeCommand, true)
+  } : {
     ...existing,
     hooks: {
       ...existingHooks,
-      Stop: mergedStop,
-      UserPromptSubmit: mergedUserPromptSubmit
+      ...(scopeCommand ? { PreToolUse: [
+        ...(Array.isArray(existingHooks.PreToolUse) ? existingHooks.PreToolUse : []).filter(
+          (e: unknown) => !JSON.stringify(e).includes('workspace-scope-guard.mjs')),
+        { matcher: '.*', hooks: [{ type: 'command', command: scopeCommand, timeout: 15 }] }
+      ] } : {}),
+      ...(record ? { Stop: mergedStop } : {}),
+      ...(receive ? { UserPromptSubmit: mergedUserPromptSubmit } : {})
     }
   };
   try {
@@ -7100,7 +7110,7 @@ function nativeHostReport(host: string, flags: Record<string, string>, repair: b
   return convergeNativeHost({ host, root, cwd, version: currentCliVersion(), skills: collection.skills, renderGemini: renderSkillAsGeminiToml,
     sourcesComplete: collection.sources.every(s => s.dir !== null && s.count > 0), repair, explicitInstall,
     dryRun: flags['dry-run'] === 'true', force: flags.force === 'true', guard: flags.guard, lifecycle: flags.lifecycle,
-    instance: flags.instance, busRoot: flags.root, status: flags.status });
+    instance: flags.instance, busRoot: flags.root, status: flags.status, ownerKey: flags['owner-key'] });
 }
 
 function cmdInstallSkills(

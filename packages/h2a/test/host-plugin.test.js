@@ -253,7 +253,7 @@ test("host plugin --write is refused for vibe (~/.vibe/hooks.toml is TOML; the J
   }
 });
 
-test("host plugin --write is refused for agy and muse (poll-only, no verified stop-hook)", () => {
+test("host plugin installs only pre-action scope hooks for agy and muse", () => {
   const dir = mkdtempSync(join(tmpdir(), "h2a-hook-"));
   try {
     for (const host of ["agy", "muse"]) {
@@ -261,8 +261,11 @@ test("host plugin --write is refused for agy and muse (poll-only, no verified st
       const rc = runCli(["host", "plugin", "--host", host, "--instance", `${host}:p1`, "--write", join(dir, "x.json")], {
         stdout: { write: () => {} }, stderr: { write: (c) => void (stderr += c) }
       });
-      assert.equal(rc, 1);
-      assert.match(stderr, new RegExp(`not available for ${host}`));
+      assert.equal(rc, 0, stderr);
+      const config = JSON.parse(readFileSync(join(dir, 'x.json'), 'utf8'));
+      const hooks = host === 'agy' ? config['sentropic-h2a-workspace-scope'] : config.hooks;
+      assert.equal(hooks.PreToolUse.filter(e => JSON.stringify(e).includes('workspace-scope-guard')).length, 1);
+      assert.ok(!hooks.Stop && !hooks.UserPromptSubmit, 'poll-only lifecycle remains separate');
     }
   } finally {
     rmSync(dir, { recursive: true, force: true });

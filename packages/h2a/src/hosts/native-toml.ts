@@ -19,6 +19,8 @@ export function recoverNativeHooks(manifest: NativeManifest, pending: NativeMani
     if (hook.name === 'sentropic-h2a-deny-manual-cli') { manifest.guard = pending.guard; manifest.guardBinding = pending.guardBinding; }
   }
   if (pending.lifecycle) manifest.lifecycle = { ...pending.lifecycle };
+  if (pending.workspaceScope && manifest.hooks?.['sentropic-h2a-workspace-scope'] === pending.hooks?.['sentropic-h2a-workspace-scope'])
+    manifest.workspaceScope = { ...pending.workspaceScope };
 }
 export function renderVibeHook(hook: VibeHook): string {
   return '[[hooks]]\n' + Object.entries(hook).map(([key, value]) => `${key} = ${JSON.stringify(value)}`).join('\n') + '\n';
