@@ -23,7 +23,7 @@ for (const mode of ["pass", "failure", "timeout", "timeout-delayed", "pass-delay
     const root = createPrivateTestDirectory("life-");
     const env = nativeTestEnvironment(root);
     const marker = join(root, "owned.json"), script = join(root, "fixture.mjs");
-    writeFileSync(script, `import test from 'node:test';
+    const fixtureSource = `import test from 'node:test';
       import {writeFileSync,existsSync,readFileSync} from 'node:fs';
       import {join} from 'node:path';
       import {setupNativeTestEnvironment,assertNativeTestSpawnRefused,spawnIsolatedNative as spawn} from ${JSON.stringify(helper)};
@@ -75,21 +75,59 @@ for (const mode of ["pass", "failure", "timeout", "timeout-delayed", "pass-delay
         while(!existsSync(${JSON.stringify(marker + ".ack")})&&Date.now()<ackDeadline)await new Promise(resolve=>setTimeout(resolve,10));
         if(${JSON.stringify(innerMode)}==='failure')throw new Error('injected setup failure');
         if(${JSON.stringify(innerMode)}==='timeout')await new Promise(()=>{});
-      });`);
+      });`;
+    // Direct anchor for the keepalive placement: the interval MUST be created
+    // before the ack barrier in THIS generated fixture, not only in the
+    // miniature copy. A late interval (born after the barrier but before the
+    // inner timeout) still passes the timing path, so only this ordering
+    // assertion catches a drift of the main fixture alone.
+    const keepaliveAt = fixtureSource.indexOf("keepalive=setInterval");
+    const barrierAt = fixtureSource.indexOf("ackDeadline");
+    assert.ok(keepaliveAt !== -1 && barrierAt !== -1 && keepaliveAt < barrierAt,
+      "fixture keepalive must be created before the ack barrier");
+    writeFileSync(script, fixtureSource);
     const runner = spawn(process.execPath, ["--test", "--test-reporter=tap", script], { env, stdio: ["ignore", "pipe", "pipe"] });
     const closed = once(runner, "close");
+    // `node --test` runs the fixture in a CHILD process: killing only the
+    // coordinator leaves that child (and its leaked interval) reparented and
+    // alive. Always kill the whole runner tree, never the coordinator alone.
+    const readRunnerChildren = pid => {
+      try {
+        const text = readFileSync(`/proc/${pid}/task/${pid}/children`, "utf8").trim();
+        return text ? text.split(/\s+/).map(Number).filter(n => Number.isInteger(n) && n > 0) : [];
+      } catch { return []; }
+    };
+    const killRunnerTree = pid => {
+      if (!Number.isInteger(pid) || pid <= 0) return;
+      const seen = new Set(), queue = [pid];
+      for (const next of queue) {
+        if (seen.has(next)) continue;
+        seen.add(next);
+        for (const kid of readRunnerChildren(next)) if (!seen.has(kid)) queue.push(kid);
+      }
+      for (const target of [...seen].reverse()) {
+        try { process.kill(target, "SIGKILL"); } catch {}
+      }
+    };
     // Fail-closed guard: if the runner ever stops exiting by itself (e.g. a
-    // leaked ref'd keepalive after an inner timeout), SIGKILL it so `await
-    // closed` below always resolves before the outer timeout. Well under the
-    // 30 s outer budget, far above the ~13 s slowest legitimate path.
+    // leaked ref'd keepalive after an inner timeout), SIGKILL its whole tree
+    // so `await closed` below always resolves before the outer timeout. Well
+    // under the 30 s outer budget, far above the ~13 s slowest legitimate path.
     const killer = setTimeout(() => {
-      try { if (runner.exitCode === null && runner.signalCode === null) runner.kill("SIGKILL"); } catch {}
+      try { if (runner.exitCode === null && runner.signalCode === null) killRunnerTree(runner.pid); } catch {}
     }, 25_000);
     if (killer.unref) killer.unref();
     let output = "", receipt, release, pinned = [];
     const survivors = () => pinned.filter(({ target }) => {
       try { return !/\) [ZX] /.test(readFileSync(join(target, "stat"), "utf8")); }
-      catch (error) { if (["ENOENT", "ESRCH"].includes(error.code)) return false; throw error; }
+      // Unreadable is not proof of death: keep the entry and let the
+      // deadline fail closed, instead of throwing EACCES that would mask the
+      // original assertion and skip the remaining cleanup.
+      catch (error) {
+        if (["ENOENT", "ESRCH"].includes(error.code)) return false;
+        if (["EACCES", "EPERM"].includes(error?.code)) return true;
+        throw error;
+      }
     });
     // Start-time identity proof for a recorded tree whose root exited before
     // the outer pin: gone (ENOENT), zombie/drained (Z/X), or PID-recycled
@@ -122,6 +160,9 @@ for (const mode of ["pass", "failure", "timeout", "timeout-delayed", "pass-delay
     };
     runner.stdout.on("data", bytes => { output += bytes; });
     runner.stderr.on("data", bytes => { output += bytes; });
+    // The original body failure is the diagnosis: cleanup below must never
+    // replace it, and must still kill the runner tree and remove temp dirs.
+    let primaryError = null;
     try {
       const deadline = performance.now() + 5000;
       while (!existsSync(marker)) {
@@ -200,19 +241,36 @@ for (const mode of ["pass", "failure", "timeout", "timeout-delayed", "pass-delay
       await waitForPrivateNativeProcesses(receipt.env);
       assert.doesNotMatch(output, /fixture processes still writing/);
       t.diagnostic(`${mode}: runner exit ${status}; no surviving owned host or journal`);
+    } catch (error) {
+      primaryError = error;
+      throw error;
     } finally {
       // Safety net: kill the pinned survivors AND every recorded tree row
       // (start-time identity checked, so a recycled PID is never touched),
       // then prove them dead. It is never part of the success path: on the
       // pin-miss path `pinned` is empty and only the recorded tree can name
-      // a survivor.
+      // a survivor. Every step is guarded so one cleanup failure neither
+      // masks the original body failure nor skips the runner-tree kill and
+      // the temp-dir removal below.
       clearTimeout(killer);
+      let cleanupError = null;
+      const keepCleanup = error => { if (!cleanupError) cleanupError = error; };
+      // Kill the runner tree FIRST: the coordinator's fixture child holds
+      // proc-descriptor links inside the owned root, and a wait before this
+      // kill reads them as EACCES. Killing the tree first removes that
+      // source; the EACCES-tolerant proofs below stay fail-closed anyway.
+      try { killRunnerTree(runner.pid); } catch (error) { keepCleanup(error); }
       const killRecordedTree = rows => {
         for (const row of rows ?? []) {
           if (!Number.isInteger(row?.pid) || !Number.isFinite(row?.startTime)) continue;
           let raw;
+          // Without a readable stat there is no identity proof: never kill,
+          // let the survivors/wait proofs below report the entry as alive.
           try { raw = readFileSync(`/proc/${row.pid}/stat`, "utf8"); }
-          catch (error) { if (["ENOENT", "ESRCH"].includes(error.code)) continue; throw error; }
+          catch (error) {
+            if (["ENOENT", "ESRCH", "EACCES", "EPERM"].includes(error?.code)) continue;
+            throw error;
+          }
           const at = raw.lastIndexOf(") ");
           if (at < 0) continue;
           const rest = raw.slice(at + 2).split(" ");
@@ -223,21 +281,27 @@ for (const mode of ["pass", "failure", "timeout", "timeout-delayed", "pass-delay
         }
       };
       if (receipt) {
-        for (const { pid } of survivors()) {
-          try { process.kill(pid, "SIGKILL"); }
-          catch (error) { if (error.code !== "ESRCH") throw error; }
-        }
-        killRecordedTree(receipt.tree);
-        const deadline = performance.now() + 1000;
-        while (survivors().length && performance.now() < deadline) await new Promise(resolve=>setTimeout(resolve,10));
-        assert.deepEqual(survivors().map(row=>row.pid), [], "outer red-before safety net left a survivor");
-        await waitForPrivateNativeProcesses(receipt.env);
+        try {
+          for (const { pid } of survivors()) {
+            try { process.kill(pid, "SIGKILL"); }
+            catch (error) { if (error.code !== "ESRCH") throw error; }
+          }
+          killRecordedTree(receipt.tree);
+          const deadline = performance.now() + 1000;
+          while (survivors().length && performance.now() < deadline) await new Promise(resolve=>setTimeout(resolve,10));
+          assert.deepEqual(survivors().map(row=>row.pid), [], "outer red-before safety net left a survivor");
+          await waitForPrivateNativeProcesses(receipt.env);
+        } catch (error) { keepCleanup(error); }
       }
-      if (runner.exitCode === null && runner.signalCode === null) runner.kill("SIGKILL");
-      await closed;
-      release?.();
-      if (receipt) rmSync(receipt.env.XDG_RUNTIME_DIR, { recursive: true, force: true });
-      rmSync(root, { recursive: true, force: true });
+      try { if (runner.exitCode === null && runner.signalCode === null) killRunnerTree(runner.pid); } catch (error) { keepCleanup(error); }
+      try { await closed; } catch (error) { keepCleanup(error); }
+      try { release?.(); } catch (error) { keepCleanup(error); }
+      try { if (receipt) rmSync(receipt.env.XDG_RUNTIME_DIR, { recursive: true, force: true }); } catch (error) { keepCleanup(error); }
+      try { rmSync(root, { recursive: true, force: true }); } catch (error) { keepCleanup(error); }
+      if (!primaryError && cleanupError) throw cleanupError;
+      if (primaryError && cleanupError) {
+        try { t.diagnostic(`cleanup after failure: ${cleanupError?.message}`); } catch {}
+      }
     }
   });
 }
