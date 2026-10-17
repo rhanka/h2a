@@ -332,8 +332,65 @@ describe("published JSON Schema parity with the TS validator (rev352-F3)", () =>
       { $ref: "#/$defs/diagramNode" },
     ]);
 
+    const rootProps = (schema["properties"] as Record<string, Record<string, unknown>>);
+    expect(rootProps["ref"]).toEqual({ type: "string" });
+    expect(rootProps["subject"]).toEqual({ type: "string" });
+    expect(rootProps["title"]).toEqual({ type: "string" });
+    expect(rootProps["hash"]).toEqual({ type: "string" });
+    expect(rootProps["cursor"]).toEqual({ type: "string" });
+    expect(rootProps["sections"]).toEqual({ type: "array", items: { $ref: "#/$defs/section" } });
+    expect(rootProps["interactions"]).toEqual({ type: "array", items: { $ref: "#/$defs/interaction" } });
+    expect(rootProps["provenance"]).toEqual({ $ref: "#/$defs/provenance" });
+    expect(rootProps["amendmentTrace"]).toEqual({ type: "array", items: { $ref: "#/$defs/amendmentStep" } });
+
     checkClosedObjectDef(doc, "proseNode", ["kind", "id", "targetRef", "markdown"], ["kind", "id", "targetRef", "markdown"]);
     expect(propsOf(doc, "proseNode")["kind"]).toEqual({ const: "prose" });
+    expect(propsOf(doc, "proseNode")["id"]).toEqual({ type: "string" });
+    expect(propsOf(doc, "proseNode")["targetRef"]).toEqual({ type: "string" });
+    expect(propsOf(doc, "proseNode")["markdown"]).toEqual({ type: "string" });
+    expect(propsOf(doc, "questionNode")["kind"]).toEqual({ const: "question" });
+    expect(propsOf(doc, "questionNode")["id"]).toEqual({ type: "string" });
+    expect(propsOf(doc, "questionNode")["targetRef"]).toEqual({ type: "string" });
+    expect(propsOf(doc, "questionNode")["question"]).toEqual({ type: "string" });
+    expect(propsOf(doc, "questionNode")["recommendedAnswer"]).toEqual({ type: "string" });
+    expect(propsOf(doc, "questionNode")["answer"]).toEqual({ type: "string" });
+    expect(propsOf(doc, "optionNode")["kind"]).toEqual({ const: "option" });
+    expect(propsOf(doc, "optionNode")["id"]).toEqual({ type: "string" });
+    expect(propsOf(doc, "optionNode")["targetRef"]).toEqual({ type: "string" });
+    expect(propsOf(doc, "optionNode")["label"]).toEqual({ type: "string" });
+    expect(propsOf(doc, "optionNode")["body"]).toEqual({ type: "string" });
+    expect(propsOf(doc, "optionNode")["annotationComment"]).toEqual({ type: "string" });
+    expect(propsOf(doc, "optionSetNode")["kind"]).toEqual({ const: "optionSet" });
+    expect(propsOf(doc, "optionSetNode")["id"]).toEqual({ type: "string" });
+    expect(propsOf(doc, "optionSetNode")["targetRef"]).toEqual({ type: "string" });
+    expect(propsOf(doc, "optionSetNode")["title"]).toEqual({ type: "string" });
+    expect(propsOf(doc, "outcomeNode")["kind"]).toEqual({ const: "outcome" });
+    expect(propsOf(doc, "outcomeNode")["id"]).toEqual({ type: "string" });
+    expect(propsOf(doc, "outcomeNode")["targetRef"]).toEqual({ type: "string" });
+    expect(propsOf(doc, "outcomeNode")["statement"]).toEqual({ type: "string" });
+    expect(propsOf(doc, "amendmentTraceNode")["kind"]).toEqual({ const: "amendmentTrace" });
+    expect(propsOf(doc, "amendmentTraceNode")["id"]).toEqual({ type: "string" });
+    expect(propsOf(doc, "amendmentTraceNode")["targetRef"]).toEqual({ type: "string" });
+    expect(propsOf(doc, "amendmentTraceNode")["steps"]).toEqual({
+      type: "array",
+      items: { $ref: "#/$defs/amendmentStep" },
+    });
+    expect(propsOf(doc, "diagramNode")["kind"]).toEqual({ const: "diagram" });
+    expect(propsOf(doc, "diagramNode")["id"]).toEqual({ type: "string" });
+    expect(propsOf(doc, "diagramNode")["targetRef"]).toEqual({ type: "string" });
+    expect(propsOf(doc, "diagramNode")["source"]).toEqual({ type: "string" });
+    expect(propsOf(doc, "diagramNode")["alt"]).toEqual({ type: "string" });
+    expect(propsOf(doc, "interaction")["name"]).toEqual({ type: "string" });
+    expect(propsOf(doc, "interaction")["targetRef"]).toEqual({ type: "string" });
+    expect(propsOf(doc, "interaction")["label"]).toEqual({ type: "string" });
+    expect(propsOf(doc, "comprehensionEvidence")["subject"]).toEqual({ type: "string" });
+    expect(propsOf(doc, "comprehensionEvidence")["dossierHash"]).toEqual({ type: "string" });
+    expect(propsOf(doc, "comprehensionEvidence")["signature"]).toEqual({ type: "string" });
+    expect(propsOf(doc, "provenance")["source"]).toEqual({ type: "string" });
+    expect(propsOf(doc, "provenance")["readAt"]).toEqual({ type: "string" });
+    expect(propsOf(doc, "amendmentStep")["at"]).toEqual({ type: "string" });
+    expect(propsOf(doc, "amendmentStep")["author"]).toEqual({ type: "string" });
+    expect(propsOf(doc, "amendmentStep")["summary"]).toEqual({ type: "string" });
     checkClosedObjectDef(doc, "questionNode", ["kind", "id", "targetRef", "question", "state"], ["kind", "id", "targetRef", "question", "recommendedAnswer", "answer", "state"]);
     checkClosedObjectDef(doc, "optionNode", ["kind", "id", "targetRef", "label", "annotation"], ["kind", "id", "targetRef", "label", "body", "annotation", "annotationComment"]);
     checkClosedObjectDef(doc, "optionSetNode", ["kind", "id", "targetRef", "options"], ["kind", "id", "targetRef", "title", "options"]);
@@ -386,6 +443,48 @@ describe("published JSON Schema parity with the TS validator (rev352-F3)", () =>
     {
       name: "relaxed interaction enabled",
       mutate: (doc) => { propsOf(doc, "interaction")["enabled"]!["const"] = true; },
+    },
+    {
+      name: "root sections retargeted to interaction",
+      mutate: (doc) => {
+        ((doc as Record<string, unknown>)["properties"] as Record<string, unknown>)["sections"] = {
+          type: "array",
+          items: { $ref: "#/$defs/interaction" },
+        };
+      },
+    },
+    {
+      name: "question kind constant drifted",
+      mutate: (doc) => { propsOf(doc, "questionNode")["kind"] = { const: "query" }; },
+    },
+    {
+      name: "outcome kind constant drifted",
+      mutate: (doc) => { propsOf(doc, "outcomeNode")["kind"] = { const: "result" }; },
+    },
+    {
+      name: "diagram kind freed",
+      mutate: (doc) => { propsOf(doc, "diagramNode")["kind"] = { type: "string" }; },
+    },
+    {
+      name: "prose markdown typed as number",
+      mutate: (doc) => { propsOf(doc, "proseNode")["markdown"] = { type: "number" }; },
+    },
+    {
+      name: "trace steps retargeted to interaction",
+      mutate: (doc) => {
+        propsOf(doc, "amendmentTraceNode")["steps"] = {
+          type: "array",
+          items: { $ref: "#/$defs/interaction" },
+        };
+      },
+    },
+    {
+      name: "provenance readAt typed as integer",
+      mutate: (doc) => { propsOf(doc, "provenance")["readAt"] = { type: "integer" }; },
+    },
+    {
+      name: "evidence signature typed as boolean",
+      mutate: (doc) => { propsOf(doc, "comprehensionEvidence")["signature"] = { type: "boolean" }; },
     },
   ];
 

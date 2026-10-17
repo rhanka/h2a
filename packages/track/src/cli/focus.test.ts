@@ -172,6 +172,32 @@ describe('track focus', () => {
     expect(manifest.entries[0]!.id).toBe('sentropic.focus');
   });
 
+  it('vendored helper loads without @sentropic/focus installed (rev352r2-F3)', async () => {
+    // Isolated copy with no workspace symlink and no focus package: the
+    // pinned 1.0.0 manifest travels with the vendor, never a foreign copy.
+    const { mkdtempSync: mkTmp, mkdirSync: mkDir, copyFileSync: cp, rmSync: rm } = await import('node:fs');
+    const { tmpdir: osTmp } = await import('node:os');
+    const { join: joinPath } = await import('node:path');
+    const { pathToFileURL: toFileUrl } = await import('node:url');
+    const iso = mkTmp(joinPath(osTmp(), 'track-focus-isolated-'));
+    try {
+      mkDir(joinPath(iso, 'registry'), { recursive: true });
+      const hereUrl = new URL(import.meta.url);
+      const vendorDir = new URL('../focus-vendor/registry/', hereUrl);
+      const focusManifest = new URL('../../../focus/registry/entries.v1.json', hereUrl);
+      cp(new URL('definitions.js', vendorDir), joinPath(iso, 'registry', 'definitions.js'));
+      cp(focusManifest, joinPath(iso, 'registry', 'entries.v1.json'));
+      const definitions = (await import(toFileUrl(joinPath(iso, 'registry', 'definitions.js')).href)) as unknown as {
+        loadFocusSkillDescriptor: () => { entries: Array<{ id: string }> };
+      };
+      const manifest = definitions.loadFocusSkillDescriptor();
+      expect(manifest.entries).toHaveLength(1);
+      expect(manifest.entries[0]!.id).toBe('sentropic.focus');
+    } finally {
+      rm(iso, { recursive: true, force: true });
+    }
+  });
+
   it('performs NO append — the event log is byte-identical after a render', async () => {
     const { decisionId } = seed()
     const before = readFileSync(eventsPath, 'utf8')
