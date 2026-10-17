@@ -42,6 +42,7 @@
 - [x] F-2c4 — Forçage explicite opérateur (`explicit: true` strict, `forced` tracé ; 8 tests et 4+4 mutations par Node 22/24 + requals 6/13/8, preuve-F-2c4.json). Branchement `--force` du pilote, compensation, délégation et M18 ouverts.
 - [x] F-2c5 — Branchement `--force` du pilote (`explicit` run→exécuteur→installateur ; 3 tests et 2+2 mutations par Node 22/24 + requals 6/13/6, preuve-F-2c5.json). Compensation, délégation et M18 ouverts.
 - [x] F-2c6 — Orchestration source de la délégation sur primitif B1 (`upgrade-delegate.js`, rejeu moteur d'abord, ticket jamais exposé ; 6 tests et 4 mutations par Node 22/24 + requal 14, preuve-F-2c6.json). Compensation et M18 ouverts.
+- [x] D-2d — Grille EEXIST de la désadoption + `explicit` tracé (`unmanage.js`, `mh-l6-unmanage-gate.test.js`, 6 tests et 6 mutations par Node 22/24 + requal 8, preuve-D-2d.json). Round-trips npm et dérives ouverts.
 - [ ] F/M17 — Raccorder les sous-commandes CLI convergées aux droits de writer et aux primitives de mutation communes ; fournir à MH-L8 ses vrais acteurs CLI. L’admission maintenue et le retour d’éligibilité après héritage restent une réalisation MH-L6, jamais un scan/PID absent.
 - [ ] Gate par sous-lot : commandes/sorties conservées, zéro skip/enfant, mutations tuées puis restaurées, vérification des références affectées, commit conventionnel anglais sans trailer, push fast-forward propre branche, rapport français mis à jour.
 - [ ] Revue indépendante confiée au conducteur ; aucune invocation de dispatch installé et aucun verdict de consensus inventé.
