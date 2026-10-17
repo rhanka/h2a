@@ -14,6 +14,22 @@
  */
 
 import { VIBE_LIFECYCLE_SCOPE, VIBE_RESTART } from './native-paths.js';
+import { realpathSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+export function renderWorkspaceScope(host: string, workspace = process.cwd(), session?: string, ownerKey?: string) {
+  if (!['claude', 'codex', 'gemini', 'vibe'].includes(host)) return {
+    supported: false as const, reason: 'No verified PreToolUse surface; workspace scope is not enforced on this host.'
+  };
+  const quote = (s: string) => "'" + s.replace(/'/g, "'\\''") + "'";
+  const args = [process.execPath, fileURLToPath(new URL('../../hooks/workspace-scope-guard.mjs', import.meta.url)),
+    '--workspace', realpathSync(workspace), '--host', host];
+  if (session) args.push('--session', session);
+  if (ownerKey) args.push('--owner-key', resolve(ownerKey));
+  return { supported: true as const, command: args.map(quote).join(' '),
+    reason: 'Pre-action workspace policy; host execution qualification is separate.' };
+}
 
 export type H2AHostPluginMechanism =
   | "claude-settings-hook"
@@ -114,6 +130,7 @@ export interface RenderStopHookOptions {
 }
 
 export interface H2AStopHookRender {
+  readonly workspaceScope: ReturnType<typeof renderWorkspaceScope>;
   readonly host: string;
   readonly mechanism: H2AHostPluginMechanism;
   readonly push: boolean;
@@ -151,6 +168,7 @@ export function renderStopHook(
     `h2a drive receive --to ${options.instance} --stdin --ignore-non-drive` +
     rootArg;
   return {
+    workspaceScope: renderWorkspaceScope(host, process.cwd(), options.instance),
     host: target.host,
     mechanism: target.mechanism,
     push: target.push,
