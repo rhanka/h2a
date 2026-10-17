@@ -52,5 +52,8 @@ expect_block 'git reset --hard HEAD'
 expect_block 'cd /tmp && git -C .'"$tmp"' reset --hard HEAD'
 expect_block 'set -e; git checkout main'
 expect_block 'git clean -fd'
+# Backslash-newline continuation must not dodge the detector.
+expect_block $'git reset \\\n--hard HEAD'
+expect_pass $'git status \\\n--short'
 
 echo 'git dogfood guard tests: ok'
