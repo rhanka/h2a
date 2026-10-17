@@ -70,7 +70,8 @@ for (const label of (process.env.IDLOCK_BUILD_ONLY==='1' ? ['candidate'] : ['can
     for (const pkg of ['h2a', 'h2a-runtime', 'track', 'remote-protocol']) {
       fs.cpSync(join(repo, 'packages', pkg, 'src'), join(dest, 'packages', pkg, 'src'), { recursive: true });
       fs.cpSync(join(repo, 'packages', pkg, 'package.json'), join(dest, 'packages', pkg, 'package.json'));
-      if (pkg === 'h2a') for (const name of ['fixtures', 'schema']) fs.cpSync(join(repo, 'packages', pkg, name), join(dest, 'packages', pkg, name), { recursive: true });
+      const assets = pkg === 'h2a' ? ['fixtures', 'schema', 'registry'] : pkg === 'track' ? ['registry'] : [];
+      for (const name of assets) fs.cpSync(join(repo, 'packages', pkg, name), join(dest, 'packages', pkg, name), { recursive: true });
     }
   }
   fs.cpSync(join(repo, 'packages/h2a/test'), join(dest, 'packages/h2a/test'), { recursive: true });
