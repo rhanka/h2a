@@ -371,6 +371,16 @@ describe('independent review regressions', () => {
     expect(report('md')).toContain('[dossier](https://example.test/my%20doc.md?q=a%2Fb)')
   })
 
+  it('review #7: preserves dossier destinations containing internal IDs without printing IDs as owner text', () => {
+    const internal = '01M515ED3S5WVMD3GVQ6E9WM5G'
+    const dossier = `https://example.test/dossiers/${internal}.md`
+    set(item(), { status: 'decision-awaited', decisionExpectations: { ...expectations, dossier } })
+    expect(report('md')).toContain(`[dossier](${dossier})`)
+    expect(report('text').split('RÉSOLUTION DES HANDLES')[0]).not.toContain(internal)
+    const view = JSON.parse(report()).view
+    expect(view.tables.find((t: { id: string }) => t.id === 'requests').links[0].destination).toBe(dossier)
+  })
+
   it.each([' javascript:alert(1)', '\n\tdata:text/html,hello'])('review #7: rejects whitespace-prefixed schemes %s', dossier => {
     set(item(), { status: 'decision-awaited', decisionExpectations: { ...expectations, dossier } })
     expect(report('md')).not.toContain('[dossier](')
