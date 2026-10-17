@@ -175,6 +175,19 @@ const allFamiliesFixture = (): DecisionDossierDocument => ({
 });
 
 describe("schema accepts the actual model (R4-AC03)", () => {
+  it("preserves an optional opaque diagram-core SemanticDocument without a private DS dependency", () => {
+    const doc = clone(allFamiliesFixture());
+    const diagram = doc.sections.find(s => s.kind === "diagram")!;
+    const scene = require("./diagram-core-generic.fixture.json");
+    Object.assign(diagram, { scene });
+    const result = validateDecisionDossierDocument(doc);
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.value).toEqual(doc);
+    for (const invalid of [null, [], "document", 42]) {
+      Object.assign(diagram, { scene: invalid });
+      expect(validateDecisionDossierDocument(doc).ok).toBe(false);
+    }
+  });
   it("every fixture validates and round-trips unchanged", () => {
     for (const doc of [decisionDossierFixture, allFamiliesFixture()]) {
       const result = validateDecisionDossierDocument(clone(doc));
@@ -380,6 +393,7 @@ describe("published JSON Schema parity with the TS validator (rev352-F3)", () =>
     expect(propsOf(doc, "diagramNode")["targetRef"]).toEqual({ type: "string" });
     expect(propsOf(doc, "diagramNode")["source"]).toEqual({ type: "string" });
     expect(propsOf(doc, "diagramNode")["alt"]).toEqual({ type: "string" });
+    expect(propsOf(doc, "diagramNode")["scene"]).toMatchObject({ type: "object" });
     expect(propsOf(doc, "interaction")["name"]).toEqual({ type: "string" });
     expect(propsOf(doc, "interaction")["targetRef"]).toEqual({ type: "string" });
     expect(propsOf(doc, "interaction")["label"]).toEqual({ type: "string" });
@@ -400,7 +414,7 @@ describe("published JSON Schema parity with the TS validator (rev352-F3)", () =>
     });
     checkClosedObjectDef(doc, "outcomeNode", ["kind", "id", "targetRef", "modality", "statement"], ["kind", "id", "targetRef", "modality", "statement", "questionId"]);
     checkClosedObjectDef(doc, "amendmentTraceNode", ["kind", "id", "targetRef", "steps"], ["kind", "id", "targetRef", "steps"]);
-    checkClosedObjectDef(doc, "diagramNode", ["kind", "id", "targetRef", "syntax", "source", "alt"], ["kind", "id", "targetRef", "syntax", "source", "alt"]);
+    checkClosedObjectDef(doc, "diagramNode", ["kind", "id", "targetRef", "syntax", "source", "alt"], ["kind", "id", "targetRef", "syntax", "source", "alt", "scene"]);
     checkClosedObjectDef(doc, "interaction", ["name", "targetRef", "label", "enabled"], ["name", "targetRef", "label", "enabled"]);
     expect(propsOf(doc, "interaction")["enabled"]).toEqual({ const: false });
     checkClosedObjectDef(doc, "comprehensionEvidence", ["subject", "dossierHash"], ["subject", "dossierHash", "signature"]);

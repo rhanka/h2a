@@ -14,3 +14,8 @@
 - [x] Feedback: harness review selection-failed; installed h2a/mesh access forbidden by owner.
 - [x] Feedback: no Track writes through installed tools; no consensus or review identity claimed.
 - [x] Feedback: generated renderer and lockfile exceed suggested commit size; bounded to requested consumer.
+- [x] Tour 2 scope: optional plain-JSON diagram-core SemanticDocument on Focus DiagramNode;
+      canonical schema/validator/readability, catalog, interim xyflow consumer and targeted regressions.
+- [x] Design contract: generic@1, semantic records only; no Focus scene model, view, geometry or layout hint.
+- [x] Layout L-R1..L-R11 remains DS-owned; interim placement exists only inside the xyflow adapter.
+- [x] Rebase origin/main: already up to date at the start of Tour 2.

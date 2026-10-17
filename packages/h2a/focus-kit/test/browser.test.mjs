@@ -7,6 +7,44 @@ import { pathToFileURL, fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { chromium } from 'playwright';
 
+test('xyflow consumes diagram-core entities, links and nested containers without a Focus graph', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'focus-semantic-browser-'));
+  let browser;
+  try {
+    const doc = JSON.parse(readFileSync(new URL('../dossier.template.json', import.meta.url), 'utf8'));
+    const semantic = JSON.parse(readFileSync(new URL('../../../focus/tests/diagram-core-generic.fixture.json', import.meta.url), 'utf8'));
+    const diagram = doc.sections.find(s => s.kind === 'diagram');
+    diagram.scene = semantic;
+    const input = join(root, 'dossier.json'), output = join(root, 'decision.html');
+    writeFileSync(input, JSON.stringify(doc));
+    const result = spawnSync(process.execPath, [fileURLToPath(new URL('../../dist/bin.js', import.meta.url)), 'focus', 'build', input, '-o', output], {
+      encoding: 'utf8', cwd: root, env: { ...process.env, HOME: root, XDG_RUNTIME_DIR: root,
+        XDG_CONFIG_HOME: root, XDG_STATE_HOME: root, H2A_ROOT: join(root, 'h2a') },
+    });
+    assert.equal(result.status, 0, result.stderr);
+    browser = await chromium.launch({ headless: true, env: { ...process.env, XDG_RUNTIME_DIR: root } });
+    const context = await browser.newContext({ offline: true, viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+    const page = await context.newPage(), errors = [];
+    page.on('pageerror', e => errors.push(e.message));
+    await page.goto(pathToFileURL(output).href);
+    await page.locator('.svelte-flow__node').first().waitFor();
+    assert.equal(await page.locator('.svelte-flow__node').count(), 4);
+    for (const entity of Object.values(semantic.entities)) {
+      assert.equal(await page.locator('.svelte-flow__node').getByText(entity.attributes.name.value, { exact: true }).count(), 1);
+    }
+    for (const [child, parent] of [['models', 'root'], ['gateway', 'models'], ['coordinator', 'root']]) {
+      const childBox = await page.locator(`.svelte-flow__node[data-id="entity:${child}"]`).boundingBox();
+      const parentBox = await page.locator(`.svelte-flow__node[data-id="entity:${parent}"]`).boundingBox();
+      assert.ok(childBox.x > parentBox.x && childBox.y > parentBox.y, `${child} starts inside ${parent}`);
+      assert.ok(childBox.x + childBox.width < parentBox.x + parentBox.width && childBox.y + childBox.height < parentBox.y + parentBox.height, `${child} fits inside ${parent}`);
+    }
+    assert.equal(await page.locator('.svelte-flow__edge').count(), 2, 'contains relations are grouping, not links');
+    assert.equal(await page.locator('.svelte-flow__edge-label').getByText('Demandes', { exact: true }).count(), 1);
+    assert.deepEqual(errors, []);
+    console.log('diagram-core: names, optional link label, nested containers, phone offline OK');
+  } finally { await browser?.close(); rmSync(root, { recursive: true, force: true }); }
+});
+
 test('portable Focus works offline on desktop and phone, including touch pinch and safe text', async () => {
   const root = mkdtempSync(join(tmpdir(), 'focus-browser-'));
   let browser;

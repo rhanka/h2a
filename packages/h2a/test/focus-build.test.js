@@ -122,7 +122,75 @@ test('accepts schema-valid diagram IDs that match object prototype keys', () => 
   const result = run(root, 'build', input, '-o', output)
   assert.equal(result.status, 0, result.stderr)
   const payload = JSON.parse(readFileSync(output, 'utf8').match(/<script type="application\/json" data-focus-document>([\s\S]*?)<\/script>/)[1])
-  assert.ok(Object.hasOwn(payload.scenes, '__proto__'))
+  assert.equal(payload.document.sections.find(s => s.id === '__proto__').scene.profileRefs[0], 'generic@1')
+}))
+
+test('emits diagram-core generic@1 documents for every ecosystem diagram and preserves them on rebuild', () => isolated((root) => {
+  const catalog = JSON.parse(readFileSync(join(kit, 'ecosystem.json'), 'utf8'))
+  for (const name of Object.keys(catalog.scenes)) {
+    const doc = fixture(); doc.sections.find(s => s.kind === 'diagram').source = `ecosystem:${name}`
+    const input = join(root, 'dossier.json'), output = join(root, 'decision.html')
+    writeFileSync(input, JSON.stringify(doc))
+    const result = run(root, 'build', input, '-o', output)
+    assert.equal(result.status, 0, result.stderr)
+    const payload = JSON.parse(readFileSync(output, 'utf8').match(/<script type="application\/json" data-focus-document>([\s\S]*?)<\/script>/)[1])
+    const scene = payload.document.sections.find(s => s.kind === 'diagram').scene
+    assert.ok(scene, name)
+    assert.deepEqual(Object.keys(scene).sort(), ['documentId', 'schemaVersion', 'revision', 'profileRefs', 'typeDefinitions', 'entities', 'relations', 'ports', 'resources', 'extensions'].sort())
+    assert.match(scene.documentId, /^document:/)
+    assert.deepEqual(scene.schemaVersion, { major: 1, minor: 1 })
+    assert.equal(scene.revision, 0)
+    assert.deepEqual(scene.profileRefs, ['generic@1'])
+    for (const key of ['typeDefinitions', 'ports', 'resources']) assert.deepEqual(scene[key], {})
+    assert.deepEqual(scene.extensions, [])
+    for (const [id, entity] of Object.entries(scene.entities)) {
+      assert.match(id, /^entity:/)
+      assert.deepEqual(entity, { id, profile: 'generic@1', type: 'node', attributes: { name: { kind: 'text', value: entity.attributes.name.value } } })
+    }
+    for (const [id, relation] of Object.entries(scene.relations)) {
+      assert.match(id, /^relation:/)
+      assert.deepEqual(Object.keys(relation).sort(), ['id', 'profile', 'type', 'endpoints', 'attributes'].sort())
+      assert.equal(relation.id, id)
+      assert.equal(relation.profile, 'generic@1')
+      assert.equal(relation.type, 'link')
+      assert.deepEqual(relation.endpoints.map(e => e.role), ['source', 'target'])
+      for (const endpoint of relation.endpoints) assert.ok(Object.hasOwn(scene.entities, endpoint.target))
+      assert.equal(relation.attributes.label.kind, 'text')
+    }
+    assert.equal(Object.hasOwn(payload, 'scenes'), false, 'no parallel Focus graph model')
+    assert.doesNotMatch(JSON.stringify(scene), /"(?:view|views|geometry|position|layout|direction|width|height)"/)
+    writeFileSync(input, JSON.stringify(payload.document))
+    const rebuilt = run(root, 'build', input, '-o', output)
+    assert.equal(rebuilt.status, 0, rebuilt.stderr)
+    const again = JSON.parse(readFileSync(output, 'utf8').match(/<script type="application\/json" data-focus-document>([\s\S]*?)<\/script>/)[1])
+    assert.deepEqual(again.document.sections.find(s => s.kind === 'diagram').scene, scene)
+  }
+}))
+
+test('uses supplied diagram-core semantics instead of the Mermaid fallback or ecosystem macro', () => isolated((root) => {
+  const scene = JSON.parse(readFileSync(join(kit, '../../focus/tests/diagram-core-generic.fixture.json'), 'utf8'))
+  const doc = fixture(); doc.sections.find(s => s.kind === 'diagram').scene = scene
+  const input = join(root, 'dossier.json'), output = join(root, 'decision.html')
+  writeFileSync(input, JSON.stringify(doc))
+  const result = run(root, 'build', input, '-o', output)
+  assert.equal(result.status, 0, result.stderr)
+  const payload = JSON.parse(readFileSync(output, 'utf8').match(/<script type="application\/json" data-focus-document>([\s\S]*?)<\/script>/)[1])
+  assert.deepEqual(payload.document.sections.find(s => s.kind === 'diagram').scene, scene)
+}))
+
+test('checks diagram-core visible text through the readability gate before replacing output', () => isolated((root) => {
+  const scene = JSON.parse(readFileSync(join(kit, '../../focus/tests/diagram-core-generic.fixture.json'), 'utf8'))
+  const doc = fixture(); doc.sections.find(s => s.kind === 'diagram').scene = scene
+  const input = join(root, 'dossier.json'), output = join(root, 'decision.html')
+  for (const text of [scene.entities['entity:coordinator'].attributes.name, scene.relations['relation:requests'].attributes.label]) {
+    const previous = text.value; text.value = 'Apply L06b under MH-L3'
+    writeFileSync(input, JSON.stringify(doc)); writeFileSync(output, 'previous dossier')
+    const result = run(root, 'build', input, '-o', output)
+    assert.equal(result.status, 1, result.stderr)
+    assert.match(result.stderr, /undefined_code/)
+    assert.equal(readFileSync(output, 'utf8'), 'previous dossier')
+    text.value = previous
+  }
 }))
 
 test('ships only runtime assets and builds from an extracted npm tarball', () => isolated((root) => {

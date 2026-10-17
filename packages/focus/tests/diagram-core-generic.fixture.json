@@ -1,0 +1,23 @@
+{
+  "documentId": "document:nested",
+  "schemaVersion": { "major": 1, "minor": 1 },
+  "revision": 0,
+  "profileRefs": ["generic@1"],
+  "typeDefinitions": {},
+  "entities": {
+    "entity:root": { "id": "entity:root", "profile": "generic@1", "type": "container", "attributes": { "name": { "kind": "text", "value": "Services" } } },
+    "entity:models": { "id": "entity:models", "profile": "generic@1", "type": "container", "attributes": { "name": { "kind": "text", "value": "Modèles" } } },
+    "entity:coordinator": { "id": "entity:coordinator", "profile": "generic@1", "type": "node", "attributes": { "name": { "kind": "text", "value": "Coordinateur" } } },
+    "entity:gateway": { "id": "entity:gateway", "profile": "generic@1", "type": "node", "attributes": { "name": { "kind": "text", "value": "Relais de modèles" } } }
+  },
+  "relations": {
+    "relation:root-models": { "id": "relation:root-models", "profile": "generic@1", "type": "contains", "endpoints": [{ "role": "parent", "target": "entity:root" }, { "role": "child", "target": "entity:models" }], "attributes": {} },
+    "relation:root-coordinator": { "id": "relation:root-coordinator", "profile": "generic@1", "type": "contains", "endpoints": [{ "role": "parent", "target": "entity:root" }, { "role": "child", "target": "entity:coordinator" }], "attributes": {} },
+    "relation:models-gateway": { "id": "relation:models-gateway", "profile": "generic@1", "type": "contains", "endpoints": [{ "role": "parent", "target": "entity:models" }, { "role": "child", "target": "entity:gateway" }], "attributes": {} },
+    "relation:requests": { "id": "relation:requests", "profile": "generic@1", "type": "link", "endpoints": [{ "role": "source", "target": "entity:coordinator" }, { "role": "target", "target": "entity:gateway" }], "attributes": { "label": { "kind": "text", "value": "Demandes" } } },
+    "relation:replies": { "id": "relation:replies", "profile": "generic@1", "type": "link", "endpoints": [{ "role": "source", "target": "entity:gateway" }, { "role": "target", "target": "entity:coordinator" }], "attributes": {} }
+  },
+  "ports": {},
+  "resources": {},
+  "extensions": []
+}
