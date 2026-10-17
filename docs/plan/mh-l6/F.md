@@ -65,6 +65,34 @@ Audit : `node scripts/mh-l6-f2-audit.mjs
 
 | NOT covered restant | Gate |
 |---|---|
-| Parsing CLI, codes/strict/reprise/abandon/compensation, orchestration de la délégation, activation M18 | F-2b |
+| Parsing CLI, codes/strict/reprise/abandon/compensation, orchestration de la délégation, activation M18 | F-2c |
+| Observateurs B2-3, npm réel D-2b, autres entrées, smoke CI, gel .6 | B2-3/D-2b/E2b3/E3b2b/E3c, M18 toujours ouvert |
+| Revue indépendante | Conducteur ; aucun consensus revendiqué |
+
+## F-2b — autorité inter-transactions (livré)
+
+`assertUpgradeAuthority({ store, upgradeId, controller })` dans
+`packages/h2a/src/runtime/upgrade/upgrade-authority.js` : le contrôleur
+présenté (défaut : identité courante) doit être le contrôleur lié ACTIF
+de la transaction — miroir de la garde moteur, avec une raison CLI
+distincte pour l'étranger (`upgrade_authority_foreign`) et la révocation
+de référence moteur (`upgrade_authority_revoked`, mise en scène par une
+vraie délégation). Lecture seule : ne lie rien, ne forge rien.
+
+| Commande ciblée | Node 22.22.1 | Node 24.21.0 |
+|---|---|---:|
+| `node scripts/mh-l6-test.mjs packages/h2a/test/mh-l6-authority.test.js final-F-2b` | 5/5, exit 0 | 5/5, exit 0 |
+| `mh-l6-mutate.mjs authority` (discordance, révocation, époque, motif) | 4 rouges ERR_ASSERTION / 4 verts | 4 / 4 |
+| Skips / annulations / enfants restants | 0 / 0 / 0 | 0 / 0 / 0 |
+
+Rouge initial : garde absente (`ERR_ASSERTION`, 1 test, exit 1),
+conservé. Audit : `node scripts/mh-l6-f2b-audit.mjs
+/tmp/mh-l3-qualification-f2b-*/source`, exit 0 ; 4 fichiers identiques,
+émission compilée liée par SHA, 5 tests et 4 paires/profil. Preuve :
+`proof-F-2b.json`.
+
+| NOT covered restant | Gate |
+|---|---|
+| Parsing CLI et codes/strict, reprise/abandon/compensation branchés sur cette autorité, orchestration de la délégation, activation M18 | F-2c |
 | Observateurs B2-3, npm réel D-2b, autres entrées, smoke CI, gel .6 | B2-3/D-2b/E2b3/E3b2b/E3c, M18 toujours ouvert |
 | Revue indépendante | Conducteur ; aucun consensus revendiqué |

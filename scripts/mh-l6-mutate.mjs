@@ -116,6 +116,10 @@ const cases = [
   ['npm-command', 'missing-report', "return Object.freeze({ state: 'missing', action: 'install' });", "return Object.freeze({ state: 'managed', action: 'none' });", 'D should report a missing command link after uninstall'],
   ['npm-command', 'occupied-report', "return Object.freeze({ state: 'occupied', action: 'force-required', kind: 'file' });", "return Object.freeze({ state: 'managed', action: 'none' });", 'D should require force where a plain file occupies the command path'],
   ['npm-command', 'dangling-report', "return Object.freeze({ state: 'dangling', action: 'diagnose', actual });", "return Object.freeze({ state: 'legacy', action: 'adopt' });", 'D should report a dangling command link for diagnosis'],
+  ['authority', 'mismatch-check', "if (digest(tx.controllerIdentity) !== digest(controller ?? currentIdentity())) {", 'if (false) {', 'F should refuse a foreign controller with a CLI-level reason'],
+  ['authority', 'revoked-check', "if (tx.controllerAuthorityState !== 'ACTIVE') throw new Error('upgrade_authority_revoked');", '', 'F should refuse a controller revoked by delegation'],
+  ['authority', 'epoch-report', 'epoch: tx.controllerEpoch', 'epoch: tx.controllerEpoch + 1', 'F should authorize the bound controller on its transaction'],
+  ['authority', 'foreign-reason', "throw new Error('upgrade_authority_foreign');", "throw new Error('upgrade_authority_revoked');", 'F should refuse a foreign controller with a CLI-level reason'],
 ];
 const files = group === 'launcher' ? ['packages/h2a/src/runtime/upgrade/managed-launcher.js'] :
   group === 'exclusion' ? ['packages/h2a/src/runtime/upgrade/legacy-exclusion.js', 'packages/h2a/dist/runtime/upgrade/legacy-exclusion.js'] :
@@ -128,11 +132,12 @@ const files = group === 'launcher' ? ['packages/h2a/src/runtime/upgrade/managed-
   group === 'status' ? ['packages/h2a/src/runtime/upgrade/status-report.js', 'packages/h2a/dist/runtime/upgrade/status-report.js'] :
   group === 'upgrade-run' ? ['packages/h2a/src/runtime/upgrade/upgrade-run.js', 'packages/h2a/dist/runtime/upgrade/upgrade-run.js'] :
   group === 'npm-command' ? ['packages/h2a/src/runtime/upgrade/npm-command.js', 'packages/h2a/dist/runtime/upgrade/npm-command.js'] :
+  group === 'authority' ? ['packages/h2a/src/runtime/upgrade/upgrade-authority.js', 'packages/h2a/dist/runtime/upgrade/upgrade-authority.js'] :
   ['packages/h2a/src/runtime/upgrade/h4-store.js', 'packages/h2a/dist/runtime/upgrade/h4-store.js'];
 const originals = files.map(path => ({ path, bytes: fs.readFileSync(path) }));
 const selected = cases.filter(c => c[0] === group && (!process.env.MH_L6_MUTATION || c[1] === process.env.MH_L6_MUTATION));
 if (!selected.length) throw new Error('unknown_mutation_group');
-const testFile = { delegation: 'delegation', launcher: 'launcher', exclusion: 'exclusion', deferral: 'exclusion', bootstrap: 'bootstrap', adoption: 'adoption', 'launcher-install': 'launcher-install', 'adoption-execute': 'adoption', unmanage: 'unmanage', 'adoption-image': 'image-prepare', status: 'status', 'upgrade-run': 'upgrade-run', 'npm-command': 'npm' }[group] ?? 'selection';
+const testFile = { delegation: 'delegation', launcher: 'launcher', exclusion: 'exclusion', deferral: 'exclusion', bootstrap: 'bootstrap', adoption: 'adoption', 'launcher-install': 'launcher-install', 'adoption-execute': 'adoption', unmanage: 'unmanage', 'adoption-image': 'image-prepare', status: 'status', 'upgrade-run': 'upgrade-run', 'npm-command': 'npm', authority: 'authority' }[group] ?? 'selection';
 const file = `packages/h2a/test/mh-l6-${testFile}.test.js`;
 const results = [];
 for (const [, name, from, to, scenario] of selected) {
