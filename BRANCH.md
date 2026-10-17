@@ -44,8 +44,10 @@
   lookup, correlated revoke refusals, revoke survives policy/declaration drift;
   no foreign state lookup before signed repository scope verification.
 - [x] Complete evidence ID coverage is required, including composed fragments.
-- [x] RED baseline: 65 behavioural failures / 170 tests, zero skips; execution
-  proof also rejects the old duplicate test names. GREEN: 170/170 on Linux
+- [x] Snapshot authorizations must match the exact caller and issuing proof IDs;
+  same-owner proof substitution produced 2 RED failures before its guard.
+- [x] RED baseline: 67 behavioural failures / 172 tests, zero skips; execution
+  proof also rejects the old duplicate test names. GREEN: 172/172 on Linux
   Node 22.22.1 and 24.18.0, zero skips; production execution-proof verifier
   accepts each three-file targeted report; strict test and repo types pass.
 - [x] Fixed the duplicate parameterized secret-test identity that caused the
