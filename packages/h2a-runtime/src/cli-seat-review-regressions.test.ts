@@ -127,6 +127,13 @@ describe("review 348 finding 5: pinned envelope invariants", () => {
 });
 
 describe("review 348 finding 6: serialized family admission", () => {
+  it("assigns a new stream operation id after an unchanged turn", () => {
+    const root = scratch(); const first = seats.beginSerializedStream(randomUUID(), predecessor, root);
+    seats.captureSerializedResult(first, { failed: false, changed: false, ambiguous: false });
+    expect(seats.validateStreamClearance(first, { ...first, cleanupComplete: true }).cleared).toBe(true);
+    const second = seats.beginSerializedStream(first.familyRef, predecessor, root);
+    expect(second.streamOperationId).not.toBe(first.streamOperationId);
+  });
   it("does not materialize the same delegated grant twice", () => {
     const root = scratch(); const bundle = makeSyntheticSeatBundle("codex");
     const ticket = seats.beginSerializedStream(bundle.identity.refreshFamilyRef!, bundle.lifecycle, root);
@@ -177,6 +184,12 @@ describe("review 348 finding 7: scenario tools and adversarial surfaces", () => 
 });
 
 describe("review 348 finding 8: precedence, faults and encoded secrets", () => {
+  it.each(["argv", "environment", "receipt"])("rejects base64 credential bytes in %s independently", surface => {
+    const secret = "invented-review-secret", encoded = Buffer.from(secret).toString("base64");
+    if (surface === "argv") expect(() => seats.assertArgvClean([encoded], [secret])).toThrow(/credential in argv/);
+    else if (surface === "environment") expect(seats.sanitizeEnvJson({ innocuous: encoded }, [secret]).env).toEqual({});
+    else expect(() => seats.assertReceiptClean({ note: encoded }, [secret])).toThrow(/credential in receipt/);
+  });
   it.each(SEAT_CLIS_5)("resolves poisoned ambient credentials before materializing %s", (cli) => {
     const codec = CLI_SEAT_CODECS[cli]; const env = Object.fromEntries(codec.credentialEnvVars.map(k => [k, "poisoned-secret"]));
     expect(resolveCredentialPrecedence(cli, env).winner).toBe(codec.credentialEnvVars.length ? "env" : "file");

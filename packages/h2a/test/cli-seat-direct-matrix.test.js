@@ -106,6 +106,25 @@ test("billing admission refuses daily credentials, missing owner/Q3 approval and
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
+test("serialized family admission excludes a second process", () => {
+  const root = mkdtempSync(join(runtimeRoot, "h2a-seat-stream-process-"));
+  try {
+    const predecessor = { epoch: 1, generation: 0, operationId: "synthetic-process-op" };
+    seats.beginSerializedStream("synthetic-process-family", predecessor, root);
+    const moduleUrl = pathToFileURL(join(compiled, "cli-seat-materialization.js")).href;
+    const script = `const seats = await import(process.argv[1]); try {
+      seats.beginSerializedStream("synthetic-process-family", { epoch: 1, generation: 0, operationId: "synthetic-process-op" }, process.argv[2]);
+      process.exitCode = 1;
+    } catch (error) { if (error.code !== "family-pending") throw error; }`;
+    const result = spawnSync(process.execPath, ["--input-type=module", "--eval", script, moduleUrl, root], {
+      encoding: "utf8", timeout: 5_000,
+      env: { PATH: "/usr/bin:/bin", HOME: root, TMPDIR: root, XDG_RUNTIME_DIR: root },
+    });
+    assert.ifError(result.error); assert.equal(result.signal, null);
+    assert.equal(result.status, 0, "a different process must observe the pending family fence");
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
 test("live stub refuses missing receipts without resolving installed provider packages", () => {
   const root = mkdtempSync(join(tmpdir(), "h2a-seat-stub-"));
   try {
