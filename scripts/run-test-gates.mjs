@@ -70,6 +70,7 @@ import { TEST_DIRS, discoverTestFiles, listNodeTrackSuiteFiles, NODE_TRACK_EXECU
 import { discoverSuites, verifyExecutionReport, readInventory, inventoryFailures } from './test-execution-evidence.mjs'
 import { policyFor, readDeclaredNonTests } from './test-inventory.mjs'
 import { tmpdir } from 'node:os'
+import { reportSuiteDurations } from './report-test-durations.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const REPO_ROOT = resolve(HERE, '..')
@@ -471,6 +472,15 @@ export function runGates(steps, options = {}) {
       }
     }
 
+    // Read before invocation-scoped evidence is removed, including failed runs.
+    // Missing/malformed proof keeps its existing failure semantics above.
+    if (reportPath) {
+      try {
+        reportSuiteDurations(JSON.parse(readFileSync(reportPath, 'utf8')), { label: step.id, write })
+      } catch {
+        write(`WARNING: ${step.id}: suite timing unavailable (missing or malformed report).\n`)
+      }
+    }
     if (evidenceDir) rmSync(evidenceDir, { recursive: true, force: true })
     if (status !== PASSED && step.id === 'build') buildFailed = true
     results.push({ id: step.id, status, code, ms, timeoutMs })

@@ -70,6 +70,58 @@ function workflowJobBlock(source, id) {
     : fromJob.slice(0, marker.length + nextJob)
 }
 
+test('CI budgets leave headroom above the measured fifteen-minute integration run', () => {
+  for (const id of ['build-and-test', 'npm-test-trust-root']) {
+    const job = workflowJobBlock(CI_WORKFLOW, id)
+    assert.match(job, /^    timeout-minutes: 25$/m)
+  }
+})
+
+test('suite timing ranks Node and Vitest evidence and warns about slow suites', async () => {
+  const { reportSuiteDurations } = await import('../../../scripts/report-test-durations.mjs')
+  let output = ''
+  reportSuiteDurations({ testResults: [
+    { name: 'quick.test.js', durationMs: 12 },
+    { name: 'slow.test.ts', startTime: 1000, endTime: 81000 },
+    { name: 'middle.test.js', durationMs: 2000 },
+    { name: 'unknown.test.js' },
+  ] }, { label: 'fixture', write: text => { output += text }, limit: 2 })
+  assert.match(output, /80\.0s slow\.test\.ts[\s\S]*2\.0s middle\.test\.js/)
+  assert.doesNotMatch(output, /quick\.test\.js/)
+  assert.match(output, /WARNING.*1 suite.*60\.0s/)
+  assert.match(output, /1 suite.*without timing/)
+})
+
+test('Node timing counts top-level durations once and preserves execution verdicts', async () => {
+  const { default: reporter } = await import('../../../scripts/node-evidence-reporter.mjs')
+  async function* events() {
+    yield { type: 'test:pass', data: { file: '/tmp/timing.test.js', name: 'nested', nesting: 1, details: { duration_ms: 20 } } }
+    yield { type: 'test:pass', data: { file: '/tmp/timing.test.js', name: 'parent', nesting: 0, details: { type: 'suite', duration_ms: 30 } } }
+    yield { type: 'test:fail', data: { file: '/tmp/timing.test.js', name: 'other', nesting: 0, details: { duration_ms: 10 } } }
+  }
+  let report
+  for await (const chunk of reporter(events())) report = JSON.parse(chunk)
+  assert.equal(report.testResults[0].durationMs, 40)
+  assert.equal(report.success, false)
+  assert.equal(report.numPassedTests, 1)
+  assert.equal(report.numFailedTests, 1)
+})
+
+test('gate prints suite timing even when execution fails, without upgrading the verdict', () => {
+  const lab = mkdtempSync(join(tmpdir(), 'gate-timing-'))
+  try {
+    const reportPath = join(lab, 'report.json')
+    const io = capture()
+    const code = runGates([step('broken-suite', 1, {
+      args: ['-e', `require('node:fs').writeFileSync(${JSON.stringify(reportPath)}, JSON.stringify({testResults:[{name:'broken.test.js',durationMs:70000}]}));process.exit(1)`],
+      reportPath,
+    })], io.options)
+    assert.equal(code, 1)
+    assert.match(io.text, /70\.0s broken\.test\.js/)
+    assert.match(io.text, /broken-suite\s+failed\s+exit 1/)
+  } finally { rmSync(lab, { recursive: true, force: true }) }
+})
+
 /** A synthetic step that exits with the given code. */
 function step(id, exitCode, extra = {}) {
   return {
@@ -1015,6 +1067,7 @@ function sentinelRunnerSource({ brokenId, dropInLoop, dropAtEntry, executionProo
   assert.notEqual(source, beforeImport, 'the import splice must apply to the real runner source')
   source = source.replaceAll("'./test-execution-evidence.mjs'", JSON.stringify(pathToFileURL(resolve(REPO_ROOT, 'scripts/test-execution-evidence.mjs')).href))
   source = source.replaceAll("'./test-inventory.mjs'", JSON.stringify(pathToFileURL(resolve(REPO_ROOT, 'scripts/test-inventory.mjs')).href))
+  source = source.replaceAll("'./report-test-durations.mjs'", JSON.stringify(pathToFileURL(resolve(REPO_ROOT, 'scripts/report-test-durations.mjs')).href))
   source = source.replace("const inventory = readInventory(REPO_ROOT)", "const inventory = {}").replace("policyFor(REPO_ROOT, inventory, 'runtime')", "{}")
   const beforeRoot = source
   source = source.replace("const REPO_ROOT = resolve(HERE, '..')", 'const REPO_ROOT = HERE')
