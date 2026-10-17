@@ -27,7 +27,9 @@
     "src/session-content-import.test.ts",
     "src/session-content-history.ts",
     "src/session-content-archive-export.ts",
-    "src/session-content-api.ts"
+    "src/session-content-api.ts",
+    "src/session-content-types.ts",
+    "src/session-content-fixture-types.typecheck.ts"
   ],
   "exclude": []
 }
