@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 
 import {
   bindingForEvent,
@@ -7,6 +10,9 @@ import {
   mainEligibility,
   validateInput,
 } from "../../../scripts/gateway-consumer-ci.mjs";
+
+const HERE = dirname(fileURLToPath(import.meta.url));
+const REPO = join(HERE, "..", "..", "..");
 
 const HEX64 = "a".repeat(64);
 const HEX64B = "b".repeat(64);
@@ -165,6 +171,208 @@ test("PR source binding requires identical triple across jobs", () => {
     checkoutSha: "x".repeat(40),
   });
   assert.match(stale.errors.join(";"), /checkout/i);
+});
+
+test("programCoverage union: cross-program rows validate with union top-level profiles", () => {
+  const input = activeInput({
+    phase: "pr1-published",
+    profiles: [
+      "gateway-messaging",
+      "gateway-runtime",
+      "registry-focus",
+      "registry-runtime",
+    ],
+    programCoverage: [
+      {
+        program: "gateway",
+        phase: "pr1-published",
+        contractSha256: HEX64,
+        profiles: ["gateway-messaging", "gateway-runtime"],
+      },
+      {
+        program: "registry",
+        phase: "r4-published",
+        contractSha256: HEX64B,
+        profiles: ["registry-focus", "registry-runtime"],
+      },
+    ],
+  });
+  assert.deepEqual(validateInput(input), []);
+});
+
+test("programCoverage rows reject unknown profiles and enforce the sorted union", () => {
+  const withUnknown = activeInput({
+    programCoverage: [
+      {
+        program: "gateway",
+        phase: "baseline-662",
+        contractSha256: HEX64,
+        profiles: ["gateway-messaging", "gateway-runtime"],
+      },
+      {
+        program: "registry",
+        phase: "r4-published",
+        contractSha256: HEX64B,
+        profiles: ["unknown-profile"],
+      },
+    ],
+  });
+  assert.match(validateInput(withUnknown).join(";"), /profile/);
+  const driftedUnion = activeInput({
+    programCoverage: [
+      {
+        program: "gateway",
+        phase: "baseline-662",
+        contractSha256: HEX64,
+        profiles: ["gateway-messaging", "gateway-runtime"],
+      },
+      {
+        program: "registry",
+        phase: "r4-published",
+        contractSha256: HEX64B,
+        profiles: ["registry-focus"],
+      },
+    ],
+  });
+  assert.match(validateInput(driftedUnion).join(";"), /union/);
+  const badContract = activeInput({
+    programCoverage: [
+      {
+        program: "gateway",
+        phase: "baseline-662",
+        contractSha256: HEX64B,
+        profiles: ["gateway-messaging", "gateway-runtime"],
+      },
+    ],
+  });
+  assert.match(
+    validateInput(badContract).join(";"),
+    /active row must match top-level contract/,
+  );
+});
+
+test("phase none is exactly schemaVersion/program/phase", () => {
+  assert.match(
+    validateInput({
+      schemaVersion: 1,
+      program: "gateway",
+      phase: "none",
+      candidateBundle: { fake: true },
+      artifactManifestText: "x",
+      scopes: ["y"],
+    }).join(";"),
+    /phase none/,
+  );
+});
+
+test("closed sub-objects reject unknown keys", () => {
+  const manifest = activeInput({
+    artifactManifest: { sha256: HEX64, bogus: 1 },
+  });
+  assert.match(
+    validateInput(manifest).join(";"),
+    /artifactManifest has unknown key/,
+  );
+  const bundle = {
+    ...activeInput({ phase: "pr1-candidate", artifactKind: "candidate" }),
+    artifactManifest: {
+      sha256: HEX64,
+      path: `.github/gateway-candidates/pr1-candidate/${HEX64}/manifest.json`,
+    },
+    candidateBundle: {
+      root: `.github/gateway-candidates/pr1-candidate/${HEX64}/`,
+      indexPath: `.github/gateway-candidates/pr1-candidate/${HEX64}/bundle-index.json`,
+      bundleSha256: HEX64,
+      bogus: 1,
+    },
+  };
+  delete bundle.artifactManifestText;
+  assert.match(
+    validateInput(bundle).join(";"),
+    /candidateBundle has unknown key/,
+  );
+  const pkg = activeInput({
+    packages: [
+      {
+        lockLocation: "a",
+        name: "b",
+        version: "c",
+        resolved: "d",
+        integrity: "e",
+        bogus: 1,
+      },
+    ],
+  });
+  assert.match(validateInput(pkg).join(";"), /packages\[0\] has unknown key/);
+  const coverage = activeInput({
+    programCoverage: [
+      {
+        program: "gateway",
+        phase: "baseline-662",
+        contractSha256: HEX64,
+        profiles: ["gateway-messaging", "gateway-runtime"],
+        bogus: 1,
+      },
+    ],
+  });
+  assert.match(
+    validateInput(coverage).join(";"),
+    /programCoverage\[0\] has unknown key/,
+  );
+});
+
+test("candidateBundle.root must resolve under the active candidate phase", () => {
+  const input = {
+    ...activeInput({ phase: "pr1-candidate", artifactKind: "candidate" }),
+    artifactManifest: {
+      sha256: HEX64,
+      path: `.github/gateway-candidates/pr2-candidate/${HEX64}/manifest.json`,
+    },
+    candidateBundle: {
+      root: `.github/gateway-candidates/pr2-candidate/${HEX64}/`,
+      indexPath: `.github/gateway-candidates/pr2-candidate/${HEX64}/bundle-index.json`,
+      bundleSha256: HEX64,
+    },
+  };
+  delete input.artifactManifestText;
+  assert.match(
+    validateInput(input).join(";"),
+    /active candidate phase/,
+  );
+});
+
+test("schema binds candidate phases to candidate and published phases to published", () => {
+  const schema = JSON.parse(
+    readFileSync(join(REPO, ".github", "gateway-consumer-input.schema.json"), "utf8"),
+  );
+  const binds = (phases, kind) =>
+    schema.allOf.some(
+      (branch) =>
+        Array.isArray(branch?.if?.properties?.phase?.enum) &&
+        phases.every((p) => branch.if.properties.phase.enum.includes(p)) &&
+        branch?.then?.properties?.artifactKind?.const === kind,
+    );
+  const candidates = [
+    "pr1-candidate",
+    "pr2-candidate",
+    "pr3-candidate",
+    "r4-candidate",
+    "r5-candidate",
+    "r6-candidate",
+    "r7b-candidate",
+  ];
+  const published = [
+    "baseline-662",
+    "pr1-published",
+    "pr2-published",
+    "pr3-published",
+    "r4-published",
+    "r5-published",
+    "r6-published",
+    "r7b-published",
+  ];
+  assert.equal(binds(candidates, "candidate"), true);
+  assert.equal(binds(published, "published"), true);
 });
 
 test("scoped mode requires selectors; aggregate forbids them", () => {
