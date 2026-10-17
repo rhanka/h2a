@@ -267,7 +267,7 @@ export function writeSeatMcpConfiguration(cli: SeatCli5, locations: { homeDir: s
   } else if (cli === "vibe") {
     path = join(locations.configDir, "vibe/config.toml");
     content = `[[mcp_servers]]\nname = "h2a"\ntransport = "stdio"\ncommand = ${JSON.stringify(server.command)}\nargs = ${JSON.stringify(server.args)}\n`;
-    content += `[mcp_servers.env]\n${envToml}`;
+    content += `env = { ${Object.entries(env).map(([k, v]) => `${JSON.stringify(k)} = ${JSON.stringify(v)}`).join(", ")} }\n`;
   } else {
     path = cli === "claude" ? join(locations.configDir, ".claude.json") : cli === "muse" ? join(locations.configDir, "muse/settings.json") : join(locations.homeDir, ".gemini/config/mcp_config.json");
     content = JSON.stringify({ ...(cli === "claude" ? { hasCompletedOnboarding: true } : {}), mcpServers: { h2a: server } }) + "\n";
@@ -280,26 +280,33 @@ export function writeSeatMcpConfiguration(cli: SeatCli5, locations: { homeDir: s
  * Write synthetic credential stand-ins (canary-bearing) into an isolated
  * home/config pair. Replaces lab copyLogin: no owner store is ever read.
  */
+export interface SyntheticCredentialMaterial {
+  kind: "renewable" | "access-only" | "static-key";
+  materialRef: string;
+}
+
 export function writeSyntheticCredentialFiles(
   cli: SeatCli5,
-  locations: { homeDir: string; configDir: string; canary: string },
+  locations: { homeDir: string; configDir: string; canary: string; material?: SyntheticCredentialMaterial },
 ): string[] {
   const paths = credentialFilePaths(cli, locations);
-  const { canary } = locations;
+  // References are invented payloads in L2-s, never resolved from a live store.
+  const canary = locations.material ? `${locations.canary}:${locations.material.materialRef}` : locations.canary;
+  const renewable = locations.material?.kind === "renewable";
   if (cli === "claude") {
     writePrivateSeatFile(
       paths[0] as string,
-      JSON.stringify({ claudeAiOauth: { accessToken: canary, expiresAt: 1792195200000, scopes: ["user:inference"] } }) + "\n",
+      JSON.stringify({ claudeAiOauth: { accessToken: canary, ...(renewable ? { refreshToken: canary } : {}), expiresAt: 1792195200000, scopes: ["user:inference"] } }) + "\n",
     );
   } else if (cli === "codex") {
     writePrivateSeatFile(
       paths[0] as string,
-      JSON.stringify({ auth_mode: "chatgpt", tokens: { access_token: canary, id_token: `synthetic-id-${canary}`, account_id: "synthetic-account" }, last_refresh: "2026-10-15T00:00:00.000Z" }) + "\n",
+      JSON.stringify({ auth_mode: "chatgpt", tokens: { access_token: canary, ...(renewable ? { refresh_token: canary } : {}), id_token: `synthetic-id-${canary}`, account_id: "synthetic-account" }, last_refresh: "2026-10-15T00:00:00.000Z" }) + "\n",
     );
   } else if (cli === "muse") {
     writePrivateSeatFile(
       paths[0] as string,
-      JSON.stringify({ schema_version: 1, providers: { meta: { access_token: canary } } }) + "\n",
+      JSON.stringify({ schema_version: 1, providers: { meta: { access_token: canary, ...(renewable ? { refresh_token: canary } : {}) } } }) + "\n",
     );
   } else if (cli === "vibe") {
     writePrivateSeatFile(paths[0] as string, `MISTRAL_API_KEY=${canary}\n`);
