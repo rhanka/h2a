@@ -25,3 +25,5 @@ packages/h2a/focus-app/** -text -diff
 # a security guard, from PR review. Force textual diff. Do NOT "fix" the NUL byte instead:
 # it is inside a hash input, so changing it would change every derived workspace id.
 packages/h2a/src/*.ts diff
+# Generated descriptor checks compare canonical bytes on every checkout.
+packages/h2a/src/runtime/mcp-central-descriptor.js text eol=lf

@@ -474,9 +474,9 @@
     "h2a host setup rejects unknown host values",
     "h2a host setup --write creates a new config file with mcpServers.h2a",
     "h2a host setup --write preserves pre-existing mcpServers.other",
-    "h2a host setup --write replaces h2a aliases and disables standalone Track MCP entries",
+    "h2a host setup --write edits h2a and preserves aliases and standalone Track entries",
     "h2a host setup refuses native TOML, YAML, and JSONC writes before it can overwrite them",
-    "h2a host setup --write --force may intentionally replace malformed JSON",
+    "h2a host setup --write refuses malformed JSON even with --force",
     "h2a host setup --write is idempotent when the target already matches"
   ],
   "packages/h2a/test/identity-bindings.test.js": [],
@@ -892,5 +892,9 @@
     "stable refuses an RC proof missing focus or carrying a wrong focus version",
     "publish sanity refuses legacy four-package preparation and stale focus versions before publication",
     "five-package prepare hands the independent focus version to the publication sanity gate"
+  ],
+  "packages/h2a/test/candidate-artifacts.test.js": [
+    "verify, rehearsal and cross-platform smoke consume the same closed candidate producer",
+    "candidate tarballs include both verified payloads and the exact four-package cohort"
   ]
 }
