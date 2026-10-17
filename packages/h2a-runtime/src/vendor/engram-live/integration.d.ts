@@ -1,3 +1,5 @@
+// Vendored from rhanka/engram@545a57b8911ab108e84fa1778e0f268fe11bf1de: engram-live/integration.ts.
+// Compiled with TypeScript 5.9.3 (ES2022/NodeNext, declarations); do not hand-edit.
 import { type CapabilityId, type CapabilityStatus, type CoverageReport, type FactBatchDto, type GrammarCoverageDto, type LiveScope, type ValidationResult, type WorkspaceDeclarationDto } from "./contracts.js";
 export interface GitPort {
     /** Bounded Git read seam; operations arrive with L2a/L2b. Unused in L1b. */

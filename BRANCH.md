@@ -455,6 +455,18 @@ installed h2a, native host, foreign PID, full local suite, merge or publication.
 CI on the PR is the integration authority. External review through the real
 h2a/mesh is excluded by the owner's confinement; no consensus is claimed.
 
+## Live Git R1 — owner scope 2026-10-16
+
+- [x] Branch `feat/live-git-r1-retention`; engram plan/09 R1 and LIVE §4 are authoritative. No main change, merge, release, source-repository write or full local test suite.
+- [x] R1 design: bind each host port to one authorized tenant/clone/format. Read only source objects through a private git-dir and a whitelisted environment, stream a pinned full-history pack into a fenced private generation, verify commit/parent/tree/blob closure, enforce the object-byte quota including indexes, then sync objects, pin and receipt. Every request is durable before acquisition; quota/busy/missing objects remain explicit retryable backlog. No eviction or source alternates.
+- [x] R1 lifecycle: a job-removal callback runs only after a validated receipt for the entry scope/algorithm/OID; expose local backup paths and opaque stable backup references for L8. Runtime supervision/composition belongs to L7a; no automatic job worktree removal exists in the current host.
+- [x] Scope amendment R1-H-EX1 (required by the owner request): retain the three plan/09 host paths `packages/h2a-runtime/src/gateway-host/live-object-store.ts`, `packages/h2a-runtime/src/gateway-host/live-object-store.test.ts`, `packages/h2a-runtime/src/delegate.ts`; add `packages/h2a-runtime/src/gateway-host/fixtures/live-object-store-child.mjs` for real-process pack/pin suspension. Additionally refresh the four runtime vendor entries `contracts`, `registration`, `integration`, `retention` (each `.js`/`.d.ts`), the two core `contracts` files, and `packages/h2a-runtime/src/gateway-host/live-registration.test.ts` for pinned integrity/parity. Generated vendor size is not handwritten implementation scope. Source is engram `545a57b8911ab108e84fa1778e0f268fe11bf1de`, independently matched to remote main with `git ls-remote`; the read-only clone cannot update FETCH_HEAD.
+- [x] Scope amendment R1-H-EX2: fix the explicitly requested L6a-H residual in `packages/h2a-runtime/src/gateway-host/live-declarations.ts`, `packages/h2a-runtime/src/gateway-host/live-declarations-process.test.ts`, `packages/h2a-runtime/src/gateway-host/fixtures/live-declarations-child.mjs`; remove `docs/plan/live-git/L6a-H-next.md` and its `scripts/test-non-tests-0986.json` entry. Update the exact remaining declaration counts in `packages/h2a/test/gate-execution-evidence.test.js` (27 total, 4 runtime) and explicitly forbid re-declaring the fixed suite. Atomic publication of a prepared nonempty directory replaces the proposed file/link protocol while preserving generation-source fencing; update and delete cuts both execute.
+- [x] Delivery lots: L6a lock regression/declaration removal; pinned neutral vendor refresh; private object store/lifecycle handoff and targeted regressions. Stage each logical lot separately, with English conventional subjects and no attribution trailer.
+- [x] Final verification: named suites on Node 22/24 (14 retention, 22 registration, 9 declaration fencing), seven rejected/restored mutants, isolated source-only typecheck, vendor dist mirror, declaration execution gate (109 tests on each Node version) and diff check; exact commands/results in the owner scratchpad report.
+- [x] Scope amendment R1-H-EX3: align consumption-provenance comments in `packages/h2a/src/runtime/live/contracts.ts` and the already scoped runtime registration test with the refreshed vendor source; no API or behavior change.
+- [x] Push this branch and open English PR https://github.com/rhanka/h2a/pull/343 to main. The owner scratchpad report lists every observed CI job and its current/final status. No external h2a review can be performed within the owner confinement; review is recorded as unavailable, without consensus.
+
 
 ## Main CI repair — Tour 2
 
@@ -474,6 +486,14 @@ tag; no offline/cache exception remains. Execution tests retain all four
 publish bodies, default/backfill selection and npm failure propagation.
 The owner report records strict-test red/green, broken-package rejection,
 targeted regressions and final PR CI. No full local suite is authorized.
+
+## Co-review R1 — owner scope 2026-10-17
+
+- Owner authorizes integrating origin/main through a normal merge (including #350 crash logs), targeted regressions only, and fast-forward push of feat/live-git-r1-retention. This supersedes the earlier R1 merge restriction.
+- Close gr-conductor's one major and five minor findings in the existing R1 paths plus its process fixture: generation-sourced atomic pack/pin/receipt/gap publication, bounded per-request receipt lookup with no fsck during load, exclusion of retained history, logical quarantine and retry of invalid receipts/missing pins, vanished-lock contention classification, and neutral-engine ownership of request satisfaction. No vendored contract changes.
+- Real owned processes suspend at pack, pin and receipt publication; the fenced process performs zero shared writes while the successor remains suspended with its lease. Every process is reaped in finally. Sources and runtime roots are temporary.
+- Baseline at 36567c25: the strengthened named retention suite exits 1 (9 failed, 14 passed); corrected suite exits 0 (23 passed, no skips). Exact commands, final head CI jobs and remaining qualification live in the owner scratchpad's “Co-revue gr-conductor” appendix and tmp/l6r1-coreview evidence.
+- No installed h2a or host state, full local suite, foreign PID, Python, main mutation or force push. External harness consensus cannot be run within the owner's confinement (installed h2a MCP required); no consensus claimed. Track remains single-writer: do not append/consolidate from this concurrent worktree.
 
 
 ## RC on npm next — owner decision 2026-10-16, part B
