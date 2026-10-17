@@ -311,6 +311,14 @@ function main() {
     H2A_LOCK_STRESS: "1"
   };
 
+  // These suites require the real pinned archives, never absent-state skips.
+  const prepared = spawnSync(process.execPath, [join(REPO_ROOT, "scripts/prepare-mh-test-fixtures.mjs")], {
+    cwd: REPO_ROOT, env: testEnv, encoding: "utf8", timeout: 600_000, maxBuffer: 8 * 1024 * 1024,
+  });
+  if (prepared.status !== 0) throw new Error(`run-tests: MH fixtures failed: ${prepared.stderr ?? prepared.error}`);
+  const mhFixtures = JSON.parse(prepared.stdout);
+  Object.assign(testEnv, mhFixtures.env);
+
   // Track's no-store fixtures intentionally walk to the filesystem root.
   // Use the invocation's temporary parent, and reject any .track ancestor.
   function hasTrackAncestor(dir) {
@@ -441,6 +449,7 @@ function main() {
     writeFileSync(reportPath, JSON.stringify(combined));
     exitCode = holes.length ? 1 : [nodeStatus, ...vitestStatuses, laneStatus].every((status) => status === 0) ? 0 : Math.max(nodeStatus, ...vitestStatuses, laneStatus);
   } finally {
+    for (const root of mhFixtures.owned) rmSync(root, { recursive: true, force: true });
     // Best-effort cleanup of what this run provisioned. A preset legacy dir
     // (owner-provided) is never ours to delete. The lane helper records the
     // lane it built in tmp/idlock-build2-lane.txt: remove that lane — and the

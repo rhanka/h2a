@@ -45,12 +45,18 @@ import {resolve} from 'node:path';
 const root = ${JSON.stringify(root)}, files = ${JSON.stringify(files)}, track = ${JSON.stringify(track)}, agentStats = ${JSON.stringify(agentStats)}, focus = ${JSON.stringify(focus)}, laneFiles = ${JSON.stringify(LANE_TEST_FILES)};
 const observed=[];
 cp.spawnSync=(command,args,options)=>{
+  if (typeof args[0] === 'string' && args[0].endsWith('prepare-mh-test-fixtures.mjs')) {
+    if(command!==process.execPath) throw Error('fixture producer must use the candidate Node');
+    observed.push('Fixtures');writeFileSync(${JSON.stringify(markers)},JSON.stringify(observed));
+    return {status:0,stdout:JSON.stringify({env:{MH_L5_ARTIFACTS:root+'/published',MH_L6_NATIVE_ASSETS:root+'/native'},owned:[]})};
+  }
   if (typeof args[0] === 'string' && args[0].endsWith('identity-isolated-run.mjs')) {
     if(command!==process.execPath || args.some((arg)=>/name-pattern|skip-pattern|test-only/.test(arg)) || JSON.stringify(args.slice(1))!==JSON.stringify(laneFiles)) throw Error('lane suite omitted or filtered required lane files');
     observed.push('Lane');writeFileSync(${JSON.stringify(markers)},JSON.stringify(observed));
     return {status:0};
   }
   const node=args.includes('--test');
+  if(!options.env.MH_L5_ARTIFACTS || !options.env.MH_L6_NATIVE_ASSETS) throw Error('mandatory MH fixtures were not passed to the suites');
   const suite=options.cwd.endsWith('packages/agent-stats')?'AgentStats':(options.cwd.endsWith('packages/focus')?'Focus':'Track');
   const actual=node ? args.filter((arg)=>arg.endsWith('.test.js')).map((arg)=>resolve(options.cwd,arg)) : args.filter((arg)=>arg.endsWith('.test.ts')||arg.endsWith('.spec.ts')).map((arg)=>resolve(options.cwd,arg));
   const required=(node?files:(suite==='AgentStats'?[agentStats]:(suite==='Focus'?[focus]:[track]))).map((file)=>resolve(root,file));
@@ -67,6 +73,6 @@ cp.spawnSync=(command,args,options)=>{
     delete env.H2A_TEST_REPORT_PATH
     const result = spawnSync(process.execPath, ['--import', join(root, 'mock-spawn.mjs'), join(root, 'scripts/run-tests.mjs')], { cwd: root, env, encoding: 'utf8', timeout: 30_000 })
     assert.equal(result.status, 0, `Node/Track production entry did not prove execution:\n${result.stdout}${result.stderr}`)
-    assert.deepEqual(JSON.parse(readFileSync(markers, 'utf8')), ['Node', 'Track', 'AgentStats', 'Focus', 'Lane'], 'each production suite must actually reach the execution boundary')
+    assert.deepEqual(JSON.parse(readFileSync(markers, 'utf8')), ['Fixtures', 'Node', 'Track', 'AgentStats', 'Focus', 'Lane'], 'each production suite must actually reach the execution boundary after its prerequisites')
   } finally { rmSync(root, { recursive: true, force: true }) }
 }

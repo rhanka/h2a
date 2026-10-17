@@ -102,9 +102,9 @@ const tarballName = (name) =>
   `${name.replace(/^@/, '').replace(/\//, '-')}-${runtimeVersion}.tgz`
 
 try {
+  if (!providedTarballs) runSync(process.execPath, [join(REPO_ROOT, "scripts/pack-candidate.mjs"), staging])
   const digests = new Map()
   for (const pkg of PACKAGES) {
-    if (!providedTarballs) runSync('npm', ['pack', '--workspace', pkg, '--pack-destination', staging])
     const tarball = join(staging, tarballName(pkg))
     if (!existsSync(tarball)) fail(`expected candidate tarball ${tarball} was not packed`)
     digests.set(tarball, createHash('sha256').update(readFileSync(tarball)).digest('hex'))
