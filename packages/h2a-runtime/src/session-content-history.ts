@@ -23,8 +23,6 @@ export class NativeHistoryProvider {
     const selected=policy.history.mode==='existing-at-activation'?this.catalog:this.catalog.filter(e=>policy.history.selected.some(h=>h.lineageId===e.lineageId));
     if(!selected.length || (policy.history.mode==='selected'&&selected.length!==policy.history.selected.length))throw new Error('history_scope_refused');
     for(const selector of policy.history.selected){
-      // No provider record index is qualified here. Refuse a partial range before reading any record.
-      if(selector.fromRecord!==null||selector.toRecord!==null)throw new Error('unsupported_format');
       const entry=selected.find(e=>e.lineageId===selector.lineageId);if(!entry||(selector.checkpointId!==null&&selector.checkpointId!==entry.checkpointId))throw new Error('history_scope_refused');
     }
     const files:SnapshotFile[]=[];
@@ -40,7 +38,7 @@ export class NativeHistoryProvider {
     files.sort((a,b)=>a.path<b.path?-1:a.path>b.path?1:0);
     if(files.length>10000||files.reduce((n,f)=>n+Number(f.identity.size),0)>268435456||new Set(files.map(f=>f.path.toLowerCase())).size!==files.length)throw new Error('unsupported_format');
     for(const entry of selected)if(!files.some(f=>f.lineageId===entry.lineageId&&f.role==='records'))throw new Error('incomplete_checkpoint');
-    const bookmark={boundaryId:randomUUID(),provider:structuredClone(this.provider),selections:structuredClone(policy.history.selected)};
+    const bookmark={boundaryId:randomUUID(),provider:structuredClone(this.provider),selections:structuredClone(policy.history.mode==='existing-at-activation'?selected.map(e=>({lineageId:e.lineageId,checkpointId:e.checkpointId,fromRecord:null,toRecord:null})):policy.history.selected)};
     this.bookmarks.set(bookmark,{files,entries:selected});return bookmark;
   }
   resolve(bookmark:HistoryBookmark):{files:SnapshotFile[];entries:HistoryCatalogEntry[]}{

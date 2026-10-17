@@ -29,7 +29,9 @@
     "src/session-content-archive-export.ts",
     "src/session-content-api.ts",
     "src/session-content-types.ts",
-    "src/session-content-fixture-types.typecheck.ts"
+    "src/session-content-fixture-types.typecheck.ts",
+    "src/session-content-archive-export.test.ts",
+    "src/native-terminal/content-errors.test.ts"
   ],
   "exclude": []
 }

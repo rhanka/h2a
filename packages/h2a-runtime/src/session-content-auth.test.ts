@@ -4,6 +4,8 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { capsuleDirectory, envelope, sha256 } from "./session-content-contract.js";
+import { canonicalJson as contentCanonical, contentDigest } from "./session-content-json.js";
 import { SessionContentAuth, ConfirmationCodeFlow, PinnedConfirmationJwks } from "./session-content-auth.js";
 import { ConfirmationBudget, ConfirmationVerifier, confirmationNonce, type ConfirmationChallenge } from "./session-content-confirmation.js";
 import { generateKeyPairSync, sign } from "node:crypto";
@@ -11,6 +13,7 @@ import { generateKeyPairSync, sign } from "node:crypto";
 let root: string, server: Server, origin: string, ca: string;
 let mode = "valid", requests: { path: string; headers: Record<string, unknown>; body: string }[] = [];
 let sourceReplyHook: (() => void) | undefined;
+let uploadHook:((req:any,res:any,input:any)=>boolean)|undefined;
 let idToken = "not-an-api-token";
 const { privateKey, publicKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
 const jwk = { ...publicKey.export({ format: "jwk" }), kid: "issuer-key", alg: "RS256", use: "sig" };
@@ -47,6 +50,7 @@ beforeAll(async () => {
           coverage:{kind:'native',snapshotId:'snapshot',manifestHash:'b'.repeat(64),descriptorHash:'c'.repeat(64)},readExpiresAt:now+60000}));return;
       }
       const input = JSON.parse(body);
+      if(uploadHook?.(req,res,input))return;
       const now = Date.now();
       const output = { protocol: "h2a.session-content", protocolVersion: 2, kind: "source-session",
         requestId: input.requestId, requestNonce: input.requestNonce,
@@ -263,4 +267,26 @@ describe("session content source authentication", () => {
       source, keys: [jwk], measuredClockErrorMs: 0, budget: new ConfirmationBudget() });
     await expect(loader.refresh(verifier)).rejects.toThrow();
   });
+});
+
+it('should upload bounded snapshots and segments with exact admissions and abort them on source revocation',async()=>{
+ mode='valid';const auth=new SessionContentAuth(config()),identity=await login(auth),handle=await auth.openSource(identity);
+ const manifest=JSON.parse(readFileSync(new URL('native-manifest.v2.json',capsuleDirectory),'utf8')),part=JSON.parse(readFileSync(new URL('native-part.v2.json',capsuleDirectory),'utf8'));
+ for(const message of [manifest,part]){message.scope.owner={issuer:origin,subject:'owner'};message.scope.source=source;message.connectionId='connection';}
+ const {manifestHash:old,...base}=manifest;manifest.manifestHash=contentDigest('manifest',base);
+ const paths:string[]=[];let arrived!:()=>void;const seen=new Promise<void>(r=>arrived=r);
+ uploadHook=(req,res,input)=>{if(!/\/source\/(snapshots|segments)$/.test(req.url))return false;
+   paths.push(req.url);const meta=JSON.parse(Buffer.from(req.headers['x-h2a-source-meta'],'base64url').toString()),body=contentCanonical(input);
+   expect(req.headers['content-type']).toBe('application/json');expect(req.headers.authorization).toBe('Bearer synthetic-source');
+   expect(meta).toMatchObject({method:'POST',path:req.url,sourceSessionId:'source-session',connectionId:'connection',scopeDigest:contentDigest('scope',input.scope),bodyBytes:Buffer.byteLength(body),bodyHash:sha256(body)});
+   if(mode==='hold-upload'){arrived();return true;}
+   res.end(JSON.stringify(envelope('ingest-ack',{requestId:meta.requestId,scopeDigest:meta.scopeDigest,connectionId:'connection',status:'accepted',coverage:{kind:'native',snapshotId:input.snapshotId,fileSha256:input.fileSha256??input.manifestHash,acceptedThroughByteOffset:input.byteLength??0},retained:null,archiveAdmission:null,reason:null})));return true;
+ };
+ try{
+   await auth.sendSnapshot(handle,manifest,new AbortController().signal);await auth.sendSegment(handle,part,new AbortController().signal);
+   expect(paths.map(p=>p.split('/').at(-1))).toEqual(['snapshots','segments']);
+   const before=paths.length;await expect(auth.sendSegment(handle,{...part,scope:{...part.scope,source:{...source,sourceBootId:'other'}}},new AbortController().signal)).rejects.toThrow();expect(paths).toHaveLength(before);
+   mode='hold-upload';const pending=auth.sendSegment(handle,part,new AbortController().signal);const rejected=expect(pending).rejects.toThrow();await seen;auth.invalidate(handle);await rejected;
+   await expect(auth.sendSnapshot(handle,manifest,new AbortController().signal)).rejects.toThrow();expect(paths).toHaveLength(before+1);
+ }finally{uploadHook=undefined;mode='valid';server.closeAllConnections();}
 });

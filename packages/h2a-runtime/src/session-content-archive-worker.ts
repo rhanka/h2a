@@ -1,7 +1,7 @@
 /** Bounded data-only worker. Never imports process launch, restore, keyboard or provider execution APIs. */
 import { parentPort } from "node:worker_threads";
 import { createHash, type Hash } from "node:crypto";
-import { openSync, closeSync, writeSync, readSync, fsyncSync, mkdirSync, readFileSync, fstatSync, constants } from "node:fs";
+import { openSync, closeSync, writeSync, readSync, fsyncSync, mkdirSync, readFileSync, fstatSync, unlinkSync, constants } from "node:fs";
 import { performance } from "node:perf_hooks";
 import { parseStrictJson } from "./session-content-json.js";
 import { dirname, join } from "node:path";
@@ -16,7 +16,7 @@ parentPort!.on('message',(message:{id:number;operation:string;data:any})=>{
   try {
     const d=message.data;
     if(message.operation==='snapshot'){
-      const outcomes=[];let processed=0;const cancelled=new Int32Array(d.cancellation);
+      const outcomes=[];let processed=0;const positions=new Map<string,number>();const cancelled=new Int32Array(d.cancellation);
       const check=()=>{if(Atomics.load(cancelled,0)!==0||performance.now()>=d.deadline)refuse();};
       for(const file of d.files){
         check();const input=openSync(file.localPath,constants.O_RDONLY|constants.O_NOFOLLOW);
@@ -25,22 +25,26 @@ parentPort!.on('message',(message:{id:number;operation:string;data:any})=>{
           const identity=()=>{const s=fstatSync(input,{bigint:true});if(!s.isFile()||s.nlink!==1n)refuse();return {dev:String(s.dev),ino:String(s.ino),size:String(s.size),mtimeNs:String(s.mtimeNs),ctimeNs:String(s.ctimeNs)};};
           if(!same(identity(),file.identity))refuse();
           const path=join(d.stage,safeArchivePath(file.path));mkdirSync(dirname(path),{recursive:true,mode:0o700});output=openSync(path,'wx',0o600);
-          const buffer=Buffer.alloc(262144),digest=createHash('sha256'),decoder=new TextDecoder('utf-8',{fatal:true});let position=0,tail='',records=0;
+          const buffer=Buffer.alloc(262144),digest=createHash('sha256'),decoder=new TextDecoder('utf-8',{fatal:true});let position=0,tail='',records=0,writtenBytes=0;
+          const selection=d.selections.find((s:any)=>s.lineageId===file.lineageId);
+          const write=(bytes:Buffer)=>{digest.update(bytes);let n=0;while(n<bytes.length)n+=writeSync(output!,bytes,n,bytes.length-n);writtenBytes+=bytes.length;};
           while(position<Number(file.identity.size)){
             check();const length=readSync(input,buffer,0,Math.min(buffer.length,Number(file.identity.size)-position),position);if(!length)refuse();processed+=length;if(processed>268435456)refuse();
-            const bytes=buffer.subarray(0,length);digest.update(bytes);
+            const bytes=buffer.subarray(0,length);
             if(file.role==='records'){
               tail+=decoder.decode(bytes,{stream:true});let newline:number;
-              while((newline=tail.indexOf('\n'))>=0){const line=tail.slice(0,newline);tail=tail.slice(newline+1);if(!line||line.length>262144)refuse();const record=parseStrictJson(line,262144);if(!record||typeof record!=='object'||Array.isArray(record))refuse();records++;}
+              while((newline=tail.indexOf('\n'))>=0){const line=tail.slice(0,newline);tail=tail.slice(newline+1);if(!line||line.length>262144)refuse();const record=parseStrictJson(line,262144);if(!record||typeof record!=='object'||Array.isArray(record))refuse();const recordIndex=positions.get(file.lineageId)??0;positions.set(file.lineageId,recordIndex+1);if(selection?.fromRecord==null||(recordIndex>=selection.fromRecord&&recordIndex<=selection.toRecord)){write(Buffer.from(line+'\n'));records++;}}
               if(tail.length>262144)refuse();
             }
-            let n=0;while(n<length)n+=writeSync(output,bytes,n,length-n);position+=length;
+            if(file.role!=='records')write(bytes);position+=length;
           }
-          if(file.role==='records'&&(tail+decoder.decode()!==''||records===0))refuse();
+          if(file.role==='records'&&tail+decoder.decode()!=='')refuse();
           if(!same(identity(),file.identity))refuse();fsyncSync(output);
-          outcomes.push({path:file.path,role:file.role,bytes:position,sha256:digest.digest('hex'),lineageId:file.lineageId,records});
+          if(file.role==='records'&&records===0){closeSync(output);output=null;unlinkSync(path);continue;}
+          outcomes.push({path:file.path,role:file.role,bytes:writtenBytes,sha256:digest.digest('hex'),lineageId:file.lineageId,records});
         }finally{closeSync(input);if(output!==null)closeSync(output);}
       }
+      for(const selection of d.selections){const count=positions.get(selection.lineageId)??0;if(count===0||(selection.toRecord!==null&&selection.toRecord>=count))refuse();}
       check();parentPort!.postMessage({id:message.id,ok:true,result:outcomes});return;
     }else if(message.operation==='read-part'){
       const input=openSync(join(d.stage,safeArchivePath(d.path)),constants.O_RDONLY|constants.O_NOFOLLOW);

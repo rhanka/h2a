@@ -68,7 +68,11 @@ export class SessionContentConsent {
   private sending: AbortController | null = null;
   private captureCancellation=new AbortController();
   private controlBusy=false;
-  private controlConfirming=false;
+  private controlGeneration=0;
+  private controls:Record<string,unknown>[]=[];
+  private gaps:Record<string,unknown>[]=[];
+  private contiguous={"terminal.live":0,"terminal.cache":0};
+  private controlConfirming:string|null=null;
   private readonly queue: SessionContentExport;
   private readonly now: () => number;
   private readonly wall: () => number;
@@ -107,7 +111,13 @@ export class SessionContentConsent {
     if(id!==this.config.sessionId || incarnation!==this.config.sessionIncarnation
       || this.config.auth.metadata(this.config.sourceSession).source.sourceGeneration!==generation) throw new Error("unsupported_source");
   }
-  private pause(reason: "paused" | "denied" = "paused"): void {
+  private pause(reason: "paused" | "denied" = "paused", gapReason="not-collected"): void {
+    const p=this.active,toSeq=this.sequence();
+    if(p)for(const channel of ["terminal.live","terminal.cache"] as const){
+      const enabled=channel==="terminal.live"?p.policy.channels.terminalLive:p.policy.channels.terminalCache;
+      const through=this.contiguous[channel];
+      if(enabled){this.gaps.push(envelope("terminal-gap",{scope:p.scope,connectionId:p.request.connectionId,channel,fromSeq:through+1,toSeq,reason:gapReason,contiguousThroughSeq:through}));}
+    }
     this.subscription?.dispose();this.subscription=null;this.counters.contentSubscriptions=0;
     this.captureCancellation.abort();
     this.sending?.abort(); this.sending=null;
@@ -117,13 +127,13 @@ export class SessionContentConsent {
   }
   /** Reserved path: no network, pending quota or archive job slot. */
   exclude(target: "project" | "session" = "session"): void {
-    this.pause("denied"); this.config.verifier.cancelAll();
+    this.controls=[];this.controlGeneration++;this.pause("denied","excluded"); this.config.verifier.cancelAll();
     this.config.fence.deny(target === "project" ? this.projectKey : this.sessionKey);
   }
   clearExclusion(target: "project" | "session" = "session"): void {
     this.pause(); this.config.fence.clear(target === "project" ? this.projectKey : this.sessionKey); this.state = "off";
   }
-  disconnect(): void { this.pause(); this.config.verifier.cancelAll(); }
+  disconnect(): void { this.controls=[];this.controlGeneration++;this.pause("paused","partition"); this.config.verifier.cancelAll(); }
   private fresh(p: Pending): boolean {
     if (p.epoch !== this.epoch || this.now() >= p.deadline || this.denied() || !this.policies.currentToken(p.policyToken)
       || this.config.fence.revision(this.projectKey) !== p.projectRevision || this.config.fence.revision(this.sessionKey) !== p.sessionRevision) return false;
@@ -180,6 +190,8 @@ export class SessionContentConsent {
     await this.activate(p);
   }
   private async activate(p:Pending):Promise<void>{
+    await this.flushGaps(true);
+    if(!this.fresh(p))throw new Error("excluded");
     this.startAfterSeq=this.sequence();
     if(p.policy.channels.nativeHistory){
       try{p.bookmark=await this.config.history!.stage(p.policy);if(!this.fresh(p))throw new Error('excluded');}
@@ -193,6 +205,7 @@ export class SessionContentConsent {
         || result.requestId!==ack.requestId || result.requestDigest!==ack.requestDigest || result.sourceAckDigest!==contentDigest("ack",ack)
         || result.connectionId!==ack.connectionId) throw new Error("ack_refused");
       if(p.handle)this.policies.remember(p.policy,this.projectKey,p.projectRevision,this.config.fence);
+      this.contiguous={"terminal.live":this.startAfterSeq!,"terminal.cache":this.startAfterSeq!};
       this.queue.reset(this.epoch); this.captureCancellation=new AbortController(); this.active=p; this.pending=null; this.state="active";
       this.subscribe();
     } catch(e) { if(p.epoch===this.epoch) this.pause(); throw e; }
@@ -234,18 +247,26 @@ export class SessionContentConsent {
         return;
       }
       if(message.kind==='confirmation-proof'){
-        if(this.controlConfirming||!this.pending||message.challengeId!==this.pending.challengeId||message.challengeDigest!==this.pending.challengeDigest)return;
-        this.controlConfirming=true;void this.confirm(message.idToken as string).catch(()=>this.disconnect()).finally(()=>{this.controlConfirming=false;});return;
+        if(!this.pending||message.challengeId!==this.pending.challengeId||message.challengeDigest!==this.pending.challengeDigest||this.controlConfirming===message.challengeId)return;
+        const challengeId=message.challengeId as string,generation=this.controlGeneration;this.controlConfirming=challengeId;
+        void this.confirm(message.idToken as string).catch(()=>{if(generation===this.controlGeneration)this.disconnect();}).finally(()=>{if(this.controlConfirming===challengeId)this.controlConfirming=null;});return;
       }
-      if(this.controlBusy)return;this.controlBusy=true;
+      if(this.controls.length>=32){this.disconnect();return;}
+      if(this.controlBusy||this.controlConfirming!==null){this.controlGeneration++;this.pause();}
+      this.controls.push(structuredClone(message));this.drainControls();
+  }
+  private drainControls():void{
+      if(this.controlBusy||!this.controls.length)return;
+      const message=this.controls.shift()!,generation=this.controlGeneration;this.controlBusy=true;
       void (async()=>{
         if(message.kind==='grant-refresh'&&message.operation==='renew'){await this.renew(message.requestId as string);return;}
         try{await this.applyAcceptedPolicy(message.requestId as string);}
         catch(e){
+          if(generation!==this.controlGeneration)return;
           if((e as Error).message!=='unconfirmed_policy')throw e;
-          const challenge=await this.prepare(message.requestId as string);await this.config.auth.publishChallenge(this.config.sourceSession,challenge);
+          const challenge=await this.prepare(message.requestId as string);if(generation!==this.controlGeneration)return;await this.config.auth.publishChallenge(this.config.sourceSession,challenge);
         }
-      })().catch(()=>this.disconnect()).finally(()=>{this.controlBusy=false;});
+      })().catch(()=>{if(generation===this.controlGeneration)this.disconnect();}).finally(()=>{this.controlBusy=false;this.drainControls();});
   }
   connectControl():{ready:Promise<void>;close:()=>void}{
     const source=new SessionContentSource(this.config.auth,this.config.sourceSession);source.attach(this);return source.start();
@@ -256,11 +277,11 @@ export class SessionContentConsent {
     if(this.status().state!=="active") return;
     if(!this.active!.policy.channels.terminalLive && !this.active!.policy.channels.terminalCache) return;
     this.counters.sourceContentReads++;
-    if(!this.queue.admit(this.rawSeq,data)) this.pause();
+    if(!this.queue.admit(this.rawSeq,data)) this.pause("paused","evicted");
   }
   private onRawBytes(seq:number,bytes:Buffer):void{
     if(this.status().state!=='active')return;
-    this.counters.sourceContentReads++;if(!this.queue.admit(seq,bytes))this.pause();
+    this.counters.sourceContentReads++;if(!this.queue.admit(seq,bytes))this.pause("paused","evicted");
   }
   reserve(): ContentReservation | null { return this.status().state==="active"?this.queue.reserve():null; }
   fragment(reservation: ContentReservation, channel: "terminal.live" | "terminal.cache"): Record<string,unknown> {
@@ -279,13 +300,34 @@ export class SessionContentConsent {
     return {policy:structuredClone(p.policy),scope:structuredClone(p.scope),lease:{...p.lease},connectionId:p.request.connectionId as string,
       provider:this.config.history,bookmark:p.bookmark,signal:this.captureCancellation.signal,deadline:p.deadline,valid:()=>this.fresh(p)};
   }
+  async sendNative(message:Record<string,unknown>):Promise<Record<string,unknown>>{
+    const p=this.active;
+    if(!p||this.status().state!=='active'||!p.policy.channels.nativeHistory||!p.bookmark
+      ||!same(message.scope,p.scope)||message.connectionId!==p.request.connectionId||message.leaseId!==p.lease.id)throw new Error('content_refused');
+    const signal=this.captureCancellation.signal;
+    const response=message.kind==='native-manifest'?await this.config.auth.sendSnapshot(this.config.sourceSession,message,signal)
+      :message.kind==='native-part'?await this.config.auth.sendSegment(this.config.sourceSession,message,signal):null;
+    if(!response||!this.fresh(p)||signal.aborted)throw new Error('content_refused');return response;
+  }
+  private async flushGaps(finalize=false):Promise<void>{
+    // A clean disconnect still opens a gap: raw admission may advance while
+    // unsubscribed. Finalize its metadata before establishing the next boundary.
+    for(const gap of [...this.gaps]){
+      if(finalize)gap.toSeq=Math.max(gap.toSeq as number,this.sequence());
+      if((gap.toSeq as number)<(gap.fromSeq as number)){if(finalize)this.gaps.splice(this.gaps.indexOf(gap),1);continue;}
+      await this.config.auth.sendGap(this.config.sourceSession,gap);
+      const index=this.gaps.indexOf(gap);if(index>=0)this.gaps.splice(index,1);
+    }
+  }
   async flush(channel: "terminal.live" | "terminal.cache"): Promise<boolean> {
+    await this.flushGaps();
     if(this.sending) throw new Error("resource_busy");
     const reservation=this.reserve(); if(!reservation) return false;
     const message=this.fragment(reservation,channel), abort=new AbortController(); this.sending=abort;
     const p=this.active!;
     try {
       const ack=await this.config.auth.sendFragment(this.config.sourceSession,message,abort.signal);
+      if(ack.status==='refused'&&['quota_full','quota-full'].includes(String(ack.reason)))throw new Error('quota_full');
       const coverage=ack.coverage as Record<string,unknown>, cursor=coverage?.cursor as Record<string,unknown>;
       if(!this.fresh(p) || !this.queue.current(reservation) || ack.kind!=="ingest-ack" || !["accepted","duplicate"].includes(String(ack.status))
         || ack.connectionId!==p.request.connectionId || ack.scopeDigest!==contentDigest("scope",p.scope) || coverage?.kind!=="terminal"
@@ -294,8 +336,8 @@ export class SessionContentConsent {
       const retained=ack.retained as Retained|null;
       if(channel==="terminal.live" ? retained!==null : !retained || retained.originScopeDigest!==ack.scopeDigest
         || retentionDeadline(p.policy.retentionByChannel.terminalCache,retained.acceptedAt)!==retained.expiresAt) throw new Error("retention_refused");
-      this.counters.exportBytes+=reservation.bytes.length; this.queue.commit(reservation); return true;
-    } catch(e) { if(p.epoch===this.epoch) this.pause(); throw e; }
+      this.counters.exportBytes+=reservation.bytes.length; if(reservation.final)this.contiguous[channel]=reservation.rawSeq;this.queue.commit(reservation); return true;
+    } catch(e) { if(p.epoch===this.epoch) this.pause("paused",(e as Error).message==="quota_full"?"evicted":"partition"); throw e; }
     finally { if(this.sending===abort) this.sending=null; }
   }
 }
