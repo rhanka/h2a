@@ -1,0 +1,50 @@
+import fs from 'node:fs';
+import { createHash } from 'node:crypto';
+import { dirname, isAbsolute, join } from 'node:path';
+import { assertBootstrapSessionUnchanged } from './bootstrap-session.js';
+
+// Conditional launcher installation (§8.6.5–6, §8.2): under the held
+// bootstrap session, write the managed launcher with fixed modes, fsync
+// file and directories, then swap the command link atomically (tmp symlink
+// + rename) and verify the result. Any drift refuses before writing
+// anything; the npm tree is never modified.
+function syncDirectory(path) {
+  const fd = fs.openSync(path, fs.constants.O_RDONLY | fs.constants.O_DIRECTORY | fs.constants.O_NOFOLLOW);
+  try { fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
+}
+
+export function installManagedLauncher(envelope = {}) {
+  if (!envelope || typeof envelope !== 'object' || Array.isArray(envelope)) throw new Error('bootstrap_launcher_install_invalid');
+  const { session, launcherSource, managedDir, commandPath } = envelope;
+  for (const path of [launcherSource, managedDir, commandPath]) {
+    if (typeof path !== 'string' || !isAbsolute(path)) throw new Error('bootstrap_launcher_install_invalid');
+  }
+  if (!session || typeof session !== 'object') throw new Error('bootstrap_launcher_install_invalid');
+  let parent;
+  try {
+    parent = dirname(commandPath);
+    if (!fs.lstatSync(parent).isDirectory()) throw new Error('unusable');
+  } catch { throw new Error('bootstrap_launcher_command_unusable'); }
+  assertBootstrapSessionUnchanged(session);
+  let bytes;
+  try {
+    if (!fs.lstatSync(launcherSource).isFile()) throw new Error('unreadable');
+    bytes = fs.readFileSync(launcherSource);
+  } catch { throw new Error('bootstrap_launcher_source_invalid'); }
+  const digest = 'sha256:' + createHash('sha256').update(bytes).digest('hex');
+  const launcherDir = join(managedDir, 'launcher');
+  fs.mkdirSync(launcherDir, { recursive: true, mode: 0o700 });
+  syncDirectory(managedDir);
+  const launcherPath = join(launcherDir, 'h2a.mjs');
+  fs.writeFileSync(launcherPath, bytes, { mode: 0o755 });
+  const fd = fs.openSync(launcherPath, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+  try { fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
+  syncDirectory(launcherDir);
+  const tmp = join(parent, `.h2a-command-${process.pid}.tmp`);
+  try { fs.unlinkSync(tmp); } catch {}
+  fs.symlinkSync(launcherPath, tmp);
+  fs.renameSync(tmp, commandPath);
+  syncDirectory(parent);
+  if (fs.readlinkSync(commandPath) !== launcherPath) throw new Error('bootstrap_launcher_link_unverified');
+  return Object.freeze({ launcherPath, commandPath, digest });
+}
