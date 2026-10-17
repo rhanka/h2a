@@ -45,7 +45,14 @@ function safeText(value: string): string {
   }
   return result.replace(/\b(?:authorization|cookie|set-cookie)\s*:[^\r\n]*/gi, "[REDACTED]")
     .replace(/\b(?:bearer|basic)\s+\S+/gi, "[REDACTED]")
-    .replace(/\b(?:token|key|secret|password|credential|api_?key)\w*\s*[:=]\s*\S+/gi, "[REDACTED]")
+    .replace(
+      /[\w.-]*?(?:access_?token|refresh_?token|client_?secret|id_?token|token|secret|passwd|passphrase|password|credential|api_?key|session|key)"?\s*[:=]\s*("[^"\r\n]*"|'[^'\r\n]*'|[^\s,;&"']+)/gi,
+      "[REDACTED]",
+    )
+    .replace(
+      /(--?(?:access-?token|refresh-?token|client-?secret|id-?token|api-?key|token|secret|password|passwd|passphrase))\b\s+("[^"\r\n]*"|'[^'\r\n]*'|[^\s"']+)/gi,
+      "$1 [REDACTED]",
+    )
     .replace(/:\/\/[^/\s]*@/g, "://[REDACTED]@");
 }
 
