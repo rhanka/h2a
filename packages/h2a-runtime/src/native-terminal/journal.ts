@@ -43,14 +43,17 @@ function safeText(value: string): string {
   for (const [key, secret] of Object.entries(process.env)) {
     if (!pathEnvironment.has(key) && secret && secret.length >= 4) result = result.split(secret).join("[REDACTED]");
   }
-  return result.replace(/\b(?:authorization|cookie|set-cookie)\s*:[^\r\n]*/gi, "[REDACTED]")
+  // Same fail-closed shapes as redactCrashText in crash-log.ts (kept in sync:
+  // dash/underscore crossing, quoted/JSON/`=` header forms, PEM blocks).
+  return result.replace(/-----BEGIN [^-]*PRIVATE KEY-----[\s\S]*?-----END [^-]*PRIVATE KEY-----/g, "[REDACTED]")
     .replace(/\b(?:bearer|basic)\s+\S+/gi, "[REDACTED]")
+    .replace(/["']?(?:authorization|cookie|set-cookie)["']?\s*[:=]\s*("[^"\r\n]*"|'[^'\r\n]*'|[^\s;&"']+)/gi, "[REDACTED]")
     .replace(
-      /[\w.-]*?(?:access_?token|refresh_?token|client_?secret|id_?token|token|secret|passwd|passphrase|password|credential|api_?key|session|key)"?\s*[:=]\s*("[^"\r\n]*"|'[^'\r\n]*'|[^\s,;&"']+)/gi,
+      /["']?[\w.-]*?(?:access[_-]?token|refresh[_-]?token|client[_-]?secret|id[_-]?token|auth[_-]?token|private[_-]?key|api[_-]?key|token|secret|passwd|passphrase|password|credential|pass|pwd|auth|session|key)["']?\s*[:=]\s*("[^"\r\n]*"|'[^'\r\n]*'|[^\s;&"']+)/gi,
       "[REDACTED]",
     )
     .replace(
-      /(--?(?:access-?token|refresh-?token|client-?secret|id-?token|api-?key|token|secret|password|passwd|passphrase))\b\s+("[^"\r\n]*"|'[^'\r\n]*'|[^\s"']+)/gi,
+      /(--?(?:access[_-]?token|refresh[_-]?token|client[_-]?secret|id[_-]?token|auth[_-]?token|private[_-]?key|api[_-]?key|token|secret|password|passwd|passphrase|pass|pwd|auth|session|credential|key))\b\s+("[^"\r\n]*"|'[^'\r\n]*'|[^\s"']+)/gi,
       "$1 [REDACTED]",
     )
     .replace(/:\/\/[^/\s]*@/g, "://[REDACTED]@");
@@ -255,11 +258,19 @@ if (!isMainThread && workerData?.nativeHostJournal === true) {
   });
 }
 
+/**
+ * Read the host journal across its rotation (`.1` first, then current), so a
+ * crash followed by rotation + restart stays visible instead of showing only
+ * the healthy `start`. Corrupt lines are skipped, never thrown.
+ */
 export function readHostJournal(logPath = resolveHostJournalPath()): HostJournalEntry[] {
-  try {
-    if (!lstatSync(logPath).isFile()) return [];
-    return readFileSync(logPath, "utf8").split("\n").filter(Boolean).flatMap(line => {
-      try { return [JSON.parse(line) as HostJournalEntry]; } catch { return []; }
-    });
-  } catch { return []; }
+  const readOne = (path: string): HostJournalEntry[] => {
+    try {
+      if (!lstatSync(path).isFile()) return [];
+      return readFileSync(path, "utf8").split("\n").filter(Boolean).flatMap(line => {
+        try { return [JSON.parse(line) as HostJournalEntry]; } catch { return []; }
+      });
+    } catch { return []; }
+  };
+  return [...readOne(`${logPath}.1`), ...readOne(logPath)];
 }

@@ -168,6 +168,40 @@ describe("crash-log", () => {
     expect(redactCrashText("sessionId=h2a-demo")).toContain("h2a-demo");
   });
 
+  it("redacts non-enumerated credential variants with no help from the environment", () => {
+    // rev350r2 constat 1: the probe leaked 19/41 shapes (dash/underscore
+    // crossing, JSON/= header forms, short aliases, PEM, comma values).
+    const secret = "n0Probe-S3cret-4y2w";
+    expect(process.env["H2A_CRASHLOG_ABSENT_C"]).toBeUndefined();
+    const cases = [
+      `--access_token ${secret}`,
+      `--refresh_token ${secret}`,
+      `--client_secret ${secret}`,
+      `--api_key ${secret}`,
+      `--auth_token ${secret}`,
+      `--session ${secret}`,
+      `--credential ${secret}`,
+      `--private-key ${secret}`,
+      `--private_key ${secret}`,
+      `{"Authorization":"${secret}"}`,
+      `Authorization=${secret}`,
+      `{"cookie":"${secret}"}`,
+      `'password': '${secret}'`,
+      `pass=${secret}`,
+      `pwd=${secret}`,
+      `auth=${secret}`,
+      `private_key=${secret}`,
+      `password=p@ss,word${secret}`,
+      `-----BEGIN PRIVATE KEY-----\n${secret}\n-----END PRIVATE KEY-----`,
+    ];
+    for (const text of cases) {
+      expect(redactCrashText(text), text).not.toContain(secret);
+    }
+    // Non-secret lookalikes must survive redaction.
+    expect(redactCrashText("sessionId=h2a-demo")).toContain("h2a-demo");
+    expect(redactCrashText("author=octavia")).toContain("octavia");
+  });
+
   it("redacts a Basic credential blob as a whole", () => {
     const blob = Buffer.from("user:s3cr3t").toString("base64");
     expect(redactCrashText(`Basic ${blob}`)).toBe("[REDACTED]");
@@ -210,6 +244,24 @@ describe("crash-log", () => {
       utimesSync(`${log}.lock`, ancient, ancient);
       expect(appendCrashLog("cli", { event: "refusal", reason: "after-orphan" }, log)).toBe(true);
       expect(readCrashLog("cli", log).map((r) => r.reason)).toContain("after-orphan");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("never reclaims a stale lock owned by a live process", () => {
+    // rev350r2 constat 5: mtime is never refreshed by a writer blocked in the
+    // filesystem, so age alone cannot prove death — only a dead owner PID can.
+    const { env, root } = tempEnv();
+    try {
+      const log = resolveCrashLogPath("cli", env);
+      expect(appendCrashLog("cli", { event: "start" }, log)).toBe(true);
+      writeFileSync(`${log}.lock`, `${process.pid}:live-blocked`);
+      const ancient = new Date(Date.now() - 120_000);
+      utimesSync(`${log}.lock`, ancient, ancient);
+      expect(appendCrashLog("cli", { event: "refusal", reason: "must-drop" }, log)).toBe(false);
+      expect(readFileSync(`${log}.lock`, "utf8")).toBe(`${process.pid}:live-blocked`);
+      expect(readCrashLog("cli", log)).toHaveLength(1);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -281,9 +333,10 @@ describe("crash-log", () => {
     for (const [name, source] of Object.entries(sources)) {
       expect(source, `${name} must log fatal paths to the crash log`).toContain("crash-log.js");
     }
-    // Passive witnesses are installed at the real entry points only.
+    // Passive witnesses are installed at the real entry points only: the
+    // idempotent once-guard inside main() (real core-binary dispatch path).
     const index = readFileSync(join(import.meta.dirname ?? ".", "index.ts"), "utf8");
-    expect(index).toContain('installCrashHandlers("cli")');
+    expect(index).toContain("installCliWitnessOnce()");
     expect(sources["op"]).toContain('installCrashHandlers("cli")');
   });
 
@@ -320,6 +373,25 @@ describe("crash-log", () => {
       expect(readFileTailLines(raw, 20)).toHaveLength(20);
       expect(readFileTailLines(raw, 20)[0]).toBe("line-10");
       expect(readFileTailLines(raw, 50)).toHaveLength(30);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("caps the tail scan instead of loading a huge raw log", () => {
+    // rev350r2 constat 4: the viewer must not load a multi-MB server dump to
+    // show its last lines. Lines past the scan window are dropped whole —
+    // the last line is always complete.
+    const { root } = tempEnv();
+    try {
+      const raw = join(root, "mcp-central.log");
+      const lines = Array.from({ length: 20 }, (_, i) => `big-${i}-${"B".repeat(100_000)}`);
+      writeFileSync(raw, `${lines.join("\n")}\n`);
+      const tail = readFileTailLines(raw, 20);
+      expect(tail.length).toBeGreaterThan(0);
+      expect(tail.length).toBeLessThan(20);
+      expect(tail.at(-1)).toBe(lines.at(-1));
+      expect(tail[0]).toBe(lines[lines.length - tail.length]);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
