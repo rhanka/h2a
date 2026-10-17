@@ -17,6 +17,7 @@ export interface VibeEquipmentOptions {
   repair: boolean; dryRun?: boolean; guard?: string; lifecycle?: string;
   instance?: string; busRoot?: string; status?: string;
   maskingHooks?: readonly string[]; cwd?: string;
+  ownerKey?: string;
 }
 // Convergence repairs config.toml toward the canonical entry only when no
 // unique valid enabled `h2a` entry exists: absent, duplicated, scalar
@@ -73,7 +74,8 @@ export function planVibeEquipment(options: VibeEquipmentOptions) {
   }
   const entrypoint = resolve(h2aPackageRoot, 'dist/bin.js');
   if (!snapshot(process.execPath) || !snapshot(entrypoint)) throw new Error('verified Node/h2a entrypoint unavailable');
-  const artifacts: NativeArtifact[] = ['vibe-pre-tool.mjs', 'vibe-post-agent.mjs'].map(name => {
+  const artifacts: NativeArtifact[] = ['vibe-pre-tool.mjs', 'vibe-post-agent.mjs',
+    'workspace-scope-guard.mjs', 'workspace-scope-shell.mjs', 'workspace-scope-state.mjs'].map(name => {
     const source = snapshot(join(h2aPackageRoot, 'hooks', name));
     if (!source) throw new Error(`missing packaged hook: ${name}`);
     return { path: join(options.state, 'hooks', name), bytes: source.bytes.toString(), source: `h2a@${options.version}/hooks/${name}` };
@@ -94,6 +96,7 @@ export function planVibeEquipment(options: VibeEquipmentOptions) {
   const effectiveMcpAvailable = repairingNow ? vibeMcpAvailable(effectiveConfig) : options.mcpAvailable;
   const discovery = inspectVibeDiscovery(options.root, options.cwd ?? process.cwd(), effectiveConfig);
   const maskingHooks = options.maskingHooks ?? discovery.maskingHooks;
+  if (maskingHooks.includes('sentropic-h2a-workspace-scope')) throw new Error('Workspace scope guard masked by project hook; cannot claim pre-action protection.');
   const observed = { MCP: mcpFingerprint({ mcp: effectiveConfig.mcp_servers ?? [], disabled_tools: effectiveConfig.disabled_tools ?? [], enabled_tools: effectiveConfig.enabled_tools ?? [] }),
     profile: digest(options.root), node: fileFingerprint(process.execPath), entrypoint: fileFingerprint(entrypoint),
     guard: fileFingerprint(artifacts[0].path), lifecycle: fileFingerprint(artifacts[1].path), masking: semanticDigest(maskingHooks),
@@ -116,6 +119,13 @@ export function planVibeEquipment(options: VibeEquipmentOptions) {
   if (lifecycle && options.lifecycle) lifecycle.enabled = options.lifecycle === 'on';
   const hooks: VibeHook[] = [];
   const command = (name: string) => [process.execPath, join(options.state, 'hooks', name)].map(shellQuote).join(' ');
+  const workspaceScope = manifest.workspaceScope ?? { workspace: resolve(options.cwd ?? process.cwd()),
+    session: options.instance, ownerKey: options.ownerKey ? resolve(options.ownerKey) : undefined };
+  const scopeArgs = ['--host', 'vibe', '--workspace', workspaceScope.workspace];
+  if (workspaceScope.session) scopeArgs.push('--session', workspaceScope.session);
+  if (workspaceScope.ownerKey) scopeArgs.push('--owner-key', workspaceScope.ownerKey);
+  hooks.push({ name: 'sentropic-h2a-workspace-scope', type: 'pre_tool', match: 're:.*',
+    command: command('workspace-scope-guard.mjs') + ' ' + scopeArgs.map(shellQuote).join(' '), timeout: 15, strict: true });
   if (guardActive) hooks.push({ name: 'sentropic-h2a-deny-manual-cli', type: 'pre_tool', match: 're:(bash|file_system\\.bash|process_start|process\\.start)', command: command('vibe-pre-tool.mjs'), timeout: 5, strict: false });
   if (lifecycle?.enabled) {
     const args = ['--entrypoint', entrypoint, '--instance', lifecycle.instance, '--status', lifecycle.status ?? 'paused', '--command', 'vibe -c', '--resume-command', 'vibe -c'];
@@ -134,6 +144,7 @@ export function planVibeEquipment(options: VibeEquipmentOptions) {
       if (JSON.stringify(current.hooks ?? {}) !== JSON.stringify(manifest.hooks ?? {}) || JSON.stringify(current.lifecycle) !== JSON.stringify(manifest.lifecycle) || current.guard !== manifest.guard || current.guardBinding !== manifest.guardBinding)
         throw new Error('concurrent hook selection changed');
       current.hooks = edited.owned;
+      current.workspaceScope = workspaceScope;
       if (guard) current.guard = guard as 'on' | 'off';
       if (guardBinding) current.guardBinding = guardBinding;
       if (lifecycle) current.lifecycle = lifecycle;

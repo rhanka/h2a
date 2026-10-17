@@ -8,11 +8,12 @@ import { inspectNativeHost } from './native-inspection.js';
 import { planVibeEquipment } from './vibe-equipment.js';
 import { isNativeHost, nativeRoot, stateRoot } from './native-paths.js';
 import { inspectVibeDiscovery } from './vibe-discovery.js';
+import { renderWorkspaceScope } from './plugin.js';
 export interface NativeConvergenceOptions {
   host: string; version: string; skills: readonly NativeSkill[]; renderGemini: (skill: NativeSkill['parsed']) => string;
   root?: string; repair?: boolean; dryRun?: boolean; explicitInstall?: boolean; guard?: string; lifecycle?: string;
   instance?: string; busRoot?: string; status?: string; sourcesComplete?: boolean;
-  cwd?: string; force?: boolean;
+  cwd?: string; force?: boolean; ownerKey?: string;
 }
 export function convergeNativeHost(options: NativeConvergenceOptions) {
   const { host, version } = options;
@@ -24,7 +25,8 @@ export function convergeNativeHost(options: NativeConvergenceOptions) {
   const publicObservation = observation && (({ config, h2aServers, ...safe }) => safe)(observation);
   const discovery = host === 'vibe' ? inspectVibeDiscovery(root, options.cwd ?? process.cwd(), observation!.config) : undefined;
   const detected = options.explicitInstall || observation?.detected || host === 'gemini';
-  if (!detected && !options.instance) return { host, root, ok: true, installation: 'absent', coverage: 'convergence native couverte; hôte absent', observation: publicObservation };
+  if (!detected && !options.instance) return { host, root, ok: true, installation: 'absent', coverage: 'convergence native couverte; hôte absent', observation: publicObservation,
+    workspaceScope: { supported: false, reason: 'No active PreToolUse installation on this host.' } };
   const state = shared ? stateRoot('agy', root) : stateRoot(host, root);
   const selected = observation?.filters;
   const artifacts = nativeSkillArtifacts({ host, root, version, skills: options.skills,
@@ -32,7 +34,7 @@ export function convergeNativeHost(options: NativeConvergenceOptions) {
     renderGemini: options.renderGemini, historicalHashes: historicalSkillHashes });
   const vibeOptions = host === 'vibe' ? { root, state, version, config: observation!.config, cwd: options.cwd,
     mcpAvailable: observation!.mcpAvailable, repair, dryRun, guard: options.guard, lifecycle: options.lifecycle,
-    instance: options.instance, busRoot: options.busRoot, status: options.status, maskingHooks: discovery?.maskingHooks } : undefined;
+    instance: options.instance, busRoot: options.busRoot, status: options.status, ownerKey: options.ownerKey, maskingHooks: discovery?.maskingHooks } : undefined;
   const vibe = vibeOptions ? planVibeEquipment(vibeOptions) : undefined;
   if (vibe) artifacts.push(...vibe.artifacts);
   const result = convergeArtifacts({ state, root, host: shared ? 'gemini-commands' : host, version, artifacts, repair, dryRun,
@@ -76,6 +78,7 @@ export function convergeNativeHost(options: NativeConvergenceOptions) {
   const freshMigration = effectiveObservation?.migration;
   const reportedMcp = vibe ? { ...(vibe.mcp as Record<string, unknown>), planned: mcpDrift, changed: mcpWrote } : undefined;
   return { host, root, ok, installation: !ok ? 'conflict' : pending ? 'action necessary' : 'coherent',
+    workspaceScope: renderWorkspaceScope(host, options.cwd ?? process.cwd(), options.instance, options.ownerKey),
     qualification: installedVibe?.qualification ?? { status: 'absent' }, migration: freshMigration ?? 'non migré',
     coverage: 'convergence native couverte; qualification native distincte', observation: effectivePublicObservation, discovery: effectiveDiscovery,
     ...result.changes, missingSources, manifest: result.manifest, guard: installedVibe?.guard, lifecycle: installedVibe?.lifecycle,

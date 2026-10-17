@@ -1,7 +1,17 @@
 {
-  "description": "Prevents agents from bypassing the H2A plugin MCP with manual h2a CLI commands.",
+  "description": "Enforces workspace ownership and prevents manual H2A MCP bypass.",
   "hooks": {
+    "SessionStart": [
+      {
+        "matcher": ".*",
+        "hooks": [{ "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT:-${CODEX_PLUGIN_ROOT}}/hooks/workspace-scope-guard.mjs\" --initialize-session true", "timeout": 15 }]
+      }
+    ],
     "PreToolUse": [
+      {
+        "matcher": ".*",
+        "hooks": [{ "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT:-${CODEX_PLUGIN_ROOT}}/hooks/workspace-scope-guard.mjs\"", "timeout": 15 }]
+      },
       {
         "matcher": "Bash",
         "hooks": [
