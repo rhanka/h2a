@@ -5,6 +5,9 @@ import { join } from 'node:path';
 import test from 'node:test';
 import { runCli } from '../dist/index.js';
 import { H2A_CODEX_HOST, H2A_CLAUDE_HOST } from '../dist/index.js';
+import { planVibeEquipment } from '../dist/hosts/vibe-equipment.js';
+import { digest } from '../dist/hosts/native-files.js';
+import { createHash } from 'node:crypto';
 
 // Interim direct Vibe MCP entry (owner 16/10, derogation spec-astra-v9 O7.2).
 // Isolated HOME copies only; never the owner's real ~/.vibe.
@@ -246,4 +249,92 @@ test('--endpoint remote writes a streamable-http url entry without command or ar
   assert.match(body, /transport = "streamable-http"/);
   assert.match(body, /url = "https:\/\/example\.test\/mcp"/);
   assert.doesNotMatch(body, /command =/);
+});
+
+test('doctor --repair preserves a valid remote entry instead of overwriting it with local stdio', t => {
+  const { dir, vibe } = fixture(t);
+  const target = join(vibe, 'config.toml');
+  fs.writeFileSync(target, 'mcp_servers = []\n');
+  cli(['init', '--root', join(dir, 'bus')], dir);
+  assert.equal(cli(['host', 'setup', '--host', 'vibe', '--endpoint', 'remote', '--url', 'https://example.test/mcp', '--write', target], dir).code, 0);
+  const repaired = cli(['doctor', '--root', join(dir, 'bus'), '--host', 'vibe', '--repair'], dir);
+  assert.equal(repaired.code, 0, repaired.err);
+  const body = fs.readFileSync(target, 'utf8');
+  assert.match(body, /transport = "streamable-http"/);
+  assert.match(body, /url = "https:\/\/example\.test\/mcp"/);
+  assert.doesNotMatch(body, /command = "h2a"/);
+  assert.equal(vibeHostReport(repaired).mcp.changed, false);
+});
+
+test('doctor --repair preserves a valid custom local entry (custom binary, no-wake style args)', t => {
+  const { dir, vibe } = fixture(t);
+  const target = join(vibe, 'config.toml');
+  fs.writeFileSync(target, '[[mcp_servers]]\nname = "h2a"\ntransport = "stdio"\ncommand = "private-test"\nargs = ["mcp-serve"]\n');
+  cli(['init', '--root', join(dir, 'bus')], dir);
+  const repaired = cli(['doctor', '--root', join(dir, 'bus'), '--host', 'vibe', '--repair'], dir);
+  assert.equal(repaired.code, 0, repaired.err);
+  const body = fs.readFileSync(target, 'utf8');
+  assert.match(body, /command = "private-test"/);
+  assert.doesNotMatch(body, /command = "h2a"/);
+  assert.equal(vibeHostReport(repaired).mcp.changed, false);
+});
+
+test('setup --remove succeeds when the h2a block adjoins other sections without a blank line', t => {
+  const { dir, vibe } = fixture(t);
+  const target = join(vibe, 'config.toml');
+  fs.writeFileSync(target,
+    'active_model = "devstral-2"\n[[mcp_servers]]\nname = "h2a"\ntransport = "stdio"\ncommand = "h2a"\nargs = ["mcp-serve"]\n[[mcp_servers]]\nname = "other"\ntransport = "stdio"\ncommand = "other"\nargs = ["serve"]\n');
+  const removed = cli(['host', 'setup', '--host', 'vibe', '--remove', '--write', target], dir);
+  assert.equal(removed.code, 0, removed.out + removed.err);
+  const body = fs.readFileSync(target, 'utf8');
+  assert.doesNotMatch(body, /"h2a"/);
+  assert.match(body, /active_model = "devstral-2"/);
+  assert.match(body, /name = "other"/);
+});
+
+test('setup --remove succeeds with two consecutive h2a blocks followed by a third-party entry', t => {
+  const { dir, vibe } = fixture(t);
+  const target = join(vibe, 'config.toml');
+  fs.writeFileSync(target,
+    '[[mcp_servers]]\nname = "h2a-old"\ncommand = "h2a"\nargs = ["mcp-serve"]\n[[mcp_servers]]\nname = "h2a"\ntransport = "stdio"\ncommand = "h2a"\nargs = ["mcp-serve"]\n[[mcp_servers]]\nname = "other"\ncommand = "other"\nargs = ["serve"]\n');
+  const removed = cli(['host', 'setup', '--host', 'vibe', '--remove', '--write', target], dir);
+  assert.equal(removed.code, 0, removed.out + removed.err);
+  const body = fs.readFileSync(target, 'utf8');
+  assert.doesNotMatch(body, /"h2a"/);
+  assert.match(body, /"other"/);
+});
+
+test('doctor --repair restores config and guard hooks in a single pass (no second repair needed)', t => {
+  const { dir, vibe } = fixture(t);
+  const target = join(vibe, 'config.toml');
+  const state = join(vibe, '.h2a-install');
+  fs.writeFileSync(target, '[[mcp_servers]]\nname="h2a"\ntransport="stdio"\ncommand="h2a"\nargs=["mcp-serve", "--auto-open", "--host", "vibe", "--auto-upgrade", "--wake", "auto"]\n');
+  cli(['init', '--root', join(dir, 'bus')], dir);
+  assert.equal(cli(['doctor', '--root', join(dir, 'bus'), '--host', 'vibe', '--repair'], dir).code, 0);
+  const config = { mcp_servers: [{ name: 'h2a', transport: 'stdio', command: 'h2a', args: ['mcp-serve', '--auto-open', '--host', 'vibe', '--auto-upgrade', '--wake', 'auto'] }] };
+  const plan = planVibeEquipment({ root: vibe, state, cwd: dir, version: '0.98.6', config, mcpAvailable: true, repair: false });
+  const dist = join(vibe, 'runtime/mistral_vibe-2.26.1.dist-info');
+  fs.mkdirSync(dist, { recursive: true });
+  fs.mkdirSync(join(vibe, 'runtime/vibe'), { recursive: true });
+  fs.writeFileSync(join(vibe, 'runtime/vibe/runtime.mjs'), 'fixture');
+  const record = `vibe/runtime.mjs,sha256=${createHash('sha256').update('fixture').digest('base64url')},7\n`;
+  const recordPath = join(dist, 'RECORD'), metadataPath = join(dist, 'METADATA');
+  fs.writeFileSync(recordPath, record);
+  fs.writeFileSync(metadataPath, 'Name: mistral-vibe\nVersion: 2.26.1\n');
+  const evidencePath = join(vibe, 'native-evidence.json');
+  fs.writeFileSync(evidencePath, '{}');
+  const proof = { schema: 1, host: 'vibe', root: vibe, fixture: false, recordedAt: new Date().toISOString(),
+    runtime: { distribution: 'mistral-vibe', version: '2.26.1', recordPath, metadataPath, recordSha256: digest(record) },
+    components: { MCP: { status: 'qualified', dependencies: plan.observed, evidence: [evidencePath], evidenceHashes: { [evidencePath]: digest('{}') }, scope: 'private fixture' } } };
+  fs.writeFileSync(join(state, 'qualification.json'), JSON.stringify(proof));
+  assert.equal(cli(['doctor', '--root', join(dir, 'bus'), '--host', 'vibe', '--repair', '--guard', 'on'], dir).code, 0);
+  assert.match(fs.readFileSync(join(vibe, 'hooks.toml'), 'utf8'), /pre_tool/);
+  fs.writeFileSync(target, 'mcp_servers=[]\n');
+  const repaired = cli(['doctor', '--root', join(dir, 'bus'), '--host', 'vibe', '--repair'], dir);
+  assert.equal(repaired.code, 0, repaired.err);
+  const report = vibeHostReport(repaired);
+  assert.equal(report.guard.active, true);
+  assert.equal(report.guard.reason, 'active');
+  assert.match(fs.readFileSync(join(vibe, 'hooks.toml'), 'utf8'), /pre_tool/);
+  assert.match(fs.readFileSync(target, 'utf8'), /transport = "stdio"/);
 });

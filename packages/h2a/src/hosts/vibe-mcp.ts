@@ -67,6 +67,46 @@ export function isVibeH2aServer(server: unknown): boolean {
   );
 }
 
+// A Vibe-valid enabled `h2a` entry: exact `name = "h2a"`, not disabled, and a
+// usable transport target (stdio command carrying `mcp-serve`, or remote url
+// without a spawned command). Anything else is degraded and repairable, while
+// a valid entry with custom options (--endpoint remote, --no-wake, --root, a
+// test binary) must be preserved by convergence (`setup --write` owns change).
+export function isValidVibeH2aEntry(server: unknown): boolean {
+  if (!server || typeof server !== 'object' || Array.isArray(server)) return false;
+  const entry = server as Record<string, unknown>;
+  if (entry.name !== VIBE_MCP_NAME) return false;
+  if (entry.disabled === true) return false;
+  if (entry.transport === 'stdio') {
+    return (
+      typeof entry.command === 'string' &&
+      entry.command.length > 0 &&
+      Array.isArray(entry.args) &&
+      (entry.args as unknown[]).includes('mcp-serve')
+    );
+  }
+  if (entry.transport === 'streamable-http' || entry.transport === 'http') {
+    return typeof entry.url === 'string' && entry.url.length > 0 && entry.command === undefined;
+  }
+  return false;
+}
+
+// Removal of one `[[mcp_servers]]` block must never consume the newline that
+// terminates a preceding non-empty line, otherwise adjacent blocks fuse
+// (`active_model = "devstral-2"[[mcp_servers]]`) and consecutive removals
+// overlap by one byte. When a trailing newline exists it is consumed and the
+// preceding newline only when it opens a blank line; at EOF only the
+// preceding newline is consumed.
+function vibeBlockRemovalRange(source: string, node: { range: [number, number] }): { start: number; end: number } {
+  if (source[node.range[1]] === '\n') {
+    const end = node.range[1] + 1;
+    const blankBefore =
+      node.range[0] >= 2 && source[node.range[0] - 1] === '\n' && source[node.range[0] - 2] === '\n';
+    return { start: blankBefore ? node.range[0] - 1 : node.range[0], end };
+  }
+  return { start: source[node.range[0] - 1] === '\n' ? node.range[0] - 1 : node.range[0], end: node.range[1] };
+}
+
 export function renderVibeMcpEntry(entry: VibeMcpEntry): string {
   const lines = ['[[mcp_servers]]', `name = ${JSON.stringify(entry.name)}`];
   if (entry.url !== undefined) {
@@ -144,8 +184,7 @@ export function editVibeMcpServers(
       replacedH2a = true;
       const node = tables[index];
       if (!node) throw new Error('unsupported mcp_servers table layout');
-      const start = source[node.range[0] - 1] === '\n' ? node.range[0] - 1 : node.range[0];
-      const end = source[node.range[1]] === '\n' ? node.range[1] + 1 : node.range[1];
+      const { start, end } = vibeBlockRemovalRange(source, node);
       edits.push({ start, end, bytes: '' });
     });
   } else {
@@ -165,8 +204,7 @@ export function editVibeMcpServers(
         replacedH2a = true;
         const node = tables[index];
         if (!node) throw new Error('unsupported mcp_servers table layout');
-        const start = source[node.range[0] - 1] === '\n' ? node.range[0] - 1 : node.range[0];
-        const end = source[node.range[1]] === '\n' ? node.range[1] + 1 : node.range[1];
+        const { start, end } = vibeBlockRemovalRange(source, node);
         edits.push({ start, end, bytes: '' });
       }
     });

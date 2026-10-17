@@ -34,7 +34,7 @@ test('doctor dry-run is empty of writes; explicit lifecycle is independent of MC
   assert.notEqual(doctor(['--guard', 'on']).code, 0);
 });
 test('guard rejects fixture qualification, retains stale-code choice, and suspends on observable MCP loss', t => {
-  const { dir, root, state, doctor } = setup(t);
+  const { dir, root, state, cli, doctor } = setup(t);
   fs.writeFileSync(join(root, 'config.toml'), '[[mcp_servers]]\nname="h2a"\ntransport="stdio"\ncommand="h2a"\nargs=["mcp-serve", "--auto-open", "--host", "vibe", "--auto-upgrade", "--wake", "auto"]\n');
   assert.equal(doctor([]).code, 0);
   const config = { mcp_servers: [{ name: 'h2a', transport: 'stdio', command: 'h2a', args: ['mcp-serve', '--auto-open', '--host', 'vibe', '--auto-upgrade', '--wake', 'auto'] }] };
@@ -64,10 +64,20 @@ test('guard rejects fixture qualification, retains stale-code choice, and suspen
   assert.equal(doctor([]).code, 0);
   assert.match(fs.readFileSync(join(root, 'hooks.toml'), 'utf8'), /pre_tool/);
   fs.writeFileSync(join(root, 'config.toml'), '[[mcp_servers]]\nname="h2a"\ntransport="stdio"\ncommand="changed-binding"\nargs=["mcp-serve"]\n');
-  assert.equal(doctor([]).code, 0);
+  const kept = doctor([]);
+  assert.equal(kept.code, 0);
+  assert.match(fs.readFileSync(join(root, 'config.toml'), 'utf8'), /changed-binding/, 'a valid custom binary is preserved by repair (setup --write owns change)');
   assert.doesNotMatch(fs.readFileSync(join(root, 'hooks.toml'), 'utf8'), /pre_tool/, 'observable binding drift must suspend the installed guard');
-  fs.writeFileSync(join(root, 'config.toml'), 'mcp_servers=[]\n');
-  assert.equal(doctor([]).code, 0);
+  assert.equal(kept.json().checks.nativeHostInstallations.hosts[0].guard.active, false);
+  fs.writeFileSync(join(root, 'config.toml'), 'disabled_tools=["h2a_*"]\n[[mcp_servers]]\nname="h2a"\ntransport="stdio"\ncommand="h2a"\nargs=["mcp-serve", "--auto-open", "--host", "vibe", "--auto-upgrade", "--wake", "auto"]\n');
+  const hidden = doctor([]);
+  assert.equal(hidden.code, 0);
+  assert.equal(hidden.json().checks.nativeHostInstallations.hosts[0].guard.active, false);
+  assert.doesNotMatch(fs.readFileSync(join(root, 'hooks.toml'), 'utf8'), /pre_tool/, 'hiding the entry via disabled_tools must suspend the installed guard');
+  assert.equal(cli(['host', 'setup', '--host', 'vibe', '--remove']).code, 0);
+  const removed = doctor([]);
+  assert.equal(removed.code, 0);
+  assert.equal(removed.json().checks.nativeHostInstallations.hosts[0].guard.active, false);
   assert.doesNotMatch(fs.readFileSync(join(root, 'hooks.toml'), 'utf8'), /pre_tool/);
   assert.equal(JSON.parse(fs.readFileSync(join(state, 'manifest.json'))).guard, 'on');
 });
