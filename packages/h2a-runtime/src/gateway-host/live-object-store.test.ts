@@ -5,8 +5,9 @@ import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSyn
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
-import { afterEach, describe, expect, it } from "vitest";
-import type { RetentionRequestDto } from "../vendor/engram-live/contracts.js";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import type { RetentionReceiptDto, RetentionRequestDto } from "../vendor/engram-live/contracts.js";
+import * as retentionEngine from "../vendor/engram-live/retention.js";
 import { runRetentionPass } from "../vendor/engram-live/retention.js";
 import { createLiveObjectStore } from "./live-object-store.js";
 
@@ -222,7 +223,8 @@ describe("private live root retention R1", () => {
     expect(removed).toBe(false);
   });
 
-  it("fences a suspended real acquirer before installing its pack and preserves its successor's lease", async () => {
+  for (const cut of ["pack", "pin", "receipt"]) {
+    it(`fences a suspended real acquirer at ${cut} without writing beside its successor`, async () => {
     const f = fixture(); const store = createLiveObjectStore(f.options);
     const driver = fileURLToPath(new URL("./fixtures/live-object-store-child.mjs", import.meta.url));
     const loader = fileURLToPath(new URL("../../../../node_modules/tsx/dist/loader.mjs", import.meta.url));
@@ -250,28 +252,158 @@ describe("private live root retention R1", () => {
       } };
     }
     try {
-      const a = launch(f.request(), "pack"); children.push(a);
+      const a = launch(f.request(), cut); children.push(a);
       expect(await a.message()).toEqual({ paused: true });
-      // Deterministic lease-age simulation; the cut itself is a real SIGSTOP
-      // after complete pack verification, before any shared object write.
       const old = new Date(Date.now() - 120_000); utimesSync(store.acquisitionLockPath, old, old);
       const b = launch(f.request(f.base), "pin"); children.push(b);
       expect(await b.message()).toEqual({ paused: true });
-      const protectedBytes = inventory(join(store.gitDir, "objects"));
+      const before = inventory(store.gitDir);
       expect(a.child.kill("SIGCONT")).toBe(true);
-      expect(await a.message()).toMatchObject({ done: true, pending: expect.arrayContaining([{ request: f.request(), reason: "objects_unavailable" }]) });
+      expect(await a.message()).toMatchObject({ done: true, writes: [], pending: expect.arrayContaining([{ request: f.request(), reason: "store_busy" }]) });
       expect(await a.exited).toEqual([0, null]);
-      expect(inventory(join(store.gitDir, "objects"))).toEqual(protectedBytes);
+      expect(inventory(store.gitDir)).toEqual(before);
       expect(readdirSync(store.acquisitionLockPath)).toHaveLength(1);
+      const pin = () => f.git(`--git-dir=${store.gitDir}`, "rev-parse", "--verify", `refs/h2a/retained/${f.oid}`);
+      if (cut === "receipt") expect(pin()).toBe(f.oid);
+      else expect(pin).toThrow();
       expect(b.child.kill("SIGCONT")).toBe(true);
       expect(await b.message()).toMatchObject({ done: true }); expect(await b.exited).toEqual([0, null]);
       expect((await store.loadReceipts({ scope, algorithm: "sha1" })).receipts.map(receipt => receipt.oid)).toEqual([f.base]);
       await store.retryPending();
       expect((await store.loadReceipts({ scope, algorithm: "sha1" })).receipts).toHaveLength(2);
+      expect(await store.pending()).toEqual([]);
     } finally {
       await Promise.all(children.map(async ({ child, exited }) => {
         if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL"); await exited;
       }));
     }
-  }, 15_000);
+    }, 15_000);
+  }
+
+  it("excludes already retained history instead of streaming it per root", async () => {
+    const f = fixture();
+    f.run("checkout", "-q", "doomed");
+    for (let i = 0; i < 30; i++) f.commit(`bulk-${i}`);
+    const tip = f.run("rev-parse", "HEAD"); const mid = f.run("rev-parse", "HEAD~15");
+    const store = createLiveObjectStore(f.options);
+    await store.recordRequest(f.request(tip));
+    const packs = join(store.gitDir, "objects", "pack");
+    const packBytes = (dir: string) => readdirSync(dir).filter(name => name.endsWith(".pack"))
+      .reduce((sum, name) => sum + readFileSync(join(dir, name)).length, 0);
+    expect(packBytes(packs)).toBeGreaterThan(512);
+    const before = readdirSync(packs).sort();
+    // An ancestor whose history is already protected adds no full pack.
+    await store.recordRequest(f.request(mid));
+    expect((await store.loadReceipts({ scope, algorithm: "sha1" })).receipts).toHaveLength(2);
+    expect(await store.pending()).toEqual([]);
+    const added = readdirSync(packs).sort().filter(name => !before.includes(name) && name.endsWith(".pack"));
+    const addedBytes = added.reduce((sum, name) => sum + readFileSync(join(packs, name)).length, 0);
+    expect(addedBytes).toBeLessThan(512);
+  });
+
+  it("loads and reuses receipts without any fsck after acquisition", () => {
+    const f = fixture();
+    const driver = fileURLToPath(new URL("./fixtures/live-object-store-child.mjs", import.meta.url));
+    const loader = fileURLToPath(new URL("../../../../node_modules/tsx/dist/loader.mjs", import.meta.url));
+    const output = execFileSync(process.execPath, ["--import", loader, driver,
+      new URL("./live-object-store.ts", import.meta.url).href, JSON.stringify(f.options), JSON.stringify(f.request()), "audit"], {
+      env: { PATH: process.env.PATH, HOME: f.root, TMPDIR: f.root, XDG_RUNTIME_DIR: f.root,
+        XDG_CONFIG_HOME: f.root, XDG_STATE_HOME: f.root, H2A_ROOT: f.root }, encoding: "utf8",
+    });
+    expect(JSON.parse(output.trim())).toMatchObject({ done: true, readFscks: 0, pending: [] });
+  });
+
+  it("quarantines a corrupt receipt without failing the pass", async () => {
+    const f = fixture(); const store = createLiveObjectStore(f.options);
+    await store.recordRequest(f.request());
+    const metadata = store.backupManifest().metadataDir;
+    writeFileSync(join(metadata, "receipts", "corrupt.json"), "{invalid json");
+    const orphan: RetentionReceiptDto = { scope, algorithm: "sha1", oid: f.base, receivedAt: 1,
+      backupRef: "h2a-live-object:orphan:sha1:orphan" };
+    writeFileSync(join(metadata, "receipts", `${f.base}.json`), JSON.stringify(orphan));
+    const receipts = (await store.loadReceipts({ scope, algorithm: "sha1" })).receipts;
+    expect(receipts.map(receipt => receipt.oid)).toEqual([f.oid]);
+    expect(await store.pending()).toEqual([]);
+    expect((await runRetentionPass({ scope, now: 123, roots: [{
+      rev: f.oid, qualifiedOid: { algorithm: "sha1", oid: f.oid },
+      sources: [{ signal: "active-window", refName: "refs/heads/doomed", activityAt: null, worktreeId: null, generation: 1 }],
+    }] }, store)).state).toBe("complete");
+  });
+
+  it("treats a lock disappearing between readdir and stat as contention", () => {
+    const f = fixture(); const store = createLiveObjectStore(f.options);
+    mkdirSync(store.acquisitionLockPath); mkdirSync(join(store.acquisitionLockPath, "observed"));
+    const driver = fileURLToPath(new URL("./fixtures/live-object-store-child.mjs", import.meta.url));
+    const loader = fileURLToPath(new URL("../../../../node_modules/tsx/dist/loader.mjs", import.meta.url));
+    const output = execFileSync(process.execPath, ["--import", loader, driver,
+      new URL("./live-object-store.ts", import.meta.url).href, JSON.stringify(f.options), JSON.stringify(f.request()), "vanish-lock"], {
+      env: { PATH: process.env.PATH, HOME: f.root, TMPDIR: f.root, XDG_RUNTIME_DIR: f.root,
+        XDG_CONFIG_HOME: f.root, XDG_STATE_HOME: f.root, H2A_ROOT: f.root }, encoding: "utf8",
+    });
+    expect(JSON.parse(output.trim())).toMatchObject({ done: true, vanished: true, pending: [{ reason: "store_busy" }] });
+  });
+
+  it("retries corrupt receipts and missing pins while preserving healthy receipts", async () => {
+    const f = fixture(); const store = createLiveObjectStore(f.options);
+    await store.recordRequest(f.request()); await store.recordRequest(f.request(f.base));
+    const metadata = store.backupManifest().metadataDir;
+    writeFileSync(join(metadata, "receipts", `${f.oid}.json`), "invalid json");
+    expect((await store.loadReceipts({ scope, algorithm: "sha1" })).receipts.map(r => r.oid)).toEqual([f.base]);
+    expect(await store.pending()).toMatchObject([{ request: { oid: f.oid } }]);
+    await store.retryPending();
+    expect((await store.loadReceipts({ scope, algorithm: "sha1" })).receipts).toHaveLength(2);
+    f.git(`--git-dir=${store.gitDir}`, "update-ref", "-d", `refs/h2a/retained/${f.oid}`);
+    expect((await store.loadReceipts({ scope, algorithm: "sha1" })).receipts.map(r => r.oid)).toEqual([f.base]);
+    await store.retryPending();
+    expect((await store.loadReceipts({ scope, algorithm: "sha1" })).receipts).toHaveLength(2);
+    expect(await store.pending()).toEqual([]);
+  });
+
+  it("excludes a retained root even after source GC and acquires a new sibling", async () => {
+    const f = fixture(); const store = createLiveObjectStore(f.options);
+    await store.recordRequest(f.request());
+    f.run("branch", "-D", "doomed"); f.run("reflog", "expire", "--expire=now", "--all"); f.run("gc", "--prune=now");
+    expect(() => f.run("cat-file", "-e", f.oid)).toThrow();
+    const sibling = f.commit("new sibling"); const before = inventory(f.repo);
+    await store.recordRequest(f.request(sibling));
+    expect((await store.loadReceipts({ scope, algorithm: "sha1" })).receipts).toHaveLength(2);
+    expect(inventory(f.repo)).toEqual(before);
+    expect(f.git(`--git-dir=${store.gitDir}`, "show", `${sibling}:file.txt`)).toBe("new sibling");
+    expect(existsSync(join(store.gitDir, "objects", "info", "alternates"))).toBe(false);
+  });
+
+  it("keeps the job-removal receipt check aligned with the neutral retention engine", async () => {
+    const f = fixture(); const store = createLiveObjectStore(f.options);
+    const { retainBeforeJobRemoval } = await import("../delegate.js");
+    const engine = vi.spyOn(retentionEngine, "runRetentionPass");
+    await store.recordRequest(f.request());
+    const receipt = (await store.loadReceipts({ scope, algorithm: "sha1" })).receipts[0]!;
+    const memory = (receipts: RetentionReceiptDto[]) => ({
+      recordRequest: async () => ({ received: true as const }),
+      recordReceipt: async () => ({ received: true as const }),
+      loadReceipts: async () => ({ receipts }),
+    });
+    const engineState = async (port: { loadReceipts(o: unknown): Promise<{ receipts: RetentionReceiptDto[] }> }, oid: string, algorithm: "sha1" | "sha256") =>
+      (await runRetentionPass({ scope, now: 123, roots: [{ rev: oid, qualifiedOid: { algorithm, oid },
+        sources: [{ signal: "active-window" as const, refName: "refs/heads/doomed", activityAt: null, worktreeId: null, generation: 1 }] }] },
+        port as never)).state;
+    // Exact receipt satisfies both the gate and the engine.
+    expect(await retainBeforeJobRemoval(f.request(), memory([receipt]), async () => {})).toEqual({ removed: true });
+    expect(engine).toHaveBeenCalledTimes(1);
+    engine.mockRestore();
+    expect(await engineState(memory([receipt]), f.oid, "sha1")).toBe("complete");
+    // Every engine dimension break refuses removal on both sides.
+    for (const foreign of [{ ...scope, tenant: "other" }, { ...scope, clone: "elsewhere" }]) {
+      const mutated = { ...receipt, scope: foreign };
+
+      expect(await retainBeforeJobRemoval(f.request(), memory([mutated]), async () => {})).toEqual({ removed: false, reason: "retention_gap" });
+      expect(await engineState(memory([mutated]), f.oid, "sha1")).toBe("gaps");
+    }
+    const wrongOid = { ...receipt, oid: f.base };
+    expect(await retainBeforeJobRemoval(f.request(), memory([wrongOid]), async () => {})).toEqual({ removed: false, reason: "retention_gap" });
+    expect(await engineState(memory([wrongOid]), f.oid, "sha1")).toBe("gaps");
+    // Fail-closed delta: the gate additionally refuses worktree receipts.
+    const worktree = { ...receipt, scope: { ...scope, worktree: "wt:foreign" } };
+    expect(await retainBeforeJobRemoval(f.request(), memory([worktree]), async () => {})).toEqual({ removed: false, reason: "retention_gap" });
+  });
 });
