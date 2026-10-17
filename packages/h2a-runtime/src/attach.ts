@@ -2,6 +2,7 @@ import type { RemoteEventEnvelope } from "./protocol-local.js";
 
 import { authHeaders, DEFAULT_SESSION_TARGET } from "./config.js";
 import { ensureConnected } from "./tunnel.js";
+import { appendCrashLog, crashSignalName } from "./crash-log.js";
 import {
   resetClientTerminal,
   restoreTtyState,
@@ -45,6 +46,8 @@ export type ReconnectOptions = {
   readonly maxDelayMs?: number;
   /** Consecutive short-lived streams tolerated before giving up. */
   readonly maxShortCycles?: number;
+  /** Reopen attempts per outage before declaring the stream lost. */
+  readonly maxAttempts?: number;
 };
 
 const DEFAULT_RECONNECT: Required<ReconnectOptions> = {
@@ -52,6 +55,7 @@ const DEFAULT_RECONNECT: Required<ReconnectOptions> = {
   baseDelayMs: 250,
   maxDelayMs: 8000,
   maxShortCycles: 10,
+  maxAttempts: 120,
 };
 
 const DEFAULT_INPUT_RETRY: Required<InputRetryOptions> = {
@@ -120,6 +124,7 @@ export async function attach(options: AttachOptions): Promise<AttachResult> {
     },
   );
   if (!sseResponse.ok || !sseResponse.body) {
+    appendCrashLog("attach", { event: "refusal", sessionId, reason: "sse-open-failed", detail: `${sseResponse.status} ${sseResponse.statusText}` });
     throw new Error(
       `attach: SSE stream returned ${sseResponse.status} ${sseResponse.statusText}`,
     );
@@ -379,6 +384,23 @@ export async function attach(options: AttachOptions): Promise<AttachResult> {
                   streamProgressed = true;
                 }
               } else if (envelope.type === "terminal.exited") {
+                const exitedPayload = envelope.payload as { exitCode?: unknown; signal?: unknown };
+                const exitedCode =
+                  typeof exitedPayload.exitCode === "number" && Number.isSafeInteger(exitedPayload.exitCode)
+                    ? exitedPayload.exitCode
+                    : undefined;
+                const exitedSignal = crashSignalName(
+                  typeof exitedPayload.signal === "number" || typeof exitedPayload.signal === "string"
+                    ? exitedPayload.signal
+                    : undefined,
+                );
+                appendCrashLog("attach", {
+                  event: "sessionExit",
+                  sessionId,
+                  ...(exitedCode !== undefined ? { exitCode: exitedCode } : {}),
+                  ...(exitedSignal ? { signal: exitedSignal } : {}),
+                  detail: "terminal.exited",
+                });
                 await close();
                 return;
               }
@@ -420,6 +442,7 @@ export async function attach(options: AttachOptions): Promise<AttachResult> {
               `instead of reconnecting in a loop. The session may still be alive: ` +
               `retry with h2a attach ${sessionId}.\r\n`,
           );
+          appendCrashLog("attach", { event: "refusal", sessionId, reason: "reconnect-give-up", detail: `${futileCycles} futile cycles, last stream ${lifetimeMs}ms` });
           await close();
           return;
         }
@@ -439,7 +462,7 @@ export async function attach(options: AttachOptions): Promise<AttachResult> {
       stderr.write("\r\n[h2a] connection lost — reconnecting…\r\n");
       buffer = "";
       let reopened = false;
-      for (let attempt = 0; attempt < 120 && !closed; attempt++) {
+      for (let attempt = 0; attempt < reconnectCfg.maxAttempts && !closed; attempt++) {
         try {
           await ensureConnected(baseUrl, stderr);
           const resp = await doFetch(
@@ -451,6 +474,7 @@ export async function attach(options: AttachOptions): Promise<AttachResult> {
           );
           if (resp.status === 404) {
             stderr.write("[h2a] session ended\r\n");
+            appendCrashLog("attach", { event: "sessionExit", sessionId, reason: "http-404" });
             await close();
             return;
           }
@@ -469,6 +493,9 @@ export async function attach(options: AttachOptions): Promise<AttachResult> {
         await new Promise((r) => setTimeout(r, 1000));
       }
       if (!reopened) {
+        // No child exited: the event stream would not reopen, so this attach
+        // ends. `exit` (not `childExit`) keeps the record honest.
+        appendCrashLog("attach", { event: "exit", sessionId, reason: "reconnect-failed", detail: "could not reopen the event stream" });
         await close();
         return;
       }

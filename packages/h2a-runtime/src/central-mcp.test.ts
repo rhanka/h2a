@@ -1,7 +1,7 @@
 import { EventEmitter } from "node:events";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const central = vi.hoisted(() => {
@@ -67,7 +67,9 @@ import {
   ensureCentralMcp,
   prepareCentralMcpForLaunch,
   prepareCentralMcpForRestore,
+  resolveCentralMcpLogPath,
 } from "./central-mcp.js";
+import { MAX_CRASH_LOG_BYTES, readCrashLog, resolveCrashLogPath } from "./crash-log.js";
 import { getH2aConfig, setH2aConfig } from "./config.js";
 
 describe("central MCP auto-start", () => {
@@ -224,5 +226,119 @@ describe("central MCP auto-start", () => {
     expect(central.core.runCli).not.toHaveBeenCalled();
     expect(process.env.H2A_MCP_CENTRAL).toBeUndefined();
     expect(process.env.H2A_MCP_CENTRAL_ENDPOINT).toBeUndefined();
+  });
+});
+
+describe("central MCP crash records (revcrashlog constats 2/4)", () => {
+  let stateRoot: string;
+  let previousStateHome: string | undefined;
+  let previousConfigHome: string | undefined;
+  let previousXdgConfigHome: string | undefined;
+  let previousCentral: string | undefined;
+  let previousEndpoint: string | undefined;
+
+  beforeEach(() => {
+    central.reset();
+    stateRoot = mkdtempSync(join(tmpdir(), "h2a-centralcrash-"));
+    previousStateHome = process.env["XDG_STATE_HOME"];
+    previousConfigHome = process.env.REMOTE_CLI_CONFIG_HOME;
+    previousXdgConfigHome = process.env.XDG_CONFIG_HOME;
+    previousCentral = process.env.H2A_MCP_CENTRAL;
+    previousEndpoint = process.env.H2A_MCP_CENTRAL_ENDPOINT;
+    process.env["XDG_STATE_HOME"] = join(stateRoot, "state");
+    process.env.REMOTE_CLI_CONFIG_HOME = stateRoot;
+    process.env.XDG_CONFIG_HOME = join(stateRoot, "xdg");
+    delete process.env.H2A_MCP_CENTRAL;
+    delete process.env.H2A_MCP_CENTRAL_ENDPOINT;
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    if (previousStateHome === undefined) delete process.env["XDG_STATE_HOME"];
+    else process.env["XDG_STATE_HOME"] = previousStateHome;
+    if (previousConfigHome === undefined) delete process.env.REMOTE_CLI_CONFIG_HOME;
+    else process.env.REMOTE_CLI_CONFIG_HOME = previousConfigHome;
+    if (previousXdgConfigHome === undefined) delete process.env.XDG_CONFIG_HOME;
+    else process.env.XDG_CONFIG_HOME = previousXdgConfigHome;
+    if (previousCentral === undefined) delete process.env.H2A_MCP_CENTRAL;
+    else process.env.H2A_MCP_CENTRAL = previousCentral;
+    if (previousEndpoint === undefined) delete process.env.H2A_MCP_CENTRAL_ENDPOINT;
+    else process.env.H2A_MCP_CENTRAL_ENDPOINT = previousEndpoint;
+    rmSync(stateRoot, { recursive: true, force: true });
+  });
+
+  function serverRows() {
+    return readCrashLog("mcp-server", resolveCrashLogPath("mcp-server", { XDG_STATE_HOME: join(stateRoot, "state") }));
+  }
+
+  function deadSpawn() {
+    const child = new EventEmitter() as EventEmitter & { unref(): void };
+    child.unref = () => {};
+    central.spawn.mockImplementationOnce(() => child);
+    return child;
+  }
+
+  it("logs a spawn failure as startupError, not as a child exit", async () => {
+    const endpoint = "http://127.0.0.1:47043/mcp";
+    const workspace = join(stateRoot, "workspace");
+    setH2aConfig({ central: { enabled: true, endpoint } });
+    const child = deadSpawn();
+    const pending = ensureCentralMcp({ root: workspace });
+    // Attach the rejection handler BEFORE the failure can fire: otherwise the
+    // rejection is unhandled and fails the whole suite run (CI proof).
+    const assertion = expect(pending).rejects.toThrow("boom-spawn");
+    await new Promise((r) => setImmediate(r));
+    child.emit("error", new Error("boom-spawn"));
+    await assertion;
+    expect(serverRows()[0]).toMatchObject({ event: "startupError", reason: "spawn-failed" });
+  });
+
+  it("logs a readiness timeout as exit, not as a child exit", async () => {
+    const endpoint = "http://127.0.0.1:47044/mcp";
+    const workspace = join(stateRoot, "workspace");
+    setH2aConfig({ central: { enabled: true, endpoint } });
+    deadSpawn();
+    vi.useFakeTimers();
+    const pending = ensureCentralMcp({ root: workspace });
+    // Same unhandled-rejection hazard: the rejection fires DURING the timer
+    // advance, so the handler must already be attached here.
+    const assertion = expect(pending).rejects.toThrow(/did not become ready/);
+    await vi.advanceTimersByTimeAsync(11_000);
+    await assertion;
+    expect(serverRows()[0]).toMatchObject({ event: "exit", reason: "readiness-timeout" });
+  });
+
+  it("records a post-readiness server exit with its real code", async () => {
+    const endpoint = "http://127.0.0.1:47045/mcp";
+    const workspace = join(stateRoot, "workspace");
+    setH2aConfig({ central: { enabled: true, endpoint } });
+    await ensureCentralMcp({ root: workspace });
+    const child = central.spawn.mock.results[0]!.value as EventEmitter;
+    child.emit("exit", 1, null);
+    const rows = serverRows();
+    expect(rows.at(-1)).toMatchObject({ event: "childExit", reason: "server-exit", exitCode: 1 });
+  });
+
+  it("records a post-readiness server kill with its signal and no invented code", async () => {
+    const endpoint = "http://127.0.0.1:47046/mcp";
+    const workspace = join(stateRoot, "workspace");
+    setH2aConfig({ central: { enabled: true, endpoint } });
+    await ensureCentralMcp({ root: workspace });
+    const child = central.spawn.mock.results[0]!.value as EventEmitter;
+    child.emit("exit", null, "SIGTERM");
+    const rows = serverRows();
+    expect(rows.at(-1)).toMatchObject({ event: "childExit", reason: "server-exit", signal: "SIGTERM" });
+    expect("exitCode" in rows.at(-1)!).toBe(false);
+  });
+
+  it("caps the rotated raw server log at the bound", async () => {
+    const endpoint = "http://127.0.0.1:47047/mcp";
+    const workspace = join(stateRoot, "workspace");
+    setH2aConfig({ central: { enabled: true, endpoint } });
+    const raw = resolveCentralMcpLogPath();
+    mkdirSync(dirname(raw), { recursive: true });
+    writeFileSync(raw, "x".repeat(3 * MAX_CRASH_LOG_BYTES));
+    await ensureCentralMcp({ root: workspace });
+    expect(statSync(`${raw}.1`).size).toBeLessThanOrEqual(MAX_CRASH_LOG_BYTES);
   });
 });
