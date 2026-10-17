@@ -1,3 +1,18 @@
+# Single MCP and registry lane — 0.98.8 rebase and CI
+
+Owner task: rebase PR #355 on main, remove earlier main-integration merges,
+repair every failing CI job without weakening assertions, then rebase PR #354
+on the repaired lane. Targeted local files only; remote CI owns integration.
+Confinement, temporary state, owned PIDs, no Python and no installed h2a remain
+mandatory. No Track writes, merge, release or new package-version bump.
+
+Main advanced during qualification to `2fabf3a30` (#327), which already includes
+the 0.98.8 package bump. The second rebase inherits those manifests unchanged;
+no release/bump commit is introduced by this lane. CI prerequisites now include
+full pinned Git history, private XDG cache/data, actual Node toolcache headers,
+and closed-image-aware native test instrumentation. Owner reports retain every
+job log, regression receipts and explicit coverage gaps.
+
 # Inherited main — Claude seat, 0.98.8
 
 # Claude seat on the common seat model (realign 2026-10-13, r8)
