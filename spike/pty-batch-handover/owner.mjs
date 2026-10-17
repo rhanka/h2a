@@ -199,8 +199,13 @@ async function command(message) {
       stageDelay: message.stageDelay ?? 25, started });
     if (!result.ok) {
       for (const key of message.ids) {
-        routes.set(key, 1);
+        // Fault-injection window for inputs arriving while rollback drains.
+        if (message.abortDrainDelay) await new Promise(resolve => setTimeout(resolve, message.abortDrainDelay));
+        // Keep accepting new inputs into this live queue until every earlier
+        // item has been forwarded. Publishing route 1 before the awaited
+        // drain lets fresh writes overtake the queued prefix.
         for (const value of queued.get(key)) await workerRpc('write', { id: key, data: value });
+        routes.set(key, 1);
         queued.delete(key);
       }
       emit('batch-failed', { batch, ids: message.ids, ms: now() - started, why: result.why });
