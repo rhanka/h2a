@@ -5,6 +5,20 @@ description: Use when the owner asks for a human contextual track report, status
 
 # harness/track-report
 
+## Owner status table (owner evolution, 2026-10-17)
+
+For an owner status report, use `node "$track_bin" report --status-table --format md` (or `text`/`json`)
+after the bootstrap below. Follow `packages/track/skills/track-report/SKILL.md`, the canonical new table
+contract: exactly `# · Ta demande · Étape · Statut · Où ça en est / prochaine action`. This owner-requested
+view takes precedence over the older FAIT/À-FAIRE column rules below; the older four-section route remains
+the compatibility default. Preserve DÉCISIONS and its decision expectations: question, options with each
+consequence, readable in two minutes, dossier link, then the owner's actual answer. Versions are supporting
+references in parentheses, never the purpose. Stages are spec/dev/PR/mergé/déployé with recorded evidence;
+colors are only 🟢 conforming progress, 🟠 unforeseen issue, 🔴 blocked with mandatory proposal, 🔵 owner
+decision awaited. Waiting on another lane and suspension belong in the action cell, with no new color.
+Use the three deterministic reads below as supporting evidence; the new view never fabricates missing
+status, merge or deployment proof. Incomplete red/blue rows and version-only subjects are visibly flagged.
+
 `track` supplies complete, deterministic facts and already renders the four sections the owner
 validated. The agent already in the conversation supplies the contextual synthesis on top of them. Do not
 call a model, adapter, gateway, or network-backed report path. Every command below is a local, read-only
