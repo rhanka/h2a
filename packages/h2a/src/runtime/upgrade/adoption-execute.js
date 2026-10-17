@@ -13,14 +13,17 @@ import { installManagedLauncher } from './launcher-install.js';
 // hands it off before begin (a competitor racing the handoff meets the
 // engine's typed lock refusal, never a half-written adoption). Delegation to
 // the absolute target controller stays an explicit caller step (B1 primitive).
+// An explicit operator override is forwarded to the launcher installer and
+// recorded there; anything else is refused before any mutation.
 export function executeAdoption(envelope = {}) {
   if (!envelope || typeof envelope !== 'object' || Array.isArray(envelope)) throw new Error('adoption_execute_invalid');
-  const { session, store, upgradeId, target, launcherSource, managedDir, commandPath, exclusion } = envelope;
+  const { session, store, upgradeId, target, launcherSource, managedDir, commandPath, exclusion, explicit } = envelope;
   if (!session || typeof session !== 'object' || !store || typeof store.begin !== 'function' ||
     typeof upgradeId !== 'string' || !upgradeId || !target || typeof target !== 'object' ||
     typeof launcherSource !== 'string' || typeof managedDir !== 'string' || typeof commandPath !== 'string') {
     throw new Error('adoption_execute_invalid');
   }
+  if (explicit !== undefined && typeof explicit !== 'boolean') throw new Error('adoption_execute_invalid');
   assertBootstrapSessionUnchanged(session);
   const selection = readState(join(store.state, 'selected-build.json'), 'selection')?.value ?? null;
   const need = assessAdoptionNeed({ managed: { prefixId: store.installation.prefixId, selection },
@@ -30,7 +33,7 @@ export function executeAdoption(envelope = {}) {
   session.release();
   store.begin({ upgradeId, target, origin: 'bootstrap', artifactDigests: {} });
   store.prepare(upgradeId);
-  const installation = installManagedLauncher({ session, launcherSource, managedDir, commandPath });
+  const installation = installManagedLauncher({ session, launcherSource, managedDir, commandPath, explicit });
   const transaction = store.select(upgradeId, { exclusion });
   return Object.freeze({ completed: true, upgradeId, installation, transaction });
 }

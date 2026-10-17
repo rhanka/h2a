@@ -1,0 +1,61 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-pilot-force.test.js
+node: v22.22.1
+private root: /tmp/mh-l6-test-Wipov4
+case: F should force an occupied command link through the pilot only on explicit override
+TAP version 13
+# Subtest: F should force an occupied command link through the pilot only on explicit override
+not ok 1 - F should force an occupied command link through the pilot only on explicit override
+  ---
+  duration_ms: 221.185482
+  type: 'test'
+  location: '/home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/test/mh-l6-pilot-force.test.js:14:67'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    + actual - expected
+    
+    + Error: upgrade_in_progress
+    +     at file:///home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/dist/runtime/upgrade/h4-store.js:149:27
+    +     at file:///home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/dist/runtime/upgrade/h4-store.js:77:24
+    +     at mutationLock (file:///home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/dist/runtime/handover/mutation.js:50:23)
+    +     at #locked (file:///home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/dist/runtime/upgrade/h4-store.js:73:20)
+    +     at UpgradeStore.begin (file:///home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/dist/runtime/upgrade/h4-store.js:133:28)
+    +     at executeAdoption (file:///home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/dist/runtime/upgrade/adoption-execute.js:32:11)
+    +     at runUpgradeOnce (file:///home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/dist/runtime/upgrade/upgrade-run.js:32:12)
+    +     at file:///home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/test/mh-l6-pilot-force.test.js:78:32
+    +     at attempt (file:///home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/test/mh-l6-pilot-force.test.js:70:26)
+    +     at TestContext.<anonymous> (file:///home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/test/mh-l6-pilot-force.test.js:78:18)
+    - undefined
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  actual:
+  error: 'upgrade_in_progress'
+  stack: |-
+    file:///home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/dist/runtime/upgrade/h4-store.js:149:27
+    file:///home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/dist/runtime/upgrade/h4-store.js:77:24
+    mutationLock (file:///home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/dist/runtime/handover/mutation.js:50:23)
+    #locked (file:///home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/dist/runtime/upgrade/h4-store.js:73:20)
+    UpgradeStore.begin (file:///home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/dist/runtime/upgrade/h4-store.js:133:28)
+    executeAdoption (file:///home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/dist/runtime/upgrade/adoption-execute.js:32:11)
+    runUpgradeOnce (file:///home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/dist/runtime/upgrade/upgrade-run.js:32:12)
+    file:///home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/test/mh-l6-pilot-force.test.js:78:32
+    attempt (file:///home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/test/mh-l6-pilot-force.test.js:70:26)
+    TestContext.<anonymous> (file:///home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/test/mh-l6-pilot-force.test.js:78:18)
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/test/mh-l6-pilot-force.test.js:79:10)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 0
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 339.040984
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-pilot-force.test.js"],"code":1,"signal":null,"tests":1,"invalid":false,"spawned":1,"leftovers":[]}
