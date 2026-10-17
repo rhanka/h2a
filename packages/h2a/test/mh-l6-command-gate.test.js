@@ -87,3 +87,46 @@ test('F should adopt the legacy link and reinstall the managed link', async t =>
   const again = installManagedLauncher({ session, launcherSource: source, managedDir, commandPath });
   assert.deepEqual(again, installed);
 });
+
+function attempt(args) {
+  try { return { result: args.install(args.envelope) }; } catch (error) { return { error }; }
+}
+
+test('F should force an occupied command link only on explicit override', async t => {
+  const { installManagedLauncher, session, managedDir, source, commandPath } = await setup(t);
+  const run = envelope => attempt({ install: installManagedLauncher, envelope });
+  fs.writeFileSync(commandPath, 'operator file\n');
+  const base = { session, launcherSource: source, managedDir, commandPath };
+  assert.throws(() => installManagedLauncher(base), /bootstrap_launcher_command_occupied/);
+  for (const explicit of ['yes', 1, 0]) {
+    assert.throws(() => installManagedLauncher({ ...base, explicit }), /bootstrap_launcher_install_invalid/);
+  }
+  assert.throws(() => installManagedLauncher({ ...base, explicit: false }), /bootstrap_launcher_command_occupied/);
+  const forced = run({ ...base, explicit: true });
+  assert.equal(forced.error, undefined);
+  assert.equal(forced.result.forced, true);
+  assert.equal(fs.readlinkSync(commandPath), forced.result.launcherPath);
+  assert.equal(fs.existsSync(join(managedDir, 'launcher', 'h2a.mjs')), true);
+});
+
+test('F should force foreign and dangling links only on explicit override', async t => {
+  const { installManagedLauncher, session, managedDir, source, commandPath } = await setup(t);
+  const run = envelope => attempt({ install: installManagedLauncher, envelope });
+  const base = { session, launcherSource: source, managedDir, commandPath };
+  fs.symlinkSync(source, commandPath);
+  const foreign = run({ ...base, explicit: true });
+  assert.equal(foreign.error, undefined);
+  assert.equal(foreign.result.forced, true);
+  fs.unlinkSync(commandPath);
+  fs.symlinkSync(join(managedDir, 'missing-target.mjs'), commandPath);
+  const dangling = run({ ...base, explicit: true });
+  assert.equal(dangling.error, undefined);
+  assert.equal(dangling.result.forced, true);
+  assert.equal(fs.readlinkSync(commandPath), dangling.result.launcherPath);
+});
+
+test('F should record an unforced installation without overriding', async t => {
+  const { installManagedLauncher, session, managedDir, source, commandPath } = await setup(t);
+  const installed = installManagedLauncher({ session, launcherSource: source, managedDir, commandPath });
+  assert.equal(installed.forced, false);
+});

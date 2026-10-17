@@ -1,0 +1,53 @@
+command: /tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-command-gate.test.js
+node: v24.21.0
+private root: /tmp/mh-l6-test-QUnujJ
+case: F should force foreign and dangling links only on explicit override
+TAP version 13
+# Subtest: F should force foreign and dangling links only on explicit override
+not ok 1 - F should force foreign and dangling links only on explicit override
+  ---
+  duration_ms: 40.570892
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-f2c4-kNiSpL/packages/h2a/test/mh-l6-command-gate.test.js:8:67'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    + actual - expected
+    
+    + Error: bootstrap_launcher_command_foreign
+    +     at Object.installManagedLauncher [as install] (file:///tmp/mh-l3-qualification-f2c4-kNiSpL/packages/h2a/dist/runtime/upgrade/launcher-install.js:54:44)
+    +     at attempt (file:///tmp/mh-l3-qualification-f2c4-kNiSpL/packages/h2a/test/mh-l6-command-gate.test.js:92:31)
+    +     at run (file:///tmp/mh-l3-qualification-f2c4-kNiSpL/packages/h2a/test/mh-l6-command-gate.test.js:114:27)
+    +     at TestContext.<anonymous> (file:///tmp/mh-l3-qualification-f2c4-kNiSpL/packages/h2a/test/mh-l6-command-gate.test.js:117:19)
+    +     at async Test.run (node:internal/test_runner/test:1409:7)
+    +     at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3)
+    - undefined
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  actual:
+  error: 'bootstrap_launcher_command_foreign'
+  stack: |-
+    Object.installManagedLauncher [as install] (file:///tmp/mh-l3-qualification-f2c4-kNiSpL/packages/h2a/dist/runtime/upgrade/launcher-install.js:54:44)
+    attempt (file:///tmp/mh-l3-qualification-f2c4-kNiSpL/packages/h2a/test/mh-l6-command-gate.test.js:92:31)
+    run (file:///tmp/mh-l3-qualification-f2c4-kNiSpL/packages/h2a/test/mh-l6-command-gate.test.js:114:27)
+    TestContext.<anonymous> (file:///tmp/mh-l3-qualification-f2c4-kNiSpL/packages/h2a/test/mh-l6-command-gate.test.js:117:19)
+    async Test.run (node:internal/test_runner/test:1409:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3)
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/mh-l3-qualification-f2c4-kNiSpL/packages/h2a/test/mh-l6-command-gate.test.js:118:10)
+    async Test.run (node:internal/test_runner/test:1409:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3)
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 0
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 77.862612
+
+receipt: {"command":["/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-command-gate.test.js"],"code":1,"signal":null,"tests":1,"invalid":false,"spawned":1,"leftovers":[]}

@@ -160,3 +160,33 @@ Audit : 4 fichiers identiques, émission compilée liée par SHA, 7 tests et
 | Compensation, orchestration de la délégation, activation M18 après preuve externe | F-2c (suite) |
 | Observateurs B2-3, autres entrées, smoke CI, gel .6 | B2-3/E2b3/E3b2b/E3c, M18 toujours ouvert |
 | Revue indépendante | Conducteur ; aucun consensus revendiqué |
+
+## F-2c4 — forçage explicite opérateur (livré)
+
+`installManagedLauncher` accepte `explicit: true` (booléen strict, rien
+d'autre) : le refus occupant/pendant/étranger est levé et le résultat
+porte `forced: true` ; sans override le refus typé demeure et le résultat
+porte `forced: false`. Le pilote CLI branchera son `--force` sur ce
+drapeau ; la compensation, l'orchestration de la délégation et M18
+restent F-2c (suite).
+
+| Commande ciblée | Node 22.22.1 | Node 24.21.0 |
+|---|---|---:|
+| `node scripts/mh-l6-test.mjs packages/h2a/test/mh-l6-command-gate.test.js final-F-2c4` | 8/8, exit 0 | 8/8, exit 0 |
+| Requals install (6) + adoption (13) + npm (8) | 6 + 13 + 8, exit 0 | 6 + 13 + 8, exit 0 |
+| `mh-l6-mutate.mjs command-gate` (4) + `command-force` (4) | 8 rouges / 8 verts | 8 / 8 |
+| `node scripts/mh-l6-f2c4-audit.mjs /tmp/mh-l3-qualification-f2c4-*` | exit 0 | exit 0 |
+| Skips / annulations / enfants restants | 0 / 0 / 0 | 0 / 0 / 0 |
+
+Rouge initial : refus même avec `explicit` (`ERR_ASSERTION`, 1 test,
+exit 1), conservé. Deux corrections avant vert : `explicit: false` vaut
+non-forçage (pas enveloppe invalide) et le test du mutant `explicit-shape`
+exige désormais la raison `install_invalid` exacte. Audit : 4 fichiers
+identiques, émission compilée liée par SHA, 8 tests + 6/13/8 requalifiés
+et 4+4 paires/profil. Preuve : `proof-F-2c4.json`.
+
+| NOT covered restant | Gate |
+|---|---|
+| Branchement `--force` du pilote, compensation, orchestration de la délégation, activation M18 après preuve externe | F-2c (suite) |
+| Observateurs B2-3, autres entrées, smoke CI, gel .6 | B2-3/E2b3/E3b2b/E3c, M18 toujours ouvert |
+| Revue indépendante | Conducteur ; aucun consensus revendiqué |
