@@ -16,12 +16,12 @@
 - [x] Lot C: G4 fails with policy-unavailable until an actual L8 contract
   exists; isolated emitted consumer proof and targeted Node 22/24 checks.
 - [x] Lot B/C evidence: 39 behavioural failures before grants/audit, then
-  52/52 disclosure tests. Six additional regressions observed red then green:
+  53/53 disclosure tests. Seven additional regressions observed red then green:
   final-policy state replacement, async audit, throwing clock, revoked issuing
   proof with fresh emit proof, backwards grant start, and independent read
-  authority missing from emission. Two strict compiler
-  errors were corrected; these are not behavioural RED evidence.
-- [x] Qualification: exact auth/disclosure/registration files, 89/89 on
+  authority missing from emission, and late provider redirection. Compiler
+  and test-type errors were corrected separately, not counted as RED evidence.
+- [x] Qualification: exact auth/disclosure/registration files, 90/90 on
   Node 22.22.1 and 24.18.0, zero skips; repository and test typechecks pass.
 - [x] Lot D: English conventional commits, own-branch push and PR #367; CI job
   outcomes and remaining qualification limits in the requested owner report.

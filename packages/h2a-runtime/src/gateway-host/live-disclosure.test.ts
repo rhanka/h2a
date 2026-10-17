@@ -162,6 +162,12 @@ describe("Δ-L7a disclosure authority", () => {
     } });
     expect(await f.emit(id)).toEqual({ ok: false, reason: "stale-evidence" }); expect(f.wire).toEqual([]);
   });
+  it("should refuse a destination changed by the final policy callback before handoff", async () => {
+    const f = fixture(); const id = f.grant(); let destination = "provider-1"; let checks = 0;
+    f.options.transport = () => ({ get providerId() { return destination; }, send: (texts) => { f.wire.push(...texts); } });
+    f.options.contentPolicy = () => ({ version: "content/1", allows: () => { if (++checks === 2) destination = "provider-2"; return true; } });
+    expect(await f.emit(id)).toEqual({ ok: false, reason: "provider-mismatch" }); expect(f.wire).toEqual([]);
+  });
   it("should keep a grant denied when its issuing proof is revoked even with a fresh emission proof", async () => {
     const f = fixture(); const id = f.grant(); f.revokeProof();
     expect(await f.emit(id, { capability: f.freshProof() })).toEqual({ ok: false, reason: "capability-revoked" });
