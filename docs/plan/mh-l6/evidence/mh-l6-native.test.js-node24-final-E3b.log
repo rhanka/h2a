@@ -1,0 +1,107 @@
+command: /tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-native.test.js
+node: v24.21.0
+private root: /tmp/mh-l6-test-HGtV7m
+case: all cases in explicit file
+TAP version 13
+# Subtest: U10 should reproduce the registered native payload from the pinned release archives in a second build root
+ok 1 - U10 should reproduce the registered native payload from the pinned release archives in a second build root
+  ---
+  duration_ms: 36303.20651
+  type: 'test'
+  ...
+# {"root":"/tmp/mh-l6-test-HGtV7m/tmpdir/mh-l6-native-oIZdIg/rebuilt","payload":"/tmp/mh-l6-test-HGtV7m/tmpdir/mh-l6-native-oIZdIg/rebuilt/payload","artifact":{"schemaVersion":1,"recipeDigest":"sha256:5dec0d06f275a3a0be2987b5769b800833413db40c2942a6c8f8d6cad7e56387","payloadDigest":"sha256:3223226a22cdbe4ec144606544978829c1a9e7c1d0b94e4a24c214aa52cea34f","binaryDigest":"sha256:b6bc6f5c7562d0095da7e7fb6ff05b1a76206b0b796cef75ba66f9a85ea058c8"},"commands":[{"command":["/usr/bin/taskset","-c","0","/tmp/mh-l6-test-HGtV7m/tmpdir/mh-l6-native-oIZdIg/.h2a-native-build-Vtk1xF/zig/zig-x86_64-linux-0.14.1/zig","c++","-target","x86_64-linux-gnu.2.31","-shared","-fPIC","-std=c++17","-O2","-g0","-s","-DNAPI_VERSION=8","-DNODE_ADDON_API_CPP_EXCEPTIONS","-DNODE_GYP_MODULE_NAME=pty","-ffile-prefix-map=/tmp/mh-l6-test-HGtV7m/tmpdir/mh-l6-native-oIZdIg/.h2a-native-build-Vtk1xF=/h2a-release","-fmacro-prefix-map=/tmp/mh-l6-test-HGtV7m/tmpdir/mh-l6-native-oIZdIg/.h2a-native-build-Vtk1xF=/h2a-release","-I/tmp/mh-l6-test-HGtV7m/tmpdir/mh-l6-native-oIZdIg/.h2a-native-build-Vtk1xF/node-headers/node-v22.22.1/include/node","-I/tmp/mh-l6-test-HGtV7m/tmpdir/mh-l6-native-oIZdIg/.h2a-native-build-Vtk1xF/node-addon-api/package","/tmp/mh-l6-test-HGtV7m/tmpdir/mh-l6-native-oIZdIg/.h2a-native-build-Vtk1xF/node-pty/package/src/unix/pty.cc","-lutil","-pthread","-o","/tmp/mh-l6-test-HGtV7m/tmpdir/mh-l6-native-oIZdIg/rebuilt/payload/node_modules/node-pty/build/Release/pty.node"],"stdout":"","stderr":"","code":0}],"target":"x86_64-linux-gnu.2.31","testedHost":{"node":"v24.21.0","glibc":"2.43"}}
+# Subtest: U10 should load the real precompiled node-pty and join a private PTY without any user compiler
+ok 2 - U10 should load the real precompiled node-pty and join a private PTY without any user compiler
+  ---
+  duration_ms: 40.669493
+  type: 'test'
+  ...
+# Subtest: U10 should refuse altered precompiled binary bytes before they reach require
+ok 3 - U10 should refuse altered precompiled binary bytes before they reach require
+  ---
+  duration_ms: 9.520371
+  type: 'test'
+  ...
+# Subtest: U10 should refuse altered real node-pty JavaScript even if the ELF is intact
+ok 4 - U10 should refuse altered real node-pty JavaScript even if the ELF is intact
+  ---
+  duration_ms: 6.876006
+  type: 'test'
+  ...
+# Subtest: U10 should refuse a hardlinked precompiled artifact rather than sharing mutable ELF bytes
+ok 5 - U10 should refuse a hardlinked precompiled artifact rather than sharing mutable ELF bytes
+  ---
+  duration_ms: 5.580338
+  type: 'test'
+  ...
+# Subtest: U10 should refuse a symlinked binary pointing outside the precompiled payload
+ok 6 - U10 should refuse a symlinked binary pointing outside the precompiled payload
+  ---
+  duration_ms: 7.525919
+  type: 'test'
+  ...
+# Subtest: U10 should refuse an unrecorded file and a changed payload mode
+ok 7 - U10 should refuse an unrecorded file and a changed payload mode
+  ---
+  duration_ms: 8.756784
+  type: 'test'
+  ...
+# Subtest: U10 should reject a missing precompiled binary without falling back to sources or scripts
+ok 8 - U10 should reject a missing precompiled binary without falling back to sources or scripts
+  ---
+  duration_ms: 6.007732
+  type: 'test'
+  ...
+# Subtest: U10 should reject an unqualified Node major before consuming the artifact or compiling
+ok 9 - U10 should reject an unqualified Node major before consuming the artifact or compiling
+  ---
+  duration_ms: 3.586167
+  type: 'test'
+  ...
+# Subtest: U10 should reject an unqualified Node ABI before consuming the artifact or compiling
+ok 10 - U10 should reject an unqualified Node ABI before consuming the artifact or compiling
+  ---
+  duration_ms: 3.438379
+  type: 'test'
+  ...
+# Subtest: U10 should reject an unqualified N-API level before consuming the artifact or compiling
+ok 11 - U10 should reject an unqualified N-API level before consuming the artifact or compiling
+  ---
+  duration_ms: 10.292684
+  type: 'test'
+  ...
+# Subtest: U10 should reject a libc below the target baseline before consuming the artifact or compiling
+ok 12 - U10 should reject a libc below the target baseline before consuming the artifact or compiling
+  ---
+  duration_ms: 0.361039
+  type: 'test'
+  ...
+# Subtest: U10 should refuse an altered or extended artifact descriptor
+ok 13 - U10 should refuse an altered or extended artifact descriptor
+  ---
+  duration_ms: 13.396674
+  type: 'test'
+  ...
+# Subtest: U10 should reject an unqualified architecture before consuming the artifact or compiling
+ok 14 - U10 should reject an unqualified architecture before consuming the artifact or compiling
+  ---
+  duration_ms: 3.331638
+  type: 'test'
+  ...
+# Subtest: U10 should reject an unpinned compiler archive before its first instruction executes
+ok 15 - U10 should reject an unpinned compiler archive before its first instruction executes
+  ---
+  duration_ms: 87.747845
+  type: 'test'
+  ...
+1..15
+# tests 15
+# suites 0
+# pass 15
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 36557.514281
+
+receipt: {"command":["/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-native.test.js"],"code":0,"signal":null,"tests":15,"invalid":false,"spawned":1,"leftovers":[]}

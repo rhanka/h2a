@@ -1,0 +1,142 @@
+command: /tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node --test --test-reporter=tap packages/h2a/test/release-script.test.js
+node: v24.21.0
+private root: /tmp/mh-l6-test-mIIlU2
+case: all cases in explicit file
+TAP version 13
+# Subtest: parseVersion accepts strict X.Y.Z and returns numeric components
+ok 1 - parseVersion accepts strict X.Y.Z and returns numeric components
+  ---
+  duration_ms: 1.027323
+  type: 'test'
+  ...
+# Subtest: parseVersion rejects bad inputs
+ok 2 - parseVersion rejects bad inputs
+  ---
+  duration_ms: 0.19689
+  type: 'test'
+  ...
+# Subtest: bumpPackageJsonContent updates the version field
+ok 3 - bumpPackageJsonContent updates the version field
+  ---
+  duration_ms: 0.153229
+  type: 'test'
+  ...
+# Subtest: bumpPackageJsonContent rewrites the @sentropic/h2a dep to ^X.Y.Z
+ok 4 - bumpPackageJsonContent rewrites the @sentropic/h2a dep to ^X.Y.Z
+  ---
+  duration_ms: 0.075762
+  type: 'test'
+  ...
+# Subtest: bumpPackageJsonContent rewrites the @sentropic/track dep to ^X.Y.Z (lockstep)
+ok 5 - bumpPackageJsonContent rewrites the @sentropic/track dep to ^X.Y.Z (lockstep)
+  ---
+  duration_ms: 0.076544
+  type: 'test'
+  ...
+# Subtest: bumpPackageJsonContent migrates the runtime peer to an exact required dependency
+ok 6 - bumpPackageJsonContent migrates the runtime peer to an exact required dependency
+  ---
+  duration_ms: 0.12246
+  type: 'test'
+  ...
+# Subtest: bumpPackageLockContent keeps the exact required runtime and preserves unrelated dependency ranges
+ok 7 - bumpPackageLockContent keeps the exact required runtime and preserves unrelated dependency ranges
+  ---
+  duration_ms: 0.23393
+  type: 'test'
+  ...
+# Subtest: bumpPackageJsonContent leaves the @sentropic/h2a dep alone when absent
+ok 8 - bumpPackageJsonContent leaves the @sentropic/h2a dep alone when absent
+  ---
+  duration_ms: 0.088327
+  type: 'test'
+  ...
+# Subtest: bumpPackageJsonContent preserves trailing newline state
+ok 9 - bumpPackageJsonContent preserves trailing newline state
+  ---
+  duration_ms: 0.121198
+  type: 'test'
+  ...
+# Subtest: bumpPackageJsonContent validates the new version through parseVersion
+ok 10 - bumpPackageJsonContent validates the new version through parseVersion
+  ---
+  duration_ms: 0.178125
+  type: 'test'
+  ...
+# Subtest: bumpPackageLockContent updates root and workspace package versions
+ok 11 - bumpPackageLockContent updates root and workspace package versions
+  ---
+  duration_ms: 0.131647
+  type: 'test'
+  ...
+# Subtest: bumpPackageLockContent bumps packages/track and rewrites its caret in packages/h2a
+ok 12 - bumpPackageLockContent bumps packages/track and rewrites its caret in packages/h2a
+  ---
+  duration_ms: 3.24213
+  type: 'test'
+  ...
+# Subtest: bumpPackageLockContent validates the new version through parseVersion
+ok 13 - bumpPackageLockContent validates the new version through parseVersion
+  ---
+  duration_ms: 0.073628
+  type: 'test'
+  ...
+# Subtest: gitStatusIsClean accepts empty porcelain output only
+ok 14 - gitStatusIsClean accepts empty porcelain output only
+  ---
+  duration_ms: 0.047058
+  type: 'test'
+  ...
+# Subtest: resolveReleaseBranch creates release/vX.Y.Z when launched from main
+ok 15 - resolveReleaseBranch creates release/vX.Y.Z when launched from main
+  ---
+  duration_ms: 0.068168
+  type: 'test'
+  ...
+# Subtest: resolveReleaseBranch keeps the current non-main branch (bump inside the feature PR)
+ok 16 - resolveReleaseBranch keeps the current non-main branch (bump inside the feature PR)
+  ---
+  duration_ms: 0.056186
+  type: 'test'
+  ...
+# Subtest: resolveReleaseBranch refuses a detached HEAD or an empty branch name
+ok 17 - resolveReleaseBranch refuses a detached HEAD or an empty branch name
+  ---
+  duration_ms: 0.228409
+  type: 'test'
+  ...
+# Subtest: planReleaseGitSteps from main switches to release/vX.Y.Z before committing
+ok 18 - planReleaseGitSteps from main switches to release/vX.Y.Z before committing
+  ---
+  duration_ms: 0.143069
+  type: 'test'
+  ...
+# Subtest: planReleaseGitSteps never commits on main and never creates a tag
+ok 19 - planReleaseGitSteps never commits on main and never creates a tag
+  ---
+  duration_ms: 0.087214
+  type: 'test'
+  ...
+# Subtest: formatNextSteps describes branch push -> PR -> CI -> merge -> tag on merged commit
+ok 20 - formatNextSteps describes branch push -> PR -> CI -> merge -> tag on merged commit
+  ---
+  duration_ms: 0.098936
+  type: 'test'
+  ...
+# Subtest: formatNextSteps uses a signed tag when requested
+ok 21 - formatNextSteps uses a signed tag when requested
+  ---
+  duration_ms: 0.088206
+  type: 'test'
+  ...
+1..21
+# tests 21
+# suites 0
+# pass 21
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 41.692117
+
+receipt: {"command":["/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node","--test","--test-reporter=tap","packages/h2a/test/release-script.test.js"],"code":0,"signal":null,"tests":21,"invalid":false,"spawned":1,"leftovers":[]}
