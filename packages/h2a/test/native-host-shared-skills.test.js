@@ -30,6 +30,12 @@ test('agy and Gemini share one command owner and resources outside command disco
   assert.ok(commands.every(n => n.endsWith('.toml')));
   const prompt = fs.readFileSync(join(home, '.gemini/commands/present-decision.toml'), 'utf8');
   assert.ok(prompt.includes(`.h2a-install/skill-resources/track/${PACKAGE_VERSION}/present-decision/assets/`));
+  const body = parseNativeToml(prompt).prompt;
+  for (const asset of ['owner-criteria.template.md', 'dossier-template.md', 'self-audit.md']) {
+    const path = join(home, `.gemini/.h2a-install/skill-resources/track/${PACKAGE_VERSION}/present-decision/assets`, asset);
+    assert.equal(body.split(path).length - 1, 1, `${asset}: one expanded reference per prompt`);
+    assert.ok(fs.existsSync(path), `referenced resource exists: ${asset}`);
+  }
   const custom = join(home, '.gemini/commands/h2a.toml'); fs.writeFileSync(custom, 'personal = true\n');
   assert.notEqual(cli(['install-skills', '--host', 'gemini']).code, 0);
   assert.equal(fs.readFileSync(custom, 'utf8'), 'personal = true\n');
