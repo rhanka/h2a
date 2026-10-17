@@ -7,7 +7,6 @@ import fs, { closeSync, constants, lstatSync, mkdirSync, mkdtempSync, openSync, 
 import os from "node:os";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { createHash } from 'node:crypto';
-import { assertQualifiedPath } from './qual-env.js';
 import { verifyImage } from '../../src/runtime/handover/image.js';
 import { digest } from '../../src/runtime/handover/wire.js';
 
@@ -203,8 +202,11 @@ function assertNeutralFixturePath(path) {
   if (path.startsWith(nativeQualificationRoot + '/')) boundary = nativeQualificationRoot;
   else if (path.startsWith('/tmp/')) boundary = '/tmp/' + path.slice(5).split('/')[0];
   else {
-    const parent = resolve(import.meta.dirname, '../../../../tmp/test-runtime');
-    assert.ok(path.startsWith(parent + '/h2a-test-root-'));
+    const repo = resolve(import.meta.dirname, '../../../..');
+    const parent = [join(repo, 'tmp/test-runtime'), join(repo, '.qual-tmp')]
+      .find(root => path.startsWith(root + '/'));
+    assert.ok(parent);
+    if (parent.endsWith('/tmp/test-runtime')) assert.ok(path.startsWith(parent + '/h2a-test-root-'));
     boundary = join(parent, relative(parent, path).split('/')[0]);
   }
   const info = lstatSync(boundary);
@@ -222,11 +224,11 @@ function closedBuildInvocation(command, args, env) {
     // Check the private fixture and reverify the actual installed image. These
     // entries enforce their own closed-image loader policy, which deliberately
     // refuses any additional preload (including this test instrumentation).
-    assertQualifiedPath(entry);
+    assertNeutralFixturePath(entry);
     for (const key of ['HOME', 'XDG_RUNTIME_DIR', 'XDG_STATE_HOME', 'XDG_CONFIG_HOME']) assertNeutralFixturePath(env[key]);
     if (builtLaunchers.has('sha256:' + createHash('sha256').update(fs.readFileSync(entry)).digest('hex'))) return true;
     for (let root = dirname(entry), depth = 0; depth < 8; root = dirname(root), depth++) {
-      assertQualifiedPath(root);
+      assertNeutralFixturePath(root);
       const path = join(root, 'manifest.json');
       let document;
       try { document = JSON.parse(fs.readFileSync(path, 'utf8')); }
