@@ -9,7 +9,7 @@ import { captureHostOperatorNotices } from '../dist/hosts/operator-notices.js';
 const PACKAGE_VERSION = JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version;
 function setup(t) {
   const home = fs.mkdtempSync(join(tmpdir(), 'shared-host-')), previous = { ...process.env };
-  process.env.HOME = home; process.env.VIBE_HOME = '';
+  process.env.HOME = home; process.env.VIBE_HOME = ''; process.env.PATH = join(home, 'empty-bin');
   t.after(() => { for (const key of Object.keys(process.env)) if (!(key in previous)) delete process.env[key]; Object.assign(process.env, previous); fs.rmSync(home, { recursive: true, force: true }); });
   const cli = args => { let out = '', err = ''; const code = runCli(args, { cwd: () => home, stdout: { write: s => { out += s; } }, stderr: { write: s => { err += s; } } }); return { code, out, err, json: () => JSON.parse(out) }; };
   return { home, cli };

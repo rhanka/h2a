@@ -119,10 +119,11 @@ export function planVibeEquipment(options: VibeEquipmentOptions) {
   if (lifecycle && options.lifecycle) lifecycle.enabled = options.lifecycle === 'on';
   const hooks: VibeHook[] = [];
   const command = (name: string) => [process.execPath, join(options.state, 'hooks', name)].map(shellQuote).join(' ');
-  const workspaceScope = manifest.workspaceScope ?? { workspace: resolve(options.cwd ?? process.cwd()),
-    session: options.instance, ownerKey: options.ownerKey ? resolve(options.ownerKey) : undefined };
-  const scopeArgs = ['--host', 'vibe', '--workspace', workspaceScope.workspace];
-  if (workspaceScope.session) scopeArgs.push('--session', workspaceScope.session);
+  // The global profile cannot pin one project's cwd or one native session.
+  // Keep owner-selected trust; each launch binds its native session separately.
+  const workspaceScope = { session: options.instance ?? manifest.workspaceScope?.session,
+    ownerKey: options.ownerKey ? resolve(options.ownerKey) : manifest.workspaceScope?.ownerKey };
+  const scopeArgs = ['--host', 'vibe', '--session-store', options.state];
   if (workspaceScope.ownerKey) scopeArgs.push('--owner-key', workspaceScope.ownerKey);
   hooks.push({ name: 'sentropic-h2a-workspace-scope', type: 'pre_tool', match: 're:.*',
     command: command('workspace-scope-guard.mjs') + ' ' + scopeArgs.map(shellQuote).join(' '), timeout: 15, strict: true });

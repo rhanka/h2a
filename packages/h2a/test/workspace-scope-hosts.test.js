@@ -66,13 +66,13 @@ test('vibe installation ships an independent strict scope hook without MCP guard
     input: JSON.stringify({ tool_name: 'bash', tool_input: { command: 'gh pr close -R foreign/repo 3' } }), encoding: 'utf8' });
   assert.equal(denied.status, 0); assert.equal(JSON.parse(denied.stdout).decision, 'deny');
 });
-test('agy and muse explicitly report the lack of verified pre-action enforcement', t => {
+test('R1 should support the verified Muse project PreToolUse surface', t => {
   const f = fixture(t);
-  for (const host of ['agy', 'muse']) {
+  for (const host of ['muse']) {
     const r = f.cli(['host', 'plugin', '--host', host, '--instance', 'test']);
     assert.equal(r.status, 0, r.stderr);
-    assert.equal(JSON.parse(r.stdout).workspaceScope.supported, false);
-    assert.match(JSON.parse(r.stdout).workspaceScope.reason, /PreToolUse/);
+    assert.equal(JSON.parse(r.stdout).workspaceScope.supported, true);
+    assert.match(JSON.parse(r.stdout).workspaceScope.command, /--host' 'muse/);
   }
 });
 
@@ -82,4 +82,77 @@ test('vibe refuses to claim protection when a project hook masks the scope guard
   fs.writeFileSync(join(f.dir, '.vibe/hooks.toml'), '[[hooks]]\nname="sentropic-h2a-workspace-scope"\ntype="pre_tool"\ncommand="true"\n');
   const r = f.cli(['install-skills', '--host', 'vibe']);
   assert.notEqual(r.status, 0); assert.match(r.stderr, /scope.*mask|mask.*scope/i);
+});
+
+test('R1 should install and execute the agy all-tool hook with native payloads', t => {
+  const f = fixture(t), path = join(f.dir, 'hooks.json');
+  const r = f.cli(['host','plugin','--host','agy','--instance','agy-session','--write',path,'--workspace',f.dir]);
+  assert.equal(r.status,0,r.stderr);
+  const config = JSON.parse(fs.readFileSync(path,'utf8'));
+  const hooks = config['sentropic-h2a-workspace-scope'];
+  assert.equal(hooks?.enabled,true);
+  const entry = hooks.PreToolUse.find(e => JSON.stringify(e).includes('workspace-scope-guard'));
+  assert.ok(entry); assert.equal(entry.matcher,'.*');
+  for (const args of [{CommandLine:'gh pr close -R foreign/repo 3'}, {command:'git push',cwd:join(f.dir,'foreign')}]) {
+    const r = spawnSync('sh',['-c',entry.hooks[0].command],{cwd:f.dir,env:f.env,encoding:'utf8',
+      input:JSON.stringify({conversationId:'agy-session',workspacePaths:[f.dir],toolCall:{name:'run_command',args}})});
+    assert.equal(r.status,0,r.stderr); assert.equal(JSON.parse(r.stdout).decision,'deny');
+  }
+  const own = spawnSync('sh',['-c',entry.hooks[0].command],{cwd:f.dir,env:f.env,encoding:'utf8',
+    input:JSON.stringify({conversationId:'agy-session',toolCall:{name:'write_to_file',args:{TargetFile:join(f.dir,'readme.txt'),CodeContent:'x'}}})});
+  assert.equal(own.status,0,own.stderr); assert.equal(JSON.parse(own.stdout).decision,'allow');
+});
+test('R5 should refresh explicit Vibe session/key selections without pinning a global cwd', t => {
+  const f = fixture(t), vibe = f.env.VIBE_HOME; fs.mkdirSync(vibe);
+  assert.equal(f.cli(['install-skills','--host','vibe']).status,0);
+  const key=join(f.dir,'owner.pub');
+  const r=f.cli(['host','plugin','--host','vibe','--instance','selected-session','--owner-key',key,'--write',join(vibe,'hooks.toml')]);
+  assert.equal(r.status,0,r.stderr);
+  const source=fs.readFileSync(join(vibe,'hooks.toml'),'utf8');
+  assert.ok(source.includes('selected-session')); assert.ok(source.includes(key));
+  const scopeLine=source.split('\n').find(l=>l.includes('command')&&l.includes('workspace-scope-guard'));
+  assert.ok(!scopeLine.includes('--workspace'),scopeLine);
+  const guard=join(vibe,'.h2a-install/hooks/workspace-scope-guard.mjs');
+  for (const dir of [f.dir,join(f.dir,'second')]) {
+    fs.mkdirSync(dir,{recursive:true});
+    const run=flags=>spawnSync(process.execPath,[guard,'--host','vibe',...flags],{cwd:dir,env:f.env,encoding:'utf8',
+      input:JSON.stringify({session_id:'session-'+dir,tool_name:'bash',tool_input:{command:'git status'}})});
+    assert.equal(run(['--initialize-session','true']).status,0);
+    const check=run([]); assert.equal(JSON.parse(check.stdout).decision,'allow',check.stderr);
+  }
+});
+
+test('R1 should converge agy startup binding and pre-action hooks on a temporary profile', t => {
+  const f=fixture(t); fs.mkdirSync(join(f.dir,'.gemini'));
+  fs.mkdirSync(join(f.dir,'.gemini/config'));
+  fs.writeFileSync(join(f.dir,'.gemini/config/hooks.json'), JSON.stringify({ personal: { PreInvocation: [{ command: 'echo retained' }] } }));
+  const r=f.cli(['install-skills','--host','agy']); assert.equal(r.status,0,r.stderr);
+  const path=join(f.dir,'.gemini/config/hooks.json'); assert.ok(fs.existsSync(path),'missing native agy hooks');
+  const config=JSON.parse(fs.readFileSync(path,'utf8'));
+  assert.equal(config.personal.PreInvocation[0].command, 'echo retained');
+  const hooks=config['sentropic-h2a-workspace-scope'];
+  assert.ok(hooks.SessionStart.some(e=>e.type==='command'&&e.command.includes('workspace-scope')));
+  assert.ok(hooks.SessionStart.every(e=>!e.hooks),'agy startup handlers are flat');
+  assert.ok(hooks.PreToolUse.some(e=>JSON.stringify(e).includes('workspace-scope')));
+});
+
+test('R1 should install Muse project hooks and execute the native denial protocol', t => {
+  const f=fixture(t); const r=f.cli(['install-skills','--host','muse']); assert.equal(r.status,0,r.stderr);
+  const path=join(f.dir,'.muse/hooks.json'); assert.ok(fs.existsSync(path),'missing Muse project hooks');
+  const hooks=JSON.parse(fs.readFileSync(path,'utf8')).hooks;
+  const run=(event,input)=>spawnSync('sh',['-c',hooks[event].find(e=>JSON.stringify(e).includes('workspace-scope')).hooks[0].command],{
+    cwd:f.dir,env:f.env,encoding:'utf8',input:JSON.stringify({session_id:'native-muse',hook_event_name:event,...input})});
+  assert.equal(run('SessionStart',{}).status,0);
+  const own=run('PreToolUse',{tool_name:'exec_command',tool_input:{cmd:'git status'}}); assert.equal(own.status,0,own.stderr);
+  const foreign=run('PreToolUse',{tool_name:'exec_command',tool_input:{cmd:'gh pr close -R foreign/repo 3'}});
+  const denial=JSON.parse(foreign.stdout);assert.equal(denial.hookSpecificOutput.permissionDecision,'deny');
+  assert.ok(!('decision' in denial),'Muse rejects legacy PreToolUse decision');
+});
+
+for(const host of ['agy','muse']) test('R5 should retain the explicit owner key across ' + host + ' convergence', t => {
+  const f=fixture(t), key=join(f.dir,'owner.pub');
+  const first=f.cli(['install-skills','--host',host,'--owner-key',key]);assert.equal(first.status,0,first.stderr);
+  const next=f.cli(['install-skills','--host',host]);assert.equal(next.status,0,next.stderr);
+  const path=host==='muse'?join(f.dir,'.muse/hooks.json'):join(f.dir,'.gemini/config/hooks.json');
+  assert.ok(fs.readFileSync(path,'utf8').includes(key),'owner key selection was lost');
 });
