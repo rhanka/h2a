@@ -26,6 +26,7 @@ jobs:
           packages/h2a/test/native-host-catalog.test.js
           packages/h2a/test/native-host-convergence.test.js
           packages/h2a/test/native-host-shared-skills.test.js
+          packages/h2a/test/native-question-mode.test.js
           packages/h2a/test/native-host-upgrade.test.js
           packages/h2a/test/native-host-qualification.test.js
           packages/h2a/test/native-host-oracles.test.js

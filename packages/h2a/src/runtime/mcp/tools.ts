@@ -1,5 +1,6 @@
 import { H2A_CLI_MCP_TOOL_NAMES } from "../../mcp.js";
 import { TRACK_READ_TOOL_DESCRIPTORS } from "@sentropic/track/mcp";
+import { NATIVE_QUESTION_GUIDANCE } from "../../hosts/native-questions.js";
 
 export type McpToolName = (typeof H2A_CLI_MCP_TOOL_NAMES)[number];
 
@@ -310,7 +311,7 @@ const H2A_COORDINATION_TOOL_DESCRIPTORS: McpToolDescriptor[] = [
   {
     name: "h2a_escalate",
     description:
-      "Escalate a negotiation to a higher control surface. Appends a journal event with type=escalate carrying { kind: 'escalation', channel, payload }.",
+      "Escalate a negotiation to a higher control surface. Appends a journal event with type=escalate carrying { kind: 'escalation', channel, payload }.\n\n" + NATIVE_QUESTION_GUIDANCE,
     inputSchema: {
       type: "object",
       properties: {
@@ -333,7 +334,7 @@ const H2A_COORDINATION_TOOL_DESCRIPTORS: McpToolDescriptor[] = [
   {
     name: "h2a_session_open",
     description:
-      "Open a live session for an instance (DEC-050/051). Writes a presence file under <root>/.h2a/presence/<sessionId>.json and returns the session plus the currently-fresh peers. The session subscribes by default to all canonical notification topics.",
+      "Open a live session for an instance (DEC-050/051). Writes a presence file under <root>/.h2a/presence/<sessionId>.json and returns the session plus the currently-fresh peers. The session subscribes by default to all canonical notification topics.\n\n" + NATIVE_QUESTION_GUIDANCE,
     inputSchema: {
       type: "object",
       properties: {
@@ -605,7 +606,7 @@ const H2A_COORDINATION_TOOL_DESCRIPTORS: McpToolDescriptor[] = [
   {
     name: "h2a_conductor_launch",
     description:
-      "D3 EMISSION: when work is stalled and no conductor is live, EMIT a conductor-launch-request envelope to a live remote agent. Gated by confirm=true (human gate) and a 1/30min/workspace cap. h2a NEVER spawns a process — it only puts a request envelope to remote; remote executes the actual spawn. Without confirm=true, returns a DRY-RUN preview (action: 'would-emit'). Requires instance (self/sender) when confirm=true.",
+      "D3 EMISSION: when work is stalled and no conductor is live, EMIT a conductor-launch-request envelope to a live remote agent. Gated by confirm=true (human gate) and a 1/30min/workspace cap. h2a NEVER spawns a process — it only puts a request envelope to remote; remote executes the actual spawn. Without confirm=true, returns a DRY-RUN preview (action: 'would-emit'). Requires instance (self/sender) when confirm=true.\n\n" + NATIVE_QUESTION_GUIDANCE,
     inputSchema: {
       type: "object",
       properties: {
@@ -742,7 +743,7 @@ const H2A_COORDINATION_TOOL_DESCRIPTORS: McpToolDescriptor[] = [
   {
     name: "h2a_run",
     description:
-      "Launch one background Claude, Codex, AGY, Muse or Vibe agent in an existing workspace through the canonical h2a run runtime. AGY, Muse and Vibe are direct (no llm-mesh gateway); AGY supports run-once mode through stream-json stdin/output. Claude models use a reserved review/challenge pool; build requires allowClaudeBuild:true. Quota failures never retry or fall back; repeat the same name to read a headless completion. Muse is interactive/background only (muse exec has no stdin prompt contract, so headless is rejected); Vibe is interactive/background only (vibe -p takes the prompt as argv, and prompts are never serialized into argv, so headless is rejected). Responds within 50 seconds: returns verified session metadata when finished, otherwise {state:\"launching\",launchId,retrySafe:false} while the server continues launching. Repeat h2a_run with the same name to read its current state; that name is idempotent for this MCP server lifetime, including after completion or caller cancellation, and never launches or delivers the brief again. Never creates a branch or worktree.",
+      "Launch one background Claude, Codex, AGY, Muse or Vibe agent in an existing workspace through the canonical h2a run runtime. AGY, Muse and Vibe are direct (no llm-mesh gateway); AGY supports run-once mode through stream-json stdin/output. Claude models use a reserved review/challenge pool; build requires allowClaudeBuild:true. Quota failures never retry or fall back; repeat the same name to read a headless completion. Muse is interactive/background only (muse exec has no stdin prompt contract, so headless is rejected); Vibe is interactive/background only (vibe -p takes the prompt as argv, and prompts are never serialized into argv, so headless is rejected). Responds within 50 seconds: returns verified session metadata when finished, otherwise {state:\"launching\",launchId,retrySafe:false} while the server continues launching. Repeat h2a_run with the same name to read its current state; that name is idempotent for this MCP server lifetime, including after completion or caller cancellation, and never launches or delivers the brief again. Never creates a branch or worktree.\n\n" + NATIVE_QUESTION_GUIDANCE,
     inputSchema: {
       type: "object",
       properties: {
