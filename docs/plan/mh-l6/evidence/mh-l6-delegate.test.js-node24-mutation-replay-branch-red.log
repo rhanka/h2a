@@ -1,0 +1,51 @@
+command: /tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-delegate.test.js
+node: v24.21.0
+private root: /tmp/mh-l6-test-OB2sA7
+case: F should replay a lost source acknowledgement without a second handoff
+TAP version 13
+# Subtest: F should replay a lost source acknowledgement without a second handoff
+not ok 1 - F should replay a lost source acknowledgement without a second handoff
+  ---
+  duration_ms: 316.125378
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-f2c6-5vyWA0/packages/h2a/test/mh-l6-delegate.test.js:8:67'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    + actual - expected
+    
+    + Error: upgrade_authority_revoked
+    +     at assertUpgradeAuthority (file:///tmp/mh-l3-qualification-f2c6-5vyWA0/packages/h2a/dist/runtime/upgrade/upgrade-authority.js:18:15)
+    +     at delegateUpgrade (file:///tmp/mh-l3-qualification-f2c6-5vyWA0/packages/h2a/dist/runtime/upgrade/upgrade-delegate.js:28:5)
+    +     at TestContext.<anonymous> (file:///tmp/mh-l3-qualification-f2c6-5vyWA0/packages/h2a/test/mh-l6-delegate.test.js:41:18)
+    +     at async Test.run (node:internal/test_runner/test:1409:7)
+    +     at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3)
+    - undefined
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  actual:
+  error: 'upgrade_authority_revoked'
+  stack: |-
+    assertUpgradeAuthority (file:///tmp/mh-l3-qualification-f2c6-5vyWA0/packages/h2a/dist/runtime/upgrade/upgrade-authority.js:18:15)
+    delegateUpgrade (file:///tmp/mh-l3-qualification-f2c6-5vyWA0/packages/h2a/dist/runtime/upgrade/upgrade-delegate.js:28:5)
+    TestContext.<anonymous> (file:///tmp/mh-l3-qualification-f2c6-5vyWA0/packages/h2a/test/mh-l6-delegate.test.js:41:18)
+    async Test.run (node:internal/test_runner/test:1409:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3)
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/mh-l3-qualification-f2c6-5vyWA0/packages/h2a/test/mh-l6-delegate.test.js:42:10)
+    async Test.run (node:internal/test_runner/test:1409:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3)
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 0
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 361.749421
+
+receipt: {"command":["/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-delegate.test.js"],"code":1,"signal":null,"tests":1,"invalid":false,"spawned":1,"leftovers":[]}
