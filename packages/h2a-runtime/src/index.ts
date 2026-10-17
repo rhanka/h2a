@@ -170,6 +170,7 @@ import {
   isAgentLaunchProfile,
   type AgentLaunchEffort,
 } from "./agent-launch-args.js";
+import { resolveGatewayModelAlias } from "./gateway-model-catalog/model-catalog.js";
 import { deriveSessionClass } from "./session-class.js";
 import type { ProcView } from "./proc-cpu.js";
 import {
@@ -6488,6 +6489,13 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             return;
           }
           const useBare = resolveClaudeBare(profile, bareChoiceFromOptions(opts) ?? pinnedLaunch?.bare);
+          // H0 (#662): normalize readable gateway aliases (argon-high, wonder,
+          // wonder-full, spark) to their exact canonical model id. Unknown
+          // names pass through unchanged for exact-model validation downstream.
+          const runModel =
+            opts.model !== undefined
+              ? (resolveGatewayModelAlias(opts.model) ?? opts.model)
+              : undefined;
           let args: string[];
           try {
             args =
@@ -6498,7 +6506,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
                       ? { prompt: initialPrompt }
                       : {}),
                     ...(opts.agent !== undefined ? { agent: opts.agent } : {}),
-                    ...(opts.model !== undefined ? { model: opts.model } : {}),
+                    ...(runModel !== undefined ? { model: runModel } : {}),
                     ...(opts.effort !== undefined
                       ? { effort: opts.effort as AgentLaunchEffort }
                       : {}),
