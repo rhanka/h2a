@@ -16,6 +16,8 @@ export async function buildManagedLauncher() {
   const imports = Object.values(result.metafile.outputs).flatMap(o => o.imports).filter(i => i.external).map(i => i.path);
   if (imports.some(path => !path.startsWith('node:'))) throw new Error('launcher_external_dependency');
   const code = '#!/usr/bin/env node\n' + result.outputFiles[0].text;
+  globalThis[Symbol.for('h2a.test.closedBuildReceipt')]?.({ kind: 'launcher',
+    digest: 'sha256:' + createHash('sha256').update(code).digest('hex') });
   return { code, digest: 'sha256:' + createHash('sha256').update(code).digest('hex'), imports,
     loader: { code: loaderCode, digest: loaderDigest, imports: loaderImports, filename: 'image-loader-' + loaderDigest.slice(7) + '.mjs' } };
 }
