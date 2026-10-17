@@ -26,7 +26,7 @@ test('verify, rehearsal and cross-platform smoke consume the same closed candida
   }
 });
 
-test('candidate tarballs include both verified payloads and the exact four-package cohort', { timeout: 240_000 }, async () => {
+test('candidate tarballs include both verified payloads and the exact five-package release cohort', { timeout: 240_000 }, async () => {
   const lab = fs.mkdtempSync(join(tmpdir(), 'candidate-artifacts-'));
   const output = join(lab, 'tarballs');
   try {
@@ -38,8 +38,9 @@ test('candidate tarballs include both verified payloads and the exact four-packa
       cwd: repo, env, timeout: 230_000, maxBuffer: 8 * 1024 * 1024,
     });
     const version = JSON.parse(fs.readFileSync(join(repo, 'packages/h2a/package.json'))).version;
-    assert.deepEqual(fs.readdirSync(output).sort(), ['h2a', 'h2a-cli', 'h2a-runtime', 'track']
-      .map(name => `sentropic-${name}-${version}.tgz`).sort());
+    const focusVersion = JSON.parse(fs.readFileSync(join(repo, 'packages/focus/package.json'))).version;
+    assert.deepEqual(fs.readdirSync(output).sort(), [...['h2a', 'h2a-cli', 'h2a-runtime', 'track']
+      .map(name => `sentropic-${name}-${version}.tgz`), `sentropic-focus-${focusVersion}.tgz`].sort());
     for (const name of ['h2a', 'h2a-runtime']) {
       const tarball = join(output, `sentropic-${name}-${version}.tgz`);
       const manifest = JSON.parse((await exec('tar', ['-xOf', tarball, 'package/manifest.json'], { maxBuffer: 32 * 1024 * 1024 })).stdout);
