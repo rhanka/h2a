@@ -13,6 +13,7 @@ import {
   detectAgyClaudeQuotaExhaustion,
   isAgyClaudeModel,
   normalizeAgyEffort,
+  resolveAgyModel,
 } from "./agy-claude.js";
 import {
   buildAgentLaunchArgs,
@@ -42,6 +43,21 @@ describe("isAgyClaudeModel (the precious pool selector)", () => {
 });
 
 describe("normalizeAgyEffort (low|medium|high, max→high, xhigh refused)", () => {
+  it.each(["opus", "sonnet"])("normalizes and validates %s model effort tokens", family => {
+    const base = `claude-${family}-5-5`;
+    expect(resolveAgyModel(base, "max")).toBe(`${base}-high`);
+    expect(resolveAgyModel(`${base}-max`)).toBe(`${base}-high`);
+    expect(() => resolveAgyModel(`${base}-xhigh`)).toThrow(AgyEffortError);
+    expect(() => resolveAgyModel(`${base}-xhigh`, "low")).toThrow(AgyEffortError);
+    expect(() => resolveAgyModel(`${base}-extreme`)).toThrow(AgyEffortError);
+    expect(resolveAgyModel(base)).toBe(base);
+    expect(resolveAgyModel("gemini-3.7-flash-high", "max")).toBe("gemini-3.7-flash-high");
+  });
+  it("prefers a later reset observation over a preliminary quota error", () => {
+    const now = Date.parse("2026-10-17T14:55:00Z");
+    const diagnostic = 'Error: 429 quota exceeded\nAGY_ERROR {"short_error":"RESOURCE_EXHAUSTED (code 429): Individual quota reached. Resets in 2h."}';
+    expect(detectAgyClaudeQuotaExhaustion(diagnostic, now).resetsAt).toBe(new Date(now + 7_200_000).toISOString());
+  });
   it.each(["low", "medium", "high"] as const)("passes %s through", (effort) => {
     expect(normalizeAgyEffort(effort)).toBe(effort);
   });

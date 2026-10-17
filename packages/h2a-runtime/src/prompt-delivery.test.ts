@@ -767,6 +767,18 @@ describe("ready profile CPU calibration",()=>{
 });
 
 describe("provider rejection after delivery",()=>{
+ it.each([0, 1000])("should report AGY Claude quota before CPU activity (%i ms/s)", workCpuPerSec=>{
+  const {deps,calls}=fakePane({screen:"AGY Claude\nReview workspace\n❯ Ready",workCpuPerSec});
+  const capture=deps.capturePane;
+  const diagnostic='AGY_ERROR {"short_error":"RESOURCE_EXHAUSTED (code 429): Individual quota reached. Resets in 156h32m24s."}';
+  const result=deliverInitialPrompt("agy","review witness",{...deps,
+   capturePane:pane=>calls.submits?`AGY\n${diagnostic}\n❯`:capture(pane),
+  },{profile:"agy"});
+  expect(result.state).toBe("provider-blocked");
+  expect("capture" in result && result.capture).toContain(diagnostic);
+  expect(calls.pastes).toEqual(["review witness"]);
+  expect(calls.submits).toBe(1);
+ });
  it("should distinguish a Muse quota refusal after one submitted prompt",()=>{
   const {deps,calls}=fakePane({screen:"❯\nmuse-spark-1.3-contributor · xhigh · ~/repo",idleCpuPerSec:600});
   const capture=deps.capturePane;

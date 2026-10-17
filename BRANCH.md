@@ -1,5 +1,16 @@
 # AGY Claude 5.5 model and quota contract
 
+## PR 359 — Tour 2
+
+- [x] Reproduce all five owner-supplied review findings with offline AGY/host fakes.
+- [x] Inspect interactive AGY quota before accepting CPU activity; preserve typed quota/reset on both hosts.
+- [x] Retire old headless results before launch; MCP excludes the prior file generation and checks freshness on one descriptor.
+- [x] Re-read completion after the PID probe; consume complete model/quota events before bounding buffers.
+- [x] Enrich preliminary quota with reset observations; return typed non-zero provider exits; validate embedded Claude effort tokens.
+- [x] Four named runtime files: 89/103 pass on original sources, then 103/103; MCP 8/11 then 12/12 after the additional stale-generation regression (11/12 red).
+- [ ] Rebase on origin/main, final targeted Node 22/24 validation, push with lease, and per-job CI report.
+- Owner confinement remains mandatory. No installed h2a, real provider/native host, Track writes or full local suite.
+
 Current owner task: `feat/agy-claude-models`, resumed from `bd29f7b43` with
 two uncommitted regression files. Scope: core MCP/doctor, runtime launch argv
 and headless supervision, named tests, test inventory, documentation. Historical

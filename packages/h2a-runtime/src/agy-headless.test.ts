@@ -3,11 +3,60 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
-import { describe, expect, it } from "vitest";
+import { EventEmitter } from "node:events";
+import { PassThrough } from "node:stream";
+import { describe, expect, it, vi } from "vitest";
+import { runAgyClaudeHeadless } from "./agy-headless.js";
+
+// Explicit fake transport lets a regression control OS-independent chunk boundaries.
+const fakeOutput = vi.hoisted(() => ({ chunks: [] as ["stdout" | "stderr", string][], exit: 0 }));
+vi.mock("node:child_process", async original => {
+  const actual = await original<typeof import("node:child_process")>();
+  return { ...actual, spawn: (command: string, ...args: unknown[]) => {
+    if (command !== "fake-agy") throw new Error(`unexpected provider command: ${command}`);
+    const child = Object.assign(new EventEmitter(), {
+      stdout: new PassThrough(), stderr: new PassThrough(), stdin: new PassThrough(), kill: vi.fn(),
+    });
+    queueMicrotask(() => {
+      for (const [stream, chunk] of fakeOutput.chunks) child[stream].emit("data", Buffer.from(chunk));
+      child.emit("close", fakeOutput.exit, null);
+    });
+    return child;
+  } };
+});
 
 const quota = 'AGY_ERROR {"short_error":"RESOURCE_EXHAUSTED (code 429): Individual quota reached. Please upgrade your subscription to increase your limits. Resets in 156h32m24s.","status":"RESOURCE_EXHAUSTED","error_code":429,"code_kind":"http","retryable":true}';
 
 describe("AGY Claude run-once supervisor with an offline binary", () => {
+  it.each([
+    ["model before a large event", [["stdout", JSON.stringify({model:"gemini-4-argon"})+'\n'+JSON.stringify({text:"x".repeat(80_000)})+'\n']], 0, "agy-model-mismatch"],
+    ["preliminary quota then reset", [["stderr", 'Error: 429 quota exceeded\n'], ["stderr", quota+'\n']], 1, "agy-claude-quota-exhausted"],
+    ["quota before a large event", [["stdout", quota+'\n'+'x'.repeat(80_000)+'\n']], 1, "agy-claude-quota-exhausted"],
+    ["plain quota split before reset", [["stderr", 'Error: 429 quota exceeded. Resets in '], ["stderr", '2h.\n']], 1, "agy-claude-quota-exhausted"],
+    ["ordinary non-zero exit", [], 7, "agy-process-failed"],
+  ] as const)("preserves %s", async (_name, chunks, exit, code) => {
+    const dir=mkdtempSync(join(tmpdir(),"agy-chunks-"));
+    const previous=process.env.XDG_STATE_HOME;
+    process.env.XDG_STATE_HOME=join(dir,"state");
+    try {
+      fakeOutput.chunks=chunks.map(([stream, text])=>[stream,text]);
+      fakeOutput.exit=exit;
+      const before=Date.now();
+      const result=await runAgyClaudeHeadless({command:"fake-agy",args:[],model:"claude-opus-5-5-high",
+        resultPath:join(dir,"result.json"),logPath:join(dir,"output.log")});
+      expect(result.code).toBe(code);
+      expect(result.kind).toBe("h2a.run.failure");
+      expect(result.retrySafe).toBe(false);
+      if(code==="agy-claude-quota-exhausted") {
+        const duration=_name.startsWith("plain")?7_200_000:(156*3600+32*60+24)*1000;
+        expect(Date.parse(result.resetsAt as string)).toBeGreaterThanOrEqual(before+duration);
+        expect(Date.parse(result.resetsAt as string)).toBeLessThanOrEqual(Date.now()+duration);
+      }
+    } finally {
+      if(previous===undefined) delete process.env.XDG_STATE_HOME; else process.env.XDG_STATE_HOME=previous;
+      rmSync(dir,{recursive:true,force:true});
+    }
+  });
   it("retains a split quota diagnostic when stdout arrives between stderr chunks", () => {
     const dir=mkdtempSync(join(tmpdir(),"agy-split-"));
     try {

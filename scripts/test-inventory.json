@@ -2,6 +2,7 @@
   "packages/h2a-runtime/src/agent-launch-args.test.ts": [],
   "packages/h2a-runtime/src/agy-claude.test.ts": [],
   "packages/h2a-runtime/src/agy-headless.test.ts": [],
+  "packages/h2a-runtime/src/agy-launch.test.ts": [],
   "packages/h2a-runtime/src/agents-projection.test.ts": [],
   "packages/h2a-runtime/src/attach-reconnect-livelock.test.ts": [],
   "packages/h2a-runtime/src/attach.test.ts": [],

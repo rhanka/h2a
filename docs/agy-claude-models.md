@@ -6,6 +6,9 @@ AGY's default is Gemini 4 Argon. Interactive and headless launches apply
 `--model` before starting the agent. Effort accepts low, medium and high;
 max maps to high, while xhigh returns `agy-effort-unsupported`. An explicit
 effort replaces the model's effort suffix (low + max launches high).
+Bare `claude-{opus,sonnet}-5-5` tokens acquire the explicit effort suffix;
+an embedded `-max` maps to `-high`. Unsupported embedded efforts, including
+`-xhigh`, are rejected even when a separate effort is supplied.
 
 Reserve this precious Claude credit pool for reviews and adversarial challenges
 first. Never use it for bulk builds without explicit owner/caller opt-in.
@@ -40,11 +43,18 @@ The typed failure has `retryable: false`, `retrySafe: false`, and, when the
 provider says `Resets in <duration>`, an absolute ISO `resetsAt` timestamp
 both at the top level and under `quota`. There is no automatic retry or
 fallback; the caller chooses the next action.
+Interactive delivery inspects the AGY screen before treating CPU activity as
+accepted work. A preliminary quota diagnostic can be enriched by a later reset.
 
 Run is asynchronous: its initial receipt says started. Read `result.path` for
 the final completion, or repeat the same `h2a_run` name on the same MCP server
 to read the durable completion without launching again. A quick quota refusal
 can already appear in the initial CLI/MCP response.
+Reusing a completed headless name retires its old result before starting the
+new run; MCP polling also checks result freshness. A completion published while
+the host PID is being probed is still returned as a structured result. Other
+non-zero provider exits return `agy-process-failed` with the exit code or spawn
+diagnostic, without retry or fallback.
 
 `--output-file` / MCP `outputFile` declares the artifact expected from the
 agent. Completion distinguishes `written`, `missing`, and `unchanged`; a missing
