@@ -119,7 +119,11 @@ export type FocusNode =
  */
 export interface Affordance {
   readonly name: string;
-  /** The target this affordance would act on (a node's targetRef). */
+  /**
+   * The target this affordance would act on. Resolves to the dossier `ref`
+   * (whole-dossier amend), a section `id`/`targetRef`, or a nested option
+   * `id`/`targetRef` — the same resolution scope the validator enforces.
+   */
   readonly targetRef: TargetRef;
   /** Human-readable label for the disabled-affordance metadata. */
   readonly label: string;

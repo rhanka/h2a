@@ -9,6 +9,12 @@ import { streamSSE } from "hono/streaming";
 
 import { resolveProfile, withResume, type ProfileConfig } from "./profiles.js";
 import { nodePtySpawner, type PtyHandle, type PtySpawner } from "./pty.js";
+import {
+  resetClientTerminal,
+  restoreTtyState,
+  saveTtyState,
+  SIGNAL_NUMBERS,
+} from "./terminal-reset.js";
 
 export type RunOptions = {
   readonly profile: string;
@@ -136,6 +142,46 @@ export async function run(options: RunOptions): Promise<RunResult> {
     );
   });
 
+  // rev351-2/3.2: the PTY child drives the REAL client terminal (raw stdin
+  // + direct VT bytes). Save termios + raw mode so every exit path restores
+  // both the VT modes and the kernel TTY state, even when the CLI dies by
+  // signal after enabling focus/mouse/alternate-screen/Kitty modes.
+  // rev351r2-2: shared save/restore home (terminal-reset.ts), no local copy.
+  const ttyState = saveTtyState(stdin);
+  const restoreClientTerminal = (): void => {
+    restoreTtyState(ttyState, stdin, () => resetClientTerminal(stdout));
+  };
+  // Async bridge: the event loop runs, so signal handlers CAN execute here
+  // (unlike the blocking spawnSync wrappers). Reset + restore, then preserve
+  // signal-death semantics via 128+n like the native attach path.
+  // rev351r2-5: installed BEFORE stdin goes raw and BEFORE the control-plane
+  // listen, so a signal during the startup window (or a listen failure below)
+  // still restores instead of leaving the terminal raw.
+  const signalHandlers = new Map<string, () => void>();
+  const uninstallSignals = (): void => {
+    for (const [signal, handler] of signalHandlers) {
+      process.removeListener(signal, handler);
+    }
+    signalHandlers.clear();
+  };
+  for (const signal of ["SIGHUP", "SIGINT", "SIGQUIT", "SIGTERM"] as const) {
+    const number = SIGNAL_NUMBERS[signal] ?? 0;
+    const handler = (): void => {
+      try {
+        restoreClientTerminal();
+      } finally {
+        try {
+          handle.kill();
+        } catch {
+          // Best effort before exiting.
+        }
+        uninstallSignals();
+        process.exit(128 + (number as number));
+      }
+    };
+    signalHandlers.set(signal, handler);
+    process.on(signal, handler);
+  }
   // Forward host stdin to the PTY.
   if (stdin.isTTY) {
     stdin.setRawMode?.(true);
@@ -217,19 +263,37 @@ export async function run(options: RunOptions): Promise<RunResult> {
   const port = options.port ?? 0;
   const server = serve({ fetch: app.fetch, port, hostname: "127.0.0.1" });
 
+  // rev351r2-5: a listen failure (explicit port already bound) used to reject
+  // with stdin already raw and no reset. Restore like every other exit path.
   let actualPort = port;
-  const address = server.address();
-  if (address && typeof address === "object") {
-    actualPort = address.port;
-  } else {
-    await new Promise<void>((resolve, reject) => {
-      server.once("listening", () => {
-        const addr = server.address();
-        if (addr && typeof addr === "object") actualPort = addr.port;
-        resolve();
+  try {
+    const address = server.address();
+    if (address && typeof address === "object") {
+      actualPort = address.port;
+    } else {
+      await new Promise<void>((resolve, reject) => {
+        server.once("listening", () => {
+          const addr = server.address();
+          if (addr && typeof addr === "object") actualPort = addr.port;
+          resolve();
+        });
+        server.once("error", reject);
       });
-      server.once("error", reject);
-    });
+    }
+  } catch (error) {
+    uninstallSignals();
+    restoreClientTerminal();
+    try {
+      handle.kill();
+    } catch {
+      // Best effort; the session never started.
+    }
+    try {
+      server.close();
+    } catch {
+      // Best effort; a failed listen holds nothing.
+    }
+    throw error;
   }
 
   // Emit terminal.opened announcement.
@@ -266,9 +330,8 @@ export async function run(options: RunOptions): Promise<RunResult> {
         clock,
       ),
     );
-    if (stdin.isTTY) {
-      stdin.setRawMode?.(false);
-    }
+    uninstallSignals();
+    restoreClientTerminal();
     server.close();
     resolveExit(event);
   });
