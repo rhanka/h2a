@@ -409,7 +409,9 @@ export function startNativeSession(
   const envDir = mkdtempSync(join(tmpdir(), "h2a-native-env-"));
   const envFile = join(envDir, "env.json");
   try {
-    writeFileSync(envFile, JSON.stringify(sanitizeEnvJson(env, []).env), { mode: 0o600, flag: "wx" });
+    // Private IPC payload consumed by the PTY child, including its auth.
+    // Seat launches already supply the materializer's closed childEnv.
+    writeFileSync(envFile, JSON.stringify(env), { mode: 0o600, flag: "wx" });
     const ownershipArgs = prepareNativeOwnership(name, metadata.beforeCreate, nativeSidecarName(name));
     const { payload } = runOp([
       "create",
@@ -629,7 +631,7 @@ export function startNativeHeadlessSession(
   const envDir = mkdtempSync(join(tmpdir(), "h2a-native-env-"));
   const envFile = join(envDir, "env.json");
   try {
-    writeFileSync(envFile, JSON.stringify(sanitizeEnvJson(env, []).env), { mode: 0o600, flag: "wx" });
+    writeFileSync(envFile, JSON.stringify(env), { mode: 0o600, flag: "wx" });
     const { payload } = runOp([
       "create",
       ...prepareNativeOwnership(name, beforeCreate, nativeSidecarName(name)),
