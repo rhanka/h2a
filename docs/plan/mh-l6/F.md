@@ -222,3 +222,38 @@ paires/profil. Preuve : `proof-F-2c5.json`.
 | Compensation, orchestration de la délégation, activation M18 après preuve externe | F-2c (suite) |
 | Observateurs B2-3, autres entrées, smoke CI, gel .6 | B2-3/E2b3/E3b2b/E3c, M18 toujours ouvert |
 | Revue indépendante | Conducteur ; aucun consensus revendiqué |
+
+## F-2c6 — orchestration source de la délégation (livré)
+
+`delegateUpgrade({ store, upgradeId, candidate, controller })` dans
+`packages/h2a/src/runtime/upgrade/upgrade-delegate.js` : comme le moteur,
+le rejeu d'un ACK source perdu repasse d'abord (même contrôleur lié sur
+transaction ouverte → le moteur rejoue ou refuse la liaison lui-même),
+sinon l'autorité CLI est vérifiée d'abord (étranger/révoqué). Le ticket
+privé ne sort jamais (absent du résultat) ; un second candidat sur
+transaction ouverte rencontre `delegation_ticket_mismatch` moteur, sans
+nouvelle époque. Côté acquéreur inchangé : primitif B1.
+
+| Commande ciblée | Node 22.22.1 | Node 24.21.0 |
+|---|---|---:|
+| `node scripts/mh-l6-test.mjs packages/h2a/test/mh-l6-delegate.test.js final-F-2c6` | 6/6, exit 0 | 6/6, exit 0 |
+| Requal `mh-l6-delegation.test.js` (14) | 14/14, exit 0 | 14/14, exit 0 |
+| `mh-l6-mutate.mjs delegate` (rejeu, autorité, appel, enveloppe) | 4 rouges / 4 verts | 4 / 4 |
+| `node scripts/mh-l6-f2c6-audit.mjs /tmp/mh-l3-qualification-f2c6-*` | exit 0 | exit 0 |
+| Skips / annulations / enfants restants | 0 / 0 / 0 | 0 / 0 / 0 |
+
+Rouge initial : module absent (`ERR_ASSERTION`, 1 test, exit 1),
+conservé. Vrai conflit trouvé et résolu avant vert : l'autorité d'abord
+bloquait le rejeu ACK-perdu que le moteur tolère — l'orchestrateur suit
+désormais l'ordre du moteur. Requal B1 Node 22 : un premier passage a
+échoué sur `controller_reply_budget_exceeded` (timeout IPC sous injection
+fsync, 51 processus), isolé puis fichier complet verts au second passage ;
+fichier non touché par la tranche, écart classé transitoire de charge.
+Audit : 4 fichiers identiques, émission compilée liée par SHA, 6 tests +
+14 requalifiés et 4 paires/profil. Preuve : `proof-F-2c6.json`.
+
+| NOT covered restant | Gate |
+|---|---|
+| Compensation (bloquée : aucun `COMPLETED`), activation M18 après preuve externe | F-2c (suite) |
+| Observateurs B2-3, autres entrées, smoke CI, gel .6 | B2-3/E2b3/E3b2b/E3c, M18 toujours ouvert |
+| Revue indépendante | Conducteur ; aucun consensus revendiqué |

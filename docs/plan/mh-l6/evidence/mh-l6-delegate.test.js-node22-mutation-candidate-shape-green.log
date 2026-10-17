@@ -1,0 +1,22 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-delegate.test.js
+node: v22.22.1
+private root: /tmp/mh-l6-test-uE8JQf
+case: F should refuse an invalid delegation envelope instead of guessing
+TAP version 13
+# Subtest: F should refuse an invalid delegation envelope instead of guessing
+ok 1 - F should refuse an invalid delegation envelope instead of guessing
+  ---
+  duration_ms: 74.124693
+  type: 'test'
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 1
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 191.982279
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-delegate.test.js"],"code":0,"signal":null,"tests":1,"invalid":false,"spawned":1,"leftovers":[]}
