@@ -61,7 +61,37 @@ diagnostic. Audit : `node scripts/mh-l6-c2b2-audit.mjs
 
 | NOT covered restant | Gate |
 |---|---|
-| Exécution de l'adoption requise (préparation, installation, sélection, délégation) et câblage CLI du raccourci | C2b-2b/F |
+| Exécution de l'adoption requise (préparation d'image, sélection durable, délégation) et câblage CLI du raccourci | C2b-2c/F |
+| Observateurs B2-3, désadoption, autres entrées, smoke CI, gel .6 | B2-3/D/E2b3/E3b2b/E3c/F, M18 toujours ouvert |
+| Revue indépendante | Conducteur ; aucun consensus revendiqué |
+
+## C2b-2b — installation conditionnelle du lanceur (livré)
+
+`installManagedLauncher({ session, launcherSource, managedDir, commandPath })`
+dans `packages/h2a/src/runtime/upgrade/launcher-install.js` : sous session
+bootstrap revalidée (dérive → refus sans rien écrire), source octet pour
+octet enregistrée par SHA-256, fichier `launcher/h2a.mjs` en 0755 et
+dossier en 0700 avec fsync, bascule atomique du lien (symlink tmp +
+rename), vérification du lien final. L'arbre npm n'est jamais modifié.
+Réinstallation idempotente aux mêmes octets.
+
+| Commande ciblée | Node 22.22.1 | Node 24.21.0 |
+|---|---|---:|
+| `node scripts/mh-l6-test.mjs packages/h2a/test/mh-l6-launcher-install.test.js final-C2b-2b` | 6/6, exit 0 | 6/6, exit 0 |
+| `node scripts/mh-l6-mutate.mjs launcher-install` (dérive, digest, modes, nom) | 5 rouges ERR_ASSERTION / 5 verts | 5 / 5 |
+| Skips / annulations / enfants restants | 0 / 0 / 0 | 0 / 0 / 0 |
+
+Rouge initial : installateur absent (`ERR_ASSERTION`, 1 test, exit 1),
+conservé comme diagnostic. Deux corrections de test en cours de route
+(enveloppe nulle refusée proprement, motif du lien inutilisable), sans
+retrait de garde produit. Audit : `node scripts/mh-l6-c2b2b-audit.mjs
+/tmp/mh-l3-qualification-c2b2b-*/source`, exit 0 ; 4 fichiers identiques,
+émission compilée liée par SHA, 6 tests et 5 paires/profil. Preuve :
+`proof-C2b-2b.json`.
+
+| NOT covered restant | Gate |
+|---|---|
+| Préparation d'image indépendante, sélection durable, délégation et câblage CLI de l'adoption | C2b-2c/F |
 | Observateurs B2-3, désadoption, autres entrées, smoke CI, gel .6 | B2-3/D/E2b3/E3b2b/E3c/F, M18 toujours ouvert |
 | Revue indépendante | Conducteur ; aucun consensus revendiqué |
 | Observateurs B2-3 alimentant `select({ exclusion })`, CLI/auto commune | B2-3/F, M18 toujours ouvert |

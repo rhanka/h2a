@@ -76,16 +76,22 @@ const cases = [
   ['adoption', 'target-mismatch', "need('target_mismatch')", "need('already_adopted')", 'C2b should require adoption when the selection targets another build'],
   ['adoption', 'physical-unreadable', "need('physical_installation_unreadable')", "need('already_adopted')", 'C2b should require adoption when the physical installation is unreadable'],
   ['adoption', 'target-shape', 'checkTargetShape(target);', '', 'C2b should refuse an invalid adoption assessment envelope'],
+  ['launcher-install', 'drift-check', 'assertBootstrapSessionUnchanged(session);', '', 'C2b should write nothing when the installation drifted since the session opened'],
+  ['launcher-install', 'digest-record', "const digest = 'sha256:' + createHash('sha256').update(bytes).digest('hex');", "const digest = 'sha256:' + '0'.repeat(64);", 'C2b should record the exact digest of the installed launcher bytes'],
+  ['launcher-install', 'launcher-mode', 'fs.writeFileSync(launcherPath, bytes, { mode: 0o755 });', 'fs.writeFileSync(launcherPath, bytes);', 'C2b should install the managed launcher and link the command atomically'],
+  ['launcher-install', 'launcher-dir-mode', "fs.mkdirSync(launcherDir, { recursive: true, mode: 0o700 });", 'fs.mkdirSync(launcherDir, { recursive: true });', 'C2b should install the managed launcher and link the command atomically'],
+  ['launcher-install', 'launcher-filename', "join(launcherDir, 'h2a.mjs')", "join(launcherDir, 'h2a.cjs')", 'C2b should install the managed launcher and link the command atomically'],
 ];
 const files = group === 'launcher' ? ['packages/h2a/src/runtime/upgrade/managed-launcher.js'] :
   group === 'exclusion' ? ['packages/h2a/src/runtime/upgrade/legacy-exclusion.js', 'packages/h2a/dist/runtime/upgrade/legacy-exclusion.js'] :
   group === 'bootstrap' ? ['packages/h2a/src/runtime/upgrade/bootstrap-session.js', 'packages/h2a/dist/runtime/upgrade/bootstrap-session.js'] :
   group === 'adoption' ? ['packages/h2a/src/runtime/upgrade/adoption-need.js', 'packages/h2a/dist/runtime/upgrade/adoption-need.js'] :
+  group === 'launcher-install' ? ['packages/h2a/src/runtime/upgrade/launcher-install.js', 'packages/h2a/dist/runtime/upgrade/launcher-install.js'] :
   ['packages/h2a/src/runtime/upgrade/h4-store.js', 'packages/h2a/dist/runtime/upgrade/h4-store.js'];
 const originals = files.map(path => ({ path, bytes: fs.readFileSync(path) }));
 const selected = cases.filter(c => c[0] === group && (!process.env.MH_L6_MUTATION || c[1] === process.env.MH_L6_MUTATION));
 if (!selected.length) throw new Error('unknown_mutation_group');
-const testFile = { delegation: 'delegation', launcher: 'launcher', exclusion: 'exclusion', deferral: 'exclusion', bootstrap: 'bootstrap', adoption: 'adoption' }[group] ?? 'selection';
+const testFile = { delegation: 'delegation', launcher: 'launcher', exclusion: 'exclusion', deferral: 'exclusion', bootstrap: 'bootstrap', adoption: 'adoption', 'launcher-install': 'launcher-install' }[group] ?? 'selection';
 const file = `packages/h2a/test/mh-l6-${testFile}.test.js`;
 const results = [];
 for (const [, name, from, to, scenario] of selected) {
