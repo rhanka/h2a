@@ -117,7 +117,7 @@ export function nativeHostAvailable():
 function runOp(
   args: ReadonlyArray<string>,
   options: { allowFailure?: boolean; onCreateAttempt?: (() => void) | undefined; socketPath?: string | undefined } = {},
-): { status: number; payload: unknown } {
+): { status: number | null; payload: unknown } {
   options.onCreateAttempt?.();
   const r = spawnSync(process.execPath, [opEntryPath(), ...args, ...(options.socketPath ? ["--socket", options.socketPath] : [])], {
     encoding: "utf8",
@@ -125,13 +125,18 @@ function runOp(
     timeout: OP_TIMEOUT_MS,
   });
   if (r.error) {
-    appendCrashLog("cli", { event: "childExit", reason: `op:${args[0] ?? "unknown"}`, detail: r.error.message });
+    // The op child never started: a startup failure, not a child exit.
+    appendCrashLog("cli", { event: "startupError", reason: `op:${args[0] ?? "unknown"}`, detail: r.error.message });
     throw new Error(
       `native host operation ${args.join(" ")} failed: ${r.error.message}`,
       { cause: r.error },
     );
   }
-  const status = r.status ?? 1;
+  // A null status means the child never exited with a code (killed by a
+  // signal, OOM, timeout): record the signal and omit exitCode rather than
+  // inventing one. Callers compare `status === 0`, which stays false here.
+  const status = r.status;
+  const signal = typeof r.signal === "string" && r.signal.length > 0 ? r.signal : undefined;
   let payload: unknown;
   const stdout = (r.stdout ?? "").trim();
   if (stdout.length > 0) {
@@ -147,8 +152,14 @@ function runOp(
       appendCrashLog("cli", { event: "refusal", reason: diagnostic.code, detail: `ensure-host refused (${args[0]})` });
       throw new NativeLaunchAdmissionError(diagnostic);
     }
-    const detail = (r.stderr ?? "").trim() || (r.stdout ?? "").trim();
-    appendCrashLog("cli", { event: "childExit", reason: `op:${args[0] ?? "unknown"}`, exitCode: status, detail });
+    const detail = (r.stderr ?? "").trim() || (r.stdout ?? "").trim() || (signal ? `killed by ${signal}` : "");
+    appendCrashLog("cli", {
+      event: "childExit",
+      reason: `op:${args[0] ?? "unknown"}`,
+      ...(status !== null ? { exitCode: status } : {}),
+      ...(signal ? { signal } : {}),
+      ...(detail ? { detail } : {}),
+    });
     throw new Error(`native host operation ${args[0]} failed: ${detail}`);
   }
   return { status, payload };
@@ -276,7 +287,7 @@ export type NativeStateProbe =
   | { readonly state: "unknown"; readonly reason: string; readonly code?: "ambiguous-owner"; readonly sockets?: readonly string[] };
 
 export function nativeSessionState(name: string, socketPath?: string): NativeStateProbe {
-  let result: { status: number; payload: unknown };
+  let result: { status: number | null; payload: unknown };
   try {
     result = runOp(["probe", "--id", name], { allowFailure: true, socketPath });
   } catch (error) {

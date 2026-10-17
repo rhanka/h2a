@@ -57,9 +57,13 @@ import {
 import {
   prepareCentralMcpForLaunch,
   prepareCentralMcpForRestore,
+  resolveCentralMcpLogPath,
 } from "./central-mcp.js";
 import {
   CRASH_LOG_COMPONENTS,
+  formatCrashLogHumanRow,
+  installCrashHandlers,
+  readFileTailLines,
   readRecentCrashLogs,
   resolveCrashLogDir,
 } from "./crash-log.js";
@@ -10961,6 +10965,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         ...(row.reason ? { reason: row.reason } : {}),
         ...(row.exitCode !== undefined ? { exitCode: row.exitCode } : {}),
         ...(row.signal ? { signal: row.signal } : {}),
+        ...(row.detail ? { detail: row.detail } : {}),
       }));
       const hostRows = wantHost
         ? readHostJournal(resolveHostJournalPath())
@@ -10983,16 +10988,17 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         return;
       }
       for (const row of merged) {
-        const record = row as Record<string, unknown>;
-        const parts = [
-          String(record["timestamp"] ?? "unknown"),
-          String(record["component"] ?? "?"),
-          String(record["event"] ?? "?"),
-        ];
-        for (const key of ["sessionId", "instanceId", "reason", "exitCode", "signal", "cause", "code", "version", "pid"]) {
-          if (record[key] !== undefined) parts.push(`${key}=${String(record[key])}`);
+        process.stdout.write(`${formatCrashLogHumanRow(row as unknown as Record<string, unknown>)}\n`);
+      }
+      if (only === "" || only === "mcp-server") {
+        // The server process itself leaves no structured rows (it dies with
+        // its witness); its raw stderr tail is the only "why" for its crash.
+        const rawPath = resolveCentralMcpLogPath();
+        const tail = readFileTailLines(rawPath, 20);
+        if (tail.length > 0) {
+          process.stdout.write(`[h2a] --- mcp-central.log raw tail (${rawPath}) ---\n`);
+          for (const line of tail) process.stdout.write(`${line}\n`);
         }
-        process.stdout.write(`${parts.join(" ")}\n`);
       }
     });
 
@@ -11067,6 +11073,9 @@ function isEntryPoint(): boolean {
 }
 
 if (isEntryPoint()) {
+  // Passive witness for fatal paths outside runOp (finding 6): observes via
+  // uncaughtExceptionMonitor, so the default crash/exit behavior is unchanged.
+  installCrashHandlers("cli");
   main(process.argv).catch((error: unknown) => {
     if (
       error instanceof AuthRefreshError ||

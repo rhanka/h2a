@@ -1,11 +1,22 @@
-import { describe, expect, it } from "vitest";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { nativeSidecarName, resolveSessionHostKind } from "./native-host.js";
+import { listNativeSessions, nativeSidecarName, resolveSessionHostKind } from "./native-host.js";
 import {
   isLive,
   isManagedLocalKind,
   type RegistryEntry,
 } from "./registry.js";
+import { readCrashLog, resolveCrashLogPath } from "./crash-log.js";
+
+const hostSpawn = vi.hoisted(() => ({ current: vi.fn() }));
+
+vi.mock("node:child_process", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("node:child_process")>()),
+  spawnSync: (...args: unknown[]) => hostSpawn.current(...args),
+}));
 
 describe("session host selector", () => {
   it("should default to the native PTY host", () => {
@@ -102,5 +113,60 @@ describe("registry liveness for native sessions", () => {
         nativeSessionLiveness: () => true,
       }),
     ).toBe(false);
+  });
+});
+
+describe("op child crash records (revcrashlog constat 2)", () => {
+  let root = "";
+  let previousStateHome: string | undefined;
+
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), "h2a-opcrash-"));
+    previousStateHome = process.env["XDG_STATE_HOME"];
+    process.env["XDG_STATE_HOME"] = join(root, "state");
+    hostSpawn.current.mockReset();
+  });
+
+  afterEach(() => {
+    if (previousStateHome === undefined) delete process.env["XDG_STATE_HOME"];
+    else process.env["XDG_STATE_HOME"] = previousStateHome;
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  function cliRows() {
+    return readCrashLog("cli", resolveCrashLogPath("cli", { XDG_STATE_HOME: join(root, "state") }));
+  }
+
+  it("logs a killed op child with its signal and no invented exit code", () => {
+    hostSpawn.current.mockReturnValue({
+      pid: 0, output: [], stdout: "", stderr: "",
+      status: null, signal: "SIGKILL", error: undefined,
+    });
+    expect(() => listNativeSessions()).toThrow();
+    const rows = cliRows();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ event: "childExit", reason: "op:list", signal: "SIGKILL" });
+    expect("exitCode" in rows[0]!).toBe(false);
+  });
+
+  it("logs a spawn failure as startupError, not as a child exit", () => {
+    hostSpawn.current.mockReturnValue({
+      pid: 0, output: [], stdout: "", stderr: "",
+      status: null, signal: null, error: new Error("spawn ENOENT"),
+    });
+    expect(() => listNativeSessions()).toThrow(/ENOENT/);
+    expect(cliRows()[0]).toMatchObject({ event: "startupError", reason: "op:list" });
+  });
+
+  it("logs an ordinary non-zero exit with its real code and no signal", () => {
+    hostSpawn.current.mockReturnValue({
+      pid: 0, output: [], stdout: "", stderr: "boom detail",
+      status: 1, signal: null, error: undefined,
+    });
+    expect(() => listNativeSessions()).toThrow();
+    const rows = cliRows();
+    expect(rows[0]).toMatchObject({ event: "childExit", reason: "op:list", exitCode: 1 });
+    expect(rows[0]?.detail).toContain("boom detail");
+    expect("signal" in rows[0]!).toBe(false);
   });
 });
