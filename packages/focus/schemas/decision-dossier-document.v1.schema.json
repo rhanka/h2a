@@ -15,9 +15,31 @@
     "sections": { "type": "array", "items": { "$ref": "#/$defs/section" } },
     "interactions": { "type": "array", "items": { "$ref": "#/$defs/interaction" } },
     "provenance": { "$ref": "#/$defs/provenance" },
-    "amendmentTrace": { "type": "array", "items": { "$ref": "#/$defs/amendmentStep" } }
+    "amendmentTrace": { "type": "array", "items": { "$ref": "#/$defs/amendmentStep" } },
+    "readability": { "$ref": "#/$defs/readability" }
   },
   "$defs": {
+    "readability": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "ownerRequestQuote": { "type": "string" },
+        "noOwnerRequest": { "type": "boolean" },
+        "stakes": { "type": "string" },
+        "stakesLevel": { "enum": ["low", "medium", "high"] },
+        "readingBudgetMinutes": { "type": "number" },
+        "glossary": { "type": "array", "items": { "$ref": "#/$defs/glossaryEntry" } }
+      }
+    },
+    "glossaryEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["term", "definition"],
+      "properties": {
+        "term": { "type": "string" },
+        "definition": { "type": "string" }
+      }
+    },
     "section": {
       "oneOf": [
         { "$ref": "#/$defs/proseNode" },
@@ -36,7 +58,8 @@
         "kind": { "const": "prose" },
         "id": { "type": "string" },
         "targetRef": { "type": "string" },
-        "markdown": { "type": "string" }
+        "markdown": { "type": "string" },
+        "questionId": { "type": "string" }
       }
     },
     "questionNode": {
@@ -50,7 +73,10 @@
         "question": { "type": "string" },
         "recommendedAnswer": { "type": "string" },
         "answer": { "type": "string" },
-        "state": { "enum": ["open", "answered", "validated"] }
+        "state": { "enum": ["open", "answered", "validated"] },
+        "context": { "type": "string" },
+        "readingTimeMinutes": { "type": "number" },
+        "recommendedOptionId": { "type": "string" }
       }
     },
     "optionNode": {
@@ -64,7 +90,8 @@
         "label": { "type": "string" },
         "body": { "type": "string" },
         "annotation": { "enum": ["none", "accept", "reject", "comment"] },
-        "annotationComment": { "type": "string" }
+        "annotationComment": { "type": "string" },
+        "consequence": { "type": "string" }
       }
     },
     "optionSetNode": {
@@ -76,7 +103,8 @@
         "id": { "type": "string" },
         "targetRef": { "type": "string" },
         "title": { "type": "string" },
-        "options": { "type": "array", "items": { "$ref": "#/$defs/optionNode" } }
+        "options": { "type": "array", "items": { "$ref": "#/$defs/optionNode" } },
+        "questionId": { "type": "string" }
       }
     },
     "outcomeNode": {
@@ -88,7 +116,8 @@
         "id": { "type": "string" },
         "targetRef": { "type": "string" },
         "modality": { "enum": ["decision", "orientation", "amendment", "comment"] },
-        "statement": { "type": "string" }
+        "statement": { "type": "string" },
+        "questionId": { "type": "string" }
       }
     },
     "amendmentTraceNode": {

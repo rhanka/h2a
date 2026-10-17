@@ -34,6 +34,7 @@ import {
   verifyAssetDigests,
 } from "../src/registry/definitions.js";
 import { decisionDossierFixture } from "./fixture.data.js";
+import { accessibleDossierFixture, technocraticDossierFixture } from "./readability.fixture.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const pkgRoot = join(here, "..");
@@ -193,6 +194,7 @@ describe("second synthetic embedding host (R4-AC12)", () => {
         validateDecisionDossierDocument: (
           value: unknown,
         ) => { ok: boolean };
+        validateDecisionDossierForPresentation: (value: unknown) => { ok: boolean };
       }
       interface PackedDefinitions {
         validateFocusEntryDescriptor: (value: unknown) => { ok: boolean };
@@ -247,6 +249,8 @@ describe("second synthetic embedding host (R4-AC12)", () => {
         JSON.parse(JSON.stringify(decisionDossierFixture)),
       );
       expect(dossier.ok).toBe(true);
+      expect(validation.validateDecisionDossierForPresentation(accessibleDossierFixture).ok).toBe(true);
+      expect(validation.validateDecisionDossierForPresentation(technocraticDossierFixture).ok).toBe(false);
     } finally {
       cleanup();
     }
