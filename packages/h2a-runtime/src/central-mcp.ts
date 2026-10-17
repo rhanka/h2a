@@ -113,14 +113,36 @@ function configuredCentralEndpoint(): string | undefined {
   return endpoint;
 }
 
+/** Raw (unstructured) central MCP server output. Read by `h2a logs`, rotated at spawn. */
+export function resolveCentralMcpLogPath(): string {
+  return join(dirname(resolveConfigPath()), "mcp-central.log");
+}
+
+/** Cap a rotated raw log to its last bound bytes, line-aligned, mode preserved. */
+function boundRawLogTail(path: string): void {
+  try {
+    if (statSync(path).size <= MAX_CRASH_LOG_BYTES) return;
+    const tail = readFileSync(path).subarray(-MAX_CRASH_LOG_BYTES);
+    const cut = tail.indexOf(0x0a);
+    writeFileSync(path, cut < 0 ? tail : tail.subarray(cut + 1));
+    chmodSync(path, 0o600);
+  } catch {
+    /* best-effort: bounding never blocks the spawn below */
+  }
+}
+
 function centralLogFile(): string {
-  const path = join(dirname(resolveConfigPath()), "mcp-central.log");
+  const path = resolveCentralMcpLogPath();
   mkdirSync(dirname(path), { recursive: true });
-  // Bounded: rotate the raw server output instead of growing it forever.
+  // Bounded at spawn: rotate the raw server output instead of growing it
+  // forever, and cap the rotation so a long-running server cannot leave an
+  // unbounded `.1` behind either. Output written between spawns is still
+  // unbounded (only the server could pace that); `h2a logs` shows its tail.
   try {
     if (existsSync(path) && statSync(path).size >= MAX_CRASH_LOG_BYTES) {
       try { unlinkSync(`${path}.1`); } catch { /* missing rotation is fine */ }
       renameSync(path, `${path}.1`);
+      boundRawLogTail(`${path}.1`);
     }
   } catch { /* rotation is best-effort; the spawn below still proceeds */ }
   return path;
@@ -135,7 +157,8 @@ async function waitForCentralStart(
   while (Date.now() < deadline) {
     const failure = spawnFailure();
     if (failure) {
-      appendCrashLog("mcp-server", { event: "childExit", reason: "spawn-failed", detail: failure.message });
+      // The server child never started: a startup failure, not a child exit.
+      appendCrashLog("mcp-server", { event: "startupError", reason: "spawn-failed", detail: failure.message });
       throw failure;
     }
     const ping = await core.centralMcpPing(endpoint, CENTRAL_START_POLL_MS);
@@ -147,7 +170,9 @@ async function waitForCentralStart(
     }
     await delay(CENTRAL_START_POLL_MS);
   }
-  appendCrashLog("mcp-server", { event: "childExit", reason: "readiness-timeout", detail: endpoint });
+  // No child exited: the launcher gave up waiting, so `exit` (not
+  // `childExit`) keeps the record honest.
+  appendCrashLog("mcp-server", { event: "exit", reason: "readiness-timeout", detail: endpoint });
   throw new Error(`central MCP did not become ready at ${endpoint} within ${CENTRAL_START_TIMEOUT_MS}ms`);
 }
 
@@ -200,6 +225,19 @@ export async function ensureCentralMcp(
     );
     child.once("error", (error) => {
       spawnError = error;
+    });
+    // A post-readiness crash leaves a structured record while this launcher
+    // is still alive. (Once the launcher exits, only the raw server output
+    // in mcp-central.log witnesses a later death — see `h2a logs`.)
+    child.once("exit", (code, signal) => {
+      if (code === 0 || (code === null && signal === null)) return;
+      appendCrashLog("mcp-server", {
+        event: "childExit",
+        reason: "server-exit",
+        ...(typeof code === "number" ? { exitCode: code } : {}),
+        ...(typeof signal === "string" && signal.length > 0 ? { signal } : {}),
+        detail: `central MCP server exited${typeof signal === "string" && signal.length > 0 ? ` on ${signal}` : ""}`,
+      });
     });
     child.unref();
   } finally {

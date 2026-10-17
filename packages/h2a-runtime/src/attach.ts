@@ -2,7 +2,7 @@ import type { RemoteEventEnvelope } from "./protocol-local.js";
 
 import { authHeaders, DEFAULT_SESSION_TARGET } from "./config.js";
 import { ensureConnected } from "./tunnel.js";
-import { appendCrashLog } from "./crash-log.js";
+import { appendCrashLog, crashSignalName } from "./crash-log.js";
 
 export type InputRetryOptions = {
   readonly maxAttempts?: number;
@@ -40,6 +40,8 @@ export type ReconnectOptions = {
   readonly maxDelayMs?: number;
   /** Consecutive short-lived streams tolerated before giving up. */
   readonly maxShortCycles?: number;
+  /** Reopen attempts per outage before declaring the stream lost. */
+  readonly maxAttempts?: number;
 };
 
 const DEFAULT_RECONNECT: Required<ReconnectOptions> = {
@@ -47,6 +49,7 @@ const DEFAULT_RECONNECT: Required<ReconnectOptions> = {
   baseDelayMs: 250,
   maxDelayMs: 8000,
   maxShortCycles: 10,
+  maxAttempts: 120,
 };
 
 const DEFAULT_INPUT_RETRY: Required<InputRetryOptions> = {
@@ -332,7 +335,23 @@ export async function attach(options: AttachOptions): Promise<AttachResult> {
                   streamProgressed = true;
                 }
               } else if (envelope.type === "terminal.exited") {
-                appendCrashLog("attach", { event: "sessionExit", sessionId, detail: "terminal.exited" });
+                const exitedPayload = envelope.payload as { exitCode?: unknown; signal?: unknown };
+                const exitedCode =
+                  typeof exitedPayload.exitCode === "number" && Number.isSafeInteger(exitedPayload.exitCode)
+                    ? exitedPayload.exitCode
+                    : undefined;
+                const exitedSignal = crashSignalName(
+                  typeof exitedPayload.signal === "number" || typeof exitedPayload.signal === "string"
+                    ? exitedPayload.signal
+                    : undefined,
+                );
+                appendCrashLog("attach", {
+                  event: "sessionExit",
+                  sessionId,
+                  ...(exitedCode !== undefined ? { exitCode: exitedCode } : {}),
+                  ...(exitedSignal ? { signal: exitedSignal } : {}),
+                  detail: "terminal.exited",
+                });
                 await close();
                 return;
               }
@@ -394,7 +413,7 @@ export async function attach(options: AttachOptions): Promise<AttachResult> {
       stderr.write("\r\n[h2a] connection lost — reconnecting…\r\n");
       buffer = "";
       let reopened = false;
-      for (let attempt = 0; attempt < 120 && !closed; attempt++) {
+      for (let attempt = 0; attempt < reconnectCfg.maxAttempts && !closed; attempt++) {
         try {
           await ensureConnected(baseUrl, stderr);
           const resp = await doFetch(
@@ -425,7 +444,9 @@ export async function attach(options: AttachOptions): Promise<AttachResult> {
         await new Promise((r) => setTimeout(r, 1000));
       }
       if (!reopened) {
-        appendCrashLog("attach", { event: "childExit", sessionId, reason: "reconnect-failed" });
+        // No child exited: the event stream would not reopen, so this attach
+        // ends. `exit` (not `childExit`) keeps the record honest.
+        appendCrashLog("attach", { event: "exit", sessionId, reason: "reconnect-failed", detail: "could not reopen the event stream" });
         await close();
         return;
       }
