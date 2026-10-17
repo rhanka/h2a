@@ -2,6 +2,7 @@
  * Synchronous fsync fence: uncertain consumption is never retried automatically.
  * Denials have a separate durable path so exhausted/corrupt proof storage cannot starve exclusion.
  */
+import { spawnSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { closeSync, constants, fstatSync, fsyncSync, lstatSync, openSync, readFileSync, renameSync, unlinkSync, writeFileSync, appendFileSync } from "node:fs";
 import { join, isAbsolute } from "node:path";
@@ -43,10 +44,20 @@ export class ContentFence {
   denied(scope: string): boolean { return this.failed || (this.denials()[hash(scope)]?.denied ?? false); }
   private locked<T>(action: () => T): T {
     const path = join(this.directory, ".fence-lock");
-    const fd = openSync(path, "wx", 0o600);
-    try { return action(); }
-    finally { closeSync(fd); unlinkSync(path); }
+    // flock belongs to the inherited open file description: the parent keeps it
+    // after the helper exits, and the kernel releases it even after SIGKILL.
+    // Never unlink this inode or steal a lock based on elapsed time/PID guesses.
+    const fd = openSync(path, constants.O_RDWR | constants.O_CREAT | constants.O_NOFOLLOW, 0o600);
+    try {
+      const st=fstatSync(fd);
+      if(!st.isFile()||st.nlink!==1||(st.mode&0o077)!==0||(process.getuid&&st.uid!==process.getuid()))refuse();
+      const result=spawnSync('flock',['--exclusive','--nonblock','3'],{stdio:['ignore','ignore','ignore',fd],timeout:1000});
+      if(result.status===1)throw new Error('resource_busy');
+      if(result.error||result.status!==0)throw new Error('fence_storage_failed');
+      return action();
+    } finally { closeSync(fd); }
   }
+
   private change(scope: string, denied: boolean): number {
     try { return this.locked(() => {
       const state = this.denials(), key = hash(scope), revision = (state[key]?.revision ?? 0) + 1;
@@ -58,7 +69,7 @@ export class ContentFence {
       try { renameSync(path, join(this.directory, "denials.json")); this.syncDirectory(); }
       finally { try { unlinkSync(path); } catch (e) { if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw e; } }
       return revision;
-    }); } catch (e) { this.failed = true; throw e; }
+    }); } catch (e) { if((e as Error).message!=="resource_busy")this.failed = true; throw e; }
   }
   deny(scope: string): number { return this.change(scope, true); }
   /** Clearing never activates capture; a fresh policy confirmation/ACK is still required. */
