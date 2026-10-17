@@ -121,6 +121,47 @@ test("NotificationDispatcher pushes presence.peer_joined when a new peer file ap
   }
 });
 
+test("NotificationDispatcher survives a peer presence without optional fields (wire-form dedup key)", () => {
+  const root = freshRoot("presence-join-sparse");
+  try {
+    const received = [];
+    const server = createMcpServer({
+      root,
+      notifications: { sink: (n) => received.push(n) }
+    });
+    server.callTool("h2a_session_open", {
+      instance: "claude:proj-1",
+      sessionId: "sess:claude-1",
+      subscribedTopics: ["presence.peer_joined"]
+    });
+    server.notifications.tick();
+    assert.equal(received.length, 0);
+    // No `host` (nor any other optional field): the row stays a valid
+    // session, and the scan tick must not die digesting it — otherwise the
+    // peer join is never observed and its inbox wake never fires.
+    writePresence(root, {
+      sessionId: "sess:codex-9",
+      instance: "codex:proj-9",
+      pid: 99999,
+      startedAt: "2026-05-23T12:00:00.000Z",
+      heartbeatAt: new Date().toISOString(),
+      state: "live",
+      interests: { scopes: [], negotiations: [] },
+      subscribedTopics: ["inbox.envelope_arrived"]
+    });
+    assert.doesNotThrow(() => server.notifications.tick());
+    const joined = received.filter((n) => n.params.topic === "presence.peer_joined");
+    assert.equal(joined.length, 1);
+    assert.equal(joined[0].params.data.peer.sessionId, "sess:codex-9");
+    assert.equal(JSON.parse(JSON.stringify(joined[0])).params.data.peer.host, undefined);
+    // Second tick on same state — deduped, still no throw.
+    assert.doesNotThrow(() => server.notifications.tick());
+    assert.equal(received.filter((n) => n.params.topic === "presence.peer_joined").length, 1);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("NotificationDispatcher pushes negotiation.event_appended for followed negotiations", () => {
   const root = freshRoot("nego");
   try {
