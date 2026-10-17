@@ -26,6 +26,8 @@
  * was inert for 33 minutes.
  */
 
+import { agyClaudeQuotaError, detectAgyClaudeQuotaExhaustion, type AgyClaudeQuotaExhaustedError } from "./agy-claude.js";
+
 /** A host modal that will never be answered inside a background lane. */
 export type HostModal = {
   readonly reason: string;
@@ -312,6 +314,8 @@ export type PromptDeliveryResult =
       readonly waitedMs: number;
       readonly evidence: LandedEvidence;
       readonly capture: string;
+      /** Full-screen observation, independent of the human-facing capture tail. */
+      readonly providerError?: AgyClaudeQuotaExhaustedError;
     }
   | {
       readonly state: "working";
@@ -669,12 +673,16 @@ export function deliverInitialPrompt(
     const idleBudget = idleRateForWork * (deps.now() - submittedAt);
     // Profile TUIs explicitly announce an accepted running request. This also
     // proves work when the provider is waiting on network rather than CPU.
-    const workingCapture = options.profile === "codex" || options.profile === "muse"
+    const workingCapture = options.profile === "codex" || options.profile === "muse" || options.profile === "agy"
       ? deps.capturePane(pane) ?? "" : "";
     const providerLimit = /usage limit reached|you(?:'|’)?ve hit[^\n]*(?:limit|quota)|quota (?:exceeded|exhausted)|rate limit (?:reached|exceeded)|insufficient (?:credits|quota)/i;
-    if (providerLimit.test(workingCapture) && !providerLimit.test(before)) {
+    const agyVerdict = options.profile === "agy" ? detectAgyClaudeQuotaExhaustion(workingCapture, deps.now()) : undefined;
+    const agyQuota = agyVerdict?.exhausted &&
+      !detectAgyClaudeQuotaExhaustion(before).exhausted;
+    if (options.profile === "agy" ? agyQuota : providerLimit.test(workingCapture) && !providerLimit.test(before)) {
       return { state: "provider-blocked", reason: "the provider rejected the submitted prompt: usage/quota limit",
-        waitedMs: deps.now() - startedAt, evidence, capture: captureTail(workingCapture) };
+        waitedMs: deps.now() - startedAt, evidence, capture: captureTail(workingCapture),
+        ...(agyQuota ? { providerError: agyClaudeQuotaError(agyVerdict!.signature!, workingCapture, deps.now()) } : {}) };
     }
     const acceptedActivity = /esc to interrupt/i.test(workingCapture) &&
       !/esc to interrupt/i.test(before);

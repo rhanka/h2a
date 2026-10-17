@@ -105,7 +105,16 @@ test("T-guard: dist, the npm pack tarball and package exports cannot load the se
   for (const entry of manifest.files) {
     assert.equal(resolve(root, "packages/h2a", "test", seamName).startsWith(resolve(root, "packages/h2a", entry) + "/"), false, entry);
   }
-  assert.deepEqual(Object.keys(manifest.exports), ["."]);
+  assert.deepEqual(Object.keys(manifest.exports), [".", "./agy-claude"]);
+  assert.deepEqual(manifest.exports["./agy-claude"], {
+    types: "./dist/runtime/agy-claude.d.ts",
+    import: "./dist/runtime/agy-claude.js"
+  });
+  const agyContract = await import("@sentropic/h2a/agy-claude");
+  assert.equal(typeof agyContract.normalizeAgyEffort, "function");
+  for (const name of ["__test", "PrefixLockHooks", "PrefixLockHookContext"]) {
+    assert.equal(Object.hasOwn(agyContract, name), false);
+  }
   for (const suffix of ["", "?rr3"]) {
     const runtime = await import(new URL(`../dist/runtime/local-files/succession-lock.js${suffix}`, import.meta.url));
     assert.equal(Object.hasOwn(runtime, "__test"), false);

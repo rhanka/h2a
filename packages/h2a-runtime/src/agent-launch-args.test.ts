@@ -307,3 +307,75 @@ describe("agent launch allowlists", () => {
     ).toThrow(/exceeds/i);
   });
 });
+
+describe("AGY Claude 5.5 models (opus/sonnet via agy)", () => {
+  it("applies a claude-opus-5-5 model at interactive launch, prompt out of argv", () => {
+    const prompt = "Challenge the plan; $(touch /tmp/must-not-run)";
+    const argv = buildAgentLaunchArgs({
+      profile: "agy",
+      prompt,
+      agent: "stp",
+      model: "claude-opus-5-5-high",
+      effort: "high",
+    });
+    expect(argv).toEqual([
+      "--agent",
+      "stp",
+      "--model",
+      "claude-opus-5-5-high",
+      "--effort",
+      "high",
+    ]);
+    for (const token of argv) expect(token).not.toContain(prompt);
+  });
+
+  it("runs a claude-sonnet-5-5 headless launch with the prompt on stdin, never argv", () => {
+    const prompt = "Review the branch; $(touch /tmp/must-not-run)";
+    const argv = buildAgentLaunchArgs({
+      profile: "agy",
+      prompt,
+      model: "claude-sonnet-5-5-medium",
+      effort: "medium",
+      headless: true,
+    });
+    expect(argv).toEqual([
+      "--model",
+      "claude-sonnet-5-5-medium",
+      "--effort",
+      "medium",
+      "--input-format",
+      "stream-json",
+      "--output-format",
+      "stream-json",
+    ]);
+    expect(argv).not.toContain("-p");
+    for (const token of argv) expect(token).not.toContain(prompt);
+    const input = buildAgentLaunchStdin({ profile: "agy", prompt, headless: true });
+    expect(JSON.parse(input!)).toEqual({
+      event: "user",
+      message: { content: prompt },
+    });
+  });
+
+  it("maps AGY effort max to high", () => {
+    expect(
+      buildAgentLaunchArgs({
+        profile: "agy",
+        prompt: "challenge the plan",
+        effort: "max" as never,
+      }),
+    ).toEqual(["--effort", "high"]);
+  });
+
+  it("refuses AGY effort xhigh with a typed error", () => {
+    let caught: unknown;
+    try {
+      buildAgentLaunchArgs({ profile: "agy", prompt: "x", effort: "xhigh" });
+    } catch (error) {
+      caught = error;
+    }
+    expect((caught as { code?: string } | undefined)?.code).toBe(
+      "agy-effort-unsupported",
+    );
+  });
+});
