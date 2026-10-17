@@ -183,11 +183,21 @@ const privatePins = childProcess.ChildProcess.prototype[guardInstalled]?.pins ??
 const closedProcessRoots = childProcess.ChildProcess.prototype[guardInstalled]?.closedRoots ?? new Set();
 const builtImages = childProcess.ChildProcess.prototype[guardInstalled]?.builtImages ?? new Set();
 const builtLaunchers = childProcess.ChildProcess.prototype[guardInstalled]?.builtLaunchers ?? new Set();
+const builtRouters = childProcess.ChildProcess.prototype[guardInstalled]?.builtRouters ?? new Set();
+const imageTestEntries = childProcess.ChildProcess.prototype[guardInstalled]?.imageTestEntries ?? new Map();
 const receiptKey = Symbol.for('h2a.test.closedBuildReceipt');
 if (!globalThis[receiptKey]) Object.defineProperty(globalThis, receiptKey, { value: receipt => {
   if (!/^sha256:[0-9a-f]{64}$/.test(receipt?.digest)) throw new Error('invalid test build receipt');
-  if (receipt.kind === 'image') builtImages.add(receipt.digest);
+  if (receipt.kind === 'image') {
+    builtImages.add(receipt.digest);
+    if (receipt.entrypoints) {
+      assert.ok(Array.isArray(receipt.entrypoints) && receipt.entrypoints.every(path =>
+        typeof path === 'string' && !isAbsolute(path) && !path.split('/').includes('..')));
+      imageTestEntries.set(receipt.digest, new Set(receipt.entrypoints));
+    }
+  }
   else if (receipt.kind === 'launcher') builtLaunchers.add(receipt.digest);
+  else if (receipt.kind === 'router') builtRouters.add(receipt.digest);
   else throw new Error('invalid test build receipt kind');
 } });
 const closedInvocations = new WeakSet();
@@ -222,7 +232,8 @@ function closedBuildInvocation(command, args, env) {
     // refuses any additional preload (including this test instrumentation).
     assertNeutralFixturePath(entry);
     for (const key of ['HOME', 'XDG_RUNTIME_DIR', 'XDG_STATE_HOME', 'XDG_CONFIG_HOME']) assertNeutralFixturePath(env[key]);
-    if (builtLaunchers.has('sha256:' + createHash('sha256').update(fs.readFileSync(entry)).digest('hex'))) return true;
+    const entryHash = 'sha256:' + createHash('sha256').update(fs.readFileSync(entry)).digest('hex');
+    if (builtLaunchers.has(entryHash) || builtRouters.has(entryHash)) return true;
     for (let root = dirname(entry), depth = 0; depth < 8; root = dirname(root), depth++) {
       assertNeutralFixturePath(root);
       const path = join(root, 'manifest.json');
@@ -232,7 +243,9 @@ function closedBuildInvocation(command, args, env) {
       const manifests = document.kind === 'h2a-published-payload' ? Object.values(document.manifests) : [document];
       for (const manifest of manifests) {
         const hash = digest(manifest);
-        if (!builtImages.has(hash) || !Object.values(manifest.entrypoints).includes(relative(root, entry))) continue;
+        const relativeEntry = relative(root, entry);
+        const declared = Object.values(manifest.entrypoints).includes(relativeEntry) || imageTestEntries.get(hash)?.has(relativeEntry);
+        if (!builtImages.has(hash) || !declared || !manifest.files.some(file => file.path === relativeEntry && file.type === 'file')) continue;
         verifyImage(root, manifest, hash);
         return true;
       }
@@ -428,6 +441,8 @@ export function installNativeTestSpawnGuard() {
   state.closedRoots = closedProcessRoots;
   state.builtImages = builtImages;
   state.builtLaunchers = builtLaunchers;
+  state.builtRouters = builtRouters;
+  state.imageTestEntries = imageTestEntries;
   Object.defineProperty(prototype, guardInstalled, { value: state });
   const failUnexpected = () => {
     if (state.violations.length) {
