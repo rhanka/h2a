@@ -30,7 +30,8 @@ stakes and plain language; string validation cannot establish those properties.
 Opaque codes and acronyms in reader-facing content need definitions in the visible
 glossary. Transport IDs and provenance bindings are not interpreted as prose.
 The three renderers show the request, stakes, context, times, consequences and
-glossary. Snapshot actions remain disabled; clickable choices are outside this
+glossary. They group options under their question, independent of source order,
+and name the recommended option alongside its reason. Snapshot actions remain disabled; clickable choices are outside this
 validator-and-skill change.
 
 Independent design reviews (correctness and owner readability) agreed on public
