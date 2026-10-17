@@ -120,14 +120,7 @@ for (const mode of ["pass", "failure", "timeout", "timeout-delayed", "pass-delay
     let output = "", receipt, release, pinned = [];
     const survivors = () => pinned.filter(({ target }) => {
       try { return !/\) [ZX] /.test(readFileSync(join(target, "stat"), "utf8")); }
-      // Unreadable is not proof of death: keep the entry and let the
-      // deadline fail closed, instead of throwing EACCES that would mask the
-      // original assertion and skip the remaining cleanup.
-      catch (error) {
-        if (["ENOENT", "ESRCH"].includes(error.code)) return false;
-        if (["EACCES", "EPERM"].includes(error?.code)) return true;
-        throw error;
-      }
+      catch (error) { if (["ENOENT", "ESRCH"].includes(error.code)) return false; throw error; }
     });
     // Start-time identity proof for a recorded tree whose root exited before
     // the outer pin: gone (ENOENT), zombie/drained (Z/X), or PID-recycled
@@ -258,7 +251,8 @@ for (const mode of ["pass", "failure", "timeout", "timeout-delayed", "pass-delay
       // Kill the runner tree FIRST: the coordinator's fixture child holds
       // proc-descriptor links inside the owned root, and a wait before this
       // kill reads them as EACCES. Killing the tree first removes that
-      // source; the EACCES-tolerant proofs below stay fail-closed anyway.
+      // source; the proofs below keep their strict contract (an EACCES there
+      // is collected above, never masking the body failure).
       try { killRunnerTree(runner.pid); } catch (error) { keepCleanup(error); }
       const killRecordedTree = rows => {
         for (const row of rows ?? []) {
