@@ -8,10 +8,12 @@ import { spawn } from "node:child_process";
 import {
   chmodSync,
   closeSync,
+  constants,
   existsSync,
   mkdirSync,
   openSync,
   readFileSync,
+  readSync,
   renameSync,
   statSync,
   unlinkSync,
@@ -118,16 +120,43 @@ export function resolveCentralMcpLogPath(): string {
   return join(dirname(resolveConfigPath()), "mcp-central.log");
 }
 
-/** Cap a rotated raw log to its last bound bytes, line-aligned, mode preserved. */
+/**
+ * Cap a rotated raw log to its last bound bytes, line-aligned, mode
+ * preserved. Reads the tail window positionally — the (possibly huge)
+ * rotation is never loaded whole.
+ */
 function boundRawLogTail(path: string): void {
+  let fd: number | undefined;
   try {
-    if (statSync(path).size <= MAX_CRASH_LOG_BYTES) return;
-    const tail = readFileSync(path).subarray(-MAX_CRASH_LOG_BYTES);
+    const size = statSync(path).size;
+    if (size <= MAX_CRASH_LOG_BYTES) return;
+    fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW);
+    const tail = Buffer.alloc(MAX_CRASH_LOG_BYTES);
+    const start = size - MAX_CRASH_LOG_BYTES;
+    for (let offset = 0; offset < tail.length; ) {
+      const read = readSync(fd, tail, offset, tail.length - offset, start + offset);
+      if (read <= 0) break;
+      offset += read;
+    }
+    try {
+      closeSync(fd);
+    } catch {
+      /* fall through to the truncation below */
+    }
+    fd = undefined;
     const cut = tail.indexOf(0x0a);
     writeFileSync(path, cut < 0 ? tail : tail.subarray(cut + 1));
     chmodSync(path, 0o600);
   } catch {
     /* best-effort: bounding never blocks the spawn below */
+  } finally {
+    if (fd !== undefined) {
+      try {
+        closeSync(fd);
+      } catch {
+        /* bounding never throws */
+      }
+    }
   }
 }
 

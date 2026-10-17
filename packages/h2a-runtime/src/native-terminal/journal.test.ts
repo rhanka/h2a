@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { once } from "node:events";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
@@ -301,6 +301,38 @@ describe("native host life journal", () => {
     rmSync(lock); appendHostJournal(startEntry(), f.log);
     expect(readHostJournal(f.log)).toContainEqual(expect.objectContaining({ event: "dropped", count: expect.any(Number) }));
     expect(getDroppedJournalEntriesCount()).toBe(before + 5);
+  });
+  it("should redact non-enumerated credential variants in free text", () => {
+    // rev350r2 constat 1 (ported motif): generation/socket/version/codePath go
+    // through the same fail-closed patterns as the crash-log rows.
+    const f = fixture(), secret = "j0Probe-S3cret-7y5w";
+    expect(process.env["H2A_JOURNAL_ABSENT"]).toBeUndefined();
+    const generation = [
+      `--access_token ${secret}`,
+      `{"Authorization":"${secret}"}`,
+      `'password': '${secret}'`,
+      `pwd=${secret}`,
+      `password=p@ss,word${secret}`,
+      `-----BEGIN PRIVATE KEY-----\n${secret}\n-----END PRIVATE KEY-----`,
+    ].join(" ");
+    appendHostJournal({ event: "start", pid: process.pid, startTime: 1,
+      version: "0.98.6", codePath: entry, socket: "nt.sock", generation }, f.log);
+    const raw = readFileSync(f.log, "utf8");
+    expect(raw).not.toContain(secret);
+    expect(raw).not.toContain("BEGIN PRIVATE KEY");
+    expect(readHostJournal(f.log)).toHaveLength(1);
+  });
+  it("should read the rotated host journal (.1) before the current one", () => {
+    // rev350r2 constat 3: a crash followed by rotation + restart must stay
+    // visible to `h2a logs` instead of showing only the healthy `start`.
+    const f = fixture();
+    const row = (generation: string) => ({ event: "start" as const, pid: process.pid, startTime: 1,
+      version: "0.98.6", codePath: entry, socket: "nt.sock", generation });
+    appendHostJournal(row("gen-old-crash"), f.log);
+    renameSync(f.log, `${f.log}.1`);
+    appendHostJournal(row("gen-new"), f.log);
+    const generations = readHostJournal(f.log).map(entry => (entry as { generation?: string }).generation);
+    expect(generations).toEqual(["gen-old-crash", "gen-new"]);
   });
   it("should drop on ambiguous orphan locks without a racy unlink", () => {
     const f = fixture(), lock = `${f.log}.lock`; writeFileSync(lock, "99999999:old");

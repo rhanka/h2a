@@ -62,8 +62,10 @@ import {
 import {
   CRASH_LOG_COMPONENTS,
   formatCrashLogHumanRow,
+  installCliWitnessOnce,
   installCrashHandlers,
   readFileTailLines,
+  redactCrashText,
   readRecentCrashLogs,
   resolveCrashLogDir,
 } from "./crash-log.js";
@@ -2648,6 +2650,10 @@ function setAndReportDefaultRemote(url: string): void {
 }
 
 export async function main(argv: ReadonlyArray<string>): Promise<number> {
+  // Passive fatal-path witness on the real entry path (see
+  // installCliWitnessOnce): observes via uncaughtExceptionMonitor, so the
+  // default crash/exit behavior is unchanged.
+  installCliWitnessOnce();
   // ②b — auto-migrate the config home remote-cli/ -> h2a/ on first run (backup +
   // compat symlink). Best-effort: never let it break a command. Runs once
   // (idempotent) before any config/registry read.
@@ -10979,26 +10985,27 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
       const merged = [...hostRows, ...rows]
         .sort((a, b) => (a.timestamp < b.timestamp ? -1 : a.timestamp > b.timestamp ? 1 : 0))
         .slice(-lines);
-      if (merged.length === 0) {
+      // The raw server output is verbatim child stderr (unredacted at rest):
+      // read it before the empty check so a raw-only crash is shown, and
+      // redact it on display like every structured row.
+      const rawPath = resolveCentralMcpLogPath();
+      const rawTail = (only === "" || only === "mcp-server") ? readFileTailLines(rawPath, 20) : [];
+      if (merged.length === 0 && rawTail.length === 0) {
         process.stdout.write(`[h2a] no crash-log incidents in ${dir}\n`);
         return;
       }
-      if (opts.json) {
+      if (opts.json && merged.length > 0) {
         process.stdout.write(`${merged.map((row) => JSON.stringify(row)).join("\n")}\n`);
         return;
       }
       for (const row of merged) {
         process.stdout.write(`${formatCrashLogHumanRow(row as unknown as Record<string, unknown>)}\n`);
       }
-      if (only === "" || only === "mcp-server") {
+      if (rawTail.length > 0) {
         // The server process itself leaves no structured rows (it dies with
         // its witness); its raw stderr tail is the only "why" for its crash.
-        const rawPath = resolveCentralMcpLogPath();
-        const tail = readFileTailLines(rawPath, 20);
-        if (tail.length > 0) {
-          process.stdout.write(`[h2a] --- mcp-central.log raw tail (${rawPath}) ---\n`);
-          for (const line of tail) process.stdout.write(`${line}\n`);
-        }
+        process.stdout.write(`[h2a] --- mcp-central.log raw tail (${rawPath}) ---\n`);
+        for (const line of rawTail) process.stdout.write(`${redactCrashText(line)}\n`);
       }
     });
 
@@ -11073,9 +11080,9 @@ function isEntryPoint(): boolean {
 }
 
 if (isEntryPoint()) {
-  // Passive witness for fatal paths outside runOp (finding 6): observes via
-  // uncaughtExceptionMonitor, so the default crash/exit behavior is unchanged.
-  installCrashHandlers("cli");
+  // Passive witness for fatal paths outside runOp: installed once inside
+  // main() so the lazy core-binary dispatch path is covered too.
+  installCliWitnessOnce();
   main(process.argv).catch((error: unknown) => {
     if (
       error instanceof AuthRefreshError ||

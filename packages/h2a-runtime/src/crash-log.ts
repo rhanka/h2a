@@ -15,13 +15,16 @@
  * reason, child exit with code/signal). Files live under
  * `${XDG_STATE_HOME:-$HOME/.local/state}/h2a/`, mode 0600, dir 0700, rotated
  * at MAX_CRASH_LOG_BYTES (current + one `.1` generation, both read by
- * `readRecentCrashLogs`). Secrets are never logged: values are redacted
- * before serialization (see `redactCrashText`, which stands on its own even
- * when the secret is absent from the writer's environment). Exit codes and
- * signals are only ever observed values: either field is omitted when
- * unknown, never defaulted. Appends take one lock attempt plus one
- * provably-stale orphan reclaim; contention drops the row (counted via
- * `getCrashLogDrops` and surfaced as a `dropped` row on the next success).
+ * `readRecentCrashLogs`). Structured rows never carry secrets in the clear:
+ * values are redacted before serialization (see `redactCrashText`, which
+ * stands on its own even when the secret is absent from the writer's
+ * environment). (The raw `mcp-central.log` server dump is verbatim child
+ * output and stays unredacted at rest; `h2a logs` redacts it on display.)
+ * Exit codes and signals are only ever observed values: either field is
+ * omitted when unknown, never defaulted. Appends take one lock attempt plus
+ * one provably-dead orphan reclaim (stale age AND dead owner PID); contention
+ * drops the row (counted via `getCrashLogDrops` and surfaced as a `dropped`
+ * row on the next successful append in the same process).
  */
 import { randomUUID } from "node:crypto";
 import {
@@ -34,6 +37,7 @@ import {
   mkdirSync,
   openSync,
   readFileSync,
+  readSync,
   renameSync,
   statSync,
   unlinkSync,
@@ -173,15 +177,19 @@ export function redactCrashText(value: string): string {
   } catch {
     /* redaction best-effort */
   }
+  // Fail closed over shapes, not an enumeration of names: dash/underscore
+  // cross in every motif, header names match quoted/JSON/`=` forms, values
+  // keep commas (passwords) but stop at `&`/`;`/whitespace (query chains).
   return result
-    .replace(/\b(?:authorization|cookie|set-cookie)\s*:[^\r\n]*/gi, "[REDACTED]")
+    .replace(/-----BEGIN [^-]*PRIVATE KEY-----[\s\S]*?-----END [^-]*PRIVATE KEY-----/g, "[REDACTED]")
     .replace(/\b(?:bearer|basic)\s+\S+/gi, "[REDACTED]")
+    .replace(/["']?(?:authorization|cookie|set-cookie)["']?\s*[:=]\s*("[^"\r\n]*"|'[^'\r\n]*'|[^\s;&"']+)/gi, "[REDACTED]")
     .replace(
-      /[\w.-]*?(?:access_?token|refresh_?token|client_?secret|id_?token|token|secret|passwd|passphrase|password|credential|api_?key|session|key)"?\s*[:=]\s*("[^"\r\n]*"|'[^'\r\n]*'|[^\s,;&"']+)/gi,
+      /["']?[\w.-]*?(?:access[_-]?token|refresh[_-]?token|client[_-]?secret|id[_-]?token|auth[_-]?token|private[_-]?key|api[_-]?key|token|secret|passwd|passphrase|password|credential|pass|pwd|auth|session|key)["']?\s*[:=]\s*("[^"\r\n]*"|'[^'\r\n]*'|[^\s;&"']+)/gi,
       "[REDACTED]",
     )
     .replace(
-      /(--?(?:access-?token|refresh-?token|client-?secret|id-?token|api-?key|token|secret|password|passwd|passphrase))\b\s+("[^"\r\n]*"|'[^'\r\n]*'|[^\s"']+)/gi,
+      /(--?(?:access[_-]?token|refresh[_-]?token|client[_-]?secret|id[_-]?token|auth[_-]?token|private[_-]?key|api[_-]?key|token|secret|password|passwd|passphrase|pass|pwd|auth|session|credential|key))\b\s+("[^"\r\n]*"|'[^'\r\n]*'|[^\s"']+)/gi,
       "$1 [REDACTED]",
     )
     .replace(/:\/\/[^/\s]*@/g, "://[REDACTED]@");
@@ -345,11 +353,38 @@ function acquireCrashLogLock(lockPath: string, token: string): number | undefine
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
   }
-  // Contended. Reclaim only a provably stale orphan; a live lock (or a lock
-  // that vanished under us) drops the row instead of blocking the fatal path.
+  // Contended. Reclaim only a provably-dead orphan: age alone never proves
+  // death (a live writer blocked in the filesystem never refreshes its
+  // mtime), so the owner PID in the lock token must be dead too. A live lock,
+  // an unreadable token, or a lock that changed under us drops the row
+  // instead of blocking the fatal path.
   try {
     const ageMs = Date.now() - statSync(lockPath).mtimeMs;
     if (!Number.isFinite(ageMs) || ageMs < CRASH_LOG_LOCK_STALE_MS) return undefined;
+    let owner = NaN;
+    try {
+      owner = Number.parseInt(String(readFileSync(lockPath, "utf8")).split(":")[0] ?? "", 10);
+    } catch {
+      return undefined;
+    }
+    if (!Number.isSafeInteger(owner) || owner <= 0) return undefined;
+    try {
+      process.kill(owner, 0);
+      return undefined;
+    } catch (error) {
+      // ESRCH = no such process (reclaimable); anything else (EPERM = alive
+      // but unowned, or an exotic failure) keeps the lock.
+      if ((error as NodeJS.ErrnoException).code !== "ESRCH") return undefined;
+    }
+    // Re-verify after the liveness probe: a fresh lock that appeared under us
+    // (or a token swap) aborts the reclaim instead of unlinking live state.
+    try {
+      const freshAgeMs = Date.now() - statSync(lockPath).mtimeMs;
+      if (!Number.isFinite(freshAgeMs) || freshAgeMs < CRASH_LOG_LOCK_STALE_MS) return undefined;
+      if (String(readFileSync(lockPath, "utf8")).split(":")[0] !== String(owner)) return undefined;
+    } catch {
+      return undefined;
+    }
     unlinkSync(lockPath);
     const fd = openSync(
       lockPath,
@@ -438,15 +473,15 @@ export function appendCrashLog(
     );
     try {
       privateFile(fd);
+      // One write for receipt + row, receipt cleared only after it lands: a
+      // failed replay keeps the earlier drops instead of losing them.
       const missed = pendingCrashLogDrops.get(logPath) ?? 0;
-      if (missed > 0) {
-        pendingCrashLogDrops.delete(logPath);
-        writeAll(
-          fd,
-          `${JSON.stringify(toCrashLogRow(component, { event: "dropped", detail: `${missed} crash-log rows dropped (lock contention or unsafe state)` }))}\n`,
-        );
-      }
-      writeAll(fd, text);
+      const receipt =
+        missed > 0
+          ? `${JSON.stringify(toCrashLogRow(component, { event: "dropped", detail: `${missed} crash-log rows dropped (lock contention or unsafe state)` }))}\n`
+          : "";
+      writeAll(fd, `${receipt}${text}`);
+      if (missed > 0) pendingCrashLogDrops.delete(logPath);
     } finally {
       closeSync(fd);
     }
@@ -548,14 +583,45 @@ export function formatCrashLogHumanRow(record: Record<string, unknown>): string 
   return parts.join(" ");
 }
 
-/** Last `maxLines` of a text file for the viewer; missing/unreadable → []. */
+/** Max bytes scanned from the end of a raw log for the viewer. */
+export const CRASH_LOG_TAIL_MAX_BYTES = 256 * 1024;
+
+/**
+ * Last `maxLines` of a text file for the viewer; missing/unreadable → [].
+ * Scans a bounded window from the end with positional reads — a multi-MB
+ * server dump is never loaded whole. Lines past the window are dropped whole
+ * (the leading, possibly partial, line is never shown truncated).
+ */
 export function readFileTailLines(path: string, maxLines: number): string[] {
+  let fd: number | undefined;
   try {
-    const lines = readFileSync(path, "utf8").split("\n");
+    fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+    if (!fstatSync(fd).isFile()) return [];
+    const size = fstatSync(fd).size;
+    if (size === 0) return [];
+    const want = Math.min(size, CRASH_LOG_TAIL_MAX_BYTES);
+    const start = size - want;
+    const buffer = Buffer.alloc(want);
+    let bytesRead = 0;
+    while (bytesRead < want) {
+      const read = readSync(fd, buffer, bytesRead, want - bytesRead, start + bytesRead);
+      if (read <= 0) break;
+      bytesRead += read;
+    }
+    const lines = buffer.subarray(0, bytesRead).toString("utf8").split("\n");
     while (lines.length > 0 && lines[lines.length - 1] === "") lines.pop();
+    if (start > 0) lines.shift();
     return lines.slice(Math.max(0, lines.length - Math.max(1, maxLines)));
   } catch {
     return [];
+  } finally {
+    if (fd !== undefined) {
+      try {
+        closeSync(fd);
+      } catch {
+        /* A tail read never escapes. */
+      }
+    }
   }
 }
 
@@ -576,4 +642,18 @@ export function installCrashHandlers(component: CrashLogComponent): void {
       /* A witness never breaks the fatal path it documents. */
     }
   });
+}
+
+let cliWitnessInstalled = false;
+/**
+ * Idempotent CLI fatal-path witness. The owner binary (core `bin.ts`) reaches
+ * the runtime through lazy `dispatchRuntime()` → `main()`, never with the
+ * runtime file as `argv[1]` — so an `isEntryPoint()` gate alone never fires
+ * on the real path. Installing here covers every dispatch; the once-guard
+ * keeps repeated `main()` calls (and tests) to a single listener.
+ */
+export function installCliWitnessOnce(): void {
+  if (cliWitnessInstalled) return;
+  cliWitnessInstalled = true;
+  installCrashHandlers("cli");
 }
