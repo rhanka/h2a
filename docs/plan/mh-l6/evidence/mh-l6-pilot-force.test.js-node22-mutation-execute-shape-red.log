@@ -1,0 +1,48 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-pilot-force.test.js
+node: v22.22.1
+private root: /tmp/mh-l6-test-hInP1W
+case: F should refuse a non-boolean pilot override instead of guessing
+TAP version 13
+# Subtest: F should refuse a non-boolean pilot override instead of guessing
+not ok 1 - F should refuse a non-boolean pilot override instead of guessing
+  ---
+  duration_ms: 308.76258
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-f2c5-Eikccj/packages/h2a/test/mh-l6-pilot-force.test.js:14:67'
+  failureType: 'testCodeFailure'
+  error: |-
+    The input did not match the regular expression /adoption_execute_invalid/. Input:
+    
+    'Error: bootstrap_launcher_install_invalid'
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected:
+  actual:
+  error: 'bootstrap_launcher_install_invalid'
+  stack: |-
+    installManagedLauncher (file:///tmp/mh-l3-qualification-f2c5-Eikccj/packages/h2a/dist/runtime/upgrade/launcher-install.js:33:15)
+    executeAdoption (file:///tmp/mh-l3-qualification-f2c5-Eikccj/packages/h2a/dist/runtime/upgrade/adoption-execute.js:37:26)
+    file:///tmp/mh-l3-qualification-f2c5-Eikccj/packages/h2a/test/mh-l6-pilot-force.test.js:90:23
+    getActual (node:assert:609:5)
+    Function.throws (node:assert:757:24)
+    TestContext.<anonymous> (file:///tmp/mh-l3-qualification-f2c5-Eikccj/packages/h2a/test/mh-l6-pilot-force.test.js:90:10)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+  operator: 'throws'
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/mh-l3-qualification-f2c5-Eikccj/packages/h2a/test/mh-l6-pilot-force.test.js:90:10)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 0
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 423.792744
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-pilot-force.test.js"],"code":1,"signal":null,"tests":1,"invalid":false,"spawned":1,"leftovers":[]}

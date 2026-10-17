@@ -1,0 +1,28 @@
+command: /tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node --test --test-reporter=tap packages/h2a/test/mh-l5-legacy-writer.test.js
+node: v24.21.0
+private root: /tmp/mh-l5-test-E9CD5A
+case: all cases in explicit file
+TAP version 13
+# Subtest: M17 0.98.5 inherited writer must block freezing until death and maintained admission closure are both proved
+ok 1 - M17 0.98.5 inherited writer must block freezing until death and maintained admission closure are both proved
+  ---
+  duration_ms: 458.234319
+  type: 'test'
+  ...
+# Subtest: M17 0.98.6 inherited writer must block freezing until death and maintained admission closure are both proved
+ok 2 - M17 0.98.6 inherited writer must block freezing until death and maintained admission closure are both proved
+  ---
+  duration_ms: 315.775168
+  type: 'test'
+  ...
+1..2
+# tests 2
+# suites 0
+# pass 2
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 964.862027
+
+receipt: {"command":["/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l5-legacy-writer.test.js"],"code":0,"signal":null,"tests":2,"invalid":false,"spawned":5,"leftovers":[]}

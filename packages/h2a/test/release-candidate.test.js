@@ -186,7 +186,7 @@ test('workflow always gates stable publication and attests only after the real i
   const verify = workflow.jobs.verify.steps, publish = workflow.jobs.publish.steps
   const prepare = steps => steps.findIndex(s => s.run === 'node scripts/release-candidate.mjs prepare')
   assert.ok(prepare(verify) > verify.findIndex(s => s.run === 'npm test'))
-  assert.ok(prepare(verify) < verify.findIndex(s => String(s.run).includes('npm pack --workspace')))
+  assert.ok(prepare(verify) < verify.findIndex(s => String(s.run).includes('node scripts/pack-candidate.mjs')))
   assert.ok(prepare(publish) >= 0)
   const gate = publish.findIndex(s => s.run === 'node scripts/release-candidate.mjs require-rc')
   const firstPublish = publish.findIndex(s => String(s.run).includes('npm publish "./dist-tarballs/'))

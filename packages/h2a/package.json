@@ -52,7 +52,7 @@
   },
   "scripts": {
     "build": "node ../../scripts/clean-workspace-dist.mjs && tsc -b --force && node ../../scripts/copy-vendored-engram-live.mjs",
-    "prepack": "node ../../scripts/check-focus-app.mjs && chmod +x dist/bin.js"
+    "prepack": "node ../../scripts/check-focus-app.mjs && node ../../scripts/check-publish-payload.mjs && chmod +x dist/bin.js"
   },
   "dependencies": {
     "@hono/mcp": "^0.3.0",

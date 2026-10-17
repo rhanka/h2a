@@ -1,0 +1,75 @@
+{
+  "node": "v22.22.1",
+  "files": [
+    {
+      "path": "packages/h2a/src/runtime/upgrade/published-payload.js",
+      "sha256": "d3e86c3ab98b277b8457e5a662a77a016eee5b3f13b1f4475928d195e9307bf9"
+    },
+    {
+      "path": "packages/h2a/src/runtime/upgrade/image-policy.js",
+      "sha256": "b9aca19996e7a26d738899b17378bb432a0e70f311466c693ce426b166b545a8"
+    },
+    {
+      "path": "scripts/check-publish-payload.mjs",
+      "sha256": "6816405f3dbc43a3e3b07a3dea80484fc70c560c49e969aa4f423dec93310882"
+    },
+    {
+      "path": "scripts/build-release-native.mjs",
+      "sha256": "3dac955424e8b8a888c758eb0683f37e6266f60dd79f09b9042d76ffc69a4123"
+    },
+    {
+      "path": "scripts/prepare-workspace-native.mjs",
+      "sha256": "a09b5ff1d32f9c59b2d170388b528fb9ff6183c3278d1c74ae21f0945bff717c"
+    },
+    {
+      "path": "scripts/release.mjs",
+      "sha256": "3e9b0c4a50963c008a7ee68508d77336638471846ef51cc8bd2cdafb25f5ebd2"
+    },
+    {
+      "path": ".github/workflows/release.yml",
+      "sha256": "37c4bf0ac5d7407b5c7a43b857d6cb453a65da46dbf444eabf4f970a774b0431"
+    },
+    {
+      "path": "scripts/mh-l1-package-prototype.mjs",
+      "sha256": "cb63b5e1bd5be0ceeebbcbeee5e5662ce4d64661f8b9e83c1144a713d0acc5ff"
+    }
+  ],
+  "results": [
+    {
+      "name": "profile-identity",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-published.test.js-node22-payload-profile-identity-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-published.test.js-node22-payload-profile-identity-green.log",
+      "restored": true
+    },
+    {
+      "name": "other-profile-integrity",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-published.test.js-node22-payload-other-profile-integrity-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-published.test.js-node22-payload-other-profile-integrity-green.log",
+      "restored": true
+    },
+    {
+      "name": "published-version",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-published.test.js-node22-payload-published-version-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-published.test.js-node22-payload-published-version-green.log",
+      "restored": true
+    },
+    {
+      "name": "copied-image-integrity",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-published.test.js-node22-payload-copied-image-integrity-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-published.test.js-node22-payload-copied-image-integrity-green.log",
+      "restored": true
+    },
+    {
+      "name": "independent-image-links",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-published.test.js-node22-payload-independent-image-links-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-published.test.js-node22-payload-independent-image-links-green.log",
+      "restored": true
+    },
+    {
+      "name": "image-parent-fsync",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-published.test.js-node22-payload-image-parent-fsync-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-published.test.js-node22-payload-image-parent-fsync-green.log",
+      "restored": true
+    }
+  ]
+}

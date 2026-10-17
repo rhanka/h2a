@@ -1,0 +1,33 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l3-network.test.js
+node: v22.22.1
+private root: /tmp/mh-l3-test-yqeI7R
+case: control should cancel local requests at the 32-call limit without any application dispatch
+TAP version 13
+# Subtest: control should cancel local requests at the 32-call limit without any application dispatch
+not ok 1 - control should cancel local requests at the 32-call limit without any application dispatch
+  ---
+  duration_ms: 1100.78722
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-bUCXsb/source/packages/h2a/test/mh-l3-network.test.js:2:94'
+  failureType: 'testCodeFailure'
+  error: 'expected frame: [{"jsonrpc":"2.0","id":"i","result":{"protocolVersion":"2025-06-18","capabilities":{"tools":{"listChanged":true}},"serverInfo":{"name":"@sentropic/h2a","version":"0.98.5"}}}]'
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  operator: 'fail'
+  stack: |-
+    Object.wait (file:///tmp/mh-l3-qualification-bUCXsb/source/packages/h2a/test/helpers/mh-l3-network.js:45:12)
+    async TestContext.<anonymous> (file:///tmp/mh-l3-qualification-bUCXsb/source/packages/h2a/test/mh-l3-network.test.js:154:19)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 0
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 1317.793627
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l3-network.test.js"],"code":1,"signal":null,"tests":1,"invalid":false,"spawned":1,"leftovers":[]}

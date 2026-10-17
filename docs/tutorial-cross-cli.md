@@ -49,21 +49,18 @@ Same merge step into the Codex CLI config (`~/.config/codex/mcp.json` or `~/.cod
 
 > Both CLIs **must** point at the same `--root`. That shared directory is the protocol bus.
 
-### Optional shared central MCP for `h2a run`
+### Shared central MCP for Claude
 
-To have `h2a run` and `h2a restore` start one machine-local MCP service and
-wire launched supported hosts to it, merge this once into
-`~/.config/sentropic/h2a/config.json`:
+On Linux, the existing `mcp-serve --host claude` command selects a machine-local
+central by default when Claude supplies its native conversation id. Codex and agy retain
+stdio until their conversation signals are qualified. Run and restore never
+rewrite a project or host configuration. Each attachment captures its own
+workspace while sharing the canonical state root.
 
-```json
-{ "h2a": { "central": { "enabled": true } } }
-```
-
-The default is disabled to preserve the existing opt-in posture. On the first
-enabled launch h2a persists a deterministic per-UID loopback endpoint; no
-`H2A_MCP_CENTRAL*` environment variable or bearer token belongs in a host
-configuration. Set `h2a.central.endpoint` only when an explicit loopback URL
-is required.
+Use `H2A_MCP_CENTRAL=0` or `h2a.central.enabled=false` in
+`~/.config/sentropic/h2a/config.json` to select stdio for new connections.
+See [central operation and live-session rollback](mcp-central.md) for status,
+stop, reconnect behavior and the report-only v1 residue inventory.
 
 ## 2. Generate an ed25519 keypair per instance
 

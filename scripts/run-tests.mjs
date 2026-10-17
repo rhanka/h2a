@@ -133,6 +133,7 @@ export function verifyNodeTrackExecution(report, requiredFiles) {
 }
 
 function main() {
+  process.umask(0o022);
   // Each configured directory is REQUIRED, in the sense of main's original
   // contract: an unavailable directory, or one with no .test.js files at all,
   // is a broken suite root — not a silently skipped one.
@@ -156,6 +157,10 @@ function main() {
   let nodeTestFiles;
   try {
     nodeTestFiles = discoverTestFiles();
+    // The real closed-package installation file takes ~430s in isolation.
+    // Start it with the pool so lexical placement cannot exhaust the existing
+    // 600s backstop before it gets a chance to complete. Keep every file.
+    nodeTestFiles.sort((a, b) => Number(b.endsWith('/mh-l6-package.test.js')) - Number(a.endsWith('/mh-l6-package.test.js')));
   } catch (err) {
     process.stderr.write(`${(err && err.message) || err}\n`);
     process.exit(1);
@@ -248,6 +253,8 @@ function main() {
 
   mkdirSync(join(testRoot, "home"), { recursive: true });
   mkdirSync(join(testRoot, "run"), { mode: 0o700 });
+  mkdirSync(join(testRoot, "cache"), { mode: 0o700 });
+  mkdirSync(join(testRoot, "data"), { mode: 0o700 });
 
   // Historical PTY host the pre-upgrade suites qualify against. The inventory
   // REQUIRES native-inventory-absence's legacy test passed, and the
@@ -301,6 +308,8 @@ function main() {
     XDG_RUNTIME_DIR: join(testRoot, "run"),
     XDG_CONFIG_HOME: join(testRoot, "home/.config"),
     XDG_STATE_HOME: join(testRoot, "home/.local/state"),
+    XDG_CACHE_HOME: join(testRoot, "cache"),
+    XDG_DATA_HOME: join(testRoot, "data"),
     H2A_ROOT: join(testRoot, ".h2a"),
     H2A_TEST_DURABLE_ROOT: durableRoot,
     H2A_TEST_LEGACY_HOST_DIR: legacyHost.dir,
@@ -310,6 +319,14 @@ function main() {
     H2A_RUN_EXAMPLE: "1",
     H2A_LOCK_STRESS: "1"
   };
+
+  // These suites require the real pinned archives, never absent-state skips.
+  const prepared = spawnSync(process.execPath, [join(REPO_ROOT, "scripts/prepare-mh-test-fixtures.mjs")], {
+    cwd: REPO_ROOT, env: testEnv, encoding: "utf8", timeout: 600_000, maxBuffer: 8 * 1024 * 1024,
+  });
+  if (prepared.status !== 0) throw new Error(`run-tests: MH fixtures failed: ${prepared.stderr ?? prepared.error}`);
+  const mhFixtures = JSON.parse(prepared.stdout);
+  Object.assign(testEnv, mhFixtures.env);
 
   // Track's no-store fixtures intentionally walk to the filesystem root.
   // Use the invocation's temporary parent, and reject any .track ancestor.
@@ -441,6 +458,7 @@ function main() {
     writeFileSync(reportPath, JSON.stringify(combined));
     exitCode = holes.length ? 1 : [nodeStatus, ...vitestStatuses, laneStatus].every((status) => status === 0) ? 0 : Math.max(nodeStatus, ...vitestStatuses, laneStatus);
   } finally {
+    for (const root of mhFixtures.owned) rmSync(root, { recursive: true, force: true });
     // Best-effort cleanup of what this run provisioned. A preset legacy dir
     // (owner-provided) is never ours to delete. The lane helper records the
     // lane it built in tmp/idlock-build2-lane.txt: remove that lane — and the

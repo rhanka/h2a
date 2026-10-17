@@ -4,7 +4,7 @@
  * a persisted endpoint, asks core for protected liveness facts, and starts the
  * existing foreground command as a detached child when necessary.
  */
-import { spawn } from "node:child_process";
+import type { ChildProcess } from "node:child_process";
 import {
   chmodSync,
   closeSync,
@@ -20,21 +20,20 @@ import {
   writeFileSync,
 } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, isAbsolute, join, resolve } from "node:path";
 
-import { getH2aConfig, resolveConfigPath, setH2aConfig } from "./config.js";
+import { getH2aConfig, resolveConfigPath } from "./config.js";
 import { appendCrashLog, MAX_CRASH_LOG_BYTES } from "./crash-log.js";
 
-const CENTRAL_PORT_BASE = 47_000;
-const CENTRAL_PORT_SPAN = 10_000;
-const CENTRAL_START_TIMEOUT_MS = 10_000;
-const CENTRAL_START_POLL_MS = 100;
 
 type CentralMarker = Readonly<{
   endpoint: string;
   generation: string;
   pid: number;
   startedAt: string;
+  root?: string;
+  protocol?: number;
+  endpointMode?: "fixed" | "discovered";
 }>;
 
 type CentralPing =
@@ -43,6 +42,8 @@ type CentralPing =
   | Readonly<{ kind: "ambiguous" }>;
 
 type CoreCentralMcp = Readonly<{
+  ensureCentralForRoot(root: string, observers?: { onSpawn(child: ChildProcess): void; logPath(): string }): Promise<CentralMarker>;
+  centralMcpMarkerPath(): string;
   H2A_MCP_CENTRAL_ENV: string;
   H2A_MCP_CENTRAL_ENDPOINT_ENV: string;
   centralMcpPing(endpoint: string, timeoutMs?: number): Promise<CentralPing>;
@@ -61,10 +62,6 @@ type CoreCentralMcp = Readonly<{
 export type CentralMcpPreparation =
   | Readonly<{ status: "central"; endpoint: string; generation: string }>
   | Readonly<{ status: "degraded"; reason: string }>;
-
-type HostConfigSnapshot =
-  | Readonly<{ exists: true; contents: string }>
-  | Readonly<{ exists: false }>;
 
 let coreCentralMcp: Promise<CoreCentralMcp> | undefined;
 
@@ -87,32 +84,6 @@ function loadCoreCentralMcp(): Promise<CoreCentralMcp> {
     return candidate as CoreCentralMcp;
   });
   return coreCentralMcp;
-}
-
-function delay(milliseconds: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, milliseconds));
-}
-
-function defaultCentralEndpoint(): string {
-  if (typeof process.getuid !== "function") {
-    throw new Error("central MCP requires a current uid for deterministic endpoint selection");
-  }
-  const currentUid = process.getuid();
-  const offset = ((currentUid % CENTRAL_PORT_SPAN) + CENTRAL_PORT_SPAN) % CENTRAL_PORT_SPAN;
-  return `http://127.0.0.1:${CENTRAL_PORT_BASE + offset}/mcp`;
-}
-
-function configuredCentralEndpoint(): string | undefined {
-  const h2a = getH2aConfig();
-  if (!h2a.central?.enabled) return undefined;
-  if (h2a.central.endpoint) return h2a.central.endpoint;
-  const endpoint = defaultCentralEndpoint();
-  setH2aConfig({
-    enabled: h2a.enabled,
-    command: h2a.command,
-    central: { ...h2a.central, endpoint },
-  });
-  return endpoint;
 }
 
 /** Raw (unstructured) central MCP server output. Read by `h2a logs`, rotated at spawn. */
@@ -177,34 +148,6 @@ function centralLogFile(): string {
   return path;
 }
 
-async function waitForCentralStart(
-  core: CoreCentralMcp,
-  endpoint: string,
-  spawnFailure: () => Error | undefined,
-): Promise<{ endpoint: string; generation: string }> {
-  const deadline = Date.now() + CENTRAL_START_TIMEOUT_MS;
-  while (Date.now() < deadline) {
-    const failure = spawnFailure();
-    if (failure) {
-      // The server child never started: a startup failure, not a child exit.
-      appendCrashLog("mcp-server", { event: "startupError", reason: "spawn-failed", detail: failure.message });
-      throw failure;
-    }
-    const ping = await core.centralMcpPing(endpoint, CENTRAL_START_POLL_MS);
-    if (ping.kind === "generation") {
-      const marker = core.readCentralMcpMarker();
-      if (marker?.endpoint === endpoint && marker.generation === ping.generation) {
-        return { endpoint, generation: ping.generation };
-      }
-    }
-    await delay(CENTRAL_START_POLL_MS);
-  }
-  // No child exited: the launcher gave up waiting, so `exit` (not
-  // `childExit`) keeps the record honest.
-  appendCrashLog("mcp-server", { event: "exit", reason: "readiness-timeout", detail: endpoint });
-  throw new Error(`central MCP did not become ready at ${endpoint} within ${CENTRAL_START_TIMEOUT_MS}ms`);
-}
-
 /**
  * Ensure the persisted central endpoint is served. A live matching marker is
  * reused; dead registrations are reclaimed by the existing foreground serve
@@ -213,186 +156,65 @@ async function waitForCentralStart(
 export async function ensureCentralMcp(
   options: Readonly<{ root?: string }> = {},
 ): Promise<Readonly<{ endpoint: string; generation: string }> | undefined> {
-  const endpoint = configuredCentralEndpoint();
-  if (!endpoint) return undefined;
+  if (!getH2aConfig().central?.enabled || process.env.H2A_MCP_CENTRAL === "0" || process.env.H2A_MCP_CENTRAL === "false") return undefined;
+  const rawRoot = options.root ?? process.env.H2A_ROOT;
+  if (rawRoot && !isAbsolute(rawRoot)) {
+    // Relative roots derive from cwd; deterministically select stdio per invariant
+    return undefined;
+  }
+  const root = rawRoot ? resolve(rawRoot) : join(homedir(), "h2a-workspace", ".h2a");
   const core = await loadCoreCentralMcp();
-  const marker = core.readCentralMcpMarker();
-  if (marker) {
-    const ping = await core.centralMcpPing(marker.endpoint);
-    if (ping.kind === "ambiguous") {
-      appendCrashLog("mcp-server", { event: "refusal", instanceId: marker.generation, reason: "ambiguous-liveness", detail: marker.endpoint });
-      throw new Error(`central MCP liveness at ${marker.endpoint} is ambiguous; refusing to start another server`);
-    }
-    if (ping.kind === "generation") {
-      if (marker.endpoint === endpoint && ping.generation === marker.generation) {
-        return { endpoint, generation: marker.generation };
-      }
-      appendCrashLog("mcp-server", { event: "refusal", instanceId: marker.generation, reason: "marker-listener-mismatch", detail: marker.endpoint });
-      throw new Error(
-        `central MCP marker/listener mismatch (${marker.endpoint}, generation ${marker.generation}); refusing to replace a live server`,
-      );
-    }
-  }
-
-  const logFile = centralLogFile();
-  const logFd = openSync(logFile, "a", 0o600);
-  chmodSync(logFile, 0o600);
-  let spawnError: Error | undefined;
+  if (typeof core.ensureCentralForRoot !== "function") throw new Error("central_starter_unqualified");
+  let spawned = false;
   try {
-    const child = spawn(
-      "h2a",
-      ["mcp-central-serve", ...(options.root ? ["--root", options.root] : [])],
-      {
-        detached: true,
-        stdio: ["ignore", logFd, logFd],
-        env: {
-          ...process.env,
-          [core.H2A_MCP_CENTRAL_ENV]: "1",
-          [core.H2A_MCP_CENTRAL_ENDPOINT_ENV]: endpoint,
-        },
+    const marker = await core.ensureCentralForRoot(root, {
+      logPath: centralLogFile,
+      onSpawn(child) {
+        spawned = true;
+        child.once("exit", (code, signal) => {
+          if (code === 0 || (code === null && signal === null)) return;
+          appendCrashLog("mcp-server", { event: "childExit", reason: "server-exit",
+            ...(typeof code === "number" ? { exitCode: code } : {}),
+            ...(typeof signal === "string" && signal.length ? { signal } : {}) });
+        });
       },
-    );
-    child.once("error", (error) => {
-      spawnError = error;
     });
-    // A post-readiness crash leaves a structured record while this launcher
-    // is still alive. (Once the launcher exits, only the raw server output
-    // in mcp-central.log witnesses a later death — see `h2a logs`.)
-    child.once("exit", (code, signal) => {
-      if (code === 0 || (code === null && signal === null)) return;
-      appendCrashLog("mcp-server", {
-        event: "childExit",
-        reason: "server-exit",
-        ...(typeof code === "number" ? { exitCode: code } : {}),
-        ...(typeof signal === "string" && signal.length > 0 ? { signal } : {}),
-        detail: `central MCP server exited${typeof signal === "string" && signal.length > 0 ? ` on ${signal}` : ""}`,
-      });
-    });
-    child.unref();
-  } finally {
-    closeSync(logFd);
+    return { endpoint: marker.endpoint, generation: marker.generation };
+  } catch (error) {
+    appendCrashLog("mcp-server", { event: spawned ? "exit" : "startupError",
+      reason: spawned ? "readiness-timeout" : "spawn-failed", detail: errorMessage(error) });
+    throw error;
   }
-  return waitForCentralStart(core, endpoint, () => spawnError);
-}
-
-function profileMcpConfig(profile: string, cwd: string): { host: string; path: string } | undefined {
-  switch (profile) {
-    case "claude":
-    case "claude-code":
-      return { host: "claude", path: join(cwd, ".mcp.json") };
-    case "codex": {
-      const legacy = process.env.CODEX_HOME
-        ? join(process.env.CODEX_HOME, "config.json")
-        : join(homedir(), ".codex", "config.json");
-      const xdg = join(process.env.XDG_CONFIG_HOME ?? join(homedir(), ".config"), "codex", "mcp.json");
-      return { host: "codex", path: existsSync(legacy) ? legacy : xdg };
-    }
-    case "gemini":
-    case "gemini-cli":
-      return { host: "gemini", path: join(cwd, ".gemini", "settings.json") };
-    case "agy":
-    case "antigravity":
-      return { host: "agy", path: join(homedir(), ".gemini", "config", "mcp_config.json") };
-    default:
-      return undefined;
-  }
-}
-
-function coherentHostSetupReport(host: string): unknown {
-  return {
-    ok: true,
-    repair: false,
-    dryRun: false,
-    sessionFreshnessGuarantee: "runtime central MCP writer",
-    nativeCommandFailureLimit: "runtime central MCP writer",
-    version: "runtime-central-mcp",
-    hosts: [{
-      host,
-      ok: true,
-      findings: [],
-      diagnostics: [],
-      changed: [],
-      preserved: [],
-      failures: [],
-      unverifiable: [],
-      unrepaired: [],
-      coherencePaths: [],
-      plannedActions: [],
-      repairMarkerPath: "",
-    }],
-  };
 }
 
 function activateCentralMcpEnvironment(core: CoreCentralMcp, endpoint: string): void {
   process.env[core.H2A_MCP_CENTRAL_ENV] = "1";
-  process.env[core.H2A_MCP_CENTRAL_ENDPOINT_ENV] = endpoint;
+  process.env.H2A_MCP_AUTHORITY = core.centralMcpMarkerPath();
+  const marker = core.readCentralMcpMarker();
+  if (marker?.endpointMode === "fixed") process.env[core.H2A_MCP_CENTRAL_ENDPOINT_ENV] = endpoint;
+  else delete process.env[core.H2A_MCP_CENTRAL_ENDPOINT_ENV];
 }
 
 function deactivateCentralMcpEnvironment(): void {
+  delete process.env.H2A_MCP_AUTHORITY;
   delete process.env.H2A_MCP_CENTRAL;
   delete process.env.H2A_MCP_CENTRAL_ENDPOINT;
-}
-
-function captureHostConfig(path: string): HostConfigSnapshot {
-  return existsSync(path)
-    ? { exists: true, contents: readFileSync(path, "utf8") }
-    : { exists: false };
-}
-
-function restoreHostConfig(path: string, snapshot: HostConfigSnapshot): void {
-  if (snapshot.exists) {
-    writeFileSync(path, snapshot.contents, { mode: 0o600 });
-    chmodSync(path, 0o600);
-  } else if (existsSync(path)) {
-    unlinkSync(path);
-  }
 }
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-/** Ensure central MCP and rewrite the launched host's existing MCP config path. */
+/** Prepare transport only. Configuration writes require an explicit host setup --write. */
 export async function prepareCentralMcpForLaunch(options: Readonly<{
   root?: string;
   profile: string;
   cwd: string;
 }>): Promise<CentralMcpPreparation | undefined> {
-  let hostConfig: { path: string; snapshot: HostConfigSnapshot } | undefined;
-  try {
-    const central = await ensureCentralMcp({ ...(options.root ? { root: options.root } : {}) });
-    if (!central) return undefined;
-    const core = await loadCoreCentralMcp();
-    const target = profileMcpConfig(options.profile, options.cwd);
-    if (target) hostConfig = { path: target.path, snapshot: captureHostConfig(target.path) };
-    activateCentralMcpEnvironment(core, central.endpoint);
-    if (target) {
-      const quiet = { stdout: { write: () => true }, stderr: { write: () => true }, cwd: () => options.cwd };
-      const code = core.runCli(
-        ["host", "setup", "--host", target.host, "--write", target.path],
-        quiet,
-        { doctorHostInstallations: () => coherentHostSetupReport(target.host) },
-      );
-      if (code !== 0) {
-        throw new Error(`central MCP could not write the ${target.host} host config at ${target.path}`);
-      }
-    }
-    return { status: "central", ...central };
-  } catch (error) {
-    deactivateCentralMcpEnvironment();
-    let reason = errorMessage(error);
-    if (hostConfig) {
-      try {
-        restoreHostConfig(hostConfig.path, hostConfig.snapshot);
-      } catch (rollbackError) {
-        reason += `; could not restore the per-session MCP config: ${errorMessage(rollbackError)}`;
-      }
-    }
-    return { status: "degraded", reason };
-  }
+  return prepareCentralMcpForRestore(options.root ? { root: options.root } : {});
 }
 
-/** Restore launches inherit these values; each re-entered run rewrites its host config. */
+/** Restore and run never write a host or project configuration. */
 export async function prepareCentralMcpForRestore(
   options: Readonly<{ root?: string }> = {},
 ): Promise<CentralMcpPreparation | undefined> {

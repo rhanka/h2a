@@ -1,0 +1,22 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l3-evidence.test.js
+node: v22.22.1
+private root: /tmp/mh-l3-test-TemBgB
+case: ordinary catalogue evidence should bind durable delegation and the published target without granting transfer
+TAP version 13
+# Subtest: ordinary catalogue evidence should bind durable delegation and the published target without granting transfer
+ok 1 - ordinary catalogue evidence should bind durable delegation and the published target without granting transfer
+  ---
+  duration_ms: 59.115463
+  type: 'test'
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 1
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 177.058788
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l3-evidence.test.js"],"code":0,"signal":null,"tests":1,"invalid":false,"spawned":1,"leftovers":[]}

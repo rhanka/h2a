@@ -1,0 +1,58 @@
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node --test packages/h2a/test/enrollment-ceremony.test.js
+node: v24.21.0
+private test root: /tmp/mh-l2-test-sQC3EM
+Claude config: /tmp/mh-l2-test-sQC3EM/claude
+✔ a well-formed challenge yields a proof the gateway's verifier accepts (3.143094ms)
+✔ the proof carries EXACTLY the fields of Part B step 4, as amended (0.890926ms)
+✔ the proof carries a VERSIONED type tag, and it is INSIDE the signed payload (0.567998ms)
+✔ rewriting the type tag breaks verification (0.517754ms)
+✔ a VALIDLY SIGNED v2 proof is refused by the v1 verifier (0.41435ms)
+✔ the signature covers EVERY field the proof carries except itself (0.394503ms)
+✔ STRUCTURAL: an unsigned extra field on a proof cannot be made to verify (0.663749ms)
+✔ the signed payload strips the signature and NOTHING else (0.460426ms)
+✔ each signed field is cryptographically covered — tampering ANY of them fails (0.857984ms)
+✔ a TAMPERED NONCE fails verification (0.522163ms)
+✔ a TAMPERED PAYLOAD (signature value) fails verification (0.473791ms)
+✔ a MISMATCHED KEY fails verification (0.469643ms)
+✔ the ceremony refuses to emit a proof it cannot verify itself (0.586284ms)
+✔ REGRESSION: an enrollment signature can never satisfy verifyReclaimProof (0.823189ms)
+✔ an empty or missing nonce is refused (0.094708ms)
+✔ the nonce is accepted by POSITIVE SHAPE, not by being under a bound (0.140514ms)
+✔ THE BRACKET: a floor that protects strength, a ceiling that does not claim to (0.198233ms)
+✔ the byte cap is a pre-parse guard, and is separate from the shape (0.055876ms)
+✔ an EXPIRED challenge is refused; a live one is accepted (0.43086ms)
+✔ a non-ISO expiresAt is refused, not ignored (0.060864ms)
+✔ the challenge is an ALLOWLIST: only nonce and expiresAt may appear (0.117822ms)
+✔ a challenge carrying a TOP-LEVEL principalSub is REFUSED at receipt (0.932003ms)
+✔ a NESTED principalSub is REFUSED — the harm is a principal id reaching the agent (0.31906ms)
+✔ a __proto__-nested principalSub is REFUSED (0.246143ms)
+✔ a non-string expiresAt is refused — no place for structure to hide (0.213152ms)
+✔ a nonce that is not a string is refused, so it cannot smuggle structure (0.067307ms)
+✔ the allowlist uses OWN KEYS, not `in`, so an inherited name is not mistaken for a field (0.065292ms)
+✔ an INHERITED expiresAt is not a carried field either — the same rule, generalised (0.140835ms)
+✔ the SIGNED nonce is read off the sanitized copy, not off the caller's object (0.460346ms)
+✔ VALIDATE-THEN-REREAD is a TOCTOU: the nonce is read ONCE and the read value is signed (0.493037ms)
+✔ sanitizeEnrollmentChallenge returns a FRESH null-prototype object (0.130395ms)
+✔ a well-formed challenge document is accepted and its proof verifies (10.005456ms)
+✔ the serialized proof carries no private key material and no filesystem path (5.529203ms)
+✔ DOCUMENTED LIMIT: the instance id carries the workspace LABEL, never a path (4.086499ms)
+✔ the CLI STDOUT envelope is path-free — it exists to be pasted into a browser (4.714601ms)
+✔ after a re-anchor the ceremony proves the CURRENT key, not the recorded one (7.931994ms)
+✔ the ceremony surface has NO instance input — a recorded id cannot be passed in (0.273194ms)
+✔ a locally revoked key is NEVER the key proved — the ceremony re-anchors instead (8.630559ms)
+✔ OBSERVED BEHAVIOUR: a CORRUPTED private key mints a new identity, exit 0 (8.377854ms)
+✔ listUnusablePrivateKeys reports nothing on a healthy or absent store (4.253313ms)
+✔ assertKeyIsLocallyActive refuses an empty keyring and a non-member key (0.305215ms)
+✔ with no injected transport the ceremony sends nothing, and says so (0.49945ms)
+✔ the transport is an INJECTED seam and receives the proof unchanged (0.419059ms)
+✔ the ceremony writes NO binding record anywhere under the root (3.424603ms)
+ℹ tests 44
+ℹ suites 0
+ℹ pass 44
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 287.311141
+
+receipt: {"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","--test","packages/h2a/test/enrollment-ceremony.test.js"],"code":0,"signal":null,"elapsedMs":311}

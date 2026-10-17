@@ -73,6 +73,13 @@ type JsonRpcResponse = JsonRpcSuccessResponse | JsonRpcErrorResponse;
 export interface RunMcpStdioOptions {
   /** Filesystem root for the local-files store. */
   root: string;
+  /** Shared daemon store; sessions, identity and notification state stay per attachment. */
+  store?: ReturnType<typeof createLocalStore>;
+  participant?: import('../handover/participants.js').AttachmentParticipant;
+  /** Captured launch environment, never the daemon's environment. */
+  sessionEnv?: NodeJS.ProcessEnv;
+  /** Internal transport adapter seam; does not change the MCP tool contract. */
+  onServer?: (server: McpServer) => void;
   /** Workspace boundary for h2a_run; defaults to the server startup cwd. */
   workspaceRoot?: string;
   /** Test seam for h2a_run; production uses the argv-only subprocess bridge. */
@@ -182,8 +189,8 @@ export interface RunMcpStdioOptions {
   signal?: AbortSignal;
 }
 
-function envInt(name: string): number | undefined {
-  const raw = process.env[name];
+function envInt(name: string, env: NodeJS.ProcessEnv = process.env): number | undefined {
+  const raw = env[name];
   if (!raw) return undefined;
   const parsed = Number.parseInt(raw, 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
@@ -209,14 +216,14 @@ function serverVersion(): string {
   return cachedServerVersion;
 }
 
-function currentTmuxSessionForSidecar(): string | undefined {
-  const pane = process.env.TMUX_PANE;
+function currentTmuxSessionForSidecar(env: NodeJS.ProcessEnv): string | undefined {
+  const pane = env.TMUX_PANE;
   if (!pane || !/^%\d+$/.test(pane)) return undefined;
   try {
     const result = spawnSync(
       "tmux",
       ["display-message", "-p", "-t", pane, "#{session_name}"],
-      { encoding: "utf8", timeout: 250 },
+      { encoding: "utf8", timeout: 250, env },
     );
     const name = result.status === 0 ? (result.stdout ?? "").trim() : "";
     return name && name.length <= 128 && !/[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/u.test(name)
@@ -339,6 +346,7 @@ class MethodNotFoundError extends Error {
  * is reported as a structured JSON-RPC error response.
  */
 export function runMcpStdio(options: RunMcpStdioOptions): Promise<void> {
+  const sessionEnv = options.sessionEnv ?? process.env;
   const { root, stdin, stdout, stderr } = options;
   // L0 trace: the ambient per-attempt trace installed by bin.ts. Undefined in
   // unit tests and normal CLI verbs → every call is a no-op. It only ever
@@ -363,12 +371,12 @@ export function runMcpStdio(options: RunMcpStdioOptions): Promise<void> {
   // reading its state on every call.
   let identityController: McpIdentityController | undefined;
   const heartbeatIntervalMs =
-    options.heartbeatIntervalMs ?? envInt("H2A_HEARTBEAT_INTERVAL_MS");
+    options.heartbeatIntervalMs ?? envInt("H2A_HEARTBEAT_INTERVAL_MS", sessionEnv);
   const notifyIntervalMs =
     options.notifyIntervalMs ??
-    envInt("H2A_NOTIFY_INTERVAL_MS") ??
+    envInt("H2A_NOTIFY_INTERVAL_MS", sessionEnv) ??
     heartbeatIntervalMs;
-  const expiryMs = options.expiryMs ?? envInt("H2A_SESSION_EXPIRY_MS");
+  const expiryMs = options.expiryMs ?? envInt("H2A_SESSION_EXPIRY_MS", sessionEnv);
   // The stdio transport carries live agent sessions; enable autoHeartbeat so
   // the presence file stays fresh while this mcp-serve process is alive.
   let delegation: H2aRunDelegation | undefined;
@@ -378,7 +386,7 @@ export function runMcpStdio(options: RunMcpStdioOptions): Promise<void> {
   // the real emitter is always assigned before the first tick fires.
   let emitNotification: (
     notification: unknown,
-    meta: { method: string; topic?: string | undefined }
+    meta: { method: string; topic?: string | undefined; sequence?: number }
   ) => { accepted: boolean } = () => ({ accepted: false });
   let operatorNotices: readonly string[] = [];
   // Deferred so startup/read-only identity requests never wait for host probes.
@@ -388,6 +396,8 @@ export function runMcpStdio(options: RunMcpStdioOptions): Promise<void> {
   noticeTimer.unref();
   const server = createMcpServer({
     operatorNotices: () => operatorNotices,
+    ...(options.store ? { store: options.store } : {}),
+    ...(options.participant ? { participant: options.participant } : {}),
     root,
     workspaceRoot: options.workspaceRoot ?? process.cwd(),
     ...(options.runExecutor ? { runExecutor: options.runExecutor } : {}),
@@ -413,9 +423,10 @@ export function runMcpStdio(options: RunMcpStdioOptions): Promise<void> {
     notifications: {
       onError: (error) => stderr.write(`h2a mcp-serve: notification scan failed; retrying next tick: ${error instanceof Error ? error.message : String(error)}\n`),
       ...(notifyIntervalMs !== undefined ? { intervalMs: notifyIntervalMs } : {}),
-      sink: (notification) =>
+      sink: (notification, sequence) =>
         emitNotification(notification, {
           method: notification.method,
+          sequence,
           topic:
             typeof notification.params?.topic === "string"
               ? notification.params.topic
@@ -442,18 +453,14 @@ export function runMcpStdio(options: RunMcpStdioOptions): Promise<void> {
   const MAX_QUEUE_BYTES = 8 * 1024 * 1024;
   let writeChain: Promise<void> = Promise.resolve();
   let queuedBytes = 0;
-  function enqueueLine(line: string): void {
+  function enqueueLine(line: string): Promise<void> {
     const bytes = Buffer.byteLength(line, "utf8");
     queuedBytes += bytes;
     writeChain = writeChain
       .then(
         () =>
           new Promise<void>((resolve, reject) => {
-            const flushed = stdout.write(line, (err) => {
-              if (err) reject(err);
-            });
-            if (flushed) resolve();
-            else stdout.once("drain", resolve);
+            stdout.write(line, (err) => err ? reject(err) : resolve());
           })
       )
       .then(
@@ -473,6 +480,7 @@ export function runMcpStdio(options: RunMcpStdioOptions): Promise<void> {
         /* stderr is diagnostic-only; a broken diagnostic sink is not fatal */
       }
     });
+    return writeChain;
   }
   /** Bound and enqueue a JSON-RPC response; returns the frame ACTUALLY emitted. */
   function emitResponse(id: JsonRpcId, responseObject: unknown): EncodedFrame {
@@ -500,7 +508,13 @@ export function runMcpStdio(options: RunMcpStdioOptions): Promise<void> {
       }
       return { accepted: false };
     }
-    enqueueLine(outcome.frame.line);
+    const callback = options.participant?.begin('callback');
+    void enqueueLine(outcome.frame.line).then(() => {
+      if (meta.sequence !== undefined) server.notifications.markDelivered(meta.sequence);
+      if (callback) options.participant!.finish(callback, { delivered: true });
+    }, error => {
+      if (callback) options.participant!.finish(callback, { state: 'unknown', error: String(error) }, true);
+    });
     return { accepted: outcome.accepted };
   };
 
@@ -526,7 +540,8 @@ export function runMcpStdio(options: RunMcpStdioOptions): Promise<void> {
     }
     try {
       server.notifications.stop();
-      server.sessions.closeAll("closed");
+      if (options.participant?.transferred()) server.sessions.suspend();
+      else server.sessions.closeAll("closed");
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       stderr.write(`h2a mcp-serve: shutdown error: ${message}\n`);
@@ -553,8 +568,8 @@ export function runMcpStdio(options: RunMcpStdioOptions): Promise<void> {
       // tmux pane) so loop scheduling has an explicit wake target.
       ...((() => {
         const lc = detectLocalLaunchContext(
-          process.env,
-          undefined,
+          sessionEnv,
+          options.workspaceRoot ?? process.cwd(),
           `h2a mcp-serve --host ${cfg.host ?? ""}`.trim()
         );
         return lc ? { launchContext: lc } : {};
@@ -571,7 +586,7 @@ export function runMcpStdio(options: RunMcpStdioOptions): Promise<void> {
     if (cfg.refreshDisplayName) {
       server.sessions.setDisplayNameResolver(opened.sessionId, cfg.refreshDisplayName);
     }
-    const delegatorTmuxSession = currentTmuxSessionForSidecar();
+    const delegatorTmuxSession = currentTmuxSessionForSidecar(sessionEnv);
     if (delegatorTmuxSession && cfg.delegationEligible === true) {
       delegation = {
         origin: "mcp:h2a_run",
@@ -579,6 +594,10 @@ export function runMcpStdio(options: RunMcpStdioOptions): Promise<void> {
         delegatorTmuxSession
       };
       recordTmuxOwner(delegatorTmuxSession, cfg.instance);
+    }
+    if (options.participant) {
+      options.participant.delegationReferences = delegation ? [delegation] : [];
+      options.participant.terminalReferences = [{ instance: cfg.instance, launchContext: opened.launchContext ?? null }];
     }
     stderr.write(`h2a mcp-serve: auto-opened session for ${cfg.instance}\n`);
     // Reap the false-live presence left by a previous connection of THIS agent
@@ -599,18 +618,19 @@ export function runMcpStdio(options: RunMcpStdioOptions): Promise<void> {
   // EVO-1 wake (bug #3): wake the idle host when a new inbox envelope arrives.
   function armInboxWake(cfg: AutoOpenConfig, wakeCfg: NonNullable<RunMcpStdioOptions["wake"]>): void {
     const wakeInstance = cfg.instance;
-    const wakeStore = createLocalStore({ root });
+    const wakeStore = options.store ?? createLocalStore({ root });
     const wake = createInboxWakeHandler({
       instance: wakeInstance,
       readInbox: () => wakeStore.readInbox(wakeInstance),
       privateKeyPem: wakeCfg.privateKeyPem,
       driver: wakeCfg.driver,
+      ...(options.participant ? { journal: options.participant.wake } : {}),
       ...(cfg.host !== undefined ? { host: cfg.host } : {}),
       // Self-wake targets THIS process's OWN tmux pane (inherited $TMUX_PANE).
       resolveLaunchContext: () =>
         detectTmuxLaunchContext(
-          process.env,
-          undefined,
+          sessionEnv,
+          options.workspaceRoot ?? process.cwd(),
           `h2a mcp-serve --host ${cfg.host ?? ""}`.trim()
         ),
       ...(wakeCfg.nativeSessionId !== undefined
@@ -618,8 +638,14 @@ export function runMcpStdio(options: RunMcpStdioOptions): Promise<void> {
         : {}),
       log: (line) => stderr.write(`h2a mcp-serve: ${line}\n`)
     });
+    if (options.participant) {
+      options.participant.wakeHandler = wake;
+      options.participant.terminalReferences = [...options.participant.terminalReferences, { instance: cfg.instance,
+        ...(wakeCfg.nativeSessionId ? { nativeSessionId: wakeCfg.nativeSessionId } : {}) }];
+      options.participant.delegationReferences = delegation ? [delegation] : [];
+    }
     server.notifications.setOnInboxArrival((instance) => {
-      if (instance === wakeInstance) void wake();
+      if (instance === wakeInstance) void wake().catch(error => stderr.write(`h2a mcp-serve: wake blocked: ${String(error)}\n`));
     });
     stderr.write(`h2a mcp-serve: inbox-wake armed for ${wakeInstance}\n`);
   }
@@ -747,6 +773,7 @@ export function runMcpStdio(options: RunMcpStdioOptions): Promise<void> {
     };
     identityController = createIdentityController({
       request: options.identityRequest,
+      ...(sessionEnv.H2A_IDENTITY_RETRY_MIN_MS !== undefined ? { retryMinIntervalMs: Number(sessionEnv.H2A_IDENTITY_RETRY_MIN_MS) } : {}),
       activate,
       ...(prepare ? { prepare } : {}),
       log: (line) => stderr.write(`h2a mcp-serve: ${line}\n`)
@@ -795,6 +822,7 @@ export function runMcpStdio(options: RunMcpStdioOptions): Promise<void> {
     }
   }
 
+  options.onServer?.(server);
   const rl = createInterface({ input: stdin, crlfDelay: Infinity });
   (stdin as Readable & { ref?: () => void }).ref?.();
   stdin.resume();

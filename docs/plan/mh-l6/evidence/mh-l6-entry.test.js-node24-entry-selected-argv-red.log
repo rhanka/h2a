@@ -1,0 +1,43 @@
+command: /tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-entry.test.js
+node: v24.21.0
+private root: /tmp/mh-l6-test-HJ3KaW
+case: all cases in explicit file
+TAP version 13
+# Subtest: U04 should preserve the exact selected argv entry and PID when the real npm router imports it
+not ok 1 - U04 should preserve the exact selected argv entry and PID when the real npm router imports it
+  ---
+  duration_ms: 3487.992916
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-entry.test.js:10:84'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    + actual - expected
+    
+    + '/tmp/mh-l6-test-HJ3KaW/tmpdir/mh-l5-image-PlTOLd/lib/node_modules/@sentropic/h2a/dist/bin.js'
+    - '/tmp/mh-l6-test-HJ3KaW/tmpdir/mh-l5-image-PlTOLd/h2a-managed/1000/images/4c033e13fda266f786d3949441c70cee0a0e882fa0a754fac69de99e760f9f63/dist/bin.js'
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: '/tmp/mh-l6-test-HJ3KaW/tmpdir/mh-l5-image-PlTOLd/h2a-managed/1000/images/4c033e13fda266f786d3949441c70cee0a0e882fa0a754fac69de99e760f9f63/dist/bin.js'
+  actual: '/tmp/mh-l6-test-HJ3KaW/tmpdir/mh-l5-image-PlTOLd/lib/node_modules/@sentropic/h2a/dist/bin.js'
+  operator: 'strictEqual'
+  stack: |-
+    file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-entry.test.js:70:151
+    descriptor (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-entry.test.js:35:9)
+    TestContext.<anonymous> (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-entry.test.js:70:8)
+    process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    async Test.run (node:internal/test_runner/test:1409:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3)
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 0
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 3685.43987
+
+receipt: {"command":["/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-entry.test.js"],"code":1,"signal":null,"tests":1,"invalid":false,"spawned":2,"leftovers":[]}

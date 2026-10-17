@@ -32,6 +32,8 @@ interface ResolveRequest {
     readonly host: string;
     readonly cwd: string;
     readonly explicitInstance?: string;
+    readonly reclaimOnly?: boolean;
+    readonly expectedInstance?: string;
     readonly name?: string;
     readonly scopes?: readonly string[];
     readonly declaredCapabilities?: readonly string[];
@@ -60,7 +62,7 @@ function classify(err: unknown): { cause: IdentityFailureCode; message: string }
   if (code === "EROFS") return { cause: "storage_readonly", message };
   if (code === "EACCES" || code === "EPERM") return { cause: "storage_permission_denied", message };
   if (err instanceof Error && err.cause === 'identity_storage_failed') return {cause:'identity_storage_failed',message};
-  if (err instanceof Error && err.name === "LockTimeoutError") {
+  if (err instanceof Error && (err.name === "LockTimeoutError" || err.message === "mutation_lock_unavailable")) {
     return { cause: "identity_timeout", message };
   }
   // A generic durable-store write failure vs. an unexpected worker fault.
@@ -109,6 +111,8 @@ process.on("message", (raw: unknown) => {
     root: req.request.root,
     host: req.request.host,
     cwd: req.request.cwd,
+    ...(req.request.reclaimOnly ? { reclaimOnly: true } : {}),
+    ...(req.request.expectedInstance ? { expectedInstance: req.request.expectedInstance } : {}),
     ...(req.request.explicitInstance !== undefined
       ? { explicitInstance: req.request.explicitInstance }
       : {}),
@@ -170,7 +174,7 @@ process.on("message", (raw: unknown) => {
       } catch (err) {
         attempt += 1;
         if (abort.signal.aborted) throw err;
-        if (err instanceof LockTimeoutError && remainingMs() > 0) {
+        if ((err instanceof LockTimeoutError || (err instanceof Error && err.message === "mutation_lock_unavailable")) && remainingMs() > 0) {
           await cancellableDelay(200);
           continue;
         }

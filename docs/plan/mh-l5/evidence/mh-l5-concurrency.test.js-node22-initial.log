@@ -1,0 +1,37 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l5-concurrency.test.js
+node: v22.22.1
+private root: /tmp/mh-l5-test-ZVSHrm
+case: all cases in explicit file
+TAP version 13
+# Subtest: M17 should reconcile 10,000 mutations in each of seven domains from eight independent writers
+not ok 1 - M17 should reconcile 10,000 mutations in each of seven domains from eight independent writers
+  ---
+  duration_ms: 12.663384
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/test/mh-l5-concurrency.test.js:16:1'
+  failureType: 'testCodeFailure'
+  error: 'Unknown negotiation state: open'
+  code: 'ERR_TEST_FAILURE'
+  stack: |-
+    assertValidNegotiationState (file:///tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/dist/negotiation.js:6:11)
+    openNegotiation (file:///tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/dist/runtime/local-files/store.js:443:9)
+    file:///tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/dist/runtime/local-files/store.js:1463:69
+    file:///tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/dist/runtime/handover/mutation.js:110:16
+    mutationLock (file:///tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/dist/runtime/handover/mutation.js:50:23)
+    withWriterMutation (file:///tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/dist/runtime/handover/mutation.js:94:12)
+    store.openNegotiation (file:///tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/dist/runtime/local-files/store.js:1463:16)
+    TestContext.<anonymous> (file:///tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/test/mh-l5-concurrency.test.js:25:40)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 0
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 300.807412
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l5-concurrency.test.js"],"code":1,"signal":null,"tests":1,"invalid":false,"spawned":1,"leftovers":[]}

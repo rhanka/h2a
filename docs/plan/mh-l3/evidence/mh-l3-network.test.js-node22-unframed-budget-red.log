@@ -1,0 +1,33 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l3-network.test.js
+node: v22.22.1
+private root: /tmp/mh-l3-test-2SeY3o
+case: unframed oversized input should be bounded while later valid input still works
+TAP version 13
+# Subtest: unframed oversized input should be bounded while later valid input still works
+not ok 1 - unframed oversized input should be bounded while later valid input still works
+  ---
+  duration_ms: 1051.041141
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-bUCXsb/source/packages/h2a/test/mh-l3-network.test.js:2:94'
+  failureType: 'testCodeFailure'
+  error: 'expected frame: []'
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  operator: 'fail'
+  stack: |-
+    Object.wait (file:///tmp/mh-l3-qualification-bUCXsb/source/packages/h2a/test/helpers/mh-l3-network.js:45:12)
+    async TestContext.<anonymous> (file:///tmp/mh-l3-qualification-bUCXsb/source/packages/h2a/test/mh-l3-network.test.js:167:19)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 0
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 1274.245716
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l3-network.test.js"],"code":1,"signal":null,"tests":1,"invalid":false,"spawned":1,"leftovers":[]}

@@ -1,0 +1,27 @@
+command: /usr/bin/node --test packages/h2a/test/mh-l4-wake.test.js
+node: v22.22.1
+private test root: /tmp/mh-l2-test-Fy94tu
+TAP version 13
+# Subtest: should serialize wakes, persist intent before injection and suppress unknown envelopes after restart
+ok 1 - should serialize wakes, persist intent before injection and suppress unknown envelopes after restart
+  ---
+  duration_ms: 10956.375047
+  type: 'test'
+  ...
+# Subtest: should retry a proven deferred wake but never inject from a frozen owner
+ok 2 - should retry a proven deferred wake but never inject from a frozen owner
+  ---
+  duration_ms: 4934.404091
+  type: 'test'
+  ...
+1..2
+# tests 2
+# suites 0
+# pass 2
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 16232.11371
+
+receipt: {"command":["/usr/bin/node","--test","packages/h2a/test/mh-l4-wake.test.js"],"code":0,"signal":null,"elapsedMs":16331}

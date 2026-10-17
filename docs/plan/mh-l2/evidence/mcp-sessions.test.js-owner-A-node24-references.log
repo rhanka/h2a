@@ -1,0 +1,28 @@
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node --test packages/h2a/test/mcp-sessions.test.js
+node: v24.21.0
+private test root: /tmp/mh-l2-test-ChF8zD
+{"event":"drive-consent.full-verification","durationMs":0.012314000000003489,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+{"event":"drive-consent.full-verification","durationMs":0.015307999999976118,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+{"event":"drive-consent.full-verification","durationMs":0.010218999999977996,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+{"event":"drive-consent.full-verification","durationMs":0.011360999999993737,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+{"event":"drive-consent.full-verification","durationMs":0.09752400000002126,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+✔ h2a_session_open writes a presence file and returns the session + peers (5.660846ms)
+✔ h2a_session_open with no instance returns a friendly error (0.83971ms)
+✔ h2a_session_open rejects unknown subscribedTopics (0.65323ms)
+✔ h2a_discover_sessions returns peers from disk and filters by scope/instance (3.227876ms)
+✔ h2a_discover_sessions matches native or presence names case-insensitively and slug-stably (6.527248ms)
+✔ h2a_session_close deletes the presence file and stops the heartbeat (2.466844ms)
+✔ SessionRegistry expires stale peer presence files on scan (0.884365ms)
+✔ SessionRegistry.touch keeps the heartbeat fresh (6.561181ms)
+✔ SessionRegistry.touch recreates a missing presence file for a still-open session (0.707712ms)
+✔ H2A_SESSION_DEFAULT_HEARTBEAT_INTERVAL_MS is < expiry (sanity) (0.220224ms)
+ℹ tests 10
+ℹ suites 0
+ℹ pass 10
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 258.951231
+
+receipt: {"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","--test","packages/h2a/test/mcp-sessions.test.js"],"code":0,"signal":null,"elapsedMs":290}
