@@ -120,6 +120,13 @@ const cases = [
   ['authority', 'revoked-check', "if (tx.controllerAuthorityState !== 'ACTIVE') throw new Error('upgrade_authority_revoked');", '', 'F should refuse a controller revoked by delegation'],
   ['authority', 'epoch-report', 'epoch: tx.controllerEpoch', 'epoch: tx.controllerEpoch + 1', 'F should authorize the bound controller on its transaction'],
   ['authority', 'foreign-reason', "throw new Error('upgrade_authority_foreign');", "throw new Error('upgrade_authority_revoked');", 'F should refuse a foreign controller with a CLI-level reason'],
+  ['cli', 'unknown-flag', "if (token.startsWith('-')) usage('unknown_flag');", "if (token.startsWith('-')) continue;", 'F should refuse unknown flags and misplaced options instead of guessing'],
+  ['cli', 'misplaced-flag', "status: ['json'],", "status: ['json', 'strict'],", 'F should refuse unknown flags and misplaced options instead of guessing'],
+  ['cli', 'missing-id', "usage('upgrade_id_required');", '', 'F should require the transaction identity for resume abort and compensate'],
+  ['cli', 'unknown-component', "if (!COMPONENTS.includes(intent.component)) usage('unknown_component');", '', 'F should require a known component for compensation'],
+  ['cli', 'failed-code', 'if (failed === true) return 1;', 'if (failed === true) return 0;', 'F should map success failure and deferral to exit codes'],
+  ['cli', 'completed-code', 'if (completed === true) return 0;', 'if (completed === true) return 2;', 'F should map success failure and deferral to exit codes'],
+  ['cli', 'strict-code', 'if (deferred === true) return strict === true ? 2 : 0;', 'if (deferred === true) return strict === true ? 0 : 2;', 'F should make deferral blocking under strict'],
 ];
 const files = group === 'launcher' ? ['packages/h2a/src/runtime/upgrade/managed-launcher.js'] :
   group === 'exclusion' ? ['packages/h2a/src/runtime/upgrade/legacy-exclusion.js', 'packages/h2a/dist/runtime/upgrade/legacy-exclusion.js'] :
@@ -133,11 +140,12 @@ const files = group === 'launcher' ? ['packages/h2a/src/runtime/upgrade/managed-
   group === 'upgrade-run' ? ['packages/h2a/src/runtime/upgrade/upgrade-run.js', 'packages/h2a/dist/runtime/upgrade/upgrade-run.js'] :
   group === 'npm-command' ? ['packages/h2a/src/runtime/upgrade/npm-command.js', 'packages/h2a/dist/runtime/upgrade/npm-command.js'] :
   group === 'authority' ? ['packages/h2a/src/runtime/upgrade/upgrade-authority.js', 'packages/h2a/dist/runtime/upgrade/upgrade-authority.js'] :
+  group === 'cli' ? ['packages/h2a/src/runtime/upgrade/upgrade-cli.js', 'packages/h2a/dist/runtime/upgrade/upgrade-cli.js'] :
   ['packages/h2a/src/runtime/upgrade/h4-store.js', 'packages/h2a/dist/runtime/upgrade/h4-store.js'];
 const originals = files.map(path => ({ path, bytes: fs.readFileSync(path) }));
 const selected = cases.filter(c => c[0] === group && (!process.env.MH_L6_MUTATION || c[1] === process.env.MH_L6_MUTATION));
 if (!selected.length) throw new Error('unknown_mutation_group');
-const testFile = { delegation: 'delegation', launcher: 'launcher', exclusion: 'exclusion', deferral: 'exclusion', bootstrap: 'bootstrap', adoption: 'adoption', 'launcher-install': 'launcher-install', 'adoption-execute': 'adoption', unmanage: 'unmanage', 'adoption-image': 'image-prepare', status: 'status', 'upgrade-run': 'upgrade-run', 'npm-command': 'npm', authority: 'authority' }[group] ?? 'selection';
+const testFile = { delegation: 'delegation', launcher: 'launcher', exclusion: 'exclusion', deferral: 'exclusion', bootstrap: 'bootstrap', adoption: 'adoption', 'launcher-install': 'launcher-install', 'adoption-execute': 'adoption', unmanage: 'unmanage', 'adoption-image': 'image-prepare', status: 'status', 'upgrade-run': 'upgrade-run', 'npm-command': 'npm', authority: 'authority', cli: 'cli' }[group] ?? 'selection';
 const file = `packages/h2a/test/mh-l6-${testFile}.test.js`;
 const results = [];
 for (const [, name, from, to, scenario] of selected) {
