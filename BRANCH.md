@@ -895,7 +895,8 @@ Branch: `fix/presence-identity-liveness`. Base: `58f111b3` (origin/main at check
 - [x] E2b2: real file boot worker, journal fork/Worker and identity, physical Node/file aliases, URI and opaque data handling. Node 22/24: 75 targeted tests and 16 killed/restored pairs on ten fault points; proof-E2b2.json.
 - [x] C2a: read-only physical npm provenance; 22 targeted tests, 13 killed/restored fault configurations per Node 22/24. Bootstrap/adoption wiring remains C2b.
 - [x] E3a: pinned release-native chain and shipped real node-pty prebuild; 35 targeted tests and 13 killed/restored configurations per Node 22/24. Actual host glibc 2.43; .6 byte freeze and h2a packaging remain open.
-- [ ] B2/C2b/D/E2b3/E3b/E3c/F: future legacy installer/admission fencing, bootstrap/adoption/link installation, unmanage/npm, all-entry closed loading, release packaging/native freeze and common CLI/automatic/M18 integration.
+- [x] E3b1: actual core/runtime npm payload construction, exact runtime and shrinkwrap, real .5/.6 staging probes, cross-Node SDK/PTY and durable image preparation. Node 22/24: 148 targeted tests and 37 killed/restored pairs each; proof-E3b.json. E3b2 still gates historical npm/CI bindings and off-profile diagnostics; no release verdict.
+- [ ] B2/C2b/D/E2b3/E3b2/E3c/F: future legacy installer/admission fencing, bootstrap/adoption/link installation, unmanage/npm, all-entry closed loading, release packaging/native freeze and common CLI/automatic/M18 integration.
 - [x] No installed h2a/dispatch, owner live state, main, .track, Python or full suite. Review selection cannot use the required installed dispatch under owner confinement; no consensus verdict claimed.
 - [ ] Independent conductor review and final MH-L6 acceptance remain required; A alone does not qualify U05/U06 or M18 end to end.
 

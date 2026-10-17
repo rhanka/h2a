@@ -1,0 +1,77 @@
+{
+  "node": "v22.22.1",
+  "files": [
+    {
+      "path": "packages/h2a/src/runtime/upgrade/image-policy.js",
+      "sha256": "b9aca19996e7a26d738899b17378bb432a0e70f311466c693ce426b166b545a8"
+    },
+    {
+      "path": "packages/h2a/src/runtime/upgrade/managed-launcher.js",
+      "sha256": "9047ee442c62afa34b1da0b57608f419f000af43c43526079763e584f1039941"
+    },
+    {
+      "path": "packages/h2a/src/runtime/upgrade/h4-store.js",
+      "sha256": "0ab3868d3979c5e095b9b71dfa6d212a996d9be01c6ec65c7c8b01bd69b6bdb9"
+    },
+    {
+      "path": "packages/h2a/dist/runtime/upgrade/h4-store.js",
+      "sha256": "9e2a47c917b0928358457142816fc8242618ba883be78005fa3647e3f48e379d"
+    }
+  ],
+  "results": [
+    {
+      "name": "native-integrity",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-image-policy.test.js-node22-mutation-native-integrity-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-image-policy.test.js-node22-mutation-native-integrity-green.log",
+      "restored": true
+    },
+    {
+      "name": "esm-boundary",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-image-policy.test.js-node22-mutation-esm-boundary-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-image-policy.test.js-node22-mutation-esm-boundary-green.log",
+      "restored": true
+    },
+    {
+      "name": "cjs-boundary",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-image-policy.test.js-node22-mutation-cjs-boundary-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-image-policy.test.js-node22-mutation-cjs-boundary-green.log",
+      "restored": true
+    },
+    {
+      "name": "external-require-base",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-image-policy.test.js-node22-mutation-external-require-base-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-image-policy.test.js-node22-mutation-external-require-base-green.log",
+      "restored": true
+    },
+    {
+      "name": "module-integrity",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-image-policy.test.js-node22-mutation-module-integrity-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-image-policy.test.js-node22-mutation-module-integrity-green.log",
+      "restored": true
+    },
+    {
+      "name": "manifest-snapshot",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-image-policy.test.js-node22-mutation-manifest-snapshot-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-image-policy.test.js-node22-mutation-manifest-snapshot-green.log",
+      "restored": true
+    },
+    {
+      "name": "manifest-mode",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-image-policy.test.js-node22-mutation-manifest-mode-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-image-policy.test.js-node22-mutation-manifest-mode-green.log",
+      "restored": true
+    },
+    {
+      "name": "package-metadata",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-image-policy.test.js-node22-mutation-package-metadata-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-image-policy.test.js-node22-mutation-package-metadata-green.log",
+      "restored": true
+    },
+    {
+      "name": "unrecorded-code",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-image-policy.test.js-node22-mutation-unrecorded-code-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-image-policy.test.js-node22-mutation-unrecorded-code-green.log",
+      "restored": true
+    }
+  ]
+}
