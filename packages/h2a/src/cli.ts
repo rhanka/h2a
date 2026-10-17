@@ -38,6 +38,7 @@
  */
 
 import { execFileSync, spawn, spawnSync } from "node:child_process";
+import { readAgyClaudeQuotaStatus } from "./runtime/agy-claude.js";
 import { generateKeyPairSync } from "node:crypto";
 import { once } from "node:events";
 import {
@@ -5826,6 +5827,7 @@ function cmdDoctor(
   const root = resolveRoot(flags, cwd);
   const report: Record<string, unknown> = {
     ok: true,
+    agyClaudeQuota: readAgyClaudeQuotaStatus(),
     root,
     warnings: [] as Array<Record<string, unknown>>,
     checks: {}
