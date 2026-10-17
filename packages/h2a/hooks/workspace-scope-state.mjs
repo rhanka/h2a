@@ -14,6 +14,12 @@ export function canonical(path) {
   }
 }
 export const inside = (root, path) => path === root || path.startsWith(root + sep);
+export function readRecords(workspace, file) {
+  const path = join(stateDir(workspace), file);
+  if (canonical(path) !== path) throw new Error('scope state is a symlink');
+  try { return fs.readFileSync(path, 'utf8').split('\n').filter(Boolean).map(JSON.parse); }
+  catch (error) { if (error.code === 'ENOENT') return []; throw error; }
+}
 export function appendRecord(workspace, file, record) {
   const directory = stateDir(workspace);
   // Never follow a workspace-state symlink, including one in .h2a.
@@ -53,9 +59,13 @@ export function findGrant(context, request) {
 }
 export function options(argv) {
   const result = {};
-  for (let i = 0; i < argv.length; i += 2) {
-    if (!argv[i].startsWith('--') || !argv[i + 1]) throw new Error('Expected --name value pairs');
-    result[argv[i].slice(2)] = argv[i + 1];
+  for (let i = 0; i < argv.length; i++) {
+    if (!argv[i].startsWith('--')) throw new Error('Expected --name value pairs');
+    const equal = argv[i].indexOf('=');
+    const name = argv[i].slice(2, equal < 0 ? undefined : equal);
+    const value = equal < 0 ? argv[++i] : argv[i].slice(equal + 1);
+    if (!name || !value) throw new Error('Expected --name value pairs');
+    result[name] = value;
   }
   return result;
 }

@@ -66,7 +66,7 @@ export interface NativeManifest {
   guard?: 'on' | 'off';
   guardBinding?: string;
   lifecycle?: { enabled: boolean; instance: string; root?: string; status?: string };
-  workspaceScope?: { workspace: string; session?: string; ownerKey?: string };
+  workspaceScope?: { workspace?: string; session?: string; ownerKey?: string };
 }
 export function readNativeManifest(state: string, host: string, root: string, version: string, manifestName = 'manifest.json'): NativeManifest {
   let current = snapshot(join(state, manifestName));
@@ -94,7 +94,7 @@ export function normalizeNativeManifest(value: NativeManifest, host: string, roo
   }
   if (value.guard !== undefined && !['on', 'off'].includes(value.guard)) throw new Error('invalid guard selection');
   if (value.lifecycle && (typeof value.lifecycle.enabled !== 'boolean' || !value.lifecycle.instance || value.lifecycle.instance === 'auto')) throw new Error('invalid explicit lifecycle selection');
-  if (value.workspaceScope && (!isAbsolute(value.workspaceScope.workspace ?? '') ||
+  if (value.workspaceScope && (value.workspaceScope.workspace !== undefined && !isAbsolute(value.workspaceScope.workspace) ||
     value.workspaceScope.ownerKey !== undefined && !isAbsolute(value.workspaceScope.ownerKey) ||
     value.workspaceScope.session !== undefined && typeof value.workspaceScope.session !== 'string')) throw new Error('invalid workspace scope binding');
   return { ...value, root, files };
