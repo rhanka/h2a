@@ -516,7 +516,7 @@ full pinned Git history, private XDG cache/data, actual Node toolcache headers,
 and closed-image-aware native test instrumentation. Owner reports retain every
 job log, regression receipts and explicit coverage gaps.
 
-CI follow-up: the public Node test API preserves the expensive package file's
+CI follow-up: the public Node test API preserves both expensive package files'
 priority (the CLI lexically reorders files), with both execution reporters and
 the unchanged 600s backstop. Real child ordering and failed-child propagation
 have mandatory regression cases. Short-lease recovery fixtures control expiry
@@ -527,6 +527,13 @@ The fourth rebase retains Focus 0.5.0 as the fifth artifact in the common
 closed candidate producer, alongside the four 0.98.7 lockstep packages. Its
 independent version and RC/backfill gates follow main; no manifest is bumped.
 The release integrity fixture corrupts and refuses each of the five tarballs.
+
+The five real installation scenarios are split by package (three core, two
+runtime) so both files can start in the existing pool. Diagnostics reuse the
+same immutable tarball and reverify both independent builds. All five titles,
+56 assertion calls, actual installs and SDK/PTY checks remain; these cases now
+have mandatory execution inventory entries. Targeted production-preload runs:
+core 3/3 in 140s, runtime 2/2 in 127s, no skips or recorded leftover children.
 
 # Focus publication — owner decision 2026-10-17
 
