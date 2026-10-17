@@ -84,6 +84,32 @@ attribution and cluster-mesh receipts are not qualified by this metadata
 transport. The separate receiving lots and conductor integration retain
 those gates. No merge, package publication or production activation occurs.
 
+## Co-review gr-conductor — owner scope 2026-10-17
+
+Close every PR #342 finding in the engram owner's co-review:
+
+- Use one newest-first filter for requests and Link validation. A fake server
+  actually re-sorts 150 PRs after updating a read row: the old ascending
+  transport reports complete with 149 unique PRs, losing the unchanged boundary.
+- Accept GitHub's numeric repositories Link path only with matching observed
+  base repository ids. Keep that identity with cached pages to validate 304s;
+  re-fetch if an empty cached body cannot attest the numeric repository.
+- Require prev/first proof after page 1 and terminate only without next on
+  that proven page. Preserve GitHub's headerless single-page response and
+  unconditional revalidation when a 304 strips current Link evidence.
+- Classify bare gh exit 4 as auth_required, bound the page cache to 32 entries,
+  and import PrSyncErrorKind from the vendored neutral contract.
+
+Only live-github.ts, its targeted test and this scope record change. Preserve
+the interrupted attempt's work; merge origin/main normally, including #350
+crash logs, without modifying main. No vendor conflict is expected: the
+incoming registration maintenance guard and both provenance sets are retained.
+Red/green commands, exact outputs, each CI job and the new head are appended
+under "Co-revue gr-conductor" in the owner's existing scratchpad report.
+Tests use disposable HOME/XDG directories and loopback fake GitHub only.
+Installed h2a/mesh review dispatch remains prohibited by owner confinement;
+no new independent consensus or production qualification is claimed.
+
 
 # Vibe native equipment and registry transition
 
