@@ -13,6 +13,13 @@ const read = (file: string) => readFileSync(join(bundle, file), 'utf8').replace(
 
 // Pin the owner contract in the instructions, reusable question and audit independently.
 describe('present-decision readability contract', () => {
+  it.each(['SKILL.md', 'assets/dossier-template.md', 'assets/self-audit.md'])('%s defaults to the shipped portable Focus builder', (file) => {
+    const text = read(file)
+    expect(text).toContain('h2a focus build dossier.json -o dossier.html')
+    expect(text).toMatch(/(?:portable Focus|Focus.*portable|portable.*Focus)/)
+    expect(text).toMatch(/ecosystem/)
+    expect(text).toMatch(/never a claude.ai artifact|no claude.ai artifact/)
+  })
   it.each(['assets/dossier-template.md', 'assets/self-audit.md'])('%s requires a diagram before the native question and pending fallback', (file) => {
     const text = read(file)
     expect(text).toMatch(/diagram.*before.*native question tool/i)
