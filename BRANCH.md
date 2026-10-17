@@ -782,7 +782,8 @@ mandatory. No Track writes, merge, release or new package-version bump.
 
 Main advanced during qualification to `2fabf3a30` (#327), then `fceab4a95`
 (#363, restores the 0.98.7 release train), then `fc6f4347a` (#362, Focus
-publication). The renewed rebases preserve those
+publication), then `cf7c3c03f` (#365, Track owner status tables and shipped
+report skill). Five rebases preserve those
 upstream changes; final manifests remain 0.98.7 and no release/bump commit is
 introduced by this lane. CI prerequisites now include
 full pinned Git history, private XDG cache/data, actual Node toolcache headers,
@@ -790,9 +791,14 @@ and closed-image-aware native test instrumentation. Owner reports retain every
 job log, regression receipts and explicit coverage gaps.
 
 CI follow-up: the public Node test API preserves both expensive package files'
-priority (the CLI lexically reorders files), with both execution reporters and
-the unchanged 600s backstop. Real child ordering and failed-child propagation
-have mandatory regression cases. Short-lease recovery fixtures control expiry
+priority (the CLI lexically reorders files), with both execution reporters,
+all reported CPUs and progress limited to its own children. Cold daemon
+attachments and M21 handover each finish in a dedicated phase before the
+parallel package pool; their deadlines and concurrent G0/G1 assertions stay
+intact. CI shows useful work continuing at 600s: the expanded Node gate now
+has a 900s outer backstop within the unchanged 25-minute job, while other suites
+retain 600s. Real child ordering, phase exclusion and failed-child propagation
+have eight mandatory regression cases. Short-lease recovery fixtures control expiry
 after their actual children are ready; all 32 PIDs and 20 recoveries remain
 required. The copied late PTY preload retains its original module imports.
 
