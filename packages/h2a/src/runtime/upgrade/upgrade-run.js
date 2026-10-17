@@ -7,7 +7,8 @@ import { readManagementOptOut } from './unmanage.js';
 // Single automatic/manual upgrade pass (F driver without CLI parsing):
 // honor the management opt-out, assess the adoption need, then execute the
 // adoption through the verified session and engine. The explicit operator
-// path bypasses only the opt-out, never the need assessment or the
+// path bypasses the opt-out and, passed down to the installer, the occupied
+// command refusal (recorded as forced) — never the need assessment or the
 // exclusion verdict. This decides and delegates execution; it parses no
 // flags and spawns no controller.
 export function runUpgradeOnce(envelope = {}) {
@@ -19,6 +20,7 @@ export function runUpgradeOnce(envelope = {}) {
     (management !== undefined && (typeof management !== 'object' || management === null))) {
     throw new Error('upgrade_run_invalid');
   }
+  if (explicit !== undefined && typeof explicit !== 'boolean') throw new Error('upgrade_run_invalid');
   const optOut = management ?? readManagementOptOut(managedDir);
   if (optOut.optedOut === true && explicit !== true) {
     return Object.freeze({ completed: false, reason: 'management_opted_out' });
@@ -28,5 +30,5 @@ export function runUpgradeOnce(envelope = {}) {
     physical: { prefixId: session.evidence.prefixId },
     target: { packageVersion: target.packageVersion, manifestDigest: target.manifestDigest } });
   if (!need.needed) return Object.freeze({ completed: false, reason: need.reason });
-  return executeAdoption({ session, store, upgradeId, target, launcherSource, managedDir, commandPath, exclusion });
+  return executeAdoption({ session, store, upgradeId, target, launcherSource, managedDir, commandPath, exclusion, explicit });
 }
