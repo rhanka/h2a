@@ -82,7 +82,7 @@ function runSync(command, args, options = {}) {
 // version would pass even when the clean prefix silently fell back to a
 // previously published version in the same range — the exact hole this step
 // exists to close.
-const PINNED_RUNTIME_VERSION = '0.98.6'
+const PINNED_RUNTIME_VERSION = '0.98.7'
 const runtimeVersion = JSON.parse(
   readFileSync(join(REPO_ROOT, 'packages', 'h2a-runtime', 'package.json'), 'utf8'),
 ).version
