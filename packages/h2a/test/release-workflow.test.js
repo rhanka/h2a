@@ -299,7 +299,7 @@ test("R8.2: verify packs the four lockstep packages, records sha256, uploads the
   const verify = job("verify");
   const pack = verify.steps.find((step) => String(step.run ?? "").includes("npm pack --workspace"));
   assert.ok(pack, "verify must npm pack the candidate packages");
-  for (const pkg of ["@sentropic/h2a", "@sentropic/h2a-runtime", "@sentropic/h2a-cli", "@sentropic/track"]) {
+  for (const pkg of ["@sentropic/h2a", "@sentropic/h2a-runtime", "@sentropic/h2a-cli", "@sentropic/track", "@sentropic/focus"]) {
     assert.ok(
       String(pack.run).includes(pkg),
       `verify must pack ${pkg} — the tarball publish later MUST be these exact bytes`,
@@ -333,7 +333,7 @@ test("R8.2: the pack step is pinned COMMAND BY COMMAND — a manifest that stops
     "set -euo pipefail",
     "node scripts/check-lockstep-versions.mjs",
     "mkdir -p dist-tarballs",
-    "for pkg in @sentropic/h2a @sentropic/h2a-runtime @sentropic/h2a-cli @sentropic/track; do",
+    "for pkg in @sentropic/h2a @sentropic/h2a-runtime @sentropic/h2a-cli @sentropic/track @sentropic/focus; do",
     'npm pack --workspace "$pkg" --pack-destination dist-tarballs',
     "done",
     "(cd dist-tarballs && sha256sum *.tgz > sha256sums.txt && cat sha256sums.txt)",
@@ -415,7 +415,7 @@ test("R8.2: the sha256 manifest covers the FOUR lockstep tarballs — generation
       .map((line) => line.trim().split(/\s+/)[1]);
     assert.deepEqual(
       [...covered].sort(),
-      ["sentropic-h2a-0.98.5.tgz", "sentropic-h2a-cli-0.98.5.tgz", "sentropic-h2a-runtime-0.98.5.tgz", "sentropic-track-0.98.5.tgz"],
+      ["sentropic-focus-0.98.5.tgz", "sentropic-h2a-0.98.5.tgz", "sentropic-h2a-cli-0.98.5.tgz", "sentropic-h2a-runtime-0.98.5.tgz", "sentropic-track-0.98.5.tgz"],
       "the manifest the pack step GENERATES must cover all FOUR lockstep tarballs — a CLI-only manifest is the round-5 false green",
     );
     assert.equal(
@@ -477,6 +477,7 @@ test("R8.2 (0.98.6 git-shorthand incident): every npm publish tarball arg is an 
     "sentropic-h2a-runtime-${v}.tgz",
     "sentropic-h2a-${v}.tgz",
     "sentropic-h2a-cli-${v}.tgz",
+    "sentropic-focus-${v}.tgz",
   ]) {
     const holders = publishes.filter((step) => String(step.run).includes(`"./dist-tarballs/${tarball}"`));
     assert.equal(
