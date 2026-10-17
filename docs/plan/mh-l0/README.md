@@ -1,4 +1,4 @@
-# MH-L0 — foundations for 0.98.7
+# MH-L0 — foundations for 0.98.8
 
 Authority: owner decisions of 2026-10-11, then spec v7
 (`a7c98c83c7ac747b80401d8618c24b1ab974480d6ee853a0dd0d7d6adffe2c6e`),
