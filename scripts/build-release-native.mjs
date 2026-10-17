@@ -142,3 +142,26 @@ export function verifyReleaseNative(root) {
   if (digest(stored) !== digest(artifact) || digest(observed) !== digest(artifact)) throw Error('native_artifact_mismatch');
   return { payload: join(root, 'payload'), ...observed, target: recipe.target, napiVersion: recipe.napiVersion };
 }
+
+// Release packaging copies a shipped prebuild. This path has no source or
+// compiler fallback and cannot run the upstream package's installation scripts.
+export async function copyReleaseNative(destination) {
+  const release = lock(); profile(release.recipe);
+  const archive = bytesAt(fileURLToPath(new URL('./release/' + release.archive.path, import.meta.url)));
+  if (hash(archive) !== 'sha256:' + release.archive.sha256) throw Error('native_archive_mismatch');
+  if (fs.readdirSync(destination).length) throw Error('native_destination_must_be_empty');
+  const stage = fs.mkdtempSync(join(dirname(resolve(destination)), '.h2a-native-copy-'));
+  try {
+    const path = join(stage, 'native.tgz'), extracted = join(stage, 'artifact');
+    fs.writeFileSync(path, archive, { mode: 0o600 }); fs.mkdirSync(extracted, { mode: 0o700 });
+    await exec('/usr/bin/tar', ['-xf', path, '--no-same-owner', '-C', extracted], {
+      env: { PATH: '/usr/bin:/bin', LANG: 'C', HOME: stage, XDG_RUNTIME_DIR: stage,
+        XDG_CONFIG_HOME: stage, XDG_STATE_HOME: stage, XDG_CACHE_HOME: stage, TMPDIR: stage }, timeout: 30000 });
+    const verified = verifyReleaseNative(extracted);
+    fs.cpSync(join(verified.payload, 'node_modules'), join(destination, 'node_modules'), {
+      recursive: true, dereference: false, errorOnExist: true, force: false });
+    return { probePath: join(destination, 'node_modules/node-pty'), binary: join(destination, binaryPath),
+      packageVersion: '1.1.0', binaryDigest: verified.binaryDigest, toolchainDigest: verified.recipeDigest,
+      qualification: 'release-pinned-prebuild', archiveDigest: 'sha256:' + release.archive.sha256 };
+  } finally { fs.rmSync(stage, { recursive: true, force: true }); }
+}

@@ -3,6 +3,8 @@ import fs from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 if (!fs.realpathSync('.').startsWith('/tmp/mh-l3-qualification-')) throw new Error('private_qualification_copy_required');
+const phase = process.argv[2] ?? '';
+if (phase && !/^[A-Za-z0-9-]+$/.test(phase)) throw new Error('invalid_evidence_phase');
 const stem = 'packages/h2a/', policy = stem + 'src/runtime/upgrade/image-policy.js';
 const launcher = stem + 'src/runtime/upgrade/managed-launcher.js', h4 = stem + 'src/runtime/upgrade/h4-store.js';
 const test = stem + 'test/mh-l6-image-policy.test.js', launchTest = stem + 'test/mh-l6-launcher.test.js';
@@ -17,7 +19,7 @@ const cases = [
   ['manifest-mode', policy, lookup, "let row = entries.get(relative(root, path).split(sep).join('/')); if (row) row = { ...row, mode: fs.statSync(path).mode & 0o777 };", test, 'U12 should reject late module mode changes even when the bytes are unchanged'],
   ['package-metadata', policy, 'const metadataFor = file => {', 'const metadataFor = file => { return;', test, 'U12 should reject altered package metadata before executing an otherwise unchanged module'],
   ['unrecorded-code', policy, lookup, "const row = entries.get(relative(root, path).split(sep).join('/')) ?? { type: 'file', mode: fs.statSync(path).mode & 0o777, digest: 'sha256:' + createHash('sha256').update(fs.readFileSync(path)).digest('hex') };", test, 'U12 should refuse code added inside the image after its manifest was verified'],
-  ['launcher-binding', launcher, 'installImagePolicy(current.imageRoot, current.manifest, current.selection.manifestDigest);', '', launchTest, 'U12 should install the closed reader before the selected entry can import outside its image'],
+  ['launcher-binding', launcher, 'installImageExecutionPolicy(current.imageRoot, current.manifest, current.selection.manifestDigest, loader);', '', launchTest, 'U12 should install the closed reader before the selected entry can import outside its image'],
   ['preselection-runtime', h4, 'assertImageRuntime(manifest);', '', test, 'U10 should refuse selection before journaling when the runtime has no qualified image reader'],
 ];
 const hash = bytes => createHash('sha256').update(bytes).digest('hex'), major = process.versions.node.split('.')[0];
@@ -26,7 +28,7 @@ const originals = paths.map(path => ({ path, bytes: fs.readFileSync(path) })), r
 for (const [name, path, from, to, file, scenario] of cases) {
   const targets = path === h4 ? [h4, h4.replace('/src/', '/dist/')] : [path];
   const run = color => {
-    const label = `mutation-${name}-${color}`;
+    const label = `${phase ? phase + '-' : ''}mutation-${name}-${color}`;
     const result = spawnSync(process.execPath, ['scripts/mh-l6-test.mjs', file, label],
       { env: { ...process.env, MH_L6_CASE: scenario }, encoding: 'utf8', maxBuffer: 8 * 1024 * 1024 });
     const log = `docs/plan/mh-l6/evidence/${file.split('/').at(-1)}-node${major}-${label}.log`, output = fs.readFileSync(log, 'utf8');
@@ -48,7 +50,7 @@ for (const [name, path, from, to, file, scenario] of cases) {
   const green = run('green');
   for (const o of originals) if (hash(fs.readFileSync(o.path)) !== hash(o.bytes)) throw new Error('restore_failed');
   results.push({ name, red, green, restored: true });
-  fs.writeFileSync(`docs/plan/mh-l6/mutations-image-node${major}.json`, JSON.stringify({ node: process.version,
+  fs.writeFileSync(`docs/plan/mh-l6/mutations-image-${phase ? phase + '-' : ''}node${major}.json`, JSON.stringify({ node: process.version,
     files: originals.map(o => ({ path: o.path, sha256: hash(o.bytes) })), results }, null, 2) + '\n');
   process.stdout.write(`${name}: killed by assertion and restored\n`);
 }
