@@ -601,6 +601,9 @@ async function resolveLiveIdentityAsyncInternal(
   input: ResolveLiveIdentityInput,
   options: ResolveLiveIdentityAsyncOptions
 ): Promise<ResolvedLiveIdentity> {
+  // Prepublication and the binding lock must use the same candidate even for
+  // direct callers that do not supply the worker's cross-attempt memo.
+  const mintMemo: NonNullable<ResolveLiveIdentityAsyncOptions["mintMemo"]> = options.mintMemo ?? {};
   const started=performance.now();
   const host = input.host || "agent";
   if (input.explicitInstance) {
@@ -666,14 +669,14 @@ async function resolveLiveIdentityAsyncInternal(
   const P = cache.prepared;
 
   const mint = () => {
-    if (options.mintMemo?.value) return options.mintMemo.value;
+    if (mintMemo.value) return mintMemo.value;
     const agentUuid = mintAgentUuid();
     const minted = { agentUuid, instance: deriveInstanceId({ host, label: P.name, uuid: agentUuid }) };
-    if (options.mintMemo) options.mintMemo.value = minted;
+    mintMemo.value = minted;
     return minted;
   };
   const mintRemote = () => {
-    if (options.mintMemo?.value) return options.mintMemo.value;
+    if (mintMemo.value) return mintMemo.value;
     const agentUuid = mintAgentUuid();
     const minted = {
       agentUuid,
@@ -681,7 +684,7 @@ async function resolveLiveIdentityAsyncInternal(
         ? remoteBridgeInstance(P.provider.providerSessionId)
         : deriveInstanceId({ host, label: P.name, uuid: agentUuid })
     };
-    if (options.mintMemo) options.mintMemo.value = minted;
+    mintMemo.value = minted;
     return minted;
   };
 
@@ -805,8 +808,8 @@ async function resolveLiveIdentityAsyncInternal(
       // orphan registration with no binding — allowed (never a keyless binding).
       // F5: unlink the unused candidate's orphan KEYPAIR (cheap); the append-only
       // registration/alias rows are left for L3 compaction.
-      if (mintKeypair && options.mintMemo?.value && options.mintMemo.value.instance !== result.instance) {
-        cleanupOrphanKeypair(input.root, options.mintMemo.value.instance);
+      if (mintKeypair && mintMemo.value && mintMemo.value.instance !== result.instance) {
+        cleanupOrphanKeypair(input.root, mintMemo.value.instance);
       }
       keypair = publishIdentity(result.instance, result.agentUuid, "reclaim");
     }
