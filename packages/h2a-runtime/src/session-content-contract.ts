@@ -71,6 +71,12 @@ export function validatePolicy(policy: Policy): void {
 }
 /** Used after strict JSON parsing for network inputs. Does not resolve authentication. */
 export function validateContentMessage(value: unknown, expected?: { policyDigest: string }): void {
+  // Reject encoded amplification before canonicalization or any decoded-buffer allocation.
+  if(value&&typeof value==='object'){
+    const candidate=value as Record<string,unknown>,payload=candidate.payloadB64;
+    if((candidate.kind==='terminal-fragment'||candidate.kind==='native-part')&&typeof payload==='string'
+      &&(payload.length>1048576||payload.length%4===1||Math.floor(payload.length*3/4)>262144))fail();
+  }
   // Canonicalization rejects invalid Unicode/non-JSON values even for in-process callers.
   const serialized = canonicalJson(value);
   if (Buffer.byteLength(serialized) > 8 * 1024 * 1024 || !matches(schema, value)) fail();

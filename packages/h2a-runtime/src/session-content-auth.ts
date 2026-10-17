@@ -77,6 +77,8 @@ function post(url: URL, body: string, contentType: string, ca?: string, token?: 
 }
 
 export class SessionContentAuth {
+  get sourceClientId():string{return this.config.clientId;}
+  get issuer():string{return this.config.issuer;}
   private readonly config: Config;
   private readonly now: () => number;
   private attempts = new Map<object, LoginAttempt>();
@@ -84,6 +86,7 @@ export class SessionContentAuth {
   private sessions = new WeakMap<object, SourceSession>();
   private inFlight = 0;
   private controlOpen=false;
+  private readResponses=new WeakMap<object,{start:number;deadline:number;login:Login}>();
   constructor(config: Config) {
     this.config = { ...config, owner: structuredClone(config.owner), source: structuredClone(config.source), runtime: { ...config.runtime } };
     this.now = config.monotonicNow ?? (() => performance.now());
@@ -247,15 +250,21 @@ export class SessionContentAuth {
     const login=this.logins.get(loginHandle),now=this.now(),skew=this.config.measuredClockErrorMs;
     if(!login || now<login.start || now>=login.deadline || !id(authorizationId) || this.inFlight>=4
       || skew===undefined || !Number.isFinite(skew) || skew<0 || skew>5000) return fail();
-    this.inFlight++;
+    const wall=Date.now();this.inFlight++;
     try {
       const url=new URL(`/api/v1/auth/session/content/${this.config.source.bindingId}/history/authorizations/${authorizationId}`,this.config.sourceServer);
       const response=await requestJson("GET",url,null,null,this.config.ca,login.accessToken);validateContentMessage(response);
       if(response.kind!=="history-read" || response.authorizationId!==authorizationId || !same(response.owner,this.config.owner)
         || !id(response.authSessionRef) || (login.authSessionRef!==undefined && response.authSessionRef!==login.authSessionRef)
         || !integer(response.readExpiresAt) || response.readExpiresAt<=Date.now()+skew || this.now()>=login.deadline) return fail();
-      login.authSessionRef=response.authSessionRef;return response;
+      const deadline=Math.min(login.deadline,now+response.readExpiresAt-wall-skew);
+      if(this.now()<now||this.now()>=deadline||Math.abs((Date.now()-wall)-(this.now()-now))>1000)return fail();
+      login.authSessionRef=response.authSessionRef;this.readResponses.set(response,{start:now,deadline,login});return response;
     } finally {this.inFlight--;}
+  }
+  assertHistoryRead(response:Record<string,unknown>):void{
+    const value=this.readResponses.get(response),now=this.now();
+    if(!value||now<value.start||now>=value.deadline||now>=value.login.deadline)return fail();
   }
   async resolveArchiveAdmission(loginHandle: object, descriptorHash: string): Promise<Record<string,unknown>> {
     const login=this.logins.get(loginHandle),now=this.now();

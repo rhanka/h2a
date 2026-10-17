@@ -1,12 +1,19 @@
 import { readFileSync, readdirSync } from "node:fs";
 import { createHash } from "node:crypto";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it,vi } from "vitest";
 import { validateContentMessage, capsuleDirectory } from "./session-content-contract.js";
 import { contentDigest, canonicalJson } from "./session-content-json.js";
 import { ConfirmationBudget, ConfirmationVerifier } from "./session-content-confirmation.js";
 import { Ajv2020 } from "ajv/dist/2020.js";
 const read = (name: string) => JSON.parse(readFileSync(new URL(name, capsuleDirectory), "utf8"));
 describe("session content capsule", () => {
+  it("should refuse an oversized encoded fragment before allocating its decoded buffer",()=>{
+    const fragment=read('terminal-fragment.v2.json'),encoded=Buffer.alloc(262145).toString('base64url');
+    fragment.payloadB64=encoded;fragment.byteLength=0;fragment.totalBytes=0;
+    const original=Buffer.from;let decoded=0;
+    const spy=vi.spyOn(Buffer,'from').mockImplementation((value:any,...args:any[])=>{if(value===encoded&&args[0]==='base64url')decoded++;return Reflect.apply(original,Buffer,[value,...args]);});
+    try{expect(()=>validateContentMessage(fragment)).toThrow();expect(decoded).toBe(0);}finally{spy.mockRestore();}
+  });
   it("should typecheck the exact pinned message fixture bytes rather than a drifting duplicate",()=>{
     const text=readFileSync(new URL('./session-content-fixture-types.typecheck.ts',import.meta.url),'utf8');
     const typed=JSON.parse(text.slice(text.indexOf('const fixtures=')+'const fixtures='.length,text.indexOf(' as const satisfies')));

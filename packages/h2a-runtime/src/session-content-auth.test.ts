@@ -41,6 +41,11 @@ beforeAll(async () => {
         if (mode === "id-token-only") delete token.access_token;
         res.end(JSON.stringify(token)); return;
       }
+      if(req.url?.includes('/history/authorizations/')){
+        const now=Date.now();res.end(JSON.stringify({protocol:'h2a.session-content',protocolVersion:2,kind:'history-read',authorizationId:'read',
+          owner:{issuer:origin,subject:'owner'},authSessionRef:'login-record',retained:{retainedId:'retained',originScopeDigest:'a'.repeat(64),acceptedAt:now,expiresAt:null},
+          coverage:{kind:'native',snapshotId:'snapshot',manifestHash:'b'.repeat(64),descriptorHash:'c'.repeat(64)},readExpiresAt:now+60000}));return;
+      }
       const input = JSON.parse(body);
       const now = Date.now();
       const output = { protocol: "h2a.session-content", protocolVersion: 2, kind: "source-session",
@@ -83,6 +88,12 @@ async function login(auth: SessionContentAuth) {
 }
 
 describe("session content source authentication", () => {
+  it("should keep a nonforgeable monotonic deadline for each authenticated retained-read response",async()=>{
+    mode='valid';let mono=0;const auth=new SessionContentAuth({...config(),monotonicNow:()=>mono,measuredClockErrorMs:0}),identity=await login(auth);
+    const before=Date.now(),response=await auth.authorizeHistoryRead(identity,'read');auth.assertHistoryRead(response);
+    expect(()=>auth.assertHistoryRead(structuredClone(response))).toThrow();
+    mono=(response.readExpiresAt as number)-before+1;expect(()=>auth.assertHistoryRead(response)).toThrow();
+  });
   it("should renew only the original source login and refuse renewal after observed revocation",async()=>{
     mode="valid";let mono=0;
     const auth=new SessionContentAuth({...config(),monotonicNow:()=>mono}),identity=await login(auth),handle=await auth.openSource(identity);
