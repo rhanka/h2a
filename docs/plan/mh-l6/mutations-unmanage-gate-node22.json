@@ -1,0 +1,51 @@
+{
+  "node": "v22.22.1",
+  "files": [
+    {
+      "path": "packages/h2a/src/runtime/upgrade/unmanage.js",
+      "sha256": "1b7e1dddc0aca1c8863a104b722c1b98e7c6db6c3b4df0455f21c423fad1b2ab"
+    },
+    {
+      "path": "packages/h2a/dist/runtime/upgrade/unmanage.js",
+      "sha256": "faaf692000a38d991816d09f9344f2bd6144f7bb701c52593a2a0249185220b6"
+    }
+  ],
+  "results": [
+    {
+      "name": "gate-call",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-unmanage-gate.test.js-node22-mutation-gate-call-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-unmanage-gate.test.js-node22-mutation-gate-call-green.log",
+      "restored": true
+    },
+    {
+      "name": "occupied-gate",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-unmanage-gate.test.js-node22-mutation-occupied-gate-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-unmanage-gate.test.js-node22-mutation-occupied-gate-green.log",
+      "restored": true
+    },
+    {
+      "name": "foreign-gate",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-unmanage-gate.test.js-node22-mutation-foreign-gate-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-unmanage-gate.test.js-node22-mutation-foreign-gate-green.log",
+      "restored": true
+    },
+    {
+      "name": "dangling-gate",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-unmanage-gate.test.js-node22-mutation-dangling-gate-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-unmanage-gate.test.js-node22-mutation-dangling-gate-green.log",
+      "restored": true
+    },
+    {
+      "name": "explicit-shape",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-unmanage-gate.test.js-node22-mutation-explicit-shape-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-unmanage-gate.test.js-node22-mutation-explicit-shape-green.log",
+      "restored": true
+    },
+    {
+      "name": "force-foreign",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-unmanage-gate.test.js-node22-mutation-force-foreign-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-unmanage-gate.test.js-node22-mutation-force-foreign-green.log",
+      "restored": true
+    }
+  ]
+}
