@@ -184,4 +184,10 @@ describe('owner status table regression fixtures', () => {
     expect(rows()[0].status).toBe('🔴')
     expect(report('md')).toContain('Partager')
   })
+
+  it('keeps the blocked proposal and the separately recorded concrete next gesture', () => {
+    set(item(), { status: 'blocked', proposal: 'Réparer la reconnexion.', nextAction: 'Ouvrir resolver.ts et corriger la cible.' })
+    expect(rows()[0].action).toContain('Proposition : Réparer la reconnexion.')
+    expect(rows()[0].action).toContain('Ensuite : Ouvrir resolver.ts et corriger la cible.')
+  })
 })

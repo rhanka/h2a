@@ -126,7 +126,7 @@ export function buildStatusTable(events: readonly TrackEvent[], report: Report, 
       ...issues.map(issueText),
     ].filter(Boolean)
     const next = status === 'decision-awaited' ? (issues.includes('missing-decision-expectations') ? 'compléter les attendus et le lien du dossier avant de demander ton GO.' : 'ton GO sur la question et les options ci-dessus.')
-      : status === 'blocked' ? info.proposal ?? 'rédiger une proposition de déblocage.'
+      : status === 'blocked' ? info.nextAction ?? info.proposal ?? 'rédiger une proposition de déblocage.'
       : info.nextAction ?? (issues.includes('unrecorded-status') ? 'vérifier puis renseigner le statut de conformité.' : 'renseigner la prochaine action vérifiée.')
     const row: StatusTableRow = { id: item.id, n: '', request, requestSource, stage, ...(evidence ? { stageEvidence: evidence } : {}), status: COLORS[status], action: `${facts.join(' ')} Ensuite : ${next}`, issues: [...new Set(issues)], expectations, dossierRefs: expectations.map(e => e.dossier) }
     return { row, urgency: URGENCY[status], priority: source.priority ?? -Infinity, directive: directiveOrder.get(item.id) ?? Infinity }
