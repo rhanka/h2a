@@ -48,7 +48,7 @@ function prepare() {
     }
     writeFileSync(smokePath, smoke.replace(pin, `const PINNED_RUNTIME_VERSION = '${version}'`))
   }
-  appendFileSync(process.env.GITHUB_ENV, `RELEASE_VERSION=${version}\nRELEASE_TAG=${tag}\n`)
+  appendFileSync(process.env.GITHUB_ENV, `RELEASE_VERSION=${version}\nRELEASE_TAG=${tag}\nFOCUS_RELEASE_VERSION=${packages['@sentropic/focus']}\n`)
   console.log(`Prepared ${version}; registry tag: ${rc ? 'next' : 'latest/backfill'}`)
 }
 

@@ -159,7 +159,11 @@ exact version in an isolated consumer, and test its schema, validator and
 normal use alongside h2a. Record owner acceptance and the RC run URL. Only
 then may the owner create `v0.98.7` on the exact same merged commit. The
 stable gate rejects old four-package attestations, missing/wrong focus
-versions, different source trees and unverified RC bytes. After successful
+versions, different source trees and unverified RC bytes. The publish sanity
+gate also requires the focus version exported by the five-package prepare
+helper: dispatching a backfill against an older four-package helper fails
+before any publication, including an old RC that would leave focus stable.
+After successful
 stable publication, install `@sentropic/focus@0.5.0` explicitly.
 
 Trusted Publishing must be configured on npm for every package before a tag publish can succeed:
