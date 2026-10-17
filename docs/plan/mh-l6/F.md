@@ -36,6 +36,35 @@ conservé. Audit : `node scripts/mh-l6-f1-audit.mjs
 
 | NOT covered restant | Gate |
 |---|---|
-| Codes/strict/reprise/abandon/compensation CLI, autorité inter-transactions, orchestration de la délégation, activation M18 après preuve externe | F-2 ; le rapport seul n'active rien |
-| Observateurs B2-3, npm réel D-2, autres entrées, smoke CI, gel .6 | B2-3/D-2/E2b3/E3b2b/E3c, M18 toujours ouvert |
+| Codes/strict/reprise/abandon/compensation CLI, autorité inter-transactions, orchestration de la délégation, activation M18 après preuve externe | F-2b ; le rapport et le pilote seuls n'activent rien |
+| Observateurs B2-3, npm réel D-2b, autres entrées, smoke CI, gel .6 | B2-3/D-2b/E2b3/E3b2b/E3c, M18 toujours ouvert |
+| Revue indépendante | Conducteur ; aucun consensus revendiqué |
+
+## F-2a — pilote de passe unique sans parsing CLI (livré)
+
+`runUpgradeOnce({ session, store, upgradeId, target, launcherSource,
+managedDir, commandPath, exclusion, management, explicit })` dans
+`packages/h2a/src/runtime/upgrade/upgrade-run.js` : honore l'opt-out
+(marqueur lu sauf `management` fourni, contourné seulement par
+`explicit`), évalue le besoin, puis exécute l'adoption et propage le
+report d'exclusion. Sans parsing de flags ni processus fils : le CLI
+branchera cette passe unique.
+
+| Commande ciblée | Node 22.22.1 | Node 24.21.0 |
+|---|---|---:|
+| `node scripts/mh-l6-test.mjs packages/h2a/test/mh-l6-upgrade-run.test.js final-F-2a` | 6/6, exit 0 | 6/6, exit 0 |
+| `mh-l6-mutate.mjs upgrade-run` (opt-out, rapport, exécution, exclusion) | 4 rouges ERR_ASSERTION / 4 verts | 4 / 4 |
+| Skips / annulations / enfants restants | 0 / 0 / 0 | 0 / 0 / 0 |
+
+Rouge initial : pilote absent (`ERR_ASSERTION`, 1 test, exit 1),
+conservé. Garde d'enveloppe nulle ajoutée comme sur les autres modules.
+Audit : `node scripts/mh-l6-f2-audit.mjs
+/tmp/mh-l3-qualification-f2-*/source`, exit 0 ; 4 fichiers identiques,
+émission compilée liée par SHA, 6 tests et 4 paires/profil. Preuve :
+`proof-F-2a.json`.
+
+| NOT covered restant | Gate |
+|---|---|
+| Parsing CLI, codes/strict/reprise/abandon/compensation, orchestration de la délégation, activation M18 | F-2b |
+| Observateurs B2-3, npm réel D-2b, autres entrées, smoke CI, gel .6 | B2-3/D-2b/E2b3/E3b2b/E3c, M18 toujours ouvert |
 | Revue indépendante | Conducteur ; aucun consensus revendiqué |
