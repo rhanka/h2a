@@ -18,8 +18,9 @@
 // access-only acceptance and tool enforceability stay UNVERIFIED until the
 // live probes (P-NOREFRESH/P-STREAM/P-TOOLS); the `notes` fields record that.
 
-import { mkdirSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { closeSync, constants, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, isAbsolute, join, parse, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import type { SeatCli5 } from "./cli-seat-fixtures.js";
 import { SEAT_CLIS_5 } from "./cli-seat-fixtures.js";
@@ -64,12 +65,12 @@ export const CLI_SEAT_CODECS: Record<SeatCli5, CliSeatCodec> = {
   claude: {
     cli: "claude",
     packageProviderId: PACKAGE_PROVIDER_ID["claude"],
-    homeRelAuthFiles: [".claude/.credentials.json"],
-    configRelAuthFiles: [".claude.json"],
+    homeRelAuthFiles: [],
+    configRelAuthFiles: [".credentials.json"],
     credentialEnvVars: ["CLAUDE_CODE_OAUTH_TOKEN"],
     homeEnvVar: "CLAUDE_CONFIG_DIR",
     mcpConfigExample: "~/.claude.json",
-    hostArgs: [],
+    hostArgs: ["--tools", ""],
     toolAllow: [...SCENARIO_OPS],
     toolDeny: ["builtin-tools", "user-hooks", "project-hooks", "extra-plugins", "shell.exec", "file.read"],
     projectedNativeMode: "access-only",
@@ -106,8 +107,8 @@ export const CLI_SEAT_CODECS: Record<SeatCli5, CliSeatCodec> = {
   vibe: {
     cli: "vibe",
     packageProviderId: PACKAGE_PROVIDER_ID["vibe"],
-    homeRelAuthFiles: [".vibe/.env"],
-    configRelAuthFiles: [],
+    homeRelAuthFiles: [],
+    configRelAuthFiles: ["vibe/.env"],
     credentialEnvVars: ["MISTRAL_API_KEY"],
     homeEnvVar: "VIBE_HOME",
     mcpConfigExample: "~/.vibe/config.toml",
@@ -120,7 +121,7 @@ export const CLI_SEAT_CODECS: Record<SeatCli5, CliSeatCodec> = {
   agy: {
     cli: "agy",
     packageProviderId: PACKAGE_PROVIDER_ID["agy"],
-    homeRelAuthFiles: [".gemini/oauth_creds.json", ".gemini/google_accounts.json"],
+    homeRelAuthFiles: [],
     configRelAuthFiles: [],
     credentialEnvVars: [],
     homeEnvVar: "HOME",
@@ -141,10 +142,16 @@ export function listCliSeatCodecs(): CliSeatCodec[] {
 /** Unknown names (including gemini) fail closed with a static error. */
 export function getCliSeatCodec(cli: string): CliSeatCodec {
   const codec = (CLI_SEAT_CODECS as Record<string, CliSeatCodec>)[cli];
-  if (codec === undefined) {
-    throw new Error(`unknown CLI seat "${cli}": not part of the five-seat circuit`);
+  if (!Object.hasOwn(CLI_SEAT_CODECS, cli) || codec === undefined) {
+    throw new Error("unknown CLI seat: not part of the five-seat circuit");
   }
   return codec;
+}
+
+/** Shared CLI aliases; product enrollment still uses package provider ids. */
+export function resolveSeatEnrollmentProvider(value: string): "cloud-code" | "codex" | "mistral-vibe" | "muse" | "claude-code" {
+  const cli = value === "cloud-code" ? "agy" : value === "claude-code" ? "claude" : value === "mistral-vibe" ? "vibe" : value;
+  return getCliSeatCodec(cli).packageProviderId as "cloud-code" | "codex" | "mistral-vibe" | "muse" | "claude-code";
 }
 
 /** Credential-bearing env vars stripped from (or never injected into) seat jobs. */
@@ -201,14 +208,72 @@ export function renderSeatMcpManifest(cli: SeatCli5): {
 } {
   const codec = getCliSeatCodec(cli);
   return {
-    config: { mcpServers: { h2a: { command: "h2a", args: ["mcp-serve"] } } },
+    config: { mcpServers: { h2a: { command: process.execPath, args: [fileURLToPath(new URL("../../h2a/dist/bin.js", import.meta.url)), "mcp-serve"] } } },
     path: { example: codec.mcpConfigExample },
   };
 }
 
-function writePrivateFile(path: string, content: string): void {
-  mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
-  writeFileSync(path, content, { mode: 0o600 });
+/** Refuse symlinks in every existing path component, including ancestors. */
+export function assertNoSymlinkPath(path: string): void {
+  if (!isAbsolute(path)) throw new Error("private path must be absolute");
+  const absolute = resolve(path);
+  let current = parse(absolute).root;
+  for (const part of absolute.slice(current.length).split(/[\\/]/).filter(Boolean)) {
+    current = join(current, part);
+    try {
+      if (lstatSync(current).isSymbolicLink()) throw new Error("private path refused: symbolic link");
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+  }
+}
+
+export function ensurePrivateSeatDirectory(path: string): void {
+  assertNoSymlinkPath(path);
+  mkdirSync(path, { recursive: true, mode: 0o700 });
+  const stat = lstatSync(path);
+  if (!stat.isDirectory() || (stat.mode & 0o777) !== 0o700 || (process.geteuid && stat.uid !== process.geteuid())) {
+    throw new Error("private directory refused: ownership or permissions");
+  }
+}
+
+export function writePrivateSeatFile(path: string, content: string): void {
+  ensurePrivateSeatDirectory(dirname(path));
+  assertNoSymlinkPath(path);
+  const fd = openSync(path, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY | (constants.O_NOFOLLOW ?? 0), 0o600);
+  try { writeFileSync(fd, content, { encoding: "utf8" }); } finally { closeSync(fd); }
+}
+
+export function readPrivateSeatFile(path: string): string {
+  assertNoSymlinkPath(path);
+  const fd = openSync(path, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
+  try {
+    const stat = fstatSync(fd);
+    if (!stat.isFile() || stat.nlink !== 1 || (stat.mode & 0o777) !== 0o600 || (process.geteuid && stat.uid !== process.geteuid())) throw new Error("private file refused");
+    return readFileSync(fd, "utf8");
+  } finally { closeSync(fd); }
+}
+
+/** Render at each native selector, rather than an invented environment hint. */
+export function writeSeatMcpConfiguration(cli: SeatCli5, locations: { homeDir: string; configDir: string }, env: Record<string, string> = {}): string {
+  const server = { ...renderSeatMcpManifest(cli).config.mcpServers.h2a, env };
+  const envToml = Object.entries(env).map(([k, v]) => `${JSON.stringify(k)} = ${JSON.stringify(v)}`).join("\n") + "\n";
+  let path: string;
+  let content: string;
+  if (cli === "codex") {
+    path = join(locations.homeDir, ".codex/config.toml");
+    content = `[mcp_servers.h2a]\ncommand = ${JSON.stringify(server.command)}\nargs = ${JSON.stringify(server.args)}\n`;
+    content += `[mcp_servers.h2a.env]\n${envToml}`;
+  } else if (cli === "vibe") {
+    path = join(locations.configDir, "vibe/config.toml");
+    content = `[[mcp_servers]]\nname = "h2a"\ntransport = "stdio"\ncommand = ${JSON.stringify(server.command)}\nargs = ${JSON.stringify(server.args)}\n`;
+    content += `[mcp_servers.env]\n${envToml}`;
+  } else {
+    path = cli === "claude" ? join(locations.configDir, ".claude.json") : cli === "muse" ? join(locations.configDir, "muse/settings.json") : join(locations.homeDir, ".gemini/config/mcp_config.json");
+    content = JSON.stringify({ ...(cli === "claude" ? { hasCompletedOnboarding: true } : {}), mcpServers: { h2a: server } }) + "\n";
+  }
+  writePrivateSeatFile(path, content);
+  return path;
 }
 
 /**
@@ -222,32 +287,22 @@ export function writeSyntheticCredentialFiles(
   const paths = credentialFilePaths(cli, locations);
   const { canary } = locations;
   if (cli === "claude") {
-    writePrivateFile(
+    writePrivateSeatFile(
       paths[0] as string,
-      JSON.stringify({ type: "synthetic", access: canary, expiresAt: "2026-10-16T00:00:00.000Z", scopes: ["synthetic"] }) + "\n",
-    );
-    writePrivateFile(
-      paths[1] as string,
-      JSON.stringify({ loginMetadataOnly: true, hasCompletedOnboarding: true }) + "\n",
+      JSON.stringify({ claudeAiOauth: { accessToken: canary, expiresAt: 1792195200000, scopes: ["user:inference"] } }) + "\n",
     );
   } else if (cli === "codex") {
-    writePrivateFile(
+    writePrivateSeatFile(
       paths[0] as string,
-      JSON.stringify({ type: "synthetic", auth: canary, last_refresh: "2026-10-15T00:00:00.000Z" }) + "\n",
+      JSON.stringify({ auth_mode: "chatgpt", tokens: { access_token: canary, id_token: `synthetic-id-${canary}`, account_id: "synthetic-account" }, last_refresh: "2026-10-15T00:00:00.000Z" }) + "\n",
     );
   } else if (cli === "muse") {
-    writePrivateFile(
+    writePrivateSeatFile(
       paths[0] as string,
       JSON.stringify({ schema_version: 1, providers: { meta: { access_token: canary } } }) + "\n",
     );
   } else if (cli === "vibe") {
-    writePrivateFile(paths[0] as string, `MISTRAL_API_KEY=${canary}\n`);
-  } else {
-    writePrivateFile(
-      paths[0] as string,
-      JSON.stringify({ type: "synthetic", access: canary, expiry: "2026-10-16T00:00:00.000Z" }) + "\n",
-    );
-    writePrivateFile(paths[1] as string, JSON.stringify({ type: "synthetic", accounts: [] }) + "\n");
+    writePrivateSeatFile(paths[0] as string, `MISTRAL_API_KEY=${canary}\n`);
   }
   return paths;
 }

@@ -8,7 +8,7 @@ describe("cli-seat-no-refresh", () => {
   it.each(SEAT_CLIS_5)("classifies expiry/401 as access-unavailable with zero refresh for %s", (cli) => {
     expect(classifyAccessFault({ expired: true })).toBe("access-unavailable");
     expect(classifyAccessFault({ status401: true })).toBe("access-unavailable");
-    expect(classifyAccessFault({})).toBe("access-unavailable");
+    expect(classifyAccessFault({})).toBe("access-ok");
   });
 
   it.each(SEAT_CLIS_5)("accepts a refresh-less consumer projection for %s", (cli) => {

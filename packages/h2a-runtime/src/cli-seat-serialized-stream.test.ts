@@ -1,13 +1,20 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, afterEach, describe, expect, it } from "vitest";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import {
   assertNoWriterCredentials,
-  beginSerializedStream,
+  beginSerializedStream as begin,
   captureSerializedResult,
   validateStreamClearance,
 } from "./cli-seat-materialization.js";
 
 const PREDECESSOR = { epoch: 1, generation: 3, operationId: "op-synth-codex-03" };
+let runtime: string;
+beforeEach(() => { runtime = mkdtempSync(join(tmpdir(), "seat-stream-")); });
+afterEach(() => rmSync(runtime, { recursive: true, force: true }));
+const beginSerializedStream = (family: string, predecessor: typeof PREDECESSOR) => begin(family, predecessor, runtime);
 
 describe("cli-seat-serialized-stream", () => {
   it("opens one stream ticket per refresh family", () => {
@@ -40,6 +47,7 @@ describe("cli-seat-serialized-stream", () => {
       familyRef: ticket.familyRef,
       streamOperationId: ticket.streamOperationId,
       predecessor: PREDECESSOR,
+      cleanupComplete: true,
     });
     expect(clearance.cleared).toBe(true);
   });
