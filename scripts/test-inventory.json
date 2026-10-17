@@ -639,17 +639,17 @@
     "rehearsal triggers on every PR to main, plus dispatch",
     "the rehearsal stamps a unique CI version after build and before packing",
     "the rehearsal job carries its required-style check name",
-    "the rehearsal publishes the four lockstep packages in installable dependency order",
+    "the rehearsal publishes the five release packages in installable dependency order",
     "each rehearsal shares the release publish body except dry-run and the default prerelease tag",
     "every rehearsal npm publish is a dry-run — nothing here may ever publish",
     "the rehearsal uses the same npm version and Node floor as the publish job",
-    "the rehearsal packs the four lockstep tarballs exactly like verify, then smokes them",
+    "the rehearsal packs the five release tarballs exactly like verify, then smokes them",
     "the rehearsal builds before packing, like verify needs before pack",
     "the rehearsal re-checks the tarball sha256 tie before any dry-run publish",
     "the rehearsal always dry-runs the verified bytes: ./ file spec and backfill kept, skip and wait dropped",
     "the rehearsal drops node_modules before the dry-run publishes",
     "the rehearsal carries no registry credentials",
-    "rehearsal executes all four online dry-runs and propagates failures"
+    "rehearsal executes all five online dry-runs and propagates failures"
   ],
   "packages/h2a/test/rehearsal-version.test.js": [
     "stamps every published manifest, internal pin and the independent smoke literal",
@@ -683,7 +683,9 @@
     "a reserved publication is invisible until complete and is not overwritten by another writer",
     "overlapping publications of the same recipient remain one diagnostic candidate"
   ],
-  "packages/h2a/test/release-script.test.js": [],
+  "packages/h2a/test/release-script.test.js": [
+    "release instructions include independent focus RC and stable qualification and merge commits"
+  ],
   "packages/h2a/test/release-workflow-publish-order.test.js": [],
   "packages/h2a/test/release-workflow.test.js": [
     "R8.2 (0.98.6 git-shorthand incident): every npm publish tarball arg is an unambiguous ./ file spec",
@@ -874,5 +876,21 @@
   ],
   "packages/h2a-runtime/src/gateway-host/live-registration.test.ts": [
     "fixture commits launch no automatic Git maintenance in observed repositories"
+  ],
+  "packages/h2a/test/release-candidate.test.js": [
+    "RC tag stamps five packages with independent focus version and every internal exact pin, then publishes next only",
+    "stable tag without a matching RC is refused, including backfill dispatch",
+    "stable tag accepts a successful same-tree RC with next publication and completed smoke",
+    "stable tag refuses a different source tree, including a falsified record",
+    "RC attestation requires every next tag and an explicit completed post-publish smoke",
+    "RC attestation refuses already-published bytes from a different source tree",
+    "stable gate fails closed for incomplete, foreign, expired, stale or malformed evidence",
+    "workflow always gates stable publication and attests only after the real install smoke",
+    "RC install smoke refuses install propagation lag and broken doctor; only completion emits proof",
+    "tag validation and manifest drift fail before any RC file is written; stable prepare leaves source unchanged",
+    "focus alone must have the intended next tag and verified RC bytes",
+    "stable refuses an RC proof missing focus or carrying a wrong focus version",
+    "publish sanity refuses legacy four-package preparation and stale focus versions before publication",
+    "five-package prepare hands the independent focus version to the publication sanity gate"
   ]
 }

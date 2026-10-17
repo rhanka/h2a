@@ -7,12 +7,19 @@
 
 ## Release Flow
 
-V1 releases are lockstep across the public packages:
+V1 releases keep these four public packages in lockstep:
 
 - `@sentropic/h2a`
 - `@sentropic/h2a-cli`
 - `@sentropic/h2a-runtime`
 - `@sentropic/track` (record-only system of record; folded into the monorepo, published in lockstep)
+
+`@sentropic/focus` joins the same tag-driven wave with its **independent** stable
+version from `packages/focus/package.json`; release preparation never bumps it
+to the h2a version. For `v0.98.7-rc.N`, CI publishes focus `0.5.0-rc.N` on
+`next`; `v0.98.7` publishes focus `0.5.0` only after the owner tests that RC.
+The RC focus dependency on Track is pinned to the exact Track RC. Stable
+keeps the declared compatible Track range. No focus-specific Git tag is needed.
 
 `main` is PR-only for everyone (admins included; required CI checks, no approval).
 The version commit therefore goes through a PR, and the tag is created only
@@ -28,7 +35,7 @@ npm run release -- --version 0.2.0          # commits on release/v0.2.0, no tag
 git push -u origin release/v0.2.0
 gh pr create --base main --head release/v0.2.0 --fill
 gh pr checks release/v0.2.0 --watch --required
-gh pr merge release/v0.2.0 --squash
+gh pr merge release/v0.2.0 --merge
 git fetch origin main
 SHA=$(gh pr view release/v0.2.0 --json mergeCommit --jq .mergeCommit.oid)
 git merge-base --is-ancestor "$SHA" origin/main
@@ -79,14 +86,14 @@ The script deliberately does **not** create the tag, does **not** publish to npm
 The preparation script's version must be a strict `X.Y.Z` SemVer triple with
 no leading `v`, pre-release/build metadata, or leading zeros. Keep this stable
 version in Git while testing RCs. Do not commit an RC version bump: release CI
-stamps all four package manifests, exact internal pins and the independent
+stamps all five package manifests (focus keeps its own base), exact internal pins and the independent
 artifact-smoke version literal with `X.Y.Z-rc.N` in disposable checkouts only.
 `N` is a nonnegative integer without leading zeros.
 
 If the reboot test fails, fix the source through a PR, then cut `rc.2` (or the
 next unused candidate number) on the new merged commit. Repeat installation
 and the real reboot. Any source-tree change requires a new successful RC;
-never move an existing tag. Avoid concurrent RC publications because all four
+never move an existing tag. Avoid concurrent RC publications because all five
 `next` tags must point to the candidate when its attestation is recorded.
 
 ## Publish Workflow
@@ -96,19 +103,19 @@ never move an existing tag. Avoid concurrent RC publications because all four
 1. Resolves the release commit once and verifies it is on `origin/main`.
 2. Verifies it on Linux with Node 22 and 24: `npm ci`, security audit,
    typecheck, the test trust root and `npm test`.
-3. Prepares the tag version, packs all four lockstep packages, then runs the
+3. Prepares the tag version, packs the four lockstep packages and focus, then runs the
    packaged-artifact smoke. The same checks apply to RCs and stable releases.
 4. Downloads the verified tarballs in publish (Node 22, npm `^11.15.0`) and
    checks their hashes and the gated commit. Before **any** stable publication,
    requires a successful RC attestation for `X.Y.Z` and the same Git tree hash.
    Backfill dispatches have the same requirement; there is no bypass input.
 5. Publishes those exact tarballs in dependency order: track, h2a-runtime,
-   h2a, h2a-cli. RCs always pass `--tag next`, including when below `latest`;
+   h2a, h2a-cli, focus. Focus explicitly requests provenance; all five use npm OIDC. RCs always pass `--tag next`, including when below `latest`;
    they never update `latest`. Stable backfills retain `--tag backfill`.
 6. Creates a GitHub Release (explicitly a prerelease for RCs), then runs the
    post-publish install/doctor smoke. RC installation must actually finish;
    propagation lag cannot produce a warning-only success or an attestation.
-7. Confirms all four npm `next` tags point to the RC and their registry
+7. Confirms all five npm `next` tags point to the RC and their registry
    integrity matches the verified tarballs (including idempotent skips), records its version,
    repository, run ID/attempt, commit SHA, Git tree hash and completed smoke,
    then uploads `release-attestation-<run_attempt>` (90-day retention).
@@ -116,16 +123,48 @@ never move an existing tag. Avoid concurrent RC publications because all four
 Stable promotion discovers proof through GitHub's repository-scoped
 `release.yml` run/artifact APIs (`actions: read`). Only a completed successful
 RC **tag push** run in this repository is eligible. The record must match its
-run ID/attempt, all four versions and the commit's tree from GitHub's Git API.
+run ID/attempt, all five versions (including the independent focus RC version) and the commit's tree from GitHub's Git API.
 Missing/expired artifacts, API failures, incomplete smoke, a different release
 train or a tree mismatch fail closed. If proof expires, publish and test a new
 RC number from the intended tree. This CI proof covers the automated install
 smoke; the real machine reboot remains an explicit owner acceptance step.
 
 The PR publish rehearsal stays credential-free and uses `npm publish --dry-run`.
-Its four publish bodies, including RC `next` selection, are compared strictly
+Its five publish bodies, including RC `next` selection, are compared strictly
 with the release bodies; only the documented dry-run/default-tag differences
 are allowed.
+
+### Owner setup for focus on npmjs.com
+
+Before creating an RC tag, the **owner** must open
+https://www.npmjs.com/package/@sentropic/focus/access (package **Settings** →
+**Trusted publishing** → **GitHub Actions**) and configure:
+
+| Field | Value |
+| --- | --- |
+| Organization or user | `rhanka` |
+| Repository | `h2a` (full repository: `rhanka/h2a`) |
+| Workflow filename | `release.yml` (file: `.github/workflows/release.yml`) |
+| Environment name | Leave empty (the publish job has no environment) |
+| Allowed action, if shown | Publish |
+
+Replace any publisher still pointing to the former sentropic repository. This
+configuration belongs to npm, not this PR; no npm token/secret is required.
+The workflow already has `id-token: write`, uses npm >=11.15.0, and focus
+publishes with `--provenance --access public` from its verified tarball.
+
+After the successful `v0.98.7-rc.N` run, check
+`npm view @sentropic/focus dist-tags.next` equals `0.5.0-rc.N`, install that
+exact version in an isolated consumer, and test its schema, validator and
+normal use alongside h2a. Record owner acceptance and the RC run URL. Only
+then may the owner create `v0.98.7` on the exact same merged commit. The
+stable gate rejects old four-package attestations, missing/wrong focus
+versions, different source trees and unverified RC bytes. The publish sanity
+gate also requires the focus version exported by the five-package prepare
+helper: dispatching a backfill against an older four-package helper fails
+before any publication, including an old RC that would leave focus stable.
+After successful
+stable publication, install `@sentropic/focus@0.5.0` explicitly.
 
 Trusted Publishing must be configured on npm for every package before a tag publish can succeed:
 
