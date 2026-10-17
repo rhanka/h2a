@@ -25,6 +25,33 @@ access is forbidden by the owner's confinement. No peer consensus claimed.
 See docs/reviews/focus-publish.md.
 
 # Inherited context from origin/main
+# L2-s — PR 348 Tour 2
+
+Owner scope: rebase onto origin/main, address every finding in rev348.md with
+red/green targeted tests, push this branch with lease, append Tour 2 and every
+CI job to the requested report. No main/Track/guard/allowlist edits.
+
+Allowed correction scope: cli-seat-{codecs,fixtures,materialization}.ts and
+their named tests, cli-seat-direct-matrix.test.js; native-host.ts,
+llm-mesh-accounts.ts and its temporary-directory tests, index.ts aliases,
+cli-seat-runtime-wiring.test.ts, this record and docs/cli-seat-l2s.md.
+
+- Explicit channel authority, unavailable refusal, strict pinned envelope.
+- Native credential/MCP paths, private XDG/no-follow files, injected agy keyring.
+- Closed MCP environment, separate profile, three sanitized native captures.
+- Real materializer matrix, independent diagonal actors, lab billing admission.
+- Exclusive family journal, unique stream ids, exact persisted handoff.
+- Scenario/codec tool gate, adversarial canaries, precedence/base64/401 guards.
+- Targeted baseline controls retain 60/69 red regressions, 13/13 wiring red
+  and 20/20 diagonal failures; final tests/typechecks are in the owner report.
+- Finding 3 remains partially blocked by the published L1 facade: no generic
+  five-provider cli/token import with external refresh policy. Preserve its
+  refusal, do not fabricate an API or duplicate the store. Explicit owner,
+  scope and acceptance are in docs/cli-seat-l2s.md. No mergeability claim.
+- Confinement forbids installed/native h2a review dispatch; no new consensus.
+  All test children are synchronous/owned, HOME/XDG are disposable; no full
+  local suite, provider state, Python or real credentials.
+
 # L2-s — PR 348 CI repair
 
 - Owner scope: rebase `feat/cli-seat-l2s` onto `origin/main`, repair the three

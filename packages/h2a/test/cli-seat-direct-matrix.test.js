@@ -15,38 +15,38 @@ import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import test from "node:test";
+import test, { after } from "node:test";
+import ts from "typescript";
+import { pathToFileURL } from "node:url";
 
-const CLIS = ["agy", "codex", "vibe", "muse", "claude"];
-const SCENARIOS = ["message", "unavailable", "loop", "negotiation"];
+// Compile the exact repository sources into a disposable module tree. No
+// installed runtime, provider, native host or owner profile is resolved.
+const compiled = mkdtempSync(join(tmpdir(), "h2a-seat-sources-"));
+after(() => rmSync(compiled, { recursive: true, force: true }));
+const runtimeRoot = mkdtempSync(join(tmpdir(), "h2a-seat-matrix-runtime-"));
+const previousRuntime = process.env.XDG_RUNTIME_DIR;
+process.env.XDG_RUNTIME_DIR = runtimeRoot;
+after(() => {
+  if (previousRuntime === undefined) delete process.env.XDG_RUNTIME_DIR;
+  else process.env.XDG_RUNTIME_DIR = previousRuntime;
+  rmSync(runtimeRoot, { recursive: true, force: true });
+});
+writeFileSync(join(compiled, "package.json"), JSON.stringify({ type: "module" }));
+for (const name of ["cli-seat-fixtures", "cli-seat-codecs", "cli-seat-materialization"]) {
+  const source = readFileSync(new URL(`../../h2a-runtime/src/${name}.ts`, import.meta.url), "utf8");
+  writeFileSync(join(compiled, `${name}.js`), ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ES2022 } }).outputText);
+}
+const seats = await import(pathToFileURL(join(compiled, "cli-seat-materialization.js")).href);
+const fixtures = await import(pathToFileURL(join(compiled, "cli-seat-fixtures.js")).href);
+
+const CLIS = fixtures.SEAT_CLIS_5;
+const SCENARIOS = fixtures.SEAT_SCENARIOS_4;
+const admission = { entitlementClass: "lab-seat", ownerApproved: true, q3Approved: true, consumedUnits: 0, requestedUnits: 1 };
 
 function syntheticCell(sender, receiver, scenario) {
-  const root = mkdtempSync(join(tmpdir(), "h2a-seat-matrix-"));
+  const root = mkdtempSync(join(runtimeRoot, "h2a-seat-matrix-"));
   try {
-    const actors = {};
-    for (const cli of [sender, receiver]) {
-      const home = join(root, cli, "home");
-      mkdirSync(home, { recursive: true, mode: 0o700 });
-      const credential = join(home, `.synthetic-${cli}.json`);
-      writeFileSync(credential, JSON.stringify({ seat: `seat-synth-${cli}-01` }) + "\n", { mode: 0o600 });
-      const mcp = join(root, cli, "mcp-config.json");
-      writeFileSync(mcp, JSON.stringify({ mcpServers: { h2a: { command: "h2a", args: ["mcp-serve"] } } }) + "\n", {
-        mode: 0o600,
-      });
-      actors[cli] = { home, credential, mcp, gateway: "off" };
-    }
-    assert.equal(actors[sender].gateway, "off");
-    assert.equal(actors[receiver].gateway, "off");
-    return {
-      sender,
-      receiver,
-      scenario,
-      outcome: "synthetic-pass",
-      seatRef: `seat-synth-${sender}-01`,
-      peerRef: `seat-synth-${receiver}-01`,
-      mode: "cli",
-      gateway: "off",
-    };
+    return seats.runSyntheticSeatCell(sender, receiver, scenario, { parentDir: root, admission });
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -71,6 +71,13 @@ test("100 synthetic directed cells with direct route and h2a MCP", async (t) => 
           const receipt = syntheticCell(sender, receiver, scenario);
           assert.equal(receipt.outcome, "synthetic-pass");
           assert.equal(receipt.gateway, "off");
+          assert.notEqual(receipt.seatRef, receipt.peerRef);
+          assert.notEqual(receipt.familyRef, receipt.peerFamilyRef);
+          assert.equal(receipt.actors.length, 2);
+          assert.notEqual(receipt.actors[0].runId, receipt.actors[1].runId);
+          assert.equal(receipt.q1ConsumedUnits, 1);
+          assert.deepEqual(receipt.actors.map(a => a.cli), [sender, receiver]);
+          assert.ok(receipt.actors.every(a => ["static-key", "access-only"].includes(a.capability)));
           cells += 1;
         });
       }
@@ -80,9 +87,23 @@ test("100 synthetic directed cells with direct route and h2a MCP", async (t) => 
 });
 
 test("missing credential yields an unavailable receipt, never a passing skip", () => {
-  const receipt = { sender: "claude", receiver: "codex", scenario: "message", outcome: "unavailable" };
-  assert.equal(receipt.outcome, "unavailable");
-  assert.notEqual(receipt.outcome, "synthetic-pass");
+  const root = mkdtempSync(join(tmpdir(), "h2a-seat-missing-"));
+  try {
+    const receipt = seats.runSyntheticSeatCell("claude", "codex", "message", { parentDir: root, admission, bundles: [undefined, fixtures.makeSyntheticConsumerBundle("codex")] });
+    assert.equal(receipt.outcome, "unavailable");
+    assert.notEqual(receipt.outcome, "synthetic-pass");
+    assert.equal(receipt.q1ConsumedUnits, 0);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("billing admission refuses daily credentials, missing owner/Q3 approval and Q1 reserve use", () => {
+  const root = mkdtempSync(join(tmpdir(), "h2a-seat-billing-"));
+  try {
+    for (const rejected of [{ entitlementClass: "daily" }, { ownerApproved: false }, { q3Approved: false }, { consumedUnits: 8 }, { requestedUnits: NaN }, { requestedUnits: -1 }]) {
+      const receipt = seats.runSyntheticSeatCell("claude", "codex", "message", { parentDir: root, admission: { ...admission, ...rejected } });
+      assert.equal(receipt.outcome, "unavailable"); assert.equal(receipt.q1ConsumedUnits, 0);
+    }
+  } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
 test("live stub refuses missing receipts without resolving installed provider packages", () => {
