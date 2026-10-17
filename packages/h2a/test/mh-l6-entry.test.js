@@ -31,6 +31,7 @@ async function descriptor(f,value,body,probeSource){
   if(probeSource)fs.writeFileSync(bin,probeSource);
   const manifest=createManifest(original,JSON.parse(mb));fs.writeFileSync(mp,JSON.stringify(manifest)+'\n');
   const manifestDigest=digest(manifest);moved=join(f.installation.managedRoot,'images',manifestDigest.slice(7));fs.renameSync(original,moved);f.image=moved;
+  globalThis[Symbol.for('h2a.test.closedBuildReceipt')]?.({kind:'image',digest:manifestDigest});
   const old=readState(f.selectionPath,'selection');replaceState(f.selectionPath,{...old.value,selectionEpoch:old.value.selectionEpoch+1,manifestDigest},'selection',old);
   await body();
  }finally{

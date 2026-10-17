@@ -3,6 +3,7 @@
 import { chmodSync, cpSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, rmdirSync, symlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createHash } from 'node:crypto';
 import { buildNativePrototype } from './mh-l0-native-prototype.mjs';
 import { createManifest } from '../packages/h2a/src/runtime/handover/image.js';
 import { digest } from '../packages/h2a/src/runtime/handover/wire.js';
@@ -204,5 +205,7 @@ async function buildPayload(root, { buildId, managedRoot, releaseVersion, packag
     for (const value of Object.values(manifests)) globalThis[Symbol.for('h2a.test.closedBuildReceipt')]?.({ kind: 'image', digest: digest(value) });
   } else write(join(root, 'manifest.json'), manifest);
   globalThis[Symbol.for('h2a.test.closedBuildReceipt')]?.({ kind: 'image', digest: digest(manifest) });
+  globalThis[Symbol.for('h2a.test.closedBuildReceipt')]?.({ kind: 'router',
+    digest: 'sha256:' + createHash('sha256').update(readFileSync(join(root, atCore('dist/bin.js')))).digest('hex') });
   return { root, manifest, manifestDigest: digest(manifest), native, coreVersion, runtimeVersion, execution };
 }
