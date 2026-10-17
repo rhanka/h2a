@@ -1,0 +1,58 @@
+command: /tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-native-copy.test.js
+node: v24.21.0
+private root: /tmp/mh-l6-test-gXfG81
+case: all cases in explicit file
+TAP version 13
+# Subtest: U10 should copy only the pinned native payload without a compiler or shared ELF inode
+ok 1 - U10 should copy only the pinned native payload without a compiler or shared ELF inode
+  ---
+  duration_ms: 31.467852
+  type: 'test'
+  ...
+# Subtest: U10 should reject altered release archive bytes before extracting anything into a payload
+ok 2 - U10 should reject altered release archive bytes before extracting anything into a payload
+  ---
+  duration_ms: 5.438753
+  type: 'test'
+  ...
+# Subtest: U10 should never overwrite an existing native copy destination
+ok 3 - U10 should never overwrite an existing native copy destination
+  ---
+  duration_ms: 4.947188
+  type: 'test'
+  ...
+# Subtest: U10 should prepare the real workspace prebuild idempotently without changing its JavaScript
+ok 4 - U10 should prepare the real workspace prebuild idempotently without changing its JavaScript
+  ---
+  duration_ms: 34.9166
+  type: 'test'
+  ...
+# Subtest: U10 should refuse a shared workspace dependency and leave the outside target untouched
+ok 5 - U10 should refuse a shared workspace dependency and leave the outside target untouched
+  ---
+  duration_ms: 13.558588
+  type: 'test'
+  ...
+# Subtest: U10 should refuse mismatched workspace JavaScript before changing its native binding
+ok 6 - U10 should refuse mismatched workspace JavaScript before changing its native binding
+  ---
+  duration_ms: 23.237608
+  type: 'test'
+  ...
+# Subtest: U10 should preserve the previous binding and remove its temporary file when native replacement fails
+ok 7 - U10 should preserve the previous binding and remove its temporary file when native replacement fails
+  ---
+  duration_ms: 26.568404
+  type: 'test'
+  ...
+1..7
+# tests 7
+# suites 0
+# pass 7
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 175.106296
+
+receipt: {"command":["/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-native-copy.test.js"],"code":0,"signal":null,"tests":7,"invalid":false,"spawned":1,"leftovers":[]}

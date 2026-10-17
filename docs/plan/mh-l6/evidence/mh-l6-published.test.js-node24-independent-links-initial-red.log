@@ -1,0 +1,49 @@
+command: /tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-published.test.js
+node: v24.21.0
+private root: /tmp/mh-l6-test-098Fxh
+case: U10 should preserve internal link bytes and execute the copied image after the mutable source disappears
+TAP version 13
+# Subtest: U10 should preserve internal link bytes and execute the copied image after the mutable source disappears
+not ok 1 - U10 should preserve internal link bytes and execute the copied image after the mutable source disappears
+  ---
+  duration_ms: 7.033814
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-published.test.js:10:96'
+  failureType: 'testCodeFailure'
+  error: |-
+    Got unwanted exception.
+    Actual message: "image_link_outside"
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  actual:
+  error: 'image_link_outside'
+  stack: |-
+    walk (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/src/runtime/handover/image.js:20:42)
+    payload (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/src/runtime/handover/image.js:32:3)
+    verifyImage (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/src/runtime/handover/image.js:64:61)
+    preparePublishedImage (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/src/runtime/upgrade/published-payload.js:69:5)
+    file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-published.test.js:94:50
+    getActual (node:assert:611:5)
+    strict.doesNotThrow (node:assert:779:32)
+    TestContext.<anonymous> (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-published.test.js:94:21)
+    Test.runInAsyncScope (node:async_hooks:227:14)
+    Test.run (node:internal/test_runner/test:1402:25)
+  operator: 'doesNotThrow'
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-published.test.js:94:21)
+    Test.runInAsyncScope (node:async_hooks:227:14)
+    Test.run (node:internal/test_runner/test:1402:25)
+    Test.start (node:internal/test_runner/test:1262:17)
+    startSubtestAfterBootstrap (node:internal/test_runner/harness:387:17)
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 0
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 45.171752
+
+receipt: {"command":["/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-published.test.js"],"code":1,"signal":null,"tests":1,"invalid":false,"spawned":1,"leftovers":[]}

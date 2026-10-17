@@ -1,0 +1,40 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-package.test.js
+node: v22.22.1
+private root: /tmp/mh-l6-test-W7teZ5
+case: all cases in explicit file
+TAP version 13
+# Subtest: U10 U12 should pack real lockstep h2a and install it globally twice offline with scripts enabled and no compiler
+not ok 1 - U10 U12 should pack real lockstep h2a and install it globally twice offline with scripts enabled and no compiler
+  ---
+  duration_ms: 2704.790207
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-package.test.js:11:96'
+  failureType: 'testCodeFailure'
+  error: |-
+    one published tarball must describe both qualified Node profiles
+    + actual - expected
+    
+    + undefined
+    - 'h2a-published-payload'
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 'h2a-published-payload'
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-package.test.js:42:10)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 0
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 2818.374046
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-package.test.js"],"code":1,"signal":null,"tests":1,"invalid":false,"spawned":2,"leftovers":[]}

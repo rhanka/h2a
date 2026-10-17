@@ -1,0 +1,46 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-package.test.js
+node: v22.22.1
+private root: /tmp/mh-l6-test-YlqIuV
+case: U10 U12 should publish @sentropic/h2a with exact lockstep and install twice offline without a compiler
+TAP version 13
+# Subtest: U10 U12 should publish @sentropic/h2a with exact lockstep and install twice offline without a compiler
+not ok 1 - U10 U12 should publish @sentropic/h2a with exact lockstep and install twice offline without a compiler
+  ---
+  duration_ms: 19824.131673
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-package.test.js:11:96'
+  failureType: 'testCodeFailure'
+  error: 'ifError got unwanted exception: release_dependency_not_exact:@aws-sdk/core'
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: ~
+  actual:
+  error: 'release_dependency_not_exact:@aws-sdk/core'
+  stack: |-
+    verifyPublishablePayload (file:///tmp/mh-l3-qualification-YeHHOv/source/scripts/check-publish-payload.mjs:33:85)
+    packRelease (file:///tmp/mh-l3-qualification-YeHHOv/source/scripts/package-release.mjs:26:22)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async packageScenario (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-package.test.js:37:14)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+  operator: 'ifError'
+  stack: |-
+    packageScenario (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-package.test.js:42:10)
+    verifyPublishablePayload (file:///tmp/mh-l3-qualification-YeHHOv/source/scripts/check-publish-payload.mjs:33:85)
+    packRelease (file:///tmp/mh-l3-qualification-YeHHOv/source/scripts/package-release.mjs:26:22)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async packageScenario (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-package.test.js:37:14)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 0
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 19934.038595
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-package.test.js"],"code":1,"signal":null,"tests":1,"invalid":false,"spawned":3,"leftovers":[]}

@@ -1,0 +1,26 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-package.test.js
+node: v22.22.1
+private root: /tmp/mh-l6-test-frHnSM
+case: all cases in explicit file
+TAP version 13
+# Subtest: U10 U12 should pack real lockstep h2a and install it globally twice offline with scripts enabled and no compiler
+ok 1 - U10 U12 should pack real lockstep h2a and install it globally twice offline with scripts enabled and no compiler
+  ---
+  duration_ms: 33163.828579
+  type: 'test'
+  ...
+# npm scripts-enabled positive control: postinstall actually executed in a separate private fixture
+# {"npm":"pack --offline --json","filename":"sentropic-h2a-0.98.7.tgz","integrity":"sha512-88Q94yWTBNW8o78hMC+pA/yuhnHg/fJyMFivs3ACxeaesT2/aaRQuhE1a/gAHm+zWz/b2VrN1Kpb/WoJPUMKNQ==","files":10071}
+# npm install -g --prefix <one> --offline (scripts enabled) => added 1 package in 4s
+# npm install -g --prefix <two> --offline (scripts enabled) => added 1 package in 5s
+1..1
+# tests 1
+# suites 0
+# pass 1
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 33281.640718
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-package.test.js"],"code":0,"signal":null,"tests":1,"invalid":false,"spawned":13,"leftovers":[]}

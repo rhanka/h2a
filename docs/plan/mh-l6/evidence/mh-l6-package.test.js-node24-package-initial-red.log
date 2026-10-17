@@ -1,0 +1,40 @@
+command: /tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-package.test.js
+node: v24.21.0
+private root: /tmp/mh-l6-test-cd2n1s
+case: all cases in explicit file
+TAP version 13
+# Subtest: U10 U12 should pack real lockstep h2a and install it globally twice offline with scripts enabled and no compiler
+not ok 1 - U10 U12 should pack real lockstep h2a and install it globally twice offline with scripts enabled and no compiler
+  ---
+  duration_ms: 8.508486
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-package.test.js:11:96'
+  failureType: 'testCodeFailure'
+  error: |-
+    a release must not publish the MH-L1 wrapper or use its local compiler
+    + actual - expected
+    
+    + 'undefined'
+    - 'function'
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 'function'
+  actual: 'undefined'
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-package.test.js:24:10)
+    async Test.run (node:internal/test_runner/test:1409:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3)
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 0
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 46.999463
+
+receipt: {"command":["/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-package.test.js"],"code":1,"signal":null,"tests":1,"invalid":false,"spawned":1,"leftovers":[]}

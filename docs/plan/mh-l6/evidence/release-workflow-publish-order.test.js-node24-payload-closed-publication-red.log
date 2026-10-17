@@ -1,0 +1,93 @@
+command: /tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node --test --test-reporter=tap packages/h2a/test/release-workflow-publish-order.test.js
+node: v24.21.0
+private root: /tmp/mh-l6-test-DNdNOR
+case: all cases in explicit file
+TAP version 13
+# Subtest: release publishes lockstep packages in installable dependency order
+ok 1 - release publishes lockstep packages in installable dependency order
+  ---
+  duration_ms: 0.56893
+  type: 'test'
+  ...
+# Subtest: release publication of @sentropic/track is retry-safe and waits for registry visibility
+ok 2 - release publication of @sentropic/track is retry-safe and waits for registry visibility
+  ---
+  duration_ms: 0.244821
+  type: 'test'
+  ...
+# Subtest: release publication of @sentropic/h2a-runtime is retry-safe and waits for registry visibility
+ok 3 - release publication of @sentropic/h2a-runtime is retry-safe and waits for registry visibility
+  ---
+  duration_ms: 0.084549
+  type: 'test'
+  ...
+# Subtest: release publication of @sentropic/h2a is retry-safe and waits for registry visibility
+ok 4 - release publication of @sentropic/h2a is retry-safe and waits for registry visibility
+  ---
+  duration_ms: 0.074991
+  type: 'test'
+  ...
+# Subtest: release publication of @sentropic/h2a-cli is retry-safe and waits for registry visibility
+ok 5 - release publication of @sentropic/h2a-cli is retry-safe and waits for registry visibility
+  ---
+  duration_ms: 0.066155
+  type: 'test'
+  ...
+# Subtest: release publishes are backfill-safe: a version below latest gets --tag backfill
+ok 6 - release publishes are backfill-safe: a version below latest gets --tag backfill
+  ---
+  duration_ms: 0.101281
+  type: 'test'
+  ...
+# Subtest: release workflow supports a backfill dispatch for an existing tag
+ok 7 - release workflow supports a backfill dispatch for an existing tag
+  ---
+  duration_ms: 0.092074
+  type: 'test'
+  ...
+# Subtest: release executes the closed h2a-runtime tarball publication and preserves backfill and retry guards
+ok 8 - release executes the closed h2a-runtime tarball publication and preserves backfill and retry guards
+  ---
+  duration_ms: 215.370206
+  type: 'test'
+  ...
+# actual release shell for h2a-runtime: exact closed tar selected; backfill, retry and failed publish observed with private npm stub
+# Subtest: release executes the closed h2a tarball publication and preserves backfill and retry guards
+not ok 9 - release executes the closed h2a tarball publication and preserves backfill and retry guards
+  ---
+  duration_ms: 71.206354
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/release-workflow-publish-order.test.js:68:3'
+  failureType: 'testCodeFailure'
+  error: |-
+    wrong publication target ["publish","--workspace","@sentropic/h2a","--access","public","--tag","backfill"]
+    ::error::@sentropic/h2a@0.98.7: npm publish failed (not published).
+    
+    
+    1 !== 0
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 0
+  actual: 1
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/release-workflow-publish-order.test.js:87:37)
+    Test.runInAsyncScope (node:async_hooks:227:14)
+    Test.run (node:internal/test_runner/test:1402:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:974:18)
+    Test.postRun (node:internal/test_runner/test:1542:19)
+    Test.run (node:internal/test_runner/test:1467:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:974:7)
+  ...
+1..9
+# tests 9
+# suites 0
+# pass 8
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 330.0295
+
+receipt: {"command":["/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node","--test","--test-reporter=tap","packages/h2a/test/release-workflow-publish-order.test.js"],"code":1,"signal":null,"tests":9,"invalid":false,"spawned":17,"leftovers":[]}

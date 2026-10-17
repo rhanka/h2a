@@ -1,0 +1,154 @@
+command: /tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-components.test.js
+node: v24.21.0
+private root: /tmp/mh-l6-test-Gjlz4Q
+case: all cases in explicit file
+TAP version 13
+# Subtest: U12 should prevent the real MCP boot worker from executing code changed after its parent verified the image
+ok 1 - U12 should prevent the real MCP boot worker from executing code changed after its parent verified the image
+  ---
+  duration_ms: 6180.982515
+  type: 'test'
+  ...
+# Subtest: U12 should run the real journal child from its verified image and join its exit
+ok 2 - U12 should run the real journal child from its verified image and join its exit
+  ---
+  duration_ms: 2500.269565
+  type: 'test'
+  ...
+# Subtest: U12 should run the real identity child from its verified image and join its exit
+ok 3 - U12 should run the real identity child from its verified image and join its exit
+  ---
+  duration_ms: 2580.873058
+  type: 'test'
+  ...
+# Subtest: U12 should prevent the real journal child from executing late altered code
+ok 4 - U12 should prevent the real journal child from executing late altered code
+  ---
+  duration_ms: 1312.590498
+  type: 'test'
+  ...
+# Subtest: U12 should prevent the real identity child from executing late altered code
+ok 5 - U12 should prevent the real identity child from executing late altered code
+  ---
+  duration_ms: 1965.458971
+  type: 'test'
+  ...
+# Subtest: U12 should allow an external Node application to receive image data through spawn
+ok 6 - U12 should allow an external Node application to receive image data through spawn
+  ---
+  duration_ms: 865.565029
+  type: 'test'
+  ...
+# Subtest: U12 should allow an external Node application to receive image data through spawnSync
+ok 7 - U12 should allow an external Node application to receive image data through spawnSync
+  ---
+  duration_ms: 889.057025
+  type: 'test'
+  ...
+# Subtest: U12 should allow an external Node application to receive image data through execFile
+ok 8 - U12 should allow an external Node application to receive image data through execFile
+  ---
+  duration_ms: 1500.242577
+  type: 'test'
+  ...
+# Subtest: U12 should allow an external Node application to receive image data through execFileSync
+ok 9 - U12 should allow an external Node application to receive image data through execFileSync
+  ---
+  duration_ms: 892.080243
+  type: 'test'
+  ...
+# Subtest: U12 should install the reader before an unguarded internal entry through spawn
+ok 10 - U12 should install the reader before an unguarded internal entry through spawn
+  ---
+  duration_ms: 1277.691692
+  type: 'test'
+  ...
+# Subtest: U12 should install the reader before an unguarded internal entry through execFile
+ok 11 - U12 should install the reader before an unguarded internal entry through execFile
+  ---
+  duration_ms: 1229.736781
+  type: 'test'
+  ...
+# Subtest: U12 should install the reader before an unguarded internal entry through execFileSync
+ok 12 - U12 should install the reader before an unguarded internal entry through execFileSync
+  ---
+  duration_ms: 1293.120309
+  type: 'test'
+  ...
+# Subtest: U12 should refuse an external late import from the internal spawn entry
+ok 13 - U12 should refuse an external late import from the internal spawn entry
+  ---
+  duration_ms: 1281.719239
+  type: 'test'
+  ...
+# Subtest: U12 should refuse an external late import from the internal execFile entry
+ok 14 - U12 should refuse an external late import from the internal execFile entry
+  ---
+  duration_ms: 1236.722625
+  type: 'test'
+  ...
+# Subtest: U12 should refuse an external late import from the internal execFileSync entry
+ok 15 - U12 should refuse an external late import from the internal execFileSync entry
+  ---
+  duration_ms: 1257.349892
+  type: 'test'
+  ...
+# Subtest: U12 should run the real file boot worker in boot-check mode without network or prefix escape
+ok 16 - U12 should run the real file boot worker in boot-check mode without network or prefix escape
+  ---
+  duration_ms: 1336.257615
+  type: 'test'
+  ...
+# Subtest: U12 should run the real file boot worker in boot-auto mode without network or prefix escape
+ok 17 - U12 should run the real file boot worker in boot-auto mode without network or prefix escape
+  ---
+  duration_ms: 2133.745867
+  type: 'test'
+  ...
+# Subtest: U12 should bind physical image execution through alias-fork before any external effect
+ok 18 - U12 should bind physical image execution through alias-fork before any external effect
+  ---
+  duration_ms: 1220.938629
+  type: 'test'
+  ...
+# Subtest: U12 should bind physical image execution through alias-node before any external effect
+ok 19 - U12 should bind physical image execution through alias-node before any external effect
+  ---
+  duration_ms: 1283.037819
+  type: 'test'
+  ...
+# Subtest: U12 should bind physical image execution through alias-spawn before any external effect
+ok 20 - U12 should bind physical image execution through alias-spawn before any external effect
+  ---
+  duration_ms: 1238.841441
+  type: 'test'
+  ...
+# Subtest: U12 should refuse an unqualified Node URL entry before it can escape the image reader
+ok 21 - U12 should refuse an unqualified Node URL entry before it can escape the image reader
+  ---
+  duration_ms: 759.448277
+  type: 'test'
+  ...
+# Subtest: U12 should leave opaque data arguments untouched after identifying the image entry
+ok 22 - U12 should leave opaque data arguments untouched after identifying the image entry
+  ---
+  duration_ms: 1183.830128
+  type: 'test'
+  ...
+# Subtest: U12 should guard the real boot file on a direct Node entry outside its parent launcher
+ok 23 - U12 should guard the real boot file on a direct Node entry outside its parent launcher
+  ---
+  duration_ms: 428.309339
+  type: 'test'
+  ...
+1..23
+# tests 23
+# suites 0
+# pass 23
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 36182.273285
+
+receipt: {"command":["/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-components.test.js"],"code":0,"signal":null,"tests":23,"invalid":false,"spawned":2,"leftovers":[]}

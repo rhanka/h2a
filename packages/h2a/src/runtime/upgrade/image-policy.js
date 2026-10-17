@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import Module from 'node:module';
 import { dirname, join, relative, resolve, sep } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createHash } from 'node:crypto';
 import { verifyImage } from '../handover/image.js';
 import { privateDirectory } from '../handover/state.js';
@@ -50,12 +50,40 @@ export function installImagePolicy(directory, manifest, manifestDigest) {
       if (cursor === root) break;
     }
   };
+  const rootPackagePath = join(root, 'package.json');
+  const rootParentURL = pathToFileURL(rootPackagePath).href;
+  const rootName = entries.has('package.json') ? JSON.parse(bytesFor(rootPackagePath)).name : null;
+  const rootRequire = typeof rootName === 'string' ? Module.createRequire(rootPackagePath) : null;
+  const rootRequest = specifier => typeof rootName === 'string' && rootName.length > 0 &&
+    !specifier.startsWith('.') && !specifier.startsWith('/') && !specifier.startsWith('#') &&
+    (specifier === rootName || specifier.startsWith(rootName + '/'));
+  const resolveRoot = (specifier, context, nextResolve) => {
+    metadataFor(rootPackagePath);
+    // Node's own package self-reference resolver keeps exports/conditions. A
+    // nested package does not normally inherit the enclosing root's scope.
+    // CJS nextResolve captures its original parent in Node 22/24; changing only
+    // parentURL does not retarget it. Use a real root require and keep its hooks.
+    if (context.conditions?.includes('require')) return {
+      url: pathToFileURL(rootRequire.resolve(specifier)).href, shortCircuit: true
+    };
+    return nextResolve(specifier, { ...context, parentURL: rootParentURL });
+  };
   const hooks = Module.registerHooks({
     resolve(specifier, context, nextResolve) {
       const fromImage = inImage(context.parentURL);
+      const bindRoot = fromImage && context.parentURL !== rootParentURL && rootRequest(specifier);
       if (fromImage) metadataFor(fromUrl(context.parentURL));
       let result;
-      try { result = nextResolve(specifier, context); }
+      try {
+        try { result = nextResolve(specifier, context); }
+        catch (cause) {
+          if (!bindRoot) throw cause;
+          result = resolveRoot(specifier, context, nextResolve);
+        }
+        if (bindRoot && !result.url.startsWith('node:') && !inImage(result.url)) {
+          result = resolveRoot(specifier, context, nextResolve);
+        }
+      }
       catch (cause) {
         if (!fromImage) throw cause;
         throw Object.assign(new Error('image_dependency_missing', { cause }), { code: cause.code });
