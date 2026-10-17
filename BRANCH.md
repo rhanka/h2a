@@ -19,3 +19,6 @@
 - [x] Design contract: generic@1, semantic records only; no Focus scene model, view, geometry or layout hint.
 - [x] Layout L-R1..L-R11 remains DS-owned; interim placement exists only inside the xyflow adapter.
 - [x] Rebase origin/main: already up to date at the start of Tour 2.
+- [x] Final rebase includes #364; only BRANCH.md conflicted; Focus scope retained.
+- [x] Direct delivery dependencies: regenerate Focus registry digests and Track focus-vendor
+      after changing canonical schema/validation. Red vendor drift and packed digest proofs recorded.
