@@ -508,7 +508,8 @@ Confinement, temporary state, owned PIDs, no Python and no installed h2a remain
 mandatory. No Track writes, merge, release or new package-version bump.
 
 Main advanced during qualification to `2fabf3a30` (#327), then `fceab4a95`
-(#363, restores the 0.98.7 release train). The renewed rebases preserve those
+(#363, restores the 0.98.7 release train), then `fc6f4347a` (#362, Focus
+publication). The renewed rebases preserve those
 upstream changes; final manifests remain 0.98.7 and no release/bump commit is
 introduced by this lane. CI prerequisites now include
 full pinned Git history, private XDG cache/data, actual Node toolcache headers,
@@ -521,6 +522,11 @@ the unchanged 600s backstop. Real child ordering and failed-child propagation
 have mandatory regression cases. Short-lease recovery fixtures control expiry
 after their actual children are ready; all 32 PIDs and 20 recoveries remain
 required. The copied late PTY preload retains its original module imports.
+
+The fourth rebase retains Focus 0.5.0 as the fifth artifact in the common
+closed candidate producer, alongside the four 0.98.7 lockstep packages. Its
+independent version and RC/backfill gates follow main; no manifest is bumped.
+The release integrity fixture corrupts and refuses each of the five tarballs.
 
 # Focus publication — owner decision 2026-10-17
 
