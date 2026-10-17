@@ -108,6 +108,10 @@ export function buildStatusTable(events: readonly TrackEvent[], report: Report, 
     let evidence = info.stage?.evidence ?? derived.evidence
     const lastReopen = lastReopenById.get(item.id) ?? -1
     const lastReport = lastReportById.get(item.id) ?? -1
+    if (lastReopen > lastReport && status === 'progressing') {
+      status = 'unforeseen'
+      issues.push('status-predates-reopening')
+    }
     if (lastReopen >= 0 && (lastReport < lastReopen || info.stage === undefined) && STAGES.indexOf(stage) > 1) {
       stage = 'dev'; evidence = undefined; issues.push('stage-predates-reopening')
     }
@@ -127,7 +131,7 @@ export function buildStatusTable(events: readonly TrackEvent[], report: Report, 
     ].filter(Boolean)
     const next = status === 'decision-awaited' ? (issues.includes('missing-decision-expectations') ? 'compléter les attendus et le lien du dossier avant de demander ton GO.' : 'ton GO sur la question et les options ci-dessus.')
       : status === 'blocked' ? info.nextAction ?? info.proposal ?? 'rédiger une proposition de déblocage.'
-      : info.nextAction ?? (issues.includes('unrecorded-status') ? 'vérifier puis renseigner le statut de conformité.' : 'renseigner la prochaine action vérifiée.')
+      : info.nextAction ?? (issues.some(i => i === 'unrecorded-status' || i === 'status-predates-reopening') ? 'vérifier puis renseigner le statut de conformité.' : 'renseigner la prochaine action vérifiée.')
     const row: StatusTableRow = { id: item.id, n: '', request, requestSource, stage, ...(evidence ? { stageEvidence: evidence } : {}), status: COLORS[status], action: `${facts.join(' ')} Ensuite : ${next}`, issues: [...new Set(issues)], expectations, dossierRefs: expectations.map(e => e.dossier) }
     return { row, urgency: URGENCY[status], priority: source.priority ?? -Infinity, directive: directiveOrder.get(item.id) ?? Infinity }
   })
@@ -152,6 +156,7 @@ function issueText(issue: string): string {
     'settled-decision-expectations': 'attendus périmés : décision déjà rendue',
     'decision-expectations-conflict': 'attendus différents du dossier de décision courant',
     'stage-predates-reopening': 'preuve d’étape antérieure à la réouverture',
+    'status-predates-reopening': 'conformité à requalifier après la réouverture',
   }
   return `NON CONFORME : ${labels[issue] ?? issue}.`
 }

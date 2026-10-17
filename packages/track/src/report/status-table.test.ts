@@ -190,4 +190,15 @@ describe('owner status table regression fixtures', () => {
     expect(rows()[0].action).toContain('Proposition : Réparer la reconnexion.')
     expect(rows()[0].action).toContain('Ensuite : Ouvrir resolver.ts et corriger la cible.')
   })
+
+  it('requires renewed conformity after a recorded regression reopens an old green request', () => {
+    const id = item()
+    set(id, { status: 'progressing' })
+    track.setRealization(id, 'in-progress')
+    track.setRealization(id, 'done')
+    track.reopenItem(id, { motive: 'regression-observed', reason: 'La reprise est cassée' })
+    expect(rows()[0]).toMatchObject({ status: '🟠', issues: ['status-predates-reopening'] })
+    set(id, { status: 'progressing', facts: 'Correctif en cours, recette de régression ouverte.' })
+    expect(rows()[0].status).toBe('🟢')
+  })
 })
