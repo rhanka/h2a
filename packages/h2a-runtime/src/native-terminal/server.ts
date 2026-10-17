@@ -420,6 +420,12 @@ function releaseAllPendingResponses(context: ConnectionContext): void {
   context.pendingResponses = 0;
 }
 
+function contentError(error: unknown): Error {
+  const code = error instanceof Error && ["resource_busy","rate_limited","excluded","confirmation_expired","outcome_unknown","fence_storage_failed","unsupported_format","unsupported_source","content_unavailable"].includes(error.message)
+    ? error.message : "content_refused";
+  return new Error(code);
+}
+
 function writeError(context: ConnectionContext, id: unknown, code: NativeTerminalErrorResponse["error"]["code"], error: unknown): boolean {
   const response: NativeTerminalErrorResponse = {
     version: NATIVE_TERMINAL_PROTOCOL_VERSION,
@@ -471,8 +477,7 @@ function consumeFrames(host: NativeTerminalHost, context: ConnectionContext, chu
         void Promise.resolve(result).then(value=>{
           if(!context.socket.destroyed) writeResponse(context,{version:NATIVE_TERMINAL_PROTOCOL_VERSION,id:request.id,ok:true,result:value ?? null});
         },error=>{
-          const code=error instanceof Error&&["resource_busy","rate_limited","excluded","confirmation_expired","outcome_unknown","fence_storage_failed","unsupported_format","unsupported_source","content_unavailable"].includes(error.message)?error.message:"content_refused";
-          if(!context.socket.destroyed) writeError(context,request.id,"operation-failed",new Error(code)); })
+          if(!context.socket.destroyed) writeError(context,request.id,"operation-failed",contentError(error)); })
           .finally(()=>{context.pendingContent--;});
         continue;
       }
@@ -484,7 +489,7 @@ function consumeFrames(host: NativeTerminalHost, context: ConnectionContext, chu
       };
       if (!writeResponse(context, response)) return;
     } catch (error) {
-      if (!writeError(context, request.id, "operation-failed", error)) return;
+      if (!writeError(context, request.id, "operation-failed", request.operation.startsWith("content-") ? contentError(error) : error)) return;
     }
   }
   if (Buffer.byteLength(context.buffer) > NATIVE_TERMINAL_MAX_FRAME_BYTES) {

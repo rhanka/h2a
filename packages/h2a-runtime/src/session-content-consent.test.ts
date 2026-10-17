@@ -115,6 +115,15 @@ function proof(challenge:ConfirmationChallenge){
   const c=Buffer.from(JSON.stringify({iss:origin,sub:challenge.owner.subject,tenantId:challenge.project.tenantId,aud:challenge.clientId,nonce:confirmationNonce(challenge),acr:'urn:sentropic:loa:passkey-fresh',amr:['hwk','user','mfa'],exp:now+60,iat:now,auth_time:now})).toString('base64url');
   return h+'.'+c+'.'+sign('RSA-SHA256',Buffer.from(h+'.'+c),privateKey).toString('base64url');
 }
+it('should refuse unqualified native history before any confirmation challenge or content delivery',async()=>{
+  const {consent}=await setup();policy.channels.nativeHistory=true;policy.history=fixture('project-policy').policy.history;
+  await expect(consent.prepare('proposal')).rejects.toThrow('unsupported_format');
+  expect(observedChallenge).toBeUndefined();expect(acks).toBe(0);expect(bodyReads).toBe(0);expect(stored).toEqual([]);
+  expect(consent.counters.contentSubscriptions).toBe(0);expect(consent.counters.sourceContentReads).toBe(0);
+  const provider=fixture('native-manifest').provider;
+  expect(()=>new NativeHistoryProvider({project:policy.project,provider,qualifiedProviders:fixture('capabilities').native,
+    get catalog():never{throw new Error('catalog accessed before qualification');}})).toThrow('unsupported_format');
+});
 it('should keep actual native PTY refusal at zero content bytes then export only the post-ACK sentinel',async()=>{
   const configured=await setup(),budget=configured.budget;let consent=configured.consent,pty:PtyHandle|undefined,local='',exited=false;
   const saturated:SessionContentExport[]=[];
