@@ -2,13 +2,11 @@
 // e2e-cli-seats-direct.mjs — L2-s live lane STUB (synthetic lot).
 //
 // Authenticated NxN execution is NOT implemented in L2-s: this stub refuses
-// to run live without the L1/L2a receipts (published @sentropic/llm-mesh seat
-// contract >= 0.26.1 and pinned five-CLI runner qualification). It never
+// to run live without the L1/L2a receipts (public seat-bundle contract and
+// pinned five-CLI runner qualification; see docs/cli-seat-l2s.md). It never
 // spawns a native CLI and never touches a real home, keyring or network.
 // Live arguments (--cli/--scenario/--platform) are proposed non-secret
 // controls, not implemented commands.
-import { createRequire } from "node:module";
-
 const CLIS = ["agy", "codex", "vibe", "muse", "claude"];
 const SCENARIOS = ["message", "unavailable", "loop", "negotiation"];
 const PLATFORMS = ["linux", "macos", "windows"];
@@ -28,17 +26,12 @@ function option(name) {
 }
 
 function missingReceipts() {
-  const missing = [];
-  try {
-    const require = createRequire(import.meta.url);
-    const pkg = require("@sentropic/llm-mesh/package.json");
-    const version = typeof pkg?.version === "string" ? pkg.version : "unknown";
-    missing.push(`L1 seat contract: installed @sentropic/llm-mesh is ${version}, need >= 0.26.1 with the seat-bundle export`);
-  } catch {
-    missing.push("L1 seat contract: @sentropic/llm-mesh >= 0.26.1 with the seat-bundle export is not installed");
-  }
-  missing.push("L2a runner qualification: pinned five-CLI install/keyring receipts are absent in L2-s");
-  return missing;
+  // An installed package version is not evidence of either qualification.
+  // L2-s has no receipt verifier and must refuse independently of the host.
+  return [
+    "L1 seat contract: public seat-bundle API and qualification receipt are required (see docs/cli-seat-l2s.md)",
+    "L2a runner qualification: pinned five-CLI install/keyring receipts are absent in L2-s",
+  ];
 }
 
 const args = process.argv.slice(2);
