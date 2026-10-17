@@ -24,17 +24,21 @@ test('should preserve live terminal I/O and receive guardian-reaped exits in own
   await l.wait(() => /^__BASH_0__\r?$/m.test(l.text('bash')), 'interactive Bash command before handover');
 
   const first = all.slice(0, 4).map(s => s.id);
-  assert.equal((await l.rpc('move', { ids: first })).ok, true);
+  const stageDelay = Number(process.env.SPIKE_STAGE_DELAY ?? 25);
+  assert.equal((await l.rpc('move', { ids: first, stageDelay })).ok, true);
   const unaffectedBefore = [...l.text('s0').matchAll(/^TICK s0 (\d+)\r?$/gm)].length;
+  const oldUnaffectedBefore = [...l.text('s8').matchAll(/^TICK s8 (\d+)\r?$/gm)].length;
   const failed = await l.rpc('move', { ids: ['s4', 's5'], fault: 'reject', stageDelay: 80 });
   assert.equal(failed.ok, false);
   const unaffectedAfter = [...l.text('s0').matchAll(/^TICK s0 (\d+)\r?$/gm)].length;
   assert.ok(unaffectedAfter > unaffectedBefore, 'an unrelated migrated session keeps producing during a failed batch');
+  const oldUnaffectedAfter = [...l.text('s8').matchAll(/^TICK s8 (\d+)\r?$/gm)].length;
+  assert.ok(oldUnaffectedAfter > oldUnaffectedBefore, 'an unrelated owner 1 session also keeps producing during a failed batch');
   const badfd = await l.rpc('move', { ids: ['s6'], fault: 'ebadf' });
   assert.equal(badfd.ok, false);
   assert.match(badfd.why, /sendmsg SCM_RIGHTS: Bad file descriptor/);
-  assert.equal((await l.rpc('move', { ids: all.slice(4, 8).map(s => s.id) })).ok, true);
-  assert.equal((await l.rpc('move', { ids: all.slice(8).map(s => s.id) })).ok, true);
+  assert.equal((await l.rpc('move', { ids: all.slice(4, 8).map(s => s.id), stageDelay })).ok, true);
+  assert.equal((await l.rpc('move', { ids: all.slice(8).map(s => s.id), stageDelay })).ok, true);
   const oldExit = await l.wait(() => l.events.find(e => e.event === 'old-exit'), 'owner 1 exits automatically when empty');
   assert.equal(oldExit.code, 0);
   assert.ok(l.events.some(e => e.event === 'empty' && e.owner === 1));
@@ -91,6 +95,7 @@ test('should preserve live terminal I/O and receive guardian-reaped exits in own
     batches: l.events.filter(e => e.event === 'batch'),
     failedBatches: l.events.filter(e => e.event === 'batch-failed'),
     unrelatedTicksDuringRejectedBatch: unaffectedAfter - unaffectedBefore,
+    unrelatedOwner1TicksDuringRejectedBatch: oldUnaffectedAfter - oldUnaffectedBefore, stageDelay,
     exits: l.events.filter(e => e.event === 'exit').map(({ id, code, signal, owner }) => ({ id, code, signal, owner })),
     reapedByGuardian: all.length, receivedByNewOwner: all.length,
     newOwnerWaitpid: 'ECHILD', bash: 'readline + stty',
