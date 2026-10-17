@@ -50,3 +50,10 @@ it('should export the inclusive selected record range across ordered files and i
     await expect(run(root,files,{fromRecord:3,toRecord:7})).rejects.toThrow();
   }finally{rmSync(root,{recursive:true,force:true});}
 });
+
+it('should preserve exact UTF-8 source bytes including an initial BOM in exported records',async()=>{
+ const root=mkdtempSync(join(tmpdir(),'f2-exact-'));
+ try{const bytes=Buffer.from('\ufeff{"text":"é €"}\r\n');writeFileSync(join(root,'records'),bytes);
+   const {received}=await run(root,[{path:'records/a.jsonl',localPath:join(root,'records'),role:'records'}]);expect(Buffer.concat(received)).toEqual(bytes);
+ }finally{rmSync(root,{recursive:true,force:true});}
+});
