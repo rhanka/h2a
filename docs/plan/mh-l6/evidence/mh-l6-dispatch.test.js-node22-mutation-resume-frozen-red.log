@@ -1,0 +1,40 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-dispatch.test.js
+node: v22.22.1
+private root: /tmp/mh-l6-test-s7hVvQ
+case: F should resume a prepared transaction without changing its phase
+TAP version 13
+# Subtest: F should resume a prepared transaction without changing its phase
+not ok 1 - F should resume a prepared transaction without changing its phase
+  ---
+  duration_ms: 557.29472
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-f2c2-zgmjUU/packages/h2a/test/mh-l6-dispatch.test.js:8:67'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    + actual - expected
+    
+    + 'SELECTED'
+    - 'PREPARED'
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 'PREPARED'
+  actual: 'SELECTED'
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/mh-l3-qualification-f2c2-zgmjUU/packages/h2a/test/mh-l6-dispatch.test.js:31:10)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 0
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 1322.433431
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-dispatch.test.js"],"code":1,"signal":null,"tests":1,"invalid":false,"spawned":1,"leftovers":[]}
