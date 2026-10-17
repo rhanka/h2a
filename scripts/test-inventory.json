@@ -983,7 +983,9 @@
     "the production Node runner reports a failing child and still executes the other explicit file",
     "both real package suites start before the remaining Node files without dropping any file",
     "two reported CPUs execute two waiting files together instead of reserving one CPU",
-    "the runner reports its own pending file and PID before that file completes"
+    "the runner reports its own pending file and PID before that file completes",
+    "daemon startup qualification completes alone before the same runner executes every remaining file",
+    "a failed standalone daemon suite remains failed while every remaining file still executes"
   ],
   "packages/h2a/test/native-cleanse-oracle.test.js": [
     "L0 contracts: only the committed state and exact failure signature are accepted",
