@@ -85,6 +85,10 @@ const cases = [
   ['adoption-execute', 'exclusion-wiring', 'store.select(upgradeId, { exclusion })', 'store.select(upgradeId)', 'C2b should install the launcher but defer selection while exclusion is unfenced'],
   ['adoption-execute', 'session-revalidate', 'assertBootstrapSessionUnchanged(session);', '', 'C2b should write nothing when the session drifted before adoption'],
   ['adoption-execute', 'install-call', 'const installation = installManagedLauncher({ session, launcherSource, managedDir, commandPath });', 'const installation = null;', 'C2b should execute adoption from session to selected build'],
+  ['unmanage', 'engaged-check', 'if (!QUIESCENT.has(tx.installationState)) throw new Error(`unmanage_transaction_engaged:${tx.installationState}`);', '', 'D should refuse while a prepared transaction is still engaged'],
+  ['unmanage', 'unrestorable-check', "try { fs.statSync(originalTarget); } catch { throw new Error('unmanage_link_unrestorable'); }", '', 'D should refuse an unrestorable original link without touching the command'],
+  ['unmanage', 'marker-write', "fs.renameSync(markerTmp, join(managedDir, 'unmanaged.json'));", '', 'D should restore the original command link and mark the installation unmanaged'],
+  ['unmanage', 'marker-reason', "reason: 'operator_unmanage'", "reason: 'automatic'", 'D should restore the original command link and mark the installation unmanaged'],
 ];
 const files = group === 'launcher' ? ['packages/h2a/src/runtime/upgrade/managed-launcher.js'] :
   group === 'exclusion' ? ['packages/h2a/src/runtime/upgrade/legacy-exclusion.js', 'packages/h2a/dist/runtime/upgrade/legacy-exclusion.js'] :
@@ -92,11 +96,12 @@ const files = group === 'launcher' ? ['packages/h2a/src/runtime/upgrade/managed-
   group === 'adoption' ? ['packages/h2a/src/runtime/upgrade/adoption-need.js', 'packages/h2a/dist/runtime/upgrade/adoption-need.js'] :
   group === 'launcher-install' ? ['packages/h2a/src/runtime/upgrade/launcher-install.js', 'packages/h2a/dist/runtime/upgrade/launcher-install.js'] :
   group === 'adoption-execute' ? ['packages/h2a/src/runtime/upgrade/adoption-execute.js', 'packages/h2a/dist/runtime/upgrade/adoption-execute.js'] :
+  group === 'unmanage' ? ['packages/h2a/src/runtime/upgrade/unmanage.js', 'packages/h2a/dist/runtime/upgrade/unmanage.js'] :
   ['packages/h2a/src/runtime/upgrade/h4-store.js', 'packages/h2a/dist/runtime/upgrade/h4-store.js'];
 const originals = files.map(path => ({ path, bytes: fs.readFileSync(path) }));
 const selected = cases.filter(c => c[0] === group && (!process.env.MH_L6_MUTATION || c[1] === process.env.MH_L6_MUTATION));
 if (!selected.length) throw new Error('unknown_mutation_group');
-const testFile = { delegation: 'delegation', launcher: 'launcher', exclusion: 'exclusion', deferral: 'exclusion', bootstrap: 'bootstrap', adoption: 'adoption', 'launcher-install': 'launcher-install', 'adoption-execute': 'adoption' }[group] ?? 'selection';
+const testFile = { delegation: 'delegation', launcher: 'launcher', exclusion: 'exclusion', deferral: 'exclusion', bootstrap: 'bootstrap', adoption: 'adoption', 'launcher-install': 'launcher-install', 'adoption-execute': 'adoption', unmanage: 'unmanage' }[group] ?? 'selection';
 const file = `packages/h2a/test/mh-l6-${testFile}.test.js`;
 const results = [];
 for (const [, name, from, to, scenario] of selected) {
