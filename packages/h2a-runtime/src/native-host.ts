@@ -14,6 +14,7 @@
  * addressing and registry entries stay uniform across hosts.
  */
 import { spawnSync } from "node:child_process";
+import { sanitizeEnvJson, type MaterializedSeat } from "./cli-seat-materialization.js";
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -343,6 +344,7 @@ export type NativeLaunchMetadata = {
   readonly sessionClass?: SessionClass;
   readonly terminateOnAgentExit?: boolean;
   readonly refuseExisting?: boolean;
+  readonly seat?: MaterializedSeat;
 };
 
 /**
@@ -393,7 +395,7 @@ export function startNativeSession(
         ...args,
       ];
   const env: Record<string, string> = {};
-  for (const [key, value] of Object.entries(process.env)) {
+  for (const [key, value] of Object.entries(metadata.seat?.childEnv ?? process.env)) {
     if (value !== undefined) env[key] = value;
   }
   env["TERM"] = "xterm-256color";
@@ -407,7 +409,7 @@ export function startNativeSession(
   const envDir = mkdtempSync(join(tmpdir(), "h2a-native-env-"));
   const envFile = join(envDir, "env.json");
   try {
-    writeFileSync(envFile, JSON.stringify(env), { mode: 0o600 });
+    writeFileSync(envFile, JSON.stringify(sanitizeEnvJson(env, []).env), { mode: 0o600, flag: "wx" });
     const ownershipArgs = prepareNativeOwnership(name, metadata.beforeCreate, nativeSidecarName(name));
     const { payload } = runOp([
       "create",
@@ -589,6 +591,7 @@ export function startNativeHeadlessSession(
   onCreateAttempt?: () => void,
   beforeCreate?: (value: NativeLaunchOwnership) => void,
   outputFile?: string,
+  seat?: MaterializedSeat,
 ): NativeStartResult & { promptFile?: string } {
   const slug = slugify(label);
   const name = localSessionName(slug);
@@ -618,7 +621,7 @@ export function startNativeHeadlessSession(
   }
   const agentCommand = headlessCommand(profile, command, args, resultJson, outputLog, promptFile, outputFile);
   const env: Record<string, string> = {};
-  for (const [key, value] of Object.entries(process.env)) {
+  for (const [key, value] of Object.entries(seat?.childEnv ?? process.env)) {
     if (value !== undefined) env[key] = value;
   }
   env["TERM"] = "xterm-256color";
@@ -626,7 +629,7 @@ export function startNativeHeadlessSession(
   const envDir = mkdtempSync(join(tmpdir(), "h2a-native-env-"));
   const envFile = join(envDir, "env.json");
   try {
-    writeFileSync(envFile, JSON.stringify(env), { mode: 0o600 });
+    writeFileSync(envFile, JSON.stringify(sanitizeEnvJson(env, []).env), { mode: 0o600, flag: "wx" });
     const { payload } = runOp([
       "create",
       ...prepareNativeOwnership(name, beforeCreate, nativeSidecarName(name)),
@@ -662,7 +665,7 @@ export function startNativeH2aSidecar(
   name: string,
   cwd: string,
   h2aCommand: string,
-  options: { verified?: boolean; beforeCreate?: (value: NativeLaunchOwnership) => void; onCreateAttempt?: () => void } = {},
+  options: { verified?: boolean; beforeCreate?: (value: NativeLaunchOwnership) => void; onCreateAttempt?: () => void; seat?: MaterializedSeat } = {},
 ): boolean {
   const sidecar = nativeSidecarName(name);
   const parent = nativeSessionState(name);
@@ -678,7 +681,7 @@ export function startNativeH2aSidecar(
     return true;
   }
   const env: Record<string, string> = {};
-  for (const [key, value] of Object.entries(process.env)) {
+  for (const [key, value] of Object.entries(options.seat?.mcpEnv ?? process.env)) {
     if (value !== undefined) env[key] = value;
   }
   env["TERM"] = "xterm-256color";
@@ -698,7 +701,8 @@ export function startNativeH2aSidecar(
     env["H2A_MCP_READY_NONCE"] = challenge.nonce;
   }
   try {
-    writeFileSync(envFile, JSON.stringify(env), { mode: 0o600 });
+    const child = sanitizeEnvJson(env, []).env;
+    writeFileSync(envFile, JSON.stringify(child), { mode: 0o600, flag: "wx" });
     runOp([
       "create",
       ...(options.beforeCreate ? prepareNativeOwnership(sidecar, options.beforeCreate, undefined, ownerSocket)
