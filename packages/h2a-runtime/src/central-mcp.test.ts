@@ -284,9 +284,12 @@ describe("central MCP crash records (revcrashlog constats 2/4)", () => {
     setH2aConfig({ central: { enabled: true, endpoint } });
     const child = deadSpawn();
     const pending = ensureCentralMcp({ root: workspace });
+    // Attach the rejection handler BEFORE the failure can fire: otherwise the
+    // rejection is unhandled and fails the whole suite run (CI proof).
+    const assertion = expect(pending).rejects.toThrow("boom-spawn");
     await new Promise((r) => setImmediate(r));
     child.emit("error", new Error("boom-spawn"));
-    await expect(pending).rejects.toThrow("boom-spawn");
+    await assertion;
     expect(serverRows()[0]).toMatchObject({ event: "startupError", reason: "spawn-failed" });
   });
 
@@ -297,8 +300,11 @@ describe("central MCP crash records (revcrashlog constats 2/4)", () => {
     deadSpawn();
     vi.useFakeTimers();
     const pending = ensureCentralMcp({ root: workspace });
+    // Same unhandled-rejection hazard: the rejection fires DURING the timer
+    // advance, so the handler must already be attached here.
+    const assertion = expect(pending).rejects.toThrow(/did not become ready/);
     await vi.advanceTimersByTimeAsync(11_000);
-    await expect(pending).rejects.toThrow(/did not become ready/);
+    await assertion;
     expect(serverRows()[0]).toMatchObject({ event: "exit", reason: "readiness-timeout" });
   });
 
