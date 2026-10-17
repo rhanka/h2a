@@ -14,7 +14,7 @@ Toute évolution de ce contrat = **décision irréversible-produit** (réservée
 
 ## 3. Surface CLI (contrat figé)
 - Contrat machine : `packages/h2a-cli/src/cli-contract.ts` (`H2A_CLI_VERB_CONTRACTS`, 90 verbes dispatchables).
-- Mapping cible figé **255 → h2a** : `docs/focus/h2a-mapping.html` + `docs/specs/2026-06-28-h2a-command-mapping-v6.md` (généré par `docs/focus/gen-mapping.py`).
+- Mapping cible figé **255 → h2a** : `docs/focus/h2a-mapping.html` + `docs/specs/2026-06-28-h2a-command-mapping-v6.md` (généré par `docs/focus/gen-mapping.mjs` : `node docs/focus/gen-mapping.mjs <md_out> <html_out>`).
 - Modèle : 5 finalités (Coordinate/Run/Track/Admin/Extend) ; 3 packages (`@sentropic/h2a`, `@sentropic/h2a-cli`, `@sentropic/track`) + libs consommées.
 - Grammaire actée : pas de namespaces fourre-tout (`host`/`sub` dissous → verbes globaux + options) ; lancement `h2a run <cli> [--options]` ; agent natif `h2a` (bare, interactif) ; `h2a --resume`.
 
