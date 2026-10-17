@@ -59,7 +59,9 @@ test("should install the repo-wide boundary in each default test runner", () => 
     assert.match(readFileSync(new URL(config, repo), "utf8"), /setupFiles:.*vitest\.native-isolation\.mjs/);
   }
   assert.match(readFileSync(new URL("scripts/run-tests.mjs", repo), "utf8"),
-    /\["--import",.*native-isolation\.js/);
+    /scripts\/run-node-tests\.mjs/);
+  assert.match(readFileSync(new URL("scripts/run-node-tests.mjs", repo), "utf8"),
+    /execArgv:\s*\['--import',.*native-isolation\.js/);
 });
 
 test("should preserve a neutral loader environment while guarding child native launches", () => {

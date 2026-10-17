@@ -420,12 +420,14 @@ export function installNativeTestSpawnGuard() {
     return result;
   };
   childProcess.spawnSync = function (command, args, options) {
+    if (args != null && typeof args !== 'object') throw new TypeError('args must be an array or an options object');
     if (!Array.isArray(args)) { options = args; args = []; }
     const env = guardedEnvironment(command, args, options?.env ?? process.env, options?.cwd);
     return actualSpawnSync(command, preloadedArguments(command, args, env), { ...options, env });
   };
   // Node's sync exec helpers retain an internal spawnSync reference.
   childProcess.execFileSync = function (command, args, options) {
+    if (args != null && typeof args !== 'object') throw new TypeError('args must be an array or an options object');
     if (!Array.isArray(args)) { options = args; args = []; }
     const env = guardedEnvironment(command, args, options?.env ?? process.env, options?.cwd);
     return actualExecFileSync(command, preloadedArguments(command, args, env), { ...options, env });
