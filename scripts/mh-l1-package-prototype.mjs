@@ -201,6 +201,8 @@ async function buildPayload(root, { buildId, managedRoot, releaseVersion, packag
       nativeArtifacts: manifest.nativeArtifacts.map(artifact => ({ ...artifact, nodeAbi: abi }))
     };
     write(join(root, 'manifest.json'), { schemaVersion: 1, kind: 'h2a-published-payload', manifests });
+    for (const value of Object.values(manifests)) globalThis[Symbol.for('h2a.test.closedBuildReceipt')]?.({ kind: 'image', digest: digest(value) });
   } else write(join(root, 'manifest.json'), manifest);
+  globalThis[Symbol.for('h2a.test.closedBuildReceipt')]?.({ kind: 'image', digest: digest(manifest) });
   return { root, manifest, manifestDigest: digest(manifest), native, coreVersion, runtimeVersion, execution };
 }
