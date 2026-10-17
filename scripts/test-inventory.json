@@ -455,7 +455,7 @@
     "host plugin --scaffold is refused for non-codex hosts (manifest is codex-specific)",
     "host plugin marks vibe as push via a post_agent hook (vibe-hooks, ~/.vibe/hooks.toml)",
     "host plugin --write is refused for vibe (~/.vibe/hooks.toml is TOML; the JSON hook merger is format-strict)",
-    "host plugin --write is refused for agy and muse (poll-only, no verified stop-hook)",
+    "host plugin installs only pre-action scope hooks for agy and muse",
     "host plugin rejects an unknown host and requires --instance"
   ],
   "packages/h2a/test/hosts-integration.test.js": [

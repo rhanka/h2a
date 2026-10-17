@@ -18,7 +18,7 @@ export function inspectVibeDiscovery(root: string, cwd: string, config: Record<s
     } catch (e) { if ((e as NodeJS.ErrnoException).code !== 'ENOENT') unavailable.push(path); }
   }
   const projectHooks = join(cwd, '.vibe/hooks.toml');
-  const managedNames = ['sentropic-h2a-deny-manual-cli', 'h2a-drumbeat-record'];
+  const managedNames = ['sentropic-h2a-deny-manual-cli', 'h2a-drumbeat-record', 'sentropic-h2a-workspace-scope'];
   const file = resolve(projectHooks) === resolve(root, 'hooks.toml') ? undefined : snapshot(projectHooks);
   const maskingHooks = file ? (parseNativeToml(file.bytes.toString()).hooks ?? []).filter((h: any) => managedNames.includes(h.name)).map((h: any) => h.name) : [];
   return { paths, sources, collisions: Object.entries(sources).filter(([, files]) => files.length > 1).map(([name, files]) => ({ name, files })),
