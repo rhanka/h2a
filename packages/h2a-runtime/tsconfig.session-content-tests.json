@@ -8,7 +8,9 @@
   "include": [
     "src/session-content-json.ts",
     "src/session-content-confirmation.ts",
-    "src/session-content-confirmation.test.ts"
+    "src/session-content-confirmation.test.ts",
+    "src/session-content-auth.ts",
+    "src/session-content-auth.test.ts"
   ],
   "exclude": []
 }

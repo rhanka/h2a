@@ -18,11 +18,12 @@ const challenge: ConfirmationChallenge = {
   random: Buffer.alloc(32, 7).toString("base64url"), issuedAt: now, expiresAt: now + 60_000,
 };
 function jwt(ch: ConfirmationChallenge = challenge, patch: Record<string, unknown> = {}, header: Record<string, unknown> = {}) {
-  const h = Buffer.from(JSON.stringify({ alg: "RS256", kid: "test-key", ...header })).toString("base64url");
+  const { attacker: useAttacker, ...protectedHeader } = header;
+  const h = Buffer.from(JSON.stringify({ alg: "RS256", kid: "test-key", ...protectedHeader })).toString("base64url");
   const p = Buffer.from(JSON.stringify({ iss: ch.owner.issuer, sub: ch.owner.subject, aud: ch.clientId,
     tenantId: ch.project.tenantId, nonce: confirmationNonce(ch), acr: "urn:sentropic:loa:passkey-fresh",
     amr: ["hwk", "user", "mfa"], auth_time: now / 1000, iat: now / 1000, exp: now / 1000 + 60, ...patch })).toString("base64url");
-  return `${h}.${p}.${sign("RSA-SHA256", Buffer.from(`${h}.${p}`), header["attacker"] ? attacker : privateKey).toString("base64url")}`;
+  return `${h}.${p}.${sign("RSA-SHA256", Buffer.from(`${h}.${p}`), useAttacker ? attacker : privateKey).toString("base64url")}`;
 }
 function setup() {
   let wall = now, mono = 1000;
@@ -128,6 +129,27 @@ describe("session content confirmation", () => {
     const s = setup();
     expect(() => s.verifier.stage({ ...challenge, id: "other-source",
       source: { ...challenge.source, sourceId: "invented" } })).toThrow();
+  });
+  it("should share the sixteen-slot host limit and host creation bucket across authenticated owners", () => {
+    let wall = now, mono = 1000;
+    const budget = new ConfirmationBudget(() => mono);
+    const peers = Array.from({ length: 5 }, (_, i) => {
+      const owner = { ...challenge.owner, subject: `owner-${i}` };
+      const verifier = new ConfirmationVerifier({ issuer: owner.issuer, subject: owner.subject, tenantId: "tenant",
+        clientId: challenge.clientId, source: challenge.source, keys: [jwk], measuredClockErrorMs: 0, budget,
+        wallNow: () => wall, monotonicNow: () => mono });
+      return { verifier, owner };
+    });
+    for (const p of peers.slice(0, 4)) for (let j = 0; j < 4; j++) {
+      p.verifier.stage({ ...challenge, id: `${p.owner.subject}-${j}`, owner: p.owner });
+    }
+    const last = peers[4]!;
+    expect(() => last.verifier.stage({ ...challenge, owner: last.owner })).toThrow(/resource_busy/);
+    peers[0]!.verifier.cancelAll();
+    expect(() => last.verifier.stage({ ...challenge, owner: last.owner })).toThrow(/rate_limited/);
+    wall += 2500; mono += 2500;
+    expect(last.verifier.stage({ ...challenge, owner: last.owner, issuedAt: wall, expiresAt: wall + 60_000 })).toBeDefined();
+    for (const p of peers) p.verifier.cancelAll();
   });
   it("should reject duplicate JSON keys, invalid Unicode and noncanonical JWT encoding", () => {
     expect(() => parseStrictJson('{"exp":1,"exp":2}')).toThrow();
