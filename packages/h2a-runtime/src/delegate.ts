@@ -748,6 +748,38 @@ function defaultRunGit(
   return { status: r.status };
 }
 
+/** R1 lifecycle seam: the cleanup owner supplies the pinned ingested HEAD.
+ * No removal is authorized by request acceptance alone. This also rechecks a
+ * foreign/malformed port response before handing control to job cleanup.
+ */
+export async function retainBeforeJobRemoval(
+  request: import("./vendor/engram-live/contracts.js").RetentionRequestDto,
+  retention: import("./vendor/engram-live/retention.js").RetentionPort,
+  remove: () => Promise<void>,
+): Promise<{ removed: true } | { removed: false; reason: "retention_gap" }> {
+  // Snapshot before the first await; a caller cannot change the scope or
+  // pinned OID underneath the acknowledgement check.
+  const pinned = JSON.parse(JSON.stringify(request)) as typeof request;
+  const { validateRetentionReceipt, validateRetentionRequest } = await import("./vendor/engram-live/contracts.js");
+  if (!validateRetentionRequest(pinned).ok) throw new Error("invalid job retention request");
+  const { runRetentionPass } = await import("./vendor/engram-live/retention.js");
+  const result = await runRetentionPass({ scope: pinned.scope, now: pinned.requestedAt, roots: [{
+    rev: pinned.oid, qualifiedOid: { algorithm: pinned.algorithm, oid: pinned.oid },
+    sources: [{ signal: pinned.firstSignal, refName: pinned.refName, activityAt: null, worktreeId: null, generation: 1 }],
+  }] }, {
+    // Keep the cleanup request's original provenance; engram owns satisfaction.
+    recordRequest: () => retention.recordRequest(JSON.parse(JSON.stringify(pinned)) as typeof request),
+    recordReceipt: value => retention.recordReceipt(value),
+    async loadReceipts(query) {
+      const loaded = await retention.loadReceipts(query);
+      return { receipts: loaded.receipts.filter(receipt => validateRetentionReceipt(receipt).ok && receipt.scope.worktree === undefined) };
+    },
+  });
+  if (result.state !== "complete") return { removed: false, reason: "retention_gap" };
+  await remove();
+  return { removed: true };
+}
+
 export type ResolveCwdOpts = {
   /** Explicit cwd override (`--cwd`): used as-is, no worktree. */
   explicitCwd?: string;

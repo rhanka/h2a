@@ -100,7 +100,7 @@ export class LiveRevisionConflict extends Error {
 // Every mutation (insert/update/remove) holds this lock from its read to
 // its persisted rename, so no stale revision can slip between the guard
 // check and the write — across processes as well as across store
-// instances. The lock is an atomically created directory; acquisition
+// instances. The lock is an atomically published nonempty directory; acquisition
 // retries briefly, recovers abandoned locks by age, then fails explicitly
 // (never silently proceeding unlocked). Re-entry by the SAME process only
 // bumps a counter: the pre-persist re-verification inside update() still
@@ -151,17 +151,22 @@ function acquireStoreLock(root: string): StoreLock {
   }
   const deadline = Date.now() + STORE_LOCK_TIMEOUT_MS;
   for (;;) {
+    const lock = { token: randomUUID(), depth: 1 };
+    const candidate = `${dir}.${lock.token}.candidate`;
     try {
-      mkdirSync(dir);
-      const lock = { token: randomUUID(), depth: 1 };
-      // No recursive mkdir: if takeover removed our parent in this window,
-      // acquisition must retry, never recreate a dispossessed generation.
-      mkdirSync(join(dir, lock.token));
+      mkdirSync(candidate, { mode: 0o700 });
+      mkdirSync(join(candidate, lock.token), { mode: 0o700 });
+      // One atomic publication, with the generation already inside. An
+      // existing nonempty lock cannot be replaced by rename. A suspended
+      // publisher can never resume by adding its token to a successor.
+      renameSync(candidate, dir);
       storeLocksHeld.set(dir, lock);
       return lock;
     } catch (error) {
       const code = (error as NodeJS.ErrnoException).code;
-      if (code !== "EEXIST" && code !== "ENOENT") throw error;
+      if (code !== "EEXIST" && code !== "ENOENT" && code !== "ENOTEMPTY") throw error;
+    } finally {
+      rmSync(candidate, { recursive: true, force: true });
     }
     // Age permits takeover, but does NOT prove the holder stopped. Invalidate
     // only the generation observed before the age check. A competing cleanup
