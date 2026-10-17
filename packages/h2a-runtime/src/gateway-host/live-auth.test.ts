@@ -23,17 +23,24 @@ function fixture() {
     const value = { ...claims, ...patch };
     return { claims: value, signature: sign(null, liveDisclosureSigningBytes(value), keys.privateKey).toString("base64url") };
   };
+  const reads: string[] = [];
   const auth = createLiveDisclosureAuth({ now: () => now,
     trust: (key) => key === "key-1" ? { ...scope, publicKey: keys.publicKey } : undefined,
-    readState: (repo) => repo === "clone-1" ? state : undefined,
+    readState: (repo) => { reads.push(repo); return repo === "clone-1" ? state : undefined; },
     isRevoked: () => revoked,
   });
-  return { auth, capability, claims, setNow: (n: number) => { now = n; },
+  return { auth, capability, claims, reads, setNow: (n: number) => { now = n; },
     setRevoked: (r: boolean | undefined) => { revoked = r; },
     setState: (s: LiveDisclosureState | undefined) => { state = s; }, state };
 }
 
 describe("verified live disclosure authority", () => {
+  it('should reject a foreign repository before calling its state port', () => {
+    const f = fixture();
+    // Use the real verified fixture, replacing only the requested repository.
+    expect(f.auth.authorize(f.capability(), 'emit', 'clone-2')).toEqual({ ok: false, reason: 'scope-mismatch' });
+    expect(f.reads).toEqual([]);
+  });
   it("should authorize only a registered host proof bound to the current declaration", () => {
     const f = fixture();
     expect(f.auth.authorize(f.capability(), "grant", "clone-1")).toMatchObject({ ok: true, state: f.state });
