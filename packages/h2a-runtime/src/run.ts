@@ -7,8 +7,11 @@ import {
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 
+import { spawnSync } from "node:child_process";
+
 import { resolveProfile, withResume, type ProfileConfig } from "./profiles.js";
 import { nodePtySpawner, type PtyHandle, type PtySpawner } from "./pty.js";
+import { resetClientTerminal } from "./terminal-reset.js";
 
 export type RunOptions = {
   readonly profile: string;
@@ -136,6 +139,56 @@ export async function run(options: RunOptions): Promise<RunResult> {
     );
   });
 
+  // rev351-2/3.2: the PTY child drives the REAL client terminal (raw stdin
+  // + direct VT bytes). Save termios + raw mode so every exit path restores
+  // both the VT modes and the kernel TTY state, even when the CLI dies by
+  // signal after enabling focus/mouse/alternate-screen/Kitty modes.
+  const stdinFd = (stdin as { fd?: unknown }).fd;
+  const wasRaw = (stdin as { isRaw?: boolean }).isRaw === true;
+  const savedTty =
+    stdin.isTTY === true &&
+    typeof stdinFd === "number" &&
+    process.platform !== "win32"
+      ? (() => {
+          try {
+            return spawnSync("stty", ["-g"], {
+              stdio: [stdinFd, "pipe", "ignore"],
+              encoding: "utf8",
+            });
+          } catch {
+            return undefined;
+          }
+        })()
+      : undefined;
+  const restoreClientTerminal = (): void => {
+    try {
+      resetClientTerminal(stdout);
+    } catch {
+      // Best effort; raw/termios restore below still runs.
+    }
+    try {
+      if (stdin.isTTY) stdin.setRawMode?.(wasRaw);
+    } catch {
+      // Never mask the session outcome.
+    }
+    try {
+      const saved = savedTty as
+        | { status?: number; stdout?: unknown }
+        | undefined;
+      if (
+        saved?.status === 0 &&
+        typeof saved.stdout === "string" &&
+        saved.stdout.trim() &&
+        typeof stdinFd === "number"
+      ) {
+        spawnSync("stty", [saved.stdout.trim()], {
+          stdio: [stdinFd, "ignore", "ignore"],
+        });
+      }
+    } catch {
+      // Best effort.
+    }
+  };
   // Forward host stdin to the PTY.
   if (stdin.isTTY) {
     stdin.setRawMode?.(true);
@@ -248,6 +301,39 @@ export async function run(options: RunOptions): Promise<RunResult> {
   const exit = new Promise<{ exitCode: number; signal?: number }>((resolve) => {
     resolveExit = resolve;
   });
+  // Async bridge: the event loop runs, so signal handlers CAN execute here
+  // (unlike the blocking spawnSync wrappers). Reset + restore, then preserve
+  // signal-death semantics via 128+n like the native attach path.
+  const SIGNAL_NUMBERS: Readonly<Record<string, number>> = {
+    SIGHUP: 1,
+    SIGINT: 2,
+    SIGQUIT: 3,
+    SIGTERM: 15,
+  };
+  const signalHandlers = new Map<string, () => void>();
+  const uninstallSignals = (): void => {
+    for (const [signal, handler] of signalHandlers) {
+      process.removeListener(signal, handler);
+    }
+    signalHandlers.clear();
+  };
+  for (const [signal, number] of Object.entries(SIGNAL_NUMBERS)) {
+    const handler = (): void => {
+      try {
+        restoreClientTerminal();
+      } finally {
+        try {
+          handle.kill();
+        } catch {
+          // Best effort before exiting.
+        }
+        uninstallSignals();
+        process.exit(128 + (number as number));
+      }
+    };
+    signalHandlers.set(signal, handler);
+    process.on(signal, handler);
+  }
   handle.onExit((event) => {
     if (runtime.exited) return;
     runtime.exited = true;
@@ -266,9 +352,8 @@ export async function run(options: RunOptions): Promise<RunResult> {
         clock,
       ),
     );
-    if (stdin.isTTY) {
-      stdin.setRawMode?.(false);
-    }
+    uninstallSignals();
+    restoreClientTerminal();
     server.close();
     resolveExit(event);
   });
