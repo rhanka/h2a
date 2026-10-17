@@ -6,7 +6,7 @@
  * (```mermaid / ```plantuml — no diagram adapter). Prose markdown is emitted verbatim
  * (or passed through an optional host `renderMarkdown` hook for normalization).
  */
-import { assertDecisionDossierForPresentation } from "../validation/index.js";
+import { preparePresentation } from "./presentation.js";
 const renderQuestion = (q) => {
     const lines = [`**Q:** ${q.question} _(${q.state})_`];
     if (q.context !== undefined)
@@ -64,7 +64,7 @@ const renderAffordances = (affordances) => {
 };
 /** Render a decision-dossier document to a Markdown string. */
 export const renderMd = (doc, hooks = {}) => {
-    assertDecisionDossierForPresentation(doc);
+    doc = preparePresentation(doc);
     const r = doc.readability;
     const blocks = [
         `# ${doc.title}`,

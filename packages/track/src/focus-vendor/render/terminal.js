@@ -8,7 +8,7 @@
  * Align the CLI/terminal render with ARCH-21 resource_terminal / RF11 renderer (no duplication):
  * this stays a pure string builder with no ANSI/color side effects.
  */
-import { assertDecisionDossierForPresentation } from "../validation/index.js";
+import { preparePresentation } from "./presentation.js";
 const rule = (width) => "=".repeat(Math.max(8, width));
 const renderQuestion = (q) => {
     const lines = [`Q: ${q.question}  [${q.state}]`];
@@ -68,7 +68,7 @@ const renderAffordances = (affordances) => {
 };
 /** Render a decision-dossier document to a terminal string. */
 export const renderTerminal = (doc, opts = {}) => {
-    assertDecisionDossierForPresentation(doc);
+    doc = preparePresentation(doc);
     const r = doc.readability;
     const width = opts.width ?? 72;
     const blocks = [

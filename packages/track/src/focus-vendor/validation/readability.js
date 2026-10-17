@@ -158,6 +158,7 @@ export const validateDecisionDossierReadability = (doc) => {
                     refuse(`${path}.recommendedOptionId`, "unknown_recommended_option", "Identify the recommended option by its id among this question's options, with the reason in recommendedAnswer.");
                 }
                 const texts = [section.question, section.context, section.recommendedAnswer, section.answer,
+                    options.find((option) => option.id === section.recommendedOptionId)?.label,
                     ...linked.map((set) => set.title), ...options.flatMap((o) => [o.label, o.consequence, o.body, o.annotationComment])];
                 checkCodes(section.question, `${path}.question`);
                 checkCodes(section.context, `${path}.context`);
