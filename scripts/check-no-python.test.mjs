@@ -7,7 +7,8 @@
 // Uses temp dirs only; never touches real state or installed binaries.
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -16,6 +17,8 @@ import {
   applyAllowlist,
   classifyFile,
   isPyCommandWord,
+  isPyPackageWord,
+  isPythonImage,
   parseAllowlist,
   readScanEntry,
   scanFileHits,
@@ -54,6 +57,31 @@ const SHELL_POS = [
   'echo ok && python3 -c "print(1)"',
   'echo ok; py -c "print(1)"',
   'if python3 -c "print(1)"; then echo ok; fi',
+  'pip3.12 install foo',
+  'uvx black .',
+  'pypy script.py',
+  'pypy3 script.py',
+  'timeout 5 python3 -c "print(1)"',
+  'timeout -s KILL 5 python3 -c "print(1)"',
+  'nice python3 -c "print(1)"',
+  'nice -n 5 python3 -c "print(1)"',
+  'time python3 -c "print(1)"',
+  'stdbuf -oL python3 -c "print(1)"',
+  'sudo -u alice python3 -c "print(1)"',
+  'sudo -E python3 -c "print(1)"',
+  'env -i python3 -c "print(1)"',
+  'env -u FOO python3 -c "print(1)"',
+  'eval python3 -c "print(1)"',
+  'eval "python3 -c print(1)"',
+  'sh -c "python3 -c print(1)"',
+  "bash -c 'python3 x.py'",
+  'command -p python3 -c "print(1)"',
+  'xargs -I{} python3 {}',
+  'apk add --no-cache python3-dev',
+  'apk add --no-cache py3-pip',
+  'apt-get install -y python3-pip',
+  'apt-get install -y python3.12',
+  'brew install python@3.12',
 ];
 
 const SHELL_NEG = [
@@ -69,6 +97,13 @@ const SHELL_NEG = [
   'VAR=python3',
   'export PATH=/usr/bin:/bin',
   'echo "use uv run instead" | cat',
+  'sudo -u alice echo hi',
+  'sh -c "echo hi"',
+  'timeout 5 echo hi',
+  'eval "echo hi"',
+  'apt-get install -y curl git',
+  'apk add make g++',
+  'brew install node',
 ];
 
 describe('shell snippets: positives flag, negatives stay silent', () => {
@@ -92,8 +127,16 @@ describe('shebangs (every tracked file)', () => {
       assert.equal(scanFileHits('scripts/my-tool', `${bang}\nprint(1)\n`).length, 1);
     });
   }
+  for (const bang of ['#!/usr/bin/env pypy3', '#!/usr/bin/env pypy', '#!/usr/bin/env -S python3 -u']) {
+    it(`flags ${bang}`, () => {
+      assert.equal(scanFileHits('scripts/my-tool', `${bang}\nprint(1)\n`).length, 1);
+    });
+  }
   it('ignores a shell shebang', () => {
     assert.deepEqual(scanFileHits('x.sh', '#!/bin/sh\necho hi\n'), []);
+  });
+  it('ignores an env shell shebang', () => {
+    assert.deepEqual(scanFileHits('x.sh', '#!/usr/bin/env bash\necho hi\n'), []);
   });
   it('ignores a full-line comment mentioning an invocation', () => {
     assert.deepEqual(scanFileHits('x.sh', '# was python3 -c\n'), []);
@@ -207,14 +250,96 @@ describe('workflows, Dockerfiles, package scripts', () => {
   it('unparseable package.json fails closed', () => {
     assert.equal(scanFileHits('package.json', '{oops\n').length, 1);
   });
+  it('quoted workflow run scalars', () => {
+    assert.equal(scanFileHits('w.yml', 'steps:\n  - run: "python3 -c x"\n').length, 1);
+    assert.equal(scanFileHits('w.yml', "steps:\n  - run: 'python3 -c x'\n").length, 1);
+    assert.deepEqual(scanFileHits('w.yml', 'steps:\n  - run: "echo hi"\n'), []);
+  });
+  it('workflow uses: referencing python', () => {
+    assert.equal(scanFileHits('.github/workflows/w.yml', 'steps:\n  - uses: actions/setup-python@v5\n').length, 1);
+    assert.deepEqual(scanFileHits('.github/workflows/w.yml', 'steps:\n  - uses: actions/checkout@v4\n'), []);
+  });
+  it('workflow shell: python', () => {
+    assert.equal(scanFileHits('w.yml', 'steps:\n  - shell: python\n    run: print(1)\n').length, 1);
+    assert.deepEqual(scanFileHits('w.yml', 'steps:\n  - shell: bash\n    run: echo hi\n'), []);
+  });
+  it('generic YAML command:/script: keys', () => {
+    assert.equal(scanFileHits('deploy/d.yml', 'spec:\n  containers:\n  - command: ["python3","app.py"]\n').length, 1);
+    assert.equal(scanFileHits('docker-compose.yml', 'services:\n  a:\n    command: python3 app.py\n').length, 1);
+    assert.equal(scanFileHits('.gitlab-ci.yml', 'job:\n  script:\n    - python3 x.py\n').length, 1);
+    assert.deepEqual(scanFileHits('docker-compose.yml', 'services:\n  a:\n    command: node app.js\n'), []);
+  });
+  it('Dockerfile FROM/CMD/ENTRYPOINT/ONBUILD/exec-JSON', () => {
+    assert.equal(scanFileHits('Dockerfile', 'FROM python:3.12-alpine\n').length, 1);
+    assert.deepEqual(scanFileHits('Dockerfile', 'FROM node:22-alpine\n'), []);
+    assert.equal(scanFileHits('Dockerfile', 'FROM node:22\nCMD ["python3","app.py"]\n').length, 1);
+    assert.deepEqual(scanFileHits('Dockerfile', 'FROM node:22\nCMD ["node","app.js"]\n'), []);
+    assert.equal(scanFileHits('Dockerfile', 'FROM node:22\nCMD python3 app.py\n').length, 1);
+    assert.equal(scanFileHits('Dockerfile', 'FROM node:22\nENTRYPOINT python3 app.py\n').length, 1);
+    assert.equal(scanFileHits('Dockerfile', 'FROM node:22\nONBUILD RUN python3 x.py\n').length, 1);
+    assert.equal(scanFileHits('Dockerfile', 'FROM node:22\nRUN ["python3","-c","x"]\n').length, 1);
+  });
+  it('Makefile and extensionless hooks are shell-scanned', () => {
+    assert.equal(scanFileHits('Makefile', 'test:\n\tpython3 -m pytest\n').length, 1);
+    assert.deepEqual(scanFileHits('Makefile', 'test:\n\tnpm test\n'), []);
+    assert.equal(scanFileHits('.githooks/pre-commit', 'python3 -c "x"\n').length, 1);
+    assert.deepEqual(scanFileHits('LICENSE', 'Permission is hereby granted.\n'), []);
+  });
+});
+
+describe('JS sinks: aliases, bindings, tags', () => {
+  it('spawn via a one-level variable binding', () => {
+    const hits = scanFileHits('a.js', 'const c="python3";\nspawnSync(c,["-c","x"]);\n');
+    assert.equal(hits.length, 1);
+  });
+  it('renamed execSync alias', () => {
+    const hits = scanFileHits('a.js', 'const run=execSync;\nrun("python3 x.py");\n');
+    assert.equal(hits.length, 1);
+  });
+  it('import-renamed sink alias', () => {
+    const hits = scanFileHits('a.mjs', "import {execSync as ex} from 'node:child_process';\nex('python3 x.py');\n");
+    assert.equal(hits.length, 1);
+  });
+  it('execa tagged template', () => {
+    const hits = scanFileHits('a.mjs', 'await execa`python3 x.py`;\n');
+    assert.equal(hits.length, 1);
+  });
+  it('clean alias call stays silent', () => {
+    assert.deepEqual(scanFileHits('a.js', 'const run=execSync;\nrun("npm test");\n'), []);
+  });
+  it('unused python binding stays silent', () => {
+    assert.deepEqual(scanFileHits('a.js', 'const c="python3";\nconsole.log("hi");\n'), []);
+  });
 });
 
 describe('tracked python sources', () => {
-  for (const rel of ['a.py', 'a.pyw', 'a.pyi', 'a.pyx']) {
+  for (const rel of ['a.py', 'a.pyw', 'a.pyi', 'a.pyx', 'A.PY']) {
     it(`flags ${rel}`, () => {
       assert.equal(scanFileHits(rel, 'x = 1\n').length, 1);
     });
   }
+});
+
+describe('installer package names', () => {
+  it('flags python-ish packages, ignores neutral ones', () => {
+    for (const w of ['python3-dev', 'py3-pip', 'python3-pip', 'python@3.12', 'python3.12']) {
+      assert.equal(isPyPackageWord(w), true, w);
+    }
+    for (const w of ['make', 'g++', 'curl', 'node', '-y', '--no-cache']) {
+      assert.equal(isPyPackageWord(w), false, w);
+    }
+  });
+});
+
+describe('docker images', () => {
+  it('flags python images, ignores neutral ones', () => {
+    for (const r of ['python:3.12-alpine', 'registry.example/python-base:1', 'pypy:3']) {
+      assert.equal(isPythonImage(r), true, r);
+    }
+    for (const r of ['node:22-alpine', '--platform=linux/amd64']) {
+      assert.equal(isPythonImage(r), false, r);
+    }
+  });
 });
 
 describe('allowlist: exact lines with expected counts', () => {
@@ -287,6 +412,9 @@ describe('classifier', () => {
     assert.equal(classifyFile('package.json', ''), 'pkgjson');
     assert.notEqual(classifyFile('package-lock.json', ''), 'pkgjson');
     assert.equal(classifyFile('.github/workflows/ci.yml', ''), 'workflow');
+    assert.equal(classifyFile('deploy/deployment.yaml', ''), 'workflow');
+    assert.equal(classifyFile('Makefile', ''), 'shell');
+    assert.equal(classifyFile('.githooks/pre-commit', ''), 'shell');
     assert.equal(classifyFile('x.sh', ''), 'shell');
     assert.equal(classifyFile('.githooks/commit-msg', '#!/usr/bin/env bash\n'), 'shell');
     assert.equal(classifyFile('a.ts', ''), 'js');
@@ -341,6 +469,26 @@ describe('symlinks (CI dangling-link case)', () => {
     }
     for (const w of ['check-no-python.sh', 'CPython', 'pipeline', 'node', 'tool', 'odd.json']) {
       assert.equal(isPyCommandWord(w), false, w);
+    }
+  });
+});
+
+describe('symlinked entry point runs the guard (no silent pass)', () => {
+  it('node <symlink-to-guard> prints ZERO PYTHON OK', () => {
+    const lab = mkdtempSync(join(tmpdir(), 'check-no-python-main-'));
+    try {
+      mkdirSync(join(lab, 'scripts'), { recursive: true });
+      copyFileSync(join(HERE, 'check-no-python.mjs'), join(lab, 'scripts', 'check-no-python.mjs'));
+      writeFileSync(join(lab, 'scripts', 'no-python-allowlist.txt'), '');
+      writeFileSync(join(lab, 'clean.sh'), '#!/bin/sh\necho hi\n');
+      spawnSync('git', ['-C', lab, 'init', '-q']);
+      spawnSync('git', ['-C', lab, 'add', '-A']);
+      symlinkSync(join(lab, 'scripts', 'check-no-python.mjs'), join(lab, 'scripts', 'link.mjs'));
+      const r = spawnSync(process.execPath, [join(lab, 'scripts', 'link.mjs')], { encoding: 'utf8' });
+      assert.equal(r.status, 0);
+      assert.match(r.stdout, /ZERO PYTHON OK/);
+    } finally {
+      rmSync(lab, { recursive: true, force: true });
     }
   });
 });
