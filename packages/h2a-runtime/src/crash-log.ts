@@ -14,11 +14,18 @@
  * when known, and a structured fatal record (uncaught exception, refusal with
  * reason, child exit with code/signal). Files live under
  * `${XDG_STATE_HOME:-$HOME/.local/state}/h2a/`, mode 0600, dir 0700, rotated
- * at MAX_CRASH_LOG_BYTES (current + one `.1` generation). Secrets are never
- * logged: values are redacted before serialization (see `redactCrashText`).
+ * at MAX_CRASH_LOG_BYTES (current + one `.1` generation, both read by
+ * `readRecentCrashLogs`). Secrets are never logged: values are redacted
+ * before serialization (see `redactCrashText`, which stands on its own even
+ * when the secret is absent from the writer's environment). Exit codes and
+ * signals are only ever observed values: either field is omitted when
+ * unknown, never defaulted. Appends take one lock attempt plus one
+ * provably-stale orphan reclaim; contention drops the row (counted via
+ * `getCrashLogDrops` and surfaced as a `dropped` row on the next success).
  */
 import { randomUUID } from "node:crypto";
 import {
+  chmodSync,
   closeSync,
   constants,
   fchmodSync,
@@ -28,6 +35,7 @@ import {
   openSync,
   readFileSync,
   renameSync,
+  statSync,
   unlinkSync,
   writeSync,
 } from "node:fs";
@@ -51,7 +59,8 @@ export type CrashLogEvent =
   | "sessionExit"
   | "signal"
   | "stop"
-  | "exit";
+  | "exit"
+  | "dropped";
 
 export interface CrashLogEntry {
   readonly event: CrashLogEvent;
@@ -65,8 +74,11 @@ export interface CrashLogEntry {
   readonly detail?: string | undefined;
   /** Child/session exit code when known. */
   readonly exitCode?: number | undefined;
-  /** Signal name when the fatal path is a signal. */
-  readonly signal?: string | undefined;
+  /**
+   * Signal name (or signo) when the fatal path is a signal. Omit the field —
+   * never invent a code — when the signal is unknown.
+   */
+  readonly signal?: string | number | undefined;
 }
 
 export interface CrashLogRow {
@@ -143,7 +155,13 @@ const PATH_ENV_KEYS = new Set([
   "XDG_CONFIG_HOME",
 ]);
 
-/** Redact secret values and credential patterns; never throws. */
+/**
+ * Redact secret values and credential patterns; never throws. Pattern
+ * redaction stands on its own: it must hold even when the secret value is
+ * absent from the writer's environment (tokens in child stderr, config JSON,
+ * CLI flags). Fail closed — an unrecognized `name=value` shape that names a
+ * credential is redacted, never passed through.
+ */
 export function redactCrashText(value: string): string {
   let result = value.slice(0, 4096);
   try {
@@ -158,8 +176,66 @@ export function redactCrashText(value: string): string {
   return result
     .replace(/\b(?:authorization|cookie|set-cookie)\s*:[^\r\n]*/gi, "[REDACTED]")
     .replace(/\b(?:bearer|basic)\s+\S+/gi, "[REDACTED]")
-    .replace(/\b(?:token|key|secret|password|credential|api_?key)\w*\s*[:=]\s*\S+/gi, "[REDACTED]")
+    .replace(
+      /[\w.-]*?(?:access_?token|refresh_?token|client_?secret|id_?token|token|secret|passwd|passphrase|password|credential|api_?key|session|key)"?\s*[:=]\s*("[^"\r\n]*"|'[^'\r\n]*'|[^\s,;&"']+)/gi,
+      "[REDACTED]",
+    )
+    .replace(
+      /(--?(?:access-?token|refresh-?token|client-?secret|id-?token|api-?key|token|secret|password|passwd|passphrase))\b\s+("[^"\r\n]*"|'[^'\r\n]*'|[^\s"']+)/gi,
+      "$1 [REDACTED]",
+    )
     .replace(/:\/\/[^/\s]*@/g, "://[REDACTED]@");
+}
+
+const CRASH_SIGNAL_NUMBERS: Record<number, string> = {
+  1: "SIGHUP",
+  2: "SIGINT",
+  3: "SIGQUIT",
+  4: "SIGILL",
+  5: "SIGTRAP",
+  6: "SIGABRT",
+  7: "SIGBUS",
+  8: "SIGFPE",
+  9: "SIGKILL",
+  10: "SIGUSR1",
+  11: "SIGSEGV",
+  12: "SIGUSR2",
+  13: "SIGPIPE",
+  14: "SIGALRM",
+  15: "SIGTERM",
+  16: "SIGSTKFLT",
+  17: "SIGCHLD",
+  18: "SIGCONT",
+  19: "SIGSTOP",
+  20: "SIGTSTP",
+  21: "SIGTTIN",
+  22: "SIGTTOU",
+  23: "SIGURG",
+  24: "SIGXCPU",
+  25: "SIGXFSZ",
+  26: "SIGVTALRM",
+  27: "SIGPROF",
+  28: "SIGWINCH",
+  29: "SIGIO",
+  30: "SIGPWR",
+  31: "SIGSYS",
+};
+
+/**
+ * Normalize a signal (name, signo, or numeric string) to a log-safe name.
+ * Unknown names become `"unknown"`; unknown numbers become `"SIG<n>"` so the
+ * signo survives. `undefined` stays `undefined` — callers omit the field
+ * instead of inventing a signal.
+ */
+export function crashSignalName(value: number | string | undefined): string | undefined {
+  if (value === undefined) return undefined;
+  const text = typeof value === "number" ? String(value) : value.trim();
+  if (/^\d+$/.test(text)) {
+    const signo = Number.parseInt(text, 10);
+    if (Number.isSafeInteger(signo)) return CRASH_SIGNAL_NUMBERS[signo] ?? `SIG${signo}`;
+  }
+  if (typeof value === "string" && /^[A-Z][A-Z0-9_]{1,15}$/.test(value)) return value;
+  return "unknown";
 }
 
 function sanitizeField(value: string | undefined): string | undefined {
@@ -180,13 +256,13 @@ function sanitizeEvent(event: CrashLogEvent): CrashLogEvent {
     "signal",
     "stop",
     "exit",
+    "dropped",
   ];
   return known.includes(event) ? event : "exit";
 }
 
-function sanitizeSignal(signal: string | undefined): string | undefined {
-  if (signal === undefined) return undefined;
-  return /^[A-Z][A-Z0-9_]{1,15}$/.test(signal) ? signal : "unknown";
+function sanitizeSignal(signal: string | number | undefined): string | undefined {
+  return crashSignalName(signal);
 }
 
 export function toCrashLogRow(
@@ -238,9 +314,88 @@ function writeAll(fd: number, text: string): void {
 }
 
 /**
- * Best-effort bounded append. One lock attempt, no wait, no stale-lock
- * reclamation: contention drops the row (returns false) instead of blocking
- * the fatal path it documents. Never throws.
+ * A lock older than this was left by a dead writer: its owner can never come
+ * back to release it, so the next writer reclaims it instead of letting the
+ * component's log go silent forever. A live lock still drops (returns false).
+ */
+export const CRASH_LOG_LOCK_STALE_MS = 10_000;
+
+let droppedCrashLogs = 0;
+const pendingCrashLogDrops = new Map<string, number>();
+
+function dropCrashLog(logPath: string, count = 1): void {
+  droppedCrashLogs += count;
+  pendingCrashLogDrops.set(logPath, (pendingCrashLogDrops.get(logPath) ?? 0) + count);
+}
+
+/** Process-lifetime count of crash-log rows dropped instead of appended. */
+export function getCrashLogDrops(): number {
+  return droppedCrashLogs;
+}
+
+function acquireCrashLogLock(lockPath: string, token: string): number | undefined {
+  try {
+    const fd = openSync(
+      lockPath,
+      constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY | constants.O_NOFOLLOW,
+      0o600,
+    );
+    writeAll(fd, token);
+    return fd;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+  }
+  // Contended. Reclaim only a provably stale orphan; a live lock (or a lock
+  // that vanished under us) drops the row instead of blocking the fatal path.
+  try {
+    const ageMs = Date.now() - statSync(lockPath).mtimeMs;
+    if (!Number.isFinite(ageMs) || ageMs < CRASH_LOG_LOCK_STALE_MS) return undefined;
+    unlinkSync(lockPath);
+    const fd = openSync(
+      lockPath,
+      constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY | constants.O_NOFOLLOW,
+      0o600,
+    );
+    writeAll(fd, token);
+    return fd;
+  } catch {
+    return undefined;
+  }
+}
+
+function ensurePrivateCrashLogDir(dir: string): void {
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
+  let directory = lstatSync(dir);
+  // Self-heal a pre-existing group/other-readable state dir we own (tighter
+  // is strictly safer); anything else stays a counted drop, never a repair
+  // of somebody else's directory.
+  if (
+    directory.isDirectory() &&
+    (typeof process.getuid !== "function" || directory.uid === process.getuid()) &&
+    (directory.mode & 0o077) !== 0
+  ) {
+    try {
+      chmodSync(dir, 0o700);
+    } catch {
+      /* fall through to the safety check below */
+    }
+    directory = lstatSync(dir);
+  }
+  if (
+    !directory.isDirectory() ||
+    (typeof process.getuid === "function" &&
+      directory.uid !== process.getuid()) ||
+    (directory.mode & 0o077) !== 0
+  ) {
+    throw new Error("unsafe crash log directory");
+  }
+}
+
+/**
+ * Best-effort bounded append. One lock attempt plus one stale-orphan reclaim,
+ * no wait: contention drops the row (returns false, counted and surfaced as a
+ * `dropped` row on the next successful append) instead of blocking the fatal
+ * path it documents. Never throws.
  */
 export function appendCrashLog(
   component: CrashLogComponent,
@@ -252,23 +407,9 @@ export function appendCrashLog(
   const token = `${process.pid}:${randomUUID()}`;
   try {
     const text = `${JSON.stringify(toCrashLogRow(component, entry))}\n`;
-    const dir = dirname(logPath);
-    mkdirSync(dir, { recursive: true, mode: 0o700 });
-    const directory = lstatSync(dir);
-    if (
-      !directory.isDirectory() ||
-      (typeof process.getuid === "function" &&
-        directory.uid !== process.getuid()) ||
-      (directory.mode & 0o077) !== 0
-    ) {
-      throw new Error("unsafe crash log directory");
-    }
-    lockFd = openSync(
-      lockPath,
-      constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY | constants.O_NOFOLLOW,
-      0o600,
-    );
-    writeAll(lockFd, token);
+    ensurePrivateCrashLogDir(dirname(logPath));
+    lockFd = acquireCrashLogLock(lockPath, token);
+    if (lockFd === undefined) throw new Error("crash log lock contended");
     try {
       const fd = openSync(
         logPath,
@@ -297,12 +438,21 @@ export function appendCrashLog(
     );
     try {
       privateFile(fd);
+      const missed = pendingCrashLogDrops.get(logPath) ?? 0;
+      if (missed > 0) {
+        pendingCrashLogDrops.delete(logPath);
+        writeAll(
+          fd,
+          `${JSON.stringify(toCrashLogRow(component, { event: "dropped", detail: `${missed} crash-log rows dropped (lock contention or unsafe state)` }))}\n`,
+        );
+      }
       writeAll(fd, text);
     } finally {
       closeSync(fd);
     }
     return true;
   } catch {
+    dropCrashLog(logPath);
     return false;
   } finally {
     if (lockFd !== undefined) {
@@ -352,15 +502,78 @@ export function readCrashLog(
   }
 }
 
-/** Last `lines` rows across components, oldest first. */
+/** Last `lines` rows across components, oldest first, rotations included. */
 export function readRecentCrashLogs(
   components: readonly CrashLogComponent[] = CRASH_LOG_COMPONENTS,
   lines = 50,
   env: Readonly<Record<string, string | undefined>> = process.env,
 ): CrashLogRow[] {
-  const rows = components.flatMap((component) =>
-    readCrashLog(component, resolveCrashLogPath(component, env)),
-  );
+  const rows = components.flatMap((component) => {
+    const primary = resolveCrashLogPath(component, env);
+    return [...readCrashLog(component, `${primary}.1`), ...readCrashLog(component, primary)];
+  });
   rows.sort((a, b) => (a.timestamp < b.timestamp ? -1 : a.timestamp > b.timestamp ? 1 : 0));
   return rows.slice(Math.max(0, rows.length - Math.max(1, lines)));
+}
+
+/** Max chars of `detail`/`error` shown on one human `h2a logs` line. */
+export const CRASH_LOG_HUMAN_DETAIL_MAX = 300;
+
+function singleLine(text: string, max = CRASH_LOG_HUMAN_DETAIL_MAX): string {
+  const flat = text.replace(/[\r\n]+/g, " ").trim();
+  return flat.length > max ? `${flat.slice(0, max)}…` : flat;
+}
+
+/**
+ * One human `h2a logs` line: what (event/reason/code/kind/errno), when
+ * (timestamp), where (component/session/pid/generation), why
+ * (detail/error, single-line and bounded). Detail is safe to show: rows are
+ * redacted before serialization.
+ */
+export function formatCrashLogHumanRow(record: Record<string, unknown>): string {
+  const parts = [
+    String(record["timestamp"] ?? "unknown"),
+    String(record["component"] ?? "?"),
+    String(record["event"] ?? "?"),
+  ];
+  for (const key of ["sessionId", "instanceId", "reason", "exitCode", "signal", "cause", "code", "kind", "errno", "generation", "version", "pid"]) {
+    if (record[key] !== undefined) parts.push(`${key}=${String(record[key])}`);
+  }
+  if (typeof record["detail"] === "string" && record["detail"].length > 0) {
+    parts.push(`detail=${singleLine(record["detail"])}`);
+  }
+  if (typeof record["error"] === "string" && record["error"].length > 0) {
+    parts.push(`error=${singleLine(record["error"])}`);
+  }
+  return parts.join(" ");
+}
+
+/** Last `maxLines` of a text file for the viewer; missing/unreadable → []. */
+export function readFileTailLines(path: string, maxLines: number): string[] {
+  try {
+    const lines = readFileSync(path, "utf8").split("\n");
+    while (lines.length > 0 && lines[lines.length - 1] === "") lines.pop();
+    return lines.slice(Math.max(0, lines.length - Math.max(1, maxLines)));
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Passive fatal-path witness for short-lived launcher-side processes (the CLI
+ * launcher, the op child). `uncaughtExceptionMonitor` observes without
+ * altering Node's default crash/exit behavior: it only leaves a row behind in
+ * `component`.log so `h2a logs` can explain the crash. Never throws.
+ */
+export function installCrashHandlers(component: CrashLogComponent): void {
+  process.on("uncaughtExceptionMonitor", (error: unknown, origin: string) => {
+    try {
+      appendCrashLog(component, {
+        event: origin === "unhandledRejection" ? "unhandledRejection" : "uncaughtException",
+        detail: error instanceof Error ? error.message : String(error),
+      });
+    } catch {
+      /* A witness never breaks the fatal path it documents. */
+    }
+  });
 }

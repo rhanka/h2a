@@ -1,14 +1,19 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import {
   appendCrashLog,
+  crashSignalName,
   CRASH_LOG_COMPONENTS,
+  formatCrashLogHumanRow,
+  getCrashLogDrops,
   getCrashLogVersion,
+  installCrashHandlers,
   MAX_CRASH_LOG_BYTES,
   readCrashLog,
+  readFileTailLines,
   readRecentCrashLogs,
   redactCrashText,
   resolveCrashLogDir,
@@ -136,6 +141,136 @@ describe("crash-log", () => {
     }
   });
 
+  it("redacts canonical credential forms with no help from the environment", () => {
+    // The secret is deliberately ABSENT from process.env: pattern redaction
+    // must hold on its own (revcrashlog constat 1).
+    const secret = "n0Env-S3cret-8y6x";
+    expect(process.env["H2A_CRASHLOG_ABSENT_A"]).toBeUndefined();
+    expect(process.env["H2A_CRASHLOG_ABSENT_B"]).toBeUndefined();
+    const cases = [
+      `access_token=${secret}`,
+      `client_secret=${secret}`,
+      `refresh_token=${secret}`,
+      `{"password":"${secret}"}`,
+      `{"access_token": "${secret}"}`,
+      `--password ${secret}`,
+      `passphrase=${secret}`,
+      `passwd=${secret}`,
+      `session=${secret}`,
+      `token=${secret}`,
+      `?access_token=${secret}&other=1`,
+    ];
+    for (const text of cases) {
+      expect(redactCrashText(text), text).not.toContain(secret);
+    }
+    expect(redactCrashText(`mytoken=${secret}`)).not.toContain(secret);
+    // Non-secret lookalikes must survive redaction.
+    expect(redactCrashText("sessionId=h2a-demo")).toContain("h2a-demo");
+  });
+
+  it("redacts a Basic credential blob as a whole", () => {
+    const blob = Buffer.from("user:s3cr3t").toString("base64");
+    expect(redactCrashText(`Basic ${blob}`)).toBe("[REDACTED]");
+    expect(redactCrashText("Bearer abcdef12345")).toBe("[REDACTED]");
+  });
+
+  it("maps numeric exit signals to names", () => {
+    expect(crashSignalName(9)).toBe("SIGKILL");
+    expect(crashSignalName(15)).toBe("SIGTERM");
+    expect(crashSignalName(2)).toBe("SIGINT");
+    expect(crashSignalName("9")).toBe("SIGKILL");
+    expect(crashSignalName("SIGTERM")).toBe("SIGTERM");
+    expect(crashSignalName("bogus!!")).toBe("unknown");
+    expect(crashSignalName(9999)).toBe("SIG9999");
+    expect(crashSignalName(undefined)).toBeUndefined();
+  });
+
+  it("reads recent rows across rotations (.1 included)", () => {
+    const { env, root } = tempEnv();
+    try {
+      const log = resolveCrashLogPath("cli", env);
+      expect(appendCrashLog("cli", { event: "refusal", reason: "before-rotation" }, log)).toBe(true);
+      mkdirSync(dirname(log), { recursive: true });
+      renameSync(log, `${log}.1`);
+      expect(appendCrashLog("cli", { event: "refusal", reason: "after-rotation" }, log)).toBe(true);
+      const rows = readRecentCrashLogs(["cli"], 50, env);
+      expect(rows.map((r) => r.reason)).toEqual(["before-rotation", "after-rotation"]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("reclaims a stale orphan lock instead of going silent forever", () => {
+    const { env, root } = tempEnv();
+    try {
+      const log = resolveCrashLogPath("cli", env);
+      expect(appendCrashLog("cli", { event: "start" }, log)).toBe(true);
+      writeFileSync(`${log}.lock`, "99999999:orphan");
+      const ancient = new Date(Date.now() - 120_000);
+      utimesSync(`${log}.lock`, ancient, ancient);
+      expect(appendCrashLog("cli", { event: "refusal", reason: "after-orphan" }, log)).toBe(true);
+      expect(readCrashLog("cli", log).map((r) => r.reason)).toContain("after-orphan");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("repairs a pre-existing group-readable state dir instead of dropping silently", () => {
+    const { env, root } = tempEnv();
+    try {
+      const log = resolveCrashLogPath("cli", env);
+      mkdirSync(dirname(log), { recursive: true, mode: 0o700 });
+      chmodSync(dirname(log), 0o755);
+      expect(appendCrashLog("cli", { event: "refusal", reason: "repaired-dir" }, log)).toBe(true);
+      expect(statSync(dirname(log)).mode & 0o777).toBe(0o700);
+      expect(readCrashLog("cli", log)).toHaveLength(1);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("accounts a contention drop as a visible dropped row", () => {
+    const { env, root } = tempEnv();
+    try {
+      const log = resolveCrashLogPath("cli", env);
+      expect(appendCrashLog("cli", { event: "start" }, log)).toBe(true);
+      const dropsBefore = getCrashLogDrops();
+      writeFileSync(`${log}.lock`, "99999999:live");
+      expect(appendCrashLog("cli", { event: "refusal", reason: "contended" }, log)).toBe(false);
+      expect(getCrashLogDrops()).toBeGreaterThan(dropsBefore);
+      rmSync(`${log}.lock`, { force: true });
+      expect(appendCrashLog("cli", { event: "refusal", reason: "after-contention" }, log)).toBe(true);
+      const rows = readCrashLog("cli", log);
+      expect(rows.some((r) => r.event === "dropped")).toBe(true);
+      expect(rows.at(-1)).toMatchObject({ event: "refusal", reason: "after-contention" });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("records fatal monitor events without altering process behavior", () => {
+    const { env, root } = tempEnv();
+    const previous = process.env["XDG_STATE_HOME"];
+    process.env["XDG_STATE_HOME"] = env["XDG_STATE_HOME"];
+    try {
+      installCrashHandlers("cli");
+      const listeners = process.listeners("uncaughtExceptionMonitor");
+      const handler = listeners.at(-1) as ((error: Error, origin: string) => void) | undefined;
+      expect(handler).toBeDefined();
+      handler!(new Error("boom-monitor-probe"), "unhandledRejection");
+      try {
+        const rows = readCrashLog("cli", resolveCrashLogPath("cli", env));
+        expect(rows.at(-1)).toMatchObject({ event: "unhandledRejection", detail: "boom-monitor-probe" });
+      } finally {
+        if (handler) process.removeListener("uncaughtExceptionMonitor", handler);
+      }
+    } finally {
+      if (previous === undefined) delete process.env["XDG_STATE_HOME"];
+      else process.env["XDG_STATE_HOME"] = previous;
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it("wires fatal paths: launcher, attach bridge and MCP import the crash log", () => {
     const sources: Record<string, string> = {
       launcher: readFileSync(join(import.meta.dirname ?? ".", "native-host.ts"), "utf8"),
@@ -145,6 +280,48 @@ describe("crash-log", () => {
     };
     for (const [name, source] of Object.entries(sources)) {
       expect(source, `${name} must log fatal paths to the crash log`).toContain("crash-log.js");
+    }
+    // Passive witnesses are installed at the real entry points only.
+    const index = readFileSync(join(import.meta.dirname ?? ".", "index.ts"), "utf8");
+    expect(index).toContain('installCrashHandlers("cli")');
+    expect(sources["op"]).toContain('installCrashHandlers("cli")');
+  });
+
+  it("shows the why on one human line: detail and error, single-line and bounded", () => {
+    const line = formatCrashLogHumanRow({
+      timestamp: "2026-10-17T00:00:00.000Z",
+      component: "cli",
+      event: "childExit",
+      reason: "op:ensure-host",
+      exitCode: 1,
+      detail: `first line\nsecond line ${"x".repeat(500)}`,
+    });
+    expect(line).toContain("reason=op:ensure-host");
+    expect(line).toContain("exitCode=1");
+    expect(line).toContain("detail=first line second line");
+    expect(line).not.toContain("\n");
+    expect(line.length).toBeLessThan(700);
+    const hostLine = formatCrashLogHumanRow({
+      timestamp: "2026-10-17T00:00:00.000Z",
+      component: "native-host",
+      event: "uncaughtException",
+      error: "[REDACTED]",
+      kind: undefined,
+    });
+    expect(hostLine).toContain("error=[REDACTED]");
+  });
+
+  it("tails a raw log for the viewer without throwing on absence", () => {
+    const { root } = tempEnv();
+    try {
+      const raw = join(root, "mcp-central.log");
+      expect(readFileTailLines(join(root, "missing.log"), 20)).toEqual([]);
+      writeFileSync(raw, Array.from({ length: 30 }, (_, i) => `line-${i}`).join("\n"));
+      expect(readFileTailLines(raw, 20)).toHaveLength(20);
+      expect(readFileTailLines(raw, 20)[0]).toBe("line-10");
+      expect(readFileTailLines(raw, 50)).toHaveLength(30);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
     }
   });
 });
