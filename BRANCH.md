@@ -768,3 +768,7 @@ CM2-F2 raw-admission scope amendment: packages/h2a-runtime/src/pty.ts adds an ex
 - [x] Reproduced the actual pre-consent UTF-8 carry (7/8 RED); raw byte admission and post-ACK-only subscriptions eliminate it. 178/178 targeted cases and 14/14 legacy real-PTY mode cases pass on Node 22 and 24.
 - [ ] E is NOT accepted: actual IdP UV/login witnesses, Sentropic route/store/fixture-lock, exact real provider tuple, integrated 0.98.8 and allocated candidate remain external. No publication or production activation.
 - [ ] Review selection-failed: exact author identity unavailable; installed h2a MCP dispatch prohibited by owner confinement. Dossier tmp/cm2-f2/review.md; no independent consensus.
+
+CM2-F2 managed-read closure: bounded worker readData independently resolves retained-read authorization with the source offline, enforces original copy expiry, and rechecks a nonforgeable monotonic read-response deadline after worker/commit awaits. Auth-deadline RED: 14/15 before assertHistoryRead; expired/revoked managed reads refuse.
+
+CM2-F2 final boundary regressions: refuse source/confirmation client conflation; reject encoded amplification before decoding; retain native monotonic policy revision/digest floors from staging onward, cancel older children/reservations, and refuse cached broader-policy rollback during and after narrowing. Each new regression was observed red before its guard, with logs under tmp/cm2-f2/.

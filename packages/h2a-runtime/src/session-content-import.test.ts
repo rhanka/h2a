@@ -85,3 +85,14 @@ it('should release the import slot when cancellation interrupts a stalled part i
   const start=performance.now();await expect(importer.import(request,bundle,parts,cancel.signal)).rejects.toThrow();
   expect(performance.now()-start).toBeLessThan(1000);expect(readdirSync(managedRoot).filter(n=>n!=='.h2a-session-imports')).toEqual([]);
 });
+it('should read admitted data with the source offline and refuse revoked or expired managed reads',async()=>{
+  let s=await setup();let result=await s.importer.import(request,bundle,(async function*(){yield part;})());
+  const collect=async(importer:SessionContentImport,id:string)=>{const chunks:Buffer[]=[];for await(const bytes of importer.readData(id,'records/history.jsonl','read'))chunks.push(bytes);return Buffer.concat(chunks);};
+  expect(await collect(s.importer,result.localImportId as string)).toEqual(Buffer.from(part.payloadB64,'base64url'));
+  revoked=true;await expect(collect(s.importer,result.localImportId as string)).rejects.toThrow();
+  s=await setup(true);result=await s.importer.import(request,bundle,(async function*(){yield part;})());s.expire();await expect(collect(s.importer,result.localImportId as string)).rejects.toThrow();
+});
+it('should refuse unsupported provider tuples before consuming any part',async()=>{
+  const {importer}=await setup();let reads=0;
+  await expect(importer.import({...request,provider:{...request.provider,cliVersion:'unsupported'}},bundle,(async function*(){reads++;yield part;})())).rejects.toThrow('unsupported_format');expect(reads).toBe(0);
+});

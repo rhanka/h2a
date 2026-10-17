@@ -892,6 +892,7 @@
     "session content confirmation should reject duplicate JSON keys, invalid Unicode and noncanonical JWT encoding"
   ],
   "packages/h2a-runtime/src/session-content-auth.test.ts": [
+    "session content source authentication should keep a nonforgeable monotonic deadline for each authenticated retained-read response",
     "session content source authentication should renew only the original source login and refuse renewal after observed revocation",
     "session content source authentication should perform real pinned HTTPS PKCE and send access credentials only in their intended exchange",
     "session content source authentication should reject mismatched and replayed callbacks before a token request",
@@ -913,6 +914,7 @@
     "durable native content fence should refuse corrupt or uncertain proof journals while keeping durable denial available"
   ],
   "packages/h2a-runtime/src/session-content-contract.test.ts": [
+    "session content capsule should refuse an oversized encoded fragment before allocating its decoded buffer",
     "session content capsule should typecheck the exact pinned message fixture bytes rather than a drifting duplicate",
     "session content capsule should expose a strict interoperable JSON Schema with ACK and history-state combinations",
     "session content capsule should validate every positive fixture and refuse unknown nested fields and wire versions",
@@ -936,7 +938,10 @@
     "should export and import an exact synthetic checkpoint only after native confirmation and committed activation",
     "should inherit only a natively committed future policy and require fresh inclusion after clearing exclusion",
     "should run signed native confirmation through a real metadata SSE stream and pause on disconnection",
-    "should keep metadata revocation reachable while a source confirmation is pending"
+    "should keep metadata revocation reachable while a source confirmation is pending",
+    "should refuse source and confirmation client conflation before any content capture",
+    "should refuse an older broader policy while a narrowing amendment is pending and after it commits",
+    "should apply a confirmed amendment to an already covered future child without another proof"
   ],
   "packages/h2a-runtime/src/session-content-export.test.ts": [
     "should bound source and aggregate queues and invalidate reservations without legacy backfill",
@@ -956,6 +961,8 @@
     "should abort corrupt, missing and conflicting parts without any committed import or staging residue",
     "should recheck read revocation before commit and retain the original managed-copy expiry",
     "should cancel an active import and refuse excess parts without leaving a committed directory",
-    "should release the import slot when cancellation interrupts a stalled part iterator"
+    "should release the import slot when cancellation interrupts a stalled part iterator",
+    "should read admitted data with the source offline and refuse revoked or expired managed reads",
+    "should refuse unsupported provider tuples before consuming any part"
   ]
 }
