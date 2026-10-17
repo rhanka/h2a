@@ -127,6 +127,18 @@ const cases = [
   ['cli', 'failed-code', 'if (failed === true) return 1;', 'if (failed === true) return 0;', 'F should map success failure and deferral to exit codes'],
   ['cli', 'completed-code', 'if (completed === true) return 0;', 'if (completed === true) return 2;', 'F should map success failure and deferral to exit codes'],
   ['cli', 'strict-code', 'if (deferred === true) return strict === true ? 2 : 0;', 'if (deferred === true) return strict === true ? 0 : 2;', 'F should make deferral blocking under strict'],
+  ['dispatch', 'resume-authority', `const grant = assertUpgradeAuthority({ store, upgradeId, controller });
+  const tx = store.reconcile(upgradeId);`, `const grant = { epoch: 0 };
+  const tx = store.reconcile(upgradeId);`, 'F should check CLI authority before the engine on resume'],
+  ['dispatch', 'abort-authority', `const grant = assertUpgradeAuthority({ store, upgradeId, controller });
+  const tx = store.abort(upgradeId);`, `const grant = { epoch: 0 };
+  const tx = store.abort(upgradeId);`, 'F should check CLI authority before the engine on abort'],
+  ['dispatch', 'resume-call', 'const tx = store.reconcile(upgradeId);', 'const tx = store.abort(upgradeId);', 'F should resume a prepared transaction without changing its phase'],
+  ['dispatch', 'abort-call', 'const tx = store.abort(upgradeId);', 'const tx = store.reconcile(upgradeId);', 'F should abort a prepared transaction once'],
+  ['dispatch', 'controller-shape', "(controller !== undefined && (!controller || typeof controller !== 'object' || Array.isArray(controller)))", '(false)', 'F should refuse an invalid dispatch envelope instead of guessing'],
+  ['dispatch', 'resume-frozen', `const tx = store.reconcile(upgradeId);
+  return Object.freeze({ upgradeId, installationState: tx.installationState, controllerEpoch: grant.epoch });`, `const tx = store.reconcile(upgradeId);
+  return Object.freeze({ upgradeId, installationState: 'SELECTED', controllerEpoch: grant.epoch });`, 'F should resume a prepared transaction without changing its phase'],
 ];
 const files = group === 'launcher' ? ['packages/h2a/src/runtime/upgrade/managed-launcher.js'] :
   group === 'exclusion' ? ['packages/h2a/src/runtime/upgrade/legacy-exclusion.js', 'packages/h2a/dist/runtime/upgrade/legacy-exclusion.js'] :
@@ -141,11 +153,12 @@ const files = group === 'launcher' ? ['packages/h2a/src/runtime/upgrade/managed-
   group === 'npm-command' ? ['packages/h2a/src/runtime/upgrade/npm-command.js', 'packages/h2a/dist/runtime/upgrade/npm-command.js'] :
   group === 'authority' ? ['packages/h2a/src/runtime/upgrade/upgrade-authority.js', 'packages/h2a/dist/runtime/upgrade/upgrade-authority.js'] :
   group === 'cli' ? ['packages/h2a/src/runtime/upgrade/upgrade-cli.js', 'packages/h2a/dist/runtime/upgrade/upgrade-cli.js'] :
+  group === 'dispatch' ? ['packages/h2a/src/runtime/upgrade/upgrade-dispatch.js', 'packages/h2a/dist/runtime/upgrade/upgrade-dispatch.js'] :
   ['packages/h2a/src/runtime/upgrade/h4-store.js', 'packages/h2a/dist/runtime/upgrade/h4-store.js'];
 const originals = files.map(path => ({ path, bytes: fs.readFileSync(path) }));
 const selected = cases.filter(c => c[0] === group && (!process.env.MH_L6_MUTATION || c[1] === process.env.MH_L6_MUTATION));
 if (!selected.length) throw new Error('unknown_mutation_group');
-const testFile = { delegation: 'delegation', launcher: 'launcher', exclusion: 'exclusion', deferral: 'exclusion', bootstrap: 'bootstrap', adoption: 'adoption', 'launcher-install': 'launcher-install', 'adoption-execute': 'adoption', unmanage: 'unmanage', 'adoption-image': 'image-prepare', status: 'status', 'upgrade-run': 'upgrade-run', 'npm-command': 'npm', authority: 'authority', cli: 'cli' }[group] ?? 'selection';
+const testFile = { delegation: 'delegation', launcher: 'launcher', exclusion: 'exclusion', deferral: 'exclusion', bootstrap: 'bootstrap', adoption: 'adoption', 'launcher-install': 'launcher-install', 'adoption-execute': 'adoption', unmanage: 'unmanage', 'adoption-image': 'image-prepare', status: 'status', 'upgrade-run': 'upgrade-run', 'npm-command': 'npm', authority: 'authority', cli: 'cli', dispatch: 'dispatch' }[group] ?? 'selection';
 const file = `packages/h2a/test/mh-l6-${testFile}.test.js`;
 const results = [];
 for (const [, name, from, to, scenario] of selected) {
