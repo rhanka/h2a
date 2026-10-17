@@ -148,7 +148,9 @@ export function classify(command, initialCwd, context, depth = 0) {
       const index = words.findIndex(w => /^-[a-z]*c$/.test(w));
       requests.push(...classify(words[index + 1] ?? '', cwd, context, depth + 1)); continue;
     }
-    if (words.some(w => basename(w) === 'workspace-scope-grant.mjs') || exe === 'workspace-scope-grant.mjs') {
+    const interpreter = ['node', 'tsx', 'ts-node', 'bash', 'sh'].includes(exe);
+    const launches = name => exe === name || interpreter && words.some(w => basename(w) === name);
+    if (launches('workspace-scope-grant.mjs') || launches('workspace-scope-guard.mjs') && words.some(w => w.startsWith('--initialize-session'))) {
       requests.push({ action: 'owner.grant', code: 'OWNER_ONLY', ref: '', repo: '' }); continue;
     }
     let target = cwd, additionalTargets = [], action, ref = '', remote, extraRemotes = [], checkVersions = false, privateVersion = false, revision, versionRefs;
