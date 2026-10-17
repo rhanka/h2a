@@ -260,3 +260,44 @@ test('stable refuses an RC proof missing focus or carrying a wrong focus version
     assert.match(result.stderr, /No successful RC attestation/)
   }
 })
+
+test('publish sanity refuses legacy four-package preparation and stale focus versions before publication', t => {
+  const f = fixture(t)
+  writeFileSync(join(f.root, 'scripts/check-lockstep-versions.mjs'), readFileSync(join(repo, 'scripts/check-lockstep-versions.mjs')))
+  const sanity = workflow.jobs.publish.steps.find(s => s.name === 'Version sanity gate (tag vs package.json)')
+  const script = sanity.run.replaceAll('${{ needs.verify.outputs.release-sha }}', sha)
+  for (const tagVersion of [version, '0.98.6']) {
+    // Simulate the four-package prepare helper from an older gated checkout.
+    for (const name of names) {
+      const path = join(f.root, 'packages', name, 'package.json')
+      const pkg = JSON.parse(readFileSync(path))
+      pkg.version = name === 'focus' ? '0.5.0' : tagVersion
+      for (const field of ['dependencies', 'peerDependencies', 'optionalDependencies', 'devDependencies']) {
+        for (const dep of Object.keys(pkg[field])) if (dep.startsWith('@sentropic/')) pkg[field][dep] = tagVersion
+      }
+      writeFileSync(path, JSON.stringify(pkg))
+    }
+    for (const marker of [undefined, '0.4.0-rc.1']) {
+      const env = { ...f.env, GITHUB_REF: 'refs/tags/v' + tagVersion }
+      if (marker !== undefined) env.FOCUS_RELEASE_VERSION = marker
+      const result = spawnSync('bash', ['-e', '-o', 'pipefail', '-c', script], { cwd: f.root, env, encoding: 'utf8' })
+      assert.notEqual(result.status, 0, result.stdout + result.stderr)
+      assert.match(result.stderr, /focus.*prepar/i)
+    }
+  }
+})
+
+test('five-package prepare hands the independent focus version to the publication sanity gate', t => {
+  for (const tagVersion of [version, '0.98.6']) {
+    const f = fixture(t)
+    writeFileSync(join(f.root, 'scripts/check-lockstep-versions.mjs'), readFileSync(join(repo, 'scripts/check-lockstep-versions.mjs')))
+    const result = f.invoke('prepare', { GITHUB_REF: 'refs/tags/v' + tagVersion })
+    assert.equal(result.status, 0, result.stdout + result.stderr)
+    const prepared = Object.fromEntries(readFileSync(f.env.GITHUB_ENV, 'utf8').trim().split('\n').map(line => line.split('=')))
+    assert.equal(prepared.FOCUS_RELEASE_VERSION, tagVersion === version ? '0.5.0-rc.1' : '0.5.0')
+    const sanity = workflow.jobs.publish.steps.find(s => s.name === 'Version sanity gate (tag vs package.json)')
+    const script = sanity.run.replaceAll('${{ needs.verify.outputs.release-sha }}', sha)
+    const gate = spawnSync('bash', ['-e', '-o', 'pipefail', '-c', script], { cwd: f.root, env: { ...f.env, ...prepared, GITHUB_REF: 'refs/tags/v' + tagVersion }, encoding: 'utf8' })
+    assert.equal(gate.status, 0, gate.stdout + gate.stderr)
+  }
+})
