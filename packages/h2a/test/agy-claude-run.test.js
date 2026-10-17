@@ -61,6 +61,50 @@ test("AGY MCP preserves a typed non-zero provider completion", () => workspace(d
   assert.equal(executeH2aRunWithSpawn(req,()=>({status:1,stdout:JSON.stringify(failure),stderr:""})).code,failure.code);
 }));
 
+test("AGY MCP accepts a new result whose filesystem timestamp lags the launch clock", () => workspace(dir => {
+  const req=validateH2aRunRequest(request(dir),dir);
+  const path=join(dir,".h2a/runs",req.name,"result.json");
+  mkdirSync(join(dir,".h2a/runs",req.name),{recursive:true});
+  const launch=createH2aRunLauncher(()=>({state:"started",result:{path}}));
+  const filesystemTime=(Date.now()-4)/1000;
+  assert.equal(launch(req).state,"started");
+  const fresh={kind:"h2a.run.failure",version:1,state:"failed",code:"agy-claude-quota-exhausted",resetsAt:"2026-10-24T03:27:24Z"};
+  writeFileSync(path,JSON.stringify(fresh));
+  utimesSync(path,filesystemTime,filesystemTime);
+  assert.equal(launch(req).code,fresh.code);
+  assert.equal(launch(req).resetsAt,fresh.resetsAt);
+}));
+
+test("AGY MCP excludes an existing custom result path even with a future timestamp", () => workspace(dir => {
+  const req=validateH2aRunRequest(request(dir),dir);
+  const path=join(dir,"custom-result.json");
+  writeFileSync(path,JSON.stringify({kind:"h2a.run.completion",version:1,state:"done"}));
+  utimesSync(path,new Date(Date.now()+60_000),new Date(Date.now()+60_000));
+  let calls=0;
+  const launch=createH2aRunLauncher(()=>{calls++;return {state:"started",result:{path}};});
+  assert.equal(launch(req).state,"started");
+  assert.equal(launch(req).state,"started");
+  const fresh={kind:"h2a.run.failure",version:1,state:"failed",code:"agy-claude-quota-exhausted"};
+  writeFileSync(path,JSON.stringify(fresh));
+  utimesSync(path,new Date(0),new Date(0));
+  assert.equal(launch(req).code,fresh.code);
+  assert.equal(calls,1);
+}));
+
+test("AGY MCP reads a canonical completion published before the launch response", () => workspace(dir => {
+  const req=validateH2aRunRequest(request(dir),dir);
+  const path=join(dir,".h2a/runs",req.name,"result.json");
+  mkdirSync(join(dir,".h2a/runs",req.name),{recursive:true});
+  const completed={kind:"h2a.run.completion",version:1,state:"done",model:req.model};
+  const launch=createH2aRunLauncher(()=>{
+    writeFileSync(path,JSON.stringify(completed));
+    utimesSync(path,new Date(0),new Date(0));
+    return {state:"started",result:{path}};
+  });
+  assert.equal(launch(req).state,"started");
+  assert.equal(launch(req).state,"done");
+}));
+
 test("AGY MCP rejects the previous result generation even with a future timestamp", () => workspace(dir => {
   const req=validateH2aRunRequest(request(dir),dir);
   const runDir=join(dir,".h2a/runs",req.name);

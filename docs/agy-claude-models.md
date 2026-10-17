@@ -45,13 +45,20 @@ both at the top level and under `quota`. There is no automatic retry or
 fallback; the caller chooses the next action.
 Interactive delivery inspects the AGY screen before treating CPU activity as
 accepted work. A preliminary quota diagnostic can be enriched by a later reset.
+Wrapped `AGY_ERROR` JSON is reassembled before detection. The typed observation
+is carried separately from the six-line screen excerpt so a composer/footer
+cannot discard the quota code or absolute reset.
 
 Run is asynchronous: its initial receipt says started. Read `result.path` for
 the final completion, or repeat the same `h2a_run` name on the same MCP server
 to read the durable completion without launching again. A quick quota refusal
 can already appear in the initial CLI/MCP response.
 Reusing a completed headless name retires its old result before starting the
-new run; MCP polling also checks result freshness. A completion published while
+new run; MCP polling excludes the previous file generation without comparing
+filesystem timestamps to the wall clock. An injected executor returning a
+custom result path establishes its baseline at handoff; if already complete,
+it must return that completion rather than a started receipt.
+A completion published while
 the host PID is being probed is still returned as a structured result. Other
 non-zero provider exits return `agy-process-failed` with the exit code or spawn
 diagnostic, without retry or fallback.

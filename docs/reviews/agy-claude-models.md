@@ -29,3 +29,18 @@ This is reconciliation of the supplied review and a technical self-review.
 No new independent consensus is claimed: the author metadata and installed
 h2a dispatch constraints in the header still prevent the harness selector.
 No real provider/native-host qualification, integration suite or Track write.
+
+## Tour 3 — owner-supplied re-review
+
+Target: Tour 3 correction of `8563ee35a`, accepting both findings in
+`rev359-r2.md`. Regressions reproduce filesystem-clock lag in CLI and MCP,
+old custom-path results, fast completions, real AGY_ERROR terminal wrapping,
+and the six-line diagnostic-tail loss. The correction removes cross-clock
+checks, retains file-generation exclusion, reassembles anchored complete JSON,
+and carries a typed quota error from the full-screen observation to the CLI.
+
+No additional independent consensus is claimed. Per
+`/home/antoinefa/.codex/skills/harness-review/SKILL.md`, selection requires
+exact author model/effort and dispatch through the installed h2a MCP server;
+those metadata remain unavailable and owner confinement forbids that dispatch.
+The supplied re-review is reconciled with offline regression evidence only.
