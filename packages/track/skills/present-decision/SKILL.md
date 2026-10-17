@@ -28,30 +28,24 @@ an agent's technical inconvenience alone does not justify a dossier.
   unknown validation criteria that could change the outcome; or explicit owner request.
   Two moderate triggers also qualify. Explain the concrete owner impact, not just the trigger.
 
-Declare a total reading-time budget proportional to the stakes. Each question, including its
-context, options and recommendation, must be readable in **2 minutes** (aim for at most 400 words).
-Prefer one question. For several, state their count and total time; make each self-contained.
-Keep supporting evidence separate and optional to read, without hiding a choice or material risk there.
+Declare a reading budget proportional to the stakes. Each self-contained question, context,
+options and recommendation must fit **2 minutes** (aim: 400 words). State question count and total time;
+no choice or material risk hidden in optional evidence.
 
 ## 2. Ground the decision
 
-Read the request, applicable repo rules and existing decisions; verify claims against sources.
-When `.track/` exists, read its state using the repo's reporting workflow. Do not edit other repos
-or global rules without authorization.
+Read the request, repo rules, existing decisions and `.track/` via the repo reporting workflow.
+Verify claims against sources. Do not edit other repos or global rules without authorization.
 
-Quote the **literal owner request**, with date/source, and map each demand to the question,
-option or acceptance criterion that addresses it. Quote the relevant passage without paraphrasing;
-link longer context. Flag any departure from the request explicitly.
-Use `assets/owner-criteria.template.md` for applicable criteria.
+Quote the **literal owner request**, with date/source. Map demands to questions, options or
+acceptance criteria; flag departures. Use `assets/owner-criteria.template.md`.
 
-For complex design decisions, obtain independent Codex + Opus reviews before recommending.
-Use the host's available second-opinion tool; surface disagreements. Reviews bound risks and
-check owner intent; they must not inflate the dossier. A missing required review makes it
-**Incomplete**; only reversible preparation may continue, and no final validation is requested.
+Complex design requires independent Codex + Opus reviews; surface disagreements. Missing required
+review means **Incomplete**: only reversible preparation continues, no final validation.
 
 ## 3. Write a short, self-contained question
 
-Use `assets/dossier-template.md`. In plain words, include:
+Use `assets/dossier-template.md` for content. In plain words, include:
 
 - the exact decision and boundary, the owner's expected benefit and risk;
 - representative context: current behavior, a concrete problem/scenario, affected people,
@@ -61,12 +55,9 @@ Use `assets/dossier-template.md`. In plain words, include:
 - one recommendation and why, its strongest objection and what would overturn it;
 - the smallest answer needed and acceptance criteria tied to the owner's words.
 
-Spell out necessary acronyms on first use. Replace opaque codes such as `L06b` with meaningful
-names; keep tracking identifiers in source links. A reader must understand the question without
-opening those links. Separate `[FACT]` (with source) from `[JUDGMENT]` on decisive claims.
-Present each alternative's strongest honest case, including a rejected alternative; avoid padding
-pros to match counts. State presenter convenience separately from owner value, and include a brief
-failure scenario. Integrate these safeguards into the question; no mandatory long appendix.
+Explain acronyms; replace opaque codes with meaningful names and source links. Distinguish
+`[FACT]` (sourced) from `[JUDGMENT]`. Steelman alternatives. Separate presenter convenience from
+owner value; include a brief failure scenario, no mandatory long appendix.
 
 ## 4. Audit, present, record
 
@@ -74,6 +65,18 @@ Run `assets/self-audit.md`, fix failures and re-check before presenting.
 If a necessary fact, criterion or review is missing, label **Incomplete** and ask for that input,
 not approval of the decision.
 
+**Default dossier output: portable Focus design-system HTML, never a claude.ai artifact.**
+Run `h2a focus template -o dossier.json`; replace the example with a `DecisionDossierDocument`,
+including the literal request, readable options and ecosystem diagrams (`source: "ecosystem:overview"`;
+also `models`, `knowledge`, `interfaces`). Then run exactly:
+
+```sh
+h2a focus build dossier.json -o dossier.html
+```
+
+The builder refuses schema/readability failures before output. Deliver/link the single HTML file;
+check offline phone reading, light/dark, cards and pinch zoom. See `docs/focus/portable-dossiers.md`.
+Cards only prepare a local answer; they never record approval.
 Before asking, read `assets/native-questions.md`: use the exposed native question tool after a decision
 dossier with a diagram. If unavailable, leave consequential decisions pending. Decide-and-trace needs no ask.
 

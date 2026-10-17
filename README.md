@@ -1,5 +1,9 @@
 # h2a — Humans-to-Agents Coordination Protocol
 
+Decision dossiers default to a portable Focus design-system file:
+`h2a focus build dossier.json -o dossier.html`.
+Start with `h2a focus template -o dossier.json`; see [portable dossiers](docs/focus/portable-dossiers.md).
+
 > **One-line pitch**: a protocol and CLI binary that lets multiple agentic CLIs (Claude Code, Codex, Gemini, others) **cooperate** with each other and with humans, through a system of **roles, signatures, negotiation and notifications** inspired by how a real organization works.
 
 | | |
