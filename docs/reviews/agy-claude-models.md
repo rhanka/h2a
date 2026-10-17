@@ -32,7 +32,7 @@ No real provider/native-host qualification, integration suite or Track write.
 
 ## Tour 3 — owner-supplied re-review
 
-Target: implementation `d6ce6c4`, correcting `8563ee35a` and accepting both findings in
+Target: implementation `38ce0203a` (rebased from `d6ce6c4`), correcting `8563ee35a` and accepting both findings in
 `rev359-r2.md`. Regressions reproduce filesystem-clock lag in CLI and MCP,
 old custom-path results, fast completions, real AGY_ERROR terminal wrapping,
 and the six-line diagnostic-tail loss. The correction removes cross-clock
@@ -46,6 +46,17 @@ a non-Claude model (10/12 launch tests), then passed after retaining the model
 check. Final Node 22/24 campaigns pass 303/303 across eight named runtime files
 and 41/41 across three CLI/MCP files per version, with no skips. Four package
 typechecks pass per version. Source hashes match all four final test lanes.
+
+Main advanced during CI with PR #360's integration budget correction. Final
+publication rebases onto `ed0c09f64`, preserving both branch contexts; all eight
+changed AGY source/test files remain byte-identical. Rebased Node 22/24 checks
+pass 303/303 runtime and 83/83 CLI/MCP plus the named CI-budget guard per version,
+without skips. The initial Node 24 CI job passed. The initial trust-root job
+failed in the unmodified published-identity-lock race test's JSON polling; its
+installed h2a execution is forbidden locally. The initial Node 22 job was
+cancelled after about fifteen minutes. Both outcomes and the final-head CI
+snapshot are preserved in the owner's Tour 3 report, without a global-green
+claim or a rerun that hides the failure.
 
 No additional independent consensus is claimed. Per
 `/home/antoinefa/.codex/skills/harness-review/SKILL.md`, selection requires
