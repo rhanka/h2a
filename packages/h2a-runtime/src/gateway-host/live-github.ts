@@ -3,6 +3,13 @@
  * The composition owner supplies an approved absolute gh executable and a
  * service directory (never an observed worktree). gh alone owns credentials.
  * This module lists metadata only; it never acquires/acknowledges Git objects.
+ *
+ * The listing is newest-first (direction=desc): a PR updated while a sweep is
+ * in flight stays in the already-read region. An unread PR updated during
+ * the sweep jumps there too, producing a duplicate boundary item; the overlap
+ * window recovers the moved PR on the next pass. GitHub exposes the
+ * listing Link under the numeric repositories path; every row on such a page
+ * must carry the same repository id.
  */
 import { execFile, type ExecFileException } from "node:child_process";
 import { isAbsolute } from "node:path";
@@ -11,6 +18,7 @@ import {
   validatePrPage,
   validatePullRequestFact,
   type PrPageDto,
+  type PrSyncErrorKind,
   type PullRequestFactDto,
   type QualifiedOid,
 } from "../vendor/engram-live/contracts.js";
@@ -25,10 +33,17 @@ export interface LiveGithubOptions {
 }
 
 type HttpReply = { status: number; headers: Map<string, string>; body: string };
-const failure = (kind: "protocol" | "offline" | "auth_required" | "rate_limited" | "unavailable"): Extract<PrTransportResult, { ok: false }> =>
+type CachedPage = { page: PrPageDto; repoId: number | null };
+type TransportFailure = Extract<PrTransportResult, { ok: false }>;
+const failure = (kind: PrSyncErrorKind): TransportFailure =>
   ({ ok: false, kind, message: `GitHub PR transport: ${kind}` });
 const slug = /^[A-Za-z0-9][A-Za-z0-9_.-]*$/;
 const safeHeader = (value: string) => value.length > 0 && value.length <= 8192 && !/[\x00-\x1f\x7f]/.test(value);
+// Updated rows move toward the read region; the overlap recovers their facts.
+const LIST_FILTER = { state: "all", sort: "updated", direction: "desc", per_page: "100" } as const;
+// Validators rotate every incremental pass, so an unbounded map grows forever
+// on a long-lived host. Eviction only costs a revalidation, never correctness.
+const MAX_CACHED_PAGES = 32;
 
 function position(request: PrPageRequest): { scope: string; page: number; key: string; path: string } {
   const { owner, repo } = request.repository;
@@ -70,18 +85,37 @@ function parseHttp(output: string): HttpReply {
   return { status: Number(status[1]), headers, body: output.slice(split + separator.length) };
 }
 
-function nextPage(header: string | undefined, path: string, current: number): number | null {
-  if (header === undefined) return null; // GitHub REST's explicit lack of continuation.
+function parseLinkProof(header: string | undefined, path: string, current: number): { next: number | null; repoId: number | null } {
+  // GitHub omits Link only when the whole listing fits one page. From page 2
+  // it always sends prev/first, so a missing header past page 1 is a
+  // truncation risk, never an end of list.
+  if (header === undefined) {
+    if (current === 1) return { next: null, repoId: null };
+    throw new Error("missing Link proof");
+  }
   const relations = new Map<string, number>();
+  let repoId: number | null = null;
+  let canonical = false;
   for (const part of header.split(",")) {
     const match = /^\s*<([^<>]+)>;\s*rel="(next|prev|first|last)"\s*$/.exec(part);
     if (!match) throw new Error("invalid Link proof");
     const url = new URL(match[1]!);
-    if (url.origin !== "https://api.github.com" || url.username || url.password || url.hash || url.pathname !== path) throw new Error("foreign Link");
+    if (url.origin !== "https://api.github.com" || url.username || url.password || url.hash) throw new Error("foreign Link");
+    if (url.pathname === path) {
+      if (repoId !== null) throw new Error("contradictory Link");
+      canonical = true;
+    } else {
+      if (canonical) throw new Error("contradictory Link");
+      const shaped = /^\/repositories\/(\d+)\/pulls$/.exec(url.pathname);
+      if (!shaped) throw new Error("foreign Link");
+      const id = Number(shaped[1]);
+      if (!Number.isSafeInteger(id) || id <= 0) throw new Error("foreign Link");
+      if (repoId !== null && repoId !== id) throw new Error("contradictory Link");
+      repoId = id;
+    }
     const params = url.searchParams;
-    const expected: Record<string, string> = { state: "all", sort: "updated", direction: "asc", per_page: "100" };
     if ([...params.keys()].length !== 5 || params.getAll("page").length !== 1) throw new Error("foreign Link query");
-    for (const [key, value] of Object.entries(expected)) {
+    for (const [key, value] of Object.entries(LIST_FILTER)) {
       if (params.getAll(key).length !== 1 || params.get(key) !== value) throw new Error("foreign Link filter");
     }
     const text = params.get("page")!;
@@ -93,10 +127,11 @@ function nextPage(header: string | undefined, path: string, current: number): nu
       || (relation === "first" && page !== 1) || (relation === "last" && page < current)) throw new Error("contradictory Link");
     relations.set(relation, page);
   }
+  if (current > 1 && (!relations.has("prev") || !relations.has("first"))) throw new Error("missing Link proof");
   const next = relations.get("next") ?? null;
   const last = relations.get("last");
   if (last !== undefined && ((next === null && last !== current) || (next !== null && last < next))) throw new Error("contradictory last page");
-  return next;
+  return { next, repoId };
 }
 
 function record(value: unknown): Record<string, unknown> {
@@ -116,12 +151,16 @@ function timestamp(value: unknown): number {
   return time;
 }
 
-function observation(value: unknown, request: PrPageRequest, path: string): PullRequestFactDto {
+function observation(value: unknown, request: PrPageRequest, path: string, linkRepoId: number | null): PullRequestFactDto {
   const row = record(value);
   const base = record(row.base);
   const head = record(row.head);
+  const repo = record(base.repo);
   const identity = `${request.repository.owner}/${request.repository.repo}`;
-  if (row.url !== `https://api.github.com${path}/${row.number}` || record(base.repo).full_name !== identity) throw new Error("foreign PR");
+  if (row.url !== `https://api.github.com${path}/${row.number}` || repo.full_name !== identity) throw new Error("foreign PR");
+  // A repositories-shaped Link names the numeric repository: every row on a
+  // page carrying it must carry the same id.
+  if (linkRepoId !== null && repo.id !== linkRepoId) throw new Error("foreign PR");
   if (row.state !== "open" && row.state !== "closed") throw new Error("unknown PR state");
   const merged = row.merged_at !== null;
   if (merged) timestamp(row.merged_at);
@@ -173,15 +212,26 @@ export function createLiveGithubTransport(options: LiveGithubOptions): GithubPrT
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 300_000
     || !Number.isSafeInteger(concurrency) || concurrency < 1 || concurrency > 16) throw new Error("invalid transport budget");
   const now = options.now ?? Date.now;
-  const cache = new Map<string, PrPageDto>();
+  const cache = new Map<string, CachedPage>();
   let active = 0;
   const waiters: (() => void)[] = [];
+
+  function store(key: string, page: PrPageDto, repoId: number | null): void {
+    if (cache.has(key)) cache.delete(key);
+    cache.set(key, { page: structuredClone(page), repoId });
+    while (cache.size > MAX_CACHED_PAGES) {
+      const oldest = cache.keys().next();
+      if (oldest.done) break;
+      cache.delete(oldest.value);
+    }
+  }
 
   async function fetch(request: PrPageRequest): Promise<PrTransportResult> {
     let pos: ReturnType<typeof position>;
     try { pos = position(request); } catch { return failure("protocol"); }
-    const endpoint = `${pos.path.slice(1)}?state=all&sort=updated&direction=asc&per_page=100&page=${pos.page}`;
-    const cached = cache.get(pos.key);
+    const endpoint = `${pos.path.slice(1)}?${new URLSearchParams(LIST_FILTER)}&page=${pos.page}`;
+    const entry = cache.get(pos.key);
+    const cached = entry?.page;
     // A persisted ETag without its page is insufficient to interpret 304.
     const validator = cached?.etag && cached.etag === request.etag ? request.etag : null;
     for (let attempt = 0; attempt < 2; attempt++) {
@@ -199,7 +249,12 @@ export function createLiveGithubTransport(options: LiveGithubOptions): GithubPrT
       if (result.error && (result.error.code === "ENOENT" || result.error.code === "EACCES")) return failure("unavailable");
       if (result.error && ("killed" in result.error && result.error.killed || result.error.code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER")) return failure("offline");
       let reply: HttpReply;
-      try { reply = parseHttp(result.output); } catch { return failure(result.error ? "offline" : "protocol"); }
+      try { reply = parseHttp(result.output); }
+      catch {
+        // An unauthenticated gh exits 4 with no HTTP envelope: that is missing
+        // credentials, never a network outage.
+        return failure(result.error?.code === 4 ? "auth_required" : result.error ? "offline" : "protocol");
+      }
       const { status, headers } = reply;
       if (status === 304) {
         if (attempt === 0 && validator && cached && (!headers.has("etag") || headers.get("etag") === validator)) {
@@ -208,14 +263,20 @@ export function createLiveGithubTransport(options: LiveGithubOptions): GithubPrT
           // A 304 without current Link evidence requires an unconditional GET.
           if (headers.has("link")) {
             try {
-              const next = nextPage(headers.get("link"), pos.path, pos.page);
+              const proof = parseLinkProof(headers.get("link"), pos.path, pos.page);
+              // A 304 has no base.repo.id: bind numeric links to the cached
+              // response's identity, or obtain a body to verify it first.
+              if (proof.repoId !== null) {
+                if (entry?.repoId === null) continue;
+                if (proof.repoId !== entry?.repoId) return failure("protocol");
+              }
               const page: PrPageDto = {
                 items: structuredClone(cached.items), etag: cached.etag ?? null,
-                nextCursor: next === null ? null : cursorFor(pos.scope, next), hasMore: next !== null,
-                ...(next === null ? { endProof: PR_END_PROOF } : {}),
+                nextCursor: proof.next === null ? null : cursorFor(pos.scope, proof.next), hasMore: proof.next !== null,
+                ...(proof.next === null ? { endProof: PR_END_PROOF } : {}),
               };
               if (!validatePrPage(page).ok) return failure("protocol");
-              cache.set(pos.key, structuredClone(page));
+              store(pos.key, page, entry?.repoId ?? null);
               return { ok: true, page };
             } catch { return failure("protocol"); }
           }
@@ -233,19 +294,21 @@ export function createLiveGithubTransport(options: LiveGithubOptions): GithubPrT
       try {
         const body: unknown = JSON.parse(reply.body);
         if (!Array.isArray(body) || body.length > 100) return failure("protocol");
-        const next = nextPage(headers.get("link"), pos.path, pos.page);
+        const proof = parseLinkProof(headers.get("link") ?? undefined, pos.path, pos.page);
         // Validate all rows before applying the local updatedAt filter.
         // REST pulls has no since filter: enumerate all pages, filter locally.
-        const facts = body.map(row => observation(row, request, pos.path));
+        const facts = body.map(row => observation(row, request, pos.path, proof.repoId));
         const etag = headers.get("etag") ?? null;
         if (etag !== null && !safeHeader(etag)) return failure("protocol");
         const page: PrPageDto = {
           items: facts.filter(fact => request.updatedAtSince === null || fact.updatedAt >= request.updatedAtSince),
-          nextCursor: next === null ? null : cursorFor(pos.scope, next), hasMore: next !== null,
-          ...(next === null ? { endProof: PR_END_PROOF } : {}), etag,
+          nextCursor: proof.next === null ? null : cursorFor(pos.scope, proof.next), hasMore: proof.next !== null,
+          ...(proof.next === null ? { endProof: PR_END_PROOF } : {}), etag,
         };
         if (!validatePrPage(page).ok) return failure("protocol");
-        cache.set(pos.key, structuredClone(page));
+        const observedId = body.length ? record(record(record(body[0]).base).repo).id : null;
+        const repoId = typeof observedId === "number" && Number.isSafeInteger(observedId) && observedId > 0 ? observedId : null;
+        store(pos.key, page, repoId);
         return { ok: true, page };
       } catch { return failure("protocol"); }
     }
