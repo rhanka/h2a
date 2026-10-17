@@ -86,6 +86,39 @@ function positional(words, valueOptions = []) {
   }
   return result;
 }
+function npmWorkspaces(root, words) {
+  const selectors = [];
+  const all = words.includes('--workspaces') || words.includes('-ws');
+  for (let i = 0; i < words.length; i++) {
+    if (words[i] === '--workspace' || words[i] === '-w') selectors.push(words[++i]);
+    else if (words[i].startsWith('--workspace=')) selectors.push(words[i].slice(12));
+    else if (words[i].startsWith('-w') && words[i] !== '-ws') selectors.push(words[i].slice(2));
+  }
+  if (!selectors.length && !all) return [root];
+  const candidates = [];
+  try {
+    const config = JSON.parse(fs.readFileSync(join(root, 'package.json'), 'utf8')).workspaces;
+    for (const pattern of Array.isArray(config) ? config : config?.packages ?? []) {
+      let paths = [root];
+      for (const segment of pattern.split('/')) paths = paths.flatMap(path => {
+        if (segment === '*') {
+          try { return fs.readdirSync(path, { withFileTypes: true }).filter(e => e.isDirectory()).map(e => join(path, e.name)); }
+          catch { return []; }
+        }
+        return [join(path, segment)];
+      });
+      for (const path of paths) {
+        try { candidates.push({ path: canonical(path), name: JSON.parse(fs.readFileSync(join(path, 'package.json'), 'utf8')).name }); }
+        catch { /* Not a declared package directory. */ }
+      }
+    }
+  } catch { /* npm itself rejects invalid workspace configuration. */ }
+  return [...new Set(all ? candidates.map(c => c.path) : selectors.flatMap(selector => {
+    const direct = resolve(root, selector);
+    if (fs.existsSync(join(direct, 'package.json'))) return [canonical(direct)];
+    return candidates.filter(c => c.name === selector).map(c => c.path);
+  }))];
+}
 export function classify(command, initialCwd, context, depth = 0) {
   if (depth > 5) return [{ action: 'shell.opaque', ref: '', repo: '', foreign: true, uncertain: true }];
   const requests = [], parsed = shellWords(command); let cwd = initialCwd;
@@ -118,7 +151,7 @@ export function classify(command, initialCwd, context, depth = 0) {
     if (words.some(w => basename(w) === 'workspace-scope-grant.mjs') || exe === 'workspace-scope-grant.mjs') {
       requests.push({ action: 'owner.grant', code: 'OWNER_ONLY', ref: '', repo: '' }); continue;
     }
-    let target = cwd, action, ref = '', remote, extraRemotes = [], checkVersions = false, revision, versionRefs;
+    let target = cwd, additionalTargets = [], action, ref = '', remote, extraRemotes = [], checkVersions = false, revision, versionRefs;
     if (exe === 'git') {
       if (env.GIT_WORK_TREE) target = resolve(cwd, env.GIT_WORK_TREE);
       else if (env.GIT_DIR) target = dirname(resolve(cwd, env.GIT_DIR));
@@ -179,6 +212,8 @@ export function classify(command, initialCwd, context, depth = 0) {
       }
     } else if (['npm', 'pnpm', 'yarn', 'bun'].includes(exe)) {
       target = resolve(cwd, valueAfter(words, '--prefix') ?? valueAfter(words, '--cwd', '-C') ?? cwd);
+      const scriptTargets = npmWorkspaces(target, words);
+      if (scriptTargets.length) [target, ...additionalTargets] = scriptTargets;
       const pos = positional(words, ['--prefix', '--cwd', '-C', '--workspace', '-w']);
       const [sub, script] = pos;
       if (sub === 'pkg' && script === 'set' && pos.slice(2).some(w => /^version=/.test(w))) {
@@ -187,12 +222,15 @@ export function classify(command, initialCwd, context, depth = 0) {
         action = `${exe}.${sub}`; ref = script ?? sub; checkVersions = true;
       } else if (['run', 'install', 'ci', 'add', 'remove'].includes(sub)) { action = `${exe}.${sub}`; ref = script ?? sub; }
       if (sub === 'run' && script) {
-        try {
-          const body = JSON.parse(fs.readFileSync(join(target, 'package.json'), 'utf8')).scripts?.[script];
-          if (typeof body === 'string') requests.push(...classify(body, target, context, depth + 1));
-        } catch { /* Unknown aliases still retain the outer workspace check. */ }
+        for (const directory of scriptTargets) {
+          try {
+            const body = JSON.parse(fs.readFileSync(join(directory, 'package.json'), 'utf8')).scripts?.[script];
+            if (typeof body === 'string') requests.push(...classify(body, directory, context, depth + 1));
+          } catch { /* Unknown aliases still retain the outer workspace check. */ }
+        }
       }
     } else if (/(?:^|[-_.])(release|publish|bump)(?:[-_.]|$)/i.test(exe) ||
+      ['node', 'tsx', 'ts-node', 'deno', 'bash', 'sh', 'npx'].includes(exe) &&
       words.some(w => /(?:^|[/])(?:release|publish|bump)(?:[-_.]|$)/i.test(w))) {
       action = 'script.release'; ref = words[0] ?? exe;
       if (words[0] && /[\/]/.test(words[0])) target = dirname(resolve(cwd, words[0]));
@@ -221,6 +259,10 @@ export function classify(command, initialCwd, context, depth = 0) {
       uncertain: parsed.uncertain || Object.keys(env).some(k => /^(?:GIT_CONFIG|GIT_COMMON_DIR)/.test(k)) ||
         exe === 'git' && words.some(w => w === '-c' || w.startsWith('--config-env') || ['--mirror', '--all'].includes(w)) };
     requests.push(request);
+    for (const path of additionalTargets) {
+      const repo = repository(path);
+      requests.push({ ...request, cwd: path, repo: repo.repo, foreign: repo.path !== context.path || !inside(context.workspace, path) || repo.repo !== context.repo });
+    }
     for (const locator of extraRemotes) {
       const repo = repoIdentity(locator, target);
       requests.push({ ...request, repo, foreign: request.foreign || repo !== context.repo });
