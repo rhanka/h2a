@@ -29,3 +29,11 @@ workspace regression red 0/1; final targeted verification 100 passed, no skips.
 Helper execution/inspection controls: targeted red 0/2; final targeted verification
 102 passed, 0 failed, 0 skipped. SessionStart binding cannot be minted through a
 classified manual invocation of the initializer.
+
+## Tour 2
+
+- target-ref: 74c7030f9cbe7673864955b5808dd54d11719f44
+- status: selection-failed
+- observed-failure: No h2a MCP is exposed in this confined session, and exact author model/effort metadata is unavailable. Real host/state access is forbidden by the owner.
+- No fresh implementation consensus verdict is claimed. The supplied independent review was remediated through numbered regressions; see [Tour 2 evidence](./tour2-validation.md).
+- Review skill source: [harness-review/SKILL.md](/home/antoinefa/.codex/skills/harness-review/SKILL.md), “Unknown author means no acceptable review” and “Launch only through the installed h2a MCP server”. This blocks fresh peer dispatch only; no merge is requested or performed.

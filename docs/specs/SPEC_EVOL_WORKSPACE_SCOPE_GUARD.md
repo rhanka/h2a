@@ -13,8 +13,12 @@ Owner request: 2026-10-17 following cross-workspace integration #327.
   authorization, including commit/push/PR checks for existing branch bumps.
 - D5: Append typed denials and accepted grants to local human-readable JSONL.
   Audit failure refuses too; tell agents to hand work to the owning conductor.
-- D6: Ship Claude/Codex and independent Vibe wiring. agy/muse have no verified
-  pre-action surface: expose unsupported status rather than invent enforcement.
+- D6 (review #364, tour 2): Ship enforcement for Claude, Codex, agy, Muse,
+  Vibe and Gemini. agy has native SessionStart/PreToolUse payloads. Muse's
+  project hooks and denial protocol are verified against Meta's public
+  1.4.10-R6427.1 artifact; native startup/dispatch run only on temporary profiles.
+  Vibe's global profile binds each native session independently, retains explicit
+  trust selections, and supports subsequent launches in other workspaces.
 
 Independent design reviews: scope_design_security (authority/bypasses),
 scope_design_coverage (host plumbing/false positives). Reconciled into D1–D6.
