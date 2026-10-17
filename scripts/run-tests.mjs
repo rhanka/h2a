@@ -47,6 +47,12 @@ export const TEST_DIRS = ["packages/h2a/test", "packages/focus-interactive/test"
 // `npm-test-trust-root` job.
 export const RUNNER_TEST_FILE = "packages/h2a/test/run-test-gates.test.js";
 
+export function prioritizeNodeTestFiles(files) {
+  const packageFiles = new Set(['mh-l6-package.test.js', 'mh-l6-runtime-package.test.js']);
+  const priority = file => packageFiles.has(file.replaceAll('\\', '/').split('/').at(-1));
+  return files.sort((a, b) => Number(priority(b)) - Number(priority(a)));
+}
+
 // Lane-scoped identity-lock suites. They mount the previous release's real
 // bindings (lane/base) and confine every simulation root inside an isolated
 // lane (IDLOCK_LANE + lane TMPDIR, enforced by legacy-reboot-loader). Under a
@@ -157,10 +163,10 @@ function main() {
   let nodeTestFiles;
   try {
     nodeTestFiles = discoverTestFiles();
-    // The real closed-package installation file takes ~430s in isolation.
-    // Start it with the pool so lexical placement cannot exhaust the existing
-    // 600s backstop before it gets a chance to complete. Keep every file.
-    nodeTestFiles.sort((a, b) => Number(b.endsWith('/mh-l6-package.test.js')) - Number(a.endsWith('/mh-l6-package.test.js')));
+    // Each package's real installations can take ~250s on CI. Start both
+    // independent package files with the pool, retaining every scenario and
+    // the existing shared 600s backstop.
+    prioritizeNodeTestFiles(nodeTestFiles);
   } catch (err) {
     process.stderr.write(`${(err && err.message) || err}\n`);
     process.exit(1);
