@@ -1,0 +1,40 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-exclusion.test.js
+node: v22.22.1
+private root: /tmp/mh-l6-test-X154zs
+case: B2 should report unfenced when relaunch sources stay open
+TAP version 13
+# Subtest: B2 should report unfenced when relaunch sources stay open
+not ok 1 - B2 should report unfenced when relaunch sources stay open
+  ---
+  duration_ms: 1.493052
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-b21-cTit7w/packages/h2a/test/mh-l6-exclusion.test.js:6:94'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    
+    true !== false
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: false
+  actual: true
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/mh-l3-qualification-b21-cTit7w/packages/h2a/test/mh-l6-exclusion.test.js:35:10)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.start (node:internal/test_runner/test:944:17)
+    startSubtestAfterBootstrap (node:internal/test_runner/harness:296:17)
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 0
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 100.449998
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-exclusion.test.js"],"code":1,"signal":null,"tests":1,"invalid":false,"spawned":1,"leftovers":[]}
