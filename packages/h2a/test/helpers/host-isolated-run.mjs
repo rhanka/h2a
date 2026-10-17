@@ -14,6 +14,12 @@ if (!files.length || files.some(f => !/^packages\/h2a\/test\/[\w-]+\.test\.js$/.
   throw new Error('explicit named h2a test files required');
 for (const name of ['home', 'runtime', 'config', 'state', 'tmp', 'bin']) fs.mkdirSync(join(lane, name), { mode: 0o700 });
 fs.symlinkSync(process.execPath, join(lane, 'bin/node'));
+// `host setup --write` refuses git-tracked configs unless --allow-tracked is
+// explicit, and it fail-closes when tracked-ness cannot be verified — so the
+// isolated lane must provide git. When git is absent the gate keeps refusing,
+// which is the secure default, never a silent pass.
+const gitCli = (process.env.PATH ?? '').split(':').map(p => join(p, 'git')).find(p => fs.existsSync(p));
+if (gitCli) fs.symlinkSync(fs.realpathSync(gitCli), join(lane, 'bin/git'));
 if (files.includes('packages/h2a/test/focus-serve.test.js')) {
   for (const name of ['tar', 'gzip']) fs.symlinkSync('/usr/bin/' + name, join(lane, 'bin', name));
   if (!npmCli) throw new Error('npm required for Focus artifact consumer');
