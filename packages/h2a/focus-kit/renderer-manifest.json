@@ -1,0 +1,22 @@
+{
+  "sources": {
+    "package.json": "9eab064b6c127c2ffcf8ca134367d26a36447ffa7c240ee74abd5c1caa10342a",
+    "package-lock.json": "9086066f9ed787cfe507c821a7e0182437619e61ad4da3388eb80e994ca7b822",
+    "dossier.template.json": "628fd48769dc1426a6a6f860d1ad28c59db9a3dbda6f2a0c612978b8cfa81412",
+    "ecosystem.json": "3ec32b0b6c42ea000c43155ce8e1b807c4e29fdc594dba0963adea0c76063ec8",
+    "../../../scripts/build-focus-dossier.mjs": "a9474021be133b2618de270bb02a962883955bf9420f3c7d1f2cb449f5e92692",
+    "../../focus/schemas/decision-dossier-document.v1.schema.json": "f7cd501d602ac76aeb9582fb6a76d6a4488763f7d97368284f252071470071b2",
+    "../../focus/src/validation/index.ts": "3f782b944b66057a5515797d9a785f0d0d76641aae4890c4df39635a8e8e1edb",
+    "../../focus/src/validation/readability.ts": "5de0c891bf9e76847be651bf16f834d31f18234428024c284d4495ba75863594",
+    "../../focus/src/model.ts": "c4f0b2966980577363e5ceb806d44bbc3a3269ebdf0b3ae4e9fce444c3d88e6a",
+    "../../focus/LICENSE": "cbed2af93b9617fadad7651b98326b96a789a6059126966459230d89742f6c0d",
+    "src/App.svelte": "422acb47d67a320434621696212c561d53d7ce9883cd980b73fe12a48171f0fd",
+    "src/Canvas.svelte": "df4ba2ee9abba0eac7e7e74a129dc96e62f261f741af98650b247dd980ee89da",
+    "src/EcosystemNode.svelte": "dce354de2050fb5584ae6ca3141cb4a71640c03ee749ba2bbda849e7d6a664fa",
+    "src/main.js": "063a974c2976843388d221e6a539f229a16426f34dc298ab1f2a9e6f2cb2542a",
+    "src/style.css": "aff2fa2ab931b97feb89e13c579b3321250abee2e485ac17309e40277246f361",
+    "src/themes.js": "d11b2016ea27678bfa2a35986389c189147cc86a1bb99de41d3f454e79d50caf"
+  },
+  "html": "15c3cfeba939510a863d435d2961a30d6a71363c414268e31f6315261e1a4de3",
+  "validator": "027c17429ebdf8af65ad91a8bd52a89390cf353c8d2a3cae593cdca08ebed71f"
+}
