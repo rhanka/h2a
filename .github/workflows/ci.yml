@@ -2,7 +2,11 @@ name: ci
 
 on:
   push:
-    branches: [main]
+    # R5/R6 receipt: this lane-based draft PR is CONFLICTING with main, so
+    # GitHub creates no merge ref and no pull_request runs. The branch-scoped
+    # push trigger below runs the same gates on the exact pushed bytes until
+    # integration resolves the lane conflict. Remove it at integration.
+    branches: [main, feat/0.98.7-registry-r5r6]
   pull_request:
     branches: [main]
 
