@@ -1,0 +1,52 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-adoption.test.js
+node: v22.22.1
+private root: /tmp/mh-l6-test-csBGMi
+case: all cases in explicit file
+TAP version 13
+# Subtest: C2b should require adoption when no managed selection exists
+ok 1 - C2b should require adoption when no managed selection exists
+  ---
+  duration_ms: 83.324001
+  type: 'test'
+  ...
+# Subtest: C2b should report already adopted when selection matches the target
+ok 2 - C2b should report already adopted when selection matches the target
+  ---
+  duration_ms: 325.18077
+  type: 'test'
+  ...
+# Subtest: C2b should require adoption when the selection targets another build
+ok 3 - C2b should require adoption when the selection targets another build
+  ---
+  duration_ms: 249.680545
+  type: 'test'
+  ...
+# Subtest: C2b should require adoption when the physical installation is unreadable
+ok 4 - C2b should require adoption when the physical installation is unreadable
+  ---
+  duration_ms: 260.596761
+  type: 'test'
+  ...
+# Subtest: C2b should require adoption when the managed layout is unrecognized
+ok 5 - C2b should require adoption when the managed layout is unrecognized
+  ---
+  duration_ms: 262.665715
+  type: 'test'
+  ...
+# Subtest: C2b should refuse an invalid adoption assessment envelope
+ok 6 - C2b should refuse an invalid adoption assessment envelope
+  ---
+  duration_ms: 160.81352
+  type: 'test'
+  ...
+1..6
+# tests 6
+# suites 0
+# pass 6
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 1460.417321
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-adoption.test.js"],"code":0,"signal":null,"tests":6,"invalid":false,"spawned":1,"leftovers":[]}
