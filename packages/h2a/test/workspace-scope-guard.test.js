@@ -318,3 +318,24 @@ test('own monorepo workspace builds and release prose remain ordinary work', t =
     const r = f.invoke(command); assert.equal(r.status, 0, command + ': ' + r.stderr);
   }
 });
+
+test('the read-only npm version query remains allowed in the owning workspace', t => {
+  const f = fixture(t); const r = f.invoke('npm version');
+  assert.equal(r.status, 0, r.stderr);
+});
+
+test('npm version on a private owning package does not require published-package release authority', t => {
+  const f = fixture(t);
+  fs.writeFileSync(join(f.own, 'package.json'), '{"name":"private-fixture","version":"1.0.0","private":true}');
+  const r = f.invoke('npm version patch'); assert.equal(r.status, 0, r.stderr);
+});
+
+test('a published workspace cannot inherit a private sibling release exemption', t => {
+  const f = fixture(t);
+  fs.writeFileSync(join(f.own, 'package.json'), '{"private":true,"workspaces":["packages/*"]}');
+  for (const [name, isPrivate] of [['a', true], ['b', false]]) {
+    fs.mkdirSync(join(f.own, 'packages', name), { recursive: true });
+    fs.writeFileSync(join(f.own, 'packages', name, 'package.json'), JSON.stringify({ name, version: '1.0.0', private: isPrivate }));
+  }
+  denied(f.invoke('npm version patch --workspaces'), 'RELEASE_ONLY');
+});

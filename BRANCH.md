@@ -30,3 +30,5 @@
 - [x] Independent security/coverage design reviews: pin launch identity, inspect
   remote destinations and committed bumps, preserve private packages.
 - [x] h2a consensus unavailable: no h2a MCP in confinement; do not reach live host.
+
+- [x] Preserve read-only npm version and private package versioning; published siblings still require release authority.
