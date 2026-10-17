@@ -10,6 +10,7 @@ export type DisclosureRefusal =
   | "authority-unavailable" | "unverified-principal" | "wrong-audience"
   | "capability-expired" | "capability-revoked" | "operation-denied"
   | "scope-mismatch" | "policy-changed" | "invalid-request"
+  | "read-denied"
   | "grant-required" | "grant-expired" | "grant-revoked"
   | "provider-mismatch" | "out-of-scope" | "secret-excluded"
   | "stale-evidence" | "evidence-unavailable" | "policy-unavailable"
