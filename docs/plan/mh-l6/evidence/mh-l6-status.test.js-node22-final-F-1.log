@@ -1,0 +1,52 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-status.test.js
+node: v22.22.1
+private root: /tmp/mh-l6-test-q4GOIx
+case: all cases in explicit file
+TAP version 13
+# Subtest: F should report an unchanged preparation before any selection
+ok 1 - F should report an unchanged preparation before any selection
+  ---
+  duration_ms: 48.946907
+  type: 'test'
+  ...
+# Subtest: F should report the durable selection once selected
+ok 2 - F should report the durable selection once selected
+  ---
+  duration_ms: 60.721722
+  type: 'test'
+  ...
+# Subtest: F should refuse a durable selection from another installation
+ok 3 - F should refuse a durable selection from another installation
+  ---
+  duration_ms: 90.342839
+  type: 'test'
+  ...
+# Subtest: F should report completion and failure terminally
+ok 4 - F should report completion and failure terminally
+  ---
+  duration_ms: 86.331168
+  type: 'test'
+  ...
+# Subtest: F should report deferred while legacy exclusion stays unfenced
+ok 5 - F should report deferred while legacy exclusion stays unfenced
+  ---
+  duration_ms: 33.019836
+  type: 'test'
+  ...
+# Subtest: F should refuse an invalid status envelope instead of inventing versions
+ok 6 - F should refuse an invalid status envelope instead of inventing versions
+  ---
+  duration_ms: 13.665944
+  type: 'test'
+  ...
+1..6
+# tests 6
+# suites 0
+# pass 6
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 453.83491
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-status.test.js"],"code":0,"signal":null,"tests":6,"invalid":false,"spawned":1,"leftovers":[]}
