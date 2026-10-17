@@ -91,7 +91,39 @@ retrait de garde produit. Audit : `node scripts/mh-l6-c2b2b-audit.mjs
 
 | NOT covered restant | Gate |
 |---|---|
-| Préparation d'image indépendante, sélection durable, délégation et câblage CLI de l'adoption | C2b-2c/F |
+| Préparation d'image indépendante, sélection durable, délégation et câblage CLI de l'adoption | C2b-2d/F |
+| Observateurs B2-3, désadoption, autres entrées, smoke CI, gel .6 | B2-3/D/E2b3/E3b2b/E3c/F, M18 toujours ouvert |
+| Revue indépendante | Conducteur ; aucun consensus revendiqué |
+
+## C2b-2d — préparation d'image indépendante (livré)
+
+`prepareAdoptionImage({ session, stageDir, imagesDir, expectedDigest })`
+dans `packages/h2a/src/runtime/upgrade/adoption-image.js` : session
+revalidée (dérive → refus sans rien déplacer), manifeste relu et confronté
+au digest attendu, image fermée vérifiée (`verifyImage`), profil runtime
+qualifié (`assertImageRuntime`), déplacement atomique vers l'adresse du
+digest avec fsync. Occupant divergent refusé ; occupant identique rendu
+idempotent. Rien n'est résolu depuis l'arbre npm mutable.
+
+| Commande ciblée | Node 22.22.1 | Node 24.21.0 |
+|---|---|---:|
+| `node scripts/mh-l6-test.mjs packages/h2a/test/mh-l6-image-prepare.test.js final-C2b-2d` | 7/7, exit 0 | 7/7, exit 0 |
+| `mh-l6-mutate.mjs adoption-image` (dérive, digest, runtime, conflit) | 4 rouges ERR_ASSERTION / 4 verts | 4 / 4 |
+| Skips / annulations / enfants restants | 0 / 0 / 0 | 0 / 0 / 0 |
+
+Le test du profil a forcé la distinction des trois couches : schéma
+(`invalid_format`), contenu (`native_profile_mismatch`) et runtime
+(`image_loader_unqualified`, `arch` croisé et ABI cohérente). Rouge
+initial : préparateur absent (`ERR_ASSERTION`, 1 test, exit 1), conservé.
+Audit : `node scripts/mh-l6-c2b2d-audit.mjs
+/tmp/mh-l3-qualification-c2b2d-*/source`, exit 0 ; 4 fichiers identiques,
+émission compilée liée par SHA, 7 tests et 4 paires/profil. Preuve :
+`proof-C2b-2d.json`. La délégation au contrôleur cible (primitif B1 prouvé,
+orchestration avec le pilote CLI) appartient à F.
+
+| NOT covered restant | Gate |
+|---|---|
+| Orchestration de la délégation au contrôleur cible avec le pilote CLI/auto | F ; le primitif `delegate`/`acquire` est prouvé en B1 |
 | Observateurs B2-3, désadoption, autres entrées, smoke CI, gel .6 | B2-3/D/E2b3/E3b2b/E3c/F, M18 toujours ouvert |
 | Revue indépendante | Conducteur ; aucun consensus revendiqué |
 
