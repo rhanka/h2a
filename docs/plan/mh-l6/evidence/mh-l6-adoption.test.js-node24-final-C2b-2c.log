@@ -1,0 +1,82 @@
+command: /tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-adoption.test.js
+node: v24.21.0
+private root: /tmp/mh-l6-test-sgSmlY
+case: all cases in explicit file
+TAP version 13
+# Subtest: C2b should require adoption when no managed selection exists
+ok 1 - C2b should require adoption when no managed selection exists
+  ---
+  duration_ms: 4.869816
+  type: 'test'
+  ...
+# Subtest: C2b should report already adopted when selection matches the target
+ok 2 - C2b should report already adopted when selection matches the target
+  ---
+  duration_ms: 54.670731
+  type: 'test'
+  ...
+# Subtest: C2b should require adoption when the selection targets another build
+ok 3 - C2b should require adoption when the selection targets another build
+  ---
+  duration_ms: 42.705019
+  type: 'test'
+  ...
+# Subtest: C2b should require adoption when the physical installation is unreadable
+ok 4 - C2b should require adoption when the physical installation is unreadable
+  ---
+  duration_ms: 46.226086
+  type: 'test'
+  ...
+# Subtest: C2b should require adoption when the managed layout is unrecognized
+ok 5 - C2b should require adoption when the managed layout is unrecognized
+  ---
+  duration_ms: 46.750713
+  type: 'test'
+  ...
+# Subtest: C2b should refuse an invalid adoption assessment envelope
+ok 6 - C2b should refuse an invalid adoption assessment envelope
+  ---
+  duration_ms: 42.533806
+  type: 'test'
+  ...
+# Subtest: C2b should execute adoption from session to selected build
+ok 7 - C2b should execute adoption from session to selected build
+  ---
+  duration_ms: 54.668146
+  type: 'test'
+  ...
+# Subtest: C2b should return already adopted without mutating when selection matches
+ok 8 - C2b should return already adopted without mutating when selection matches
+  ---
+  duration_ms: 54.223669
+  type: 'test'
+  ...
+# Subtest: C2b should install the launcher but defer selection while exclusion is unfenced
+ok 9 - C2b should install the launcher but defer selection while exclusion is unfenced
+  ---
+  duration_ms: 38.37591
+  type: 'test'
+  ...
+# Subtest: C2b should write nothing when the session drifted before adoption
+ok 10 - C2b should write nothing when the session drifted before adoption
+  ---
+  duration_ms: 6.2906
+  type: 'test'
+  ...
+# Subtest: C2b should refuse an invalid adoption execution envelope
+ok 11 - C2b should refuse an invalid adoption execution envelope
+  ---
+  duration_ms: 5.155994
+  type: 'test'
+  ...
+1..11
+# tests 11
+# suites 0
+# pass 11
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 442.338882
+
+receipt: {"command":["/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-adoption.test.js"],"code":0,"signal":null,"tests":11,"invalid":false,"spawned":1,"leftovers":[]}

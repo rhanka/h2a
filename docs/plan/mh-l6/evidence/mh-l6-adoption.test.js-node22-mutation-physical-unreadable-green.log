@@ -1,12 +1,12 @@
 command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-adoption.test.js
 node: v22.22.1
-private root: /tmp/mh-l6-test-KAdiC4
+private root: /tmp/mh-l6-test-1r85l5
 case: C2b should require adoption when the physical installation is unreadable
 TAP version 13
 # Subtest: C2b should require adoption when the physical installation is unreadable
 ok 1 - C2b should require adoption when the physical installation is unreadable
   ---
-  duration_ms: 647.877754
+  duration_ms: 401.822844
   type: 'test'
   ...
 1..1
@@ -17,6 +17,6 @@ ok 1 - C2b should require adoption when the physical installation is unreadable
 # cancelled 0
 # skipped 0
 # todo 0
-# duration_ms 772.654006
+# duration_ms 525.059638
 
 receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-adoption.test.js"],"code":0,"signal":null,"tests":1,"invalid":false,"spawned":1,"leftovers":[]}
