@@ -50,8 +50,8 @@ const within = (parent: string, child: string): boolean => {
 function syncPath(path: string): void {
   const fd = openSync(path, "r"); try { fsyncSync(fd); } finally { closeSync(fd); }
 }
-function durableJson(path: string, value: unknown): void {
-  const tmp = `${path}.${randomUUID()}.tmp`;
+function durableJson(path: string, value: unknown, generation?: string): void {
+  const tmp = generation ? join(generation, `${randomUUID()}.tmp`) : `${path}.${randomUUID()}.tmp`;
   try {
     writeFileSync(tmp, JSON.stringify(value) + "\n", { mode: 0o600, flag: "wx" });
     syncPath(tmp); renameSync(tmp, path); syncPath(resolve(path, ".."));
@@ -69,6 +69,25 @@ function bytesIn(path: string): number {
     const file = join(path, name); const stat = statSync(file);
     return sum + (stat.isDirectory() ? bytesIn(file) : stat.size);
   }, 0);
+}
+
+// Only the observed generation is removed; age authorizes fencing, never
+// concurrent shared writes. Publications consume sources in that generation.
+function takeoverStaleLock(lockPath: string): void {
+  let observed: string[];
+  try {
+    observed = readdirSync(lockPath);
+    if (Date.now() - statSync(lockPath).mtimeMs <= 60_000) throw new Error("store_busy");
+  } catch (error) {
+    if ((error as Error).message === "store_busy") throw error;
+    if ((error as NodeJS.ErrnoException).code === "ENOENT" || !existsSync(lockPath)) throw new Error("store_busy");
+    throw error;
+  }
+  for (const oldToken of observed) rmSync(join(lockPath, oldToken), { recursive: true, force: true });
+  try { rmdirSync(lockPath); }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw new Error("store_busy");
+  }
 }
 
 export function createLiveObjectStore(options: LiveObjectStoreOptions): LiveObjectStore {
@@ -114,6 +133,7 @@ export function createLiveObjectStore(options: LiveObjectStoreOptions): LiveObje
     // directory ourselves before invoking it (all descendants stay protected).
   };
   if (!existsSync(join(gitDir, "HEAD"))) { mkdirSync(gitDir, { mode: 0o700 }); init(gitDir); }
+  mkdirSync(join(gitDir, "refs", "h2a", "retained"), { recursive: true, mode: 0o700 });
   const acquisitionLockPath = join(metadataDir, "acquisition.lock");
   const checkScope = (candidate: LiveScope, format: OidAlgorithm) => {
     if (!validateLiveScope(candidate).ok || candidate.worktree !== undefined ||
@@ -124,8 +144,10 @@ export function createLiveObjectStore(options: LiveObjectStoreOptions): LiveObje
   const backupRef = (oid: string) => `h2a-live-object:${scopeKey}:${algorithm}:${oid}`;
   const requestPath = (oid: string) => join(requests, `${oid}.json`);
   const receiptPath = (oid: string) => join(receipts, `${oid}.json`);
-  const acknowledgePin = (oid: string) => recordReceipt({ scope, algorithm, oid,
-    receivedAt: (options.now ?? Date.now)(), backupRef: backupRef(oid) });
+  const acknowledgePin = (oid: string, generation: string) => {
+    durableJson(receiptPath(oid), { scope, algorithm, oid,
+      receivedAt: (options.now ?? Date.now)(), backupRef: backupRef(oid) }, generation);
+  };
   const readRequest = (oid: string): RetentionRequestDto => {
     const request: RetentionRequestDto = JSON.parse(readFileSync(requestPath(oid), "utf8"));
     if (!validateRetentionRequest(request).ok || request.oid !== oid) throw new Error("invalid durable retention request");
@@ -145,22 +167,49 @@ export function createLiveObjectStore(options: LiveObjectStoreOptions): LiveObje
     readRequest(receipt.oid);
     if (receipt.backupRef !== backupRef(receipt.oid)) throw new Error("retention backup reference mismatch");
     if (git(gitDir, ["rev-parse", "--verify", pin(receipt.oid)]) !== receipt.oid) throw new Error("unprotected retention pin");
-    verified(gitDir, receipt.oid);
-    syncTree(gitDir);
-    if (!existsSync(receiptPath(receipt.oid))) durableJson(receiptPath(receipt.oid), receipt);
+    if (hasReceipt(receipt.oid)) return { received: true };
+    await withAcquisitionLock(async (generation) => {
+      verified(gitDir, receipt.oid);
+      syncTree(gitDir);
+      durableJson(receiptPath(receipt.oid), receipt, generation);
+    });
     return { received: true };
+  }
+
+  // Single-receipt fast path: one file read plus one rev-parse, no full scan
+  // and no fsck. recordRequest uses this instead of a full load per request.
+  function hasReceipt(oid: string): boolean {
+    try {
+      if (!existsSync(receiptPath(oid))) return false;
+      const receipt: RetentionReceiptDto = JSON.parse(readFileSync(receiptPath(oid), "utf8"));
+      if (!validateRetentionReceipt(receipt).ok || receipt.oid !== oid) return false;
+      if (receipt.scope.tenant !== scope.tenant || receipt.scope.clone !== scope.clone ||
+          receipt.scope.worktree !== undefined || receipt.algorithm !== algorithm) return false;
+      if (receipt.backupRef !== backupRef(oid)) return false;
+      readRequest(oid);
+      return git(gitDir, ["rev-parse", "--verify", pin(oid)]) === oid;
+    } catch { return false; }
   }
 
   async function loadReceipts(query: RetentionReceiptQuery): Promise<{ receipts: readonly RetentionReceiptDto[] }> {
     checkScope(query.scope, query.algorithm);
     const loaded: RetentionReceiptDto[] = [];
     for (const name of readdirSync(receipts).filter((name) => name.endsWith(".json")).sort()) {
-      const receipt: RetentionReceiptDto = JSON.parse(readFileSync(join(receipts, name), "utf8"));
-      if (!validateRetentionReceipt(receipt).ok || name !== `${receipt.oid}.json`) throw new Error("invalid durable retention receipt");
-      checkScope(receipt.scope, receipt.algorithm); readRequest(receipt.oid);
-      if (receipt.backupRef !== backupRef(receipt.oid)) throw new Error("invalid durable backup reference");
-      if (git(gitDir, ["rev-parse", "--verify", pin(receipt.oid)]) !== receipt.oid) throw new Error("missing durable retention pin");
-      verified(gitDir, receipt.oid); loaded.push(receipt);
+      // Quarantine: one corrupt receipt, foreign receipt, missing request or
+      // missing pin skips that entry instead of failing the whole pass. The
+      // skipped OID stays pending and is reacquired on retry.
+      try {
+        const receipt: RetentionReceiptDto = JSON.parse(readFileSync(join(receipts, name), "utf8"));
+        if (!validateRetentionReceipt(receipt).ok || name !== `${receipt.oid}.json`) continue;
+        if (receipt.scope.tenant !== scope.tenant || receipt.scope.clone !== scope.clone ||
+            receipt.scope.worktree !== undefined || receipt.algorithm !== algorithm) continue;
+        try { readRequest(receipt.oid); } catch { continue; }
+        if (receipt.backupRef !== backupRef(receipt.oid)) continue;
+        let pinned: string;
+        try { pinned = git(gitDir, ["rev-parse", "--verify", pin(receipt.oid)]); } catch { continue; }
+        if (pinned !== receipt.oid) continue;
+        loaded.push(receipt);
+      } catch { continue; }
     }
     return { receipts: loaded };
   }
@@ -174,16 +223,21 @@ export function createLiveObjectStore(options: LiveObjectStoreOptions): LiveObje
     if (existsSync(join(sourceObjects, "info", "alternates"))) throw new Error("source alternates not authorized");
     const remaining = quota - bytesIn(join(gitDir, "objects"));
     if (remaining <= 0) throw new Error("quota_exhausted");
+    // Exclude retained history using only host-owned refs. The private store
+    // is a read-only, ephemeral alternate for this command, so exclusions
+    // also work after the corresponding root disappeared from the source.
+    const retained = git(gitDir, ["for-each-ref", "--format=%(objectname)", "refs/h2a/retained"]);
+    const revisions = [request.oid, ...retained.split("\n").filter(Boolean).map(oid => `^${oid}`)].join("\n") + "\n";
     const incoming = join(stage, "incoming.pack");
     const child = spawn("git", [...flags, `--git-dir=${stage}`, "pack-objects", "--stdout", "--revs",
       "--no-use-bitmap-index", "--no-reuse-delta", "--no-reuse-object"], {
-      cwd: metadataDir, env: { ...env, GIT_OBJECT_DIRECTORY: sourceObjects }, stdio: ["pipe", "pipe", "pipe"],
+      cwd: metadataDir, env: { ...env, GIT_OBJECT_DIRECTORY: sourceObjects, GIT_ALTERNATE_OBJECT_DIRECTORIES: join(gitDir, "objects") }, stdio: ["pipe", "pipe", "pipe"],
     });
     const closed = new Promise<number | null>((resolve, reject) => {
       child.once("error", reject); child.once("close", resolve);
     });
     // Drain errors, but never retain/log potentially sensitive source text.
-    child.stderr.resume(); child.stdin.on("error", () => {}); child.stdin.end(`${request.oid}\n`);
+    child.stderr.resume(); child.stdin.on("error", () => {}); child.stdin.end(revisions);
     let count = 0; let timedOut = false;
     const timer = setTimeout(() => { timedOut = true; child.kill("SIGKILL"); }, 30_000);
     try {
@@ -199,36 +253,40 @@ export function createLiveObjectStore(options: LiveObjectStoreOptions): LiveObje
     }
     // index-pack writes alongside incoming; move the complete verified
     // pair into staging's object db before connectivity verification.
+    writeFileSync(join(stage, "objects", "info", "alternates"), join(gitDir, "objects") + "\n", { flag: "wx", mode: 0o600 });
     const hash = git(stage, ["index-pack", "--strict", incoming]);
     const stagedPacks = join(stage, "objects", "pack");
     renameSync(incoming, join(stagedPacks, `pack-${hash}.pack`));
     renameSync(join(stage, "incoming.idx"), join(stagedPacks, `pack-${hash}.idx`));
+    // Closure is verified over the incoming objects plus retained objects;
+    // this alternate exists only inside the disposable acquisition generation.
     verified(stage, request.oid);
-    if (bytesIn(join(gitDir, "objects")) + bytesIn(join(stage, "objects")) > quota) throw new Error("quota_exhausted");
+    if (bytesIn(join(gitDir, "objects")) + bytesIn(stagedPacks) > quota) throw new Error("quota_exhausted");
     // Install the pack before its index. A crash can leave an unindexed
     // orphan pack, never an index referring to an absent pack.
     for (const name of readdirSync(stagedPacks).sort((a, b) => Number(b.endsWith(".pack")) - Number(a.endsWith(".pack")))) {
       renameSync(join(stagedPacks, name), join(gitDir, "objects", "pack", name));
     }
     syncTree(join(gitDir, "objects"));
-    git(gitDir, ["update-ref", pin(request.oid), request.oid]);
-    await acknowledgePin(request.oid);
+    // Every publication consumes a source in this generation. A takeover
+    // removes those sources before a successor is admitted; even a holder
+    // suspended inside rename cannot publish after being fenced.
+    const stagedPin = join(stage, "pin");
+    writeFileSync(stagedPin, request.oid + "\n", { flag: "wx", mode: 0o600 });
+    syncPath(stagedPin);
+    renameSync(stagedPin, join(gitDir, pin(request.oid)));
+    syncPath(join(gitDir, "refs", "h2a", "retained"));
+    syncPath(join(gitDir, "refs", "h2a")); syncPath(join(gitDir, "refs")); syncPath(gitDir);
+    syncPath(metadataDir);
+    acknowledgePin(request.oid, stage);
   }
 
-  async function recordRequest(input: RetentionRequestDto): Promise<{ received: true }> {
-    const request = snapshot(input);
-    if (!validateRetentionRequest(request).ok) throw new Error("invalid retention request scope or fields");
-    checkScope(request.scope, request.algorithm);
-    if (!existsSync(requestPath(request.oid))) durableJson(requestPath(request.oid), request);
-    else readRequest(request.oid);
-    if ((await loadReceipts({ scope, algorithm })).receipts.some((receipt) => receipt.oid === request.oid)) return { received: true };
+  async function withAcquisitionLock(action: (generation: string) => Promise<void>): Promise<void> {
     const token = randomUUID();
     const candidate = `${acquisitionLockPath}.${token}.candidate`;
     const generation = join(acquisitionLockPath, token);
     let locked = false;
     try {
-      // Prepare the entire generation before atomic publication. No resumed
-      // writer may recreate a staging path after stale takeover has fenced it.
       mkdirSync(candidate, { mode: 0o700 });
       mkdirSync(join(candidate, token), { mode: 0o700 });
       init(join(candidate, token));
@@ -237,30 +295,9 @@ export function createLiveObjectStore(options: LiveObjectStoreOptions): LiveObje
         catch (error) {
           if (!["EEXIST", "ENOTEMPTY"].includes((error as NodeJS.ErrnoException).code ?? "")) throw error;
         }
-        // Age permits fencing, never proof of process death. Remove only the
-        // observed generation and its staged pack before publishing a successor.
-        const observed = readdirSync(acquisitionLockPath);
-        if (Date.now() - statSync(acquisitionLockPath).mtimeMs <= 60_000) throw new Error("store_busy");
-        for (const oldToken of observed) rmSync(join(acquisitionLockPath, oldToken), { recursive: true, force: true });
-        try { rmdirSync(acquisitionLockPath); }
-        catch (error) {
-          if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw new Error("store_busy");
-        }
+        takeoverStaleLock(acquisitionLockPath);
       }
-      // Reconcile an interrupted receipt without needing the source again.
-      let pinned = false;
-      try { pinned = git(gitDir, ["rev-parse", "--verify", pin(request.oid)]) === request.oid; } catch { /* not yet acquired */ }
-      if (pinned) await acknowledgePin(request.oid);
-      else await acquire(request, generation);
-      rmSync(join(gaps, `${request.oid}.json`), { force: true });
-    } catch (error) {
-      const message = (error as Error).message;
-      // Only acquisition failures become explicit backlog. Receipt/storage
-      // failures must escape: no durable acknowledgement can be invented.
-      const code = (error as NodeJS.ErrnoException).code;
-      if (code && ["EACCES", "EROFS", "EIO", "ENOSPC"].includes(code)) throw error;
-      const reason: Gap = message === "quota_exhausted" ? message : message === "store_busy" ? message : "objects_unavailable";
-      durableJson(join(gaps, `${request.oid}.json`), { reason });
+      await action(generation);
     } finally {
       rmSync(candidate, { recursive: true, force: true });
       if (locked) {
@@ -268,6 +305,39 @@ export function createLiveObjectStore(options: LiveObjectStoreOptions): LiveObje
         try { rmdirSync(acquisitionLockPath); }
         catch (error) { if (!["ENOENT", "ENOTEMPTY", "EEXIST"].includes((error as NodeJS.ErrnoException).code ?? "")) throw error; }
       }
+    }
+  }
+
+  async function recordRequest(input: RetentionRequestDto): Promise<{ received: true }> {
+    const request = snapshot(input);
+    if (!validateRetentionRequest(request).ok) throw new Error("invalid retention request scope or fields");
+    checkScope(request.scope, request.algorithm);
+    if (!existsSync(requestPath(request.oid))) durableJson(requestPath(request.oid), request);
+    else readRequest(request.oid);
+    if (hasReceipt(request.oid)) return { received: true };
+    try {
+      await withAcquisitionLock(async generation => {
+        try {
+          let pinned = false;
+          try { pinned = git(gitDir, ["rev-parse", "--verify", pin(request.oid)]) === request.oid; } catch { /* not acquired */ }
+          if (pinned) {
+            // Recover a pin whose receipt was interrupted, without the source.
+            verified(gitDir, request.oid); syncTree(gitDir);
+            acknowledgePin(request.oid, generation);
+          } else await acquire(request, generation);
+        } catch (error) {
+          const code = (error as NodeJS.ErrnoException).code;
+          if (code && ["EACCES", "EROFS", "EIO", "ENOSPC"].includes(code)) throw error;
+          // A fenced holder cannot overwrite its successor's gap or receipt.
+          if (!existsSync(generation)) return;
+          const reason: Gap = (error as Error).message === "quota_exhausted" ? "quota_exhausted" : "objects_unavailable";
+          try { durableJson(join(gaps, `${request.oid}.json`), { reason }, generation); }
+          catch (failure) { if ((failure as NodeJS.ErrnoException).code !== "ENOENT") throw failure; }
+        }
+      });
+    } catch (error) {
+      if ((error as Error).message !== "store_busy") throw error;
+      // Durable request remains pending; contention never writes a shared gap.
     }
     return { received: true };
   }
@@ -277,7 +347,7 @@ export function createLiveObjectStore(options: LiveObjectStoreOptions): LiveObje
       const request = readRequest(name.slice(0, -5));
       if (acknowledged.has(request.oid)) return [];
       const gapPath = join(gaps, name);
-      const reason: Gap = existsSync(gapPath) ? JSON.parse(readFileSync(gapPath, "utf8")).reason : "objects_unavailable";
+      const reason: Gap = existsSync(gapPath) ? JSON.parse(readFileSync(gapPath, "utf8")).reason : "store_busy";
       return [{ request, reason }];
     });
   }

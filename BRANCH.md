@@ -487,6 +487,14 @@ publish bodies, default/backfill selection and npm failure propagation.
 The owner report records strict-test red/green, broken-package rejection,
 targeted regressions and final PR CI. No full local suite is authorized.
 
+## Co-review R1 — owner scope 2026-10-17
+
+- Owner authorizes integrating origin/main through a normal merge (including #350 crash logs), targeted regressions only, and fast-forward push of feat/live-git-r1-retention. This supersedes the earlier R1 merge restriction.
+- Close gr-conductor's one major and five minor findings in the existing R1 paths plus its process fixture: generation-sourced atomic pack/pin/receipt/gap publication, bounded per-request receipt lookup with no fsck during load, exclusion of retained history, logical quarantine and retry of invalid receipts/missing pins, vanished-lock contention classification, and neutral-engine ownership of request satisfaction. No vendored contract changes.
+- Real owned processes suspend at pack, pin and receipt publication; the fenced process performs zero shared writes while the successor remains suspended with its lease. Every process is reaped in finally. Sources and runtime roots are temporary.
+- Baseline at 36567c25: the strengthened named retention suite exits 1 (9 failed, 14 passed); corrected suite exits 0 (23 passed, no skips). Exact commands, final head CI jobs and remaining qualification live in the owner scratchpad's “Co-revue gr-conductor” appendix and tmp/l6r1-coreview evidence.
+- No installed h2a or host state, full local suite, foreign PID, Python, main mutation or force push. External harness consensus cannot be run within the owner's confinement (installed h2a MCP required); no consensus claimed. Track remains single-writer: do not append/consolidate from this concurrent worktree.
+
 
 ## RC on npm next — owner decision 2026-10-16, part B
 
