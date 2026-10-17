@@ -1,4 +1,5 @@
 import { ulid } from 'ulid'
+import { assertItemReportStatus, type ItemReportStatus } from './model/report-status.js'
 
 import { EventStore } from './events/store.js'
 import type { ActorId, Aggregate, CommandEvent, EventType, Provenance, TrackEvent, Ulid } from './events/types.js'
@@ -396,6 +397,13 @@ export class Track {
     }
     if (clientToken !== undefined) this.withClientToken(clientToken, emit)
     else emit()
+  }
+
+  /** Replace report metadata atomically; omitted fields clear previous reporting declarations. */
+  setReportStatus(itemId: ItemId, report: ItemReportStatus): void {
+    if (!this.state().items.has(itemId)) throw new DomainError(`unknown item ${itemId}`)
+    assertItemReportStatus(report)
+    this.emit('item', itemId, 'item.report-updated', { ...report })
   }
 
   /**
