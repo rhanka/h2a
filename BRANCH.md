@@ -13,8 +13,15 @@
   14/14 pass; no session or enrollment fallback.
 - [x] Lot B: explicit grants, exact paths/surfaces, mandatory L4b policy,
   before-handoff revalidation, opaque audit receipts, no snapshot archive.
-- [ ] Lot C: G4 fails with policy-unavailable until an actual L8 contract
+- [x] Lot C: G4 fails with policy-unavailable until an actual L8 contract
   exists; isolated emitted consumer proof and targeted Node 22/24 checks.
+- [x] Lot B/C evidence: 39 behavioural failures before grants/audit, then
+  50/50 disclosure tests. Five additional regressions observed red then green:
+  final-policy state replacement, async audit, throwing clock, revoked issuing
+  proof with fresh emit proof, and backwards grant start. Two strict compiler
+  errors were corrected; these are not behavioural RED evidence.
+- [x] Qualification: exact auth/disclosure/registration files, 87/87 on
+  Node 22.22.1 and 24.18.0, zero skips; repository and test typechecks pass.
 - [ ] Lot D: English conventional commits, own-branch push and PR; CI job
   outcomes and remaining qualification limits in the requested owner report.
 - [x] Feedback: #342/#343 deliver declarations/GitHub/retention, not L7a

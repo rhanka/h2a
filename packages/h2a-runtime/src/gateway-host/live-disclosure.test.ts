@@ -113,4 +113,135 @@ describe("Δ-L7a disclosure authority", () => {
     f.setEvidence([{ ...f.evidence[0]!, text: "derived symbol" }]);
     expect(await f.emit(f.grant())).toEqual({ ok: false, reason: "secret-excluded" });
   });
+  it.each(["revoke", "expire", "latest", "policy"] as const)("should revalidate %s after async preparation immediately before emission", async (change) => {
+    const f = fixture(); const id = f.grant();
+    f.options.loadEvidence = async () => {
+      await Promise.resolve();
+      if (change === "revoke") f.authority.revoke(f.proof, id);
+      if (change === "expire") f.setNow(2000);
+      if (change === "latest") f.setState({ stateRevision: "state-2" });
+      if (change === "policy") f.setState({ policyVersion: "content/2" });
+      return f.evidence;
+    };
+    expect(await f.emit(id)).toEqual({ ok: false, reason: { revoke: "grant-revoked", expire: "grant-expired", latest: "stale-evidence", policy: "policy-changed" }[change] });
+    expect(f.wire).toEqual([]);
+  });
+  it("should refuse revocation injected by the audit handoff and prevent mutable request widening", async () => {
+    const f = fixture(); const id = f.grant();
+    f.options.audit = (e) => { f.audit.push(e); if (e.action === "emit-attempt") f.authority.revoke(f.proof, id); };
+    expect(await f.emit(id)).toEqual({ ok: false, reason: "grant-revoked" }); expect(f.wire).toEqual([]);
+    const g = fixture(); const gid = g.grant(); g.request.scope.paths.push("private/b.ts");
+    g.setEvidence([{ ...g.evidence[0]!, originPaths: ["private/b.ts"] }]);
+    expect(await g.emit(gid)).toEqual({ ok: false, reason: "out-of-scope" });
+  });
+  it("should contain port failures and refuse missing policy audit or mismatched actual destination", async () => {
+    const f = fixture(); const id = f.grant();
+    f.options.loadEvidence = async () => { throw new Error("SENSITIVE-PORT-CANARY"); };
+    expect(await f.emit(id)).toEqual({ ok: false, reason: "evidence-unavailable" });
+    f.options.loadEvidence = async () => f.evidence;
+    f.options.contentPolicy = () => undefined;
+    expect(await f.emit(id)).toEqual({ ok: false, reason: "policy-unavailable" });
+    f.options.contentPolicy = () => ({ version: "content/1", allows: () => true });
+    f.options.transport = () => ({ providerId: "fallback-provider", send: () => { throw new Error("must not send"); } });
+    expect(await f.emit(id)).toEqual({ ok: false, reason: "provider-mismatch" });
+    f.options.audit = () => { throw new Error("SENSITIVE-PORT-CANARY"); };
+    expect(await f.emit(id)).toEqual({ ok: false, reason: "audit-unavailable" });
+    expect(f.wire).toEqual([]); expect(JSON.stringify(f.audit)).not.toContain("SENSITIVE-PORT-CANARY");
+  });
+  it("should refuse G4 with policy-unavailable before loading or sending composed MCP content", async () => {
+    const f = fixture(); const host = createLiveDisclosureHost(f.options);
+    expect(await host.emit({ capability: f.proof, evidenceIds: ["cache-entry-1"] })).toEqual({ ok: false, reason: "policy-unavailable" });
+    expect(f.options.loadEvidence).not.toHaveBeenCalled(); expect(f.wire).toEqual([]);
+    expect(f.audit).toMatchObject([{ action: "refuse", reason: "policy-unavailable" }]);
+  });
+  it("should refuse latest-state replacement inside the final policy callback", async () => {
+    const f = fixture(); const id = f.grant(); let checks = 0;
+    f.options.contentPolicy = () => ({ version: "content/1", allows: () => {
+      if (++checks === 2) f.setState({ stateRevision: "state-2" }); return true;
+    } });
+    expect(await f.emit(id)).toEqual({ ok: false, reason: "stale-evidence" }); expect(f.wire).toEqual([]);
+  });
+  it("should keep a grant denied when its issuing proof is revoked even with a fresh emission proof", async () => {
+    const f = fixture(); const id = f.grant(); f.revokeProof();
+    expect(await f.emit(id, { capability: f.freshProof() })).toEqual({ ok: false, reason: "capability-revoked" });
+    expect(f.wire).toEqual([]);
+  });
+  it("should not extend a grant backwards before its explicit start time", async () => {
+    const f = fixture(); const id = f.grant(); f.setNow(950);
+    expect(await f.emit(id)).toEqual({ ok: false, reason: "grant-expired" }); expect(f.wire).toEqual([]);
+  });
+  it("should refuse the whole composed batch if one origin belongs to another repository", async () => {
+    const f = fixture(); const id = f.grant();
+    f.setEvidence([...f.evidence, { ...f.evidence[0]!, repositoryId: "clone-2", text: "foreign fixture" }]);
+    expect(await f.emit(id)).toEqual({ ok: false, reason: "scope-mismatch" }); expect(f.wire).toEqual([]);
+  });
+  it("should recheck a grant on each warm cache hit and keep a new host denied after restart", async () => {
+    const f = fixture(); const id = f.grant(); expect(await f.emit(id)).toEqual({ ok: true });
+    f.authority.revoke(f.proof, id); expect(await f.emit(id)).toEqual({ ok: false, reason: "grant-revoked" });
+    expect(f.options.loadEvidence).toHaveBeenCalledTimes(1);
+    const restarted = createLiveDisclosureAuthority(f.options);
+    expect(await restarted.emit({ capability: f.proof, grantId: id, repositoryId: "clone-1", providerId: "provider-1", evidenceIds: ["cache-entry-1"] }))
+      .toEqual({ ok: false, reason: "grant-required" });
+    expect(f.wire).toEqual(["allowed fixture"]);
+  });
+  it("should retain the original destination when an emission request mutates during preparation", async () => {
+    const f = fixture(); const id = f.grant();
+    const request = { capability: f.proof, grantId: id, repositoryId: "clone-1", providerId: "provider-1", evidenceIds: ["cache-entry-1"] };
+    f.options.loadEvidence = async () => { await Promise.resolve(); request.providerId = "provider-2"; return f.evidence; };
+    const route = vi.fn(f.options.transport); f.options.transport = route;
+    expect(await f.authority.emit(request)).toEqual({ ok: true });
+    expect(route).toHaveBeenCalledWith("provider-1");
+  });
+  it("should keep audit-unavailable revocation effective when the sink recovers", async () => {
+    const f = fixture(); const id = f.grant();
+    const audit = f.options.audit; f.options.audit = () => { throw new Error("AUDIT-CANARY"); };
+    expect(f.authority.revoke(f.proof, id)).toEqual({ ok: false, reason: "audit-unavailable" });
+    f.options.audit = audit!;
+    expect(await f.emit(id)).toEqual({ ok: false, reason: "grant-revoked" }); expect(f.wire).toEqual([]);
+  });
+  it("should fail closed when an audit sink returns an asynchronous receipt", async () => {
+    const f = fixture(); const id = f.grant();
+    f.options.audit = async () => { await Promise.resolve(); };
+    expect(await f.emit(id)).toEqual({ ok: false, reason: "audit-unavailable" }); expect(f.wire).toEqual([]);
+  });
+  it("should contain an unavailable clock rather than reject with its exception", async () => {
+    const f = fixture(); f.options.now = () => { throw new Error("CLOCK-CANARY"); };
+    const a = createLiveDisclosureAuthority(f.options);
+    expect(a.grant(f.request)).toEqual({ ok: false, reason: "audit-unavailable" });
+  });
+  it("should record only opaque receipts in a durable host sink with no private payload or proof", async () => {
+    const root = mkdtempSync(join(tmpdir(), "h2a-disclosure-audit-"));
+    try {
+      const f = fixture(); const log = join(root, "audit.jsonl");
+      f.options.audit = (event) => { appendFileSync(log, JSON.stringify(event) + "\n", { flush: true }); };
+      const id = f.grant(); expect(await f.emit(id)).toEqual({ ok: true });
+      f.authority.revoke(f.proof, id);
+      expect(await f.emit(id)).toEqual({ ok: false, reason: "grant-revoked" });
+      const bytes = readFileSync(log, "utf8");
+      expect(bytes).not.toContain("allowed fixture"); expect(bytes).not.toContain(f.proof.signature);
+      expect(bytes).not.toContain("src/a.ts");
+      expect(bytes.trim().split("\n").map((line) => JSON.parse(line).action)).toEqual(["grant", "emit-attempt", "revoke", "refuse"]);
+      expect(JSON.parse(bytes.trim().split("\n").at(-1)!)).toMatchObject({ grantId: id, reason: "grant-revoked" });
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+  it("should keep the emitted G4 consumer closed without L8 policy on an isolated installation", async () => {
+    const root = mkdtempSync(join(tmpdir(), "h2a-disclosure-installed-"));
+    try {
+      const repo = resolve(import.meta.dirname, "../../../..");
+      execFileSync(process.execPath, [join(repo, "node_modules/typescript/bin/tsc"),
+        "--target", "ES2022", "--module", "NodeNext", "--moduleResolution", "NodeNext", "--strict", "--skipLibCheck",
+        "--outDir", root, join(import.meta.dirname, "live-host.ts")], { cwd: repo, stdio: "pipe" });
+      writeFileSync(join(root, "package.json"), JSON.stringify({ type: "module" }));
+      const probe = `import { createLiveDisclosureHost } from './live-host.js';
+        const receipts = []; const forbidden = () => { throw new Error('UNEXPECTED-READ-OR-EMISSION'); };
+        const host = createLiveDisclosureHost({ auth: { authorize: forbidden }, loadEvidence: forbidden,
+          transport: forbidden, audit: e => { receipts.push(e); } });
+        console.log(JSON.stringify({ result: await host.emit({}), receipts }));`;
+      writeFileSync(join(root, "probe.mjs"), probe);
+      const result = JSON.parse(execFileSync(process.execPath, [join(root, "probe.mjs")], {
+        cwd: root, env: { ...process.env, HOME: root, XDG_RUNTIME_DIR: root }, encoding: "utf8",
+      }));
+      expect(result).toMatchObject({ result: { ok: false, reason: "policy-unavailable" }, receipts: [{ action: "refuse", reason: "policy-unavailable" }] });
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
 });
