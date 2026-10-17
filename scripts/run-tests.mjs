@@ -35,6 +35,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { discoverSuites, readInventory, verifyExecutionReport, inventoryFailures } from "./test-execution-evidence.mjs";
 import { policyFor, readDeclaredNonTests } from "./test-inventory.mjs";
 import { ensureHistoricalGitRef, LEGACY_HOST_REF } from "./historical-test-ref.mjs";
+import { reportSuiteDurations } from "./report-test-durations.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 export const REPO_ROOT = resolve(HERE, "..");
@@ -401,13 +402,19 @@ function main() {
     const vitestStatuses = vitestSuites.map((suite) => {
       const cwd = join(REPO_ROOT, suite.dir);
       const configArgs = suite.config === undefined ? [] : ["--config", suite.config];
-      return runSuite(
+      const status = runSuite(
         `${suite.name} Vitest suite`,
         process.execPath,
         [vitestEntrypoint(cwd), "run", ...configArgs, "--reporter=default", "--reporter=json", `--outputFile=${vitestReportFor(suite)}`, ...suite.files.map((file) => join(suite.testDir ?? "src", file))],
         cwd,
         trackTestEnv,
       );
+      try {
+        reportSuiteDurations(JSON.parse(readFileSync(vitestReportFor(suite), "utf8")), { label: suite.name });
+      } catch {
+        process.stderr.write(`WARNING: ${suite.name}: suite timing unavailable (missing or malformed report).\n`);
+      }
+      return status;
     });
     // Lane-scoped identity-lock suites (LANE_TEST_FILES): the isolated lane
     // they require exists only inside identity-isolated-run.mjs, which builds

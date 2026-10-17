@@ -18,6 +18,11 @@ export default async function* reporter(events) {
     }
     if (type !== 'test:pass' && type !== 'test:fail') continue
     const file = files.get(identity)
+    // Nested tests are included in their parent duration. Sum only roots so
+    // suite timing does not double-count describe()/it() trees.
+    if (data.nesting === 0 && Number.isFinite(data.details?.duration_ms)) {
+      file.durationMs = (file.durationMs ?? 0) + data.details.duration_ms
+    }
     if (type === 'test:fail') { file.status = 'failed'; success = false }
     if (data.details?.type === 'suite') continue
     const fullName = [...(parents.get(identity) ?? []).slice(0, data.nesting), data.name].join(' ')
