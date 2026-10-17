@@ -36,6 +36,7 @@
 - [x] F-2a — Pilote de passe unique (`runUpgradeOnce`, opt-out/besoin/exclusion) sans parsing CLI ; `mh-l6-upgrade-run.test.js`, 6 tests et 4 mutations par Node 22/24, preuve-F-2a.json.
 - [x] F-2b — Autorité inter-transactions (`assertUpgradeAuthority`, étranger/révoqué/époque) ; `mh-l6-authority.test.js`, 5 tests et 4 mutations par Node 22/24, preuve-F-2b.json.
 - [ ] F-2c — Parsing CLI, codes/strict/reprise/abandon/compensation branchés sur l'autorité, orchestration de la délégation et preuve H4 externe M18 sur vrais .5/.6 ; tests CLI et v1 ciblés.
+- [x] F-2c1 — Parsing `upgrade` et codes 0/1/2 + `--strict` sans exécution (`upgrade-cli.js`, `mh-l6-cli.test.js`, 9 tests et 7 mutations par Node 22/24, preuve-F-2c.json). Dispatch, compensation, délégation et M18 ouverts.
 - [ ] F/M17 — Raccorder les sous-commandes CLI convergées aux droits de writer et aux primitives de mutation communes ; fournir à MH-L8 ses vrais acteurs CLI. L’admission maintenue et le retour d’éligibilité après héritage restent une réalisation MH-L6, jamais un scan/PID absent.
 - [ ] Gate par sous-lot : commandes/sorties conservées, zéro skip/enfant, mutations tuées puis restaurées, vérification des références affectées, commit conventionnel anglais sans trailer, push fast-forward propre branche, rapport français mis à jour.
 - [ ] Revue indépendante confiée au conducteur ; aucune invocation de dispatch installé et aucun verdict de consensus inventé.
