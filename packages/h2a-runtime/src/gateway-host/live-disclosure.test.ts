@@ -94,6 +94,16 @@ function fixture() {
 }
 
 describe("Δ-L7a disclosure authority", () => {
+  it.each(['authorization','issuerAuthorization'] as const)('should bind snapshot %s to the exact proof requested', async field => {
+    const f = fixture(); const id = f.grant(); const acquire = f.options.acquireEmissionSnapshot!;
+    f.options.acquireEmissionSnapshot = request => {
+      const lease = acquire(request); if ('ok' in lease) return lease;
+      const authorization = lease.snapshot[field]; if (!authorization.ok) throw new Error('fixture authorization');
+      return { ...lease, snapshot: { ...lease.snapshot, [field]: { ...authorization, claims: { ...authorization.claims, id: 'other-proof' } } } };
+    };
+    expect(await f.emit(id)).toEqual({ ok: false, reason: 'scope-mismatch' }); expect(f.wire).toEqual([]);
+    expect(f.audit.map(e => e.action)).toEqual(['grant','refuse']);
+  });
   it.each(['removed','version','denied'] as const)('should refuse policy %s during final host proof verification', async change => {
     const f = fixture(); const id = f.grant(); let calls = 0; let armed = false;
     f.options.contentPolicy = () => { if (++calls === 2) armed = true; return { version: 'content/1', allows: () => true }; };
