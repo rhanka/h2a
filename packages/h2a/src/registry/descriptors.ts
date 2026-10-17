@@ -445,6 +445,67 @@ function normativeParameters(id: string): { schemaVersion: string; schema: unkno
   return null;
 }
 
+/**
+ * Validate user configuration against an entry's parameter profile and apply
+ * `defaults` once before validation. Unknown keys, invalid enum values and
+ * missing required parameters fail with `invalid_parameters`; no implicit
+ * coercion or environment substitution is allowed. Binding references must be
+ * ASCII identifiers (`^[a-z0-9][a-z0-9._-]*$`, 1–96 chars).
+ */
+export function normalizeConfiguration(entry: RegistryEntry, values: unknown): Record<string, unknown> {
+  if (typeof values !== "object" || values === null || Array.isArray(values)) {
+    fail("invalid_parameters", `configuration for ${entry.id} must be an object`);
+  }
+  const normative = normativeParameters(entry.id);
+  const input = values as Record<string, unknown>;
+  if (normative === null) {
+    return { ...(input as Record<string, unknown>) };
+  }
+  const schema = normative.schema as {
+    required: string[];
+    properties: Record<string, { const?: unknown; enum?: unknown[]; type?: string; minLength?: number; maxLength?: number; pattern?: string }>;
+  };
+  for (const key of Object.keys(input)) {
+    if (!Object.hasOwn(schema.properties, key)) {
+      fail("invalid_parameters", `unknown parameter ${JSON.stringify(key)} for ${entry.id}`);
+    }
+  }
+  const normalized: Record<string, unknown> = { ...(normative.defaults as Record<string, unknown>) };
+  for (const [key, value] of Object.entries(input)) {
+    normalized[key] = value;
+  }
+  for (const key of schema.required) {
+    if (normalized[key] === undefined) fail("invalid_parameters", `missing required parameter ${JSON.stringify(key)} for ${entry.id}`);
+  }
+  for (const [key, rule] of Object.entries(schema.properties)) {
+    const value = normalized[key];
+    if (value === undefined) continue;
+    if (rule.const !== undefined && !deepEqual(value, rule.const)) {
+      fail("invalid_parameters", `parameter ${JSON.stringify(key)} for ${entry.id} must be exactly ${JSON.stringify(rule.const)}`);
+    }
+    if (rule.enum !== undefined && !rule.enum.some((member) => deepEqual(value, member))) {
+      fail("invalid_parameters", `parameter ${JSON.stringify(key)} for ${entry.id} is not an admitted value`);
+    }
+    if (rule.type === "string") {
+      if (typeof value !== "string") fail("invalid_parameters", `parameter ${JSON.stringify(key)} for ${entry.id} must be a string`);
+      if (rule.minLength !== undefined && value.length < rule.minLength) {
+        fail("invalid_parameters", `parameter ${JSON.stringify(key)} for ${entry.id} is too short`);
+      }
+      if (rule.maxLength !== undefined && value.length > rule.maxLength) {
+        fail("invalid_parameters", `parameter ${JSON.stringify(key)} for ${entry.id} is too long`);
+      }
+      if (rule.pattern !== undefined) {
+        const pattern = rule.pattern === "^[a-z0-9][a-z0-9._-]*$" ? BINDING_REF_PATTERN : null;
+        if (pattern === null || !pattern.test(value)) {
+          fail("invalid_parameters", `parameter ${JSON.stringify(key)} for ${entry.id} is not an admitted binding reference`);
+        }
+        if (/[\s]/.test(value)) fail("invalid_parameters", `parameter ${JSON.stringify(key)} for ${entry.id} must not contain whitespace`);
+      }
+    }
+  }
+  return normalized;
+}
+
 function validateParametersForEntry(entry: RegistryEntry): void {
   const normative = normativeParameters(entry.id);
   if (normative === null) {
