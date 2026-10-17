@@ -1,0 +1,76 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-published.test.js
+node: v22.22.1
+private root: /tmp/mh-l6-test-dADcOF
+case: all cases in explicit file
+TAP version 13
+# Subtest: U10 should choose the current Node profile from one immutable published payload
+ok 1 - U10 should choose the current Node profile from one immutable published payload
+  ---
+  duration_ms: 9.242756
+  type: 'test'
+  ...
+# Subtest: U10 should prepare a private durable image by changing only excluded manifest metadata
+ok 2 - U10 should prepare a private durable image by changing only excluded manifest metadata
+  ---
+  duration_ms: 10.538394
+  type: 'test'
+  ...
+# Subtest: U10 should refuse an absent Node profile before any image is prepared
+ok 3 - U10 should refuse an absent Node profile before any image is prepared
+  ---
+  duration_ms: 0.926013
+  type: 'test'
+  ...
+# Subtest: U10 should refuse corrupt code claims in a nonselected published profile
+ok 4 - U10 should refuse corrupt code claims in a nonselected published profile
+  ---
+  duration_ms: 3.10812
+  type: 'test'
+  ...
+# Subtest: U10 should refuse contradictory build identities between profiles with identical code
+ok 5 - U10 should refuse contradictory build identities between profiles with identical code
+  ---
+  duration_ms: 3.072342
+  type: 'test'
+  ...
+# Subtest: U10 should refuse an unsupported or incorrectly bound profile and unknown envelope fields
+ok 6 - U10 should refuse an unsupported or incorrectly bound profile and unknown envelope fields
+  ---
+  duration_ms: 3.211945
+  type: 'test'
+  ...
+# Subtest: U10 should bind published version metadata to the actual package version
+ok 7 - U10 should bind published version metadata to the actual package version
+  ---
+  duration_ms: 3.474229
+  type: 'test'
+  ...
+# Subtest: U10 should remove only its own new destination when source code changes during the copy
+ok 8 - U10 should remove only its own new destination when source code changes during the copy
+  ---
+  duration_ms: 4.424908
+  type: 'test'
+  ...
+# Subtest: U10 should never overwrite or remove a preexisting image destination
+ok 9 - U10 should never overwrite or remove a preexisting image destination
+  ---
+  duration_ms: 4.411653
+  type: 'test'
+  ...
+# Subtest: U10 should refuse image preparation when a durable payload sync fails
+ok 10 - U10 should refuse image preparation when a durable payload sync fails
+  ---
+  duration_ms: 6.3174
+  type: 'test'
+  ...
+1..10
+# tests 10
+# suites 0
+# pass 10
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 155.001348
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-published.test.js"],"code":0,"signal":null,"tests":10,"invalid":false,"spawned":1,"leftovers":[]}
