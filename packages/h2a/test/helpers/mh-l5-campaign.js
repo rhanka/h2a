@@ -28,7 +28,18 @@ export async function runCampaign(count) {
       const child = spawn(process.execPath, [fileURLToPath(new URL('./mh-l5-writer.mjs', import.meta.url)), root, directory, role, String(count)], { env: process.env, stdio: ['pipe', 'pipe', 'pipe'] });
       const closed = once(child, 'close'); let errors = '';
       child.stderr.on('data', bytes => { errors += bytes; });
-      const ready = once(child.stdout, 'data'); child.stdout.on('data', () => {});
+      const ready = once(child.stdout, 'data'); let progress = '';
+      child.stdout.on('data', bytes => {
+        progress += bytes.toString(); let newline;
+        while ((newline = progress.indexOf('\n')) !== -1) {
+          const line = progress.slice(0, newline); progress = progress.slice(newline + 1);
+          try {
+            const value = JSON.parse(line);
+            if (value.actor === role && Number.isSafeInteger(value.completed))
+              console.log(JSON.stringify({ event: 'm17.backend-progress', ...value }));
+          } catch { /* The first frame is the plain readiness handshake. */ }
+        }
+      });
       workers.push({ child, closed, ready, errors: () => errors });
     }
     await Promise.all(workers.map(w => w.ready));

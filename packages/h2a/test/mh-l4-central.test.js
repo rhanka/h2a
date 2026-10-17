@@ -12,7 +12,7 @@ test('should checkpoint a real source attachment and reject a cancellation strin
   const { buildPackagingPrototype } = await import('../../../scripts/mh-l1-package-prototype.mjs');
   const { runIsolatedPrecheck } = await import('../src/runtime/handover/precheck.js');
   const dir = fs.mkdtempSync(join(process.env.XDG_CACHE_HOME, 'mh-l4-image-'));
-  let source, releaseTool, enteredTool;
+  let source, releaseTool, enteredTool, toolResponse;
   const toolEntered = new Promise(resolve => { enteredTool = resolve; });
   try {
     const managedRoot = join(dir, 'h2a-managed', String(process.getuid()));
@@ -49,7 +49,7 @@ test('should checkpoint a real source attachment and reject a cancellation strin
     mcpSessionId = initialized.headers.get('mcp-session-id');
     const downstream = (await initialized.json()).result.protocolVersion;
     await post({ jsonrpc:'2.0', method:'notifications/initialized' });
-    const toolResponse = post({ jsonrpc:'2.0', id:11, method:'tools/call', params:{name:'h2a_run',
+    toolResponse = post({ jsonrpc:'2.0', id:11, method:'tools/call', params:{name:'h2a_run',
       arguments:{profile:'claude',name:'large-reply',prompt:'brief',workspace:dir,background:true,h2aSidecar:false}} });
     await toolEntered;
     const inventoryRevision = 2;
@@ -110,6 +110,7 @@ test('should checkpoint a real source attachment and reject a cancellation strin
     assert.equal(fs.existsSync(join(durableDirectory, 'operator-stop.json')), false);
   } finally {
     releaseTool?.();
+    await toolResponse?.catch(() => {});
     if (source?.kind === 'started') await source.stop();
     fs.rmSync(dir, { recursive: true, force: true });
   }

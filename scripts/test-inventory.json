@@ -547,7 +547,10 @@
   "packages/h2a/test/mcp-identity-readiness.test.js": [],
   "packages/h2a/test/mcp-mesh-activation.test.js": [],
   "packages/h2a/test/mcp-notifications.test.js": [],
-  "packages/h2a/test/mcp-payload-store.test.js": [],
+  "packages/h2a/test/mcp-payload-store.test.js": [
+    "writes below quota avoid expiry metadata scans while pressure reclaims only expired bytes",
+    "automatic expiry maintenance advances monotonically and explicit sweeps stay immediate"
+  ],
   "packages/h2a/test/mcp-phase-trace-unit.test.js": [],
   "packages/h2a/test/mcp-phase-trace.test.js": [],
   "packages/h2a/test/mcp-registry.test.js": [],
@@ -905,7 +908,8 @@
     "the runner reports its own pending file and PID before that file completes",
     "daemon startup qualification completes alone before the same runner executes every remaining file",
     "a failed standalone daemon suite remains failed while every remaining file still executes",
-    "bounded daemon and handover qualifications each finish alone before the parallel package phase"
+    "bounded daemon and handover qualifications each finish alone before the parallel package phase",
+    "bulk package and backend campaigns wait for bounded protocol qualification and all execute together"
   ],
   "packages/h2a/test/mh-l6-package.test.js": [
     "U10 U12 should publish @sentropic/h2a with exact lockstep and install twice offline without a compiler",

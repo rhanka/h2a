@@ -55,7 +55,9 @@ export async function runIsolatedPrecheck(installation, target, selectionEpoch, 
     const cap = bytes => { output += bytes; if (Buffer.byteLength(output) > 64 * 1024) child.kill('SIGTERM'); };
     child.stdout.on('data', cap); child.stderr.on('data', cap);
     const code = await new Promise((resolve, reject) => { child.once('error', reject); child.once('close', resolve); }).finally(() => { clearTimeout(timer); clearTimeout(escalation); });
-    if (code !== 0 || timedOut) throw new Error('precheck_failed');
+    if (code !== 0 || timedOut) throw new Error('precheck_failed', {
+      cause: { exitCode: code, timedOut, output: output.slice(-4096) }
+    });
     const result = output.split('\n').filter(Boolean).map(line => { try { return JSON.parse(line); } catch { return null; } }).find(r => r?.precheckReady);
     if (!result || result.manifestDigest !== target.manifestDigest || result.buildId !== target.buildId) throw new Error('precheck_readiness_mismatch');
     trialIdentity = result.processIdentity;
