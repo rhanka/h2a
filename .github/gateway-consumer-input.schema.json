@@ -1,0 +1,302 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/rhanka/h2a/.github/gateway-consumer-input.schema.json",
+  "title": "GWRC-CI-V1 shared gateway/registry consumer input (frozen v1)",
+  "description": "Closed v1 contract from spec-gateway-evolutions-v8 §8.1 (GWRC-CI-V1). One committed input .github/gateway-consumer-input.json serves both programs. Absent file is the ordinary inert state.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "program", "phase"],
+  "properties": {
+    "schemaVersion": {
+      "const": 1,
+      "description": "Frozen contract version. Any meaning change requires a versioned migration."
+    },
+    "program": {
+      "type": "string",
+      "enum": ["gateway", "registry"]
+    },
+    "phase": {
+      "type": "string",
+      "enum": [
+        "none",
+        "baseline-662",
+        "pr1-candidate",
+        "pr2-candidate",
+        "pr3-candidate",
+        "pr1-published",
+        "pr2-published",
+        "pr3-published",
+        "r4-candidate",
+        "r5-candidate",
+        "r6-candidate",
+        "r7b-candidate",
+        "r4-published",
+        "r5-published",
+        "r6-published",
+        "r7b-published"
+      ]
+    },
+    "artifactKind": {
+      "type": "string",
+      "enum": ["candidate", "published"],
+      "description": "Required for every active phase; baseline-662 uses published; forbidden for none."
+    },
+    "contractSha256": {
+      "$ref": "#/definitions/sha256",
+      "description": "Full SHA-256 of the governing specification for the active program."
+    },
+    "releaseLockSha256": {
+      "$ref": "#/definitions/sha256",
+      "description": "Full SHA-256 of the committed h2a root package-lock.json at declaration time."
+    },
+    "artifactManifest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sha256"],
+      "properties": {
+        "sha256": { "$ref": "#/definitions/sha256" },
+        "path": {
+          "type": "string",
+          "description": "Candidate only: <candidateBundle.root>manifest.json. Forbidden for published/baseline."
+        }
+      }
+    },
+    "artifactManifestText": {
+      "type": "string",
+      "description": "Published/baseline only: embedded non-secret manifest text whose UTF-8 bytes hash to artifactManifest.sha256. Forbidden for candidates."
+    },
+    "packages": {
+      "type": "array",
+      "description": "Complete expected external @sentropic closure (lock location, name, exact version, resolved URL, integrity).",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["lockLocation", "name", "version", "resolved", "integrity"],
+        "properties": {
+          "lockLocation": { "type": "string", "minLength": 1 },
+          "name": { "type": "string", "minLength": 1 },
+          "version": { "type": "string", "minLength": 1 },
+          "resolved": { "type": "string", "minLength": 1 },
+          "integrity": { "type": "string", "minLength": 1 },
+          "tarballSha256": { "$ref": "#/definitions/sha256" },
+          "sourceIdentity": { "type": "string" }
+        }
+      }
+    },
+    "candidateBundle": {
+      "type": "object",
+      "description": "Candidate only: exactly root, indexPath, bundleSha256.",
+      "additionalProperties": false,
+      "required": ["root", "indexPath", "bundleSha256"],
+      "properties": {
+        "root": {
+          "type": "string",
+          "pattern": "^\\.github/gateway-candidates/(pr1-candidate|pr2-candidate|pr3-candidate|r4-candidate|r5-candidate|r6-candidate|r7b-candidate)/[0-9a-f]{64}/$"
+        },
+        "indexPath": {
+          "type": "string",
+          "pattern": "^\\.github/gateway-candidates/(pr1-candidate|pr2-candidate|pr3-candidate|r4-candidate|r5-candidate|r6-candidate|r7b-candidate)/[0-9a-f]{64}/bundle-index\\.json$"
+        },
+        "bundleSha256": { "$ref": "#/definitions/sha256" }
+      }
+    },
+    "mode": {
+      "type": "string",
+      "enum": ["scoped", "aggregate"],
+      "description": "Required active. Scoped requires nonempty scopes; aggregate forbids scopes."
+    },
+    "scopes": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 1 },
+      "description": "Exact reviewed file/script selectors. Required iff mode is scoped."
+    },
+    "profiles": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "description": "Sorted unique nonempty list from the finite profile map; never shell commands.",
+      "items": {
+        "type": "string",
+        "enum": [
+          "gateway-runtime",
+          "gateway-messaging",
+          "registry-focus",
+          "registry-runtime",
+          "registry-renderer",
+          "registry-hosts"
+        ]
+      }
+    },
+    "programCoverage": {
+      "type": "array",
+      "minItems": 1,
+      "description": "Sorted unique rows for the active program and every retained program.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["program", "phase", "contractSha256", "profiles"],
+        "properties": {
+          "program": { "type": "string", "enum": ["gateway", "registry"] },
+          "phase": {
+            "type": "string",
+            "enum": [
+              "none",
+              "baseline-662",
+              "pr1-candidate",
+              "pr2-candidate",
+              "pr3-candidate",
+              "pr1-published",
+              "pr2-published",
+              "pr3-published",
+              "r4-candidate",
+              "r5-candidate",
+              "r6-candidate",
+              "r7b-candidate",
+              "r4-published",
+              "r5-published",
+              "r6-published",
+              "r7b-published"
+            ]
+          },
+          "contractSha256": { "$ref": "#/definitions/sha256" },
+          "profiles": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "enum": [
+                "gateway-runtime",
+                "gateway-messaging",
+                "registry-focus",
+                "registry-runtime",
+                "registry-renderer",
+                "registry-hosts"
+              ]
+            }
+          }
+        }
+      }
+    }
+  },
+  "definitions": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "program": { "const": "gateway" } } },
+      "then": {
+        "properties": {
+          "phase": {
+            "enum": [
+              "none",
+              "baseline-662",
+              "pr1-candidate",
+              "pr2-candidate",
+              "pr3-candidate",
+              "pr1-published",
+              "pr2-published",
+              "pr3-published"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "program": { "const": "registry" } } },
+      "then": {
+        "properties": {
+          "phase": {
+            "enum": [
+              "none",
+              "r4-candidate",
+              "r5-candidate",
+              "r6-candidate",
+              "r7b-candidate",
+              "r4-published",
+              "r5-published",
+              "r6-published",
+              "r7b-published"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "phase": { "const": "none" } } },
+      "then": {
+        "properties": {
+          "artifactKind": false,
+          "contractSha256": false,
+          "releaseLockSha256": false,
+          "artifactManifest": false,
+          "artifactManifestText": false,
+          "packages": false,
+          "candidateBundle": false,
+          "mode": false,
+          "scopes": false,
+          "profiles": false,
+          "programCoverage": false
+        }
+      },
+      "else": {
+        "required": [
+          "artifactKind",
+          "contractSha256",
+          "releaseLockSha256",
+          "artifactManifest",
+          "packages",
+          "mode",
+          "profiles",
+          "programCoverage"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "artifactKind": { "const": "candidate" }
+        },
+        "required": ["artifactKind"]
+      },
+      "then": {
+        "required": ["candidateBundle"],
+        "properties": {
+          "artifactManifest": { "required": ["sha256", "path"] },
+          "artifactManifestText": false
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "artifactKind": { "const": "published" }
+        },
+        "required": ["artifactKind"]
+      },
+      "then": {
+        "required": ["artifactManifestText"],
+        "properties": {
+          "artifactManifest": {
+            "properties": { "path": false }
+          },
+          "candidateBundle": false
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "mode": { "const": "scoped" } },
+        "required": ["mode"]
+      },
+      "then": { "required": ["scopes"] },
+      "else": {
+        "properties": { "scopes": false }
+      }
+    }
+  ]
+}
