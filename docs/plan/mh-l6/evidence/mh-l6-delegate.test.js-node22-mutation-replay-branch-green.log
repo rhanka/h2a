@@ -1,0 +1,22 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-delegate.test.js
+node: v22.22.1
+private root: /tmp/mh-l6-test-cjQpEl
+case: F should replay a lost source acknowledgement without a second handoff
+TAP version 13
+# Subtest: F should replay a lost source acknowledgement without a second handoff
+ok 1 - F should replay a lost source acknowledgement without a second handoff
+  ---
+  duration_ms: 245.632411
+  type: 'test'
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 1
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 355.801705
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-delegate.test.js"],"code":0,"signal":null,"tests":1,"invalid":false,"spawned":1,"leftovers":[]}
