@@ -1,49 +1,36 @@
-# Decision dossier — <one-line title>
+# Decision <subject> — <decision object>
 
-> Fill every section. Tag claims `[FACT]` (verifiable, cite source) vs `[JUDGMENT]` (your read).
-> Run `self-audit.md` before presenting. Label the dossier **Incomplete** if any item can't be honestly filled.
+> Title: one short line, plain words, no slogan/thesis. HTML `<title>` identical to visible title;
+> small type (at most 1.25rem), thin band, never a hero.
+> Reading budget: <total minutes, proportional to stakes>; <number of questions>.
+> Each question below is self-contained and readable in 2 minutes, including options/recommendation
+> (aim for at most 400 words). Use plain words; explain acronyms; replace opaque codes with names.
 
-## 1. Decision asked
-<one sentence>. Options: `A` <…>, `B` <…>, `C` <…>. Scope: <exact boundary>.
+## Question — <explicit choice and boundary>
 
-## 2. Context
-- **Facts** `[FACT]`: …
-- **Assumptions**: …
-- **Unknowns**: …
+**Owner request (<date>, <source>):** “<literal relevant passage>”
+**What changes for you:** <benefit, risk borne by the owner, why their decision is needed>.
 
-## 3. Stakes
-Why this is dossier-level (which hard trigger). Affected: repos / WPs / contracts / users.
+**Context:** <current behavior and representative problem/scenario; affected people and constraints>.
+**Facts [FACT]:** <decisive evidence with source>. **Assumptions / unknowns:** <what remains uncertain>.
 
-## 4. Options
+| Option | Choice | Owner consequence: main benefit and drawback | Cost / rollback |
+| --- | --- | --- | --- |
+| A | <plain name> | <one line> | <brief> |
+| B | <plain name> | <one line> | <brief> |
 
-| id | choice | strongest case FOR | strongest case AGAINST | cost | reversibility | what would make it win |
-|----|--------|--------------------|------------------------|------|---------------|------------------------|
-| A  |        |                    |                        |      |               |                        |
-| B  |        |                    |                        |      |               |                        |
-| C  |        |                    |                        |      |               |                        |
+Use 2–4 short options with an honest case for each, including rejected alternatives.
+State every implied choice; no nested sub-options. If another decision is needed, give it its own
+self-contained question within the declared total budget. Explain dependencies between questions.
 
-(One row per option, including rejected ones. Count-symmetry: no option starved of genuine FOR points.)
+**Recommendation [JUDGMENT]:** <one option and decisive reason>.
+**Strongest objection / what would overturn it:** <brief>.
+**Failure scenario:** <how this could fail and the owner's exposure>.
+**Presenter convenience:** <what helps the agent; any divergence from owner value>.
 
-## 5. Recommendation + rationale
-**Recommend: <id | defer>.** Decisive judgment `[JUDGMENT]`: …
+**Request trace / acceptance:** <each demand → option or criterion; explicit gaps/departures>.
+**Answer needed:** <smallest concrete choice>.
 
-## 6. Reversibility / cost
-Rollback path · sunk cost · migration / cleanup cost · time estimate.
-
-## 7. Attendus (the owner's validation criteria)
-
-| criterion | source | covered by | gap |
-|-----------|--------|------------|-----|
-|           |        |            |     |
-
-## 8. What I need from you
-The smallest valid decision, or the one missing criterion.
-
----
-
-### Anti-bias appendix (from the self-audit gate)
-- **Strongest case AGAINST my recommendation:** …
-- **What would overturn it:** …
-- **Pre-mortem** ("six months later this failed because…"): …
-- **Agent interest** (easiest/faster/less risky for me): … — **where it diverges from owner value:** …
-- **Owner interest** (value · integrity · risk · future optionality · cost): …
+Supporting evidence: <optional links; no choices or material risks hidden here>.
+Required reviews: <independent Codex + Opus findings/disagreement for complex design, if applicable>.
+Run `self-audit.md`; mark **Incomplete** for missing necessary input/review, and request input, not approval.

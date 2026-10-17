@@ -1,19 +1,14 @@
-# Owner validation criteria — seed checklist
+# Owner criteria — per decision
 
-> Per-decision, not a global standard. Source the live criteria from the request, repo rules,
-> prior owner decisions, existing track decisions/dossiers, and `track report` attendus.
-> Persist per decision/dossier; never edit repo rules unless the owner explicitly asks.
+Source live criteria from the literal request (quote with date/source), applicable rules and prior
+owner decisions. Include only requirements about the subject being decided: intended benefit,
+acceptable risk, cost, rollback or affected people, when sourced. Do not invent owner approval.
+Check dossier presentation separately with `self-audit.md`; do not copy its rules into this table.
 
-| criterion | source | covered by | gap |
-|-----------|--------|------------|-----|
-| **Reversibility** — is the change reversible, and is the rollback path stated? | standing rule | | |
-| **Cross-repo owners** — are all affected repos / owners identified and consulted? | standing rule | | |
-| **UAT before merge** — are the user-acceptance tests defined and green *before* merge? | standing rule | | |
-| **Language** — discussion in FR; artifacts (code, SKILL.md, commits) in EN. | standing rule (FR-conv / EN-artifacts) | | |
-| <decision-specific criterion> | | | |
+| Owner criterion | Request/source | Addressed by | Gap or departure |
+| --- | --- | --- | --- |
+| <specific demand, quoted literally> | <date/source> | | |
 
-## How to use
-1. Copy this table into the dossier's **§7 Attendus**.
-2. Drop seed rows that don't apply; add decision-specific rows.
-3. Fill `covered by` from the dossier; any non-empty `gap` blocks "complete".
-4. If criteria are genuinely uncertain, ask "what am I missing?" — otherwise ask for the concrete decision.
+Map every demand to its question, option or acceptance check. Explain any departure explicitly.
+An unresolved gap blocks completion unless it is the explicit decision asked. Keep discussion in the
+owner's language and repository artifacts in the repository's language. Never edit global rules here.
