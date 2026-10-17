@@ -1,14 +1,14 @@
 command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-adoption.test.js
 node: v22.22.1
-private root: /tmp/mh-l6-test-TSWWmb
+private root: /tmp/mh-l6-test-OZHnfP
 case: C2b should require adoption when no managed selection exists
 TAP version 13
 # Subtest: C2b should require adoption when no managed selection exists
 not ok 1 - C2b should require adoption when no managed selection exists
   ---
-  duration_ms: 64.386157
+  duration_ms: 12.661303
   type: 'test'
-  location: '/tmp/mh-l3-qualification-c2b2c-fDnkpy/packages/h2a/test/mh-l6-adoption.test.js:17:67'
+  location: '/tmp/mh-l3-qualification-d2-0l6ViG/packages/h2a/test/mh-l6-adoption.test.js:17:67'
   failureType: 'testCodeFailure'
   error: |-
     Expected values to be strictly equal:
@@ -21,7 +21,7 @@ not ok 1 - C2b should require adoption when no managed selection exists
   actual: false
   operator: 'strictEqual'
   stack: |-
-    TestContext.<anonymous> (file:///tmp/mh-l3-qualification-c2b2c-fDnkpy/packages/h2a/test/mh-l6-adoption.test.js:41:10)
+    TestContext.<anonymous> (file:///tmp/mh-l3-qualification-d2-0l6ViG/packages/h2a/test/mh-l6-adoption.test.js:41:10)
     async Test.run (node:internal/test_runner/test:1054:7)
     async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
   ...
@@ -33,6 +33,6 @@ not ok 1 - C2b should require adoption when no managed selection exists
 # cancelled 0
 # skipped 0
 # todo 0
-# duration_ms 211.348026
+# duration_ms 125.082673
 
 receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-adoption.test.js"],"code":1,"signal":null,"tests":1,"invalid":false,"spawned":1,"leftovers":[]}
