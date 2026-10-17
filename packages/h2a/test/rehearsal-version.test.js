@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url'
 import { checkLockstepVersions } from '../../../scripts/check-lockstep-versions.mjs'
 
 const script = fileURLToPath(new URL('../../../scripts/rehearsal-version.mjs', import.meta.url))
-const packages = ['track', 'h2a-runtime', 'h2a', 'h2a-cli']
+const packages = ['track', 'h2a-runtime', 'h2a', 'h2a-cli', 'focus']
 
 function fixture(t, version = '0.98.6') {
   const root = mkdtempSync(join(tmpdir(), 'rehearsal-version-'))
@@ -16,7 +16,7 @@ function fixture(t, version = '0.98.6') {
   for (const pkg of packages) {
     mkdirSync(join(root, 'packages', pkg), { recursive: true })
     writeFileSync(join(root, 'packages', pkg, 'package.json'), JSON.stringify({
-      name: `@sentropic/${pkg}`, version,
+      name: `@sentropic/${pkg}`, version: pkg === 'focus' ? '0.5.0' : version,
       dependencies: { '@sentropic/track': `^${version}`, external: '^1.2.3' },
       peerDependencies: { '@sentropic/h2a-runtime': `^${version}` },
       optionalDependencies: { '@sentropic/h2a-cli': `^${version}` },
@@ -42,7 +42,7 @@ test('stamps every published manifest, internal pin and the independent smoke li
   assert.equal(checkLockstepVersions(root), expected)
   for (const pkg of packages) {
     const manifest = JSON.parse(readFileSync(join(root, 'packages', pkg, 'package.json')))
-    assert.equal(manifest.version, expected)
+    assert.equal(manifest.version, pkg === 'focus' ? '0.5.0-rehearsal.38901487200.2' : expected)
     for (const field of ['dependencies', 'peerDependencies', 'optionalDependencies', 'devDependencies']) {
       for (const [name, value] of Object.entries(manifest[field])) {
         assert.equal(value, name === 'external' ? '^1.2.3' : expected)

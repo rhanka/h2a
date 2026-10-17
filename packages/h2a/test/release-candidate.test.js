@@ -11,7 +11,8 @@ import YAML from 'yaml'
 const repo = fileURLToPath(new URL('../../../', import.meta.url))
 const script = join(repo, 'scripts/release-candidate.mjs')
 const workflow = YAML.parse(readFileSync(join(repo, '.github/workflows/release.yml'), 'utf8'))
-const names = ['track', 'h2a-runtime', 'h2a', 'h2a-cli']
+const names = ['track', 'h2a-runtime', 'h2a', 'h2a-cli', 'focus']
+const packageVersion = name => name === 'focus' ? '0.5.0-rc.1' : version
 const version = '0.98.6-rc.1', tree = 'a'.repeat(40), sha = 'b'.repeat(40)
 
 function fixture(t) {
@@ -21,13 +22,13 @@ function fixture(t) {
   for (const name of names) {
     mkdirSync(join(root, 'packages', name), { recursive: true })
     writeFileSync(join(root, 'packages', name, 'package.json'), JSON.stringify({
-      name: '@sentropic/' + name, version: '0.98.6',
+      name: '@sentropic/' + name, version: name === 'focus' ? '0.5.0' : '0.98.6',
       dependencies: { '@sentropic/track': '0.98.6', external: '^1.0.0' },
       peerDependencies: { '@sentropic/h2a-runtime': '0.98.6' },
       optionalDependencies: { '@sentropic/h2a-cli': '0.98.6' },
       devDependencies: { '@sentropic/h2a': '0.98.6' },
     }))
-    writeFileSync(join(root, 'dist-tarballs', `sentropic-${name}-${version}.tgz`), 'verified bytes: ' + name)
+    writeFileSync(join(root, 'dist-tarballs', `sentropic-${name}-${packageVersion(name)}.tgz`), 'verified bytes: ' + name)
   }
   writeFileSync(join(root, 'scripts/smoke-artifact.mjs'), "const PINNED_RUNTIME_VERSION = '0.98.6'\n")
   const env = { PATH: join(root, 'bin') + ':' + process.env.PATH, HOME: root,
@@ -43,11 +44,11 @@ function fixture(t) {
   fake('npm', `const fs=require('node:fs'),a=process.argv.slice(2);
     fs.appendFileSync(process.env.FAKE_ROOT+'/npm-calls',JSON.stringify(a)+'\\n');
     if(a[0]==='publish'){fs.writeFileSync(process.env.FAKE_ROOT+'/published','yes');process.exit(process.env.FAKE_PUBLISH_FAIL==='1'?37:0)}
-    if(a[0]==='view'&&a[2]==='dist-tags.next'){console.log(JSON.stringify(process.env.FAKE_NEXT||'${version}'));process.exit(0)}
+    if(a[0]==='view'&&a[2]==='dist-tags.next'){console.log(JSON.stringify((a[1]==='@sentropic/focus'?process.env.FAKE_FOCUS_NEXT:process.env.FAKE_NEXT)||(a[1]==='@sentropic/focus'?'0.5.0-rc.1':'${version}')));process.exit(0)}
     if(a[0]==='view'&&a[2]==='dist.integrity'){
       const name=a[1].slice('@sentropic/'.length).split('@')[0];
-      const bytes=fs.readFileSync(process.env.FAKE_ROOT+'/dist-tarballs/sentropic-'+name+'-${version}.tgz');
-      console.log(JSON.stringify('sha512-'+require('node:crypto').createHash('sha512').update(process.env.FAKE_BAD_INTEGRITY==='1'?'other source tree':bytes).digest('base64')));process.exit(0);
+      const bytes=fs.readFileSync(process.env.FAKE_ROOT+'/dist-tarballs/sentropic-'+name+'-'+(name==='focus'?'0.5.0-rc.1':'${version}')+'.tgz');
+      console.log(JSON.stringify('sha512-'+require('node:crypto').createHash('sha512').update((process.env.FAKE_BAD_INTEGRITY==='1'||(name==='focus'&&process.env.FAKE_FOCUS_BAD_INTEGRITY==='1'))?'other source tree':bytes).digest('base64')));process.exit(0);
     }
     if(a[0]==='view'&&a[2]==='dist-tags.latest'){console.log(process.env.FAKE_LATEST);process.exit(0)}
     if(a[0]==='view'&&a[2]==='version')process.exit(fs.existsSync(process.env.FAKE_ROOT+'/published')?0:1);
@@ -60,7 +61,7 @@ function fixture(t) {
     head_repository: { full_name: 'rhanka/h2a' } }
   const record = { schema: 1, kind: 'rc', repository: 'rhanka/h2a', runId: '100', runAttempt: '1',
     version, sourceSha: sha, sourceTree: tree, registryTag: 'next', smokePassed: true,
-    packages: Object.fromEntries(names.map(name => ['@sentropic/' + name, version])) }
+    packages: Object.fromEntries(names.map(name => ['@sentropic/' + name, packageVersion(name)])) }
   writeFileSync(join(root, 'runs.json'), JSON.stringify([{ workflow_runs: [run] }]))
   writeFileSync(join(root, 'record.json'), JSON.stringify(record))
   fake('gh', `const fs=require('node:fs'),path=require('node:path'),a=process.argv.slice(2),r=process.env.FAKE_ROOT;
@@ -84,25 +85,25 @@ function fixture(t) {
   }
 }
 
-test('RC tag stamps four packages and every internal exact pin, then publishes next only', t => {
+test('RC tag stamps five packages with independent focus version and every internal exact pin, then publishes next only', t => {
   const f = fixture(t)
   const stamped = f.invoke('prepare')
   assert.equal(stamped.status, 0, stamped.stdout + stamped.stderr)
   const sums = []
   for (const name of names) {
     const pkg = JSON.parse(readFileSync(join(f.root, 'packages', name, 'package.json')))
-    assert.equal(pkg.version, version)
+    assert.equal(pkg.version, packageVersion(name))
     for (const field of ['dependencies', 'peerDependencies', 'optionalDependencies', 'devDependencies']) {
       for (const [key, value] of Object.entries(pkg[field])) assert.equal(value, key === 'external' ? '^1.0.0' : version)
     }
-    const file = `sentropic-${name}-${version}.tgz`, bytes = Buffer.from(name)
+    const file = `sentropic-${name}-${packageVersion(name)}.tgz`, bytes = Buffer.from(name)
     writeFileSync(join(f.root, 'dist-tarballs', file), bytes)
     sums.push(createHash('sha256').update(bytes).digest('hex') + '  ' + file)
   }
   assert.match(readFileSync(join(f.root, 'scripts/smoke-artifact.mjs'), 'utf8'), /0\.98\.6-rc\.1/)
   writeFileSync(join(f.root, 'dist-tarballs/sha256sums.txt'), sums.join('\n') + '\n')
   const publishes = workflow.jobs.publish.steps.filter(s => String(s.run).includes('npm publish "./dist-tarballs/'))
-  assert.equal(publishes.length, 4)
+  assert.equal(publishes.length, 5)
   for (const latest of ['', '0.98.5', '99.0.0']) for (const step of publishes) {
     rmSync(join(f.root, 'published'), { force: true })
     const result = spawnSync('bash', ['-e', '-o', 'pipefail', '-c', step.run], {
@@ -111,8 +112,8 @@ test('RC tag stamps four packages and every internal exact pin, then publishes n
     assert.equal(result.status, 0, result.stdout + result.stderr)
   }
   const calls = readFileSync(join(f.root, 'npm-calls'), 'utf8').trim().split('\n').map(JSON.parse).filter(a => a[0] === 'publish')
-  assert.equal(calls.length, 12)
-  for (const args of calls) assert.deepEqual(args.slice(2), ['--access', 'public', '--tag', 'next'])
+  assert.equal(calls.length, 15)
+  for (const args of calls) assert.deepEqual(args.slice(2), ['--access', 'public', ...(args[1].includes('sentropic-focus-') ? ['--provenance'] : []), '--tag', 'next'])
 })
 
 test('stable tag without a matching RC is refused, including backfill dispatch', t => {
@@ -236,4 +237,67 @@ test('tag validation and manifest drift fail before any RC file is written; stab
   writeFileSync(join(f.root, 'scripts/smoke-artifact.mjs'), "const PINNED_RUNTIME_VERSION = '0.98.5'\n")
   assert.notEqual(f.invoke('prepare').status, 0)
   assert.equal(readFileSync(manifest, 'utf8'), before)
+})
+
+test('focus alone must have the intended next tag and verified RC bytes', t => {
+  const f = fixture(t)
+  for (const overrides of [{ FAKE_FOCUS_NEXT: '0.5.0-rc.9' }, { FAKE_FOCUS_BAD_INTEGRITY: '1' }]) {
+    const result = f.invoke('attest', overrides)
+    assert.notEqual(result.status, 0, result.stdout + result.stderr)
+    assert.match(result.stderr, /focus.*(next|integrity)/)
+  }
+})
+
+test('stable refuses an RC proof missing focus or carrying a wrong focus version', t => {
+  const f = fixture(t)
+  for (const value of [undefined, version, '0.4.0-rc.1']) {
+    const record = structuredClone(f.record)
+    if (value === undefined) delete record.packages['@sentropic/focus']
+    else record.packages['@sentropic/focus'] = value
+    f.saveRecord(record)
+    const result = f.invoke('require-rc', { GITHUB_REF: 'refs/tags/v0.98.6' })
+    assert.notEqual(result.status, 0, result.stdout + result.stderr)
+    assert.match(result.stderr, /No successful RC attestation/)
+  }
+})
+
+test('publish sanity refuses legacy four-package preparation and stale focus versions before publication', t => {
+  const f = fixture(t)
+  writeFileSync(join(f.root, 'scripts/check-lockstep-versions.mjs'), readFileSync(join(repo, 'scripts/check-lockstep-versions.mjs')))
+  const sanity = workflow.jobs.publish.steps.find(s => s.name === 'Version sanity gate (tag vs package.json)')
+  const script = sanity.run.replaceAll('${{ needs.verify.outputs.release-sha }}', sha)
+  for (const tagVersion of [version, '0.98.6']) {
+    // Simulate the four-package prepare helper from an older gated checkout.
+    for (const name of names) {
+      const path = join(f.root, 'packages', name, 'package.json')
+      const pkg = JSON.parse(readFileSync(path))
+      pkg.version = name === 'focus' ? '0.5.0' : tagVersion
+      for (const field of ['dependencies', 'peerDependencies', 'optionalDependencies', 'devDependencies']) {
+        for (const dep of Object.keys(pkg[field])) if (dep.startsWith('@sentropic/')) pkg[field][dep] = tagVersion
+      }
+      writeFileSync(path, JSON.stringify(pkg))
+    }
+    for (const marker of [undefined, '0.4.0-rc.1']) {
+      const env = { ...f.env, GITHUB_REF: 'refs/tags/v' + tagVersion }
+      if (marker !== undefined) env.FOCUS_RELEASE_VERSION = marker
+      const result = spawnSync('bash', ['-e', '-o', 'pipefail', '-c', script], { cwd: f.root, env, encoding: 'utf8' })
+      assert.notEqual(result.status, 0, result.stdout + result.stderr)
+      assert.match(result.stderr, /focus.*prepar/i)
+    }
+  }
+})
+
+test('five-package prepare hands the independent focus version to the publication sanity gate', t => {
+  for (const tagVersion of [version, '0.98.6']) {
+    const f = fixture(t)
+    writeFileSync(join(f.root, 'scripts/check-lockstep-versions.mjs'), readFileSync(join(repo, 'scripts/check-lockstep-versions.mjs')))
+    const result = f.invoke('prepare', { GITHUB_REF: 'refs/tags/v' + tagVersion })
+    assert.equal(result.status, 0, result.stdout + result.stderr)
+    const prepared = Object.fromEntries(readFileSync(f.env.GITHUB_ENV, 'utf8').trim().split('\n').map(line => line.split('=')))
+    assert.equal(prepared.FOCUS_RELEASE_VERSION, tagVersion === version ? '0.5.0-rc.1' : '0.5.0')
+    const sanity = workflow.jobs.publish.steps.find(s => s.name === 'Version sanity gate (tag vs package.json)')
+    const script = sanity.run.replaceAll('${{ needs.verify.outputs.release-sha }}', sha)
+    const gate = spawnSync('bash', ['-e', '-o', 'pipefail', '-c', script], { cwd: f.root, env: { ...f.env, ...prepared, GITHUB_REF: 'refs/tags/v' + tagVersion }, encoding: 'utf8' })
+    assert.equal(gate.status, 0, gate.stdout + gate.stderr)
+  }
 })

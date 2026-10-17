@@ -42,12 +42,13 @@ const REHEARSAL = YAML.parse(
   readFileSync(resolve(REPO_ROOT, ".github", "workflows", "publish-rehearsal.yml"), "utf8"),
 );
 
-/** The four lockstep packages in installable publish order. */
+/** The five release packages in installable publish order. */
 const PACKAGES = [
   ["@sentropic/track", "sentropic-track-"],
   ["@sentropic/h2a-runtime", "sentropic-h2a-runtime-"],
   ["@sentropic/h2a", "sentropic-h2a-"],
   ["@sentropic/h2a-cli", "sentropic-h2a-cli-"],
+  ["@sentropic/focus", "sentropic-focus-"],
 ];
 
 /**
@@ -107,7 +108,7 @@ test("the rehearsal job carries its required-style check name", () => {
   );
 });
 
-test("the rehearsal publishes the four lockstep packages in installable dependency order", () => {
+test("the rehearsal publishes the five release packages in installable dependency order", () => {
   const job = REHEARSAL.jobs["rehearse-publish"];
   const indexOf = (tarballPrefix) =>
     (job.steps ?? []).findIndex(
@@ -131,6 +132,7 @@ test("the rehearsal publishes the four lockstep packages in installable dependen
       "Rehearse @sentropic/h2a-runtime publish (dry-run)",
       "Rehearse @sentropic/h2a publish (dry-run)",
       "Rehearse @sentropic/h2a-cli publish (dry-run)",
+      "Rehearse @sentropic/focus publish (dry-run)",
     ],
   );
 });
@@ -229,7 +231,7 @@ test("every rehearsal npm publish is a dry-run — nothing here may ever publish
   const publishes = (rehearsal.steps ?? []).filter((step) =>
     String(step.run ?? "").includes("npm publish"),
   );
-  assert.equal(publishes.length, 4, "the rehearsal must dry-run exactly the four lockstep publishes");
+  assert.equal(publishes.length, 5, "the rehearsal must dry-run exactly the five release publishes");
   for (const step of publishes) {
     for (const line of effectiveScript(step.run)) {
       // Actual invocations address the tarball file spec; the failure-report
@@ -271,7 +273,7 @@ test("the rehearsal uses the same npm version and Node floor as the publish job"
   );
 });
 
-test("the rehearsal packs the four lockstep tarballs exactly like verify, then smokes them", () => {
+test("the rehearsal packs the five release tarballs exactly like verify, then smokes them", () => {
   const verify = RELEASE.jobs.verify;
   const rehearsal = REHEARSAL.jobs["rehearse-publish"];
   const verifyPack = (verify.steps ?? []).find((step) =>
@@ -281,7 +283,7 @@ test("the rehearsal packs the four lockstep tarballs exactly like verify, then s
     String(step.run ?? "").includes("npm pack --workspace"),
   );
   assert.ok(verifyPack && rehearsalPack, "both verify and the rehearsal must pack the workspaces");
-  for (const pkg of ["@sentropic/h2a", "@sentropic/h2a-runtime", "@sentropic/h2a-cli", "@sentropic/track"]) {
+  for (const pkg of ["@sentropic/h2a", "@sentropic/h2a-runtime", "@sentropic/h2a-cli", "@sentropic/track", "@sentropic/focus"]) {
     assert.ok(
       String(rehearsalPack.run).includes(pkg),
       `the rehearsal must pack ${pkg} — the dry-run publish MUST address these exact bytes`,
@@ -460,7 +462,7 @@ test("the rehearsal carries no registry credentials", () => {
   }
 });
 
-test('rehearsal executes all four online dry-runs and propagates failures', () => {
+test('rehearsal executes all five online dry-runs and propagates failures', () => {
   const lab = mkdtempSync(resolve(tmpdir(), 'rehearsal-execution-'));
   const bin = resolve(lab, 'bin'), calls = resolve(lab, 'calls.jsonl');
   mkdirSync(bin);
@@ -498,10 +500,10 @@ test('rehearsal executes all four online dry-runs and propagates failures', () =
         assert.equal(run.status, fail === '1' ? 1 : 0, run.stdout + run.stderr);
       }
       const observed = readFileSync(calls, 'utf8').trim().split('\n').map(line => JSON.parse(line));
-      assert.equal(observed.length, 8, 'all four publishes execute on success and on failure');
+      assert.equal(observed.length, 10, 'all five publishes execute on success and on failure');
       for (const args of observed) {
         assert.ok(args[1].startsWith('./dist-tarballs/'));
-        assert.deepEqual(args.slice(2), ['--access', 'public', '--tag', latest === '99.0.0' ? 'backfill' : 'rehearsal', '--dry-run']);
+        assert.deepEqual(args.slice(2), ['--access', 'public', ...(args[1].includes('sentropic-focus-') ? ['--provenance'] : []), '--tag', latest === '99.0.0' ? 'backfill' : 'rehearsal', '--dry-run']);
       }
     }
   } finally { rmSync(lab, { recursive: true, force: true }); }

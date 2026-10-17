@@ -17,7 +17,7 @@ name: publish-rehearsal
 # - the pack step matches release.yml verify line by line (SHA source excepted),
 # - the smoke command is identical,
 # - the integrity re-check matches line by line (SHA source excepted),
-# - each of the four per-package rehearsals runs the SAME publish body as the
+# - each of the five per-package rehearsals runs the SAME publish body as the
 #   release.yml publish job line by line with the single `--dry-run` token
 #   added and an explicit default prerelease tag (backfill logic, sha256
 #   re-check, npm publish invocation stay identical).
@@ -41,7 +41,7 @@ name: publish-rehearsal
 #   its `already on registry; skipping` guard). Otherwise every PR without a
 #   version bump silently rehearses nothing once the version is published;
 # - NO registry-visibility wait: `--dry-run` never becomes visible on npm, so
-#   the 18x10s wait would sleep ~170 s per package and warn 4 times on every
+#   the 18x10s wait would sleep ~170 s per package and warn 5 times on every
 #   bump PR. The real publish keeps its wait;
 # - no GitHub Release creation, no post-release doctor: nothing is published,
 #   there is nothing to announce or probe.
@@ -95,13 +95,13 @@ jobs:
       # Same pack loop and sha256 manifest as the release verify job. Only the
       # SHA source differs: no gated SHA exists on a PR, so the manifest is
       # tied to this checkout and the integrity control re-checks that tie.
-      - name: Pack the four lockstep packages
+      - name: Pack the five release packages
         shell: bash
         run: |
           set -euo pipefail
           node scripts/check-lockstep-versions.mjs
           mkdir -p dist-tarballs
-          for pkg in @sentropic/h2a @sentropic/h2a-runtime @sentropic/h2a-cli @sentropic/track; do
+          for pkg in @sentropic/h2a @sentropic/h2a-runtime @sentropic/h2a-cli @sentropic/track @sentropic/focus; do
             npm pack --workspace "$pkg" --pack-destination dist-tarballs
           done
           (cd dist-tarballs && sha256sum *.tgz > sha256sums.txt && cat sha256sums.txt)
@@ -246,6 +246,34 @@ jobs:
           (cd dist-tarballs && sha256sum --check --strict sha256sums.txt)
           if ! npm publish "./dist-tarballs/sentropic-h2a-cli-${v}.tgz" --access public $tagArgs --dry-run; then
             echo "::error::@sentropic/h2a-cli@$v: npm publish failed (not published)." >&2
+            exit 1
+          fi
+          # NO visibility wait here (deliberate): --dry-run never becomes
+          # visible on npm; the publish job keeps its 18x10s wait.
+
+      - name: Rehearse @sentropic/focus publish (dry-run)
+        shell: bash
+        run: |
+          v="$(node -p "require('./packages/focus/package.json').version")"
+          # NO idempotent skip here (deliberate difference, pinned by test):
+          # the rehearsal always dry-runs, even when $v is already on npm.
+          tagArgs="--tag rehearsal"
+          latest="$(npm view "@sentropic/focus" dist-tags.latest 2>/dev/null || true)"
+          if [ -n "$latest" ] && [ "$v" != "$latest" ]; then
+            lowest="$(printf '%s\n%s\n' "$v" "$latest" | sort -V | head -n1)"
+            if [ "$lowest" = "$v" ]; then
+              tagArgs="--tag backfill"
+              echo "@sentropic/focus@$v is below latest ($latest); publishing with $tagArgs so the latest dist-tag stays untouched."
+            fi
+          fi
+          # Same VERIFIED tarball bytes the publish job ships — never a
+          # fresh pack of a mutable ref.
+          if [[ "$v" == *-rc.* ]]; then
+            tagArgs="--tag next"
+          fi
+          (cd dist-tarballs && sha256sum --check --strict sha256sums.txt)
+          if ! npm publish "./dist-tarballs/sentropic-focus-${v}.tgz" --access public --provenance $tagArgs --dry-run; then
+            echo "::error::@sentropic/focus@$v: npm publish failed (not published)." >&2
             exit 1
           fi
           # NO visibility wait here (deliberate): --dry-run never becomes
