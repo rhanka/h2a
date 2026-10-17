@@ -1,0 +1,24 @@
+{
+  "protocol": "h2a.session-content",
+  "protocolVersion": 2,
+  "kind": "history-read",
+  "authorizationId": "read",
+  "owner": {
+    "issuer": "https://synthetic-idp.invalid",
+    "subject": "synthetic-owner"
+  },
+  "authSessionRef": "login",
+  "retained": {
+    "retainedId": "retained",
+    "originScopeDigest": "1c9acfc3d78f2b40977bedbee13d5089d9b116784a5b51237e9d9288995117ac",
+    "acceptedAt": 1800000000000,
+    "expiresAt": null
+  },
+  "coverage": {
+    "kind": "native",
+    "snapshotId": "snapshot",
+    "manifestHash": "87acdbae31d06b3cbec4cc2ea3a1191dd585e84cc02ef659d28f9ea09478b2b9",
+    "descriptorHash": "ef3b22ab1b55303956688e0f981816f2537be9ad0c18858e1b5c52897dea6e5d"
+  },
+  "readExpiresAt": 1800000060000
+}

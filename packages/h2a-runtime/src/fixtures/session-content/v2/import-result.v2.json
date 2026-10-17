@@ -1,0 +1,16 @@
+{
+  "protocol": "h2a.session-content",
+  "protocolVersion": 2,
+  "kind": "import-result",
+  "requestId": "import",
+  "snapshotId": "snapshot",
+  "manifestHash": "87acdbae31d06b3cbec4cc2ea3a1191dd585e84cc02ef659d28f9ea09478b2b9",
+  "descriptorHash": "ef3b22ab1b55303956688e0f981816f2537be9ad0c18858e1b5c52897dea6e5d",
+  "status": "imported",
+  "reason": null,
+  "localImportId": "isolated-import",
+  "expiresAt": null,
+  "resumable": false,
+  "processStarted": false,
+  "keyboardAcquired": false
+}
