@@ -64,14 +64,20 @@ const cases = [
   ['deferral', 'verdict-persistence', 'legacyExclusion: assessLegacyExclusion(exclusionEvidence)', 'legacyExclusion: { fenced: true, reason: \'legacy_exclusion_verified\', missing: [] }', 'B2 should defer qualified selection while legacy exclusion is unfenced'],
   ['deferral', 'exclusion-ignored', 'if (exclusionEvidence !== undefined) {', 'if (false) {', 'B2 should defer qualified selection while legacy exclusion is unfenced'],
   ['deferral', 'fenced-flag-ignored', '!exclusion.fenced', 'false', 'B2 should defer qualified selection while legacy exclusion is unfenced'],
+  ['bootstrap', 'session-lock', 'const lease = acquirePrefixLock(evidence.canonicalPrefix);', 'const lease = { acquired: true, stillHeld: () => true, release() {} };', 'C2b should hold compatible exclusion while the session is open'],
+  ['bootstrap', 'drift-revalidation', 'return assertLegacyInstallationUnchanged(session.evidence);', 'return session.evidence;', 'C2b should refuse drift observed after the session opened'],
+  ['bootstrap', 'target-eligibility', 'const eligible = checkTarget(target);', 'const eligible = target;', 'C2b should refuse an ineligible bootstrap target before holding anything'],
+  ['bootstrap', 'lock-release', 'release() { if (!released) { released = true; lease.release(); } }', 'release() { released = true; }', 'C2b should hold compatible exclusion while the session is open'],
 ];
 const files = group === 'launcher' ? ['packages/h2a/src/runtime/upgrade/managed-launcher.js'] :
   group === 'exclusion' ? ['packages/h2a/src/runtime/upgrade/legacy-exclusion.js', 'packages/h2a/dist/runtime/upgrade/legacy-exclusion.js'] :
+  group === 'bootstrap' ? ['packages/h2a/src/runtime/upgrade/bootstrap-session.js', 'packages/h2a/dist/runtime/upgrade/bootstrap-session.js'] :
   ['packages/h2a/src/runtime/upgrade/h4-store.js', 'packages/h2a/dist/runtime/upgrade/h4-store.js'];
 const originals = files.map(path => ({ path, bytes: fs.readFileSync(path) }));
 const selected = cases.filter(c => c[0] === group && (!process.env.MH_L6_MUTATION || c[1] === process.env.MH_L6_MUTATION));
 if (!selected.length) throw new Error('unknown_mutation_group');
-const file = `packages/h2a/test/mh-l6-${group === 'deferral' ? 'exclusion' : (['delegation', 'launcher', 'exclusion'].includes(group) ? group : 'selection')}.test.js`;
+const testFile = { delegation: 'delegation', launcher: 'launcher', exclusion: 'exclusion', deferral: 'exclusion', bootstrap: 'bootstrap' }[group] ?? 'selection';
+const file = `packages/h2a/test/mh-l6-${testFile}.test.js`;
 const results = [];
 for (const [, name, from, to, scenario] of selected) {
   const run = color => {

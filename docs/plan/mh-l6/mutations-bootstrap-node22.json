@@ -1,0 +1,39 @@
+{
+  "node": "v22.22.1",
+  "files": [
+    {
+      "path": "packages/h2a/src/runtime/upgrade/bootstrap-session.js",
+      "sha256": "774a32ae0fb32c54c46dc5e709fb9fa2462a6f945fe2784252e7785eb28fc066"
+    },
+    {
+      "path": "packages/h2a/dist/runtime/upgrade/bootstrap-session.js",
+      "sha256": "85e196690d4d81cbde616f3c873ee0ab3ac48f63a2374ea198d747dfc593f2a9"
+    }
+  ],
+  "results": [
+    {
+      "name": "session-lock",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-bootstrap.test.js-node22-mutation-session-lock-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-bootstrap.test.js-node22-mutation-session-lock-green.log",
+      "restored": true
+    },
+    {
+      "name": "drift-revalidation",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-bootstrap.test.js-node22-mutation-drift-revalidation-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-bootstrap.test.js-node22-mutation-drift-revalidation-green.log",
+      "restored": true
+    },
+    {
+      "name": "target-eligibility",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-bootstrap.test.js-node22-mutation-target-eligibility-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-bootstrap.test.js-node22-mutation-target-eligibility-green.log",
+      "restored": true
+    },
+    {
+      "name": "lock-release",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-bootstrap.test.js-node22-mutation-lock-release-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-bootstrap.test.js-node22-mutation-lock-release-green.log",
+      "restored": true
+    }
+  ]
+}

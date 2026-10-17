@@ -14,7 +14,8 @@
 - [ ] B2-3 — Observateurs réels des quatre fermetures sur .5/.6 vivants alimentant la preuve ; le verrou pris pendant une commande ne suffit pas.
 - [x] C1 — Lanceur autonome, même PID, neutralisation des chargements ambiants, repli diagnostique sans exécution ni mutation ; `mh-l6-launcher.test.js`, 10 tests et 13 mutations par Node 22/24, artefact/manifeste reproduits depuis deux copies sources.
 - [x] C2a — Preuve physique npm en lecture seule, entrée/métadonnées/lien original liés aux inodes et empreintes, revalidation des dérives ; 22 tests et treize configurations de faute tuées/restaurées par Node 22/24 ; preuve-C2a.json. Aucune activation implicite, câblage C2b ouvert.
-- [ ] C2b — Installation conditionnelle du lanceur, bootstrap/adoption avant raccourci de version, preuves physiques et chemins vivants ; `mh-l6-bootstrap.test.js`, avec B2/F pour le producteur M18.
+- [x] C2b-1 — Session de bootstrap protégée (préfixe identifié, artefacts vérifiés, verrou détenu, cible éligible) ; `mh-l6-bootstrap.test.js`, 6 tests et 4 mutations par Node 22/24, preuve-C2b-1.json.
+- [ ] C2b-2 — Préparation d'image, installation conditionnelle du lanceur, adoption avant raccourci de version et chemins vivants, avec B2/F pour le producteur M18.
 - [ ] D — Désadoption conditionnelle, opt-out et dérives npm ; `mh-l6-unmanage.test.js`, `mh-l6-npm.test.js`.
 - [x] E1 — Lecteur de modules lié au manifeste et installé dans le lanceur ; prérequis avant journal H4 ; ESM/CJS/createRequire/leurres/modes/métadonnées/probe PTY réel. Node 22/24 : quatre fichiers, 47 tests et 11 paires de mutation, zéro skip/enfant ; chaîne native locale non qualifiée release.
 - [x] E2a — Préchargeur autonome adressé par SHA, propagation aux descendants fichier du lanceur ; 37 tests et dix paires de mutation par Node 22/24, preuve-E2a ; détails et limites dans E2a.md.
