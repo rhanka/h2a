@@ -47,6 +47,11 @@ export function convergeNativeHost(options: NativeConvergenceOptions) {
   const mcpWrote = mcpDrift && repair && !dryRun;
   if (mcpPath && mcpDrift && !result.changes.planned.includes(mcpPath)) result.changes.planned.push(mcpPath);
   if (mcpPath && mcpWrote && !result.changes.changed.includes(mcpPath)) result.changes.changed.push(mcpPath);
+  const hooksDrift = host === 'vibe' && !!vibe ? (vibe.hooksPlanned as boolean) : false;
+  const hooksPath = host === 'vibe' && vibe ? (vibe.hooksPath as string) : undefined;
+  const hooksWrote = hooksDrift && repair && !dryRun;
+  if (hooksPath && hooksDrift && !result.changes.planned.includes(hooksPath)) result.changes.planned.push(hooksPath);
+  if (hooksPath && hooksWrote && !result.changes.changed.includes(hooksPath)) result.changes.changed.push(hooksPath);
   // Re-read the effective Vibe state after a repair so doctor reports the
   // installed interim direct entry (owner 16/10), never pre-repair absence.
   let effectiveObservation = observation;
