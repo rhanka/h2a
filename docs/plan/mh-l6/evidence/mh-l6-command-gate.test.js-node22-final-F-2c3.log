@@ -1,0 +1,46 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-command-gate.test.js
+node: v22.22.1
+private root: /tmp/mh-l6-test-OLpjKQ
+case: all cases in explicit file
+TAP version 13
+# Subtest: F should refuse a plain-file occupant instead of replacing it
+ok 1 - F should refuse a plain-file occupant instead of replacing it
+  ---
+  duration_ms: 25.089162
+  type: 'test'
+  ...
+# Subtest: F should refuse a directory occupant as force-required
+ok 2 - F should refuse a directory occupant as force-required
+  ---
+  duration_ms: 5.679781
+  type: 'test'
+  ...
+# Subtest: F should refuse a foreign command link instead of replacing it
+ok 3 - F should refuse a foreign command link instead of replacing it
+  ---
+  duration_ms: 5.613074
+  type: 'test'
+  ...
+# Subtest: F should refuse a dangling command link for diagnosis
+ok 4 - F should refuse a dangling command link for diagnosis
+  ---
+  duration_ms: 4.499429
+  type: 'test'
+  ...
+# Subtest: F should adopt the legacy link and reinstall the managed link
+ok 5 - F should adopt the legacy link and reinstall the managed link
+  ---
+  duration_ms: 12.603692
+  type: 'test'
+  ...
+1..5
+# tests 5
+# suites 0
+# pass 5
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 150.505449
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-command-gate.test.js"],"code":0,"signal":null,"tests":5,"invalid":false,"spawned":1,"leftovers":[]}

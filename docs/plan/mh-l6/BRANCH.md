@@ -38,6 +38,7 @@
 - [ ] F-2c — Parsing CLI, codes/strict/reprise/abandon/compensation branchés sur l'autorité, orchestration de la délégation et preuve H4 externe M18 sur vrais .5/.6 ; tests CLI et v1 ciblés.
 - [x] F-2c1 — Parsing `upgrade` et codes 0/1/2 + `--strict` sans exécution (`upgrade-cli.js`, `mh-l6-cli.test.js`, 9 tests et 7 mutations par Node 22/24, preuve-F-2c.json). Dispatch, compensation, délégation et M18 ouverts.
 - [x] F-2c2 — Reprise/abandon branchés sur l'autorité CLI avant le moteur (`upgrade-dispatch.js`, `mh-l6-dispatch.test.js`, 7 tests et 6 mutations par Node 22/24, preuve-F-2c2.json). Compensation, orchestration de la délégation et M18 ouverts.
+- [x] D-2c — Grille EEXIST de l'installateur sur le verdict npm (`launcher-install.js`, `mh-l6-command-gate.test.js`, 5 tests et 4 mutations par Node 22/24 + requals 6/13, preuve-F-2c3.json). Forçage explicite et round-trips npm ouverts.
 - [ ] F/M17 — Raccorder les sous-commandes CLI convergées aux droits de writer et aux primitives de mutation communes ; fournir à MH-L8 ses vrais acteurs CLI. L’admission maintenue et le retour d’éligibilité après héritage restent une réalisation MH-L6, jamais un scan/PID absent.
 - [ ] Gate par sous-lot : commandes/sorties conservées, zéro skip/enfant, mutations tuées puis restaurées, vérification des références affectées, commit conventionnel anglais sans trailer, push fast-forward propre branche, rapport français mis à jour.
 - [ ] Revue indépendante confiée au conducteur ; aucune invocation de dispatch installé et aucun verdict de consensus inventé.

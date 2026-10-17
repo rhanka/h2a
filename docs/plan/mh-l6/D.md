@@ -101,3 +101,40 @@ et 5 paires/profil. Preuve : `proof-D-2b.json`.
 | Pilote CLI consommant la classification (installer/forcer/diagnostiquer), vrais round-trips EEXIST/force/uninstall/up/down, dérives réelles | F-2b |
 | Observateurs B2-3, autres entrées, smoke CI, gel .6, activation M18 | B2-3/E2b3/E3b2b/E3c/F-2b, M18 toujours ouvert |
 | Revue indépendante | Conducteur ; aucun consensus revendiqué |
+
+## D-2c — grille EEXIST de l'installateur (livré)
+
+`installManagedLauncher` dans
+`packages/h2a/src/runtime/upgrade/launcher-install.js` consulte
+désormais `assessNpmCommand` après le contrôle de dérive et avant toute
+écriture : occupant (`occupied`) → `bootstrap_launcher_command_occupied`,
+pendant (`dangling`) → `..._dangling`, étranger (`foreign`) →
+`..._foreign`, sans rien écrire ni remplacer. Manquant, géré et héritage
+passent (adoption du lien legacy, réinstallation idempotente du lien
+géré). La référence legacy vient de `session.evidence.commandPath`,
+exigée absolue. Le forçage explicite opérateur et les round-trips
+npm restent F-2c (suite).
+
+| Commande ciblée | Node 22.22.1 | Node 24.21.0 |
+|---|---|---:|
+| `node scripts/mh-l6-test.mjs packages/h2a/test/mh-l6-command-gate.test.js final-F-2c3` | 5/5, exit 0 | 5/5, exit 0 |
+| Requals `mh-l6-launcher-install` (6) + `mh-l6-adoption` (13) | 6 + 13, exit 0 | 6 + 13, exit 0 |
+| `mh-l6-mutate.mjs command-gate` (appel, occupant, étranger, pendant) | 4 rouges ERR_ASSERTION / 4 verts | 4 / 4 |
+| `node scripts/mh-l6-f2c3-audit.mjs /tmp/mh-l3-qualification-f2c3-*` | exit 0 | exit 0 |
+| Skips / annulations / enfants restants | 0 / 0 / 0 | 0 / 0 / 0 |
+
+Rouge initial : occupant remplacé sans refus (`ERR_ASSERTION`, 1 test,
+exit 1), conservé. Un mutant retiré avant vert (`legacy-entry`) : il
+élargissait le refus au lieu de le supprimer et produisait une erreur
+brute, pas une assertion — 4 mutants restants, tous tués par assertion.
+Limite notée : l'observation-grille-écriture reste exposée à un concurrent
+entre la grille et le `rename` (verrou de session relâché avant
+l'exécution) ; le refus typé couvre le chemin normal, pas la course.
+Audit : 4 fichiers identiques, émission compilée liée par SHA, 5 tests +
+6/13 requalifiés et 4 paires/profil. Preuve : `proof-F-2c3.json`.
+
+| NOT covered restant | Gate |
+|---|---|
+| Forçage explicite opérateur, round-trips EEXIST/force/uninstall/up/down, dérives réelles | F-2c (suite) |
+| Observateurs B2-3, autres entrées, smoke CI, gel .6, activation M18 | B2-3/E2b3/E3b2b/E3c, M18 toujours ouvert |
+| Revue indépendante | Conducteur ; aucun consensus revendiqué |
