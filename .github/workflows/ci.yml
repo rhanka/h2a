@@ -104,10 +104,10 @@ jobs:
 
   build-and-test:
     runs-on: ${{ matrix.os }}
-    # DEC-061: a leaked subprocess (e.g. an mcp-serve sidecar in a
-    # cross-process test) once held the Windows runner open for 47 min.
-    # 15 min is well above any honest test duration on any OS.
-    timeout-minutes: 15
+    # Measured 2026-10-17: 15m06s on main, including ~13m npm test.
+    # 25m budget and slow-suite guard: docs/ci-job-budget.md.
+    # Keep the DEC-061 process backstop; child deadlines are unchanged.
+    timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
@@ -187,7 +187,8 @@ jobs:
   npm-test-trust-root:
     name: npm-test-trust-root
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # Same complete entrypoint; 13m39s observed. See docs/ci-job-budget.md.
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
