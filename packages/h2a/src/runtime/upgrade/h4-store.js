@@ -10,6 +10,7 @@ import { privateDirectory, readState, publishState, replaceState } from '../hand
 import { mutationLock } from '../handover/mutation.js';
 import { verifyImage } from '../handover/image.js';
 import { assertImageRuntime } from './image-policy.js';
+import { assessLegacyExclusion } from './legacy-exclusion.js';
 
 const terminal = new Set(['COMPLETED', 'ABORTED']);
 const id = value => {
@@ -184,11 +185,18 @@ export class UpgradeStore {
     else if (last.digest !== digest(intent)) replaceState(backup, intent, 'selection', last);
     return tx.installationState === 'SELECTING' ? this.#write(record, { installationState: 'SELECTED' }, held).value : tx;
   }
-  select(upgradeId) {
+  select(upgradeId, options = {}) {
     return this.#locked(held => {
       let record = this.#read(upgradeId); this.#assertController(record.value);
       if (record.value.installationState === 'SELECTED') return this.#finish(record, held);
       if (record.value.installationState !== 'PREPARED') throw new Error('upgrade_phase_invalid');
+      const exclusionEvidence = options?.exclusion;
+      if (exclusionEvidence !== undefined) {
+        record = this.#write(record, { verification: { ...record.value.verification,
+          legacyExclusion: assessLegacyExclusion(exclusionEvidence) } }, held);
+      }
+      const exclusion = record.value.verification.legacyExclusion;
+      if (exclusion && !exclusion.fenced) throw new Error(`selection_deferred:${exclusion.reason}`);
       this.#target(record.value.observations.selectionIntent);
       if ((this.#selection()?.digest ?? null) !== record.value.observations.previousSelectionDigest) throw new Error('RECOVERY_BLOCKED:selection');
       record = this.#write(record, { installationState: 'SELECTING' }, held);

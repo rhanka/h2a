@@ -1,0 +1,39 @@
+{
+  "node": "v24.21.0",
+  "files": [
+    {
+      "path": "packages/h2a/src/runtime/upgrade/h4-store.js",
+      "sha256": "0eb99a17831c6f32405c0197d807be83f3053458f18125f83e820aeefb1f6443"
+    },
+    {
+      "path": "packages/h2a/dist/runtime/upgrade/h4-store.js",
+      "sha256": "ab7c3108fd483853b074b9eac4e43d1250c31f2cc80231f7b4e627a8efa5e795"
+    }
+  ],
+  "results": [
+    {
+      "name": "selection-deferral",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-exclusion.test.js-node24-mutation-selection-deferral-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-exclusion.test.js-node24-mutation-selection-deferral-green.log",
+      "restored": true
+    },
+    {
+      "name": "verdict-persistence",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-exclusion.test.js-node24-mutation-verdict-persistence-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-exclusion.test.js-node24-mutation-verdict-persistence-green.log",
+      "restored": true
+    },
+    {
+      "name": "exclusion-ignored",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-exclusion.test.js-node24-mutation-exclusion-ignored-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-exclusion.test.js-node24-mutation-exclusion-ignored-green.log",
+      "restored": true
+    },
+    {
+      "name": "fenced-flag-ignored",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-exclusion.test.js-node24-mutation-fenced-flag-ignored-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-exclusion.test.js-node24-mutation-fenced-flag-ignored-green.log",
+      "restored": true
+    }
+  ]
+}
