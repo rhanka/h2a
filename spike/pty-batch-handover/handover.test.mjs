@@ -28,7 +28,7 @@ test('should preserve live terminal I/O and receive guardian-reaped exits in own
   assert.equal((await l.rpc('move', { ids: first, stageDelay })).ok, true);
   const unaffectedBefore = [...l.text('s0').matchAll(/^TICK s0 (\d+)\r?$/gm)].length;
   const oldUnaffectedBefore = [...l.text('s8').matchAll(/^TICK s8 (\d+)\r?$/gm)].length;
-  const failed = await l.rpc('move', { ids: ['s4', 's5'], fault: 'reject', stageDelay: 80 });
+  const failed = await l.rpc('move', { ids: ['s4', 's5'], fault: 'reject', stageDelay: 80, abortDrainDelay: 20 });
   assert.equal(failed.ok, false);
   const unaffectedAfter = [...l.text('s0').matchAll(/^TICK s0 (\d+)\r?$/gm)].length;
   assert.ok(unaffectedAfter > unaffectedBefore, 'an unrelated migrated session keeps producing during a failed batch');
