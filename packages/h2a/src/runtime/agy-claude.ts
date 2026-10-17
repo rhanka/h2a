@@ -47,7 +47,7 @@ export function detectAgyClaudeQuotaExhaustion(output: string, now = Date.now())
 } {
   for (const line of output.split(/\r?\n/)) {
     // Provider diagnostics only: prose mentioning 429/quota is not evidence.
-    if (!/(?:AGY_ERROR\s*\{|\b(?:API )?error\s*:)/i.test(line)) continue;
+    if (!/^\s*(?:AGY_ERROR\s*\{|(?:API )?error\s*:)/i.test(line)) continue;
     const structured = /AGY_ERROR\s*(\{.*)/.exec(line)?.[1];
     if (structured) {
       try { JSON.parse(structured); } catch { continue; } // A partial chunk is not a complete reset observation.
