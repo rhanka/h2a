@@ -6,8 +6,9 @@ import { randomBytes, timingSafeEqual } from "node:crypto";
 import { request } from "node:https";
 import { performance } from "node:perf_hooks";
 import { buildAuthorizeRequest } from "./sentropic/enroll-flow.js";
-import { canonicalJson, parseStrictJson } from "./session-content-json.js";
+import { canonicalJson, contentDigest, parseStrictJson } from "./session-content-json.js";
 import { confirmationNonce, type ConfirmationChallenge, type ConfirmationVerifier } from "./session-content-confirmation.js";
+import { validateContentMessage, same, sha256, envelope, type Policy, type Scope, type Lease } from "./session-content-contract.js";
 
 type Source = ConfirmationChallenge["source"];
 interface Runtime { packageVersion: string; gitSha: string; packageIntegrity: string; hostBuildHash: string; exporterBuildHash: string }
@@ -40,12 +41,14 @@ function https(url: string): URL {
 }
 
 /** Exact configured URLs, no redirects, bounded response, no insecure TLS switch or injected HTTP. */
-async function requestJson(method: "GET" | "POST", url: URL, body: string | null, contentType: string | null, ca?: string, token?: string): Promise<Record<string, unknown>> {
+async function requestJson(method: "GET" | "POST", url: URL, body: string | null, contentType: string | null, ca?: string, token?: string, metadata?: { nonce?: string; admission?: string; signal?: AbortSignal }): Promise<Record<string, unknown>> {
   return new Promise((resolve, reject) => {
     const deny = () => reject(new Error("source_authority_unavailable"));
-    const req = request(url, { method, agent: false, ...(ca ? { ca } : {}),
+    const req = request(url, { method, agent: false, ...(metadata?.signal ? { signal: metadata.signal } : {}), ...(ca ? { ca } : {}),
       headers: { ...(body !== null && contentType !== null ? { "Content-Type": contentType, "Content-Length": Buffer.byteLength(body) } : {}), Accept: "application/json",
-        ...(token ? { Authorization: `Bearer ${token}` } : {}) } }, res => {
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...(metadata?.nonce ? { "X-H2A-Request-Nonce": metadata.nonce } : {}),
+        ...(metadata?.admission ? { "X-H2A-Source-Meta": metadata.admission } : {}) } }, res => {
       if (res.statusCode !== 200 || !/^application\/json(?:\s*;|$)/i.test(String(res.headers["content-type"] ?? ""))
         || res.headers["content-encoding"] !== undefined) { res.destroy(); deny(); return; }
       let bytes = 0;
@@ -165,6 +168,77 @@ export class SessionContentAuth {
     const session = this.sessions.get(handle), now = this.now();
     if (!session || now < session.start || now >= session.deadline || now >= session.login.deadline) return fail();
     return structuredClone(session.metadata);
+  }
+  async renewSource(handle: object): Promise<void> {
+    const old=this.metadata(handle),session=this.sessions.get(handle)!,login=session.login,start=this.now();
+    if(login.busy||this.inFlight>=4) throw new Error("resource_busy");
+    login.busy=true;this.inFlight++;
+    try {
+      const requestId=randomBytes(32).toString("base64url"),requestNonce=randomBytes(32).toString("base64url"),cfg=this.config;
+      const body=envelope("source-open",{requestId,requestNonce,bindingId:cfg.source.bindingId,sourceGeneration:cfg.source.sourceGeneration,
+        sourceBootId:cfg.source.sourceBootId,runtime:cfg.runtime,capabilitiesDigest:cfg.capabilitiesDigest});
+      const url=new URL(`/api/v1/auth/session/content/${old.source.bindingId}/source/sessions/${old.sourceSessionId}/renew`,cfg.sourceServer);
+      const response=await post(url,canonicalJson(body),"application/json",cfg.ca,login.accessToken);validateContentMessage(response);
+      const deadline=Math.min(login.deadline,start+(response.expiresAt as number)-(response.issuedAt as number));
+      if(response.kind!=="source-session" || response.requestId!==requestId || response.requestNonce!==requestNonce
+        || response.sourceSessionId!==old.sourceSessionId || response.connectionId!==old.connectionId || !same(response.owner,old.owner)
+        || !same(response.source,old.source) || response.authSessionRef!==old.authSessionRef || response.authSessionVersion!==old.authSessionVersion
+        || !bearer(response.sourceToken) || this.now()<start || this.now()>=deadline || this.now()>=session.deadline || this.now()>=login.deadline) return fail();
+      session.metadata={...old,issuedAt:response.issuedAt as number,expiresAt:response.expiresAt as number,authSessionExpiresAt:response.authSessionExpiresAt as number};
+      session.token=response.sourceToken;session.start=start;session.deadline=deadline;
+    } catch {this.invalidate(handle);return fail();} finally {login.busy=false;this.inFlight--;}
+  }
+  /** Trusted native component resolves these over pinned HTTPS; wire callers supply only an opaque proposal id.
+   * These endpoint paths are preparatory until the receiving Sentropic implementation consumes the capsule.
+   */
+  async resolveGrant(handle: object, proposalId: string): Promise<{ request: Record<string, unknown>; policy: Policy; deadline: number }> {
+    if (!id(proposalId) || this.inFlight >= 4) return fail();
+    const metadata = this.metadata(handle), session = this.sessions.get(handle)!;
+    const start = this.now(), nonce = randomBytes(32).toString("base64url"); this.inFlight++;
+    try {
+      const base = `/api/v1/auth/session/content/${this.config.source.bindingId}/source/sessions/${metadata.sourceSessionId}`;
+      const grant = await requestJson("GET", new URL(`${base}/grants/${proposalId}`, this.config.sourceServer), null, null, this.config.ca, session.token, { nonce });
+      validateContentMessage(grant);
+      if (!["grant-activate", "grant-refresh"].includes(String(grant.kind)) || grant.requestId !== proposalId
+        || grant.requestNonce !== nonce || grant.connectionId !== metadata.connectionId) return fail();
+      const scope = (grant.scope ?? grant.nextScope) as Scope, lease = grant.lease as Lease;
+      if (!same(scope.owner, metadata.owner) || !same(scope.source, metadata.source) || lease.requestNonce !== nonce) return fail();
+      const policyMessage = await requestJson("GET", new URL(`${base}/policies/${encodeURIComponent(scope.policyId)}/${scope.policyRevision}`, this.config.sourceServer), null, null, this.config.ca, session.token);
+      validateContentMessage(policyMessage, { policyDigest: grant.policyDigest as string });
+      if (policyMessage.kind !== "project-policy") return fail();
+      this.metadata(handle);
+      const deadline = Math.min(session.deadline, start + lease.expiresAt - lease.issuedAt);
+      if (this.now() < start || this.now() >= deadline) return fail();
+      return { request: grant, policy: policyMessage.policy as Policy, deadline };
+    } catch { this.invalidate(handle); return fail(); } finally { this.inFlight--; }
+  }
+  async commitAck(handle: object, ack: Record<string, unknown>): Promise<Record<string, unknown>> {
+    const meta = this.metadata(handle), session = this.sessions.get(handle)!;
+    if (this.inFlight >= 4) return fail();
+    validateContentMessage(ack); this.inFlight++;
+    try {
+      const url = new URL(`/api/v1/auth/session/content/${meta.source.bindingId}/source/sessions/${meta.sourceSessionId}/acks`, this.config.sourceServer);
+      const response = await post(url, canonicalJson(ack), "application/json", this.config.ca, session.token);
+      validateContentMessage(response); this.metadata(handle); return response;
+    } catch { this.invalidate(handle); return fail(); } finally { this.inFlight--; }
+  }
+  async sendFragment(handle: object, fragment: Record<string, unknown>, signal: AbortSignal): Promise<Record<string, unknown>> {
+    const meta = this.metadata(handle), session = this.sessions.get(handle)!;
+    validateContentMessage(fragment);
+    if (fragment.kind!=="terminal-fragment" || fragment.connectionId!==meta.connectionId
+      || !same((fragment.scope as Scope).source,meta.source) || this.inFlight>=4) return fail();
+    const body=canonicalJson(fragment), path=`/api/v1/auth/session/content/${meta.source.bindingId}/fragments`;
+    const admission=envelope("source-admission",{method:"POST",path,sourceSessionId:meta.sourceSessionId,connectionId:meta.connectionId,
+      requestId:randomBytes(32).toString("base64url"),scopeDigest:contentDigest("scope",fragment.scope),leaseId:fragment.leaseId,
+      bodyBytes:Buffer.byteLength(body),bodyHash:sha256(body)});
+    const header=Buffer.from(canonicalJson(admission)).toString("base64url");
+    if(header.length>8192) return fail();
+    this.inFlight++;
+    try {
+      const response=await requestJson("POST",new URL(path,this.config.sourceServer),body,"application/json",this.config.ca,session.token,{admission:header,signal});
+      validateContentMessage(response); this.metadata(handle);
+      if(response.requestId!==admission.requestId) return fail(); return response;
+    } finally { this.inFlight--; }
   }
   /** Observed invalidation is immediate locally. No reconnect or silent login reparenting. */
   invalidate(handle: object): void {

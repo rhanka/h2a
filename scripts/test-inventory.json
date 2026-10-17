@@ -876,6 +876,7 @@
     "fixture commits launch no automatic Git maintenance in observed repositories"
   ],
   "packages/h2a-runtime/src/session-content-confirmation.test.ts": [
+    "session content confirmation should create and stage a native challenge using one clock sample without relaxing caller timestamp checks",
     "session content confirmation should verify signed exact-target proof once and durably consume before returning",
     "session content confirmation should reject forged signatures, token-selected keys and unsigned or unknown algorithms",
     "session content confirmation should reject wrong identity, client, tenant, purpose and nonce without consuming",
@@ -891,6 +892,7 @@
     "session content confirmation should reject duplicate JSON keys, invalid Unicode and noncanonical JWT encoding"
   ],
   "packages/h2a-runtime/src/session-content-auth.test.ts": [
+    "session content source authentication should renew only the original source login and refuse renewal after observed revocation",
     "session content source authentication should perform real pinned HTTPS PKCE and send access credentials only in their intended exchange",
     "session content source authentication should reject mismatched and replayed callbacks before a token request",
     "session content source authentication should refuse redirects, unavailable authority, untrusted TLS and oversized replies",
@@ -918,5 +920,19 @@
   ],
   "packages/h2a-runtime/src/native-terminal/protocol.test.ts": [
     "should reject legacy and incompatible content hosts without changing native transport version"
+  ],
+  "packages/h2a-runtime/src/session-content-consent.test.ts": [
+    "/",
+    "should keep actual native PTY refusal at zero content bytes then export only the post-ACK sentinel",
+    "BEFORE_F2_SENTINEL",
+    "AFTER_F2_SENTINEL",
+    "should refuse forged confirmation and let exclusion win while an activation ACK is pending",
+    "should refuse a mismatched ACK and discard queued bytes on lost source authority",
+    "should keep the old lease deadline until the exact renewal ACK commits"
+  ],
+  "packages/h2a-runtime/src/session-content-export.test.ts": [
+    "should bound source and aggregate queues and invalidate reservations without legacy backfill",
+    "should count in-flight bytes until an exact reservation commits and pause on source overflow",
+    "should account the complete backing buffer until the last fragment commits"
   ]
 }
