@@ -46,10 +46,15 @@
     "./mcp": {
       "types": "./dist/mcp/serve.d.ts",
       "import": "./dist/mcp/serve.js"
+    },
+    "./registry/manifest": {
+      "types": "./dist/registry/manifest.d.ts",
+      "import": "./dist/registry/manifest.js"
     }
   },
   "files": [
     "dist",
+    "registry",
     "skills"
   ],
   "scripts": {
