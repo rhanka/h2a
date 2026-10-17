@@ -23,14 +23,17 @@ export async function buildNativePrototype(temp) {
   writeFileSync(join(probePath, 'package.json'), JSON.stringify({ name: 'node-pty',
     version: packageInfo.version, license: packageInfo.license, main: './lib/index.js' }));
   const binary = join(probePath, 'build/Release/pty.node');
+  // setup-node ships headers beside its executable; the runner need not have
+  // an unrelated system Node development package under /usr/include.
+  const nodeHeaders = join(dirname(dirname(process.execPath)), 'include/node');
   const flags = ['-shared', '-fPIC', '-std=c++17', '-O2', '-D_FORTIFY_SOURCE=2',
     '-DNODE_ADDON_API_CPP_EXCEPTIONS', '-DNODE_GYP_MODULE_NAME=pty',
-    '-I/usr/include/node', `-I${addonRoot}`, source, '-lutil', '-pthread', '-o', binary];
+    `-I${nodeHeaders}`, `-I${addonRoot}`, source, '-lutil', '-pthread', '-o', binary];
   const env = { PATH: process.env.PATH, XDG_RUNTIME_DIR: temp, XDG_STATE_HOME: temp, LC_ALL: 'C' };
   const compiler = (await exec('c++', ['--version'], { env })).stdout.split('\n')[0];
   await exec('c++', flags, { cwd: temp, env, timeout: 30000 });
   const inputs = { compiler, flags: flags.map(s => s === binary ? '<output>' : s),
-    sourceDigest: hash(source), nodeHeaderDigest: hash('/usr/include/node/node_api.h'),
+    sourceDigest: hash(source), nodeHeaderDigest: hash(join(nodeHeaders, 'node_api.h')),
     addonHeaderDigest: hash(join(addonRoot, 'napi.h')), addonInlineDigest: hash(join(addonRoot, 'napi-inl.h')) };
   return { binary, probePath, packageVersion: packageInfo.version,
     binaryDigest: hash(binary), toolchainDigest: digest(inputs), compiler,
