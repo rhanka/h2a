@@ -111,6 +111,11 @@ const cases = [
   ['upgrade-run', 'need-report', "if (!need.needed) return Object.freeze({ completed: false, reason: need.reason });", "if (!need.needed) return Object.freeze({ completed: true, reason: need.reason });", 'F should report already adopted without a second transaction'],
   ['upgrade-run', 'execute-skip', 'return executeAdoption({ session, store, upgradeId, target, launcherSource, managedDir, commandPath, exclusion });', 'return Object.freeze({ completed: true, upgradeId });', 'F should execute the needed upgrade once end to end'],
   ['upgrade-run', 'exclusion-forward', 'managedDir, commandPath, exclusion });', 'managedDir, commandPath });', 'F should propagate the exclusion deferral instead of selecting'],
+  ['npm-command', 'managed-path', "if (actual === managedLauncher) return Object.freeze({ state: 'managed', action: 'none' });", '', 'D should report a managed command link'],
+  ['npm-command', 'legacy-path', "if (actual === legacyEntry) return Object.freeze({ state: 'legacy', action: 'adopt' });", '', 'D should report a legacy command link awaiting adoption'],
+  ['npm-command', 'missing-report', "return Object.freeze({ state: 'missing', action: 'install' });", "return Object.freeze({ state: 'managed', action: 'none' });", 'D should report a missing command link after uninstall'],
+  ['npm-command', 'occupied-report', "return Object.freeze({ state: 'occupied', action: 'force-required', kind: 'file' });", "return Object.freeze({ state: 'managed', action: 'none' });", 'D should require force where a plain file occupies the command path'],
+  ['npm-command', 'dangling-report', "return Object.freeze({ state: 'dangling', action: 'diagnose', actual });", "return Object.freeze({ state: 'legacy', action: 'adopt' });", 'D should report a dangling command link for diagnosis'],
 ];
 const files = group === 'launcher' ? ['packages/h2a/src/runtime/upgrade/managed-launcher.js'] :
   group === 'exclusion' ? ['packages/h2a/src/runtime/upgrade/legacy-exclusion.js', 'packages/h2a/dist/runtime/upgrade/legacy-exclusion.js'] :
@@ -122,11 +127,12 @@ const files = group === 'launcher' ? ['packages/h2a/src/runtime/upgrade/managed-
   group === 'adoption-image' ? ['packages/h2a/src/runtime/upgrade/adoption-image.js', 'packages/h2a/dist/runtime/upgrade/adoption-image.js'] :
   group === 'status' ? ['packages/h2a/src/runtime/upgrade/status-report.js', 'packages/h2a/dist/runtime/upgrade/status-report.js'] :
   group === 'upgrade-run' ? ['packages/h2a/src/runtime/upgrade/upgrade-run.js', 'packages/h2a/dist/runtime/upgrade/upgrade-run.js'] :
+  group === 'npm-command' ? ['packages/h2a/src/runtime/upgrade/npm-command.js', 'packages/h2a/dist/runtime/upgrade/npm-command.js'] :
   ['packages/h2a/src/runtime/upgrade/h4-store.js', 'packages/h2a/dist/runtime/upgrade/h4-store.js'];
 const originals = files.map(path => ({ path, bytes: fs.readFileSync(path) }));
 const selected = cases.filter(c => c[0] === group && (!process.env.MH_L6_MUTATION || c[1] === process.env.MH_L6_MUTATION));
 if (!selected.length) throw new Error('unknown_mutation_group');
-const testFile = { delegation: 'delegation', launcher: 'launcher', exclusion: 'exclusion', deferral: 'exclusion', bootstrap: 'bootstrap', adoption: 'adoption', 'launcher-install': 'launcher-install', 'adoption-execute': 'adoption', unmanage: 'unmanage', 'adoption-image': 'image-prepare', status: 'status', 'upgrade-run': 'upgrade-run' }[group] ?? 'selection';
+const testFile = { delegation: 'delegation', launcher: 'launcher', exclusion: 'exclusion', deferral: 'exclusion', bootstrap: 'bootstrap', adoption: 'adoption', 'launcher-install': 'launcher-install', 'adoption-execute': 'adoption', unmanage: 'unmanage', 'adoption-image': 'image-prepare', status: 'status', 'upgrade-run': 'upgrade-run', 'npm-command': 'npm' }[group] ?? 'selection';
 const file = `packages/h2a/test/mh-l6-${testFile}.test.js`;
 const results = [];
 for (const [, name, from, to, scenario] of selected) {
