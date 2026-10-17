@@ -13,8 +13,10 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
 import { afterAll, describe, expect, it } from "vitest";
-import { copyFileSync, mkdtempSync, rmSync } from "node:fs";
+import { copyFileSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
+
+import { Track, EventStore } from "@sentropic/track";
 
 import { run } from "../src/cli/index.js";
 
@@ -119,5 +121,30 @@ describe("focus CLI — error handling (non-zero + clear stderr)", () => {
     expect(code).toBe(3);
     expect(c.err).toContain("not found");
     expect(c.out).toBe("");
+  });
+});
+
+describe("focus CLI — readable Track decisions", () => {
+  it.each(["terminal", "md", "html", "default"])("renders %s, escapes HTML and leaves the log untouched", async (format) => {
+    const path = join(mkdtempSync(join(fixtureDir, "readable-" + format + "-")), "events.jsonl");
+    const track = new Track(new EventStore(path), { by: "owner" });
+    const target = track.createItem({ kind: "feature", title: "Garden shed", workspace: "garden" });
+    const dossier = JSON.parse(readFileSync(new URL("./readable-track.fixture.json", import.meta.url), "utf8"));
+    const id = track.createDecision({ decisionKind: "orientation", title: "Choose the garden shed location", workspace: "garden", targets: [target], dossier });
+    const before = readFileSync(path, "utf8");
+    const c = capture();
+    const args = [id, "--workspace", "garden", "--events-path", path];
+    if (format !== "default") args.push("--format", format);
+    expect(await run(args, c.deps)).toBe(0);
+    expect(c.err).toBe("");
+    expect(c.out).toContain("Choose the garden shed location");
+    expect(c.out).toContain(dossier.readability.ownerRequestQuote);
+    expect(c.out).toContain("A short walk and a clear terrace view.");
+    expect(c.out).toContain("préco: Along the side wall, because");
+    if (format === "html") {
+      expect(c.out).toContain('&lt;script&gt;alert("shed")&lt;/script&gt; &amp; comfort');
+      expect(c.out).not.toContain('<script>');
+    }
+    expect(readFileSync(path, "utf8")).toBe(before);
   });
 });

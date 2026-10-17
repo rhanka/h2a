@@ -17,6 +17,8 @@ export declare const READABILITY_LIMITS: {
     readonly maxQuestionReadingMinutes: 2;
     readonly maxDossierBudgetMinutes: 30;
     readonly wordsPerMinute: 180;
+    readonly maxHeadingLength: 100;
+    readonly maxDecisionLineLength: 300;
     readonly maxOptionLabelLength: 100;
     readonly maxConsequenceLength: 160;
     readonly maxOptionBodyLength: 300;

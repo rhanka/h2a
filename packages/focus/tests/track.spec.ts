@@ -17,7 +17,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
 import { afterAll, describe, expect, it } from "vitest";
-import { copyFileSync, mkdtempSync, rmSync } from "node:fs";
+import { copyFileSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 
 import {
@@ -171,5 +171,41 @@ describe("toDecisionDossierDocument (pure mapper over the real read types)", () 
     expect(doc.amendmentTrace).toHaveLength(0);
     // context prose + terminal outcome node only.
     expect(doc.sections.map((s) => s.kind)).toEqual(["prose", "outcome"]);
+  });
+});
+
+describe("readable Track projection", () => {
+  it("preserves the supplied presentation fields and renders all surfaces", () => {
+    const dossier = JSON.parse(readFileSync(new URL("./readable-track.fixture.json", import.meta.url), "utf8"));
+    const doc = toDecisionDossierDocument({ id: "shed", title: "Choose the garden shed location", workspace: "ws:opaque", outcome: "pending", dossier }, [], { source: "fixture", readAt: READ_AT, cursor: "count:1" });
+    expect(doc.subject).toBe(dossier.subject);
+    expect(doc.readability).toEqual(dossier.readability);
+    expect(doc.sections).toContainEqual(expect.objectContaining({ kind: "question", ...dossier.qa[0] }));
+    for (const render of [renderTerminal, renderMd, (value: typeof doc) => renderHtml(value, hooks)]) {
+      expect(render(doc)).toContain("A short walk and a clear terrace view.");
+    }
+  });
+
+  it("keeps each question's explicit options and recommendation together", () => {
+    const dossier = JSON.parse(readFileSync(new URL("./readable-track.fixture.json", import.meta.url), "utf8"));
+    dossier.qa.push({
+      id: "q-visit", question: "When should we visit the possible spots?",
+      context: "Both days are free; choose the day that suits your schedule.",
+      readingTimeMinutes: 1, recommendedOptionId: "visit-now",
+      recommendedAnswer: "Visit this week, so the work can start sooner.",
+    });
+    dossier.options.push(
+      { id: "visit-now", title: "Visit this week", summary: "Start work sooner.", questionId: "q-visit" },
+      { id: "visit-later", title: "Visit next week", summary: "Keep this week free.", questionId: "q-visit" },
+    );
+    const doc = toDecisionDossierDocument(
+      { id: "shed", title: "Choose the garden shed location", workspace: "garden", outcome: "pending", dossier },
+      [], { source: "fixture", readAt: READ_AT, cursor: "count:1" },
+    );
+    expect(doc.sections.filter((s) => s.kind === "optionSet").map((s) => [s.questionId, s.options.map((o) => o.id)]))
+      .toEqual([["q-spot", ["a", "b"]], ["q-visit", ["visit-now", "visit-later"]]]);
+    const text = renderMd(doc);
+    expect(text.indexOf("Back of the garden")).toBeLessThan(text.indexOf("When should we visit"));
+    expect(text).toContain("préco: Visit this week, so the work can start sooner.");
   });
 });
