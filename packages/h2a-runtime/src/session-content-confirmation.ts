@@ -79,6 +79,7 @@ export class ConfirmationVerifier {
   private readonly monotonicNow: () => number;
   private readonly config: Config;
   get issuer(): string { return this.config.issuer; }
+  get clientId(): string { return this.config.clientId; }
   constructor(config: Config) {
     this.config = { ...config, source: structuredClone(config.source) };
     this.wallNow = config.wallNow ?? Date.now;
@@ -103,7 +104,15 @@ export class ConfirmationVerifier {
     this.keys = next;
   }
   stage(input: ConfirmationChallenge): object {
-    const wall = this.wallNow(), mono = this.monotonicNow();
+    return this.stageAt(input,this.wallNow(),this.monotonicNow());
+  }
+  /** Native generation and staging use one sample. The strict caller-timestamp guard stays unchanged. */
+  create(input: Omit<ConfirmationChallenge,"issuedAt" | "expiresAt">, lifetimeMs: number): {challenge:ConfirmationChallenge;handle:object} {
+    if(!Number.isSafeInteger(lifetimeMs)||lifetimeMs<=0||lifetimeMs>60000) refused();
+    const wall=this.wallNow(),mono=this.monotonicNow(),challenge={...structuredClone(input),issuedAt:wall,expiresAt:wall+lifetimeMs};
+    return {challenge:structuredClone(challenge),handle:this.stageAt(challenge,wall,mono)};
+  }
+  private stageAt(input: ConfirmationChallenge, wall: number, mono: number): object {
     this.prune();
     const ch = structuredClone(input);
     if (ch.owner.issuer !== this.config.issuer || ch.owner.subject !== this.config.subject
@@ -127,6 +136,9 @@ export class ConfirmationVerifier {
   cancelAll(): void {
     for (const p of this.pending.values()) this.config.budget.release(p.slot);
     this.pending.clear();
+  }
+  cancel(handle: object): void {
+    const p=this.pending.get(handle); if(p) this.config.budget.release(p.slot); this.pending.delete(handle);
   }
   private prune(): void {
     for (const [handle, p] of this.pending) if (!this.config.budget.live(p.slot)) this.pending.delete(handle);
