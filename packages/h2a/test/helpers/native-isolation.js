@@ -454,14 +454,7 @@ export async function waitForPrivateNativeProcesses(env) {
         catch (error) { if (error.code !== "ENOENT") throw error; }
         return !/\) [ZX] /.test(fs.readFileSync(join(path, "stat"), "utf8"));
       }
-      // An unreadable stat proves nothing about death: assume alive and let
-      // the deadline fail closed, instead of throwing EACCES that would mask
-      // the caller's original assertion and skip its remaining cleanup.
-      catch (error) {
-        if (error.code === "ENOENT" || error.code === "ESRCH") return false;
-        if (error.code === "EACCES" || error.code === "EPERM") return true;
-        throw error;
-      }
+      catch (error) { if (error.code === "ENOENT" || error.code === "ESRCH") return false; throw error; }
     });
     if (alive.length === 0) return;
     assert.ok(Date.now() < deadline, `fixture processes still writing after host shutdown: ${alive.join(", ")}`);
