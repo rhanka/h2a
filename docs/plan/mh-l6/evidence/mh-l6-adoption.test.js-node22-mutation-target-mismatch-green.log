@@ -1,12 +1,12 @@
 command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-adoption.test.js
 node: v22.22.1
-private root: /tmp/mh-l6-test-X1J9Bg
+private root: /tmp/mh-l6-test-QE7IYw
 case: C2b should require adoption when the selection targets another build
 TAP version 13
 # Subtest: C2b should require adoption when the selection targets another build
 ok 1 - C2b should require adoption when the selection targets another build
   ---
-  duration_ms: 216.150204
+  duration_ms: 602.060237
   type: 'test'
   ...
 1..1
@@ -17,6 +17,6 @@ ok 1 - C2b should require adoption when the selection targets another build
 # cancelled 0
 # skipped 0
 # todo 0
-# duration_ms 336.573883
+# duration_ms 722.508653
 
 receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-adoption.test.js"],"code":0,"signal":null,"tests":1,"invalid":false,"spawned":1,"leftovers":[]}

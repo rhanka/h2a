@@ -1,0 +1,82 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-adoption.test.js
+node: v22.22.1
+private root: /tmp/mh-l6-test-zPyDRt
+case: all cases in explicit file
+TAP version 13
+# Subtest: C2b should require adoption when no managed selection exists
+ok 1 - C2b should require adoption when no managed selection exists
+  ---
+  duration_ms: 52.778639
+  type: 'test'
+  ...
+# Subtest: C2b should report already adopted when selection matches the target
+ok 2 - C2b should report already adopted when selection matches the target
+  ---
+  duration_ms: 272.079092
+  type: 'test'
+  ...
+# Subtest: C2b should require adoption when the selection targets another build
+ok 3 - C2b should require adoption when the selection targets another build
+  ---
+  duration_ms: 53.382045
+  type: 'test'
+  ...
+# Subtest: C2b should require adoption when the physical installation is unreadable
+ok 4 - C2b should require adoption when the physical installation is unreadable
+  ---
+  duration_ms: 54.245339
+  type: 'test'
+  ...
+# Subtest: C2b should require adoption when the managed layout is unrecognized
+ok 5 - C2b should require adoption when the managed layout is unrecognized
+  ---
+  duration_ms: 225.194637
+  type: 'test'
+  ...
+# Subtest: C2b should refuse an invalid adoption assessment envelope
+ok 6 - C2b should refuse an invalid adoption assessment envelope
+  ---
+  duration_ms: 264.09752
+  type: 'test'
+  ...
+# Subtest: C2b should execute adoption from session to selected build
+ok 7 - C2b should execute adoption from session to selected build
+  ---
+  duration_ms: 295.001126
+  type: 'test'
+  ...
+# Subtest: C2b should return already adopted without mutating when selection matches
+ok 8 - C2b should return already adopted without mutating when selection matches
+  ---
+  duration_ms: 364.513701
+  type: 'test'
+  ...
+# Subtest: C2b should install the launcher but defer selection while exclusion is unfenced
+ok 9 - C2b should install the launcher but defer selection while exclusion is unfenced
+  ---
+  duration_ms: 579.427558
+  type: 'test'
+  ...
+# Subtest: C2b should write nothing when the session drifted before adoption
+ok 10 - C2b should write nothing when the session drifted before adoption
+  ---
+  duration_ms: 14.731507
+  type: 'test'
+  ...
+# Subtest: C2b should refuse an invalid adoption execution envelope
+ok 11 - C2b should refuse an invalid adoption execution envelope
+  ---
+  duration_ms: 13.785056
+  type: 'test'
+  ...
+1..11
+# tests 11
+# suites 0
+# pass 11
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 2316.293196
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-adoption.test.js"],"code":0,"signal":null,"tests":11,"invalid":false,"spawned":1,"leftovers":[]}
