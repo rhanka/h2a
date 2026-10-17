@@ -241,6 +241,11 @@ function main() {
   // and NAMED instead. Portable across node versions (a spawnSync option, not the
   // node-20-incompatible `--test-timeout` flag). Override via H2A_TEST_TIMEOUT_MS.
   const RUN_TIMEOUT_MS = Number(process.env.H2A_TEST_TIMEOUT_MS) || 600000;
+  // The expanded closed-package/Node-ABI qualification is still doing useful
+  // work at ten minutes (owned-child progress identifies the active files).
+  // Keep the other suites at ten minutes and leave ten minutes of the CI job's
+  // 25-minute budget for build, Vitest, native host and consumer verification.
+  const NODE_TIMEOUT_MS = Number(process.env.H2A_TEST_TIMEOUT_MS) || 900000;
 
   // Defense-in-depth: create a throwaway temp dir for H2A_ROOT so that any test
   // that runs a writing verb (connect/register/mcp-serve) without --root AND with
@@ -388,18 +393,18 @@ function main() {
     TEMP: trackTemp
   };
 
-  function runSuite(name, command, args, cwd, env = testEnv) {
+  function runSuite(name, command, args, cwd, env = testEnv, timeoutMs = RUN_TIMEOUT_MS) {
     const result = spawnSync(command, args, {
       cwd,
       stdio: "inherit",
-      timeout: RUN_TIMEOUT_MS,
+      timeout: timeoutMs,
       killSignal: "SIGKILL",
       env
     });
 
     if (result.error && result.error.code === "ETIMEDOUT") {
       process.stderr.write(
-        `\nrun-tests: ${name} HUNG — the test run exceeded ${RUN_TIMEOUT_MS}ms and was killed. ` +
+        `\nrun-tests: ${name} HUNG — the test run exceeded ${timeoutMs}ms and was killed. ` +
         `A test is not terminating (often a spawned child that never exits).\n`
       );
       return 124;
@@ -430,7 +435,7 @@ function main() {
   try {
     const nodeStatus = runSuite("Node test suite", process.execPath,
       [join(REPO_ROOT, "scripts/run-node-tests.mjs"), "--test", "--test-reporter=spec", `--test-reporter=${join(REPO_ROOT, "scripts/node-evidence-reporter.mjs")}`, "--test-reporter-destination=stdout", `--test-reporter-destination=${nodeReport}`, ...nodeTestFiles],
-      REPO_ROOT, trackFixtureEnv);
+      REPO_ROOT, trackFixtureEnv, NODE_TIMEOUT_MS);
     const vitestStatuses = vitestSuites.map((suite) => {
       const cwd = join(REPO_ROOT, suite.dir);
       const configArgs = suite.config === undefined ? [] : ["--config", suite.config];

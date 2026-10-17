@@ -6,7 +6,8 @@ import { ChildProcess } from 'node:child_process';
 import { availableParallelism } from 'node:os';
 import { createWriteStream } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { Duplex } from 'node:stream';
+import { basename } from 'node:path';
+import { Duplex, Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { run } from 'node:test';
 import { spec } from 'node:test/reporters';
@@ -47,14 +48,27 @@ ChildProcess.prototype.spawn = function (options) {
 const progress = setInterval(() => process.stderr.write(`[node-test-progress] ${JSON.stringify({ concurrency, completed,
   active: [...pending].map(([child, row]) => ({ file: row.file, pid: child.pid, elapsedMs: Math.round(performance.now() - row.started),
     exitCode: child.exitCode, signalCode: child.signalCode })) })}\n`), interval).unref();
-const events = run({ files, isolation: 'process', concurrency,
-  execArgv: ['--import', fileURLToPath(new URL('../packages/h2a/test/helpers/native-isolation.js', import.meta.url))] });
-events.on('test:summary', data => { if (!data.success) process.exitCode = 1; });
-// Spec's final failure summary may never be reached when a different file
-// hangs. Preserve the actual error immediately, before the outer backstop.
-events.on('test:fail', data => {
-  if (!data.todo && !data.skip) process.stderr.write(`[node-test-failure] ${data.file}: ${data.name}\n${inspect(data.details?.error, { depth: 6 })}\n`);
-});
+// This suite qualifies cold daemon startup within five seconds. Run it before
+// npm's large offline installations and the 32-process recovery campaign can
+// consume the machine. Keep every file and every individual deadline intact.
+const startup = files.filter(file => basename(file) === 'mcp-central-attachments.test.js');
+const remaining = files.filter(file => !startup.includes(file));
+const phases = [startup, remaining].filter(group => group.length);
+const events = Readable.from((async function* () {
+  for (const group of phases) {
+    const source = run({ files: group, isolation: 'process', concurrency,
+      execArgv: ['--import', fileURLToPath(new URL('../packages/h2a/test/helpers/native-isolation.js', import.meta.url))] });
+    for await (const event of source) {
+      const { type, data } = event;
+      if (type === 'test:summary' && !data.success) process.exitCode = 1;
+      // Ordered spec output may buffer failures behind another file.
+      if (type === 'test:fail' && !data.todo && !data.skip) {
+        process.stderr.write(`[node-test-failure] ${data.file}: ${data.name}\n${inspect(data.details?.error, { depth: 6 })}\n`);
+      }
+      yield event;
+    }
+  }
+})());
 try {
   await Promise.all([
     pipeline(events, new spec(), process.stdout),
