@@ -878,7 +878,8 @@ Branch: `fix/presence-identity-liveness`. Base: `58f111b3` (origin/main at check
 - [x] E3b2a: npm diagnostic installability, plugin cohort versions, minimum libc guard, real tarball seam scan and nonempty source inventory. Node 22/24: 142 targeted tests and 44 killed/restored pairs per profile; proof-E3b2a.json. Common off-profile CLI and smoke/backfills remain open.
 - [x] B2-1: canonical legacy-exclusion verdict producer (`legacy_installer_unfenced` vs verified); 8 targeted tests and 8 killed/restored pairs per Node 22/24; proof-B2-1.json.
 - [x] B2-2: exclusion verdict wired to qualified selection deferral with journal persistence; 11 tests, selection/delegation requalified, 12 killed/restored pairs per Node 22/24; proof-B2-2.json.
-- [ ] B2-3/C2b/D/E2b3/E3b2b/E3c/F: real legacy fencing observers, bootstrap/adoption/link installation, unmanage/npm, all-entry closed loading, release packaging/native freeze and common CLI/automatic/M18 integration.
+- [x] C2b-1: protected bootstrap session (identified prefix, verified artifacts, held lock, eligible target); 6 targeted tests and 4 killed/restored pairs per Node 22/24; proof-C2b-1.json.
+- [ ] B2-3/C2b-2/D/E2b3/E3b2b/E3c/F: real legacy fencing observers, image preparation, launcher/link installation, adoption, unmanage/npm, all-entry closed loading, release packaging/native freeze and common CLI/automatic/M18 integration.
 - [x] No installed h2a/dispatch, owner live state, main, .track, Python or full suite. Review selection cannot use the required installed dispatch under owner confinement; no consensus verdict claimed.
 - [ ] Independent conductor review and final MH-L6 acceptance remain required; A alone does not qualify U05/U06 or M18 end to end.
 
