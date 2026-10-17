@@ -36,6 +36,7 @@ import {
   NATIVE_TERMINAL_MAX_SESSIONS,
   type NativeTerminalStopSignal,
 } from "./protocol.js";
+import { NativeRawAdmission } from "../session-content-export.js";
 
 /**
  * Emits the FORCE signal to a whole process group from the PARENT (the host
@@ -722,6 +723,9 @@ export type NativeTerminalReapOutcome = Readonly<
 >;
 
 type SessionRecord = {
+  rawAdmission:import('../session-content-export.js').NativeRawAdmission;
+  rawSubscription?:{dispose():void};
+  content?: import("../session-content-consent.js").SessionContentConsent;
   readonly id: string;
   readonly incarnation: string;
   readonly pty: PtyHandle;
@@ -750,6 +754,7 @@ export class NativeTerminalHost {
   readonly #replayBytesPerSession: number;
   readonly #maxSessions: number;
   readonly #spawner: PtySpawner;
+  readonly #contentFactory: ((session: { id: string; incarnation: string; generation: string }) => import("../session-content-consent.js").SessionContentConsent) | undefined;
   readonly #sessions = new Map<string, SessionRecord>();
   readonly #registryPath: string | undefined;
   readonly #socketPath: string | undefined;
@@ -777,6 +782,8 @@ export class NativeTerminalHost {
     replayBytesPerSession: number;
     maxSessions?: number;
     spawner: PtySpawner;
+    /** Native bootstrap only; never populated from socket request params or legacy controller leases. */
+    contentFactory?: (session: { id: string; incarnation: string; generation: string }) => import("../session-content-consent.js").SessionContentConsent;
     /** Durable store for pgid persistence; defaults to the real registry path. */
     registryPath?: string;
     /**
@@ -838,6 +845,7 @@ export class NativeTerminalHost {
     this.#replayBytesPerSession = options.replayBytesPerSession;
     this.#maxSessions = maxSessions;
     this.#spawner = options.spawner;
+    this.#contentFactory = options.contentFactory;
     this.#registryPath = options.registryPath;
     // NORMALIZED before it is ever recorded: this string is the socket
     // ATTRIBUTION a supervisor's socket-scoped containment decision is derived
@@ -1003,6 +1011,7 @@ export class NativeTerminalHost {
     }
 
     const record: SessionRecord = {
+      rawAdmission:new NativeRawAdmission(),
       id: options.id,
       incarnation: options.launchFence?.incarnation ?? randomUUID(),
       pty,
@@ -1018,6 +1027,14 @@ export class NativeTerminalHost {
       lastHumanActivityAt: null,
     };
     this.#sessions.set(record.id, record);
+    if (this.#contentFactory) {
+      try {
+        if(!record.pty.onRawData)throw new Error('unsupported_source');
+        const content = this.#contentFactory({id:record.id,incarnation:record.incarnation,generation:this.#generation});
+        content.assertNativeSession(record.id,record.incarnation,this.#generation);content.bindRawAdmission(record.rawAdmission);record.content=content;
+      } catch { this.#log("native content unavailable"); }
+    }
+    if(record.pty.onRawData)record.rawSubscription=record.pty.onRawData(bytes=>record.rawAdmission.admit(bytes));
 
     // Carry of the previous chunk so a DSR split across chunks is still seen.
     // At most 3 chars: a full 4-char query can never hide entirely in it.
@@ -1057,6 +1074,8 @@ export class NativeTerminalHost {
       }
     });
     record.exitSubscription = record.pty.onExit((event) => {
+      record.content?.disconnect();
+      record.rawSubscription?.dispose();
       try {
         if (record.exit !== null) return;
         resetRelay.flush();
@@ -1115,6 +1134,24 @@ export class NativeTerminalHost {
     return this.#snapshot(this.#requireSession(id));
   }
 
+  get contentCapability(): string | undefined { return [...this.#sessions.values()].some(s=>s.content) ? "h2a.session-content/2" : undefined; }
+  /** Trusted in-process bootstrap only: replace expired source authority, preserving the live PTY. */
+  rebindContent(id:string,content:import('../session-content-consent.js').SessionContentConsent):void{
+    const record=this.#requireSession(id);if(!record.pty.onRawData)throw new Error('unsupported_source');
+    content.assertNativeSession(record.id,record.incarnation,this.#generation);
+    record.content?.disconnect();content.bindRawAdmission(record.rawAdmission);record.content=content;
+  }
+  private content(id: string): import("../session-content-consent.js").SessionContentConsent {
+    const record=this.#sessions.get(id);
+    if(!record?.content) throw new Error("unsupported_source"); return record.content;
+  }
+  contentStatus(id: string): unknown { return this.content(id).status(); }
+  contentPrepare(id: string, proposalId: string): Promise<unknown> { return this.content(id).prepare(proposalId); }
+  contentConfirm(id: string, idToken: string): Promise<void> { return this.content(id).confirm(idToken); }
+  contentRenew(id: string, proposalId: string): Promise<void> { return this.content(id).renew(proposalId); }
+  contentFlush(id: string, channel: "terminal.live" | "terminal.cache"): Promise<boolean> { return this.content(id).flush(channel); }
+  contentExclude(id: string, target: "session" | "project"): void { this.content(id).exclude(target); }
+  contentClear(id: string, target: "session" | "project"): void { this.content(id).clearExclusion(target); }
   readOutput(id: string, afterSeq: number): NativeTerminalReplay {
     const record = this.#requireSession(id);
     const replay = record.replay.readAfter(afterSeq);

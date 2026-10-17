@@ -56,6 +56,7 @@ type ConnectionContext = {
   buffer: string;
   pendingResponseBytes: number;
   pendingResponses: number;
+  pendingContent: number;
 };
 
 type ResponseQueueBudget = {
@@ -207,6 +208,7 @@ function dispatch(host: NativeTerminalHost, context: ConnectionContext, request:
   switch (request.operation) {
     case "ping":
       return {
+        ...(host.contentCapability ? {content:host.contentCapability} : {}),
         launchFence: true,
         generation: host.generation,
         hostPid: process.pid,
@@ -228,6 +230,25 @@ function dispatch(host: NativeTerminalHost, context: ConnectionContext, request:
         requiredIdentifier(record.id, "session id"),
         afterSeq as number,
       );
+    }
+    case "content-status": return host.contentStatus(sessionId(params));
+    case "content-prepare": return host.contentPrepare(sessionId(params),requiredIdentifier(requiredRecord(params,"params").proposalId,"proposal id"));
+    case "content-renew": return host.contentRenew(sessionId(params),requiredIdentifier(requiredRecord(params,"params").proposalId,"proposal id"));
+    case "content-confirm": {
+      const token=requiredString(requiredRecord(params,"params").idToken,"confirmation proof");
+      if(token.length>24576) throw new Error("invalid_confirmation");
+      return host.contentConfirm(sessionId(params),token);
+    }
+    case "content-flush": {
+      const channel=requiredRecord(params,"params").channel;
+      if(channel!=="terminal.live" && channel!=="terminal.cache") throw new Error("invalid_channel");
+      return host.contentFlush(sessionId(params),channel);
+    }
+    case "content-exclude": case "content-clear": {
+      const target=requiredRecord(params,"params").target;
+      if(target!=="session" && target!=="project") throw new Error("invalid_target");
+      if(request.operation==="content-exclude") host.contentExclude(sessionId(params),target);
+      else host.contentClear(sessionId(params),target); return null;
     }
     case "attach-observer":
       return host.attachObserver(sessionId(params));
@@ -399,6 +420,12 @@ function releaseAllPendingResponses(context: ConnectionContext): void {
   context.pendingResponses = 0;
 }
 
+function contentError(error: unknown): Error {
+  const code = error instanceof Error && ["resource_busy","rate_limited","excluded","confirmation_expired","outcome_unknown","fence_storage_failed","unsupported_format","unsupported_source","content_unavailable"].includes(error.message)
+    ? error.message : "content_refused";
+  return new Error(code);
+}
+
 function writeError(context: ConnectionContext, id: unknown, code: NativeTerminalErrorResponse["error"]["code"], error: unknown): boolean {
   const response: NativeTerminalErrorResponse = {
     version: NATIVE_TERMINAL_PROTOCOL_VERSION,
@@ -442,15 +469,27 @@ function consumeFrames(host: NativeTerminalHost, context: ConnectionContext, chu
       continue;
     }
     try {
+      const isAsyncContent=["content-prepare","content-confirm","content-renew","content-flush"].includes(request.operation);
+      if(isAsyncContent && context.pendingContent>=16) throw new Error("resource_busy");
+      const result=dispatch(host, context, request);
+      if(isAsyncContent) {
+        context.pendingContent++;
+        void Promise.resolve(result).then(value=>{
+          if(!context.socket.destroyed) writeResponse(context,{version:NATIVE_TERMINAL_PROTOCOL_VERSION,id:request.id,ok:true,result:value ?? null});
+        },error=>{
+          if(!context.socket.destroyed) writeError(context,request.id,"operation-failed",contentError(error)); })
+          .finally(()=>{context.pendingContent--;});
+        continue;
+      }
       const response: NativeTerminalResponse = {
         version: NATIVE_TERMINAL_PROTOCOL_VERSION,
         id: request.id,
         ok: true,
-        result: dispatch(host, context, request),
+        result,
       };
       if (!writeResponse(context, response)) return;
     } catch (error) {
-      if (!writeError(context, request.id, "operation-failed", error)) return;
+      if (!writeError(context, request.id, "operation-failed", request.operation.startsWith("content-") ? contentError(error) : error)) return;
     }
   }
   if (Buffer.byteLength(context.buffer) > NATIVE_TERMINAL_MAX_FRAME_BYTES) {
@@ -1357,6 +1396,7 @@ async function initializeNativeTerminalHostServer(options: {
       buffer: "",
       pendingResponseBytes: 0,
       pendingResponses: 0,
+      pendingContent: 0,
     };
     sockets.add(socket);
     socket.setEncoding("utf8");

@@ -1,6 +1,7 @@
 import type * as nodePty from "node-pty";
 import { accessSync, constants as fsConstants } from "node:fs";
 import { createRequire } from "node:module";
+import { StringDecoder } from "node:string_decoder";
 
 const require = createRequire(import.meta.url);
 
@@ -73,7 +74,7 @@ function linuxBashPath(): string {
   );
 }
 
-function guardedSpawnCommand(options: Parameters<PtySpawner>[0]): {
+function guardedSpawnCommand(options: Parameters<PtySpawner>[0], raw = false): {
   command: string;
   args: string[];
 } {
@@ -88,7 +89,7 @@ function guardedSpawnCommand(options: Parameters<PtySpawner>[0]): {
       "--",
       linuxBashPath(),
       "-c",
-      LINUX_PTY_GUARDIAN_SCRIPT,
+      raw ? LINUX_PTY_GUARDIAN_SCRIPT.replace('"$@" < /dev/tty &', '/usr/bin/stty iutf8 < /dev/tty || exit 127\n"$@" < /dev/tty &') : LINUX_PTY_GUARDIAN_SCRIPT,
       "h2a-pty-guardian",
       String(process.pid),
       options.command,
@@ -130,6 +131,8 @@ export function nativePtyRequirements():
 }
 
 export type PtyHandle = {
+  /** Present only when admission precedes every UTF-8/string decoder. Never emulate with onData. */
+  onRawData?(handler: (chunk: Buffer) => void): { dispose(): void };
   readonly pid: number;
   /**
    * Process-group id of the spawned tree. node-pty's forkpty() puts the
@@ -163,20 +166,41 @@ export type PtySpawner = (options: {
   rows: number;
 }) => PtyHandle;
 
-export const nodePtySpawner: PtySpawner = (options) => {
+export const nodePtySpawner: PtySpawner = (options) => spawnPty(options,false);
+/** New qualified Linux F2 hosts only. Legacy spawners/hosts retain their original path. */
+export const nodePtyRawSpawner: PtySpawner = (options) => {
+  if(process.platform!=='linux')throw new Error('unsupported_source');
+  accessSync('/usr/bin/stty',fsConstants.X_OK);return spawnPty(options,true);
+};
+function spawnPty(options:Parameters<PtySpawner>[0],raw:boolean):PtyHandle {
   // Lazy load node-pty so test environments without the native binary still
   // import this module — they substitute a stub spawner.
 
   const pty: typeof nodePty = require("node-pty");
-  const guarded = guardedSpawnCommand(options);
+  const guarded = guardedSpawnCommand(options,raw);
   const proc = pty.spawn(guarded.command, guarded.args, {
     cwd: options.cwd,
     env: options.env,
     cols: options.cols,
     rows: options.rows,
     name: "xterm-256color",
+    // node-pty supports null at runtime: its socket then emits Buffers. Its public
+    // declaration omits null. The guardian restores IUTF8 before launching the CLI.
+    ...(raw ? {encoding:null as unknown as string} : {}),
   });
+  const rawListeners=new Set<(bytes:Buffer)=>void>(),textListeners=new Set<(text:string)=>void>();
+  const decoder=new StringDecoder('utf8');let ended=false;
+  if(raw){
+    proc.onData((data:string)=>{
+      if(!Buffer.isBuffer(data))throw new Error('unsupported_raw_source');
+      // Native raw admission precedes the local observer's stateful UTF-8 decoder.
+      for(const handler of rawListeners)handler(data);
+      const text=decoder.write(data);if(text)for(const handler of textListeners)handler(text);
+    });
+    proc.onExit(()=>{if(!ended){ended=true;const tail=decoder.end();if(tail)for(const handler of textListeners)handler(tail);}});
+  }
   return {
+    ...(raw ? {onRawData(handler:(chunk:Buffer)=>void){rawListeners.add(handler);return {dispose:()=>{rawListeners.delete(handler);}};}} : {}),
     get pid() {
       return proc.pid;
     },
@@ -208,6 +232,7 @@ export const nodePtySpawner: PtySpawner = (options) => {
       }
     },
     onData(handler) {
+      if(raw){textListeners.add(handler);return {dispose:()=>{textListeners.delete(handler);}};}
       const subscription = proc.onData(handler);
       return { dispose: () => subscription.dispose() };
     },
@@ -222,4 +247,4 @@ export const nodePtySpawner: PtySpawner = (options) => {
       return { dispose: () => subscription.dispose() };
     },
   };
-};
+}
