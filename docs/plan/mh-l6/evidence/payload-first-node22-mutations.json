@@ -1,0 +1,177 @@
+{
+  "node": "v22.22.1",
+  "files": [
+    {
+      "path": "packages/h2a/src/runtime/upgrade/published-payload.js",
+      "sha256": "ead716b77214c2b428145468c4af26ea6073a88e86aa1e57692765331fbee9d4"
+    },
+    {
+      "path": "packages/h2a/src/runtime/upgrade/image-policy.js",
+      "sha256": "b9aca19996e7a26d738899b17378bb432a0e70f311466c693ce426b166b545a8"
+    },
+    {
+      "path": "scripts/check-publish-payload.mjs",
+      "sha256": "6816405f3dbc43a3e3b07a3dea80484fc70c560c49e969aa4f423dec93310882"
+    },
+    {
+      "path": "scripts/build-release-native.mjs",
+      "sha256": "3dac955424e8b8a888c758eb0683f37e6266f60dd79f09b9042d76ffc69a4123"
+    },
+    {
+      "path": "scripts/prepare-workspace-native.mjs",
+      "sha256": "a09b5ff1d32f9c59b2d170388b528fb9ff6183c3278d1c74ae21f0945bff717c"
+    },
+    {
+      "path": "scripts/release.mjs",
+      "sha256": "3e9b0c4a50963c008a7ee68508d77336638471846ef51cc8bd2cdafb25f5ebd2"
+    },
+    {
+      "path": ".github/workflows/release.yml",
+      "sha256": "37c4bf0ac5d7407b5c7a43b857d6cb453a65da46dbf444eabf4f970a774b0431"
+    },
+    {
+      "path": "scripts/mh-l1-package-prototype.mjs",
+      "sha256": "8bd245254db66108496916c390eefb26fb82389e0c1f19c4e39430bcec1d1fd1"
+    }
+  ],
+  "results": [
+    {
+      "name": "profile-identity",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-published.test.js-node22-payload-profile-identity-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-published.test.js-node22-payload-profile-identity-green.log",
+      "restored": true
+    },
+    {
+      "name": "other-profile-integrity",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-published.test.js-node22-payload-other-profile-integrity-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-published.test.js-node22-payload-other-profile-integrity-green.log",
+      "restored": true
+    },
+    {
+      "name": "published-version",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-published.test.js-node22-payload-published-version-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-published.test.js-node22-payload-published-version-green.log",
+      "restored": true
+    },
+    {
+      "name": "copied-image-integrity",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-published.test.js-node22-payload-copied-image-integrity-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-published.test.js-node22-payload-copied-image-integrity-green.log",
+      "restored": true
+    },
+    {
+      "name": "independent-image-links",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-published.test.js-node22-payload-independent-image-links-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-published.test.js-node22-payload-independent-image-links-green.log",
+      "restored": true
+    },
+    {
+      "name": "payload-fsync",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-published.test.js-node22-payload-payload-fsync-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-published.test.js-node22-payload-payload-fsync-green.log",
+      "restored": true
+    },
+    {
+      "name": "root-sdk-esm",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-image-policy.test.js-node22-payload-root-sdk-esm-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-image-policy.test.js-node22-payload-root-sdk-esm-green.log",
+      "restored": true
+    },
+    {
+      "name": "root-sdk-cjs",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-image-policy.test.js-node22-payload-root-sdk-cjs-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-image-policy.test.js-node22-payload-root-sdk-cjs-green.log",
+      "restored": true
+    },
+    {
+      "name": "root-sdk-provenance",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-image-policy.test.js-node22-payload-root-sdk-provenance-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-image-policy.test.js-node22-payload-root-sdk-provenance-green.log",
+      "restored": true
+    },
+    {
+      "name": "root-sdk-exports",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-image-policy.test.js-node22-payload-root-sdk-exports-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-image-policy.test.js-node22-payload-root-sdk-exports-green.log",
+      "restored": true
+    },
+    {
+      "name": "root-dependency-lookup",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-publish-gate.test.js-node22-payload-root-dependency-lookup-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-publish-gate.test.js-node22-payload-root-dependency-lookup-green.log",
+      "restored": true
+    },
+    {
+      "name": "dependency-exactness",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-publish-gate.test.js-node22-payload-dependency-exactness-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-publish-gate.test.js-node22-payload-dependency-exactness-green.log",
+      "restored": true
+    },
+    {
+      "name": "installation-script",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-publish-gate.test.js-node22-payload-installation-script-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-publish-gate.test.js-node22-payload-installation-script-green.log",
+      "restored": true
+    },
+    {
+      "name": "bundle-completeness",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-publish-gate.test.js-node22-payload-bundle-completeness-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-publish-gate.test.js-node22-payload-bundle-completeness-green.log",
+      "restored": true
+    },
+    {
+      "name": "runtime-exactness",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-publish-gate.test.js-node22-payload-runtime-exactness-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-publish-gate.test.js-node22-payload-runtime-exactness-green.log",
+      "restored": true
+    },
+    {
+      "name": "native-copy-pin",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-native-copy.test.js-node22-payload-native-copy-pin-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-native-copy.test.js-node22-payload-native-copy-pin-green.log",
+      "restored": true
+    },
+    {
+      "name": "native-copy-destination",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-native-copy.test.js-node22-payload-native-copy-destination-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-native-copy.test.js-node22-payload-native-copy-destination-green.log",
+      "restored": true
+    },
+    {
+      "name": "workspace-shared-native",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-native-copy.test.js-node22-payload-workspace-shared-native-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-native-copy.test.js-node22-payload-workspace-shared-native-green.log",
+      "restored": true
+    },
+    {
+      "name": "workspace-native-javascript",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-native-copy.test.js-node22-payload-workspace-native-javascript-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-native-copy.test.js-node22-payload-workspace-native-javascript-green.log",
+      "restored": true
+    },
+    {
+      "name": "workspace-native-cleanup",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-native-copy.test.js-node22-payload-workspace-native-cleanup-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-native-copy.test.js-node22-payload-workspace-native-cleanup-green.log",
+      "restored": true
+    },
+    {
+      "name": "version-peer-migration",
+      "red": "docs/plan/mh-l6/evidence/release-script.test.js-node22-payload-version-peer-migration-red.log",
+      "green": "docs/plan/mh-l6/evidence/release-script.test.js-node22-payload-version-peer-migration-green.log",
+      "restored": true
+    },
+    {
+      "name": "version-lock-migration",
+      "red": "docs/plan/mh-l6/evidence/release-script.test.js-node22-payload-version-lock-migration-red.log",
+      "green": "docs/plan/mh-l6/evidence/release-script.test.js-node22-payload-version-lock-migration-green.log",
+      "restored": true
+    },
+    {
+      "name": "closed-publication",
+      "red": "docs/plan/mh-l6/evidence/release-workflow-publish-order.test.js-node22-payload-closed-publication-red.log",
+      "green": "docs/plan/mh-l6/evidence/release-workflow-publish-order.test.js-node22-payload-closed-publication-green.log",
+      "restored": true
+    }
+  ]
+}

@@ -1,0 +1,64 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-publish-gate.test.js
+node: v22.22.1
+private root: /tmp/mh-l6-test-nxxpqe
+case: all cases in explicit file
+TAP version 13
+# Subtest: U10 should accept an independently verified exact bundled dependency cycle
+ok 1 - U10 should accept an independently verified exact bundled dependency cycle
+  ---
+  duration_ms: 11.829568
+  type: 'test'
+  ...
+# Subtest: U10 should refuse raw workspace publication before npm can construct a tarball
+ok 2 - U10 should refuse raw workspace publication before npm can construct a tarball
+  ---
+  duration_ms: 338.507229
+  type: 'test'
+  ...
+# Subtest: U10 should reject a shrinkwrap dependency that is present but resolves to another version
+ok 3 - U10 should reject a shrinkwrap dependency that is present but resolves to another version
+  ---
+  duration_ms: 8.063863
+  type: 'test'
+  ...
+# Subtest: U10 should reject a loose dependency range even when npm could satisfy it locally
+ok 4 - U10 should reject a loose dependency range even when npm could satisfy it locally
+  ---
+  duration_ms: 12.953973
+  type: 'test'
+  ...
+# Subtest: U10 should reject executable installation scripts in a hashed bundled package
+ok 5 - U10 should reject executable installation scripts in a hashed bundled package
+  ---
+  duration_ms: 6.733659
+  type: 'test'
+  ...
+# Subtest: U10 should reject missing bundled choices and shrinkwrap metadata drift
+ok 6 - U10 should reject missing bundled choices and shrinkwrap metadata drift
+  ---
+  duration_ms: 10.105072
+  type: 'test'
+  ...
+# Subtest: U10 should reject shrinkwrap traversal and an unrecorded dependency package
+ok 7 - U10 should reject shrinkwrap traversal and an unrecorded dependency package
+  ---
+  duration_ms: 9.499624
+  type: 'test'
+  ...
+# Subtest: U10 should reject a sibling runtime whose exact version differs from the core
+ok 8 - U10 should reject a sibling runtime whose exact version differs from the core
+  ---
+  duration_ms: 5.156592
+  type: 'test'
+  ...
+1..8
+# tests 8
+# suites 0
+# pass 8
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 520.932595
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-publish-gate.test.js"],"code":0,"signal":null,"tests":8,"invalid":false,"spawned":5,"leftovers":[]}

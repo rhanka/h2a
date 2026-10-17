@@ -50,10 +50,11 @@
     "url": "https://github.com/rhanka/h2a/issues"
   },
   "license": "MIT",
-  "description": "h2a heavy runtime (sessions / k8s / tunnel, node-pty + aws-sdk). Lazily imported by @sentropic/h2a; installed separately.",
+  "description": "h2a heavy runtime (sessions / k8s / tunnel, node-pty + aws-sdk). Lazily imported by @sentropic/h2a; bundled with its exact core version.",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "scripts": {
-    "build": "node ../../scripts/clean-workspace-dist.mjs && tsc -b --force && node ../../scripts/copy-vendored-engram-live.mjs"
+    "build": "node ../../scripts/clean-workspace-dist.mjs && tsc -b --force && node ../../scripts/copy-vendored-engram-live.mjs",
+    "prepack": "node ../../scripts/check-publish-payload.mjs"
   }
 }

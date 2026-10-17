@@ -1,0 +1,48 @@
+command: /tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-package.test.js
+node: v24.21.0
+private root: /tmp/mh-l6-test-ZezPNw
+case: all cases in explicit file
+TAP version 13
+# Subtest: U10 U12 should publish @sentropic/h2a with exact lockstep and install twice offline without a compiler
+ok 1 - U10 U12 should publish @sentropic/h2a with exact lockstep and install twice offline without a compiler
+  ---
+  duration_ms: 81298.932417
+  type: 'test'
+  ...
+# npm scripts-enabled positive control: postinstall actually executed in a separate private fixture
+# {"npm":"pack --offline --json","filename":"sentropic-h2a-0.98.7.tgz","integrity":"sha512-NJxh8qzaxAuBKKZqpDivLCLGzW+GPmlFB1BZoWxKDBgjsid04aSFiCFDL7wlWsLEcPHb2Tv4bpaNLqy0JGPEFA==","files":10075}
+# actual published 0.98.5: stageInstall(local .7 tar), probeStagedVersion=.7, verifyStagedNative=true; corrupt ELF=false; only temporary prefixes
+# actual published 0.98.6: stageInstall(local .7 tar), probeStagedVersion=.7, verifyStagedNative=true; corrupt ELF=false; only temporary prefixes
+# npm install -g --prefix <one> --offline (scripts enabled) => added 1 package in 5s
+# actual installed corrected MCP transport: reused numeric/string IDs and delayed batch replies passed
+# same actual npm tar => managed SDK and PTY {"node":"v24.21.0","abi":"137","profile":24,"manifest":"sha256:6eb6cce665a4e91ca44937e63ba8d3e3f3287fb65420dd6d649d4c7d6153c1a4","sdk":531,"native":true}
+# npm install -g --prefix <two> --offline (scripts enabled) => added 1 package in 5s
+# Subtest: U10 U12 should publish @sentropic/h2a-runtime with exact lockstep and install twice offline without a compiler
+ok 2 - U10 U12 should publish @sentropic/h2a-runtime with exact lockstep and install twice offline without a compiler
+  ---
+  duration_ms: 83355.525692
+  type: 'test'
+  ...
+# npm scripts-enabled positive control: postinstall actually executed in a separate private fixture
+# {"npm":"pack --offline --json","filename":"sentropic-h2a-runtime-0.98.7.tgz","integrity":"sha512-1eRcCfIQgV0slfJePeWatOArU1I3rDcz3wTzyxhPSpPrtWtW3a2Wu/iHfGVSaqB456AFU1UOy0ClNt+mLA54tg==","files":10075}
+# npm install -g --prefix <one> --offline (scripts enabled) => added 1 package in 7s
+# actual installed corrected MCP transport: reused numeric/string IDs and delayed batch replies passed
+# same actual npm tar => managed SDK and PTY {"node":"v24.21.0","abi":"137","profile":24,"manifest":"sha256:6955aaed6dc99d9afea9da63fad4a43562749952f8bef244ad0a2d1f10e85c18","sdk":531,"native":true}
+# npm install -g --prefix <two> --offline (scripts enabled) => added 1 package in 5s
+# Subtest: U10 should build the actual closed dependency graph from pinned prebuilds before invoking npm
+ok 3 - U10 should build the actual closed dependency graph from pinned prebuilds before invoking npm
+  ---
+  duration_ms: 4579.240061
+  type: 'test'
+  ...
+1..3
+# tests 3
+# suites 0
+# pass 3
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 169348.829973
+
+receipt: {"command":["/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-package.test.js"],"code":0,"signal":null,"tests":3,"invalid":false,"spawned":42,"leftovers":[]}
