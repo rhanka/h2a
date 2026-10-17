@@ -166,6 +166,13 @@ const cases = [
   ['unmanage-gate', 'dangling-gate', "if (!forced && verdict.state === 'dangling') throw new Error('unmanage_command_dangling');", '', 'D should refuse a dangling command link for diagnosis'],
   ['unmanage-gate', 'explicit-shape', "if (explicit !== undefined && typeof explicit !== 'boolean') throw new Error('unmanage_install_invalid');", '', 'D should restore a foreign link only on explicit override'],
   ['unmanage-gate', 'force-foreign', "if (!forced && verdict.state === 'foreign') throw new Error('unmanage_command_foreign');", "if (verdict.state === 'foreign') throw new Error('unmanage_command_foreign');", 'D should restore a foreign link only on explicit override'],
+  ['observers', 'envelope-message', "function checkEnvelope(envelope) {\n    if (!envelope || typeof envelope !== 'object' || Array.isArray(envelope))\n        throw new Error('legacy_observer_invalid');\n}", "function checkEnvelope(envelope) {\n    if (!envelope || typeof envelope !== 'object' || Array.isArray(envelope))\n        throw new Error('legacy_observer_envelope');\n}", 'B2 should refuse an invalid observer envelope instead of observing'],
+  ['observers', 'legacy-version', "if (pkg?.name !== LEGACY_PACKAGE || pkg?.version !== version)\n        throw new Error('legacy_observer_unexpected_legacy');", '', 'B2 should refuse a legacy tree outside the expected published version'],
+  ['observers', 'legacy-proof-absence', "if (bytes.includes('assessLegacyExclusion') || bytes.includes('bootId'))\n        throw new Error('legacy_observer_unexpected_legacy');", '', 'B2 should refuse a legacy tree outside the expected published version'],
+  ['observers', 'workers-proc-scan', "if (others.length) {\n        return fail(`legacy ${version} live worker pids ${others.join(',')} still hold ${legacyRoot}; termination unobserved`);\n    }", '', 'B2 should report unfenced while a live legacy worker still holds the tree'],
+  ['observers', 'relaunch-scan', "if (bytes.includes(legacyRoot))\n                offenders.push(path);", '', 'B2 should report unfenced when a relaunch source still references the legacy root'],
+  ['observers', 'routing-check', "if (verdict.state === 'managed') {", 'if (verdict) {', 'B2 should report unfenced when future starts still resolve to the legacy entry'],
+  ['observers', 'reintroduction-scan', "const hit = visit(managedDir);\n    if (hit)\n        return fail(`managed tree reaches the legacy installer through ${hit}; reintroduction open`);", '', 'B2 should report unfenced when the managed tree reaches back into the legacy installer'],
 ];
 const files = group === 'launcher' ? ['packages/h2a/src/runtime/upgrade/managed-launcher.js'] :
   group === 'exclusion' ? ['packages/h2a/src/runtime/upgrade/legacy-exclusion.js', 'packages/h2a/dist/runtime/upgrade/legacy-exclusion.js'] :
@@ -187,11 +194,12 @@ const files = group === 'launcher' ? ['packages/h2a/src/runtime/upgrade/managed-
   group === 'pilot-execute' ? ['packages/h2a/src/runtime/upgrade/adoption-execute.js', 'packages/h2a/dist/runtime/upgrade/adoption-execute.js'] :
   group === 'delegate' ? ['packages/h2a/src/runtime/upgrade/upgrade-delegate.js', 'packages/h2a/dist/runtime/upgrade/upgrade-delegate.js'] :
   group === 'unmanage-gate' ? ['packages/h2a/src/runtime/upgrade/unmanage.js', 'packages/h2a/dist/runtime/upgrade/unmanage.js'] :
+  group === 'observers' ? ['packages/h2a/src/runtime/upgrade/legacy-observers.js', 'packages/h2a/dist/runtime/upgrade/legacy-observers.js'] :
   ['packages/h2a/src/runtime/upgrade/h4-store.js', 'packages/h2a/dist/runtime/upgrade/h4-store.js'];
 const originals = files.map(path => ({ path, bytes: fs.readFileSync(path) }));
 const selected = cases.filter(c => c[0] === group && (!process.env.MH_L6_MUTATION || c[1] === process.env.MH_L6_MUTATION));
 if (!selected.length) throw new Error('unknown_mutation_group');
-const testFile = { delegation: 'delegation', launcher: 'launcher', exclusion: 'exclusion', deferral: 'exclusion', bootstrap: 'bootstrap', adoption: 'adoption', 'launcher-install': 'launcher-install', 'adoption-execute': 'adoption', unmanage: 'unmanage', 'adoption-image': 'image-prepare', status: 'status', 'upgrade-run': 'upgrade-run', 'npm-command': 'npm', authority: 'authority', cli: 'cli', dispatch: 'dispatch', 'command-gate': 'command-gate', 'command-force': 'command-gate', 'pilot-run': 'pilot-force', 'pilot-execute': 'pilot-force', delegate: 'delegate', 'unmanage-gate': 'unmanage-gate' }[group] ?? 'selection';
+const testFile = { delegation: 'delegation', launcher: 'launcher', exclusion: 'exclusion', deferral: 'exclusion', bootstrap: 'bootstrap', adoption: 'adoption', 'launcher-install': 'launcher-install', 'adoption-execute': 'adoption', unmanage: 'unmanage', 'adoption-image': 'image-prepare', status: 'status', 'upgrade-run': 'upgrade-run', 'npm-command': 'npm', authority: 'authority', cli: 'cli', dispatch: 'dispatch', 'command-gate': 'command-gate', 'command-force': 'command-gate', 'pilot-run': 'pilot-force', 'pilot-execute': 'pilot-force', delegate: 'delegate', 'unmanage-gate': 'unmanage-gate', observers: 'observers' }[group] ?? 'selection';
 const file = `packages/h2a/test/mh-l6-${testFile}.test.js`;
 const results = [];
 for (const [, name, from, to, scenario] of selected) {
