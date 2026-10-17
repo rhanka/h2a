@@ -29,7 +29,7 @@
  * Exit 0 when clean, 1 on any unexcused hit / allowlist problem / I/O error.
  */
 import { spawnSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { lstatSync, readFileSync, readlinkSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -69,8 +69,53 @@ function baseName(word) {
   return i >= 0 ? word.slice(i + 1) : word;
 }
 
-function isPyCommandWord(word) {
+export function isPyCommandWord(word) {
   return PY_BASE_RE.test(baseName(stripQuotes(word)));
+}
+
+/**
+ * Read one worktree entry for scanning.
+ * Symlinks are judged by NAME (link and target basenames): a link exposing an
+ * interpreter is a hit; a dangling or otherwise unreadable link with a neutral
+ * name is silent (a link carries no code of its own). Readable link targets
+ * are content-scanned like regular files. Genuinely unreadable non-links stay
+ * fail-closed (`unreadable`).
+ */
+export function readScanEntry(rootDir, rel) {
+  const abs = join(rootDir, rel);
+  let st = null;
+  try {
+    st = lstatSync(abs);
+  } catch {
+    return { status: 'unreadable' };
+  }
+  if (st.isSymbolicLink()) {
+    let target = null;
+    try {
+      target = readlinkSync(abs);
+    } catch {
+      target = null;
+    }
+    if (isPyCommandWord(rel) || (target != null && isPyCommandWord(target))) {
+      return { status: 'hit', line: 1, text: `<symlink exposing an interpreter -> ${target ?? 'unreadable target'}>` };
+    }
+    let content = null;
+    try {
+      content = readFileSync(abs);
+    } catch {
+      content = null;
+    }
+    if (content == null || content.subarray(0, 8192).includes(0)) return { status: 'skipped' };
+    return { status: 'content', content: content.toString('utf8') };
+  }
+  let buf = null;
+  try {
+    buf = readFileSync(abs);
+  } catch {
+    return { status: 'unreadable' };
+  }
+  if (buf.subarray(0, 8192).includes(0)) return { status: 'skipped' };
+  return { status: 'content', content: buf.toString('utf8') };
 }
 
 function readBacktick(text, at) {
@@ -579,15 +624,17 @@ function main() {
   let hits = [];
   for (const rel of rels) {
     if (rel === ALLOWLIST_REL) continue;
-    let buf = null;
-    try {
-      buf = readFileSync(join(ROOT, rel));
-    } catch {
+    const entry = readScanEntry(ROOT, rel);
+    if (entry.status === 'unreadable') {
       hits.push({ file: rel, line: '?', text: '<unreadable file: cannot prove zero-python>' });
       continue;
     }
-    if (buf.subarray(0, 8192).includes(0)) continue; // binary: no text invocation
-    hits = hits.concat(scanFileHits(rel, buf.toString('utf8')));
+    if (entry.status === 'hit') {
+      hits.push({ file: rel, line: entry.line, text: entry.text });
+      continue;
+    }
+    if (entry.status === 'skipped') continue; // binary, or neutral dangling link
+    hits = hits.concat(scanFileHits(rel, entry.content));
   }
   let allowText = '';
   try {
