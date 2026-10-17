@@ -83,6 +83,7 @@ export class SessionContentAuth {
   private logins = new WeakMap<object, Login>();
   private sessions = new WeakMap<object, SourceSession>();
   private inFlight = 0;
+  private controlOpen=false;
   constructor(config: Config) {
     this.config = { ...config, owner: structuredClone(config.owner), source: structuredClone(config.source), runtime: { ...config.runtime } };
     this.now = config.monotonicNow ?? (() => performance.now());
@@ -266,6 +267,50 @@ export class SessionContentAuth {
       if(response.kind!=="archive-admission" || (response.admission as Record<string,unknown>).descriptorHash!==descriptorHash || this.now()>=login.deadline) return fail();
       return response;
     } finally {this.inFlight--;}
+  }
+  async publishChallenge(handle:object,challenge:ConfirmationChallenge):Promise<void>{
+    const meta=this.metadata(handle),session=this.sessions.get(handle)!;
+    if(!same(challenge.source,meta.source)||!same(challenge.owner,meta.owner)||this.inFlight>=4)return fail();
+    const message=envelope('confirmation-challenge',{challenge,challengeDigest:contentDigest('confirmation',challenge)});validateContentMessage(message);
+    this.inFlight++;
+    try{
+      const url=new URL(`/api/v1/auth/session/content/${meta.source.bindingId}/source/sessions/${meta.sourceSessionId}/challenges`,this.config.sourceServer);
+      const response=await post(url,canonicalJson(message),'application/json',this.config.ca,session.token);
+      if(!same(response,message))return fail();this.metadata(handle);
+    }finally{this.inFlight--;}
+  }
+  /** Metadata-only, bounded SSE. A stream event itself never authorizes capture or an action. */
+  watchControl(handle:object,onMessage:(message:Record<string,unknown>)=>void,onClose:()=>void):{ready:Promise<void>;close:()=>void}{
+    const meta=this.metadata(handle),session=this.sessions.get(handle)!;
+    if(this.controlOpen)throw new Error('resource_busy');this.controlOpen=true;
+    let ended=false,settled=false,resolveReady!:()=>void,rejectReady!:(e:Error)=>void;
+    const ready=new Promise<void>((resolve,reject)=>{resolveReady=resolve;rejectReady=reject;});
+    let headersTimer:NodeJS.Timeout,expiryTimer:NodeJS.Timeout;
+    const finish=()=>{if(ended)return;ended=true;this.controlOpen=false;clearTimeout(headersTimer);clearTimeout(expiryTimer);
+      if(!settled){settled=true;rejectReady(new Error('source_control_unavailable'));}
+      req.destroy();try{onClose();}catch{/* Native denial/outcome errors never escape a socket callback. */}};
+    const url=new URL(`/api/v1/auth/session/content/${meta.source.bindingId}/source/sessions/${meta.sourceSessionId}/control`,this.config.sourceServer);
+    const req=request(url,{method:'GET',agent:false,...(this.config.ca?{ca:this.config.ca}:{}),headers:{Accept:'text/event-stream',Authorization:`Bearer ${session.token}`}},res=>{
+      clearTimeout(headersTimer);
+      if(res.statusCode!==200||!/^text\/event-stream(?:\s*;|$)/i.test(String(res.headers['content-type']??''))||res.headers['content-encoding']!==undefined){res.destroy();finish();return;}
+      settled=true;resolveReady();const decoder=new TextDecoder('utf-8',{fatal:true});let buffer='',data='';
+      res.on('data',(bytes:Buffer)=>{try{
+        this.metadata(handle);buffer+=decoder.decode(bytes,{stream:true});if(Buffer.byteLength(buffer)+Buffer.byteLength(data)>65536)throw new Error('control_oversize');
+        let newline:number;while((newline=buffer.indexOf('\n'))>=0){const line=buffer.slice(0,newline).replace(/\r$/,'');buffer=buffer.slice(newline+1);
+          if(line===''){
+            if(data){const message=record(parseStrictJson(data,65536));data='';validateContentMessage(message);
+              if(!['grant-activate','grant-refresh','content-revoke','confirmation-proof'].includes(String(message.kind)))return finish();
+              for(const scope of [message.scope,message.previousScope,message.nextScope])if(scope&&(!same((scope as Scope).source,meta.source)||!same((scope as Scope).owner,meta.owner)))return finish();
+              onMessage(message);
+            }
+          }else if(line.startsWith('data:')){data+=line.slice(5).replace(/^ /,'')+'\n';if(Buffer.byteLength(data)>65536)throw new Error('control_oversize');}
+          else if(!line.startsWith(':'))throw new Error('control_frame_refused');
+        }
+      }catch{finish();}});
+      res.on('error',finish);res.on('end',finish);res.on('close',finish);
+    });
+    headersTimer=setTimeout(finish,10000);expiryTimer=setTimeout(finish,Math.max(0,session.deadline-this.now()));headersTimer.unref();expiryTimer.unref();
+    req.on('error',finish);req.end();return {ready,close:finish};
   }
   /** Observed invalidation is immediate locally. No reconnect or silent login reparenting. */
   invalidate(handle: object): void {

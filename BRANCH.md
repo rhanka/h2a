@@ -757,3 +757,14 @@ the root concurrency defect is fixed without introducing a persistent global loc
 - [x] Host-global import/export/start/memory/work budgets, cancellation, incomplete/corrupt/oversized/substituted archive refusals and staging cleanup.
 - [x] Synthetic native-confirmed checkpoint export/read/import round-trip; 54/54 targeted cases on Node 22/24.
 - [ ] Actual Claude tuple/catalog/reference semantics, indexed partial-history ranges, real store atomic publication and cross-repo adapter qualification remain unqualified. Native capability capsule stays native:[].
+
+CM2-F2 integration scope amendment: packages/h2a-runtime/README.md documents the shipped explicit composition API, preparatory HTTPS paths, exact capsule and remaining qualification gates. No owner state/configuration is added.
+
+CM2-F2 raw-admission scope amendment: packages/h2a-runtime/src/pty.ts adds an explicit Linux raw spawner for new F2 hosts, required by the reproduced pre-consent UTF-8 decoder carry. Historical nodePtySpawner remains unchanged in behavior. Hosts without raw admission refuse F2; subscriptions begin only after the committed ACK.
+
+### CM2-F2 continuation — E local preparation and explicit external gates
+- [x] Native accepted-policy registry, future-child/reconnect fences and real bounded HTTPS/SSE signed-confirmation path with reserved denial.
+- [x] Exact 25-fixture type harness, strict AJV-2020 schema state unions, narrowed capsule and explicit package API/documentation.
+- [x] Reproduced the actual pre-consent UTF-8 carry (7/8 RED); raw byte admission and post-ACK-only subscriptions eliminate it. 178/178 targeted cases and 14/14 legacy real-PTY mode cases pass on Node 22 and 24.
+- [ ] E is NOT accepted: actual IdP UV/login witnesses, Sentropic route/store/fixture-lock, exact real provider tuple, integrated 0.98.8 and allocated candidate remain external. No publication or production activation.
+- [ ] Review selection-failed: exact author identity unavailable; installed h2a MCP dispatch prohibited by owner confinement. Dossier tmp/cm2-f2/review.md; no independent consensus.
