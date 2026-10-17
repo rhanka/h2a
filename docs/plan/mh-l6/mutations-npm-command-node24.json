@@ -1,0 +1,45 @@
+{
+  "node": "v24.21.0",
+  "files": [
+    {
+      "path": "packages/h2a/src/runtime/upgrade/npm-command.js",
+      "sha256": "e4abe7f6034edab5fb931910d2bed972af4a2bc1ec8953996b9d0b9ede57424a"
+    },
+    {
+      "path": "packages/h2a/dist/runtime/upgrade/npm-command.js",
+      "sha256": "8b8d3856cfb2c1fe498938c76af1f1597df7cf60019da6badc339db424f74260"
+    }
+  ],
+  "results": [
+    {
+      "name": "managed-path",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-npm.test.js-node24-mutation-managed-path-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-npm.test.js-node24-mutation-managed-path-green.log",
+      "restored": true
+    },
+    {
+      "name": "legacy-path",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-npm.test.js-node24-mutation-legacy-path-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-npm.test.js-node24-mutation-legacy-path-green.log",
+      "restored": true
+    },
+    {
+      "name": "missing-report",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-npm.test.js-node24-mutation-missing-report-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-npm.test.js-node24-mutation-missing-report-green.log",
+      "restored": true
+    },
+    {
+      "name": "occupied-report",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-npm.test.js-node24-mutation-occupied-report-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-npm.test.js-node24-mutation-occupied-report-green.log",
+      "restored": true
+    },
+    {
+      "name": "dangling-report",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-npm.test.js-node24-mutation-dangling-report-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-npm.test.js-node24-mutation-dangling-report-green.log",
+      "restored": true
+    }
+  ]
+}

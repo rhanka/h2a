@@ -908,7 +908,8 @@ Branch: `fix/presence-identity-liveness`. Base: `58f111b3` (origin/main at check
 - [x] F-1: common upgrade status report (prepared/selected/loaded, exclusion-wired deferred activation, verified provenance); 6 targeted tests and 5 killed/restored pairs per Node 22/24; proof-F-1.json.
 - [x] D-2a: decision-level opt-out loop (marker reader + management_opted_out gate); 21 targeted tests and 16 killed/restored pairs per Node 22/24; proof-D-2a.json.
 - [x] F-2a: single-pass upgrade driver without CLI parsing (opt-out/need/exclusion); 6 targeted tests and 4 killed/restored pairs per Node 22/24; proof-F-2a.json.
-- [ ] B2-3/D-2b/E2b3/E3b2b/E3c/F-2b: real legacy fencing observers, npm behaviors, all-entry closed loading, release packaging/native freeze and common CLI parsing/resume/abort/delegation/M18 integration.
+- [x] D-2b: npm command assessment (managed/legacy/missing/foreign/occupied, real-npm anchor); 8 targeted tests and 5 killed/restored pairs per Node 22/24; proof-D-2b.json.
+- [ ] B2-3/E2b3/E3b2b/E3c/F-2b: real legacy fencing observers, all-entry closed loading, release packaging/native freeze and common CLI parsing/resume/abort/delegation/npm/M18 integration.
 - [x] No installed h2a/dispatch, owner live state, main, .track, Python or full suite. Review selection cannot use the required installed dispatch under owner confinement; no consensus verdict claimed.
 - [ ] Independent conductor review and final MH-L6 acceptance remain required; A alone does not qualify U05/U06 or M18 end to end.
 
