@@ -1,3 +1,29 @@
+# L2-s — PR 348 CI repair
+
+- Owner scope: rebase `feat/cli-seat-l2s` onto `origin/main`, repair the three
+  failed CI jobs without weakening tests, push with lease, and append `CI` to
+  the owner's `l2s-report.md`. No main or Track writes.
+- Rebased onto `3113014fe`; all three original jobs fail the same gateway
+  eradication ratchet on three provider references introduced by L2-s.
+- Minimal repair scope: fixture provenance comments, live-stub receipt
+  diagnostics, its targeted regression in `cli-seat-direct-matrix.test.js`,
+  and `docs/cli-seat-l2s.md`. Keep the scanner and allowlist unchanged.
+- Named tests only, temporary HOME/XDG/TMP roots, no installed h2a/native host,
+  provider credentials, Python, foreign process access or full local suite.
+- Native h2a/mesh review dispatch remains forbidden by the owner's confinement;
+  no external consensus is claimed.
+- Evidence: `node --test packages/h2a/test/gateway-eradication.test.js`:
+  3/4 before, 4/4 after. The final direct-matrix regression against the old
+  stub fails 103/104 on Node 22 and 24, then passes 104/104 after repair.
+  Six named `cli-seat-*.test.ts` files pass 76/76 on both Node versions.
+  No skips; scanner/allowlist unchanged. Detailed commands, logs and per-job
+  CI results are retained in the owner's report.
+- L1 update: npm 0.26.1 now exports the bundle via its public node entry.
+  Five-CLI seat import and external refresh-policy APIs remain absent from
+  the inspected facade contract; exact handoff: `docs/cli-seat-l2s.md`.
+
+# Inherited main context
+
 # AGY Claude 5.5 model and quota contract
 
 ## PR 359 — Tour 3
