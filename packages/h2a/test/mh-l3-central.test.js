@@ -15,7 +15,11 @@ import { PassThrough } from 'node:stream';
 import { createInterface } from 'node:readline';
 import { bridgeCentralMcpStdio } from '../dist/runtime/mcp-central-client.js';
 
-test('real central should keep one activation past its lease and resume with fencing and idempotent attempts', async () => {
+test('real central should keep one activation past its lease and resume with fencing and idempotent attempts', async t => {
+  // Expire exactly the old lease. CI scheduling between the subsequent HTTP
+  // assertions must not expire the newly resumed transport a second time.
+  let now = Date.now();
+  t.mock.method(Date, 'now', () => now);
   const dir = fs.mkdtempSync(join(tmpdir(), 'mh-l3-central-')); let central;
   try {
     const root = join(dir, 'store'), runtimeBase = join(dir, 'run'); fs.mkdirSync(runtimeBase, { mode: 0o700 });
@@ -34,6 +38,7 @@ test('real central should keep one activation past its lease and resume with fen
     const catalogue = await (await request('/_h2a-central/catalogue')).json();
     assert.equal(catalogue.contractDigest, descriptor.contractDigest);
     assert.equal(m.contractDigest, descriptor.contractDigest);
+    now += 120;
     await new Promise(r => setTimeout(r, 120));
     const status = await (await request('/_h2a-central/status')).json(); assert.equal(status.attachments, 1);
     const body = { schemaVersion: 1, attachmentId: attachment.id, expectedGeneration: m.generation, expectedTransportEpoch: 1,
