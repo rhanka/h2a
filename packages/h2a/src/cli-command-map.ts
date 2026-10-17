@@ -215,6 +215,12 @@ const CORE_GROUP_BY_FIRST_WORD: Readonly<Record<string, H2ACommandGroupId>> = {
   upgrade: "SET_UP",
   store: "SET_UP",
   deploy: "SET_UP",
+  // R5/R6 registry: operator-owned host bootstrap through the registry
+  // bridge, the bridge transport itself, and the deployment-owned hosted
+  // lock — all "connect this host" setup work.
+  registry: "SET_UP",
+  "registry-bridge": "SET_UP",
+  "hosted-lock": "SET_UP",
 
   // Specialist namespaces — study § "Specialist namespaces and delegation":
   // "`h2a negotiate …`, `h2a org …`, `h2a nhi …`, `h2a keys …`, `h2a host …` |
