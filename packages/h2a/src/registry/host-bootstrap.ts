@@ -56,11 +56,29 @@ export interface BridgeEndpoint {
 }
 
 /** Exactly one bridge declaration, always keyed `h2a`. */
-export function renderBridgeEntry(host: RegistryHost, options: { profile?: string; command?: string } = {}): { entry: { h2a: BridgeEndpoint }; args: string[] } {
+export function renderBridgeEntry(
+  host: RegistryHost,
+  options: { profile?: string; command?: string; lockPath?: string } = {}
+): { entry: { h2a: BridgeEndpoint }; args: string[] } {
   assertRegistryHost(host);
   const profile = options.profile ?? "default";
   const args = bridgeArgs(host, profile);
+  if (options.lockPath !== undefined) args.push("--lock", options.lockPath);
   return { entry: { h2a: { command: options.command ?? "h2a", args } }, args };
+}
+
+/** Default bridge-lock path provisioned next to the host config (see bridge-lock.ts). */
+export function defaultInstallLockPath(configPath: string): string {
+  return `${configPath}.h2a-lock.json`;
+}
+
+/** Read the installer receipt for a host config, or null when not registry-managed. */
+export function readInstallReceipt(configPath: string): Record<string, unknown> | null {
+  try {
+    return JSON.parse(readFileSync(receiptPathFor(configPath), "utf8")) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -82,6 +100,7 @@ export interface InstallOptions {
   configPath: string;
   profile?: string;
   dryRun?: boolean;
+  lockPath?: string;
 }
 
 export interface InstallPreview {
@@ -276,8 +295,8 @@ function classifyJsonHost(current: unknown, wanted: { h2a: BridgeEndpoint }): In
   return { action: "conflict", reason: "unknown same-key h2a ownership: refusing to overwrite it" };
 }
 
-function installJsonHost(host: RegistryHost, configPath: string, profile: string, dryRun: boolean): InstallResult {
-  const { entry } = renderBridgeEntry(host, { profile });
+function installJsonHost(host: RegistryHost, configPath: string, profile: string, dryRun: boolean, lockPath: string): InstallResult {
+  const { entry } = renderBridgeEntry(host, { profile, lockPath });
   const raw = existsSync(configPath) ? readFileSync(configPath, "utf8") : "{}\n";
   let parsed: Record<string, unknown>;
   try {
@@ -293,7 +312,7 @@ function installJsonHost(host: RegistryHost, configPath: string, profile: string
   if (preview.action === "reinstall-identical") {
     const receiptPath = receiptPathFor(configPath);
     if (!existsSync(receiptPath) && !dryRun) {
-      writeReceipt(configPath, { host, profile, mechanism: "file", bridge: entry.h2a, action: "reinstall-identical" });
+      writeReceipt(configPath, { host, profile, mechanism: "file", bridge: entry.h2a, lockPath, action: "reinstall-identical" });
     }
     return { action: "reinstall-identical", receiptPath };
   }
@@ -301,12 +320,12 @@ function installJsonHost(host: RegistryHost, configPath: string, profile: string
   const resultAction = preview.action === "install" ? "installed" : preview.action;
   if (dryRun) return { action: resultAction, receiptPath: receiptPathFor(configPath) };
   const { backupPath } = atomicWriteWithBackup(configPath, next);
-  const receiptPath = writeReceipt(configPath, { host, profile, mechanism: "file", bridge: entry.h2a, action: preview.action });
+  const receiptPath = writeReceipt(configPath, { host, profile, mechanism: "file", bridge: entry.h2a, lockPath, action: preview.action });
   return { action: resultAction, ...(backupPath ? { backupPath } : {}), receiptPath };
 }
 
-function installVibeHost(configPath: string, profile: string, dryRun: boolean): InstallResult {
-  const { entry } = renderBridgeEntry("vibe", { profile });
+function installVibeHost(configPath: string, profile: string, dryRun: boolean, lockPath: string): InstallResult {
+  const { entry } = renderBridgeEntry("vibe", { profile, lockPath });
   const raw = existsSync(configPath) ? readFileSync(configPath, "utf8") : "";
   const servers = readVibeServers(raw);
   const owned = servers.filter((server) => isH2aServerName(server.name));
@@ -332,14 +351,14 @@ function installVibeHost(configPath: string, profile: string, dryRun: boolean): 
   if (!changed) {
     const receiptPath = receiptPathFor(configPath);
     if (!existsSync(receiptPath) && !dryRun) {
-      writeReceipt(configPath, { host: "vibe", profile, mechanism: "file", bridge: entry.h2a, action: "reinstall-identical" });
+      writeReceipt(configPath, { host: "vibe", profile, mechanism: "file", bridge: entry.h2a, lockPath, action: "reinstall-identical" });
     }
     return { action: "reinstall-identical", receiptPath };
   }
   const resultAction = preview.action === "install" ? "installed" : preview.action;
   if (dryRun) return { action: resultAction, receiptPath: receiptPathFor(configPath) };
   const { backupPath } = atomicWriteWithBackup(configPath, next);
-  const receiptPath = writeReceipt(configPath, { host: "vibe", profile, mechanism: "file", bridge: entry.h2a, action: preview.action });
+  const receiptPath = writeReceipt(configPath, { host: "vibe", profile, mechanism: "file", bridge: entry.h2a, lockPath, action: preview.action });
   return { action: resultAction, ...(backupPath ? { backupPath } : {}), receiptPath };
 }
 
@@ -373,8 +392,9 @@ export function installBridgeEntry(options: InstallOptions): InstallResult {
   assertRegistryHost(options.host);
   const profile = options.profile ?? "default";
   const dryRun = options.dryRun ?? false;
-  if (options.host === "vibe") return installVibeHost(options.configPath, profile, dryRun);
-  return installJsonHost(options.host, options.configPath, profile, dryRun);
+  const lockPath = options.lockPath ?? defaultInstallLockPath(options.configPath);
+  if (options.host === "vibe") return installVibeHost(options.configPath, profile, dryRun, lockPath);
+  return installJsonHost(options.host, options.configPath, profile, dryRun, lockPath);
 }
 
 export function uninstallBridgeEntry(options: { host: string; configPath: string }): { action: "uninstalled"; backupPath?: string } {
@@ -406,11 +426,13 @@ export function uninstallBridgeEntry(options: { host: string; configPath: string
   }
   const current = (parsed["mcpServers"] as Record<string, unknown> | undefined)?.["h2a"];
   if (current === undefined) throw new RegistryError("invalid_entry", "no h2a entry to uninstall");
-  const { entry } = renderBridgeEntry(options.host, {});
+  const receipt = readInstallReceipt(options.configPath);
+  const expected = (receipt?.["bridge"] as { command: string; args: string[] } | undefined)
+    ?? renderBridgeEntry(options.host, { lockPath: defaultInstallLockPath(options.configPath) }).entry.h2a;
   if (isLegacyDirectJson(current)) {
     throw new RegistryError("invalid_entry", "not uninstalling a legacy direct entry here: run the registry migrate transaction instead");
   }
-  if (!deepEqualJson(current, entry.h2a)) {
+  if (!deepEqualJson(current, expected)) {
     throw new RegistryError("invalid_entry", "not uninstalling: h2a entry is not the installer-owned bridge entry (conflict)");
   }
   const next = removeJsonEntry(raw, ["mcpServers", BRIDGE_SERVER_KEY]);

@@ -677,6 +677,42 @@ export const H2A_CLI_VERB_CONTRACTS: readonly H2ACliVerbContract[] = [
     description:
       "Report each host's wave + adapter/setup/scenario-shipped flags (DEC-037/044). Output is `{ ok: true, hosts: [{host, wave, mcpAdapterShipped, hostSetupShipped, hostScenarioShipped, summary}] }`. Filter to a single host with `--host <name>`; unknown host → exit 1."
   },
+  {
+    verb: "registry catalog",
+    outputShape: "list",
+    exitCodes: [0, 2],
+    requiredFlags: [],
+    optionalFlags: [],
+    description:
+      "List the registry publisher entries (sentropic.h2a, sentropic.track) with digests. Metadata only; writes nothing, starts nothing. R5."
+  },
+  {
+    verb: "registry bootstrap",
+    outputShape: "action",
+    exitCodes: [0, 1, 2],
+    requiredFlags: ["host", "config"],
+    optionalFlags: ["profile", "lock", "dry-run"],
+    description:
+      "Explicit operator-owned install of the one registry bridge declaration (server key h2a) into a host config: preview|install|uninstall. Preserves unrelated bytes, provisions the bridge lock, refuses unknown same-key ownership, migrates legacy direct entries atomically. R5."
+  },
+  {
+    verb: "registry-bridge serve",
+    outputShape: "stream",
+    exitCodes: [0, 1, 2],
+    requiredFlags: ["host"],
+    optionalFlags: ["profile", "lock", "root"],
+    description:
+      "Serve the registry-compiled selection over stdio: lock → compile → route check → delegate to the mcp-serve transport. Missing lock, unqualified central route or surface mismatch refuses typed; never an inferred server. Long-running framed transport like mcp-serve. R5."
+  },
+  {
+    verb: "hosted-lock",
+    outputShape: "action",
+    exitCodes: [0, 1, 2],
+    requiredFlags: ["lock"],
+    optionalFlags: ["service", "tenant", "repository", "binding", "active"],
+    description:
+      "Operator lifecycle for the deployment-owned hosted lock (draft|verify|activate). Opaque refs only; unbound tenants refuse at preflight. R6."
+  },
 
   // --- high-level coordination (DEC-054) ---
   {
