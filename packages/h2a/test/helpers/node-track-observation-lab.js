@@ -9,7 +9,7 @@ import { LANE_TEST_FILES } from '../../../../scripts/run-tests.mjs'
 export function observeNodeTrackEntry(source, repoRoot) {
   const root = mkdtempSync(join(tmpdir(), 'node-track-observation-'))
   try {
-    for (const dir of ['scripts', 'packages/h2a/test', 'packages/focus-interactive/test', 'packages/track/src', 'packages/agent-stats/tests', 'legacy/packages/h2a-runtime/dist/native-terminal', 'home', 'run']) mkdirSync(join(root, dir), { recursive: true })
+    for (const dir of ['scripts', 'packages/h2a/test', 'packages/focus-interactive/test', 'packages/track/src', 'packages/agent-stats/tests', 'packages/focus/tests', 'legacy/packages/h2a-runtime/dist/native-terminal', 'home', 'run']) mkdirSync(join(root, dir), { recursive: true })
     const files = ['packages/h2a/test/native-inventory-absence.test.js', 'packages/focus-interactive/test/sentinel.test.js']
     for (let i = 0; i < 149; i++) files.push(`packages/h2a/test/filler-${i}.test.js`)
     for (const file of files) writeFileSync(join(root, file), '')
@@ -20,6 +20,10 @@ export function observeNodeTrackEntry(source, repoRoot) {
     // the fake inventory (inventory keys must all be discovered).
     const agentStats = 'packages/agent-stats/tests/required.test.ts'
     writeFileSync(join(root, agentStats), '')
+    // Focus discovery must find at least one suite file; like AgentStats, its
+    // report stays outside the verified node+track scope.
+    const focus = 'packages/focus/tests/required.spec.ts'
+    writeFileSync(join(root, focus), '')
     writeFileSync(join(root, 'scripts/test-inventory.json'), JSON.stringify(Object.fromEntries([...files, track].map((file) => [file, ['required execution']]))))
     writeFileSync(join(root, 'scripts/test-skip-exceptions.json'), '[]')
     writeFileSync(join(root, 'scripts/test-non-tests-0986.json'), JSON.stringify({ schemaVersion: 1, release: '0.98.6', entries: [] }))
@@ -38,7 +42,7 @@ import cp from 'node:child_process';
 import {syncBuiltinESMExports} from 'node:module';
 import {writeFileSync} from 'node:fs';
 import {resolve} from 'node:path';
-const root = ${JSON.stringify(root)}, files = ${JSON.stringify(files)}, track = ${JSON.stringify(track)}, agentStats = ${JSON.stringify(agentStats)}, laneFiles = ${JSON.stringify(LANE_TEST_FILES)};
+const root = ${JSON.stringify(root)}, files = ${JSON.stringify(files)}, track = ${JSON.stringify(track)}, agentStats = ${JSON.stringify(agentStats)}, focus = ${JSON.stringify(focus)}, laneFiles = ${JSON.stringify(LANE_TEST_FILES)};
 const observed=[];
 cp.spawnSync=(command,args,options)=>{
   if (typeof args[0] === 'string' && args[0].endsWith('identity-isolated-run.mjs')) {
@@ -47,9 +51,9 @@ cp.spawnSync=(command,args,options)=>{
     return {status:0};
   }
   const node=args.includes('--test');
-  const suite=options.cwd.endsWith('packages/agent-stats')?'AgentStats':'Track';
-  const actual=node ? args.filter((arg)=>arg.endsWith('.test.js')).map((arg)=>resolve(options.cwd,arg)) : args.filter((arg)=>arg.endsWith('.test.ts')).map((arg)=>resolve(options.cwd,arg));
-  const required=(node?files:(suite==='AgentStats'?[agentStats]:[track])).map((file)=>resolve(root,file));
+  const suite=options.cwd.endsWith('packages/agent-stats')?'AgentStats':(options.cwd.endsWith('packages/focus')?'Focus':'Track');
+  const actual=node ? args.filter((arg)=>arg.endsWith('.test.js')).map((arg)=>resolve(options.cwd,arg)) : args.filter((arg)=>arg.endsWith('.test.ts')||arg.endsWith('.spec.ts')).map((arg)=>resolve(options.cwd,arg));
+  const required=(node?files:(suite==='AgentStats'?[agentStats]:(suite==='Focus'?[focus]:[track]))).map((file)=>resolve(root,file));
   if(command!==process.execPath || args.some((arg)=>/name-pattern|skip-pattern|test-only/.test(arg)) || JSON.stringify(actual.sort())!==JSON.stringify(required.sort())) throw Error('effective command omitted or filtered required tests');
   const path=node ? args.find((arg)=>arg.startsWith('--test-reporter-destination=') && !arg.endsWith('=stdout')).split('=').slice(1).join('=') : args.find((arg)=>arg.startsWith('--outputFile=')).split('=').slice(1).join('=');
   if(!path || (node && !args.some((arg)=>arg.includes('node-evidence-reporter.mjs'))) || (!node && !args.includes('--reporter=json'))) throw Error('no execution reporter');
@@ -63,6 +67,6 @@ cp.spawnSync=(command,args,options)=>{
     delete env.H2A_TEST_REPORT_PATH
     const result = spawnSync(process.execPath, ['--import', join(root, 'mock-spawn.mjs'), join(root, 'scripts/run-tests.mjs')], { cwd: root, env, encoding: 'utf8', timeout: 30_000 })
     assert.equal(result.status, 0, `Node/Track production entry did not prove execution:\n${result.stdout}${result.stderr}`)
-    assert.deepEqual(JSON.parse(readFileSync(markers, 'utf8')), ['Node', 'Track', 'AgentStats', 'Lane'], 'each production suite must actually reach the execution boundary')
+    assert.deepEqual(JSON.parse(readFileSync(markers, 'utf8')), ['Node', 'Track', 'AgentStats', 'Focus', 'Lane'], 'each production suite must actually reach the execution boundary')
   } finally { rmSync(root, { recursive: true, force: true }) }
 }

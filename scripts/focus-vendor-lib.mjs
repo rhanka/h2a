@@ -125,14 +125,24 @@ export function listFiles(root) {
  * (fresh build passed through `expectedVendorBytes`). Returns
  * `{ equal, missing, extra, differ }` with paths relative to each root.
  */
+export const FOCUS_MANIFEST = join(FOCUS_DIR, 'registry', 'entries.v1.json')
+export const VENDOR_MANIFEST = join(VENDOR_DIR, 'registry', 'entries.v1.json')
+
 export function compareTrees(distRoot, vendorRoot) {
   const expected = new Set(listFiles(distRoot))
+  expected.add('registry/entries.v1.json')
   const actual = new Set(listFiles(vendorRoot))
   const missing = [...expected].filter((f) => !actual.has(f)) // in fresh build, not in vendor
   const extra = [...actual].filter((f) => !expected.has(f)) // in vendor, not in fresh build
   const differ = []
   for (const f of expected) {
     if (!actual.has(f)) continue
+    if (f === 'registry/entries.v1.json') {
+      const want = readFileSync(FOCUS_MANIFEST)
+      const have = readFileSync(join(vendorRoot, f))
+      if (!want.equals(have)) differ.push(f)
+      continue
+    }
     // Normalize BOTH sides through the same vendor-shape transform (strips sourceMappingURL
     // + CRLF→LF). The committed vendor is LF, but Windows CI checks it out via git autocrlf
     // as CRLF, so the raw `have` bytes carry CRLF there — normalize it too, else false drift.
@@ -157,5 +167,9 @@ export function syncVendorFromDist() {
     mkdirSync(dirname(dest), { recursive: true })
     writeFileSync(dest, bytes)
   }
+  const manifestBytes = readFileSync(join(FOCUS_DIR, 'registry', 'entries.v1.json'))
+  const manifestDest = join(VENDOR_DIR, 'registry', 'entries.v1.json')
+  mkdirSync(dirname(manifestDest), { recursive: true })
+  writeFileSync(manifestDest, manifestBytes)
   return listFiles(VENDOR_DIR)
 }
