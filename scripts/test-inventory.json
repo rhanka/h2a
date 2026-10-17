@@ -920,18 +920,13 @@
     "session content capsule should validate every positive fixture and refuse unknown nested fields and wire versions",
     "session content capsule should pin all capsule bytes and reproduce canonical digest vectors",
     "session content capsule should verify actual synthetic signed nonce bytes and reject forged or replayed proof",
-    "session content capsule should refuse digest substitutions, invalid bounds and partial archive receipts",
-    "session content capsule /"
+    "session content capsule should refuse digest substitutions, invalid bounds and partial archive receipts"
   ],
   "packages/h2a-runtime/src/native-terminal/protocol.test.ts": [
     "should reject legacy and incompatible content hosts without changing native transport version"
   ],
   "packages/h2a-runtime/src/session-content-consent.test.ts": [
-    "/",
     "should keep actual native PTY refusal at zero content bytes then export only the post-ACK sentinel",
-    "BEFORE_F2_SENTINEL",
-    "AFTER_F2_SENTINEL",
-    "SATURATED_F2_SENTINEL",
     "should refuse forged confirmation and let exclusion win while an activation ACK is pending",
     "should refuse a mismatched ACK and discard queued bytes on lost source authority",
     "should keep the old lease deadline until the exact renewal ACK commits",
