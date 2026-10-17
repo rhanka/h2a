@@ -16,6 +16,7 @@ import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
 import { Command, Help } from "commander";
+import { resolveSeatEnrollmentProvider } from "./cli-seat-codecs.js";
 import { agyClaudeQuotaError, assertAgyClaudeBuildAllowed, detectAgyClaudeQuotaExhaustion, isAgyClaudeModel, normalizeAgyEffort, readAgyClaudeQuotaStatus, resolveAgyModel, writeAgyClaudeQuotaStatus } from "./agy-claude.js";
 
 import {
@@ -10726,7 +10727,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         "(cloud-code, codex, muse OAuth device flow, mistral-vibe browser sign-in — alias: vibe, or claude-code). " +
         "--from oauth|cli|token selects the source (default oauth): cli imports from the provider's official CLI store (muse, claude-code), " +
         "token imports a serialized credential from a secret manager via stdin pipe or masked prompt (claude-code only). " +
-        "--cli / --token are the same modes as booleans",
+        "--cli / --token are the same modes as booleans. Seat aliases: agy/cloud-code, claude/claude-code, vibe/mistral-vibe",
     )
     .option("--config-ref <ref>", "sentropic configuration reference for OAuth")
     .option(
@@ -10765,8 +10766,8 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           process.exitCode = 1;
           return;
         }
-        // "vibe" is the CLI-friendly alias of the mistral-vibe transport.
-        const normalized = provider === "vibe" ? "mistral-vibe" : provider;
+        // Seat names and enrollment providers share the five-CLI codec map.
+        const normalized = ["agy", "claude", "vibe"].includes(provider) ? resolveSeatEnrollmentProvider(provider) : provider;
         if (normalized === "muse-code") {
           // Owner decision 2026-10-10: muse-code is no longer a user entry —
           // muse enrolls via the OAuth device flow by default, --cli selects
