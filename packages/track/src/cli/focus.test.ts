@@ -36,7 +36,7 @@ function io(cwd: string): CliIO {
 const DECISION_TITLE = 'Ship track focus CLI'
 
 /** Seed a `.track` log with ONE decision (kind=commitment, outcome=go) over a fixture target item. */
-function seed(): { decisionId: string } {
+function seed(readable = false): { decisionId: string } {
   const track = new Track(new EventStore(eventsPath), { by: 'human:t@t' })
   const targetId = track.createItem({ kind: 'feature', title: 'Adopt focus', workspace: 'ws-1' })
   const decisionId = track.createDecision({
@@ -44,7 +44,7 @@ function seed(): { decisionId: string } {
     title: DECISION_TITLE,
     workspace: 'ws-1',
     targets: [targetId],
-    dossier: { context: 'We need a render path', options: [{ id: 'a', title: 'Option A', summary: 'first option' }, { id: 'b', title: 'Option B', summary: 'second option' }], qa: [], recommendation: { optionId: 'a', rationale: 'Option A is recommended' } },
+    dossier: readable ? JSON.parse(readFileSync(new URL('../../../focus/tests/readable-track.fixture.json', import.meta.url), 'utf8')) : { context: 'We need a render path', options: [{ id: 'a', title: 'Option A', summary: 'first option' }, { id: 'b', title: 'Option B', summary: 'second option' }], qa: [], recommendation: { optionId: 'a', rationale: 'Option A is recommended' } },
   })
   track.selectDecisionOption(decisionId, 'a')
   return { decisionId }
@@ -64,6 +64,23 @@ afterEach(() => {
 })
 
 describe('track focus', () => {
+  it.each(['terminal', 'md', 'html'])('renders readable %s decisions without writing the log', async (format) => {
+    const { decisionId } = seed(true)
+    const before = readFileSync(eventsPath, 'utf8')
+    expect(await runCli(['focus', decisionId, '--workspace', 'ws-1', '--baseline-commit', 'c1', '--format', format], io(root))).toBe(0)
+    const text = out.join('')
+    expect(err).toEqual([])
+    expect(text).toContain(DECISION_TITLE)
+    expect(text).toContain('Keep the shed handy without spoiling the terrace view.')
+    expect(text).toContain('A short walk and a clear terrace view.')
+    expect(text).toContain('préco: Along the side wall, because')
+    if (format === 'html') {
+      expect(text).toContain('&lt;script&gt;alert(&quot;shed&quot;)&lt;/script&gt; &amp; comfort')
+      expect(text).not.toContain('<script>')
+    }
+    expect(readFileSync(eventsPath, 'utf8')).toBe(before)
+  })
+
   it.each(['terminal', 'md', 'html'])('blocks %s presentation when the stored dossier lacks readability information', async (format) => {
     const { decisionId } = seed()
     const before = readFileSync(eventsPath, 'utf8')
@@ -113,10 +130,10 @@ describe('track focus', () => {
   })
 
   it('runCli returns a Promise that resolves to the rc for the async focus path', async () => {
-    const { decisionId } = seed()
+    const { decisionId } = seed(true)
     const result = runCli(['focus', decisionId, '--workspace', 'ws-1', '--baseline-commit', 'c1'], io(root))
     expect(typeof (result as Promise<number>).then).toBe('function') // it's a thenable
-    await expect(Promise.resolve(result)).resolves.toBe(1)
+    await expect(Promise.resolve(result)).resolves.toBe(0)
   })
 
   it('serve-empty: no .track resolves → an unadopted-repo focus serves not-found (rc=3), never crashes', async () => {

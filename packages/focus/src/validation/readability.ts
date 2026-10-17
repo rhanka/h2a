@@ -14,13 +14,15 @@ export const READABILITY_LIMITS = {
   maxQuestionReadingMinutes: 2,
   maxDossierBudgetMinutes: 30,
   wordsPerMinute: 180,
+  maxHeadingLength: 100,
+  maxDecisionLineLength: 300,
   maxOptionLabelLength: 100,
   maxConsequenceLength: 160,
   maxOptionBodyLength: 300,
 } as const;
 
 // Acronyms and opaque codes, including L06b, MH-L3, R5 and CI-4821.
-const CODE_PATTERN = /\b(?:[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)+|[A-Z]{1,8}\d+[a-z]?|[A-Z]{2,})\b/g;
+const CODE_PATTERN = /\b(?:[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)+|[A-Z][A-Z0-9]*\d[A-Z0-9]*[a-z]?|[A-Z]{2,})\b/g;
 // Ordinary outcome words and diagram direction syntax, not internal references.
 const PLAIN_TOKENS = new Set(["GO", "NO-GO", "NO", "PENDING", "DEFERRED", "LR", "RL", "TB", "BT", "TD", "UTF-8"]);
 const CHOICE_PATTERN = /\beither\b[\s\S]{0,160}?\bor\b|\bsoit\b[\s\S]{0,160}?\bsoit\b|\b(?:instead of|rather than|plut[oô]t que|versus|vs\.?|choos(?:e|ing) between|choisir entre)\b/i;
@@ -73,6 +75,10 @@ export const validateDecisionDossierReadability = (doc: DecisionDossierDocument)
       if (glossary.has(term) || entry.definition.trim() === term) {
         refuse(`$.readability.glossary[${i}]`, "invalid_glossary_entry", "Use one definition per term and expand its meaning; repeating the code does not explain it.");
       }
+      if ((entry.definition.match(CODE_PATTERN) ?? []).some((code) => !PLAIN_TOKENS.has(code))) {
+        refuse(`$.readability.glossary[${i}].definition`, "invalid_glossary_entry",
+          "Explain each term independently in plain words, without itself or another code, even one defined elsewhere.");
+      }
       glossary.set(term, entry.definition);
     }
   });
@@ -89,8 +95,12 @@ export const validateDecisionDossierReadability = (doc: DecisionDossierDocument)
     checkCodes(text, path);
     if (text) shared.push(text);
   };
-  visible(doc.title, "$.title");
-  visible(doc.subject, "$.subject");
+  for (const field of ["title", "subject"] as const) {
+    visible(doc[field], `$.${field}`);
+    if (blank(doc[field])) refuse(`$.${field}`, "empty_heading",
+      "Name the subject and decision in a short, non-empty line the owner understands.");
+    checkLine(doc[field], `$.${field}`, READABILITY_LIMITS.maxHeadingLength);
+  }
   visible(quote, "$.readability.ownerRequestQuote");
   visible(r?.stakes, "$.readability.stakes");
   r?.glossary?.forEach((entry, i) => {
@@ -139,6 +149,7 @@ export const validateDecisionDossierReadability = (doc: DecisionDossierDocument)
       case "optionSet":
         checkQuestionRef(section.questionId, `${path}.questionId`, true);
         checkCodes(section.title, `${path}.title`);
+        checkLine(section.title, `${path}.title`, READABILITY_LIMITS.maxHeadingLength);
         section.options.forEach((option, j) => checkOption(option, `${path}.options[${j}]`));
         break;
       case "question": {
@@ -149,6 +160,8 @@ export const validateDecisionDossierReadability = (doc: DecisionDossierDocument)
           refuse(`${path}.context`, "question_context_too_short", "Give representative context of at least 20 characters, including what changes for the owner.");
         }
         if (blank(section.recommendedAnswer)) refuse(`${path}.recommendedAnswer`, "missing_recommendation", "Recommend an option with a short reason that relates to the owner's request and stakes.");
+        checkLine(section.question, `${path}.question`, READABILITY_LIMITS.maxDecisionLineLength);
+        checkLine(section.recommendedAnswer, `${path}.recommendedAnswer`, READABILITY_LIMITS.maxDecisionLineLength);
         const linked = optionSets.filter((set) => set.questionId === section.id);
         const options = linked.flatMap((set) => set.options);
         if (options.length < 2 || options.length > 4) refuse(path, "option_count", `Each question needs 2–4 short options; this question has ${options.length}.`);
@@ -180,6 +193,14 @@ export const validateDecisionDossierReadability = (doc: DecisionDossierDocument)
     refuse("$.readability.readingBudgetMinutes", "reading_budget_exceeded", "The questions plus shared context and glossary exceed the declared reading budget; shorten the dossier to match its stakes.");
   }
   return issues;
+
+  function checkLine(text: string | undefined, path: string, max: number): void {
+    if (!text) return;
+    if (text.trim().length > max || LINE_BREAK.test(text)) refuse(path, "decision_line_too_long",
+      `Use one short line of at most ${max} characters; put explanation in the question context.`);
+    if (SUBOPTION_PATTERN.test(text)) refuse(path, "nested_suboptions",
+      "Expose sub-choices as separate options or questions, without nested lists or inline branches.");
+  }
 
   function checkOption(option: OptionNode, path: string): void {
     const fields = [

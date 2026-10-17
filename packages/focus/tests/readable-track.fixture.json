@@ -1,0 +1,49 @@
+{
+  "subject": "Garden shed location",
+  "context": "The permit covers both spots. <script>alert(\"shed\")</script> & comfort matters.",
+  "questionId": "q-spot",
+  "readability": {
+    "ownerRequestQuote": "Keep the shed handy without spoiling the terrace view.",
+    "stakes": "The wrong spot means a longer walk every week or a blocked view for years.",
+    "stakesLevel": "medium",
+    "readingBudgetMinutes": 4,
+    "glossary": [
+      {
+        "term": "CLI",
+        "definition": "Command line interface, the text commands used to show this decision."
+      }
+    ]
+  },
+  "options": [
+    {
+      "id": "a",
+      "title": "Along the side wall",
+      "summary": "A short walk and a clear terrace view.",
+      "pros": [
+        "Near the gate"
+      ],
+      "cons": [
+        "Needs a level base"
+      ]
+    },
+    {
+      "id": "b",
+      "title": "Back of the garden",
+      "summary": "A longer walk, invisible from the house."
+    }
+  ],
+  "qa": [
+    {
+      "id": "q-spot",
+      "question": "Where should the shed go?",
+      "context": "The permit covers both spots; only comfort and the view differ.",
+      "readingTimeMinutes": 1,
+      "recommendedOptionId": "a",
+      "recommendedAnswer": "Along the side wall, because it meets both parts of your request."
+    }
+  ],
+  "recommendation": {
+    "optionId": "a",
+    "rationale": "A short walk with a clear terrace view."
+  }
+}

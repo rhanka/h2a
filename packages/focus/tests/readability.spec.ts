@@ -277,3 +277,48 @@ describe("published schema keeps additions optional", () => {
     }
   });
 });
+
+// Independent-review regressions: titles, opaque codes and compact decision lines.
+describe("reviewed presentation boundaries", () => {
+  it.each(["title", "subject"])("requires a short non-empty single-line %s", (field) => {
+    for (const text of ["", "   ", "Garden\nshed location", "Garden\rshed location", "Garden\u2028shed", "Garden\u2029shed", "x".repeat(101)]) {
+      const doc = mutate((d) => { d[field] = text; });
+      const result = validateDecisionDossierForPresentation(doc);
+      expect(result.ok, JSON.stringify(text)).toBe(false);
+      if (!result.ok) expect(result.issues.some((issue) => issue.path === "$." + field)).toBe(true);
+    }
+  });
+  it.each(["L06B", "M1L1", "R5A", "H2A", "S3B"])("refuses unexpanded %s", (code) => {
+    expect(refusalCodes(mutate((d) => { d.sections[1].context += " Ratify " + code; }))).toContain("undefined_code");
+  });
+  it("accepts an alphanumeric code explained independently in plain words", () => {
+    const doc = mutate((d) => {
+      d.sections[1].context += " Permit L06B covers both spots.";
+      d.readability.glossary.push({ term: "L06B", definition: "The city permit for the garden shed." });
+    });
+    expect(validateDecisionDossierForPresentation(doc).ok).toBe(true);
+  });
+  it.each([
+    [{ term: "L06b", definition: "The L06b migration." }],
+    [{ term: "L06b", definition: "The L06b migration under MH-L3" }, { term: "MH-L3", definition: "Parent of L06b" }],
+    [{ term: "L06b", definition: "MH-L3" }, { term: "MH-L3", definition: "The migration to a new server." }],
+  ])("requires glossary definitions in plain words: %j", (...entries) => {
+    const doc = mutate((d) => { d.readability.glossary.push(...entries); });
+    expect(refusalCodes(doc)).toContain("invalid_glossary_entry");
+  });
+  it.each(["question", "recommendedAnswer", "title"])("keeps %s on one short line without subchoices", (field) => {
+    for (const text of ["First\nsecond", "First\rsecond", "First\u2028second", "First\u2029second", "Choose (a) today (b) later", "- Optional paid work", "x".repeat(field === "title" ? 101 : 301)]) {
+      const doc = mutate((d) => { d.sections[field === "title" ? 2 : 1][field] = text; });
+      expect(validateDecisionDossierForPresentation(doc).ok, text).toBe(false);
+    }
+  });
+  it.each([
+    { name: "terminal", render: renderTerminal }, { name: "markdown", render: renderMd },
+    { name: "html", render: (doc: DecisionDossierDocument) => renderHtml(doc, { renderMarkdown: (s) => s, sanitizeHtml: (s) => s }) },
+  ])("$name names an already named recommendation once", ({ render }) => {
+    const doc = mutate((d) => { d.sections[1].recommendedAnswer = "Along the side wall, because it keeps the view clear."; });
+    const text = render(doc);
+    expect(text).toContain("préco: Along the side wall, because it keeps the view clear.");
+    expect(text).not.toContain("Along the side wall — Along the side wall");
+  });
+});

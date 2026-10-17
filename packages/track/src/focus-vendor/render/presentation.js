@@ -11,8 +11,12 @@ export const preparePresentation = (value) => {
         const linked = optionSets.filter((set) => set.questionId === section.id);
         const recommended = linked.flatMap((set) => set.options)
             .find((option) => option.id === section.recommendedOptionId);
+        const answer = section.recommendedAnswer.trim();
+        const label = recommended.label.trim();
+        const alreadyNamed = answer.toLowerCase().startsWith(label.toLowerCase())
+            && /^(?:$|[\s,:;.!?—–-])/.test(answer.slice(label.length));
         return [
-            { ...section, recommendedAnswer: `${recommended.label} — ${section.recommendedAnswer}` },
+            { ...section, recommendedAnswer: alreadyNamed ? answer : `${label} — ${answer}` },
             ...linked,
         ];
     });
