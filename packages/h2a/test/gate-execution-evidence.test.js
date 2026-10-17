@@ -88,7 +88,7 @@ const workflowMutants = {
     (w) => { verifyStep(w, 'npm test')['working-directory'] = 'other-checkout' },
   ],
   A07: [
-    (w) => { const s=w.jobs.verify.steps, p=s.findIndex((step)=>String(step.run??'').includes('npm pack --workspace')), [pack]=s.splice(p,1); s.splice(s.length-1,0,pack) },
+    (w) => { const s=w.jobs.verify.steps, p=s.findIndex((step)=>String(step.run??'').includes('node scripts/pack-candidate.mjs')), [pack]=s.splice(p,1); s.splice(s.length-1,0,pack) },
     (w) => { w.jobs.verify.steps.splice(-1,0,{run:'npm pack --workspace @sentropic/h2a-runtime --pack-destination dist-tarballs'}) },
     (w) => { verifyStep(w, 'npm run smoke:artifact -- --tarballs dist-tarballs').run = 'npm run smoke:artifact' },
     (w) => { w.jobs.verify.steps.splice(-1,0,{run:'cp other.tgz dist-tarballs/sentropic-h2a-runtime-0.98.5.tgz'}) },
