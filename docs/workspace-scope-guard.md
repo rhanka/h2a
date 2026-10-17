@@ -108,15 +108,31 @@ Published `package.json` version changes are checked in proposed edits/patches,
 the commit index/worktree, pushed trees/refspecs and incoming merge refs. A session
 pins its first observed Git baseline in protected `baselines.jsonl`; moving local
 `main`/`origin/main` refs cannot erase a bump. Direct `git update-ref` is owner-only.
+Publication status also comes from that baseline: temporarily setting
+`private: true` cannot exempt an already published package. Proposed patches are
+applied in memory, including repeated sections, before comparing the complete
+JSON manifests' top-level version fields. Multiline values have the same policy.
 Manifest diffs run from the repository root, including when a command selects a
 child cwd. Before PR merge
 or ready, read-only `gh` calls inspect the diff; candidate changes are verified
 against full base/head manifests to distinguish private packages and nested
 metadata. Missing baseline, unavailable PR inspection and dynamic sensitive
-commands fail closed. Static shell substitutions are inspected in their command's
-cwd; subshell/pipeline cwd and environment changes do not leak into the parent.
-Opaque inline runtime programs fail closed rather than receiving filesystem
-authority from the executable name. Ordinary own-repo commands and quoted prose pass through.
+commands fail closed.
+
+The threat model is an honest agent making a workspace or release mistake.
+Protected write intent must resolve with certainty to the session's own workspace
+and authorized release lane. Variables in sensitive argv, substitutions,
+heredocs, `eval`, shell `-c`/`-s` programs, runtime stdin/eval, symlink selectors,
+and independent Git directory selectors refuse with `UNVERIFIABLE`. The guard
+does not evaluate these forms to guess their intent. Heredoc preprocessing and
+recursive substitution/script interpretation are deliberately absent; even data
+heredocs and harmless substitutions require an explicit equivalent. The typed
+message asks for the plain explicit form or an owner grant. Unresolved selectors
+must first be made explicit so a grant can match the exact repo/action/ref/session.
+Opaque inline runtime programs also refuse. Plain own-repo commands and quoted
+prose pass through, including copies/moves into `.`, `mkdir -p .`, and `&& cd`
+within the workspace. Conditional cwd alternatives are checked separately; any
+unresolved foreign alternative refuses. Subshell/pipeline state is restored.
 Unsupported shell control flow, functions, stateful builtins (`eval`, `export`,
 aliases and related commands), reflective JavaScript tool access,
 dynamic executable names and uninspectable shell stdin refuse with
@@ -125,7 +141,7 @@ boundaries; compound pipeline stages also refuse. JavaScript strings are decoded
 before shell classification. Strings and comments do not count as tool references;
 aliases of the tools capability refuse. Git configuration/remote mutations
 refuse when later commands could depend on their unexecuted effects.
-Unquoted brace expansions and ambiguous conditional cwd/environment resets also
+Unquoted brace expansions and ambiguous conditional environment resets also
 refuse; a skipped reset cannot erase a foreign context.
 Mutating `git apply`/`git am` requires owner execution because an opaque patch can
 replace trust files as well as published versions; inspection flags cannot
@@ -133,9 +149,10 @@ override that protection when combined with `--apply`. `git clean` targets,
 project/global hook files, installer manifests, helper code, the pinned key and
 journals are protected from classified file mutations with `OWNER_ONLY`.
 Every commit checks the index, with an additional worktree check for path/`--all`
-commits. Multi-ref pushes inspect all selected branches/tags. Patch sections
+commits. Multi-ref pushes inspect the union of explicit refspecs and selected
+branches/tags. Patch sections
 match canonical full paths, and agy replacement chunks honor their line ranges.
-Read-only `npm version` queries and versioning an explicitly private own package
+Read-only `npm version` queries and versioning an own package private at baseline
 remain allowed; foreign package operations still require a scope grant.
 
 Refusals have `[H2A_SCOPE:CODE]`, machine-readable `code`, exact
