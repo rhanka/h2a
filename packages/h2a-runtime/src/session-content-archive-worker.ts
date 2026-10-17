@@ -25,7 +25,7 @@ parentPort!.on('message',(message:{id:number;operation:string;data:any})=>{
           const identity=()=>{const s=fstatSync(input,{bigint:true});if(!s.isFile()||s.nlink!==1n)refuse();return {dev:String(s.dev),ino:String(s.ino),size:String(s.size),mtimeNs:String(s.mtimeNs),ctimeNs:String(s.ctimeNs)};};
           if(!same(identity(),file.identity))refuse();
           const path=join(d.stage,safeArchivePath(file.path));mkdirSync(dirname(path),{recursive:true,mode:0o700});output=openSync(path,'wx',0o600);
-          const buffer=Buffer.alloc(262144),digest=createHash('sha256'),decoder=new TextDecoder('utf-8',{fatal:true});let position=0,tail='',records=0,writtenBytes=0;
+          const buffer=Buffer.alloc(262144),digest=createHash('sha256'),decoder=new TextDecoder('utf-8',{fatal:true,ignoreBOM:true});let position=0,tail='',records=0,writtenBytes=0,firstLine=true;
           const selection=d.selections.find((s:any)=>s.lineageId===file.lineageId);
           const write=(bytes:Buffer)=>{digest.update(bytes);let n=0;while(n<bytes.length)n+=writeSync(output!,bytes,n,bytes.length-n);writtenBytes+=bytes.length;};
           while(position<Number(file.identity.size)){
@@ -33,7 +33,7 @@ parentPort!.on('message',(message:{id:number;operation:string;data:any})=>{
             const bytes=buffer.subarray(0,length);
             if(file.role==='records'){
               tail+=decoder.decode(bytes,{stream:true});let newline:number;
-              while((newline=tail.indexOf('\n'))>=0){const line=tail.slice(0,newline);tail=tail.slice(newline+1);if(!line||line.length>262144)refuse();const record=parseStrictJson(line,262144);if(!record||typeof record!=='object'||Array.isArray(record))refuse();const recordIndex=positions.get(file.lineageId)??0;positions.set(file.lineageId,recordIndex+1);if(selection?.fromRecord==null||(recordIndex>=selection.fromRecord&&recordIndex<=selection.toRecord)){write(Buffer.from(line+'\n'));records++;}}
+              while((newline=tail.indexOf('\n'))>=0){const line=tail.slice(0,newline);tail=tail.slice(newline+1);if(!line||line.length>262144)refuse();const record=parseStrictJson(firstLine&&line.charCodeAt(0)===0xfeff?line.slice(1):line,262144);firstLine=false;if(!record||typeof record!=='object'||Array.isArray(record))refuse();const recordIndex=positions.get(file.lineageId)??0;positions.set(file.lineageId,recordIndex+1);if(selection?.fromRecord==null||(recordIndex>=selection.fromRecord&&recordIndex<=selection.toRecord)){write(Buffer.from(line+'\n'));records++;}}
               if(tail.length>262144)refuse();
             }
             if(file.role!=='records')write(bytes);position+=length;
